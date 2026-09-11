@@ -66,9 +66,9 @@ Integrační test konzole nadále ověřuje kombinaci GUI editace, konzolového
 uložení a Undo/Redo proti skutečnému souboru. Celá regresní sada se spouští
 přes `tools/build-windows.ps1 -Configuration Release -RunTests`.
 
-Otevírání, vytváření podle config šablon a regenerace zatím mají aplikační
-orchestraci v hlavním okně. Další etapou je přesun těchto operací a sestavení
-hostitele příkazů bez GUI; samotný přenos textu/JSON již GUI nevyžaduje.
+Otevírání a vytváření podle config šablon jsou popsány v další etapě níže.
+Regenerace zatím zůstává v aplikační vrstvě. Samostatný hostitel příkazů bez
+GUI ještě není dodaný; samotný přenos textu/JSON již GUI nevyžaduje.
 Formát souborů se nemění; stávající přípony a config šablony zůstávají platné.
 
 ## Výsledek ověření
@@ -83,3 +83,67 @@ byly znovu přeloženy dotčené cíle. Následně prošly `zima_cpp_ui_contract
 `zima_cpp_document_operations_tests` a `zima_cpp_console_ui_contract` (3/3,
 12,27 s). Geometrický test porovnává vlastníka, sémantický klíč a cestu výskytu
 každé uložené původní plochy, ne pouze počet referencí.
+
+## Druhá etapa: otevření a nový dokument
+
+`native_documents.hpp/.cpp` v modulu workspace nyní poskytují:
+
+- `read_native_document`: čtení `.prtz`, `.asmz`, `.drwz` a uložené geometrie
+  do odděleného výsledku; může běžet na pracovním vlákně bez Qt;
+- `prepare_new_native_document`: nový dokument, nastavení jednotek a přípravu
+  ze start šablony; nevytváří soubor ani nemění otevřený Workspace;
+- `insert_native_document`: vložení na vlákně vlastnícím Workspace;
+- `part_from_template` a `assembly_from_template`: společné továrny také pro
+  import, který potřebuje nastavení a počáteční dokument ze stejné šablony.
+
+`NativeTemplateSettings` přenáší cesty ze settings a přeložené jméno prvního
+tělesa. Kopírování hodnot mezi Qt settings a těmito daty je malý aplikační
+adaptér. Samotné čtení šablony, kontrola jejího obsahu a vytvoření nových ID
+nepotřebují Qt. Config šablony se nezapisují ani nemění.
+
+Part i těleso mají novou identitu a těleso se váže na počátek nového Partu
+stávající funkcí `create_origin_bound_body`. Její implementace ani kontrakt
+umístění se nemění. Assembly rovněž dostává nové ID. Jednotky aplikace se
+přenášejí stejně jako dříve; přesnost a ostatní hodnoty zůstávají ze šablony.
+Výkres se nadále vytváří svým stávajícím výchozím konstruktorem.
+
+Při Open GUI nejprve kontroluje už otevřenou cestu. Vložení načteného výsledku
+kontrolu opakuje: pokud byl mezitím stejný soubor otevřen, převezme jeho ID a
+nepřepíše neuložené změny. Shodné trvalé ID pod jinou cestou se odmítá stejně
+jako dosud. New odmítá obsazenou cestu před přípravou i před vložením.
+
+Vložení nevyvolává explicitní přepnutí dokumentu. Zachovává základní chování
+Workspace, který první vložený dokument nastaví jako výchozí. Přepínání tabů,
+aktivaci nástrojů, vymazání dočasného výběru, první aktivní těleso a obnovu
+View stále zajišťuje GUI. Tím zůstává obsluha po Open/New stejná.
+
+Formáty `.tblz`/`.frmz` pro grafické šablony a obnova fontových kontur zůstávají
+v dosavadním editoru šablon. Nejsou dalšími nativními typy Part/Assembly/Drawing.
+Tato etapa nemění žádný uložený formát ani vyžadované soubory dokumentů.
+
+`zima_cpp_native_documents_tests` běží bez QApplication a ověřuje čtení všech
+tří typů, data pro View, přesné identity původních ploch, UTF-8 cestu, config
+šablony, nové identity včetně vazby tělesa na správný počátek, nastavení jednotek,
+kolize cest, obsazení cesty během přípravy, již otevřený změněný dokument,
+duplicitní ID, chybějící/poškozený soubor a odmítnutí staré přípony `.prt`.
+
+## Připravený rozsah následujícího přesunu regenerace
+
+Další kandidát pro přesun je `calculate_part_with_resolved_references` z
+`cpp/app/workspace/calculation.cpp` spolu s čistými pomocnými funkcemi pro
+obnovu externích skic a dostupných bodů vrtání. Nad nimi by v modulu workspace
+leželo řízení explicitní regenerace Partu a Assembly. GUI by ponechalo
+rozpracované editace, zobrazení výsledku a chybové zprávy.
+
+Tato smyčka opakovaně řeší reference a umístění pro všechny history kontejnery;
+používá ji i jejich tvorba a editace. Přesun proto spadá pod chráněnou oblast
+Container placement protection v AGENTS.md. Návrh je strukturální: zachovat
+pořadí průchodů, limit `history.size() + 2`, pravidla konvergence, práci s
+původní geometrií, transakce a uložení referencí. Před úpravou této sdílené
+smyčky je vyžadován výslovný souhlas uživatele. V této etapě není upravena.
+
+Ověření druhé etapy: Windows Release sestaven, **53/53 testů prošlo**
+(354,86 s), protokol `build/native-documents-full-tests.log`. Test nových
+nativních operací navíc prošel samostatně a kontrola `dumpbin /dependents`
+potvrdila nepřítomnost Qt DLL. Config šablony test porovnává před a po tvorbě
+bajt po bajtu. Přesun chráněné regenerační smyčky čeká na odpověď uživatele.

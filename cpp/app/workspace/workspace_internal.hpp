@@ -4,6 +4,7 @@
 // Do not include this header from public APIs or model/kernel modules.
 #include "tab_close_button.hpp"
 #include <zima/document/body_origin_attachment.hpp>
+#include <zima/workspace/native_documents.hpp>
 #include "sketch_offset_dialog.hpp"
 #include <zima/sketcher/curve_geometry.hpp>
 #include "import_options_dialog.hpp"
@@ -321,8 +322,8 @@ void assign_automatic_orientation_role(
     const std::vector<zima::document::ConstructionReference>& existing);
 
 
-std::filesystem::path resolved_document_template(
-    QString path, const ApplicationSettings& settings);
+zima::workspace::NativeTemplateSettings native_template_settings(
+    const ApplicationSettings& settings);
 
 zima::document::PartDocument new_part_from_template(
     const ApplicationSettings& settings);

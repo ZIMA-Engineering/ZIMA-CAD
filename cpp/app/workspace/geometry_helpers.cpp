@@ -275,54 +275,19 @@ void assign_automatic_orientation_role(
 }
 
 
-std::filesystem::path resolved_document_template(
-    QString path, const ApplicationSettings& settings) {
-    if (!QDir::isAbsolutePath(path)) {
-        path = QDir(settings.resolved_paths.value("Templates")).absoluteFilePath(path);
-    }
-    if (!QFileInfo::exists(path)) {
-        throw std::runtime_error(
-            QStringLiteral("Start document template does not exist: %1")
-                .arg(path).toStdString());
-    }
-    return std::filesystem::path(path.toStdString());
+zima::workspace::NativeTemplateSettings native_template_settings(const ApplicationSettings& settings) {
+    return {std::filesystem::u8path(settings.resolved_paths.value("Templates").toStdString()),
+        std::filesystem::u8path(settings.part_template.toStdString()),
+        std::filesystem::u8path(settings.assembly_template.toStdString()),
+        QObject::tr("Těleso 1").toStdString()};
 }
 
-zima::document::PartDocument new_part_from_template(
-    const ApplicationSettings& settings) {
-    auto document = zima::document::PartDocument::load(
-        resolved_document_template(settings.part_template, settings));
-    if (!document.history.empty() || !document.sketches.empty() ||
-        !document.constructions.empty() || !document.history_order.empty() ||
-        !document.body_history.bodies().empty() || !document.body_history.booleans().empty()) {
-        throw std::runtime_error(
-            "Start Part template must not contain persisted model object IDs");
-    }
-    const auto template_id = document.document_id;
-    do {
-        document.document_id = zima::document::PartDocument::create_default().document_id;
-    } while (document.document_id == template_id);
-    zima::document::BodyHistoryGraph bodies;
-    static_cast<void>(zima::document::create_origin_bound_body(bodies, document.document_id, QObject::tr("Těleso 1").toStdString()));
-    document.set_body_history(std::move(bodies));
-    return document;
+zima::document::PartDocument new_part_from_template(const ApplicationSettings& settings) {
+    return zima::workspace::part_from_template(native_template_settings(settings));
 }
 
-zima::assembly::AssemblyDocument new_assembly_from_template(
-    const ApplicationSettings& settings) {
-    auto document = zima::assembly::AssemblyDocument::load(
-        resolved_document_template(settings.assembly_template, settings));
-    if (!document.components.empty() || !document.sketches.empty() ||
-        !document.cuts.empty() || !document.constructions.empty() ||
-        !document.dependencies.empty()) {
-        throw std::runtime_error(
-            "Start Assembly template must not contain persisted model object IDs");
-    }
-    const auto template_id = document.document_id;
-    do {
-        document.document_id = zima::assembly::AssemblyDocument::create_default().document_id;
-    } while (document.document_id == template_id);
-    return document;
+zima::assembly::AssemblyDocument new_assembly_from_template(const ApplicationSettings& settings) {
+    return zima::workspace::assembly_from_template(native_template_settings(settings));
 }
 
 void append_reference_geometry(

@@ -139,30 +139,19 @@ QString AssemblyWorkspaceWindow::create_document(
             document.insert_history_entry(zima::document::PartHistoryKind::Feature,container.id);
             document.history.push_back(std::move(container));document.sketches.push_back(std::move(sketch));
             id=document.document_id;workspace_.add_part(std::move(document),{},path);
-        } else if (document_type == QStringLiteral("part")) {
-            auto document = new_part_from_template(application_settings_);
-            document.name = name;
-            for (auto it = application_settings_.units.cbegin();
-                 it != application_settings_.units.cend(); ++it)
-                document.document_units[it.key().toStdString()] = it.value().toStdString();
-            id = document.document_id;
-            workspace_.add_part(std::move(document), {}, path);
-            active_application_ = ApplicationMode::Modeling;
-        } else if (document_type == QStringLiteral("assembly")) {
-            auto document = new_assembly_from_template(application_settings_);
-            document.name = name;
-            for (auto it = application_settings_.units.cbegin();
-                 it != application_settings_.units.cend(); ++it)
-                document.document_units[it.key().toStdString()] = it.value().toStdString();
-            id = document.document_id;
-            workspace_.add_assembly(std::move(document), path);
-            active_application_ = ApplicationMode::Assembly;
         } else {
-            auto document = zima::drawing::DrawingDocument::create_default();
-            document.name = name;
-            id = document.document_id;
-            workspace_.add_drawing(std::move(document), path);
-            active_application_ = ApplicationMode::Drawing;
+            const auto type=workspace::native_document_type(path);
+            std::map<std::string,std::string> units;
+            for(auto it=application_settings_.units.cbegin();it!=application_settings_.units.cend();++it)
+                units[it.key().toStdString()]=it.value().toStdString();
+            auto prepared=workspace::prepare_new_native_document(type,name,path,
+                native_template_settings(application_settings_),units);
+            id=workspace::insert_native_document(workspace_,std::move(prepared));
+            switch(type) {
+                case workspace::NativeDocumentType::Part: active_application_=ApplicationMode::Modeling;break;
+                case workspace::NativeDocumentType::Assembly: active_application_=ApplicationMode::Assembly;break;
+                case workspace::NativeDocumentType::Drawing: active_application_=ApplicationMode::Drawing;break;
+            }
         }
     } catch (const std::exception& error) {
         return tr("Dokument nelze vytvořit: %1").arg(error.what());
@@ -273,7 +262,7 @@ void AssemblyWorkspaceWindow::open_document() {
 
 bool AssemblyWorkspaceWindow::open_document_path(const QString& path) {
     if(section_dialog_)return false;
-    const std::filesystem::path opened_path = path.toStdString();
+    const std::filesystem::path opened_path = std::filesystem::u8path(path.toStdString());
     begin_status_operation(tr("Otevírám %1…").arg(
         QString::fromStdString(opened_path.filename().string())));
     try {
@@ -289,40 +278,26 @@ bool AssemblyWorkspaceWindow::open_document_path(const QString& path) {
             document.insert_history_entry(zima::document::PartHistoryKind::Feature,container.id);
             document.history.push_back(std::move(container));document.sketches.push_back(std::move(sketch));
             id=document.document_id;workspace_.add_part(std::move(document),{},opened_path);
-        } else if (path.endsWith(".prtz", Qt::CaseInsensitive)) {
-            update_status_operation(
-                tr("Čtu Part, parametry a uloženou geometrii…"), -1, 0);
-            auto loaded = run_background_task([opened_path] {
-                std::vector<zima::kernel::BodyResult> calculated;
-                auto document = zima::document::PartDocument::load(
-                    opened_path, &calculated);
-                return std::pair{
-                    std::move(document), std::move(calculated)};
-            });
-            id = loaded.first.document_id;
-            update_status_operation(tr("Vkládám Part do pracovního prostoru…"));
-            workspace_.add_part(
-                std::move(loaded.first), std::move(loaded.second), opened_path);
-        } else if (path.endsWith(".asmz", Qt::CaseInsensitive)) {
-            update_status_operation(
-                tr("Čtu sestavu a její uložené výskyty…"), -1, 0);
-            auto document = run_background_task([opened_path] {
-                return zima::assembly::AssemblyDocument::load(opened_path);
-            });
-            id = document.document_id;
-            update_status_operation(tr("Vkládám sestavu do pracovního prostoru…"));
-            workspace_.add_assembly(std::move(document), opened_path);
-        } else if (path.endsWith(".drwz", Qt::CaseInsensitive)) {
-            update_status_operation(
-                tr("Čtu výkres, listy a pohledy…"), -1, 0);
-            auto document = run_background_task([opened_path] {
-                return zima::drawing::DrawingDocument::load(opened_path);
-            });
-            id = document.document_id;
-            update_status_operation(tr("Vkládám výkres do pracovního prostoru…"));
-            workspace_.add_drawing(std::move(document), opened_path);
         } else {
-            throw std::runtime_error("Nepodporovaná přípona dokumentu ZIMA-CAD.");
+            const auto type=workspace::native_document_type(opened_path);
+            switch(type) {
+                case workspace::NativeDocumentType::Part:
+                    update_status_operation(tr("Čtu Part, parametry a uloženou geometrii…"),-1,0);break;
+                case workspace::NativeDocumentType::Assembly:
+                    update_status_operation(tr("Čtu sestavu a její uložené výskyty…"),-1,0);break;
+                case workspace::NativeDocumentType::Drawing:
+                    update_status_operation(tr("Čtu výkres, listy a pohledy…"),-1,0);break;
+            }
+            auto loaded=run_background_task([opened_path] { return workspace::read_native_document(opened_path); });
+            switch(type) {
+                case workspace::NativeDocumentType::Part:
+                    update_status_operation(tr("Vkládám Part do pracovního prostoru…"));break;
+                case workspace::NativeDocumentType::Assembly:
+                    update_status_operation(tr("Vkládám sestavu do pracovního prostoru…"));break;
+                case workspace::NativeDocumentType::Drawing:
+                    update_status_operation(tr("Vkládám výkres do pracovního prostoru…"));break;
+            }
+            id=workspace::insert_native_document(workspace_,std::move(loaded));
         }
         workspace_.activate(id);
         workspace_.display_top_level(id);

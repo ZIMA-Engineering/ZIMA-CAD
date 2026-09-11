@@ -115,3 +115,7 @@ budoucí architektury ani k plošnému auditu Undo/Redo.
 
 První oddělené operace jsou popsány v [DOCUMENT_OPERATIONS.md](DOCUMENT_OPERATIONS.md):
 nativní ukládání a dokumentové Undo/Redo nyní sídlí v modulu workspace bez Qt.
+
+Načítání `.prtz`/`.asmz`/`.drwz` a tvorba podle config šablon nyní používají
+`modules/workspace/native_documents`. V `documents.cpp` zůstává interakce a
+aktivace; v `geometry_helpers.cpp` pouze převod aplikačních settings pro továrny.

@@ -82,7 +82,8 @@ target_link_libraries(zima_drawing
 
 add_library(zima_workspace modules/workspace/src/workspace.cpp
     modules/workspace/src/document_copy.cpp
-    modules/workspace/src/document_operations.cpp)
+    modules/workspace/src/document_operations.cpp
+    modules/workspace/src/native_documents.cpp)
 target_include_directories(zima_workspace PUBLIC modules/workspace/include)
 target_link_libraries(zima_workspace PUBLIC
     zima_document_core zima_assembly zima_drawing zima_kernel_occt
@@ -373,6 +374,10 @@ if(ZIMA_BUILD_TESTS)
     add_executable(zima_cpp_interchange_contract_tests tests/interchange_contract_tests.cpp)
     target_link_libraries(zima_cpp_interchange_contract_tests PRIVATE zima_interchange)
     add_test(NAME zima_cpp_interchange_contract_tests COMMAND zima_cpp_interchange_contract_tests)
+    add_executable(zima_cpp_native_documents_tests tests/native_documents_tests.cpp)
+    target_link_libraries(zima_cpp_native_documents_tests PRIVATE zima_workspace)
+    add_test(NAME zima_cpp_native_documents_tests COMMAND zima_cpp_native_documents_tests)
+    set_tests_properties(zima_cpp_native_documents_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     add_executable(zima_cpp_document_operations_tests tests/document_operations_tests.cpp)
     target_link_libraries(zima_cpp_document_operations_tests PRIVATE zima_workspace)
     add_test(NAME zima_cpp_document_operations_tests COMMAND zima_cpp_document_operations_tests)
