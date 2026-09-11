@@ -215,6 +215,13 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         const auto tool_body=run("body.create Tool").data.at("body").get<std::string>();
         const auto tool_feature=run("box.create 4 4 4").data.at("container").get<std::string>();flush();
         view->confirm_container(tool_feature);check(view->confirmed_candidate().has_value(),"Body activation fixture has no confirmed selection");
+        const auto selection_before_reference=run("context").data.at("selection");
+        const auto offered_faces=run(QString::fromStdString("reference.list "+tool_feature+" face")).data;
+        check(offered_faces.at("total")==6,"GUI console lost original reference faces");
+        commands::Json read_reference={{"command","reference.get"},{"arguments",offered_faces.at("items")[0]}};
+        const auto read_face=run(QString::fromStdString(read_reference.dump())).data;flush();
+        check(read_face.at("surface").at("kind")=="plane" && run("context").data.at("selection")==selection_before_reference &&
+            view->confirmed_candidate().has_value(),"Reference query altered GUI confirmation or lost original surface");
         run(QString::fromStdString("body.activate "+base_body));flush();
         check(!view->confirmed_candidate() && run("context").data.at("selection").is_null(),"Body command activation kept a stale confirmed selection");
         run(QString::fromStdString("body.activate "+tool_body));flush();

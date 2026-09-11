@@ -157,6 +157,12 @@ int main(int argc,char** argv){
         const auto box_id=result.results()[1].at("data").at("container").get<std::string>();
         const auto new_box=document::PartDocument::load(project/"commanded-box.prtz",&reloaded);
         require(new_box.find_container(box_id) && std::abs(reloaded.back().volume-6000)<1e-6,"CLI Box creation did not persist real geometry");
+        result=launch(executable,root,common+QStringList{"--stdin"},QByteArray::fromStdString("open commanded-box.prtz\nreference.list "+box_id+" face\n"));
+        require(result.exit_code==0 && result.results().back().at("data").at("total")==6,"CLI could not list original faces");
+        const auto original_face=result.results().back().at("data").at("items")[0];
+        result=launch(executable,root,common+QStringList{"--command","open commanded-box.prtz","--command",command({{"command","reference.get"},{"arguments",original_face}})});
+        require(result.exit_code==0 && result.results().back().at("data").at("surface").at("kind")=="plane" &&
+            result.results().back().at("data").at("triangle_count")==2,"CLI lost persisted analytic face details");
         const auto batch="open commanded-box.prtz\nbox.set "+box_id+" 15\nbox.get "+box_id+"\nundo\nbox.get "+box_id+"\nredo\nsave\n";
         result=launch(executable,root,common+QStringList{"--stdin"},QByteArray::fromStdString(batch));
         const auto edits=result.results();

@@ -411,3 +411,10 @@ Syntax, datové typy a ověřované objemy jsou v [BODY_COMMANDS.md](BODY_COMMAN
 `history.can_move` a `history.cursor` sdílejí operace se stromem GUI.
 Argumenty, rozsahy těles, chybové výsledky a příklady popisuje
 [HISTORY_COMMANDS.md](HISTORY_COMMANDS.md).
+
+## Původní reference
+
+`reference.list` vrací stabilní identity a přesné výskyty původní geometrie.
+`reference.get` čte její uložené podklady, včetně analytických povrchů a přesných
+spline křivek, pokud jsou dostupné. Rozhraní, jednotky a omezení velikosti odpovědi
+popisuje [REFERENCE_COMMANDS.md](REFERENCE_COMMANDS.md).

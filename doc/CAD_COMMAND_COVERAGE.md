@@ -35,7 +35,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Válec, koule, kužel, jehlan, klín | Hotovo | Společné create/get/set, zámky, přesnost, GUI/CLI a 59/59 regresí |
 | Historie Partu | Hotovo | Společný přesun, ověření závislostí, potlačení, odstranění a kurzor; včetně historie těles a Booleanů |
 | Tělesa a Boolean | Základ hotov | Tvorba, čtení, aktivace, název/viditelnost, kurzory a Boolean create/get/set; pořadí/mazání řeší historie; zbývá příkazové umístění a odvozené kopie |
-| Umístění a původní reference | Zbývá | Dotazy a zadání do existujícího společného řešení umístění |
+| Umístění a původní reference | Čtení původních referencí hotovo | Part/Assembly, přesné výskyty a geometrická data; zbývá zadání do existujícího společného řešení umístění |
 | Konstrukční geometrie | Zbývá | Body, osy, roviny, 3D křivky |
 | Skicář: geometrie | Zbývá | Tvorba a úprava všech podporovaných křivek a textu |
 | Skicář: vazby a operace | Zbývá | Kóty, vazby, trim, extend, offset, mirror, uvolnění referencí |
@@ -67,7 +67,12 @@ vlastnosti těles a Booleanů, aktivace a kurzory prošly kompletní sadou **60/
 (383,35 s) a závěrečnou sadou **6/6** po sjednocení výběru (12,28 s).
 Podrobnosti jsou v [BODY_COMMANDS.md](BODY_COMMANDS.md).
 
-Etapa historie přidala šest příkazů; katalog má nyní **49 příkazů**. Celá
+Etapa historie přidala šest příkazů; katalog měl **49 příkazů**. Celá
 Windows Release sada prošla **61/61** (386,26 s), včetně nových modelových,
 procesových i GUI scénářů. Podrobnosti jsou v [HISTORY_COMMANDS.md](HISTORY_COMMANDS.md).
 Další krok: dotazy na původní reference a příkazové zadání stávajícího umístění.
+
+Etapa původních referencí přidala `reference.list/get`; katalog má nyní
+**51 příkazů**. Dotčené čtyři modelové, hostitelské, GUI a procesové testy prošly
+**4/4** (10,14 s). [REFERENCE_COMMANDS.md](REFERENCE_COMMANDS.md) popisuje data,
+přesné výskyty, jednotky a limity. Další krok je příkazové zadání umístění.
