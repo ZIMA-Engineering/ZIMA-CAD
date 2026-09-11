@@ -202,6 +202,15 @@ int main(int argc,char** argv){
         const auto history_result=document::PartDocument::load(project/"commanded-bodies.prtz",&reloaded);
         require(result.exit_code==0 && result.results().size()==5 && history_result.body_history.booleans().empty() &&
             history_result.body_history.order().front()==tool_body && !reloaded.empty(),"CLI history did not persist deleted Boolean/reordered Bodies");
+        result=launch(executable,root,common+QStringList{"--stdin"},"new part cli-sketch\nsketch.create Spline XY\nsave\n");
+        require(result.exit_code==0 && result.results().size()==3,"CLI could not create an owned Sketch");
+        const auto sketch_id=result.results()[1].at("data").at("sketch").get<std::string>();
+        const auto spline_request=command({{"command","sketch.bspline.create"},{"arguments",{{"sketch",sketch_id},{"points",{{0,0},{3,8},{7,-3},{10,0}}},{"degree",3}}}});
+        result=launch(executable,root,common+QStringList{"--command","open cli-sketch.prtz","--command",spline_request,"--command","save"});
+        require(result.exit_code==0,"CLI failed to persist B-spline");
+        const auto sketch_document=document::PartDocument::load(project/"cli-sketch.prtz");
+        require(sketch_document.sketches.back().id==sketch_id && sketch_document.sketches.back().bsplines.size()==1 &&
+            sketch_document.sketches.back().bsplines.front().degree==3,"CLI B-spline lost exact degree or owning Sketch");
         std::cout<<"CLI processes: native files, Unicode/config, scripts/stdin, errors, streaming and explicit geometry calculation passed\n";
         return 0;
     }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}

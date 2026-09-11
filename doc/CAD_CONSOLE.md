@@ -418,3 +418,10 @@ Argumenty, rozsahy těles, chybové výsledky a příklady popisuje
 `reference.get` čte její uložené podklady, včetně analytických povrchů a přesných
 spline křivek, pokud jsou dostupné. Rozhraní, jednotky a omezení velikosti odpovědi
 popisuje [REFERENCE_COMMANDS.md](REFERENCE_COMMANDS.md).
+
+## Geometrie skicáře
+
+Společná tvorba skic, body, kružnice, oblouky, elipsy, B-spline, obdélníky,
+mnohoúhelníky a jejich základní úpravy jsou popsány v
+[SKETCH_COMMANDS.md](SKETCH_COMMANDS.md). Souřadnice příkazů jsou v milimetrech
+skici. Změna křivky ponechá poslední výpočet tělesa do výslovné regenerace.

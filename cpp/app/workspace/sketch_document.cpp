@@ -1,4 +1,5 @@
 #include "workspace_internal.hpp"
+#include <zima/workspace/sketch_operations.hpp>
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -524,7 +525,6 @@ bool AssemblyWorkspaceWindow::mutate_active_sketch(
         std::set<std::string> old;
         for(const auto& d:pending.dimensions)old.insert(d.id);
         mutation(pending);
-        pending.refresh_curve_dependencies();
         if(sketch_universal_dimension_active_ || pending_sketch_dimension_ ||
            !pending_corner_radius_dimension_id_.empty() || sketch_point_dimension_active_) {
             for(const auto& d:pending.dimensions)if(!old.contains(d.id))
@@ -534,36 +534,24 @@ bool AssemblyWorkspaceWindow::mutate_active_sketch(
             if(!corner.empty())zima::kernel::store_dimension_layout(pending.dimension_layouts,
                 {pending.id,"corner_dimension:"+corner,{}},universal_dimension_layout_);
         }
-        pending.validate();
     };
     if (sweep_profile_sketch_draft_ &&
         sweep_profile_sketch_draft_->id == active_sketch_id_) {
         auto next = *sweep_profile_sketch_draft_;
-        apply(next);
+        workspace::apply_sketch_geometry(next,apply);
         if(section_dialog_){section_sketch_undo_.push_back(*sweep_profile_sketch_draft_);section_sketch_redo_.clear();}
         sweep_profile_sketch_draft_ = std::move(next);
         return true;
     }
 
-    const auto mutate = [&](auto& document) {
-        const auto found = std::find_if(document.sketches.begin(),
-            document.sketches.end(),
-            [&](const auto& sketch) { return sketch.id == active_sketch_id_; });
-        if (found == document.sketches.end()) return false;
-        apply(*found);
-        return true;
-    };
-    if (auto* part = workspace_.open_part(workspace_.active_document_id())) {
-        auto next = part->session.document();
-        if (!mutate(next)) return false;
-        part->session.commit(std::move(next), part->session.calculated_boundaries());
-        return true;
-    }
-    if (auto* assembly = workspace_.open_assembly(workspace_.active_document_id())) {
-        auto next = assembly->session.document();
-        if (!mutate(next)) return false;
-        assembly->session.commit(std::move(next));
-        return true;
+    if (workspace_.open_part(workspace_.active_document_id()) || workspace_.open_assembly(workspace_.active_document_id())) {
+        try {
+            static_cast<void>(workspace::mutate_document_sketch(workspace_,workspace_.active_document_id(),active_sketch_id_,apply));
+            return true;
+        } catch(const workspace::SketchOperationError& error) {
+            if(std::string_view(error.code)=="sketch_not_found")return false;
+            throw;
+        }
     }
     return false;
 }

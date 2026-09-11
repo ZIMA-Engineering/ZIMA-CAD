@@ -3797,7 +3797,9 @@ bool Sketch::translate_selection(
         selected_points.insert(
             spline.control_point_ids.begin(), spline.control_point_ids.end());
     }
-    if (selected_points.size() < 2) return false;
+    // A circle has one native center point; the same solver transaction also
+    // supports a single explicitly selected point.
+    if (selected_points.empty()) return false;
     const auto linked = externally_linked_point_ids(next);
     for (const auto& point_id : selected_points) {
         auto* point = next.find_point(point_id);

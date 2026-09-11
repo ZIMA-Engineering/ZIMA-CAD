@@ -1,4 +1,5 @@
 #include "workspace_internal.hpp"
+#include <zima/workspace/sketch_operations.hpp>
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -104,17 +105,13 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
                         }
                         auto container = *new_sketch_container;
                         container.placement = committed_placement;
-                        next.sketches.push_back(committed);
-                        next.insert_history_entry(
-                            zima::document::PartHistoryKind::Feature,
-                            new_sketch_container->id);
-                        next.history.push_back(std::move(container));
+                        workspace::insert_new_sketch(next,committed,std::move(container));
                     } else {
                         if (!committed.owner_container_id.empty()) {
                             throw std::runtime_error(
                                 "Standalone Assembly Sketch cannot own a cut container");
                         }
-                        next.sketches.push_back(committed);
+                        workspace::insert_new_sketch(next,committed);
                     }
                 }
             };

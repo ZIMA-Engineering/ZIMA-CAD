@@ -61,6 +61,8 @@ private:
     void register_body_commands();
     void register_history_commands();
     void register_reference_commands();
+    void register_sketch_commands();
+    void add_sketch_command(commands::Command,std::function<Json(sketcher::Sketch&,const Json&)>);
     [[nodiscard]] Interaction interaction() const;
     [[nodiscard]] std::string tr(const char*) const;
     [[nodiscard]] Result target(const Json&) const;

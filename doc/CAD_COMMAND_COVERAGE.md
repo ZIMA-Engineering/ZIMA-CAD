@@ -37,7 +37,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Tělesa a Boolean | Základ hotov | Tvorba, čtení, aktivace, název/viditelnost, kurzory a Boolean create/get/set; pořadí/mazání řeší historie; zbývá příkazové umístění a odvozené kopie |
 | Umístění a původní reference | Čtení původních referencí hotovo | Part/Assembly, přesné výskyty a geometrická data; zbývá zadání do existujícího společného řešení umístění |
 | Konstrukční geometrie | Zbývá | Body, osy, roviny, 3D křivky |
-| Skicář: geometrie | Zbývá | Tvorba a úprava všech podporovaných křivek a textu |
+| Skicář: geometrie | Základ hotov | 21 příkazů: samostatné a vložené skici, body, úsečky, kružnice, oblouky, elipsy, B-spline, obdélníky, mnohoúhelníky, posun a pomocná geometrie; zbývají další varianty, text a parametrické editace |
 | Skicář: vazby a operace | Zbývá | Kóty, vazby, trim, extend, offset, mirror, uvolnění referencí |
 | Externí reference skici | Zbývá | Původní geometrie, projekce, aktualizace a zachování trimu |
 | Vytažení a rotace | Zbývá | Vlastněný profil, thin, zakončení, více směrů |
@@ -76,3 +76,20 @@ Etapa původních referencí přidala `reference.list/get`; katalog má nyní
 **51 příkazů**. Dotčené čtyři modelové, hostitelské, GUI a procesové testy prošly
 **4/4** (10,14 s). [REFERENCE_COMMANDS.md](REFERENCE_COMMANDS.md) popisuje data,
 přesné výskyty, jednotky a limity. Další krok je příkazové zadání umístění.
+
+### Čekající schválení společného umístění
+
+Automatická schvalovací kontrola 2026-09-12 zamítla přesun číselné editace
+umístění a společné výpočetní transakce z GUI do modelové vrstvy. Vyhodnotila
+jej jako širší zásah podle ochrany umístění v AGENTS.md; změna se neprovedla.
+Konkrétní žádost o souhlas čeká v tomto úkolu. Do odpovědi tuto refaktorizaci
+neprovádět ani neobcházet. Pokračovat nezávislými operacemi geometrie skicáře,
+které používají existující model a nemění pravidla umístění.
+
+Etapa geometrie skicáře přidala **21 příkazů**; katalog má **72 příkazů**.
+Kompletní Windows Release sada prošla **63/63** (388,03 s),
+`build/sketch-full-tests.log`. GUI kreslení a CLI sdílejí transakci geometrie
+bez implicitního výpočtu tělesa; seznam skic nekopíruje všechny jejich křivky.
+Nativní posun nyní přijímá také jediný střed kružnice a respektuje jeho vazby.
+Podrobnosti: [SKETCH_COMMANDS.md](SKETCH_COMMANDS.md). Další etapa: operace
+offset, trim a mirror, následně vazby/kóty a externí reference skic.

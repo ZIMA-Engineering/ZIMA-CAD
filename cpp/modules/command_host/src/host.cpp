@@ -60,6 +60,7 @@ void Host::register_commands(){
     register_body_commands();
     register_history_commands();
     register_reference_commands();
+    register_sketch_commands();
     dispatcher_.set_guard([this](const commands::Command& command){
         if(!command.changes_state)return Result::success();
         const auto state=interaction();
