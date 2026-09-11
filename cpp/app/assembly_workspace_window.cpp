@@ -1,3 +1,4 @@
+#include <zima/document/body_origin_attachment.hpp>
 #include "sketch_offset_dialog.hpp"
 #include <zima/sketcher/curve_geometry.hpp>
 #include "import_options_dialog.hpp"
@@ -625,7 +626,7 @@ zima::document::PartDocument new_part_from_template(
         document.document_id = zima::document::PartDocument::create_default().document_id;
     } while (document.document_id == template_id);
     zima::document::BodyHistoryGraph bodies;
-    static_cast<void>(bodies.create_body(QObject::tr("Těleso 1").toStdString()));
+    static_cast<void>(zima::document::create_origin_bound_body(bodies, document.document_id, QObject::tr("Těleso 1").toStdString()));
     document.set_body_history(std::move(bodies));
     return document;
 }
@@ -5721,6 +5722,8 @@ void AssemblyWorkspaceWindow::create_layout() {
                 menu.setObjectName("partActivationMenu");
                 auto* edit = menu.addAction(tr("Vlastnosti"));
                 const auto* body=part->session.document().body_history.find(id);
+                auto* dimensions=body && !body->derived_copy ? menu.addAction(tr("Edit")) : nullptr;
+                if(dimensions)dimensions->setObjectName("editBodyDimensionsAction");
                 auto* source_properties=body&&body->derived_copy ? menu.addAction(tr("Vlastnosti zdroje")) : nullptr;
                 auto* visibility=body ? menu.addAction(body->visible?tr("Skrýt"):tr("Zobrazit")) : nullptr;
                 QAction* activate = step_kind == "part-body" && !(body&&body->derived_copy) ? menu.addAction(tr("Aktivní")) : nullptr;
@@ -5735,6 +5738,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                 const auto selected = menu.exec(tree_->viewport()->mapToGlobal(position));
                 if(remove&&selected==remove)delete_part_object(id,QStringLiteral("part-body"));
                 else if (selected == edit) show_tree_item_properties(item);
+                else if(dimensions&&selected==dimensions)show_parameter_dimensions(id);
                 else if(visibility&&selected==visibility) {
                     auto* current=workspace_.open_part(workspace_.active_document_id());auto next=current->session.document();auto value=*next.body_history.find(id);
                     value.visible=!value.visible;next.body_history.update_body(value);current->session.commit(std::move(next),current->session.calculated_boundaries());
@@ -6927,7 +6931,7 @@ void AssemblyWorkspaceWindow::show_body_properties(const std::string& id) {
     std::string edited = id;
     if (edited.empty()) {
         const bool first = graph.bodies().empty();
-        edited = graph.create_body(tr("Těleso %1").arg(graph.bodies().size()+1).toStdString());
+        edited = zima::document::create_origin_bound_body(graph, pending.document_id, tr("Těleso %1").arg(graph.bodies().size()+1).toStdString());
         if (first) for (const auto& entry : pending.history_order) graph.insert(entry);
     }
     const auto* source = graph.find(edited);
@@ -24374,6 +24378,12 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                             body->scope.placement, primitive_reference_geometry_));
                 }
             }
+            if (!body_dialog_preview_) {
+                if (const auto* body=document.body_history.find(construction_dimension_object_id_))
+                    append_nonzero_parameter_dimensions(mesh.dimensions,
+                        zima::document::container_placement_dimensions(body->scope.id,
+                            body->scope.placement, reference_geometry));
+            }
             std::unordered_set<std::string> visible_ids;
             for (std::size_t i = 0; i < std::min(document.effective_history_cursor(), document.history_order.size()); ++i)
                 visible_ids.insert(document.history_order[i].id);
@@ -28261,7 +28271,37 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
                 "Inline dimension editing currently requires an active Part");
             auto next = part->session.document();
             bool changed{};
-            if (candidate.semantic_key.starts_with("dimension:")) {
+            if (const auto* body=next.body_history.find(candidate.owner_id);
+                    body && candidate.semantic_key.starts_with("parameter:placement:")) {
+                auto updated=*body;
+                auto& placement=updated.scope.placement;
+                const auto geometry=part_construction_dimension_geometry(next,part->session.calculated_boundaries());
+                const auto key=std::string_view(candidate.semantic_key).substr(std::string_view("parameter:placement:").size());
+                const auto constraint=zima::document::point_constraint_state(placement.references,geometry);
+                if(key=="x"&&!constraint.constrained_axes[0]){placement.x=next_value;changed=true;}
+                else if(key=="y"&&!constraint.constrained_axes[1]){placement.y=next_value;changed=true;}
+                else if(key=="z"&&!constraint.constrained_axes[2]){placement.z=next_value;changed=true;}
+                else if(key.starts_with("reference_offset:")) {
+                    const auto suffix=key.substr(std::string_view("reference_offset:").size());std::size_t index{};
+                    const auto [end,error]=std::from_chars(suffix.data(),suffix.data()+suffix.size(),index);
+                    if(error==std::errc{}&&end==suffix.data()+suffix.size()) {
+                        std::size_t populated{};
+                        for(auto& reference:placement.references) {
+                            if(reference.orientation_only||(reference.owner_id.empty()&&reference.semantic_key.empty()))continue;
+                            if(populated++==index&&reference.supports_offset&&!reference.offset_locked){reference.offset=next_value;changed=true;break;}
+                        }
+                    }
+                } else if(key=="rotation_x"||key=="rotation_y"||key=="rotation_z") {
+                    const std::size_t index=key=="rotation_x"?0:key=="rotation_y"?1:2;
+                    std::array<double*,3> correction{&placement.rotation_offset_x,&placement.rotation_offset_y,&placement.rotation_offset_z};
+                    std::array<double*,3> absolute{&placement.absolute_rotation_x,&placement.absolute_rotation_y,&placement.absolute_rotation_z};
+                    std::array<double*,3> resolved{&placement.rotation_x,&placement.rotation_y,&placement.rotation_z};
+                    if(placement_angle_uses_reference_correction(placement.references,geometry,{placement.x,placement.y,placement.z},index))*correction[index]=next_value;
+                    else {*absolute[index]=next_value;*resolved[index]=next_value;}
+                    changed=true;
+                }
+                if(changed)next.body_history.update_body(std::move(updated));
+            } else if (candidate.semantic_key.starts_with("dimension:")) {
                 const auto sketch = std::find_if(next.sketches.begin(),
                     next.sketches.end(), [&](const auto& value) {
                         return value.id == candidate.owner_id;

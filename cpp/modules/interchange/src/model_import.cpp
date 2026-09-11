@@ -1,3 +1,4 @@
+#include <zima/document/body_origin_attachment.hpp>
 #include <zima/interchange/model_import.hpp>
 #include <zima/document/precision.hpp>
 #include <zima/kernel/occt_kernel.hpp>
@@ -20,7 +21,7 @@ DxfPartImport import_dxf_part(document::PartDocument doc,
         auto container = document::PartDocument::create_sketch_container();
         container.name = sketch.name; sketch.owner_container_id = container.id;
         auto graph = doc.body_history;
-        if (graph.active_body_id().empty()) static_cast<void>(graph.create_body(source.stem().string()));
+        if (graph.active_body_id().empty()) static_cast<void>(document::create_origin_bound_body(graph, doc.document_id, source.stem().string()));
         graph.insert({document::PartHistoryKind::Feature, container.id});
         doc.history.push_back(std::move(container)); doc.sketches.push_back(std::move(sketch));
         doc.set_body_history(std::move(graph));
@@ -43,7 +44,7 @@ StepImportedPart import_iges_part(document::PartDocument doc,
     container.imported_step.frozen_brep = std::make_shared<const std::string>(std::move(frozen.kernel_shape));
     container.imported_step.topology = std::move(frozen.imported_step_topology);
     auto graph = doc.body_history;
-    static_cast<void>(graph.create_body(source.stem().string()));
+    static_cast<void>(document::create_origin_bound_body(graph, doc.document_id, source.stem().string()));
     graph.insert({document::PartHistoryKind::Feature, container.id});
     doc.history.push_back(std::move(container)); doc.set_body_history(std::move(graph));
     auto calculated = kernel.evaluate_history_incremental(doc.kernel_operations(), previous);

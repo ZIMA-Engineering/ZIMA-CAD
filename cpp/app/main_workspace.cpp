@@ -2561,12 +2561,24 @@ int verify_body_history_ui(QApplication& application, const std::filesystem::pat
     if (!verify(!body_dialog()->set_reference(0,{{},tool.origin().id,"origin:point"},"Vlastní počátek"),
             "Body accepted its own Origin as a placement reference")) return 1;
 
+    if (!verify(body_dialog()->set_inline_parameter_value("placement:rotation_z",15),"Cannot prepare nonzero Body angle")) return 1;
+    flush();
     QMouseEvent confirm_body(QEvent::MouseButtonDblClick,QPointF(40,40),QPointF(40,40),QPointF(40,40),
         Qt::MiddleButton,Qt::MiddleButton,Qt::NoModifier);
     QApplication::sendEvent(&window, &confirm_body); flush();
     if (!verify(!body_dialog() && row("part-body",b)->text(0) == "Upravený nástroj", "Body edit failed to commit")) return 1;
     if (!verify(!viewer->candidate_dimension_value(offset_dimension),
             "Closing body properties left transient placement dimensions in View")) return 1;
+    if(!verify(activate_from_tree(row("part-body",b),"editBodyDimensionsAction"),"Body Edit menu action missing"))return 1;
+    if(!verify(viewer->candidate_dimension_value(offset_dimension)==5&&viewer->candidate_dimension_value(angle_dimension)==15,"Body Edit omitted nonzero placement dimensions"))return 1;
+    window.grab().save(QString::fromStdString((directory/"body-edit-dimensions.png").string()));
+    const auto inline_body_value=[&](const auto& candidate,const QString& text,double expected) {
+        window.edit_dimension_inline(candidate);flush();auto* editor=viewer->findChild<QLineEdit*>("inlineDimensionValueEdit");
+        if(!editor||!editor->isVisible())return false;
+        editor->setText(text);QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(editor,&enter);flush();
+        return expected==0?!viewer->candidate_dimension_value(candidate):std::abs(viewer->candidate_dimension_value(candidate).value_or(-999)-expected)<1e-7;
+    };
+    if(!verify(inline_body_value(offset_dimension,"7",7)&&inline_body_value(offset_dimension,"5",5)&&inline_body_value(angle_dimension,"0",0),"Body Edit failed to update position/angle or hide zero"))return 1;
     window.toggle_parameter_value_lock(second.id,"parameter:length");flush();
     if(!verify(window.parameter_value_locked(second.id,"parameter:length").value_or(false),"View lock without properties was not committed"))return 1;
     auto* lock_save=window.findChild<QAction*>("saveDocumentAction");
@@ -2984,12 +2996,14 @@ int verify_owned_profile_external_reference(QApplication& application,const std:
         if(!verify(hit.has_value(),"Source edge not offered to owned profile"))return 1;
         for(const auto type:{QEvent::MouseMove,QEvent::MouseButtonPress,QEvent::MouseButtonRelease}){
             QMouseEvent e(type,*hit,QPointF(view->mapToGlobal(hit->toPoint())),type==QEvent::MouseMove?Qt::NoButton:Qt::LeftButton,type==QEvent::MouseButtonPress?Qt::LeftButton:Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(view,&e);flush();}
-        const auto visible=std::ranges::any_of(view->mesh().edges,[&](const auto& edge){return edge.reference.owner_id==original.id&&edge.reference.semantic_key.starts_with("external_");});
+        const auto reference_count=std::ranges::count_if(view->mesh().edges,[&](const auto& edge){return edge.reference.owner_id==original.id&&edge.reference.semantic_key.starts_with("external_");});
+        const bool visible=reference_count>0;
+        if(!verify(reference_count==original.external_references.size()+1,"One click added multiple external references"))return 1;
         if(!visible){std::cerr<<"Scenario "<<scenario<<" state: "<<window.findChild<QLabel*>("workspaceState")->text().toStdString()<<"\n";window.grab().save("build/owned-reference-failure.png");}
         if(!verify(visible,"Confirmed source edge was not added to the active draft Sketch"))return 1;
         if(project) {
             const auto count=std::ranges::count_if(view->mesh().edges,[&](const auto& edge){return edge.reference.owner_id==original.id&&(edge.reference.semantic_key.starts_with("segment:")||edge.reference.semantic_key.starts_with("bspline:"));});
-            if(!verify(count>original.segments.size()+original.bsplines.size(),"Projected geometry was not added to draft"))return 1;
+            if(!verify(count==original.segments.size()+original.bsplines.size()+1,"One click must add exactly one projected curve"))return 1;
         }
         window.findChild<QAction*>("finishSketchAction")->trigger();flush();
         zima::app::PrimitivePropertiesDialog* parent{};

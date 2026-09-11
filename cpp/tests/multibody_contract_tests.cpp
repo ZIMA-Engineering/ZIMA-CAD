@@ -1,3 +1,4 @@
+#include <zima/document/body_origin_attachment.hpp>
 #include <zima/kernel/occt_kernel.hpp>
 #include <zima/document/body_history.hpp>
 #include <zima/document/document_session.hpp>
@@ -34,6 +35,23 @@ static kernel::HistoryOperation box(const std::string& owner, const std::string&
 
 int main() {
     try {
+        {
+            const auto part=document::PartDocument::create_default();
+            const auto geometry=part.origin_viewer_mesh().original_references;
+            for(const auto original:{document::Placement{},document::Placement{12,-7,3,15,20,-30}}) {
+                auto placement=document::body_origin_attachment(part.document_id,original);
+                require(placement.references.size()==5,"Body origin attachment must own three planes and two orientation references");
+                require(document::resolve_placement(placement,geometry),"Body origin attachment failed to resolve");
+                require(std::hypot(placement.x-original.x,placement.y-original.y,placement.z-original.z)<1e-8,"Origin attachment moved Body");
+                require(std::hypot(placement.rotation_x-original.rotation_x,placement.rotation_y-original.rotation_y,placement.rotation_z-original.rotation_z)<1e-8,"Origin attachment rotated Body");
+                require(document::point_constraint_state(placement.references,geometry).remaining_dof==0,"Body is not position-constrained to Part origin");
+                auto graph=document::BodyHistoryGraph{};
+                const auto id=document::create_origin_bound_body(graph,part.document_id,"Attached",original);
+                require(graph.find(id)->scope.placement.references.size()==5,"Created Body lost origin attachment");
+                const auto restored=document::BodyHistoryGraph::from_serialized(graph.serialized());
+                require(restored.find(id)->scope.placement.references==graph.find(id)->scope.placement.references,"Body attachment persistence changed");
+            }
+        }
         {
             auto part=document::PartDocument::create_default();document::BodyHistoryGraph history;
             const auto a=history.create_body("A");auto feature=document::PartDocument::create_box_container();

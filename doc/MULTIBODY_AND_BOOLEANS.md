@@ -607,3 +607,35 @@ se při hledání přeskakují. Part bez těles zůstane na úrovni dílu.
 Automatická aktivace pouze nastavuje pracovní kontext: nepočítá geometrii,
 nevytváří krok Undo a nemění stav neuložených změn. Běžné přepnutí záložky
 zachovává ručně zvolenou aktivitu.
+
+## Výchozí vazby počátku a Edit tělesa (2026-09-11)
+
+Nové těleso má tři polohové reference na roviny XY/XZ/YZ hlavního počátku
+Partu a dvě orientační reference: FRONT na XZ a TOP na XY. U nového
+modelovaného tělesa jsou odsazení i natočení nulové. Jde o skutečné uložené
+reference, ne pouze o shodné číselné souřadnice. Počátek prvního tělesa
+nového Partu se vytvoří stejně; jeho reference používají nově přidělené ID
+Partu, takže šablony nadále neobsahují trvalá ID modelových objektů.
+
+Stejná pravidla platí pro nová tělesa importovaná STEP/IGES a nové těleso
+pro DXF. STEP výskyt s existující globální transformací převezme odpovídající
+odsazení a úhlové korekce, takže se při navázání nepřesune ani neotočí.
+Zrcadla a pole zachovávají své zvláštní závislé vlastnictví a tato politika
+jim nepřepisuje umístění. Načítání již uložených těles nemění jejich reference.
+
+Kontextové menu běžného tělesa obsahuje Vlastnosti a Edit. Edit zobrazí
+nenulové polohové a úhlové kóty celého tělesa. Dvojklik umožňuje změnit
+hodnotu; změna používá stejný explicitní výpočet jako potvrzení Vlastností.
+Kóta po vynulování zmizí. Nulové hodnoty, reference a úhlové korekce zůstávají
+dostupné ve Vlastnostech, odkud lze těleso poprvé odsunout. Kóty patří tělesu,
+ne jeho prvnímu prvku. Geometrie všech jeho prvků se přemístí společně.
+
+Implementace používá existující Placement, reference, řešič a vykreslení kót.
+Výchozí vazby nastavuje pouze politika vytvoření tělesa; sdílený datový
+formát a smlouva umísťování kontejnerů se nemění. Vše se ukládá v prtz/asmz/drwz.
+
+Ověření: Windows Release a všech 49 CTest testů prošlo (400,83 s).
+Test těles kontroluje nulový i posunutý/natočený rámec po vyřešení vazeb
+na Part a jejich uložení/načtení. UI test spouští Edit z kontextového menu,
+mění odsazení 5 → 7 → 5 mm a úhel 15 → 0 stupňů; nulová kóta zmizí.
+Snímek výsledných tělesových kót byl vizuálně zkontrolován.

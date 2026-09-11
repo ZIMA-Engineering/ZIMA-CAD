@@ -1,3 +1,4 @@
+#include <zima/document/body_origin_attachment.hpp>
 #include <zima/interchange/step_model.hpp>
 #include <zima/interchange/step.hpp>
 #include <zima/document/precision.hpp>
@@ -14,12 +15,12 @@ void insert_body(document::PartDocument& doc, document::HistoryContainer contain
         const StepPart& node, bool global) {
     auto graph=doc.body_history;
     if(graph.bodies().empty()&&!doc.history.empty()) {
-        static_cast<void>(graph.create_body(doc.name));
+        static_cast<void>(document::create_origin_bound_body(graph, doc.document_id, doc.name));
         for(const auto& entry:doc.history_order)graph.insert(entry);
         if(doc.history_order.empty())for(const auto& old:doc.history)
             graph.insert({document::PartHistoryKind::Feature,old.id});
     }
-    const auto id=graph.create_body(node.name);
+    const auto id=document::create_origin_bound_body(graph, doc.document_id, node.name);
     graph.insert({document::PartHistoryKind::Feature,container.id});
     if(global) {
         auto body=*graph.find(id);
@@ -28,6 +29,7 @@ void insert_body(document::PartDocument& doc, document::HistoryContainer contain
         body.scope.placement.absolute_rotation_x=node.global_rotation_x;
         body.scope.placement.absolute_rotation_y=node.global_rotation_y;
         body.scope.placement.absolute_rotation_z=node.global_rotation_z;
+        body.scope.placement=document::body_origin_attachment(doc.document_id, body.scope.placement);
         graph.update_body(std::move(body));
     }
     doc.history.push_back(std::move(container));doc.set_body_history(std::move(graph));
