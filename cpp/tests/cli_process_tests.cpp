@@ -171,6 +171,14 @@ int main(int argc,char** argv){
             const auto loaded=document::PartDocument::load(project/("cli-"+kind+".prtz"),&reloaded);
             require(loaded.history.size()==1 && !reloaded.empty() && reloaded.back().volume>0,"CLI primitive did not persist calculated geometry");
         }
+
+        result=launch(executable,root,common+QStringList{"--stdin"},"open commanded-box.prtz\nsave_as independent.prtz\nclose\nopen independent.prtz\ndocuments\nclose\n");
+        require(result.exit_code==0 && result.results().size()==6 && result.results().back().at("data").empty(),"CLI copy/open/close lifecycle failed");
+        const auto independent=document::PartDocument::load(project/"independent.prtz");
+        require(independent.document_id!=new_box.document_id,"CLI copy reused original identity");
+        result=launch(executable,root,common+QStringList{"--stdin","--keep-going"},"new drawing unsaved\nclose\n{\"command\":\"close\",\"arguments\":{\"discard\":true}}\ndocuments\n");
+        const auto closed=result.results();
+        require(result.exit_code==1 && closed.size()==4 && closed[1].at("code")=="unsaved_changes" && closed.back().at("data").empty(),"CLI failed to protect or explicitly discard an unsaved drawing");
         std::cout<<"CLI processes: native files, Unicode/config, scripts/stdin, errors, streaming and explicit geometry calculation passed\n";
         return 0;
     }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}

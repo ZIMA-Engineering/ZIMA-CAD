@@ -60,6 +60,7 @@ int verify_drawing_ui() {
         workspace.activate(drawing.document_id); workspace.display_top_level(drawing.document_id);
         zima::app::DrawingWindow window(&workspace,false);
         window.edit_workspace_document(drawing.document_id); window.resize(1920,1000); window.show(); flush();
+        require(!workspace.open_drawing(drawing.document_id)->is_dirty(),"Opening Drawing marked it dirty");
         auto* canvas=window.findChild<QWidget*>("drawingCanvas");
         const auto action=[&](const char* id) {
             auto* result=window.findChild<QAction*>(id); require(result,"Drawing action missing"); return result;
@@ -79,7 +80,8 @@ int verify_drawing_ui() {
         require(dialog() && count()==0,"Placement must open transient unified Properties");
         require(dialog()->findChild<QComboBox*>("drawingViewOrientation")->currentIndex()==6,"First view is not isometric");
         dialog()->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click(); flush();
-        require(count()==0 && workspace.open_drawing(drawing.document_id)->document.sheets.front().views.empty(),"Cancel inserted a view");
+        require(count()==0 && workspace.open_drawing(drawing.document_id)->document().sheets.front().views.empty(),"Cancel inserted a view");
+        require(!workspace.open_drawing(drawing.document_id)->is_dirty(),"Cancel marked Drawing dirty");
         action("insertDrawingViewAction")->trigger(); click(canvas,center);
         auto* properties=dialog(); require(properties,"Second placement has no properties");
         properties->findChild<QComboBox*>("drawingViewOrientation")->setCurrentIndex(0);
@@ -95,6 +97,10 @@ int verify_drawing_ui() {
         properties->findChild<QLineEdit*>("drawingViewName")->setText("Front test");
         properties->findChild<QCheckBox*>()->setChecked(true);
         properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click(); flush();
+        require(workspace.open_drawing(drawing.document_id)->is_dirty(),"Confirmed view creation was not tracked");
+        const auto tracked_revision=workspace.open_drawing(drawing.document_id)->revision();
+        window.edit_workspace_document(drawing.document_id);flush();
+        require(workspace.open_drawing(drawing.document_id)->revision()==tracked_revision,"Displaying current drawing created another edit");
         require(count()==1 && !dialog(),"OK did not commit one view");
         const auto original=state.sheets.front().views.front();
         require(original.tangent_edge_style==zima::drawing::TangentEdgeStyle::Thin,"Tangent edge property did not persist on OK");

@@ -1,4 +1,5 @@
 #include "workspace_internal.hpp"
+#include <zima/workspace/document_operations.hpp>
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -174,14 +175,8 @@ void AssemblyWorkspaceWindow::close_document(int tab_index) {
     const std::string id = tabs_->tabData(tab_index).toString().toStdString();
     const auto* state = workspace_.find(id);
     if (state == nullptr) return;
-    const bool dirty = std::visit([](const auto& document) {
-        using State = std::decay_t<decltype(document)>;
-        if constexpr (std::is_same_v<State, zima::workspace::PartState> ||
-                      std::is_same_v<State, zima::workspace::AssemblyState>) {
-            return document.session.is_dirty();
-        }
-        return false;
-    }, *state);
+    bool discard=false;
+    const bool dirty=workspace::document_needs_save(workspace_,id);
     if (dirty) {
         const auto answer = QMessageBox::warning(
             this, tr("Neuložené změny"),
@@ -189,23 +184,15 @@ void AssemblyWorkspaceWindow::close_document(int tab_index) {
             QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel,
             QMessageBox::Save);
         if (answer == QMessageBox::Cancel) return;
+        discard=answer==QMessageBox::Discard;
         if (answer == QMessageBox::Save) {
             workspace_.activate(id);
             workspace_.display_top_level(id);
             save_active_document();
-            const auto* saved = workspace_.find(id);
-            const bool still_dirty = saved != nullptr && std::visit([](const auto& document) {
-                using State = std::decay_t<decltype(document)>;
-                if constexpr (std::is_same_v<State, zima::workspace::PartState> ||
-                              std::is_same_v<State, zima::workspace::AssemblyState>) {
-                    return document.session.is_dirty();
-                }
-                return false;
-            }, *saved);
-            if (still_dirty) return;
+            if(!workspace_.find(id) || workspace::document_needs_save(workspace_,id))return;
         }
     }
-    if (!workspace_.remove(id)) return;
+    if (workspace::close_document(workspace_,id,discard)!=workspace::CloseDocumentResult::Closed) return;
     active_occurrence_path_.clear();
     active_sketch_id_.clear();
     selected_sketch_id_.clear();
@@ -330,12 +317,12 @@ void AssemblyWorkspaceWindow::refresh_tabs() {
             using State = std::decay_t<decltype(document)>;
             if constexpr(std::is_same_v<State,zima::workspace::DrawingState>) {
                 const QString label = document.path.empty()
-                    ? QString::fromStdString(document.document.name)
+                    ? QString::fromStdString(document.document().name)
                     : QString::fromStdString(document.path.filename().string());
                 const int index=tabs_->addTab(resource_icon("drawing"),
                     label);
-                tabs_->setTabData(index,QString::fromStdString(document.document.document_id));
-                if(document.document.document_id==workspace_.displayed_document_id()) {
+                tabs_->setTabData(index,QString::fromStdString(document.document().document_id));
+                if(document.document().document_id==workspace_.displayed_document_id()) {
                     displayed_index=index;
                     displayed_label=label;
                 }
@@ -413,13 +400,13 @@ void AssemblyWorkspaceWindow::update_document_kind_button() {
     if(template_sketch()){document_kind_button_->hide();return;}
     if (const auto* drawing = workspace_.open_drawing(displayed)) {
         bool assembly_source = false;
-        if (!drawing->document.source_document_id.empty()) {
+        if (!drawing->document().source_document_id.empty()) {
             assembly_source = workspace_.open_assembly(
-                    drawing->document.source_document_id) != nullptr ||
-                drawing->document.source_path.extension() == ".asmz";
-        } else if (!drawing->document.sheets.empty() &&
-            !drawing->document.sheets.front().views.empty()) {
-            const auto& view = drawing->document.sheets.front().views.front();
+                    drawing->document().source_document_id) != nullptr ||
+                drawing->document().source_path.extension() == ".asmz";
+        } else if (!drawing->document().sheets.empty() &&
+            !drawing->document().sheets.front().views.empty()) {
+            const auto& view = drawing->document().sheets.front().views.front();
             assembly_source = workspace_.open_assembly(view.source_document_id) != nullptr ||
                 view.source_path.extension() == ".asmz";
         }
@@ -452,12 +439,12 @@ void AssemblyWorkspaceWindow::update_document_kind_button() {
 void AssemblyWorkspaceWindow::navigate_document_kind() {
     const std::string displayed = workspace_.displayed_document_id();
     if (const auto* drawing = workspace_.open_drawing(displayed)) {
-        std::string source_document_id = drawing->document.source_document_id;
-        std::filesystem::path source_path = drawing->document.source_path;
+        std::string source_document_id = drawing->document().source_document_id;
+        std::filesystem::path source_path = drawing->document().source_path;
         const auto drawing_directory = drawing->path.parent_path();
-        if (source_document_id.empty() && !drawing->document.sheets.empty() &&
-            !drawing->document.sheets.front().views.empty()) {
-            const auto& first_view = drawing->document.sheets.front().views.front();
+        if (source_document_id.empty() && !drawing->document().sheets.empty() &&
+            !drawing->document().sheets.front().views.empty()) {
+            const auto& first_view = drawing->document().sheets.front().views.front();
             source_document_id = first_view.source_document_id;
             source_path = first_view.source_path;
         }

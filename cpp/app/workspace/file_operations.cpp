@@ -191,7 +191,7 @@ void AssemblyWorkspaceWindow::save_active_document() {
         try {
             update_status_operation(
                 tr("Zapisuji listy, pohledy a popisové pole…"), -1, 0);
-            const auto id = drawing->document.document_id;
+            const auto id = drawing->document().document_id;
             auto job = workspace::prepare_document_save(workspace_, id, path.toStdString());
             const auto saved = run_background_task([job = std::move(job)] { return job.write(); });
             if (!workspace::complete_document_save(workspace_, saved))
@@ -554,24 +554,30 @@ void AssemblyWorkspaceWindow::rename_document_file() {
                         updated_ids.insert(assembly->session.document().document_id);
                     }
                 } else if (auto* drawing = std::get_if<zima::workspace::DrawingState>(&state)) {
-                    if (drawing->document.source_document_id ==
+                    auto updated=drawing->document();
+                    bool changed=false;
+                    if (updated.source_document_id ==
                             workspace_.active_document_id() ||
-                        (!drawing->document.source_path.empty() &&
-                         std::filesystem::absolute(drawing->document.source_path)
+                        (!updated.source_path.empty() &&
+                         std::filesystem::absolute(updated.source_path)
                                  .lexically_normal() == old_path)) {
-                        drawing->document.source_path = new_path;
-                        drawing->document.source_name =
+                        updated.source_path = new_path; changed=true;
+                        updated.source_name =
                             new_path.stem().string();
                     }
-                    for (auto& sheet : drawing->document.sheets) {
+                    for (auto& sheet : updated.sheets) {
                         for (auto& view : sheet.views) {
                             if (!view.source_path.empty() &&
                                 std::filesystem::absolute(view.source_path).lexically_normal() ==
                                     old_path) {
-                                view.source_path = new_path;
-                                updated_ids.insert(drawing->document.document_id);
+                                view.source_path = new_path; changed=true;
+                                updated_ids.insert(updated.document_id);
                             }
                         }
+                    }
+                    if(changed) {
+                        updated_ids.insert(updated.document_id);
+                        drawing->commit(std::move(updated));
                     }
                 }
             }

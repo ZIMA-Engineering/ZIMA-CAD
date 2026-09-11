@@ -36,6 +36,12 @@ private:
 // geometry or changes active/displayed document. Newer edits remain dirty.
 [[nodiscard]] bool complete_document_save(Workspace& workspace, const SavedDocument& saved);
 
+// Uses tracked model edits and whether the native destination exists. No OCCT.
+[[nodiscard]] bool document_needs_save(const Workspace&, const std::string& document_id);
+enum class CloseDocumentResult { Closed, NotOpen, UnsavedChanges };
+[[nodiscard]] CloseDocumentResult close_document(Workspace&, const std::string& document_id,
+    bool discard = false);
+
 enum class HistoryDirection { Undo, Redo };
 [[nodiscard]] bool can_step_document_history(const Workspace& workspace,
     const std::string& document_id, HistoryDirection direction);

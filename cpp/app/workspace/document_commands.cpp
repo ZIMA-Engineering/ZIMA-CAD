@@ -44,8 +44,8 @@ void AssemblyWorkspaceWindow::edit_parameters_for_document(std::string active_id
         return;
     }
     if (const auto* drawing = workspace_.open_drawing(active_id)) {
-        const auto source_id = drawing->document.source_document_id;
-        auto source_path = drawing->document.source_path;
+        const auto source_id = drawing->document().source_document_id;
+        auto source_path = drawing->document().source_path;
         if (source_path.is_relative() && !drawing->path.empty())
             source_path = drawing->path.parent_path() / source_path;
         active_id = source_id;

@@ -29,7 +29,8 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Proces CLI, UTF-8, skripty, stdin, config | Hotovo | Rozšiřovat testy nových příkazů |
 | Katalog, kontext, datový strom | Hotovo pro současné příkazy | Doplňovat popisy a dotazy podle domén |
 | Typované argumenty | Hotovo | Řetězce, čísla, celá čísla, boolean, objekty a pole; validace před mutací |
-| New/Open/Save, Regenerate, Undo/Redo | Základ hotov | Save As, zavírání/aktivace dokumentu a další dokumentové operace |
+| New/Open/Save, Save As, aktivace/zavření, pracovní adresář | Hotovo | Přejmenování souborů a správa archivů jsou další samostatné operace |
+| Regenerate, Undo/Redo | Základ Part/Assembly hotov | Výkresové operace a jejich historie |
 | Kvádr | Hotovo | Společná tvorba, čtení a rozměrový patch; včetně zámků a přesnosti |
 | Válec, koule, kužel, jehlan, klín | Hotovo | Společné create/get/set, zámky, přesnost, GUI/CLI a 59/59 regresí |
 | Historie Partu | Zbývá | Přesun, potlačení, odstranění, kurzor |
@@ -45,7 +46,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Zaoblení, zkosení, skořepina | Zbývá | Výběr skutečného vstupního tělesa a sdílené transakce |
 | Zrcadlo a pole | Zbývá | Odvozená tělesa a komponenty |
 | Sestavy | Zbývá | Komponenty, přesné výskyty, vazby, aktivace a řezy |
-| Výkresy | Zbývá | Listy, pohledy, kóty, anotace, šablony, BOM, Show/Erase |
+| Výkresy | Správa neuložených změn hotova | Příkazy pro listy, pohledy, kóty, anotace, šablony, BOM, Show/Erase |
 | Řezy, měření a vzhled | Zbývá | Datové operace a uložené výsledky |
 | Parametry, relace a materiál | Zbývá | Jednotky, fyzikální údaje a rodinné tabulky |
 | Import a export | Zbývá | STEP/IGES/DXF, přesnost, cílový Part/Assembly a podporované exporty |
@@ -54,3 +55,9 @@ Každá další etapa aktualizuje tabulku a uvádí ověřené testy. Neobcház�
 chybějící operaci nevalidovanou změnou serializovaného dokumentu ani voláním
 widgetů ze samostatného CLI. Plošný audit Undo/Redo zůstává samostatným úkolem;
 regrese historie potřebné pro právě převáděnou operaci jsou součástí etapy.
+
+Etapa správy dokumentů: katalog má **34 příkazů**. Kompletní Windows Release
+sada ověřila 58/59 testů; nová regrese odhalila chybějící přesměrování vlastního
+řádku kusovníku v kopii výkresu. Po opravě prošlo všech **9/9 dotčených testů**
+(16,71 s), včetně původně selhávající regrese. Podrobnosti a logy jsou v
+[DOCUMENT_OPERATIONS.md](DOCUMENT_OPERATIONS.md).

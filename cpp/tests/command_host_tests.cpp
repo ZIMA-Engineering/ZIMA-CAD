@@ -47,7 +47,7 @@ void verify_commands(const kernel::OcctKernel& kernel,const fs::path& root){
         }).get();
     };
     Host host(live,kernel,directory,options);current=&host;
-    require(run(host,"help").data.size()==29,"Command catalog changed");
+    require(run(host,"help").data.size()==34,"Command catalog changed");
     require(run(host,"documents").data.empty()&&run(host,"tree").data.at("items").empty(),"Empty workspace query failed");
     require(host.execute_text("save").code=="no_document","Empty save accepted");
     run(host,"new part \"díl s mezerou\"");const auto id=live.active_document_id();
@@ -112,6 +112,81 @@ void verify_commands(const kernel::OcctKernel& kernel,const fs::path& root){
     run(host,"open group.asmz");require(live.active_document_id()==group,"Assembly command open failed");
     run(host,"open sheet.drwz");require(live.active_document_id()==drawing_id,"Drawing command open failed");
 }
+
+void verify_document_lifecycle(const kernel::OcctKernel& kernel,const fs::path& root) {
+    workspace::Workspace live;auto directory=root;
+    command_host::Options options;
+    options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"start_part.prtz","start_assembly.asmz","Body"},{}};};
+    Host host(live,kernel,directory,options);
+    const auto folder=root/fs::path(u8"soubory žluťoučké");fs::create_directory(folder);
+    const auto utf8=folder.generic_u8string();const std::string folder_text(utf8.begin(),utf8.end());
+    request(host,"cd",{{"path",folder_text}});
+    require(directory==folder && run(host,"pwd").data.at("path")==folder_text,"Working directory did not change");
+    require(host.execute_text("cd missing").code=="invalid_directory" && directory==folder,"Failed cd changed directory");
+    run(host,"new part original");const auto id=live.active_document_id();
+    require(host.execute_text("close").code=="unsaved_changes" && live.size()==1,"Unwritten new document was discarded");
+    auto created=run(host,"box.create 10 20 30");const auto box=created.data.at("container");run(host,"save");
+    require(!run(host,"documents").data.front().at("needs_save").get<bool>(),"Saved document still needs saving");
+    run(host,"new assembly owner");const auto owner=live.active_document_id();
+    auto* part=live.open_part(id);const auto revision=part->session.revision();
+    const auto* cache=part->session.calculated_boundaries().data();
+    request(host,"activate",{{"document",id}});
+    require(live.active_document_id()==id && live.displayed_document_id()==id &&
+        part->session.revision()==revision && part->session.calculated_boundaries().data()==cache,"Activation calculated or edited model");
+    require(host.execute_text("activate missing").code=="document_not_found" && live.active_document_id()==id,"Unknown activation changed context");
+    request(host,"box.set",{{"container",box},{"length_mm","15"}});
+    auto drawing=drawing::DrawingDocument::create_default();drawing.source_document_id=id;
+    drawing.source_path=folder/"original.prtz";const auto drawing_id=drawing.document_id;
+    drawing::DrawingView view;view.id="source-view";view.name="Front";view.source_document_id=id;view.source_path=drawing.source_path;
+    drawing.sheets.front().views.push_back(view);
+    drawing::BomRow bom;bom.name="Original";bom.source_document_id=id;bom.source_path=drawing.source_path;
+    drawing.sheets.front().bom_rows.push_back(bom);
+    live.add_drawing(drawing,folder/"original.drwz");
+    const auto original_revision=live.open_part(id)->session.revision();
+    const auto copied=run(host,"save_as copy.prtz");
+    require(copied.data.at("paths").size()==2,"Save As lost companion drawing");
+    std::vector<kernel::BodyResult> copied_cache;
+    const auto copy=document::PartDocument::load(folder/"copy.prtz",&copied_cache);
+    const auto companion=drawing::DrawingDocument::load(folder/"copy.drwz");
+    require(copy.document_id!=id && companion.document_id!=drawing_id && companion.source_document_id==copy.document_id &&
+        std::abs(copied_cache.back().volume-9000)<1e-6,"Independent copy identity, geometry or drawing link incorrect");
+    require(companion.source_path==folder/"copy.prtz" && companion.sheets.front().views.front().source_path==folder/"copy.prtz" &&
+        companion.sheets.front().bom_rows.front().source_path==folder/"copy.prtz" &&
+        companion.sheets.front().bom_rows.front().source_document_id==copy.document_id,"Drawing Unicode source paths did not roundtrip");
+    auto group=live.open_assembly(owner)->session.document();
+    group.components.push_back(assembly::AssemblyDocument::create_part_occurrence("Original",id,folder/"original.prtz",live.open_part(id)->session.calculated_boundaries().back()));
+    live.open_assembly(owner)->session.commit(group);
+    request(host,"activate",{{"document",owner}});run(host,"save");
+    const auto group_saved=assembly::AssemblyDocument::load(folder/"owner.asmz");
+    require(group_saved.components.front().source_path==folder/"original.prtz","Assembly Unicode source path did not roundtrip");
+    run(host,"save_as owner-copy.asmz");
+    const auto group_copy=assembly::AssemblyDocument::load(folder/"owner-copy.asmz");
+    require(group_copy.document_id!=owner && group_copy.components.front().source_document_id==id &&
+        group_copy.components.front().source_path==folder/"original.prtz","Assembly copy changed component source identity/path");
+    request(host,"activate",{{"document",id}});
+    require(live.active_document_id()==id && live.open_part(id)->session.revision()==original_revision &&
+        live.open_part(id)->session.is_dirty() && live.open_part(id)->path==folder/"original.prtz","Save As altered original document");
+    require(!host.execute_text("save_as copy.prtz").ok && document::PartDocument::load(folder/"copy.prtz").document_id==copy.document_id,"Save As overwrote an existing file");
+    require(!host.execute_text("save_as wrong.asmz").ok && !fs::exists(folder/"wrong.asmz"),"Save As accepted wrong native type");
+    require(host.execute_text("close").code=="unsaved_changes" && live.size()==3,"Dirty model was discarded");
+    require(host.execute({{"command","close"},{"arguments",{{"discard",1}}}}).code=="invalid_arguments" && live.size()==3,"Non-boolean discard was accepted");
+    request(host,"close",{{"document",owner},{"discard",true}});
+    require(live.active_document_id()==id && live.displayed_document_id()==id,"Closing another tab switched documents");
+    run(host,"save");run(host,"close");
+    require(live.active_document_id()==drawing_id && live.displayed_document_id()==drawing_id,"Closing current tab did not select survivor");
+    require(host.execute_text("close").code=="unsaved_changes","Unwritten drawing closed without saving");
+    run(host,"save");auto edited=live.open_drawing(drawing_id)->document();edited.name="Changed sheet";
+    live.open_drawing(drawing_id)->commit(edited);
+    const auto info=run(host,"documents").data.front();
+    require(info.at("dirty")==true && info.at("needs_save")==true && info.at("revision")==1,"Drawing edits not reported");
+    require(host.execute_text("close").code=="unsaved_changes","Drawing edit was silently discarded");
+    run(host,"save");run(host,"close");
+    require(live.size()==0 && live.active_document_id().empty() && live.displayed_document_id().empty(),"Last document did not close");
+    require(host.execute_text("close").code=="no_document","Close on empty workspace succeeded");
+    request(host,"open",{{"path","original.drwz"}});
+    require(live.open_drawing(drawing_id)->document().name=="Changed sheet" && !live.open_drawing(drawing_id)->is_dirty(),"Drawing save/reopen lost edit or clean state");
+}
+
 void verify_model_tree(const kernel::OcctKernel& kernel,const fs::path& root){
     workspace::Workspace live;auto directory=root;
     auto part=document::PartDocument::create_default();
@@ -174,7 +249,7 @@ int main(){
         kernel::OcctKernel kernel;
         const auto directory=fs::canonical(fs::temp_directory_path())/("zima-command-host-"+document::PartDocument::create_default().document_id);
         fs::create_directory(directory);
-        verify_commands(kernel,directory);verify_model_tree(kernel,directory);
+        verify_commands(kernel,directory);verify_model_tree(kernel,directory);verify_document_lifecycle(kernel,directory);
         // Only the uniquely created test directory can be removed.
         require(directory.parent_path()==fs::canonical(fs::temp_directory_path()),"Unexpected fixture directory");
         fs::remove_all(directory);

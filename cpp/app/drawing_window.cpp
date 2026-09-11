@@ -17,6 +17,7 @@
 #include <QSaveFile>
 #include <zima/ui/numeric_value_lock.hpp>
 #include "drawing_window.hpp"
+#include <zima/workspace/document_operations.hpp>
 #include <zima/viewer/embedded_image.hpp>
 #include "file_dialog.hpp"
 #include "application_settings.hpp"
@@ -1721,7 +1722,7 @@ void DrawingWindow::create_layout() {
             auto path=view.source_path;if(path.is_relative()&&!path_.empty())path=path_.parent_path()/path;
             auto source=load_drawing_source(path,workspace_,view.source_document_id);zima::drawing::refresh_view_geometry(view,source.second);
         }}*sheet=std::move(next);canvas_->update();sync_workspace_document();}
-        catch(const std::exception& e){set_status_message(QString::fromUtf8(e.what()));refresh();}
+        catch(const std::exception& e){set_status_message(QString::fromUtf8(e.what()));refresh(false);}
     };
     connect(scale_numerator_, &QDoubleSpinBox::valueChanged, this,
         [change_scale](double) { change_scale(); });
@@ -1737,7 +1738,7 @@ void DrawingWindow::create_layout() {
         });
     layout->addWidget(canvas_, 1); layout->addWidget(sheet_controls_); layout->addWidget(state_);
     setCentralWidget(central);
-    connect(sheets_, &QTabBar::currentChanged, this, [this] { refresh(); });
+    connect(sheets_, &QTabBar::currentChanged, this, [this] { refresh(false); });
 }
 
 void DrawingWindow::set_status_handler(std::function<void(const QString&)> handler) {
@@ -1758,7 +1759,7 @@ void DrawingWindow::new_document() {
         workspace_->add_drawing(document_); workspace_document_id_=document_.document_id;
         workspace_->activate(workspace_document_id_); workspace_->display_top_level(workspace_document_id_);
     }
-    refresh();
+    refresh(false);
 }
 void DrawingWindow::edit_workspace_document(const std::string& document_id) {
     if(workspace_==nullptr) return;
@@ -1766,7 +1767,7 @@ void DrawingWindow::edit_workspace_document(const std::string& document_id) {
     if (workspace_document_id_ == document_id && canvas_->interacting()) return;
     if (view_dialog_) view_dialog_->reject();
     canvas_->cancel_placement();
-    workspace_document_id_=document_id; document_=state->document; path_=state->path; refresh();
+    workspace_document_id_=document_id; document_=state->document(); path_=state->path; refresh(false);
 }
 void DrawingWindow::select_view(const std::string& view_id) {
     if (view_dialog_) return;
@@ -1803,12 +1804,12 @@ void DrawingWindow::open_document() {
         workspace_document_id_.clear();
         if(workspace_!=nullptr) {
             if(auto* existing=workspace_->open_drawing(document_.document_id)) {
-                existing->document=document_; existing->path=path_; }
+                document_=existing->document(); path_=existing->path; }
             else workspace_->add_drawing(document_,path_);
             workspace_document_id_=document_.document_id;
             workspace_->activate(workspace_document_id_); workspace_->display_top_level(workspace_document_id_);
         }
-        refresh();
+        refresh(false);
     }
     catch (const std::exception& error) { QMessageBox::warning(this, tr("Nelze otevřít výkres"), error.what()); }
 }
@@ -1869,8 +1870,16 @@ void DrawingWindow::save_document() {
     auto path = path_.empty() ? save_file(this, tr("Uložit výkres"), "drawing.drwz", tr("Výkres ZIMA-CAD (*.drwz)"), "drwz") : QString::fromStdString(path_.string());
     if (path.isEmpty()) return;
     if (!path.endsWith(".drwz", Qt::CaseInsensitive)) path += ".drwz";
-    try { document_.save(path.toStdString()); path_ = path.toStdString();
-        sync_workspace_document(); set_status_message(tr("Výkres uložen.")); }
+    try {
+        if(workspace_ && workspace_->open_drawing(workspace_document_id_)) {
+            const auto saved=zima::workspace::prepare_document_save(*workspace_,workspace_document_id_,path.toStdString()).write();
+            if(!zima::workspace::complete_document_save(*workspace_,saved))
+                throw std::runtime_error("Drawing was closed or retargeted during saving");
+            const auto* state=workspace_->open_drawing(workspace_document_id_);
+            document_=state->document();path_=state->path;
+        } else { document_.save(path.toStdString());path_=path.toStdString(); }
+        sync_workspace_document(false); set_status_message(tr("Výkres uložen."));
+    }
     catch (const std::exception& error) { QMessageBox::warning(this, tr("Nelze uložit výkres"), error.what()); }
 }
 void DrawingWindow::add_sheet() {
@@ -2331,7 +2340,7 @@ void DrawingWindow::show_erase(){
         canvas_->set_model_command({},{});canvas_->set_preview({});
         canvas_->choose_view([this,dialog](const auto& id){if(const auto* view=document_.find_view(id)){canvas_->select_view_for_test(id);dialog->set_view(*view);}});
     });
-    connect(dialog,&QDialog::finished,this,[this,dialog]{const auto id=dialog->view_id();canvas_->set_staged_model_previews({});canvas_->start_selection();canvas_->set_model_command({},{});canvas_->set_preview({});view_dialog_.clear();if(properties_handler_)properties_handler_(nullptr);refresh();canvas_->select_view_for_test(id);});
+    connect(dialog,&QDialog::finished,this,[this,dialog]{const auto id=dialog->view_id();canvas_->set_staged_model_previews({});canvas_->start_selection();canvas_->set_model_command({},{});canvas_->set_preview({});view_dialog_.clear();if(properties_handler_)properties_handler_(nullptr);refresh(false);canvas_->select_view_for_test(id);});
     dialog->setAttribute(Qt::WA_DeleteOnClose);dialog->show();if(!view)dialog->arm_view();update_action_states();
 }
 
@@ -2483,7 +2492,7 @@ void DrawingWindow::update_source_variant() {
     if (label.isEmpty()) label=tr("Bez zdroje");
     source_variant_->addItem(label,QString::fromStdString(document_.source_document_id));
 }
-void DrawingWindow::refresh() {
+void DrawingWindow::refresh(bool changed) {
     update_source_variant();
     const int wanted = std::clamp(sheets_ ? sheets_->currentIndex() : 0, 0, static_cast<int>(document_.sheets.size() - 1));
     sheets_->blockSignals(true); while (sheets_->count()) sheets_->removeTab(0);
@@ -2506,7 +2515,7 @@ void DrawingWindow::refresh() {
         : tr("Výkres: %1 listů, %2 pohledů")
             .arg(document_.sheets.size()).arg(view_count));
     update_action_states();
-    sync_workspace_document();
+    sync_workspace_document(changed);
     refresh_title_block_context();
 }
 
@@ -2527,9 +2536,9 @@ void DrawingWindow::refresh_title_block_context() {
     canvas_->set_title_block_context(std::move(context));
 }
 
-void DrawingWindow::sync_workspace_document() {
-    document_.synchronize_dimension_identifiers();
-    if(workspace_!=nullptr) for(auto& sheet:document_.sheets) for(auto& view:sheet.views)
+void DrawingWindow::sync_workspace_document(bool changed) {
+    if(changed)document_.synchronize_dimension_identifiers();
+    if(changed && workspace_!=nullptr) for(auto& sheet:document_.sheets) for(auto& view:sheet.views)
         if(view.source_path.empty()) {
             if(const auto* part=workspace_->open_part(view.source_document_id)) view.source_path=part->path;
             else if(const auto* assembly=workspace_->open_assembly(view.source_document_id))
@@ -2537,7 +2546,8 @@ void DrawingWindow::sync_workspace_document() {
         }
     if(workspace_!=nullptr && !workspace_document_id_.empty())
         if(auto* state=workspace_->open_drawing(workspace_document_id_)) {
-            state->document=document_; state->path=path_;
+            if(changed)state->commit(document_);
+            state->path=path_;
         }
     if (changed_handler_) changed_handler_();
     if (selection_handler_) selection_handler_(canvas_->selected_view_id());

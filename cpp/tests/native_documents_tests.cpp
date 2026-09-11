@@ -46,7 +46,7 @@ int main(){
         require(group_id!=template_assembly.document_id && group_document.document_units.at("Length")=="cm" &&
             group_document.document_precision==template_assembly.document_precision && group_document.components.empty(),"Assembly template/config contract changed");
         const auto drawing_id=insert_native_document(workspace,prepare_new_native_document(NativeDocumentType::Drawing,"drawing",directory/"drawing.drwz",{}));
-        require(workspace.open_drawing(drawing_id)->document.name=="drawing","Drawing creation requires a Part template");
+        require(workspace.open_drawing(drawing_id)->document().name=="drawing","Drawing creation requires a Part template");
         require(bytes(template_root/settings.part_template)==part_template_bytes && bytes(template_root/settings.assembly_template)==assembly_template_bytes,"Creation modified config templates");
         auto missing=settings;missing.part_template="missing.prtz";
         fails([&]{static_cast<void>(part_from_template(missing));},"Missing template accepted");
@@ -103,7 +103,7 @@ int main(){
         auto stored_drawing=drawing::DrawingDocument::create_default();stored_drawing.source_document_id=model_id;stored_drawing.source_path=model_path;
         stored_drawing.save(directory/"stored.drwz");
         const auto stored_drawing_id=insert_native_document(workspace,read_native_document(directory/"stored.drwz"));
-        require(workspace.open_drawing(stored_drawing_id)->document.source_document_id==model_id,"Drawing open lost model reference");
+        require(workspace.open_drawing(stored_drawing_id)->document().source_document_id==model_id,"Drawing open lost model reference");
         require(fs::canonical(directory).parent_path()==fs::canonical(fs::temp_directory_path()),"Unsafe cleanup path");fs::remove_all(directory);
         std::cout<<"Native read/create, templates, fresh identities, cache, references, collisions and failures passed without QApplication\n";return 0;
     }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}

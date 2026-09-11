@@ -34,9 +34,12 @@ Dokončení staré úlohy nesmí změnit dokument, který byl mezitím zavřen a
 otevřen ze stejného souboru. Odmítne také mezitím změněnou cílovou cestu.
 Pracovní snímek není revize připnutá k sestavě a nevytváří žádný sidecar.
 
-Výkres zatím nemá dokumentovou session s dirty revizemi. Uložení zachovává
-stávající chování: zapíše snímek a aktualizuje cestu, novější obsah v paměti
-nepřepisuje. Rozšíření správy výkresové historie není součástí této etapy.
+Výkres nyní používá sledované potvrzení `DrawingState::commit`. Obsah je zvenčí
+přístupný pouze pro čtení; potvrzená změna zvýší runtime revizi. Uložení ji
+porovná s revizí snímku a novější úpravy ponechá dirty. Přepnutí tabu, listu,
+Cancel a obnova zobrazení nepředstavují potvrzení. Není nutná další kopie
+geometrie ani serializace pro kontrolu změn. Dokumentové Undo/Redo výkresu
+zůstává samostatnou chybějící operací.
 
 ## Historie
 
@@ -212,3 +215,36 @@ stromu/View při Open/New z GUI i konzole.
 Modelový strom a seznam dokumentů lze číst bez Qt, bez otevření zdrojových
 souborů závislostí a bez OCCT. Kontrakt, datová pole a hranice příkazového
 programu jsou v [CAD_CONSOLE.md](CAD_CONSOLE.md).
+
+## Životní cyklus dokumentů (2026-09-11)
+
+Společné `document_needs_save` a `close_document` chrání všechny tři nativní
+typy před zavřením neuložených úprav i dosud nezapsaného souboru. GUI ponechává
+volbu Uložit / Zahodit / Zrušit; konzole vrací `unsaved_changes`, dokud volající
+neuloží dokument nebo výslovně nepředá boolean `discard: true`.
+
+Host přidává `activate`, `close`, `pwd`, `cd` a `save_as`. Poslední příkaz
+používá existující `Workspace::save_copy` nad odděleným snímkem, stejně jako
+GUI. Výsledkem jsou nové identity a přesměrované navázané výkresy, nikoli
+změna identity původního dokumentu. Cíl musí mít správnou nativní příponu.
+Tabová aktivace a kopírování nevolají OCCT. Souborové formáty ani start šablony
+se nemění.
+
+Regrese s českým názvem adresáře odhalila systémové kódování Windows v cestách
+nativních odkazů. Serializace cest zdrojů výkresu, pohledu, kusovníku a komponenty
+sestavy nyní zapisuje UTF-8 a stejným způsobem je čte. Kopírování používá UTF-8
+rovněž pro přesměrování odkazů a název kopie; importní metadata Partu ukládají
+cestu ve stejném kódování. Nejde o nový formát nebo migrační větev.
+
+Kopie výkresu přesměruje i řádek kusovníku, který přímo odkazuje na kopírovaný
+model, na jeho nové ID a cestu. Ostatní komponenty nadále odkazují na své zdroje.
+
+Ověření: plný běh Windows Release **58/59** (376,32 s,
+`build/document-lifecycle-full-final.log`) odhalil právě chybějící přesměrování
+kusovníku. Po opravě prošlo **9/9 dotčených regresí** (16,71 s,
+`build/document-lifecycle-verified-tests.log`): společné operace, host bez Qt,
+skutečné procesy CLI, panel konzole, tři výkresové GUI kontrakty, Workspace a
+všech pět lokalizací. GUI i CLI jsou přeložené z opraveného stavu
+(`build/document-lifecycle-verified-build.log`). Kontroly ověřují objem kopie,
+nové identity, skutečné nativní soubory, Unicode cesty, ochranu změn, poslední
+otevřenou záložku a přepnutí dokumentu bez nové generace vypočtené geometrie.

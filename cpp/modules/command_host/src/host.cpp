@@ -20,15 +20,16 @@ Json documents(const workspace::Workspace& workspace) {
     for(const auto& state:workspace.documents())std::visit([&](const auto& value) {
         using State=std::decay_t<decltype(value)>;
         const auto& document=[&]() -> const auto& {
-            if constexpr(std::is_same_v<State,workspace::DrawingState>)return value.document;
+            if constexpr(std::is_same_v<State,workspace::DrawingState>)return value.document();
             else return value.session.document();
         }();
         Json row={{"id",document.document_id},{"name",document.name},{"path",path_text(value.path)},
             {"active",document.document_id==workspace.active_document_id()},
             {"displayed",document.document_id==workspace.displayed_document_id()}};
-        if constexpr(std::is_same_v<State,workspace::DrawingState>) {row["type"]="drawing";row["dirty"]=nullptr;}
+        if constexpr(std::is_same_v<State,workspace::DrawingState>) {row["type"]="drawing";row["dirty"]=value.is_dirty();row["revision"]=value.revision();}
         else {row["type"]=std::is_same_v<State,workspace::PartState>?"part":"assembly";
             row["dirty"]=value.session.is_dirty();row["revision"]=value.session.revision();}
+        row["needs_save"]=workspace::document_needs_save(workspace,document.document_id);
         result.push_back(std::move(row));
     },state);
     return result;
@@ -55,6 +56,7 @@ Result Host::execute_text(std::string_view text){return run([&]{return dispatche
 Result Host::execute(const Json& request){return run([&]{return dispatcher_.execute(request);});}
 void Host::register_commands(){
     register_primitive_commands();
+    register_document_commands();
     dispatcher_.set_guard([this](const commands::Command& command){
         if(!command.changes_state)return Result::success();
         const auto state=interaction();

@@ -9,6 +9,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <stdexcept>
 #include <variant>
 #include <vector>
 
@@ -29,10 +30,27 @@ struct AssemblyState {
     std::shared_ptr<const int> runtime_identity=std::make_shared<const int>(0);
 };
 
-struct DrawingState {
-    zima::drawing::DrawingDocument document;
+class DrawingState {
+public:
+    DrawingState(zima::drawing::DrawingDocument document, std::filesystem::path file = {})
+        : path(std::move(file)), document_(std::move(document)) { document_.synchronize_dimension_identifiers(); }
+    [[nodiscard]] const zima::drawing::DrawingDocument& document() const { return document_; }
+    // Every confirmed drawing edit goes through this boundary. Presentation-only
+    // refreshes do not call it; tracking requires no serialized geometry copy.
+    void commit(zima::drawing::DrawingDocument document) {
+        if(document.document_id!=document_.document_id)
+            throw std::invalid_argument("Drawing edit cannot change document identity");
+        document.synchronize_dimension_identifiers();
+        document_=std::move(document); ++revision_;
+    }
+    [[nodiscard]] std::uint64_t revision() const { return revision_; }
+    [[nodiscard]] bool is_dirty() const { return revision_!=saved_revision_; }
+    void mark_saved() { saved_revision_=revision_; }
     std::filesystem::path path;
     std::shared_ptr<const int> runtime_identity=std::make_shared<const int>(0);
+private:
+    zima::drawing::DrawingDocument document_;
+    std::uint64_t revision_{}, saved_revision_{};
 };
 
 using DocumentState = std::variant<PartState, AssemblyState, DrawingState>;

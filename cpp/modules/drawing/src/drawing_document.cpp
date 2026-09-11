@@ -480,7 +480,7 @@ void DrawingDocument::save(const std::filesystem::path& path,
     nlohmann::json root{{"format", "zima-cad-drawing"}, {"version", 7},
                         {"document_id", document_id}, {"name", name},
                         {"source_document_id", source_document_id},
-                        {"source_path", source_path.generic_string()},
+                        {"source_path", zima::document::path_to_utf8(source_path)},
                         {"source_name", source_name}};
     root["measurement_sources"]=nlohmann::json::object();
     std::map<const MeasurementGeometry*,std::string> measurement_ids;
@@ -533,7 +533,7 @@ void DrawingDocument::save(const std::filesystem::path& path,
         for(const auto& row:sheet.bom_rows) serialized["bom_rows"].push_back({
             {"item_number",row.item_number},{"quantity",row.quantity},{"name",row.name},
             {"designation",row.designation},{"material",row.material},{"file_stem",row.file_stem},
-            {"parameters",row.parameters},{"parameter_values",row.parameter_values},{"parameter_aliases",row.parameter_aliases},{"mass_unit",row.mass_unit},{"source_document_id",row.source_document_id},{"source_path",row.source_path.generic_string()}});
+            {"parameters",row.parameters},{"parameter_values",row.parameter_values},{"parameter_aliases",row.parameter_aliases},{"mass_unit",row.mass_unit},{"source_document_id",row.source_document_id},{"source_path",zima::document::path_to_utf8(row.source_path)}});
         const auto circles_json=[](const auto& circles){nlohmann::json values=nlohmann::json::array();for(const auto& c:circles)values.push_back({{"center",{c.center.x,c.center.y}},{"radius",c.radius},{"pen",static_cast<int>(c.pen)}});return values;};
         serialized["frame_circles"]=circles_json(sheet.frame_circles);serialized["title_block_circles"]=circles_json(sheet.title_block_circles);
         serialized["title_block_images"]=sheet.title_block_images;
@@ -553,7 +553,7 @@ void DrawingDocument::save(const std::filesystem::path& path,
                 throw std::runtime_error("Drawing projected view has an invalid parent");
             nlohmann::json item{{"id", view.id}, {"name", view.name},
                 {"source_document_id", view.source_document_id},
-                {"source_path", view.source_path.generic_string()},
+                {"source_path", zima::document::path_to_utf8(view.source_path)},
                 {"parent_view_id", view.parent_view_id},
                 {"orientation", orientation_name(view.orientation)},
                 {"projection_direction", direction_name(view.projection_direction)},
@@ -658,7 +658,7 @@ DrawingDocument DrawingDocument::load(const std::filesystem::path& path) {
     document.name = root.at("name").get<std::string>();
     document.dimension_identifiers = zima::document::DimensionIdentifiers::from_serialized(root.at("dimension_identifiers").dump());
     document.source_document_id = root.value("source_document_id", "");
-    document.source_path = root.value("source_path", "");
+    document.source_path = std::filesystem::u8path(root.value("source_path", ""));
     document.source_name = root.value("source_name", "");
     for (const auto& serialized : root.at("sheets")) {
         DrawingSheet sheet;
@@ -700,7 +700,7 @@ DrawingDocument DrawingDocument::load(const std::filesystem::path& path) {
         for(const auto& item:serialized.at("bom_rows")) sheet.bom_rows.push_back({
             item.at("item_number"),item.at("quantity"),item.at("name"),item.at("designation"),item.at("material"),
             item.value("file_stem",std::string{}),item.value("parameters",std::map<std::string,std::string>{}),
-            item.value("parameter_values",std::map<std::string,std::map<std::string,std::string>>{}),item.value("parameter_aliases",std::map<std::string,std::string>{}),item.value("mass_unit","kg"),item.value("source_document_id",std::string{}),item.value("source_path",std::string{})});
+            item.value("parameter_values",std::map<std::string,std::map<std::string,std::string>>{}),item.value("parameter_aliases",std::map<std::string,std::string>{}),item.value("mass_unit","kg"),item.value("source_document_id",std::string{}),std::filesystem::u8path(item.value("source_path",std::string{}))});
         const auto parse_circles=[](const auto& values){std::vector<TemplateCircle> result;for(const auto& c:values)result.push_back({{c.at("center").at(0),c.at("center").at(1)},c.at("radius"),static_cast<DrawingPen>(c.at("pen").template get<int>())});return result;};
         sheet.frame_circles=parse_circles(serialized.value("frame_circles",nlohmann::json::array()));sheet.title_block_circles=parse_circles(serialized.value("title_block_circles",nlohmann::json::array()));
         sheet.title_block_images=serialized.value("title_block_images",std::vector<zima::sketcher::TemplateImage>{});
@@ -714,7 +714,7 @@ DrawingDocument DrawingDocument::load(const std::filesystem::path& path) {
             if(!std::isfinite(view.dimension_guide_offset)||!std::isfinite(view.dimension_guide_spacing)||view.dimension_guide_offset<0||view.dimension_guide_spacing<=0)throw std::runtime_error("Invalid dimension guides");
             view.model_annotations = deserialize_model_annotations(item.value("model_annotations",nlohmann::json::array()).dump());
             view.source_document_id = item.at("source_document_id").get<std::string>();
-            view.source_path = item.value("source_path", "");
+            view.source_path = std::filesystem::u8path(item.value("source_path", ""));
             view.parent_view_id = item.value("parent_view_id", "");
             view.orientation = parse_orientation(item.at("orientation").get<std::string>());
             view.projection_direction = parse_direction(item.value("projection_direction", "none"));

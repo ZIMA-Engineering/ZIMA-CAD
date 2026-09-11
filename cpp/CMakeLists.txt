@@ -93,7 +93,7 @@ target_link_libraries(zima_workspace PUBLIC
     PRIVATE nlohmann_json::nlohmann_json)
 
 add_library(zima_command_host modules/command_host/src/host.cpp modules/command_host/src/model_tree.cpp
-    modules/command_host/src/primitive_commands.cpp)
+    modules/command_host/src/primitive_commands.cpp modules/command_host/src/document_commands.cpp)
 target_include_directories(zima_command_host PUBLIC modules/command_host/include)
 target_link_libraries(zima_command_host PUBLIC zima_commands zima_workspace)
 # Commands carry UTF-8 paths and localized text even without Qt's build flags.

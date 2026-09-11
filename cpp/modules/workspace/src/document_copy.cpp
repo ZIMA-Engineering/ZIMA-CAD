@@ -27,6 +27,10 @@ std::vector<std::filesystem::path> Workspace::save_copy(
     const auto* source=find(document_id);
     if (!source) throw std::invalid_argument("Dokument není otevřený.");
     const auto target=normalized(requested_target);
+    auto extension=target.extension().string();
+    std::transform(extension.begin(),extension.end(),extension.begin(),[](unsigned char c){return std::tolower(c);});
+    const auto expected=std::holds_alternative<PartState>(*source)?".prtz":std::holds_alternative<AssemblyState>(*source)?".asmz":".drwz";
+    if(extension!=expected)throw std::invalid_argument("Kopie musí mít příponu odpovídající typu dokumentu.");
     const auto source_path=std::visit([](const auto& state) { return normalized(state.path); },*source);
     if (target.empty() || target==source_path)
         throw std::invalid_argument("Kopie musí mít jiný název než původní dokument.");
@@ -90,7 +94,7 @@ std::vector<std::filesystem::path> Workspace::save_copy(
                 if (zima::assembly::AssemblyDocument::load(staged).document_id!=identity.document_id)
                     throw std::runtime_error("Kopie sestavy má nesprávné ID.");
             } else {
-                state.document.save(staged,identity);
+                state.document().save(staged,identity);
                 if (zima::drawing::DrawingDocument::load(staged).document_id!=identity.document_id)
                     throw std::runtime_error("Kopie výkresu má nesprávné ID.");
             }
@@ -110,7 +114,7 @@ std::vector<std::filesystem::path> Workspace::save_copy(
             return false;
         };
         const auto add=[&](const DrawingState& state) {
-            if (belongs(state.document) && seen_ids.insert(state.document.document_id).second)
+            if (belongs(state.document()) && seen_ids.insert(state.document().document_id).second)
                 drawings.push_back(state);
         };
         // Open documents are authoritative, including unsaved drawing edits.
@@ -138,22 +142,28 @@ std::vector<std::filesystem::path> Workspace::save_copy(
         std::sort(drawings.begin(),drawings.end(),[&](const auto& a,const auto& b) {
             const bool a_companion=normalized(a.path)==companion;
             const bool b_companion=normalized(b.path)==companion;
-            return a_companion!=b_companion ? a_companion : a.path.generic_string()<b.path.generic_string();
+            return a_companion!=b_companion ? a_companion : a.path<b.path;
         });
         for (std::size_t index=0;index<drawings.size();++index) {
-            auto drawing=drawings[index].document;
-            const auto drawing_target=target.parent_path()/(target.stem().string()+
+            auto drawing=drawings[index].document();
+            const auto drawing_target=target.parent_path()/fs::u8path(zima::document::path_to_utf8(target.stem())+
                 (index==0 ? std::string{} : "_"+std::to_string(index+1))+".drwz");
             const auto drawing_id=zima::drawing::DrawingDocument::create_default().document_id;
             const auto old_drawing_path=normalized(drawings[index].path);
             drawing.source_document_id=new_id;
             drawing.source_path=target;
-            drawing.source_name=target.stem().string();
+            drawing.source_name=zima::document::path_to_utf8(target.stem());
             const auto rebind_origin=[&](auto& reference) {
                 if (reference.owner_id==document_id) reference.owner_id=new_id;
                 else if (reference.owner_id==document_id+":origin") reference.owner_id=new_id+":origin";
             };
             for (auto& sheet:drawing.sheets) {
+                for(auto& row:sheet.bom_rows)
+                    if(row.source_document_id==document_id ||
+                        (!source_path.empty() && normalized(row.source_path)==source_path)) {
+                        row.source_document_id=new_id;row.source_path=target;
+                        row.file_stem=zima::document::path_to_utf8(target.stem());
+                    }
                 for (auto& dimension:sheet.dimensions) {
                     for(auto& attachment:dimension.attachments){rebind_origin(attachment.reference);rebind_origin(attachment.other_reference);}rebind_origin(dimension.parallel_reference);
                 }
@@ -183,7 +193,7 @@ std::vector<std::filesystem::path> Workspace::save_copy(
     // Preflight the whole set before any destination is written.
     for (const auto& file:pending)
         if (fs::exists(file.target) || document_id_for_path(file.target))
-            throw std::invalid_argument("Cílový soubor již existuje: "+file.target.string());
+            throw std::invalid_argument("Cílový soubor již existuje: "+zima::document::path_to_utf8(file.target));
     const auto staging_path=target.parent_path()/(".zima-copy-"+new_id);
     if (!fs::create_directory(staging_path)) throw std::runtime_error("Nelze připravit adresář pro kopii.");
     StagingDirectory staging{staging_path};

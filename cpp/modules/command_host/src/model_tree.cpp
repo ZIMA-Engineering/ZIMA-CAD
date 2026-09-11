@@ -155,7 +155,7 @@ Json model_tree(const workspace::Workspace& workspace,const std::string& id,std:
         using State=std::decay_t<decltype(value)>;
         if constexpr(std::is_same_v<State,workspace::PartState>)tree.part(value.session.document());
         else if constexpr(std::is_same_v<State,workspace::AssemblyState>)tree.assembly(value.session.document());
-        else tree.drawing(value.document);
+        else tree.drawing(value.document());
     },*state);
     return {{"document",id},{"projection","model"},{"items",std::move(tree.rows)},{"truncated",tree.truncated}};
 }

@@ -97,11 +97,18 @@ int main() {
         drawing.source_document_id=id;drawing.source_path=part_path;drawing.name="saved drawing";
         const auto drawing_path=directory/"drawing.drwz";workspace.add_drawing(drawing,drawing_path);
         auto drawing_job=prepare_document_save(workspace,drawing_id,drawing_path);
-        workspace.open_drawing(drawing_id)->document.name="newer drawing";
+        { auto edited=workspace.open_drawing(drawing_id)->document(); edited.name="newer drawing"; workspace.open_drawing(drawing_id)->commit(std::move(edited)); }
         require(complete_document_save(workspace,drawing_job.write()),"Drawing save failed");
         auto loaded_drawing=drawing::DrawingDocument::load(drawing_path);
         require(loaded_drawing.document_id==drawing_id && loaded_drawing.source_document_id==id && loaded_drawing.name=="saved drawing" &&
-            workspace.open_drawing(drawing_id)->document.name=="newer drawing","Drawing snapshot or source reference lost");
+            workspace.open_drawing(drawing_id)->document().name=="newer drawing","Drawing snapshot or source reference lost");
+        require(workspace.open_drawing(drawing_id)->is_dirty(),"Old Drawing save cleared newer edit");
+        drawing_job=prepare_document_save(workspace,drawing_id,drawing_path);
+        require(complete_document_save(workspace,drawing_job.write()) && !workspace.open_drawing(drawing_id)->is_dirty(),"Current Drawing save did not clear dirty state");
+        const auto drawing_revision=workspace.open_drawing(drawing_id)->revision();
+        auto wrong_drawing=workspace.open_drawing(drawing_id)->document();wrong_drawing.document_id="wrong-id";
+        fails([&]{workspace.open_drawing(drawing_id)->commit(wrong_drawing);},"Drawing identity could be overwritten");
+        require(workspace.open_drawing(drawing_id)->revision()==drawing_revision && !workspace.open_drawing(drawing_id)->is_dirty(),"Rejected Drawing edit changed revision");
         require(!can_step_document_history(workspace,drawing_id,HistoryDirection::Undo),"Unsupported drawing history advertised");
         require(workspace.active_document_id()==id && workspace.displayed_document_id()==id,"Operations activated another document");
 

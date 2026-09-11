@@ -996,7 +996,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
     if (auto* drawing =
             workspace_.open_drawing(workspace_.displayed_document_id())) {
         workspace_stack_->setCurrentWidget(drawing_workspace_);
-        drawing_workspace_->edit_workspace_document(drawing->document.document_id);
+        drawing_workspace_->edit_workspace_document(drawing->document().document_id);
         refresh_drawing_tree();
         active_application_ = ApplicationMode::Drawing;
         insert_action_->setEnabled(false);

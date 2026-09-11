@@ -19,7 +19,7 @@ struct Interaction {
     Json selection=nullptr, hover=nullptr, camera=nullptr;
     Json pointer={{"inside_view",false}};
 };
-enum class ChangeKind { Open, New, Save, Regenerate, History, Model };
+enum class ChangeKind { Open, New, Save, Regenerate, History, Model, Activate, Close, Copy, Directory };
 struct Change { ChangeKind kind; std::string document_id; };
 enum class Activity { Read, Write };
 struct Options {
@@ -57,6 +57,7 @@ private:
     std::optional<Change> change_;
     void register_commands();
     void register_primitive_commands();
+    void register_document_commands();
     [[nodiscard]] Interaction interaction() const;
     [[nodiscard]] std::string tr(const char*) const;
     [[nodiscard]] Result target(const Json&) const;

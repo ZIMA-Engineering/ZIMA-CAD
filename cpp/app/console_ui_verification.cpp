@@ -184,9 +184,35 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         const auto failed_save=window.execute_console_command("save");std::filesystem::remove(blocked);
         check(!failed_save.ok && QApplication::activeModalWidget()==nullptr,"I/O error reported success or blocked on a dialog");
         open["arguments"]["path"]=path.generic_string();run(QString::fromStdString(open.dump()));flush();
+        commands::Json activate={{"command","activate"},{"arguments",{{"document",other_id}}}};
+        run(QString::fromStdString(activate.dump()));flush();
+        check(run("context").data.at("active_document")==other_id,"Command activation did not switch GUI");
+        check(window.execute_console_command("close").code=="unsaved_changes" && QApplication::activeModalWidget()==nullptr,"Unsafe close was accepted or opened a dialog");
+        run(R"({"command":"close","arguments":{"discard":true}})");flush();
+        activate["arguments"]["document"]=id;run(QString::fromStdString(activate.dump()));flush();
+        const auto copy_path=directory/(stem+"-copy.prtz");
+        commands::Json copy_command={{"command","save_as"},{"arguments",{{"path",copy_path.generic_string()}}}};
+        run(QString::fromStdString(copy_command.dump()));flush();
+        check(document::PartDocument::load(copy_path).document_id!=id && run("context").data.at("active_document")==id,"GUI console copy altered original identity/context");
+        run(QString::fromStdString("new drawing "+stem+"-drawing"));flush();
+        const auto drawing_id=run("context").data.at("active_document");
+        run("save");flush();
+        check(run("documents").data.back().at("dirty")==false,"Displaying saved Drawing made it dirty");
+        auto* add_sheet=window.findChild<QAction*>("addDrawingSheetAction");check(add_sheet,"Drawing sheet action missing");
+        add_sheet->trigger();flush();
+        check(run("documents").data.back().at("dirty")==true,"GUI sheet edit was not tracked by command host");
+        check(window.execute_console_command("close").code=="unsaved_changes","GUI drawing edit was discarded");
+        run("save");run("close");flush();
+        run(QString::fromStdString(activate.dump()));flush();
         input->setText("context");QApplication::sendEvent(input,&enter);flush();
         check(window.grab().save(QString::fromStdString((directory/"command-console.png").string())),"Console screenshot failed");
         toggle->trigger();flush();check(!dock->isVisible(),"Console toggle did not hide panel");
+        const auto remaining=run("documents").data;
+        for(const auto& row:remaining) {
+            commands::Json close={{"command","close"},{"arguments",{{"document",row.at("id")},{"discard",true}}}};
+            run(QString::fromStdString(close.dump()));flush();
+        }
+        check(run("documents").data.empty() && run("context").data.at("active_document")=="" && QApplication::activeModalWidget()==nullptr,"Closing last document did not clear the GUI workspace");
         std::cout<<"Console panel, shared operations, transactions, stale target and error paths passed\n";
         return 0;
     }catch(const std::exception& error){window.grab().save(QString::fromStdString((directory/"command-console-failure.png").string()));std::cerr<<"Console contract: "<<error.what()<<'\n';return 1;}

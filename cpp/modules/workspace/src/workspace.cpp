@@ -176,7 +176,7 @@ const std::string& Workspace::id_of(const DocumentState& state) {
         } else if constexpr (std::is_same_v<State, AssemblyState>) {
             return document.session.document().document_id;
         } else {
-            return document.document.document_id;
+            return document.document().document_id;
         }
     }, state);
 }

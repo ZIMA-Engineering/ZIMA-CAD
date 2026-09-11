@@ -115,7 +115,7 @@ int main() {
             copies.add_drawing(drawing,drawing_path);
             auto edited=original;edited.name="Unsaved model";edited.user_parameters["UNSAVED"]="kept";edited.user_parameters["owner_id"]=original.document_id;
             copies.open_part(original.document_id)->session.commit(edited,boundaries);
-            copies.open_drawing(drawing.document_id)->document.sheets.front().name="Unsaved sheet";
+            { auto edited=copies.open_drawing(drawing.document_id)->document(); edited.sheets.front().name="Unsaved sheet"; copies.open_drawing(drawing.document_id)->commit(std::move(edited)); }
             copies.activate(original.document_id);
             const auto revision=copies.open_part(original.document_id)->session.revision();
             const auto files=copies.save_copy(original.document_id,target,directory);
@@ -967,8 +967,7 @@ int main() {
             ->session.document().save(lifecycle_subassembly_path);
         lifecycle_workspace.open_assembly(lifecycle_topassembly_id)
             ->session.document().save(lifecycle_topassembly_path);
-        lifecycle_workspace.open_drawing(lifecycle_drawing_id)
-            ->document.save(lifecycle_drawing_path);
+        lifecycle_workspace.open_drawing(lifecycle_drawing_id)->document().save(lifecycle_drawing_path);
         lifecycle_workspace.open_part(lifecycle_part_id)->session.mark_saved();
         lifecycle_workspace.open_assembly(lifecycle_subassembly_id)
             ->session.mark_saved();

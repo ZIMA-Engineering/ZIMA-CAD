@@ -1853,7 +1853,7 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
         component.value_locks=source.value("value_locks",std::set<std::string>{});
         component.name = source.at("name").get<std::string>();
         component.source_document_id = source.at("source_document_id").get<std::string>();
-        component.source_path = source.at("source_path").get<std::string>();
+        component.source_path = std::filesystem::u8path(source.at("source_path").get<std::string>());
         component.source_kind = source_kind_from_name(
             source.at("source_kind").get<std::string>());
         component.suppressed = source.at("suppressed").get<bool>();
@@ -2007,7 +2007,7 @@ void AssemblyDocument::save(const std::filesystem::path& path,
             {"occurrence_id", component.occurrence_id}, {"value_locks",component.value_locks},
             {"name", component.name},
             {"source_document_id", component.source_document_id},
-            {"source_path", component.source_path.generic_string()},
+            {"source_path", zima::document::path_to_utf8(component.source_path)},
             {"source_kind", source_kind_name(component.source_kind)},
             {"density_kg_mm3",component.density_kg_mm3?nlohmann::json(*component.density_kg_mm3):nlohmann::json(nullptr)},
             {"nested_mass_kg",component.nested_mass_kg?nlohmann::json(*component.nested_mass_kg):nlohmann::json(nullptr)},

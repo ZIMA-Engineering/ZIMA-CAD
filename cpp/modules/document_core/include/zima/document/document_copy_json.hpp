@@ -1,6 +1,7 @@
 #pragma once
 #include <nlohmann/json.hpp>
 #include <zima/document/document_copy.hpp>
+#include <zima/document/file_path.hpp>
 #include <string>
 #include <string_view>
 #include <stdexcept>
@@ -20,11 +21,11 @@ inline void remap_document_identity(nlohmann::json& value,
         field=="document_precision") return;
     if (value.is_object()) {
         if (!target_path.empty() && value.contains("source_path") && value["source_path"].is_string()) {
-            const std::filesystem::path path=value["source_path"].get<std::string>();
+            const auto path=std::filesystem::u8path(value["source_path"].get<std::string>());
             if (value.value("source_document_id", std::string{})==old_id)
-                value["source_path"]=target_path.generic_string();
+                value["source_path"]=path_to_utf8(target_path);
             else if (!path.empty() && path.is_relative())
-                value["source_path"]=std::filesystem::absolute(source_directory/path).lexically_normal().generic_string();
+                value["source_path"]=path_to_utf8(std::filesystem::absolute(source_directory/path).lexically_normal());
         }
         for (auto it=value.begin();it!=value.end();++it)
             remap_document_identity(it.value(),old_id,new_id,it.key(),source_directory,target_path);
@@ -53,6 +54,6 @@ inline void apply_document_copy_identity(nlohmann::json& root,
     const auto old_id=root.at("document_id").get<std::string>();
     if (id==old_id) throw std::invalid_argument("Kopie musí mít nové ID dokumentu.");
     remap_document_identity(root,old_id,id,{},copy.source_path.parent_path(),copy.target_path);
-    root["name"]=copy.target_path.stem().string();
+    root["name"]=path_to_utf8(copy.target_path.stem());
 }
 } // namespace zima::document

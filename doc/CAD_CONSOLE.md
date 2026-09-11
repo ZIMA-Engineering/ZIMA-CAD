@@ -33,12 +33,17 @@ lze vložit znak uvozovky pomocí `\"`. Nejde o shell ani interpret Pythonu.
 | Příkaz | Argumenty v pořadí pro textovou konzoli | Výsledek |
 | --- | --- | --- |
 | `help` | žádné | Katalog příkazů, popisy, argumenty a příznak změny stavu |
-| `documents` | žádné | Otevřené dokumenty, ID, cesty, aktivní/zobrazený stav; u modelů dirty a revision |
+| `documents` | žádné | Otevřené dokumenty, ID, cesty, aktivní/zobrazený stav; dirty, revision a needs_save pro všechny tři typy |
 | `context` | žádné | Aktivní a zobrazený dokument, aktivní výskyt/skica a potvrzený výběr |
 | `tree` | volitelné `document` | Datový strom zadaného nebo zobrazeného dokumentu; nejvýše 2000 položek a příznak truncated |
 | `new` | `type name` | Nový Part/Assembly/Drawing ze společné továrny a start šablon |
 | `open` | `path` | Otevře `.prtz`, `.asmz` nebo `.drwz`; již otevřený dokument aktivuje |
 | `save` | volitelné `document` | Uloží aktivní dokument do jeho existující cesty |
+| `save_as` | `path`, volitelné `document` | Nezávislá kopie s novými ID včetně navázaných výkresů; existující cíl se nepřepíše |
+| `activate` | `document` | Zobrazí otevřený dokument jako hlavní; nepočítá model |
+| `close` | volitelné `document discard` | Zavře dokument; neuložené změny vyžadují explicitní boolean `discard: true` |
+| `pwd` | žádné | Aktuální pracovní adresář |
+| `cd` | `path` | Změní pracovní adresář na existující složku |
 | `regenerate` | volitelné `document` | Výslovná regenerace Partu nebo Assembly |
 | `undo`, `redo` | volitelné `document` | Společná historie změn s GUI |
 | `fit` | žádné | Přizpůsobení modelu pohledu |
@@ -48,7 +53,23 @@ lze vložit znak uvozovky pomocí `\"`. Nejde o shell ani interpret Pythonu.
 
 `new` přijímá typy `part`, `assembly`, `drawing`. Název je základ jména souboru
 v pracovním adresáři; příponu přidá CAD. Soubor se skutečně zapíše až při `save`.
-Dokument bez přiřazené cesty vyžaduje nejprve GUI příkaz Uložit jako.
+`save_as` odpovídá současnému GUI Uložit jako: vytvoří samostatnou kopii,
+zatímco původní dokument zůstane otevřený na stejné cestě a se stejnými
+neuloženými úpravami. Cílová přípona musí odpovídat typu dokumentu.
+Kopii lze otevřít příkazem `open`. Běžné `save` zapisuje původní dokument;
+pokud nemá přiřazenou cestu, konzole vrátí `path_required`.
+
+`documents.needs_save` zahrnuje neuložené úpravy i dosud nezapsaný nebo
+chybějící soubor. `close` v takovém případě vrátí `unsaved_changes`.
+Zahození lze požadovat jednoznačně přes JSON:
+
+```json
+{"command":"close","arguments":{"discard":true}}
+```
+
+`activate` a `close` přijímají skutečné ID otevřeného dokumentu. U ostatních
+změnových příkazů argument `document` nadále kontroluje aktivní dokument.
+`cd` ovlivňuje následné relativní cesty; nemění pracovní adresář procesu.
 
 Čtecí příkazy nespouštějí OCCT. Uložení také nezavádí implicitní regeneraci.
 V katalogu je také tvorba a změna šesti základních primitiv. Ostatní modelovací prvky zůstávají
@@ -89,8 +110,8 @@ kvůli zkrácení textu v panelu. Strom sám má explicitní limit 2000 položek
 `context.selection` je potvrzená volba, nikoli odhad podle hoveru. Obsahuje
 `owner_id`, `semantic_key`, `instance_path`, textový `kind` a `geometry`
 (`display` nebo `original_reference`). Nepoužívat popisek stromu jako identitu
-objektu. U výkresu zatím není výběr vystavený a jeho dirty stav v seznamu je
-`null`, nikoli falešné potvrzení, že je dokument uložený.
+objektu. U výkresu zatím není výběr vystavený. Potvrzené úpravy výkresu sleduje
+`DrawingState`; `dirty` a `revision` jsou dostupné stejně jako u modelů.
 
 ## Transakce a chyby
 

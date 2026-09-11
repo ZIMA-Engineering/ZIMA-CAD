@@ -57,7 +57,9 @@ Result AssemblyWorkspaceWindow::execute_console_command(const QString& text) {
         if(result.ok)if(const auto& change=command_host_->change()){
             const auto* state=workspace_.find(change->document_id);
             const auto name=std::visit([](const auto& value){return file_name(value.path);},*state);
-            message=(change->kind==command_host::ChangeKind::Open?tr("Otevřeno: %1")
+            if(change->kind==command_host::ChangeKind::Copy)
+                message=tr("Kopie uložena: %1").arg(QString::fromStdString(result.data.at("paths").at(0).get<std::string>()));
+            else message=(change->kind==command_host::ChangeKind::Open?tr("Otevřeno: %1")
                 :workspace_.open_assembly(change->document_id)?tr("Sestava uložena: %1")
                 :workspace_.open_drawing(change->document_id)?tr("Výkres uložen: %1")
                 :tr("Part uložen: %1")).arg(name);
@@ -68,8 +70,10 @@ Result AssemblyWorkspaceWindow::execute_console_command(const QString& text) {
 }
 void AssemblyWorkspaceWindow::apply_console_change(const command_host::Change& change){
     using Kind=command_host::ChangeKind;
-    if(change.kind==Kind::Open||change.kind==Kind::New){
-        if(change.kind==Kind::New){
+    if(change.kind==Kind::Directory) {refresh_delete_file_actions();return;}
+    if(change.kind==Kind::Copy) {refresh_delete_file_actions();return;}
+    if(change.kind==Kind::Open||change.kind==Kind::New||change.kind==Kind::Activate||change.kind==Kind::Close){
+        if(change.kind!=Kind::Open){
             if(workspace_.open_part(change.document_id))active_application_=ApplicationMode::Modeling;
             else if(workspace_.open_assembly(change.document_id))active_application_=ApplicationMode::Assembly;
             else active_application_=ApplicationMode::Drawing;

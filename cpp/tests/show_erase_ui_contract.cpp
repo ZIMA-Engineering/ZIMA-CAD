@@ -262,7 +262,7 @@ int verify_show_erase_ui() {
       multi->findChild<QPushButton*>("showEraseShow")->click();multi->findChild<QPushButton*>("showEraseAll")->click();
       mouse(canvas,QEvent::MouseButtonPress,next,Qt::MiddleButton,Qt::MiddleButton);
       mouse(canvas,QEvent::MouseButtonRelease,next,Qt::MiddleButton,Qt::NoButton);
-      const auto& unchanged=workspace.open_drawing(drawing.document_id)->document.sheets[0].views;
+      const auto& unchanged=workspace.open_drawing(drawing.document_id)->document().sheets[0].views;
       require(std::ranges::none_of(unchanged[0].model_annotations,[](const auto& a){return a.visible;}) &&
               std::ranges::all_of(unchanged[1].model_annotations,[](const auto& a){return a.visible;}),"Changing Show/Erase target committed before OK");
       if(accept)mouse(canvas,QEvent::MouseButtonDblClick,next,Qt::MiddleButton,Qt::MiddleButton);
@@ -273,7 +273,7 @@ int verify_show_erase_ui() {
               std::ranges::all_of(result[1].model_annotations,[&](const auto& a){return a.visible!=accept;}),"Multi-view Show/Erase did not commit/cancel all pending views together");
       window.select_view_for_test(other.id);
     }
-    workspace.open_drawing(drawing.document_id)->document=drawing;
+    workspace.open_drawing(drawing.document_id)->commit(drawing);
     window.edit_workspace_document(drawing.document_id);flush();
     window.select_view_for_test(view.id);
     window.fit_sheet();flush();
@@ -349,7 +349,7 @@ int verify_show_erase_ui() {
           Qt::RightButton, Qt::LeftButton | Qt::RightButton);
     mouse(canvas, QEvent::MouseButtonRelease, *point + QPointF(35, 20),
           Qt::RightButton, Qt::LeftButton);
-    require(std::ranges::all_of(workspace.open_drawing(drawing.document_id)->document.sheets[0].views[0].model_annotations,
+    require(std::ranges::all_of(workspace.open_drawing(drawing.document_id)->document().sheets[0].views[0].model_annotations,
                 [](const auto& item){return !item.view_layout;}),
             "Releasing RMB committed an unfinished LMB drawing grip");
     mouse(canvas, QEvent::MouseButtonRelease, *point + QPointF(35, 20),
@@ -384,13 +384,13 @@ int verify_show_erase_ui() {
     auto second_sheet=multi_sheet.sheets[0];second_sheet.id="second-sheet";
     second_sheet.views.clear();second_sheet.dimensions.clear();
     multi_sheet.sheets.push_back(second_sheet);
-    workspace.open_drawing(drawing.document_id)->document=multi_sheet;
+    workspace.open_drawing(drawing.document_id)->commit(multi_sheet);
     window.edit_workspace_document(drawing.document_id);
     window.findChild<QTabBar*>("drawingSheetTabs")->setCurrentIndex(1);flush();
     const auto second_dxf=dir.filePath("second-sheet.dxf");window.export_dxf(second_dxf.toStdString());
     QFile second_file(second_dxf);require(second_file.open(QIODevice::ReadOnly),"Second sheet DXF missing");
     require(!second_file.readAll().contains("60mm"),"DXF included dimensions from another sheet");
-    multi_sheet.sheets.pop_back();workspace.open_drawing(drawing.document_id)->document=multi_sheet;
+    multi_sheet.sheets.pop_back();workspace.open_drawing(drawing.document_id)->commit(multi_sheet);
     window.edit_workspace_document(drawing.document_id);flush();
     state.save((dir.path() + "/show-erase.drwz").toStdString());
     auto loaded = drawing::DrawingDocument::load(
@@ -402,11 +402,11 @@ int verify_show_erase_ui() {
     // identical.
     auto replacement = state;
     replacement.sheets[0].views[0].show_dimension_guides = false;
-    workspace.open_drawing(drawing.document_id)->document = replacement;
+    workspace.open_drawing(drawing.document_id)->commit(replacement);
     window.edit_workspace_document(drawing.document_id);
     auto without = window.render_sheet_for_test(true);
     replacement.sheets[0].views[0].show_dimension_guides = true;
-    workspace.open_drawing(drawing.document_id)->document = replacement;
+    workspace.open_drawing(drawing.document_id)->commit(replacement);
     window.edit_workspace_document(drawing.document_id);
     auto with = window.render_sheet_for_test(true);
     require(with == without, "Working guides leaked into print/PDF rendering");
@@ -415,21 +415,21 @@ int verify_show_erase_ui() {
             "Guide default must be 8 mm");
     auto tilted_drawing = replacement;
     tilted_drawing.sheets[0].views[0].camera={{.7071067811865476,0,.7071067811865476},{0,1,0},{-.7071067811865476,0,.7071067811865476}};
-    workspace.open_drawing(drawing.document_id)->document = tilted_drawing;
+    workspace.open_drawing(drawing.document_id)->commit(tilted_drawing);
     window.edit_workspace_document(drawing.document_id);
     const auto filtered_print = window.render_sheet_for_test(true);
     const auto filtered_view = window.render_sheet_for_test(false);
     for (auto &annotation : tilted_drawing.sheets[0].views[0].model_annotations)
       if (annotation.kind == drawing::ModelAnnotationKind::Dimension)
         annotation.visible = false;
-    workspace.open_drawing(drawing.document_id)->document = tilted_drawing;
+    workspace.open_drawing(drawing.document_id)->commit(tilted_drawing);
     window.edit_workspace_document(drawing.document_id);
     require(filtered_print != window.render_sheet_for_test(true) &&
                 filtered_view != window.render_sheet_for_test(false),
             "Oblique stored dimensions disappeared from View or PDF");
     for (auto &annotation : replacement.sheets[0].views[1].model_annotations)
       annotation.visible = true;
-    workspace.open_drawing(drawing.document_id)->document = replacement;
+    workspace.open_drawing(drawing.document_id)->commit(replacement);
     window.edit_workspace_document(drawing.document_id);
     window.select_view_for_test(view.id);
     dialog = open();
@@ -464,7 +464,7 @@ int verify_show_erase_ui() {
       const QPointF baseline(2*(proof_document.sheets[0].width_mm()-proof_view.x+presentation.text.x()),
                              2*(proof_document.sheets[0].height_mm()-proof_view.y-presentation.text.y()));
       require(std::abs(presentation.text_angle)<1e-9,"Hatch masking fixture must be horizontal");
-      workspace.open_drawing(drawing.document_id)->document=proof_document;
+      workspace.open_drawing(drawing.document_id)->commit(proof_document);
       window.edit_workspace_document(drawing.document_id);flush();
       const auto clean=window.render_sheet_for_test(true);
       const auto box=viewer::dimension_text_box(font,text,1).translated(baseline);
@@ -473,7 +473,7 @@ int verify_show_erase_ui() {
       hatch.points={{(presentation.text.x()-5)/proof_view.scale,hatch_y/proof_view.scale},
                     {(presentation.text.x()+QFontMetricsF(font).horizontalAdvance(text)/2+5)/proof_view.scale,hatch_y/proof_view.scale}};
       proof_view.projected_edges.push_back(hatch);
-      workspace.open_drawing(drawing.document_id)->document=proof_document;
+      workspace.open_drawing(drawing.document_id)->commit(proof_document);
       window.edit_workspace_document(drawing.document_id);flush();
       const auto hatched=window.render_sheet_for_test(true);
       require(clean!=hatched,"Hatch mask fixture did not draw a hatch");
@@ -530,7 +530,7 @@ int verify_show_erase_ui() {
         for(auto& item:cv.model_annotations)item.visible=item.model_dimension && item.model_dimension->kind==kind;
         const auto chosen=std::ranges::find_if(cv.model_annotations,[](const auto& a){return a.visible;});
         const auto ref=chosen->source;
-        workspace.open_drawing(doc.document_id)->document=current;window.edit_workspace_document(doc.document_id);window.fit_sheet();flush();
+        workspace.open_drawing(doc.document_id)->commit(current);window.edit_workspace_document(doc.document_id);window.fit_sheet();flush();
         for(int handle:{0,1}) {
           const auto before=window.model_annotation_handle_for_test(ref,handle,v.id);require(before.has_value(),"Rotated dimension grip missing");
           mouse(canvas,QEvent::MouseButtonPress,*before,Qt::LeftButton,Qt::LeftButton);
@@ -574,7 +574,7 @@ int verify_show_erase_ui() {
           for(const auto& candidate:saved_doc.sheets[0].views[0].model_annotations)if(candidate.model_dimension) {
             auto pending=saved_doc;const auto view_id=pending.sheets[0].views[0].id;
             for(auto& annotation:pending.sheets[0].views[0].model_annotations)annotation.visible=annotation.source==candidate.source;
-            workspace.open_drawing(saved_doc.document_id)->document=pending;
+            workspace.open_drawing(saved_doc.document_id)->commit(pending);
             window.edit_workspace_document(saved_doc.document_id);window.fit_sheet();flush();
             const auto before=window.model_annotation_handle_for_test(candidate.source,0,view_id);
             require(before.has_value(),"Actual saved Drawing dimension has no grip");
@@ -595,7 +595,7 @@ int verify_show_erase_ui() {
             for(auto& item:drawing_view.model_annotations)item.visible=item.kind==drawing::ModelAnnotationKind::Dimension ||
               (item.kind==drawing::ModelAnnotationKind::Axis && item.source.semantic_id.starts_with("axis:"));
           }
-          workspace.open_drawing(saved_doc.document_id)->document=regenerated;
+          workspace.open_drawing(saved_doc.document_id)->commit(regenerated);
           window.edit_workspace_document(saved_doc.document_id);window.fit_sheet();flush();
           window.grab().save("build/actual-drawing-annotations.png");
         }

@@ -7879,7 +7879,7 @@ HistoryContainer PartDocument::create_imported_step_container(
     container.name = component_name.empty() ? source_path.stem().string()
                                             : std::move(component_name);
     container.feature_kind = FeatureKind::ImportedStep;
-    container.imported_step.source_path = source_path.generic_string();
+    container.imported_step.source_path = path_to_utf8(source_path);
     container.imported_step.component_path = std::move(component_path);
     return container;
 }
