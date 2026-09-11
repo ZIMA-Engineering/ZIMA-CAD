@@ -63,6 +63,25 @@ int main() {
             require(reopened.sheets.front().red_line_mm==0.8&&reopened.sheets.front().views.front().tangent_edge_style==TangentEdgeStyle::Thin&&
                 reopened.sheets.front().views.front().projected_edges.front().tangent,"Saved drawing lost tangent boundaries or red width");
         }
+        {
+            using namespace zima::drawing;
+            zima::kernel::ViewerMesh mesh;
+            zima::kernel::ViewerEdge edge;
+            edge.reference={"shared-source","original-edge",{}};
+            edge.points={{0,0,0},{10,0,0}};mesh.edges.push_back(edge);
+            DrawingView front,side;front.id="shared-front";side.id="shared-side";
+            front.source_document_id=side.source_document_id="shared-source";
+            capture_measurement_geometry(front,mesh);capture_measurement_geometry(side,mesh);
+            require(front.measurement_geometry==side.measurement_geometry,
+                "Views duplicated identical measuring geometry");
+            auto drawing=DrawingDocument::create_default();drawing.sheets.front().views={front,side};
+            const auto path=folder/"shared-measuring.drwz";drawing.save(path);
+            const auto loaded=DrawingDocument::load(path);
+            const auto& views=loaded.sheets.front().views;
+            require(views[0].measurement_geometry==views[1].measurement_geometry &&
+                views[0].measurement_geometry->curves==front.measurement_geometry->curves,
+                "Native DRWZ reload lost shared measuring data or original identities");
+        }
         // Signed placement survives import; point-pair lengths normalize without moving either point.
         const auto signed_path=folder/"signed-dimensions.tblz";
         {std::ofstream out(signed_path);out<<R"([TitleBlock]
@@ -309,7 +328,7 @@ Data={"points":{"a":{"x":-10,"y":-5},"b":{"x":-20,"y":-5}},"geometry":{"line":{"
         require(static_cast<bool>(persisted), "Drawing contract file was not written");
         const std::string ini((std::istreambuf_iterator<char>(persisted)), {});
         require(ini.find("[Document]\n") != std::string::npos &&
-                    ini.find("format_version=12\n") != std::string::npos &&
+                    ini.find("format_version=13\n") != std::string::npos &&
                     ini.find("type=drawing\n") != std::string::npos &&
                     ini.find("param.cpp_drawing={") != std::string::npos &&
                     ini.find("[Containers]\n") != std::string::npos &&

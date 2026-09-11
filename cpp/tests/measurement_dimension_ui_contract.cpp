@@ -239,8 +239,10 @@ int verify_measurement_dimension_ui() {
         auto broken = DrawingDocument::create_default();
         auto broken_view = view;
         broken_view.id = kernel::make_stable_id();
-        std::erase_if(broken_view.measurement_curves,
+        auto damaged_geometry=*broken_view.measurement_geometry;
+        std::erase_if(damaged_geometry.curves,
                       [](const auto &c) { return c.source.semantic_key == "top"; });
+        broken_view.measurement_geometry=share_measurement_geometry(std::move(damaged_geometry));
         auto damaged = linear;
         damaged.view_id = broken_view.id;
         broken.sheets.front().views = {broken_view};

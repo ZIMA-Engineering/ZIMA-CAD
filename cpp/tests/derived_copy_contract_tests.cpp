@@ -33,8 +33,8 @@ int main(){try{
     const auto mirrored_id=graph.create_derived_copy(body);
     const auto compile=[&](double length){return graph.compile([&](const auto& e)->std::optional<kernel::HistoryOperation>{return kernel::HistoryOperation{e.id,box(length)};});};
     auto result=kernel.evaluate_history(compile(3));close(result.back().volume,210);
-    close(result.back().body_outputs.at(mirrored_id).volume,105);
-    result=kernel.evaluate_history_incremental(compile(6),result);close(result.back().body_outputs.at(mirrored_id).volume,210);
+    close(result.back().body_outputs.at(mirrored_id)->volume,105);
+    result=kernel.evaluate_history_incremental(compile(6),result);close(result.back().body_outputs.at(mirrored_id)->volume,210);
     require(graph.available_before(graph.order().size()).size()==2,"Mirror consumed its source");
     rejects([&]{graph.activate(mirrored_id);});rejects([&]{graph.move_step(mirrored_id,0);});
     auto restored=document::BodyHistoryGraph::from_serialized(graph.serialized());require(restored.find(mirrored_id)->derived_copy==body.derived_copy,"Mirror parameters lost on reload");
@@ -50,12 +50,12 @@ int main(){try{
     auto mirror=assembly::AssemblyDocument::create_part_occurrence("Zrcadlo","source-part",{},{});
     mirror.derived_copy=document::DerivedCopyParameters{component.occurrence_id,{{},mirror.occurrence_id+":origin","origin:plane:yz"}};
     mirror.copy_placement.x=1;assembly.components={component,mirror};assembly.calculate_derived_copies(kernel);
-    const auto& reflected=assembly.components.back();close(reflected.calculated_source.volume,source.volume);
-    close(reflected.calculated_source.mesh.vertices.front().x,2-(source.mesh.vertices.front().x+10));
+    const auto& reflected=assembly.components.back();close(reflected.calculated_source->volume,source.volume);
+    close(reflected.calculated_source->mesh.vertices.front().x,2-(source.mesh.vertices.front().x+10));
     require(assembly.derived_source(mirror.occurrence_id)->occurrence_id==component.occurrence_id,"Mirror did not resolve its source occurrence");
-    const auto snapshot=reflected.calculated_source.mesh.vertices;
-    assembly.components.front().placement.x=20;static_cast<void>(assembly.build_scene());require(assembly.components.back().calculated_source.mesh.vertices==snapshot,"Scene refresh recalculated Mirror");
-    assembly.calculate_derived_copies(kernel);close(assembly.components.back().calculated_source.mesh.vertices.front().x,2-(source.mesh.vertices.front().x+20));
+    const auto snapshot=reflected.calculated_source->mesh.vertices;
+    assembly.components.front().placement.x=20;static_cast<void>(assembly.build_scene());require(assembly.components.back().calculated_source->mesh.vertices==snapshot,"Scene refresh recalculated Mirror");
+    assembly.calculate_derived_copies(kernel);close(assembly.components.back().calculated_source->mesh.vertices.front().x,2-(source.mesh.vertices.front().x+20));
     const auto file=std::filesystem::temp_directory_path()/"zima-mirror-contract.asmz";assembly.save(file);auto loaded=assembly::AssemblyDocument::load(file);std::filesystem::remove(file);
     require(loaded.components.back().derived_copy==assembly.components.back().derived_copy,"Assembly reload lost Mirror source/plane");
     auto cycle=assembly;cycle.components.front().derived_copy=document::DerivedCopyParameters{mirror.occurrence_id,{{},component.occurrence_id+":origin","origin:plane:yz"}};
@@ -118,7 +118,7 @@ int main(){try{
     auto pattern_graph=graph;document::BodyHistory patterned;patterned.name="Pole";patterned.scope.id="pattern-body";patterned.derived_copy=parameters;
     const auto pattern_id=pattern_graph.create_derived_copy(patterned);
     auto operations=pattern_graph.compile([&](const auto& e)->std::optional<kernel::HistoryOperation>{return kernel::HistoryOperation{e.id,box(3)};});
-    const auto patterned_result=kernel.evaluate_history(operations).back();close(patterned_result.body_outputs.at(pattern_id).volume,315);
+    const auto patterned_result=kernel.evaluate_history(operations).back();close(patterned_result.body_outputs.at(pattern_id)->volume,315);
     require(patterned_result.body_inputs.contains(pattern_id),"Pattern has no selectable body result");
     require(document::BodyHistoryGraph::from_serialized(pattern_graph.serialized()).find(pattern_id)->derived_copy==patterned.derived_copy,"Pattern mode/axis not persisted");
     auto patterned_assembly=assembly;auto group=mirror;group.occurrence_id="pattern-group";group.name="Pole";

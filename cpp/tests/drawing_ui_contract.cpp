@@ -527,9 +527,9 @@ int verify_drawing_ui() {
         }
         {
             auto fixture=zima::drawing::DrawingDocument::create_default();auto v=zima::drawing::DrawingDocument::create_view(part.document_id,"source.prtz",cache.mesh,zima::drawing::ViewOrientation::Front);
-            v.measurement_points={{{"profile","vertex:bottom",""},{0,0,-20}},{{"profile","vertex:top",""},{0,0,20}}};
+            v.measurement_geometry=zima::drawing::share_measurement_geometry({{},{{{"profile","vertex:bottom",""},{0,0,-20}},{{"profile","vertex:top",""},{0,0,20}}}});
             auto d=zima::drawing::make_drawing_dimension(v.id);d.id="handle-dimension";
-            d.attachments={{zima::drawing::DimensionAttachmentKind::Point,v.measurement_points[0].source},{zima::drawing::DimensionAttachmentKind::Point,v.measurement_points[1].source}};
+            d.attachments={{zima::drawing::DimensionAttachmentKind::Point,v.measurement_geometry->points[0].source},{zima::drawing::DimensionAttachmentKind::Point,v.measurement_geometry->points[1].source}};
             zima::drawing::place_drawing_dimension(v,d,0,{0,45});
             fixture.sheets.front().views={v};fixture.sheets.front().dimensions={d};workspace.add_drawing(fixture);window.edit_workspace_document(fixture.document_id);flush();
             const auto point=window.annotation_handle_for_test(d.id,0,true);require(point.has_value(),"Dimension has no manipulation point");

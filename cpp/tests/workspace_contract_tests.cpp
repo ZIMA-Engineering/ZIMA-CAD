@@ -266,18 +266,18 @@ int main() {
             assembly_id, first_path);
         require(activated_first && activated_first->instance_path == first_path,
                 "Repeated source occurrences were ambiguous during activation");
-        require(inserted->calculated_source.mesh.points.size() >= 1 &&
-                    inserted->calculated_source.mesh.axes.size() >= 1 &&
+        require(inserted->calculated_source->mesh.points.size() >= 1 &&
+                    inserted->calculated_source->mesh.axes.size() >= 1 &&
                     std::any_of(
-                        inserted->calculated_source.mesh.original_references
+                        inserted->calculated_source->mesh.original_references
                             .triangle_references.begin(),
-                        inserted->calculated_source.mesh.original_references
+                        inserted->calculated_source->mesh.original_references
                             .triangle_references.end(),
                         [](const auto& reference) {
                             return reference.semantic_key == "plane";
                         }),
                 "Part construction references were not captured by Assembly insertion");
-        const double old_volume = inserted->calculated_source.volume;
+        const double old_volume = inserted->calculated_source->volume;
         auto changed_part = workspace.open_part(part_id)->session.document();
         changed_part.history.front().box.length *= 2.0;
         auto changed_calculation = kernel.evaluate_history(changed_part.kernel_operations());
@@ -285,12 +285,23 @@ int main() {
             std::move(changed_part), changed_calculation);
         require(workspace.open_assembly(assembly_id)
                     ->session.document().find_occurrence(occurrence_id)
-                    ->calculated_source.volume == old_volume,
+                    ->calculated_source->volume == old_volume,
                 "Part edit implicitly regenerated its parent Assembly");
+        const auto parent_revision=workspace.open_assembly(assembly_id)->session.revision();
+        const auto parent_placement=workspace.open_assembly(assembly_id)->session.document().find_occurrence(occurrence_id)->placement;
+        workspace.refresh_source_geometry();
+        const auto displayed_source=workspace.open_assembly(assembly_id)->session.document().find_occurrence(occurrence_id)->calculated_source;
+        require(displayed_source->volume==changed_calculation.back().volume &&
+            workspace.open_assembly(assembly_id)->session.revision()==parent_revision &&
+            workspace.open_assembly(assembly_id)->session.document().find_occurrence(occurrence_id)->placement==parent_placement,
+            "Refreshing source geometry recalculated placement or retained an old Part");
+        workspace.refresh_source_geometry();
+        require(displayed_source.shares_with(workspace.open_assembly(assembly_id)->session.document().find_occurrence(occurrence_id)->calculated_source),
+            "Unchanged tab refresh copied source geometry");
         workspace.regenerate_assembly_from_open_dependencies(assembly_id);
         require(workspace.open_assembly(assembly_id)
                     ->session.document().find_occurrence(occurrence_id)
-                    ->calculated_source.volume == changed_calculation.back().volume,
+                    ->calculated_source->volume == changed_calculation.back().volume,
                 "Explicit Assembly Regenerate ignored authoritative in-memory Part");
         bool duplicate_rejected = false;
         try {
@@ -900,8 +911,8 @@ int main() {
                 "Lifecycle Subassembly");
         const auto lifecycle_mesh_extent = [](const auto& occurrence) {
             return std::max_element(
-                occurrence.calculated_source.mesh.vertices.begin(),
-                occurrence.calculated_source.mesh.vertices.end(),
+                occurrence.calculated_source->mesh.vertices.begin(),
+                occurrence.calculated_source->mesh.vertices.end(),
                 [](const auto& left, const auto& right) {
                     return left.x < right.x;
                 })->x;
@@ -929,7 +940,7 @@ int main() {
         lifecycle_workspace.activate(lifecycle_topassembly_id);
         require(lifecycle_workspace.open_assembly(lifecycle_topassembly_id)
                     ->session.document().find_occurrence(
-                        lifecycle_subassembly_occurrence)->calculated_source.mesh
+                        lifecycle_subassembly_occurrence)->calculated_source->mesh
                         .vertices.size() > 0 &&
                     lifecycle_mesh_extent(*lifecycle_workspace.open_assembly(
                         lifecycle_topassembly_id)->session.document()
@@ -1056,6 +1067,53 @@ int main() {
                     !workspace.active_document_id().empty() &&
                     workspace.find(workspace.active_document_id()) != nullptr,
                 "Closing the active document did not choose a valid replacement");
+        {
+            namespace fs=std::filesystem;
+            auto source=zima::document::PartDocument::create_default();
+            source.history.push_back(zima::document::PartDocument::create_box_container());
+            auto bodies=kernel.evaluate_history(source.kernel_operations());
+            const auto directory=fs::temp_directory_path()/("zima-source-sync-"+source.document_id);
+            fs::create_directories(directory);
+            const auto part_file=directory/"source.prtz", nested_file=directory/"nested.asmz";
+            source.save(part_file,bodies);
+            auto nested=zima::assembly::AssemblyDocument::create_default();
+            auto part_occurrence=zima::assembly::AssemblyDocument::create_part_occurrence(
+                "Source",source.document_id,part_file,bodies.back());
+            const auto leaf=part_occurrence.occurrence_id;
+            nested.components.push_back(part_occurrence);nested.save(nested_file);
+            auto top=zima::assembly::AssemblyDocument::create_default();
+            top.components.push_back(zima::assembly::AssemblyDocument::create_assembly_occurrence(
+                "First",nested.document_id,nested_file,nested));
+            top.components.push_back(zima::assembly::AssemblyDocument::create_assembly_occurrence(
+                "Second",nested.document_id,nested_file,nested));
+            top.components[1].placement.x=1000;
+            zima::workspace::Workspace live;live.add_assembly(top,directory/"top.asmz");
+            live.refresh_source_geometry();
+            const auto verify_current=[&](double expected) {
+                const auto& assembly=live.open_assembly(top.document_id)->session.document();
+                require(assembly.components[0].calculated_source.shares_with(assembly.components[1].calculated_source),
+                    "Repeated closed subassembly lost shared geometry on source refresh");
+                require(std::abs(assembly.components[0].calculated_source->body_outputs.at(leaf)->volume-expected)<1e-6 &&
+                    assembly.components[1].placement.x==1000 &&
+                    live.open_assembly(top.document_id)->session.revision()==0,
+                    "Nested source display stayed stale or implicitly changed Assembly placement/history");
+            };
+            verify_current(bodies.back().volume);
+            live.add_part(source,bodies,part_file);
+            source.history.front().box.length*=2;
+            bodies=kernel.evaluate_history(source.kernel_operations());
+            live.open_part(source.document_id)->session.commit(source,bodies);
+            live.refresh_source_geometry();verify_current(bodies.back().volume);
+            source.history.front().box.length*=1.5;
+            bodies=kernel.evaluate_history(source.kernel_operations());source.save(part_file,bodies);
+            static_cast<void>(live.remove(source.document_id));
+            live.refresh_source_geometry();verify_current(bodies.back().volume);
+            const auto shared=live.open_assembly(top.document_id)->session.document().components[0].calculated_source;
+            live.refresh_source_geometry();
+            require(shared.shares_with(live.open_assembly(top.document_id)->session.document().components[0].calculated_source),
+                "Unchanged nested refresh rebuilt the source scene");
+            fs::remove_all(directory);
+        }
         std::cout << "C++ Workspace contracts passed\n";
         return 0;
     } catch (const std::exception& error) {

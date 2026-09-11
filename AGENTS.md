@@ -57,20 +57,15 @@
 
 ## Explicit dependency regeneration
 
-- Changes to a source Part or nested Assembly must not automatically regenerate
-  parent Assemblies, including during tab switching, saving, tree refresh or
-  ordinary viewer rebuilds. Automatic dependent calculation can interrupt
-  deliberate multi-document editing and destabilize unrelated work.
-- Parent Assemblies do not require dirty/stale badges merely because an open
-  dependency changed. The user explicitly chooses when to pull dependency
-  changes into a parent by invoking **Regenerate** on that parent document.
-- Explicit Regenerate treats currently open Part and Assembly documents as the
-  authoritative dependency sources, refreshes the complete nested dependency
-  chain, invalidates only the caches needed by that calculation, and then
-  recalculates the requested document. It must not require saving dependencies
-  first when their current in-memory documents are available.
-- Switching tabs displays the last calculated/persisted state and must not hide
-  an implicit OCCT calculation behind document activation.
+- A source Part owns its current calculated geometry. Assemblies share and
+  display that current source data; they must not pin historical Part revisions.
+- Switching tabs must not invoke OCCT, recalculate mates or regenerate Assembly
+  operations. Displaying already calculated source data is not regeneration.
+- Changes to calculated Part geometry must become visible in its Assembly
+  occurrences without requiring Assembly regeneration just to refresh display.
+- Mate solving and Assembly-owned body operations (such as cuts) run only on
+  explicit Regenerate. Open source documents are authoritative; saving them
+  first is not required.
 
 ## Assembly editing ownership
 
@@ -93,6 +88,17 @@
   that would introduce a direct or indirect dependency cycle must be rejected.
 
 ## File-format compatibility
+
+- All persistent information required by a Part, Assembly or Drawing must live
+  exclusively in the native `.prtz`, `.asmz` and `.drwz` document files.
+  Dependencies may refer to those native documents. Do not introduce required
+  external geometry, revision, sidecar or cache files/directories (including
+  `.zima-revisions`). In-memory sharing and disposable derived caches must never
+  be the sole storage of information required to reopen the native documents.
+
+- Keep the existing document extensions. Every format change must update the
+  corresponding start Part and Assembly templates under `config`; keep all of
+  `config`, including those templates, tracked in Git.
 
 - Backward compatibility with legacy Part and Assembly files is not required.
   This includes old `.prt`, `.prtz`, `.asm`, and `.asmz` documents.

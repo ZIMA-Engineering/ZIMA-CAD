@@ -95,8 +95,8 @@ std::optional<Geometry> AssemblyWorkspaceWindow::resolve_measurement(const Ref& 
         const auto address=workspace_.resolve_occurrence(id,assembly::InstancePath::decode(reference.instance_path));
         if(geometry&&address)if(const auto* owner=workspace_.open_assembly(address->owner_assembly_document_id))
             if(const auto* item=owner->session.document().find_occurrence(address->occurrence_id)){
-                geometry->values.volume=kernel::MeasurementValue{std::abs(item->calculated_source.volume),false};
-                geometry->values.area=kernel::MeasurementValue{std::abs(item->calculated_source.surface_area),false};
+                geometry->values.volume=kernel::MeasurementValue{std::abs(item->calculated_source->volume),false};
+                geometry->values.area=kernel::MeasurementValue{std::abs(item->calculated_source->surface_area),false};
                 if(const auto mass=assembly::occurrence_mass_kg(*item))geometry->values.mass=kernel::MeasurementValue{*mass,false};
             }
     }

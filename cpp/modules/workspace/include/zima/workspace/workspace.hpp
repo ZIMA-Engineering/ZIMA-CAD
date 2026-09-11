@@ -16,6 +16,8 @@ namespace zima::workspace {
 struct PartState {
     zima::document::DocumentSession session;
     std::filesystem::path path;
+    mutable std::optional<zima::kernel::BodySnapshot> source_geometry;
+    mutable std::uint64_t source_generation{};
 };
 
 struct AssemblyState {
@@ -63,6 +65,8 @@ public:
     [[nodiscard]] const std::string& active_document_id() const;
     [[nodiscard]] const std::string& displayed_document_id() const;
     void activate(const std::string& document_id);
+    // Share already calculated source data; never calculate OCCT or solve mates.
+    void refresh_source_geometry();
     void display_top_level(const std::string& document_id);
 
     [[nodiscard]] PartState* open_part(const std::string& document_id);
@@ -143,6 +147,16 @@ public:
 
 private:
     std::vector<DocumentState> documents_;
+    struct NativeAssemblyCache {
+        std::filesystem::file_time_type modified;
+        zima::assembly::AssemblyDocument document;
+    };
+    struct NativePartCache {
+        std::filesystem::file_time_type modified;
+        PartState part;
+    };
+    std::map<std::filesystem::path,NativePartCache> native_part_cache_;
+    std::map<std::filesystem::path,NativeAssemblyCache> native_assembly_cache_;
     std::string active_document_id_;
     std::string displayed_document_id_;
     [[nodiscard]] static const std::string& id_of(const DocumentState& state);

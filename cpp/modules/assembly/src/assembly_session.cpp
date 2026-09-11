@@ -49,6 +49,10 @@ void AssemblySession::update_dependency_snapshots(AssemblyDocument document) {
     current_.dependency_state_dirty = true;
 }
 
+void AssemblySession::update_source_geometry(AssemblyDocument document) {
+    current_.document = std::move(document);
+}
+
 bool AssemblySession::undo() {
     if (undo_.empty()) return false;
     redo_.push_back(std::move(current_));

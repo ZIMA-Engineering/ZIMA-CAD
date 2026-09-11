@@ -1151,7 +1151,7 @@ public:
             const auto highlight=[&](const drawing::DrawingView& view,const kernel::EdgeReference& ref,QColor color){
                 painter.save();painter.setPen(QPen(color,2));painter.setBrush(Qt::NoBrush);
                 for(const auto& curve:drawing::measurement_reference_geometry(view,ref)){QPolygonF line;for(const auto& p:curve)line<<view_screen_point(view,p);painter.drawPolyline(line);}
-                for(const auto& p:view.measurement_points)if(p.source==ref)painter.drawEllipse(view_screen_point(view,{kernel::dimension_dot(p.position,view.camera.horizontal),kernel::dimension_dot(p.position,view.camera.vertical)}),4,4);
+                for(const auto& p:view.measurement_geometry->points)if(p.source==ref)painter.drawEllipse(view_screen_point(view,{kernel::dimension_dot(p.position,view.camera.horizontal),kernel::dimension_dot(p.position,view.camera.vertical)}),4,4);
                 painter.restore();
             };
             if(!measurement_offered_.empty()){

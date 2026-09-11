@@ -59,7 +59,7 @@ void AssemblyWorkspaceWindow::show_derived_copy_properties(const std::string& id
                 if(found==result.body_outputs.end()&&graph.bodies().size()!=1)continue;
                 const auto* body=graph.find(source);
                 sources.emplace(source,MirrorSource{QString::fromStdString(body?body->name:graph.find_boolean(source)->name),
-                    found==result.body_outputs.end()?result.mesh:found->second.mesh});
+                    found==result.body_outputs.end()?result.mesh:found->second->mesh});
             }
         }
         append_derived_copy_references(geometry,document.origin_viewer_mesh().original_references);

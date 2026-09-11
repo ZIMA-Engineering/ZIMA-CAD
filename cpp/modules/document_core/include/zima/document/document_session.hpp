@@ -28,6 +28,7 @@ public:
 
     [[nodiscard]] const PartDocument& document() const;
     [[nodiscard]] std::uint64_t revision() const;
+    [[nodiscard]] std::uint64_t data_generation() const { return data_generation_; }
     [[nodiscard]] bool is_dirty() const;
     [[nodiscard]] bool can_undo() const;
     [[nodiscard]] bool can_redo() const;
@@ -65,6 +66,7 @@ private:
         bool calculated_state_dirty{};
     };
 
+    std::uint64_t data_generation_{};
     State current_;
     std::vector<State> undo_;
     std::vector<State> redo_;

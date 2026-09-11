@@ -41,6 +41,7 @@
 #include <BRepFilletAPI_MakeChamfer.hxx>
 #include <BRep_Builder.hxx>
 #include <BRepTools.hxx>
+#include <BRepTools_ShapeSet.hxx>
 #include <BRepTools_History.hxx>
 #include <BRep_Tool.hxx>
 #include <ShapeUpgrade_UnifySameDomain.hxx>
@@ -2614,38 +2615,88 @@ void capture_step_topology(const STEPControl_Reader& reader,
         result.vertices, result.imported_step_topology);
 }
 
+// Semantic identities come from the source document. These opaque references
+// address objects in one particular B-Rep archive; they are never topology IDs.
+// Publish archive and bindings together whenever the archive is rewritten.
+void persist_imported_topology(const PrimitiveData& data, BodyResult& result) {
+    BRepTools_ShapeSet archive(false, false);
+    archive.SetFormatNb(TopTools_FormatVersion_CURRENT);
+    archive.Add(data.shape);
+    const auto add = [&](const auto& owned) {
+        for (const auto& item : owned) archive.Add(item.shape);
+    };
+    add(data.faces); add(data.edges); add(data.vertices);
+    result.imported_step_topology = data.imported_step_topology;
+    const auto bind = [&](const auto& owned, StepRequest::TopologyIdentity::Kind kind) {
+        for (const auto& item : owned) {
+            const auto identity = std::find_if(result.imported_step_topology.begin(),
+                result.imported_step_topology.end(), [&](const auto& value) {
+                    return value.kind == kind && value.semantic_key == item.reference.semantic_key;
+                });
+            if (identity == result.imported_step_topology.end())
+                throw std::runtime_error("Imported topology identity is missing");
+            std::ostringstream address;
+            archive.Write(item.shape, address);
+            identity->shape_locator = "brep-ref-v1:" + address.str();
+        }
+    };
+    using Kind = StepRequest::TopologyIdentity::Kind;
+    bind(data.faces, Kind::Face); bind(data.edges, Kind::Edge); bind(data.vertices, Kind::Vertex);
+    std::ostringstream stream;
+    archive.Write(stream);
+    archive.Write(data.shape, stream);
+    result.kernel_shape = stream.str();
+}
+
 template <typename Owned, typename Reference>
-void restore_step_topology_kind(const TopoDS_Shape& imported,
-    TopAbs_ShapeEnum shape_kind, StepRequest::TopologyIdentity::Kind identity_kind,
+void restore_step_topology_kind(const BRepTools_ShapeSet& archive,
+    const TopoDS_Shape& imported, TopAbs_ShapeEnum shape_kind,
+    StepRequest::TopologyIdentity::Kind identity_kind,
     const std::vector<StepRequest::TopologyIdentity>& identities,
     const std::string& owner_id, std::vector<Owned>& owned) {
-    std::unordered_map<std::string, std::vector<TopoDS_Shape>> by_locator;
-    TopTools_IndexedMapOfShape visited;
-    for (TopExp_Explorer explorer(imported, shape_kind);
-         explorer.More(); explorer.Next()) {
-        const TopoDS_Shape shape = explorer.Current();
-        if (visited.Contains(shape)) continue;
-        visited.Add(shape);
-        by_locator[step_shape_locator(shape)].push_back(shape);
-    }
+    TopTools_IndexedMapOfShape members;
+    TopExp::MapShapes(imported, shape_kind, members);
+    std::set<std::string> semantic_keys;
+    TopTools_IndexedMapOfShape bound;
     for (const auto& identity : identities) {
         if (identity.kind != identity_kind) continue;
-        const auto found = by_locator.find(identity.shape_locator);
-        if (found == by_locator.end() || found->second.size() != 1) continue;
-        owned.push_back({found->second.front(),
-            Reference{owner_id, identity.semantic_key, {}}});
+        constexpr std::string_view prefix = "brep-ref-v1:";
+        if (!identity.shape_locator.starts_with(prefix) || identity.semantic_key.empty() ||
+            !semantic_keys.insert(identity.semantic_key).second)
+            throw std::runtime_error("Invalid imported topology binding");
+        const auto address = identity.shape_locator.substr(prefix.size());
+        std::istringstream fields(address);
+        char orientation{}; int object{}, location{};
+        if (!(fields >> orientation >> object >> location) ||
+            std::string_view("+-ie").find(orientation) == std::string_view::npos ||
+            object < 1 || object > archive.NbShapes() || location < 0)
+            throw std::runtime_error("Invalid imported B-Rep object reference");
+        fields >> std::ws;
+        if (!fields.eof()) throw std::runtime_error("Invalid imported B-Rep reference suffix");
+        TopoDS_Shape shape;
+        std::istringstream stream(address);
+        try {
+            archive.Read(shape, stream);
+        } catch (const Standard_Failure&) {
+            throw std::runtime_error("Imported B-Rep object reference is out of range");
+        }
+        if (shape.IsNull() || shape.ShapeType() != shape_kind ||
+            !members.Contains(shape) || bound.Contains(shape))
+            throw std::runtime_error("Imported topology does not belong to its source body");
+        bound.Add(shape);
+        owned.push_back({shape, Reference{owner_id, identity.semantic_key, {}}});
     }
 }
 
 void restore_step_topology(const StepRequest& request,
-    const TopoDS_Shape& imported, const std::string& owner_id,
-    PrimitiveData& result) {
+    const BRepTools_ShapeSet& archive, const TopoDS_Shape& imported,
+    const std::string& owner_id, PrimitiveData& result) {
     using Kind = StepRequest::TopologyIdentity::Kind;
-    restore_step_topology_kind<OwnedFace, FaceReference>(imported, TopAbs_FACE,
+    restore_step_topology_kind<OwnedFace, FaceReference>(archive, imported, TopAbs_FACE,
         Kind::Face, request.topology, owner_id, result.faces);
-    restore_step_topology_kind<OwnedEdge, EdgeReference>(imported, TopAbs_EDGE,
+    restore_step_topology_kind<OwnedEdge, EdgeReference>(archive, imported, TopAbs_EDGE,
         Kind::Edge, request.topology, owner_id, result.edges);
-    restore_step_topology_kind<OwnedVertex, VertexReference>(imported, TopAbs_VERTEX,
+    restore_step_topology_kind<OwnedVertex, VertexReference>(archive, imported, TopAbs_VERTEX,
         Kind::Vertex, request.topology, owner_id, result.vertices);
 }
 
@@ -2664,11 +2715,13 @@ PrimitiveData make_step_data(
     if (request.frozen_brep && !request.frozen_brep->empty()) {
         std::istringstream stream(*request.frozen_brep);
         BRep_Builder builder;
-        BRepTools::Read(result.shape, stream, builder);
+        BRepTools_ShapeSet archive(builder);
+        archive.Read(stream);
+        archive.Read(result.shape, stream);
         if (result.shape.IsNull()) {
             throw std::runtime_error("Frozen STEP body is invalid");
         }
-        restore_step_topology(request, result.shape, owner_id, result);
+        restore_step_topology(request, archive, result.shape, owner_id, result);
         result.imported_step_topology = request.topology;
     } else if (request.source_path.empty()) {
         throw std::invalid_argument("STEP source path is empty");
@@ -4802,7 +4855,7 @@ BodyResult OcctKernel::import_iges(const std::string& path,
     capture(data.vertices, TopAbs_VERTEX, Kind::Vertex, "vertex");
     auto result = make_result(data.shape, data.faces, data.edges, data.vertices,
         false, true, !data.imported_step_topology.empty(), {}, mesh_deflection);
-    result.imported_step_topology = std::move(data.imported_step_topology);
+    persist_imported_topology(data, result);
     return result;
 }
 
@@ -4821,7 +4874,7 @@ std::vector<BodyResult> OcctKernel::import_step_components(
         auto result = make_result(data.shape, data.faces, data.edges, data.vertices,
             false, true,
             !data.faces.empty() || !data.edges.empty() || !data.vertices.empty(), {}, mesh_deflection);
-        result.imported_step_topology = data.imported_step_topology;
+        persist_imported_topology(data, result);
         if (!requests[index].live_cache_fingerprint.empty()) {
             result.source_fingerprint = requests[index].live_cache_fingerprint;
             live_cache_->boundaries.insert_or_assign(
@@ -5211,8 +5264,8 @@ std::vector<BodyResult> OcctKernel::evaluate_body_histories(
             : local.back().source_fingerprint;
         BodyResult input;
         const auto old_input = previous.body_inputs.find(branch.scope.id);
-        if (old_input != previous.body_inputs.end() && old_input->second.calculation_errors.empty() &&
-            local.back().calculation_errors.empty() && old_input->second.source_fingerprint == input_key) {
+        if (old_input != previous.body_inputs.end() && old_input->second->calculation_errors.empty() &&
+            local.back().calculation_errors.empty() && old_input->second->source_fingerprint == input_key) {
             input = old_input->second;
         } else {
             input = local.back();
@@ -5233,7 +5286,7 @@ std::vector<BodyResult> OcctKernel::evaluate_body_histories(
         const auto preserve_failed_inputs = [&](const std::string& message) {
             auto retained = input;
             if (!branch.scope.target_id.empty()) {
-                const auto& target = document.body_outputs.at(branch.scope.target_id);
+                const auto& target = document.body_outputs.at(branch.scope.target_id).get();
                 retained = compound_bodies({PlacedBody{target}, PlacedBody{input}});
                 retained.calculation_errors = input.calculation_errors;
                 retained.calculation_errors.insert(target.calculation_errors.begin(), target.calculation_errors.end());
@@ -5245,7 +5298,7 @@ std::vector<BodyResult> OcctKernel::evaluate_body_histories(
         if (!branch.scope.source_id.empty() && !input.calculation_errors.empty())
             throw std::runtime_error("Zdrojové těleso obsahuje nevypočítaný prvek.");
         if (!branch.scope.target_id.empty() &&
-            !document.body_outputs.at(branch.scope.target_id).calculation_errors.empty())
+            !document.body_outputs.at(branch.scope.target_id)->calculation_errors.empty())
             throw std::runtime_error("Cílové těleso obsahuje nevypočítaný prvek.");
         if(branch.scope.combination==BodyCombination::Mirror||branch.scope.combination==BodyCombination::Pattern) {
             // The source is already in document coordinates; only the plane
@@ -5255,12 +5308,12 @@ std::vector<BodyResult> OcctKernel::evaluate_body_histories(
                 : pattern_body(document.body_outputs.at(branch.scope.source_id),branch.scope.pattern,branch.scope.id);
             document.body_inputs.emplace(branch.scope.id,output);
         } else if (branch.scope.combination != BodyCombination::Separate) {
-            const auto& target = document.body_outputs.at(branch.scope.target_id);
+            const auto& target = document.body_outputs.at(branch.scope.target_id).get();
             const auto output_key = input_key + ":boolean:" +
                 std::to_string(static_cast<int>(branch.scope.combination)) + ":" + target.source_fingerprint + ":" +
                 history_fingerprint(branch.operations, branch.operations.size());
             const auto old_output = previous.body_outputs.find(branch.scope.id);
-            if (old_output != previous.body_outputs.end() && old_output->second.calculation_errors.empty() && old_output->second.source_fingerprint == output_key) {
+            if (old_output != previous.body_outputs.end() && old_output->second->calculation_errors.empty() && old_output->second->source_fingerprint == output_key) {
                 output = old_output->second;
             } else {
                 if (input.kernel_shape.empty() || target.kernel_shape.empty())
@@ -5308,7 +5361,7 @@ std::vector<BodyResult> OcctKernel::evaluate_body_histories(
     TopoDS_Compound compound;
     builder.MakeCompound(compound);
     for (const auto& id : available) {
-        const auto& output = document.body_outputs.at(id);
+        const auto& output = document.body_outputs.at(id).get();
         if (!output.kernel_shape.empty()) builder.Add(compound, read_kernel_shape(output));
         document.volume += output.volume;
         document.surface_area += output.surface_area;
@@ -7223,8 +7276,9 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
             }
             append_technological_surfaces(boundaries.back(), operation.mesh_deflection);
             if (imported_step) {
-                boundaries.back().imported_step_topology =
-                    operand.imported_step_topology;
+                if (standalone_import && persist_boundary_shape) {
+                    persist_imported_topology(operand, boundaries.back());
+                }
             }
             boundaries.back().source_fingerprint =
                 history_fingerprint(operations, boundaries.size());

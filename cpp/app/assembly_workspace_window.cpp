@@ -5547,7 +5547,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                     const auto& outputs = item->data(0, Qt::UserRole + 3).toString() == "part-body"
                         ? cache.body_inputs : cache.body_outputs;
                     const auto found = outputs.find(id);
-                    if (found != outputs.end()) viewer_->confirm_container_component_wire(id, "body", found->second.mesh.edges, {});
+                    if (found != outputs.end()) viewer_->confirm_container_component_wire(id, "body", found->second->mesh.edges, {});
                     else viewer_->clear_selection();
                 } else viewer_->clear_selection();
             } else if (item->data(0, Qt::UserRole + 3).toString() ==
@@ -10157,7 +10157,7 @@ void AssemblyWorkspaceWindow::calculate_assembly_cuts(
             }
             if (target->suppressed) continue;
             target->calculated_source = kernel_.subtract_bodies(
-                target->calculated_source, cutter_boundaries.back(),
+                zima::assembly::calculate_component_body(*target,kernel_), cutter_boundaries.back(),
                 {target->placement.x, target->placement.y, target->placement.z},
                 {target->placement.rotation_x, target->placement.rotation_y,
                  target->placement.rotation_z}, cutter_operations.front().boolean_tolerance,
@@ -24191,6 +24191,7 @@ std::optional<std::string> AssemblyWorkspaceWindow::selected_occurrence_path() c
 }
 
 void AssemblyWorkspaceWindow::refresh_scene() {
+    workspace_.refresh_source_geometry();
     if(measure_action_)measure_action_->setEnabled(workspace_.open_part(workspace_.displayed_document_id())||workspace_.open_assembly(workspace_.displayed_document_id()));
     viewer_->set_dimension_layout_editable((!properties_dialog_||!properties_dialog_->isVisible())&&!sketch_universal_dimension_active_);
     update_assembly_dimension_visibility();
@@ -25844,7 +25845,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                 display = {};
                 if (!calculated.empty()) for (const auto& id : *body_dialog_context_) {
                     const auto found = calculated.back().body_outputs.find(id);
-                    if (found != calculated.back().body_outputs.end()) append_mesh(display, found->second.mesh);
+                    if (found != calculated.back().body_outputs.end()) append_mesh(display, found->second->mesh);
                     else if(calculated.back().body_outputs.empty()&&body_dialog_context_->size()==1)append_mesh(display,calculated.back().mesh);
                 }
             }

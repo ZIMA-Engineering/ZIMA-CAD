@@ -358,7 +358,7 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
         if (view) {
             const auto evaluation = drawing::evaluate_drawing_dimension(*view, value_);
             message = QString::fromStdString(evaluation.message);
-            if (view->measurement_curves.empty())
+            if (view->measurement_geometry->curves.empty())
                 message = tr("Pro zadání vazeb nejprve regenerujte tento pohled.");
             if (evaluation.state == drawing::MeasurementState::Resolved) {
                 QStringList values;

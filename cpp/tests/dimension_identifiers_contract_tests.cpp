@@ -116,10 +116,10 @@ int main() {
             "Read-only lookup allocated a dimension");
         auto drawing = zima::drawing::DrawingDocument::create_default();
         const auto view = zima::drawing::DrawingDocument::create_view(
-            part.document_id, "part.prtz", occurrence.calculated_source.mesh);
+            part.document_id, "part.prtz", occurrence.calculated_source->mesh);
         drawing.sheets.front().views.push_back(view);
         auto drawing_dimension=zima::drawing::make_drawing_dimension(view.id);drawing_dimension.id="drawing-dimension-1";
-        const auto edge=occurrence.calculated_source.mesh.edges.front().reference;
+        const auto edge=occurrence.calculated_source->mesh.edges.front().reference;
         drawing_dimension.attachments={{zima::drawing::DimensionAttachmentKind::Line,edge},{zima::drawing::DimensionAttachmentKind::Line,edge}};
         drawing.sheets.front().dimensions.push_back(drawing_dimension);
         drawing.synchronize_dimension_identifiers();

@@ -3,7 +3,7 @@
 #include <zima/document/physical_properties.hpp>
 namespace zima::assembly {
 inline std::optional<double> occurrence_mass_kg(const PartOccurrence& item) {
-    const double volume=std::abs(item.calculated_source.volume);
+    const double volume=std::abs(item.calculated_source->volume);
     if(volume==0)return 0;
     if(item.density_kg_mm3)return volume * *item.density_kg_mm3;
     // A changed heterogeneous subassembly needs a new mass snapshot. Do not
@@ -16,7 +16,7 @@ inline std::map<std::string,double> physical_values(const AssemblyDocument& doc)
     const auto suppressed=doc.effectively_suppressed_occurrences();
     for(const auto& item:doc.components) {
         if(suppressed.contains(item.occurrence_id))continue;
-        volume+=std::abs(item.calculated_source.volume);area+=std::abs(item.calculated_source.surface_area);
+        volume+=std::abs(item.calculated_source->volume);area+=std::abs(item.calculated_source->surface_area);
         if(const auto value=occurrence_mass_kg(item))mass+=*value;else known=false;
     }
     return zima::document::physical_values_from_totals(doc,volume,area,
@@ -25,6 +25,6 @@ inline std::map<std::string,double> physical_values(const AssemblyDocument& doc)
 inline void capture_nested_mass(PartOccurrence& item,const AssemblyDocument& source) {
     const auto values=physical_values(source);item.density_kg_mm3.reset();item.nested_mass_kg.reset();
     if(values.contains("model.mass"))item.nested_mass_kg=values.at("model.mass")*zima::document::mass_unit_kg(source.document_units.at("Mass"));
-    item.mass_volume_mm3=std::abs(item.calculated_source.volume);
+    item.mass_volume_mm3=std::abs(item.calculated_source->volume);
 }
 } // namespace zima::assembly

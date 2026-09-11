@@ -30,8 +30,8 @@ int main() {
         require(packed.dump().size()<original.dump().size()/4,"Identical cache blocks were not shared");
         const auto loaded=zima::document::load_body_result(restored["components"][0]["calculated_source"]);
         require(loaded.body_boundaries.at("body").size()==2 &&
-            loaded.body_inputs.at("body").kernel_shape==body.kernel_shape &&
-            loaded.body_outputs.at("body").kernel_shape==different.kernel_shape,
+            loaded.body_inputs.at("body")->kernel_shape==body.kernel_shape &&
+            loaded.body_outputs.at("body")->kernel_shape==different.kernel_shape,
             "Distinct history states were merged or lost");
         require(zima::document::pack_cache_storage(original)==packed,"Cache encoding is not deterministic");
         const auto reject=[](json storage) {

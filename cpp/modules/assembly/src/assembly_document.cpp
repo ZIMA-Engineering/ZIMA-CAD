@@ -763,11 +763,37 @@ AssemblyDocument AssemblyDocument::create_default() {
     return document;
 }
 
+kernel::BodyResult calculate_component_body(
+    const PartOccurrence& occurrence, const kernel::GeometryKernel& kernel) {
+    const auto calculate = [&](const auto& self, const kernel::BodySnapshot& source,
+            const std::vector<OccurrenceSnapshot>& children, std::size_t depth) -> kernel::BodyResult {
+        if (depth > 256) throw std::runtime_error("Assembly calculation nesting is too deep");
+        if (!source->kernel_shape.empty() || children.empty()) return source;
+        std::vector<kernel::PlacedBody> bodies;
+        for (const auto& child : children) {
+            if (!child.visible || child.manually_suppressed || child.dependency_suppressed) continue;
+            const auto found=source->body_outputs.find(child.occurrence_id);
+            if (found==source->body_outputs.end())
+                throw std::runtime_error("Assembly calculation is missing a child revision");
+            auto body=self(self,found->second,child.children,depth+1);
+            if (body.kernel_shape.empty()) continue;
+            const auto& p=child.placement;
+            bodies.push_back({std::move(body),{p.x,p.y,p.z},
+                {p.rotation_x,p.rotation_y,p.rotation_z}});
+        }
+        auto result=bodies.empty()?kernel::BodyResult{}:kernel.compound_bodies(bodies);
+        result.mesh=source->mesh;
+        result.body_outputs=source->body_outputs;
+        return result;
+    };
+    return calculate(calculate,occurrence.calculated_source,occurrence.nested_snapshot,0);
+}
+
 PartOccurrence AssemblyDocument::create_part_occurrence(
     std::string name,
     std::string source_document_id,
     std::filesystem::path source_path,
-    zima::kernel::BodyResult calculated_source) {
+    zima::kernel::BodySnapshot calculated_source) {
     if (name.empty() || source_document_id.empty()) {
         throw std::invalid_argument("Part occurrence name and source ID are required");
     }
@@ -786,9 +812,17 @@ PartOccurrence AssemblyDocument::create_assembly_occurrence(
     auto occurrence = create_part_occurrence(
         std::move(name), std::move(source_document_id), std::move(source_path), {});
     occurrence.source_kind = ComponentSourceKind::Assembly;
-    occurrence.calculated_source.mesh = calculated_document.build_scene();
-    for(const auto& child:calculated_document.components)
-        occurrence.calculated_source.body_outputs.emplace(child.occurrence_id,child.calculated_source);
+    zima::kernel::BodyResult snapshot;
+    snapshot.mesh = calculated_document.build_scene();
+    const auto suppressed=calculated_document.effectively_suppressed_occurrences();
+    for(const auto& child:calculated_document.components) {
+        snapshot.body_outputs.emplace(child.occurrence_id,child.calculated_source);
+        if (child.visible && !suppressed.contains(child.occurrence_id)) {
+            snapshot.volume += child.calculated_source->volume;
+            snapshot.surface_area += child.calculated_source->surface_area;
+        }
+    }
+    occurrence.calculated_source = std::move(snapshot);
     occurrence.nested_snapshot = calculated_document.occurrence_snapshot();
     return occurrence;
 }
@@ -1149,12 +1183,13 @@ void AssemblyDocument::calculate_derived_copies(const zima::kernel::GeometryKern
         const auto* source=find_occurrence(result->derived_copy->source_id);
         const auto translation=zima::kernel::Vec3{source->placement.x,source->placement.y,source->placement.z};
         const auto rotation=zima::kernel::Vec3{source->placement.rotation_x,source->placement.rotation_y,source->placement.rotation_z};
+        const auto source_body=calculate_component_body(*source,kernel);
         result->calculated_source=result->derived_copy->pattern
-            ? kernel.pattern_body(source->calculated_source,*result->derived_copy->pattern,id,translation,rotation,true)
-            : kernel.mirror_body(source->calculated_source,result->derived_copy->resolved_plane,{},translation,rotation);
+            ? kernel.pattern_body(source_body,*result->derived_copy->pattern,id,translation,rotation,true)
+            : kernel.mirror_body(source_body,result->derived_copy->resolved_plane,{},translation,rotation);
         result->density_kg_mm3=source->density_kg_mm3;
         result->nested_mass_kg=source->nested_mass_kg;
-        result->mass_volume_mm3=std::abs(result->calculated_source.volume);
+        result->mass_volume_mm3=std::abs(result->calculated_source->volume);
         if(result->nested_mass_kg && result->derived_copy->pattern)
             *result->nested_mass_kg*=kernel::pattern_instance_count(*result->derived_copy->pattern)-1;
         result->source_document_id=source->source_document_id;result->source_path=source->source_path;result->source_kind=source->source_kind;
@@ -1469,7 +1504,7 @@ zima::kernel::ViewerMesh AssemblyDocument::build_scene() const {
                 target_references.axes.push_back(std::move(axis));
             }
         };
-        append_component_mesh(component.calculated_source.mesh);
+        append_component_mesh(component.calculated_source->mesh);
         if (component.source_kind == ComponentSourceKind::Part) {
             // A Part's built-in Origin is defined by its persisted document
             // identity and occurrence placement, just like this Assembly's
@@ -1663,7 +1698,7 @@ zima::kernel::ViewerMesh AssemblyDocument::build_scene() const {
 
 zima::kernel::ViewerMesh AssemblyDocument::build_scene_with_part_override(
     const std::string& occurrence_id,
-    zima::kernel::BodyResult calculated_source) const {
+    zima::kernel::BodySnapshot calculated_source) const {
     auto transient = *this;
     const auto found = std::find_if(
         transient.components.begin(), transient.components.end(),
@@ -1679,7 +1714,7 @@ zima::kernel::ViewerMesh AssemblyDocument::build_scene_with_part_override(
 
 AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
     const auto ini = read_ini(path);
-    if (ini_value(ini, "Document", "format_version") != "13" ||
+    if (ini_value(ini, "Document", "format_version") != "14" ||
         ini_value(ini, "Document", "type") != "assembly") {
         throw std::runtime_error("Unsupported ZIMA-CAD Assembly document format");
     }
@@ -1699,6 +1734,21 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
         root.value("type", "") != "assembly") {
         throw std::runtime_error("Invalid Assembly Container data");
     }
+    std::map<std::string,zima::kernel::BodySnapshot> source_geometries;
+    std::set<std::string> loading_geometries;
+    const auto load_geometry=[&](const auto& self,const std::string& id)->zima::kernel::BodySnapshot {
+        if(const auto found=source_geometries.find(id);found!=source_geometries.end())return found->second;
+        if(loading_geometries.size()>=256||!loading_geometries.insert(id).second)
+            throw std::runtime_error("Cyclic Assembly source geometry");
+        const auto& packet=root.at("source_geometries").at(id);
+        auto body=zima::document::load_body_result(packet);
+        for(const auto& [child,reference]:packet.at("source_outputs").items())
+            body.body_outputs.emplace(child,self(self,reference.get<std::string>()));
+        zima::kernel::BodySnapshot result(std::move(body));
+        source_geometries.emplace(id,result);
+        loading_geometries.erase(id);
+        return result;
+    };
     AssemblyDocument document;
     document.document_id = root.at("document_id").get<std::string>();
     document.name = root.at("name").get<std::string>();
@@ -1831,7 +1881,7 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
             }
         }
         component.calculated_source =
-            zima::document::load_body_result(source.at("calculated_source"));
+            load_geometry(load_geometry,source.at("source_geometry").get<std::string>());
         if(source.contains("density_kg_mm3")&&!source.at("density_kg_mm3").is_null())component.density_kg_mm3=source.at("density_kg_mm3").get<double>();
         if(source.contains("nested_mass_kg")&&!source.at("nested_mass_kg").is_null())component.nested_mass_kg=source.at("nested_mass_kg").get<double>();
         component.mass_volume_mm3=source.value("mass_volume_mm3",0.0);
@@ -1843,13 +1893,13 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
             !component.nested_snapshot.empty()) {
             throw std::runtime_error("Part occurrence must not contain an Assembly snapshot");
         }
-        for (const auto& reference : component.calculated_source.mesh.triangle_references) {
+        for (const auto& reference : component.calculated_source->mesh.triangle_references) {
             if (component.source_kind == ComponentSourceKind::Part &&
                 !reference.instance_path.empty()) {
                 throw std::runtime_error("Source Part packet contains an occurrence path");
             }
         }
-        for (const auto& reference : component.calculated_source.mesh
+        for (const auto& reference : component.calculated_source->mesh
                  .original_references.triangle_references) {
             if (component.source_kind == ComponentSourceKind::Part &&
                 !reference.instance_path.empty()) {
@@ -1924,6 +1974,19 @@ void AssemblyDocument::synchronize_dimension_identifiers() {
 
 void AssemblyDocument::save(const std::filesystem::path& path,
     const zima::document::DocumentCopyIdentity& copy) const {
+    nlohmann::json source_geometries=nlohmann::json::object();
+    std::map<const zima::kernel::BodyResult*,std::string> geometry_ids;
+    const auto geometry_id=[&](const auto& self,const zima::kernel::BodySnapshot& snapshot)->std::string {
+        if(const auto found=geometry_ids.find(&snapshot.get());found!=geometry_ids.end())return found->second;
+        const auto id=std::to_string(geometry_ids.size());
+        geometry_ids.emplace(&snapshot.get(),id);
+        auto packet=zima::document::serialize_body_result(snapshot,false);
+        packet["source_outputs"]=nlohmann::json::object();
+        for(const auto& [child,body]:snapshot->body_outputs)
+            packet["source_outputs"][child]=self(self,body);
+        source_geometries[id]=std::move(packet);
+        return id;
+    };
     auto identifiers = dimension_identifiers;
     identifiers.synchronize(dimension_parameters());
     static_cast<void>(build_scene());
@@ -1957,8 +2020,7 @@ void AssemblyDocument::save(const std::filesystem::path& path,
                 {"rotation_y", component.placement.rotation_y},
                 {"rotation_z", component.placement.rotation_z},
             }},
-            {"calculated_source",
-             zima::document::serialize_body_result(component.calculated_source)},
+            {"source_geometry", geometry_id(geometry_id,component.calculated_source)},
             {"nested_snapshot", std::move(nested_snapshot)},
             {"placement_references", [&component] {
                 nlohmann::json references = nlohmann::json::array();
@@ -2038,7 +2100,7 @@ void AssemblyDocument::save(const std::filesystem::path& path,
             {"input_component_bodies", std::move(input_bodies)}});
     }
     nlohmann::json root = {
-        {"format", "zima-cad-cpp"}, {"format_version", 22},
+        {"format", "zima-cad-cpp"}, {"format_version", 23},
         {"type", "assembly"}, {"document_id", document_id}, {"name", name},
         {"user_parameters", user_parameters},
         {"user_parameter_order", user_parameter_order},
@@ -2059,6 +2121,7 @@ void AssemblyDocument::save(const std::filesystem::path& path,
         {"cuts", std::move(cuts_json)},
         {"constructions", std::move(constructions_json)},
         {"components", std::move(components_json)},
+        {"source_geometries",std::move(source_geometries)},
         {"dependencies", std::move(dependencies_json)},
     };
     zima::document::apply_document_copy_identity(root, copy);
@@ -2066,7 +2129,7 @@ void AssemblyDocument::save(const std::filesystem::path& path,
     const auto saved_name = root.at("name").get<std::string>();
     IniSections ini;
     ini["Document"] = {
-        {"format_version", "13"},
+        {"format_version", "14"},
         {"type", "assembly"},
         {"document_id", saved_id},
         {"name", saved_name},

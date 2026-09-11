@@ -144,7 +144,7 @@ zima::kernel::ViewerMesh DocumentSession::body_context_mesh(const BodyHistoryGra
         } else {
             const auto found = outputs.find(id);
             if (found == outputs.end()) continue;
-            mesh = found->second.mesh;
+            mesh = found->second->mesh;
         }
         const auto offset = static_cast<std::uint32_t>(result.vertices.size());
         result.vertices.insert(result.vertices.end(), mesh.vertices.begin(), mesh.vertices.end());
@@ -259,6 +259,7 @@ std::optional<HistoryRollbackBoundary> DocumentSession::rollback_boundary(
 void DocumentSession::replace(
     PartDocument document,
     std::vector<zima::kernel::BodyResult> calculated_boundaries) {
+    ++data_generation_;
     refresh_physical_relations(document, physical_values(document,calculated_boundaries));
     retain_shaft_reference_geometry(document,calculated_boundaries);
     current_ = {std::move(document), std::move(calculated_boundaries), 0, false};
@@ -273,6 +274,7 @@ void DocumentSession::replace(
 void DocumentSession::commit(
     PartDocument document,
     std::vector<zima::kernel::BodyResult> calculated_boundaries) {
+    ++data_generation_;
     refresh_physical_relations(document, physical_values(document,calculated_boundaries));
     retain_shaft_reference_geometry(document,calculated_boundaries);
     document.dimension_identifiers.retain(current_.document.dimension_identifiers);
@@ -285,6 +287,7 @@ void DocumentSession::commit(
 
 void DocumentSession::update_calculated_boundaries(
     std::vector<zima::kernel::BodyResult> calculated_boundaries) {
+    ++data_generation_;
     refresh_physical_relations(current_.document,physical_values(current_.document,calculated_boundaries));
     retain_shaft_reference_geometry(current_.document,calculated_boundaries);
     current_.calculated_boundaries = std::move(calculated_boundaries);
@@ -293,6 +296,7 @@ void DocumentSession::update_calculated_boundaries(
 
 bool DocumentSession::undo() {
     if (undo_.empty()) return false;
+    ++data_generation_;
     redo_.push_back(std::move(current_));
     current_ = std::move(undo_.back());
     undo_.pop_back();
@@ -302,6 +306,7 @@ bool DocumentSession::undo() {
 
 bool DocumentSession::redo() {
     if (redo_.empty()) return false;
+    ++data_generation_;
     undo_.push_back(std::move(current_));
     current_ = std::move(redo_.back());
     redo_.pop_back();

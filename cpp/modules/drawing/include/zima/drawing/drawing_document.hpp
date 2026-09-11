@@ -105,6 +105,13 @@ struct MeasurementPoint {
     kernel::Vec3 position;
     bool operator==(const MeasurementPoint&) const = default;
 };
+struct MeasurementGeometry {
+    std::vector<MeasurementCurve> curves;
+    std::vector<MeasurementPoint> points;
+    bool operator==(const MeasurementGeometry&) const = default;
+};
+[[nodiscard]] std::shared_ptr<const MeasurementGeometry> share_measurement_geometry(MeasurementGeometry);
+
 struct DrawingView {
     std::string id;
     std::string name{"Pohled"};
@@ -140,8 +147,8 @@ struct DrawingView {
     std::vector<ModelAnnotation> model_annotations;
     std::vector<ProjectedEdge> projected_edges;
     std::vector<ProjectedTriangle> projected_triangles;
-    std::vector<MeasurementCurve> measurement_curves;
-    std::vector<MeasurementPoint> measurement_points;
+    std::shared_ptr<const MeasurementGeometry> measurement_geometry=
+        share_measurement_geometry({});
     std::set<std::string> value_locks;
 };
 

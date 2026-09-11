@@ -147,14 +147,16 @@ int main() {
         near(chain.presentations[2].value, 12);
         refresh_drawing_dimension(v, d);
         const auto before_missing = d;
-        const auto removed = v.measurement_curves.back();
-        v.measurement_curves.pop_back();
+        const auto intact = v.measurement_geometry;
+        auto damaged_geometry=*intact;
+        damaged_geometry.curves.pop_back();
+        v.measurement_geometry=share_measurement_geometry(std::move(damaged_geometry));
         const auto missing = evaluate_drawing_dimension(v, d);
         require(missing.state == MeasurementState::Unresolved && !missing.resolved_attachments.back(),
                 "Broken reference not marked");
         require(drawing_dimension_text(d, missing.presentations.back(), true) == "?",
                 "Broken dimension displayed stale numeric value");
-        v.measurement_curves.push_back(removed);
+        v.measurement_geometry=intact;
         require(evaluate_drawing_dimension(v, d).state == MeasurementState::Resolved && d == before_missing,
                 "Restored binding lost presentation");
         const auto serialized = serialize_drawing_dimensions({d});
@@ -171,10 +173,9 @@ int main() {
         require(rejected, "Duplicate dimension identity accepted");
         const auto geometry = serialize_measurement_geometry(v);
         auto copy = v;
-        copy.measurement_curves.clear();
-        copy.measurement_points.clear();
+        copy.measurement_geometry=share_measurement_geometry({});
         deserialize_measurement_geometry(copy, geometry);
-        require(copy.measurement_curves == v.measurement_curves,
+        require(copy.measurement_geometry->curves == v.measurement_geometry->curves,
                 "Measurement source geometry changed on disk");
 
         // Both branches and exact tangency are deterministic, including intersections

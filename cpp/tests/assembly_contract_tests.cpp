@@ -93,7 +93,7 @@ int main() {
                         .source_document_id == "part-fixture-001" &&
                     reopened_fixture_assembly.components.back().placement.x == 12.0 &&
                     std::abs(reopened_fixture_assembly.components.back()
-                        .calculated_source.volume - 216.0) < 1.0e-6,
+                        .calculated_source->volume - 216.0) < 1.0e-6,
                 "Edited Python Assembly fixture did not survive "
                 "regenerate/save/reopen");
 
@@ -332,7 +332,7 @@ int main() {
         const std::string assembly_text(
             std::istreambuf_iterator<char>(assembly_file), {});
         require(assembly_text.find("[Document]\n") != std::string::npos &&
-                    assembly_text.find("format_version=13\n") != std::string::npos &&
+                    assembly_text.find("format_version=14\n") != std::string::npos &&
                     assembly_text.find("[DocumentUnits]\n") != std::string::npos &&
                     assembly_text.find("[DocumentPrecision]\n") != std::string::npos &&
                     assembly_text.find("[Material]\n") != std::string::npos &&
@@ -385,7 +385,7 @@ int main() {
                     loaded.cuts == assembly.cuts &&
                     loaded.cuts.front().input_component_bodies.size() == 2 &&
                     loaded.cuts.front().input_component_bodies.at(first_id).volume ==
-                        assembly.components.front().calculated_source.volume &&
+                        assembly.components.front().calculated_source->volume &&
                     loaded.find_cut(cut_definition.id) != nullptr,
                 "Assembly identity and placement did not survive save/load");
         const auto loaded_scene = loaded.build_scene();
@@ -546,12 +546,12 @@ int main() {
         require(cut_results.size() == 2 &&
                     cut_results.at(cut_target_a_id).volume <
                         repeated_top.find_occurrence(cut_target_a_id)
-                            ->calculated_source.volume &&
+                            ->calculated_source->volume &&
                     cut_results.at(cut_target_b_id).volume <
                         repeated_top.find_occurrence(cut_target_b_id)
-                            ->calculated_source.volume &&
+                            ->calculated_source->volume &&
                     repeated_top.find_occurrence(cut_excluded_id)
-                            ->calculated_source.volume == source.back().volume,
+                            ->calculated_source->volume == source.back().volume,
                 "Assembly cut changed a non-target occurrence");
         bool nested_cut_rejected = false;
         repeated_top.cuts.back().target_occurrence_ids.push_back(top_middle_a_id);
@@ -736,7 +736,9 @@ int main() {
             // Put the hinge packet in the Assembly frame to isolate annotation
             // placement from the already tested component solver.
             source.placement = {};
-            source.calculated_source.mesh.original_references.axes.push_back(axis);
+            auto snapshot=source.calculated_source.get();
+            snapshot.mesh.original_references.axes.push_back(axis);
+            source.calculated_source=std::move(snapshot);
             moving.placement_references.push_back({zima::assembly::MateKind::AxisCoincident,
                 {zima::assembly::MateReferenceKind::Axis, zima::assembly::InstancePath{}.child(second_id), "hinge", "axis"},
                 {zima::assembly::MateReferenceKind::Axis, zima::assembly::InstancePath{}.child(first_id), "hinge", "axis"},0,false});
@@ -1445,7 +1447,7 @@ int main() {
         state_document.components.back().visible = false;
         require(state_document.build_scene().triangles.empty() &&
                     state_document.components.size() == 2 &&
-                    !state_document.components.front().calculated_source.mesh.vertices.empty(),
+                    !state_document.components.front().calculated_source->mesh.vertices.empty(),
                 "Suppression/hide deleted component data or left it displayed");
         const auto state_path = std::filesystem::temp_directory_path() /
             "zima-cad-cpp-assembly-state-contract.asmz";
@@ -1758,7 +1760,9 @@ int main() {
         session.mark_saved();
         require(!session.is_dirty(), "Assembly savepoint did not become clean");
         auto refreshed = session.document();
-        refreshed.components.front().calculated_source.volume += 1.0;
+        auto snapshot=refreshed.components.front().calculated_source.get();
+        snapshot.volume += 1.0;
+        refreshed.components.front().calculated_source=std::move(snapshot);
         session.update_dependency_snapshots(std::move(refreshed));
         require(session.revision() == 1 && session.is_dirty(),
                 "Dependency refresh created a model revision or stayed clean");

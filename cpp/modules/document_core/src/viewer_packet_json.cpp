@@ -425,7 +425,7 @@ zima::kernel::SurfaceGeometry load_surface_geometry(const nlohmann::json& value)
     return load_surface(value);
 }
 
-nlohmann::json serialize_body_result(const zima::kernel::BodyResult& result) {
+nlohmann::json serialize_body_result(const zima::kernel::BodyResult& result, bool include_histories) {
     nlohmann::json faces = nlohmann::json::array();
     const bool has_triangle_tags = std::ranges::any_of(
         result.mesh.triangle_references,
@@ -551,7 +551,7 @@ nlohmann::json serialize_body_result(const zima::kernel::BodyResult& result) {
     packet["annotation_frames"]=annotation_frames_json(result.mesh.annotation_frames);
     // Part aggregates own branch caches; an Assembly occurrence stores its
     // calculated child packets by occurrence ID, without Part history rows.
-    if (!result.body_boundaries.empty() || !result.body_inputs.empty() || !result.body_outputs.empty()) {
+    if (include_histories && (!result.body_boundaries.empty() || !result.body_inputs.empty() || !result.body_outputs.empty())) {
         auto histories = nlohmann::json::object();
         auto inputs = nlohmann::json::object();
         auto outputs = nlohmann::json::object();

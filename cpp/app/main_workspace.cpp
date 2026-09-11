@@ -345,7 +345,7 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
     const auto* pattern_body=stored.body_history.find(pattern_id);
     if(!verify(pattern_body&&pattern_body->derived_copy->pattern->linear[0].count==4&&std::abs(pattern_body->derived_copy->pattern->linear[0].direction.y-1)<1e-7,"Pattern did not persist local direction/count"))return 1;
     bodies=kernel.evaluate_history(stored.kernel_operations());
-    if(!verify(std::abs(bodies.back().body_outputs.at(pattern_id).volume-576)<1e-7,"Pattern does not produce a full body"))return 1;
+    if(!verify(std::abs(bodies.back().body_outputs.at(pattern_id)->volume-576)<1e-7,"Pattern does not produce a full body"))return 1;
     window.show_tree_item_properties(row(pattern_id,"part-body"));flush();
     dialog=dynamic_cast<app::DerivedCopyDialog*>(window.findChild<QDialog*>("patternDialog"));
     if(!verify(dialog!=nullptr,"Pattern editing uses a different dialog"))return 1;
@@ -389,7 +389,7 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
     if(!verify(!window.findChild<QDialog*>("patternDialog"),"Grid OK did not close the dialog"))return 1;
     std::vector<kernel::BodyResult> grid_boundaries;const auto grid_part=document::PartDocument::load(path,&grid_boundaries);
     if(!verify(grid_part.body_history.find(grid_id)->derived_copy->pattern->linear==expected_grid&&
-        std::abs(grid_boundaries.back().body_outputs.at(grid_id).volume-11*192)<1e-7,"UI grid geometry or persistence is incorrect"))return 1;
+        std::abs(grid_boundaries.back().body_outputs.at(grid_id)->volume-11*192)<1e-7,"UI grid geometry or persistence is incorrect"))return 1;
     // Command-first workflow arms the shared Tree/View source field.
     tree->clearSelection();view->clear_selection();pattern_action->trigger();flush();
     dialog=dynamic_cast<app::DerivedCopyDialog*>(window.findChild<QDialog*>("patternDialog"));
@@ -408,7 +408,7 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
     dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();save->trigger();flush();
     const auto saved_assembly=assembly::AssemblyDocument::load(assembly_path);
     if(!verify(saved_assembly.find_occurrence(assembly_mirror)&&saved_assembly.find_occurrence(assembly_mirror)->derived_copy,"Assembly Mirror not persisted"))return 1;
-    const auto before=saved_assembly.find_occurrence(assembly_mirror)->calculated_source.mesh.vertices.front();
+    const auto before=saved_assembly.find_occurrence(assembly_mirror)->calculated_source->mesh.vertices.front();
     if(!verify(std::abs(before.x+calculated.back().mesh.vertices.front().x+20)<1e-7,"Assembly Mirror used the wrong source placement"))return 1;
     window.show_tree_item_properties(row(assembly_mirror,"part-occurrence"));flush();
     dialog=dynamic_cast<app::DerivedCopyDialog*>(window.findChild<QDialog*>("mirrorDialog"));
@@ -3015,7 +3015,7 @@ int verify_assembly_refresh_view(QApplication& application,const std::filesystem
     if(!verify(view->camera_state()==camera,"Assembly Regenerate changed zoom, pan or orientation"))return 1;
     window.findChild<QAction*>("saveDocumentAction")->trigger();application.processEvents();
     const auto changed=assembly::AssemblyDocument::load(assembly_path);
-    if(!verify(changed.find_occurrence(occurrence)->calculated_source.volume > bodies.back().volume*2,
+    if(!verify(changed.find_occurrence(occurrence)->calculated_source->volume > bodies.back().volume*2,
         "Assembly Regenerate ignored changed saved Part"))return 1;
     auto annotations=changed.build_scene();annotations.dimensions.clear();
     kernel::ViewerDimension dimension;

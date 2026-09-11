@@ -115,17 +115,19 @@ StepAssemblyImport import_step_assembly(const std::filesystem::path& source,
         auto calculated=kernel.evaluate_history(doc.kernel_operations());
         result.parts.push_back({std::move(doc),std::move(calculated),directory/("part-"+std::to_string(i+1)+".prtz")});
     }
+    std::map<std::string, kernel::BodySnapshot> source_snapshots;
     const auto assembled=[&](const StepImportedAssembly& generated,const std::string& name) {
+        if (const auto found=source_snapshots.find(generated.document.document_id);
+            found!=source_snapshots.end()) {
+            auto value=assembly::AssemblyDocument::create_part_occurrence(name,
+                generated.document.document_id,generated.path,found->second);
+            value.source_kind=assembly::ComponentSourceKind::Assembly;
+            value.nested_snapshot=generated.document.occurrence_snapshot();
+            return value;
+        }
         auto value=assembly::AssemblyDocument::create_assembly_occurrence(name,
             generated.document.document_id,generated.path,generated.document);
-        std::vector<kernel::PlacedBody> bodies;
-        for(const auto& child:generated.document.components)bodies.push_back({child.calculated_source,
-            {child.placement.x,child.placement.y,child.placement.z},
-            {child.placement.rotation_x,child.placement.rotation_y,child.placement.rotation_z}});
-        auto compound=kernel.compound_bodies(bodies);
-        value.calculated_source.kernel_shape=std::move(compound.kernel_shape);
-        value.calculated_source.volume=compound.volume;
-        value.calculated_source.surface_area=compound.surface_area;
+        source_snapshots.emplace(generated.document.document_id,value.calculated_source);
         return value;
     };
     std::set<std::string> visiting;
@@ -147,7 +149,14 @@ StepAssemblyImport import_step_assembly(const std::filesystem::path& source,
             child=assembled(generated,node.name);
         } else {
             const auto& generated=result.parts.at(parts.at(node.definition_id));
-            child=assembly::AssemblyDocument::create_part_occurrence(node.name,generated.document.document_id,generated.path,generated.calculated.back());
+            auto found=source_snapshots.find(generated.document.document_id);
+            if(found==source_snapshots.end()) {
+                auto snapshot=generated.calculated.back();
+                snapshot.body_boundaries.clear();
+                snapshot.body_inputs.clear();
+                found=source_snapshots.emplace(generated.document.document_id,std::move(snapshot)).first;
+            }
+            child=assembly::AssemblyDocument::create_part_occurrence(node.name,generated.document.document_id,generated.path,found->second);
         }
         child.placement={node.x,node.y,node.z,node.rotation_x,node.rotation_y,node.rotation_z};return child;
     };
@@ -177,7 +186,7 @@ kernel::StepProduct step_product(const document::PartDocument& doc,const std::ve
         if(const auto* body=doc.body_history.find(id);body&&!body->visible)continue;
         if(const auto* boolean=doc.body_history.find_boolean(id);boolean&&!boolean->visible)continue;
         const auto found=output.body_outputs.find(id);if(found==output.body_outputs.end())continue;
-        if(found->second.kernel_shape.empty())continue;
+        if(found->second->kernel_shape.empty())continue;
         kernel::StepProduct child;child.definition_id=id;child.body=found->second;
         if(const auto* body=doc.body_history.find(id))child.name=body->name;
         else {const auto& booleans=doc.body_history.booleans();const auto b=std::ranges::find(booleans,id,&document::BodyBoolean::id);child.name=b==booleans.end()?doc.name:b->name;}

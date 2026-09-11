@@ -477,11 +477,13 @@ void DrawingDocument::save(const std::filesystem::path& path,
     if (document_id.empty() || name.empty() || sheets.empty()) {
         throw std::runtime_error("Drawing identity, name and sheets are required");
     }
-    nlohmann::json root{{"format", "zima-cad-drawing"}, {"version", 4},
+    nlohmann::json root{{"format", "zima-cad-drawing"}, {"version", 5},
                         {"document_id", document_id}, {"name", name},
                         {"source_document_id", source_document_id},
                         {"source_path", source_path.generic_string()},
                         {"source_name", source_name}};
+    root["measurement_sources"]=nlohmann::json::object();
+    std::map<const MeasurementGeometry*,std::string> measurement_ids;
     auto identifiers = dimension_identifiers;
     identifiers.synchronize(dimension_parameters());
     root["dimension_identifiers"] = nlohmann::json::parse(identifiers.serialized());
@@ -578,7 +580,11 @@ void DrawingDocument::save(const std::filesystem::path& path,
 
             item["dimension_guides"]={{"visible",view.show_dimension_guides},{"offset",view.dimension_guide_offset},{"spacing",view.dimension_guide_spacing}};
             item["model_annotations"] = nlohmann::json::parse(serialize_model_annotations(view.model_annotations));
-            item["measurement_geometry"]=nlohmann::json::parse(serialize_measurement_geometry(view));
+            auto [measurement,inserted]=measurement_ids.try_emplace(view.measurement_geometry.get(),
+                std::to_string(measurement_ids.size()));
+            if(inserted)root["measurement_sources"][measurement->second]=
+                nlohmann::json::parse(serialize_measurement_geometry(view));
+            item["measurement_source"]=measurement->second;
             item["projected_edges"] = nlohmann::json::array();
             for (const auto& edge : view.projected_edges) {
                 nlohmann::json edge_json{{"source", edge_reference_json(edge.source)},
@@ -611,7 +617,7 @@ void DrawingDocument::save(const std::filesystem::path& path,
     // C++ drawing model has no Python entity fields, so its complete payload
     // lives in the ordinary param.* namespace.
     stream << "[Document]\n"
-           << "format_version=12\n"
+           << "format_version=13\n"
            << "type=drawing\n"
            << "document_id=" << root.at("document_id").get<std::string>() << "\n"
            << "name=" << root.at("name").get<std::string>() << "\n"
@@ -625,7 +631,7 @@ DrawingDocument DrawingDocument::load(const std::filesystem::path& path) {
     const auto document_section = ini.find("Document");
     if (document_section == ini.end() ||
         document_section->second.find("format_version") == document_section->second.end() ||
-        document_section->second.at("format_version") != "12" ||
+        document_section->second.at("format_version") != "13" ||
         document_section->second.find("type") == document_section->second.end() ||
         document_section->second.at("type") != "drawing")
         throw std::runtime_error("Unsupported Drawing document format");
@@ -639,8 +645,14 @@ DrawingDocument DrawingDocument::load(const std::filesystem::path& path) {
         throw std::runtime_error(
             std::string("Invalid C++ Drawing payload: ") + error.what());
     }
-    if (root.value("format", "") != "zima-cad-drawing" || (root.value("version", 0) != 3 && root.value("version", 0) != 4))
+    if (root.value("format", "") != "zima-cad-drawing" || root.value("version", 0) != 5)
         throw std::runtime_error("Unsupported C++ Drawing payload");
+    std::map<std::string,std::shared_ptr<const MeasurementGeometry>> measurement_sources;
+    for(const auto& [id,geometry]:root.at("measurement_sources").items()) {
+        DrawingView source;
+        deserialize_measurement_geometry(source,geometry.dump());
+        measurement_sources.emplace(id,source.measurement_geometry);
+    }
     DrawingDocument document;
     document.document_id = root.at("document_id").get<std::string>();
     document.name = root.at("name").get<std::string>();
@@ -741,7 +753,7 @@ DrawingDocument DrawingDocument::load(const std::filesystem::path& path) {
             view.section_display_reversed=item.value("section_display_reversed",view.section_snapshot?view.section_snapshot->reversed:false);
 
 
-            if(item.contains("measurement_geometry"))deserialize_measurement_geometry(view,item.at("measurement_geometry").dump());
+            view.measurement_geometry=measurement_sources.at(item.at("measurement_source").get<std::string>());
             for (const auto& edge_json : item.at("projected_edges")) {
                 ProjectedEdge edge;
                 edge.source = parse_edge_reference(edge_json.at("source"));

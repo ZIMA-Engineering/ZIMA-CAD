@@ -159,8 +159,10 @@ std::vector<std::filesystem::path> Workspace::save_copy(
                 }
             }
             for (auto& sheet:drawing.sheets) for (auto& view:sheet.views) {
-                for(auto& curve:view.measurement_curves)rebind_origin(curve.source);
-                for(auto& point:view.measurement_points)rebind_origin(point.source);
+                auto measuring=*view.measurement_geometry;
+                for(auto& curve:measuring.curves)rebind_origin(curve.source);
+                for(auto& point:measuring.points)rebind_origin(point.source);
+                view.measurement_geometry=zima::drawing::share_measurement_geometry(std::move(measuring));
                 if (view.source_document_id==document_id ||
                     (!source_path.empty() && normalized(view.source_path)==source_path)) {
                     view.source_document_id=new_id;

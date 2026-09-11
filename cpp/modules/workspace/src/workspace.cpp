@@ -68,6 +68,16 @@ zima::kernel::BodyResult part_result(const PartState& part) {
     return result;
 }
 
+zima::kernel::BodySnapshot part_snapshot(const PartState& part) {
+    if (!part.source_geometry || part.source_generation!=part.session.data_generation()) {
+        auto body=part_result(part);
+        body.body_boundaries.clear();body.body_inputs.clear();
+        part.source_geometry=zima::kernel::BodySnapshot(std::move(body));
+        part.source_generation=part.session.data_generation();
+    }
+    return *part.source_geometry;
+}
+
 zima::kernel::Vec3 apply_placement(
     zima::kernel::Vec3 point,
     const zima::assembly::ComponentPlacement& placement,
@@ -314,6 +324,121 @@ std::optional<std::string> Workspace::document_id_for_path(
             return id_of(state);
     }
     return std::nullopt;
+}
+
+void Workspace::refresh_source_geometry() {
+    std::set<std::string> visiting;
+    std::map<std::string,zima::kernel::BodySnapshot> assembly_sources;
+    const auto refresh=[&](const auto& self,zima::assembly::AssemblyDocument& document,
+            const std::filesystem::path& owner_file)->bool {
+        if (!visiting.insert(document.document_id).second)
+            throw std::runtime_error("Cyclic Assembly source dependency");
+        bool changed=false;
+        for (auto& component:document.components) {
+            // Assembly-owned operations keep their calculated result until the
+            // user explicitly regenerates that operation.
+            if (component.derived_copy || std::ranges::any_of(document.cuts,[&](const auto& cut) {
+                return !cut.definition.suppressed && std::ranges::find(cut.target_occurrence_ids,
+                    component.occurrence_id)!=cut.target_occurrence_ids.end();
+            })) continue;
+            auto file=component.source_path;
+            if(file.is_relative())file=owner_file.parent_path()/file;
+            if (component.source_kind==zima::assembly::ComponentSourceKind::Part) {
+                const auto* part=open_part(component.source_document_id);
+                if(part && !file.empty())
+                    native_part_cache_.erase(std::filesystem::absolute(file).lexically_normal());
+                if(!part && !file.empty() && std::filesystem::is_regular_file(file)) {
+                    file=std::filesystem::absolute(file).lexically_normal();
+                    const auto modified=std::filesystem::last_write_time(file);
+                    auto cached=native_part_cache_.find(file);
+                    if(cached==native_part_cache_.end()||cached->second.modified!=modified) {
+                        std::vector<zima::kernel::BodyResult> boundaries;
+                        auto source=zima::document::PartDocument::load(file,&boundaries);
+                        cached=native_part_cache_.insert_or_assign(file,NativePartCache{modified,
+                            PartState{zima::document::DocumentSession(std::move(source),std::move(boundaries)),file}}).first;
+                    }
+                    part=&cached->second.part;
+                }
+                if (part) {
+                    if(part->session.document().document_id!=component.source_document_id)
+                        throw std::runtime_error("Part source document identity mismatch");
+                    const auto source=part_snapshot(*part);
+                    if (!source.shares_with(component.calculated_source)) {
+                        component.calculated_source=source;
+                        component.body_color=part->session.document().body_color;
+                        component.face_colors=part->session.document().face_colors;
+                        component.appearance=part->session.document().appearance;
+                        component.appearance.owner_bodies.clear();
+                        for(const auto& container:part->session.document().history)
+                            if(const auto* body=part->session.document().body_history.owner(container.id))
+                                component.appearance.owner_bodies[container.id]=body->scope.id;
+                        component.density_kg_mm3=zima::document::material_density_kg_mm3(part->session.document());
+                        component.mass_volume_mm3=std::abs(source->volume);
+                        changed=true;
+                    }
+                }
+                continue;
+            }
+            if (component.source_kind!=zima::assembly::ComponentSourceKind::Assembly) continue;
+            zima::assembly::AssemblyDocument nested;
+            std::string source_stamp="assembly-display:"+component.source_document_id+":";
+            if(auto* open=open_assembly(component.source_document_id)) {
+                source_stamp+="open:"+std::to_string(open->session.revision());
+                nested=open->session.document();
+                file=open->path;
+                if(!file.empty())native_assembly_cache_.erase(std::filesystem::absolute(file).lexically_normal());
+                if(self(self,nested,file))open->session.update_source_geometry(nested);
+            } else {
+                if(file.empty()||!std::filesystem::is_regular_file(file))continue;
+                file=std::filesystem::absolute(file).lexically_normal();
+                const auto modified=std::filesystem::last_write_time(file);
+                auto cached=native_assembly_cache_.find(file);
+                if(cached==native_assembly_cache_.end()||cached->second.modified!=modified) {
+                    auto loaded=zima::assembly::AssemblyDocument::load(file);
+                    cached=native_assembly_cache_.insert_or_assign(file,
+                        NativeAssemblyCache{modified,std::move(loaded)}).first;
+                }
+                source_stamp+="file:"+std::to_string(modified.time_since_epoch().count());
+                nested=cached->second.document;
+                if(self(self,nested,file))cached->second.document=nested;
+            }
+            if(nested.document_id!=component.source_document_id)
+                throw std::runtime_error("Assembly source document identity mismatch");
+            bool same=component.calculated_source->source_fingerprint==source_stamp &&
+                component.nested_snapshot==nested.occurrence_snapshot() &&
+                component.calculated_source->body_outputs.size()==nested.components.size();
+            if(same)for(const auto& child:nested.components) {
+                const auto found=component.calculated_source->body_outputs.find(child.occurrence_id);
+                if(found==component.calculated_source->body_outputs.end()||
+                    !found->second.shares_with(child.calculated_source)) {same=false;break;}
+            }
+            const auto sharing_key=source_stamp+":"+file.generic_string();
+            if(const auto shared=assembly_sources.find(sharing_key);shared!=assembly_sources.end()) {
+                if(!component.calculated_source.shares_with(shared->second)) {
+                    component.calculated_source=shared->second;
+                    component.nested_snapshot=nested.occurrence_snapshot();
+                    changed=true;
+                }
+            } else {
+                if(!same) {
+                    const auto source=zima::assembly::AssemblyDocument::create_assembly_occurrence(
+                        component.name,component.source_document_id,file,nested);
+                    auto body=source.calculated_source.get();body.source_fingerprint=source_stamp;
+                    component.calculated_source=std::move(body);
+                    component.nested_snapshot=source.nested_snapshot;
+                    changed=true;
+                }
+                assembly_sources.emplace(sharing_key,component.calculated_source);
+            }
+        }
+        visiting.erase(document.document_id);
+        return changed;
+    };
+    for(auto& state:documents_)if(auto* assembly=std::get_if<AssemblyState>(&state)) {
+        auto document=assembly->session.document();
+        if(refresh(refresh,document,assembly->path))
+            assembly->session.update_source_geometry(std::move(document));
+    }
 }
 
 zima::kernel::ViewerMesh Workspace::authoritative_viewer_mesh(
@@ -911,8 +1036,11 @@ zima::kernel::ViewerMesh Workspace::build_scene_with_assembly_override(
             }
             nested = self(self, source->session.document(), depth + 1);
         }
-        occurrence->calculated_source = {};
-        occurrence->calculated_source.mesh = nested.build_scene();
+        zima::kernel::BodyResult snapshot;
+        snapshot.mesh = nested.build_scene();
+        for (const auto& child : nested.components)
+            snapshot.body_outputs.emplace(child.occurrence_id, child.calculated_source);
+        occurrence->calculated_source = std::move(snapshot);
         occurrence->nested_snapshot = nested.occurrence_snapshot();
         return result;
     };
@@ -940,7 +1068,7 @@ std::string Workspace::insert_open_part(
     auto next = assembly->session.document();
     auto occurrence = zima::assembly::AssemblyDocument::create_part_occurrence(
         std::move(occurrence_name), part_document_id, part->path,
-        part_result(*part));
+        part_snapshot(*part));
     occurrence.density_kg_mm3=zima::document::material_density_kg_mm3(part->session.document());
     occurrence.body_color = part->session.document().body_color;
     occurrence.appearance = part->session.document().appearance;
@@ -998,21 +1126,6 @@ std::string Workspace::insert_open_assembly(
     auto occurrence = zima::assembly::AssemblyDocument::create_assembly_occurrence(
         std::move(occurrence_name), source_assembly_document_id, source->path,
         calculated_source);
-    std::vector<zima::kernel::PlacedBody> nested_bodies;
-    for (const auto& component : calculated_source.components) {
-        if (component.suppressed || !component.visible || component.calculated_source.kernel_shape.empty()) continue;
-        nested_bodies.push_back({
-            component.calculated_source,
-            {component.placement.x, component.placement.y, component.placement.z},
-            {component.placement.rotation_x, component.placement.rotation_y,
-             component.placement.rotation_z}});
-    }
-    zima::kernel::OcctKernel kernel;
-    occurrence.calculated_source = nested_bodies.empty() ? zima::kernel::BodyResult{}
-        : kernel.compound_bodies(nested_bodies);
-    occurrence.calculated_source.mesh = calculated_source.build_scene();
-    for(const auto& child:calculated_source.components)
-        occurrence.calculated_source.body_outputs.emplace(child.occurrence_id,child.calculated_source);
     zima::assembly::capture_nested_mass(occurrence,calculated_source);
     const std::string occurrence_id = occurrence.occurrence_id;
     next.components.push_back(std::move(occurrence));
@@ -1045,24 +1158,8 @@ zima::assembly::AssemblyDocument Workspace::refreshed_assembly(
                 auto nested = refreshed_assembly(
                     occurrence.source_document_id, recursion_stack, dependency_path);
                 calculate_assembly_cuts(nested);
-                std::vector<zima::kernel::PlacedBody> nested_bodies;
-                for (const auto& component : nested.components) {
-                    if (component.suppressed || !component.visible || component.calculated_source.kernel_shape.empty()) continue;
-                    nested_bodies.push_back({
-                        component.calculated_source,
-                        {component.placement.x, component.placement.y,
-                         component.placement.z},
-                        {component.placement.rotation_x,
-                         component.placement.rotation_y,
-                         component.placement.rotation_z}});
-                }
-
-                zima::kernel::OcctKernel kernel;
-                occurrence.calculated_source = nested_bodies.empty() ? zima::kernel::BodyResult{}
-                    : kernel.compound_bodies(nested_bodies);
-                occurrence.calculated_source.mesh = nested.build_scene();
-                for(const auto& child:nested.components)
-                    occurrence.calculated_source.body_outputs.emplace(child.occurrence_id,child.calculated_source);
+                occurrence.calculated_source = zima::assembly::AssemblyDocument::create_assembly_occurrence(
+                    occurrence.name, occurrence.source_document_id, dependency_path, nested).calculated_source;
                 zima::assembly::capture_nested_mass(occurrence,nested);
                 occurrence.nested_snapshot = nested.occurrence_snapshot();
                 if (const auto* open = open_assembly(occurrence.source_document_id))
@@ -1086,7 +1183,7 @@ zima::assembly::AssemblyDocument Workspace::refreshed_assembly(
             throw std::runtime_error(
                 "An open Assembly dependency has no calculated Part result");
         }
-        occurrence.calculated_source = part_result(*part);
+        occurrence.calculated_source = part_snapshot(*part);
         occurrence.density_kg_mm3=zima::document::material_density_kg_mm3(part->session.document());
         occurrence.body_color = part->session.document().body_color;
     occurrence.appearance = part->session.document().appearance;
@@ -1137,7 +1234,7 @@ void Workspace::calculate_assembly_cuts(
             }
             if (target->suppressed) continue;
             target->calculated_source = kernel.subtract_bodies(
-                target->calculated_source, boundaries.back(),
+                zima::assembly::calculate_component_body(*target,kernel), boundaries.back(),
                 {target->placement.x, target->placement.y, target->placement.z},
                 {target->placement.rotation_x, target->placement.rotation_y,
                  target->placement.rotation_z}, operations.front().boolean_tolerance,

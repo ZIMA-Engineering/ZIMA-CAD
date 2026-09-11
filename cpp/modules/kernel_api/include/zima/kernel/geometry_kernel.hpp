@@ -675,6 +675,21 @@ struct HistoryOperation {
     std::string input_error;
 };
 
+struct BodyResult;
+// An immutable calculated revision. Copying a document/occurrence shares its
+// snapshot; a calculation or source-data update publishes a replacement value.
+class BodySnapshot {
+public:
+    BodySnapshot();
+    BodySnapshot(BodyResult value);
+    [[nodiscard]] const BodyResult& get() const { return *value_; }
+    [[nodiscard]] const BodyResult* operator->() const { return value_.get(); }
+    operator const BodyResult&() const { return *value_; }
+    [[nodiscard]] bool shares_with(const BodySnapshot& other) const { return value_ == other.value_; }
+private:
+    std::shared_ptr<const BodyResult> value_;
+};
+
 struct BodyResult {
     // Failed/blocked feature owners. Geometry is the last valid input, never a
     // successful result of these operations. Persist with calculation snapshots.
@@ -695,9 +710,16 @@ struct BodyResult {
     // Present on a document result only. Branch snapshots retain their own
     // fingerprints, so changing another body does not invalidate this cache.
     std::map<std::string, std::vector<BodyResult>> body_boundaries;
-    std::map<std::string, BodyResult> body_inputs;
-    std::map<std::string, BodyResult> body_outputs;
+    std::map<std::string, BodySnapshot> body_inputs;
+    std::map<std::string, BodySnapshot> body_outputs;
 };
+
+inline BodySnapshot::BodySnapshot() {
+    static const auto empty = std::make_shared<const BodyResult>();
+    value_ = empty;
+}
+inline BodySnapshot::BodySnapshot(BodyResult value)
+    : value_(std::make_shared<const BodyResult>(std::move(value))) {}
 
 // A product definition and its positioned occurrences for explicit STEP export.
 // Repeated definition IDs share one STEP product; geometry stays in local mm.

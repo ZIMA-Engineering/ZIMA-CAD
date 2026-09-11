@@ -458,7 +458,7 @@ int main() {
         require(boundaries.back().body_boundaries.size() == 2, "Missing independent histories");
         volume(boundaries.back().body_inputs.at("a"), 1000);
         volume(boundaries.back().body_inputs.at("b"), 1000);
-        const auto& placed = boundaries.back().body_inputs.at("b").mesh;
+        const auto& placed = boundaries.back().body_inputs.at("b")->mesh;
         double minimum_x = std::numeric_limits<double>::infinity();
         for (const auto& vertex : placed.vertices) minimum_x = std::min(minimum_x, vertex.x);
         require(std::abs(minimum_x-5) < 1e-9, "Body placement was not applied exactly once");

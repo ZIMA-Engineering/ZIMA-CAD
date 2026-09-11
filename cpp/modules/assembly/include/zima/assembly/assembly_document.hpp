@@ -117,7 +117,7 @@ struct PartOccurrence {
     bool grounded{};
     bool suppressed{};
     bool visible{true};
-    zima::kernel::BodyResult calculated_source;
+    zima::kernel::BodySnapshot calculated_source;
     std::vector<OccurrenceSnapshot> nested_snapshot;
     // Placement references entered directly in this component's own
     // Properties dialog (Python-style embedded reference table), capped at 3
@@ -144,6 +144,11 @@ struct PartOccurrence {
     std::optional<double> nested_mass_kg;
     double mass_volume_mm3{};
 };
+
+// Only explicit body operations may call this. Ordinary Assemblies retain
+// shared child snapshots and viewer data, not a duplicate compound B-Rep.
+[[nodiscard]] kernel::BodyResult calculate_component_body(
+    const PartOccurrence& occurrence, const kernel::GeometryKernel& kernel);
 
 // Assembly-owned subtractive feature. `definition` is deliberately the same
 // object edited by the Part feature dialog; only ownership and targets differ.
@@ -236,7 +241,7 @@ public:
         std::string name,
         std::string source_document_id,
         std::filesystem::path source_path,
-        zima::kernel::BodyResult calculated_source);
+        zima::kernel::BodySnapshot calculated_source);
     [[nodiscard]] static PartOccurrence create_assembly_occurrence(
         std::string name,
         std::string source_document_id,
@@ -266,7 +271,7 @@ public:
     [[nodiscard]] std::vector<OccurrenceSnapshot> occurrence_snapshot() const;
     [[nodiscard]] zima::kernel::ViewerMesh build_scene_with_part_override(
         const std::string& occurrence_id,
-        zima::kernel::BodyResult calculated_source) const;
+        zima::kernel::BodySnapshot calculated_source) const;
     [[nodiscard]] static AssemblyDocument load(const std::filesystem::path& path);
     void save(const std::filesystem::path& path,
         const zima::document::DocumentCopyIdentity& copy = {}) const;

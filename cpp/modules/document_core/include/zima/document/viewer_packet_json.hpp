@@ -15,7 +15,7 @@ namespace zima::document {
 load_viewer_reference_geometry(const nlohmann::json& source);
 
 [[nodiscard]] nlohmann::json serialize_body_result(
-    const zima::kernel::BodyResult& result);
+    const zima::kernel::BodyResult& result, bool include_histories = true);
 [[nodiscard]] zima::kernel::BodyResult load_body_result(
     const nlohmann::json& source);
 

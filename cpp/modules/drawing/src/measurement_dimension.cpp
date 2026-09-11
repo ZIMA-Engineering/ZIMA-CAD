@@ -1,3 +1,4 @@
+#include <mutex>
 #include <algorithm>
 #include <cmath>
 #include <iomanip>
@@ -235,8 +236,8 @@ std::optional<Point2> resolve(const DrawingView &view, const std::vector<Project
     if (!a.reference.valid())
         return {};
     if (a.kind == DimensionAttachmentKind::Point) {
-        const auto p = std::ranges::find(view.measurement_points, a.reference, &MeasurementPoint::source);
-        return p == view.measurement_points.end() ? std::nullopt
+        const auto p = std::ranges::find(view.measurement_geometry->points, a.reference, &MeasurementPoint::source);
+        return p == view.measurement_geometry->points.end() ? std::nullopt
                                                   : std::optional(project(p->position, view.camera));
     }
     const auto *curve = find_curve(curves, a.reference);
@@ -279,9 +280,19 @@ std::optional<Point2> resolve(const DrawingView &view, const std::vector<Project
     }
 }
 } // namespace
+std::shared_ptr<const MeasurementGeometry> share_measurement_geometry(MeasurementGeometry data) {
+    static std::mutex mutex;
+    static std::vector<std::weak_ptr<const MeasurementGeometry>> shared;
+    const std::lock_guard lock(mutex);
+    std::erase_if(shared,[](const auto& item){return item.expired();});
+    for(const auto& item:shared)if(const auto value=item.lock();value&&*value==data)return value;
+    auto value=std::make_shared<const MeasurementGeometry>(std::move(data));
+    shared.push_back(value);
+    return value;
+}
+
 void capture_measurement_geometry(DrawingView &view, const kernel::ViewerMesh &mesh) {
-    view.measurement_curves.clear();
-    view.measurement_points.clear();
+    MeasurementGeometry data;
     std::set<std::tuple<std::string, std::string, std::string>> seen;
     auto edges = mesh.original_references.edges;
     edges.insert(edges.end(), mesh.edges.begin(), mesh.edges.end());
@@ -302,7 +313,7 @@ void capture_measurement_geometry(DrawingView &view, const kernel::ViewerMesh &m
                 auto cross = kernel::dimension_cross(axis, kernel::dimension_sub(p, start));
                 return std::sqrt(kernel::dimension_dot(cross, cross)) <= size * std::max(1e-7, size * 1e-8);
             });
-        view.measurement_curves.push_back(std::move(c));
+        data.curves.push_back(std::move(c));
     }
     seen.clear();
     for (const auto *points : {&mesh.points, &mesh.original_references.points})
@@ -310,12 +321,13 @@ void capture_measurement_geometry(DrawingView &view, const kernel::ViewerMesh &m
             kernel::EdgeReference r{p.reference.owner_id, p.reference.semantic_key,
                                     p.reference.instance_path};
             if (r.valid() && seen.insert(key(r)).second)
-                view.measurement_points.push_back({r, p.position});
+                data.points.push_back({r, p.position});
         }
+    view.measurement_geometry=share_measurement_geometry(std::move(data));
 }
 std::vector<ProjectedMeasurementCurve> projected_measurement_curves(const DrawingView &view) {
     std::vector<ProjectedMeasurementCurve> result;
-    for (const auto &curve : view.measurement_curves) {
+    for (const auto &curve : view.measurement_geometry->curves) {
         ProjectedMeasurementCurve c;
         c.source = curve.source;
         c.line = curve.line;
@@ -642,7 +654,7 @@ std::vector<MeasurementCandidate> measurement_candidates(const DrawingView &view
                 a.kind = DimensionAttachmentKind::CurvePoint;
                 a.parameter = parameter;
                 const auto point = point_at(curve, parameter);
-                for (const auto &stored : view.measurement_points)
+                for (const auto &stored : view.measurement_geometry->points)
                     if (stored.source.owner_id == curve.source.owner_id &&
                         stored.source.instance_path == curve.source.instance_path &&
                         length(sub(point, project(stored.position, view.camera))) < 1e-7) {
@@ -933,7 +945,7 @@ std::vector<DrawingDimension> deserialize_drawing_dimensions(const std::string &
 }
 std::string serialize_measurement_geometry(const DrawingView &view) {
     json j{{"curves", json::array()}, {"points", json::array()}};
-    for (const auto &c : view.measurement_curves) {
+    for (const auto &c : view.measurement_geometry->curves) {
         json curve{
             {"source", ref_json(c.source)}, {"line", c.line}, {"points", json::array()}, {"circle", nullptr}};
         for (auto p : c.points)
@@ -945,15 +957,14 @@ std::string serialize_measurement_geometry(const DrawingView &view) {
                                {"radius", c.circle->radius}};
         j["curves"].push_back(std::move(curve));
     }
-    for (const auto &p : view.measurement_points)
+    for (const auto &p : view.measurement_geometry->points)
         j["points"].push_back(
             {{"source", ref_json(p.source)}, {"position", document::dimension_vec_json(p.position)}});
     return j.dump();
 }
 void deserialize_measurement_geometry(DrawingView &view, const std::string &text) {
     const auto j = json::parse(text);
-    view.measurement_curves.clear();
-    view.measurement_points.clear();
+    MeasurementGeometry data;
     std::set<std::tuple<std::string, std::string, std::string>> keys;
     for (const auto &c : j.at("curves")) {
         MeasurementCurve curve;
@@ -985,14 +996,15 @@ void deserialize_measurement_geometry(DrawingView &view, const std::string &text
         }
         if (curve.points.size() < 2)
             throw std::invalid_argument("Invalid measuring curve");
-        view.measurement_curves.push_back(std::move(curve));
+        data.curves.push_back(std::move(curve));
     }
     keys.clear();
     for (const auto &p : j.at("points")) {
         MeasurementPoint point{ref_from(p.at("source")), document::dimension_vec_from_json(p.at("position"))};
         if (!point.source.valid() || !keys.insert(key(point.source)).second)
             throw std::invalid_argument("Invalid measuring point identity");
-        view.measurement_points.push_back(std::move(point));
+        data.points.push_back(std::move(point));
     }
+    view.measurement_geometry=share_measurement_geometry(std::move(data));
 }
 } // namespace zima::drawing

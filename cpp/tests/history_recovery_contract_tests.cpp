@@ -45,7 +45,7 @@ int main(int argc, char** argv) {
         operations[2].body.id = "body-b";
         operations[2].body.translation = {30, 0, 0};
         results = kernel.evaluate_history_recovering(operations);
-        require(results.back().body_outputs.at("body-b").calculation_errors.empty(), "Independent body was blocked");
+        require(results.back().body_outputs.at("body-b")->calculation_errors.empty(), "Independent body was blocked");
         require(std::abs(results.back().volume - 1125) < 1e-8, "Independent body or valid input disappeared");
         const auto restored = document::load_body_result(document::serialize_body_result(results.back()));
         require(restored.body_boundaries.at("body-a").back().calculation_errors.contains("broken"), "Branch diagnostics did not persist");

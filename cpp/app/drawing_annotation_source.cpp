@@ -290,7 +290,9 @@ drawing_annotation_sources(workspace::Workspace *workspace,
       const auto anchors = mesh.vertices.size();
       const auto source_path =
           assembly::InstancePath{}.child(c.occurrence_id).encoded();
-      c.calculated_source.mesh = std::move(mesh);
+      kernel::BodyResult snapshot;
+      snapshot.mesh = std::move(mesh);
+      c.calculated_source = std::move(snapshot);
       carrier.components.push_back(std::move(c));
       auto transformed = carrier.build_scene();
       const auto foreign = [&](const auto &value) {

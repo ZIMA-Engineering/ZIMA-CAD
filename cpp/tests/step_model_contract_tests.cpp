@@ -2,6 +2,10 @@
 #include <zima/interchange/step.hpp>
 #include <zima/kernel/occt_kernel.hpp>
 #include <BRepPrimAPI_MakeBox.hxx>
+#include <BRepPrimAPI_MakeCylinder.hxx>
+#include <BRepPrimAPI_MakeTorus.hxx>
+#include <gp_Cylinder.hxx>
+#include <STEPControl_Writer.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRep_Builder.hxx>
 #include <BRepTools.hxx>
@@ -34,6 +38,40 @@ V placed(V p,const kernel::StepProduct& n) {
 std::pair<V,V> bounds(const std::vector<V>& points) {
     V lo{1e100,1e100,1e100},hi{-1e100,-1e100,-1e100};
     for(auto p:points){lo={std::min(lo.x,p.x),std::min(lo.y,p.y),std::min(lo.z,p.z)};hi={std::max(hi.x,p.x),std::max(hi.y,p.y),std::max(hi.z,p.z)};}return {lo,hi};
+}
+std::array<std::set<std::string>, 3> reference_ids(const kernel::BodyResult& body) {
+    std::array<std::set<std::string>, 3> ids;
+    const auto& references = body.mesh.original_references;
+    for (const auto& face : references.triangle_references)
+        if (face.valid()) ids[0].insert(face.owner_id + "/" + face.semantic_key);
+    for (const auto& edge : references.edges)
+        if (edge.reference.valid()) ids[1].insert(edge.reference.owner_id + "/" + edge.reference.semantic_key);
+    for (const auto& point : references.points)
+        if (point.reference.valid()) ids[2].insert(point.reference.owner_id + "/" + point.reference.semantic_key);
+    return ids;
+}
+void check_frozen_topology(kernel::OcctKernel& kernel, kernel::BodyResult body) {
+    const auto expected = reference_ids(body);
+    require(!expected[0].empty() && !expected[1].empty() && !expected[2].empty(),
+        "Imported curved fixture lacks source topology");
+    for (int round = 0; round < 3; ++round) {
+        kernel::StepRequest frozen;
+        frozen.reference_owner_id = "archive-contract";
+        frozen.frozen_brep = std::make_shared<const std::string>(body.kernel_shape);
+        frozen.topology = body.imported_step_topology;
+        body = kernel.import_step_components({frozen}, round == 1 ? 0.025 : 0.15).front();
+        require(reference_ids(body) == expected,
+            "B-Rep roundtrip or remeshing lost original face/edge/vertex references");
+    }
+    kernel::StepRequest corrupt;
+    corrupt.reference_owner_id = "archive-contract";
+    corrupt.frozen_brep = std::make_shared<const std::string>(body.kernel_shape);
+    corrupt.topology = body.imported_step_topology;
+    corrupt.topology.front().shape_locator = "brep-ref-v1:+2147483647 0 ";
+    bool rejected = false;
+    try { static_cast<void>(kernel.import_step_components({corrupt})); }
+    catch (const std::exception&) { rejected = true; }
+    require(rejected, "Invalid archive reference was silently discarded");
 }
 void same_bounds(const std::vector<V>& a,const std::vector<V>& b) {
     const auto [al,ah]=bounds(a);const auto [bl,bh]=bounds(b);
@@ -76,13 +114,23 @@ int main() {
             part.document.save(part.path,part.calculated);
         }
         for(const auto& assembly:package.assemblies)assembly.document.save(assembly.path);
-        require(!package.root_occurrence.calculated_source.kernel_shape.empty()&&
-            std::abs(package.root_occurrence.calculated_source.volume-imported.calculated.back().volume)<1e-6,
-            "Imported root assembly lacks a calculated solid snapshot");
+        require(package.root_occurrence.calculated_source->kernel_shape.empty()&&
+            std::abs(package.root_occurrence.calculated_source->volume-imported.calculated.back().volume)<1e-6,
+            "Imported root assembly duplicated its compound or lost physical properties");
+        const auto compound=assembly::calculate_component_body(package.root_occurrence,kernel);
+        require(!compound.kernel_shape.empty() && std::abs(compound.volume-imported.calculated.back().volume)<1e-6 &&
+            package.root_occurrence.calculated_source->kernel_shape.empty(),
+            "Explicit Assembly body operation did not produce a transient compound");
         const auto& top=package.assemblies.at(package.root_index);
         require(top.document.components.size()==3&&top.document.components[0].source_document_id==top.document.components[1].source_document_id,
             "Repeated subassembly does not share its source document");
+        require(top.document.components[0].calculated_source.shares_with(top.document.components[1].calculated_source),
+            "Repeated subassembly duplicated its source geometry in RAM");
         const auto saved=assembly::AssemblyDocument::load(top.path);
+        require(saved.components[0].calculated_source.shares_with(saved.components[1].calculated_source),
+            "Native ASMZ reload duplicated a shared subassembly");
+        require(!std::filesystem::exists(directory/".zima-revisions"),
+            "Saving native documents created an external revision store");
         const auto again=directory/"roundtrip.step";
         kernel.export_step(interchange::step_product(saved),again.string());
         const auto roundtrip=interchange::import_step_part(document::PartDocument::create_default(),{},again);
@@ -131,6 +179,24 @@ int main() {
         for(TopExp_Explorer e(restored_mixed,TopAbs_SOLID);e.More();e.Next())++solid_count;
         for(TopExp_Explorer e(restored_mixed,TopAbs_FACE);e.More();e.Next())++face_count;
         require(solid_count==1&&face_count==7,"Single Part lost its solid or auxiliary sheet");
+        // Curved solids plus a separate cylindrical sheet exercise archive
+        // references across B-Rep text roundtrips and changed mesh precision.
+        TopoDS_Compound curved;
+        mixed_builder.MakeCompound(curved);
+        mixed_builder.Add(curved, BRepPrimAPI_MakeCylinder(4.123456789, 12.3456789).Shape());
+        mixed_builder.Add(curved, BRepPrimAPI_MakeTorus(
+            gp_Ax2(gp_Pnt(20, 0, 0), gp_Dir(0, 0, 1)), 5.432109876, 1.23456789).Shape());
+        mixed_builder.Add(curved, BRepBuilderAPI_MakeFace(gp_Cylinder(
+            gp_Ax3(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1)), 4.2), 0.0, 5.9, 0.2, 11.8).Shape());
+        STEPControl_Writer curved_writer;
+        const auto curved_path = directory / "curved-and-sheet.step";
+        require(curved_writer.Transfer(curved, STEPControl_AsIs) == IFSelect_RetDone &&
+            curved_writer.Write(curved_path.string().c_str()) == IFSelect_RetDone,
+            "Cannot write curved archive fixture");
+        const auto curved_body = kernel.import_step_components({{
+            curved_path.generic_string(), {}, {}, {}, "archive-contract"}}, 0.15).front();
+        std::filesystem::remove(curved_path);
+        check_frozen_topology(kernel, curved_body);
         // An independently written inch STEP must become exactly 25.4 x 50.8 x 76.2 mm.
         Handle(TDocStd_Document) inch_doc;const auto app=XCAFApp_Application::GetApplication();app->NewDocument("BinXCAF",inch_doc);
         XCAFDoc_DocumentTool::SetLengthUnit(inch_doc,0.001);

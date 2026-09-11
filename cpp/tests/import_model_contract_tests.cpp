@@ -120,7 +120,7 @@ int main() {
     require(added.document.body_history.bodies().size()==2,"IGES import overwrote existing Part");
     const auto solid_id=saved.document_id;workspace.add_part(saved,regenerated,temp/"box.prtz");
     workspace.insert_open_part(asm_id,solid_id,"IGES");
-    require(workspace.open_assembly(asm_id)->session.document().components.back().calculated_source.volume>5999,"IGES Assembly snapshot");
+    require(workspace.open_assembly(asm_id)->session.document().components.back().calculated_source->volume>5999,"IGES Assembly snapshot");
     IGESControl_Writer wire_writer("MM",0);
     wire_writer.AddShape(BRepBuilderAPI_MakeEdge(gp_Pnt(0,0,0),gp_Pnt(12,0,0)).Shape());
     require(wire_writer.Write((temp/"wire.igs").string().c_str()),"Wire IGES write");

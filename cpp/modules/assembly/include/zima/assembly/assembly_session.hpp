@@ -19,6 +19,8 @@ public:
     void replace(AssemblyDocument document);
     void commit(AssemblyDocument document);
     void update_dependency_snapshots(AssemblyDocument document);
+    // Display cache update only. Does not create an edit/Undo item or solve mates.
+    void update_source_geometry(AssemblyDocument document);
     bool undo();
     bool redo();
     void mark_saved();
