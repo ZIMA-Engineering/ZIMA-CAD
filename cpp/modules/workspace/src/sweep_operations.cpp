@@ -1,5 +1,6 @@
 #include <zima/workspace/sweep_operations.hpp>
 #include <zima/document/feature_sketches.hpp>
+#include <zima/document/sweep_inputs.hpp>
 #include <zima/workspace/history_policy.hpp>
 #include <zima/workspace/profile_operations.hpp>
 #include <zima/kernel/stable_id.hpp>
@@ -13,6 +14,14 @@ using Kind = document::FeatureKind;
 bool supported(Kind kind) {
     return kind == Kind::Sweep2D || kind == Kind::Sweep3D || kind == Kind::HelicalSweep;
 }
+void inherit_sketch_placement(document::HistoryContainer& feature, const document::Placement& source) {
+    feature.placement = source;
+    const auto first = std::ranges::find_if(feature.placement.references, [](const auto& reference) {
+        return !reference.orientation_only && !reference.owner_id.empty();
+    });
+    if (first != feature.placement.references.end() && first->supports_offset)
+        normalize_owned_profile_front_references(feature.placement.references, first->orientation_drives_rotation);
+}
 void validate_sweep(const document::HistoryContainer& feature) {
     if (!supported(feature.feature_kind))
         throw SweepOperationError("wrong_feature", "This container is not a supported Sweep.");
@@ -22,6 +31,11 @@ void validate_sweep(const document::HistoryContainer& feature) {
     const auto minimum = helical ? 0.0001 : 0.001;
     if (!std::isfinite(dimension) || dimension < minimum || dimension > 1000000)
         throw SweepOperationError("invalid_arguments", "Sweep thickness or pitch is outside the supported range.");
+    if (helical) {
+        const auto offset = sketcher::Sketch::from_serialized(feature.helical.sketches[0]).plane_offset;
+        if (!std::isfinite(offset) || std::abs(offset) > 1000000)
+            throw SweepOperationError("invalid_arguments", "The base Sketch offset is outside the supported range.");
+    }
     std::set<std::string> sketches;
     document::visit_feature_sketches(feature, [&](const auto& data, std::size_t) {
         const auto sketch = sketcher::Sketch::from_serialized(data);
@@ -60,8 +74,6 @@ void validate_path_plane_source(const document::PartDocument& part, const docume
 void adopt_sources(document::PartDocument& next, const document::HistoryContainer& feature,
     const document::HistoryContainer* existing) {
     const bool creating = existing == nullptr;
-    if (creating && feature.feature_kind != Kind::Sweep3D && feature.feature_kind != Kind::Sweep2D)
-        throw SweepOperationError("wrong_feature", "Source adoption requires a 2D or 3D Sweep.");
     std::set<std::string> roots;
     const std::string retained_path = creating && feature.feature_kind == Kind::Sweep3D ? feature.sweep3d.path.id : std::string{};
     if (creating && feature.feature_kind == Kind::Sweep3D) {
@@ -81,6 +93,17 @@ void adopt_sources(document::PartDocument& next, const document::HistoryContaine
         if (source->suppressed || owner->suppressed)
             throw SweepOperationError("inactive_input", "Sweep inputs must be active before the history cursor.");
         roots.insert(owner->id);
+    }
+    if (creating && feature.feature_kind == Kind::HelicalSweep) {
+        for (const auto& data : feature.helical.sketches) {
+            const auto sketch_id = sketcher::Sketch::from_serialized(data).id;
+            const auto source = std::ranges::find(next.sketches, sketch_id, &sketcher::Sketch::id);
+            const auto* owner = source == next.sketches.end() ? nullptr : next.find_container(source->owner_container_id);
+            if (!owner || owner->feature_kind != Kind::Sketch || !roots.insert(owner->id).second)
+                throw SweepOperationError("profile_owned", "Select distinct standalone Sketches for the Sweep inputs.");
+            if (source->suppressed || owner->suppressed)
+                throw SweepOperationError("inactive_input", "Sweep inputs must be active before the history cursor.");
+        }
     }
     const auto& profiles = feature.feature_kind == Kind::Sweep2D ? feature.sweep2d.profiles : feature.sweep3d.profiles;
     for (const auto& profile : profiles) {
@@ -173,15 +196,30 @@ document::HistoryContainer sweep2d_from_sources(const document::PartDocument& pa
     if (profiles.empty() || profiles.size() > 5000)
         throw SweepOperationError("invalid_profile", "A Sweep requires between 1 and 5000 profile Sketches.");
     auto feature = document::PartDocument::create_sweep2d_container();
-    feature.placement = owner->placement;
-    const auto first = std::ranges::find_if(feature.placement.references, [](const auto& reference) {
-        return !reference.orientation_only && !reference.owner_id.empty();
-    });
-    if (first != feature.placement.references.end() && first->supports_offset)
-        normalize_owned_profile_front_references(feature.placement.references, first->orientation_drives_rotation);
+    inherit_sketch_placement(feature, owner->placement);
     document::PartDocument::set_sweep2d_owned_path(feature, *source);
     for (const auto& input : profiles)
         feature.sweep2d.profiles.push_back(sweep_profile_from_source(part, feature.id, input));
+    return feature;
+}
+document::HistoryContainer helical_from_sources(const document::PartDocument& part, const HelicalSources& inputs) {
+    auto feature = document::PartDocument::create_helical_sweep_container();
+    for (std::size_t i = 0; i < inputs.sketches.size(); ++i) {
+        const auto source = std::ranges::find(part.sketches, inputs.sketches[i], &sketcher::Sketch::id);
+        const auto* owner = source == part.sketches.end() ? nullptr : part.find_container(source->owner_container_id);
+        if (!owner || owner->feature_kind != Kind::Sketch)
+            throw SweepOperationError("sketch_not_found", "Select distinct standalone Sketches for the Sweep inputs.");
+        auto sketch = *source;
+        if (i == 0) {
+            inherit_sketch_placement(feature, owner->placement);
+            document::adopt_sweep_sketch_frame(feature, sketch);
+        }
+        sketch.owner_container_id = feature.id;
+        feature.helical.sketches[i] = sketch.serialized();
+    }
+    feature.helical.circle_id = inputs.circle_id;
+    feature.helical.start_point_id = inputs.start_point_id;
+    feature.helical.guide_start_point_id = inputs.guide_start_point_id;
     return feature;
 }
 void commit_sweep(Workspace& live, const kernel::OcctKernel& kernel, const std::string& id,
@@ -207,6 +245,10 @@ void commit_sweep(Workspace& live, const kernel::OcctKernel& kernel, const std::
         const auto new_dimension = helical ? feature.helical.pitch
             : feature.feature_kind == Kind::Sweep2D ? feature.sweep2d.thickness : feature.sweep3d.thickness;
         if (feature.value_locks.contains(helical ? "pitch" : "thickness") && old_dimension != new_dimension)
+            throw SweepOperationError("value_locked", "The requested value is locked.");
+        if (helical && feature.value_locks.contains("base_offset") &&
+            sketcher::Sketch::from_serialized(existing->helical.sketches[0]).plane_offset !=
+                sketcher::Sketch::from_serialized(feature.helical.sketches[0]).plane_offset)
             throw SweepOperationError("value_locked", "The requested value is locked.");
         policy.edited_document_id = id;
         policy.edited_history_limit = before.history_index(feature.id);

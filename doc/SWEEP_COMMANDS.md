@@ -3,8 +3,8 @@
 Etapa vlastností přidává `sweep2d.get/set`, `sweep3d.get/set` a
 `helical.get/set`. GUI potvrzení nového i existujícího tažení a příkazová
 změna sdílejí `workspace::commit_sweep`: validace, explicitní výpočet a jeden
-záznam Undo. `sweep2d.create` a `sweep3d.create` vytvářejí tažení z nativních vstupů.
-Tvorba šroubovicového tažení zůstává navazujícím krokem. `sweep2d.set`
+záznam Undo. `sweep2d.create`, `sweep3d.create` a `helical.create` vytvářejí
+tažení z nativních vstupů. `sweep2d.set`
 a `sweep3d.set` už spravují celý seznam profilů a jejich stanice.
 
 ## Použití
@@ -356,3 +356,78 @@ Závěrečné ověření této etapy:
   oblouk, vlastnictví, uložení a studený výpočet.
 
 Katalog obsahuje **172 příkazů**. Další krok je vytvoření šroubovicového tažení.
+
+
+## Vytvoření šroubovicového tažení
+
+`helical.create` převezme tři samostatné skici. `base_sketch` obsahuje kružnici
+`circle` a bod `start_point` na ní. `guide_sketch` obsahuje radiální vodicí
+dráhu začínající bodem `guide_start_point` v lokálním počátku `(0, 0)`.
+`profile_sketch` je uzavřený průřez. ID všech vstupních skic, bodů a křivek
+zůstávají původní; nové ID dostane jejich společný kontejner.
+
+```json
+{"command":"helical.create","arguments":{"base_sketch":"<ZAKLAD>","guide_sketch":"<DRAHA>","profile_sketch":"<PRUREZ>","circle":"<KRUZNICE>","start_point":"<BOD_NA_KRUZNICI>","guide_start_point":"<POCATEK_DRAHY>","pitch_mm":5,"left_handed":false}}
+```
+
+Volitelné argumenty jsou `name`, `combine`, `placement`, `pitch_mm`,
+`left_handed`, `base_offset_mm` a `document`. Jednotky jsou mm a stupně;
+stoupání musí být v rozsahu 0,0001–1 000 000 mm. Uplatní se všechna existující
+geometrická pravidla H-tažení, včetně monotónní výšky, souvislosti radiální
+dráhy, průřezu a omezení počtu závitů; viz [HELICAL_SWEEP.md](HELICAL_SWEEP.md).
+Samostatný Thin přepínač H-tažení nemá. Dutý průřez určuje profilová skica.
+
+Vstupy musí být různé samostatné skici aktivního upravovatelného tělesa,
+před kurzorem historie. Nesmějí je potřebovat jiné kontejnery ani na sobě
+navzájem záviset. Výpočet, převzetí vstupů a odstranění původních kořenových
+kontejnerů proběhnou v jedné transakci. Chyba zachová dokument, cache a Undo;
+jedno Undo po úspěchu vrátí původní tři skici.
+
+Rámec prvku se převezme z kontejneru základní skici, včetně živých referencí,
+FRONT/BACK a čtvrtotáček. Radiální dráha a průřez se orientují podle definice
+H-tažení, stejně jako při editaci v GUI. `base_offset_mm` je vlastní odsazení
+základní roviny vinutí; posune základní skicu a odvozené vinutí, nikoli
+kontejner. Bez explicitního zadání se zachová odsazení zdrojové skici.
+
+Odsazení vrací `helical.get`, mění `helical.set` a stejné pole je ve
+Vlastnostech H-tažení. Respektuje zámek `base_offset`, používá OK/Cancel
+a ukládá se do existujícího pole základní skici v `.prtz`. Také
+`helical.set guide_start_point` mění vybraný původní bod začátku radiální
+dráhy s normální geometrickou validací. Formát ani start šablony se nemění.
+
+Společný solver umístění a společná funkce základního přerámování se nemění.
+Zachování odsazení se uplatňuje výhradně uvnitř H-tažení. Převod orientace
+zdrojové skici využívá beze změny stejnou funkci jako vytvoření 2D tažení.
+
+
+Ověření šroubovicové tvorby: oba programy a všechny testy byly sestaveny
+(`build/helical-create-full-build.log`) a související sada prošla **15/15**
+(142,88 s, `build/helical-create-gui-tests.log`). Modelový test zahrnuje:
+
+- 72 kombinací XY/XZ/YZ, žádná/jedna/tři rovinné reference, FRONT/BACK,
+  čtvrtotáčky a korekce; porovnání fyzického rámce zdroje a vlastněné skici.
+- Původní ID všech tří skic a jedno Undo vracející původní nativní vstupy.
+- Nezávislý objem vinutí R10, výšky 10 a kruhového průřezu R0,5:
+  `π × 0,5² × sqrt((2π × 10 × 10 / stoupání)² + 10²)`.
+  Ověřená stoupání 5 a 10 mm a oba smysly vinutí; relativní tolerance 0,1 %.
+- Odsazení 3 → −5 mm v natočeném tělese a při BACK: posune základní rovinu
+  o −8 mm podél její normály, poloha kontejneru a objem zůstávají zachované.
+- Chybějící/duplicitní/potlačené/neaktivní/sdílené vstupy, chybnou kružnici,
+  začátek dráhy, rozsah hodnot, zámek odsazení, přesné uložení a studený výpočet.
+
+Reálný CLI proces i GUI přebírají skici se zdrojovým odsazením 3 mm,
+po editaci ukládají rovinu v z=7 mm a ověřují skutečný uložený objem.
+Modelový test během vývoje potřeboval opravit čtení zdrojové skici po
+atomické obnově dokumentu a nesprávný předpoklad souvislých čísel revizí
+po Undo; tyto opravy neměnily produkční chování.
+
+Katalog obsahuje **173 příkazů**.
+
+
+Dodatečný GUI test návratu ze základní skici prošel **1/1** (38,31 s),
+`build/helical-create-sketcher-tests.log`. Ověřuje původní kružnici ve View
+v z=7 mm, návrat do rozpracovaných Vlastností bez předčasného commitu a
+následné OK/Cancel. Snímek `helical-offset-properties.png` zachycuje rozšířené
+Vlastnosti. Produkční kód se po úspěšném běhu 15/15 neměnil; přibyla tato
+cílená GUI regrese. Poslední sestavení aplikace:
+`build/helical-create-sketcher-build.log`.

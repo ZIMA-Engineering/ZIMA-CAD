@@ -28,6 +28,15 @@ public:
         content_layout()->addLayout(form);install_placement();form=new QFormLayout;
         const std::array<QString,3> names{tr("1. Kružnice a počáteční bod…"),tr("2. Radiální vodicí skica…"),tr("3. Skica průřezu…")};
         for(unsigned i=0;i<3;++i){auto* button=new QPushButton(names[i],this);button->setObjectName(QString("helicalSketch%1").arg(i));style_sketch_button(button);form->addRow(button);connect(button,&QPushButton::clicked,this,[this,i]{if(edit_sketch)edit_sketch(i);});}
+        auto* base_offset=new QDoubleSpinBox(this);base_offset->setObjectName("helicalBaseOffset");
+        base_offset->setDecimals(ui::numeric_decimal_places(this,4));base_offset->setRange(-1000000,1000000);base_offset->setSuffix(" mm");
+        base_offset->setValue(sketcher::Sketch::from_serialized(pending.helical.sketches[0]).plane_offset);
+        form->addRow(tr("Odsazení základní skici"),base_offset);
+        ui::bind_numeric_value_lock(base_offset,"base_offset",pending.value_locks,[this]{notify();});
+        connect(base_offset,&QDoubleSpinBox::valueChanged,this,[this](double value){
+            auto base=sketcher::Sketch::from_serialized(pending.helical.sketches[0]);base.plane_offset=value;
+            pending.helical.sketches[0]=base.serialized();notify();
+        });
         circle_=new QComboBox(this);point_=new QComboBox(this);circle_->setObjectName("helicalCircle");point_->setObjectName("helicalStartPoint");
         form->addRow(tr("Základní kružnice"),circle_);form->addRow(tr("Počáteční bod"),point_);
         connect(circle_,&QComboBox::activated,this,[this]{pending.helical.circle_id=circle_->currentData().toString().toStdString();notify();});

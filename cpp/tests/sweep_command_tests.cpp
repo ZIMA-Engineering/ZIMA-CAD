@@ -496,6 +496,99 @@ void verify_planar_curved_creation(const kernel::OcctKernel& kernel, const fs::p
     f.run("undo");auto thin=create;thin["result_type"]="thin";thin["thin_mode"]="symmetric";thin["thickness_mm"]=.5;
     f.run("sweep2d.create",thin);near(f.volume(),10*std::numbers::pi*std::numbers::pi,2e-3);
 }
+Json helical_create_arguments(const document::PartDocument& sources, const document::HistoryContainer& feature) {
+    return {{"base_sketch",sources.sketches[0].id},{"guide_sketch",sources.sketches[1].id},
+        {"profile_sketch",sources.sketches[2].id},{"circle",feature.helical.circle_id},
+        {"start_point",feature.helical.start_point_id},{"guide_start_point",feature.helical.guide_start_point_id}};
+}
+void verify_helical_source_frames() {
+    unsigned scenario=0;
+    for(const auto plane:{sketcher::SketchPlane::XY,sketcher::SketchPlane::XZ,sketcher::SketchPlane::YZ})
+    for(const auto reference_count:{0,1,3})for(const auto back:{false,true})for(int turns=0;turns<4;++turns) {
+        ++scenario;const auto definition=test_support::sweep_fixture(document::FeatureKind::HelicalSweep);
+        auto sources=test_support::standalone_sweep_sources(definition);
+        auto& base=sources.sketches.front();base.plane=plane;base.plane_offset=-3;
+        auto& p=sources.history.front().placement;
+        p.x=7;p.y=-3;p.z=8;p.absolute_rotation_x=13;p.absolute_rotation_y=27;p.absolute_rotation_z=-19;
+        p.orientation_back=back;p.orientation_quarter_turns=turns;p.rotation_offset_x=11;p.rotation_offset_y=23;p.rotation_offset_z=7;
+        if(reference_count) {
+            const std::string first=plane==sketcher::SketchPlane::XY?"origin:plane:xy":plane==sketcher::SketchPlane::XZ?"origin:plane:xz":"origin:plane:yz";
+            const auto add=[&](const std::string& key,const std::string& role) {
+                document::ConstructionReference r{{},sources.document_id+":origin",key,5,true};
+                r.orientation_drives_rotation=true;r.orientation_role=role;p.references.push_back(r);
+            };
+            add(first,"front");if(reference_count==3)for(const std::string key:{"origin:plane:xy","origin:plane:xz","origin:plane:yz"})
+                if(key!=first)add(key,p.references.size()==1?"top":"none");
+        }
+        sources.resolve_constructions();
+        try {
+            auto feature=workspace::helical_from_sources(sources,{{sources.sketches[0].id,sources.sketches[1].id,sources.sketches[2].id},
+                definition.helical.circle_id,definition.helical.start_point_id,definition.helical.guide_start_point_id});
+            require(document::resolve_placement(feature.placement,sources.origin_viewer_mesh().original_references),"Helical source placement did not resolve");
+            document::PartDocument::reframe_helical_sketches(feature);
+            const auto adopted=sketcher::Sketch::from_serialized(feature.helical.sketches[0]);
+            same_frame(adopted,sources.sketches.front());near(adopted.plane_offset,-3);
+        } catch(const std::exception& error) {throw std::runtime_error("Helical source frame "+std::to_string(scenario)+": "+error.what());}
+    }
+}
+void verify_helical_creation(const kernel::OcctKernel& kernel, const fs::path& directory) {
+    Fixture f(kernel,directory);f.run("new",{{"type","part"},{"name","helical-created"}});
+    const auto definition=test_support::sweep_fixture(document::FeatureKind::HelicalSweep);
+    auto sources=test_support::standalone_sweep_sources(definition);sources.document_id=f.live.active_document_id();sources.name="helical-created";
+    sources.sketches.front().plane_offset=3;
+    auto& p=sources.history.front().placement;p.x=7;p.y=-3;p.z=8;p.absolute_rotation_y=30;p.orientation_back=true;
+    auto body=*sources.body_history.find(sources.body_history.active_body_id());body.scope.placement.x=100;body.scope.placement.absolute_rotation_z=40;
+    sources.body_history.update_body(std::move(body));sources.set_body_history(sources.body_history);
+    auto cache=workspace::calculate_part_with_resolved_references(kernel,sources);
+    const auto original=sources;const auto expected=sources.sketches.front();const auto args=helical_create_arguments(sources,definition);
+    f.state().session.commit(std::move(sources),std::move(cache));
+    const auto volume=[](double pitch){return std::numbers::pi*.25*std::hypot(2*std::numbers::pi*10*10/pitch,10);};
+    auto invalid=args;invalid["guide_sketch"]="absent";f.reject("helical.create",invalid,"sketch_not_found");
+    invalid=args;invalid["guide_sketch"]=expected.id;f.reject("helical.create",invalid,"invalid_sketch_owner");
+    invalid=args;invalid["circle"]="absent";f.reject("helical.create",invalid,"sweep_rejected");
+    invalid=args;invalid["guide_start_point"]="absent";f.reject("helical.create",invalid,"sweep_rejected");
+    invalid=args;invalid["pitch_mm"]=0;f.reject("helical.create",invalid,"invalid_arguments");
+    invalid=args;invalid["base_offset_mm"]=1000001;f.reject("helical.create",invalid,"invalid_arguments");
+    auto inactive=original;inactive.sketches.front().suppressed=true;f.state().session.commit(std::move(inactive),f.state().session.calculated_boundaries());
+    f.reject("helical.create",args,"inactive_input");f.run("undo");
+    f.run("body.create",{{"name","Other"}});f.reject("helical.create",args,"inactive_body");f.run("undo");
+    auto dependent=original;auto consumer=document::PartDocument::create_construction(document::ConstructionKind::Point);
+    consumer.references.push_back({{},original.history.front().container_origin.id,"origin:point",0,false});
+    dependent.constructions.push_back(consumer);dependent.insert_history_entry(document::PartHistoryKind::Construction,consumer.id);
+    f.state().session.commit(std::move(dependent),f.state().session.calculated_boundaries());
+    f.reject("helical.create",args,"input_in_use");f.run("undo");
+    const auto revision=f.state().session.revision();
+    const auto created=f.run("helical.create",args);const auto id=created.at("container").get<std::string>();
+    const auto& part=f.state().session.document();const auto& feature=*part.find_container(id);
+    require(part.history.size()==1 && part.sketches.empty() && f.state().session.revision()>revision,
+        "Helical creation duplicated standalone inputs or created multiple transactions");
+    same_frame(sketcher::Sketch::from_serialized(feature.helical.sketches[0]),expected);near(f.volume(),volume(5),1e-3);
+    for(std::size_t i=0;i<3;++i)require(created.at("sketches")[i]==original.sketches[i].id &&
+        sketcher::Sketch::from_serialized(feature.helical.sketches[i]).owner_container_id==id,"Helical creation changed source Sketch identity or ownership");
+    f.run("undo");require(f.state().session.document().history==original.history &&
+        std::ranges::equal(f.state().session.document().sketches,original.sketches,[](const auto& a,const auto& b){return a.serialized()==b.serialized();}),
+        "Helical Undo lost exact source Sketches");
+    f.run("redo");near(f.volume(),volume(5),1e-3);
+    const auto placement=f.state().session.document().find_container(id)->placement;
+    f.run("helical.set",{{"container",id},{"base_offset_mm",-5},{"pitch_mm",10},{"left_handed",true}});
+    near(f.volume(),volume(10),1e-3);
+    const auto& changed=*f.state().session.document().find_container(id);
+    require(changed.placement==placement,"Helical base offset moved the owning container");
+    const auto base=sketcher::Sketch::from_serialized(changed.helical.sketches[0]);near(base.plane_offset,-5);
+    near(base.resolved_origin.x,expected.resolved_origin.x-8*expected.resolved_normal.x);
+    near(base.resolved_origin.y,expected.resolved_origin.y-8*expected.resolved_normal.y);
+    near(base.resolved_origin.z,expected.resolved_origin.z-8*expected.resolved_normal.z);
+    f.reject("helical.set",{{"container",id},{"guide_start_point","absent"}},"sweep_rejected");
+    f.reject("helical.set",{{"container",id},{"base_offset_mm",true}},"invalid_arguments");
+    auto locked=f.state().session.document();locked.find_container(id)->value_locks.insert("base_offset");
+    f.state().session.commit(std::move(locked),f.state().session.calculated_boundaries());
+    f.reject("helical.set",{{"container",id},{"base_offset_mm",4}},"value_locked");
+    f.run("save");auto saved=document::PartDocument::load(directory/"helical-created.prtz");
+    require(saved.history==f.state().session.document().history && saved.sketches.empty(),"Helical save lost parameters or owned Sketch frames");
+    const auto recalculated=workspace::calculate_part_with_resolved_references(kernel,saved);
+    near(recalculated.back().volume,volume(10),1e-3);
+    same_frame(sketcher::Sketch::from_serialized(saved.find_container(id)->helical.sketches[0]),base);
+}
 void verify_path_plane(const kernel::OcctKernel& kernel, const fs::path& directory) {
     Fixture f(kernel, directory); f.run("new", {{"type", "part"}, {"name", "sweep-path-plane"}});
     const auto plane = f.run("construction.create", {{"kind", "plane"}, {"name", "Offset plane"},
@@ -594,6 +687,8 @@ int main() {
         verify_creation_profiles(kernel, directory);
         verify_planar_creation(kernel, directory);
         verify_planar_curved_creation(kernel, directory);
+        verify_helical_source_frames();
+        verify_helical_creation(kernel, directory);
         verify_path_plane(kernel, directory);
         verify_original_path_plane(kernel, directory);
         for (const auto kind : {document::FeatureKind::Sweep2D, document::FeatureKind::Sweep3D}) verify_profile_management(kernel, directory, kind);

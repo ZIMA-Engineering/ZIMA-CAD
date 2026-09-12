@@ -25,6 +25,11 @@ struct SweepProfileSource {
     const std::vector<SweepProfileSource>&);
 [[nodiscard]] document::HistoryContainer sweep2d_from_sources(const document::PartDocument&,
     const std::string& path_sketch_id, const std::vector<SweepProfileSource>&);
+struct HelicalSources {
+    std::array<std::string, 3> sketches; // base circle, radial guide, cross section
+    std::string circle_id, start_point_id, guide_start_point_id;
+};
+[[nodiscard]] document::HistoryContainer helical_from_sources(const document::PartDocument&, const HelicalSources&);
 // One explicit calculation/commit for 2D Sweep, 3D Sweep/Loft and Helical Sweep.
 // The supplied definition owns its embedded Sketches and path Point identities.
 void commit_sweep(Workspace&, const kernel::OcctKernel&, const std::string& document_id,

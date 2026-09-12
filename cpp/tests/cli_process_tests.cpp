@@ -663,6 +663,35 @@ int main(int argc,char** argv){
             if(planar)require(sketcher::Sketch::from_serialized(saved.history.front().sweep2d.path_sketch).id==path,
                 "Standalone 2D creation replaced original path Sketch identity");
         }
+        {
+            const auto definition=test_support::sweep_fixture(document::FeatureKind::HelicalSweep);
+            auto native=test_support::standalone_sweep_sources(definition);native.name="cli-created-helical";
+            native.sketches.front().plane_offset=3;native.resolve_constructions();
+            const auto file="cli-created-helical.prtz";native.save(project/file);
+            const auto create=command({{"command","helical.create"},{"arguments",{
+                {"base_sketch",native.sketches[0].id},{"guide_sketch",native.sketches[1].id},{"profile_sketch",native.sketches[2].id},
+                {"circle",definition.helical.circle_id},{"start_point",definition.helical.start_point_id},
+                {"guide_start_point",definition.helical.guide_start_point_id}}}});
+            result=launch(executable,root,common+QStringList{"--command",QString::fromStdString("open "+std::string(file)),
+                "--command",create,"--command","undo","--command","redo","--command","save"});
+            require(result.exit_code==0&&result.results().size()==5,"Standalone Helical creation failed");
+            const auto id=result.results()[1].at("data").at("container");
+            require(result.results()[1].at("data").at("base_offset_mm")==3,"Standalone Helical creation lost base offset");
+            const auto get=command({{"command","helical.get"},{"arguments",{{"container",id}}}});
+            const auto set=command({{"command","helical.set"},{"arguments",{{"container",id},{"base_offset_mm",7},{"pitch_mm",10},{"left_handed",true}}}});
+            result=launch(executable,root,common+QStringList{"--command",QString::fromStdString("open "+std::string(file)),
+                "--command",set,"--command","save","--command",get});
+            require(result.exit_code==0&&result.results().size()==4&&result.results().back().at("data").at("base_offset_mm")==7,
+                "Standalone Helical offset edit failed");
+            std::vector<kernel::BodyResult> cache;const auto saved=document::PartDocument::load(project/file,&cache);
+            const double pi=std::acos(-1.0),expected=pi*.25*std::hypot(2*pi*10,10);
+            require(saved.sketches.empty()&&saved.history.size()==1&&!cache.empty()&&std::abs(cache.back().volume-expected)<expected*.001,
+                "Standalone Helical creation duplicated inputs or saved incorrect geometry");
+            for(std::size_t i=0;i<3;++i)require(sketcher::Sketch::from_serialized(saved.history.front().helical.sketches[i]).id==native.sketches[i].id,
+                "Standalone Helical creation lost original Sketch identity");
+            require(std::abs(sketcher::Sketch::from_serialized(saved.history.front().helical.sketches[0]).resolved_origin.z-7)<1e-8,
+                "Standalone Helical save lost the base Sketch offset frame");
+        }
         for(const auto kind:{document::FeatureKind::Sweep2D,document::FeatureKind::Sweep3D}) {
             const bool planar=kind==document::FeatureKind::Sweep2D;const std::string prefix=planar?"sweep2d":"sweep3d";
             const auto feature=test_support::sweep_fixture(kind);

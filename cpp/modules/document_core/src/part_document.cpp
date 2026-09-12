@@ -4,6 +4,7 @@
 #include <zima/document/document_copy_json.hpp>
 #include <zima/document/part_document.hpp>
 #include <zima/document/profile_targets.hpp>
+#include <zima/document/sweep_inputs.hpp>
 #include <zima/document/precision.hpp>
 #include <zima/document/helical_geometry.hpp>
 #include <zima/document/versioned_file.hpp>
@@ -6946,7 +6947,7 @@ HistoryContainer PartDocument::create_sweep2d_container() {
     auto path=zima::sketcher::Sketch::create_default();path.owner_container_id=c.id;path.name="Dráha";
     c.sweep2d.path_sketch=path.serialized();return c;
 }
-void PartDocument::set_sweep2d_owned_path(HistoryContainer& c, zima::sketcher::Sketch path) {
+void adopt_sweep_sketch_frame(HistoryContainer& c, zima::sketcher::Sketch& path) {
     auto& placement = c.placement;
     const auto first = std::ranges::find_if(placement.references, [](const auto& reference) {
         return !reference.orientation_only && !reference.owner_id.empty();
@@ -6969,6 +6970,9 @@ void PartDocument::set_sweep2d_owned_path(HistoryContainer& c, zima::sketcher::S
         placement.rotation_offset_z = converted.z;
         if (!top) placement.absolute_rotation_y = converted.y;
     }
+}
+void PartDocument::set_sweep2d_owned_path(HistoryContainer& c, zima::sketcher::Sketch path) {
+    adopt_sweep_sketch_frame(c, path);
     const auto plane = path.plane == zima::sketcher::SketchPlane::XY ? "origin:plane:xy"
         : path.plane == zima::sketcher::SketchPlane::XZ ? "origin:plane:xz" : "origin:plane:yz";
     c.sweep2d.path_plane = ConstructionReference{{}, c.container_origin.id, plane, path.plane_offset};
@@ -7400,7 +7404,16 @@ HistoryContainer PartDocument::create_helical_sweep_container() {
 }
 void PartDocument::reframe_helical_sketches(HistoryContainer& c,unsigned through_stage) {
     using namespace helical_geometry;
+    const double base_offset=zima::sketcher::Sketch::from_serialized(c.helical.sketches[0]).plane_offset;
+    if(!std::isfinite(base_offset)||std::abs(base_offset)>1000000)
+        throw std::runtime_error("The base Sketch offset is outside the supported range.");
     reframe_sweep_base(c,c.helical.sketches[0],"helical:base");
+    // This is the Helical feature's own base-plane parameter. The container
+    // position and all shared placement/2D Sweep behavior remain unchanged.
+    auto base=zima::sketcher::Sketch::from_serialized(c.helical.sketches[0]);
+    base.plane_offset=base_offset;
+    base.resolved_origin=add(base.resolved_origin,mul(base.resolved_normal,base_offset));
+    c.helical.sketches[0]=base.serialized();
     if(through_stage==0)return;
     auto p=path(c,false);
     auto guide=zima::sketcher::Sketch::from_serialized(c.helical.sketches[1]);

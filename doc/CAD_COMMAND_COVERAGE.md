@@ -41,7 +41,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Skicář: vazby a operace | Vazby/kóty/solver/offset/trim/mirror hotovy | Offset create/get/set/free, úplný podklad a zachování intervalů, trim podle průsečíků, mirror, orientovaný obdélník, tečny a zaoblení rohu; všech 15 druhů vazeb, odstranění a solver; 16 druhů kót včetně vlastností, popisků a mazání; uvolnění externích referencí hotovo |
 | Externí reference skici | Part a kořenová Assembly hotovy | Původní geometrie, přesná projekce, aktualizace, odpojení a zachování trimu; zbývá příkazový kontext Partu aktivovaného v sestavě |
 | Vytažení a rotace | Profily, Thin, směry a cíle zakončení Partu hotovy | `extrusion/revolution.create/get/set`, vlastněná skica, původní plochy a dvě nezávislé meze, společné OK; zbývají sestavové řezy |
-| Tažení | Částečně | `sweep2d/sweep3d/helical.get/set`, `sweep2d/sweep3d.create`, společné GUI potvrzení, celá 3D dráha, stanice obou druhů a úplná správa profilů/párování a reference roviny 2D dráhy; zbývá tvorba helical |
+| Tažení | Tvorba a geometrické vlastnosti hotovy | `sweep2d/sweep3d/helical.create/get/set`, společné GUI potvrzení, celá 3D dráha, stanice a úplná správa profilů/párování, reference roviny 2D dráhy a odsazení základní skici H-tažení; generické rozšíření umístění patří do řádku Umístění |
 | Otvory a závity | Zbývá | Hole, Thread, ShaftThread, DrillPoint a reference |
 | Zaoblení, zkosení, skořepina | Zbývá | Výběr skutečného vstupního tělesa a sdílené transakce |
 | Zrcadlo a pole | Zbývá | Odvozená tělesa a komponenty |
@@ -702,3 +702,26 @@ Ověřeno je 72 prostorových kombinací, přesné Undo, atomické chyby, živé
 odsazení, obloukový Solid/Thin, nativní uložení, skutečný CLI proces a GUI
 Vlastnosti. Podrobnosti a logy: [SWEEP_COMMANDS.md](SWEEP_COMMANDS.md).
 Z tažení zbývá příkazová tvorba šroubovicové varianty.
+
+
+### Tvorba šroubovicového tažení
+
+`helical.create` přebírá základní skicu, radiální dráhu a průřez. Zachovává
+jejich původní ID a rámec základní skici. Vlastní odsazení základní roviny
+se přebírá ze zdroje, čte a mění přes CLI i stejné Vlastnosti H-tažení.
+Neposouvá kontejner; ostatní tažení a obecné řešení umístění se nemění.
+Katalog má **173 příkazů**, formát a start šablony se nemění.
+
+Oba programy a testy jsou sestavené. Související sada prošla **15/15**
+(142,88 s), `build/helical-create-gui-tests.log`. Ověřuje 72 kombinací
+rámce H-tažení, nezávislé objemy, smysl vinutí, převzetí skic, přesné Undo,
+atomické chyby, zámky, vlastní odsazení, nativní uložení a studený výpočet,
+skutečný CLI proces a GUI OK/Cancel. Podrobnosti: [SWEEP_COMMANDS.md](SWEEP_COMMANDS.md).
+Další oblastí jsou otvory a závity; ostatní otevřené řádky zůstávají součástí
+celkového úkolu CLI.
+
+
+Dodatečně prošel návrat ze skicáře základní kružnice do rozpracovaných
+Vlastností **1/1** (38,31 s), `build/helical-create-sketcher-tests.log`:
+View skutečně ukazuje kružnici v odsazené rovině a návrat zachová pending
+hodnotu i OK/Cancel. Produkční kód se po 15/15 neměnil.

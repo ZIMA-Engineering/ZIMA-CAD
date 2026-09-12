@@ -841,12 +841,21 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
             native.history={feature};document::BodyHistoryGraph graph;
             static_cast<void>(graph.create_body("Sweep"));graph.insert({document::PartHistoryKind::Feature,feature.id});
             native.set_body_history(graph);native.resolve_constructions();
-            if(!helical) {
+            {
                 const auto name=native.name;native=test_support::standalone_sweep_sources(feature);native.name=name;
+                if(helical){native.sketches.front().plane_offset=3;native.resolve_constructions();}
             }
             const auto path=directory/(native.name+".prtz");native.save(path);
             json_run("open",{{"path",document::path_to_utf8(path)}});flush();
-            if(!helical) {
+            if(helical) {
+                const auto created=json_run("helical.create",{{"base_sketch",native.sketches[0].id},
+                    {"guide_sketch",native.sketches[1].id},{"profile_sketch",native.sketches[2].id},
+                    {"circle",feature.helical.circle_id},{"start_point",feature.helical.start_point_id},
+                    {"guide_start_point",feature.helical.guide_start_point_id}}).data;
+                feature.id=created.at("container").get<std::string>();flush();
+                check(created.at("base_offset_mm")==3,"GUI console creation lost Helical base offset");
+                for(std::size_t i=0;i<3;++i)check(created.at("sketches")[i]==native.sketches[i].id,"GUI Helical creation lost source Sketch identity");
+            } else {
                 const auto source_path=planar?native.sketches.front().id:feature.sweep3d.path.id;
                 const auto point=planar?native.sketches.front().segments.front().first_point_id:feature.sweep3d.path.curve_points.front().id;
                 const auto created=json_run((prefix+".create").c_str(),{{"source_path",source_path},
@@ -871,6 +880,26 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
                 for(auto* dialog:window.findChildren<QDialog*>())if(dialog->isVisible()&&dialog->findChild<QDoubleSpinBox*>(field))return dialog;
                 throw std::runtime_error("Sweep Properties missing");
             };
+            if(helical)for(const bool commit:{false,true}) {
+                auto* offset_dialog=edit();auto* value=offset_dialog->findChild<QDoubleSpinBox*>("helicalBaseOffset");
+                check(value&&value->value()==3,"Helical Properties lost inherited base offset");value->setValue(7);
+                check(get().at("base_offset_mm")==3,"Pending Helical base offset escaped into the document");
+                offset_dialog->findChild<QPushButton*>("helicalSketch0")->click();flush();
+                bool base_wire=false;
+                for(const auto& edge:view->mesh().edges)if(edge.reference.owner_id==native.sketches.front().id&&
+                    edge.reference.semantic_key.starts_with("circle:"+feature.helical.circle_id)) {
+                    base_wire=true;for(const auto& point:edge.points)check(std::abs(point.z-7)<1e-8,
+                        "Helical Sketcher displayed the base in the wrong offset plane");
+                }
+                check(base_wire,"Helical Sketcher lost the adopted base circle");
+                window.findChild<QAction*>("finishSketchAction")->trigger();flush();
+                check(offset_dialog->isVisible()&&value->value()==7&&get().at("base_offset_mm")==3,
+                    "Returning from Helical Sketcher lost pending offset or committed prematurely");
+                if(commit)check(offset_dialog->grab().save(QString::fromStdString((directory/"helical-offset-properties.png").string())),
+                    "Helical offset Properties screenshot failed");
+                offset_dialog->findChild<QDialogButtonBox*>()->button(commit?QDialogButtonBox::Ok:QDialogButtonBox::Cancel)->click();flush();
+                check(get().at("base_offset_mm")== (commit?7:3),"Helical base offset violated OK/Cancel");
+            }
             auto* dialog=edit();
             check(dialog->findChild<QDoubleSpinBox*>(field)->value()==initial,"Sweep Properties lost initial dimension");
             commands::Json patch={{"command",prefix+".set"},{"arguments",{{"container",feature.id},{key,changed}}}};
@@ -890,6 +919,8 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
             const double pi=std::acos(-1.0),expected=helical?pi*.25*std::hypot(2*pi*10,10):80*pi;
             check(saved.history.front().id==feature.id&&!cache.empty()&&std::abs(cache.back().volume-expected)<(helical?expected*.001:1e-5),
                 "Sweep GUI/CLI saved incorrect geometry or feature ownership");
+            if(helical)check(std::abs(sketcher::Sketch::from_serialized(saved.history.front().helical.sketches[0]).resolved_origin.z-7)<1e-8,
+                "Helical GUI confirmation lost the offset base frame");
             if(kind==document::FeatureKind::Sweep3D) {
                 const auto first=feature.sweep3d.path.curve_points.front().id;
                 const auto last=feature.sweep3d.path.curve_points.back().id;

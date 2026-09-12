@@ -37,7 +37,8 @@ Json sweep_details(const workspace::PartState& state, const document::HistoryCon
             sketches.push_back(sketcher::Sketch::from_serialized(data).id);
         result.update({{"pitch_mm", feature.helical.pitch}, {"left_handed", feature.helical.left_handed},
             {"circle", feature.helical.circle_id}, {"start_point", feature.helical.start_point_id},
-            {"guide_start_point", feature.helical.guide_start_point_id}, {"sketches", std::move(sketches)}});
+            {"guide_start_point", feature.helical.guide_start_point_id}, {"sketches", std::move(sketches)},
+            {"base_offset_mm", sketcher::Sketch::from_serialized(feature.helical.sketches[0]).plane_offset}});
     } else {
         const auto type = planar ? feature.sweep2d.result_type : feature.sweep3d.result_type;
         const auto side = planar ? feature.sweep2d.thin_mode : feature.sweep3d.thin_mode;
@@ -150,6 +151,12 @@ void sweep_properties(document::HistoryContainer& value, const Json& args,
         ? document::CombineMode::Add : document::CombineMode::Subtract;
     if (value.feature_kind == Kind::HelicalSweep) {
         if (args.contains("pitch_mm")) value.helical.pitch = args.at("pitch_mm").get<double>();
+        if (args.contains("guide_start_point")) value.helical.guide_start_point_id = args.at("guide_start_point").get<std::string>();
+        if (args.contains("base_offset_mm")) {
+            auto base = sketcher::Sketch::from_serialized(value.helical.sketches[0]);
+            base.plane_offset = args.at("base_offset_mm").get<double>();
+            value.helical.sketches[0] = base.serialized();
+        }
         if (args.contains("left_handed")) value.helical.left_handed = args.at("left_handed").get<bool>();
         if (args.contains("circle")) value.helical.circle_id = args.at("circle").get<std::string>();
         if (args.contains("start_point")) value.helical.start_point_id = args.at("start_point").get<std::string>();
@@ -269,6 +276,28 @@ void Host::register_sweep_commands() {
               catch (const std::exception& error) { return Result::failure("sweep_rejected", tr(error.what())); }
         });
     }
+    dispatcher_.add({"helical.create", tr("Create a Helical Sweep by adopting three standalone Sketches."),
+        {{"base_sketch", true}, {"guide_sketch", true}, {"profile_sketch", true}, {"circle", true}, {"start_point", true},
+         {"guide_start_point", true}, {"pitch_mm", false, Type::Number}, {"left_handed", false, Type::Boolean},
+         {"base_offset_mm", false, Type::Number}, {"placement", false, Type::Object}, {"name", false}, {"combine", false}, {"document", false}}, true},
+        [this](const Json& args) {
+            const auto check = target(args); if (!check.ok) return check;
+            try {
+                const auto id = workspace_.active_document_id(); auto* state = workspace_.open_part(id);
+                if (!state || interaction().template_document) throw Error("unsupported_document", "Sweep operations require an open Part.");
+                const workspace::HelicalSources inputs{{args.at("base_sketch"), args.at("guide_sketch"), args.at("profile_sketch")},
+                    args.at("circle"), args.at("start_point"), args.at("guide_start_point")};
+                auto feature = workspace::helical_from_sources(state->session.document(), inputs);
+                const auto owner = std::ranges::find(state->session.document().sketches, inputs.sketches[0], &sketcher::Sketch::id)->owner_container_id;
+                sweep_properties(feature, args, workspace_, id, owner); const auto container = feature.id;
+                workspace::commit_sweep(workspace_, kernel_, id, std::move(feature), workspace::SweepEditMode::AdoptSources);
+                change_ = Change{ChangeKind::Model, id, true};
+                auto result = sweep_details(*state, sweep(state, container, Kind::HelicalSweep)); result["changed"] = true;
+                return Result::success(std::move(result));
+            } catch (const Error& error) { return Result::failure(error.code, tr(error.what())); }
+              catch (const workspace::PlacementEditError& error) { return Result::failure(error.code, tr(error.what())); }
+              catch (const std::exception& error) { return Result::failure("sweep_rejected", tr(error.what())); }
+        });
     for (const auto kind : {Kind::Sweep2D, Kind::Sweep3D, Kind::HelicalSweep}) {
         const std::string prefix = kind == Kind::Sweep2D ? "sweep2d" : kind == Kind::Sweep3D ? "sweep3d" : "helical";
         dispatcher_.add({prefix + ".get", tr("Read Sweep parameters and owned profile identities without calculation."),
@@ -284,6 +313,7 @@ void Host::register_sweep_commands() {
         if (kind == Kind::HelicalSweep) {
             fields.push_back({"pitch_mm", false, Type::Number}); fields.push_back({"left_handed", false, Type::Boolean});
             fields.push_back({"circle", false}); fields.push_back({"start_point", false});
+            fields.push_back({"guide_start_point", false}); fields.push_back({"base_offset_mm", false, Type::Number});
         } else {
             fields.push_back({"result_type", false}); fields.push_back({"thin_mode", false});
             fields.push_back({"thickness_mm", false, Type::Number});

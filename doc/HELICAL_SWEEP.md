@@ -112,3 +112,16 @@ Pouze přímé části nabízejí také osovou referenci pro další prvky.
 Zobrazení respektuje přepínač Os, včetně stínovaného režimu. Geometrie se
 ukládá při výpočtu solidu; vykreslení a výběr nevolají OCCT. Dříve vypočtený
 model doplní osovou dráhu explicitním příkazem Regenerovat.
+
+
+## Konzole a odsazení základní skici
+
+`helical.create` přebírá tři existující samostatné skici; `helical.get/set`
+používá stejnou transakci jako Vlastnosti. Argumenty a ochrany vstupů:
+[SWEEP_COMMANDS.md](SWEEP_COMMANDS.md).
+
+Vlastnosti obsahují odsazení základní skici v mm se zámkem hodnoty. Při
+převzetí skici se její původní odsazení zachová. Změna posune rovinu základní
+kružnice a celé vinutí ve směru její normály. Nemění polohu kontejneru ani
+jeho reference. Hodnota zůstává uložená v základní skice nativního dokumentu;
+OK ji potvrdí a Cancel zahodí rozpracovanou změnu.

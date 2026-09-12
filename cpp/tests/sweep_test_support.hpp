@@ -43,9 +43,19 @@ inline document::HistoryContainer sweep_fixture(document::FeatureKind kind) {
     return c;
 }
 inline document::PartDocument standalone_sweep_sources(const document::HistoryContainer& feature) {
-    if(feature.feature_kind!=document::FeatureKind::Sweep3D && feature.feature_kind!=document::FeatureKind::Sweep2D) throw std::invalid_argument("2D or 3D Sweep source fixture required");
+
     auto part=document::PartDocument::create_default();
     document::BodyHistoryGraph graph;static_cast<void>(graph.create_body("Sweep inputs"));
+    if(feature.feature_kind==document::FeatureKind::HelicalSweep) {
+        for(std::size_t i=0;i<feature.helical.sketches.size();++i) {
+            auto sketch=sketcher::Sketch::from_serialized(feature.helical.sketches[i]);
+            auto container=document::PartDocument::create_sketch_container();sketch.owner_container_id=container.id;
+            if(i==0)container.placement=feature.placement;
+            graph.insert({document::PartHistoryKind::Feature,container.id});
+            part.history.push_back(std::move(container));part.sketches.push_back(std::move(sketch));
+        }
+        part.set_body_history(graph);part.resolve_constructions();return part;
+    }
     if(feature.feature_kind==document::FeatureKind::Sweep2D) {
         auto path=sketcher::Sketch::from_serialized(feature.sweep2d.path_sketch);
         auto container=document::PartDocument::create_sketch_container();
