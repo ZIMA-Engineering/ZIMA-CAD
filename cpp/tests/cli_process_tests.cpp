@@ -102,6 +102,26 @@ int main(int argc,char** argv){
         require(opening_saved.history.back().hole.circle_id==opening_created.hole.circle_id&&
             std::abs(opening_cache.back().volume-(64000-std::acos(-1.0)*std::pow(8.376/2,2)*25))<1e-5,"CLI opening lost source identity or saved the wrong volume");
 
+        result=launch(executable,root,common+QStringList{"--command","new part shaft-cli","--command","cylinder.create 5 30","--command","save"});
+        require(result.exit_code==0,"CLI shaft fixture failed");
+        const auto shaft_path=project/"shaft-cli.prtz";
+        const auto shaft_owner=document::PartDocument::load(shaft_path).history.front().id;
+        const auto make_shaft=command({{"command","shaft_thread.create"},{"arguments",{{"cylinder",{{"owner",shaft_owner},{"key","side"}}},
+            {"start",{{"owner",shaft_owner},{"key","z_min"}}},{"designation","M10"},{"length_mm",15}}}});
+        result=launch(executable,root,common+QStringList{"--command","open shaft-cli.prtz","--command",make_shaft,"--command","save"});
+        require(result.exit_code==0,"CLI shaft creation failed");
+        const auto shaft_created=document::PartDocument::load(shaft_path).history.back();
+        require(shaft_created.name=="External thread","CLI shaft name was not translated");
+        const auto shaft_id=QString::fromStdString(shaft_created.id);
+        const auto resize_shaft=command({{"command","shaft_thread.set"},{"arguments",{{"container",shaft_created.id},{"length_mm",20},{"root_diameter_mm",8.05}}}});
+        result=launch(executable,root,common+QStringList{"--command","open shaft-cli.prtz","--command",resize_shaft,
+            "--command","undo","--command","redo","--command","save","--command","shaft_thread.get "+shaft_id});
+        require(result.exit_code==0&&result.results()[5].at("data").at("length_mm")==20&&result.results()[5].at("data").at("root_diameter_mm")==8.05,
+            "CLI shaft query/edit/Undo/Redo failed");
+        std::vector<kernel::BodyResult> shaft_cache;const auto shaft_saved=document::PartDocument::load(shaft_path,&shaft_cache);
+        require(shaft_saved.history.back().feature_id==shaft_created.feature_id&&shaft_saved.history.back().shaft_thread.cylinder==shaft_created.shaft_thread.cylinder&&
+            std::abs(shaft_cache.back().volume-750*std::acos(-1.0))<1e-6,"CLI shaft changed original identity or solid volume");
+
         result = launch(executable, root, common + QStringList{"--command", "new part placement-cli",
             "--command", "box.create 10 20 30", "--command", "save"});
         require(result.exit_code == 0, "CLI placement fixture failed");

@@ -167,10 +167,11 @@ private:
     void select_size() {
         const int index=size_->currentIndex();
         if (index<0 || index>=static_cast<int>(sizes_.size())) return;
-        const auto& value=sizes_[index];auto& p=pending_.shaft_thread;
-        p.designation=value.designation.toStdString();p.nominal_diameter=value.nominal_diameter;p.pitch=value.pitch;
+        const auto& value=sizes_[index];
+        document::select_shaft_thread_size(pending_,static_cast<document::ThreadStandard>(standard_->currentIndex()),
+            {value.designation.toStdString(),value.nominal_diameter,value.pitch,value.internal_root_diameter,value.external_root_diameter,value.preferred});
         const QSignalBlocker blocker(root_);
-        root_->setValue(value.external_root_diameter);
+        root_->setValue(pending_.shaft_thread.root_diameter);
     }
     void refresh_fields() {
         const bool up_to=end_->currentData().toInt()==static_cast<int>(document::EndCondition::UpTo);

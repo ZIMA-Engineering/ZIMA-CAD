@@ -149,6 +149,7 @@ add_library(zima_workspace modules/workspace/src/workspace.cpp
     modules/workspace/src/placement_edit.cpp
     modules/workspace/src/primitive_operations.cpp
     modules/workspace/src/opening_operations.cpp
+    modules/workspace/src/shaft_thread_operations.cpp
     modules/workspace/src/profile_operations.cpp
     modules/workspace/src/profile_targets.cpp
     modules/workspace/src/sweep_operations.cpp)
@@ -662,6 +663,11 @@ if(ZIMA_BUILD_TESTS)
     target_link_libraries(zima_cpp_thin_profile_contract_tests PRIVATE zima_document_core zima_kernel_occt)
     add_test(NAME zima_cpp_thin_profile_contract_tests COMMAND zima_cpp_thin_profile_contract_tests)
     set_tests_properties(zima_cpp_thin_profile_contract_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
+
+    add_executable(zima_cpp_shaft_thread_command_tests tests/shaft_thread_command_tests.cpp)
+    target_link_libraries(zima_cpp_shaft_thread_command_tests PRIVATE zima_command_host)
+    add_test(NAME zima_cpp_shaft_thread_command_tests COMMAND zima_cpp_shaft_thread_command_tests)
+    set_tests_properties(zima_cpp_shaft_thread_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
 
     add_executable(zima_cpp_opening_command_tests tests/opening_command_tests.cpp)
     target_link_libraries(zima_cpp_opening_command_tests PRIVATE zima_command_host)

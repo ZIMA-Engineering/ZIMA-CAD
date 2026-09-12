@@ -1025,6 +1025,48 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
             check(std::abs(calculated.back().volume-(64000-std::acos(-1.0)*bore*bore/4*20))<1e-5,"GUI-edited opening saved an incorrect volume");
             json_run("close",{{"discard",true}});json_run("activate",{{"document",previous_document}});flush();
         }
+        {
+            const auto previous_document=run("context").data.at("active_document");
+            json_run("new",{{"type","part"},{"name",stem+"-shaft"}});
+            const auto shaft=json_run("cylinder.create",{{"radius_mm","5"},{"height_mm","30"}}).data.at("container");
+            const auto created=json_run("shaft_thread.create",{{"cylinder",{{"owner",shaft},{"key","side"}}},
+                {"start",{{"owner",shaft},{"key","z_min"}}},{"designation","M10"},{"length_mm",15}}).data;
+            const auto id=created.at("container").get<std::string>();flush();
+            const auto get=[&]{return json_run("shaft_thread.get",{{"container",id}}).data;};
+            const auto edit=[&]() {
+                QTreeWidgetItem* item=nullptr;
+                for(QTreeWidgetItemIterator it(model_tree);*it;++it)
+                    if((*it)->data(0,Qt::UserRole).toString().toStdString()==id&&(*it)->data(0,Qt::UserRole+3).toString()=="part-container"){item=*it;break;}
+                check(item,"CLI shaft thread is missing from the tree");window.show_tree_item_properties(item);flush();
+                for(auto* dialog:window.findChildren<QDialog*>())if(dialog->isVisible()&&dialog->objectName()=="shaftThreadDialog")return dialog;
+                throw std::runtime_error("Shaft thread Properties did not open");
+            };
+            for(const bool commit:{false,true}) {
+                auto* dialog=edit();auto* length=dialog->findChild<QDoubleSpinBox*>("shaftThreadLength");
+                check(length&&length->value()==15,"Shaft Properties lost the CLI length");length->setValue(20);flush();
+                check(get().at("length_mm")==15,"Shaft preview committed before OK");
+                dialog->findChild<QDialogButtonBox*>()->button(commit?QDialogButtonBox::Ok:QDialogButtonBox::Cancel)->click();flush();
+                check(get().at("length_mm")== (commit?20:15),"Shaft OK/Cancel did not use the shared transaction");
+            }
+            run("undo");check(get().at("length_mm")==15,"Shaft Properties Undo lost its original length");
+            auto* dialog=edit();auto* size=dialog->findChild<QComboBox*>("shaftThreadSize");
+            const auto index=size->findText("M12");check(index>=0,"Missing shaft catalog size");
+            size->setCurrentIndex(index);QMetaObject::invokeMethod(size,"activated",Qt::DirectConnection,Q_ARG(int,index));flush();
+            check(std::abs(dialog->findChild<QDoubleSpinBox*>("shaftThreadRootDiameter")->value()-9.853)<1e-8,"GUI shaft catalog used an internal thread diameter");
+            dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+            check(get().at("designation")=="M12"&&get().at("cylinder").at("owner")==shaft,"GUI shaft selection changed its original cylinder");
+            dialog=edit();auto* lock=dialog->findChild<QAction*>("valueLock:root_diameter");check(lock,"Shaft diameter lock is missing");
+            lock->trigger();dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+            dialog=edit();size=dialog->findChild<QComboBox*>("shaftThreadSize");const auto locked_index=size->findText("M10");
+            size->setCurrentIndex(locked_index);QMetaObject::invokeMethod(size,"activated",Qt::DirectConnection,Q_ARG(int,locked_index));
+            dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+            check(dialog->isVisible()&&get().at("designation")=="M12"&&get().at("root_diameter_mm")==9.853,"GUI catalog bypassed the shaft diameter lock");
+            dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
+            run("save");std::vector<kernel::BodyResult> calculated;
+            static_cast<void>(document::PartDocument::load(directory/(stem+"-shaft.prtz"),&calculated));
+            check(std::abs(calculated.back().volume-750*std::acos(-1.0))<1e-6,"GUI shaft Properties changed the solid volume");
+            json_run("close",{{"discard",true}});json_run("activate",{{"document",previous_document}});flush();
+        }
         input->setText("context");QApplication::sendEvent(input,&enter);flush();
         check(window.grab().save(QString::fromStdString((directory/"command-console.png").string())),"Console screenshot failed");
         toggle->trigger();flush();check(!dock->isVisible(),"Console toggle did not hide panel");

@@ -1,6 +1,7 @@
 #include "assembly_workspace_window.hpp"
 #include "shaft_thread_dialog.hpp"
 #include "shaft_thread_preview.hpp"
+#include <zima/workspace/shaft_thread_operations.hpp>
 #include <zima/viewer/mesh_view.hpp>
 #include <QAction>
 #include <QLabel>
@@ -30,14 +31,7 @@ void AssemblyWorkspaceWindow::show_shaft_thread_properties(const std::string& id
     }
     // Reference packets are compacted into the last boundary. Offer only
     // owners preceding this edit/insertion while displaying the rollback body.
-    const auto operations=part->session.document().kernel_operations();
-    const auto limit=id.empty() ? part->session.document().body_operation_count_at_history_cursor()
-        : static_cast<std::size_t>(std::distance(operations.begin(),
-            std::ranges::find_if(operations,[&](const auto& op) { return op.owner_id==id; })));
-    std::set<std::string> owners;
-    for (std::size_t i=0;i<std::min(limit,operations.size());++i) owners.insert(operations[i].owner_id);
-    for (auto& reference : primitive_reference_geometry_.triangle_references)
-        if (!owners.contains(reference.owner_id)) reference={};
+    primitive_reference_geometry_=workspace::shaft_thread_input_references(*part,id);
     if (id.empty() && std::ranges::none_of(primitive_reference_geometry_.triangle_references,
             [](const auto& reference) { return static_cast<bool>(reference.surface); })) {
         primitive_reference_geometry_={};part_rollback_.reset();
@@ -59,21 +53,10 @@ void AssemblyWorkspaceWindow::show_shaft_thread_properties(const std::string& id
     }
     const auto document_id=part->session.document().document_id;
     auto* dialog=new ShaftThreadDialog(initial,[this,document_id,editing=!id.empty()](auto feature) {
-        auto* target=workspace_.open_part(document_id);
-        if (!target) throw std::runtime_error("Part již není otevřen.");
-        // The same analytic validation drives the wire preview and acceptance.
-        static_cast<void>(shaft_thread_preview(feature,primitive_reference_geometry_));
-        auto next=target->session.document();
-        if (editing) {
-            auto* stored=next.find_container(feature.id);
-            if (!stored) throw std::runtime_error("Závit již neexistuje.");
-            *stored=std::move(feature);
-        } else {
-            next.insert_history_entry(document::PartHistoryKind::Feature,feature.id);
-            next.history.push_back(std::move(feature));
-        }
-        auto boundaries=calculate_part(next,&target->session.calculated_boundaries());
-        target->session.commit(std::move(next),std::move(boundaries));
+        try {
+            static_cast<void>(workspace::commit_shaft_thread(workspace_,kernel_,document_id,std::move(feature),
+                editing?workspace::ShaftThreadEditMode::Replace:workspace::ShaftThreadEditMode::Create));
+        }catch(const std::exception& error){throw std::runtime_error(tr(error.what()).toStdString());}
     },this);
     shaft_thread_dialog_=dialog;properties_dialog_=dialog;track_tree_edit(dialog);
     properties_dialog_instance_path_=*occurrence;

@@ -65,4 +65,9 @@ void select_opening_thread_size(HistoryContainer& value,ThreadStandard standard,
     if(p.end_condition_forward==EndCondition::Length && p.length_end_condition==EndCondition::Length)
         p.bore_length=std::max(p.bore_length,std::ceil((p.length_forward+p.runout_pitch_factor*p.pitch)*1000.0)/1000.0);
 }
+void select_shaft_thread_size(HistoryContainer& value,ThreadStandard standard,const ThreadCatalogSize& size) {
+    if(value.feature_kind!=FeatureKind::ShaftThread)throw std::invalid_argument("This container is not a shaft thread.");
+    auto& p=value.shaft_thread;p.standard=standard;p.designation=size.designation;
+    p.nominal_diameter=size.nominal_diameter;p.pitch=size.pitch;p.root_diameter=size.external_root_diameter;
+}
 } // namespace zima::document

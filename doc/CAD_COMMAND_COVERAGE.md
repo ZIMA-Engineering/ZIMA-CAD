@@ -42,7 +42,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Externí reference skici | Part a kořenová Assembly hotovy | Původní geometrie, přesná projekce, aktualizace, odpojení a zachování trimu; zbývá příkazový kontext Partu aktivovaného v sestavě |
 | Vytažení a rotace | Profily, Thin, směry a cíle zakončení Partu hotovy | `extrusion/revolution.create/get/set`, vlastněná skica, původní plochy a dvě nezávislé meze, společné OK; zbývají sestavové řezy |
 | Tažení | Tvorba a geometrické vlastnosti hotovy | `sweep2d/sweep3d/helical.create/get/set`, společné GUI potvrzení, celá 3D dráha, stanice a úplná správa profilů/párování, reference roviny 2D dráhy a odsazení základní skici H-tažení; generické rozšíření umístění patří do řádku Umístění |
-| Otvory a závity | Katalog a současný Otvor částečně hotovy | `thread.catalog`, `opening.create/get/set`: hladký/závitový otvor, rozměry, sražení, špička, směr a průchozí otvor; zbývají cílové reference Až k, samostatné Hole/ShaftThread/DrillPoint a operace vnořených částí otvoru |
+| Otvory a závity | Katalog, současný Otvor a vnější závit částečně hotovy | `thread.catalog`, `opening.create/get/set`: hladký/závitový otvor, rozměry, sražení, špička, směr a průchozí otvor; `shaft_thread.create/get/set` včetně původních referencí; zbývají cílové reference Otvoru Až k, samostatné Hole/DrillPoint a operace vnořených částí otvoru |
 | Zaoblení, zkosení, skořepina | Zbývá | Výběr skutečného vstupního tělesa a sdílené transakce |
 | Zrcadlo a pole | Zbývá | Odvozená tělesa a komponenty |
 | Sestavy | Dotazy včetně překážek odstranění, vložení a otevření zdrojů komponent hotovy | Uložená hierarchie a přesné výskyty, sdílené vložení a otevření zdroje; zbývají vlastnosti/mazání komponent, vazby, vnořená aktivace a řezy |
@@ -756,3 +756,18 @@ normalizace FRONT znovu **5/5** (57,25 s). Ověřeny jsou nezávislé objemy pro
 reference původního počátku, přímé/nepřímé zámky, atomické chyby, Undo/Redo,
 identity, uložení, studený výpočet a GUI/CLI. Kontrakt, překlady a logy:
 [OPENING_COMMANDS.md](OPENING_COMMANDS.md).
+
+
+### Vnější závit hřídele
+
+`shaft_thread.create/get/set` zpřístupňují existující ShaftThread přes
+společné potvrzení Vlastností, původní válec/počáteční plochu, vstupní
+sražení a koncovou rovinu/válec/kužel. GUI i CLI sdílejí katalogový výběr.
+Katalog má **180 příkazů**. Nativní formát a start šablony se nemění.
+Kontrakt a ověření: [SHAFT_THREAD_COMMANDS.md](SHAFT_THREAD_COMMANDS.md).
+
+Oba programy i testy jsou sestavené; související sada prošla **9/9**
+(70,03 s). Po sjednocení kontroly zámků při potvrzení prošly znovu
+modelové, procesní a GUI testy **3/3** (57,52 s), včetně tří norem,
+nezměněného objemu, sražení, hranice historie, Undo a nativního uložení.
+Následuje samostatná vrtací špička a další zbývající řádky tabulky.

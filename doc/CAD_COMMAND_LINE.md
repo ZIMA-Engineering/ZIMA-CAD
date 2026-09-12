@@ -261,3 +261,7 @@ jsou v mm. Stránkování a označení: [THREAD_CATALOG.md](THREAD_CATALOG.md).
 Současný Otvor má příkazy `opening.create/get/set`: hladký nebo katalogový
 závitový otvor, předvrtání, sražení a špička. Jednotky, příklad a hranice
 pokrytí: [OPENING_COMMANDS.md](OPENING_COMMANDS.md).
+
+Vnější závit hřídele má `shaft_thread.create/get/set`: původní válec a
+počáteční plocha, katalog, délka, sražení a zakončení Až k/Skrz vše.
+Příklady a kontrakt: [SHAFT_THREAD_COMMANDS.md](SHAFT_THREAD_COMMANDS.md).

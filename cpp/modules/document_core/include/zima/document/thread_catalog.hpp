@@ -18,4 +18,5 @@ enum class ThreadStandard;
 // Shared catalog-selection rule for a caller-owned opening draft, without
 // calculation: preserve custom bore diameter and accommodate blind runout.
 void select_opening_thread_size(HistoryContainer&,ThreadStandard,const ThreadCatalogSize&);
+void select_shaft_thread_size(HistoryContainer&,ThreadStandard,const ThreadCatalogSize&);
 } // namespace zima::document
