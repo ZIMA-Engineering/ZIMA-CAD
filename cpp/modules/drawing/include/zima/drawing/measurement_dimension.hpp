@@ -9,6 +9,7 @@ struct DimensionEvaluation {
     bool direction_resolved{true};
     std::vector<kernel::ViewerDimension> presentations;
     std::vector<std::size_t> cached_segment_indices;
+    std::vector<bool> angular_leaders;
 };
 struct ProjectedMeasurementCurve {
     kernel::EdgeReference source;

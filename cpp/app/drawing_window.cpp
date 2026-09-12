@@ -1027,9 +1027,9 @@ public:
             const auto screen=[&](kernel::Vec3 p){return QPointF(origin.x()+(sheet_->width_mm()-view->x+p.x*view->scale)*zoom,origin.y()+(sheet_->height_mm()-view->y-p.y*view->scale)*zoom);};
             for(std::size_t index=0;index<evaluation.presentations.size();++index){
                 const auto& source=evaluation.presentations[index];const AnnotationKey key{AnnotationKind::Dimension,dimension.view_id,dimension.id,int(evaluation.cached_segment_indices.empty()?index:evaluation.cached_segment_indices[index])*3};
-                const auto color=annotation_color(key,printing?ink:evaluation.state==drawing::MeasurementState::Unresolved?QColor("#C62828"):QColor("#FFD400"),printing);
+                const auto color=annotation_color(key,evaluation.state==drawing::MeasurementState::Unresolved?QColor("#C62828"):printing?ink:QColor("#FFD400"),printing);
                 const auto text=QString::fromStdString(drawing::drawing_dimension_text(dimension,source,evaluation.state==drawing::MeasurementState::Unresolved));
-                const auto layout=viewer::dimension_presentation(source,screen,QFontMetricsF(painter.font()).horizontalAdvance(text),2.5*zoom,.75*zoom);
+                const auto layout=viewer::dimension_presentation(source,screen,QFontMetricsF(painter.font()).horizontalAdvance(text),2.5*zoom,.75*zoom,index<evaluation.angular_leaders.size()&&evaluation.angular_leaders[index]);
                 if(!layout.valid)continue;
                 painter.save();painter.setPen(QPen(color,width(false)));painter.setBrush(color);QPainterPath stroke;
                 for(const auto& curve:layout.curves){if(curve.empty())continue;painter.drawPolyline(curve);stroke.moveTo(curve.front());for(qsizetype i=1;i<curve.size();++i)stroke.lineTo(curve[i]);}
@@ -2008,7 +2008,7 @@ void DrawingWindow::show_view_properties(zima::drawing::DrawingView view, bool c
             return !view.source_document_id.empty() ? source.id==view.source_document_id : source.path==view.source_path;
         })) sources.push_back({view.source_document_id,view.source_path,
             QString::fromStdString(view.source_path.empty() ? view.source_document_id : view.source_path.filename().string())});
-    for(auto& source:sources)if(!view.source_document_id.empty()&&source.id==view.source_document_id)source.path=view.source_path;
+    for(auto& source:sources)if(!view.source_path.empty()&&!view.source_document_id.empty()&&source.id==view.source_document_id)source.path=view.source_path;
     auto cache=std::make_shared<zima::workspace::DrawingProjection>(workspace_,path_);
     const auto project=[cache](zima::drawing::DrawingView& value,bool pending_settings=false){
         cache->project(value,{.pending_hatch=pending_settings});

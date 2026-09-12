@@ -495,6 +495,7 @@ DrawingDimension make_drawing_dimension(std::string view, DrawingDimensionKind k
     d.id = kernel::make_stable_id();
     d.view_id = std::move(view);
     d.kind = kind;
+    if(kind==DrawingDimensionKind::Angular)d.style.suffix="°";
     d.attachments.resize(kind == DrawingDimensionKind::Radius || kind == DrawingDimensionKind::Diameter ? 1
                                                                                                         : 2);
     resize_dimension_segments(d);
@@ -530,10 +531,10 @@ void extend_dimension_chain(DrawingDimension &d, bool at_first, DimensionAttachm
 }
 void validate_drawing_dimension(const DrawingDimension &d) {
     const bool radial = d.kind == DrawingDimensionKind::Radius || d.kind == DrawingDimensionKind::Diameter;
-    if (d.id.empty() || d.view_id.empty() || int(d.kind) < 0 || int(d.kind) > 3 || int(d.direction) < 0 ||
+    if (d.id.empty() || d.view_id.empty() || int(d.kind) < 0 || int(d.kind) > 4 || int(d.direction) < 0 ||
         int(d.direction) > 3 ||
         d.attachments.size() != (radial                                   ? 1
-                                 : d.kind == DrawingDimensionKind::Linear ? 2
+                                 : (d.kind == DrawingDimensionKind::Linear || d.kind == DrawingDimensionKind::Angular) ? 2
                                                                           : d.attachments.size()) ||
         (!radial && (d.attachments.size() < 2 || d.anchor_attachment + 1 >= d.attachments.size())) ||
         d.attachments.size() > 4096 || d.segments.size() != (radial ? 1 : d.attachments.size() - 1) ||
@@ -697,6 +698,7 @@ DimensionEvaluation evaluate_drawing_dimension(const DrawingView &view, const Dr
             if (d.segments[i].last_presentation) {
                 result.presentations.push_back(*d.segments[i].last_presentation);
                 result.cached_segment_indices.push_back(i);
+                result.angular_leaders.push_back(d.segments[i].last_angular_leaders);
             }
         return result;
     };
@@ -739,6 +741,43 @@ DimensionEvaluation evaluate_drawing_dimension(const DrawingView &view, const Dr
         result.presentations = {value};
         result.state = MeasurementState::Resolved;
         return result;
+    }
+    if(d.kind==DrawingDimensionKind::Angular) {
+        if(d.attachments.size()!=2||d.segments.size()!=1)return missing("Vyberte dvě přímé hrany pro úhlovou kótu.");
+        const auto* first=find_curve(curves,d.attachments[0].reference);
+        const auto* second=find_curve(curves,d.attachments[1].reference);
+        const auto valid=[](const auto* curve){return curve&&curve->line&&curve->points.size()>1&&length(sub(curve->points.back(),curve->points.front()))>1e-9;};
+        result.resolved_attachments={valid(first),valid(second)};
+        if(!valid(first)||!valid(second)||d.attachments[0].kind!=DimensionAttachmentKind::Line||d.attachments[1].kind!=DimensionAttachmentKind::Line)
+            return missing("Chybí přímá hrana úhlové kóty. Vyberte její náhradu.");
+        if(first->source==second->source)return missing("Vyberte dvě různé přímé hrany.");
+        const auto u=unit(sub(first->points.back(),first->points.front())),v=unit(sub(second->points.back(),second->points.front()));
+        const auto ray1=mul(u,d.attachments[0].side),ray2=mul(v,d.attachments[1].side);
+        const auto p1=point_at(*first,d.attachments[0].parameter),p2=point_at(*second,d.attachments[1].parameter);
+        const auto middle=mul(add(p1,p2),.5);const double determinant=cross(u,v);
+        const double sweep=std::atan2(cross(ray1,ray2),dot(ray1,ray2))*180/pi;
+        Point2 center=middle;bool leaders=std::abs(determinant)<1e-9;
+        if(!leaders) {
+            center=add(p1,mul(u,cross(sub(p2,p1),v)/determinant));
+            const double extent=std::max({length(sub(first->points.back(),first->points.front())),length(sub(second->points.back(),second->points.front())),length(sub(p2,p1)),1/view.scale});
+            leaders=length(sub(center,middle))>10*extent+100/view.scale;
+        }
+        kernel::ViewerDimension value;value.kind=kernel::ViewerDimensionKind::Angular;value.value=std::abs(sweep);value.sweep_degrees=sweep;value.unit_suffix="°";value.driving=false;
+        const auto& layout=d.segments[0].layout;
+        if(leaders) {
+            value.witness_first={p1.x,p1.y,0};value.witness_second={p2.x,p2.y,0};
+            value.line_first={p1.x+ray1.x,p1.y+ray1.y,0};value.line_second={p2.x+ray2.x,p2.y+ray2.y,0};
+            const auto label=add(middle,add(mul(ray1,layout.text_along),mul(perp(ray1),8/view.scale+layout.text_outward+layout.line_offset)));
+            value.label_position=kernel::Vec3{label.x,label.y,0};value.arrows_reversed=layout.arrows_reversed;
+        }else{
+            const double radius=std::max(8/view.scale,std::min(length(sub(p1,center)),length(sub(p2,center)))*.6);
+            value.witness_first={center.x,center.y,0};value.witness_second=value.witness_first;
+            value.line_first={center.x+ray1.x*radius,center.y+ray1.y*radius,0};value.line_second={center.x+ray2.x*radius,center.y+ray2.y*radius,0};
+            const double half=sweep*pi/360;const auto bisector=add(mul(ray1,std::cos(half)),mul(perp(ray1),std::sin(half)));
+            value.label_position=kernel::Vec3{center.x+bisector.x*radius,center.y+bisector.y*radius,0};
+            value=kernel::layout_dimension(value,{},layout);
+        }
+        result.presentations={value};result.angular_leaders={leaders};result.state=MeasurementState::Resolved;return result;
     }
     if (d.attachments.size() < 2 || d.segments.size() + 1 != d.attachments.size())
         return missing("Doplňte konce kóty.");
@@ -822,13 +861,16 @@ void refresh_drawing_dimension(const DrawingView &view, DrawingDimension &d) {
     const auto result = evaluate_drawing_dimension(view, d);
     if (result.state != MeasurementState::Resolved)
         return;
-    for (std::size_t i = 0; i < d.segments.size(); ++i)
+    for (std::size_t i = 0; i < d.segments.size(); ++i) {
         d.segments[i].last_presentation = result.presentations[i];
+        d.segments[i].last_angular_leaders=i<result.angular_leaders.size()&&result.angular_leaders[i];
+    }
 }
 std::string drawing_dimension_text(const DrawingDimension &d, const kernel::ViewerDimension &value,
                                    bool unresolved) {
-    if (unresolved)
-        return "?";
+    // An unresolved Drawing dimension retains its last measured text; the
+    // canvas displays it in red until its original reference is repaired.
+    static_cast<void>(unresolved);
     return kernel::dimension_text(value, d.style);
 }
 void drag_drawing_dimension(const DrawingView &view, DrawingDimension &d, std::size_t index, int handle,
@@ -837,6 +879,18 @@ void drag_drawing_dimension(const DrawingView &view, DrawingDimension &d, std::s
     if (result.state != MeasurementState::Resolved || index >= result.presentations.size())
         return;
     const auto &source = result.presentations[index];
+    if(d.kind==DrawingDimensionKind::Angular) {
+        auto& layout=d.segments[index].layout;
+        const auto direction=unit({source.line_first.x-source.witness_first.x,source.line_first.y-source.witness_first.y});
+        if(handle==0||(!result.angular_leaders.empty()&&result.angular_leaders[index])) {
+            layout.text_along+=dot(delta,direction);layout.text_outward+=dot(delta,perp(direction));
+        }else{
+            const auto tip=handle==2?source.line_second:source.line_first;
+            const Point2 radius{tip.x-source.witness_first.x,tip.y-source.witness_first.y};
+            layout.line_offset+=length(add(radius,delta))-length(radius);
+        }
+        refresh_drawing_dimension(view,d);return;
+    }
     const bool radial = source.kind == kernel::ViewerDimensionKind::Radius ||
                         source.kind == kernel::ViewerDimensionKind::Diameter;
     const auto a = radial ? source.witness_first : source.line_first,
@@ -865,6 +919,27 @@ void drag_drawing_dimension(const DrawingView &view, DrawingDimension &d, std::s
 }
 void place_drawing_dimension(const DrawingView &view, DrawingDimension &d, std::size_t segment,
                              Point2 point) {
+    if(d.kind==DrawingDimensionKind::Angular&&segment<d.segments.size()) {
+        auto result=evaluate_drawing_dimension(view,d);
+        if(result.state!=MeasurementState::Resolved)return;
+        if(!result.angular_leaders[0]) {
+            const auto curves=projected_measurement_curves(view);const auto* first=find_curve(curves,d.attachments[0].reference);const auto* second=find_curve(curves,d.attachments[1].reference);
+            const auto center=result.presentations[0].witness_first;const auto requested=sub(point,{center.x,center.y});
+            if(length(requested)>1e-9) {
+                const auto u=unit(sub(first->points.back(),first->points.front())),v=unit(sub(second->points.back(),second->points.front()));
+                bool chosen=false;
+                for(int a:{1,-1})for(int b:{1,-1})if(!chosen) {
+                    const auto r1=mul(u,a),r2=mul(v,b);const double sweep=std::atan2(cross(r1,r2),dot(r1,r2)),t=std::atan2(cross(r1,requested),dot(r1,requested));
+                    if((sweep>=0?t>=-1e-9&&t<=sweep+1e-9:t<=1e-9&&t>=sweep-1e-9)){d.attachments[0].side=a;d.attachments[1].side=b;chosen=true;}
+                }
+                result=evaluate_drawing_dimension(view,d);const auto& shown=result.presentations[0];
+                const double radius=std::hypot(shown.line_first.x-center.x,shown.line_first.y-center.y);
+                d.segments[segment].layout.line_offset+=std::max(.1/view.scale,length(requested))-radius;
+                d.segments[segment].layout.text_along=0;d.segments[segment].layout.text_outward=0;
+                refresh_drawing_dimension(view,d);return;
+            }
+        }
+    }
     const auto result = evaluate_drawing_dimension(view, d);
     if (result.state != MeasurementState::Resolved || segment >= result.presentations.size())
         return;
@@ -905,6 +980,7 @@ std::string serialize_drawing_dimensions(const std::vector<DrawingDimension> &di
             j["segments"].push_back(
                 {{"id", s.id},
                  {"layout", document::dimension_layout_json(s.layout)},
+                 {"angular_leaders",s.last_angular_leaders},
                  {"last_presentation", s.last_presentation
                                            ? document::dimension_geometry_json(*s.last_presentation)
                                            : json(nullptr)}});
@@ -932,6 +1008,7 @@ std::vector<DrawingDimension> deserialize_drawing_dimensions(const std::string &
             DrawingDimensionSegment segment;
             segment.id = s.at("id");
             segment.layout = document::dimension_layout_from_json(s.at("layout"));
+            segment.last_angular_leaders=s.value("angular_leaders",false);
             if (!s.at("last_presentation").is_null())
                 segment.last_presentation = document::dimension_geometry_from_json(s.at("last_presentation"));
             d.segments.push_back(std::move(segment));

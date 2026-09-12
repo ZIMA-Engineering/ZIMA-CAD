@@ -40,6 +40,34 @@ DrawingView view(kernel::ViewerMesh mesh) {
 int main() {
     try {
         {
+            kernel::ViewerMesh mesh;mesh.edges={line("first",{0,0,0},{20,0,0}),line("second",{0,0,0},{10,10*std::sqrt(3.),0})};
+            auto v=view(mesh);auto angle=make_drawing_dimension(v.id,DrawingDimensionKind::Angular);
+            angle.attachments={{DimensionAttachmentKind::Line,ref("first"),{},.5},{DimensionAttachmentKind::Line,ref("second"),{},.5}};
+            validate_drawing_dimension(angle);refresh_drawing_dimension(v,angle);auto evaluation=evaluate_drawing_dimension(v,angle);
+            require(evaluation.state==MeasurementState::Resolved&&!evaluation.angular_leaders[0],"Angular dimension did not resolve");near(evaluation.presentations[0].value,60);
+            require(drawing_dimension_text(angle,evaluation.presentations[0])=="60°","Angle has wrong units");
+            place_drawing_dimension(v,angle,0,{-10,10});evaluation=evaluate_drawing_dimension(v,angle);near(evaluation.presentations[0].value,120);
+            place_drawing_dimension(v,angle,0,{10,5});evaluation=evaluate_drawing_dimension(v,angle);near(evaluation.presentations[0].value,60);
+            const auto identity=angle.id,segment=angle.segments[0].id;const auto refs=angle.attachments;
+            const auto replace=[&](kernel::ViewerMesh changed){capture_measurement_geometry(v,changed);v.projected_edges=project_edges(changed,v.camera);};
+            auto trimmed=mesh;trimmed.edges[0].points={{12,0,0},{20,0,0}};replace(trimmed);refresh_drawing_dimension(v,angle);near(evaluate_drawing_dimension(v,angle).presentations[0].value,60);
+            auto parallel=mesh;parallel.edges[1].points={{0,5,0},{20,5,0}};replace(parallel);refresh_drawing_dimension(v,angle);evaluation=evaluate_drawing_dimension(v,angle);
+            require(evaluation.state==MeasurementState::Resolved&&evaluation.angular_leaders[0],"Parallel edges lost angular dimension");near(evaluation.presentations[0].value,0);
+            place_drawing_dimension(v,angle,0,{25,15});evaluation=evaluate_drawing_dimension(v,angle);near(evaluation.presentations[0].label_position->x,25);near(evaluation.presentations[0].label_position->y,15);
+            parallel.edges[1].points={{20,5,0},{0,5,0}};replace(parallel);refresh_drawing_dimension(v,angle);near(evaluate_drawing_dimension(v,angle).presentations[0].value,180);
+            parallel.edges[1].points={{0,5,0},{20,5.00001,0}};replace(parallel);refresh_drawing_dimension(v,angle);evaluation=evaluate_drawing_dimension(v,angle);
+            require(evaluation.angular_leaders[0]&&std::abs(evaluation.presentations[0].label_position->x)<100,"Nearly parallel angle flew off the sheet");
+            replace(mesh);refresh_drawing_dimension(v,angle);const auto last=angle.segments[0].last_presentation;
+            auto removed=mesh;removed.edges.erase(removed.edges.begin()+1);replace(removed);evaluation=evaluate_drawing_dimension(v,angle);
+            require(evaluation.state==MeasurementState::Unresolved&&evaluation.presentations[0]==*last,"Missing angular reference lost its last presentation");
+            require(drawing_dimension_text(angle,evaluation.presentations[0],true)=="60°","Broken angle replaced its last value with a question mark");
+            auto curved=mesh;curved.edges[1].points={{0,0,0},{5,4,0},{10,10*std::sqrt(3.),0}};replace(curved);require(evaluate_drawing_dimension(v,angle).state==MeasurementState::Unresolved,"A changed curve silently remained a straight angular reference");
+            replace(mesh);refresh_drawing_dimension(v,angle);near(evaluate_drawing_dimension(v,angle).presentations[0].value,60);
+            require(angle.id==identity&&angle.segments[0].id==segment&&angle.attachments==refs,"Geometry changes replaced angular identities or references");
+            require(deserialize_drawing_dimensions(serialize_drawing_dimensions({angle}))[0]==angle,"Angular dimension failed native persistence");
+            angle.attachments[1]=angle.attachments[0];require(evaluate_drawing_dimension(v,angle).state==MeasurementState::Unresolved,"A line measured against itself was accepted");
+        }
+        {
             auto part=document::PartDocument::create_default();
             auto box=document::PartDocument::create_box_container();box.box={30,20,10};
             auto cut=document::PartDocument::create_box_container();cut.box={5,5,20};cut.combine_mode=document::CombineMode::Subtract;part.history={box,cut};
@@ -154,8 +182,8 @@ int main() {
         const auto missing = evaluate_drawing_dimension(v, d);
         require(missing.state == MeasurementState::Unresolved && !missing.resolved_attachments.back(),
                 "Broken reference not marked");
-        require(drawing_dimension_text(d, missing.presentations.back(), true) == "?",
-                "Broken dimension displayed stale numeric value");
+        require(drawing_dimension_text(d, missing.presentations.back(), true) == kernel::dimension_text(missing.presentations.back(),d.style),
+                "Broken dimension did not preserve its last numeric value");
         v.measurement_geometry=intact;
         require(evaluate_drawing_dimension(v, d).state == MeasurementState::Resolved && d == before_missing,
                 "Restored binding lost presentation");

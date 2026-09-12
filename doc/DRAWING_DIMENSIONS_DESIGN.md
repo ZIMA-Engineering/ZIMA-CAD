@@ -32,7 +32,7 @@ Krátké MMB pouze ukončí zadávání reference; tažení MMB nepotvrzuje dial
 Příkaz Kóta nahradil experimentální zadání dvou rovnoběžných hran.
 Otevře stejné okno při vytvoření i pozdější úpravě.
 
-1. Zvolte lineární, poloměrovou, průměrovou nebo řetězovou kótu.
+1. Zvolte lineární, poloměrovou, průměrovou, řetězovou nebo úhlovou kótu.
 2. Kliknutím do referenčního pole aktivujte příslušný konec.
 3. Vyberte geometrii pohledu. U první vazby se určí pohled; další patří jemu.
 4. Po doplnění vazeb určete LMB umístění a potvrďte OK nebo dvojklikem MMB.
@@ -66,7 +66,7 @@ Každý konec má samostatně nastavitelný způsob napojení:
 - Tečna (T): dotyk ve směru měření; RMB dovolí zvolit druhou stranu.
 - Průsečík (I): dvě samostatně uložené reference a zvolená větev průsečíku.
 
-Kótovací čára může mít směr podle vazeb, vodorovný, svislý nebo rovnoběžný
+U lineární kóty může mít kótovací čára směr podle vazeb, vodorovný, svislý nebo rovnoběžný
 s další uloženou úsečkou. Po prvním vstupu typu Úsečka lze připojit bod
 nebo rovnoběžnou úsečku; nerovnoběžná druhá úsečka není platný vstup.
 Průsečíky přímek mohou ležet i za konci vybraných úseček.
@@ -93,7 +93,10 @@ Každý další úsek měří sousední reference. V záložce Umístění lze z
 jehož prezentační nastavení se upravuje.
 
 Ztracená reference je ve vlastnostech označena jako chybějící.
-Poslední platná prezentace udržuje kótu vybratelnou, ale hodnotu nahrazuje ?.
+Poslední platná prezentace udržuje kótu vybratelnou včetně poslední hodnoty.
+Podle dohody z 2026-09-12 se nepřidává otazník: neplatná kóta je červená,
+po opravě je znovu žlutá. Neplatnost zůstává červená také v exportu výkresu;
+platné exportované kóty používají obvyklou barvu kresby.
 Kliknutím na konkrétní referenci lze zadat náhradu; ostatní vazby a styl
 zůstávají zachované. Obnovení stejné geometrie znovu vyřeší původní vazbu.
 
@@ -142,3 +145,42 @@ a invariantní rádius při tažení. UI kontrakt používá skutečné událost
 myši pro reference, náhled, Cancel, potvrzení MMB, textové tolerance
 a ovládání všech tří režimů rádiusu. Sdílený prezentační kontrakt vykresluje
 sedm stavů náčrtu do build/radius-seven-states-proof.png.
+
+## Úhlová kóta dvou přímých hran (2026-09-12)
+
+Typ **Úhlová** je součástí stejného příkazu Kóta a stejných vlastností.
+Přijímá dvě různé původní přímé reference konkrétního pohledu, včetně přesné
+cesty výskytu. Používá společný seznam kandidátů pro hover, LMB a RMB;
+nefiltruje druhou hranu na rovnoběžnost. Pro tento typ jsou volby jiného
+napojení, směru lineární čáry a rozšíření řetězce vypnuté.
+
+Měří se úhel průmětů v rovině pohledu, nikoli skrytý prostorový úhel mezi
+hranami. Hodnota i tolerance jsou ve stupních. Umístění LMB určí sektor mezi
+přímkami (menší nebo doplňkový úhel) a vzdálenost oblouku od průsečíku.
+Volby ramen jsou uložené; změna geometrie sama nezvolí jiný sektor.
+Body u šipek mění poloměr oblouku a bod pod textem umístění textu, bez změny
+měřené hodnoty. Zachovávají se běžné OK/Zrušit, dvojklik MMB, editace přes
+vlastnosti, tolerance a obrácení šipek.
+
+Po změně geometrie se při výslovné regeneraci pohledu použijí původní
+reference. Oříznutí nebo změna délky přímé hrany při zachování její identity
+neodpojí měření směru. Ztracená reference, záměna přímky za obecnou křivku
+nebo nulový průmět způsobí neplatný stav: zůstane poslední kresba a hodnota,
+červeně a vybratelná pro opravu. Shodná či blízká jiná hrana není náhradou
+bez výslovného vstupu uživatele. Po obnovení vazby se kóta přepočítá a zežloutne.
+
+Při rovnoběžnosti zůstává typ úhlový s hodnotou 0° nebo 180°. Neprovádí se
+samovolný převod stupňů na milimetry. Místo neurčeného či příliš vzdáleného
+vrcholu se použijí místní odkazové čáry ke skutečným bodům obou referencí.
+Tento způsob se použije také u téměř rovnoběžných přímek s nepřiměřeně
+vzdáleným průsečíkem, takže kóta neopustí okolí modelu. Poslední způsob kresby
+je uložen spolu s poslední prezentací v `.drwz`; při následné ztrátě reference
+zůstane vybratelný i tento mezní stav. Otevření vlastností a výběr nepoužívají OCCT.
+
+Ověřeno sestavením GUI i CLI, pěti cílenými testy a celou regresní sadou
+80/80 (2026-09-12). UI test používá skutečné události myši pro vytvoření,
+Cancel, dvojklik MMB, ztrátu reference a její opravu. Kontroluje žluté/červené
+pixely, poslední hodnotu bez otazníku, výběr neplatné kóty a uložení/otevření
+`.drwz`. Samostatně je ověřeno 60°/120°, oříznutí, 0°/180° i téměř
+rovnoběžné přímky; snímky platného, neplatného a opraveného stavu prošly
+vizuální kontrolou.

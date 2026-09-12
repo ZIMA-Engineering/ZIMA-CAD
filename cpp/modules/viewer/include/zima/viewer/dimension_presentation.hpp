@@ -34,10 +34,22 @@ inline std::optional<QPointF> dimension_plane_drag(QPointF move,QPointF along,QP
 }
 template <class Project>
 DimensionPresentation dimension_presentation(const kernel::ViewerDimension &d, Project project,
-                                             double text_width, double arrow = 10, double gap = 3) {
+                                             double text_width, double arrow = 10, double gap = 3, bool angular_leaders = false) {
     DimensionPresentation out;
     auto a = project(d.line_first), b = project(d.line_second);
     const auto w1 = project(d.witness_first), w2 = project(d.witness_second);
+    if(angular_leaders&&d.kind==kernel::ViewerDimensionKind::Angular) {
+        const auto center=project(d.label_position.value_or(d.line_first));
+        for(const auto p:{w1,w2,center})if(!std::isfinite(p.x())||!std::isfinite(p.y()))return out;
+        const QPointF start=center-QPointF(text_width/2,0),end=center+QPointF(text_width/2,0);
+        for(const auto tip:{w1,w2}) {
+            const auto join=QLineF(tip,start).length()<QLineF(tip,end).length()?start:end;
+            out.curves.push_back({tip,join});
+            const auto direction=dimension_screen_unit(tip-join);out.arrows.push_back({tip,d.arrows_reversed?-direction:direction});
+        }
+        out.curves.push_back({start,end});out.handles={center,w1,w2};out.text_baseline=start-QPointF(0,gap);
+        out.outside=true;out.valid=true;return out;
+    }
     auto normal = kernel::dimension_unit(d.plane_normal);
     const auto projected_normal = project(kernel::dimension_add(d.witness_first, normal)) - w1;
     auto model_u = kernel::dimension_unit(kernel::dimension_sub(d.witness_second, d.witness_first));

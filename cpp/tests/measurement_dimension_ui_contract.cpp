@@ -302,6 +302,40 @@ int verify_measurement_dimension_ui() {
         require(evaluate_drawing_dimension(*after_delete,props->value()).state==MeasurementState::Resolved,
                 "Offered point references cannot produce a dimension");
         props->reject();flush();
+        // The same command/dialog selects two nonparallel lines for an angle.
+        auto angular_document=DrawingDocument::create_default();auto angular_view=view;angular_view.model_annotations.clear();angular_document.sheets.front().views={angular_view};
+        workspace.add_drawing(angular_document);window.edit_workspace_document(angular_document.document_id);flush();
+        command->trigger();flush();props=dialog();require(props,"Angular properties did not open");
+        props->findChild<QComboBox*>("drawingDimensionType")->setCurrentIndex(int(DrawingDimensionKind::Angular));flush();
+        require(props->pick_request().lines_only&&!props->pick_request().parallel_line.valid(),"Angular picker still requires parallel edges");
+        pick(canvas,point(15,0));pick(canvas,point(30,10));require(props->placing(),"Two nonparallel lines did not enter angle placement");
+        pick(canvas,point(20,10));require(count()==0,"Angular preview committed early");
+        props->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();require(count()==0,"Angular Cancel committed a dimension");
+        command->trigger();flush();props=dialog();props->findChild<QComboBox*>("drawingDimensionType")->setCurrentIndex(int(DrawingDimensionKind::Angular));flush();
+        pick(canvas,point(15,0));pick(canvas,point(30,10));pick(canvas,point(20,10));
+        mouse(canvas,QEvent::MouseButtonPress,point(40,30),Qt::MiddleButton,Qt::MiddleButton);mouse(canvas,QEvent::MouseButtonRelease,point(40,30),Qt::MiddleButton,Qt::NoButton);
+        require(count()==0&&dialog(),"Short middle click committed angular preview");
+        mouse(canvas,QEvent::MouseButtonDblClick,point(40,30),Qt::MiddleButton,Qt::MiddleButton);require(count()==1&&!dialog(),"Middle double click did not confirm angle");
+        const auto angular=window.document_for_test().sheets.front().dimensions.front();auto measured=evaluate_drawing_dimension(*window.document_for_test().find_view(view.id),angular);
+        require(measured.state==MeasurementState::Resolved&&std::abs(measured.presentations[0].value-90)<1e-6&&drawing_dimension_text(angular,measured.presentations[0])=="90°","Angular UI measured the wrong value or unit");
+        const auto pixels=[&](QColor color){const auto image=canvas->grab().toImage();std::size_t found=0;for(int y=0;y<image.height();++y)for(int x=0;x<image.width();++x)if(image.pixelColor(x,y).rgb()==color.rgb())++found;return found;};
+        require(pixels(QColor("#FFD400"))>10,"Valid angle is not yellow");window.grab().save("build/drawing-angle-valid.png");
+        auto invalid_document=DrawingDocument::create_default();auto invalid_view=angular_view;auto packet=*invalid_view.measurement_geometry;
+        std::erase_if(packet.curves,[](const auto& c){return c.source.semantic_key=="right";});invalid_view.measurement_geometry=share_measurement_geometry(std::move(packet));
+        invalid_document.sheets.front().views={invalid_view};invalid_document.sheets.front().dimensions={angular};workspace.add_drawing(invalid_document);window.edit_workspace_document(invalid_document.document_id);flush();
+        measured=evaluate_drawing_dimension(*window.document_for_test().find_view(view.id),angular);
+        require(measured.state==MeasurementState::Unresolved&&drawing_dimension_text(angular,measured.presentations[0],true)=="90°","Invalid angle lost its last numeric value");
+        require(pixels(QColor("#C62828"))>10,"Invalid angle is not red");window.grab().save("build/drawing-angle-invalid.png");
+        grip=window.annotation_handle_for_test(angular.id,0,true);require(grip.has_value(),"Floating invalid angle cannot be selected");
+        pick(canvas,*grip);mouse(canvas,QEvent::MouseButtonDblClick,*grip,Qt::LeftButton,Qt::LeftButton);props=dialog();require(props,"Floating angle cannot open repair properties");
+        table=props->findChild<QTableWidget*>("drawingDimensionReferences");require(dynamic_cast<ui::ReferenceCellItem*>(table->item(1,2))->is_missing(),"Invalid angle reference field is not red");
+        QMetaObject::invokeMethod(table,"cellClicked",Q_ARG(int,1),Q_ARG(int,2));flush();pick(canvas,point(15,20));
+        props->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();require(!dialog(),"Angular reference repair did not commit");
+        const auto fixed=window.document_for_test().sheets.front().dimensions.front();measured=evaluate_drawing_dimension(*window.document_for_test().find_view(view.id),fixed);
+        require(fixed.id==angular.id&&fixed.attachments[0]==angular.attachments[0]&&measured.state==MeasurementState::Resolved&&measured.angular_leaders[0],"Repair lost dimension identity or parallel display");
+        pick(canvas,point(-40,-30));require(pixels(QColor("#C62828"))==0&&pixels(QColor("#FFD400"))>10,"Repaired angle did not return from red to yellow");window.grab().save("build/drawing-angle-repaired.png");
+        window.document_for_test().save("build/drawing-angle-proof.drwz");const auto angular_saved=DrawingDocument::load("build/drawing-angle-proof.drwz");require(angular_saved.sheets.front().dimensions.front()==fixed,"Repaired parallel angle lost persisted state");
+        window.export_pdf("build/drawing-angle-proof.pdf");window.export_dxf("build/drawing-angle-proof.dxf");
         std::cout << "Manual dimension properties, references, preview/Cancel, MMB, measured values and "
                      "radius grips passed\n";
         return 0;

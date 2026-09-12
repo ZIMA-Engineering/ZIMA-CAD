@@ -30,7 +30,7 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
         form->addRow(tr("Pohled"), view_label_);
         type_ = new QComboBox(binding);
         type_->setObjectName("drawingDimensionType");
-        type_->addItems({tr("Lineární"), tr("Poloměr"), tr("Průměr"), tr("Řetězová")});
+        type_->addItems({tr("Lineární"), tr("Poloměr"), tr("Průměr"), tr("Řetězová"), tr("Úhlová")});
         type_->setCurrentIndex(int(value_.kind));
         form->addRow(tr("Typ kóty"), type_);
         direction_ = new QComboBox(binding);
@@ -85,6 +85,7 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
         if (!creating)
             for (std::size_t i = 0; i < modes_.size(); ++i)
                 modes_[i] = int(value_.attachments[i].kind);
+        if(angular())std::fill(modes_.begin(),modes_.end(),int(drawing::DimensionAttachmentKind::Line));
         active_ = creating ? 0 : -1;
         rebuild();
         connect(references_, &QTableWidget::cellClicked, this, [this](int row, int col) {
@@ -100,7 +101,7 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
         });
         connect(type_, &QComboBox::currentIndexChanged, this, [this](int index) {
             read_fields();
-            const bool was = radial();
+            const bool was = radial(),was_angular=angular();
             value_.kind = drawing::DrawingDimensionKind(index);
             if (radial() != was) {
                 value_.attachments.assign(radial() ? 1 : 2, {});
@@ -113,8 +114,23 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
                 value_.attachments.resize(2);
                 value_.anchor_attachment = 0;
             }
+            if(angular()) {
+                value_.attachments.resize(2);value_.anchor_attachment=0;value_.direction=drawing::DimensionDirection::Automatic;value_.parallel_reference={};
+                {QSignalBlocker block(direction_);direction_->setCurrentIndex(0);}
+                for(auto& attachment:value_.attachments)if(attachment.kind!=drawing::DimensionAttachmentKind::Line)attachment={};
+            }
+            if(angular()!=was_angular) {
+                for(auto& segment:value_.segments){segment.layout={};segment.last_presentation.reset();segment.last_angular_leaders=false;}
+                auto* suffix=text_->findChild<QLineEdit*>("sketchDimensionSuffix");
+                if(suffix&&(suffix->text()=="mm"||suffix->text()==QString::fromUtf8("°"))){QSignalBlocker block(suffix);suffix->setText(angular()?QString::fromUtf8("°"):QStringLiteral("mm"));}
+            }
             drawing::resize_dimension_segments(value_);
             modes_.resize(value_.attachments.size(), -1);
+            if(angular()) {
+                std::fill(modes_.begin(),modes_.end(),int(drawing::DimensionAttachmentKind::Line));active_=-1;
+                for(std::size_t i=0;i<value_.attachments.size();++i)if(!value_.attachments[i].reference.valid()){active_=int(i)*2;break;}
+                placing_=active_<0&&creating_;
+            }
             segment_ = 0;
             inspected_.clear();
             rebuild();
@@ -161,6 +177,7 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
             request.lines_only = true;
             return request;
         }
+        if(angular()){request.lines_only=true;request.mode=int(drawing::DimensionAttachmentKind::Line);return request;}
         request.mode = modes_[row];
         request.circles_only = radial();
         if (const auto *view = view_(value_.view_id)) {
@@ -211,7 +228,7 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
         publish();
     }
     void set_mode(int kind) {
-        if (active_ < 0 || active_ / 2 >= int(modes_.size()) || radial())
+        if (active_ < 0 || active_ / 2 >= int(modes_.size()) || radial() || angular())
             return;
         read_fields();
         const auto row = active_ / 2;
@@ -224,6 +241,7 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
     void accept_candidate(const std::string &view_id, const drawing::MeasurementCandidate &candidate) {
         if (active_ < 0 || (!value_.view_id.empty() && value_.view_id != view_id))
             return;
+        if(angular()&&candidate.attachment.kind!=drawing::DimensionAttachmentKind::Line)return;
         read_fields();
         value_.view_id = view_id;
         const auto row = active_ / 2;
@@ -253,7 +271,7 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
         publish();
     }
     void extend(bool first) {
-        if (radial())
+        if (radial() || angular())
             return;
         read_fields();
         drawing::extend_dimension_chain(value_, first, {});
@@ -331,6 +349,7 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
     }
 
   private:
+    bool angular() const {return value_.kind==drawing::DrawingDimensionKind::Angular;}
     bool radial() const {
         return value_.kind == drawing::DrawingDimensionKind::Radius ||
                value_.kind == drawing::DrawingDimensionKind::Diameter;
@@ -357,7 +376,7 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
         QString message = tr("Vyberte geometrické vazby kóty.");
         if (view) {
             const auto evaluation = drawing::evaluate_drawing_dimension(*view, value_);
-            message = QString::fromStdString(evaluation.message);
+            message = tr(evaluation.message.c_str());
             if (view->measurement_geometry->curves.empty())
                 message = tr("Pro zadání vazeb nejprve regenerujte tento pohled.");
             if (evaluation.state == drawing::MeasurementState::Resolved) {
@@ -377,9 +396,9 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
     }
     void rebuild() {
         rebuilding_ = true;
-        direction_->setEnabled(!radial());
-        first_->setEnabled(!radial());
-        last_->setEnabled(!radial());
+        direction_->setEnabled(!radial()&&!angular());
+        first_->setEnabled(!radial()&&!angular());
+        last_->setEnabled(!radial()&&!angular());
         segments_->clear();
         for (std::size_t i = 0; i < value_.segments.size(); ++i)
             segments_->addItem(tr("Úsek %1").arg(i + 1));
@@ -401,7 +420,7 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
             d.kind = radial() ? (value_.kind == drawing::DrawingDimensionKind::Radius
                                      ? kernel::ViewerDimensionKind::Radius
                                      : kernel::ViewerDimensionKind::Diameter)
-                              : kernel::ViewerDimensionKind::Linear;
+                              : angular()?kernel::ViewerDimensionKind::Angular:kernel::ViewerDimensionKind::Linear;
             placement_ = new DimensionPlacementFields(d, value_.segments[segment_].layout, tabs_, true);
             placement_column_->addWidget(placement_);
             for (auto *input : placement_->findChildren<QDoubleSpinBox *>())
@@ -413,7 +432,7 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
     }
     void rebuild_references() {
         rebuilding_ = true;
-        const bool parallel = !radial() && value_.direction == drawing::DimensionDirection::Parallel;
+        const bool parallel = !radial() && !angular() && value_.direction == drawing::DimensionDirection::Parallel;
         references_->setRowCount(int(value_.attachments.size()) + (parallel ? 1 : 0));
         for (int row = 0; row < references_->rowCount(); ++row) {
             const bool axis = row == int(value_.attachments.size());
@@ -429,7 +448,7 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
                 mode->addItem(tr("Tečna (T)"), int(drawing::DimensionAttachmentKind::Tangent));
                 mode->addItem(tr("Průsečík (I)"), int(drawing::DimensionAttachmentKind::Intersection));
                 mode->setCurrentIndex(mode->findData(modes_[row]));
-                mode->setEnabled(!radial());
+                mode->setEnabled(!radial()&&!angular());
                 references_->setCellWidget(row, 1, mode);
                 connect(mode, &QComboBox::currentIndexChanged, this, [this, row, mode] {
                     if (rebuilding_)

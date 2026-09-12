@@ -175,7 +175,7 @@ inline bool drawing_edge_visible(const DrawingView& view,const ProjectedEdge& ed
     return !edge.hidden||view.display_style==DisplayStyle::HiddenEdges;
 }
 
-enum class DrawingDimensionKind { Linear, Radius, Diameter, Chain };
+enum class DrawingDimensionKind { Linear, Radius, Diameter, Chain, Angular };
 enum class DimensionAttachmentKind { Point, CurvePoint, Line, Center, Tangent, Intersection };
 enum class DimensionDirection { Automatic, Horizontal, Vertical, Parallel };
 struct DimensionAttachment {
@@ -192,8 +192,9 @@ struct DrawingDimensionSegment {
     std::string id;
     kernel::DimensionLayout layout;
     // Last valid presentation keeps a broken reference selectable for repair.
-    // Its displayed value is replaced by '?' while unresolved.
+    // Unresolved dimensions retain this last value and are drawn in red.
     std::optional<kernel::ViewerDimension> last_presentation;
+    bool last_angular_leaders{};
     bool operator==(const DrawingDimensionSegment&) const = default;
 };
 struct DrawingDimension {
