@@ -1,4 +1,5 @@
 #pragma once
+#include <zima/workspace/sketch_reference_operations.hpp>
 #include <zima/workspace/model_calculation.hpp>
 
 // Private implementation support for the split workspace sources.
@@ -428,10 +429,7 @@ using zima::workspace::refresh_sketch_external_references;
 using zima::workspace::prune_missing_drill_point_references;
 using zima::workspace::refresh_assembly_sketch_external_references;
 
-void populate_external_reference_cache(
-    const zima::sketcher::Sketch& sketch,
-    zima::sketcher::SketchExternalReference& reference,
-    const zima::kernel::ViewerReferenceGeometry& source);
+using zima::workspace::populate_external_reference_cache;
 
 std::optional<SketchPosition> projected_ellipse_minor(
     const SketchPosition& center, const SketchPosition& major,

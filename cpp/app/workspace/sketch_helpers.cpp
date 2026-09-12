@@ -373,69 +373,6 @@ std::vector<zima::kernel::ViewerEdge> sketch_text_preview_edges(
     return edges;
 }
 
-void populate_external_reference_cache(
-    const zima::sketcher::Sketch& sketch,
-    zima::sketcher::SketchExternalReference& reference,
-    const zima::kernel::ViewerReferenceGeometry& source) {
-    const auto matches = [&](const auto& candidate) {
-        return candidate.owner_id == reference.source_owner_id &&
-            candidate.semantic_key == reference.source_semantic_key &&
-            candidate.instance_path == reference.source_instance_path;
-    };
-    if (reference.kind == zima::sketcher::ExternalReferenceKind::Edge) {
-        const auto edge = std::find_if(source.edges.begin(), source.edges.end(),
-            [&](const auto& candidate) { return matches(candidate.reference); });
-        if (edge == source.edges.end()) {
-            throw std::runtime_error("Persisted source edge geometry is unavailable");
-        }
-        reference.exact_spline=sketch.project_external_spline(*edge);
-        for (const auto& point : edge->points) {
-            const auto local = sketch.local_point(point);
-            if (reference.cached_points.empty() || std::hypot(
-                    local[0] - reference.cached_points.back()[0],
-                    local[1] - reference.cached_points.back()[1]) > 1.0e-9) {
-                reference.cached_points.push_back(local);
-            }
-        }
-    } else if (reference.kind == zima::sketcher::ExternalReferenceKind::Point) {
-        const auto point = std::find_if(source.points.begin(), source.points.end(),
-            [&](const auto& candidate) { return matches(candidate.reference); });
-        if (point == source.points.end()) {
-            throw std::runtime_error("Persisted source point geometry is unavailable");
-        }
-        reference.cached_points.push_back(sketch.local_point(point->position));
-    } else if (reference.kind == zima::sketcher::ExternalReferenceKind::Axis) {
-        const auto axis = std::find_if(source.axes.begin(), source.axes.end(),
-            [&](const auto& candidate) { return matches(candidate.reference); });
-        if (axis == source.axes.end()) {
-            throw std::runtime_error("Persisted source axis geometry is unavailable");
-        }
-        const auto projected = sketch.project_external_axis(*axis);
-        if (!projected) {
-            throw std::runtime_error(
-                "Source axis cannot be projected into the Sketch plane");
-        }
-        reference.cached_points = *projected;
-        reference.infinite = true;
-    } else {
-        const auto projected = sketch.project_external_face_plane(source,
-            {reference.source_owner_id, reference.source_semantic_key,
-             reference.source_instance_path});
-        if (projected) {
-            reference.cached_points = *projected;
-            reference.infinite = true;
-        } else if (const auto intersections = sketch.external_face_reference_paths(source,
-                       {reference.source_owner_id, reference.source_semantic_key,
-                        reference.source_instance_path})) {
-            reference.cached_paths = *intersections;
-            reference.infinite = false;
-        } else {
-            throw std::runtime_error(
-                "Source face has no unique intersection with the Sketch plane");
-        }
-    }
-    reference.broken = false;
-}
 
 std::optional<SketchPosition> projected_ellipse_minor(
     const SketchPosition& center, const SketchPosition& major,

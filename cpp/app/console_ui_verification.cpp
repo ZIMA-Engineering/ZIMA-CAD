@@ -299,7 +299,18 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         properties->findChild<QLineEdit*>("sketchName")->setText("GUI profile");
         properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
         check(run("sketch.list").data.at("items")[0].at("name")=="GUI profile","GUI Sketch creation did not reach shared insertion");
+        const auto projection_box=run("box.create 10 10 10").data.at("container").get<std::string>();
         const auto command_sketch=run("sketch.create Profile XY").data.at("sketch").get<std::string>();
+        commands::Json projected_reference=commands::Json::object();
+        const auto projection_sources=run(QString::fromStdString(commands::Json{{"command","reference.list"},{"arguments",{{"kind","edge"},{"owner",projection_box}}}}.dump())).data.at("items");
+        for(const auto& source:projection_sources) {
+            const auto source_data=run(QString::fromStdString(commands::Json{{"command","reference.get"},{"arguments",source}}.dump())).data;
+            const auto& points=source_data.at("segments")[0].at("points");
+            if(points.size()<2 || std::hypot(points.front()[0].get<double>()-points.back()[0].get<double>(),points.front()[1].get<double>()-points.back()[1].get<double>())<1)continue;
+            projected_reference=source;break;
+        }
+        check(!projected_reference.empty(),"GUI projection fixture has no original edge");projected_reference["sketch"]=command_sketch;projected_reference["profile"]=true;
+        run(QString::fromStdString(commands::Json{{"command","sketch.reference.create"},{"arguments",projected_reference}}.dump()));flush();
         commands::Json circle_command={{"command","sketch.circle.create"},{"arguments",{{"sketch",command_sketch},{"center",{0,0}},{"radius_mm",8}}}};
         run(QString::fromStdString(circle_command.dump()));flush();
         check(run(QString::fromStdString("sketch.get "+command_sketch)).data.at("counts").at("circles")==1,"Console Sketch geometry did not reach GUI document");
@@ -321,6 +332,7 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         run("undo");check(run(QString::fromStdString("sketch.get "+command_sketch)).data.at("counts").at("dimensions")==0,"GUI console dimension Undo failed");run("redo");
         run("save");const auto saved_sketch=document::PartDocument::load(directory/(stem+"-sketch.prtz"));
         check(saved_sketch.sketches.back().id==command_sketch && saved_sketch.sketches.back().circles.front().radius==10 && saved_sketch.sketches.back().dimensions.front().locked && saved_sketch.dimension_layouts.back().layout.text_along==3,"GUI console did not persist native Sketch");
+        check(saved_sketch.sketches.back().external_references.size()==1 && !saved_sketch.sketches.back().import_blocks.empty(),"Console did not persist native projected reference");
         run(QString::fromStdString(activate.dump()));flush();
         input->setText("context");QApplication::sendEvent(input,&enter);flush();
         check(window.grab().save(QString::fromStdString((directory/"command-console.png").string())),"Console screenshot failed");

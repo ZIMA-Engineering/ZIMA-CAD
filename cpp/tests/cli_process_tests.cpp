@@ -235,6 +235,19 @@ int main(int argc,char** argv){
             std::abs(std::hypot(ds.find_point(ds.segments[0].first_point_id)->x-ds.find_point(ds.segments[0].second_point_id)->x,
                                ds.find_point(ds.segments[0].first_point_id)->y-ds.find_point(ds.segments[0].second_point_id)->y)-25)<1e-6 &&
             dimension_document.dimension_layouts.back().layout.text_along==2,"CLI dimension did not persist solved length, lock and label together");
+        result=launch(executable,root,common+QStringList{"--stdin"},"new part cli-projection\nbox.create 10 10 10\nsketch.create Projection XY\nsave\n");
+        require(result.exit_code==0,"CLI projection fixture failed");const auto projection_sketch=result.results()[2].at("data").at("sketch").get<std::string>();
+        std::vector<kernel::BodyResult> projection_cache;const auto projection_document=document::PartDocument::load(project/"cli-projection.prtz",&projection_cache);
+        const auto& projection_edges=projection_cache.back().mesh.original_references.edges;
+        const auto projection_edge=std::ranges::find_if(projection_edges,[](const auto& e){return e.points.size()>=2 && std::hypot(e.points.front().x-e.points.back().x,e.points.front().y-e.points.back().y)>1;});
+        require(projection_edge!=projection_edges.end(),"CLI fixture has no projectable original edge");
+        const auto projection_request=command({{"command","sketch.reference.create"},{"arguments",{{"sketch",projection_sketch},{"kind","edge"},{"owner",projection_edge->reference.owner_id},{"key",projection_edge->reference.semantic_key},{"profile",true}}}});
+        result=launch(executable,root,common+QStringList{"--command","open cli-projection.prtz","--command",projection_request,"--command","save"});
+        require(result.exit_code==0,"CLI projection command failed");const auto projection_id=result.results()[1].at("data").at("reference").get<std::string>();
+        const auto projected=document::PartDocument::load(project/"cli-projection.prtz");require(projected.sketches.back().external_references.size()==1 && projected.sketches.back().segments.size()==1,"CLI projection did not persist reference and native line");
+        result=launch(executable,root,common+QStringList{"--command","open cli-projection.prtz","--command",QString::fromStdString("sketch.reference.delete "+projection_sketch+" "+projection_id),"--command","save"});
+        require(result.exit_code==0,"CLI reference detach failed");const auto detached=document::PartDocument::load(project/"cli-projection.prtz");
+        require(detached.sketches.back().external_references.empty() && detached.sketches.back().segments==projected.sketches.back().segments,"CLI detach destroyed native projection");
         std::cout<<"CLI processes: native files, Unicode/config, scripts/stdin, errors, streaming and explicit geometry calculation passed\n";
         return 0;
     }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}

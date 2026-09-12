@@ -38,8 +38,8 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Umístění a původní reference | Čtení původních referencí hotovo | Part/Assembly, přesné výskyty a geometrická data; zbývá zadání do existujícího společného řešení umístění |
 | Konstrukční geometrie | Zbývá | Body, osy, roviny, 3D křivky |
 | Skicář: geometrie | Základ hotov | 21 příkazů: samostatné a vložené skici, body, úsečky, kružnice, oblouky, elipsy, B-spline, obdélníky, mnohoúhelníky, posun a pomocná geometrie; zbývají další varianty, text a parametrické editace |
-| Skicář: vazby a operace | Vazby/kóty/solver/offset/trim/mirror hotovy | Offset create/get/set/free, úplný podklad a zachování intervalů, trim podle průsečíků, mirror, orientovaný obdélník, tečny a zaoblení rohu; všech 15 druhů vazeb, odstranění a solver; 16 druhů kót včetně vlastností, popisků a mazání; zbývá uvolnění externích referencí |
-| Externí reference skici | Zbývá | Původní geometrie, projekce, aktualizace a zachování trimu |
+| Skicář: vazby a operace | Vazby/kóty/solver/offset/trim/mirror hotovy | Offset create/get/set/free, úplný podklad a zachování intervalů, trim podle průsečíků, mirror, orientovaný obdélník, tečny a zaoblení rohu; všech 15 druhů vazeb, odstranění a solver; 16 druhů kót včetně vlastností, popisků a mazání; uvolnění externích referencí hotovo |
+| Externí reference skici | Part a kořenová Assembly hotovy | Původní geometrie, přesná projekce, aktualizace, odpojení a zachování trimu; zbývá příkazový kontext Partu aktivovaného v sestavě |
 | Vytažení a rotace | Zbývá | Vlastněný profil, thin, zakončení, více směrů |
 | Tažení | Zbývá | Sweep 2D/3D, loft a helical včetně profilů a drah |
 | Otvory a závity | Zbývá | Hole, Thread, ShaftThread, DrillPoint a reference |
@@ -118,3 +118,16 @@ GUI i CLI je v `build/sketch-dimension-final-build.log`. Testy ověřují také
 společné Undo hodnoty a popisku, číselný zámek, referenční měření, neplatné
 vstupy, zachování posledního tělesa a jeho výslovný Regenerate. Další etapa:
 externí reference a projekce křivek ze STEP.
+
+
+Etapa externích referencí přidala čtyři příkazy, celkem **97**. Celá Windows
+Release sada prošla **67/67** (389,69 s), `build/sketch-reference-full-tests.log`.
+Po omezení průchodů historií a doplnění profilu Helical prošla závěrečná sada
+**6/6** (18,92 s), `build/sketch-reference-final-tests.log`; finální GUI i CLI
+odpovídají `build/sketch-reference-final-build.log`. Testy zahrnují původní
+hrany, body, osy a plochy, chybné/dvojí zdroje, dopředné závislosti, racionální
+spline se dvěma zobrazovacími body (odchylka kružnice pod 1e-12 mm²), ořezaný
+podklad a offset po posunu o 0,01 mm (odchylka pod 1e-8 mm), zachování geometrie
+při zmizení/odpojení zdroje, nativní soubory, dvě vnořené occurrence bez načtení
+zdrojových souborů a skutečné CLI/GUI cesty. Následuje text a zbývající editační
+operace skicáře, poté modelovací prvky podle tabulky pokrytí.

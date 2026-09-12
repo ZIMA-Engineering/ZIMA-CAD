@@ -2360,8 +2360,11 @@ void Sketch::validate() const {
             reference.source_owner_id.empty() ||
             reference.source_semantic_key.empty() ||
             reference.source_owner_id == id ||
-            (reference.source_instance_path.empty() !=
-                reference.context_instance_path.empty()) ||
+            // A root Assembly Sketch has an occurrence-qualified source but
+            // no dependent Part occurrence. In-context Part references still
+            // require both occurrence paths and the owning Assembly identity.
+            (!reference.context_instance_path.empty() &&
+                reference.source_instance_path.empty()) ||
             (reference.context_instance_path.empty() !=
                 reference.context_assembly_document_id.empty())) {
             throw std::runtime_error("Sketch external reference is invalid");

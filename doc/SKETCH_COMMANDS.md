@@ -299,3 +299,79 @@ GUI i CLI je v `build/sketch-dimension-final-build.log`. Testy ověřují také
 společné Undo hodnoty a popisku, číselný zámek, referenční měření, neplatné
 vstupy, zachování posledního tělesa a jeho výslovný Regenerate. Další etapa:
 externí reference a projekce křivek ze STEP.
+
+
+## Externí reference a promítnuté profily
+
+Čtyři příkazy používají původní referenční data uložená při výpočtu tělesa.
+Projekce je společná s GUI výběrem externí reference a nevolá OCCT. Skica,
+reference a případná profilová křivka se mění jednou transakcí. Parametry
+`sketch` a volitelné `document` mají stejný význam jako u ostatních příkazů.
+
+| Příkaz | Argumenty a výsledek |
+| --- | --- |
+| `sketch.reference.create` | `kind` (`edge`, `point`, `axis`, `face`), `owner`, `key`, volitelné `instance_path`, `profile=false`; vrací `reference`, `source_document` a při profilu také `geometry` |
+| `sketch.reference.project` | `reference`; přidá naši profilovou křivku a vrátí její `geometry` |
+| `sketch.reference.delete` | `reference`; odstraní vazbu na externí zdroj, zachová naši profilovou křivku i její ID |
+| `sketch.reference.refresh` | výslovně aktualizuje reference této skici; vrací `broken_references` a počet referencí |
+
+Zdrojové identity získáte přes `reference.list/get`; uložené reference ve
+skice najdete přes `sketch.entities` a načtete pomocí `sketch.entity.get`.
+`owner`, `key` a `instance_path` tvoří přesný původní zdroj. Zobrazená výsledná
+hrana tělesa ani pořadové číslo hrany nejsou náhradou této identity.
+
+```json
+{"command":"sketch.reference.create","arguments":{"sketch":"SKETCH_ID","kind":"edge","owner":"SOURCE_OWNER_ID","key":"PERSISTED_EDGE_KEY","profile":true}}
+```
+
+V Partu musí zdroj předcházet cílové skice podle existujícího pořadí těles
+a kontejnerů; dopředná závislost se odmítá. Ověření vlastníka používá společný
+seznam vložených profilů, tedy i profily Helical/Sweep3D/Hole/Thread. Reference
+se převádí stávající transformací do souřadnic vlastnícího tělesa a skici.
+V kořenové skice Assembly je povinná přesná cesta zdrojového výskytu. Cestu
+nevyvozujeme ze jména dílu a nespojujeme ji lomítky; předejte ji beze změny
+z dotazu na reference. Tentýž Part lze referencovat ve více různých výskytech.
+
+Kořenová skica sestavy nemá vlastní cestu aktivovaného Partu. Společná
+validace nyní tento případ rozlišuje od Partu upravovaného v kontextu sestavy;
+ten nadále vyžaduje obě cesty a ID vlastnící sestavy. Oprava odstraňuje stejné
+chybné odmítnutí i v GUI. Nativní pole ani přípony souborů se nemění.
+
+Pro příkazovou projekci se ze zapůjčených referenčních dat zkopíruje pouze
+vybraná hrana/bod/osa nebo trojúhelníky vybrané plochy. Celá sestava se kvůli
+jedné hraně nekopíruje. Přesné uzly, váhy a póly spline se promítnou přímo;
+hrubé zobrazovací body nenahradí její přesný matematický podklad. Rovinná
+plocha může poskytnout průsečnou přímku; ostatní průseky používají existující
+projekci uložených dat plochy. Nejednoznačný zdroj se odmítá.
+
+`profile=true` platí pouze pro hranu. První projekce vytvoří naši křivku
+napojenou na referenci; druhá projekce stejného zdroje se odmítne bez změny.
+Takto získanou křivku lze ořezávat a offsetovat již zavedenými příkazy. Při
+odpojení reference zůstává poslední geometrie i identita křivky zachovaná.
+Závislé vazby přímo na odstraněnou referenci zpracuje nativní mazání skicáře.
+
+`refresh` čte poslední vypočtený stav daného dokumentu. Nestahuje novější
+otevřený Part do nadřazené sestavy a nepřepočítává tělesa. Pro načtení změn
+celého řetězce závislostí slouží výslovný `regenerate`. Chybějící původní zdroj
+se označí jako `broken`; poslední platná profilová křivka zůstane zachovaná.
+Menší posun přesné spline aktualizuje její podklad a ponechá ořezaný interval
+i návazný offset. Konflikt solveru odmítne celou transakci.
+
+Příkazové editování Partu aktivovaného uvnitř sestavy zůstává další etapou
+obecného kontraktu aktivního výskytu. Obecná ochrana rozpracované GUI editace
+a aktivovaného výskytu zůstává účinná. Zvláštní `reference.refresh/delete`
+navíc nepřepisují uložené kontextové závislosti Partu mimo jejich vlastnící
+sestavu. Katalog nyní obsahuje **97 příkazů**.
+
+
+Etapa externích referencí přidala čtyři příkazy, celkem **97**. Celá Windows
+Release sada prošla **67/67** (389,69 s), `build/sketch-reference-full-tests.log`.
+Po omezení průchodů historií a doplnění profilu Helical prošla závěrečná sada
+**6/6** (18,92 s), `build/sketch-reference-final-tests.log`; finální GUI i CLI
+odpovídají `build/sketch-reference-final-build.log`. Testy zahrnují původní
+hrany, body, osy a plochy, chybné/dvojí zdroje, dopředné závislosti, racionální
+spline se dvěma zobrazovacími body (odchylka kružnice pod 1e-12 mm²), ořezaný
+podklad a offset po posunu o 0,01 mm (odchylka pod 1e-8 mm), zachování geometrie
+při zmizení/odpojení zdroje, nativní soubory, dvě vnořené occurrence bez načtení
+zdrojových souborů a skutečné CLI/GUI cesty. Následuje text a zbývající editační
+operace skicáře, poté modelovací prvky podle tabulky pokrytí.

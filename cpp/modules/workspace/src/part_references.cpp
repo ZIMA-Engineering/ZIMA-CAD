@@ -1,4 +1,5 @@
 #include <zima/workspace/model_calculation.hpp>
+#include <zima/document/feature_sketches.hpp>
 #include <algorithm>
 #include <cstdint>
 #include <ranges>
@@ -35,9 +36,11 @@ std::set<std::string> sketch_external_reference_source_owners(
         const bool revolution_consumer =
             container.feature_kind == zima::document::FeatureKind::Revolution &&
             container.revolution.sketch_id == sketch_id;
-        const bool sweep_consumer=container.feature_kind==zima::document::FeatureKind::Sweep2D&&
-            std::ranges::any_of(container.sweep2d.sketches(),[&](const auto& data){return zima::sketcher::Sketch::from_serialized(data).id==sketch_id;});
-        if (extrusion_consumer || revolution_consumer || sweep_consumer ||
+        bool embedded_consumer=false;
+        zima::document::visit_feature_sketches(container,[&](const auto& data,std::size_t) {
+            if(!embedded_consumer)embedded_consumer=zima::sketcher::Sketch::from_serialized(data).id==sketch_id;
+        });
+        if (extrusion_consumer || revolution_consumer || embedded_consumer ||
             (sketch != document.sketches.end() && sketch->owner_container_id == container.id)) {
             first_consumer = std::min(first_consumer, index);
         }
