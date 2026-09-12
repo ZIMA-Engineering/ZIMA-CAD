@@ -162,6 +162,21 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
             "Command bypassed GUI-restored lock");
         run("undo");check(parameters().at("width_mm")==80.123456789,"Undo lost precise locked width");
         run("redo");run("save");
+        const commands::Json placement_patch = {{"command", "placement.set"},
+            {"arguments", {{"object", feature_id}, {"values", {{"x", 17.25}, {"rotation_z", 25}}}}}};
+        run(QString::fromStdString(placement_patch.dump()));
+        edit = edit_box();
+        QDoubleSpinBox* placement_x = nullptr;
+        for (auto* field : edit->findChildren<QDoubleSpinBox*>("primitiveTranslation"))
+            if (field->findChild<QAction*>("valueLock:placement:x")) placement_x = field;
+        check(placement_x && std::abs(placement_x->value() - 17.25) < 1e-8,
+            "Properties did not consume CLI placement");
+        check(window.execute_console_command(QString::fromStdString(placement_patch.dump())).code == "editing_in_progress",
+            "Placement command overwrote pending Properties");
+        edit->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click(); flush();
+        run("undo");
+        const auto placement_read = run(QString::fromStdString("placement.get " + feature_id)).data;
+        check(placement_read.at("placement").at("x") == 0, "Placement Undo did not restore GUI model");
         struct PrimitiveCase {const char* command;const char* field;const char* parameter;};
         for(const auto& sample:std::vector<PrimitiveCase>{
             {"cylinder.create 3 6","cylinderHeight","height_mm"},

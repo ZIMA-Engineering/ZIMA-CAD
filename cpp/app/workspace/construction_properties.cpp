@@ -1,3 +1,4 @@
+#include <zima/workspace/placement_edit.hpp>
 #include "workspace_internal.hpp"
 
 namespace zima::app {
@@ -24,54 +25,9 @@ void AssemblyWorkspaceWindow::show_construction_properties(
     auto* dialog = new ConstructionPropertiesDialog(
         initial, edit_mode,
         [this, document_id, edit_mode](zima::document::ConstructionObject committed) {
-            const auto committed_id = committed.id;
-            if (auto* target_part = workspace_.open_part(document_id)) {
-                auto next = target_part->session.document();
-                if (edit_mode) {
-                    auto* target = next.find_construction(committed.id);
-                    if (target == nullptr) {
-                        throw std::runtime_error("Construction object no longer exists");
-                    }
-                    *target = std::move(committed);
-                } else {
-                    next.insert_history_entry(
-                        zima::document::PartHistoryKind::Construction,
-                        committed.id);
-                    next.constructions.push_back(std::move(committed));
-                }
-                auto calculated = target_part->session.calculated_boundaries();
-                next.resolve_constructions(
-                    construction_reference_source_geometry(calculated));
-                if (const auto* resolved = next.find_construction(committed_id);
-                    resolved == nullptr || !resolved->reference_valid) {
-                    throw std::runtime_error(
-                        "Construction definition has a missing or cyclic reference");
-                }
-                static_cast<void>(refresh_sketch_external_references(next, calculated));
-                target_part->session.commit(std::move(next), std::move(calculated));
-                return;
-            }
-            auto* target_assembly = workspace_.open_assembly(document_id);
-            if (target_assembly == nullptr) {
-                throw std::runtime_error("Assembly is no longer open");
-            }
-            auto next = target_assembly->session.document();
-            if (edit_mode) {
-                auto* target = next.find_construction(committed.id);
-                if (target == nullptr) {
-                    throw std::runtime_error("Construction object no longer exists");
-                }
-                *target = std::move(committed);
-            } else {
-                next.constructions.push_back(std::move(committed));
-            }
-            next.resolve_constructions();
-            if (const auto* resolved = next.find_construction(committed_id);
-                resolved == nullptr || !resolved->reference_valid) {
-                throw std::runtime_error(
-                    "Construction definition has a missing or cyclic reference");
-            }
-            target_assembly->session.commit(std::move(next));
+            static_cast<void>(workspace::commit_construction(workspace_, document_id,
+                std::move(committed), edit_mode ? workspace::ConstructionEditMode::Replace
+                                                : workspace::ConstructionEditMode::Create));
         }, this, decimal_places);
     dialog->set_reference_request_callback(
         [this](std::size_t index) { start_construction_reference_selection(index); });

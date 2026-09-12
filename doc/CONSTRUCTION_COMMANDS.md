@@ -73,8 +73,8 @@ opakované výskyty nejsou samostatnými vlastníky konstrukcí.
 ## Rozsah a ověření
 
 Tato etapa pokrývá `document.constructions` a body jejich 3D křivek. Vložené
-3D dráhy uvnitř parametrických modelovacích prvků, tvorba, editace, mazání a
-příkazové umístění jsou další etapy. Nativní schéma ani start šablony se nemění.
+3D dráhy uvnitř parametrických modelovacích prvků, tvorba, obecné vlastnosti a mazání jsou další etapy. Číselné umístění
+následně zpřístupňují [placement.get/set](PLACEMENT_COMMANDS.md). Nativní schéma ani start šablony se nemění.
 Sdílený kód umístění zůstává beze změn.
 
 Samostatný modelový test ověřuje všechny čtyři druhy, nezaměnitelnost

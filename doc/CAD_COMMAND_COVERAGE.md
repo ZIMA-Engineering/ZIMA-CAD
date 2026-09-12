@@ -34,8 +34,8 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Kvádr | Hotovo | Společná tvorba, čtení a rozměrový patch; včetně zámků a přesnosti |
 | Válec, koule, kužel, jehlan, klín | Hotovo | Společné create/get/set, zámky, přesnost, GUI/CLI a 59/59 regresí |
 | Historie Partu | Hotovo | Společný přesun, ověření závislostí, potlačení, odstranění a kurzor; včetně historie těles a Booleanů |
-| Tělesa a Boolean | Základ hotov | Tvorba, čtení, aktivace, název/viditelnost, kurzory a Boolean create/get/set; pořadí/mazání řeší historie; zbývá příkazové umístění a odvozené kopie |
-| Umístění a původní reference | Čtení původních referencí hotovo | Part/Assembly, přesné výskyty a geometrická data; zbývá zadání do existujícího společného řešení umístění |
+| Tělesa a Boolean | Základ hotov | Tvorba, čtení, aktivace, název/viditelnost, kurzory a Boolean create/get/set; pořadí/mazání řeší historie; zbývá zadání referencí umístění a odvozené kopie |
+| Umístění a původní reference | Původní reference a číselná editace umístění hotovy | `placement.get/set`: tělesa a prvky Partu, konstrukce Partu/Assembly a jejich body; zbývá příkazové přidávání/výměna referencí, zámky, vložené dráhy a umístění komponent |
 | Konstrukční geometrie | Dotazy hotovy | `construction.list/get`: body, osy, roviny, 3D křivky a jejich vlastní body; zbývá tvorba/editace/mazání, reference a vložené dráhy modelovacích prvků |
 | Skicář: geometrie | Základ hotov | 21 příkazů: samostatné a vložené skici, body, úsečky, kružnice, oblouky, elipsy, B-spline, obdélníky, mnohoúhelníky, posun a pomocná geometrie; text create/get/set s nativním písmem a spline get/set hotovy; DXF do vložených profilů hotov; zbývá kontrola dalších variant podle GUI |
 | Skicář: vazby a operace | Vazby/kóty/solver/offset/trim/mirror hotovy | Offset create/get/set/free, úplný podklad a zachování intervalů, trim podle průsečíků, mirror, orientovaný obdélník, tečny a zaoblení rohu; všech 15 druhů vazeb, odstranění a solver; 16 druhů kót včetně vlastností, popisků a mazání; uvolnění externích referencí hotovo |
@@ -77,14 +77,15 @@ Etapa původních referencí přidala `reference.list/get`; katalog má nyní
 **4/4** (10,14 s). [REFERENCE_COMMANDS.md](REFERENCE_COMMANDS.md) popisuje data,
 přesné výskyty, jednotky a limity. Další krok je příkazové zadání umístění.
 
-### Čekající schválení společného umístění
+### Schválený přesun společného umístění
 
-Automatická schvalovací kontrola 2026-09-12 zamítla přesun číselné editace
-umístění a společné výpočetní transakce z GUI do modelové vrstvy. Vyhodnotila
-jej jako širší zásah podle ochrany umístění v AGENTS.md; změna se neprovedla.
-Konkrétní žádost o souhlas čeká v tomto úkolu. Do odpovědi tuto refaktorizaci
-neprovádět ani neobcházet. Pokračovat nezávislými operacemi geometrie skicáře,
-které používají existující model a nemění pravidla umístění.
+Uživatel v tomto úkolu výslovně schválil přesun společné editace umístění a
+výpočetní transakce z GUI do modelové vrstvy pro CLI odpovědí „ano povoluji.“
+na konkrétní žádost. Dřívější automatické zamítnutí kvůli chybějícímu souhlasu
+je tím vyřešené. Přesun má zachovat současné řešení referencí, vlastnictví,
+orientace, offsetů, náhledů a perzistence; změny budou ověřeny pro ostatní
+kontejnery, které stejný kód používají. Tento souhlas není změnou obecných
+pravidel ochrany umístění v AGENTS.md.
 
 Etapa geometrie skicáře přidala **21 příkazů**; katalog má **72 příkazů**.
 Kompletní Windows Release sada prošla **63/63** (388,03 s),
@@ -495,7 +496,24 @@ rozsah: [CONSTRUCTION_COMMANDS.md](CONSTRUCTION_COMMANDS.md).
 
 Navazující tvorba/editace konstrukcí má sdílet stávající potvrzovací
 transakci dialogu a nativní řešení umístění. Přesun číselné editace a
-společné výpočetní transakce stále podléhá výše uvedenému čekajícímu
-schválení ochrany umístění; v této etapě se neprovedl. Nativní formáty
+společné výpočetní transakce se v etapě dotazů neprovedl; následný výslovný
+souhlas uživatele je zaznamenán výše. Nativní formáty
 ani start šablony se nemění. Běžící CAD nebyl ukončen; testovací GUI
 je `zima-cad-construction-validation.exe`.
+
+
+Schválená etapa společného umístění přidává `placement.get/set`, celkem
+**156 příkazů**. GUI inline editace těles, prvků a konstrukcí používá
+společné číselné přiřazení; konstrukční Properties a inline editace sdílejí
+potvrzení a Part parametry společnou výpočetní transakci. Zůstává nativní
+řešení referencí a atomická historie. Příkaz respektuje i samostatné zámky
+korekčních úhlů a lokální rámec bodu v otočené křivce.
+
+Úplná sada prošla **87/88** (382,41 s), `build/placement-full-tests.log`;
+nový GUI test hledal souřadnicové pole pod nesprávným názvem. Po opravě
+sémantického výběru pole, odstranění nadbytečného kopírování dokumentu a
+doplnění korekčního zámku prošla závěrečná dotčená sada **9/9** (81,10 s),
+`build/placement-verified-tests.log`. Podrobnosti, argumenty a zbývající
+rozsah: [PLACEMENT_COMMANDS.md](PLACEMENT_COMMANDS.md). Následuje tvorba
+a obecné vlastnosti konstrukcí a zadávání referencí. Úplná CLI ještě hotová
+není; nativní formát a start šablony se v této etapě nemění.

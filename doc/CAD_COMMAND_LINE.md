@@ -226,3 +226,7 @@ kopíruje CMake také vedle CLI.
 Konstrukční geometrii a vlastnictví bodů 3D křivek lze číst bez výpočtu
 příkazy `construction.list/get`; jednotky, souřadné soustavy a stránkování
 popisuje [CONSTRUCTION_COMMANDS.md](CONSTRUCTION_COMMANDS.md).
+
+Čtení a atomické číselné změny umístění těles, prvků a konstrukcí poskytují
+`placement.get/set`. Rozlišení absolutních hodnot, korekcí a referenčních
+offsetů popisuje [PLACEMENT_COMMANDS.md](PLACEMENT_COMMANDS.md).

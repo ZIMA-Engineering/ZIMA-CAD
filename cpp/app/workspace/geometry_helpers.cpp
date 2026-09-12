@@ -1,3 +1,4 @@
+#include <zima/workspace/placement_edit.hpp>
 #include "workspace_internal.hpp"
 
 namespace zima::app::workspace_detail {
@@ -220,18 +221,8 @@ bool placement_angle_uses_reference_correction(
         const std::vector<zima::document::ConstructionReference>& references,
         const zima::kernel::ViewerReferenceGeometry& geometry,
         const zima::kernel::Vec3& origin, std::size_t axis_index) {
-    if (axis_index >= 3 || !std::any_of(references.begin(), references.end(),
-            [](const auto& reference) {
-                return reference.orientation_drives_rotation;
-            })) {
-        return false;
-    }
-    // A partially referenced frame mixes both value classes: constrained
-    // axes expose corrections, while its remaining DOF stays an absolute
-    // angle. Decide per axis exactly like the shared Properties fields and
-    // container_placement_dimensions(), not once for the whole frame.
-    return zima::document::orientation_constraint_state(
-        references, geometry, true, origin).constrained_axes[axis_index];
+    return workspace::placement_angle_uses_reference_correction(
+        references, geometry, origin, axis_index);
 }
 
 // Whether the classic history-order shortcut ("1st point = origin, 2nd =

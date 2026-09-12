@@ -62,6 +62,7 @@ void Host::register_commands(){
     register_history_commands();
     register_reference_commands();
     register_construction_commands();
+    register_placement_commands();
     register_sketch_commands();
     register_sketch_curve_commands();
     register_sketch_relation_commands();

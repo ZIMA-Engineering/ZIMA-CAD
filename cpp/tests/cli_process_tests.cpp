@@ -82,6 +82,22 @@ int main(int argc,char** argv){
             config.setValue("Application/Language","en");config.setValue("Units/Length","cm");config.sync();
         }
         const auto common=QStringList{"--working-directory",qpath(project),"--config",qpath(base)};
+        result = launch(executable, root, common + QStringList{"--command", "new part placement-cli",
+            "--command", "box.create 10 20 30", "--command", "save"});
+        require(result.exit_code == 0, "CLI placement fixture failed");
+        const auto placement_path = project / "placement-cli.prtz";
+        const auto placement_native = document::PartDocument::load(placement_path);
+        const auto placement_object = placement_native.history.front().id;
+        const auto placement_patch = command({{"command", "placement.set"}, {"arguments",
+            {{"object", placement_object}, {"values", {{"x", 5}, {"y", 7}, {"rotation_z", 90}}}}}});
+        result = launch(executable, root, common + QStringList{"--command", "open placement-cli.prtz",
+            "--command", placement_patch, "--command", "undo", "--command", "redo", "--command", "save",
+            "--command", "placement.get " + QString::fromStdString(placement_object)});
+        require(result.exit_code == 0 && result.results()[5].at("data").at("placement").at("x") == 5, "CLI placement transaction failed");
+        std::vector<kernel::BodyResult> placed_bodies;
+        const auto placed_native = document::PartDocument::load(placement_path, &placed_bodies);
+        require(placed_native.history.front().placement.rotation_z == 90 && std::abs(placed_bodies.back().volume - 6000) < 1e-7,
+            "CLI placement lost its saved angle or changed solid volume");
         const auto construction_native = test::construction_query_fixture();
         construction_native.save(project / "construction-query.prtz");
         const auto& construction_curve = construction_native.constructions[3];

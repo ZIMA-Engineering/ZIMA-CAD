@@ -1,3 +1,4 @@
+#include <zima/workspace/placement_edit.hpp>
 #include "workspace_internal.hpp"
 
 namespace zima::app {
@@ -375,10 +376,8 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
             }
             if (candidate.semantic_key.starts_with("parameter:")) {
                 const auto key = std::string_view(candidate.semantic_key).substr(10);
-                const auto mutate_construction = [&](auto& document,
+                const auto mutate_construction = [&](zima::document::ConstructionObject* construction,
                         const zima::kernel::ViewerReferenceGeometry& geometry) {
-                    auto* construction = document.find_construction(candidate.owner_id);
-                    if (construction == nullptr) return false;
                     auto construction_key = key;
                     bool placement_key{};
                     constexpr std::string_view placement_prefix{"placement:"};
@@ -389,71 +388,8 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
                     if (construction->kind ==
                             zima::document::ConstructionKind::Point ||
                         placement_key) {
-                        const auto constraint =
-                            zima::document::point_constraint_state(
-                                construction->references, geometry);
-                        if (construction_key == "x" &&
-                            !constraint.constrained_axes[0]) {
-                            construction->origin.x = next_value;
-                        } else if (construction_key == "y" &&
-                                   !constraint.constrained_axes[1]) {
-                            construction->origin.y = next_value;
-                        } else if (construction_key == "z" &&
-                                   !constraint.constrained_axes[2]) {
-                            construction->origin.z = next_value;
-                        } else if (construction_key.starts_with(
-                                       "reference_offset:")) {
-                            const auto suffix = construction_key.substr(
-                                std::string_view{"reference_offset:"}.size());
-                            if (suffix.empty()) return false;
-                            std::size_t requested{};
-                            for (const char digit : suffix) {
-                                if (digit < '0' || digit > '9') return false;
-                                requested = requested * 10 +
-                                    static_cast<std::size_t>(digit - '0');
-                            }
-                            std::size_t populated{};
-                            auto reference = std::find_if(
-                                construction->references.begin(),
-                                construction->references.end(),
-                                [&](const auto& value) {
-                                    if (value.orientation_only ||
-                                        (value.owner_id.empty() &&
-                                         value.semantic_key.empty())) return false;
-                                    return populated++ == requested;
-                                });
-                            if (reference == construction->references.end() ||
-                                !reference->supports_offset) return false;
-                            reference->offset = next_value;
-                        } else if (construction_key == "rotation_x" ||
-                                   construction_key == "rotation_y" ||
-                                   construction_key == "rotation_z") {
-                            const std::size_t index =
-                                construction_key == "rotation_x" ? 0
-                                : construction_key == "rotation_y" ? 1 : 2;
-                            if (placement_angle_uses_reference_correction(
-                                    construction->references, geometry,
-                                    construction->origin, index)) {
-                                std::array<double*, 3> correction{
-                                    &construction->rotation_offset_x,
-                                    &construction->rotation_offset_y,
-                                    &construction->rotation_offset_z};
-                                *correction[index] = next_value;
-                            } else {
-                                std::array<double*, 3> absolute{
-                                    &construction->absolute_rotation.x,
-                                    &construction->absolute_rotation.y,
-                                    &construction->absolute_rotation.z};
-                                std::array<double*, 3> resolved{
-                                    &construction->rotation.x,
-                                    &construction->rotation.y,
-                                    &construction->rotation.z};
-                                *absolute[index] = next_value;
-                                *resolved[index] = next_value;
-                            }
-                        } else {
-                            return false;
-                        }
+                        if (!workspace::assign_placement_dimension(*construction, geometry,
+                                construction_key, next_value)) return false;
                     } else if (construction->kind ==
                                    zima::document::ConstructionKind::Axis &&
                                key == "length") {
@@ -471,41 +407,18 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
                     return true;
                 };
                 bool construction_changed{};
-                if (auto* source =
-                        workspace_.open_part(workspace_.active_document_id())) {
-                    auto next = source->session.document();
-                    auto calculated = source->session.calculated_boundaries();
-                    construction_changed = mutate_construction(next,
-                        construction_reference_source_geometry(calculated));
-                    if (construction_changed) {
-                        next.resolve_constructions(
-                            construction_reference_source_geometry(calculated));
-                        const auto* resolved =
-                            next.find_construction(candidate.owner_id);
-                        if (resolved == nullptr || !resolved->reference_valid) {
-                            throw std::runtime_error(
-                                "Construction definition has a missing or cyclic reference");
-                        }
-                        static_cast<void>(
-                            refresh_sketch_external_references(next, calculated));
-                        source->session.commit(
-                            std::move(next), std::move(calculated));
-                    }
-                } else if (auto* source = workspace_.open_assembly(
-                               workspace_.active_document_id())) {
-                    auto next = source->session.document();
-                    construction_changed = mutate_construction(
-                        next, next.build_scene().original_references);
-                    if (construction_changed) {
-                        next.resolve_constructions();
-                        const auto* resolved =
-                            next.find_construction(candidate.owner_id);
-                        if (resolved == nullptr || !resolved->reference_valid) {
-                            throw std::runtime_error(
-                                "Construction definition has a missing or cyclic reference");
-                        }
-                        source->session.commit(std::move(next));
-                    }
+                const zima::document::ConstructionObject* existing = nullptr;
+                if (const auto* source = workspace_.open_part(workspace_.active_document_id()))
+                    existing = source->session.document().find_construction(candidate.owner_id);
+                else if (const auto* source = workspace_.open_assembly(workspace_.active_document_id()))
+                    existing = source->session.document().find_construction(candidate.owner_id);
+                if (existing) {
+                    auto pending = *existing;
+                    construction_changed = mutate_construction(&pending,
+                        workspace::placement_edit_geometry(workspace_, workspace_.active_document_id(), candidate.owner_id));
+                    if (construction_changed)
+                        static_cast<void>(workspace::commit_construction(workspace_,
+                            workspace_.active_document_id(), std::move(pending), workspace::ConstructionEditMode::Replace));
                 }
                 if (construction_changed) {
                     guarded->hide();
@@ -528,31 +441,9 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
                     body && candidate.semantic_key.starts_with("parameter:placement:")) {
                 auto updated=*body;
                 auto& placement=updated.scope.placement;
-                const auto geometry=part_construction_dimension_geometry(next,part->session.calculated_boundaries());
+                const auto geometry=workspace::placement_edit_geometry(workspace_,workspace_.active_document_id(),candidate.owner_id);
                 const auto key=std::string_view(candidate.semantic_key).substr(std::string_view("parameter:placement:").size());
-                const auto constraint=zima::document::point_constraint_state(placement.references,geometry);
-                if(key=="x"&&!constraint.constrained_axes[0]){placement.x=next_value;changed=true;}
-                else if(key=="y"&&!constraint.constrained_axes[1]){placement.y=next_value;changed=true;}
-                else if(key=="z"&&!constraint.constrained_axes[2]){placement.z=next_value;changed=true;}
-                else if(key.starts_with("reference_offset:")) {
-                    const auto suffix=key.substr(std::string_view("reference_offset:").size());std::size_t index{};
-                    const auto [end,error]=std::from_chars(suffix.data(),suffix.data()+suffix.size(),index);
-                    if(error==std::errc{}&&end==suffix.data()+suffix.size()) {
-                        std::size_t populated{};
-                        for(auto& reference:placement.references) {
-                            if(reference.orientation_only||(reference.owner_id.empty()&&reference.semantic_key.empty()))continue;
-                            if(populated++==index&&reference.supports_offset&&!reference.offset_locked){reference.offset=next_value;changed=true;break;}
-                        }
-                    }
-                } else if(key=="rotation_x"||key=="rotation_y"||key=="rotation_z") {
-                    const std::size_t index=key=="rotation_x"?0:key=="rotation_y"?1:2;
-                    std::array<double*,3> correction{&placement.rotation_offset_x,&placement.rotation_offset_y,&placement.rotation_offset_z};
-                    std::array<double*,3> absolute{&placement.absolute_rotation_x,&placement.absolute_rotation_y,&placement.absolute_rotation_z};
-                    std::array<double*,3> resolved{&placement.rotation_x,&placement.rotation_y,&placement.rotation_z};
-                    if(placement_angle_uses_reference_correction(placement.references,geometry,{placement.x,placement.y,placement.z},index))*correction[index]=next_value;
-                    else {*absolute[index]=next_value;*resolved[index]=next_value;}
-                    changed=true;
-                }
+                changed = workspace::assign_placement_dimension(placement, geometry, key, next_value);
                 if(changed)next.body_history.update_body(std::move(updated));
             } else if (candidate.semantic_key.starts_with("dimension:")) {
                 const auto sketch = std::find_if(next.sketches.begin(),
@@ -604,77 +495,10 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
                         std::string_view{"placement:"}.size());
                     // Use the same persisted reference universe as the displayed
                     // dimensions, including Body Origins in the owner's frame.
-                    const auto geometry = next.construction_reference_geometry_for(
-                        container->id, part_construction_dimension_geometry(
-                            next, part->session.calculated_boundaries()));
-                    const auto constraint = zima::document::point_constraint_state(
-                        container->placement.references, geometry);
-                    if (placement_key == "x" && !constraint.constrained_axes[0]) {
-                        container->placement.x = next_value; changed = true;
-                    } else if (placement_key == "y" &&
-                               !constraint.constrained_axes[1]) {
-                        container->placement.y = next_value; changed = true;
-                    } else if (placement_key == "z" &&
-                               !constraint.constrained_axes[2]) {
-                        container->placement.z = next_value; changed = true;
-                    } else if (placement_key.starts_with("reference_offset:")) {
-                        const auto suffix = placement_key.substr(
-                            std::string_view{"reference_offset:"}.size());
-                        if (!suffix.empty()) {
-                            std::size_t requested{};
-                            bool valid_index = true;
-                            for (const char digit : suffix) {
-                                if (digit < '0' || digit > '9') {
-                                    valid_index = false; break;
-                                }
-                                requested = requested * 10 +
-                                    static_cast<std::size_t>(digit - '0');
-                            }
-                            std::size_t populated{};
-                            auto reference = std::find_if(
-                                container->placement.references.begin(),
-                                container->placement.references.end(),
-                                [&](const auto& value) {
-                                    if (value.orientation_only ||
-                                        (value.owner_id.empty() &&
-                                         value.semantic_key.empty())) return false;
-                                    return populated++ == requested;
-                                });
-                            if (valid_index &&
-                                reference != container->placement.references.end() &&
-                                reference->supports_offset) {
-                                reference->offset = next_value; changed = true;
-                            }
-                        }
-                    } else if (placement_key == "rotation_x" ||
-                               placement_key == "rotation_y" ||
-                               placement_key == "rotation_z") {
-                        const std::size_t index =
-                            placement_key == "rotation_x" ? 0
-                            : placement_key == "rotation_y" ? 1 : 2;
-                        if (placement_angle_uses_reference_correction(
-                                container->placement.references, geometry,
-                                {container->placement.x, container->placement.y,
-                                 container->placement.z}, index)) {
-                            std::array<double*, 3> correction{
-                                &container->placement.rotation_offset_x,
-                                &container->placement.rotation_offset_y,
-                                &container->placement.rotation_offset_z};
-                            *correction[index] = next_value;
-                        } else {
-                            std::array<double*, 3> absolute{
-                                &container->placement.absolute_rotation_x,
-                                &container->placement.absolute_rotation_y,
-                                &container->placement.absolute_rotation_z};
-                            std::array<double*, 3> resolved{
-                                &container->placement.rotation_x,
-                                &container->placement.rotation_y,
-                                &container->placement.rotation_z};
-                            *absolute[index] = next_value;
-                            *resolved[index] = next_value;
-                        }
-                        changed = true;
-                    }
+                    const auto geometry = workspace::placement_edit_geometry(
+                        workspace_, workspace_.active_document_id(), candidate.owner_id);
+                    changed = workspace::assign_placement_dimension(
+                        container->placement, geometry, placement_key, next_value);
                 } else if (container->feature_kind == FeatureKind::Sketch &&
                            key == "profile_offset") {
                     const auto sketch = std::find_if(next.sketches.begin(),
@@ -784,43 +608,9 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
             }
             if (!changed) throw std::runtime_error(
                 "This dimension is not directly editable");
-            const auto& previous = part->session.calculated_boundaries();
-            // View parameter edits have the same calculation inputs as OK in
-            // feature Properties: propagate the owned profile offset, then
-            // resolve the pending frame before evaluating the solid.
-            if (candidate.semantic_key.starts_with("parameter:")) {
-                const auto* edited = next.find_container(candidate.owner_id);
-                if (edited && (edited->feature_kind == zima::document::FeatureKind::Extrusion ||
-                               edited->feature_kind == zima::document::FeatureKind::Revolution)) {
-                    const bool extrusion = edited->feature_kind == zima::document::FeatureKind::Extrusion;
-                    const auto source = extrusion ? edited->extrusion.profile_source : edited->revolution.profile_source;
-                    const auto& sketch_id = extrusion ? edited->extrusion.sketch_id : edited->revolution.sketch_id;
-                    if (source == zima::document::ProfileSource::Internal) {
-                        const auto owned = std::ranges::find_if(next.sketches,
-                            [&](const auto& sketch) { return sketch.id == sketch_id; });
-                        if (owned == next.sketches.end())
-                            throw std::runtime_error("Internal profile Sketch no longer exists");
-                        owned->owner_container_id = edited->id;
-                        owned->plane_offset = extrusion ? edited->extrusion.profile_plane_offset
-                                                        : edited->revolution.profile_plane_offset;
-                    }
-                }
-                next.resolve_constructions(construction_reference_source_geometry(previous));
-            }
-            auto calculated =
-                calculate_part_with_resolved_references(next, &previous);
-            if (const auto* edited=next.find_container(candidate.owner_id);
-                edited && edited->feature_kind==zima::document::FeatureKind::ShaftThread) {
-                // Existing placement resolution can normalize signed zero
-                // without changing numeric equality. This feature's explicit
-                // edit must persist the calculation of the final exact inputs.
-                const auto operations=next.kernel_operations();
-                bool exact=calculated.size()==operations.size();
-                for (std::size_t i=0;exact && i<calculated.size();++i)
-                    exact=calculated[i].source_fingerprint==zima::kernel::history_fingerprint(operations,i+1);
-                if (!exact) calculated=calculate_part(next,&calculated);
-            }
-            part->session.commit(std::move(next), std::move(calculated));
+            workspace::commit_part_parameter_edit(*part, kernel_, std::move(next),
+                candidate.owner_id, candidate.semantic_key.starts_with("parameter:"),
+                part_calculation_policy());
             // Remove the editor before rebuilding the scene. Keeping the
             // child QLineEdit over the old label while refresh_scene() swaps
             // the dimension mesh makes a successful edit look as if the

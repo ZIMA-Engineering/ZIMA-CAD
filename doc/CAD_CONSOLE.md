@@ -434,3 +434,7 @@ skici. Změna křivky ponechá poslední výpočet tělesa do výslovné regener
 a jejich vlastní body. Výstup rozlišuje lokální soustavu tělesa a křivky,
 stabilní identity, reference a jejich platnost; nespouští výpočet modelu.
 Rozsah, argumenty a testy: [CONSTRUCTION_COMMANDS.md](CONSTRUCTION_COMMANDS.md).
+
+Čtení a atomické číselné změny umístění těles, prvků a konstrukcí poskytují
+`placement.get/set`. Rozlišení absolutních hodnot, korekcí a referenčních
+offsetů popisuje [PLACEMENT_COMMANDS.md](PLACEMENT_COMMANDS.md).
