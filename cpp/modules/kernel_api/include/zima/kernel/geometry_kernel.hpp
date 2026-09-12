@@ -546,6 +546,7 @@ struct ExtrusionRequest {
     Vec3 target_plane_normal{0.0, 0.0, 1.0};
     std::vector<Vec3> target_surface_triangles;
     std::optional<ExtrusionLimit> reverse_limit;
+    bool symmetric_limit{};
 };
 
 struct RevolutionRequest {
@@ -974,6 +975,9 @@ struct PlacedBody {
             } else if constexpr (std::is_same_v<Request, ExtrusionRequest>) {
                 // Exact profile bounds reject an inclined plane crossing away from seam vertices.
                 if (primitive.extent == ExtrusionRequest::Extent::UpToPlane) byte(2);
+                if (primitive.extent == ExtrusionRequest::Extent::UpToPlane ||
+                    primitive.extent == ExtrusionRequest::Extent::UpToSurface || primitive.reverse_limit)
+                    for (const unsigned char value : std::string_view("original-extrusion-limits-v1")) byte(value);
                 const auto append_profile = [&](const auto& profile_variant) {
                     byte(static_cast<std::uint8_t>(profile_variant.index()));
                     std::visit([&](const auto& profile) {
@@ -1130,6 +1134,7 @@ struct PlacedBody {
                         u64(std::bit_cast<std::uint64_t>(value));
                     }
                 }
+                if (primitive.symmetric_limit) for(const unsigned char c:std::string_view("symmetric-extrusion-limit-v1"))byte(c);
                 if (primitive.reverse_limit) {
                     for (const unsigned char c : std::string_view("extrusion-reverse-limit-v1")) byte(c);
                     const auto& limit=*primitive.reverse_limit;

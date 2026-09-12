@@ -93,6 +93,25 @@ void properties(Feature& value, const Json& args, const workspace::Workspace& li
         const auto set_end=[&](const char* key, document::EndCondition& field) {if(!args.contains(key))return;
             const auto mode=choose(key,{"length","up_to","through_all"});field=mode=="length"?document::EndCondition::Length:mode=="up_to"?document::EndCondition::UpTo:document::EndCondition::ThroughAll;};
         set_end("end_forward",value.extrusion.end_condition_forward);set_end("end_reverse",value.extrusion.end_condition_reverse);
+        const auto set_targets=[&](const char* key,auto& targets) {
+            if(!args.contains(key))return;
+            const auto& input=args.at(key);
+            if(input.size()>1)throw Error("invalid_arguments","Each extrusion end accepts one target reference.");
+            targets.clear();
+            for(const auto& item:input) {
+                if(!item.is_object() || !item.contains("owner") || !item.contains("key"))throw Error("invalid_arguments","A target reference requires owner and key.");
+                for(const auto& [name,v]:item.items())if((name!="owner"&&name!="key"&&name!="instance_path"&&name!="kind"&&name!="label") || !v.is_string())
+                    throw Error("invalid_arguments","Target reference fields must be supported text fields.");
+                const auto kind=item.value("kind",std::string("face"));
+                if(kind!="face"&&kind!="plane")throw Error("invalid_reference","Extrusion end references require a plane or an original face.");
+                document::ExtrusionParameters::EndTarget target;
+                target.kind=document::EndTargetKind::Face;
+                target.reference={item.at("owner").get<std::string>(),item.at("key").get<std::string>(),item.value("instance_path",std::string{})};
+                target.label=item.value("label",target.reference.owner_id+" / "+target.reference.semantic_key);
+                document::validate_native_metadata_text(target.label);targets.push_back(std::move(target));
+            }
+        };
+        set_targets("targets_forward",value.extrusion.end_targets_forward);set_targets("targets_reverse",value.extrusion.end_targets_reverse);
         value.extrusion.height=extent_mode==document::ProfileExtentMode::OneSide?forward:forward+reverse;
     } else if(args.contains("axis")) {
         const auto id=args.at("axis").get<std::string>();const auto* part=live.open_part(document);
@@ -130,7 +149,7 @@ void Host::register_profile_commands() {
                 {"result_type",false},{"thin_thickness_mm",false,Type::Number},{"thin_mode",false},{"extent",false},{"direction",false},
                 {extrusion?"length_forward_mm":"angle_degrees",false,Type::Number},{extrusion?"length_reverse_mm":"angle_reverse_degrees",false,Type::Number},
                 {"profile_offset_mm",false,Type::Number},{"placement",false,Type::Object},{"document",false}};
-            if(extrusion){fields.push_back({"end_forward",false});fields.push_back({"end_reverse",false});}else fields.push_back({"axis",false});
+            if(extrusion){fields.push_back({"end_forward",false});fields.push_back({"end_reverse",false});fields.push_back({"targets_forward",false,Type::Array});fields.push_back({"targets_reverse",false,Type::Array});}else fields.push_back({"axis",false});
             dispatcher_.add({prefix+(create?".create":".set"),create?tr("Convert a standalone Sketch to an Extrusion or Revolution in one transaction."):tr("Edit and calculate a profile feature through the shared Properties transaction."),std::move(fields),true},
                 [this,create,kind](const Json& args){
                     const auto check=target(args);if(!check.ok)return check;

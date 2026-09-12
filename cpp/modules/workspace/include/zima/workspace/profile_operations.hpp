@@ -14,6 +14,18 @@ void normalize_owned_profile_front_references(std::vector<document::Construction
 [[nodiscard]] std::string revolution_axis_segment_id(const sketcher::Sketch&, const std::string& configured_id = {});
 [[nodiscard]] document::HistoryContainer profile_from_sketch(const document::PartDocument&,
     const std::string& sketch_id, document::FeatureKind);
+// Read one original target in an existing container or Body frame. Selection
+// uses this query; commit additionally validates source order and ownership.
+[[nodiscard]] document::ExtrusionParameters::EndTarget resolve_profile_end_target(
+    const document::PartDocument&,const std::vector<kernel::BodyResult>&,
+    const std::string& frame_owner,const document::ExtrusionParameters::EndTarget&);
+[[nodiscard]] document::ExtrusionParameters::EndTarget prepare_profile_end_target(
+    const document::PartDocument&,const std::vector<kernel::BodyResult>&,
+    const document::HistoryContainer&,const document::ExtrusionParameters::EndTarget&);
+// Refresh only successful original references; calculation errors retain their
+// last useful target geometry and the original identity needed for repair.
+bool refresh_profile_end_targets(document::PartDocument&,const std::vector<kernel::BodyResult>&);
+
 // Same explicit OK transaction for GUI and CLI. A profile owns its Sketch;
 // numerical equality alone cannot prove that its geometry is unchanged.
 void commit_profile(Workspace&, const kernel::OcctKernel&, const std::string& document_id,

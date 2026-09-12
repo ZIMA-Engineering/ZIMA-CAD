@@ -1,4 +1,5 @@
 #include <zima/workspace/model_calculation.hpp>
+#include <zima/workspace/profile_operations.hpp>
 #include <algorithm>
 #include <functional>
 #include <stdexcept>
@@ -53,7 +54,8 @@ calculate_part_with_resolved_references(
             refresh_sketch_external_references(document, calculated);
         const bool drill_points_changed =
             prune_missing_drill_point_references(document, calculated);
-        if (!external_references_changed && !drill_points_changed &&
+        const bool profile_targets_changed=refresh_profile_end_targets(document,calculated);
+        if (!external_references_changed && !drill_points_changed && !profile_targets_changed &&
             document.history == history_before &&
             document.constructions == constructions_before &&
             document.body_history.bodies() == bodies_before) {

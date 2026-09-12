@@ -110,6 +110,72 @@ void thin_and_cut(const kernel::OcctKernel& kernel,fs::path directory){
     f.run("extrusion.set",{{"container",cut.at("container")},{"extent","two_sides"},{"end_reverse","through_all"}});near(f.volume(),960);
     f.run("undo");near(f.volume(),980);f.run("redo");near(f.volume(),960);
 }
+void end_targets(const kernel::OcctKernel& kernel,fs::path directory) {
+    Fixture f(kernel,directory);f.run("new",{{"type","part"},{"name","profile-targets"}});
+    const auto upper=f.run("construction.create",{{"kind","plane"},{"name","Upper"},{"base_plane","xy"},{"offset_mm",7}});
+    const auto lower=f.run("construction.create",{{"kind","plane"},{"name","Lower"},{"base_plane","xy"},{"offset_mm",-3}});
+    const Json up={{"owner",upper.at("entity")},{"key","plane"},{"label","Horní konec"}};
+    const Json down={{"owner",lower.at("entity")},{"key","plane"}};
+    const auto sketch=f.sketch();f.run("sketch.circle.create",{{"sketch",sketch},{"center",{0,0}},{"radius_mm",5}});
+    const auto made=f.run("extrusion.create",{{"sketch",sketch},{"extent","two_sides"},{"end_forward","up_to"},{"end_reverse","up_to"},
+        {"targets_forward",Json::array({up})},{"targets_reverse",Json::array({down})}});
+    const auto id=made.at("container").get<std::string>();near(f.volume(),250*std::numbers::pi);
+    require(made.at("targets_forward")[0].at("owner")==upper.at("entity") && made.at("targets_forward")[0].at("kind")=="plane","Original target identity was not resolved");
+    f.run("extrusion.set",{{"container",id},{"extent","symmetric"}});near(f.volume(),350*std::numbers::pi);
+    f.run("undo");near(f.volume(),250*std::numbers::pi);f.run("redo");near(f.volume(),350*std::numbers::pi);
+    f.run("extrusion.set",{{"container",id},{"extent","two_sides"}});near(f.volume(),250*std::numbers::pi);
+    f.run("construction.set",{{"construction",upper.at("construction")},{"offset_mm",9}});near(f.volume(),250*std::numbers::pi);
+    f.run("regenerate");near(f.volume(),300*std::numbers::pi);
+    const auto& target=f.doc().find_container(id)->extrusion.end_targets_forward.front();near(target.fallback_origin.z,9);
+    f.reject("extrusion.set",{{"container",id},{"name","partial"},{"targets_forward",Json::array({up,up})}},"invalid_arguments");
+    f.reject("extrusion.set",{{"container",id},{"targets_forward",Json::array({{{"owner",upper.at("entity")},{"key","missing"}}})}},"missing_reference");
+    f.reject("extrusion.set",{{"container",id},{"targets_forward",Json::array({{{"owner",upper.at("entity")},{"key","plane"},{"instance_path","/unrelated"}}})}},"invalid_reference");
+    f.reject("extrusion.set",{{"container",id},{"targets_forward",Json::array({{{"owner",upper.at("entity")},{"key","plane"},{"surprise",true}}})}},"invalid_arguments");
+    f.reject("extrusion.set",{{"container",id},{"targets_forward",Json::array({down})}},"profile_rejected");
+    const auto later=f.run("construction.create",{{"kind","plane"},{"name","Later"},{"base_plane","xy"},{"offset_mm",12}});
+    f.reject("extrusion.set",{{"container",id},{"targets_forward",Json::array({{{"owner",later.at("entity")},{"key","plane"}}})}},"invalid_reference_source");
+    f.reject("history.move",{{"object",id},{"before",upper.at("construction")}},"history_dependency");
+    f.reject("history.delete",{{"object",upper.at("construction")}},"history_rejected");
+    f.run("save");std::vector<kernel::BodyResult> cache;const auto reopened=document::PartDocument::load(directory/"profile-targets.prtz",&cache);
+    require(reopened.find_container(id)->extrusion==f.doc().find_container(id)->extrusion,"End target native data changed on reopen");near(cache.back().volume,300*std::numbers::pi);
+    f.run("extrusion.set",{{"container",id},{"extent","one_side"},{"end_forward","length"},{"end_reverse","length"},
+        {"length_forward_mm",5},{"targets_forward",Json::array()},{"targets_reverse",Json::array()}});near(f.volume(),125*std::numbers::pi);
+    f.run("undo");near(f.volume(),300*std::numbers::pi);
+    f.run("extrusion.set",{{"container",id},{"extent","one_side"},{"direction","reverse"},{"placement",{{"z",4}}},
+        {"targets_forward",Json::array({{{"owner",f.doc().document_id+":origin"},{"key","origin:plane:xy"}}})}});
+    near(f.volume(),100*std::numbers::pi);
+}
+void original_body_target_commands(const kernel::OcctKernel& kernel,fs::path directory) {
+    Fixture f(kernel,directory);f.run("new",{{"type","part"},{"name","profile-body-target"}});
+    const auto stock=f.run("box.create",{{"length_mm","20"},{"width_mm","20"},{"height_mm","20"}}).at("container").get<std::string>();
+    const auto source_body=f.doc().body_history.active_body_id();
+    f.run("placement.set",{{"object",source_body},{"values",{{"reference_offset:0",10}}}});
+    const auto packet=f.part().session.calculated_boundaries().back().mesh.original_references;
+    std::optional<kernel::FaceReference> face;
+    for(std::size_t i=0;i<packet.triangle_references.size();++i) {
+        const auto& ref=packet.triangle_references[i];if(ref.owner_id!=stock)continue;
+        bool top=true;for(std::size_t j=0;j<3;++j)top=top && std::abs(packet.vertices[packet.triangles[i*3+j]].z-20)<1e-7;
+        if(top){face=ref;break;}
+    }
+    require(face.has_value(),"Missing placed stock top reference");
+    const auto profile_body=f.run("body.create",{{"name","Dependent"}}).at("body").get<std::string>();
+    f.run("placement.set",{{"object",profile_body},{"values",{{"reference_offset:0",5}}}});
+    const auto sketch=f.sketch();f.run("sketch.circle.create",{{"sketch",sketch},{"center",{0,0}},{"radius_mm",5}});
+    const auto profile=f.run("extrusion.create",{{"sketch",sketch},{"end_forward","up_to"},
+        {"targets_forward",Json::array({{{"owner",face->owner_id},{"key",face->semantic_key}}})}}).at("container").get<std::string>();
+    near(f.volume(),8000+375*std::numbers::pi);
+    near(f.doc().find_container(profile)->extrusion.end_targets_forward.front().fallback_origin.z,15);
+    f.run("body.activate",{{"body",source_body}});f.run("box.set",{{"container",stock},{"height_mm","22"}});
+    near(f.volume(),8800+400*std::numbers::pi);
+    near(f.doc().find_container(profile)->extrusion.end_targets_forward.front().fallback_origin.z,16);
+    f.run("undo");near(f.volume(),8000+375*std::numbers::pi);f.run("redo");near(f.volume(),8800+400*std::numbers::pi);
+    f.run("save");std::vector<kernel::BodyResult> cache;
+    auto reopened=document::PartDocument::load(directory/"profile-body-target.prtz",&cache);
+    near(cache.back().volume,8800+400*std::numbers::pi);
+    kernel::OcctKernel cold;
+    reopened.find_container(profile)->extrusion.extent_mode=document::ProfileExtentMode::Symmetric;
+    near(cold.evaluate_history_incremental(reopened.kernel_operations(),cache).back().volume,8800+800*std::numbers::pi);
+}
 void revolution(const kernel::OcctKernel& kernel,fs::path directory){
     Fixture f(kernel,directory);f.run("new",{{"type","part"},{"name","profile-revolution"}});
     const auto sketch=f.rectangle(2,0,2,10);
@@ -132,6 +198,6 @@ void revolution(const kernel::OcctKernel& kernel,fs::path directory){
 }
 }
 int main(){try{const auto root=fs::canonical(fs::temp_directory_path());const auto directory=root/("zima-profile-commands-"+document::PartDocument::create_default().document_id);
-    require(fs::create_directory(directory),"Cannot create fixture directory");kernel::OcctKernel kernel;front_reference();extrusion(kernel,directory);thin_and_cut(kernel,directory);revolution(kernel,directory);
+    require(fs::create_directory(directory),"Cannot create fixture directory");kernel::OcctKernel kernel;front_reference();extrusion(kernel,directory);thin_and_cut(kernel,directory);end_targets(kernel,directory);original_body_target_commands(kernel,directory);revolution(kernel,directory);
     require(directory.parent_path()==root,"Unexpected cleanup path");fs::remove_all(directory);std::cout<<"Profile commands: native ownership, exact solid volumes, Thin walls, cuts, dimensions, locks, atomic errors and Undo/Redo passed\n";return 0;
 }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

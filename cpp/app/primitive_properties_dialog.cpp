@@ -881,7 +881,7 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
             target->setObjectName(side == std::string_view("forward")
                 ? "extrusionForwardEndTarget" : "extrusionReverseEndTarget");
             target->setReadOnly(true);
-            target->setPlaceholderText(tr("Vyberte bod, rovinu nebo rovinnou plochu…"));
+            target->setPlaceholderText(tr("Vyberte rovinu nebo původní plochu…"));
             if (!targets.empty()) target->setText(QString::fromStdString(targets.front().label));
             target->installEventFilter(this);
             target->setContextMenuPolicy(Qt::ActionsContextMenu);
@@ -2069,7 +2069,7 @@ bool PrimitivePropertiesDialog::submit() {
                  zima::document::ProfileExtentMode::TwoSides &&
              missing_target(result.extrusion.end_condition_reverse,
                             result.extrusion.end_targets_reverse))) {
-            error_->setText(tr("Vyberte cílový bod, rovinu nebo rovinnou plochu."));
+            error_->setText(tr("Vyberte cílovou rovinu nebo původní plochu."));
             return false;
         }
         if (result.combine_mode != zima::document::CombineMode::Subtract &&

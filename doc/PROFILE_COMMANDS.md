@@ -87,8 +87,6 @@ neplatné argumenty nesmějí změnit skicu, historii, revizi či vypočtená t�
 rovněž při stejných číselných hodnotách, protože se mohla změnit jeho skica.
 Závislé sestavy se automaticky neregenerují.
 
-- Příkazové zadávání nových cílů `up_to` zatím chybí. Existující cíle se čtou
-  a zachovávají; `up_to` bez platné reference je odmítnuto.
 - Řezy vlastněné Assembly zatím používají svou dosavadní samostatnou cestu.
   Vnořená aktivace a příkazové sestavové řezy jsou další část celkové CLI.
 
@@ -151,8 +149,8 @@ plocha původního tělesa při explicitním výpočtu poskytuje svou aktuální
 starý číselný snímek cíle ji nemůže přepsat. Kernel ověřuje existenci přesného
 původního vlastníka i u sdružených profilových prvků.
 
-Tato část je zatím kernelovým základem: nativní adaptéry, druhý konec náhledu,
-obnova cílových referencí a jejich CLI zadání se dokončují v další etapě.
+Tato předchozí etapa připravila kernelový základ. Navazující nativní adaptéry,
+druhý konec náhledu, obnova cílových referencí a CLI zadání jsou popsány níže.
 Nepřidává příkaz ani nové pole nativního dokumentu.
 
 První kontrola základních kontraktů a Thin prošla **3/3** (7,31 s),
@@ -164,3 +162,73 @@ nová řezová zkouška nejprve chybně nezařadila zásobu do tělesa (**6/7**,
 zahrnují dvě šikmé roviny, obě kombinace průchozího řezu, Thin, původní rovinu
 se záměrně zastaralým snímkem, přesnou povrchovou mez, chybnou stranu,
 chybějící zdroj, identitu ploch a změnu otisku cache.
+
+
+## Původní cíle zakončení v Partu
+
+`extrusion.create/set` přijímá `targets_forward` a `targets_reverse`: pole
+s nejvýše jednou referencí. Každá obsahuje `owner` a `key` z původní ZIMA
+geometrie; volitelně `label` a `kind` (`plane` nebo `face`). Číselné souřadnice
+se nezadávají, společná modelová transakce je získá z původních dat dokumentu.
+Prázdné pole smaže uložený cíl. Aktivní `up_to` vždy vyžaduje právě jeden cíl.
+
+```json
+{"command":"extrusion.set","arguments":{"container":"<container-ID>","extent":"two_sides","end_forward":"up_to","targets_forward":[{"owner":"<original-owner-ID>","key":"<original-face-key>"}],"end_reverse":"length","length_reverse_mm":4}}
+```
+
+Konstrukční rovina používá své `entity` a klíč `plane`, nikoli ID kontejneru.
+Roviny počátku používají původní ID počátku a klíč `origin:plane:xy`, `xz`
+nebo `yz`. Vybrat lze předcházející původní plochu nebo dostupný počátek;
+pozdější objekt, neznámé ID a jiná occurrence jsou odmítnuty bez transakce.
+Vazby ze sestavy náleží samostatné sestavové cestě, nikoli tomuto Part příkazu.
+
+Rovinnost původní plochy se určuje z její uložené analytické geometrie.
+Samotná koplanarita zobrazovacích trojúhelníků nestačí: hrubě vykreslená
+zakřivená plocha nesmí být považována za rovinu. Konstrukční roviny a roviny
+počátků jsou určeny svým nativním typem.
+
+Obě strany mohou mít nezávislou rovinu nebo plochu, lze je kombinovat s délkou
+či průchozím řezem. `symmetric` zrcadlí dopřednou mez přes rovinu profilu;
+nevyhodnocuje nepoužívaný zadní cíl. Náhled řeší obě meze z uložených ZIMA dat.
+GUI vybírá cíl společným seznamem kandidátů a potvrzuje přes stejnou transakci.
+
+Při výpočtu se původní plocha uchovává před následujícími booleovskými
+operacemi. Zakončení proto zůstává navázáno i po oříznutí její viditelné části.
+Mezi tělesy se předávají jen požadované plochy v příslušných lokálních
+souřadnicích. Cache bere v úvahu geometrii i umístění zdroje a cílového tělesa.
+Runtime řetězec původních ploch sdílí OCCT objekty; nevytváří kopii celého
+B-Repu pro každý historický krok. Po studeném načtení se při explicitním
+výpočtu potřebná původní topologie znovu sestaví z nativní historie.
+
+Změna původní geometrie při výpočtu obnoví uložený snímek cíle. Ztracená
+reference si uchová své ID a poslední data pro opravu; aktivní zakončení
+se tím nepovažuje za platné. Samotné čtení či přepnutí tabu kernel nespouští.
+Nativní formát a start šablony se nemění, katalog zůstává na 164 příkazech.
+
+
+Ověření této etapy:
+
+- Úplná Windows Release sada prošla **92/92** (421,62 s),
+  `build/extrusion-target-complete-tests.log`; oba programy i testy jsou sestavené,
+  `build/extrusion-target-complete-build.log`.
+- Po doplnění ochrany hrubě vykreslené plochy, popisků a překladů prošlo
+  **9/9** dotčených regresí (47,02 s), `build/extrusion-target-final-tests.log`.
+  Závěrečné sestavení: `build/extrusion-target-final-build.log`.
+- Geometrické testy kontrolují dvě nezávislé šikmé meze, Thin, smíšený
+  průchozí řez, symetrii, opačný směr, ignorování neaktivní zadní reference,
+  plochu odstraněnou z viditelného výsledku pozdějším řezem, natočená tělesa,
+  změnu umístění zdroje/cíle, studenou cache a potlačení zdroje. Kulové
+  zakončení porovnávají s analytickým objemem a rovnici koule ověřují i na
+  uložených bodech obou zrcadlených čel.
+- Příkazové testy zadávají cíle na roviny, hlavní počátek a původní plochu
+  jiného posunutého tělesa, mění zdroj, ověřují Undo/Redo, uložení a odmítnutí
+  neplatných referencí bez změny dokumentu. Samostatný CLI proces ověřuje
+  také UTF-8 popisek, dvě meze a symetrické zakončení.
+- GUI test skutečně kliká na referenční pole a rovinu ve View, kontroluje
+  Cancel, OK, Undo a uložený objem. Cílová konstrukční rovina má nenulový
+  offset, takže záměna jejího počátku za skutečnou rovinu neprojde.
+
+První úplný běh odhalil dvě chyby nových testovacích vstupů: parametr určený
+ose byl použit u roviny a odmítnuté mazání reference očekávalo jiný kód chyby.
+Obě přípravy testů byly opraveny; poslední výsledky výše zahrnují jejich
+funkční scénáře. Žádná tato změna nevytváří externí cache či nový formát souboru.

@@ -23,6 +23,7 @@
 #include <QDialogButtonBox>
 #include <QPushButton>
 #include <QKeyEvent>
+#include <QMouseEvent>
 #include <QCursor>
 #include <QElapsedTimer>
 #include <QThread>
@@ -731,6 +732,11 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         json_run("close",{{"discard",true}});run(QString::fromStdString(activate.dump()));flush();
         for(const std::string kind:{"extrusion","revolution"}) {
             run(QString::fromStdString("new part "+stem+"-"+kind));flush();
+            commands::Json target_upper,target_lower,target_replacement;
+            if(kind=="extrusion") {
+                const auto plane=[&](const char* name,double offset){return json_run("construction.create",{{"kind","plane"},{"name",name},{"base_plane","xy"},{"offset_mm",offset}}).data;};
+                target_upper=plane("Upper",7);target_lower=plane("Lower",-3);target_replacement=plane("Replacement",11);
+            }
             const auto sketch=json_run("sketch.create",{{"name","Profile"},{"plane","XY"}}).data.at("sketch");
             json_run("sketch.rectangle.create",{{"sketch",sketch},{"first",{2,0}},{"second",{4,10}}});
             commands::Json args={{"sketch",sketch}};
@@ -780,6 +786,44 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
             std::vector<kernel::BodyResult> cache;
             const auto native=document::PartDocument::load(directory/(stem+"-"+kind+".prtz"),&cache);
             check(native.history.front().id==id && std::abs(cache.back().volume-(kind=="extrusion"?160:30*std::acos(-1.0)))<1e-6,"GUI profile saved incorrect geometry");
+            if(kind=="extrusion") {
+                const auto target_json=[](const commands::Json& plane){return commands::Json::array({{{"owner",plane.at("entity")},{"key","plane"}}});};
+                json_run("extrusion.set",{{"container",id},{"extent","two_sides"},{"end_forward","up_to"},{"end_reverse","up_to"},
+                    {"targets_forward",target_json(target_upper)},{"targets_reverse",target_json(target_lower)}});flush();
+                const auto choose_replacement=[&](QDialog* properties) {
+                    auto* field=properties->findChild<QLineEdit*>("extrusionForwardEndTarget");check(field,"End target field missing");
+                    const QPointF position=field->rect().center(),global=field->mapToGlobal(position.toPoint());
+                    QMouseEvent press(QEvent::MouseButtonPress,position,global,Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+                    QMouseEvent release(QEvent::MouseButtonRelease,position,global,Qt::LeftButton,Qt::NoButton,Qt::NoModifier);
+                    QApplication::sendEvent(field,&press);QApplication::sendEvent(field,&release);flush();
+                    std::optional<QPointF> hit;
+                    for(int y=12;y<view->height()-12&&!hit;y+=4)for(int x=12;x<view->width()-12&&!hit;x+=4) {
+                        const auto candidates=view->selection_candidates_at(QPointF(x,y));
+                        if(!candidates.empty()&&candidates.front().owner_id==target_replacement.at("entity").get<std::string>()&&candidates.front().semantic_key=="plane")hit=QPointF(x,y);
+                    }
+                    check(hit.has_value(),"Original replacement plane not offered by shared target picker");
+                    const QPointF global_hit=view->mapToGlobal(hit->toPoint());
+                    QMouseEvent move(QEvent::MouseMove,*hit,global_hit,Qt::NoButton,Qt::NoButton,Qt::NoModifier);
+                    QMouseEvent down(QEvent::MouseButtonPress,*hit,global_hit,Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+                    QMouseEvent up(QEvent::MouseButtonRelease,*hit,global_hit,Qt::LeftButton,Qt::NoButton,Qt::NoModifier);
+                    QApplication::sendEvent(view,&move);QApplication::sendEvent(view,&down);QApplication::sendEvent(view,&up);flush();
+                    check(field->text().contains("Replacement"),"GUI click did not resolve the original target plane");
+                };
+                dialog=edit();check(dialog->findChild<QComboBox*>("extrusionReverseEndCondition")->currentData()=="up_to","GUI lost reverse end condition");
+                choose_replacement(dialog);
+                check(get().at("targets_forward")[0].at("owner")==target_upper.at("entity"),"Pending target selection changed committed document");
+                dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
+                check(get().at("targets_forward")[0].at("owner")==target_upper.at("entity"),"Target Cancel lost original reference");
+                dialog=edit();choose_replacement(dialog);
+                auto* reverse_condition=dialog->findChild<QComboBox*>("extrusionReverseEndCondition");reverse_condition->setCurrentIndex(reverse_condition->findData("length"));
+                dialog->findChild<QDoubleSpinBox*>("extrusionReverseLength")->setValue(4);
+                dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+                check(get().at("targets_forward")[0].at("owner")==target_replacement.at("entity"),"GUI OK lost original target identity");
+                run("save");std::vector<kernel::BodyResult> target_cache;
+                static_cast<void>(document::PartDocument::load(directory/(stem+"-"+kind+".prtz"),&target_cache));
+                check(std::abs(target_cache.back().volume-300)<1e-6,"GUI end target used container origin instead of offset plane");
+                run("undo");check(get().at("targets_forward")[0].at("owner")==target_upper.at("entity"),"GUI target Undo did not restore the previous reference");
+            }
             json_run("close",{{"discard",true}});run(QString::fromStdString(activate.dump()));flush();
         }
         input->setText("context");QApplication::sendEvent(input,&enter);flush();

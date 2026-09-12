@@ -50,6 +50,13 @@ public:
         const std::vector<PlacedBody>& bodies, const std::string& path) const;
 
 private:
+    struct HistoryContext;
+    [[nodiscard]] std::vector<BodyResult> evaluate_flat_history(
+        const std::vector<HistoryOperation>& operations,
+        const std::vector<BodyResult>& previous_boundaries, HistoryContext& context) const;
+    [[nodiscard]] std::vector<BodyResult> evaluate_flat_history_recovering(
+        const std::vector<HistoryOperation>& operations,
+        const std::vector<BodyResult>& previous_boundaries, HistoryContext& context) const;
     [[nodiscard]] std::vector<BodyResult> evaluate_body_histories(
         const std::vector<HistoryOperation>& operations,
         const std::vector<BodyResult>& previous_boundaries, bool recover_errors = false) const;

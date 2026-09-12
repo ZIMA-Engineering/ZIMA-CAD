@@ -202,6 +202,36 @@ using OwnedFace = OwnedTopology<FaceReference>;
 using OwnedEdge = OwnedTopology<EdgeReference>;
 using OwnedVertex = OwnedTopology<VertexReference>;
 
+// Immutable chain of original operands. OCCT handles share their underlying
+// shapes; saving a history boundary does not duplicate the source B-Reps.
+struct OriginalFaces {
+    std::vector<OwnedFace> faces;
+    std::shared_ptr<const OriginalFaces> previous;
+};
+std::string dependency_fingerprint(std::string_view source) {
+    std::uint64_t hash=14695981039346656037ull;
+    for(const unsigned char byte:source){hash^=byte;hash*=1099511628211ull;}
+    std::ostringstream text;text<<std::hex<<hash;return text.str();
+}
+
+bool same_face_identity(const FaceReference& a,const FaceReference& b) {
+    return a.owner_id==b.owner_id && a.semantic_key==b.semantic_key && a.instance_path==b.instance_path;
+}
+std::vector<FaceReference> extrusion_references(const std::vector<HistoryOperation>& operations) {
+    std::vector<FaceReference> result;
+    const auto collect=[&](const ExtrusionRequest& value) {
+        if((value.extent==ExtrusionRequest::Extent::UpToPlane || value.extent==ExtrusionRequest::Extent::UpToSurface) && !value.target_is_datum)result.push_back(value.target_face);
+        if(value.reverse_limit && !value.reverse_limit->datum)result.push_back(value.reverse_limit->reference);
+    };
+    for(const auto& operation:operations) {
+        if(operation.suppressed)continue;
+        if(const auto* value=std::get_if<ExtrusionRequest>(&operation.primitive))collect(*value);
+        else if(const auto* group=std::get_if<FeatureGroupRequest>(&operation.primitive))
+            for(const auto& child:group->children)if(const auto* value=std::get_if<ExtrusionRequest>(&child))collect(*value);
+    }
+    return result;
+}
+
 template <typename Algorithm, typename Owned>
 std::vector<Owned> propagate_topology(
     Algorithm& algorithm, const std::vector<Owned>& existing,
@@ -1265,6 +1295,8 @@ void validate_extrusion(const ExtrusionRequest& request, bool allow_open_profile
     if (!std::isfinite(length) || length <= 1.0e-12) {
         throw std::invalid_argument("Extrusion direction must be finite and non-zero");
     }
+    if(request.symmetric_limit && (!has_forward_limit(request)||request.reverse_limit||request.through_all_reverse))
+        throw std::invalid_argument("A symmetric extrusion end requires one forward target.");
     if(has_forward_limit(request))validate_extrusion_limit(forward_limit(request),request.direction);
     if(request.reverse_limit) {
         validate_extrusion_limit(limit_view(*request.reverse_limit),request.direction);
@@ -2328,6 +2360,23 @@ PrimitiveData make_extrusion_data(
     std::optional<ExtrusionLimitView> forward_boundary,reverse_boundary;
     if(has_forward_limit(request))forward_boundary.emplace(resolved_extrusion_limit(forward_limit(request),exact_target));
     if(request.reverse_limit)reverse_boundary.emplace(resolved_extrusion_limit(limit_view(*request.reverse_limit),exact_reverse_target));
+    std::optional<ExtrusionLimit> mirrored_limit;
+    auto reverse_exact=exact_reverse_target;
+    if(request.symmetric_limit) {
+        const auto reflect_point=[&](Vec3 p) {
+            const double distance=(p.x-profile_keep_point.X())*unit.x+(p.y-profile_keep_point.Y())*unit.y+(p.z-profile_keep_point.Z())*unit.z;
+            return Vec3{p.x-2*distance*unit.x,p.y-2*distance*unit.y,p.z-2*distance*unit.z};
+        };
+        const auto reflect_direction=[&](Vec3 n) {const double dot=n.x*unit.x+n.y*unit.y+n.z*unit.z;return Vec3{n.x-2*dot*unit.x,n.y-2*dot*unit.y,n.z-2*dot*unit.z};};
+        const auto& source=*forward_boundary;
+        mirrored_limit=ExtrusionLimit{source.planar,source.reference,source.datum,reflect_point(source.origin),reflect_direction(source.normal),{}};
+        for(const auto p:source.triangles)mirrored_limit->triangles.push_back(reflect_point(p));
+        reverse_boundary.emplace(limit_view(*mirrored_limit));
+        if(exact_target) {
+            gp_Trsf mirror;mirror.SetMirror(gp_Ax2(profile_keep_point,gp_Dir(unit.x,unit.y,unit.z)));
+            reverse_exact=TopoDS::Face(BRepBuilderAPI_Transform(*exact_target,mirror,true).Shape());
+        }
+    }
     double bounded_start=request.start_offset;
     double bounded_end=request.start_offset+direction_length;
     if(request.extent==ExtrusionRequest::Extent::ThroughAll && request.through_all_forward)
@@ -2487,7 +2536,7 @@ PrimitiveData make_extrusion_data(
         result.shape = clip.Shape();
     };
     if(forward_boundary)clip_end(*forward_boundary,unit,exact_target,last_cap_reference);
-    if(reverse_boundary)clip_end(*reverse_boundary,{-unit.x,-unit.y,-unit.z},exact_reverse_target,first_cap_reference);
+    if(reverse_boundary)clip_end(*reverse_boundary,{-unit.x,-unit.y,-unit.z},reverse_exact,first_cap_reference);
     if (!request.additional_profile_regions.empty()) {
         TopoDS_Compound compound;
         BRep_Builder builder;
@@ -4857,12 +4906,20 @@ struct OcctKernel::LiveCache {
     struct Boundary {
         TopoDS_Shape shape;
         std::shared_ptr<const Topology> topology;
+        std::shared_ptr<const OriginalFaces> original_faces;
     };
 
     std::unordered_map<std::string, Boundary> boundaries;
     std::deque<std::string> insertion_order;
     std::unordered_map<std::string, ViewerMesh> reference_meshes;
     std::deque<std::string> reference_insertion_order;
+};
+
+struct OcctKernel::HistoryContext {
+    std::vector<OwnedFace> external_faces;
+    std::shared_ptr<const OriginalFaces> original_faces;
+    std::string dependency_key;
+    bool require_original_faces{};
 };
 
 OcctKernel::OcctKernel() : live_cache_(std::make_unique<LiveCache>()) {}
@@ -5246,27 +5303,37 @@ std::vector<BodyResult> OcctKernel::evaluate_history_recovering(
             throw std::runtime_error(failure.GetMessageString());
         }
     }
+    HistoryContext context;
+    return evaluate_flat_history_recovering(operations,previous_boundaries,context);
+}
+
+std::vector<BodyResult> OcctKernel::evaluate_flat_history_recovering(
+    const std::vector<HistoryOperation>& operations,
+    const std::vector<BodyResult>& previous_boundaries,HistoryContext& context) const {
     try {
-        return evaluate_history_incremental(operations, previous_boundaries);
+        return evaluate_flat_history(operations, previous_boundaries,context);
     } catch (const std::exception&) {
         // Locate the failing boundary only on the error path. Strict prefix
         // evaluation finalizes persisted reference packets just as normal OK does.
     }
     std::vector<BodyResult> valid;
+    std::shared_ptr<const OriginalFaces> valid_originals;
     for (std::size_t index = 0; index < operations.size(); ++index) {
         const std::vector<HistoryOperation> prefix(operations.begin(),
             operations.begin() + static_cast<std::ptrdiff_t>(index + 1));
         try {
-            valid = evaluate_history_incremental(prefix,
-                valid.empty() ? previous_boundaries : valid);
+            valid = evaluate_flat_history(prefix,
+                valid.empty() ? previous_boundaries : valid,context);
             // Ordinary intermediate caches may contain viewer data only. The
             // retained end of a failed history must also persist a real solid.
             if (!valid.back().mesh.triangles.empty() && valid.back().kernel_shape.empty())
-                valid = evaluate_history_incremental(prefix, {});
+                valid = evaluate_flat_history(prefix, {},context);
+            valid_originals=context.original_faces;
         } catch (const std::exception& error) {
+            context.original_faces=valid_originals;
             auto input = valid.empty() ? BodyResult{} : valid.back();
             for (std::size_t blocked = index; blocked < operations.size(); ++blocked) {
-                input.source_fingerprint = history_fingerprint(operations, blocked + 1);
+                input.source_fingerprint = history_fingerprint(operations, blocked + 1)+context.dependency_key;
                 input.calculation_errors[operations[blocked].owner_id] = blocked == index
                     ? error.what() : "Nelze vypočítat: chyba předcházejícího prvku " + operations[index].owner_id;
                 valid.push_back(input);
@@ -5344,14 +5411,43 @@ std::vector<BodyResult> OcctKernel::evaluate_body_histories(
     BodyResult document;
     std::vector<BodyResult> boundaries;
     boundaries.reserve(operations.size());
+    const auto requested_faces=extrusion_references(operations);
+    std::vector<OwnedFace> preceding_faces;
+    std::unordered_map<std::string,std::string> source_keys;
     for (const auto& branch : branches) {
         const auto cached = previous.body_boundaries.find(branch.scope.id);
+        const auto placement=primitive_transform(branch.scope.translation,branch.scope.rotation_degrees);
+        HistoryContext context;
+        const auto branch_references=extrusion_references(branch.operations);
+        for(const auto& face:preceding_faces) {
+            if(!std::ranges::any_of(branch_references,[&](const auto& reference){return same_face_identity(face.reference,reference);}))continue;
+            context.external_faces.push_back({face.shape.Moved(TopLoc_Location(placement.Inverted())),face.reference});
+        }
+        std::set<std::string> dependencies;
+        for(const auto& reference:branch_references)if(source_keys.contains(reference.owner_id))dependencies.insert(reference.owner_id);
+        for(const auto& owner:dependencies)context.dependency_key+=":source:"+owner+":"+source_keys.at(owner);
+        HistoryOperation frame_key;frame_key.body=branch.scope;
+        if(!dependencies.empty()) {
+            context.dependency_key+=":frame:"+history_fingerprint({frame_key},1);
+            context.dependency_key=":references:"+dependency_fingerprint(context.dependency_key);
+        }
+        context.require_original_faces=std::ranges::any_of(requested_faces,[&](const auto& reference) {
+            return std::ranges::any_of(branch.operations,[&](const auto& operation){return operation.owner_id==reference.owner_id;});
+        });
         auto local = branch.scope.source_id.empty()
-            ? (recover_errors ? evaluate_history_recovering(branch.operations,
-                    cached == previous.body_boundaries.end() ? std::vector<BodyResult>{} : cached->second)
-                : evaluate_history_incremental(branch.operations,
-                    cached == previous.body_boundaries.end() ? std::vector<BodyResult>{} : cached->second))
+            ? (recover_errors ? evaluate_flat_history_recovering(branch.operations,
+                    cached == previous.body_boundaries.end() ? std::vector<BodyResult>{} : cached->second,context)
+                : evaluate_flat_history(branch.operations,
+                    cached == previous.body_boundaries.end() ? std::vector<BodyResult>{} : cached->second,context))
             : std::vector<BodyResult>{document.body_outputs.at(branch.scope.source_id)};
+        if(context.require_original_faces) {
+            const auto source_key=local.back().source_fingerprint+":placed:"+history_fingerprint({frame_key},1);
+            for(const auto& operation:branch.operations)source_keys[operation.owner_id]=source_key;
+            for(auto node=context.original_faces;node;node=node->previous)for(const auto& face:node->faces) {
+                if(std::ranges::any_of(requested_faces,[&](const auto& reference){return same_face_identity(face.reference,reference);}))
+                    preceding_faces.push_back({face.shape.Moved(TopLoc_Location(placement)),face.reference});
+            }
+        }
         if (branch.scope.source_id.empty()) document.body_boundaries.emplace(branch.scope.id, local);
         HistoryOperation placement_key;
         placement_key.body = branch.scope;
@@ -5486,6 +5582,17 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
             throw std::runtime_error(failure.GetMessageString());
         }
     }
+    HistoryContext context;
+    return evaluate_flat_history(operations,previous_boundaries,context);
+}
+
+std::vector<BodyResult> OcctKernel::evaluate_flat_history(
+    const std::vector<HistoryOperation>& operations,
+    const std::vector<BodyResult>& previous_boundaries,HistoryContext& context) const {
+    context.original_faces.reset();
+    const auto fingerprint=[&](const std::vector<HistoryOperation>& values,std::size_t count) {
+        return history_fingerprint(values,count)+context.dependency_key;
+    };
     const auto first_active = std::find_if(operations.begin(), operations.end(),
         [](const auto& operation) { return !operation.suppressed; });
     if (first_active != operations.end() &&
@@ -5512,13 +5619,13 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
         std::unordered_map<std::string, StepDocumentCache> step_documents;
         std::vector<BodyResult> boundaries;
         boundaries.reserve(operations.size());
-        const auto remember_live_boundary = [this](
+        const auto remember_live_boundary = [this,&context](
                 const std::string& fingerprint, const TopoDS_Shape& shape,
                 std::shared_ptr<const LiveCache::Topology> topology) {
             if (fingerprint.empty() || shape.IsNull()) return;
             auto [iterator, inserted] =
                 live_cache_->boundaries.insert_or_assign(fingerprint,
-                    LiveCache::Boundary{shape, std::move(topology)});
+                    LiveCache::Boundary{shape, std::move(topology),context.original_faces});
             static_cast<void>(iterator);
             if (!inserted) return;
             live_cache_->insertion_order.push_back(fingerprint);
@@ -5534,10 +5641,15 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
         while (matching_prefix < available &&
                previous_boundaries[matching_prefix].calculation_errors.empty() &&
                previous_boundaries[matching_prefix].source_fingerprint ==
-                   history_fingerprint(operations, matching_prefix + 1)) {
+                   fingerprint(operations, matching_prefix + 1)) {
             ++matching_prefix;
         }
-        if (matching_prefix == operations.size()) {
+        const auto complete_live=matching_prefix==operations.size()
+            ? live_cache_->boundaries.find(previous_boundaries.back().source_fingerprint)
+            : live_cache_->boundaries.end();
+        if (matching_prefix == operations.size() &&
+            (!context.require_original_faces || complete_live!=live_cache_->boundaries.end())) {
+            if(complete_live!=live_cache_->boundaries.end())context.original_faces=complete_live->second.original_faces;
             std::vector<BodyResult> reused{
                 previous_boundaries.begin(),
                     previous_boundaries.begin() +
@@ -5585,6 +5697,7 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
             } else {
                 result_shape = cached->second.shape;
                 owned_topology = cached->second.topology;
+                context.original_faces = cached->second.original_faces;
             }
             std::unordered_set<std::string> prefix_owners;
             for (std::size_t index = 0; index < reusable_prefix; ++index) {
@@ -5599,6 +5712,17 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                 previous_boundaries.begin() +
                     static_cast<std::ptrdiff_t>(reusable_prefix));
         }
+        const auto original_target=[&](const ExtrusionLimitView& limit) {
+            if(limit.datum)return std::optional<TopoDS_Face>{};
+            std::vector<OwnedFace> matches;
+            for(auto node=context.original_faces;node;node=node->previous)
+                for(const auto& face:node->faces)if(same_face_identity(face.reference,limit.reference))matches.push_back(face);
+            for(const auto& face:context.external_faces)if(same_face_identity(face.reference,limit.reference))matches.push_back(face);
+            return exact_extrusion_limit(limit,matches);
+        };
+        const auto retain_originals=[&](const std::vector<OwnedFace>& faces) {
+            if(!faces.empty())context.original_faces=std::make_shared<OriginalFaces>(OriginalFaces{faces,context.original_faces});
+        };
         for (std::size_t operation_index = reusable_prefix;
              operation_index < operations.size(); ++operation_index) {
             const auto& operation = operations[operation_index];
@@ -5626,7 +5750,7 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                 } else if (!persist_boundary_shape) {
                     boundary.kernel_shape.clear();
                 }
-                boundary.source_fingerprint = history_fingerprint(
+                boundary.source_fingerprint = fingerprint(
                     operations, boundaries.size() + 1);
                 remember_live_boundary(boundary.source_fingerprint, result_shape,
                     owned_topology);
@@ -5640,8 +5764,8 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                     if constexpr (std::is_same_v<Child,
                                       ExtrusionRequest>) {
                         validate_extrusion(value);
-                        const auto exact_target=has_forward_limit(value)?exact_extrusion_limit(forward_limit(value),owned_topology->faces):std::nullopt;
-                        const auto exact_reverse=value.reverse_limit?exact_extrusion_limit(limit_view(*value.reverse_limit),owned_topology->faces):std::nullopt;
+                        const auto exact_target=has_forward_limit(value)?original_target(forward_limit(value)):std::nullopt;
+                        const auto exact_reverse=value.reverse_limit?original_target(limit_view(*value.reverse_limit)):std::nullopt;
                         double forward_span = 2'000'000.0;
                         double reverse_span = 2'000'000.0;
                         if ((value.extent ==
@@ -5960,6 +6084,7 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                     const auto unified = unify_preserving_face_provenance(combined.shape,
                         combined.faces, combined.edges, combined.vertices,
                         std::max(1.0e-7, operation.boolean_tolerance));
+                    retain_originals(unified.faces);
                     auto references = make_operation_result(unified.shape, unified.faces,
                         unified.edges, unified.vertices, true, false, false,
                         unified.hidden_display_edges);
@@ -5977,7 +6102,7 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                 }
                 if (opening_axis) boundary.mesh.axes.push_back(*opening_axis);
                 append_technological_surfaces(boundary, operation.mesh_deflection);
-                boundary.source_fingerprint = history_fingerprint(
+                boundary.source_fingerprint = fingerprint(
                     operations, boundaries.size() + 1);
                 boundaries.push_back(std::move(boundary));
                 remember_live_boundary(boundaries.back().source_fingerprint,
@@ -6309,7 +6434,7 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                     reference_geometry_for_owners(boundaries.back().mesh.original_references,
                         std::unordered_set<std::string>{operation.owner_id}));
                 boundaries.back().source_fingerprint =
-                    history_fingerprint(operations, boundaries.size());
+                    fingerprint(operations, boundaries.size());
                 remember_live_boundary(boundaries.back().source_fingerprint,
                     result_shape, owned_topology);
             };
@@ -6466,7 +6591,7 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                                     operation.owner_id}));
                         boundaries.push_back(std::move(direct_result));
                         boundaries.back().source_fingerprint =
-                            history_fingerprint(
+                            fingerprint(
                                 operations, boundaries.size());
                         remember_live_boundary(
                             boundaries.back().source_fingerprint,
@@ -6952,7 +7077,7 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                         std::unordered_set<std::string>{operation.owner_id}));
                 boundaries.push_back(std::move(shell_result));
                 boundaries.back().source_fingerprint =
-                    history_fingerprint(operations, boundaries.size());
+                    fingerprint(operations, boundaries.size());
                 remember_live_boundary(boundaries.back().source_fingerprint,
                     result_shape, owned_topology);
                 continue;
@@ -6978,7 +7103,7 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                         owned_topology->vertices, true,
                         persist_boundary_shape, false,
                         owned_topology->hidden_display_edges);
-                    boundary.source_fingerprint = history_fingerprint(
+                    boundary.source_fingerprint = fingerprint(
                         operations, boundaries.size() + 1);
                     boundaries.push_back(std::move(boundary));
                     remember_live_boundary(
@@ -7050,8 +7175,8 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                         "Thread surface must use the technological branch");
                 } else if constexpr (std::is_same_v<Request, ExtrusionRequest>) {
                     validate_extrusion(primitive);
-                    const auto exact_target=has_forward_limit(primitive)?exact_extrusion_limit(forward_limit(primitive),owned_topology->faces):std::nullopt;
-                    const auto exact_reverse=primitive.reverse_limit?exact_extrusion_limit(limit_view(*primitive.reverse_limit),owned_topology->faces):std::nullopt;
+                    const auto exact_target=has_forward_limit(primitive)?original_target(forward_limit(primitive)):std::nullopt;
+                    const auto exact_reverse=primitive.reverse_limit?original_target(limit_view(*primitive.reverse_limit)):std::nullopt;
                     double through_all_forward_span = 2'000'000.0;
                     double through_all_reverse_span = 2'000'000.0;
                     if ((primitive.extent == ExtrusionRequest::Extent::ThroughAll || primitive.through_all_reverse) &&
@@ -7151,14 +7276,23 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                     throw std::logic_error("Body treatment reached primitive builder");
                 }
             }, operation.primitive);
-            const std::string reference_cache_key = history_fingerprint(
+            auto source_faces=operand.faces;
+            if(!operand.source_caps.empty()) {
+                std::erase_if(source_faces,[&](const auto& face) {
+                    return std::ranges::any_of(operand.source_caps,[&](const auto& cap){return same_face_identity(face.reference,cap.reference);});
+                });
+                source_faces.insert(source_faces.end(),operand.source_caps.begin(),operand.source_caps.end());
+            }
+            retain_originals(source_faces);
+            const std::string reference_cache_key = fingerprint(
                 std::vector<HistoryOperation>{operation}, 1);
             const auto* extrusion_request =
                 std::get_if<ExtrusionRequest>(&operation.primitive);
             const bool cache_reference_mesh =
-                !imported_step &&
+                !imported_step && !std::holds_alternative<FeatureGroupRequest>(operation.primitive) &&
                 (extrusion_request == nullptr ||
-                 extrusion_request->extent == ExtrusionRequest::Extent::Blind);
+                 (extrusion_request->extent == ExtrusionRequest::Extent::Blind &&
+                  !extrusion_request->reverse_limit && !extrusion_request->through_all_reverse));
             const bool standalone_import = imported_step && result_shape.IsNull();
             std::optional<BodyResult> standalone_import_result;
             ViewerMesh operand_mesh;
@@ -7335,7 +7469,7 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                 }
             }
             boundaries.back().source_fingerprint =
-                history_fingerprint(operations, boundaries.size());
+                fingerprint(operations, boundaries.size());
             remember_live_boundary(boundaries.back().source_fingerprint,
                 result_shape, owned_topology);
         }

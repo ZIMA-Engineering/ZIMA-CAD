@@ -559,10 +559,14 @@ int main(int argc,char** argv){
         }
         for (const std::string kind : {"extrusion", "revolution"}) {
             const auto file="cli-profile-"+kind+".prtz";
+            std::string target_setup;
+            if(kind=="extrusion")for(const auto& [name,offset]:std::vector<std::pair<std::string,double>>{{"Upper",7},{"Lower",-3}})
+                target_setup+=command({{"command","construction.create"},{"arguments",{{"kind","plane"},{"name",name},{"base_plane","xy"},{"offset_mm",offset}}}}).toStdString()+"\n";
             result=launch(executable,root,common+QStringList{"--stdin"},QByteArray::fromStdString(
-                "new part cli-profile-"+kind+"\nsketch.create Profile XY\nsave\n"));
+                "new part cli-profile-"+kind+"\n"+target_setup+"sketch.create Profile XY\nsave\n"));
             require(result.exit_code==0,"CLI profile fixture failed");
-            const auto sketch=result.results()[1].at("data").at("sketch");
+            const auto setup=result.results();
+            const auto sketch=setup[kind=="extrusion"?3:1].at("data").at("sketch");
             const auto rectangle=command({{"command","sketch.rectangle.create"},{"arguments",{{"sketch",sketch},{"first",{2,0}},{"second",{4,10}}}}});
             const auto line=command({{"command","sketch.segment.create"},{"arguments",{{"sketch",sketch},{"first",{0,0}},{"second",{0,10}}}}});
             result=launch(executable,root,common+QStringList{"--command",QString::fromStdString("open "+file),
@@ -591,6 +595,22 @@ int main(int argc,char** argv){
             cache.clear();const auto thin_document=document::PartDocument::load(project/file,&cache);
             require(thin_document.history.front().id==id && std::abs(cache.back().volume-(kind=="extrusion"?48:9*std::acos(-1.0)))<1e-6,
                 "CLI Thin profile did not persist the calculated wall");
+            if(kind=="extrusion") {
+                const auto upper=setup[1].at("data").at("entity"),lower=setup[2].at("data").at("entity");
+                const auto targets=command({{"command","extrusion.set"},{"arguments",{{"container",id},{"result_type","solid"},{"extent","two_sides"},
+                    {"end_forward","up_to"},{"end_reverse","up_to"},{"targets_forward",Json::array({{{"owner",upper},{"key","plane"},{"label","Horní rovina žluťoučká"}}})},
+                    {"targets_reverse",Json::array({{{"owner",lower},{"key","plane"}}})}}}});
+                result=launch(executable,root,common+QStringList{"--command",QString::fromStdString("open "+file),"--command",targets,
+                    "--command","undo","--command","redo","--command","save"});
+                require(result.exit_code==0,"CLI target references failed");cache.clear();
+                const auto bounded=document::PartDocument::load(project/file,&cache);
+                require(std::abs(cache.back().volume-200)<1e-6 && bounded.history.front().extrusion.end_targets_forward.front().label=="Horní rovina žluťoučká",
+                    "CLI target reference roundtrip lost geometry or Unicode metadata");
+                result=launch(executable,root,common+QStringList{"--command",QString::fromStdString("open "+file),"--command",
+                    command({{"command","extrusion.set"},{"arguments",{{"container",id},{"extent","symmetric"}}}}),"--command","save"});
+                require(result.exit_code==0,"CLI symmetric target failed");cache.clear();static_cast<void>(document::PartDocument::load(project/file,&cache));
+                require(std::abs(cache.back().volume-280)<1e-6,"CLI symmetric target produced an asymmetric solid");
+            }
         }
         std::cout<<"CLI processes: native files, Unicode/config, scripts/stdin, errors, streaming and explicit geometry calculation passed\n";
         return 0;

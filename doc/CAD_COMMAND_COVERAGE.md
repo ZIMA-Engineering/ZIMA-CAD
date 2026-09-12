@@ -40,7 +40,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Skicář: geometrie | Základ hotov | 21 příkazů: samostatné a vložené skici, body, úsečky, kružnice, oblouky, elipsy, B-spline, obdélníky, mnohoúhelníky, posun a pomocná geometrie; text create/get/set s nativním písmem a spline get/set hotovy; DXF do vložených profilů hotov; zbývá kontrola dalších variant podle GUI |
 | Skicář: vazby a operace | Vazby/kóty/solver/offset/trim/mirror hotovy | Offset create/get/set/free, úplný podklad a zachování intervalů, trim podle průsečíků, mirror, orientovaný obdélník, tečny a zaoblení rohu; všech 15 druhů vazeb, odstranění a solver; 16 druhů kót včetně vlastností, popisků a mazání; uvolnění externích referencí hotovo |
 | Externí reference skici | Part a kořenová Assembly hotovy | Původní geometrie, přesná projekce, aktualizace, odpojení a zachování trimu; zbývá příkazový kontext Partu aktivovaného v sestavě |
-| Vytažení a rotace | Plné i tenkostěnné profily a směry hotovy | `extrusion/revolution.create/get/set`, vlastněná skica a společné OK; zbývá zadávání cílových referencí a sestavové řezy |
+| Vytažení a rotace | Profily, Thin, směry a cíle zakončení Partu hotovy | `extrusion/revolution.create/get/set`, vlastněná skica, původní plochy a dvě nezávislé meze, společné OK; zbývají sestavové řezy |
 | Tažení | Zbývá | Sweep 2D/3D, loft a helical včetně profilů a drah |
 | Otvory a závity | Zbývá | Hole, Thread, ShaftThread, DrillPoint a reference |
 | Zaoblení, zkosení, skořepina | Zbývá | Výběr skutečného vstupního tělesa a sdílené transakce |
@@ -589,3 +589,19 @@ prošly, nová objemová zkouška prošla po opravě jejího vlastnictví zásob
 Nativní adaptéry, náhled a příkazové zadání cílů zůstávají právě dokončovaným
 krokem; katalog má nadále **164 příkazů**. Podrobnosti:
 [PROFILE_COMMANDS.md](PROFILE_COMMANDS.md).
+
+
+Etapa cílových referencí vysunutí doplňuje `targets_forward/targets_reverse`
+do `extrusion.create/set`, nativní obnovu cílů, dvě nezávislé meze a symetrii.
+GUI vybírá stejné původní plochy jako CLI. Vazby mezi posunutými/natočenými
+tělesy se počítají v jejich vlastních souřadnicích; pozdější řez nezamění
+původní plochu za výsledný fragment. Hrubé vykreslení nesmí definovat rovinnost.
+Katalog má nadále **164 příkazů**, formát ani start šablony se nemění.
+
+Úplné sestavení a Windows Release sada prošly **92/92** (421,62 s),
+`build/extrusion-target-complete-tests.log`. Po závěrečné opravě rozpoznání
+hrubě vykreslené plochy a doplnění nápovědy/překladů prošlo **9/9** souvisejících
+modelových, CLI a GUI regresí (47,02 s), `build/extrusion-target-final-tests.log`.
+Podrobnosti jsou v [PROFILE_COMMANDS.md](PROFILE_COMMANDS.md).
+Další etapa pokrývá vlastnosti a tvorbu tažení včetně vložených profilů a drah;
+sestavové řezy a ostatní otevřené řádky zůstávají součástí celkového cíle CLI.

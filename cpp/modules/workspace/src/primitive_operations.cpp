@@ -102,7 +102,7 @@ bool commit_primitive(Workspace& workspace, const kernel::OcctKernel& kernel,
     append_reference_geometry(references, next.origin_viewer_mesh().original_references);
     append_reference_geometry(references, next.construction_viewer_mesh().original_references);
     next.resolve_constructions(references);
-    auto calculated = calculate_part(kernel, next, &calculated_before, policy);
+    auto calculated = calculate_part_with_resolved_references(kernel, next, &calculated_before, policy);
     static_cast<void>(refresh_sketch_external_references(next, calculated));
     state->session.commit(std::move(next), std::move(calculated));
     return true;

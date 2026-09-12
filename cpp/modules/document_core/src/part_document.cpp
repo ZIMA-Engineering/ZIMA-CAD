@@ -3,6 +3,7 @@
 #include <zima/document/appearance.hpp>
 #include <zima/document/document_copy_json.hpp>
 #include <zima/document/part_document.hpp>
+#include <zima/document/profile_targets.hpp>
 #include <zima/document/precision.hpp>
 #include <zima/document/helical_geometry.hpp>
 #include <zima/document/versioned_file.hpp>
@@ -32,6 +33,9 @@
 
 namespace zima::document {
 namespace {
+
+ExtrusionParameters::EndTarget resolved_extrusion_end_target(const PartDocument&,
+    const HistoryContainer&,const ExtrusionParameters::EndTarget&,bool external_snapshot);
 
 // The opening depth is the axis/target-plane intersection, not the axial
 // projection of an arbitrary picked corner on an inclined face.
@@ -5993,15 +5997,6 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::extrusion_preview_edges(
         ? 0.0
         : parameters.extent_mode == ProfileExtentMode::Symmetric
             ? forward : parameters.length_reverse;
-    const bool through_forward =
-        (legacy_definition && parameters.extent == ExtrusionExtent::ThroughAll) ||
-        (!legacy_definition &&
-         parameters.end_condition_forward == EndCondition::ThroughAll);
-    const bool through_reverse = !legacy_definition &&
-        parameters.extent_mode != ProfileExtentMode::OneSide &&
-        (parameters.extent_mode == ProfileExtentMode::Symmetric
-            ? parameters.end_condition_forward == EndCondition::ThroughAll
-            : parameters.end_condition_reverse == EndCondition::ThroughAll);
     const auto evaluated_profile = sketch->evaluated_profile_sketch();
     auto request = body_profile_request(evaluated_profile,
         forward + reverse, parameters.direction, parameters.result_type,
@@ -6012,10 +6007,32 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::extrusion_preview_edges(
     const zima::kernel::Vec3 unit{request.direction.x / length,
                                   request.direction.y / length,
                                   request.direction.z / length};
-    const auto surface_distance = [&](const zima::kernel::Vec3& point) {
-        const auto& triangles = legacy_definition
-            ? parameters.target_surface_triangles
-            : parameters.end_targets_forward.front().fallback_triangles;
+    const auto forward_condition=legacy_definition
+        ? parameters.extent==ExtrusionExtent::ThroughAll?EndCondition::ThroughAll:parameters.extent==ExtrusionExtent::Blind?EndCondition::Length:EndCondition::UpTo
+        : parameters.end_condition_forward;
+    const auto reverse_condition=parameters.extent_mode==ProfileExtentMode::OneSide?EndCondition::Length:
+        parameters.extent_mode==ProfileExtentMode::Symmetric?forward_condition:parameters.end_condition_reverse;
+    std::optional<ExtrusionParameters::EndTarget> forward_target,reverse_target;
+    if(!parameters.end_targets_forward.empty())forward_target=parameters.end_targets_forward.front();
+    if(!parameters.end_targets_reverse.empty())reverse_target=parameters.end_targets_reverse.front();
+    if(legacy_definition && forward_condition==EndCondition::UpTo) {
+        forward_target=ExtrusionParameters::EndTarget{};forward_target->kind=parameters.extent==ExtrusionExtent::UpToPlane?EndTargetKind::Plane:EndTargetKind::Face;
+        forward_target->reference=parameters.target_face;forward_target->fallback_origin=parameters.target_plane_origin;
+        forward_target->fallback_normal=parameters.target_plane_normal;forward_target->fallback_triangles=parameters.target_surface_triangles;
+    }
+    if(!legacy_definition) {
+        if(forward_condition==EndCondition::UpTo && forward_target && profile_target_is_datum(forward_target->reference))forward_target=resolved_extrusion_end_target(*this,container,*forward_target,!forward_target->reference.instance_path.empty());
+        if(parameters.extent_mode==ProfileExtentMode::TwoSides && reverse_condition==EndCondition::UpTo && reverse_target && profile_target_is_datum(reverse_target->reference))reverse_target=resolved_extrusion_end_target(*this,container,*reverse_target,!reverse_target->reference.instance_path.empty());
+    }
+    if(parameters.extent_mode==ProfileExtentMode::Symmetric && forward_condition==EndCondition::UpTo && forward_target) {
+        reverse_target=forward_target;const auto base=evaluated_profile.world_point(0,0);
+        const auto reflect=[&](zima::kernel::Vec3 p){const double d=(p.x-base.x)*unit.x+(p.y-base.y)*unit.y+(p.z-base.z)*unit.z;return zima::kernel::Vec3{p.x-2*d*unit.x,p.y-2*d*unit.y,p.z-2*d*unit.z};};
+        reverse_target->fallback_origin=reflect(reverse_target->fallback_origin);
+        const auto n=reverse_target->fallback_normal;const double dot=n.x*unit.x+n.y*unit.y+n.z*unit.z;
+        reverse_target->fallback_normal={n.x-2*dot*unit.x,n.y-2*dot*unit.y,n.z-2*dot*unit.z};
+        for(auto& p:reverse_target->fallback_triangles)p=reflect(p);
+    }
+    const auto surface_distance=[&](const zima::kernel::Vec3& point,const zima::kernel::Vec3& ray,const std::vector<zima::kernel::Vec3>& triangles) {
         double nearest = std::numeric_limits<double>::infinity();
         for (std::size_t index = 0; index < triangles.size(); index += 3) {
             const auto& v0 = triangles[index];
@@ -6023,9 +6040,9 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::extrusion_preview_edges(
             const auto& v2 = triangles[index + 2];
             const zima::kernel::Vec3 edge1{v1.x - v0.x, v1.y - v0.y, v1.z - v0.z};
             const zima::kernel::Vec3 edge2{v2.x - v0.x, v2.y - v0.y, v2.z - v0.z};
-            const zima::kernel::Vec3 h{unit.y * edge2.z - unit.z * edge2.y,
-                                       unit.z * edge2.x - unit.x * edge2.z,
-                                       unit.x * edge2.y - unit.y * edge2.x};
+            const zima::kernel::Vec3 h{ray.y * edge2.z - ray.z * edge2.y,
+                                       ray.z * edge2.x - ray.x * edge2.z,
+                                       ray.x * edge2.y - ray.y * edge2.x};
             const double determinant = edge1.x * h.x + edge1.y * h.y + edge1.z * h.z;
             if (std::abs(determinant) <= 1e-12) continue;
             const double inverse = 1.0 / determinant;
@@ -6035,7 +6052,7 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::extrusion_preview_edges(
             const zima::kernel::Vec3 q{s.y * edge1.z - s.z * edge1.y,
                                        s.z * edge1.x - s.x * edge1.z,
                                        s.x * edge1.y - s.y * edge1.x};
-            const double v = inverse * (unit.x * q.x + unit.y * q.y + unit.z * q.z);
+            const double v = inverse * (ray.x * q.x + ray.y * q.y + ray.z * q.z);
             if (v < -1e-9 || u + v > 1.0 + 1e-9) continue;
             const double distance = inverse *
                 (edge2.x * q.x + edge2.y * q.y + edge2.z * q.z);
@@ -6049,50 +6066,21 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::extrusion_preview_edges(
         }
         return nearest;
     };
-    const auto endpoint = [&](const zima::kernel::Vec3& point) {
-        const auto condition = legacy_definition
-            ? parameters.extent == ExtrusionExtent::ThroughAll
-                ? EndCondition::ThroughAll
-                : parameters.extent == ExtrusionExtent::Blind
-                    ? EndCondition::Length : EndCondition::UpTo
-            : parameters.end_condition_forward;
-        const auto* target = parameters.end_targets_forward.empty()
-            ? nullptr : &parameters.end_targets_forward.front();
-        if (condition == EndCondition::UpTo &&
-            ((target && target->kind == EndTargetKind::Plane) ||
-             (legacy_definition && parameters.extent == ExtrusionExtent::UpToPlane))) {
-            const auto& normal = legacy_definition ? parameters.target_plane_normal
-                                                   : target->fallback_normal;
-            const auto& origin = legacy_definition ? parameters.target_plane_origin
-                                                   : target->fallback_origin;
-            const double denominator = unit.x * normal.x + unit.y * normal.y +
-                                       unit.z * normal.z;
-            if (std::abs(denominator) <= 1e-12) {
-                throw std::runtime_error("Extrusion direction is parallel to target plane");
-            }
-            const double distance =
-                ((origin.x - point.x) * normal.x +
-                 (origin.y - point.y) * normal.y +
-                 (origin.z - point.z) * normal.z) /
-                denominator;
-            if (!std::isfinite(distance) || distance <= 1e-9) {
-                throw std::runtime_error("Extrusion profile crosses target plane");
-            }
-            return zima::kernel::Vec3{point.x + unit.x * distance,
-                                      point.y + unit.y * distance,
-                                      point.z + unit.z * distance};
+    const auto endpoint=[&](const zima::kernel::Vec3& point,bool backwards) {
+        const auto condition=backwards?reverse_condition:forward_condition;
+        const auto& target=backwards?reverse_target:forward_target;
+        const zima::kernel::Vec3 ray=backwards?zima::kernel::Vec3{-unit.x,-unit.y,-unit.z}:unit;
+        double distance=backwards?reverse:forward;
+        if(condition==EndCondition::ThroughAll)distance=backwards && through_all_reverse_span>0?through_all_reverse_span:through_all_span;
+        if(condition==EndCondition::UpTo && target) {
+            if(target->kind==EndTargetKind::Plane) {
+                const auto n=target->fallback_normal,o=target->fallback_origin;const double dot=ray.x*n.x+ray.y*n.y+ray.z*n.z;
+                if(std::abs(dot)<=1e-12)throw std::runtime_error("Extrusion direction is parallel to target plane");
+                distance=((o.x-point.x)*n.x+(o.y-point.y)*n.y+(o.z-point.z)*n.z)/dot;
+            } else distance=surface_distance(point,ray,target->fallback_triangles);
+            if(!std::isfinite(distance)||distance<=1e-9)throw std::runtime_error("Extrusion profile crosses target plane");
         }
-        if (condition == EndCondition::UpTo &&
-            (target || (legacy_definition &&
-                parameters.extent == ExtrusionExtent::UpToSurface))) {
-            const double distance = surface_distance(point);
-            return zima::kernel::Vec3{point.x + unit.x * distance,
-                                      point.y + unit.y * distance,
-                                      point.z + unit.z * distance};
-        }
-        return zima::kernel::Vec3{point.x + request.direction.x,
-                                  point.y + request.direction.y,
-                                  point.z + request.direction.z};
+        return zima::kernel::Vec3{point.x+ray.x*distance,point.y+ray.y*distance,point.z+ray.z*distance};
     };
     std::vector<zima::kernel::ViewerEdge> result;
     const auto profile_edges = parameters.result_type == ProfileResultType::Thin
@@ -6106,45 +6094,9 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::extrusion_preview_edges(
         const auto profile_role = source.reference.semantic_key.starts_with("thin:")
             ? ":" + source.reference.semantic_key : std::string{};
         start.reference = {container.id, "preview:start" + profile_role, {}};
-        for (auto& point : start.points) {
-            point.x -= unit.x * reverse;
-            point.y -= unit.y * reverse;
-            point.z -= unit.z * reverse;
-        }
-        zima::kernel::ViewerEdge end;
-        end.reference = {container.id, "preview:end" + profile_role, {}};
-        end.points.reserve(source.points.size());
-        if (through_forward || through_reverse) {
-            start.points = source.points;
-            if (through_reverse) {
-                const double span = through_all_reverse_span > 0.0
-                    ? through_all_reverse_span : through_all_span;
-                for (auto& point : start.points) {
-                    point.x -= unit.x * span;
-                    point.y -= unit.y * span;
-                    point.z -= unit.z * span;
-                }
-            } else {
-                for (auto& point : start.points) {
-                    point.x -= unit.x * reverse;
-                    point.y -= unit.y * reverse;
-                    point.z -= unit.z * reverse;
-                }
-            }
-            for (const auto& point : source.points) {
-                if (through_forward) {
-                    end.points.push_back({point.x + unit.x * through_all_span,
-                                          point.y + unit.y * through_all_span,
-                                          point.z + unit.z * through_all_span});
-                } else {
-                    end.points.push_back({point.x + unit.x * forward,
-                                          point.y + unit.y * forward,
-                                          point.z + unit.z * forward});
-                }
-            }
-        } else {
-            for (const auto& point : start.points) end.points.push_back(endpoint(point));
-        }
+        for(auto& point:start.points)point=endpoint(point,true);
+        zima::kernel::ViewerEdge end;end.reference={container.id,"preview:end"+profile_role,{}};
+        end.points.reserve(source.points.size());for(const auto& point:source.points)end.points.push_back(endpoint(point,false));
         result.push_back(start);
         result.push_back(end);
         const auto distance = [](const auto& first, const auto& second) {
@@ -6190,8 +6142,8 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::extrusion_preview_edges(
     const auto sketch = std::find_if(sketches.begin(), sketches.end(),
         [&](const auto& value) { return value.id == container.extrusion.sketch_id; });
     if (sketch == sketches.end()) return {};
-    const auto request = extrusion_request(*sketch, 1.0,
-        container.extrusion.direction);
+    const auto request = body_profile_request(*sketch, 1.0,container.extrusion.direction,
+        container.extrusion.result_type,container.extrusion.thin_thickness,container.extrusion.thin_mode);
     const double norm = std::hypot(std::hypot(request.direction.x,
         request.direction.y), request.direction.z);
     if (norm <= 1.0e-12) return {};
@@ -8101,6 +8053,23 @@ std::optional<std::size_t> PartDocument::history_index(
     return static_cast<std::size_t>(std::distance(history.begin(), found));
 }
 
+namespace {
+ExtrusionParameters::EndTarget resolved_extrusion_end_target(const PartDocument& part,
+    const HistoryContainer& container,const ExtrusionParameters::EndTarget& target,bool external_snapshot) {
+    if(target.kind==EndTargetKind::Point)throw std::runtime_error("Extrusion end references require a plane or an original face.");
+    if(!target.reference.valid())throw std::runtime_error("Extrusion end reference is missing.");
+    if(!profile_target_is_datum(target.reference) || (external_snapshot && !target.reference.instance_path.empty()))return target;
+    auto geometry=part.origin_viewer_mesh().original_references;
+    append_reference_geometry(geometry,part.body_origin_reference_geometry());
+    append_reference_geometry(geometry,part.history_origin_reference_geometry_before(container.id));
+    append_reference_geometry(geometry,part.construction_viewer_mesh().original_references);
+    geometry=part.construction_reference_geometry_for(container.id,std::move(geometry));
+    const auto resolved=resolve_profile_target(target,geometry);
+    if(!resolved)throw std::runtime_error("Extrusion end reference is missing.");
+    return *resolved;
+}
+}
+
 std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
     bool allow_persisted_external_target, bool recover_errors) const {
     std::vector<zima::kernel::HistoryOperation> operations;
@@ -8513,7 +8482,8 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
             const auto reverse_condition = legacy_definition ||
                     parameters.extent_mode == ProfileExtentMode::OneSide
                 ? EndCondition::Length
-                : parameters.end_condition_reverse;
+                : parameters.extent_mode==ProfileExtentMode::Symmetric
+                    ? parameters.end_condition_forward : parameters.end_condition_reverse;
             const bool legacy_plane = legacy_definition &&
                 parameters.extent == ExtrusionExtent::UpToPlane;
             extrusion.extent = condition == EndCondition::UpTo &&
@@ -8526,20 +8496,25 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                         reverse_condition == EndCondition::ThroughAll
                     ? zima::kernel::ExtrusionRequest::Extent::ThroughAll
                     : zima::kernel::ExtrusionRequest::Extent::Blind;
+            extrusion.symmetric_limit=parameters.extent_mode==ProfileExtentMode::Symmetric && condition==EndCondition::UpTo;
             extrusion.through_all_forward =
                 condition == EndCondition::ThroughAll;
             extrusion.through_all_reverse =
                 reverse_condition == EndCondition::ThroughAll;
-            const ExtrusionParameters::EndTarget* target =
-                parameters.end_targets_forward.empty()
-                    ? nullptr : &parameters.end_targets_forward.front();
+            std::optional<ExtrusionParameters::EndTarget> resolved_forward;
+            const ExtrusionParameters::EndTarget* target = parameters.end_targets_forward.empty()?nullptr:&parameters.end_targets_forward.front();
+            if(condition==EndCondition::UpTo && !legacy_definition) {
+                if(parameters.end_targets_forward.size()!=1)throw std::runtime_error("Select exactly one extrusion end reference.");
+                resolved_forward=resolved_extrusion_end_target(*this,container,*target,allow_persisted_external_target);
+                target=&*resolved_forward;
+            }
             extrusion.target_face = legacy_definition ? parameters.target_face
                 : target ? target->reference : zima::kernel::FaceReference{};
             if (allow_persisted_external_target) {
                 extrusion.target_face.instance_path.clear();
             }
-            extrusion.target_is_datum = legacy_plane ||
-                (target && target->kind == EndTargetKind::Plane);
+            extrusion.target_is_datum = legacy_plane || (target && target->kind==EndTargetKind::Plane &&
+                (profile_target_is_datum(target->reference) || (allow_persisted_external_target && !target->reference.instance_path.empty())));
             if (condition == EndCondition::UpTo && (target || legacy_definition) &&
                 !extrusion.target_is_datum &&
                 !allow_persisted_external_target &&
@@ -8557,6 +8532,18 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                 extrusion.target_plane_origin = target->fallback_origin;
                 extrusion.target_plane_normal = target->fallback_normal;
                 extrusion.target_surface_triangles = target->fallback_triangles;
+            }
+            if(reverse_condition==EndCondition::UpTo && parameters.extent_mode==ProfileExtentMode::TwoSides) {
+                if(parameters.end_targets_reverse.size()!=1)throw std::runtime_error("Select exactly one extrusion end reference.");
+                const auto reverse_target=resolved_extrusion_end_target(*this,container,parameters.end_targets_reverse.front(),allow_persisted_external_target);
+                zima::kernel::ExtrusionLimit limit;
+                limit.planar=reverse_target.kind==EndTargetKind::Plane;limit.reference=reverse_target.reference;
+                limit.datum=limit.planar && (profile_target_is_datum(limit.reference) || (allow_persisted_external_target && !limit.reference.instance_path.empty()));
+                if(allow_persisted_external_target)limit.reference.instance_path.clear();
+                if(!limit.datum && !allow_persisted_external_target && std::ranges::none_of(operations,[&](const auto& prior){return prior.owner_id==limit.reference.owner_id;}))
+                    throw std::runtime_error("Extrusion target must belong to prior history or a datum plane");
+                limit.origin=reverse_target.fallback_origin;limit.normal=reverse_target.fallback_normal;limit.triangles=reverse_target.fallback_triangles;
+                extrusion.reverse_limit=std::move(limit);
             }
             // An owned Sketch is resolved into the owning container's absolute
             // frame by resolve_constructions().  Its generated profile and

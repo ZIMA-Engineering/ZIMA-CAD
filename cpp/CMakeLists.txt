@@ -63,6 +63,7 @@ target_link_libraries(zima_sketcher
 
 add_library(zima_document_core
     modules/document_core/src/part_document.cpp
+    modules/document_core/src/profile_targets.cpp
     modules/document_core/src/appearance.cpp
     modules/document_core/src/body_history.cpp
     modules/document_core/src/section.cpp
@@ -126,7 +127,8 @@ add_library(zima_workspace modules/workspace/src/workspace.cpp
     modules/workspace/src/model_calculation.cpp
     modules/workspace/src/placement_edit.cpp
     modules/workspace/src/primitive_operations.cpp
-    modules/workspace/src/profile_operations.cpp)
+    modules/workspace/src/profile_operations.cpp
+    modules/workspace/src/profile_targets.cpp)
 target_include_directories(zima_workspace PUBLIC modules/workspace/include)
 target_link_libraries(zima_workspace PUBLIC
     zima_document_core zima_assembly zima_drawing zima_kernel_occt zima_interchange

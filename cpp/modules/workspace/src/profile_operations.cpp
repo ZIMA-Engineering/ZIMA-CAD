@@ -176,13 +176,23 @@ void commit_profile(Workspace& live, const kernel::OcctKernel& kernel, const std
     if (existing) *next.find_container(container_id) = std::move(value);
     else {next.insert_history_entry(document::PartHistoryKind::Feature, container_id); next.history.push_back(std::move(value));}
     const auto& previous = state->session.calculated_boundaries();
+    if(extrusion) {
+        auto& parameters=next.find_container(container_id)->extrusion;
+        const auto prepare=[&](document::EndCondition condition,auto& targets) {
+            if(condition!=document::EndCondition::UpTo)return;
+            if(targets.size()!=1)throw ProfileOperationError("missing_reference","Select exactly one extrusion end reference.");
+            targets.front()=prepare_profile_end_target(next,previous,*next.find_container(container_id),targets.front());
+        };
+        prepare(parameters.end_condition_forward,parameters.end_targets_forward);
+        if(parameters.extent_mode==document::ProfileExtentMode::TwoSides)prepare(parameters.end_condition_reverse,parameters.end_targets_reverse);
+    }
     auto geometry = construction_reference_source_geometry(previous);
     append_reference_geometry(geometry, next.origin_viewer_mesh().original_references);
     append_reference_geometry(geometry, next.construction_viewer_mesh().original_references);
     next.resolve_constructions(geometry);
     PartCalculationPolicy policy; policy.reject_errors = true;
     if (existing) {policy.edited_document_id = id; policy.edited_history_limit = before.history_index(container_id);}
-    auto calculated = calculate_part(kernel, next, &previous, policy);
+    auto calculated = calculate_part_with_resolved_references(kernel, next, &previous, policy);
     static_cast<void>(refresh_sketch_external_references(next, calculated));
     state->session.commit(std::move(next), std::move(calculated));
 }
