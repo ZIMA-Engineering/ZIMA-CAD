@@ -378,11 +378,12 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         check(dxf_result.at("imported_entities")==4 && !dxf_result.at("body_calculated").get<bool>(),"Console import did not use the DXF transaction");
         const auto before_menu_import=run("sketch.list").data.at("total").get<int>();
         auto* import_action=window.findChild<QAction*>("importDocumentAction");check(import_action,"Import menu action missing");
+        auto menu_import_source=dxf_source;
         bool chosen=false, timed_out=false;QTimer choose_import;choose_import.setInterval(50);
         QObject::connect(&choose_import,&QTimer::timeout,[&]{
             if(auto* dialog=qobject_cast<QFileDialog*>(QApplication::activeModalWidget())) {
                 if (!chosen) {
-                    const auto absolute=std::filesystem::absolute(dxf_source);
+                    const auto absolute=std::filesystem::absolute(menu_import_source);
                     dialog->setDirectory(QString::fromStdString(document::path_to_utf8(absolute.parent_path())));
                     dialog->selectFile(QString::fromStdString(document::path_to_utf8(absolute.filename())));
                     chosen=true;
@@ -391,7 +392,7 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
                 // A visible QFileDialog with a proxy model can discard selectFile()
                 // while its directory loads. Enter the path in the same field as a user.
                 if (auto* filename=dialog->findChild<QLineEdit*>("fileNameEdit"))
-                    filename->setText(QString::fromStdString(document::path_to_utf8(std::filesystem::absolute(dxf_source))));
+                    filename->setText(QString::fromStdString(document::path_to_utf8(std::filesystem::absolute(menu_import_source))));
                 std::cout<<"Import chooser: "<<dialog->selectedFiles().join(" | ").toStdString()<<'\n';
                 QMetaObject::invokeMethod(dialog,"accept",Qt::DirectConnection);
             } else if (auto* message=qobject_cast<QMessageBox*>(QApplication::activeModalWidget())) {
@@ -439,6 +440,14 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         const auto curves_dxf=std::filesystem::absolute(directory/(stem+"-dxf-curves.dxf"));
         run(QString::fromStdString(commands::Json{{"command","export.dxf"},{"arguments",{{"path",document::path_to_utf8(curves_dxf)},{"sketch",curves_part.sketches.front().id}}}}.dump()));
         test::check_dxf_curves(curves_dxf);
+        run(QString::fromStdString("new part "+stem+"-dxf-roundtrip"));menu_import_source=curves_dxf;chosen=false;timed_out=false;
+        choose_import.start();import_timeout.start(10000);import_action->trigger();choose_import.stop();import_timeout.stop();flush();
+        check(chosen&&!timed_out,"Exact DXF import menu did not finish");
+        const auto imported_curve_sketch=run("sketch.list").data.at("items").back().at("sketch");
+        const auto imported_curves_dxf=std::filesystem::absolute(directory/(stem+"-dxf-roundtrip.dxf"));
+        run(QString::fromStdString(commands::Json{{"command","export.dxf"},{"arguments",{{"path",document::path_to_utf8(imported_curves_dxf)},{"sketch",imported_curve_sketch}}}}.dump()));
+        test::check_dxf_curves(imported_curves_dxf,false);run("save");menu_import_source=dxf_source;
+
         run(QString::fromStdString("new assembly "+stem+"-import-owner"));
         commands::Json assembly_import={{"command","import.step"},{"arguments",{{"path",document::path_to_utf8(exported_model)}}}};
         const auto assembly_result=run(QString::fromStdString(assembly_import.dump())).data;

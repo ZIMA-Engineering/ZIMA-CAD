@@ -49,7 +49,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Výkresy | Listy, šablony, historie, tvorba/vlastnosti/dotazy/mazání pohledů, regenerace, modelové anotace, Show/Erase a měřené kóty (dotazy, tvorba, editace, řetězec, mazání), razítko, zdrojové parametry BOM, PDF, DXF a PNG/JPEG listu/výřezu hotovy | Další anotace, zdrojové styly šraf a příkazový snímek interaktivního View |
 | Řezy, měření a vzhled | Zbývá | Datové operace a uložené výsledky |
 | Parametry, relace a materiál | Společné tabulky a transakce hotovy | Parametry, jednotky, přesnost, relace, materiál včetně přímého načtení knihovny a uložené varianty; řízení rozměrů relacemi a generování variant nejsou dosud zavedené ani v GUI |
-| Import a export | Import Partu/Assembly STEP/IGES/DXF a základní exporty hotovy | Společný STEP včetně vnořených sestav, STL Part/vnořená Assembly, DXF úsečky/osy/body/kružnice/oblouky/elipsy/spline/trimy/offsety; DXF do vložených profilů hotov; zbývá DXF text/rohová zaoblení, rozšíření importního parseru a snímek interaktivního View |
+| Import a export | Import Partu/Assembly STEP/IGES/DXF a základní exporty hotovy | Společný STEP včetně vnořených sestav, STL Part/vnořená Assembly, DXF úsečky/osy/body/kružnice/oblouky/elipsy/spline/trimy/offsety; DXF do vložených profilů hotov; zbývá DXF text/rohová zaoblení, import POINT/neohraničených spline a snímek interaktivního View |
 
 Každá další etapa aktualizuje tabulku a uvádí ověřené testy. Neobcházíme
 chybějící operaci nevalidovanou změnou serializovaného dokumentu ani voláním
@@ -474,3 +474,12 @@ a výměnné kontrakty **1/1** (0,09 s), `build/dxf-curves-interchange-tests.log
 Nezávislé načtení a geometrické ověření přes ezdxf 1.4.4 prošlo bez chyb a oprav.
 Text, rohová zaoblení a rozšíření zpětného DXF importu zůstávají další etapou;
 podrobnosti v [EXPORT_COMMANDS.md](EXPORT_COMMANDS.md).
+
+
+Navazující DXF import přijímá elipsy, jejich oblouky, přesné ohraničené spline
+a nekonečné osy. Nový blok nesdílí body se staršími importy, včetně kružnic
+a oblouků. Ověřeno **10/10** integračních testů (38,20 s),
+`build/dxf-import-curves-integration-tests.log`, a dodatečné modelové testy
+objemu **1/1** (0,45 s) a jednotek **1/1** (0,10 s). Příkazů je stále **152**.
+Samostatné POINT a jiné než ohraničené řídicí reprezentace spline zůstávají
+nepodporované. Podrobnosti: [IMPORT_COMMANDS.md](IMPORT_COMMANDS.md).

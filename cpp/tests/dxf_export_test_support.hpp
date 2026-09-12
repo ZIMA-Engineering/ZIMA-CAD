@@ -51,12 +51,13 @@ inline sketcher::Sketch dxf_curve_fixture() {
     auto point=sketcher::Sketch::create_point(123,456);point.construction=true;sketch.points.push_back(point);
     sketch.validate();return sketch;
 }
-inline void check_dxf_curves(const std::filesystem::path& path) {
+inline void check_dxf_curves(const std::filesystem::path& path,bool standalone_point=true) {
     const auto require=[](bool value,const char* text){if(!value)throw std::runtime_error(text);};
     const auto near=[](double a,double b){return std::abs(a-b)<1e-8;};
     std::map<std::string,std::vector<DxfEntity>> types;for(auto& entity:read_dxf_entities(path))types[entity.type].push_back(std::move(entity));
     require(types["ELLIPSE"].size()==3&&types["SPLINE"].size()==6&&types["LINE"].size()==1&&types["XLINE"].size()==1,"DXF curve entities were lost or duplicated");
-    require(types["POINT"].size()==1&&near(types["POINT"][0].number(10),123)&&near(types["POINT"][0].number(20),456)&&types["POINT"][0].values.at(8)[0]=="CONSTRUCTION","DXF exported editing handles or lost a standalone point");
+    require(types["POINT"].size()==(standalone_point?1:0),"DXF exported editing handles or lost a standalone point");
+    if(standalone_point)require(near(types["POINT"][0].number(10),123)&&near(types["POINT"][0].number(20),456)&&types["POINT"][0].values.at(8)[0]=="CONSTRUCTION","DXF standalone point changed");
     require(near(types["XLINE"][0].number(11),.6)&&near(types["XLINE"][0].number(21),.8),"DXF centerline direction was not normalized");
     const auto& first=types["ELLIPSE"][0];const auto& second=types["ELLIPSE"][1];const auto& arc=types["ELLIPSE"][2];
     require(near(first.number(11),5)&&near(first.number(40),.6)&&near(first.number(42),2*std::numbers::pi),"DXF ellipse changed its exact axes");

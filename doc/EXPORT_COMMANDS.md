@@ -147,8 +147,9 @@ Samostatné body jsou `POINT`; středy a řídicí body křivek se jako další
 entity nezapisují. Nekonečná osa je `XLINE`, konečná pomocná úsečka zůstává
 `LINE`. Pomocná geometrie používá vrstvu `CONSTRUCTION`, ostatní `PROFILE`.
 Text a rohové zaoblení nadále vracejí `unsupported_geometry`, včetně ochrany
-již existujícího cíle. Importní parser tato etapa nerozšiřuje: vstupní
-`ELLIPSE`, `SPLINE`, `POINT` a `XLINE` zatím hlásí jako nepodporované entity.
+již existujícího cíle. Navazující importní etapa už přijímá `ELLIPSE`,
+ohraničenou `SPLINE` a `XLINE`; samostatné `POINT` zatím hlásí varováním.
+Podmínky zpětného importu popisuje [IMPORT_COMMANDS.md](IMPORT_COMMANDS.md).
 
 Test čte skutečné skupinové kódy a nezávisle kontroluje analytický tvar
 elipsy s prohozenými osami a opačně orientovaný oblouk, racionální kružnici,

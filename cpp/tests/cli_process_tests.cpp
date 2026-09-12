@@ -292,6 +292,13 @@ int main(int argc,char** argv){
         result=launch(executable,root,common+QStringList{"--command","open cli-dxf-curves.prtz","--command",curve_export});
         if(result.exit_code!=0)std::cerr<<result.output.toStdString()<<result.diagnostics.toStdString();
         require(result.exit_code==0&&result.results().size()==2&&result.results()[1].at("data").at("model_changed")==false,"CLI exact DXF export failed");test::check_dxf_curves(project/"exact-curves.dxf");
+        result=launch(executable,root,common+QStringList{"--command","new part cli-dxf-roundtrip","--command","import.dxf exact-curves.dxf","--command","undo","--command","redo","--command","save"});
+        if(result.exit_code!=0)std::cerr<<result.output.toStdString()<<result.diagnostics.toStdString();
+        require(result.exit_code==0&&result.results().size()==5&&result.results()[1].at("data").at("imported_entities")==11&&result.results()[1].at("data").at("warnings").size()==1,"CLI exact-curve import or history failed");
+        const auto roundtrip_sketch=result.results()[1].at("data").at("sketch");
+        const auto roundtrip_export=command({{"command","export.dxf"},{"arguments",{{"path","roundtrip-curves.dxf"},{"sketch",roundtrip_sketch}}}});
+        result=launch(executable,root,common+QStringList{"--command","open cli-dxf-roundtrip.prtz","--command",roundtrip_export});
+        require(result.exit_code==0,"CLI exact-curve native reload failed");test::check_dxf_curves(project/"roundtrip-curves.dxf",false);
         const auto nested_stl_doc=test::nested_stl_fixture(kernel,project);
         nested_stl_doc.save(project/"cli-nested-stl.asmz");
         result=launch(executable,root,common+QStringList{"--command","open cli-nested-stl.asmz","--command","export.stl nested-output.stl","--command","documents"});

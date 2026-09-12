@@ -1,3 +1,4 @@
+#include "dxf_export_test_support.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/import_operations.hpp>
 #include <zima/workspace/sketch_operations.hpp>
@@ -99,7 +100,36 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     run(host,"import.dxf",{{"path",document::path_to_utf8(dxf_path)},{"sketch",assembly_sketch}});
     require(workspace::document_sketch(live,assembly_id,assembly_sketch).segments.size()==4&&live.open_assembly(assembly_id)->session.document().components.empty()&&live.size()==document_count,"Assembly Sketch import created component files instead of geometry");
     run(host,"undo");require(workspace::document_sketch(live,assembly_id,assembly_sketch).segments.empty(),"Assembly DXF Undo failed");
+    const auto curves_file=dir/"curves.dxf";interchange::export_dxf(curves_file,test::dxf_curve_fixture());
+    const auto curves=run(host,"import.dxf",{{"path",document::path_to_utf8(curves_file)},{"sketch",assembly_sketch}}).data;
+    require(curves.at("imported_entities")==11&&curves.at("warnings").size()==1&&curves.at("body_calculated")==false,"Exact DXF command lost geometry or its explicit unsupported-point warning");
+    const auto& imported=workspace::document_sketch(live,assembly_id,assembly_sketch);const auto imported_data=imported.serialized();
+    require(imported.ellipses.size()==2&&imported.elliptical_arcs.size()==1&&imported.bsplines.size()==6&&imported.import_blocks.size()==1,"Command did not persist native ellipse and spline objects");
+    run(host,"undo");require(workspace::document_sketch(live,assembly_id,assembly_sketch).bsplines.empty(),"Exact DXF import was not one Undo step");run(host,"redo");
+    require(workspace::document_sketch(live,assembly_id,assembly_sketch).serialized()==imported_data,"Exact DXF Redo lost geometry or identities");
+    run(host,"export.dxf",{{"path","command-curves.dxf"},{"sketch",assembly_sketch}});test::check_dxf_curves(dir/"command-curves.dxf",false);
+    run(host,"save");const auto saved=assembly::AssemblyDocument::load(dir/"assembly-dxf-sketch.asmz");
+    require(saved.sketches.front().serialized()==imported_data&&saved.components.empty()&&live.size()==document_count,"Exact DXF import lost native persistence or created component sources");
+
 
 }
+void verify_closed_profiles(const kernel::OcctKernel& kernel,const fs::path& dir) {
+    for(bool rational:{false,true}) {
+        auto source=sketcher::Sketch::create_default();
+        if(rational) {
+            static_cast<void>(source.add_bspline({{5,0},{5,5},{0,5},{-5,5},{-5,0},{-5,-5},{0,-5},{5,-5},{5,0}},2,true));
+            source.bsplines.back().knots={0,0,0,.25,.25,.5,.5,.75,.75,1,1,1};const double w=std::sqrt(.5);
+            source.bsplines.back().weights={1,w,1,w,1,w,1,w,1};
+        } else static_cast<void>(source.add_ellipse(0,0,3,0,0,5));
+        const auto path=dir/(rational?"rational-profile.dxf":"ellipse-profile.dxf");interchange::export_dxf(path,source);
+        auto profile=sketcher::Sketch::create_default();const auto report=interchange::import_dxf(path,profile);
+        require(report.imported_entities==1&&report.warnings.empty(),"Closed DXF profile did not import exactly");
+        auto document=document::PartDocument::create_default();auto feature=document::PartDocument::create_extrusion_container(profile.id);feature.extrusion.height=10;
+        document.sketches.push_back(std::move(profile));document.history.push_back(std::move(feature));
+        const auto calculated=kernel.evaluate_history(document.kernel_operations());
+        const double expected=(rational?250:150)*std::numbers::pi;
+        require(calculated.size()==1&&!calculated.back().kernel_shape.empty()&&std::abs(calculated.back().volume-expected)<1e-5,"Imported exact DXF profile did not produce its analytic extrusion volume");
+    }
 }
-int main(){try{kernel::OcctKernel kernel;const auto parent=fs::canonical(fs::temp_directory_path());const auto dir=parent/("zima-import-command-"+document::PartDocument::create_default().document_id);fs::create_directory(dir);verify(kernel,dir);require(dir.parent_path()==parent,"Unsafe cleanup");fs::remove_all(dir);std::cout<<"Import commands, exact volumes, precision, UTF-8, DXF units, atomicity, Undo and stale workers passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
+}
+int main(){try{kernel::OcctKernel kernel;const auto parent=fs::canonical(fs::temp_directory_path());const auto dir=parent/("zima-import-command-"+document::PartDocument::create_default().document_id);fs::create_directory(dir);verify(kernel,dir);verify_closed_profiles(kernel,dir);require(dir.parent_path()==parent,"Unsafe cleanup");fs::remove_all(dir);std::cout<<"Import commands, exact volumes, precision, UTF-8, DXF units, atomicity, Undo and stale workers passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

@@ -1,5 +1,7 @@
 #include <zima/document/file_path.hpp>
 #include <zima/interchange/dxf.hpp>
+#include <zima/kernel/stable_id.hpp>
+#include <numbers>
 
 #include <algorithm>
 #include <bit>
@@ -68,7 +70,9 @@ DxfImportResult import_dxf(
     if (maximum_entities == 0) {
         throw std::invalid_argument("Limit DXF entit musí být kladný");
     }
-    auto target = destination;
+    // Parse into an independent block. Native circle/arc factories may reuse
+    // coincident points, but must never borrow points from an earlier import.
+    auto target = sketcher::Sketch::create_default();
     const auto pairs = read_pairs(path);
     DxfImportResult result;
     // $INSUNITS is authoritative; the caller's scale is only for unitless DXF.
@@ -195,8 +199,65 @@ DxfImportResult import_dxf(
         if (values.contains(67) && number(values,67) == 1) continue; // paper space
         try {
             if (type == "LINE" || type == "CIRCLE" || type == "ARC" ||
-                type == "LWPOLYLINE" || type == "POLYLINE") planar(values);
-            if (type == "LWPOLYLINE") {
+                type == "LWPOLYLINE" || type == "POLYLINE" || type == "XLINE") planar(values);
+            if(type=="ELLIPSE"||type=="SPLINE") {
+                auto xy=values;
+                if(xy.contains(230)&&std::abs(std::abs(number(xy,230))-1)<1e-9)xy.erase(230);
+                planar(xy);
+            }
+            if(type=="SPLINE") {
+                const int degree=integer(values,71),count=integer(values,73),knot_count=integer(values,72);
+                if(degree<1||count<=degree||knot_count<=0)throw std::runtime_error("DXF spline degree or array counts are invalid.");
+                kernel::BSplineGeometry curve;curve.degree=static_cast<unsigned>(degree);
+                std::vector<double> xs,ys,zs;
+                for(auto i=first_pair;i<index;++i) {
+                    const auto code=pairs[i].code;
+                    if(code!=10&&code!=20&&code!=30&&code!=40&&code!=41)continue;
+                    const double value=number({{code,pairs[i].value}},code);
+                    if(code==10)xs.push_back(value*ambiguous_unit_scale_to_mm);
+                    if(code==20)ys.push_back(value*ambiguous_unit_scale_to_mm);
+                    if(code==30)zs.push_back(value*ambiguous_unit_scale_to_mm);
+                    if(code==40)curve.knots.push_back(value);
+                    if(code==41)curve.weights.push_back(value);
+                }
+                if(xs.size()!=count||ys.size()!=count||(!zs.empty()&&zs.size()!=count)||curve.knots.size()!=knot_count||(!curve.weights.empty()&&curve.weights.size()!=count))
+                    throw std::runtime_error("DXF spline degree or array counts are invalid.");
+                for(double z:zs)if(std::abs(z)>1e-9)throw std::runtime_error("DXF spline control points must lie in XY.");
+                for(std::size_t i=0;i<xs.size();++i)curve.poles.push_back({xs[i],ys[i],0});
+                if(curve.weights.empty())curve.weights.assign(xs.size(),1);
+                try{curve.validate();}catch(const std::exception&){throw std::runtime_error("DXF spline control data is invalid or not clamped.");}
+                const int flags=values.contains(70)?integer(values,70):0;
+                const bool closed=(flags&(1|2))!=0;
+                if(closed&&std::hypot(xs.front()-xs.back(),ys.front()-ys.back())>1e-8)
+                    throw std::runtime_error("Closed DXF spline endpoints do not coincide.");
+                sketcher::SketchBSpline spline;spline.id=kernel::make_stable_id();spline.degree=curve.degree;spline.closed=closed;spline.construction=construction;
+                spline.knots=std::move(curve.knots);spline.weights=std::move(curve.weights);
+                for(const auto& p:curve.poles)spline.control_point_ids.push_back(point_id(p.x,p.y));
+                geometry_ids.push_back(spline.id);target.bsplines.push_back(std::move(spline));
+            } else if(type=="ELLIPSE") {
+                const double cx=number(values,10)*ambiguous_unit_scale_to_mm,cy=number(values,20)*ambiguous_unit_scale_to_mm;
+                const double ax=number(values,11)*ambiguous_unit_scale_to_mm,ay=number(values,21)*ambiguous_unit_scale_to_mm;
+                const double radius=std::hypot(ax,ay),ratio=number(values,40),sign=values.contains(230)&&number(values,230)<0?-1:1;
+                const double start=number(values,41),raw_end=number(values,42),turn=2*std::numbers::pi;
+                if(!(radius>0)||!(ratio>0&&ratio<=1)||std::abs(raw_end-start)>turn+1e-9)
+                    throw std::runtime_error("DXF ellipse axes or parameter interval are invalid.");
+                double end=raw_end;if(end<=start)end+=turn;
+                const auto center_id=point_id(cx,cy),major_id=point_id(cx+ax,cy+ay),minor_id=point_id(cx-sign*ay*ratio,cy+sign*ax*ratio);
+                const auto id=kernel::make_stable_id();
+                if(end-start>=turn-1e-12) {
+                    target.ellipses.push_back({id,center_id,major_id,minor_id,radius,radius*ratio,std::atan2(ay,ax),construction,sign<0});
+                } else {
+                    const auto point=[&](double t){return point_id(cx+ax*std::cos(t)-sign*ay*ratio*std::sin(t),cy+ay*std::cos(t)+sign*ax*ratio*std::sin(t));};
+                    target.elliptical_arcs.push_back({id,center_id,major_id,minor_id,point(start),point(end),radius,radius*ratio,std::atan2(ay,ax),start,end,construction,sign<0});
+                }
+                geometry_ids.push_back(id);
+            } else if(type=="XLINE") {
+                const double x=number(values,10)*ambiguous_unit_scale_to_mm,y=number(values,20)*ambiguous_unit_scale_to_mm;
+                const double dx=number(values,11),dy=number(values,21),length=std::hypot(dx,dy);
+                if(!(length>1e-12))throw std::runtime_error("DXF axis direction is invalid.");
+                auto segment=sketcher::Sketch::create_segment(point_id(x,y),point_id(x+dx/length,y+dy/length),true);segment.centerline=true;
+                geometry_ids.push_back(segment.id);target.segments.push_back(std::move(segment));
+            } else if (type == "LWPOLYLINE") {
                 std::vector<Vertex> vertices;
                 bool has_y = true;
                 for (auto i=first_pair; i<index; ++i) {
@@ -283,12 +344,20 @@ DxfImportResult import_dxf(
         for (const auto& arc : target.arcs) if (imported_ids.contains(arc.id)) {
             add_point(arc.center_point_id); add_point(arc.start_point_id); add_point(arc.end_point_id);
         }
+        for(const auto& ellipse:target.ellipses) {add_point(ellipse.center_point_id);add_point(ellipse.major_point_id);add_point(ellipse.minor_point_id);}
+        for(const auto& arc:target.elliptical_arcs) {add_point(arc.center_point_id);add_point(arc.major_point_id);add_point(arc.minor_point_id);add_point(arc.start_point_id);add_point(arc.end_point_id);}
+        for(const auto& spline:target.bsplines)for(const auto& id:spline.control_point_ids)add_point(id);
         result.import_block_id = target.add_import_block(
             document::path_to_utf8(path.stem()), document::path_to_utf8(path),
             std::move(geometry_ids), std::move(point_ids));
     }
     target.validate();
-    destination = std::move(target);
+    auto next=destination;
+    const auto append=[](auto& to,auto& from){to.insert(to.end(),std::make_move_iterator(from.begin()),std::make_move_iterator(from.end()));};
+    append(next.points,target.points);append(next.segments,target.segments);append(next.circles,target.circles);append(next.arcs,target.arcs);
+    append(next.ellipses,target.ellipses);append(next.elliptical_arcs,target.elliptical_arcs);append(next.bsplines,target.bsplines);
+    append(next.constraints,target.constraints);append(next.dimensions,target.dimensions);append(next.import_blocks,target.import_blocks);
+    next.validate();destination=std::move(next);
     return result;
 }
 

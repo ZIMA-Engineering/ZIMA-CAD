@@ -166,3 +166,48 @@ aktuální návrh přes `mutate_active_sketch`. Profil v otevřených vlastnoste
 zůstane přechodný; dokončení skici jej vrátí do návrhu vlastníka. Teprve OK
 vlastníka počítá a ukládá model. Cancel importovanou geometrii návrhu zahodí.
 Příkaz z konzole nesmí souběžně přepsat otevřený GUI editor.
+
+
+## Elipsy, racionální spline a osy v DXF
+
+Společný import nyní vedle úseček, kružnic, oblouků a polylines přijímá také
+`ELLIPSE`, `SPLINE` a `XLINE`. Elipsy a jejich oblouky se uloží jako nativní
+eliptická geometrie; zachovají se natočení, parametrický interval i záporná
+normála. Spline se převezme se svými řídicími body, stupněm, uzly a váhami.
+Interpolovaný nebo periodický tvar exportovaný ZIMA-CADem se tak vrátí jako
+přesná ohraničená spline, nikoli jako vzorkovaný řetězec úseček. Vazby a
+konstrukční historii offsetu samotný výměnný DXF neuchovává.
+
+Import spline vyžaduje platný ohraničený uzlový vektor (`clamped`), řídicí
+body a kladné váhy; chybějící váhy znamenají jedničky. Spline určená jen
+interpolačními body a neohraničená periodická parametrizace se zatím odmítnou.
+Uzavřená spline musí mít shodné koncové souřadnice v toleranci 1e-8 mm.
+Geometrie musí ležet v rovině XY zdrojového DXF; cílová rovina existující
+skici se přitom nemění. Měřítko a jednotky ovlivňují souřadnice a osy,
+nikoli uzly nebo váhy. `XLINE` se uloží jako nekonečná pomocná osa.
+Samostatné `POINT` zůstávají výslovným varováním ve výsledku importu.
+
+Každý soubor se nejprve převede do samostatného návrhu importního bloku.
+Teprve celý ověřený blok se připojí ke kopii cílové skici. Kružnice ani
+oblouky proto nemohou převzít shodný bod z předchozího importu a posun
+nového bloku neposune starý. Chyba druhé entity nezanechá přidanou první
+entitu. Zachovává se identita a rovina cílové skici i její starší reference.
+
+Testy ověřují cyklus DXF–nativní skica–DXF, nativní serializaci, nezávislost
+opakovaných bloků, jednotky a odmítnutí chybných počtů, záporných vah,
+neohraničených uzlů, prostorových řídicích bodů a nespojené uzavřené spline.
+Příkazový test kontroluje jeden krok Undo/Redo a uložení do `.asmz`;
+skutečné CLI navíc uloží a znovu otevře `.prtz`. GUI používá skutečnou akci
+Importovat i regresi vloženého profilu. Samostatná kontrola explicitně vytáhne
+importovanou elipsu s poloosami 3×5 mm o 10 mm (150π mm³) a kružnici
+r=5 mm reprezentovanou racionální spline o 10 mm (250π mm³).
+
+Integrační sada prošla **10/10** (38,20 s),
+`build/dxf-import-curves-integration-tests.log`. Dodatečný objemový test prošel
+**1/1** (0,45 s), `build/dxf-import-curves-volume-tests.log`, a doplněná
+kontrola jednotek **1/1** (0,10 s), `build/dxf-import-curves-units-tests.log`.
+Při první kontrole jednotek zůstal v testu otevřený vstupní stream a Windows
+odmítly úklid; po uzavření streamu prošel i úklid. Produkční importer se tím
+neměnil. GUI odpovídá `build/cpp-windows-release/zima-cad-dxf-import-validation.exe`;
+běžící uživatelský CAD nebyl nahrazován. Katalog zůstává na 152 příkazech,
+nativní datový formát a startovací šablony se nemění.
