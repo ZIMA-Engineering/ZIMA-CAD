@@ -49,7 +49,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Výkresy | Listy, šablony, historie, tvorba/vlastnosti/dotazy/mazání pohledů, regenerace, modelové anotace, Show/Erase a měřené kóty (dotazy, tvorba, editace, řetězec, mazání), razítko, zdrojové parametry BOM, PDF, DXF a PNG/JPEG listu/výřezu hotovy | Další anotace, zdrojové styly šraf a příkazový snímek interaktivního View |
 | Řezy, měření a vzhled | Zbývá | Datové operace a uložené výsledky |
 | Parametry, relace a materiál | Společné tabulky a transakce hotovy | Parametry, jednotky, přesnost, relace, materiál včetně přímého načtení knihovny a uložené varianty; řízení rozměrů relacemi a generování variant nejsou dosud zavedené ani v GUI |
-| Import a export | Import Partu/Assembly STEP/IGES/DXF a základní exporty hotovy | Společný STEP včetně vnořených sestav, STL Part/vnořená Assembly, DXF úsečky/kružnice/oblouky; DXF do vložených profilů hotov; zbývá další DXF geometrie a snímek interaktivního View |
+| Import a export | Import Partu/Assembly STEP/IGES/DXF a základní exporty hotovy | Společný STEP včetně vnořených sestav, STL Part/vnořená Assembly, DXF úsečky/osy/body/kružnice/oblouky/elipsy/spline/trimy/offsety; DXF do vložených profilů hotov; zbývá DXF text/rohová zaoblení, rozšíření importního parseru a snímek interaktivního View |
 
 Každá další etapa aktualizuje tabulku a uvádí ověřené testy. Neobcházíme
 chybějící operaci nevalidovanou změnou serializovaného dokumentu ani voláním
@@ -464,3 +464,13 @@ Katalog zůstává na **152 příkazech**. Integrační sada prošla **7/7**
 (27,02 s), `build/nested-stl-integration-tests.log`, a regrese STEP **1/1**
 (1,31 s), `build/nested-stl-step-regression.log`. Podrobnosti a limity jsou
 v [EXPORT_COMMANDS.md](EXPORT_COMMANDS.md).
+
+
+Přesný skicový DXF export nyní zahrnuje elipsy a jejich oblouky, racionální,
+interpolované a periodické spline, uložené trimy/offsety, samostatné body a osy.
+Zapisovač je oddělen od importního parseru; počet příkazů zůstává **152**.
+Integrační sada prošla **8/8** (26,16 s), `build/dxf-curves-integration-tests.log`,
+a výměnné kontrakty **1/1** (0,09 s), `build/dxf-curves-interchange-tests.log`.
+Nezávislé načtení a geometrické ověření přes ezdxf 1.4.4 prošlo bez chyb a oprav.
+Text, rohová zaoblení a rozšíření zpětného DXF importu zůstávají další etapou;
+podrobnosti v [EXPORT_COMMANDS.md](EXPORT_COMMANDS.md).

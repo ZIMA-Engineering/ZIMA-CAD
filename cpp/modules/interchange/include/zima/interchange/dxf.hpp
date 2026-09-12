@@ -4,6 +4,7 @@
 
 #include <filesystem>
 #include <string>
+#include <stdexcept>
 #include <vector>
 
 namespace zima::interchange {
@@ -19,6 +20,9 @@ struct DxfImportResult {
     const std::filesystem::path& path, zima::sketcher::Sketch& target,
     double ambiguous_unit_scale_to_mm = 1.0,
     std::size_t maximum_entities = 100000);
+class DxfExportError : public std::runtime_error { public: using std::runtime_error::runtime_error; };
+// Reject unsupported visible geometry before opening an output file.
+void validate_dxf_export(const zima::sketcher::Sketch& sketch);
 void export_dxf(
     const std::filesystem::path& path, const zima::sketcher::Sketch& sketch);
 

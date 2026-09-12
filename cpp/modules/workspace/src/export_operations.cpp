@@ -4,7 +4,6 @@
 #include <zima/interchange/step_model.hpp>
 #include <zima/interchange/dxf.hpp>
 #include <zima/document/file_path.hpp>
-#include <set>
 #ifdef _WIN32
 #include <windows.h>
 #else
@@ -32,19 +31,6 @@ bool require_stl_snapshot(const kernel::BodySnapshot& source,
         visible=require_stl_snapshot(found->second,child.children,depth+1)||visible;
     }
     return visible;
-}
-void require_dxf_geometry(const sketcher::Sketch& sketch) {
-    // The current writer understands these exact native entities. Reject other
-    // visible geometry before writing instead of silently losing it in a DXF.
-    bool unsupported=!sketch.ellipses.empty() || !sketch.elliptical_arcs.empty() ||
-        !sketch.bsplines.empty() || !sketch.texts.empty() || !sketch.corner_radii.empty() ||
-        !sketch.curve_trims.empty() || !sketch.offsets.empty();
-    std::set<std::string> points;
-    for(const auto& line:sketch.segments){points.insert(line.first_point_id);points.insert(line.second_point_id);}
-    for(const auto& circle:sketch.circles){points.insert(circle.center_point_id);}
-    for(const auto& arc:sketch.arcs){points.insert(arc.center_point_id);points.insert(arc.start_point_id);points.insert(arc.end_point_id);}
-    for(const auto& point:sketch.points)if(!points.contains(point.id))unsupported=true;
-    if(unsupported)throw ExportOperationError("unsupported_geometry", "DXF export currently supports segments, circles and circular arcs; other geometry would be lost.");
 }
 struct StagedFile {
     std::filesystem::path directory, file;
@@ -101,7 +87,10 @@ ExportReport export_file(const Workspace& live,const std::string& document_id,
     Data data;
     if(format==interchange::Format::Dxf) {
         if(options.sketch_id.empty())throw ExportOperationError("sketch_required", "Specify the Sketch to export as DXF.");
-        auto sketch=document_sketch(live,document_id,options.sketch_id);require_dxf_geometry(sketch);data=std::move(sketch);
+        auto sketch=document_sketch(live,document_id,options.sketch_id);
+        try{interchange::validate_dxf_export(sketch);}
+        catch(const interchange::DxfExportError& error){throw ExportOperationError("unsupported_geometry",error.what());}
+        data=std::move(sketch);
     } else if(format==interchange::Format::Step) {
         data=part?interchange::step_product(part->session.document(),part->session.calculated_boundaries())
                  :interchange::step_product(assembly->session.document());

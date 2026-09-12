@@ -1,3 +1,4 @@
+#include "../tests/dxf_export_test_support.hpp"
 #include "../tests/stl_export_test_support.hpp"
 #include <QFile>
 #include "drawing_window.hpp"
@@ -432,6 +433,12 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         export_chosen=false;export_timed_out=false;
         choose_export.start();export_timeout.start(10000);menu_export_action->trigger();choose_export.stop();export_timeout.stop();flush();
         check(export_chosen&&!export_timed_out,"Nested STL export menu timed out");test::check_nested_stl(menu_export_target);
+        const auto curves_native=std::filesystem::absolute(directory/(stem+"-dxf-curves.prtz"));
+        auto curves_part=document::PartDocument::create_default();curves_part.sketches.push_back(test::dxf_curve_fixture());curves_part.save(curves_native);
+        run(QString::fromStdString(commands::Json{{"command","open"},{"arguments",{{"path",document::path_to_utf8(curves_native)}}}}.dump()));
+        const auto curves_dxf=std::filesystem::absolute(directory/(stem+"-dxf-curves.dxf"));
+        run(QString::fromStdString(commands::Json{{"command","export.dxf"},{"arguments",{{"path",document::path_to_utf8(curves_dxf)},{"sketch",curves_part.sketches.front().id}}}}.dump()));
+        test::check_dxf_curves(curves_dxf);
         run(QString::fromStdString("new assembly "+stem+"-import-owner"));
         commands::Json assembly_import={{"command","import.step"},{"arguments",{{"path",document::path_to_utf8(exported_model)}}}};
         const auto assembly_result=run(QString::fromStdString(assembly_import.dump())).data;

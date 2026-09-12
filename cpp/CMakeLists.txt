@@ -192,7 +192,8 @@ target_include_directories(zima_ui PUBLIC modules/ui/include)
 target_link_libraries(zima_ui PUBLIC Qt6::Widgets zima_document_core)
 
 add_library(zima_interchange modules/interchange/src/interchange.cpp
-    modules/interchange/src/dxf.cpp modules/interchange/src/planar_face.cpp
+    modules/interchange/src/dxf.cpp
+    modules/interchange/src/dxf_export.cpp modules/interchange/src/planar_face.cpp
     modules/interchange/src/step.cpp modules/interchange/src/step_model.cpp
     modules/interchange/src/model_import.cpp)
 target_include_directories(zima_interchange PUBLIC modules/interchange/include)

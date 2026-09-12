@@ -1,3 +1,4 @@
+#include "dxf_export_test_support.hpp"
 #include "stl_export_test_support.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/document/file_path.hpp>
@@ -286,6 +287,11 @@ int main(int argc,char** argv){
         require(result.exit_code==0 && result.results().size()==7,"CLI component insertion or history failed");
         const auto component_native=assembly::AssemblyDocument::load(project/"cli-components.asmz");
         require(component_native.components.size()==2 && component_native.components[0].occurrence_id!=component_native.components[1].occurrence_id && component_native.components[0].source_document_id==step_native.document_id,"CLI component persistence lost repeated identities");
+        auto curve_part=document::PartDocument::create_default();curve_part.sketches.push_back(test::dxf_curve_fixture());curve_part.save(project/"cli-dxf-curves.prtz");
+        const auto curve_export=command({{"command","export.dxf"},{"arguments",{{"path","exact-curves.dxf"},{"sketch",curve_part.sketches.front().id}}}});
+        result=launch(executable,root,common+QStringList{"--command","open cli-dxf-curves.prtz","--command",curve_export});
+        if(result.exit_code!=0)std::cerr<<result.output.toStdString()<<result.diagnostics.toStdString();
+        require(result.exit_code==0&&result.results().size()==2&&result.results()[1].at("data").at("model_changed")==false,"CLI exact DXF export failed");test::check_dxf_curves(project/"exact-curves.dxf");
         const auto nested_stl_doc=test::nested_stl_fixture(kernel,project);
         nested_stl_doc.save(project/"cli-nested-stl.asmz");
         result=launch(executable,root,common+QStringList{"--command","open cli-nested-stl.asmz","--command","export.stl nested-output.stl","--command","documents"});

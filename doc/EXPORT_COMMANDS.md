@@ -40,11 +40,11 @@ neaktualizuje export jeho nadřazené sestavy.
 
 STL podporuje Part i vnořené sestavy včetně opakovaných výskytů. Sestavu
 převede do jedné sítě; STL neuchovává jména ani produktovou hierarchii.
-DXF podporuje úsečky,
-kružnice a kruhové oblouky vybrané skici. Skicu lze určit i ve vlastněném
-profilu. B-spline, elipsy, text, offsety, trimy, rohová zaoblení a samostatné
-body zatím odmítá: dosavadní DXF zapisovač by je tiše vynechal. Tyto formáty
-se ještě musejí rozšířit samostatně; příkaz nehlásí neúplný soubor za úspěch.
+DXF podporuje úsečky, osy, samostatné body, kružnice, kruhové a eliptické
+oblouky, elipsy i B-spline vybrané skici, včetně uložené geometrie offsetů
+a trimů. Skicu lze určit i ve vlastněném profilu. Text a rohová zaoblení
+zatím odmítá před zápisem: jejich úplný viditelný tvar není v této etapě
+převeden. Příkaz nehlásí neúplný soubor za úspěch.
 
 Výkres podporuje `export.pdf` pro všechny listy a `export.dxf` s povinným
 `sheet` pro jeden list. V tomto režimu se nepřijímá `sketch`; v modelovém
@@ -120,3 +120,54 @@ sestavení prošla **1/1** (1,31 s), `build/nested-stl-step-regression.log`.
 GUI používá ověřovací EXE `build/cpp-windows-release/zima-cad-nested-stl-validation.exe`
 ze stejných aktuálních CMake objektů, protože běžný uživatelský CAD zůstává
 spuštěný. Katalog se nemění: rozšířil se existující `export.stl`.
+
+
+## Přesné křivky skici v DXF
+
+Zapisovač `interchange::export_dxf` je oddělen od importního parseru do
+`dxf_export.cpp`. GUI a CLI používají jeho společnou validaci. Soubor uvádí
+verzi `AC1015` a mm; čísla zapisuje s 17 platnými číslicemi a desetinnou tečkou
+nezávisle na prostředí uživatele.
+
+Elipsy a eliptické oblouky jsou entity `ELLIPSE`. Zapisovač normalizuje delší
+osu a při jejím prohození posune parametrický interval; obrácený směr zachová
+normálou. Spline zapisuje jako `SPLINE` s řídicími body, uzly a případnými
+váhami. Rozložení polí vychází z dokumentace Autodesk
+[ELLIPSE](https://help.autodesk.com/cloudhelp/2025/DEU/AutoCAD-DXF/files/GUID-107CB04F-AD4D-4D2F-8EC9-AC90888063AB.htm)
+a [SPLINE](https://help.autodesk.com/cloudhelp/2016/ENU/AutoCAD-DXF/files/GUID-E1F884F8-AA90-4864-A215-3182D47A9C74.htm).
+
+Běžná, interpolovaná i uzavřená periodická skicová spline používá existující
+nativní převod na přesnou B-spline. U přesné externě získané spline zůstávají
+její uzly a váhy. Nejde o vzorkovaný řetěz úseček a převod nevolá OCCT.
+Offsety a trimy exportují jejich současnou uloženou viditelnou křivku;
+nezapisuje se další kopie podpůrné geometrie ani vazba na zdroj. Export
+neobnovuje externí reference a nemění parametry nebo závislosti skici.
+
+Samostatné body jsou `POINT`; středy a řídicí body křivek se jako další
+entity nezapisují. Nekonečná osa je `XLINE`, konečná pomocná úsečka zůstává
+`LINE`. Pomocná geometrie používá vrstvu `CONSTRUCTION`, ostatní `PROFILE`.
+Text a rohové zaoblení nadále vracejí `unsupported_geometry`, včetně ochrany
+již existujícího cíle. Importní parser tato etapa nerozšiřuje: vstupní
+`ELLIPSE`, `SPLINE`, `POINT` a `XLINE` zatím hlásí jako nepodporované entity.
+
+Test čte skutečné skupinové kódy a nezávisle kontroluje analytický tvar
+elipsy s prohozenými osami a opačně orientovaný oblouk, racionální kružnici,
+Bernsteinův polynom kubické křivky, interpolační body a periodické uzavření.
+Ořezaná kružnice používá svůj racionální parametr, který obecně není přímo
+úhlem. U offsetu se ověřují přesné konce oříznutého úseku a absence další
+kopie úplného podkladu. Stejnou sadu křivek exportuje skutečné CLI i konzole GUI.
+
+Integrační sada prošla **8/8** (26,16 s),
+`build/dxf-curves-integration-tests.log`; původní výměnné kontrakty prošly
+**1/1** (0,09 s), `build/dxf-curves-interchange-tests.log`. Nezávislý parser
+**ezdxf 1.4.4** načetl 12 entit bez chyby nebo opravy a ověřil racionální
+kružnici, kubický polynom, interpolaci, uzavření a ořezaný offset. Největší
+odchylka kontrolovaných interpolačních bodů byla 1,12e-9 mm; ezdxf při
+vyhodnocování zaokrouhlil uložený uzel 0,3333333333333333 na 0,3333333333.
+Protokol: `build/dxf-curves-ezdxf-validation.json`. Parser je jen dočasná
+ověřovací závislost pod `build`, není součástí aplikace ani runtime.
+
+GUI bylo ověřeno samostatným EXE
+`build/cpp-windows-release/zima-cad-dxf-curves-validation.exe`; uživatelský
+běžící CAD zůstal spuštěný. Počet příkazů zůstává 152. Nativní formát ani
+startovací šablony se touto změnou nemění.

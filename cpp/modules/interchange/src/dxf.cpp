@@ -5,7 +5,6 @@
 #include <bit>
 #include <cmath>
 #include <fstream>
-#include <iomanip>
 #include <map>
 #include <limits>
 #include <unordered_set>
@@ -57,9 +56,6 @@ int integer(const std::unordered_map<int,std::string>& values, int code) {
     return static_cast<int>(value);
 }
 
-void pair(std::ostream& output, int code, const auto& value) {
-    output << code << '\n' << value << '\n';
-}
 
 }  // namespace
 
@@ -294,38 +290,6 @@ DxfImportResult import_dxf(
     target.validate();
     destination = std::move(target);
     return result;
-}
-
-void export_dxf(
-    const std::filesystem::path& path, const zima::sketcher::Sketch& sketch) {
-    sketch.validate();
-    std::ofstream output(path);
-    if (!output) throw std::runtime_error("Nelze vytvořit DXF soubor");
-    output << std::setprecision(17);
-    pair(output, 0, "SECTION"); pair(output, 2, "HEADER");
-    pair(output, 9, "$INSUNITS"); pair(output, 70, 4);
-    pair(output, 0, "ENDSEC"); pair(output, 0, "SECTION"); pair(output, 2, "ENTITIES");
-    for (const auto& segment : sketch.segments) {
-        const auto* first = sketch.find_point(segment.first_point_id);
-        const auto* second = sketch.find_point(segment.second_point_id);
-        pair(output, 0, "LINE"); pair(output, 8, segment.construction ? "CONSTRUCTION" : "PROFILE");
-        pair(output, 10, first->x); pair(output, 20, first->y);
-        pair(output, 11, second->x); pair(output, 21, second->y);
-    }
-    for (const auto& circle : sketch.circles) {
-        const auto* center = sketch.find_point(circle.center_point_id);
-        pair(output, 0, "CIRCLE"); pair(output, 8, circle.construction ? "CONSTRUCTION" : "PROFILE");
-        pair(output, 10, center->x); pair(output, 20, center->y); pair(output, 40, circle.radius);
-    }
-    constexpr double degrees = 180.0 / 3.14159265358979323846;
-    for (const auto& arc : sketch.arcs) {
-        const auto* center = sketch.find_point(arc.center_point_id);
-        pair(output, 0, "ARC"); pair(output, 8, arc.construction ? "CONSTRUCTION" : "PROFILE");
-        pair(output, 10, center->x); pair(output, 20, center->y); pair(output, 40, arc.radius);
-        pair(output, 50, arc.start_angle * degrees); pair(output, 51, arc.end_angle * degrees);
-    }
-    pair(output, 0, "ENDSEC"); pair(output, 0, "EOF");
-    if (!output) throw std::runtime_error("Zápis DXF souboru selhal");
 }
 
 }  // namespace zima::interchange

@@ -1,6 +1,8 @@
+#include "dxf_export_test_support.hpp"
 #include "stl_export_test_support.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/export_operations.hpp>
+#include <zima/workspace/sketch_operations.hpp>
 #include <zima/interchange/step_model.hpp>
 #include <zima/interchange/dxf.hpp>
 #include <zima/document/file_path.hpp>
@@ -54,8 +56,12 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     const auto dxf=dir/fs::path(u8"obrys export.dxf");run(host,"export.dxf",{{"path",document::path_to_utf8(dxf)},{"sketch",sketch}});
     auto restored=sketcher::Sketch::create_default();const auto imported=interchange::import_dxf(dxf,restored);
     require(imported.imported_entities==6 && restored.segments.size()==4 && restored.circles.size()==1 && restored.arcs.size()==1 && restored.circles.front().radius==3 && restored.arcs.front().radius==2,"DXF export lost native circular geometry");
-    const auto dxf_before=bytes(dxf);run(host,"sketch.bspline.create",{{"sketch",sketch},{"points",{{50,0},{53,4},{57,-2},{60,0}}},{"degree",3}});
-    require(host.execute({{"command","export.dxf"},{"arguments",{{"path",document::path_to_utf8(dxf)},{"sketch",sketch},{"overwrite",true}}}}).code=="unsupported_geometry" && bytes(dxf)==dxf_before,"DXF silently lost spline or replaced the destination on failure");
+    run(host,"sketch.bspline.create",{{"sketch",sketch},{"points",{{50,0},{53,4},{57,-2},{60,0}}},{"degree",3}});
+    run(host,"export.dxf",{{"path",document::path_to_utf8(dxf)},{"sketch",sketch},{"overwrite",true}});
+    const auto dxf_before=bytes(dxf);const auto& sketch_data=workspace::document_sketch(live,part_id,sketch);
+    const auto first_edge=sketch_data.segments[0].id,second_edge=sketch_data.segments[1].id;
+    run(host,"sketch.corner_fillet.create",{{"sketch",sketch},{"first",first_edge},{"second",second_edge},{"radius_mm",1}});
+    require(host.execute({{"command","export.dxf"},{"arguments",{{"path",document::path_to_utf8(dxf)},{"sketch",sketch},{"overwrite",true}}}}).code=="unsupported_geometry" && bytes(dxf)==dxf_before,"DXF silently lost corner fillets or replaced the destination on failure");
     require(!host.execute({{"command","export.step"},{"arguments",{{"path","wrong.igs"}}}}).ok && !fs::exists(dir/"wrong.igs"),"Mismatched export extension wrote a file");
     // The nested source is intentionally never saved. Export must consume its
     // persisted occurrence snapshot, not reopen dependencies or refresh them.
@@ -67,6 +73,18 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     require(std::abs(step_volume(nested_path)-12000)<1e-5 && live.open_assembly(top_id)->session.revision()==parent_revision,"Nested export refreshed dependencies or lost stored geometry");
     run(host,"export.stl",{{"path","nested.stl"}});require(std::abs(stl_volume(dir/"nested.stl")-12000)<1e-5,"Nested STL changed stored geometry");
     run(host,"activate",{{"document",flat_id}});run(host,"export.stl",{{"path","flat.stl"}});require(std::abs(stl_volume(dir/"flat.stl")-12000)<1e-5,"Flat Assembly STL did not use calculated occurrence state");
+}
+void exact_dxf(const kernel::OcctKernel& kernel,fs::path dir) {
+    auto sketch=test::dxf_curve_fixture();auto part=document::PartDocument::create_default();const auto id=part.document_id;part.sketches.push_back(sketch);
+    workspace::Workspace live;live.add_part(part);live.activate(id);live.display_top_level(id);command_host::Host host(live,kernel,dir);
+    const auto before=live.open_part(id)->session.document().sketches.front().serialized();
+    run(host,"export.dxf",{{"path","exact-curves.dxf"},{"sketch",sketch.id}});test::check_dxf_curves(dir/"exact-curves.dxf");
+    require(live.open_part(id)->session.revision()==0&&live.open_part(id)->session.document().sketches.front().serialized()==before,"DXF export changed spline or dependency data");
+    interchange::export_dxf(dir/"direct-curves.dxf",sketch);test::check_dxf_curves(dir/"direct-curves.dxf");
+    auto unsupported=sketcher::Sketch::create_default();const auto a=unsupported.add_segment(0,0,10,0),b=unsupported.add_segment(10,0,10,10);static_cast<void>(unsupported.add_corner_fillet(a,b,1));
+    bool rejected=false;const auto original=bytes(dir/"direct-curves.dxf");
+    try{interchange::export_dxf(dir/"direct-curves.dxf",unsupported);}catch(const interchange::DxfExportError&){rejected=true;}
+    require(rejected&&bytes(dir/"direct-curves.dxf")==original,"Low-level DXF writer destroyed a destination before validation");
 }
 void nested_stl(const kernel::OcctKernel& kernel,fs::path dir) {
     workspace::Workspace live;auto doc=test::nested_stl_fixture(kernel,dir);const auto id=doc.document_id;
@@ -106,4 +124,4 @@ void nested_stl(const kernel::OcctKernel& kernel,fs::path dir) {
     for(const auto& entry:fs::directory_iterator(dir))require(!entry.path().filename().string().starts_with(".zima-export-"),"STL export left its staging directory");
 }
 }
-int main(){try{kernel::OcctKernel kernel;const auto parent=fs::canonical(fs::temp_directory_path());const auto dir=parent/("zima-export-command-"+document::PartDocument::create_default().document_id);fs::create_directory(dir);const auto unicode_dir=dir/fs::path(u8"český projekt");fs::create_directory(unicode_dir);verify(kernel,unicode_dir);nested_stl(kernel,unicode_dir);require(dir.parent_path()==parent,"Unsafe cleanup");fs::remove_all(dir);std::cout<<"STEP/STL volumes, DXF geometry, snapshot export, nested ownership, UTF-8, overwrite and atomic publication passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
+int main(){try{kernel::OcctKernel kernel;const auto parent=fs::canonical(fs::temp_directory_path());const auto dir=parent/("zima-export-command-"+document::PartDocument::create_default().document_id);fs::create_directory(dir);const auto unicode_dir=dir/fs::path(u8"český projekt");fs::create_directory(unicode_dir);verify(kernel,unicode_dir);nested_stl(kernel,unicode_dir);exact_dxf(kernel,unicode_dir);require(dir.parent_path()==parent,"Unsafe cleanup");fs::remove_all(dir);std::cout<<"STEP/STL volumes, DXF geometry, snapshot export, nested ownership, UTF-8, overwrite and atomic publication passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
