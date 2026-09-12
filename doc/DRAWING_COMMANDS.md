@@ -1,8 +1,8 @@
 # Výkresy přes společné příkazy
 
 Výkresové příkazy zpřístupňují listy, šablony, tvorbu a vlastnosti pohledů,
-uložené reference a výslovnou regeneraci. Katalog má 138 příkazů. Měřené kóty,
-anotace, editace BOM, Show/Erase, zdrojové styly šraf a výkresové exporty
+uložené reference a výslovnou regeneraci. Katalog má 140 příkazů. Dotazy na modelové anotace a Show/Erase jsou sdílené.
+Měřené kóty, další anotace, editace BOM, zdrojové styly šraf a výkresové exporty
 zatím nejsou kompletně pokryté.
 
 | Příkaz | Argumenty | Výsledek |
@@ -213,3 +213,51 @@ jsou sestavené. Testy zahrnují skutečné GUI i CLI, Undo, zachování přesn�
 referencí, chybu pozdějšího potomka bez částečného zápisu, zámky, měřítka,
 neuložené zdroje, řez i nativní uložení. GUI je vizuálně ověřeno na
 `Projects/test/command-drawing-views.png`.
+
+## Modelové anotace a Show/Erase
+
+`drawing.annotation.list` čte uložené anotace bez načtení zdrojového dokumentu
+nebo výpočtu OCCT. Volitelně omezuje výsledek pomocí `view`, `kind`
+(`all`, `dimension`, `axis`, `construction`), `mode` (`all`, `show`, `erase`),
+`limit` (1–10000, výchozí 2000) a `document`. Vrací `items` a celkový počet
+`total` před omezením. Každá položka obsahuje pohled, list, typ, stav viditelnosti,
+neplatnost, text, hodnotu, počet křivek a přesnou `reference`.
+Dotaz `all` zahrnuje i neplatné reference pro diagnostiku. Režim `show` nabízí
+jen platné skryté položky; `erase` jen platné viditelné. Výběr používá stejné
+pravidlo jako GUI, bez kopírování geometrie pro samotný dotaz.
+
+`drawing.annotation.show_erase` přijímá povinné pole `views` (1–1000 položek)
+a volitelný `document`. Každá položka obsahuje:
+
+- `view`: existující ID pohledu, v dávce nejvýše jednou;
+- `mode`: `show` (výchozí) nebo `erase`;
+- `selection`: `keep_selected` (výchozí) nebo `remove_selected`;
+- `kinds`: volitelné pole typů `dimension`, `axis`, `construction`, výchozí všechny;
+- `selected`: povinné pole přesných referencí z dotazu.
+
+Reference má čtyři povinná pole: `source_document`, `owner`, `key`,
+`instance_path`. První tři nejsou prázdná; prázdná cesta je platná pro kořenový
+zdroj. Identita zahrnuje cestu výskytu, takže dva výskyty stejného dílu nelze
+zaměnit. Neznámé klíče, duplicity a nenabídnuté reference se odmítají.
+
+V rámci právě nabídnutých položek `keep_selected` zobrazí vybrané a skryje
+ostatní; `remove_selected` vybrané skryje a ostatní zobrazí. Ostatní typy,
+nenabídnuté anotace a neplatné reference se nemění. Samotný přepínač `mode`
+určuje nabídku, stejně jako ve stávajícím dialogu Show/Erase.
+
+```json
+{"command":"drawing.annotation.list","arguments":{"view":"POHLED","kind":"dimension","mode":"show"}}
+{"command":"drawing.annotation.show_erase","arguments":{"views":[{"view":"POHLED","mode":"show","selection":"keep_selected","selected":[{"source_document":"PART","owner":"SKICA","key":"KOTA","instance_path":"VYSKYT"}]}]}}
+```
+
+Všechny pohledy se ověří před zápisem; chyba poslední položky neprovede ani
+první. GUI potvrzuje přes stejnou atomickou operaci viditelnosti. Změny více
+pohledů tvoří jedno Undo/Redo, návrh a Cancel nevytvářejí historii. Prázdná
+změna rovněž nevytváří krok historie. Aktivní GUI dialog brání konkurenčnímu
+zápisu z konzole. Geometrie, hodnoty a rozložení anotací se nepřepisují;
+viditelnost se ukládá v existujícím `.drwz`, bez změny formátu.
+
+Sestavení GUI i CLI a integrační ověření prošlo **6/6** (21,27 s),
+`build/drawing-annotation-tests.log`: nativní model, přesné výskyty, atomická
+dávka, Undo/Redo, skutečný CLI proces, GUI konzole, blokace zápisu během
+náhledu a stávající dialog Show/Erase včetně více pohledů a Cancel.

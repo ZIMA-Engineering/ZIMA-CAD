@@ -1,5 +1,6 @@
 #include <zima/workspace/drawing_projection.hpp>
 #include <zima/workspace/drawing_view_operations.hpp>
+#include <zima/workspace/drawing_annotation_operations.hpp>
 #include <zima/workspace/drawing_operations.hpp>
 #include "drawing_dimension_dialog.hpp"
 #include <QCursor>
@@ -2119,11 +2120,12 @@ void DrawingWindow::show_erase(){
         });
     },[this](const auto& pending){
         auto next=document_;
-        for(const auto& view:pending) {
-            auto* target=next.find_view(view.id);if(!target)throw std::runtime_error("Pohled již neexistuje");
-            target->model_annotations=view.model_annotations;
+        std::vector<workspace::AnnotationVisibility> values;
+        for(const auto& view:pending)for(const auto& item:view.model_annotations)
+            values.push_back({view.id,item.source,item.visible});
+        if(workspace::set_drawing_annotation_visibility(next,values)) {
+            document_=std::move(next);sync_workspace_document();if(changed_handler_)changed_handler_();
         }
-        document_=std::move(next);sync_workspace_document();if(changed_handler_)changed_handler_();
     },owner?owner:this);
     view_dialog_=dialog;if(properties_handler_)properties_handler_(dialog);
     dialog->set_view_picker_cancel([this]{canvas_->start_selection();});

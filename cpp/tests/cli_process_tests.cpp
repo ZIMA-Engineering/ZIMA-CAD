@@ -310,6 +310,18 @@ int main(int argc,char** argv){
         require(result.exit_code==0&&result.results().size()==6,"Standalone CLI view creation or properties failed");
         const auto edited_views=drawing::DrawingDocument::load(project/"cli-views.drwz");
         require(edited_views.sheets.front().views.size()==3&&edited_views.sheets.front().views[1].name=="Pohled český"&&edited_views.sheets.front().views[1].scale==2&&edited_views.sheets.front().views[2].x==90,"CLI view parameters, hierarchy or UTF-8 persistence failed");
+        result=launch(executable,root,common+QStringList{"--command","open cli-views.drwz","--command",command({{"command","drawing.annotation.list"},{"arguments",{{"view",native_view.id},{"mode","show"}}}})});
+        require(result.exit_code==0&&!result.results()[1].at("data").at("items").empty(),"CLI did not offer stored annotations");
+        const auto annotation_ref=result.results()[1].at("data").at("items")[0].at("reference");
+        const auto show_annotation=command({{"command","drawing.annotation.show_erase"},{"arguments",{{"views",Json::array({Json{{"view",native_view.id},{"selected",Json::array({annotation_ref})}}})}}}});
+        result=launch(executable,root,common+QStringList{"--command","open cli-views.drwz","--command",show_annotation,"--command","undo","--command","redo","--command","save"});
+        require(result.exit_code==0,"Standalone CLI Show/Erase or Undo/Redo failed");
+        const auto shown_document=drawing::DrawingDocument::load(project/"cli-views.drwz");
+        std::size_t shown_count=0;
+        for(const auto& item:shown_document.find_view(native_view.id)->model_annotations)if(item.visible){
+            ++shown_count;require(item.source.semantic_id==annotation_ref.at("key").get<std::string>()&&item.source.instance_path==annotation_ref.at("instance_path").get<std::string>(),"CLI showed a different occurrence");
+        }
+        require(shown_count==1,"CLI Show/Erase native persistence lost exact visibility");
         const auto assembly_step=command({{"command","import.step"},{"arguments",{{"path",document::path_to_utf8(step_source)},{"output_directory","sestava nativní"},{"mesh_deflection_mm",2.0}}}});
         result=launch(executable,root,common+QStringList{"--command","new assembly cli-import-owner","--command",assembly_step,"--command","save"});
         require(result.exit_code==0 && result.results().size()==3 && result.results()[1].at("data").at("parts").size()==1,"CLI Assembly STEP import failed");

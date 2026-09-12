@@ -328,8 +328,13 @@ ShowEraseSession::ShowEraseSession(const DrawingView &view)
 std::vector<ModelAnnotationReference>
 ShowEraseSession::candidates(ShowEraseMode mode,
                              const std::set<ModelAnnotationKind> &kinds) const {
+  return show_erase_candidates(initial_, mode, kinds);
+}
+std::vector<ModelAnnotationReference> show_erase_candidates(
+    std::span<const ModelAnnotation> items, ShowEraseMode mode,
+    const std::set<ModelAnnotationKind>& kinds) {
   std::vector<ModelAnnotationReference> result;
-  for (const auto &item : initial_)
+  for (const auto &item : items)
     if (!item.unresolved &&
         kinds.contains(item.kind) &&
         item.visible == (mode == ShowEraseMode::Erase))

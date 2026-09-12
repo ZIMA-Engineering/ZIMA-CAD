@@ -223,7 +223,12 @@ std::vector<drawing::DrawingView> ShowEraseDialog::pending_views() const {
 }
 bool ShowEraseDialog::submit() {
   if(initial_.id.empty())return false;
-  commit_(pending_views());
-  return true;
+  try {
+    commit_(pending_views());
+    return true;
+  } catch(const std::exception& error) {
+    status_->setText(tr(error.what()));
+    return false;
+  }
 }
 } // namespace zima::app

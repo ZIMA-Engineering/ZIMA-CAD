@@ -27,6 +27,9 @@ std::string serialize_model_annotations(const std::vector<ModelAnnotation> &);
 std::vector<ModelAnnotation> deserialize_model_annotations(const std::string &);
 enum class ShowEraseMode { Show, Erase };
 enum class ShowEraseSelection { KeepSelected, RemoveSelected };
+// Read-only queries share the picker rules without copying annotation geometry.
+std::vector<ModelAnnotationReference> show_erase_candidates(
+    std::span<const ModelAnnotation>, ShowEraseMode, const std::set<ModelAnnotationKind>&);
 class ShowEraseSession {
 public:
   explicit ShowEraseSession(const DrawingView &view);

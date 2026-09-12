@@ -46,7 +46,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Zaoblení, zkosení, skořepina | Zbývá | Výběr skutečného vstupního tělesa a sdílené transakce |
 | Zrcadlo a pole | Zbývá | Odvozená tělesa a komponenty |
 | Sestavy | Dotazy, vložení a otevření zdrojů komponent hotovy | Uložená hierarchie a přesné výskyty, sdílené vložení a otevření zdroje; zbývají vlastnosti/mazání komponent, vazby, vnořená aktivace a řezy |
-| Výkresy | Listy, šablony, historie, tvorba/vlastnosti/dotazy/mazání pohledů a regenerace hotovy | Kóty, anotace, editace BOM, Show/Erase, zdrojové styly šraf a výkresové exporty |
+| Výkresy | Listy, šablony, historie, tvorba/vlastnosti/dotazy/mazání pohledů, regenerace, modelové anotace a Show/Erase hotovy | Měřené kóty, další anotace, editace BOM, zdrojové styly šraf a výkresové exporty |
 | Řezy, měření a vzhled | Zbývá | Datové operace a uložené výsledky |
 | Parametry, relace a materiál | Společné tabulky a transakce hotovy | Parametry, jednotky, přesnost, relace, materiál včetně přímého načtení knihovny a uložené varianty; řízení rozměrů relacemi a generování variant nejsou dosud zavedené ani v GUI |
 | Import a export | Import Partu/Assembly STEP/IGES/DXF a základní exporty hotovy | Společný STEP včetně vnořených sestav, STL Part/plochá Assembly, DXF úsečky/kružnice/oblouky; zbývá import vložených profilů, další DXF geometrie, vnořený STL a výkresové exporty |
@@ -262,3 +262,18 @@ jsou sestavené. Testy zahrnují skutečné GUI i CLI, Undo, zachování přesn�
 referencí, chybu pozdějšího potomka bez částečného zápisu, zámky, měřítka,
 neuložené zdroje, řez i nativní uložení. GUI je vizuálně ověřeno na
 `Projects/test/command-drawing-views.png`.
+
+
+Etapa modelových anotací přidává `drawing.annotation.list/show_erase`, celkem
+**140 příkazů**. Dotazy čtou uložená data a sdílejí nabídku GUI bez kopie
+geometrie. GUI i konzole potvrzují viditelnost stejnou atomickou operací;
+více pohledů je jeden krok Undo/Redo. Přesné reference zahrnují identitu
+zdrojového dokumentu, vlastníka, sémantický klíč a cestu výskytu. Neplatné
+reference jsou čitelné pro diagnostiku, ale nejsou nabízené pro Show/Erase.
+Příkazy nevyvolávají OCCT ani otevření zdrojů a nemění nativní formát.
+Podrobnosti: [DRAWING_COMMANDS.md](DRAWING_COMMANDS.md).
+
+Sestavení GUI i CLI a integrační ověření prošlo **6/6** (21,27 s),
+`build/drawing-annotation-tests.log`: nativní model, přesné výskyty, atomická
+dávka, Undo/Redo, skutečný CLI proces, GUI konzole, blokace zápisu během
+náhledu a stávající dialog Show/Erase včetně více pohledů a Cancel.
