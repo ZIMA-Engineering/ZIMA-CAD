@@ -23,11 +23,9 @@ void AssemblyWorkspaceWindow::show_shaft_thread_properties(const std::string& id
             state_->setText(tr("Chybí vypočtený vstup závitu. Regenerujte Part."));return;
         }
         part_rollback_=PartRollbackContext{part->session.document().document_id,*occurrence,boundary->history_index,boundary->input_body};
-        primitive_reference_geometry_=part->session.calculated_boundaries().back().mesh.original_references;
     } else {
         const auto count=part->session.document().body_operation_count_at_history_cursor();
         if (count==0 || count>part->session.calculated_boundaries().size()) return;
-        primitive_reference_geometry_=part->session.calculated_boundaries().back().mesh.original_references;
     }
     // Reference packets are compacted into the last boundary. Offer only
     // owners preceding this edit/insertion while displaying the rollback body.

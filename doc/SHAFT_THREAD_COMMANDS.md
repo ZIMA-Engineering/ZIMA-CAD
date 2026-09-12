@@ -97,3 +97,12 @@ sražené hřídele byla opravena také const kvalifikace cesty v testovacím
 přípravku. Výrobní katalog ani geometrická pravidla se kvůli těmto chybám
 neměnila. Testy navíc ověřily Whitworth a G, začátek/konec na sražení
 0,08/29,92 mm a odmítnutí reference na pozdější prvek.
+
+
+Následný úklid odstranil dvě kopie celého referenčního paketu při otevření
+Vlastností, které se ihned přepisovaly výsledkem společného filtru. Výběr,
+rollback ani řešení referencí se nemění. Sestavení prošlo; modelový test
+závitu **1/1** (0,29 s) a GUI konzole **1/1** (43,86 s).
+Logy: `build/shaft-thread-reference-copy-build.log`,
+`build/shaft-thread-reference-copy-tests.log` a
+`build/shaft-thread-reference-copy-gui-tests.log`.
