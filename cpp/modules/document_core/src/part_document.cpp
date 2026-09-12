@@ -3350,6 +3350,15 @@ HistoryContainer PartDocument::create_drill_point_container() {
     return container;
 }
 
+zima::kernel::Vec3 construction_direction_from_local_axis(
+    const std::string& axis, const zima::kernel::Vec3& rotation) {
+    const zima::kernel::Vec3 local = axis == "x" || axis == "yz"
+        ? zima::kernel::Vec3{1, 0, 0}
+        : axis == "y" || axis == "xz" ? zima::kernel::Vec3{0, 1, 0}
+        : zima::kernel::Vec3{0, 0, 1};
+    return rotated_vector(local, rotation);
+}
+
 ConstructionObject PartDocument::create_construction(ConstructionKind kind) {
     ConstructionObject object;
     object.id = make_id();
@@ -9017,6 +9026,16 @@ std::vector<ConstructionObject> deserialize_construction_objects(
                 ? ConstructionDefinition::PlaneReference
             : throw std::runtime_error("Invalid construction definition");
         object.offset = source.at("offset").get<double>();
+        // The entity center is derived from persisted calculated data. Restore
+        // it without resolving references or discarding a missing-reference
+        // diagnostic when a native document is opened or queried by the CLI.
+        if (object.kind == ConstructionKind::Plane) {
+            object.entity_origin = object.origin;
+            if (std::abs(object.offset) > 1.0e-12)
+                object.entity_origin = {object.origin.x + object.direction.x * object.offset,
+                    object.origin.y + object.direction.y * object.offset,
+                    object.origin.z + object.direction.z * object.offset};
+        }
         object.reference_valid = source.at("reference_valid").get<bool>();
         object.suppressed = source.at("suppressed").get<bool>();
         for (const auto& value : source.at("references")) {

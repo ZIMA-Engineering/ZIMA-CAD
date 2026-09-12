@@ -1,6 +1,9 @@
 #include <zima/command_host/host.hpp>
 #include <zima/document/placement_json.hpp>
+#include <zima/workspace/placement_edit.hpp>
 #include <algorithm>
+#include <cctype>
+#include <cmath>
 #include <stdexcept>
 
 namespace zima::command_host {
@@ -150,6 +153,78 @@ Json details(const Source& source, const Item& item, std::size_t limit) {
     }
     return result;
 }
+
+const Object* find(const Source& source, const std::string& id) {
+    const Object* result = nullptr;
+    visit(source, [&](const Item& item) {
+        if (item.object->id != id) return true;
+        result = item.object; return false;
+    });
+    if (!result) throw QueryError("construction_not_found", "The requested construction object does not exist in this document.");
+    return result;
+}
+void writable_body(const Source& source, const Object* object) {
+    if (!source.part) return;
+    const auto& graph = source.part->body_history;
+    const auto* body = object ? source.part->body_owner_for_object(object->id) : graph.find(graph.active_body_id());
+    if ((!object && !graph.bodies().empty() && !body) || (body && graph.active_body_id() != body->scope.id))
+        throw QueryError("inactive_body", "Activate the owning Body before editing a construction.");
+    if (body && body->derived_copy)
+        throw QueryError("read_only_body", "A derived Body cannot be edited directly.");
+}
+void properties(Object& value, const Json& args, const kernel::ViewerReferenceGeometry& geometry) {
+    bool specified = false;
+    if (args.contains("name")) {
+        specified = true;
+        const auto text = args.at("name").get<std::string>();
+        const auto space = [](unsigned char c) { return std::isspace(c) != 0; };
+        const auto first = std::find_if_not(text.begin(), text.end(), space);
+        if (first == text.end()) throw QueryError("invalid_arguments", "Specify a nonempty object name.");
+        value.name = {first, std::find_if_not(text.rbegin(), text.rend(), space).base()};
+    }
+    const auto field = [&](const char* key, document::ConstructionKind required) {
+        if (!args.contains(key)) return false;
+        specified = true;
+        if (value.kind != required)
+            throw QueryError("invalid_arguments", "This property is unavailable for the construction kind.");
+        return true;
+    };
+    const auto number = [&](const char* key, const char* lock, double minimum, double maximum) {
+        const double result = args.at(key).get<double>();
+        if (!std::isfinite(result) || result < minimum || result > maximum)
+            throw QueryError("invalid_arguments", "Construction dimension is outside the supported range.");
+        if (value.value_locks.contains(lock)) throw QueryError("value_locked", "The construction dimension is locked.");
+        return result;
+    };
+    if (field("display_size_mm", document::ConstructionKind::Axis))
+        value.display_size = number("display_size_mm", "length", 0.001, 1000000);
+    if (field("offset_mm", document::ConstructionKind::Plane))
+        value.offset = number("offset_mm", "offset", -1000000, 1000000);
+    if (field("direction_axis", document::ConstructionKind::Axis)) {
+        const auto axis = args.at("direction_axis").get<std::string>();
+        if (axis != "x" && axis != "y" && axis != "z")
+            throw QueryError("invalid_arguments", "Construction axis must be x, y or z.");
+        value.direction_axis = axis;
+    }
+    if (field("base_plane", document::ConstructionKind::Plane)) {
+        const auto plane = args.at("base_plane").get<std::string>();
+        if (plane != "xy" && plane != "xz" && plane != "yz")
+            throw QueryError("invalid_arguments", "Construction plane must be xy, xz or yz.");
+        value.base_plane = plane == "xy" ? document::LocalDatumPlane::XY
+            : plane == "xz" ? document::LocalDatumPlane::XZ : document::LocalDatumPlane::YZ;
+    }
+    if (args.contains("values")) {
+        specified = true;
+        if (args.at("values").empty()) throw QueryError("invalid_arguments", "Specify at least one placement parameter.");
+        for (const auto& [key, number] : args.at("values").items()) {
+            if (!number.is_number() || !std::isfinite(number.get<double>()))
+                throw QueryError("invalid_arguments", "Placement parameters must be finite JSON numbers.");
+            if (!workspace::assign_placement_dimension(value, geometry, key, number.get<double>()))
+                throw QueryError("parameter_not_editable", "The placement parameter is unknown, constrained or locked.");
+        }
+    }
+    if (!specified) throw QueryError("invalid_arguments", "Specify at least one construction property.");
+}
 }
 void Host::register_construction_commands() {
     dispatcher_.add({"construction.list", tr("List stored construction objects and their owned points without calculation."),
@@ -191,5 +266,52 @@ void Host::register_construction_commands() {
                 return Result::success(std::move(result));
             } catch (const QueryError& error) { return Result::failure(error.code, tr(error.what())); }
         });
+    for (const bool create : {true, false}) {
+        std::vector<commands::Argument> fields{{create ? "kind" : "construction", true}, {"name", create},
+            {"values", false, commands::ArgumentType::Object}, {"direction_axis", false}, {"base_plane", false},
+            {"display_size_mm", false, commands::ArgumentType::Number}, {"offset_mm", false, commands::ArgumentType::Number},
+            {"document", false}};
+        dispatcher_.add({create ? "construction.create" : "construction.set", create
+            ? tr("Create an absolute Point, Axis or Plane using the shared Properties transaction.")
+            : tr("Edit construction properties and placement in one transaction."), std::move(fields), true},
+            [this, create](const Json& args) {
+                const auto check = target(args); if (!check.ok) return check;
+                if (interaction().template_document) return Result::failure("unsupported_document", tr("Construction operations require an open Part or Assembly."));
+                try {
+                    const auto before = source(workspace_, args);
+                    const auto* existing = create ? nullptr : find(before, args.at("construction").get<std::string>());
+                    writable_body(before, existing);
+                    auto value = existing ? *existing : Object{};
+                    if (create) {
+                        const auto type = args.at("kind").get<std::string>();
+                        if (type != "point" && type != "axis" && type != "plane")
+                            throw QueryError("invalid_arguments", "New construction kind must be point, axis or plane.");
+                        value = document::PartDocument::create_construction(type == "point" ? document::ConstructionKind::Point
+                            : type == "axis" ? document::ConstructionKind::Axis : document::ConstructionKind::Plane);
+                    }
+                    const auto id = value.id, document = before.id;
+                    const auto geometry = existing && args.contains("values")
+                        ? workspace::placement_edit_geometry(workspace_, document, id) : kernel::ViewerReferenceGeometry{};
+                    properties(value, args, geometry);
+                    const bool changed = create || value != *existing;
+                    if (changed) {
+                        static_cast<void>(workspace::commit_construction(workspace_, document, std::move(value), create
+                            ? workspace::ConstructionEditMode::Create : workspace::ConstructionEditMode::Replace));
+                        change_ = Change{ChangeKind::Model, document};
+                    }
+                    const auto after = source(workspace_, args);
+                    Json result;
+                    visit(after, [&](const Item& item) {
+                        if (item.object->id != id) return true;
+                        result = details(after, item, 500); return false;
+                    });
+                    result["changed"] = changed;
+                    return Result::success(std::move(result));
+                } catch (const QueryError& error) { return Result::failure(error.code, tr(error.what())); }
+                  catch (const workspace::PlacementEditError& error) { return Result::failure(error.code, tr(error.what())); }
+                  catch (const std::exception& error) { return Result::failure("construction_rejected", tr(error.what())); }
+            });
+    }
+
 }
 } // namespace zima::command_host

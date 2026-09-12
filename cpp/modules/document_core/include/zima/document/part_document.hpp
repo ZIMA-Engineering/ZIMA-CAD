@@ -150,6 +150,11 @@ struct ConstructionObject {
     bool operator==(const ConstructionObject&) const = default;
 };
 
+// Pure Properties preparation: rotate the chosen local axis/plane normal.
+// Reference resolution still owns the final constrained direction.
+[[nodiscard]] zima::kernel::Vec3 construction_direction_from_local_axis(
+    const std::string& axis, const zima::kernel::Vec3& rotation);
+
 // Canonical persistence for construction containers shared by Part and
 // Assembly documents. Keeping one codec is essential because 3D-Curves own
 // nested Point containers and radius data that must not

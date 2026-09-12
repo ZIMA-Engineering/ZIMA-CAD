@@ -1403,25 +1403,8 @@ zima::document::ConstructionObject ConstructionPropertiesDialog::current_value()
         if (initial_.kind == zima::document::ConstructionKind::Axis) {
             value.direction_axis = key.toStdString();
         }
-        zima::kernel::Vec3 local = key == QStringLiteral("x") ||
-                key == QStringLiteral("yz")
-            ? zima::kernel::Vec3{1.0, 0.0, 0.0}
-            : key == QStringLiteral("y") || key == QStringLiteral("xz")
-                ? zima::kernel::Vec3{0.0, 1.0, 0.0}
-                : zima::kernel::Vec3{0.0, 0.0, 1.0};
-        constexpr double radians = std::numbers::pi / 180.0;
-        const double cx = std::cos(value.rotation.x * radians);
-        const double sx = std::sin(value.rotation.x * radians);
-        const double cy = std::cos(value.rotation.y * radians);
-        const double sy = std::sin(value.rotation.y * radians);
-        const double cz = std::cos(value.rotation.z * radians);
-        const double sz = std::sin(value.rotation.z * radians);
-        local = {local.x, cx * local.y - sx * local.z,
-            sx * local.y + cx * local.z};
-        local = {cy * local.x + sy * local.z, local.y,
-            -sy * local.x + cy * local.z};
-        value.direction = {cz * local.x - sz * local.y,
-            sz * local.x + cz * local.y, local.z};
+        value.direction = zima::document::construction_direction_from_local_axis(
+            key.toStdString(), value.rotation);
     }
     if (display_size_ != nullptr) value.display_size = display_size_->value();
     if (base_plane_combo_ != nullptr) {

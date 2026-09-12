@@ -230,3 +230,8 @@ popisuje [CONSTRUCTION_COMMANDS.md](CONSTRUCTION_COMMANDS.md).
 Čtení a atomické číselné změny umístění těles, prvků a konstrukcí poskytují
 `placement.get/set`. Rozlišení absolutních hodnot, korekcí a referenčních
 offsetů popisuje [PLACEMENT_COMMANDS.md](PLACEMENT_COMMANDS.md).
+
+`construction.create/set` doplňují tvorbu bodů, os a rovin i atomickou změnu
+jejich vlastností a umístění. Používají společnou transakci GUI Vlastností,
+respektují reference, zámky a aktivní těleso. Argumenty a zbývající rozsah:
+[CONSTRUCTION_COMMANDS.md](CONSTRUCTION_COMMANDS.md).

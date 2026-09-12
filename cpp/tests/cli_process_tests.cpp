@@ -98,6 +98,25 @@ int main(int argc,char** argv){
         const auto placed_native = document::PartDocument::load(placement_path, &placed_bodies);
         require(placed_native.history.front().placement.rotation_z == 90 && std::abs(placed_bodies.back().volume - 6000) < 1e-7,
             "CLI placement lost its saved angle or changed solid volume");
+
+        const auto create_plane = command({{"command","construction.create"},{"arguments",{{"kind","plane"},{"name","CLI rovina žluťoučká"},
+            {"base_plane","yz"},{"offset_mm",10},{"values",{{"x",1},{"y",2},{"z",3},{"rotation_z",90}}}}}});
+        result=launch(executable,root,common+QStringList{"--command","new part construction-created","--command",create_plane,"--command","save"});
+        require(result.exit_code==0,"CLI construction creation failed");
+        const auto construction_created_path=project/"construction-created.prtz";
+        const auto created_plane=document::PartDocument::load(construction_created_path).constructions.front();
+        require(created_plane.name=="CLI rovina žluťoučká"&&std::abs(created_plane.entity_origin.y-12)<1e-7,"CLI plane has incorrect saved geometry/name");
+        const auto update_plane=command({{"command","construction.set"},{"arguments",{{"construction",created_plane.id},{"offset_mm",15}}}});
+        result=launch(executable,root,common+QStringList{"--command","open construction-created.prtz","--command",update_plane,
+            "--command","undo","--command","redo","--command","save","--command","construction.get "+QString::fromStdString(created_plane.id)});
+        require(result.exit_code==0&&result.results()[5].at("data").at("offset_mm")==15,"CLI construction set/Undo/Redo failed");
+        const auto saved_plane=document::PartDocument::load(construction_created_path).constructions.front();
+        require(saved_plane.entity_id==created_plane.entity_id&&std::abs(saved_plane.entity_origin.y-17)<1e-7,"CLI edit changed plane identity or lost geometry");
+        result=launch(executable,root,common+QStringList{"--stdin"},
+            "new assembly construction-created\nconstruction.create axis \"CLI osa\"\nsave\n");
+        require(result.exit_code==0,"Text stdin construction creation failed");
+        const auto saved_axis=assembly::AssemblyDocument::load(project/"construction-created.asmz").constructions.front();
+        require(saved_axis.direction_axis=="y"&&saved_axis.display_size==100&&std::abs(saved_axis.direction.y-1)<1e-7,"Text CLI axis parameters lost");
         const auto construction_native = test::construction_query_fixture();
         construction_native.save(project / "construction-query.prtz");
         const auto& construction_curve = construction_native.constructions[3];

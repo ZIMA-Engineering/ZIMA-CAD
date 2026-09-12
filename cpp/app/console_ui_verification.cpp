@@ -671,6 +671,34 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
             construction_curve, construction_native.body_history.active_body_id());
         check(run("documents").data == construction_before, "GUI construction query changed document state");
         json_run("close", {{"discard", true}}); run(QString::fromStdString(activate.dump())); flush();
+
+        run(QString::fromStdString("new part "+stem+"-construction-edit"));flush();
+        const auto created_plane=json_run("construction.create",{{"kind","plane"},{"name","Console Plane"},
+            {"base_plane","xy"},{"offset_mm",12.5}}).data;flush();
+        const auto plane_id=created_plane.at("construction").get<std::string>();
+        const auto edit_plane=[&]() {
+            QTreeWidgetItem* item=nullptr;
+            for(QTreeWidgetItemIterator it(model_tree);*it;++it)
+                if((*it)->data(0,Qt::UserRole).toString().toStdString()==plane_id) {item=*it;break;}
+            check(item,"CLI-created construction missing from tree");window.show_tree_item_properties(item);flush();
+            for(auto* dialog:window.findChildren<QDialog*>())
+                if(dialog->findChild<QDoubleSpinBox*>("constructionOffset")) return dialog;
+            throw std::runtime_error("Construction Properties missing");
+        };
+        auto* plane_dialog=edit_plane();auto* plane_offset=plane_dialog->findChild<QDoubleSpinBox*>("constructionOffset");
+        check(std::abs(plane_offset->value()-12.5)<1e-8,"Properties did not consume console-created plane");
+        const commands::Json plane_patch={{"command","construction.set"},{"arguments",{{"construction",plane_id},{"offset_mm",15}}}};
+        check(window.execute_console_command(QString::fromStdString(plane_patch.dump())).code=="editing_in_progress","CLI construction set overwrote pending dialog");
+        plane_offset->setValue(21.25);plane_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
+        check(json_run("construction.get",{{"construction",plane_id}}).data.at("offset_mm")==12.5,"Cancelled plane properties committed");
+        plane_dialog=edit_plane();plane_dialog->findChild<QDoubleSpinBox*>("constructionOffset")->setValue(21.25);
+        plane_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+        check(json_run("construction.get",{{"construction",plane_id}}).data.at("offset_mm")==21.25,"GUI OK did not share construction transaction");
+        run("undo");check(json_run("construction.get",{{"construction",plane_id}}).data.at("offset_mm")==12.5,"GUI construction Undo failed");
+        json_run("construction.set",{{"construction",plane_id},{"offset_mm",15}});flush();
+        plane_dialog=edit_plane();check(std::abs(plane_dialog->findChild<QDoubleSpinBox*>("constructionOffset")->value()-15)<1e-8,"Properties did not consume construction.set");
+        plane_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
+        json_run("close",{{"discard",true}});run(QString::fromStdString(activate.dump()));flush();
         input->setText("context");QApplication::sendEvent(input,&enter);flush();
         check(window.grab().save(QString::fromStdString((directory/"command-console.png").string())),"Console screenshot failed");
         toggle->trigger();flush();check(!dock->isVisible(),"Console toggle did not hide panel");

@@ -80,6 +80,11 @@ template<class Document> void require_resolved(const Document& next, const std::
     const auto* resolved = next.find_construction(id);
     if (!resolved || !resolved->reference_valid)
         throw std::runtime_error("Construction definition has a missing or cyclic reference");
+    const auto* curve = resolved->kind == document::ConstructionKind::Curve3D ? resolved
+        : resolved->parent_construction_id.empty() ? nullptr
+        : next.find_construction(resolved->parent_construction_id);
+    if (curve && curve->kind == document::ConstructionKind::Curve3D)
+        static_cast<void>(document::curve3d_route(*curve));
 }
 }
 bool assign_placement_dimension(document::Placement& value,
@@ -132,6 +137,8 @@ void commit_part_parameter_edit(PartState& part, const kernel::OcctKernel& kerne
 }
 bool commit_construction(Workspace& live, const std::string& document_id,
     document::ConstructionObject value, ConstructionEditMode mode) {
+    if (value.kind == document::ConstructionKind::Axis)
+        value.direction = document::construction_direction_from_local_axis(value.direction_axis, value.rotation);
     const auto id = value.id;
     if (auto* part = live.open_part(document_id)) {
         const auto& before = part->session.document();

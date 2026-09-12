@@ -36,7 +36,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Historie Partu | Hotovo | Společný přesun, ověření závislostí, potlačení, odstranění a kurzor; včetně historie těles a Booleanů |
 | Tělesa a Boolean | Základ hotov | Tvorba, čtení, aktivace, název/viditelnost, kurzory a Boolean create/get/set; pořadí/mazání řeší historie; zbývá zadání referencí umístění a odvozené kopie |
 | Umístění a původní reference | Původní reference a číselná editace umístění hotovy | `placement.get/set`: tělesa a prvky Partu, konstrukce Partu/Assembly a jejich body; zbývá příkazové přidávání/výměna referencí, zámky, vložené dráhy a umístění komponent |
-| Konstrukční geometrie | Dotazy hotovy | `construction.list/get`: body, osy, roviny, 3D křivky a jejich vlastní body; zbývá tvorba/editace/mazání, reference a vložené dráhy modelovacích prvků |
+| Konstrukční geometrie | Částečně hotovo | `construction.list/get/create/set`: dotazy, tvorba bodů/os/rovin, vlastnosti a umístění; zbývají reference, tvorba a geometrie 3D křivek, mazání a vložené dráhy modelovacích prvků |
 | Skicář: geometrie | Základ hotov | 21 příkazů: samostatné a vložené skici, body, úsečky, kružnice, oblouky, elipsy, B-spline, obdélníky, mnohoúhelníky, posun a pomocná geometrie; text create/get/set s nativním písmem a spline get/set hotovy; DXF do vložených profilů hotov; zbývá kontrola dalších variant podle GUI |
 | Skicář: vazby a operace | Vazby/kóty/solver/offset/trim/mirror hotovy | Offset create/get/set/free, úplný podklad a zachování intervalů, trim podle průsečíků, mirror, orientovaný obdélník, tečny a zaoblení rohu; všech 15 druhů vazeb, odstranění a solver; 16 druhů kót včetně vlastností, popisků a mazání; uvolnění externích referencí hotovo |
 | Externí reference skici | Part a kořenová Assembly hotovy | Původní geometrie, přesná projekce, aktualizace, odpojení a zachování trimu; zbývá příkazový kontext Partu aktivovaného v sestavě |
@@ -522,3 +522,17 @@ Po zavření uživatelského CADu je dokončený běžný Windows Release build 
 programů. Start instancí, GUI konzole a skutečný CLI proces prošly **3/3**
 (29,51 s), `build/placement-normal-tests.log`. Tím je uzavřeno dříve odložené
 slinkování běžného EXE; ověření nevyžaduje alternativní testovací program.
+
+
+Etapa tvorby a vlastností konstrukcí přidává `construction.create/set`,
+celkem **158 příkazů**. Body, osy a roviny se tvoří v aktivním vlastníku;
+obecné vlastnosti a umístění sdílejí transakci s GUI. Byla sjednocena
+příprava směru osy, obnovena odvozená poloha entity roviny při nativním čtení
+a přenesena kontrola celé 3D dráhy také na přímou editaci jejího bodu.
+
+Oba běžné programy a všechny testovací programy jsou sestavené. Úplná
+Windows Release regrese prošla **88/88** (389,12 s),
+`build/construction-edit-full-tests.log`. Podrobnosti:
+[CONSTRUCTION_COMMANDS.md](CONSTRUCTION_COMMANDS.md). Nativní formáty a
+start šablony se nemění. Další rozsah jsou konstrukční reference, tvorba
+a vlastnosti 3D křivek a další modelovací příkazy; úplná CLI ještě hotová není.
