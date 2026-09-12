@@ -21,7 +21,7 @@ struct Interaction {
 };
 enum class ChangeKind { Open, New, Save, Regenerate, History, Model, Activate, Close, Copy, Directory };
 struct Change { ChangeKind kind; std::string document_id; bool clear_selection{}; };
-enum class Activity { Read, Write };
+enum class Activity { Read, Write, Export };
 struct Options {
     std::function<Settings()> settings;
     std::function<Interaction()> interaction;
@@ -69,6 +69,7 @@ private:
     void register_sketch_text_commands();
     void register_sketch_spline_commands();
     void register_import_commands();
+    void register_export_commands();
     void add_sketch_query(commands::Command,std::function<Json(const sketcher::Sketch&,const Json&)>);
     void add_sketch_command(commands::Command,std::function<Json(sketcher::Sketch&,const Json&)>);
     [[nodiscard]] Interaction interaction() const;

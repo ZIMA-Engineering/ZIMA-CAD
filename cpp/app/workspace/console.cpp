@@ -137,6 +137,7 @@ void AssemblyWorkspaceWindow::create_command_console() {
         console_status_operation_=true;
         const auto name=file_name(path);
         const auto text=activity==command_host::Activity::Read?tr("Otevírám %1…").arg(name)
+            : activity==command_host::Activity::Export?tr("Exportuji %1…").arg(name)
             : workspace_.open_assembly(workspace_.active_document_id())?tr("Ukládám sestavu %1…").arg(name)
             : workspace_.open_drawing(workspace_.active_document_id())?tr("Ukládám výkres %1…").arg(name)
             : tr("Ukládám Part %1…").arg(name);

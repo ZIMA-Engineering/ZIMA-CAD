@@ -49,7 +49,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Výkresy | Správa neuložených změn hotova | Příkazy pro listy, pohledy, kóty, anotace, šablony, BOM, Show/Erase |
 | Řezy, měření a vzhled | Zbývá | Datové operace a uložené výsledky |
 | Parametry, relace a materiál | Zbývá | Jednotky, fyzikální údaje a rodinné tabulky |
-| Import a export | Import Partu STEP/IGES/DXF hotov | Přesnost, jednotky a společná transakce; zbývá import Assembly, vložených profilů a podporované exporty |
+| Import a export | Import Partu STEP/IGES/DXF a základní exporty hotovy | Společný STEP včetně vnořených sestav, STL Part/plochá Assembly, DXF úsečky/kružnice/oblouky; zbývá import Assembly, vložených profilů, další DXF geometrie, vnořený STL a výkresové exporty |
 
 Každá další etapa aktualizuje tabulku a uvádí ověřené testy. Neobcházíme
 chybějící operaci nevalidovanou změnou serializovaného dokumentu ani voláním
@@ -173,3 +173,11 @@ topologie po smazání zdroje, native save/load, Undo/Redo, neplatné soubory,
 zastaralý výpočet, nové otevření téhož dokumentu a čistý JSON protokol CLI.
 Podrobnosti: [IMPORT_COMMANDS.md](IMPORT_COMMANDS.md). Dále exporty a import
 Assembly.
+
+Etapa exportu přidala `export.step/stl/dxf`, celkem **108 příkazů**.
+GUI a CLI sdílejí export vypočteného snímku a dokončený soubor zveřejňují
+atomicky; chybný výstup nepřepíše původní soubor. Regrese odhalila a opravila
+STL zápis do české cesty na Windows. Podrobnosti a omezení jsou v
+[EXPORT_COMMANDS.md](EXPORT_COMMANDS.md).
+Celá Windows Release sada exportní etapy prošla **72/72** (397,87 s),
+`build/export-full-tests.log`.

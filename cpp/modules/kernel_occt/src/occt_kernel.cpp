@@ -121,6 +121,8 @@
 #include <numbers>
 #include <optional>
 #include <sstream>
+#include <fstream>
+#include <filesystem>
 #include <stdexcept>
 #include <string_view>
 #include <utility>
@@ -5057,9 +5059,14 @@ void OcctKernel::export_stl(
     }
     StlAPI_Writer writer;
     writer.ASCIIMode() = false;
-    if (!writer.Write(shape, path.c_str())) {
+    // OCCT's filename overload opens a narrow std::ofstream on Windows.
+    // Open the UTF-8 path through filesystem instead and use its stream API.
+    std::ofstream output(std::filesystem::u8path(path), std::ios::binary);
+    if (!output || !writer.Write(shape, output)) {
         throw std::runtime_error("STL export failed");
     }
+    output.close();
+    if (!output) throw std::runtime_error("STL export failed");
 }
 
 std::vector<BodyResult> OcctKernel::evaluate_history(

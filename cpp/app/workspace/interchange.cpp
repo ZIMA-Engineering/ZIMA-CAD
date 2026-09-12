@@ -1,5 +1,6 @@
 #include "workspace_internal.hpp"
 #include <zima/workspace/import_operations.hpp>
+#include <zima/workspace/export_operations.hpp>
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -55,7 +56,7 @@ void AssemblyWorkspaceWindow::import_selected_file(const QString& path, std::opt
             });
             dialog->show();
         } catch(const std::exception& error) {
-            QMessageBox::warning(this,tr("Nastavení importu"),QString::fromUtf8(error.what()));
+            QMessageBox::warning(this,tr("Nastavení importu"),tr(error.what()));
         }
         return;
     }
@@ -81,7 +82,7 @@ void AssemblyWorkspaceWindow::import_selected_file(const QString& path, std::opt
                 ? tr("STEP importován: %1 těles").arg(report.body_ids.size()) : tr("IGES importován"));
         } catch (const std::exception& error) {
             finish_status_operation(tr("Import selhal"), false);
-            QMessageBox::warning(this, tr("Import selhal"), QString::fromUtf8(error.what()));
+            QMessageBox::warning(this, tr("Import selhal"), tr(error.what()));
         }
         return;
     }
@@ -126,7 +127,7 @@ void AssemblyWorkspaceWindow::import_selected_file(const QString& path, std::opt
             }
         } catch (const std::exception& error) {
             finish_status_operation(tr("Import selhal"),false);
-            QMessageBox::warning(this,tr("Import selhal"),QString::fromUtf8(error.what()));
+            QMessageBox::warning(this,tr("Import selhal"),tr(error.what()));
         }
         return;
     }
@@ -136,7 +137,7 @@ void AssemblyWorkspaceWindow::import_selected_file(const QString& path, std::opt
         try { import_step_into_assembly(std::filesystem::u8path(path.toStdString()),mesh_deflection); }
         catch (const std::exception& error) {
             finish_status_operation(tr("Import STEP sestavy selhal"), false);
-            QMessageBox::warning(this, tr("Import STEP selhal"), QString::fromUtf8(error.what()));
+            QMessageBox::warning(this, tr("Import STEP selhal"), tr(error.what()));
         }
         return;
     }
@@ -193,32 +194,6 @@ void AssemblyWorkspaceWindow::export_file() {
                 format, zima::interchange::Direction::Export, context)));
         return;
     }
-    if (format == zima::interchange::Format::Dxf) {
-        const auto* part = workspace_.open_part(workspace_.active_document_id());
-        if (part == nullptr) return;
-        const auto sketch = std::find_if(
-            part->session.document().sketches.begin(),
-            part->session.document().sketches.end(),
-            [&](const auto& value) { return value.id == active_sketch_id_; });
-        if (sketch == part->session.document().sketches.end()) return;
-        begin_status_operation(tr("Exportuji aktivní skicu do DXF…"));
-        try {
-            update_status_operation(
-                tr("Převádím entity skici a zapisuji DXF…"), -1, 0);
-            auto sketch_snapshot = *sketch;
-            run_background_task([
-                    sketch = std::move(sketch_snapshot),
-                    target = path.toStdString()] {
-                zima::interchange::export_dxf(target, sketch);
-            });
-            finish_status_operation(
-                tr("Aktivní skica exportována do DXF: %1").arg(path));
-        } catch (const std::exception& error) {
-            finish_status_operation(tr("Export DXF selhal"), false);
-            QMessageBox::warning(this, tr("Export DXF selhal"), error.what());
-        }
-        return;
-    }
     if (format == zima::interchange::Format::Png ||
         format == zima::interchange::Format::Jpeg) {
         begin_status_operation(tr("Exportuji aktuální 3D pohled…"));
@@ -237,73 +212,17 @@ void AssemblyWorkspaceWindow::export_file() {
             tr("Aktuální 3D pohled exportován: %1").arg(path));
         return;
     }
-    if (format == zima::interchange::Format::Step) {
-        begin_status_operation(tr("Připravuji model pro export…"));
-        try {
-            zima::kernel::StepProduct product;
-            const auto id=workspace_.active_document_id();
-            if(const auto* part=workspace_.open_part(id))
-                product=zima::interchange::step_product(part->session.document(),part->session.calculated_boundaries());
-            else if(const auto* assembly=workspace_.open_assembly(id))
-                product=zima::interchange::step_product(assembly->session.document());
-            else throw std::runtime_error("STEP export vyžaduje Part nebo sestavu");
-            update_status_operation(tr("OCCT převádí a zapisuje STEP…"),-1,0);
-            run_background_task([product=std::move(product),target=path.toStdString()] {
-                zima::kernel::OcctKernel kernel;kernel.export_step(product,target);
-            });
-            finish_status_operation(tr("Model exportován: %1").arg(path));
-        } catch(const std::exception& error) {
-            finish_status_operation(tr("Export modelu selhal"),false);
-            QMessageBox::warning(this,tr("Export modelu selhal"),error.what());
-        }
-        return;
-    }
-    if (format == zima::interchange::Format::Stl) {
-        begin_status_operation(tr("Připravuji model pro export…"));
-        try {
-            std::vector<zima::kernel::PlacedBody> bodies;
-            if (const auto* part = workspace_.open_part(
-                    workspace_.active_document_id())) {
-                if (part->session.calculated_boundaries().empty()) {
-                    throw std::runtime_error(
-                        "Part nemá explicitně vypočtené těleso");
-                }
-                bodies.push_back({part->session.calculated_boundaries().back(), {}, {}});
-            } else if (const auto* assembly = workspace_.open_assembly(
-                           workspace_.active_document_id())) {
-                const auto suppressed =
-                    assembly->session.document().effectively_suppressed_occurrences();
-                for (const auto& component : assembly->session.document().components) {
-                    if (!component.visible || suppressed.contains(component.occurrence_id)) {
-                        continue;
-                    }
-                    if (component.source_kind !=
-                            zima::assembly::ComponentSourceKind::Part) {
-                        throw std::runtime_error(
-                            "STEP/STL export vnořené podsestavy zatím vyžaduje její "
-                            "rozbalení na Part výskyty");
-                    }
-                    bodies.push_back({component.calculated_source,
-                        {component.placement.x, component.placement.y,
-                         component.placement.z},
-                        {component.placement.rotation_x,
-                         component.placement.rotation_y,
-                         component.placement.rotation_z}});
-                }
-            }
-            update_status_operation(tr("OCCT vytváří síť a zapisuje STL…"),-1,0);
-            run_background_task([
-                    bodies = std::move(bodies), target = path.toStdString(),
-                    format] {
-                zima::kernel::OcctKernel worker_kernel;
-                worker_kernel.export_stl(bodies, target);
-            });
-            finish_status_operation(tr("Model exportován: %1").arg(path));
-        } catch (const std::exception& error) {
-            finish_status_operation(tr("Export modelu selhal"), false);
-            QMessageBox::warning(this, tr("Export modelu selhal"), error.what());
-        }
-        return;
+    begin_status_operation(tr("Exportuji %1…").arg(QFileInfo(path).fileName()));
+    try {
+        const zima::workspace::ExportOptions options{active_sketch_id_,true};
+        // QFileDialog has already obtained confirmation for an existing file.
+        static_cast<void>(zima::workspace::export_file(workspace_,workspace_.active_document_id(),
+            std::filesystem::u8path(path.toStdString()),options,
+            [](auto task){run_background_task(std::move(task));}));
+        finish_status_operation(tr("Model exportován: %1").arg(path));
+    } catch(const std::exception& error) {
+        finish_status_operation(tr("Export modelu selhal"),false);
+        QMessageBox::warning(this,tr("Export modelu selhal"),tr(error.what()));
     }
 }
 

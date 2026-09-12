@@ -1,6 +1,7 @@
 #include <zima/command_host/host.hpp>
 #include <zima/document/file_path.hpp>
 #include <zima/interchange/step_model.hpp>
+#include <zima/interchange/dxf.hpp>
 #include "../cli/runner.hpp"
 #include <QCoreApplication>
 #include <QFile>
@@ -211,6 +212,13 @@ int main(int argc,char** argv){
         require(result.exit_code==0 && result.results()[1].at("data").at("imported_entities")==1,"CLI DXF import failed");
         const auto dxf_native=document::PartDocument::load(project/"cli-dxf.prtz");
         require(dxf_native.sketches.back().segments.size()==1 && dxf_native.sketches.back().name=="obrys český","CLI DXF lost native geometry or UTF-8 metadata");
+        const auto exported_dxf=project/fs::path(u8"exportovaný obrys.dxf");
+        const auto dxf_export=command({{"command","export.dxf"},{"arguments",{{"path",document::path_to_utf8(exported_dxf)},{"sketch",dxf_native.sketches.back().id}}}});
+        result=launch(executable,root,common+QStringList{"--command","open cli-dxf.prtz","--command",dxf_export});
+        require(result.exit_code==0 && result.results()[1].at("data").at("model_changed")==false,"CLI DXF export failed");
+        auto dxf_roundtrip=sketcher::Sketch::create_default();require(interchange::import_dxf(exported_dxf,dxf_roundtrip).imported_entities==1,"CLI DXF output is not readable");
+        result=launch(executable,root,common+QStringList{"--command","open cli-dxf.prtz","--command",dxf_export});
+        require(result.exit_code==1 && result.results()[1].at("code")=="file_exists","CLI exported over an existing file without permission");
         kernel::OcctKernel import_kernel;auto import_source=document::PartDocument::create_default();
         auto source_box=document::PartDocument::create_box_container();source_box.box.length=10;source_box.box.width=20;source_box.box.height=30;import_source.history.push_back(source_box);
         const auto source_bodies=import_kernel.evaluate_history(import_source.kernel_operations());
@@ -221,6 +229,14 @@ int main(int argc,char** argv){
         require(result.exit_code==0 && result.results()[1].at("data").at("bodies").size()==1,"CLI STEP import failed or mixed OCCT diagnostics into protocol");
         std::vector<kernel::BodyResult> step_bodies;const auto step_native=document::PartDocument::load(project/"cli-step.prtz",&step_bodies);
         require(!step_bodies.empty() && std::abs(step_bodies.back().volume-6000)<1e-5 && step_native.history.back().imported_step.mesh_deflection==2.0,"CLI STEP lost volume or selected precision");
+        const auto step_output=project/fs::path(u8"exportovaný kvádr.step"),stl_output=project/fs::path(u8"exportovaný kvádr.stl");
+        const auto step_export=command({{"command","export.step"},{"arguments",{{"path",document::path_to_utf8(step_output)}}}});
+        const auto stl_export=command({{"command","export.stl"},{"arguments",{{"path",document::path_to_utf8(stl_output)}}}});
+        result=launch(executable,root,common+QStringList{"--command","open cli-step.prtz","--command",step_export,"--command",stl_export});
+        if(result.exit_code!=0)std::cerr << result.output.toStdString() << result.diagnostics.toStdString();
+        require(result.exit_code==0 && result.results().size()==3 && fs::file_size(stl_output)>84,"CLI STEP/STL export failed or polluted the protocol");
+        const auto exported_part=interchange::import_step_part(document::PartDocument::create_default(),{},step_output);
+        require(std::abs(exported_part.calculated.back().volume-6000)<1e-5,"CLI STEP export changed the solid");
         const auto iges_source=project/fs::path(u8"krychle česká.igs");fs::copy_file(repository/"cpp/tests/fixtures/import/cube-10mm.igs",iges_source);
         const auto iges_import=command({{"command","import.iges"},{"arguments",{{"path",document::path_to_utf8(iges_source)}}}});
         result=launch(executable,root,common+QStringList{"--command","new part cli-iges","--command",iges_import,"--command","save"});

@@ -68,6 +68,7 @@ void Host::register_commands(){
     register_sketch_text_commands();
     register_sketch_spline_commands();
     register_import_commands();
+    register_export_commands();
     dispatcher_.set_guard([this](const commands::Command& command){
         if(!command.changes_state)return Result::success();
         const auto state=interaction();

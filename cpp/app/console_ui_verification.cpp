@@ -379,6 +379,25 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         const auto after_menu_import=run("sketch.list").data.at("total").get<int>();
         std::cout<<"Menu import result: selected="<<chosen<<", timeout="<<timed_out<<", sketches="<<before_menu_import<<" -> "<<after_menu_import<<'\n';
         check(chosen && !timed_out && after_menu_import==before_menu_import+1,"Menu import did not use the shared model transaction");
+        const auto exported_profile=directory/(stem+"-export.dxf");
+        commands::Json export_dxf={{"command","export.dxf"},{"arguments",{{"path",document::path_to_utf8(exported_profile)},{"sketch",dxf_result.at("sketch")}}}};
+        check(run(QString::fromStdString(export_dxf.dump())).data.at("model_changed")==false && std::filesystem::file_size(exported_profile)>0,"Console export did not write its model snapshot");
+        const auto exported_model=std::filesystem::absolute(directory/(stem+"-menu.step"));
+        auto* menu_export_action=window.findChild<QAction*>("exportDocumentAction");check(menu_export_action,"Export menu action missing");
+        bool export_chosen=false,export_timed_out=false;QTimer choose_export;choose_export.setInterval(50);
+        QObject::connect(&choose_export,&QTimer::timeout,[&]{
+            if(auto* dialog=qobject_cast<QFileDialog*>(QApplication::activeModalWidget())) {
+                if(!export_chosen) {dialog->setDirectory(QString::fromStdString(document::path_to_utf8(exported_model.parent_path())));dialog->selectNameFilter("STEP (*.step)");export_chosen=true;return;}
+                if(auto* filename=dialog->findChild<QLineEdit*>("fileNameEdit"))filename->setText(QString::fromStdString(document::path_to_utf8(exported_model)));
+                QMetaObject::invokeMethod(dialog,"accept",Qt::DirectConnection);
+            } else if(auto* message=qobject_cast<QMessageBox*>(QApplication::activeModalWidget())) {
+                std::cout<<"Export menu message: "<<message->text().toStdString()<<'\n';message->accept();
+            }
+        });
+        QTimer export_timeout;export_timeout.setSingleShot(true);
+        QObject::connect(&export_timeout,&QTimer::timeout,[&]{export_timed_out=true;if(auto* dialog=qobject_cast<QDialog*>(QApplication::activeModalWidget()))dialog->reject();});
+        choose_export.start();export_timeout.start(10000);menu_export_action->trigger();choose_export.stop();export_timeout.stop();flush();
+        check(export_chosen && !export_timed_out && std::filesystem::is_regular_file(exported_model) && std::filesystem::file_size(exported_model)>0,"Menu export did not publish a STEP model");
         run("save");
         run(QString::fromStdString(activate.dump()));flush();
         input->setText("context");QApplication::sendEvent(input,&enter);flush();

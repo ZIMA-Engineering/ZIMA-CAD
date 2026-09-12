@@ -100,6 +100,7 @@ add_library(zima_workspace modules/workspace/src/workspace.cpp
     modules/workspace/src/body_operations.cpp
     modules/workspace/src/history_operations.cpp
     modules/workspace/src/reference_sources.cpp
+    modules/workspace/src/export_operations.cpp
     modules/workspace/src/import_operations.cpp
     modules/workspace/src/sketch_operations.cpp
     modules/workspace/src/sketch_reference_operations.cpp
@@ -127,7 +128,8 @@ add_library(zima_command_host
     modules/command_host/src/sketch_reference_commands.cpp
     modules/command_host/src/sketch_text_commands.cpp
     modules/command_host/src/sketch_spline_commands.cpp
-    modules/command_host/src/import_commands.cpp)
+    modules/command_host/src/import_commands.cpp
+    modules/command_host/src/export_commands.cpp)
 target_include_directories(zima_command_host PUBLIC modules/command_host/include)
 target_link_libraries(zima_command_host PUBLIC zima_commands zima_workspace)
 # Commands carry UTF-8 paths and localized text even without Qt's build flags.
@@ -445,6 +447,11 @@ if(ZIMA_BUILD_TESTS)
     add_dependencies(zima_cpp_cli_process_tests zima-cad-cli)
     add_test(NAME zima_cpp_cli_process_tests COMMAND zima_cpp_cli_process_tests "$<TARGET_FILE:zima-cad-cli>")
     set_tests_properties(zima_cpp_cli_process_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120)
+    add_executable(zima_cpp_export_command_tests tests/export_command_tests.cpp)
+    target_link_libraries(zima_cpp_export_command_tests PRIVATE zima_command_host)
+    add_test(NAME zima_cpp_export_command_tests COMMAND zima_cpp_export_command_tests)
+    set_tests_properties(zima_cpp_export_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
+
     add_executable(zima_cpp_import_command_tests tests/import_command_tests.cpp)
     target_link_libraries(zima_cpp_import_command_tests PRIVATE zima_command_host TKDEIGES TKPrim)
     add_test(NAME zima_cpp_import_command_tests COMMAND zima_cpp_import_command_tests)
