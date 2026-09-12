@@ -91,7 +91,7 @@ skutečný CLI proces, původní reference, překlady a konzole GUI. Předchozí
 měl 5/6; GUI test posílal prázdné argumenty jako JSON `null` místo objektu.
 Opravena byla pouze tato testovací zpráva, následně prošla celá dotčená sada.
 
-CLI a testy jsou sestavené běžným CMake postupem. Uživatelský CAD stále běžel;
-GUI regrese používá `zima-cad-construction-validation.exe`, slinkovaný z
-aktuálních objektů a knihoven. Běžný `zima-cad-cpp.exe` zůstává zamčený,
-po zavření CADu zbývá jeho běžný link. Nejde o distribuční balíček.
+Původní ověření používalo alternativní testovací GUI kvůli běžícímu CADu.
+Po jeho zavření jsou běžné GUI i CLI sestavené a prošly závěrečnou kontrolou
+startu a konzole **3/3**, viz [PLACEMENT_COMMANDS.md](PLACEMENT_COMMANDS.md).
+Nejde o distribuční balíček.

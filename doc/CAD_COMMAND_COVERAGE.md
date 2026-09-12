@@ -517,3 +517,8 @@ doplnění korekčního zámku prošla závěrečná dotčená sada **9/9** (81,
 rozsah: [PLACEMENT_COMMANDS.md](PLACEMENT_COMMANDS.md). Následuje tvorba
 a obecné vlastnosti konstrukcí a zadávání referencí. Úplná CLI ještě hotová
 není; nativní formát a start šablony se v této etapě nemění.
+
+Po zavření uživatelského CADu je dokončený běžný Windows Release build obou
+programů. Start instancí, GUI konzole a skutečný CLI proces prošly **3/3**
+(29,51 s), `build/placement-normal-tests.log`. Tím je uzavřeno dříve odložené
+slinkování běžného EXE; ověření nevyžaduje alternativní testovací program.

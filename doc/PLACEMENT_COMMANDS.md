@@ -114,7 +114,9 @@ objektu; kopie dokumentu vzniká až uvnitř společné potvrzovací transakce.
 Konstrukční referenční geometrie se nepřipravuje při editaci jiného druhu
 parametru, který touto větví jen prochází.
 
-Běžící uživatelský CAD nebyl ukončen. CLI a testovací programy jsou sestavené;
-hlavní GUI regrese používá `zima-cad-placement-validation.exe` slinkované
-z aktuálních CMake objektů a knihoven. Běžný `zima-cad-cpp.exe` byl zamčený,
-po zavření CADu zbývá jeho běžný link. Není to distribuční balíček.
+Po uživatelském zavření CADu je dokončené i běžné Windows Release sestavení
+`zima-cad-cpp.exe` a `zima-cad-cli.exe` (`build/placement-normal-build.log`).
+Ověření běžného EXE prošlo **3/3** (29,51 s): start samostatných instancí,
+GUI konzole a skutečný CLI proces (`build/placement-normal-tests.log`).
+Předchozí alternativní testovací EXE už pro spuštění této etapy není potřebné.
+Jde o místní vývojové sestavení, nikoli distribuční balíček.
