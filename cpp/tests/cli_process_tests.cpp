@@ -248,6 +248,10 @@ int main(int argc,char** argv){
         result=launch(executable,root,common+QStringList{"--command","open cli-projection.prtz","--command",QString::fromStdString("sketch.reference.delete "+projection_sketch+" "+projection_id),"--command","save"});
         require(result.exit_code==0,"CLI reference detach failed");const auto detached=document::PartDocument::load(project/"cli-projection.prtz");
         require(detached.sketches.back().external_references.empty() && detached.sketches.back().segments==projected.sketches.back().segments,"CLI detach destroyed native projection");
+        const auto text_request=command({{"command","sketch.text.create"},{"arguments",{{"sketch",projection_sketch},{"value","Řez Ø10"},{"position",{20,30}},{"height_mm",3},{"modeling_geometry",false}}}});
+        result=launch(executable,root,common+QStringList{"--command","open cli-projection.prtz","--command",text_request,"--command","save"});
+        require(result.exit_code==0,"Qt-free CLI text generation failed");const auto text_document=document::PartDocument::load(project/"cli-projection.prtz");
+        require(text_document.sketches.back().texts.size()==1 && text_document.sketches.back().texts.front().value=="Řez Ø10" && !text_document.sketches.back().texts.front().contours.empty() && !text_document.sketches.back().texts.front().modeling_geometry,"CLI text lost Unicode, glyph outlines or annotation mode");
         std::cout<<"CLI processes: native files, Unicode/config, scripts/stdin, errors, streaming and explicit geometry calculation passed\n";
         return 0;
     }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}

@@ -1,38 +1,18 @@
 #include "sketch_text_properties_dialog.hpp"
+#include <zima/sketcher/text_geometry.hpp>
 
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDoubleSpinBox>
-#include <QFont>
-#include <QFontDatabase>
-#include <QFontMetricsF>
 #include <QFormLayout>
 #include <QLabel>
-#include <QPainterPath>
 #include <QPlainTextEdit>
-#include <QPointF>
-#include <QTransform>
 
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
 
 namespace zima::app {
-namespace {
-
-QString iso_font_family() {
-    static const QString family = [] {
-        const int id = QFontDatabase::addApplicationFont(
-            QStringLiteral(":/zima/fonts/osifont-lgpl3fe.ttf"));
-        const auto families = id < 0
-            ? QStringList{} : QFontDatabase::applicationFontFamilies(id);
-        return families.empty() ? QStringLiteral("osifont") : families.front();
-    }();
-    return family;
-}
-
-}  // namespace
-
 SketchTextPropertiesDialog::SketchTextPropertiesDialog(
     zima::sketcher::SketchText initial,
     std::optional<std::array<double, 2>> anchor,
@@ -156,86 +136,7 @@ void SketchTextPropertiesDialog::set_anchor(double x, double y) {
 }
 
 void rebuild_sketch_text_contours(zima::sketcher::SketchText& text, bool y_up) {
-    const QString value = QString::fromStdString(text.value);
-    QFont font(iso_font_family());
-    font.setPixelSize(1000);
-    const QFontMetricsF metrics(font);
-    QPainterPath path;
-    const auto lines = value.split('\n');
-    for (qsizetype index = 0; index < lines.size(); ++index) {
-        path.addText(QPointF(0.0, static_cast<double>(index) * metrics.lineSpacing()),
-                     font, lines[index]);
-    }
-    const QRectF bounds = path.boundingRect();
-    if (bounds.height() <= 1.0e-9) {
-        throw std::runtime_error("Text nevytváří žádný platný obrys.");
-    }
-    const double scale = text.height / std::max(metrics.capHeight(), 1.0);
-    const double scaled_left = bounds.left() * scale;
-    const double scaled_bottom = bounds.bottom() * scale;
-    std::vector<std::vector<std::array<double, 2>>> local_contours;
-    for (const auto& polygon : path.toSubpathPolygons(
-             QTransform::fromScale(scale, scale))) {
-        std::vector<std::array<double, 2>> contour;
-        contour.reserve(static_cast<std::size_t>(polygon.size()));
-        for (const auto& point : polygon) {
-            // QPainterPath glyphs use a downward-positive Y axis. The
-            // default Sketch view uses that same on-screen handedness, so
-            // reflecting the glyph around its baseline here made every new
-            // text appear upside down. Keep the baseline at local Y=0 and
-            // place the glyph body on its negative-Y side; the explicit
-            // horizontal flip remains the only mirroring operation.
-            const std::array candidate{
-                point.x() - scaled_left, point.y() - scaled_bottom};
-            if (contour.empty() || std::hypot(
-                    candidate[0] - contour.back()[0],
-                    candidate[1] - contour.back()[1]) > 1.0e-9) {
-                contour.push_back(candidate);
-            }
-        }
-        if (contour.size() >= 2 && std::hypot(
-                contour.front()[0] - contour.back()[0],
-                contour.front()[1] - contour.back()[1]) <= 1.0e-9) {
-            contour.pop_back();
-        }
-        if (contour.size() >= 3) local_contours.push_back(std::move(contour));
-    }
-    if (local_contours.empty()) {
-        throw std::runtime_error("Text nevytváří žádný platný obrys.");
-    }
-
-    double width{};
-    for (const auto& contour : local_contours) {
-        for (const auto& point : contour) width = std::max(width, point[0]);
-    }
-    const auto horizontal = text.horizontal;
-    const auto vertical = text.vertical;
-    const double horizontal_offset = horizontal ==
-            zima::sketcher::TextHorizontalAlignment::Center ? -0.5 * width
-        : horizontal == zima::sketcher::TextHorizontalAlignment::Right ? -width
-        : 0.0;
-    const double vertical_offset = vertical ==
-            zima::sketcher::TextVerticalAlignment::Middle
-            ? 0.5 * bounds.height() * scale
-        : vertical == zima::sketcher::TextVerticalAlignment::Top
-            ? bounds.height() * scale : 0.0;
-    constexpr double pi = 3.14159265358979323846;
-    const double angle = text.angle_degrees * pi / 180.0;
-    const double cosine = std::cos(angle);
-    const double sine = std::sin(angle);
-
-    text.contours.clear();
-    text.contours.reserve(local_contours.size());
-    for (auto contour : local_contours) {
-        for (auto& point : contour) {
-            double x = point[0] + horizontal_offset;
-            const double y = (point[1] + vertical_offset) * (y_up ? -1.0 : 1.0);
-            if (text.flipped) x = -x;
-            point = {text.anchor_x + x * cosine - y * sine,
-                     text.anchor_y + x * sine + y * cosine};
-        }
-        text.contours.push_back(std::move(contour));
-    }
+    zima::sketcher::rebuild_text_contours(text,y_up);
 }
 
 zima::sketcher::SketchText SketchTextPropertiesDialog::build_text() const {

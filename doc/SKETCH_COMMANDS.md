@@ -375,3 +375,50 @@ podklad a offset po posunu o 0,01 mm (odchylka pod 1e-8 mm), zachování geometr
 při zmizení/odpojení zdroje, nativní soubory, dvě vnořené occurrence bez načtení
 zdrojových souborů a skutečné CLI/GUI cesty. Následuje text a zbývající editační
 operace skicáře, poté modelovací prvky podle tabulky pokrytí.
+
+
+## Text skici bez GUI závislostí
+
+`sketch.text.create` vyžaduje `value` a `position=[x,y]`, `sketch.text.set`
+vyžaduje stabilní `text`. Oba přijímají `sketch` a volitelné `document`,
+`height_mm` (výchozí 10), `angle_degrees` (0), `flipped` (false),
+`modeling_geometry` (true), `horizontal` (`left/center/right`),
+`vertical` (`bottom/middle/top`) a `color` (`green/white/yellow/red`).
+Vynechaná vlastnost při set zůstává beze změny. `sketch.text.get` vrací tyto
+vlastnosti, počet obrysů/bodů a skutečné meze `bounds_mm`, aniž by znovu tvořil
+znaky. Mazání používá obecné `sketch.geometry.delete` s ID textu.
+
+```json
+{"command":"sketch.text.create","arguments":{"sketch":"SKETCH_ID","value":"Řez Ø10","position":[20,30],"height_mm":3,"modeling_geometry":false}}
+```
+
+GUI dialog i příkazovka nyní používají jednu modelovou tvorbu obrysů.
+Přibalený OSIFONT se při sestavení vloží přímo do modelové knihovny; není
+zapotřebí systémově nainstalované písmo ani spuštěný Qt proces. FreeType
+čte vektorové obrysy, HarfBuzz zpracovává Unicode, kerning a skládání znaků.
+Nativní text může být modelovou geometrií nebo pouhou anotací. Název písma
+zůstává `osifont`, stejně jako u dosavadního dialogu.
+
+Výška je jmenovitá výška verzálek písma. Skutečný inkoust některých znaků
+je mírně nižší nebo vyšší: například OSIFONT má cap height 1515 jednotek,
+ale obrys H je vysoký 1510. Zarovnání používá skutečné meze obrysů; řádkování
+používá metriky fontu. Oba směry osy Y a zrcadlení v šablonách zachovávají
+stávající GUI kontrakt. Test porovnává rozměry s původní cestou Qt.
+
+Křivky písma se převádějí na uložené polygonové obrysy s odchylkou nejvýše
+menší z hodnot **0,01 mm a 0,1 % jmenovité výšky**. Kontrola používá vzdálenost
+řídicích bodů Bézierovy křivky od úsečky. Tím se zabrání stovkám zbytečně
+krátkých stěn při vytažení běžného drobného textu. Text má nejvýše 4096
+Unicode code pointů; nepodporovaný znak, neplatné UTF-8, prázdný obrys nebo
+překročení výpočetního limitu odmítne celou změnu. Tabulátor odpovídá čtyřem
+mezerám. Nativní soubor uchovává vlastní obrysy; otevírání je nepřetváří.
+
+Převod textu na modelový profil nově sjednocuje orientaci vstupních smyček.
+Jádro pak obrátí smyčku otvoru právě jednou. Tím se opravuje neplatný profil
+znaků s otvory; vykreslované obrysy i jejich vlastní orientace zůstávají
+zachované. Numerický test ověřuje objem vytažené číslice proti ploše jejího
+inkoustu a současně kontroluje, že se otvor nezaplní.
+
+Příkazy mění jen skicu a její historii; přepočet tělesa zůstává výslovný.
+No-op nezmění revizi ani cache a Undo vrací přesné uložené obrysy.
+Katalog nyní obsahuje **100 příkazů**.

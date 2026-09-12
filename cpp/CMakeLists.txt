@@ -26,6 +26,8 @@ if(ZIMA_OCCT_VERSION VERSION_LESS 7.9)
         "ZIMA-CAD requires OpenCASCADE 7.9 or newer; found ${ZIMA_OCCT_VERSION}")
 endif()
 find_package(nlohmann_json 3.11 REQUIRED)
+find_package(Freetype REQUIRED)
+find_package(harfbuzz CONFIG REQUIRED)
 
 add_library(zima_commands modules/commands/src/dispatcher.cpp)
 target_include_directories(zima_commands PUBLIC modules/commands/include)
@@ -35,17 +37,29 @@ add_library(zima_kernel_api INTERFACE)
 target_include_directories(zima_kernel_api INTERFACE
     modules/kernel_api/include)
 
+# Embed the same licensed font as the Qt resources; headless modeling must
+# not depend on installed system fonts or on a GUI process.
+set(ZIMA_SKETCH_FONT "${CMAKE_SOURCE_DIR}/../config/fonts/osifont-lgpl3fe.ttf")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${ZIMA_SKETCH_FONT}")
+file(READ "${ZIMA_SKETCH_FONT}" ZIMA_SKETCH_FONT_HEX HEX)
+string(REGEX REPLACE "(..)" "0x\\1," ZIMA_SKETCH_FONT_BYTES "${ZIMA_SKETCH_FONT_HEX}")
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/sketch_font_data.cpp"
+    "#include <span>\nnamespace zima::sketcher { std::span<const unsigned char> bundled_sketch_font() { static const unsigned char bytes[]={${ZIMA_SKETCH_FONT_BYTES}}; return bytes; } }\n")
+
 add_library(zima_sketcher
     modules/sketcher/src/sketch.cpp
+    modules/sketcher/src/text_geometry.cpp
+    "${CMAKE_CURRENT_BINARY_DIR}/sketch_font_data.cpp"
     modules/sketcher/src/template_image.cpp
     modules/sketcher/src/rectilinear_template_solver.cpp
     modules/sketcher/src/sketch_trim.cpp
     modules/sketcher/src/curve_geometry.cpp
     modules/sketcher/src/sketch_offset.cpp)
 target_include_directories(zima_sketcher PUBLIC modules/sketcher/include)
+target_compile_options(zima_sketcher PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
 target_link_libraries(zima_sketcher
     PUBLIC zima_kernel_api
-    PRIVATE nlohmann_json::nlohmann_json)
+    PRIVATE nlohmann_json::nlohmann_json Freetype::Freetype harfbuzz::harfbuzz)
 
 add_library(zima_document_core
     modules/document_core/src/part_document.cpp
@@ -109,7 +123,8 @@ add_library(zima_command_host
     modules/command_host/src/sketch_curve_commands.cpp
     modules/command_host/src/sketch_relation_commands.cpp
     modules/command_host/src/sketch_dimension_commands.cpp
-    modules/command_host/src/sketch_reference_commands.cpp)
+    modules/command_host/src/sketch_reference_commands.cpp
+    modules/command_host/src/sketch_text_commands.cpp)
 target_include_directories(zima_command_host PUBLIC modules/command_host/include)
 target_link_libraries(zima_command_host PUBLIC zima_commands zima_workspace)
 # Commands carry UTF-8 paths and localized text even without Qt's build flags.
@@ -426,6 +441,14 @@ if(ZIMA_BUILD_TESTS)
     add_dependencies(zima_cpp_cli_process_tests zima-cad-cli)
     add_test(NAME zima_cpp_cli_process_tests COMMAND zima_cpp_cli_process_tests "$<TARGET_FILE:zima-cad-cli>")
     set_tests_properties(zima_cpp_cli_process_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120)
+    add_executable(zima_cpp_sketch_text_command_tests tests/sketch_text_command_tests.cpp)
+    target_link_libraries(zima_cpp_sketch_text_command_tests PRIVATE zima_command_host)
+    add_test(NAME zima_cpp_sketch_text_command_tests COMMAND zima_cpp_sketch_text_command_tests)
+    set_tests_properties(zima_cpp_sketch_text_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
+    add_executable(zima_cpp_sketch_text_geometry_tests tests/sketch_text_geometry_tests.cpp)
+    target_link_libraries(zima_cpp_sketch_text_geometry_tests PRIVATE zima_document_core zima_kernel_occt)
+    target_compile_options(zima_cpp_sketch_text_geometry_tests PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
+    add_test(NAME zima_cpp_sketch_text_geometry_tests COMMAND zima_cpp_sketch_text_geometry_tests)
     add_executable(zima_cpp_sketch_reference_command_tests tests/sketch_reference_command_tests.cpp)
     target_link_libraries(zima_cpp_sketch_reference_command_tests PRIVATE zima_command_host)
     add_test(NAME zima_cpp_sketch_reference_command_tests COMMAND zima_cpp_sketch_reference_command_tests)

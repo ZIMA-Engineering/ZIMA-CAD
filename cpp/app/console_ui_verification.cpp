@@ -330,8 +330,12 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         const auto dimension_query=QString::fromStdString("sketch.dimension.get "+command_sketch+" "+dimension_id);
         check(run(dimension_query).data.at("value")==10 && run(dimension_query).data.at("document_layout").at("text_along")==3,"Console dimension did not reach GUI document");
         run("undo");check(run(QString::fromStdString("sketch.get "+command_sketch)).data.at("counts").at("dimensions")==0,"GUI console dimension Undo failed");run("redo");
+        commands::Json text_command={{"command","sketch.text.create"},{"arguments",{{"sketch",command_sketch},{"value","ZIMA"},{"position",{40,40}},{"height_mm",2},{"modeling_geometry",false}}}};
+        const auto text_id=run(QString::fromStdString(text_command.dump())).data.at("text").get<std::string>();flush();
+        check(run(QString::fromStdString("sketch.text.get "+command_sketch+" "+text_id)).data.at("contour_count").get<int>()>0,"Console did not create native text outlines");
         run("save");const auto saved_sketch=document::PartDocument::load(directory/(stem+"-sketch.prtz"));
         check(saved_sketch.sketches.back().id==command_sketch && saved_sketch.sketches.back().circles.front().radius==10 && saved_sketch.sketches.back().dimensions.front().locked && saved_sketch.dimension_layouts.back().layout.text_along==3,"GUI console did not persist native Sketch");
+        check(saved_sketch.sketches.back().texts.size()==1 && saved_sketch.sketches.back().texts.front().value=="ZIMA","Console did not persist native text");
         check(saved_sketch.sketches.back().external_references.size()==1 && !saved_sketch.sketches.back().import_blocks.empty(),"Console did not persist native projected reference");
         run(QString::fromStdString(activate.dump()));flush();
         input->setText("context");QApplication::sendEvent(input,&enter);flush();

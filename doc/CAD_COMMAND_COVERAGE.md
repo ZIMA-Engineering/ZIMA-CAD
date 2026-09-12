@@ -37,7 +37,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Tělesa a Boolean | Základ hotov | Tvorba, čtení, aktivace, název/viditelnost, kurzory a Boolean create/get/set; pořadí/mazání řeší historie; zbývá příkazové umístění a odvozené kopie |
 | Umístění a původní reference | Čtení původních referencí hotovo | Part/Assembly, přesné výskyty a geometrická data; zbývá zadání do existujícího společného řešení umístění |
 | Konstrukční geometrie | Zbývá | Body, osy, roviny, 3D křivky |
-| Skicář: geometrie | Základ hotov | 21 příkazů: samostatné a vložené skici, body, úsečky, kružnice, oblouky, elipsy, B-spline, obdélníky, mnohoúhelníky, posun a pomocná geometrie; zbývají další varianty, text a parametrické editace |
+| Skicář: geometrie | Základ hotov | 21 příkazů: samostatné a vložené skici, body, úsečky, kružnice, oblouky, elipsy, B-spline, obdélníky, mnohoúhelníky, posun a pomocná geometrie; text create/get/set s nativním písmem hotov; zbývají další varianty a parametrické editace |
 | Skicář: vazby a operace | Vazby/kóty/solver/offset/trim/mirror hotovy | Offset create/get/set/free, úplný podklad a zachování intervalů, trim podle průsečíků, mirror, orientovaný obdélník, tečny a zaoblení rohu; všech 15 druhů vazeb, odstranění a solver; 16 druhů kót včetně vlastností, popisků a mazání; uvolnění externích referencí hotovo |
 | Externí reference skici | Part a kořenová Assembly hotovy | Původní geometrie, přesná projekce, aktualizace, odpojení a zachování trimu; zbývá příkazový kontext Partu aktivovaného v sestavě |
 | Vytažení a rotace | Zbývá | Vlastněný profil, thin, zakončení, více směrů |
@@ -131,3 +131,16 @@ podklad a offset po posunu o 0,01 mm (odchylka pod 1e-8 mm), zachování geometr
 při zmizení/odpojení zdroje, nativní soubory, dvě vnořené occurrence bez načtení
 zdrojových souborů a skutečné CLI/GUI cesty. Následuje text a zbývající editační
 operace skicáře, poté modelovací prvky podle tabulky pokrytí.
+
+
+Etapa textu přidala `sketch.text.create/get/set`, celkem **100 příkazů**.
+Text používá v GUI i CLI stejné zabudované OSIFONT, FreeType a HarfBuzz;
+čtení a otevření souboru pouze převezme uložené obrysy. Celá Windows Release
+sada prošla **69/69** (392,17 s), `build/sketch-text-full-tests.log`. Po
+sjednocení UTF-8 překladu skicáře prošla závěrečná sada **6/6** (21,09 s),
+`build/sketch-text-final-tests.log`; GUI a CLI jsou sestaveny podle
+`build/sketch-text-final-build.log`. Ověřeno porovnání metrik s Qt, čeština
+i skládání diakritiky, zarovnání, převrácení, natočení, uložení, Undo a
+vytažení číslice s otvorem včetně nezávislé kontroly objemu. Modelování textu
+normalizuje směr profilových smyček pro správné vnitřní otvory. Následují
+zbývající parametrické editace skicáře a modelovací prvky.

@@ -4,6 +4,8 @@
 #include "helical_sweep_dialog.hpp"
 #include "application_settings.hpp"
 #include <QFontMetricsF>
+#include <QFontDatabase>
+#include <QPainterPath>
 #include "shaft_thread_preview.hpp"
 #include <QPointer>
 #include "sketch_constraints_dialog.hpp"
@@ -4066,6 +4068,19 @@ int main(int argc, char* argv[]) {
             const double anchor=text.vertical==zima::sketcher::TextVerticalAlignment::Middle?(low+high)/2:
                 text.vertical==zima::sketcher::TextVerticalAlignment::Top?(y_up?high:low):(y_up?low:high);
             require(std::abs(anchor-text.anchor_y)<1e-7,"Text ink alignment drifted from its anchor");
+        }
+        // Independent comparison against the previous Qt font path. Native
+        // outlines may have different tessellation but must retain typography.
+        const int font_id=QFontDatabase::addApplicationFont(QStringLiteral(":/zima/fonts/osifont-lgpl3fe.ttf"));
+        const auto families=QFontDatabase::applicationFontFamilies(font_id);require(!families.empty(),"Bundled font unavailable for text oracle");
+        QFont oracle_font(families.front());oracle_font.setPixelSize(1000);const QFontMetricsF oracle_metrics(oracle_font);
+        for(const auto& value:{QStringLiteral("H"),QStringLiteral("AV"),QStringLiteral("H H"),QStringLiteral("H\nH"),QStringLiteral("Žluťoučký kůň"),QStringLiteral("0")}) {
+            QPainterPath oracle;const auto lines=value.split('\n');for(qsizetype i=0;i<lines.size();++i)oracle.addText(QPointF(0,i*oracle_metrics.lineSpacing()),oracle_font,lines[i]);
+            const auto expected=oracle.boundingRect();const double scale=10./oracle_metrics.capHeight();
+            auto native=zima::sketcher::Sketch::create_text();native.value=value.toStdString();native.height=10;zima::app::rebuild_sketch_text_contours(native);
+            double left=1e30,bottom=1e30,right=-1e30,top=-1e30;for(const auto& c:native.contours)for(const auto& p:c){left=std::min(left,p[0]);bottom=std::min(bottom,p[1]);right=std::max(right,p[0]);top=std::max(top,p[1]);}
+            std::cout<<"Text oracle "<<value.toStdString()<<": native "<<right-left<<", "<<top-bottom<<" Qt "<<expected.width()*scale<<", "<<expected.height()*scale<<"\n";
+            require(std::abs((right-left)-expected.width()*scale)<.03 && std::abs((top-bottom)-expected.height()*scale)<.03,"Native text metrics diverged from the existing Qt font geometry");
         }
         for(bool template_coordinates:{false,true})for(bool mirrored:{false,true}) {
             auto initial=initial_text;initial.value="ZIMA-Engineering";initial.flipped=mirrored!=template_coordinates;initial.angle_degrees=17;

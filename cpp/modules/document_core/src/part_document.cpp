@@ -1552,9 +1552,14 @@ zima::kernel::ExtrusionRequest extrusion_request(
         };
         const auto polygon_profile = [&](const Contour& contour) {
             zima::kernel::ExtrusionRequest::PolygonProfile profile;
-            for (const auto& point : contour) {
-                profile.vertices.push_back(sketch.world_point(point[0], point[1]));
+            double signed_area=0;
+            for(std::size_t i=0;i<contour.size();++i) {
+                const auto& a=contour[i];const auto& b=contour[(i+1)%contour.size()];signed_area+=a[0]*b[1]-b[0]*a[1];
+                profile.vertices.push_back(sketch.world_point(a[0],a[1]));
             }
+            // Profile loops have one common winding. The kernel reverses a
+            // hole exactly once; glyph rendering keeps its original winding.
+            if(signed_area<0)std::reverse(profile.vertices.begin(),profile.vertices.end());
             return profile;
         };
         std::vector<zima::kernel::ExtrusionRequest::ProfileRegion> regions;
