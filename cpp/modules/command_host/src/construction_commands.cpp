@@ -172,7 +172,7 @@ void writable_body(const Source& source, const Object* object) {
     if (body && body->derived_copy)
         throw QueryError("read_only_body", "A derived Body cannot be edited directly.");
 }
-void properties(Object& value, const Json& args, const kernel::ViewerReferenceGeometry& geometry) {
+void properties(Object& value, const Json& args, const kernel::ViewerReferenceGeometry& geometry, const Object* parent = nullptr) {
     bool specified = false;
     if (args.contains("name")) {
         specified = true;
@@ -213,6 +213,44 @@ void properties(Object& value, const Json& args, const kernel::ViewerReferenceGe
         value.base_plane = plane == "xy" ? document::LocalDatumPlane::XY
             : plane == "xz" ? document::LocalDatumPlane::XZ : document::LocalDatumPlane::YZ;
     }
+    if (field("curve_type", document::ConstructionKind::Curve3D)) {
+        const auto type = args.at("curve_type").get<std::string>();
+        if (type != "polyline" && type != "interpolating_spline")
+            throw QueryError("invalid_arguments", "Curve type must be polyline or interpolating_spline.");
+        value.curve_type = type == "polyline" ? document::Curve3DType::Polyline : document::Curve3DType::InterpolatingSpline;
+    }
+    if (field("rounding_enabled", document::ConstructionKind::Curve3D)) {
+        if (value.curve_type != document::Curve3DType::Polyline)
+            throw QueryError("parameter_not_editable", "Rounding is editable only for a polyline.");
+        value.curve_rounding_enabled = args.at("rounding_enabled").get<bool>();
+    }
+    for (const auto* key : {"radius_mm", "tangent", "tangent_enabled"}) if (args.contains(key)) {
+        specified = true;
+        if (value.kind != document::ConstructionKind::Point || !parent || parent->kind != document::ConstructionKind::Curve3D)
+            throw QueryError("invalid_arguments", "Curve point properties require a point owned by a 3D curve.");
+    }
+    if (args.contains("radius_mm")) {
+        const auto index = std::ranges::find_if(parent->curve_points, [&](const auto& point) { return point.id == value.id; });
+        if (parent->curve_type != document::Curve3DType::Polyline || !parent->curve_rounding_enabled ||
+            index == parent->curve_points.begin() || index == parent->curve_points.end() || index + 1 == parent->curve_points.end())
+            throw QueryError("parameter_not_editable", "Radius is editable only at an interior point of a rounded polyline.");
+        value.curve_radius = number("radius_mm", "radius", 0, 1000000000);
+    }
+    if (args.contains("tangent")) {
+        using Mode = document::Curve3DTangentMode;
+        const auto mode = args.at("tangent").get<std::string>();
+        const auto modes = {Mode::Automatic, Mode::PositiveX, Mode::NegativeX, Mode::PositiveY,
+            Mode::NegativeY, Mode::PositiveZ, Mode::NegativeZ};
+        const auto selected = std::ranges::find_if(modes, [&](auto candidate) { return mode == tangent(candidate); });
+        if (selected == modes.end()) throw QueryError("invalid_arguments", "Tangent must be automatic, +x, -x, +y, -y, +z or -z.");
+        value.curve_tangent = *selected;
+        value.curve_tangent_enabled = *selected != Mode::Automatic;
+    }
+    if (args.contains("tangent_enabled")) {
+        value.curve_tangent_enabled = args.at("tangent_enabled").get<bool>();
+        if (value.curve_tangent_enabled && value.curve_tangent == document::Curve3DTangentMode::Automatic)
+            value.curve_tangent = document::Curve3DTangentMode::PositiveX;
+    }
     if (args.contains("values")) {
         specified = true;
         if (args.at("values").empty()) throw QueryError("invalid_arguments", "Specify at least one placement parameter.");
@@ -223,7 +261,62 @@ void properties(Object& value, const Json& args, const kernel::ViewerReferenceGe
                 throw QueryError("parameter_not_editable", "The placement parameter is unknown, constrained or locked.");
         }
     }
-    if (!specified) throw QueryError("invalid_arguments", "Specify at least one construction property.");
+    if (!specified && !args.contains("points")) throw QueryError("invalid_arguments", "Specify at least one construction property.");
+}
+// Point IDs select existing children; entries without an ID allocate native Points.
+// This is the complete ordered list from the Properties dialog, not a merge by name.
+void curve_points(Object& value, const Json& args, const workspace::Workspace& live, const std::string& document) {
+    if (!args.contains("points")) return;
+    if (value.kind != document::ConstructionKind::Curve3D)
+        throw QueryError("invalid_arguments", "A point list requires a 3D curve.");
+    const auto& entries = args.at("points");
+    if (entries.size() < 2 || entries.size() > 5000)
+        throw QueryError("invalid_arguments", "A 3D curve requires between 2 and 5000 points.");
+    const auto old = value.curve_points;
+    std::vector<Object> next; next.reserve(entries.size()); std::set<std::string> identities;
+    for (const auto& entry : entries) {
+        if (!entry.is_object()) throw QueryError("invalid_arguments", "Each curve point must be a property object.");
+        for (const auto& [key, field] : entry.items()) {
+            const bool valid = (key == "construction" || key == "name" || key == "tangent") ? field.is_string()
+                : key == "values" ? field.is_object()
+                : key == "radius_mm" ? field.is_number()
+                : key == "tangent_enabled" ? field.is_boolean() : false;
+            if (!valid) throw QueryError("invalid_arguments", "Unknown or incorrectly typed curve point property.");
+        }
+        Object point;
+        if (entry.contains("construction")) {
+            const auto id = entry.at("construction").get<std::string>();
+            const auto found = std::ranges::find_if(old, [&](const auto& child) { return child.id == id; });
+            if (found == old.end()) throw QueryError("construction_not_found", "The selected point does not belong to this 3D curve.");
+            if (!identities.insert(id).second) throw QueryError("invalid_arguments", "A curve point cannot appear twice in the same list.");
+            point = *found;
+        } else {
+            point = document::PartDocument::create_construction(document::ConstructionKind::Point);
+            point.parent_construction_id = value.id;
+        }
+        next.push_back(std::move(point));
+    }
+    value.curve_points = std::move(next);
+    kernel::ViewerReferenceGeometry point_geometry;
+    for (std::size_t i = 0; i < entries.size(); ++i) {
+        if (!entries[i].contains("values") || value.curve_points[i].references.empty()) continue;
+        // Parent and children may change together. Resolve the proposed parent
+        // in its Body/document frame before testing a child's editable axes.
+        // Reuse one local reference packet for the whole point-list edit.
+        auto geometry = workspace::placement_edit_geometry(live, document, value.id);
+        static_cast<void>(document::resolve_construction(value, geometry));
+        document::PartDocument carrier; carrier.constructions.push_back(value);
+        // Only the frame is needed here. New points have not received their
+        // coordinates yet, so the temporary list is not a valid route.
+        carrier.constructions.back().curve_points = {value.curve_points[i]};
+        point_geometry = carrier.construction_reference_geometry_for(value.curve_points[i].id, std::move(geometry));
+        break;
+    }
+    for (std::size_t i = 0; i < entries.size(); ++i) {
+        const auto& entry = entries[i];
+        if (entry.empty() || (entry.size() == 1 && entry.contains("construction"))) continue;
+        properties(value.curve_points[i], entry, point_geometry, &value);
+    }
 }
 }
 void Host::register_construction_commands() {
@@ -270,9 +363,11 @@ void Host::register_construction_commands() {
         std::vector<commands::Argument> fields{{create ? "kind" : "construction", true}, {"name", create},
             {"values", false, commands::ArgumentType::Object}, {"direction_axis", false}, {"base_plane", false},
             {"display_size_mm", false, commands::ArgumentType::Number}, {"offset_mm", false, commands::ArgumentType::Number},
-            {"document", false}};
+            {"document", false}, {"curve_type", false}, {"rounding_enabled", false, commands::ArgumentType::Boolean},
+            {"points", false, commands::ArgumentType::Array}, {"radius_mm", false, commands::ArgumentType::Number},
+            {"tangent", false}, {"tangent_enabled", false, commands::ArgumentType::Boolean}};
         dispatcher_.add({create ? "construction.create" : "construction.set", create
-            ? tr("Create an absolute Point, Axis or Plane using the shared Properties transaction.")
+            ? tr("Create a Point, Axis, Plane or 3D curve using the shared Properties transaction.")
             : tr("Edit construction properties and placement in one transaction."), std::move(fields), true},
             [this, create](const Json& args) {
                 const auto check = target(args); if (!check.ok) return check;
@@ -284,15 +379,20 @@ void Host::register_construction_commands() {
                     auto value = existing ? *existing : Object{};
                     if (create) {
                         const auto type = args.at("kind").get<std::string>();
-                        if (type != "point" && type != "axis" && type != "plane")
-                            throw QueryError("invalid_arguments", "New construction kind must be point, axis or plane.");
+                        if (type != "point" && type != "axis" && type != "plane" && type != "curve3d")
+                            throw QueryError("invalid_arguments", "New construction kind must be point, axis, plane or curve3d.");
                         value = document::PartDocument::create_construction(type == "point" ? document::ConstructionKind::Point
-                            : type == "axis" ? document::ConstructionKind::Axis : document::ConstructionKind::Plane);
+                            : type == "axis" ? document::ConstructionKind::Axis
+                            : type == "plane" ? document::ConstructionKind::Plane : document::ConstructionKind::Curve3D);
+                        if (type == "curve3d" && !args.contains("points"))
+                            throw QueryError("invalid_arguments", "A 3D curve requires between 2 and 5000 points.");
                     }
                     const auto id = value.id, document = before.id;
                     const auto geometry = existing && args.contains("values")
                         ? workspace::placement_edit_geometry(workspace_, document, id) : kernel::ViewerReferenceGeometry{};
-                    properties(value, args, geometry);
+                    const auto* parent = value.parent_construction_id.empty() ? nullptr : find(before, value.parent_construction_id);
+                    properties(value, args, geometry, parent);
+                    curve_points(value, args, workspace_, document);
                     const bool changed = create || value != *existing;
                     if (changed) {
                         static_cast<void>(workspace::commit_construction(workspace_, document, std::move(value), create

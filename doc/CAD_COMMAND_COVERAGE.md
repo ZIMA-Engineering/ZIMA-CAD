@@ -36,7 +36,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Historie Partu | Hotovo | Společný přesun, ověření závislostí, potlačení, odstranění a kurzor; včetně historie těles a Booleanů |
 | Tělesa a Boolean | Základ hotov | Tvorba, čtení, aktivace, název/viditelnost, kurzory a Boolean create/get/set; pořadí/mazání řeší historie; zbývá zadání referencí umístění a odvozené kopie |
 | Umístění a původní reference | Původní reference a číselná editace umístění hotovy | `placement.get/set`: tělesa a prvky Partu, konstrukce Partu/Assembly a jejich body; zbývá příkazové přidávání/výměna referencí, zámky, vložené dráhy a umístění komponent |
-| Konstrukční geometrie | Částečně hotovo | `construction.list/get/create/set`: dotazy, tvorba bodů/os/rovin, vlastnosti a umístění; zbývají reference, tvorba a geometrie 3D křivek, mazání a vložené dráhy modelovacích prvků |
+| Konstrukční geometrie | Částečně hotovo | `construction.list/get/create/set`: dotazy, tvorba bodů/os/rovin/3D křivek, vlastnosti, umístění, úplné seznamy bodů, tečny a zaoblení; zbývají reference, mazání kořenových konstrukcí a vložené dráhy modelovacích prvků |
 | Skicář: geometrie | Základ hotov | 21 příkazů: samostatné a vložené skici, body, úsečky, kružnice, oblouky, elipsy, B-spline, obdélníky, mnohoúhelníky, posun a pomocná geometrie; text create/get/set s nativním písmem a spline get/set hotovy; DXF do vložených profilů hotov; zbývá kontrola dalších variant podle GUI |
 | Skicář: vazby a operace | Vazby/kóty/solver/offset/trim/mirror hotovy | Offset create/get/set/free, úplný podklad a zachování intervalů, trim podle průsečíků, mirror, orientovaný obdélník, tečny a zaoblení rohu; všech 15 druhů vazeb, odstranění a solver; 16 druhů kót včetně vlastností, popisků a mazání; uvolnění externích referencí hotovo |
 | Externí reference skici | Part a kořenová Assembly hotovy | Původní geometrie, přesná projekce, aktualizace, odpojení a zachování trimu; zbývá příkazový kontext Partu aktivovaného v sestavě |
@@ -536,3 +536,13 @@ Windows Release regrese prošla **88/88** (389,12 s),
 [CONSTRUCTION_COMMANDS.md](CONSTRUCTION_COMMANDS.md). Nativní formáty a
 start šablony se nemění. Další rozsah jsou konstrukční reference, tvorba
 a vlastnosti 3D křivek a další modelovací příkazy; úplná CLI ještě hotová není.
+
+
+Etapa samostatných 3D křivek rozšiřuje `construction.create/set`; katalog
+zůstává na **158 příkazech**. Part i Assembly podporují přesnou lomenou čáru,
+zaoblení, interpolační spline, úplné seznamy bodů se zachováním ID, tečny
+a lokální umístění. Úplná sada prošla **89/89**; po dodatečné opravě přípravy
+rámce prošlo **8/8** dotčených regresí a doplňkový test vlastního počátku.
+Podrobnosti a logy jsou v [CONSTRUCTION_COMMANDS.md](CONSTRUCTION_COMMANDS.md).
+Další etapa převádí vytažení a rotaci včetně vlastněných profilů; zadání nových
+referencí umístění a ostatní řádky tabulky nadále zůstávají otevřené.

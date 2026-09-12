@@ -698,6 +698,36 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         json_run("construction.set",{{"construction",plane_id},{"offset_mm",15}});flush();
         plane_dialog=edit_plane();check(std::abs(plane_dialog->findChild<QDoubleSpinBox*>("constructionOffset")->value()-15)<1e-8,"Properties did not consume construction.set");
         plane_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
+        const auto made_curve=json_run("construction.create",{{"kind","curve3d"},{"name","Console rounded curve"},
+            {"curve_type","polyline"},{"rounding_enabled",true},{"points",commands::Json::array({
+                commands::Json{{"values",{{"x",0},{"y",0}}}},commands::Json{{"values",{{"x",10},{"y",0}}},{"radius_mm",2}},
+                commands::Json{{"values",{{"x",10},{"y",10}}}}})}}).data;flush();
+        const auto curve_id=made_curve.at("construction").get<std::string>();
+        const auto curve_middle=made_curve.at("children")[1].get<std::string>();
+        const auto edit_curve=[&]() {
+            QTreeWidgetItem* item=nullptr;
+            for(QTreeWidgetItemIterator it(model_tree);*it;++it)
+                if((*it)->data(0,Qt::UserRole).toString().toStdString()==curve_id) {item=*it;break;}
+            check(item,"CLI-created curve missing from tree");window.show_tree_item_properties(item);flush();
+            for(auto* dialog:window.findChildren<QDialog*>())
+                if(dialog->findChild<QComboBox*>("curve3DType")) return dialog;
+            throw std::runtime_error("Curve Properties missing");
+        };
+        auto* curve_dialog=edit_curve();
+        check(curve_dialog->findChild<QTableWidget*>("curve3DPoints")->rowCount()==4 &&
+            curve_dialog->findChild<QTableWidget*>("curve3DPoints")->item(3,0)!=nullptr &&
+            std::abs(curve_dialog->findChild<QDoubleSpinBox*>("curve3DRadius2")->value()-2)<1e-8,"GUI lost CLI curve points/radius");
+        curve_dialog->findChild<QDoubleSpinBox*>("curve3DRadius2")->setValue(3);
+        curve_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
+        check(json_run("construction.get",{{"construction",curve_middle}}).data.at("radius_mm")==2,"Curve Cancel committed pending radius");
+        curve_dialog=edit_curve();curve_dialog->findChild<QDoubleSpinBox*>("curve3DRadius2")->setValue(3);
+        curve_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+        check(json_run("construction.get",{{"construction",curve_middle}}).data.at("radius_mm")==3,"GUI curve OK did not share model transaction");
+        run("undo");check(json_run("construction.get",{{"construction",curve_middle}}).data.at("radius_mm")==2,"GUI curve Undo lost radius");
+        json_run("construction.set",{{"construction",curve_id},{"curve_type","interpolating_spline"}});flush();
+        curve_dialog=edit_curve();check(curve_dialog->findChild<QComboBox*>("curve3DType")->currentData().toInt()==
+            static_cast<int>(document::Curve3DType::InterpolatingSpline),"GUI did not consume CLI spline type");
+        curve_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
         json_run("close",{{"discard",true}});run(QString::fromStdString(activate.dump()));flush();
         input->setText("context");QApplication::sendEvent(input,&enter);flush();
         check(window.grab().save(QString::fromStdString((directory/"command-console.png").string())),"Console screenshot failed");

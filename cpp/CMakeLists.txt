@@ -613,6 +613,11 @@ if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_cpp_placement_command_tests COMMAND zima_cpp_placement_command_tests)
     set_tests_properties(zima_cpp_placement_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
 
+    add_executable(zima_cpp_construction_curve_command_tests tests/construction_curve_command_tests.cpp)
+    target_link_libraries(zima_cpp_construction_curve_command_tests PRIVATE zima_command_host)
+    add_test(NAME zima_cpp_construction_curve_command_tests COMMAND zima_cpp_construction_curve_command_tests)
+    set_tests_properties(zima_cpp_construction_curve_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
+
     add_executable(zima_cpp_construction_command_tests tests/construction_command_tests.cpp)
     target_link_libraries(zima_cpp_construction_command_tests PRIVATE zima_command_host)
     add_test(NAME zima_cpp_construction_command_tests COMMAND zima_cpp_construction_command_tests)

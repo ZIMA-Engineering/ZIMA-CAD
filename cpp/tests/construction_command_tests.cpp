@@ -147,7 +147,7 @@ void edit_verify(const kernel::OcctKernel& kernel, fs::path directory) {
         patch["construction"]=axis_id;reject("construction.set",patch,unknown?"parameter_not_editable":"invalid_arguments");
     }
     reject("construction.set",{{"construction",axis_id},{"display_size_mm",std::numeric_limits<double>::infinity()}},"invalid_arguments");
-    reject("construction.create",{{"kind","curve3d"},{"name","not-yet"}},"invalid_arguments");
+    reject("construction.create",{{"kind","curve3d"},{"name","missing-points"}},"invalid_arguments");
     reject("construction.create",{{"kind","point"},{"name","partial"},{"offset_mm",1}},"invalid_arguments");
     reject("construction.set",{{"construction",point.at("entity")},{"name","wrong identity"}},"construction_not_found");
     require(state->session.document().constructions==snapshot,"Invalid input changed source");

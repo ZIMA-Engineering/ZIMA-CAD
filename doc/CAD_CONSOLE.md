@@ -443,3 +443,10 @@ offsetů popisuje [PLACEMENT_COMMANDS.md](PLACEMENT_COMMANDS.md).
 jejich vlastností a umístění. Používají společnou transakci GUI Vlastností,
 respektují reference, zámky a aktivní těleso. Argumenty a zbývající rozsah:
 [CONSTRUCTION_COMMANDS.md](CONSTRUCTION_COMMANDS.md).
+
+
+3D křivky vytváří `construction.create` s `kind: "curve3d"` a polem
+`points`. `construction.set` mění typ polyline/spline, zaoblení, tečny,
+vlastnosti bodů a celý jejich seznam při zachování zadaných ID. Vynechané
+body ze seznamu se odstraní. Geometrie i Undo transakce jsou společné s GUI;
+přesné argumenty a příklady uvádí [CONSTRUCTION_COMMANDS.md](CONSTRUCTION_COMMANDS.md).

@@ -533,6 +533,30 @@ int main(int argc,char** argv){
         result=launch(executable,root,common+QStringList{"--command","open cli-projection.prtz","--command",text_request,"--command","save"});
         require(result.exit_code==0,"Qt-free CLI text generation failed");const auto text_document=document::PartDocument::load(project/"cli-projection.prtz");
         require(text_document.sketches.back().texts.size()==1 && text_document.sketches.back().texts.front().value=="Řez Ø10" && !text_document.sketches.back().texts.front().contours.empty() && !text_document.sketches.back().texts.front().modeling_geometry,"CLI text lost Unicode, glyph outlines or annotation mode");
+        const auto curve_create=command({{"command","construction.create"},{"arguments",{{"kind","curve3d"},{"name","Spline CLI"},
+            {"curve_type","interpolating_spline"},{"points",Json::array({Json{{"values",{{"x",0},{"y",0}}},{"tangent","+y"}},
+                Json{{"values",{{"x",10},{"y",0}}}},Json{{"values",{{"x",10},{"y",10}}}}})}}}});
+        for(const auto* type:{"part","assembly"}) {
+            const std::string curve_name=std::string("cli-curve-")+type;
+            result=launch(executable,root,common+QStringList{"--command",QString::fromStdString("new "+std::string(type)+" "+curve_name),
+                "--command",curve_create,"--command","save"});
+            require(result.exit_code==0,"Standalone CLI 3D curve creation failed");
+            const auto curve_id=result.results()[1].at("data").at("construction").get<std::string>();
+            const auto children=result.results()[1].at("data").at("children");
+            const auto curve_file=curve_name+(std::string(type)=="part"?".prtz":".asmz");
+            const auto curve_update=command({{"command","construction.set"},{"arguments",{{"construction",curve_id},
+                {"curve_type","polyline"},{"rounding_enabled",true},{"points",Json::array({Json{{"construction",children[0]}},
+                    Json{{"construction",children[1]},{"radius_mm",2}},Json{{"construction",children[2]}}})}}}});
+            result=launch(executable,root,common+QStringList{"--command",QString::fromStdString("open "+curve_file),"--command",curve_update,
+                "--command","undo","--command","redo","--command","save"});
+            require(result.exit_code==0,"Standalone CLI curve point edit/Undo/Redo failed");
+            const auto curves=std::string(type)=="part"?document::PartDocument::load(project/curve_file).constructions
+                :assembly::AssemblyDocument::load(project/curve_file).constructions;
+            const auto& curve=curves.back();
+            require(curve.id==curve_id && curve.curve_points[1].id==children[1].get<std::string>() && curve.curve_points[1].curve_radius==2 &&
+                curve.curve_points[0].curve_tangent==document::Curve3DTangentMode::PositiveY && document::curve3d_route(curve).segments.size()==3,
+                "Native CLI curve roundtrip lost geometry or point identity");
+        }
         std::cout<<"CLI processes: native files, Unicode/config, scripts/stdin, errors, streaming and explicit geometry calculation passed\n";
         return 0;
     }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}

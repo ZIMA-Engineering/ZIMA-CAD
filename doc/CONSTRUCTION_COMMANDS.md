@@ -73,8 +73,9 @@ opakované výskyty nejsou samostatnými vlastníky konstrukcí.
 ## Rozsah a ověření
 
 Tato etapa pokrývá `document.constructions` a body jejich 3D křivek. Vložené
-3D dráhy uvnitř parametrických modelovacích prvků, tvorba a změny geometrie 3D křivek,
-mazání a zadávání referencí zůstávají dalšími etapami. Tvorbu bodů, os a rovin
+3D dráhy uvnitř parametrických modelovacích prvků, mazání kořenových konstrukcí
+a zadávání referencí zůstávají dalšími etapami. Samostatné 3D křivky včetně
+bodů a jejich parametrů jsou popsány níže. Tvorbu bodů, os a rovin
 a obecné vlastnosti popisuje následující část. Číselné umístění
 také zpřístupňují [placement.get/set](PLACEMENT_COMMANDS.md). Nativní schéma ani start šablony se nemění.
 Konstrukční příkazy používají společnou transakci Vlastností a nativní řešení referencí.
@@ -101,7 +102,7 @@ Nejde o distribuční balíček.
 
 ## Tvorba a změna vlastností
 
-`construction.create` vytváří absolutní `point`, `axis` nebo `plane`.
+`construction.create` vytváří absolutní `point`, `axis`, `plane` nebo `curve3d`.
 `construction.set` upravuje uloženou konstrukci podle jejího ID; zachovává
 identitu, rodiče a reference. Oba příkazy používají potvrzovací transakci
 stejného okna Vlastnosti jako GUI. V Partu vkládá tvorba konstrukci na aktivní
@@ -109,7 +110,7 @@ pozici historie aktivního tělesa, v Assembly do jejího vlastního dokumentu.
 
 | Argument | Tvorba | Změna a význam |
 | --- | --- | --- |
-| `kind` | Povinný: `point`, `axis`, `plane` | Druh existující konstrukce se nemění |
+| `kind` | Povinný: `point`, `axis`, `plane`, `curve3d` | Druh existující konstrukce se nemění |
 | `construction` | ID přidělí model | Povinné ID existujícího kontejneru |
 | `name` | Povinný neprázdný název | Volitelné přejmenování |
 | `values` | Volitelný objekt čísel | Stejné klíče, jednotky a omezení jako `placement.set` |
@@ -147,9 +148,9 @@ bez OCCT výpočtu tělesa a zachovávají poslední vypočtenou geometrii, stej
 jako dosavadní Vlastnosti. Navázaná tělesa a vazby se přepočítají výslovnou
 regenerací. Nativní formáty a start Part/Assembly šablony se nemění.
 
-Název a umístění lze upravit také u existující samostatné 3D křivky a jejích
-bodů. Tato etapa netvoří nové 3D křivky, nevyměňuje reference ani seznam bodů,
-nemění tečny/zaoblení a nemaže konstrukce; to je navazující rozsah.
+Název a umístění lze upravit také u samostatné 3D křivky a jejích bodů.
+Geometrii křivky a úplný seznam bodů upravuje rozšíření popsané níže.
+Výměna referencí a mazání kořenových konstrukcí zůstávají navazujícím rozsahem.
 
 Při čtení nativních konstrukcí se nyní obnoví i odvozená poloha entity
 roviny z jejího uloženého počátku, normály a odsazení. Dříve ji samotný
@@ -185,3 +186,90 @@ přes JSON a tvoří osu přes textový stdin. GUI konzole vytvoří rovinu,
 otvírá stejné Vlastnosti a ověřuje Cancel, OK, blokování souběžné změny,
 Undo a pozdější zobrazení hodnoty nastavené příkazem. Úplná sada zahrnuje
 i původní modelování, výkresy, skicář, import/export, překlady a dialogy.
+
+
+## Samostatné 3D křivky a jejich body
+
+`construction.create` s `kind: "curve3d"` vyžaduje `points`: pole 2–5000
+objektů bodů v pořadí dráhy. `construction.set` přijímá stejné parametry
+křivky. Příkazy platí pro samostatné konstrukce Partu i Assembly; dráhy
+vlastněné modelovacím prvkem nejsou tímto rozšířením zpřístupněné.
+
+| Argument | Význam |
+| --- | --- |
+| `curve_type` | `polyline` (výchozí) nebo `interpolating_spline` |
+| `rounding_enabled` | Zapnutí zaoblení lomené čáry; pro spline není editovatelné |
+| `points` | Úplný nový seznam bodů; při vynechání zůstane původní |
+| `radius_mm` | Poloměr vnitřního bodu zaoblené lomené čáry, 0–1 000 000 000 mm |
+| `tangent` | `automatic`, `+x`, `-x`, `+y`, `-y`, `+z`, `-z` v lokálních osách bodu |
+| `tangent_enabled` | Zapnutí řízení tečny; vypnutí zachová vybranou osu a znaménko |
+
+`radius_mm`, `tangent` a `tangent_enabled` patří bodu, nikoli kořeni křivky.
+Lze je zadat přímo pomocí `construction.set` s ID bodu, nebo uvnitř jeho
+objektu v `points`. Bod přijímá také `name` a `values`, se stejnými zámky,
+jednotkami a pravidly umístění jako jiné konstrukce.
+
+Objekt bodu s `construction` vybírá existující bod této křivky. Zachová se
+jeho identita, původní entity, reference i nezadané vlastnosti. Objekt bez
+`construction` vytvoří nový nativní bod a nový počátek, s vlastníkem danou
+křivkou. Souřadnice bodů jsou lokální ke křivce, i když je křivka nebo její
+těleso posunuté a otočené. Názvy nejsou identitou.
+
+`points` **nahrazuje celý seznam**, stejně jako potvrzení tabulky bodů ve
+Vlastnostech: pořadí položek určuje pořadí dráhy a vynechaný původní bod se
+odstraní. Opakované ID, cizí bod nebo neznámá vlastnost se odmítne. Před
+změnou načtěte ID přes `construction.get/list`; nový seznam sestavte ze všech
+bodů, které mají zůstat. Odstranění bodu nezaměňuje navázané reference za jiný
+bod. Další závislé geometrické operace se přepočítají výslovnou regenerací.
+
+```json
+{"command":"construction.create","arguments":{"kind":"curve3d","name":"Zaoblená dráha","curve_type":"polyline","rounding_enabled":true,"points":[{"name":"Začátek","values":{"x":0,"y":0,"z":0}},{"name":"Roh","values":{"x":10,"y":0},"radius_mm":2},{"name":"Konec","values":{"x":10,"y":10}}]}}
+{"command":"construction.set","arguments":{"construction":"ID_BODU_ROHU","radius_mm":3}}
+{"command":"construction.set","arguments":{"construction":"ID_KŘIVKY","curve_type":"interpolating_spline"}}
+{"command":"construction.set","arguments":{"construction":"ID_PRVNÍHO_BODU","tangent":"+x","values":{"rotation_z":90}}}
+```
+
+Spline používá přesné kubické úseky a stávající nativní interpolaci.
+`automatic` vypne řízenou tečnu, zadaná podepsaná osa ji zapne. Výslovné
+`tangent_enabled` se vyhodnotí potom; při zapnutí dosud automatického bodu
+se použije `+x`, stejně jako v GUI. Otočení bodu otočí i jeho řízenou tečnu.
+Přepnutí typu křivky uchová poloměry i tečny pro pozdější návrat k původnímu
+typu; neaktivní hodnoty nemění aktuální geometrii.
+
+Celá změna kořene i více bodů je jedna transakce. Nativní `curve3d_route`
+ověří i sousední úseky: kolaps bodů, obrat o 180° se zaoblením nebo příliš
+velké sousední poloměry odmítnou celý návrh. Zámek poloměru nebo umístění
+nelze obejít nahrazením seznamu se stejnými ID. Shodný seznam a hodnoty jsou
+no-op. Výpočet přesné křivky nepoužívá OCCT a nemění vypočtenou cache tělesa.
+Schéma nativních dokumentů a start šablony se nemění.
+
+
+## Ověření 3D křivek
+
+Úplná Windows Release sada prošla **89/89** (417,79 s), viz
+`build/construction-curve-full-tests.log`. Dodatečná regrese pak zachytila
+chybu nové kombinované editace: při současné rotaci křivky a změně souřadnice
+referencovaného bodu se editovatelnost kontrolovala v původním rámci.
+Příkaz nyní připraví nový rámec stávajícími nativními funkcemi a stejný balík
+referencí použije pro celý seznam. Nevytváří ani nepočítá dočasné těleso.
+
+Po opravě prošlo všech **8/8** dotčených regresí (38,76 s),
+`build/construction-curve-final-tests.log`: křivky, obecné konstrukce,
+umístění, katalog, skutečný CLI proces, konzole GUI, překlady a 3D tažení.
+Sestavení finálního GUI i CLI je v `build/construction-curve-final-build.log`.
+Následná čistě testovací kontrola vlastní roviny počátku prošla **1/1**,
+`build/construction-curve-own-frame-tests.log`; produkční kód se již neměnil.
+
+Modelový test nezávisle ověřuje střední bod přesného čtvrtkruhového oblouku,
+koncové body kubické spline a její tečnu po otočení lokální osy, znaménka všech
+řízených os, vypnutí a obnovení tečny, vkládání/přesuny/mazání bodů, zámky,
+atomické chyby, no-op, Undo/Redo a nativní Part/Assembly roundtrip. Kombinované
+změny testuje s referencí na cizí rovinu i vlastní počátek, včetně přidání
+nového bodu v téže transakci. Předepsanou souřadnici nesmí následné řešení
+tiše přepsat ani odmítnout kvůli starému rámci.
+
+Procesový test tvoří spline v Partu i Assembly, uloží ji, v novém CLI procesu
+změní na zaoblenou lomenou čáru, provede Undo/Redo a kontroluje nativní soubor.
+GUI test otevírá CLI křivku ve stejných Vlastnostech, ověřuje poloměr, Cancel,
+OK, Undo a zobrazení změny typu. Jeho původní očekávání počtu řádků bylo
+opraveno: tabulka obsahuje i nabídku „Nový bod…“, která není geometrickým bodem.
