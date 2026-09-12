@@ -578,6 +578,12 @@ public:
         const std::vector<std::array<double, 2>>& control_points,
         unsigned degree = 3, bool closed = false, bool construction = false,
         double snap_tolerance = 1.0e-6, bool interpolating = false);
+    // Properties editing preserves the curve identity, pole IDs, exact knots and
+    // weights. Source-driven curves are read-only; fixed points and constraints
+    // remain authoritative. A rejected edit leaves the Sketch untouched.
+    void edit_bspline_properties(const std::string& spline_id, unsigned degree,
+        bool closed, const std::vector<std::array<double, 2>>& points);
+    [[nodiscard]] bool bspline_properties_read_only(const std::string& spline_id) const;
     [[nodiscard]] std::string add_import_block(
         std::string name, std::string source_path,
         std::vector<std::string> geometry_ids,

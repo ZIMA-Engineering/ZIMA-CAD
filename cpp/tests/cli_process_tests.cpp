@@ -212,6 +212,13 @@ int main(int argc,char** argv){
         require(sketch_document.sketches.back().id==sketch_id && sketch_document.sketches.back().bsplines.size()==1 &&
             sketch_document.sketches.back().bsplines.front().degree==3,"CLI B-spline lost exact degree or owning Sketch");
         const auto spline_id=sketch_document.sketches.back().bsplines.front().id;
+        const auto spline_patch=command({{"command","sketch.bspline.set"},{"arguments",{{"sketch",sketch_id},{"geometry",spline_id},{"points",{{0,0},{3,10},{7,2},{10,0}}}}}});
+        result=launch(executable,root,common+QStringList{"--command","open cli-sketch.prtz","--command",spline_patch,"--command","save"});
+        require(result.exit_code==0,"CLI spline property edit failed");
+        const auto spline_edited=document::PartDocument::load(project/"cli-sketch.prtz");
+        const auto& edited_curve=spline_edited.sketches.back().bsplines.front();
+        require(edited_curve.id==spline_id && edited_curve.control_point_ids==sketch_document.sketches.back().bsplines.front().control_point_ids &&
+            spline_edited.sketches.back().find_point(edited_curve.control_point_ids[1])->y==10,"CLI spline edit changed IDs or lost pole coordinates");
         const auto offset_request=command({{"command","sketch.offset.create"},{"arguments",{{"sketch",sketch_id},{"source",spline_id},{"distance_mm",.1}}}});
         result=launch(executable,root,common+QStringList{"--command","open cli-sketch.prtz","--command",offset_request,"--command","save"});
         require(result.exit_code==0,"CLI failed to calculate/persist a native spline offset");

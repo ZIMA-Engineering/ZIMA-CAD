@@ -37,7 +37,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Tělesa a Boolean | Základ hotov | Tvorba, čtení, aktivace, název/viditelnost, kurzory a Boolean create/get/set; pořadí/mazání řeší historie; zbývá příkazové umístění a odvozené kopie |
 | Umístění a původní reference | Čtení původních referencí hotovo | Part/Assembly, přesné výskyty a geometrická data; zbývá zadání do existujícího společného řešení umístění |
 | Konstrukční geometrie | Zbývá | Body, osy, roviny, 3D křivky |
-| Skicář: geometrie | Základ hotov | 21 příkazů: samostatné a vložené skici, body, úsečky, kružnice, oblouky, elipsy, B-spline, obdélníky, mnohoúhelníky, posun a pomocná geometrie; text create/get/set s nativním písmem hotov; zbývají další varianty a parametrické editace |
+| Skicář: geometrie | Základ hotov | 21 příkazů: samostatné a vložené skici, body, úsečky, kružnice, oblouky, elipsy, B-spline, obdélníky, mnohoúhelníky, posun a pomocná geometrie; text create/get/set s nativním písmem a spline get/set hotovy; zbývá import a kontrola dalších variant podle GUI |
 | Skicář: vazby a operace | Vazby/kóty/solver/offset/trim/mirror hotovy | Offset create/get/set/free, úplný podklad a zachování intervalů, trim podle průsečíků, mirror, orientovaný obdélník, tečny a zaoblení rohu; všech 15 druhů vazeb, odstranění a solver; 16 druhů kót včetně vlastností, popisků a mazání; uvolnění externích referencí hotovo |
 | Externí reference skici | Part a kořenová Assembly hotovy | Původní geometrie, přesná projekce, aktualizace, odpojení a zachování trimu; zbývá příkazový kontext Partu aktivovaného v sestavě |
 | Vytažení a rotace | Zbývá | Vlastněný profil, thin, zakončení, více směrů |
@@ -144,3 +144,15 @@ i skládání diakritiky, zarovnání, převrácení, natočení, uložení, Und
 vytažení číslice s otvorem včetně nezávislé kontroly objemu. Modelování textu
 normalizuje směr profilových smyček pro správné vnitřní otvory. Následují
 zbývající parametrické editace skicáře a modelovací prvky.
+
+
+Etapa vlastností B-spline přidala `sketch.bspline.get/set`, celkem **102 příkazů**.
+Nativní editace je společná s dialogem a respektuje přesnou parametrizaci,
+původní ID, pevné body, vazby i zdrojové řízení. Integrační sada prošla
+**10/10** (31,45 s), `build/sketch-spline-integration-tests.log`; celé GUI a CLI
+jsou přeložené v `build/sketch-spline-integration-build.log`. Matematické testy
+ověřují kubický Bernsteinův výsledek a racionální kružnici (odchylka rovnice
+pod 1e-12 mm²), aktualizaci offsetu, současný posun navázaných bodů, odmítnutí
+neplatné změny, Undo a nativní uložení. Následují příkazy importu/exportu;
+současný DXF writer podporuje pouze LINE/CIRCLE/ARC a nesmí přes konzoli
+tvrdit úplný export ostatní geometrie.

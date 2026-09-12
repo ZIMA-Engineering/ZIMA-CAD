@@ -422,3 +422,35 @@ inkoustu a současně kontroluje, že se otvor nezaplní.
 Příkazy mění jen skicu a její historii; přepočet tělesa zůstává výslovný.
 No-op nezmění revizi ani cache a Undo vrací přesné uložené obrysy.
 Katalog nyní obsahuje **100 příkazů**.
+
+
+## Parametrické vlastnosti B-spline
+
+`sketch.bspline.get` přijímá `sketch`, `geometry`, volitelně `document` a
+`limit` (1–4096, výchozí 256). Vrací stupeň, uzavření, interpolační režim,
+pomocnou geometrii, `exact`, `read_only`, počet bodů a jejich stabilní ID,
+souřadnice v mm, uzly a váhy. Při překročení limitu vynechá geometrická pole
+a nastaví `geometry_omitted_by_limit`. Dotaz nepočítá těleso ani křivku.
+
+`sketch.bspline.set` přijímá `sketch`, `geometry` a volitelně `degree`,
+`closed`, `points`. `points` je úplný seznam `[x,y]` v dosavadním pořadí;
+počet řídicích bodů se při editaci nemění a maximum příkazu je 4096. Stupeň
+je celé číslo 1–25 a musí být menší než počet bodů. Změna neobnovuje ani
+nepřevádí křivku: zachovává její ID, ID bodů, uzly, váhy a interpolační režim.
+Přesná spline dovoluje změnit volné póly, ale zachovává stupeň i uzavření.
+Spline odvozená z externí reference, ořezu nebo offsetu je řízena svým zdrojem.
+
+Vlastnosti v GUI a příkaz používají `Sketch::edit_bspline_properties`.
+Zadané souřadnice jsou po dobu výpočtu skici pevné cíle solveru; uložené
+příznaky pevných bodů zůstanou zachovány. Konflikt s existující vazbou,
+přesun pevného nebo zdrojem řízeného bodu a neplatná geometrie odmítnou celou
+změnu. Současná změna více bodů je jedna transakce a jeden krok Undo.
+Navazující offsety se aktualizují, výpočet tělesa se provede až výslovným
+Regenerate. Beze změny parametrů nevzniká revize.
+
+```json
+{"command":"sketch.bspline.set","arguments":{"sketch":"SKETCH_ID","geometry":"SPLINE_ID","points":[[0,0],[3,10],[7,2],[10,0]]}}
+```
+
+Katalog po této etapě obsahuje **102 příkazů**. Zbývající modelovací domény
+jsou nadále uvedeny v přehledu pokrytí.

@@ -6578,6 +6578,73 @@ std::string Sketch::add_bspline(
     return id;
 }
 
+bool Sketch::bspline_properties_read_only(const std::string& spline_id) const {
+    if (find_offset(spline_id) || std::ranges::any_of(curve_trims,
+            [&](const auto& trim) { return trim.id == spline_id; })) return true;
+    return std::ranges::any_of(import_blocks, [&](const auto& block) {
+        return block.source_path.starts_with("external-reference:") &&
+            std::ranges::find(block.geometry_ids, spline_id) != block.geometry_ids.end();
+    });
+}
+
+void Sketch::edit_bspline_properties(const std::string& spline_id, unsigned degree,
+    bool closed, const std::vector<std::array<double, 2>>& values) {
+    const auto found = std::ranges::find(bsplines, spline_id, &SketchBSpline::id);
+    if (found == bsplines.end()) throw std::invalid_argument("B-spline no longer exists");
+    if (values.size() != found->control_point_ids.size())
+        throw std::invalid_argument("B-spline editing must preserve the number of control points.");
+    bool changed = degree != found->degree || closed != found->closed;
+    for (std::size_t i = 0; i < values.size(); ++i) {
+        require_finite(values[i][0], "B-spline control point X");
+        require_finite(values[i][1], "B-spline control point Y");
+        const auto* point = find_point(found->control_point_ids[i]);
+        if (!point) throw std::runtime_error("Missing B-spline control point");
+        changed = changed || point->x != values[i][0] || point->y != values[i][1];
+    }
+    if (!changed) return;
+    if (bspline_properties_read_only(spline_id))
+        throw std::invalid_argument("Edit the source reference, trim or offset instead of its generated spline.");
+    const bool exact = !found->knots.empty() || !found->weights.empty();
+    if (exact && (degree != found->degree || closed != found->closed))
+        throw std::invalid_argument("Exact spline degree and closure must retain their parameterization.");
+    if (degree < 1 || degree >= values.size())
+        throw std::invalid_argument("Sketch B-spline is invalid");
+    const auto linked = externally_linked_point_ids(*this);
+    auto next = *this;
+    auto& spline = next.bsplines[static_cast<std::size_t>(found - bsplines.begin())];
+    spline.degree = degree;
+    spline.closed = closed;
+    std::map<std::string, std::array<double, 2>> requested;
+    for (std::size_t i = 0; i < values.size(); ++i) {
+        const auto& id = spline.control_point_ids[i];
+        auto* point = next.find_point(id);
+        const auto [entry, inserted] = requested.emplace(id, values[i]);
+        if (!inserted && entry->second != values[i])
+            throw std::invalid_argument("Repeated spline points require identical coordinates.");
+        if ((point->fixed || linked.contains(id)) &&
+            (point->x != values[i][0] || point->y != values[i][1]))
+            throw std::invalid_argument("A fixed or source-driven spline point cannot be moved.");
+        if (!exact && i > 0 && values[i] == values[i - 1])
+            throw std::invalid_argument("Sousední řídicí body musí být odlišné.");
+        point->x = values[i][0];
+        point->y = values[i][1];
+        // The entered coordinates are solver anchors for this transaction only.
+        point->fixed = true;
+    }
+    const auto solved = next.solve();
+    if (solved.status == SolveStatus::Invalid || solved.status == SolveStatus::Conflicting)
+        throw std::invalid_argument("Spline properties conflict with the Sketch constraints.");
+    for (const auto& [id, position] : requested) {
+        auto* point = next.find_point(id);
+        if (!point || std::hypot(point->x - position[0], point->y - position[1]) > 1e-7)
+            throw std::invalid_argument("Spline properties conflict with the Sketch constraints.");
+        point->fixed = find_point(id)->fixed;
+    }
+    next.refresh_curve_dependencies();
+    next.validate();
+    *this = std::move(next);
+}
+
 std::string Sketch::add_import_block(
     std::string name, std::string source_path,
     std::vector<std::string> geometry_ids,

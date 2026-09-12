@@ -5,6 +5,7 @@
 #include <QLabel>
 #include "../app/sketch_bspline_properties_dialog.hpp"
 #include <QApplication>
+#include <zima/sketcher/sketch.hpp>
 #include <QDialogButtonBox>
 #include <QPushButton>
 #include <QDoubleSpinBox>
@@ -30,6 +31,17 @@ int main(int argc,char** argv){QApplication app(argc,argv);try{
   dialog->buttons()->button(QDialogButtonBox::Ok)->click();
   if(!committed)throw std::runtime_error("Exact spline dialog did not confirm unchanged curve");
  }
+ auto sketch=zima::sketcher::Sketch::create_default();
+ const std::vector<std::array<double,2>> native_points{{0,0},{3,8},{7,-3},{10,0}};
+ const auto spline_id=sketch.add_bspline(native_points,3);const auto pole_ids=sketch.bsplines.front().control_point_ids;
+ bool spline_committed=false;
+ auto* spline_dialog=new zima::app::SketchBSplinePropertiesDialog(3,false,native_points,
+   [&](unsigned degree,bool closed,const auto& values){sketch.edit_bspline_properties(spline_id,degree,closed,values);spline_committed=true;},&owner);
+ const auto fields=spline_dialog->findChildren<QDoubleSpinBox*>();
+ if(fields.size()!=8)throw std::runtime_error("Spline property coordinates missing");
+ fields[3]->setValue(10);spline_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
+ if(!spline_committed || sketch.find_point(pole_ids[1])->y!=10 || sketch.bsplines.front().control_point_ids!=pole_ids)
+   throw std::runtime_error("Spline Properties did not use the shared identity-preserving edit");
  bool offset_committed=false;
  auto* offset=new zima::app::SketchOffsetDialog({},[&](auto value,bool free){
   if(value.source_id!="own-curve"||value.distance!=2.5||!value.flipped||free)throw std::runtime_error("Wrong offset parameters");offset_committed=true;

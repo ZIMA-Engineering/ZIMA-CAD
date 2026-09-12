@@ -502,32 +502,11 @@ void AssemblyWorkspaceWindow::show_sketch_bspline_properties(
             const std::vector<std::array<double, 2>>& values) {
             if (active_sketch_id_ != sketch_id ||
                 !mutate_active_sketch([&](auto& target_sketch) {
-                    const auto target_spline = std::find_if(
-                        target_sketch.bsplines.begin(), target_sketch.bsplines.end(),
-                        [&](const auto& value) { return value.id == bspline_id; });
-                    if (target_spline == target_sketch.bsplines.end() ||
-                        values.size() != target_spline->control_point_ids.size()) {
-                        throw std::runtime_error("B-spline no longer exists");
-                    }
-                    target_spline->degree = degree;
-                    target_spline->closed = closed;
-                    for (std::size_t index = 0; index < values.size(); ++index) {
-                        auto* point = target_sketch.find_point(
-                            target_spline->control_point_ids[index]);
-                        if (point == nullptr) throw std::runtime_error(
-                            "Missing B-spline control point");
-                        point->x = values[index][0];
-                        point->y = values[index][1];
-                    }
+                    target_sketch.edit_bspline_properties(bspline_id, degree, closed, values);
                 })) throw std::runtime_error("Sketch no longer exists");
         }, this);
     if (!spline->knots.empty()) {
-        const bool linked=std::any_of(sketch->import_blocks.begin(),sketch->import_blocks.end(),
-            [&](const auto& block) {
-                return block.source_path.starts_with("external-reference:") &&
-                    std::ranges::find(block.geometry_ids,bspline_id)!=block.geometry_ids.end();
-            });
-        dialog->set_exact_geometry(linked || std::ranges::any_of(sketch->curve_trims,[&](const auto& c){return c.id==bspline_id;}));
+        dialog->set_exact_geometry(sketch->bspline_properties_read_only(bspline_id));
     }
     properties_dialog_ = dialog;
     connect(dialog, &QObject::destroyed, this, [this] {

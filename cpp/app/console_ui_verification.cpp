@@ -333,6 +333,11 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         commands::Json text_command={{"command","sketch.text.create"},{"arguments",{{"sketch",command_sketch},{"value","ZIMA"},{"position",{40,40}},{"height_mm",2},{"modeling_geometry",false}}}};
         const auto text_id=run(QString::fromStdString(text_command.dump())).data.at("text").get<std::string>();flush();
         check(run(QString::fromStdString("sketch.text.get "+command_sketch+" "+text_id)).data.at("contour_count").get<int>()>0,"Console did not create native text outlines");
+        commands::Json spline_command={{"command","sketch.bspline.create"},{"arguments",{{"sketch",command_sketch},{"points",{{50,0},{53,8},{57,-3},{60,0}}},{"degree",3}}}};
+        const auto spline_id=run(QString::fromStdString(spline_command.dump())).data.at("geometry").get<std::string>();
+        commands::Json spline_patch={{"command","sketch.bspline.set"},{"arguments",{{"sketch",command_sketch},{"geometry",spline_id},{"points",{{50,0},{53,10},{57,2},{60,0}}}}}};
+        run(QString::fromStdString(spline_patch.dump()));flush();
+        check(run(QString::fromStdString("sketch.bspline.get "+command_sketch+" "+spline_id)).data.at("points")[1][1]==10,"Console spline edit did not reach document");
         run("save");const auto saved_sketch=document::PartDocument::load(directory/(stem+"-sketch.prtz"));
         check(saved_sketch.sketches.back().id==command_sketch && saved_sketch.sketches.back().circles.front().radius==10 && saved_sketch.sketches.back().dimensions.front().locked && saved_sketch.dimension_layouts.back().layout.text_along==3,"GUI console did not persist native Sketch");
         check(saved_sketch.sketches.back().texts.size()==1 && saved_sketch.sketches.back().texts.front().value=="ZIMA","Console did not persist native text");
