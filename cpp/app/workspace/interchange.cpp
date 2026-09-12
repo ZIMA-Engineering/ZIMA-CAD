@@ -61,6 +61,31 @@ void AssemblyWorkspaceWindow::import_selected_file(const QString& path, std::opt
         }
         return;
     }
+    if(context==zima::interchange::Context::Sketch) {
+        const auto* sketch=active_sketch();if(!sketch)return;
+        const auto id=workspace_.active_document_id();const auto sketch_id=active_sketch_id_;const auto before=sketch->serialized();
+        const auto* part=workspace_.open_part(id);const auto* assembly=workspace_.open_assembly(id);if(!part&&!assembly)return;
+        const auto identity=part?part->runtime_identity:assembly->runtime_identity;
+        const auto revision=part?part->session.revision():assembly->session.revision();
+        begin_status_operation(tr("Importuji %1…").arg(QFileInfo(path).fileName()));
+        try {
+            std::optional<zima::workspace::PreparedSketchImport> result;
+            run_background_task([input=*sketch,source=std::filesystem::u8path(path.toStdString()),&result]{result=zima::workspace::prepare_sketch_dxf(input,source);});
+            const auto* current_part=workspace_.open_part(id);const auto* current_assembly=workspace_.open_assembly(id);
+            const bool same=part?(current_part&&current_part->runtime_identity==identity&&current_part->session.revision()==revision)
+                :(current_assembly&&current_assembly->runtime_identity==identity&&current_assembly->session.revision()==revision);
+            if(!same||workspace_.active_document_id()!=id||active_sketch_id_!=sketch_id||!active_sketch()||active_sketch()->serialized()!=before)
+                throw std::runtime_error("The target document changed while importing the Sketch; its current data was preserved.");
+            if(!result||!mutate_active_sketch([&](auto& draft){draft=std::move(result->sketch);}))throw std::runtime_error("The requested Sketch does not exist.");
+            preserve_view_on_refresh_=true;refresh_scene();
+            finish_status_operation(tr("DXF importováno: %1 entit").arg(result->report.imported_entities));
+            if(!result->report.warnings.empty()) {
+                QStringList warnings;for(const auto& warning:result->report.warnings)if(!warnings.contains(QString::fromStdString(warning)))warnings<<QString::fromStdString(warning);
+                QMessageBox::information(this,tr("Upozornění importu DXF"),warnings.join("\n"));
+            }
+        }catch(const std::exception& error){finish_status_operation(tr("Import selhal"),false);QMessageBox::warning(this,tr("Import selhal"),tr(error.what()));}
+        return;
+    }
     if (workspace_.open_part(workspace_.active_document_id())) {
         begin_status_operation(tr("Importuji %1…").arg(QFileInfo(path).fileName()));
         try {

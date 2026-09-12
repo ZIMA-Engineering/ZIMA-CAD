@@ -34,6 +34,16 @@ void Host::register_import_commands() {
                     }
                     const auto doc=workspace_.active_document_id();
                     if(options_.progress)options_.progress(Activity::Read,source);
+                    if(dxf&&!options.sketch_id.empty()) {
+                        if(a.contains("output_directory"))return Result::failure("invalid_arguments",tr("A Sketch import does not create an output directory."));
+                        const auto imported=workspace::import_sketch(workspace_,doc,source,options,[this](auto task){io(std::move(task));});
+                        change_=Change{ChangeKind::Model,doc,true};
+                        const auto* part=workspace_.open_part(doc);
+                        return Result::success({{"document",doc},{"source",document::path_to_utf8(source)},{"sketch",imported.sketch_id},
+                            {"bodies",Json::array()},{"containers",Json::array()},{"source_entities",imported.dxf.source_entities},{"imported_entities",imported.dxf.imported_entities},
+                            {"import_block",imported.dxf.import_block_id},{"warnings",imported.dxf.warnings},{"body_calculated",false},{"changed",true},
+                            {"revision",part?part->session.revision():workspace_.open_assembly(doc)->session.revision()}});
+                    }
                     if(workspace_.open_assembly(doc)) {
                         workspace::AssemblyImportOptions settings;settings.geometry=options;settings.working_directory=directory_;
                         if(options_.settings)settings.templates=options_.settings().templates;

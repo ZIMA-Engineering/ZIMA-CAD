@@ -22,6 +22,13 @@ struct PartImportReport {
     interchange::DxfImportResult dxf;
     bool body_calculated{};
 };
+struct PreparedSketchImport {sketcher::Sketch sketch;interchange::DxfImportResult report;};
+// A private draft for both GUI Sketcher and stored/embedded CLI Sketch targets.
+[[nodiscard]] PreparedSketchImport prepare_sketch_dxf(const sketcher::Sketch&,const std::filesystem::path&,
+    double unitless_scale_mm=1.0,std::size_t maximum_entities=100000);
+[[nodiscard]] PartImportReport import_sketch(Workspace&,const std::string& document_id,
+    const std::filesystem::path&,const PartImportOptions&,
+    const std::function<void(std::function<void()>)>& runner = {});
 // The runner must finish the supplied task before returning. It receives only
 // a private input snapshot; all Workspace access/commit stays on the caller.
 // Failure or a changed/reopened target discards the calculated import result.

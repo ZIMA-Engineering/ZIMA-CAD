@@ -1,3 +1,4 @@
+#include <zima/interchange/dxf.hpp>
 #include "console_ui_verification.hpp"
 #include "sketch_offset_dialog.hpp"
 #include <zima/drawing/drawing_template.hpp>
@@ -2981,6 +2982,21 @@ int verify_owned_profile_external_reference(QApplication& application,const std:
         for(QTreeWidgetItemIterator i(tree);*i;++i)if((*i)->data(0,Qt::UserRole).toString().toStdString()==feature.id&&(*i)->data(0,Qt::UserRole+3).toString()=="part-container"){row=*i;break;}
         if(!verify(row,"Protrusion tree row missing"))return 1;window.show_tree_item_properties(row);flush();
         auto* open=window.findChild<QPushButton*>("primitiveOwnSketchButton");if(!verify(open,"Protrusion Sketch button missing"))return 1;open->click();flush();
+        if(supplied.isEmpty()) {
+            auto dxf= zima::sketcher::Sketch::create_default();static_cast<void>(dxf.add_circle(35,5,1));
+            const auto source=std::filesystem::absolute(directory/"owned-dxf-circle.dxf");zima::interchange::export_dxf(source,dxf);
+            bool selected=false,failed=false;QTimer chooser;chooser.setInterval(50);
+            QObject::connect(&chooser,&QTimer::timeout,[&]{
+                if(auto* dialog=qobject_cast<QFileDialog*>(QApplication::activeModalWidget())) {
+                    if(!selected){dialog->setDirectory(QString::fromStdString(source.parent_path().string()));dialog->selectFile("owned-dxf-circle.dxf");selected=true;return;}
+                    if(auto* filename=dialog->findChild<QLineEdit*>("fileNameEdit"))filename->setText(QString::fromStdString(source.string()));
+                    QMetaObject::invokeMethod(dialog,"accept",Qt::DirectConnection);
+                }else if(auto* message=qobject_cast<QMessageBox*>(QApplication::activeModalWidget())){failed=true;std::cerr<<message->text().toStdString()<<'\n';message->accept();}
+            });
+            QTimer timeout;timeout.setSingleShot(true);QObject::connect(&timeout,&QTimer::timeout,[&]{failed=true;if(auto* modal=qobject_cast<QDialog*>(QApplication::activeModalWidget()))modal->reject();});
+            chooser.start();timeout.start(10000);window.findChild<QAction*>("importDocumentAction")->trigger();chooser.stop();timeout.stop();flush();
+            if(!verify(selected&&!failed,"DXF import into pending profile failed"))return 1;
+        }
         QEventLoop animation;QTimer::singleShot(950,&animation,&QEventLoop::quit);animation.exec();
         auto* view=dynamic_cast<zima::viewer::MeshView*>(window.findChild<QOpenGLWidget*>());
         auto* action=window.findChild<QAction*>(project?"sketchExternalProfileAction":"sketchExternalReferenceAction");
@@ -3014,6 +3030,7 @@ int verify_owned_profile_external_reference(QApplication& application,const std:
         window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
         const auto saved=PartDocument::load(path);const auto& result=saved.sketches.front();
         if(!verify(result.external_references.size()==original.external_references.size()+(accept?1:0),"Parent OK/Cancel lost or leaked external reference"))return 1;
+        if(supplied.isEmpty()&&!verify(result.import_blocks.size()==original.import_blocks.size()+(accept?1:0)&&result.circles.size()==original.circles.size()+(accept?1:0),"Parent OK/Cancel lost or leaked imported DXF geometry"))return 1;
         if(!accept&&!verify(result.serialized()==original.serialized(),"Cancel changed original profile"))return 1;
         if(accept&&!verify(result.external_references.back().source_owner_id==chosen.owner_id&&result.external_references.back().source_semantic_key==chosen.semantic_key,"Confirmed edge identity changed"))return 1;
     }

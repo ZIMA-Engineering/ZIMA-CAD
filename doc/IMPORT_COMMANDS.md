@@ -4,13 +4,15 @@
 
 Menu importu a příkazy `import.step`, `import.iges`, `import.dxf` sdílejí
 `workspace::import_part` pro Part a `workspace::import_assembly` pro sestavu.
+Cílený DXF do existující skici používá `workspace::import_sketch`; GUI návrh
+a uložený příkazový cíl sdílejí `prepare_sketch_dxf`.
 Geometrický převod zůstává ve stávajících nativních funkcích interchange;
 nemění se pravidla umístění těles ani komponent.
 
 Tato etapa pokrývá běžný aktivní Part a kořenovou Assembly. Příkazový import
 do aktivního výskytu uvnitř sestavy nebo rozpracovaného GUI náhledu je další
-oblast přehledu pokrytí. DXF do Partu přijímá skicu z jeho hlavního seznamu;
-vložené profily zatím tento příkazový vstup nemají. Exporty popisuje
+oblast přehledu pokrytí. DXF nyní přijímá také ID vloženého profilu a
+samostatné skici nebo vloženého profilu v kořenové Assembly. Exporty popisuje
 [EXPORT_COMMANDS.md](EXPORT_COMMANDS.md).
 
 ## Příkazy a jednotky
@@ -30,9 +32,11 @@ zobrazovací sítě v milimetrech, ne změna přesné geometrie. Bez argumentu
 se převezme `mesh_deflection` z přesnosti dokumentu; nový dokument ji
 dostává z běžné konfigurace/šablony. Hodnoty 1, 2 nebo více mm jsou možné.
 
-DXF bez `sketch` vytvoří novou vlastněnou skicu v aktivním tělese, případně
+DXF do Partu bez `sketch` vytvoří novou vlastněnou skicu v aktivním tělese, případně
 standardní těleso, pokud žádné není aktivní. S ID skici přidá samostatný
-importovaný blok do její geometrie. Vlastněné těleso musí být aktivní
+importovaný blok do její geometrie. Cíl může být i serializovaný profil
+Sweep/Loftu, Helical nebo otvoru; jeho ID zjistíte přes `sketch.list`.
+Sourozenecké profily a vlastník zůstávají beze změny. Vlastněné těleso musí být aktivní
 a nesmí jít o odvozenou kopii. `unitless_scale_mm` (výchozí 1) platí pouze
 pro soubor bez určených jednotek; hlavička `$INSUNITS` má přednost.
 `maximum_entities` je celé číslo 1–1000000, výchozí 100000. Počet zdrojových
@@ -89,9 +93,8 @@ opakované komponenty sdílejí jeden zdrojový Part či podsestavu a mají vlas
 identity výskytů. Rozdělení solidu a plochy uvnitř jednoho STEP produktu se
 nemění: nevytváří se z nich samostatné komponenty.
 
-IGES i DXF vytvoří jeden Part podle současné Part šablony. IGES obsahuje
-importované těleso, DXF nativní vlastněnou skicu. Do existující skici sestavy
-se tímto příkazem nepřidává; argument `sketch` zde není povolen. Nové zdroje
+IGES a DXF bez `sketch` vytvoří jeden Part podle současné Part šablony. IGES obsahuje
+importované těleso, DXF nativní vlastněnou skicu. DXF s `sketch` naopak přidává geometrii přímo do existující skici sestavy. Nové zdroje
 přebírají přesnost a zobrazovací jednotky vlastnící sestavy. STEP souřadnice
 a geometrické výpočty nadále používají mm.
 
@@ -139,3 +142,27 @@ dokumentů. Integrační sada **7/7**, 17,00 s,
 15,52 s, `build/assembly-import-final-tests.log`, včetně znovuotevřeného cíle,
 pasivního rodiče a zachování cizího souboru při úklidu. GUI i CLI byly
 znovu přeloženy v `build/assembly-import-final-build.log`.
+
+
+## DXF do vlastněného profilu a návrhu GUI
+
+Příkaz s `sketch` v Partu i Assembly vytváří jeden blok přímo v cílové skice,
+bez nového kontejneru, komponenty nebo adresáře. `output_directory` se v tomto
+režimu odmítá. Bez `sketch` má Assembly dosavadní význam importu nové
+komponenty. Sekční skici se nadále upravují přes vlastní operaci řezu.
+
+Pokud má editovaný profil vypočtené těleso, před uložením hotového modelu
+proveďte `regenerate`, aby vypočtené hranice historie odpovídaly novým
+parametrům podle současného nativního formátu. Import sám toto rozhodnutí
+neprovádí.
+
+Příkaz importuje soukromou kopii skici a po načtení ověří identitu otevření,
+revizi, generaci dat a u Partu aktivní těleso. Změnu pak uloží společná
+skicová transakce s Undo/Redo. Nevypočítává se těleso: nové křivky profilu
+se do tělesa promítnou až při explicitním Regenerate.
+
+Pokud uživatel spustí import menu uvnitř GUI skicáře, stejný převod upraví
+aktuální návrh přes `mutate_active_sketch`. Profil v otevřených vlastnostech
+zůstane přechodný; dokončení skici jej vrátí do návrhu vlastníka. Teprve OK
+vlastníka počítá a ukládá model. Cancel importovanou geometrii návrhu zahodí.
+Příkaz z konzole nesmí souběžně přepsat otevřený GUI editor.

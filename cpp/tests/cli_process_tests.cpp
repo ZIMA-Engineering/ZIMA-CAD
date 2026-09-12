@@ -213,6 +213,16 @@ int main(int argc,char** argv){
         require(result.exit_code==0 && result.results()[1].at("data").at("imported_entities")==1,"CLI DXF import failed");
         const auto dxf_native=document::PartDocument::load(project/"cli-dxf.prtz");
         require(dxf_native.sketches.back().segments.size()==1 && dxf_native.sketches.back().name=="obrys český","CLI DXF lost native geometry or UTF-8 metadata");
+        auto owned_dxf_document=document::PartDocument::create_default();auto owned_dxf_profile=sketcher::Sketch::create_default();
+        auto owned_dxf_feature=document::PartDocument::create_sweep3d_container();
+        for(double z:{0.0,20.0}){auto point=document::PartDocument::create_construction(document::ConstructionKind::Point);point.parent_construction_id=owned_dxf_feature.sweep3d.path.id;point.origin={0,0,z};owned_dxf_feature.sweep3d.path.curve_points.push_back(point);}
+        owned_dxf_profile.owner_container_id=owned_dxf_feature.id;static_cast<void>(owned_dxf_profile.add_circle(5,5,1));
+        owned_dxf_feature.sweep3d.profiles={{owned_dxf_profile.id+":profile",owned_dxf_feature.sweep3d.path.curve_points[0].id,owned_dxf_profile.id,owned_dxf_profile.serialized()}};
+        document::BodyHistoryGraph owned_dxf_history;static_cast<void>(owned_dxf_history.create_body("Body"));owned_dxf_history.insert({document::PartHistoryKind::Feature,owned_dxf_feature.id});
+        owned_dxf_document.history={owned_dxf_feature};owned_dxf_document.set_body_history(std::move(owned_dxf_history));owned_dxf_document.save(project/"cli-owned-dxf.prtz");
+        const auto owned_dxf_import=command({{"command","import.dxf"},{"arguments",{{"path",document::path_to_utf8(dxf_source)},{"sketch",owned_dxf_profile.id}}}});
+        result=launch(executable,root,common+QStringList{"--command","open cli-owned-dxf.prtz","--command",owned_dxf_import,"--command","undo","--command","redo","--command","save"});
+        require(result.exit_code==0&&sketcher::Sketch::from_serialized(document::PartDocument::load(project/"cli-owned-dxf.prtz").history.front().sweep3d.profiles.front().sketch_serialized).segments.size()==1,"CLI embedded DXF import did not persist");
         const auto exported_dxf=project/fs::path(u8"exportovaný obrys.dxf");
         const auto dxf_export=command({{"command","export.dxf"},{"arguments",{{"path",document::path_to_utf8(exported_dxf)},{"sketch",dxf_native.sketches.back().id}}}});
         result=launch(executable,root,common+QStringList{"--command","open cli-dxf.prtz","--command",dxf_export});

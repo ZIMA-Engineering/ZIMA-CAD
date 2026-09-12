@@ -1,9 +1,38 @@
 #include <zima/workspace/import_operations.hpp>
 #include <zima/interchange/interchange.hpp>
+#include <zima/workspace/sketch_operations.hpp>
 #include <algorithm>
 #include <set>
 
 namespace zima::workspace {
+PreparedSketchImport prepare_sketch_dxf(const sketcher::Sketch& before,const std::filesystem::path& source,double scale,std::size_t maximum) {
+    if(interchange::format_from_path(source)!=interchange::Format::Dxf)throw ImportOperationError("unsupported_format","Only DXF can be imported into a Sketch.");
+    if(!std::filesystem::is_regular_file(source))throw ImportOperationError("file_not_found","The import source file does not exist.");
+    PreparedSketchImport result;result.sketch=before;
+    apply_sketch_geometry(result.sketch,[&](auto& draft){result.report=interchange::import_dxf(source,draft,scale,maximum);});
+    if(!result.report.imported_entities)throw std::runtime_error("DXF neobsahuje podporovanou 2D geometrii");
+    return result;
+}
+PartImportReport import_sketch(Workspace& live,const std::string& id,const std::filesystem::path& source,
+    const PartImportOptions& options,const std::function<void(std::function<void()>)>& runner) {
+    const auto* part=live.open_part(id);const auto* assembly=live.open_assembly(id);
+    if(!part&&!assembly)throw SketchOperationError("unsupported_document","Sketch operations require an open Part or Assembly.");
+    const auto input=document_sketch(live,id,options.sketch_id);
+    const auto identity=part?part->runtime_identity:assembly->runtime_identity;
+    const auto revision=part?part->session.revision():assembly->session.revision();
+    const auto generation=part?part->session.data_generation():assembly->session.data_generation();
+    const auto active_body=part?part->session.document().body_history.active_body_id():std::string{};
+    std::optional<PreparedSketchImport> result;
+    const auto task=[input,source=std::filesystem::absolute(source),options,&result]{result=prepare_sketch_dxf(input,source,options.unitless_scale_mm,options.maximum_entities);};
+    if(runner)runner(task);else task();
+    if(!result)throw ImportOperationError("incomplete_import","The import runner did not complete the calculation.");
+    const auto* current_part=live.open_part(id);const auto* current_assembly=live.open_assembly(id);
+    const bool unchanged=part?(current_part&&current_part->runtime_identity==identity&&current_part->session.revision()==revision&&current_part->session.data_generation()==generation&&current_part->session.document().body_history.active_body_id()==active_body)
+        :(current_assembly&&current_assembly->runtime_identity==identity&&current_assembly->session.revision()==revision&&current_assembly->session.data_generation()==generation);
+    if(!unchanged)throw ImportOperationError("document_changed","The target document changed while importing the Sketch; its current data was preserved.");
+    static_cast<void>(mutate_document_sketch(live,id,options.sketch_id,[&](auto& draft){draft=std::move(result->sketch);}));
+    PartImportReport report;report.sketch_id=options.sketch_id;report.dxf=std::move(result->report);return report;
+}
 PartImportReport import_part(Workspace& live, const std::string& document_id,
     const std::filesystem::path& source, const PartImportOptions& options,
     const std::function<void(std::function<void()>)>& runner) {
@@ -16,17 +45,10 @@ PartImportReport import_part(Workspace& live, const std::string& document_id,
         throw ImportOperationError("file_not_found", "The import source file does not exist.");
     if (!options.sketch_id.empty() && format != interchange::Format::Dxf)
         throw ImportOperationError("invalid_arguments", "Only DXF can be imported into a Sketch.");
+    if(format==interchange::Format::Dxf&&!options.sketch_id.empty())return import_sketch(live,document_id,source,options,runner);
     const auto& before = part->session.document();
     if (format == interchange::Format::Dxf) {
         const auto* body = before.body_history.find(before.body_history.active_body_id());
-        if (!options.sketch_id.empty()) {
-            const auto sketch = std::ranges::find(before.sketches, options.sketch_id, &sketcher::Sketch::id);
-            if (sketch == before.sketches.end())
-                throw ImportOperationError("sketch_not_found", "The requested Sketch does not exist.");
-            body = before.body_owner_for_object(sketch->owner_container_id);
-            if (body && body->scope.id != before.body_history.active_body_id())
-                throw ImportOperationError("inactive_body", "Activate the owning Body before editing its history.");
-        }
         if (body && body->derived_copy)
             throw ImportOperationError("read_only_body", "A derived Body cannot be edited directly.");
     }

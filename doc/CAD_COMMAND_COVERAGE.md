@@ -37,7 +37,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Tělesa a Boolean | Základ hotov | Tvorba, čtení, aktivace, název/viditelnost, kurzory a Boolean create/get/set; pořadí/mazání řeší historie; zbývá příkazové umístění a odvozené kopie |
 | Umístění a původní reference | Čtení původních referencí hotovo | Part/Assembly, přesné výskyty a geometrická data; zbývá zadání do existujícího společného řešení umístění |
 | Konstrukční geometrie | Zbývá | Body, osy, roviny, 3D křivky |
-| Skicář: geometrie | Základ hotov | 21 příkazů: samostatné a vložené skici, body, úsečky, kružnice, oblouky, elipsy, B-spline, obdélníky, mnohoúhelníky, posun a pomocná geometrie; text create/get/set s nativním písmem a spline get/set hotovy; zbývá import a kontrola dalších variant podle GUI |
+| Skicář: geometrie | Základ hotov | 21 příkazů: samostatné a vložené skici, body, úsečky, kružnice, oblouky, elipsy, B-spline, obdélníky, mnohoúhelníky, posun a pomocná geometrie; text create/get/set s nativním písmem a spline get/set hotovy; DXF do vložených profilů hotov; zbývá kontrola dalších variant podle GUI |
 | Skicář: vazby a operace | Vazby/kóty/solver/offset/trim/mirror hotovy | Offset create/get/set/free, úplný podklad a zachování intervalů, trim podle průsečíků, mirror, orientovaný obdélník, tečny a zaoblení rohu; všech 15 druhů vazeb, odstranění a solver; 16 druhů kót včetně vlastností, popisků a mazání; uvolnění externích referencí hotovo |
 | Externí reference skici | Part a kořenová Assembly hotovy | Původní geometrie, přesná projekce, aktualizace, odpojení a zachování trimu; zbývá příkazový kontext Partu aktivovaného v sestavě |
 | Vytažení a rotace | Zbývá | Vlastněný profil, thin, zakončení, více směrů |
@@ -49,7 +49,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Výkresy | Listy, šablony, historie, tvorba/vlastnosti/dotazy/mazání pohledů, regenerace, modelové anotace, Show/Erase a měřené kóty (dotazy, tvorba, editace, řetězec, mazání), razítko, zdrojové parametry BOM, PDF, DXF a PNG/JPEG listu/výřezu hotovy | Další anotace, zdrojové styly šraf a příkazový snímek interaktivního View |
 | Řezy, měření a vzhled | Zbývá | Datové operace a uložené výsledky |
 | Parametry, relace a materiál | Společné tabulky a transakce hotovy | Parametry, jednotky, přesnost, relace, materiál včetně přímého načtení knihovny a uložené varianty; řízení rozměrů relacemi a generování variant nejsou dosud zavedené ani v GUI |
-| Import a export | Import Partu/Assembly STEP/IGES/DXF a základní exporty hotovy | Společný STEP včetně vnořených sestav, STL Part/plochá Assembly, DXF úsečky/kružnice/oblouky; zbývá import vložených profilů, další DXF geometrie, vnořený STL a snímek interaktivního View |
+| Import a export | Import Partu/Assembly STEP/IGES/DXF a základní exporty hotovy | Společný STEP včetně vnořených sestav, STL Part/plochá Assembly, DXF úsečky/kružnice/oblouky; DXF do vložených profilů hotov; zbývá další DXF geometrie, vnořený STL a snímek interaktivního View |
 
 Každá další etapa aktualizuje tabulku a uvádí ověřené testy. Neobcházíme
 chybějící operaci nevalidovanou změnou serializovaného dokumentu ani voláním
@@ -427,3 +427,31 @@ CLI a výkresový harness jsou sestavené; hlavní GUI regrese používá aktuá
 objekty v `zima-cad-image-validation.exe`. Běžící uživatelský CAD nebyl
 ukončen a jeho zamčený `zima-cad-cpp.exe` nebyl přepsán. Po zavření zbývá
 běžný link hlavního programu. Jde o místní vývojové sestavení.
+
+
+Etapa cíleného DXF doplňuje `import.dxf` do vložených profilů Partu a
+existujících skic kořenové Assembly. Katalog zůstává na **152 příkazech**.
+Převod GUI návrhu a uloženého příkazového cíle je společný. GUI import
+uvnitř vlastněného skicáře respektuje OK/Cancel vlastníka; CLI zachovává
+vlastníka, jiné profily, vypočtené těleso a jednu Undo transakci.
+Sdílené umístění kontejnerů ani nativní formát se nemění. Viz
+[IMPORT_COMMANDS.md](IMPORT_COMMANDS.md).
+
+Ověřeno všech **9 dotčených scénářů**: nativní import, překlady, skutečný
+CLI proces, import sestav, cílený import, editace skic, katalog, GUI konzole
+a vlastněný profil v GUI. V `build/sketch-dxf-checked-tests.log` prošlo osm
+scénářů; poslední modelový test po opravě porovnání vůči inicializovanému
+profilu samostatně prošel **1/1** (0,43 s),
+`build/sketch-dxf-target-tests.log`. Výsledný kód je ve všech těchto bězích
+shodný, závěrečná změna upravila jen výchozí stav a diagnostiku testu.
+
+Regrese ověřují přesný druhý vložený profil, nezměněného sourozence,
+žádný nový samostatný objekt/komponentu, zachovaný vypočtený tvar,
+Undo/Redo, explicitní regeneraci a nativní uložení, neaktivní těleso,
+novější editaci a zavření/znovuotevření během importu. GUI test importuje
+kružnici do návrhu Protrusion přes skutečné menu a ověřuje Cancel i OK.
+CLI proces uloží a znovu načte DXF uvnitř serializovaného profilu Sweep/Loftu.
+
+GUI je slinkované jako `zima-cad-sketch-dxf-validation.exe` z aktuálních
+CMake objektů; CLI a testy jsou přeložené běžně. Běžící uživatelský CAD
+zůstal otevřený a jeho hlavní spouštěcí soubor zůstává zamčený.
