@@ -237,30 +237,38 @@ void sweep_properties(document::HistoryContainer& value, const Json& args,
 }
 void Host::register_sweep_commands() {
     using Type = commands::ArgumentType;
-    dispatcher_.add({"sweep3d.create", tr("Create a 3D Sweep by adopting a standalone path and profile Sketches."),
-        {{"source_path", true}, {"profiles", true, Type::Array}, {"name", false}, {"combine", false},
+    for (const auto kind : {Kind::Sweep2D, Kind::Sweep3D}) {
+        std::vector<commands::Argument> fields{{"source_path", true}, {"profiles", true, Type::Array}, {"name", false}, {"combine", false},
          {"placement", false, Type::Object}, {"result_type", false}, {"thin_mode", false},
-         {"thickness_mm", false, Type::Number}, {"document", false}}, true}, [this](const Json& args) {
-        const auto check = target(args); if (!check.ok) return check;
-        try {
-            const auto id = workspace_.active_document_id(); auto* state = workspace_.open_part(id);
-            if (!state || interaction().template_document) throw Error("unsupported_document", "Sweep operations require an open Part.");
-            std::vector<workspace::SweepProfileSource> profiles;
-            for (const auto& entry : args.at("profiles")) profiles.push_back(profile_source(entry));
-            const auto path = args.at("source_path").get<std::string>();
-            auto feature = workspace::sweep3d_from_sources(state->session.document(), path,
-                workspace::read_placement(workspace_, id, path).placement, profiles);
-            sweep_properties(feature, args, workspace_, id, path); const auto container = feature.id;
-            validate_profile_stations(feature, {});
-            workspace::commit_sweep(workspace_, kernel_, id, std::move(feature), workspace::SweepEditMode::AdoptSources);
-            change_ = Change{ChangeKind::Model, id, true};
-            auto result = sweep_details(*state, sweep(state, container, Kind::Sweep3D)); result["changed"] = true;
-            return Result::success(std::move(result));
-        } catch (const Error& error) { return Result::failure(error.code, tr(error.what())); }
-          catch (const workspace::PlacementEditError& error) { return Result::failure(error.code, tr(error.what())); }
-          catch (const ConstructionParameterError& error) { return Result::failure(error.code, tr(error.what())); }
-          catch (const std::exception& error) { return Result::failure("sweep_rejected", tr(error.what())); }
-    });
+         {"thickness_mm", false, Type::Number}, {"document", false}};
+        if (kind == Kind::Sweep2D) fields.push_back({"path_plane", false, Type::Object});
+        dispatcher_.add({kind == Kind::Sweep2D ? "sweep2d.create" : "sweep3d.create",
+            tr(kind == Kind::Sweep2D ? "Create a 2D Sweep by adopting a path Sketch and profile Sketches."
+                : "Create a 3D Sweep by adopting a standalone path and profile Sketches."), std::move(fields), true}, [this, kind](const Json& args) {
+            const auto check = target(args); if (!check.ok) return check;
+            try {
+                const auto id = workspace_.active_document_id(); auto* state = workspace_.open_part(id);
+                if (!state || interaction().template_document) throw Error("unsupported_document", "Sweep operations require an open Part.");
+                std::vector<workspace::SweepProfileSource> profiles;
+                for (const auto& entry : args.at("profiles")) profiles.push_back(profile_source(entry));
+                const auto path = args.at("source_path").get<std::string>();
+                auto feature = kind == Kind::Sweep2D ? workspace::sweep2d_from_sources(state->session.document(), path, profiles)
+                    : workspace::sweep3d_from_sources(state->session.document(), path,
+                        workspace::read_placement(workspace_, id, path).placement, profiles);
+                const auto placement_owner = kind == Kind::Sweep2D
+                    ? std::ranges::find(state->session.document().sketches, path, &sketcher::Sketch::id)->owner_container_id : path;
+                sweep_properties(feature, args, workspace_, id, placement_owner); const auto container = feature.id;
+                validate_profile_stations(feature, {});
+                workspace::commit_sweep(workspace_, kernel_, id, std::move(feature), workspace::SweepEditMode::AdoptSources);
+                change_ = Change{ChangeKind::Model, id, true};
+                auto result = sweep_details(*state, sweep(state, container, kind)); result["changed"] = true;
+                return Result::success(std::move(result));
+            } catch (const Error& error) { return Result::failure(error.code, tr(error.what())); }
+              catch (const workspace::PlacementEditError& error) { return Result::failure(error.code, tr(error.what())); }
+              catch (const ConstructionParameterError& error) { return Result::failure(error.code, tr(error.what())); }
+              catch (const std::exception& error) { return Result::failure("sweep_rejected", tr(error.what())); }
+        });
+    }
     for (const auto kind : {Kind::Sweep2D, Kind::Sweep3D, Kind::HelicalSweep}) {
         const std::string prefix = kind == Kind::Sweep2D ? "sweep2d" : kind == Kind::Sweep3D ? "sweep3d" : "helical";
         dispatcher_.add({prefix + ".get", tr("Read Sweep parameters and owned profile identities without calculation."),

@@ -735,6 +735,9 @@ public:
     // identity and local Points, without applying the container transform again.
     static void set_sweep3d_owned_path(HistoryContainer&, ConstructionObject);
     [[nodiscard]] static HistoryContainer create_sweep2d_container();
+    // Adopt a standalone Sketch after its FRONT/TOP references are normalized.
+    // Preserve its physical frame while translating the Sketch-specific ROTATE.
+    static void set_sweep2d_owned_path(HistoryContainer&, zima::sketcher::Sketch);
     static void reframe_sweep2d_sketches(HistoryContainer&, unsigned through_stage = 1);
     [[nodiscard]] static Curve3DRoute sweep2d_route(const HistoryContainer&, double tolerance = 0.001);
     static std::size_t ensure_sweep2d_profile(HistoryContainer&, const std::string& point_id, bool incoming);

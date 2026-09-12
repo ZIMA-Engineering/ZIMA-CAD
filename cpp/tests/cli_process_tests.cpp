@@ -638,23 +638,30 @@ int main(int argc,char** argv){
             const double pi=std::acos(-1.0),expected=helical?pi*.25*std::hypot(2*pi*10,10):(kind==document::FeatureKind::Sweep3D?60:40)*pi;
             require(std::abs(cache.back().volume-expected)<(helical?expected*.001:1e-5),"Standalone CLI Sweep saved incorrect volume");
         }
-        {
-            const auto feature=test_support::sweep_fixture(document::FeatureKind::Sweep3D);
-            auto native=test_support::standalone_sweep_sources(feature);native.name="cli-created-sweep";
-            const auto file="cli-created-sweep.prtz";native.save(project/file);
-            const auto path=native.constructions.front().id,sketch=native.sketches.front().id;
-            const auto create=command({{"command","sweep3d.create"},{"arguments",{{"source_path",path},{"name","Nové tažení"},
-                {"profiles",Json::array({Json{{"sketch",sketch},{"point",native.constructions.front().curve_points.front().id}}})}}}});
-            result=launch(executable,root,common+QStringList{"--command",QString::fromStdString("open "+std::string(file)),
+        for(const auto kind:{document::FeatureKind::Sweep2D,document::FeatureKind::Sweep3D}) {
+            const bool planar=kind==document::FeatureKind::Sweep2D;const std::string prefix=planar?"sweep2d":"sweep3d";
+            const auto feature=test_support::sweep_fixture(kind);
+            auto native=test_support::standalone_sweep_sources(feature);native.name="cli-created-"+prefix;
+            const auto file=native.name+".prtz";native.save(project/file);
+            const auto path=planar?native.sketches.front().id:native.constructions.front().id;
+            const auto sketch=native.sketches.back().id;
+            const auto point=planar?native.sketches.front().segments.front().first_point_id:native.constructions.front().curve_points.front().id;
+            const auto create=command({{"command",prefix+".create"},{"arguments",{{"source_path",path},{"name","Nové tažení"},
+                {"profiles",Json::array({Json{{"sketch",sketch},{"point",point}}})}}}});
+            result=launch(executable,root,common+QStringList{"--command",QString::fromStdString("open "+file),
                 "--command",create,"--command","undo","--command","redo","--command","save","--command",
-                command({{"command","construction.get"},{"arguments",{{"construction",path}}}})});
+                planar?command({{"command","sketch.get"},{"arguments",{{"sketch",path}}}})
+                    :command({{"command","construction.get"},{"arguments",{{"construction",path}}}})});
             require(result.exit_code==0&&result.results().size()==6,"Standalone Sweep creation failed");
             const auto id=result.results()[1].at("data").at("container");
-            require(result.results().back().at("data").at("owning_feature")==id,"Standalone creation lost path ownership");
+            require(result.results().back().at("data").at(planar?"owner":"owning_feature")==id,"Standalone creation lost path ownership");
             std::vector<kernel::BodyResult> cache;const auto saved=document::PartDocument::load(project/file,&cache);
+            const auto& profiles=planar?saved.history.front().sweep2d.profiles:saved.history.front().sweep3d.profiles;
             require(saved.history.size()==1&&saved.sketches.empty()&&saved.constructions.empty()&&
-                saved.history.front().sweep3d.profiles.front().sketch_id==sketch&&!cache.empty()&&
+                profiles.front().sketch_id==sketch&&!cache.empty()&&
                 std::abs(cache.back().volume-80*std::acos(-1.0))<1e-5,"Standalone creation duplicated inputs or saved incorrect geometry");
+            if(planar)require(sketcher::Sketch::from_serialized(saved.history.front().sweep2d.path_sketch).id==path,
+                "Standalone 2D creation replaced original path Sketch identity");
         }
         for(const auto kind:{document::FeatureKind::Sweep2D,document::FeatureKind::Sweep3D}) {
             const bool planar=kind==document::FeatureKind::Sweep2D;const std::string prefix=planar?"sweep2d":"sweep3d";

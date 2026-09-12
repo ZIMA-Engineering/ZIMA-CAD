@@ -242,3 +242,11 @@ respektují reference, zámky a aktivní těleso. Argumenty a zbývající rozsa
 vlastnosti bodů a celý jejich seznam při zachování zadaných ID. Vynechané
 body ze seznamu se odstraní. Geometrie i Undo transakce jsou společné s GUI;
 přesné argumenty a příklady uvádí [CONSTRUCTION_COMMANDS.md](CONSTRUCTION_COMMANDS.md).
+
+
+Tažení obsluhují `sweep2d/sweep3d/helical.get/set`. Z nativních samostatných
+vstupů lze vytvořit `sweep2d.create` (skica dráhy a profily) a `sweep3d.create`
+(3D křivka a profily). Editace zahrnuje stanice a celý seznam profilů,
+3D dráhu a referenci roviny 2D dráhy. Používá společné potvrzení Vlastností,
+explicitní výpočet a Undo; příklady a pravidla vlastnictví uvádí
+[SWEEP_COMMANDS.md](SWEEP_COMMANDS.md).

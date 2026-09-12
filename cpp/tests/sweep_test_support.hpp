@@ -43,15 +43,23 @@ inline document::HistoryContainer sweep_fixture(document::FeatureKind kind) {
     return c;
 }
 inline document::PartDocument standalone_sweep_sources(const document::HistoryContainer& feature) {
-    if(feature.feature_kind!=document::FeatureKind::Sweep3D) throw std::invalid_argument("3D Sweep source fixture required");
+    if(feature.feature_kind!=document::FeatureKind::Sweep3D && feature.feature_kind!=document::FeatureKind::Sweep2D) throw std::invalid_argument("2D or 3D Sweep source fixture required");
     auto part=document::PartDocument::create_default();
     document::BodyHistoryGraph graph;static_cast<void>(graph.create_body("Sweep inputs"));
-    auto path=feature.sweep3d.path;path.parent_construction_id.clear();
-    path.origin={feature.placement.x,feature.placement.y,feature.placement.z};
-    path.rotation={feature.placement.rotation_x,feature.placement.rotation_y,feature.placement.rotation_z};
-    path.absolute_rotation=path.rotation;
-    graph.insert({document::PartHistoryKind::Construction,path.id});part.constructions.push_back(std::move(path));
-    for(const auto& profile:feature.sweep3d.profiles) {
+    if(feature.feature_kind==document::FeatureKind::Sweep2D) {
+        auto path=sketcher::Sketch::from_serialized(feature.sweep2d.path_sketch);
+        auto container=document::PartDocument::create_sketch_container();
+        container.placement=feature.placement;path.owner_container_id=container.id;
+        graph.insert({document::PartHistoryKind::Feature,container.id});
+        part.history.push_back(std::move(container));part.sketches.push_back(std::move(path));
+    } else {
+        auto path=feature.sweep3d.path;path.parent_construction_id.clear();
+        path.origin={feature.placement.x,feature.placement.y,feature.placement.z};
+        path.rotation={feature.placement.rotation_x,feature.placement.rotation_y,feature.placement.rotation_z};
+        path.absolute_rotation=path.rotation;
+        graph.insert({document::PartHistoryKind::Construction,path.id});part.constructions.push_back(std::move(path));
+    }
+    for(const auto& profile:feature.feature_kind==document::FeatureKind::Sweep2D ? feature.sweep2d.profiles : feature.sweep3d.profiles) {
         auto sketch=sketcher::Sketch::from_serialized(profile.sketch_serialized);
         auto container=document::PartDocument::create_sketch_container();sketch.owner_container_id=container.id;
         graph.insert({document::PartHistoryKind::Feature,container.id});

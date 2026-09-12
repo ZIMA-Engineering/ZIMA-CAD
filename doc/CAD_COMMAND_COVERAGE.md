@@ -41,7 +41,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Skicář: vazby a operace | Vazby/kóty/solver/offset/trim/mirror hotovy | Offset create/get/set/free, úplný podklad a zachování intervalů, trim podle průsečíků, mirror, orientovaný obdélník, tečny a zaoblení rohu; všech 15 druhů vazeb, odstranění a solver; 16 druhů kót včetně vlastností, popisků a mazání; uvolnění externích referencí hotovo |
 | Externí reference skici | Part a kořenová Assembly hotovy | Původní geometrie, přesná projekce, aktualizace, odpojení a zachování trimu; zbývá příkazový kontext Partu aktivovaného v sestavě |
 | Vytažení a rotace | Profily, Thin, směry a cíle zakončení Partu hotovy | `extrusion/revolution.create/get/set`, vlastněná skica, původní plochy a dvě nezávislé meze, společné OK; zbývají sestavové řezy |
-| Tažení | Částečně | `sweep2d/sweep3d/helical.get/set`, `sweep3d.create`, společné GUI potvrzení, celá 3D dráha, stanice obou druhů a úplná správa profilů/párování a reference roviny 2D dráhy; zbývá tvorba 2D/helical |
+| Tažení | Částečně | `sweep2d/sweep3d/helical.get/set`, `sweep2d/sweep3d.create`, společné GUI potvrzení, celá 3D dráha, stanice obou druhů a úplná správa profilů/párování a reference roviny 2D dráhy; zbývá tvorba helical |
 | Otvory a závity | Zbývá | Hole, Thread, ShaftThread, DrillPoint a reference |
 | Zaoblení, zkosení, skořepina | Zbývá | Výběr skutečného vstupního tělesa a sdílené transakce |
 | Zrcadlo a pole | Zbývá | Odvozená tělesa a komponenty |
@@ -685,3 +685,20 @@ modelového scénáře prošel tento test **1/1** (6,73 s). Produkční kód se
 mezi těmito běhy neměnil. Podrobnosti: [SWEEP_COMMANDS.md](SWEEP_COMMANDS.md).
 Oba programy jsou sestavené; katalog zůstává na **171**, formát a šablony
 se nemění. Z tažení zbývá příkazová tvorba 2D a šroubovicové varianty.
+
+
+### Tvorba 2D tažení ze samostatných skic
+
+`sweep2d.create` přebírá skicu dráhy a profily do jednoho nového prvku.
+Zachovává původní ID geometrie, rovinu, odsazení, živé reference a fyzickou
+orientaci dráhy. Převod respektuje zvláštní čtvrtotáčku referencované skici;
+společný solver umístění se nemění. Jeden Undo obnoví samostatné vstupy.
+Katalog má **172 příkazů**, formát a start šablony se nemění.
+
+Oba programy a všechny testy jsou sestavené. Související sada prošla **14/15**
+(133,92 s); po opravě stanice v přípravě nového obloukového scénáře prošel
+celý modelový test **1/1** (11,72 s), beze změny produkčního kódu mezi běhy.
+Ověřeno je 72 prostorových kombinací, přesné Undo, atomické chyby, živé
+odsazení, obloukový Solid/Thin, nativní uložení, skutečný CLI proces a GUI
+Vlastnosti. Podrobnosti a logy: [SWEEP_COMMANDS.md](SWEEP_COMMANDS.md).
+Z tažení zbývá příkazová tvorba šroubovicové varianty.

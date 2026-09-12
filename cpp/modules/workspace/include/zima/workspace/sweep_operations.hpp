@@ -23,6 +23,8 @@ struct SweepProfileSource {
 [[nodiscard]] document::HistoryContainer sweep3d_from_sources(const document::PartDocument&,
     const std::string& path_id, const document::Placement& path_placement,
     const std::vector<SweepProfileSource>&);
+[[nodiscard]] document::HistoryContainer sweep2d_from_sources(const document::PartDocument&,
+    const std::string& path_sketch_id, const std::vector<SweepProfileSource>&);
 // One explicit calculation/commit for 2D Sweep, 3D Sweep/Loft and Helical Sweep.
 // The supplied definition owns its embedded Sketches and path Point identities.
 void commit_sweep(Workspace&, const kernel::OcctKernel&, const std::string& document_id,

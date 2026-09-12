@@ -6946,6 +6946,37 @@ HistoryContainer PartDocument::create_sweep2d_container() {
     auto path=zima::sketcher::Sketch::create_default();path.owner_container_id=c.id;path.name="Dráha";
     c.sweep2d.path_sketch=path.serialized();return c;
 }
+void PartDocument::set_sweep2d_owned_path(HistoryContainer& c, zima::sketcher::Sketch path) {
+    auto& placement = c.placement;
+    const auto first = std::ranges::find_if(placement.references, [](const auto& reference) {
+        return !reference.orientation_only && !reference.owner_id.empty();
+    });
+    if (first != placement.references.end() && first->supports_offset) {
+        path.plane = zima::sketcher::SketchPlane::XZ;
+        const bool top = std::ranges::any_of(placement.references, [](const auto& reference) {
+            return !reference.orientation_only && reference.orientation_drives_rotation && reference.orientation_role == "top";
+        });
+        const zima::kernel::Vec3 manual{placement.rotation_offset_x,
+            top ? placement.rotation_offset_y : placement.absolute_rotation_y, placement.rotation_offset_z};
+        // A referenced Sketch rotates about its local Y normal, whereas the
+        // general container ROTATE uses Z. Bake only that local turn into the
+        // new feature's correction; the original reference frame stays live.
+        const auto converted = placement_apply_view_orientation_degrees({}, false,
+            placement.orientation_quarter_turns, manual, 0, 1);
+        placement.orientation_quarter_turns = 0;
+        placement.rotation_offset_x = converted.x;
+        placement.rotation_offset_y = converted.y;
+        placement.rotation_offset_z = converted.z;
+        if (!top) placement.absolute_rotation_y = converted.y;
+    }
+    const auto plane = path.plane == zima::sketcher::SketchPlane::XY ? "origin:plane:xy"
+        : path.plane == zima::sketcher::SketchPlane::XZ ? "origin:plane:xz" : "origin:plane:yz";
+    c.sweep2d.path_plane = ConstructionReference{{}, c.container_origin.id, plane, path.plane_offset};
+    path.owner_container_id = c.id;
+    path.plane_offset = 0;
+    path.plane_reference_owner_id = c.id + ":sweep2d:path";
+    c.sweep2d.path_sketch = path.serialized();
+}
 namespace {
 void reframe_sweep_base(HistoryContainer& c,std::string& data,const std::string& role){
     auto s=zima::sketcher::Sketch::from_serialized(data);

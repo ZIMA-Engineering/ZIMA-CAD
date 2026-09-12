@@ -841,18 +841,22 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
             native.history={feature};document::BodyHistoryGraph graph;
             static_cast<void>(graph.create_body("Sweep"));graph.insert({document::PartHistoryKind::Feature,feature.id});
             native.set_body_history(graph);native.resolve_constructions();
-            if(kind==document::FeatureKind::Sweep3D) {
+            if(!helical) {
                 const auto name=native.name;native=test_support::standalone_sweep_sources(feature);native.name=name;
             }
             const auto path=directory/(native.name+".prtz");native.save(path);
             json_run("open",{{"path",document::path_to_utf8(path)}});flush();
-            if(kind==document::FeatureKind::Sweep3D) {
-                const auto created=json_run("sweep3d.create",{{"source_path",feature.sweep3d.path.id},
+            if(!helical) {
+                const auto source_path=planar?native.sketches.front().id:feature.sweep3d.path.id;
+                const auto point=planar?native.sketches.front().segments.front().first_point_id:feature.sweep3d.path.curve_points.front().id;
+                const auto created=json_run((prefix+".create").c_str(),{{"source_path",source_path},
                     {"result_type","thin"},{"thin_mode","symmetric"},{"thickness_mm",.5},
-                    {"profiles",commands::Json::array({commands::Json{{"sketch",native.sketches.front().id},
-                        {"point",feature.sweep3d.path.curve_points.front().id}}})}}).data;
+                    {"profiles",commands::Json::array({commands::Json{{"sketch",native.sketches.back().id},{"point",point}}})}}).data;
                 feature.id=created.at("container").get<std::string>();flush();
-                check(json_run("construction.get",{{"construction",feature.sweep3d.path.id}}).data.at("owning_feature")==feature.id,
+                if(planar) {
+                    feature.container_origin.id=created.at("path_plane").at("owner").get<std::string>();
+                    check(created.at("path_sketch")==source_path,"GUI console creation lost original path Sketch identity");
+                } else check(json_run("construction.get",{{"construction",feature.sweep3d.path.id}}).data.at("owning_feature")==feature.id,
                     "GUI console creation lost the path owner");
             }
             const auto* field=helical?"helicalPitch":planar?"sweep2dThickness":"sweep3DThickness";

@@ -386,6 +386,116 @@ void verify_profile_management(const kernel::OcctKernel& kernel, const fs::path&
     require(saved.history == f.state().session.document().history, "Profile list or correspondence did not persist");
 
 }
+void same_frame(const sketcher::Sketch& actual, const sketcher::Sketch& expected) {
+    const auto vector = [](const auto& a, const auto& b) { near(a.x,b.x);near(a.y,b.y);near(a.z,b.z); };
+    vector(actual.resolved_origin,expected.resolved_origin);vector(actual.resolved_normal,expected.resolved_normal);
+    vector(actual.resolved_x_axis,expected.resolved_x_axis);vector(actual.resolved_y_axis,expected.resolved_y_axis);
+    require(actual.id==expected.id && actual.points==expected.points && actual.segments==expected.segments &&
+        actual.external_references==expected.external_references && actual.constraints==expected.constraints &&
+        actual.arcs==expected.arcs && actual.bsplines==expected.bsplines && actual.circles==expected.circles,
+        "Adopting the path changed its original local geometry, constraints or identity");
+}
+void verify_planar_creation(const kernel::OcctKernel& kernel, const fs::path& directory) {
+    Fixture f(kernel,directory); f.run("new",{{"type","part"},{"name","sweep2d-created"}});
+    unsigned scenario=0;
+    for(const auto plane:{sketcher::SketchPlane::XY,sketcher::SketchPlane::XZ,sketcher::SketchPlane::YZ})
+    for(const auto reference_count:{0,1,3})for(const auto back:{false,true})for(int turns=0;turns<4;++turns) {
+        ++scenario;
+        auto feature=test_support::sweep_fixture(document::FeatureKind::Sweep2D);
+        auto sources=test_support::standalone_sweep_sources(feature);
+        sources.document_id=f.live.active_document_id();sources.name="sweep2d-created";
+        auto& source=sources.sketches.front();source.plane=plane;source.plane_offset=3;
+        auto& p=sources.history.front().placement;
+        p.x=7;p.y=-3;p.z=8;p.absolute_rotation_x=13;p.absolute_rotation_y=27;p.absolute_rotation_z=-19;
+        p.orientation_back=back;p.orientation_quarter_turns=turns;
+        p.rotation_offset_x=11;p.rotation_offset_y=23;p.rotation_offset_z=7;
+        if(reference_count) {
+            const std::string first=plane==sketcher::SketchPlane::XY?"origin:plane:xy":plane==sketcher::SketchPlane::XZ?"origin:plane:xz":"origin:plane:yz";
+            const auto add=[&](const std::string& key,double offset,const std::string& role) {
+                document::ConstructionReference r{{},sources.document_id+":origin",key,offset,true};
+                r.orientation_drives_rotation=true;r.orientation_role=role;p.references.push_back(r);
+            };
+            add(first,5,"front");
+            if(reference_count==3)for(const std::string key:{"origin:plane:xy","origin:plane:xz","origin:plane:yz"})
+                if(key!=first)add(key,2,p.references.size()==1?"top":"none");
+        }
+        // Inputs are measured in a nontrivial owning Body frame as well.
+        auto body=*sources.body_history.find(sources.body_history.active_body_id());
+        body.scope.placement.x=100;body.scope.placement.absolute_rotation_z=40;
+        sources.body_history.update_body(std::move(body));sources.set_body_history(sources.body_history);
+        auto calculated=workspace::calculate_part_with_resolved_references(kernel,sources);
+        const auto expected=sources.sketches.front();const auto original=sources;
+        const auto profile=sources.sketches.back().id;
+        const auto first_point=expected.segments.front().first_point_id;
+        f.state().session.commit(std::move(sources),std::move(calculated));
+        const Json create={{"source_path",expected.id},{"profiles",Json::array({Json{{"sketch",profile},{"point",first_point}}})}};
+        try {
+            const auto before=f.state().session.revision();
+            const auto result=f.run("sweep2d.create",create);const auto id=result.at("container").get<std::string>();
+            near(f.volume(),80*std::numbers::pi);
+            const auto& part=f.state().session.document();const auto* adopted=part.find_container(id);
+            require(adopted && part.sketches.empty() && part.history.size()==1 && result.at("path_sketch")==expected.id &&
+                f.state().session.revision()==before+1,"2D adoption duplicated inputs or did not create one transaction");
+            same_frame(sketcher::Sketch::from_serialized(adopted->sweep2d.path_sketch),expected);
+            require(result.at("profiles")[0].at("sketch")==profile,"2D adoption replaced the profile identity");
+            f.run("undo");require(f.state().session.document().history==original.history &&
+                std::ranges::equal(f.state().session.document().sketches,original.sketches,[](const auto& a,const auto& b){return a.serialized()==b.serialized();}) && f.state().session.document().body_history==original.body_history,
+                "2D creation Undo did not restore exact standalone inputs");
+            f.run("redo");near(f.volume(),80*std::numbers::pi);
+            if(scenario==72) {
+                auto changed_source=original;changed_source.history.front().placement.references.front().offset+=4;
+                static_cast<void>(workspace::calculate_part_with_resolved_references(kernel,changed_source));
+                f.run("placement.set",{{"object",id},{"values",{{"reference_offset:0",9}}}});
+                same_frame(sketcher::Sketch::from_serialized(f.state().session.document().find_container(id)->sweep2d.path_sketch),changed_source.sketches.front());
+                near(f.volume(),80*std::numbers::pi);f.run("undo");
+                f.run("save");auto saved=document::PartDocument::load(directory/"sweep2d-created.prtz");
+                require(saved.history==f.state().session.document().history && saved.sketches.empty(),"2D creation save changed the owned path or profile");
+                const auto cold=workspace::calculate_part_with_resolved_references(kernel,saved);
+                near(cold.back().volume,80*std::numbers::pi);
+                same_frame(sketcher::Sketch::from_serialized(saved.find_container(id)->sweep2d.path_sketch),expected);
+            }
+        } catch(const std::exception& error) {throw std::runtime_error("2D create frame scenario "+std::to_string(scenario)+": "+error.what());}
+    }
+    f.run("undo");
+    const auto before=f.state().session.document();const auto path=before.sketches.front();const auto profile=before.sketches.back().id;
+    const Json create={{"source_path",path.id},{"profiles",Json::array({Json{{"sketch",profile},{"point",path.segments.front().first_point_id}}})}};
+    auto invalid=create;invalid["source_path"]="absent";f.reject("sweep2d.create",invalid,"sketch_not_found");
+    invalid=create;invalid["profiles"][0]["point"]="absent";f.reject("sweep2d.create",invalid,"invalid_profile");
+    invalid=create;invalid["profiles"][0]["sketch"]=path.id;f.reject("sweep2d.create",invalid,"invalid_sketch_owner");
+    invalid=create;invalid["profiles"]=Json::array();f.reject("sweep2d.create",invalid,"invalid_profile");
+    auto dependent=before;auto consumer=document::PartDocument::create_construction(document::ConstructionKind::Point);
+    consumer.references.push_back({{},before.history.front().container_origin.id,"origin:point",0,false});
+    dependent.constructions.push_back(consumer);dependent.insert_history_entry(document::PartHistoryKind::Construction,consumer.id);
+    f.state().session.commit(std::move(dependent),f.state().session.calculated_boundaries());
+    f.reject("sweep2d.create",create,"input_in_use");f.run("undo");
+    auto suppressed=before;suppressed.sketches.front().suppressed=true;
+    f.state().session.commit(std::move(suppressed),f.state().session.calculated_boundaries());
+    f.reject("sweep2d.create",create,"inactive_input");f.run("undo");
+    f.run("body.create",{{"name","Other"}});f.reject("sweep2d.create",create,"inactive_body");f.run("undo");
+}
+void verify_planar_curved_creation(const kernel::OcctKernel& kernel, const fs::path& directory) {
+    Fixture f(kernel,directory);f.run("new",{{"type","part"},{"name","sweep2d-created-arc"}});
+    auto feature=test_support::sweep_fixture(document::FeatureKind::Sweep2D);
+    auto path=sketcher::Sketch::create_default();path.owner_container_id=feature.id;
+    static_cast<void>(path.add_arc(10,0,0,0,10,10,false,1e-6,true));
+    feature.sweep2d.path_sketch=path.serialized();
+    const auto station=document::PartDocument::sweep2d_route(feature).stations.front();
+    feature.sweep2d.profiles.front().point_id=station.point_id;
+    feature.sweep2d.profiles.front().incoming=station.incoming;
+    auto sources=test_support::standalone_sweep_sources(feature);sources.document_id=f.live.active_document_id();sources.name="sweep2d-created-arc";
+    sources.resolve_constructions();const auto expected=sources.sketches.front();const auto profile=sources.sketches.back().id;
+    f.state().session.commit(std::move(sources),{});
+    const Json create={{"source_path",path.id},{"profiles",Json::array({Json{{"sketch",profile},{"point",station.point_id},{"incoming",station.incoming}}})}};
+    const auto id=f.run("sweep2d.create",create).at("container").get<std::string>();
+    near(f.volume(),20*std::numbers::pi*std::numbers::pi,2e-3);
+    same_frame(sketcher::Sketch::from_serialized(f.state().session.document().find_container(id)->sweep2d.path_sketch),expected);
+    f.run("save");auto saved=document::PartDocument::load(directory/"sweep2d-created-arc.prtz");
+    require(saved.history==f.state().session.document().history,"Arc path changed during native save");
+    const auto cold=workspace::calculate_part_with_resolved_references(kernel,saved);
+    near(cold.back().volume,20*std::numbers::pi*std::numbers::pi,2e-3);
+    f.run("undo");auto thin=create;thin["result_type"]="thin";thin["thin_mode"]="symmetric";thin["thickness_mm"]=.5;
+    f.run("sweep2d.create",thin);near(f.volume(),10*std::numbers::pi*std::numbers::pi,2e-3);
+}
 void verify_path_plane(const kernel::OcctKernel& kernel, const fs::path& directory) {
     Fixture f(kernel, directory); f.run("new", {{"type", "part"}, {"name", "sweep-path-plane"}});
     const auto plane = f.run("construction.create", {{"kind", "plane"}, {"name", "Offset plane"},
@@ -482,6 +592,8 @@ int main() {
         for (const auto kind : {document::FeatureKind::Sweep2D, document::FeatureKind::Sweep3D, document::FeatureKind::HelicalSweep}) verify_sweep_commands(kernel, directory, kind);
         verify_creation(kernel, directory);
         verify_creation_profiles(kernel, directory);
+        verify_planar_creation(kernel, directory);
+        verify_planar_curved_creation(kernel, directory);
         verify_path_plane(kernel, directory);
         verify_original_path_plane(kernel, directory);
         for (const auto kind : {document::FeatureKind::Sweep2D, document::FeatureKind::Sweep3D}) verify_profile_management(kernel, directory, kind);

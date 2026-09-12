@@ -3,8 +3,8 @@
 Etapa vlastností přidává `sweep2d.get/set`, `sweep3d.get/set` a
 `helical.get/set`. GUI potvrzení nového i existujícího tažení a příkazová
 změna sdílejí `workspace::commit_sweep`: validace, explicitní výpočet a jeden
-záznam Undo. Níže uvedený `sweep3d.create` už vytváří 3D tažení z nativních vstupů.
-Tvorba 2D a šroubovicového tažení zůstává navazujícím krokem. `sweep2d.set`
+záznam Undo. `sweep2d.create` a `sweep3d.create` vytvářejí tažení z nativních vstupů.
+Tvorba šroubovicového tažení zůstává navazujícím krokem. `sweep2d.set`
 a `sweep3d.set` už spravují celý seznam profilů a jejich stanice.
 
 ## Použití
@@ -293,3 +293,66 @@ Oba programy a celá sada testovacích programů jsou sestavené
 (`build/sweep-path-plane-gui-build.log`); poslední změny byly pouze
 v uvedeném testovacím scénáři (`build/sweep-path-plane-body-build.log`).
 Katalog zůstává na **171 příkazech**.
+
+
+## Vytvoření 2D tažení ze skic
+
+`sweep2d.create` přebírá samostatnou skicu dráhy (`source_path`) a pole
+`profiles` se stejným kontraktem jako 3D tažení. Bod stanice je původní ID
+bodu skici, které lze získat přes `sketch.entities` / `sketch.entity.get`.
+Stejně jako v GUI musí 2D dráha tvořit souvislou otevřenou křivku začínající
+v lokálním počátku `(0, 0)`. První profil patří této stanici s `incoming: false`;
+na konci úseku je větev `incoming: true`. Po vytvoření vrací `sweep2d.get`
+všechny stanice s těmito příznaky.
+
+```json
+{"command":"sweep2d.create","arguments":{"source_path":"<SKICA_DRAHY>","profiles":[{"sketch":"<SKICA_PRUREZU>","point":"<BOD_DRAHY>"}],"name":"Tažení"}}
+```
+
+Volitelně přijímá `name`, `combine`, `placement`, `result_type`, `thin_mode`,
+`thickness_mm`, `path_plane` a pojistku cílového `document`. Reference
+`path_plane` má stejná pravidla jako při editaci; výchozí rovina zachovává
+fyzickou rovinu a odsazení zdrojové skici. Bez explicitního přepsání se
+přebírá umístění kontejneru zdrojové dráhy včetně jeho živých referencí.
+
+Všechny vstupy musí být samostatné, aktivní a v právě upravovaném tělese
+před kurzorem historie. Nesmí je potřebovat jiný prvek ani nesmějí záviset
+na spotřebovaném kontejneru skici. Převzetí odstraní kořenové kontejnery
+vstupů, zachová identitu skic i jejich lokální geometrie a vytvoří nové ID
+vlastnícího tažení. Profily se orientují podle stanice stejně jako v GUI.
+Chyba nezmění dokument; Undo obnoví původní vstupy včetně historie.
+
+Referencovaná skica používá čtvrtotáčku kolem lokální osy Y. Běžný kontejner
+používá Z. Při vytvoření tažení se tato lokální čtvrtotáčka přepočte do
+korekce nového prvku; původní reference zůstanou živé. Společný solver
+umístění se nemění. Odsazení roviny dráhy se zapíše do již existující
+reference vlastní roviny počátku. Formát a start šablony se nemění.
+
+První modelová kontrola prošla **1/1** (10,70 s),
+`build/sweep2d-create-model-tests.log`: 72 kombinací XY/XZ/YZ, žádná/jedna/tři
+rovinné reference, FRONT/BACK a čtvrtotáčky 0–3, korekce i natočené těleso.
+Před převzetím a po něm se porovnávají skutečné počátky a osy dráhy;
+nezávislý objem válce je `π × 2² × 20 = 80π mm³`. Ověřeno je přesné Undo,
+atomické odmítnutí nesprávných, sdílených a neaktivních vstupů i nativní
+uložení a nový výpočet. Navazující ověření doplňuje obloukovou dráhu,
+živé odsazení, skutečný CLI proces a GUI Vlastnosti.
+
+
+Závěrečné ověření této etapy:
+
+- Oba programy a všechny testovací programy sestavené:
+  `build/sweep2d-create-full-build.log`.
+- Související regrese **14/15** (133,92 s),
+  `build/sweep2d-create-gui-tests.log`. Úspěšně proběhl skutečný CLI proces,
+  GUI vytvoření a následné Vlastnosti (OK/Cancel), ostatní druhy tažení,
+  historie, umístění, překlady i nativní dokumenty.
+- Nový obloukový test nejprve zadával koncový bod proti směru dráhy jako
+  výchozí větev. Po opravě vstupu podle skutečné nativní stanice prošel
+  úplný modelový test **1/1** (11,72 s),
+  `build/sweep2d-create-final-tests.log`; produkční kód se mezi běhy neměnil.
+- Modelový test ověřil i změnu živého referenčního odsazení po převzetí.
+  Pro čtvrtkružnici R10 a průřez R2 je nezávislý objem `20π² mm³`;
+  pro symetrický Thin 0,5 mm je `10π² mm³`. Kontrola zahrnuje původní
+  oblouk, vlastnictví, uložení a studený výpočet.
+
+Katalog obsahuje **172 příkazů**. Další krok je vytvoření šroubovicového tažení.

@@ -1,6 +1,7 @@
 #include <zima/workspace/sweep_operations.hpp>
 #include <zima/document/feature_sketches.hpp>
 #include <zima/workspace/history_policy.hpp>
+#include <zima/workspace/profile_operations.hpp>
 #include <zima/kernel/stable_id.hpp>
 #include <algorithm>
 #include <cmath>
@@ -59,17 +60,27 @@ void validate_path_plane_source(const document::PartDocument& part, const docume
 void adopt_sources(document::PartDocument& next, const document::HistoryContainer& feature,
     const document::HistoryContainer* existing) {
     const bool creating = existing == nullptr;
-    if (creating && feature.feature_kind != Kind::Sweep3D)
-        throw SweepOperationError("wrong_feature", "Source adoption currently requires a 3D Sweep.");
+    if (creating && feature.feature_kind != Kind::Sweep3D && feature.feature_kind != Kind::Sweep2D)
+        throw SweepOperationError("wrong_feature", "Source adoption requires a 2D or 3D Sweep.");
     std::set<std::string> roots;
-    const std::string retained_path = creating ? feature.sweep3d.path.id : std::string{};
-    if (creating) {
+    const std::string retained_path = creating && feature.feature_kind == Kind::Sweep3D ? feature.sweep3d.path.id : std::string{};
+    if (creating && feature.feature_kind == Kind::Sweep3D) {
         const auto path = std::ranges::find(next.constructions, retained_path, &document::ConstructionObject::id);
         if (path == next.constructions.end() || path->kind != document::ConstructionKind::Curve3D || !path->parent_construction_id.empty())
             throw SweepOperationError("construction_not_found", "Select a standalone 3D curve for the Sweep path.");
         if (path->suppressed)
             throw SweepOperationError("inactive_input", "Sweep inputs must be active before the history cursor.");
         roots.insert(path->id);
+    }
+    if (creating && feature.feature_kind == Kind::Sweep2D) {
+        const auto path_id = sketcher::Sketch::from_serialized(feature.sweep2d.path_sketch).id;
+        const auto source = std::ranges::find(next.sketches, path_id, &sketcher::Sketch::id);
+        const auto* owner = source == next.sketches.end() ? nullptr : next.find_container(source->owner_container_id);
+        if (!owner || owner->feature_kind != Kind::Sketch)
+            throw SweepOperationError("sketch_not_found", "Select a standalone Sketch for the 2D Sweep path.");
+        if (source->suppressed || owner->suppressed)
+            throw SweepOperationError("inactive_input", "Sweep inputs must be active before the history cursor.");
+        roots.insert(owner->id);
     }
     const auto& profiles = feature.feature_kind == Kind::Sweep2D ? feature.sweep2d.profiles : feature.sweep3d.profiles;
     for (const auto& profile : profiles) {
@@ -151,6 +162,26 @@ document::HistoryContainer sweep3d_from_sources(const document::PartDocument& do
     document::PartDocument::set_sweep3d_owned_path(feature, *source);
     for (const auto& input : profiles)
         feature.sweep3d.profiles.push_back(sweep_profile_from_source(document, feature.id, input));
+    return feature;
+}
+document::HistoryContainer sweep2d_from_sources(const document::PartDocument& part,
+    const std::string& path_id, const std::vector<SweepProfileSource>& profiles) {
+    const auto source = std::ranges::find(part.sketches, path_id, &sketcher::Sketch::id);
+    const auto* owner = source == part.sketches.end() ? nullptr : part.find_container(source->owner_container_id);
+    if (!owner || owner->feature_kind != Kind::Sketch)
+        throw SweepOperationError("sketch_not_found", "Select a standalone Sketch for the 2D Sweep path.");
+    if (profiles.empty() || profiles.size() > 5000)
+        throw SweepOperationError("invalid_profile", "A Sweep requires between 1 and 5000 profile Sketches.");
+    auto feature = document::PartDocument::create_sweep2d_container();
+    feature.placement = owner->placement;
+    const auto first = std::ranges::find_if(feature.placement.references, [](const auto& reference) {
+        return !reference.orientation_only && !reference.owner_id.empty();
+    });
+    if (first != feature.placement.references.end() && first->supports_offset)
+        normalize_owned_profile_front_references(feature.placement.references, first->orientation_drives_rotation);
+    document::PartDocument::set_sweep2d_owned_path(feature, *source);
+    for (const auto& input : profiles)
+        feature.sweep2d.profiles.push_back(sweep_profile_from_source(part, feature.id, input));
     return feature;
 }
 void commit_sweep(Workspace& live, const kernel::OcctKernel& kernel, const std::string& id,
