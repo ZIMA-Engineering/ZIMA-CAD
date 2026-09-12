@@ -178,6 +178,115 @@ void verify_sweep_commands(const kernel::OcctKernel& kernel, const fs::path& dir
         f.run("undo");
     }
 }
+void verify_creation(const kernel::OcctKernel& kernel, const fs::path& directory) {
+    Fixture f(kernel, directory); f.run("new", {{"type", "part"}, {"name", "sweep-created"}});
+    const auto path = f.run("construction.create", {{"kind", "curve3d"}, {"name", "Source path"},
+        {"values", {{"x", 7}, {"y", -3}, {"z", 8}, {"rotation_y", 30}}},
+        {"points", Json::array({Json{{"values", {{"z", 0}}}}, Json{{"values", {{"z", 20}}}}})}});
+    const auto path_id = path.at("construction").get<std::string>();
+    const auto sketch = f.run("sketch.create", {{"name", "Source profile"}, {"plane", "XY"}}).at("sketch").get<std::string>();
+    const auto circle = f.run("sketch.circle.create", {{"sketch", sketch}, {"center", {0, 0}}, {"radius_mm", 2}}).at("geometry").get<std::string>();
+    const auto before = f.state().session.document();
+    const auto first = path.at("children")[0];
+    const Json create = {{"source_path", path_id}, {"profiles", Json::array({Json{{"sketch", sketch}, {"point", first}}})}, {"name", "Created Sweep"}};
+    auto dependency = before;
+    auto consumer = document::PartDocument::create_construction(document::ConstructionKind::Point);
+    const auto* original_path = dependency.find_construction(path_id);
+    consumer.references.push_back({{}, original_path->curve_points.front().container_origin.id, "point", 0, false});
+    dependency.insert_history_entry(document::PartHistoryKind::Construction, consumer.id);
+    dependency.constructions.push_back(consumer);
+    f.state().session.commit(std::move(dependency), f.state().session.calculated_boundaries());
+    f.reject("sweep3d.create", create, "input_in_use"); f.run("undo");
+    auto invalid = create; invalid["profiles"][0]["point"] = "foreign-point";
+    f.reject("sweep3d.create", invalid, "sweep_rejected");
+    const auto result = f.run("sweep3d.create", create);
+    const auto id = result.at("container").get<std::string>();
+    near(f.volume(), 80 * std::numbers::pi);
+    const auto& created = f.state().session.document();
+    require(created.history.size() == 1 && created.sketches.empty() && created.constructions.empty(),
+        "Sweep creation duplicated its standalone inputs");
+    const auto& feature = created.history.front();
+    require(feature.id == id && feature.sweep3d.path.id == path_id && feature.sweep3d.path.origin == kernel::Vec3{} &&
+        feature.placement.x == 7 && std::abs(feature.placement.rotation_y - 30) < 1e-10 && feature.sweep3d.profiles.front().sketch_id == sketch,
+        "Sweep creation lost native identities or applied path placement twice");
+    const auto owned = sketcher::Sketch::from_serialized(feature.sweep3d.profiles.front().sketch_serialized);
+    require(owned.owner_container_id == id && owned.circles.front().id == circle,
+        "Sweep creation changed original curve identity or Sketch ownership");
+    kernel::ModelEnvelope bounds;
+    for (const auto& point : f.state().session.calculated_boundaries().back().mesh.vertices) bounds.include(point);
+    require(bounds.valid && std::abs(bounds.minimum.x - (7 - std::sqrt(3.0))) < .05 &&
+        std::abs(bounds.maximum.z - (9 + 10 * std::sqrt(3.0))) < .05,
+        "Created Sweep body does not occupy the original path frame");
+    require(f.run("construction.get", {{"construction", path_id}}).at("owning_feature") == id,
+        "Created path lost its owning feature query");
+    for (const auto& referenced_owner : {feature.sweep3d.path.curve_points.front().container_origin.id, sketch}) {
+        auto dependent = f.state().session.document();
+        auto child = document::PartDocument::create_construction(document::ConstructionKind::Point);
+        child.references.push_back({{}, referenced_owner, "point", 0, false});
+        dependent.insert_history_entry(document::PartHistoryKind::Construction, child.id);
+        dependent.constructions.push_back(child);
+        f.state().session.commit(std::move(dependent), f.state().session.calculated_boundaries());
+        f.reject("history.can_move", {{"object", child.id}, {"before", id}}, "history_dependency");
+        f.reject("history.move", {{"object", child.id}, {"before", id}}, "history_dependency");
+        f.run("undo");
+    }
+    f.run("undo");
+    require(f.state().session.document().history == before.history && f.state().session.document().constructions == before.constructions &&
+        std::ranges::equal(f.state().session.document().sketches, before.sketches, [](const auto& a, const auto& b) { return a.serialized() == b.serialized(); }) && f.state().session.document().body_history == before.body_history,
+        "Sweep creation Undo did not restore all native inputs");
+    f.run("redo"); near(f.volume(), 80 * std::numbers::pi); f.run("save");
+    const auto saved = document::PartDocument::load(directory / "sweep-created.prtz");
+    require(saved.history == f.state().session.document().history && saved.sketches.empty() && saved.constructions.empty(),
+        "Created Sweep native persistence duplicated or lost adopted inputs");
+}
+void verify_creation_profiles(const kernel::OcctKernel& kernel, const fs::path& directory) {
+    Fixture f(kernel, directory); f.run("new", {{"type", "part"}, {"name", "sweep-created-profiles"}});
+    auto feature = test_support::sweep_fixture(document::FeatureKind::Sweep3D);
+    auto section = sketcher::Sketch::create_default(); section.owner_container_id = feature.id;
+    static_cast<void>(section.add_circle(0, 0, 3));
+    feature.sweep3d.profiles.push_back({kernel::make_stable_id(), feature.sweep3d.path.curve_points.back().id,
+        section.id, section.serialized()});
+    feature.sweep3d.path.curve_points.front().references.push_back(
+        {{}, feature.sweep3d.path.container_origin.id, "origin:plane:xy", 0, true});
+    auto sources = test_support::standalone_sweep_sources(feature); sources.name = "sweep-created-profiles"; sources.document_id = f.live.active_document_id();
+    f.state().session.commit(sources, {});
+    Json profiles = Json::array();
+    for (const auto& profile : feature.sweep3d.profiles)
+        profiles.push_back({{"sketch", profile.sketch_id}, {"point", profile.point_id}});
+    const Json create = {{"source_path", feature.sweep3d.path.id}, {"profiles", profiles}};
+    f.run("history.suppress", {{"object", feature.sweep3d.path.id}, {"suppressed", true}});
+    f.reject("sweep3d.create", create, "inactive_input"); f.run("undo");
+    f.run("body.create", {{"name", "Other"}});
+    f.reject("sweep3d.create", create, "inactive_body"); f.run("undo");
+    const auto id = f.run("sweep3d.create", create).at("container").get<std::string>();
+    // Frustum: L*pi*(r1*r1+r1*r2+r2*r2)/3.
+    near(f.volume(), 380 * std::numbers::pi / 3, 1e-6);
+    const auto& saved = f.state().session.document();
+    require(saved.history.size() == 1 && saved.sketches.empty() && saved.constructions.empty() &&
+        saved.find_container(id)->sweep3d.profiles.size() == 2 &&
+        saved.find_container(id)->sweep3d.path.curve_points.front().references == feature.sweep3d.path.curve_points.front().references,
+        "Multi-profile adoption lost a profile or path-local reference");
+    f.run("undo");
+    require(f.state().session.document().history == sources.history && f.state().session.document().constructions == sources.constructions,
+        "Multi-profile Undo lost standalone inputs");
+    // The same open source profile must survive a rejected Solid calculation
+    // and remain available for successful Thin creation.
+    feature.sweep3d.profiles.resize(1);
+    section = sketcher::Sketch::create_default(); section.owner_container_id = feature.id;
+    static_cast<void>(section.add_segment(-2, 0, 2, 0));
+    feature.sweep3d.profiles.front().sketch_id = section.id;
+    feature.sweep3d.profiles.front().sketch_serialized = section.serialized();
+    sources = test_support::standalone_sweep_sources(feature); sources.name = "sweep-created-profiles"; sources.document_id = f.live.active_document_id();
+    f.state().session.commit(sources, {});
+    Json open = {{"source_path", feature.sweep3d.path.id},
+        {"profiles", Json::array({Json{{"sketch", section.id}, {"point", feature.sweep3d.profiles.front().point_id}}})}};
+    f.reject("sweep3d.create", open, "sweep_rejected");
+    require(f.state().session.document().constructions == sources.constructions &&
+        f.state().session.document().sketches.front().serialized() == sources.sketches.front().serialized(),
+        "Failed Solid creation consumed the open profile or path");
+    open["result_type"] = "thin"; open["thin_mode"] = "symmetric"; open["thickness_mm"] = .5;
+    f.run("sweep3d.create", open); near(f.volume(), 40);
+}
 }
 int main() {
     try {
@@ -186,6 +295,8 @@ int main() {
         require(fs::create_directory(directory), "Cannot create fixture directory");
         kernel::OcctKernel kernel;
         for (const auto kind : {document::FeatureKind::Sweep2D, document::FeatureKind::Sweep3D, document::FeatureKind::HelicalSweep}) verify_sweep_commands(kernel, directory, kind);
+        verify_creation(kernel, directory);
+        verify_creation_profiles(kernel, directory);
         require(directory.parent_path() == root, "Unexpected cleanup path"); fs::remove_all(directory);
         std::cout << "Sweep commands: independent volumes, native profiles, ownership, locks, atomic errors and Undo/Redo passed\n";
         return 0;

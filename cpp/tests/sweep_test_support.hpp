@@ -42,4 +42,21 @@ inline document::HistoryContainer sweep_fixture(document::FeatureKind kind) {
     c.sweep3d.profiles.push_back({kernel::make_stable_id(), c.sweep3d.path.curve_points.front().id, section.id, section.serialized()});
     return c;
 }
+inline document::PartDocument standalone_sweep_sources(const document::HistoryContainer& feature) {
+    if(feature.feature_kind!=document::FeatureKind::Sweep3D) throw std::invalid_argument("3D Sweep source fixture required");
+    auto part=document::PartDocument::create_default();
+    document::BodyHistoryGraph graph;static_cast<void>(graph.create_body("Sweep inputs"));
+    auto path=feature.sweep3d.path;path.parent_construction_id.clear();
+    path.origin={feature.placement.x,feature.placement.y,feature.placement.z};
+    path.rotation={feature.placement.rotation_x,feature.placement.rotation_y,feature.placement.rotation_z};
+    path.absolute_rotation=path.rotation;
+    graph.insert({document::PartHistoryKind::Construction,path.id});part.constructions.push_back(std::move(path));
+    for(const auto& profile:feature.sweep3d.profiles) {
+        auto sketch=sketcher::Sketch::from_serialized(profile.sketch_serialized);
+        auto container=document::PartDocument::create_sketch_container();sketch.owner_container_id=container.id;
+        graph.insert({document::PartHistoryKind::Feature,container.id});
+        part.history.push_back(std::move(container));part.sketches.push_back(std::move(sketch));
+    }
+    part.set_body_history(graph);part.resolve_constructions();return part;
+}
 } // namespace zima::test_support

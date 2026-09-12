@@ -638,6 +638,24 @@ int main(int argc,char** argv){
             const double pi=std::acos(-1.0),expected=helical?pi*.25*std::hypot(2*pi*10,10):(kind==document::FeatureKind::Sweep3D?60:40)*pi;
             require(std::abs(cache.back().volume-expected)<(helical?expected*.001:1e-5),"Standalone CLI Sweep saved incorrect volume");
         }
+        {
+            const auto feature=test_support::sweep_fixture(document::FeatureKind::Sweep3D);
+            auto native=test_support::standalone_sweep_sources(feature);native.name="cli-created-sweep";
+            const auto file="cli-created-sweep.prtz";native.save(project/file);
+            const auto path=native.constructions.front().id,sketch=native.sketches.front().id;
+            const auto create=command({{"command","sweep3d.create"},{"arguments",{{"source_path",path},{"name","Nové tažení"},
+                {"profiles",Json::array({Json{{"sketch",sketch},{"point",native.constructions.front().curve_points.front().id}}})}}}});
+            result=launch(executable,root,common+QStringList{"--command",QString::fromStdString("open "+std::string(file)),
+                "--command",create,"--command","undo","--command","redo","--command","save","--command",
+                command({{"command","construction.get"},{"arguments",{{"construction",path}}}})});
+            require(result.exit_code==0&&result.results().size()==6,"Standalone Sweep creation failed");
+            const auto id=result.results()[1].at("data").at("container");
+            require(result.results().back().at("data").at("owning_feature")==id,"Standalone creation lost path ownership");
+            std::vector<kernel::BodyResult> cache;const auto saved=document::PartDocument::load(project/file,&cache);
+            require(saved.history.size()==1&&saved.sketches.empty()&&saved.constructions.empty()&&
+                saved.history.front().sweep3d.profiles.front().sketch_id==sketch&&!cache.empty()&&
+                std::abs(cache.back().volume-80*std::acos(-1.0))<1e-5,"Standalone creation duplicated inputs or saved incorrect geometry");
+        }
         std::cout<<"CLI processes: native files, Unicode/config, scripts/stdin, errors, streaming and explicit geometry calculation passed\n";
         return 0;
     }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}

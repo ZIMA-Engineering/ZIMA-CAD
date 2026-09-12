@@ -853,24 +853,7 @@ ConstructionPropertiesDialog::pending_sweep_value() const {
     container.placement.references = dialog_path.references;
     auto stored_path = std::move(dialog_path);
     stored_path.name = initial_sweep_->sweep3d.path.name;
-    stored_path.parent_construction_id = container.id;
-    // The upper dialog section edits the history container placement. Child
-    // Points remain in the embedded Curve's local frame, so the path itself
-    // must not apply that placement a second time during body calculation.
-    stored_path.origin = {};
-    stored_path.entity_origin = {};
-    stored_path.rotation = {};
-    stored_path.absolute_rotation = {};
-    stored_path.rotation_offset_x = 0.0;
-    stored_path.rotation_offset_y = 0.0;
-    stored_path.rotation_offset_z = 0.0;
-    stored_path.orientation_back = false;
-    stored_path.orientation_quarter_turns = 0;
-    stored_path.references.clear();
-    std::erase_if(stored_path.value_locks,[](const auto& key){return key.starts_with("placement:");});
-    for (auto& point : stored_path.curve_points)
-        point.parent_construction_id = stored_path.id;
-    container.sweep3d.path = std::move(stored_path);
+    zima::document::PartDocument::set_sweep3d_owned_path(container, std::move(stored_path));
     container.sweep3d.profiles = sweep_profiles_;
     container.sweep3d.result_type = sweep_result_type_->currentIndex()==1 ?
         zima::document::ProfileResultType::Thin : zima::document::ProfileResultType::Solid;

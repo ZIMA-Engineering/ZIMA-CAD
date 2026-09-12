@@ -731,6 +731,9 @@ public:
     static void resolve_copy_reference(DerivedCopyParameters&,const std::string& container_id,
         const Placement&,const zima::kernel::ViewerReferenceGeometry&);
     [[nodiscard]] static HistoryContainer create_sweep3d_container();
+    // Placement belongs to the Sweep container. Its owned path retains native
+    // identity and local Points, without applying the container transform again.
+    static void set_sweep3d_owned_path(HistoryContainer&, ConstructionObject);
     [[nodiscard]] static HistoryContainer create_sweep2d_container();
     static void reframe_sweep2d_sketches(HistoryContainer&, unsigned through_stage = 1);
     [[nodiscard]] static Curve3DRoute sweep2d_route(const HistoryContainer&, double tolerance = 0.001);

@@ -3,8 +3,9 @@
 Etapa vlastností přidává `sweep2d.get/set`, `sweep3d.get/set` a
 `helical.get/set`. GUI potvrzení nového i existujícího tažení a příkazová
 změna sdílejí `workspace::commit_sweep`: validace, explicitní výpočet a jeden
-záznam Undo. CLI tvorba tažení, zadání stanic a správa vložené dráhy ještě
-zůstávají další etapou; tyto příkazy upravují existující vypočitatelný prvek.
+záznam Undo. Níže uvedený `sweep3d.create` už vytváří 3D tažení z nativních vstupů.
+Tvorba 2D a šroubovicového tažení a úplná správa profilových stanic zůstávají
+navazujícími kroky; příkazy `get/set` upravují existující vypočitatelný prvek.
 
 ## Použití
 
@@ -117,3 +118,67 @@ Doplněná zkouška souřadnic tělesa a dotazu na neplatnou dráhu prošla **1/
 (4,99 s), `build/sweep-path-frame-tests.log`. Oba programy a testy jsou sestavené,
 `build/sweep-path-gui-build.log`. Katalog nadále obsahuje 170 příkazů; nativní
 formát a start šablony se nemění.
+
+
+## Tvorba 3D tažení z nativních vstupů
+
+`sweep3d.create` převezme samostatnou 3D křivku (`source_path`) a jednu nebo
+více samostatných skic (`profiles`). Profil uvádí `sketch`, nativní `point`
+z dráhy, volitelně `incoming` a `start_point` korespondence. Vstupy se vytvoří
+stávajícími příkazy konstrukcí a skic; není potřeba zapisovat interní serializaci.
+
+```json
+{"command":"sweep3d.create","arguments":{"source_path":"<KRIVKA_3D>","name":"Tažení","profiles":[{"sketch":"<SKICA>","point":"<PRVNI_BOD_DRAHY>"}],"result_type":"solid"}}
+```
+
+Tvorba přijímá stejné parametry operace, jména, Thin a umístění jako editace.
+Nové tažení přebírá umístění dráhy. Profil používá své lokální 2D křivky a
+vazby; jeho nové umístění určuje zvolená stanice. Jedno tažení vlastní dráhu
+i skici a původní samostatné vstupní kontejnery se při potvrzení odstraní.
+ID dráhy, bodů, skic a křivek zůstávají zachovaná. Novou identitu dostává
+kontejner tažení, jeho prvek a vazba profilu na stanici. Undo vrací všechny
+samostatné vstupy i jejich původní umístění, Redo obnoví stejné tažení.
+
+Vstupy musejí patřit aktivnímu editovatelnému tělesu a ležet před jeho kurzorem.
+Každá profilová skica se smí převzít jednou. Pokud na vstupním kontejneru
+závisí jiný objekt nebo vstupní kontejnery závisejí jeden na druhém, převzetí
+se odmítne. Stejně se odmítne reference profilu na odstraňovaný kontejner skici.
+Reference na dřívější nepřebírané objekty zůstávají součástí skici. Kontroly,
+výpočet a odstranění vstupů tvoří jednu atomickou transakci; chyba nezanechá
+odstraněné skici ani částečně vložený prvek.
+
+GUI potvrzení i tvorba používají společné nastavení vlastněné dráhy, které
+ponechá transformaci na kontejneru a lokální body v dráze. Tím se původní posun
+nebo rotace neaplikuje dvakrát. Formát a start šablony zůstávají stejné.
+
+Modelová regrese ověřuje skutečný objem a prostorové meze natočeného
+tažení, původní ID křivek, blokování závislého objektu, odmítnutí cizí stanice,
+přesnou obnovu vstupů po Undo a jediné vlastnictví po uložení. Přechod mezi
+kružnicemi R2 a R3 na délce 20 mm odpovídá nezávislému objemu komolého kužele
+380π/3 mm³. Otevřená úsečka délky 4 mm se při neplatném Solid neodstraní;
+následující Thin s tloušťkou 0,5 mm a délkou 20 mm dává 40 mm³. Kontroly
+zahrnují potlačený vstup, neaktivní těleso a zachování reference bodu na vlastní
+počátek dráhy.
+
+Skutečný proces CLI vytváří, vrací a znovu ukládá převzaté tažení. GUI regrese
+následně otevírá jeho Vlastnosti, mění vložený bod, rozlišuje Cancel/OK rodiče
+a ověřuje Undo i uložený objem. Těchto 15 souvisejících testů prošlo (126,44 s,
+`build/sweep-create-gui-tests.log`).
+
+Nová regrese zároveň odhalila chybějící převod vlastníka reference z vloženého
+bodu/skici na kontejner tažení: `history.can_move` nesprávně dovolil přesunout
+závislý objekt před zdroj. Společný sběr závislostí nyní registruje vloženou
+dráhu, její body/počátky a všechny vlastněné skici. Dotaz i přesun takové
+pořadí odmítají bez změny dat či cache. Regrese nejprve prokázala chybu
+(`build/sweep-owned-dependency-red-tests.log`); po opravě a doplnění výše
+uvedených geometrických případů prošly oba modelové testy (5,53 s,
+`build/sweep-create-profiles-tests.log`). Pravidlo mazání historie se nemění.
+
+Závěrečné sestavení obou programů a všech testů prošlo
+(`build/sweep-create-full-build.log`). Úplný běh měl **91/93** úspěšných testů
+(478,27 s, `build/sweep-create-full-tests.log`): inspektor měření překročil
+90s limit a GUI potvrzení sestavového profilu jednou selhalo. Se stejnými
+binárními soubory prošlo samostatné opakování profilu (89,51 s) a následně
+oba dotčené testy **2/2** (90,14 s, `build/sweep-create-ui-recheck-tests.log`).
+Příčina nepravidelného GUI selhání není prokázána; nejde o tvrzení, že původní
+úplný běh prošel celý. Geometrické, CLI a GUI testy nového tažení prošly.

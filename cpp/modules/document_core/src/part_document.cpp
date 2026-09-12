@@ -7484,6 +7484,19 @@ HistoryContainer PartDocument::create_sweep3d_container() {
     return container;
 }
 
+void PartDocument::set_sweep3d_owned_path(HistoryContainer& container, ConstructionObject path) {
+    if (container.feature_kind != FeatureKind::Sweep3D || path.kind != ConstructionKind::Curve3D)
+        throw std::invalid_argument("A 3D Sweep must own a 3D curve.");
+    path.parent_construction_id = container.id;
+    path.origin = {}; path.entity_origin = {}; path.rotation = {}; path.absolute_rotation = {};
+    path.rotation_offset_x = 0; path.rotation_offset_y = 0; path.rotation_offset_z = 0;
+    path.orientation_back = false; path.orientation_quarter_turns = 0;
+    path.references.clear();
+    std::erase_if(path.value_locks, [](const auto& key) { return key.starts_with("placement:"); });
+    for (auto& point : path.curve_points) point.parent_construction_id = path.id;
+    container.sweep3d.path = std::move(path);
+}
+
 Curve3DRoute curve3d_route(const ConstructionObject& path) {
     using V = zima::kernel::Vec3;
     const auto add = [](V a, V b) { return V{a.x+b.x, a.y+b.y, a.z+b.z}; };

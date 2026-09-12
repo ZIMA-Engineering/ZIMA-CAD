@@ -1,5 +1,6 @@
 #pragma once
 #include <zima/assembly/assembly_document.hpp>
+#include <zima/document/feature_sketches.hpp>
 #include <algorithm>
 #include <map>
 #include <set>
@@ -101,6 +102,14 @@ inline HistoryDependencyCollector part_history_dependency_graph(const document::
     HistoryDependencyCollector graph;
     for (const auto& feature : document.history) {
         graph.alias(feature.id,feature.id);graph.alias(feature.feature_id,feature.id);graph.origin(feature.container_origin,feature.id);
+        // References to embedded native objects belong to their history feature.
+        // Register every alias before collecting references, including consumers
+        // which appear earlier in storage than their referenced object.
+        if (feature.feature_kind == document::FeatureKind::Sweep3D)
+            graph.register_construction(feature.sweep3d.path,feature.id);
+        document::visit_feature_sketches(feature,[&](const auto& data,std::size_t) {
+            graph.alias(sketcher::Sketch::from_serialized(data).id,feature.id);
+        });
     }
     for (const auto& object : document.constructions) graph.register_construction(object,object.id);
     for (const auto& sketch : document.sketches)

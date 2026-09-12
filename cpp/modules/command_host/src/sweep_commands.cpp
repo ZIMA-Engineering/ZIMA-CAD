@@ -78,7 +78,7 @@ Json sweep_details(const workspace::PartState& state, const document::HistoryCon
     return result;
 }
 void sweep_properties(document::HistoryContainer& value, const Json& args,
-    const workspace::Workspace& live, const std::string& id) {
+    const workspace::Workspace& live, const std::string& id, const std::string& placement_owner = {}) {
     const auto option = [&](const char* key, std::initializer_list<const char*> values) {
         const auto result = args.at(key).get<std::string>();
         if (std::ranges::none_of(values, [&](const auto* allowed) { return result == allowed; }))
@@ -115,7 +115,7 @@ void sweep_properties(document::HistoryContainer& value, const Json& args,
     if (args.contains("placement")) {
         const auto& patch = args.at("placement");
         if (patch.empty()) throw Error("invalid_arguments", "Specify at least one placement parameter.");
-        const auto geometry = workspace::placement_edit_geometry(live, id, value.id);
+        const auto geometry = workspace::placement_edit_geometry(live, id, placement_owner.empty() ? value.id : placement_owner);
         for (const auto& [key, number] : patch.items()) {
             if (!number.is_number() || !std::isfinite(number.get<double>()))
                 throw Error("invalid_arguments", "Placement parameters must be finite JSON numbers.");
@@ -157,6 +157,38 @@ void sweep_properties(document::HistoryContainer& value, const Json& args,
 }
 void Host::register_sweep_commands() {
     using Type = commands::ArgumentType;
+    dispatcher_.add({"sweep3d.create", tr("Create a 3D Sweep by adopting a standalone path and profile Sketches."),
+        {{"source_path", true}, {"profiles", true, Type::Array}, {"name", false}, {"combine", false},
+         {"placement", false, Type::Object}, {"result_type", false}, {"thin_mode", false},
+         {"thickness_mm", false, Type::Number}, {"document", false}}, true}, [this](const Json& args) {
+        const auto check = target(args); if (!check.ok) return check;
+        try {
+            const auto id = workspace_.active_document_id(); auto* state = workspace_.open_part(id);
+            if (!state || interaction().template_document) throw Error("unsupported_document", "Sweep operations require an open Part.");
+            std::vector<workspace::SweepProfileSource> profiles;
+            for (const auto& entry : args.at("profiles")) {
+                if (!entry.is_object() || !entry.contains("sketch") || !entry.contains("point"))
+                    throw Error("invalid_profile", "Each Sweep profile requires a Sketch and a path Point.");
+                for (const auto& [key, field] : entry.items()) {
+                    const bool valid = key == "incoming" ? field.is_boolean()
+                        : (key == "sketch" || key == "point" || key == "start_point") && field.is_string();
+                    if (!valid) throw Error("invalid_profile", "Unknown or incorrectly typed Sweep profile property.");
+                }
+                profiles.push_back({entry.at("sketch"), entry.at("point"), entry.value("incoming", false), entry.value("start_point", std::string{})});
+            }
+            const auto path = args.at("source_path").get<std::string>();
+            auto feature = workspace::sweep3d_from_sources(state->session.document(), path,
+                workspace::read_placement(workspace_, id, path).placement, profiles);
+            sweep_properties(feature, args, workspace_, id, path); const auto container = feature.id;
+            workspace::commit_sweep(workspace_, kernel_, id, std::move(feature), workspace::SweepEditMode::AdoptSources);
+            change_ = Change{ChangeKind::Model, id, true};
+            auto result = sweep_details(*state, sweep(state, container, Kind::Sweep3D)); result["changed"] = true;
+            return Result::success(std::move(result));
+        } catch (const Error& error) { return Result::failure(error.code, tr(error.what())); }
+          catch (const workspace::PlacementEditError& error) { return Result::failure(error.code, tr(error.what())); }
+          catch (const ConstructionParameterError& error) { return Result::failure(error.code, tr(error.what())); }
+          catch (const std::exception& error) { return Result::failure("sweep_rejected", tr(error.what())); }
+    });
     for (const auto kind : {Kind::Sweep2D, Kind::Sweep3D, Kind::HelicalSweep}) {
         const std::string prefix = kind == Kind::Sweep2D ? "sweep2d" : kind == Kind::Sweep3D ? "sweep3d" : "helical";
         dispatcher_.add({prefix + ".get", tr("Read Sweep parameters and owned profile identities without calculation."),

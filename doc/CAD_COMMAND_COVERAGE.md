@@ -41,7 +41,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Skicář: vazby a operace | Vazby/kóty/solver/offset/trim/mirror hotovy | Offset create/get/set/free, úplný podklad a zachování intervalů, trim podle průsečíků, mirror, orientovaný obdélník, tečny a zaoblení rohu; všech 15 druhů vazeb, odstranění a solver; 16 druhů kót včetně vlastností, popisků a mazání; uvolnění externích referencí hotovo |
 | Externí reference skici | Part a kořenová Assembly hotovy | Původní geometrie, přesná projekce, aktualizace, odpojení a zachování trimu; zbývá příkazový kontext Partu aktivovaného v sestavě |
 | Vytažení a rotace | Profily, Thin, směry a cíle zakončení Partu hotovy | `extrusion/revolution.create/get/set`, vlastněná skica, původní plochy a dvě nezávislé meze, společné OK; zbývají sestavové řezy |
-| Tažení | Částečně | `sweep2d/sweep3d/helical.get/set`, společné GUI potvrzení, celá 3D dráha a dotaz na stanice; zbývá CLI tvorba, správa profilů a reference roviny 2D dráhy |
+| Tažení | Částečně | `sweep2d/sweep3d/helical.get/set`, `sweep3d.create`, společné GUI potvrzení, celá 3D dráha a dotaz na stanice; zbývá tvorba 2D/helical, správa profilů a reference roviny 2D dráhy |
 | Otvory a závity | Zbývá | Hole, Thread, ShaftThread, DrillPoint a reference |
 | Zaoblení, zkosení, skořepina | Zbývá | Výběr skutečného vstupního tělesa a sdílené transakce |
 | Zrcadlo a pole | Zbývá | Odvozená tělesa a komponenty |
@@ -635,3 +635,24 @@ Vlastnosti bodu, hlavní OK/Cancel, Undo a uložený objem. Oba programy jsou
 sestavené; katalog zůstává na **170**, formát ani start šablony se nemění.
 Podrobnosti: [SWEEP_COMMANDS.md](SWEEP_COMMANDS.md). Pokračuje správa profilů,
 reference roviny 2D dráhy a příkazová tvorba tažení.
+
+### Tvorba 3D tažení z nativních vstupů
+
+`sweep3d.create` přebírá samostatnou 3D dráhu a profilové skici do jednoho
+kontejneru. Zachovává jejich ID a původní umístění dráhy, nevytváří druhé
+kopie a vrací vstupy přes Undo. Katalog má **171 příkazů**. Profily se předávají
+stabilními ID skic a bodů, včetně příchozí větve a počátku korespondence.
+Kontroly odmítají cizí stanice, neaktivní nebo sdílené vstupy i chybný výpočet
+bez částečné změny. Společná historie zároveň nově rozpoznává vlastníka
+vložených skic a bodů, takže přesun neobejde závislosti na tažení.
+Podrobnosti a nezávislé geometrické kontroly: [SWEEP_COMMANDS.md](SWEEP_COMMANDS.md).
+Formáty ani start šablony se nemění.
+
+Závěrečné sestavení obou programů a všech testů prošlo
+(`build/sweep-create-full-build.log`). Úplný běh měl **91/93** úspěšných testů
+(478,27 s, `build/sweep-create-full-tests.log`): inspektor měření překročil
+90s limit a GUI potvrzení sestavového profilu jednou selhalo. Se stejnými
+binárními soubory prošlo samostatné opakování profilu (89,51 s) a následně
+oba dotčené testy **2/2** (90,14 s, `build/sweep-create-ui-recheck-tests.log`).
+Příčina nepravidelného GUI selhání není prokázána; nejde o tvrzení, že původní
+úplný běh prošel celý. Geometrické, CLI a GUI testy nového tažení prošly.

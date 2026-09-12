@@ -1,5 +1,7 @@
 #include <zima/workspace/sweep_operations.hpp>
 #include <zima/document/feature_sketches.hpp>
+#include <zima/workspace/history_policy.hpp>
+#include <zima/kernel/stable_id.hpp>
 #include <algorithm>
 #include <cmath>
 #include <set>
@@ -36,6 +38,77 @@ void validate_sweep(const document::HistoryContainer& feature) {
             throw SweepOperationError("invalid_profile", "Sweep profiles require distinct identities and valid path stations.");
     }
 }
+void adopt_sources(document::PartDocument& next, const document::HistoryContainer& feature) {
+    if (feature.feature_kind != Kind::Sweep3D)
+        throw SweepOperationError("wrong_feature", "Source adoption currently requires a 3D Sweep.");
+    std::set<std::string> roots;
+    const auto path = std::ranges::find(next.constructions, feature.sweep3d.path.id, &document::ConstructionObject::id);
+    if (path == next.constructions.end() || path->kind != document::ConstructionKind::Curve3D || !path->parent_construction_id.empty())
+        throw SweepOperationError("construction_not_found", "Select a standalone 3D curve for the Sweep path.");
+    roots.insert(path->id);
+    for (const auto& profile : feature.sweep3d.profiles) {
+        const auto source = std::ranges::find(next.sketches, profile.sketch_id, &sketcher::Sketch::id);
+        const auto* owner = source == next.sketches.end() ? nullptr : next.find_container(source->owner_container_id);
+        if (!owner || owner->feature_kind != Kind::Sketch || !roots.insert(owner->id).second)
+            throw SweepOperationError("profile_owned", "Select distinct standalone Sketches for the Sweep profiles.");
+        if (source->suppressed || owner->suppressed)
+            throw SweepOperationError("inactive_input", "Sweep inputs must be active before the history cursor.");
+    }
+    const auto* owner = next.body_history.find(next.body_history.active_body_id());
+    if (!owner || owner->derived_copy)
+        throw SweepOperationError("read_only_body", "Sweep inputs require an active editable Body.");
+    auto body = *owner;
+    for (const auto& root : roots) {
+        const auto entry = std::ranges::find(body.entries, root, &document::PartHistoryEntry::id);
+        if (entry == body.entries.end())
+            throw SweepOperationError("inactive_body", "Every Sweep input must belong to the active Body.");
+        if (static_cast<std::size_t>(entry - body.entries.begin()) >= body.cursor || (root == path->id && path->suppressed))
+            throw SweepOperationError("inactive_input", "Sweep inputs must be active before the history cursor.");
+    }
+    const auto dependencies = part_history_dependency_graph(next);
+    for (const auto& [source, consumer] : dependencies.edges) {
+        if (!roots.contains(source)) continue;
+        if (!roots.contains(consumer))
+            throw SweepOperationError("input_in_use", "Another object depends on a Sweep input container.");
+        throw SweepOperationError("input_dependency", "Sweep input containers must not depend on each other.");
+    }
+    for (const auto& [consumer, instance, source, semantic] : dependencies.references) {
+        const auto alias = dependencies.owners.find(source);
+        if (roots.contains(consumer) && alias != dependencies.owners.end() && roots.contains(alias->second) && alias->second != path->id)
+            throw SweepOperationError("input_dependency", "Sweep profiles must not reference a consumed Sketch container.");
+    }
+    // Remove the inputs once in the caller's draft; cached bodies and the live
+    // document are unchanged until the complete new Sweep has calculated.
+    const auto removed_before_cursor = std::ranges::count_if(body.entries.begin(),
+        body.entries.begin() + static_cast<std::ptrdiff_t>(body.cursor), [&](const auto& entry) { return roots.contains(entry.id); });
+    std::erase_if(body.entries, [&](const auto& entry) { return roots.contains(entry.id); });
+    body.cursor -= static_cast<std::size_t>(removed_before_cursor);
+    next.body_history.update_body(std::move(body));
+    std::erase_if(next.history, [&](const auto& value) { return roots.contains(value.id); });
+    std::erase_if(next.constructions, [&](const auto& value) { return roots.contains(value.id); });
+    std::erase_if(next.sketches, [&](const auto& value) { return roots.contains(value.owner_container_id); });
+    next.set_body_history(next.body_history);
+}
+}
+document::HistoryContainer sweep3d_from_sources(const document::PartDocument& document,
+    const std::string& path_id, const document::Placement& path_placement, const std::vector<SweepProfileSource>& profiles) {
+    const auto source = std::ranges::find(document.constructions, path_id, &document::ConstructionObject::id);
+    if (source == document.constructions.end() || source->kind != document::ConstructionKind::Curve3D || !source->parent_construction_id.empty())
+        throw SweepOperationError("construction_not_found", "Select a standalone 3D curve for the Sweep path.");
+    if (profiles.empty() || profiles.size() > 5000)
+        throw SweepOperationError("invalid_profile", "A Sweep requires between 1 and 5000 profile Sketches.");
+    auto feature = document::PartDocument::create_sweep3d_container();
+    feature.placement = path_placement;
+    document::PartDocument::set_sweep3d_owned_path(feature, *source);
+    for (const auto& input : profiles) {
+        const auto stored = std::ranges::find(document.sketches, input.sketch_id, &sketcher::Sketch::id);
+        if (stored == document.sketches.end())
+            throw SweepOperationError("sketch_not_found", "The requested Sketch does not exist.");
+        auto sketch = *stored; sketch.owner_container_id = feature.id;
+        feature.sweep3d.profiles.push_back({kernel::make_stable_id(), input.point_id, sketch.id,
+            sketch.serialized(), input.incoming, input.correspondence_start_point_id});
+    }
+    return feature;
 }
 void commit_sweep(Workspace& live, const kernel::OcctKernel& kernel, const std::string& id,
     document::HistoryContainer feature, SweepEditMode mode) {
@@ -72,6 +145,7 @@ void commit_sweep(Workspace& live, const kernel::OcctKernel& kernel, const std::
     if (body && body->scope.id != before.body_history.active_body_id())
         throw SweepOperationError("inactive_body", "Activate the owning Body before editing its history.");
     auto next = before;
+    if (mode == SweepEditMode::AdoptSources) adopt_sources(next, feature);
     if (existing) *next.find_container(feature.id) = std::move(feature);
     else {
         next.insert_history_entry(document::PartHistoryKind::Feature, feature.id);
