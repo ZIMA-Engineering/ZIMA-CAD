@@ -1,5 +1,6 @@
 #include <zima/command_host/host.hpp>
 #include <zima/document/file_path.hpp>
+#include <zima/drawing/measurement_dimension.hpp>
 #include <zima/interchange/step_model.hpp>
 #include <zima/interchange/dxf.hpp>
 #include "../cli/runner.hpp"
@@ -322,6 +323,18 @@ int main(int argc,char** argv){
             ++shown_count;require(item.source.semantic_id==annotation_ref.at("key").get<std::string>()&&item.source.instance_path==annotation_ref.at("instance_path").get<std::string>(),"CLI showed a different occurrence");
         }
         require(shown_count==1,"CLI Show/Erase native persistence lost exact visibility");
+        auto measured_doc=drawing::DrawingDocument::create_default();auto measured_view=native_view;
+        const auto& measured_curves=measured_view.measurement_geometry->curves;
+        require(!measured_curves.empty()&&measured_curves.front().line,"CLI dimension fixture needs a straight original edge");
+        auto measured_dimension=drawing::make_drawing_dimension(measured_view.id);
+        measured_dimension.attachments={{drawing::DimensionAttachmentKind::CurvePoint,measured_curves.front().source,{},0},{drawing::DimensionAttachmentKind::CurvePoint,measured_curves.front().source,{},1}};
+        drawing::refresh_drawing_dimension(measured_view,measured_dimension);
+        measured_doc.sheets.front().views={measured_view};measured_doc.sheets.front().dimensions={measured_dimension};measured_doc.save(project/"cli-measured.drwz");
+        const auto measured_get=command({{"command","drawing.dimension.get"},{"arguments",{{"dimension",measured_dimension.id}}}});
+        const auto measured_delete=command({{"command","drawing.dimension.delete"},{"arguments",{{"dimension",measured_dimension.id}}}});
+        result=launch(executable,root,common+QStringList{"--command","open cli-measured.drwz","--command",measured_get,"--command",measured_delete,"--command","drawing.dimension.list","--command","undo","--command","save"});
+        require(result.exit_code==0&&result.results()[1].at("data").at("attachments").size()==2&&result.results()[3].at("data").at("total")==0,"CLI measured dimension query/delete failed");
+        require(drawing::DrawingDocument::load(project/"cli-measured.drwz").sheets.front().dimensions.front()==measured_dimension,"CLI measured dimension Undo lost persisted references");
         const auto assembly_step=command({{"command","import.step"},{"arguments",{{"path",document::path_to_utf8(step_source)},{"output_directory","sestava nativní"},{"mesh_deflection_mm",2.0}}}});
         result=launch(executable,root,common+QStringList{"--command","new assembly cli-import-owner","--command",assembly_step,"--command","save"});
         require(result.exit_code==0 && result.results().size()==3 && result.results()[1].at("data").at("parts").size()==1,"CLI Assembly STEP import failed");

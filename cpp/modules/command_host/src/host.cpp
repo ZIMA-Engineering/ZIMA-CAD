@@ -75,6 +75,7 @@ void Host::register_commands(){
     register_component_commands();
     register_drawing_commands();
     register_drawing_annotation_commands();
+    register_drawing_dimension_commands();
     dispatcher_.set_guard([this](const commands::Command& command){
         if(!command.changes_state)return Result::success();
         const auto state=interaction();

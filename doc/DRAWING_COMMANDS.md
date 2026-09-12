@@ -1,8 +1,8 @@
 # Výkresy přes společné příkazy
 
 Výkresové příkazy zpřístupňují listy, šablony, tvorbu a vlastnosti pohledů,
-uložené reference a výslovnou regeneraci. Katalog má 140 příkazů. Dotazy na modelové anotace a Show/Erase jsou sdílené.
-Měřené kóty, další anotace, editace BOM, zdrojové styly šraf a výkresové exporty
+uložené reference a výslovnou regeneraci. Katalog má 143 příkazů. Dotazy na modelové anotace a Show/Erase jsou sdílené.
+Tvorba a editace měřených kót, další anotace, editace BOM, zdrojové styly šraf a výkresové exporty
 zatím nejsou kompletně pokryté.
 
 | Příkaz | Argumenty | Výsledek |
@@ -261,3 +261,56 @@ Sestavení GUI i CLI a integrační ověření prošlo **6/6** (21,27 s),
 `build/drawing-annotation-tests.log`: nativní model, přesné výskyty, atomická
 dávka, Undo/Redo, skutečný CLI proces, GUI konzole, blokace zápisu během
 náhledu a stávající dialog Show/Erase včetně více pohledů a Cancel.
+
+## Dotazy a mazání měřených kót
+
+`drawing.dimension.list` přijímá volitelné filtry `sheet`, `view`, `limit`
+(1–10000, výchozí 2000) a `document`. Vrací `items` a `total` před omezením.
+`drawing.dimension.get` vyžaduje přesné ID `dimension`, volitelně `document`.
+Oba dotazy čtou výhradně data výkresu; neotevírají zdroje, nevolají OCCT,
+nezapisují historii a nepřepisují poslední platnou prezentaci.
+
+Každá kóta uvádí `dimension`, `sheet`, `view`, typ `kind` (`linear`, `radius`,
+`diameter`, `chain`, `angular`) a stav `state`:
+
+- `resolved`: platné měření z uložené geometrie pohledu;
+- `hidden`: měření se v tomto průmětu nezobrazuje, například šikmý průmět kružnice;
+- `unresolved`: chybějící či neplatná reference, s poslední hodnotou, pokud existuje.
+
+Pole `measurements` obsahuje jednotlivé úseky (`segment`), hodnotu `value`,
+jednotku `unit`, výsledný `text`, příznak poslední platné hodnoty `last_valid`
+a použití místních úhlových odkazů `angular_leaders`. Skrytá kóta může mít
+prázdné pole; neplatná kóta bez předchozí platné hodnoty rovněž. Poslední
+hodnota není aktuální měření a nesmí se za ně vydávat. Řetězec zůstává jednou
+kótou s více úseky, z nichž každý má vlastní stabilní ID.
+
+`get` navíc vrací `attachments`, `resolved_attachments`, `direction`,
+`direction_resolved`, `parallel_reference`, `anchor_attachment`, `style`
+a `segments`. Napojení mají pojmenovaný `kind` (`point`, `curve_point`,
+`line`, `center`, `tangent`, `intersection`), přesné `reference` a
+`other_reference` (`owner`, `key`, `instance_path`), parametr na křivce
+`parameter` a volbu strany `side`. Segmenty obsahují uložené `layout`,
+`last_presentation` a `last_angular_leaders`. Tyto diagnostické údaje
+nejsou rozhraním k nevalidovanému zápisu serializovaného dokumentu.
+
+`drawing.dimension.delete` vyžaduje `dimension` a volitelně `document`.
+Maže pouze měřenou výkresovou kótu, včetně případných úseků řetězce.
+Modelové anotace spravuje samostatné Show/Erase. Klávesa Delete a kontextové
+menu měřené kóty v GUI používají stejnou operaci. Odstranění má jedno Undo;
+obnovení zachová reference, poslední prezentaci i identitu neplatné kóty.
+Chybějící ID se odmítá bez kroku historie. Přidělená čísla kót se nerecyklují.
+
+```json
+{"command":"drawing.dimension.list","arguments":{"view":"POHLED"}}
+{"command":"drawing.dimension.get","arguments":{"dimension":"KOTA"}}
+{"command":"drawing.dimension.delete","arguments":{"dimension":"KOTA"}}
+```
+
+Nativní formát se nemění. Tvorba, oprava referencí, změny stylu a tažení
+měřených kót zatím nemají příkazový protějšek; to je následující etapa.
+
+Ověřeno sestavením GUI i CLI a cílenou sadou **6/6** (23,53 s),
+`build/drawing-dimension-command-tests.log`. Testy zahrnují hodnotu 60°,
+původní výskyt, poslední hodnotu neplatné kóty, skrytý průmět rádiusu,
+filtry, mazání přes CLI i skutečnou klávesu Delete v GUI, Undo/Redo,
+uchování přidělených čísel a nativní uložení.

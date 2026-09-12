@@ -1,6 +1,7 @@
 #include <zima/workspace/drawing_projection.hpp>
 #include <zima/workspace/drawing_view_operations.hpp>
 #include <zima/workspace/drawing_annotation_operations.hpp>
+#include <zima/workspace/drawing_dimension_operations.hpp>
 #include <zima/workspace/drawing_operations.hpp>
 #include "drawing_dimension_dialog.hpp"
 #include <QCursor>
@@ -733,7 +734,7 @@ protected:
                 menu->addAction(tr("Řetězec z prvního konce…"),this,[this,id]{if(manual_properties_)manual_properties_(id,-1);});
                 menu->addAction(tr("Řetězec z druhého konce…"),this,[this,id]{if(manual_properties_)manual_properties_(id,1);});
             }
-            menu->addAction(tr("Odstranit"),this,[this,id]{std::erase_if(sheet_->dimensions,[&](const auto& d){return d.id==id;});selected_dimension_id_.clear();selected_annotation_.reset();if(changed_)changed_();if(selection_changed_)selection_changed_();update();});menu->popup(event->globalPos());event->accept();return;
+            menu->addAction(tr("Odstranit"),this,[this,id]{workspace::erase_drawing_dimension(*sheet_,id);selected_dimension_id_.clear();selected_annotation_.reset();if(changed_)changed_();if(selection_changed_)selection_changed_();update();});menu->popup(event->globalPos());event->accept();return;
         }
         const auto hit=!offered_annotations_.empty()?offered_annotations_[offered_annotation_index_].key.view:view_at(event->pos());
         if (hit != selected_) {
@@ -1346,8 +1347,7 @@ protected:
         if(event->key()==Qt::Key_Delete && sheet_ && !dimension_command_ && !model_pick_ && !preview_ && !placed_ && !choose_view_) {
             bool removed=false;
             if(!selected_dimension_id_.empty())
-                removed=std::erase_if(sheet_->dimensions,[&](const auto& dimension) {
-                    return dimension.id==selected_dimension_id_; })>0;
+                removed=workspace::erase_drawing_dimension(*sheet_,selected_dimension_id_);
             else if(selected_annotation_ && selected_annotation_->kind==AnnotationKind::Model)
                 for(auto& view:sheet_->views)if(view.id==selected_annotation_->view)
                     for(auto& item:view.model_annotations)

@@ -114,6 +114,7 @@ add_library(zima_workspace modules/workspace/src/workspace.cpp
     modules/workspace/src/drawing_state.cpp
     modules/workspace/src/drawing_sources.cpp
     modules/workspace/src/drawing_annotation_sources.cpp
+    modules/workspace/src/drawing_dimension_operations.cpp
     modules/workspace/src/drawing_annotation_operations.cpp
     modules/workspace/src/drawing_view_operations.cpp
     modules/workspace/src/drawing_projection.cpp
@@ -148,6 +149,7 @@ add_library(zima_command_host
     modules/command_host/src/metadata_commands.cpp
     modules/command_host/src/engineering_metadata_commands.cpp
     modules/command_host/src/component_commands.cpp
+    modules/command_host/src/drawing_dimension_commands.cpp
     modules/command_host/src/drawing_annotation_commands.cpp
     modules/command_host/src/drawing_commands.cpp)
 target_include_directories(zima_command_host PUBLIC modules/command_host/include)
@@ -467,6 +469,10 @@ if(ZIMA_BUILD_TESTS)
     add_dependencies(zima_cpp_cli_process_tests zima-cad-cli)
     add_test(NAME zima_cpp_cli_process_tests COMMAND zima_cpp_cli_process_tests "$<TARGET_FILE:zima-cad-cli>")
     set_tests_properties(zima_cpp_cli_process_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120)
+    add_executable(zima_cpp_drawing_dimension_command_tests tests/drawing_dimension_command_tests.cpp)
+    target_link_libraries(zima_cpp_drawing_dimension_command_tests PRIVATE zima_command_host)
+    add_test(NAME zima_cpp_drawing_dimension_command_tests COMMAND zima_cpp_drawing_dimension_command_tests)
+    set_tests_properties(zima_cpp_drawing_dimension_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     add_executable(zima_cpp_drawing_annotation_command_tests tests/drawing_annotation_command_tests.cpp)
     target_link_libraries(zima_cpp_drawing_annotation_command_tests PRIVATE zima_command_host)
     add_test(NAME zima_cpp_drawing_annotation_command_tests COMMAND zima_cpp_drawing_annotation_command_tests)

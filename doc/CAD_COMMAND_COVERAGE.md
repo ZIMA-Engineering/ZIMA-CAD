@@ -46,7 +46,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Zaoblení, zkosení, skořepina | Zbývá | Výběr skutečného vstupního tělesa a sdílené transakce |
 | Zrcadlo a pole | Zbývá | Odvozená tělesa a komponenty |
 | Sestavy | Dotazy, vložení a otevření zdrojů komponent hotovy | Uložená hierarchie a přesné výskyty, sdílené vložení a otevření zdroje; zbývají vlastnosti/mazání komponent, vazby, vnořená aktivace a řezy |
-| Výkresy | Listy, šablony, historie, tvorba/vlastnosti/dotazy/mazání pohledů, regenerace, modelové anotace a Show/Erase hotovy | Měřené kóty, další anotace, editace BOM, zdrojové styly šraf a výkresové exporty |
+| Výkresy | Listy, šablony, historie, tvorba/vlastnosti/dotazy/mazání pohledů, regenerace, modelové anotace, Show/Erase a dotazy/mazání měřených kót hotovy | Tvorba/editace měřených kót, další anotace, editace BOM, zdrojové styly šraf a výkresové exporty |
 | Řezy, měření a vzhled | Zbývá | Datové operace a uložené výsledky |
 | Parametry, relace a materiál | Společné tabulky a transakce hotovy | Parametry, jednotky, přesnost, relace, materiál včetně přímého načtení knihovny a uložené varianty; řízení rozměrů relacemi a generování variant nejsou dosud zavedené ani v GUI |
 | Import a export | Import Partu/Assembly STEP/IGES/DXF a základní exporty hotovy | Společný STEP včetně vnořených sestav, STL Part/plochá Assembly, DXF úsečky/kružnice/oblouky; zbývá import vložených profilů, další DXF geometrie, vnořený STL a výkresové exporty |
@@ -277,3 +277,18 @@ Sestavení GUI i CLI a integrační ověření prošlo **6/6** (21,27 s),
 `build/drawing-annotation-tests.log`: nativní model, přesné výskyty, atomická
 dávka, Undo/Redo, skutečný CLI proces, GUI konzole, blokace zápisu během
 náhledu a stávající dialog Show/Erase včetně více pohledů a Cancel.
+
+
+Etapa dotazů a mazání měřených kót přidává `drawing.dimension.list/get/delete`,
+celkem **143 příkazů**. Dotazy zahrnují lineární, radiální, průměrové,
+řetězové a úhlové kóty; stav a poslední platnou hodnotu neplatné kóty rozlišují
+od aktuálního měření. Čtou přesná napojení a prezentační údaje z `.drwz`
+bez načítání zdrojů. GUI Delete a kontextové menu sdílejí operaci mazání
+s CLI, včetně historie a zachování přidělených čísel.
+Následuje tvorba a editace kót se stejnou nativní validací jako jejich dialog.
+
+Ověřeno sestavením GUI i CLI a cílenou sadou **6/6** (23,53 s),
+`build/drawing-dimension-command-tests.log`. Testy zahrnují hodnotu 60°,
+původní výskyt, poslední hodnotu neplatné kóty, skrytý průmět rádiusu,
+filtry, mazání přes CLI i skutečnou klávesu Delete v GUI, Undo/Redo,
+uchování přidělených čísel a nativní uložení.

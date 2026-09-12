@@ -336,6 +336,11 @@ int verify_measurement_dimension_ui() {
         pick(canvas,point(-40,-30));require(pixels(QColor("#C62828"))==0&&pixels(QColor("#FFD400"))>10,"Repaired angle did not return from red to yellow");window.grab().save("build/drawing-angle-repaired.png");
         window.document_for_test().save("build/drawing-angle-proof.drwz");const auto angular_saved=DrawingDocument::load("build/drawing-angle-proof.drwz");require(angular_saved.sheets.front().dimensions.front()==fixed,"Repaired parallel angle lost persisted state");
         window.export_pdf("build/drawing-angle-proof.pdf");window.export_dxf("build/drawing-angle-proof.dxf");
+        grip=window.annotation_handle_for_test(fixed.id,0,true);require(grip.has_value(),"Angle delete handle missing");pick(canvas,*grip);
+        QKeyEvent delete_angle(QEvent::KeyPress,Qt::Key_Delete,Qt::NoModifier);QApplication::sendEvent(canvas,&delete_angle);flush();
+        require(window.document_for_test().sheets.front().dimensions.empty(),"GUI Delete did not remove the measured angle");
+        auto* angle_state=workspace.open_drawing(invalid_document.document_id);require(angle_state->undo(),"GUI angle deletion has no Undo");
+        window.edit_workspace_document(invalid_document.document_id);flush();require(window.document_for_test().sheets.front().dimensions.front()==fixed,"GUI delete Undo lost angle references or presentation");
         std::cout << "Manual dimension properties, references, preview/Cancel, MMB, measured values and "
                      "radius grips passed\n";
         return 0;
