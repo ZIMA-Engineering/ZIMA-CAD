@@ -1,0 +1,78 @@
+# Komponenty sestavy přes společné příkazy
+
+První sada příkazů komponent poskytuje čtení uložené hierarchie a vložení
+otevřeného Partu či Assembly. GUI menu vložení používá stejnou operaci.
+Katalog obsahuje 122 příkazů; tato etapa ještě nepokrývá editaci vazeb,
+umístění, odstranění komponent ani vložení do vnořeného aktivního kontextu.
+
+| Příkaz | Argumenty | Význam |
+| --- | --- | --- |
+| `component.list` | `[recursive:Boolean]`, `[limit:Integer]`, `[document]` | Uložené výskyty komponent, výchozí limit 2000 |
+| `component.get` | `instance_path`, `[document]` | Jeden přesný uložený výskyt |
+| `component.insert` | `source`, `[name]`, `[document]` | Vložení otevřeného dokumentu do aktivní samostatné sestavy |
+
+`source` je ID otevřeného Partu nebo Assembly. `document` je ID vlastnící sestavy.
+Vložení vyžaduje, aby tato sestava byla aktivní na své samostatné kartě.
+Při aktivaci vnořeného Partu/Assembly se operace odmítne, takže nevloží komponentu
+omylem do zobrazeného rodiče. Vnořenou sestavu lze nyní upravit na její vlastní
+kartě; příkazová aktivace přesného vnořeného kontextu zůstává další etapou.
+
+```json
+{"command":"component.insert","arguments":{"source":"ID-OTEVRENEHO-DILU","name":"Šroub 1"}}
+{"command":"component.list","arguments":{"recursive":true,"limit":1000}}
+```
+
+Výsledek vložení obsahuje nové `occurrence`, přesné `instance_path`,
+`source_document`, `document`, `revision`, `changed`. `instance_path` přebírejte
+z výsledku; sestavuje ji nativní `InstancePath`, není to název dílu ani pořadové
+číslo. Opakované vložení stejného zdroje má jiné ID a cestu výskytu. Part
+používá sdílený vypočtený snímek, bez opětovného výpočtu jeho tělesa.
+Vložení podsestavy zachovává existující nativní chování: na soukromém návrhu
+obnoví její řetězec dostupných závislostí a případné řezy. Necommitne tím změny
+do zdrojové podsestavy ani do rodičů cílového dokumentu.
+
+`component.list` bez `recursive` vrací přímé komponenty. Rekurzivní varianta
+vrací i vnořené výskyty a jejich přesné cesty. `total` udává celkový počet
+nalezených položek, `items` respektuje výstupní limit 1 až 10000.
+`component.get` vrací například `parent_path`, `owning_document`,
+`source_document`, `name`, `kind`, `direct`, `visible`, `effective_visible`,
+`suppressed`, `effective_suppressed`, `grounded`, `derived`, `placement` a počet
+potomků. Souřadnice umístění jsou v mm, úhly ve stupních, v lokálním rámci
+bezprostředního vlastníka.
+
+Přímý výskyt má navíc uloženou zdrojovou cestu, vazbové reference, zámky,
+uložený objem v mm³ a plochu v mm². Řádek vazby používá pro `offset` mm,
+u `plane_angle` stupně. Vnořený snímek neobsahuje celý původní dokument;
+neposkytuje proto údaje, které v něm uložené nejsou.
+
+Dotazy čtou vypočtený/persistovaný snímek cílové sestavy. Nečtou novější otevřené
+zdroje, neotvírají soubory a nevolají OCCT. Fungují i po zavření zdrojů nebo
+odstranění jejich souborů. Změnu zdroje do existujícího výskytu přenáší výslovná
+regenerace sestavy. Skrytí či potlačení předka se promítne pouze do odpovídající
+větve výskytů, nikoli do ostatních výskytů stejného zdroje.
+
+Před vložením se ověřuje cyklus přes podsestavy a externí reference skic,
+včetně vložených profilů a řezů. Otevřené dokumenty mají přednost před soubory.
+Uzavřené závislosti se čtou podle uložených zdrojových cest a kontrolují se jejich
+ID; načtené pomocné dokumenty se neotevírají v uživatelském Workspace.
+Pokud chybí cesta externího zdroje, musí být tento zdroj před vložením otevřený,
+aby šlo jeho závislosti ověřit. Hloubka kontroly je omezena na 256 dokumentů;
+pomocné načtené dokumenty se po kontrole jednotlivé větve uvolní.
+
+Úspěšné vložení má jediný krok Undo. Před commitem se na soukromém návrhu
+ověří také fyzikální relace. Chyba nesmí změnit revizi, generaci dat ani seznam
+otevřených dokumentů. Název je jednořádkový, bez okolních mezer, 1 až 256 bajtů.
+Uložení je výslovné příkazem `save`.
+
+## Ověření
+
+Modelová sada ověřuje opakované výskyty a sdílení snímku, hierarchii a viditelnost,
+Undo/Redo, nativní uložení, dotazy bez zdrojových souborů, izolaci rodičů,
+cyklus přes uzavřenou podsestavu i externí referenci a dělení nulou při vložení.
+Workspace a importní regrese prošly společně **3/3** (1,39 s).
+Skutečné CLI procesy uloží a znovu načtou sestavu opakovaných dílů; GUI test
+použije původní menu vložení a jeho vlastnosti. Integrační sada prošla **4/4**
+(17,30 s), `build/component-integration-tests.log`.
+
+Celá Windows Release sada prošla **77/77** (402,70 s),
+`build/component-full-tests.log`.

@@ -72,6 +72,7 @@ private:
     void register_export_commands();
     void register_metadata_commands();
     void register_engineering_metadata_commands();
+    void register_component_commands();
     void add_sketch_query(commands::Command,std::function<Json(const sketcher::Sketch&,const Json&)>);
     void add_sketch_command(commands::Command,std::function<Json(sketcher::Sketch&,const Json&)>);
     [[nodiscard]] Interaction interaction() const;

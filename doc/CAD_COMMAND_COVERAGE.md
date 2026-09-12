@@ -45,7 +45,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Otvory a závity | Zbývá | Hole, Thread, ShaftThread, DrillPoint a reference |
 | Zaoblení, zkosení, skořepina | Zbývá | Výběr skutečného vstupního tělesa a sdílené transakce |
 | Zrcadlo a pole | Zbývá | Odvozená tělesa a komponenty |
-| Sestavy | Zbývá | Komponenty, přesné výskyty, vazby, aktivace a řezy |
+| Sestavy | Dotazy a vložení komponent hotovy | Uložená hierarchie a přesné výskyty, sdílené vložení otevřeného zdroje; zbývají vlastnosti/mazání komponent, vazby, vnořená aktivace a řezy |
 | Výkresy | Správa neuložených změn hotova | Příkazy pro listy, pohledy, kóty, anotace, šablony, BOM, Show/Erase |
 | Řezy, měření a vzhled | Zbývá | Datové operace a uložené výsledky |
 | Parametry, relace a materiál | Společné tabulky a transakce hotovy | Parametry, jednotky, přesnost, relace, materiál včetně přímého načtení knihovny a uložené varianty; řízení rozměrů relacemi a generování variant nejsou dosud zavedené ani v GUI |
@@ -210,3 +210,11 @@ Přímé přiřazení `.matz` sdílí nativní čteč a potvrzení s GUI:
 `document.material.load`, celkem **119 příkazů**. Ověřeno všech 62 dodávaných
 materiálů a celá cílená integrační sada **6/6** (25,05 s),
 `build/material-library-integration-tests.log`.
+
+Komponenty: `component.list/get/insert`, celkem **122 příkazů**. Vložení sdílí
+GUI operaci a odmítá cykly i chybu relace před transakcí; dotazy čtou uložené
+výskyty bez zdrojových souborů. Model/Workspace/import **3/3** (1,39 s),
+CLI/GUI integrace **4/4** (17,30 s). Podrobnosti:
+[COMPONENT_COMMANDS.md](COMPONENT_COMMANDS.md).
+Celá Windows Release sada komponentové etapy: **77/77** (402,70 s),
+`build/component-full-tests.log`.

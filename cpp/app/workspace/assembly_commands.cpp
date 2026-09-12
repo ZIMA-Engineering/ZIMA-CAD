@@ -1,4 +1,5 @@
 #include "workspace_internal.hpp"
+#include <zima/workspace/component_operations.hpp>
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -105,16 +106,7 @@ void AssemblyWorkspaceWindow::insert_component(
     const std::string assembly_id = workspace_.displayed_document_id();
     if (workspace_.open_assembly(assembly_id) == nullptr) return;
     try {
-        std::string occurrence_id;
-        if (const auto* part = workspace_.open_part(source_document_id)) {
-            occurrence_id = workspace_.insert_open_part(
-                assembly_id, source_document_id, part->session.document().name);
-        } else if (const auto* source = workspace_.open_assembly(source_document_id)) {
-            occurrence_id = workspace_.insert_open_assembly(
-                assembly_id, source_document_id, source->session.document().name);
-        } else {
-            return;
-        }
+        const auto occurrence_id=zima::workspace::insert_component(workspace_,assembly_id,source_document_id);
         workspace_.activate(assembly_id);
         refresh_tabs();
         refresh_scene();

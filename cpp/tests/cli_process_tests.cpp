@@ -268,6 +268,15 @@ int main(int argc,char** argv){
         require(result.exit_code==0 && result.results().size()==3,"CLI material library assignment failed");fs::remove(material_source);
         result=launch(executable,root,common+QStringList{"--command","open cli-step.prtz","--command","document.material.get","--command","document.relations.get"});
         require(result.exit_code==0 && result.results()[2].at("data").at("parameters").at("grams")=="47.100000","Assigned material retained a file dependency or lost mass");
+        const auto component_insert=command({{"command","component.insert"},{"arguments",{{"source",step_native.document_id},{"name","Opakovaný díl"}}}});
+        result=launch(executable,root,common+QStringList{"--command","open cli-step.prtz","--command","new assembly cli-components","--command",component_insert,"--command",component_insert,"--command","undo","--command","redo","--command","save"});
+        if(result.exit_code!=0)std::cerr<<result.output.toStdString()<<result.diagnostics.toStdString();
+        require(result.exit_code==0 && result.results().size()==7,"CLI component insertion or history failed");
+        const auto component_native=assembly::AssemblyDocument::load(project/"cli-components.asmz");
+        require(component_native.components.size()==2 && component_native.components[0].occurrence_id!=component_native.components[1].occurrence_id && component_native.components[0].source_document_id==step_native.document_id,"CLI component persistence lost repeated identities");
+        const auto component_get=command({{"command","component.get"},{"arguments",{{"instance_path",assembly::InstancePath{}.child(component_native.components[0].occurrence_id).encoded()}}}});
+        result=launch(executable,root,common+QStringList{"--command","open cli-components.asmz","--command","component.list","--command",component_get});
+        require(result.exit_code==0 && result.results()[1].at("data").at("total")==2 && std::abs(result.results()[2].at("data").at("cached_volume_mm3").get<double>()-6000)<1e-7,"CLI component queries did not read native snapshots");
         const auto assembly_step=command({{"command","import.step"},{"arguments",{{"path",document::path_to_utf8(step_source)},{"output_directory","sestava nativní"},{"mesh_deflection_mm",2.0}}}});
         result=launch(executable,root,common+QStringList{"--command","new assembly cli-import-owner","--command",assembly_step,"--command","save"});
         require(result.exit_code==0 && result.results().size()==3 && result.results()[1].at("data").at("parts").size()==1,"CLI Assembly STEP import failed");
