@@ -38,8 +38,9 @@ výsledky konkrétních výskytů v otevřeném dokumentu; export tedy odpovíd�
 poslední explicitní regeneraci. Změna zdrojového Partu v jiném tabu sama
 neaktualizuje export jeho nadřazené sestavy.
 
-STL podporuje Part a plochou sestavu. Vnořené sestavy zatím výslovně odmítá,
-stejně jako je nepodporovala původní exportní cesta. DXF podporuje úsečky,
+STL podporuje Part i vnořené sestavy včetně opakovaných výskytů. Sestavu
+převede do jedné sítě; STL neuchovává jména ani produktovou hierarchii.
+DXF podporuje úsečky,
 kružnice a kruhové oblouky vybrané skici. Skicu lze určit i ve vlastněném
 profilu. B-spline, elipsy, text, offsety, trimy, rohová zaoblení a samostatné
 body zatím odmítá: dosavadní DXF zapisovač by je tiše vynechal. Tyto formáty
@@ -82,3 +83,40 @@ Qt platformou. GUI test spouští konzoli i skutečnou akci menu a dialog soubor
 Závěrečný úplný Windows Release běh: **72/72**, 397,87 s,
 `build/export-full-tests.log`. Přeložené GUI i CLI odpovídají tomuto stavu.
 Katalog této etapy má 108 příkazů.
+
+
+## STL vnořených sestav
+
+Příkaz `export.stl` i exportní menu používají společný snímek uložených
+komponent. Pracovní úloha sestaví dočasné těleso existující operací
+`assembly::calculate_component_body`; číselné umístění ani řešení vazeb se
+nemění. Transformace se skládají od dílu přes všechny jeho vlastníky až
+k cílové sestavě. Opakované výskyty stejného zdroje zůstávají samostatnými
+kopiemi v síti. Skrytá, potlačená a závislostí potlačená větev se vynechá.
+
+Pokud komponenta obsahuje vlastní hotové těleso po řezu nebo odvozené kopii,
+exportuje se toto těleso, nikoli její původní neodečtení potomci. Jinak se
+použijí uložená dětská tělesa podle ID výskytu. Chybějící viditelná geometrie
+vrací `calculation_required`; prázdný viditelný výsledek vrací `empty_geometry`.
+Hloubka průchodu má stejnou mez 256 jako existující skládání komponent.
+
+Export neotevírá zdroje, neřeší vazby ani nepřepočítává historii modelu.
+OCCT v pracovní úloze pouze skládá vypočtená tělesa a trianguluje export.
+Dočasné těleso se neukládá do Assembly a nemění její historii ani sdílené
+snímky. Výstup může být výpočetně náročný podle složitosti B-Rep; tato etapa
+nemění dosavadní exportní odchylku 0,1 mm a úhlovou mez 0,5 rad.
+
+Regrese nezávisle čte binární STL a ověřuje dva kvádry 10×20×30 mm ve třech
+úrovních s otočením postupně kolem X, Y a Z. Kontroluje všech 16 rohů,
+24 trojúhelníků, orientaci normál a podepsaný objem 12 000 mm³. Stejnou
+geometrii ověřuje příkazový proces i skutečná exportní akce GUI. Další
+scénáře zahrnují skryté a potlačené zdroje bez tělesa, chybějící viditelné
+těleso, uzavření zdrojového dokumentu během pracovní úlohy, výsledný řez
+s objemem 3 000 mm³ a odmítnutí přepsání platného souboru při chybě.
+
+Integrační sada prošla **7/7** (27,02 s),
+`build/nested-stl-integration-tests.log`; samostatná regrese původního STEP
+sestavení prošla **1/1** (1,31 s), `build/nested-stl-step-regression.log`.
+GUI používá ověřovací EXE `build/cpp-windows-release/zima-cad-nested-stl-validation.exe`
+ze stejných aktuálních CMake objektů, protože běžný uživatelský CAD zůstává
+spuštěný. Katalog se nemění: rozšířil se existující `export.stl`.

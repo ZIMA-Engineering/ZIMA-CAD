@@ -1,3 +1,4 @@
+#include "stl_export_test_support.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/document/file_path.hpp>
 #include <zima/drawing/measurement_dimension.hpp>
@@ -285,6 +286,12 @@ int main(int argc,char** argv){
         require(result.exit_code==0 && result.results().size()==7,"CLI component insertion or history failed");
         const auto component_native=assembly::AssemblyDocument::load(project/"cli-components.asmz");
         require(component_native.components.size()==2 && component_native.components[0].occurrence_id!=component_native.components[1].occurrence_id && component_native.components[0].source_document_id==step_native.document_id,"CLI component persistence lost repeated identities");
+        const auto nested_stl_doc=test::nested_stl_fixture(kernel,project);
+        nested_stl_doc.save(project/"cli-nested-stl.asmz");
+        result=launch(executable,root,common+QStringList{"--command","open cli-nested-stl.asmz","--command","export.stl nested-output.stl","--command","documents"});
+        if(result.exit_code!=0)std::cerr<<result.output.toStdString()<<result.diagnostics.toStdString();
+        require(result.exit_code==0&&result.results().size()==3&&result.results()[1].at("data").at("model_changed")==false&&result.results()[2].at("data").size()==1,"CLI nested STL loaded dependencies or modified its document");
+        test::check_nested_stl(project/"nested-output.stl");
         const auto component_get=command({{"command","component.get"},{"arguments",{{"instance_path",assembly::InstancePath{}.child(component_native.components[0].occurrence_id).encoded()}}}});
         const auto component_dependencies=command({{"command","component.dependencies"},{"arguments",{{"instance_path",assembly::InstancePath{}.child(component_native.components[0].occurrence_id).encoded()}}}});
         result=launch(executable,root,common+QStringList{"--command","open cli-components.asmz","--command","component.list","--command",component_get,"--command",component_dependencies});

@@ -49,7 +49,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Výkresy | Listy, šablony, historie, tvorba/vlastnosti/dotazy/mazání pohledů, regenerace, modelové anotace, Show/Erase a měřené kóty (dotazy, tvorba, editace, řetězec, mazání), razítko, zdrojové parametry BOM, PDF, DXF a PNG/JPEG listu/výřezu hotovy | Další anotace, zdrojové styly šraf a příkazový snímek interaktivního View |
 | Řezy, měření a vzhled | Zbývá | Datové operace a uložené výsledky |
 | Parametry, relace a materiál | Společné tabulky a transakce hotovy | Parametry, jednotky, přesnost, relace, materiál včetně přímého načtení knihovny a uložené varianty; řízení rozměrů relacemi a generování variant nejsou dosud zavedené ani v GUI |
-| Import a export | Import Partu/Assembly STEP/IGES/DXF a základní exporty hotovy | Společný STEP včetně vnořených sestav, STL Part/plochá Assembly, DXF úsečky/kružnice/oblouky; DXF do vložených profilů hotov; zbývá další DXF geometrie, vnořený STL a snímek interaktivního View |
+| Import a export | Import Partu/Assembly STEP/IGES/DXF a základní exporty hotovy | Společný STEP včetně vnořených sestav, STL Part/vnořená Assembly, DXF úsečky/kružnice/oblouky; DXF do vložených profilů hotov; zbývá další DXF geometrie a snímek interaktivního View |
 
 Každá další etapa aktualizuje tabulku a uvádí ověřené testy. Neobcházíme
 chybějící operaci nevalidovanou změnou serializovaného dokumentu ani voláním
@@ -455,3 +455,12 @@ CLI proces uloží a znovu načte DXF uvnitř serializovaného profilu Sweep/Lof
 GUI je slinkované jako `zima-cad-sketch-dxf-validation.exe` z aktuálních
 CMake objektů; CLI a testy jsou přeložené běžně. Běžící uživatelský CAD
 zůstal otevřený a jeho hlavní spouštěcí soubor zůstává zamčený.
+
+
+STL export nyní podporuje také vnořené sestavy, opakované výskyty a jejich
+složené transformace. Používá existující skládání vypočtených komponent,
+včetně hotového výsledku řezu; nemění umístění ani historii modelu.
+Katalog zůstává na **152 příkazech**. Integrační sada prošla **7/7**
+(27,02 s), `build/nested-stl-integration-tests.log`, a regrese STEP **1/1**
+(1,31 s), `build/nested-stl-step-regression.log`. Podrobnosti a limity jsou
+v [EXPORT_COMMANDS.md](EXPORT_COMMANDS.md).

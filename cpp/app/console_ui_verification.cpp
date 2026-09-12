@@ -1,3 +1,4 @@
+#include "../tests/stl_export_test_support.hpp"
 #include <QFile>
 #include "drawing_window.hpp"
 #include <zima/drawing/measurement_dimension.hpp>
@@ -407,12 +408,13 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         commands::Json export_dxf={{"command","export.dxf"},{"arguments",{{"path",document::path_to_utf8(exported_profile)},{"sketch",dxf_result.at("sketch")}}}};
         check(run(QString::fromStdString(export_dxf.dump())).data.at("model_changed")==false && std::filesystem::file_size(exported_profile)>0,"Console export did not write its model snapshot");
         const auto exported_model=std::filesystem::absolute(directory/(stem+"-menu.step"));
+        auto menu_export_target=exported_model;QString menu_export_filter="STEP (*.step)";
         auto* menu_export_action=window.findChild<QAction*>("exportDocumentAction");check(menu_export_action,"Export menu action missing");
         bool export_chosen=false,export_timed_out=false;QTimer choose_export;choose_export.setInterval(50);
         QObject::connect(&choose_export,&QTimer::timeout,[&]{
             if(auto* dialog=qobject_cast<QFileDialog*>(QApplication::activeModalWidget())) {
-                if(!export_chosen) {dialog->setDirectory(QString::fromStdString(document::path_to_utf8(exported_model.parent_path())));dialog->selectNameFilter("STEP (*.step)");export_chosen=true;return;}
-                if(auto* filename=dialog->findChild<QLineEdit*>("fileNameEdit"))filename->setText(QString::fromStdString(document::path_to_utf8(exported_model)));
+                if(!export_chosen) {dialog->setDirectory(QString::fromStdString(document::path_to_utf8(menu_export_target.parent_path())));dialog->selectNameFilter(menu_export_filter);export_chosen=true;return;}
+                if(auto* filename=dialog->findChild<QLineEdit*>("fileNameEdit"))filename->setText(QString::fromStdString(document::path_to_utf8(menu_export_target)));
                 QMetaObject::invokeMethod(dialog,"accept",Qt::DirectConnection);
             } else if(auto* message=qobject_cast<QMessageBox*>(QApplication::activeModalWidget())) {
                 std::cout<<"Export menu message: "<<message->text().toStdString()<<'\n';message->accept();
@@ -423,6 +425,13 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         choose_export.start();export_timeout.start(10000);menu_export_action->trigger();choose_export.stop();export_timeout.stop();flush();
         check(export_chosen && !export_timed_out && std::filesystem::is_regular_file(exported_model) && std::filesystem::file_size(exported_model)>0,"Menu export did not publish a STEP model");
         run("save");
+        const auto nested_native=std::filesystem::absolute(directory/(stem+"-nested-stl.asmz"));
+        const kernel::OcctKernel stl_kernel;test::nested_stl_fixture(stl_kernel,directory).save(nested_native);
+        run(QString::fromStdString(commands::Json{{"command","open"},{"arguments",{{"path",document::path_to_utf8(nested_native)}}}}.dump()));
+        menu_export_target=std::filesystem::absolute(directory/(stem+"-nested-menu.stl"));menu_export_filter="STL (*.stl)";
+        export_chosen=false;export_timed_out=false;
+        choose_export.start();export_timeout.start(10000);menu_export_action->trigger();choose_export.stop();export_timeout.stop();flush();
+        check(export_chosen&&!export_timed_out,"Nested STL export menu timed out");test::check_nested_stl(menu_export_target);
         run(QString::fromStdString("new assembly "+stem+"-import-owner"));
         commands::Json assembly_import={{"command","import.step"},{"arguments",{{"path",document::path_to_utf8(exported_model)}}}};
         const auto assembly_result=run(QString::fromStdString(assembly_import.dump())).data;

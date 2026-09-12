@@ -17,6 +17,22 @@ namespace {
 bool path_exists(const std::filesystem::path& path) {
     return std::filesystem::exists(std::filesystem::symlink_status(path));
 }
+bool require_stl_snapshot(const kernel::BodySnapshot& source,
+        const std::vector<assembly::OccurrenceSnapshot>& children,std::size_t depth=0) {
+    if(depth>256)throw ExportOperationError("dependency_limit","The component dependency graph is too large or too deep.");
+    // A calculated Assembly cut or derived copy already owns its final body.
+    // Its uncut child snapshots must not replace that result during export.
+    if(!source->kernel_shape.empty())return true;
+    if(children.empty())throw ExportOperationError("calculation_required","An exported component has no calculated body; invoke Regenerate first.");
+    bool visible=false;
+    for(const auto& child:children) {
+        if(!child.visible||child.manually_suppressed||child.dependency_suppressed)continue;
+        const auto found=source->body_outputs.find(child.occurrence_id);
+        if(found==source->body_outputs.end())throw ExportOperationError("calculation_required","An exported component has no calculated body; invoke Regenerate first.");
+        visible=require_stl_snapshot(found->second,child.children,depth+1)||visible;
+    }
+    return visible;
+}
 void require_dxf_geometry(const sketcher::Sketch& sketch) {
     // The current writer understands these exact native entities. Reject other
     // visible geometry before writing instead of silently losing it in a DXF.
@@ -81,7 +97,7 @@ ExportReport export_file(const Workspace& live,const std::string& document_id,
     const auto* part=live.open_part(document_id);const auto* assembly=live.open_assembly(document_id);
     if(!part && !assembly)throw ExportOperationError("unsupported_document", "Model export requires an open Part or Assembly.");
     ExportReport report{document_id,part?part->session.revision():assembly->session.revision(),0,target};
-    using Data=std::variant<sketcher::Sketch,kernel::StepProduct,std::vector<kernel::PlacedBody>>;
+    using Data=std::variant<sketcher::Sketch,kernel::StepProduct,std::vector<kernel::PlacedBody>,std::vector<assembly::PartOccurrence>>;
     Data data;
     if(format==interchange::Format::Dxf) {
         if(options.sketch_id.empty())throw ExportOperationError("sketch_required", "Specify the Sketch to export as DXF.");
@@ -90,23 +106,19 @@ ExportReport export_file(const Workspace& live,const std::string& document_id,
         data=part?interchange::step_product(part->session.document(),part->session.calculated_boundaries())
                  :interchange::step_product(assembly->session.document());
     } else {
-        std::vector<kernel::PlacedBody> bodies;
         if(part) {
             if(part->session.calculated_boundaries().empty())throw ExportOperationError("calculation_required", "The Part has no calculated body; invoke Regenerate first.");
-            bodies.push_back({part->session.calculated_boundaries().back(),{}, {}});
+            data=std::vector<kernel::PlacedBody>{{part->session.calculated_boundaries().back(),{}, {}}};
         } else {
+            std::vector<assembly::PartOccurrence> components;
             const auto& doc=assembly->session.document();const auto suppressed=doc.effectively_suppressed_occurrences();
             for(const auto& component:doc.components) {
                 if(!component.visible || suppressed.contains(component.occurrence_id))continue;
-                if(component.source_kind!=assembly::ComponentSourceKind::Part)
-                    throw ExportOperationError("unsupported_assembly", "STL export of nested assemblies is not supported yet.");
-                bodies.push_back({component.calculated_source,
-                    {component.placement.x,component.placement.y,component.placement.z},
-                    {component.placement.rotation_x,component.placement.rotation_y,component.placement.rotation_z}});
+                if(require_stl_snapshot(component.calculated_source,component.nested_snapshot))components.push_back(component);
             }
+            if(components.empty())throw ExportOperationError("empty_geometry", "There are no visible calculated bodies to export.");
+            data=std::move(components);
         }
-        if(bodies.empty())throw ExportOperationError("empty_geometry", "There are no visible calculated bodies to export.");
-        data=std::move(bodies);
     }
     bool completed=false;
     std::function<void()> task=[data=std::move(data),target,overwrite=options.overwrite,&report,&completed] {
@@ -115,7 +127,18 @@ ExportReport export_file(const Workspace& live,const std::string& document_id,
         else {
             kernel::OcctKernel kernel;
             if(const auto* product=std::get_if<kernel::StepProduct>(&data))kernel.export_step(*product,document::path_to_utf8(file));
-            else kernel.export_stl(std::get<std::vector<kernel::PlacedBody>>(data),document::path_to_utf8(file));
+            else if(const auto* part_bodies=std::get_if<std::vector<kernel::PlacedBody>>(&data))kernel.export_stl(*part_bodies,document::path_to_utf8(file));
+            else {
+                std::vector<kernel::PlacedBody> bodies;
+                for(const auto& component:std::get<std::vector<assembly::PartOccurrence>>(data)) {
+                    // Materialize only the captured, already calculated hierarchy,
+                    // on the export worker. This never reads or regenerates sources.
+                    const auto& p=component.placement;
+                    bodies.push_back({assembly::calculate_component_body(component,kernel),
+                        {p.x,p.y,p.z},{p.rotation_x,p.rotation_y,p.rotation_z}});
+                }
+                kernel.export_stl(bodies,document::path_to_utf8(file));
+            }
         }
         });completed=true;
     };

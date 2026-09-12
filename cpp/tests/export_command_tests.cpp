@@ -1,3 +1,4 @@
+#include "stl_export_test_support.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/export_operations.hpp>
 #include <zima/interchange/step_model.hpp>
@@ -64,8 +65,45 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     run(host,"activate",{{"document",part_id}});run(host,"box.set",{{"container",box},{"length_mm","30"}});
     run(host,"activate",{{"document",top_id}});const auto nested_path=dir/"nested.step";run(host,"export.step",{{"path",document::path_to_utf8(nested_path)}});
     require(std::abs(step_volume(nested_path)-12000)<1e-5 && live.open_assembly(top_id)->session.revision()==parent_revision,"Nested export refreshed dependencies or lost stored geometry");
-    require(host.execute({{"command","export.stl"},{"arguments",{{"path","nested.stl"}}}}).code=="unsupported_assembly" && !fs::exists(dir/"nested.stl"),"Unsupported nested STL partially exported");
+    run(host,"export.stl",{{"path","nested.stl"}});require(std::abs(stl_volume(dir/"nested.stl")-12000)<1e-5,"Nested STL changed stored geometry");
     run(host,"activate",{{"document",flat_id}});run(host,"export.stl",{{"path","flat.stl"}});require(std::abs(stl_volume(dir/"flat.stl")-12000)<1e-5,"Flat Assembly STL did not use calculated occurrence state");
 }
+void nested_stl(const kernel::OcctKernel& kernel,fs::path dir) {
+    workspace::Workspace live;auto doc=test::nested_stl_fixture(kernel,dir);const auto id=doc.document_id;
+    const auto native=dir/"nested-native.asmz";doc.save(native);
+    live.add_assembly(assembly::AssemblyDocument::load(native),native);live.activate(id);live.display_top_level(id);
+    command_host::Host host(live,kernel,dir);
+    const auto revision=live.open_assembly(id)->session.revision(),generation=live.open_assembly(id)->session.data_generation();
+    run(host,"export.stl",{{"path","transformed.stl"}});test::check_nested_stl(dir/"transformed.stl");
+    require(live.size()==1&&live.open_assembly(id)->session.revision()==revision&&live.open_assembly(id)->session.data_generation()==generation&&live.open_assembly(id)->session.document().components[0].calculated_source->kernel_shape.empty(),"STL materialization modified the native Assembly or opened sources");
+    // Worker owns a snapshot even if the source tab closes after dispatch.
+    static_cast<void>(workspace::export_file(live,id,dir/"captured.stl",{},[&](auto task){require(live.remove(id),"Cannot close captured source");task();}));
+    test::check_nested_stl(dir/"captured.stl");
+    live.add_assembly(doc,native);live.activate(id);live.display_top_level(id);
+    auto hidden=doc;for(auto& item:hidden.components)item.visible=false;live.open_assembly(id)->session.commit(hidden);
+    const auto original=bytes(dir/"transformed.stl");
+    require(host.execute({{"command","export.stl"},{"arguments",{{"path","transformed.stl"},{"overwrite",true}}}}).code=="empty_geometry"&&bytes(dir/"transformed.stl")==original,"Empty Assembly replaced an existing STL");
+    // All descendants hidden is also empty, not a missing calculated body.
+    hidden=doc;for(auto& item:hidden.components)for(auto& child:item.nested_snapshot)child.visible=false;
+    live.open_assembly(id)->session.commit(hidden);
+    require(host.execute({{"command","export.stl"},{"arguments",{{"path","all-hidden.stl"}}}}).code=="empty_geometry"&&!fs::exists(dir/"all-hidden.stl"),"Hidden nested hierarchy was exported");
+    auto missing=doc;kernel::BodyResult empty;missing.components[0].calculated_source=empty;live.open_assembly(id)->session.commit(missing);
+    const auto missing_revision=live.open_assembly(id)->session.revision();
+    require(host.execute({{"command","export.stl"},{"arguments",{{"path","transformed.stl"},{"overwrite",true}}}}).code=="calculation_required"&&bytes(dir/"transformed.stl")==original&&live.open_assembly(id)->session.revision()==missing_revision,"Missing child geometry was silently exported or modified history");
+    missing=doc;missing.components[0].nested_snapshot.clear();missing.components[0].calculated_source=empty;live.open_assembly(id)->session.commit(missing);
+    require(host.execute({{"command","export.stl"},{"arguments",{{"path","missing-leaf.stl"}}}}).code=="calculation_required","Uncalculated leaf was silently skipped");
+    // A parent-owned cut is the final result even though uncut children remain.
+    auto cut=doc;cut.components.resize(1);cut.components[0].placement={};
+    const auto box=kernel.make_box({10,20,30});kernel::BoxRequest tool{5,20,30};
+    auto result=kernel.subtract_bodies(box,kernel.make_box(tool),{},{});
+    require(std::abs(result.volume-3000)<1e-6,"Cut fixture volume is wrong");
+    result.body_outputs=cut.components[0].calculated_source->body_outputs;
+    cut.components[0].calculated_source=result;live.open_assembly(id)->session.commit(cut);
+    run(host,"export.stl",{{"path","cut.stl"}});
+    require(std::abs(test::read_stl(dir/"cut.stl").signed_volume-3000)<1e-5,"STL resurrected uncut nested components");
+    cut.components[0].source_kind=assembly::ComponentSourceKind::Pattern;live.open_assembly(id)->session.commit(cut);
+    run(host,"export.stl",{{"path","pattern.stl"}});require(std::abs(stl_volume(dir/"pattern.stl")-3000)<1e-5,"Calculated Pattern result was rejected or replaced");
+    for(const auto& entry:fs::directory_iterator(dir))require(!entry.path().filename().string().starts_with(".zima-export-"),"STL export left its staging directory");
 }
-int main(){try{kernel::OcctKernel kernel;const auto parent=fs::canonical(fs::temp_directory_path());const auto dir=parent/("zima-export-command-"+document::PartDocument::create_default().document_id);fs::create_directory(dir);const auto unicode_dir=dir/fs::path(u8"český projekt");fs::create_directory(unicode_dir);verify(kernel,unicode_dir);require(dir.parent_path()==parent,"Unsafe cleanup");fs::remove_all(dir);std::cout<<"STEP/STL volumes, DXF geometry, snapshot export, nested ownership, UTF-8, overwrite and atomic publication passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
+}
+int main(){try{kernel::OcctKernel kernel;const auto parent=fs::canonical(fs::temp_directory_path());const auto dir=parent/("zima-export-command-"+document::PartDocument::create_default().document_id);fs::create_directory(dir);const auto unicode_dir=dir/fs::path(u8"český projekt");fs::create_directory(unicode_dir);verify(kernel,unicode_dir);nested_stl(kernel,unicode_dir);require(dir.parent_path()==parent,"Unsafe cleanup");fs::remove_all(dir);std::cout<<"STEP/STL volumes, DXF geometry, snapshot export, nested ownership, UTF-8, overwrite and atomic publication passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
