@@ -388,7 +388,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 try {
                     zima::workspace::commit_profile(workspace_, kernel_, owner_id, std::move(committed), mode,
                         property_owned_sketch_draft_);
-                } catch (const zima::workspace::ProfileOperationError& error) {
+                } catch (const std::exception& error) {
                     throw std::runtime_error(tr(error.what()).toStdString());
                 }
                 if (completes_pending) pending_profile_feature_.reset();

@@ -76,6 +76,8 @@
 #include <gp_GTrsf.hxx>
 #include <gp_Quaternion.hxx>
 #include <Geom_TrimmedCurve.hxx>
+#include <Geom_OffsetCurve.hxx>
+#include <GeomConvert_ApproxCurve.hxx>
 #include <Geom_BSplineCurve.hxx>
 #include <Geom_BezierCurve.hxx>
 #include <GeomAdaptor_Curve.hxx>
@@ -975,6 +977,7 @@ PrimitiveData make_wedge_data(const WedgeRequest& request, const std::string& ow
 }
 
 void validate_extrusion(const ExtrusionRequest& request, bool allow_open_profile = false) {
+    allow_open_profile = allow_open_profile || request.wall.has_value();
     const auto validate_profile = [&](const auto& profile_variant) {
         std::visit([&](const auto& profile) {
             using Profile = std::decay_t<decltype(profile)>;
@@ -1718,6 +1721,34 @@ ThinSweepWires make_thin_sweep_profiles(const Sweep3DRequest& request,
             for(const auto& id:section.profile.outer_vertex_source_ids)result.point_ids.push_back("thin:"+role+":from:"+id);
             return result;
         }
+        if (original_edges.size()==1 && BRepAdaptor_Curve(original_edges.front()).GetType()==GeomAbs_BSplineCurve) {
+            // A smooth offset spline is one mathematical source curve. The wire
+            // offset builder may split its approximation into unrelated edges;
+            // instead approximate the offset curve within a checked tolerance
+            // and retain one B-spline carrying the pre-existing source identity.
+            const auto& original_edge=original_edges.front();
+            TopoDS_Edge edge=original_edge;
+            if (std::abs(amount)>1e-10) {
+                Standard_Real first,last;const auto basis=BRep_Tool::Curve(original_edge,first,last);
+                const auto bounded=new Geom_TrimmedCurve(basis,first,last);
+                const double sign=original_edge.Orientation()==TopAbs_REVERSED?-1.0:1.0;
+                const auto n=section.profile_normal;
+                Handle(Geom_Curve) offset_curve=new Geom_OffsetCurve(bounded,-amount*sign,gp_Dir(n.x,n.y,n.z));
+                const double tolerance=std::min(1e-7,request.linear_tolerance*.1);
+                GeomConvert_ApproxCurve approximation(offset_curve,tolerance,GeomAbs_C1,1024,8);
+                if (!approximation.IsDone() || !std::isfinite(approximation.MaxError()) || approximation.MaxError()>tolerance)
+                    throw std::runtime_error("Nelze odsadit spline v požadované přesnosti");
+                BRepBuilderAPI_MakeEdge maker(approximation.Curve());
+                if (!maker.IsDone()) throw std::runtime_error("Nelze vytvořit odsazenou spline hranu");
+                edge=TopoDS::Edge(maker.Edge().Oriented(original_edge.Orientation()));
+            }
+            BRepBuilderAPI_MakeWire wire(edge);
+            if (!wire.IsDone()) throw std::runtime_error("Nelze vytvořit odsazený spline profil");
+            result.wire=wire.Wire();result.edges.push_back(edge);
+            for(const auto& id:section.profile.outer_edge_source_ids)result.curve_ids.push_back("thin:"+role+":from:"+id);
+            for(const auto& id:section.profile.outer_vertex_source_ids)result.point_ids.push_back("thin:"+role+":from:"+id);
+            return result;
+        }
         // Construct in the explicit Sketch plane, including a single straight open wire.
         const auto p=BRep_Tool::Pnt(TopExp::FirstVertex(original_edges.front(),true));
         const auto n=section.profile_normal;
@@ -2096,6 +2127,50 @@ std::string profile_cap_semantic_key(
         std::string(profile_region_id);
 }
 
+// Keep the explicit curve-to-edge correspondence produced while constructing
+// the wire. OCCT traversal order must never assign a ZIMA source identity.
+template <typename Request>
+std::vector<SweepProfileWire> make_body_profiles(const Request& request,
+    const Vec3& normal, const std::optional<Vec3>& radial = std::nullopt) {
+    std::vector<SweepProfileWire> result;
+    if (request.wall) {
+        Sweep3DRequest thin;
+        thin.thin_first=request.wall->first_offset;
+        thin.thin_second=request.wall->second_offset;
+        Sweep3DRequest::Section section;
+        section.profile_normal=normal;section.circle_radial_direction=radial;
+        section.thin_end_point_id=request.wall->end_point_id;
+        section.profile.outer_profile=request.outer_profile;
+        section.profile.inner_profiles=request.inner_profiles;
+        section.profile.outer_edge_source_ids=request.outer_edge_source_ids;
+        section.profile.outer_vertex_source_ids=request.outer_vertex_source_ids;
+        auto profiles=make_thin_sweep_profiles(thin,section);
+        result.push_back(std::move(profiles.outer));
+        if (profiles.inner) result.push_back(std::move(*profiles.inner));
+    } else {
+        const auto append=[&](const auto& loop,const auto& curves,const auto& points) {
+            SweepProfileWire profile;
+            profile.wire=make_profile_wire(loop,normal,radial,&profile.edges);
+            profile.curve_ids=curves;profile.point_ids=points;
+            result.push_back(std::move(profile));
+        };
+        append(request.outer_profile,request.outer_edge_source_ids,request.outer_vertex_source_ids);
+        if (request.inner_profiles.size()!=request.inner_edge_source_ids.size() ||
+            request.inner_profiles.size()!=request.inner_vertex_source_ids.size())
+            throw std::runtime_error("Profile provenance group mismatch");
+        for(std::size_t i=0;i<request.inner_profiles.size();++i)
+            append(request.inner_profiles[i],request.inner_edge_source_ids[i],request.inner_vertex_source_ids[i]);
+    }
+    for(std::size_t i=1;i<result.size();++i) result[i].wire.Reverse();
+    return result;
+}
+
+void transform_profile_wire(SweepProfileWire& profile, const gp_Trsf& transform) {
+    BRepBuilderAPI_Transform builder(profile.wire,transform,true);
+    for(auto& edge:profile.edges) edge=TopoDS::Edge(builder.ModifiedShape(edge));
+    profile.wire=TopoDS::Wire(builder.Shape());
+}
+
 PrimitiveData make_extrusion_data(
     const ExtrusionRequest& request, const std::string& owner_id,
     const std::optional<TopoDS_Face>& exact_target = std::nullopt,
@@ -2103,15 +2178,17 @@ PrimitiveData make_extrusion_data(
     double through_all_reverse_span = 2'000'000.0,
     const std::optional<Vec3>& circle_radial_direction = std::nullopt,
     double linear_tolerance = 0.001) {
-    std::vector<TopoDS_Wire> wires{
-        make_profile_wire(request.outer_profile, request.direction, circle_radial_direction)};
-    BRepBuilderAPI_MakeFace face_builder(wires.front(), true);
-    for (const auto& inner_profile : request.inner_profiles) {
-        auto inner_wire = make_profile_wire(inner_profile, request.direction, circle_radial_direction);
-        inner_wire.Reverse();
-        wires.push_back(std::move(inner_wire));
-        face_builder.Add(wires.back());
+    auto normal=request.direction;
+    if (request.wall) {
+        const double scale=(request.first_cap_is_start?1.0:-1.0)/std::sqrt(
+            normal.x*normal.x+normal.y*normal.y+normal.z*normal.z);
+        normal={normal.x*scale,normal.y*scale,normal.z*scale};
     }
+    auto profiles=make_body_profiles(request,normal,circle_radial_direction);
+    std::vector<TopoDS_Wire> wires;
+    for(const auto& profile:profiles)wires.push_back(profile.wire);
+    BRepBuilderAPI_MakeFace face_builder(wires.front(), true);
+    for(std::size_t i=1;i<wires.size();++i)face_builder.Add(wires[i]);
     if (!face_builder.IsDone()) throw std::runtime_error("OCCT profile face failed");
     TopoDS_Face face = face_builder.Face();
     if (!BRepCheck_Analyzer(face).IsValid()) {
@@ -2129,8 +2206,8 @@ PrimitiveData make_extrusion_data(
         shift.SetTranslation(gp_Vec(unit.x * request.start_offset,
                                     unit.y * request.start_offset,
                                     unit.z * request.start_offset));
-        for (auto& wire : wires) {
-            wire = TopoDS::Wire(BRepBuilderAPI_Transform(wire, shift, true).Shape());
+        for (std::size_t i=0;i<wires.size();++i) {
+            transform_profile_wire(profiles[i],shift);wires[i]=profiles[i].wire;
         }
         BRepBuilderAPI_MakeFace shifted_face(wires.front(), true);
         for (std::size_t index = 1; index < wires.size(); ++index) {
@@ -2256,8 +2333,8 @@ PrimitiveData make_extrusion_data(
         shift.SetTranslation(gp_Vec(unit.x * offset,
                                     unit.y * offset,
                                     unit.z * offset));
-        for (auto& wire : wires) {
-            wire = TopoDS::Wire(BRepBuilderAPI_Transform(wire, shift, true).Shape());
+        for (std::size_t i=0;i<wires.size();++i) {
+            transform_profile_wire(profiles[i],shift);wires[i]=profiles[i].wire;
         }
         BRepBuilderAPI_MakeFace shifted_face(wires.front(), true);
         for (std::size_t index = 1; index < wires.size(); ++index) {
@@ -2287,27 +2364,20 @@ PrimitiveData make_extrusion_data(
         profile_cap_semantic_key(last_role, request.profile_region_id), {}};
     result.faces.push_back({prism.FirstShape(), first_cap_reference});
     result.faces.push_back({prism.LastShape(), last_cap_reference});
-    std::vector<std::vector<std::string>> edge_sources{
-        request.outer_edge_source_ids};
-    edge_sources.insert(edge_sources.end(), request.inner_edge_source_ids.begin(),
-                        request.inner_edge_source_ids.end());
-    std::vector<std::vector<std::string>> vertex_sources{
-        request.outer_vertex_source_ids};
-    vertex_sources.insert(vertex_sources.end(),
-                          request.inner_vertex_source_ids.begin(),
-                          request.inner_vertex_source_ids.end());
+    std::vector<std::vector<std::string>> edge_sources,vertex_sources;
+    for(const auto& profile:profiles) {
+        edge_sources.push_back(profile.curve_ids);vertex_sources.push_back(profile.point_ids);
+    }
     if (edge_sources.size() != wires.size() || vertex_sources.size() != wires.size()) {
         throw std::runtime_error("Extrusion profile provenance group mismatch");
     }
     for (std::size_t wire_index = 0; wire_index < wires.size(); ++wire_index) {
         std::size_t boundary_edge{};
-        const auto& wire = wires[wire_index];
-        for (TopExp_Explorer explorer(wire, TopAbs_EDGE);
-             explorer.More(); explorer.Next(), ++boundary_edge) {
+        for (; boundary_edge<profiles[wire_index].edges.size(); ++boundary_edge) {
             if (boundary_edge >= edge_sources[wire_index].size()) {
                 throw std::runtime_error("Extrusion edge provenance mismatch");
             }
-            const TopoDS_Edge edge = TopoDS::Edge(explorer.Current());
+            const auto& edge = profiles[wire_index].edges[boundary_edge];
             const auto& curve_id = edge_sources[wire_index][boundary_edge];
             if (curve_id.empty()) {
                 throw std::runtime_error("Extrusion curve provenance is empty");
@@ -2799,7 +2869,7 @@ void validate_revolution(const RevolutionRequest& request) {
     profile_request.inner_profiles = request.inner_profiles;
     profile_request.additional_profile_regions = request.additional_profile_regions;
     profile_request.direction = request.profile_normal;
-    validate_extrusion(profile_request);
+    validate_extrusion(profile_request,request.wall.has_value());
     const double axis_length = std::sqrt(
         request.axis_direction.x * request.axis_direction.x +
         request.axis_direction.y * request.axis_direction.y +
@@ -2816,15 +2886,11 @@ void validate_revolution(const RevolutionRequest& request) {
 
 PrimitiveData make_revolution_data(
     const RevolutionRequest& request, const std::string& owner_id) {
-    std::vector<TopoDS_Wire> wires{
-        make_profile_wire(request.outer_profile, request.profile_normal)};
+    auto profiles=make_body_profiles(request,request.profile_normal);
+    std::vector<TopoDS_Wire> wires;
+    for(const auto& profile:profiles)wires.push_back(profile.wire);
     BRepBuilderAPI_MakeFace face_builder(wires.front(), true);
-    for (const auto& inner_profile : request.inner_profiles) {
-        auto inner_wire = make_profile_wire(inner_profile, request.profile_normal);
-        inner_wire.Reverse();
-        wires.push_back(std::move(inner_wire));
-        face_builder.Add(wires.back());
-    }
+    for(std::size_t i=1;i<wires.size();++i)face_builder.Add(wires[i]);
     if (!face_builder.IsDone() || !BRepCheck_Analyzer(face_builder.Face()).IsValid()) {
         throw std::runtime_error("OCCT Revolution profile face is invalid");
     }
@@ -2837,9 +2903,8 @@ PrimitiveData make_revolution_data(
         gp_Trsf rotation;
         rotation.SetRotation(axis,
             request.start_angle_degrees * std::numbers::pi / 180.0);
-        for (auto& wire : wires) {
-            wire = TopoDS::Wire(
-                BRepBuilderAPI_Transform(wire, rotation, true).Shape());
+        for (std::size_t i=0;i<wires.size();++i) {
+            transform_profile_wire(profiles[i],rotation);wires[i]=profiles[i].wire;
         }
         BRepBuilderAPI_MakeFace rotated_face(wires.front(), true);
         for (std::size_t index = 1; index < wires.size(); ++index) {
@@ -2871,27 +2936,20 @@ PrimitiveData make_revolution_data(
                 profile_cap_semantic_key(
                     last_role, request.profile_region_id), {}}});
     }
-    std::vector<std::vector<std::string>> edge_sources{
-        request.outer_edge_source_ids};
-    edge_sources.insert(edge_sources.end(), request.inner_edge_source_ids.begin(),
-                        request.inner_edge_source_ids.end());
-    std::vector<std::vector<std::string>> vertex_sources{
-        request.outer_vertex_source_ids};
-    vertex_sources.insert(vertex_sources.end(),
-                          request.inner_vertex_source_ids.begin(),
-                          request.inner_vertex_source_ids.end());
+    std::vector<std::vector<std::string>> edge_sources,vertex_sources;
+    for(const auto& profile:profiles) {
+        edge_sources.push_back(profile.curve_ids);vertex_sources.push_back(profile.point_ids);
+    }
     if (edge_sources.size() != wires.size() || vertex_sources.size() != wires.size()) {
         throw std::runtime_error("Revolution profile provenance group mismatch");
     }
     for (std::size_t wire_index = 0; wire_index < wires.size(); ++wire_index) {
         std::size_t boundary_edge{};
-        const auto& wire = wires[wire_index];
-        for (TopExp_Explorer explorer(wire, TopAbs_EDGE);
-             explorer.More(); explorer.Next(), ++boundary_edge) {
+        for (; boundary_edge<profiles[wire_index].edges.size(); ++boundary_edge) {
             if (boundary_edge >= edge_sources[wire_index].size()) {
                 throw std::runtime_error("Revolution edge provenance mismatch");
             }
-            const TopoDS_Edge edge = TopoDS::Edge(explorer.Current());
+            const auto& edge = profiles[wire_index].edges[boundary_edge];
             const auto& curve_id = edge_sources[wire_index][boundary_edge];
             const auto& generated = revolution.Generated(edge);
             for (TopTools_ListIteratorOfListOfShape iterator(generated);

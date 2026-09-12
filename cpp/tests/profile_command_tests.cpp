@@ -97,10 +97,12 @@ void extrusion(const kernel::OcctKernel& kernel,fs::path directory){
 void thin_and_cut(const kernel::OcctKernel& kernel,fs::path directory){
     Fixture f(kernel,directory);f.run("new",{{"type","part"},{"name","profile-thin"}});
     const auto sketch=f.sketch();f.run("sketch.circle.create",{{"sketch",sketch},{"center",{0,0}},{"radius_mm",5}});
-    f.reject("extrusion.create",{{"sketch",sketch},{"result_type","thin"},{"thin_thickness_mm",1},{"length_forward_mm",3}},"unsupported_operation");
-    const auto made=f.run("extrusion.create",{{"sketch",sketch},{"length_forward_mm",3}});
-    near(f.volume(),75*std::numbers::pi);
-    f.reject("extrusion.set",{{"container",made.at("container")},{"result_type","thin"}},"unsupported_operation");
+    const auto made=f.run("extrusion.create",{{"sketch",sketch},{"result_type","thin"},{"thin_thickness_mm",1},{"length_forward_mm",3}});
+    near(f.volume(),27*std::numbers::pi);
+    f.run("extrusion.set",{{"container",made.at("container")},{"thin_mode","other_side"}});near(f.volume(),33*std::numbers::pi);
+    f.run("undo");near(f.volume(),27*std::numbers::pi);f.run("redo");near(f.volume(),33*std::numbers::pi);
+    f.reject("extrusion.set",{{"container",made.at("container")},{"thin_mode","one_side"},{"thin_thickness_mm",8}},"profile_rejected");
+    f.run("extrusion.set",{{"container",made.at("container")},{"result_type","solid"}});near(f.volume(),75*std::numbers::pi);
     f.run("new",{{"type","part"},{"name","profile-cut"}});f.run("box.create",{{"length_mm","10"},{"width_mm","10"},{"height_mm","10"}});
     const auto cut_sketch=f.rectangle(2,2,2,2);
     const auto cut=f.run("extrusion.create",{{"sketch",cut_sketch},{"combine","subtract"},{"end_forward","through_all"}});near(f.volume(),980);
@@ -115,7 +117,8 @@ void revolution(const kernel::OcctKernel& kernel,fs::path directory){
     const auto axis=f.line(sketch,0,0,0,10);f.run("sketch.segment.centerline",{{"sketch",sketch},{"segment",axis},{"centerline",true}});
     const auto made=f.run("revolution.create",{{"sketch",sketch},{"axis",axis}});const auto id=made.at("container").get<std::string>();near(f.volume(),120*std::numbers::pi);
     require(made.at("axis")==axis,"Revolution did not use exact native centerline identity");
-    f.reject("revolution.set",{{"container",id},{"result_type","thin"}},"unsupported_operation");
+    f.run("revolution.set",{{"container",id},{"result_type","thin"},{"thin_thickness_mm",.25},{"thin_mode","symmetric"}});near(f.volume(),36*std::numbers::pi);
+    f.run("revolution.set",{{"container",id},{"result_type","solid"}});near(f.volume(),120*std::numbers::pi);
     f.run("revolution.set",{{"container",id},{"angle_degrees",90}});near(f.volume(),30*std::numbers::pi);
     f.run("revolution.set",{{"container",id},{"extent","two_sides"},{"angle_degrees",60},{"angle_reverse_degrees",30}});near(f.volume(),30*std::numbers::pi);
     f.run("revolution.set",{{"container",id},{"extent","symmetric"},{"angle_degrees",45}});near(f.volume(),30*std::numbers::pi);
@@ -130,5 +133,5 @@ void revolution(const kernel::OcctKernel& kernel,fs::path directory){
 }
 int main(){try{const auto root=fs::canonical(fs::temp_directory_path());const auto directory=root/("zima-profile-commands-"+document::PartDocument::create_default().document_id);
     require(fs::create_directory(directory),"Cannot create fixture directory");kernel::OcctKernel kernel;front_reference();extrusion(kernel,directory);thin_and_cut(kernel,directory);revolution(kernel,directory);
-    require(directory.parent_path()==root,"Unexpected cleanup path");fs::remove_all(directory);std::cout<<"Profile commands: native ownership, exact solid volumes, rejected unsupported Thin, cuts, dimensions, locks, atomic errors and Undo/Redo passed\n";return 0;
+    require(directory.parent_path()==root,"Unexpected cleanup path");fs::remove_all(directory);std::cout<<"Profile commands: native ownership, exact solid volumes, Thin walls, cuts, dimensions, locks, atomic errors and Undo/Redo passed\n";return 0;
 }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

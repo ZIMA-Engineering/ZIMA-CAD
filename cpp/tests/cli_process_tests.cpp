@@ -584,6 +584,13 @@ int main(int argc,char** argv){
             std::vector<kernel::BodyResult> cache;const auto native=document::PartDocument::load(project/file,&cache);
             require(native.history.front().id==id && native.history.front().name=="Profil žluťoučký" &&
                 std::abs(cache.back().volume-(kind=="extrusion"?160:30*std::acos(-1.0)))<1e-6,"CLI profile persistence lost its solid or identity");
+            const auto thin=command({{"command",kind+".set"},{"arguments",{{"container",id},{"result_type","thin"},{"thin_thickness_mm",.25},{"thin_mode","symmetric"}}}});
+            result=launch(executable,root,common+QStringList{"--command",QString::fromStdString("open "+file),"--command",thin,
+                "--command","undo","--command","redo","--command","save"});
+            require(result.exit_code==0,"CLI Thin profile set/Undo/Redo failed");
+            cache.clear();const auto thin_document=document::PartDocument::load(project/file,&cache);
+            require(thin_document.history.front().id==id && std::abs(cache.back().volume-(kind=="extrusion"?48:9*std::acos(-1.0)))<1e-6,
+                "CLI Thin profile did not persist the calculated wall");
         }
         std::cout<<"CLI processes: native files, Unicode/config, scripts/stdin, errors, streaming and explicit geometry calculation passed\n";
         return 0;

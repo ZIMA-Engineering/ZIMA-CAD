@@ -9,7 +9,7 @@ její skica zůstane v témže kontejneru. Nejde o kopii skici.
 ## Zadání
 
 Nejprve vytvořte skicu pomocí `sketch.create` a doplňte uzavřený profil
-skicovými příkazy. Následující ID pocházejí z výsledků příkazů, nejsou to
+skicovými příkazy; pro Thin může být profil i otevřený. Následující ID pocházejí z výsledků příkazů, nejsou to
 názvy ve stromu ani pořadová čísla hran.
 
 ```json
@@ -49,6 +49,35 @@ zámky, platnost umístění a uložené cíle zakončení. Může číst i jin�
 Part přes `document`, rovněž během otevřených Vlastností. Neprovádí výpočet,
 řešení referencí, změnu historie ani načítání závislostí.
 
+## Tenkostěnný výsledek
+
+`result_type` volí `solid` nebo `thin`. Thin používá `thin_thickness_mm`
+a `thin_mode` (`one_side`, `other_side`, `symmetric`). Změna typu či strany
+počítá skutečné těleso a vstupuje do výpočetního otisku; dřívější chyba,
+kdy se přes Thin náhled ukládal plný objem, je odstraněna z modelového výpočtu.
+
+```json
+{"command":"extrusion.set","arguments":{"container":"<container-ID>","result_type":"thin","thin_thickness_mm":1,"thin_mode":"symmetric"}}
+```
+
+Uzavřená kontura tvoří stěnu mezi dvěma odsazenými obrysy. Otevřená kontura
+se uzavře na svých dvou původních koncových bodech. Zakončení mají vlastní
+identitu odvozenou od těchto bodů, boky od původních křivek. Vnější a vnitřní
+strana uzavřeného profilu si zachovávají identitu při změně tloušťky i strany.
+Náhled používá stejné pořadí profilu a počáteční bod jako výpočet, bez OCCT.
+
+Kružnice zůstává analytická; u samostatné spline se její matematický offset
+převede na jednu B-spline s kontrolovanou odchylkou nejvýše 1e-7 mm.
+Nepřijatelný výsledek aproximace je
+odmítnut. Hrana si uchová původní identitu a ve vypočteném dokumentu se uloží
+její křivková data, nikoli jen zobrazovací lomená čára.
+
+Thin používá kontury bez vnitřních otvorů; příliš silná stěna, zborcený obrys,
+nesouvislá dráha nebo odsazení měnící podporovanou topologii vrací chybu.
+Další omezení odsazování navazujících křivek jsou stejná jako u společného
+Thin výpočtu pro tažení. Příkaz chybnou geometrii nevynechá ani nenahradí
+plným výsledkem.
+
 ## Transakce a současné hranice
 
 Mutace vyžaduje aktivní Part a aktivní vlastnící těleso. Během GUI editace je
@@ -60,12 +89,6 @@ Závislé sestavy se automaticky neregenerují.
 
 - Příkazové zadávání nových cílů `up_to` zatím chybí. Existující cíle se čtou
   a zachovávají; `up_to` bez platné reference je odmítnuto.
-- Testy odhalily, že původní výpočet Extrusion/Revolution ignoruje Thin,
-  přestože náhled jeho parametry zobrazuje. Společné potvrzení nyní vrací
-  `unsupported_operation` místo uložení plného tělesa jako tenkostěnného.
-  Oprava skutečného výpočtu Thin je následující otevřený krok. Argumenty
-  `result_type`, `thin_thickness_mm`, `thin_mode` i uložené hodnoty jsou
-  dostupné; Thin zatím nelze potvrdit. Totéž platí pro nové společné OK v GUI.
 - Řezy vlastněné Assembly zatím používají svou dosavadní samostatnou cestu.
   Vnořená aktivace a příkazové sestavové řezy jsou další část celkové CLI.
 
@@ -86,6 +109,30 @@ edituje je jejich skutečnými Vlastnostmi a porovnává uložený objem.
 reference před mazáním staré orientační položky a ochrana před převzetím
 skici jiného prvku mají samostatné regresní testy. Závěrečný běh jejich
 modelových a GUI cest prošel **9/9** (112,75 s),
-`build/profile-final-tests.log`. Zahrnuje i přeložené odmítnutí Thin v obou
-skutečných dialozích a zachování dokumentu. Oba běžné programy jsou sestavené;
+`build/profile-final-tests.log`. Tato předchozí etapa ještě Thin odmítala;
+navazující etapa jej ověřuje jako skutečné stěny. Oba běžné programy jsou sestavené;
 `build/profile-final-build.log`.
+
+
+Navazující test Thin porovnává objemy válcové stěny, obdélníkové stěny,
+otevřené úsečky, oblouku, spline a rotace s nezávislým výpočtem. U spline
+používá numerický integrál délky podkladové kubiky. Ověřuje změny tloušťky,
+strany a směru, shodu náhledu s tělesem, nativní uložení, otisk cache a původ
+plošných referencí. Společné geometrické a 3D Sweep regrese prošly **3/3**
+(17,70 s), `build/thin-profile-spline-tests.log`.
+
+Úplná Windows Release sada po zpřístupnění Thin v GUI i CLI ověřila **90/91**
+testů (427,39 s), `build/thin-profile-full-tests.log`. Oba programy a všechny
+testy byly sestaveny (`build/thin-profile-full-build.log`). Jediné selhání byl
+10sekundový timeout automatického výběru DXF při editaci profilu. Samostatný
+běh stejného sestavení prošel **1/1** (9,07 s),
+`build/thin-profile-dxf-recheck.log`. Po doplnění diagnostiky timeoutu prošly
+**tři opakované běhy** (27,75 s), `build/thin-profile-dxf-repeat-tests.log`.
+Příčina ojedinělého timeoutu nebyla reprodukována; nepovažujeme ji za opravenou
+chybu importního algoritmu. Další úplná sada ji musí nadále pokrývat.
+
+Zpřísněná kontrola spline a obráceného směru prošla **1/1** (0,52 s),
+`build/thin-profile-precision-tests.log`: odchylka objemu oproti nezávislému
+integrálu byla **1,990028e-9 mm³**, povolená mez je 1e-4 mm³. Odsazená hrana
+obsahuje uloženou přesnou B-spline; změna směru zachová rodiče jejích ploch.
+Závěrečné GUI/testovací sestavení: `build/thin-profile-final-build.log`.

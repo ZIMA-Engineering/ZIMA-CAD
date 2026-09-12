@@ -40,7 +40,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Skicář: geometrie | Základ hotov | 21 příkazů: samostatné a vložené skici, body, úsečky, kružnice, oblouky, elipsy, B-spline, obdélníky, mnohoúhelníky, posun a pomocná geometrie; text create/get/set s nativním písmem a spline get/set hotovy; DXF do vložených profilů hotov; zbývá kontrola dalších variant podle GUI |
 | Skicář: vazby a operace | Vazby/kóty/solver/offset/trim/mirror hotovy | Offset create/get/set/free, úplný podklad a zachování intervalů, trim podle průsečíků, mirror, orientovaný obdélník, tečny a zaoblení rohu; všech 15 druhů vazeb, odstranění a solver; 16 druhů kót včetně vlastností, popisků a mazání; uvolnění externích referencí hotovo |
 | Externí reference skici | Part a kořenová Assembly hotovy | Původní geometrie, přesná projekce, aktualizace, odpojení a zachování trimu; zbývá příkazový kontext Partu aktivovaného v sestavě |
-| Vytažení a rotace | Plné profily a směry hotovy | `extrusion/revolution.create/get/set`, vlastněná skica a společné OK; zbývá skutečný výpočet Thin, zadávání cílových referencí a sestavové řezy |
+| Vytažení a rotace | Plné i tenkostěnné profily a směry hotovy | `extrusion/revolution.create/get/set`, vlastněná skica a společné OK; zbývá zadávání cílových referencí a sestavové řezy |
 | Tažení | Zbývá | Sweep 2D/3D, loft a helical včetně profilů a drah |
 | Otvory a závity | Zbývá | Hole, Thread, ShaftThread, DrillPoint a reference |
 | Zaoblení, zkosení, skořepina | Zbývá | Výběr skutečného vstupního tělesa a sdílené transakce |
@@ -561,7 +561,22 @@ prošlo **9/9** dotčených regresí (112,75 s), `build/profile-final-tests.log`
 Oba běžné programy i testy jsou přeložené. Formáty ani start šablony se nemění.
 
 Testy zároveň prokázaly starou chybu Thin: plný válec místo stěny. Nové společné
-OK/CLI nyní Thin výslovně odmítá bez změny dokumentu, dokud nebude opraven jeho
+OK/CLI v této předchozí etapě Thin výslovně odmítalo bez změny dokumentu, dokud nebude opraven jeho
 skutečný výpočet. Ten je následující krok; dále zbývá zadávání cílů zakončení
 a ostatní řádky tabulky. Úplná CLI tedy ještě hotová není. Podrobnosti:
 [PROFILE_COMMANDS.md](PROFILE_COMMANDS.md).
+
+
+Etapa Thin opravuje skutečný výpočet stěn pro vytažení a rotaci. Sdílí přesné
+odsazení profilů s tažením, podporuje otevřené konce i uzavřené kontury,
+zachovává původní identitu křivek/bodů a souhlas náhledu s vypočteným tělesem.
+Samostatná spline se aproximuje s kontrolovanou odchylkou nejvýše 1e-7 mm a
+uloží jako B-spline, ne pouze zobrazovací lomená čára. Katalog zůstává na **164**.
+
+Úplná sada ověřila **90/91** (427,39 s); ojediněle vypršel limit automatického
+souborového dialogu DXF. Stejný scénář následně prošel samostatně a po doplnění
+diagnostiky třikrát za sebou. Příčina timeoutu není potvrzena. Všechny nové
+Thin modelové, CLI i GUI kontroly prošly; zpřísněná kontrola spline naměřila
+odchylku objemu 1,990028e-9 mm³. Podrobnosti, omezení a logy:
+[PROFILE_COMMANDS.md](PROFILE_COMMANDS.md). Nativní formát ani start šablony
+se nemění. Pokračujeme cílovými referencemi vysunutí a dalšími řádky tabulky.

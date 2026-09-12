@@ -2272,15 +2272,21 @@ zima::kernel::ExtrusionRequest extrusion_request(
     return finalize(std::move(request));
 }
 
+zima::kernel::ExtrusionRequest body_profile_request(
+    const zima::sketcher::Sketch&, double, ExtrusionDirection,
+    ProfileResultType, double, ThinMode);
+
 zima::kernel::RevolutionRequest revolution_request(
     const zima::sketcher::Sketch& sketch,
-    const std::string& axis_segment_id, double angle_degrees) {
+    const std::string& axis_segment_id, double angle_degrees,
+    ProfileResultType result_type = ProfileResultType::Solid,
+    double thickness = 1.0, ThinMode thin_mode = ThinMode::OneSide) {
     if (!std::isfinite(angle_degrees) || angle_degrees <= 0.0 ||
         angle_degrees > 360.0) {
         throw std::runtime_error("Revolution angle must be in (0, 360] degrees");
     }
-    const auto source = extrusion_request(
-        sketch, 1.0, ExtrusionDirection::Forward);
+    const auto source = body_profile_request(
+        sketch, 1.0, ExtrusionDirection::Forward, result_type, thickness, thin_mode);
     zima::kernel::RevolutionRequest request;
     request.outer_profile = source.outer_profile;
     request.inner_profiles = source.inner_profiles;
@@ -2293,6 +2299,7 @@ zima::kernel::RevolutionRequest revolution_request(
     request.outer_vertex_source_ids = source.outer_vertex_source_ids;
     request.inner_vertex_source_ids = source.inner_vertex_source_ids;
     request.profile_normal = source.direction;
+    request.wall = source.wall;
     auto axis = sketch.segments.end();
     if (!axis_segment_id.empty()) {
         axis = std::find_if(sketch.segments.begin(), sketch.segments.end(),
@@ -5815,6 +5822,15 @@ std::vector<zima::kernel::ViewerEdge> profile_preview_source_edges(
     return edges;
 }
 
+template <typename Request>
+std::optional<zima::kernel::Vec3> profile_wall_start(
+    const zima::sketcher::Sketch& sketch, const Request& request) {
+    if (!request.wall || request.wall->end_point_id.empty() || request.outer_vertex_source_ids.empty()) return {};
+    const auto* point=sketch.find_point(request.outer_vertex_source_ids.front());
+    if (!point) throw std::runtime_error("Thin profile is missing its native endpoint");
+    return sketch.world_point(point->x,point->y);
+}
+
 std::vector<zima::kernel::ViewerEdge> thin_profile_preview_edges(
         const zima::sketcher::Sketch& evaluated_profile,
         double thickness, ThinMode mode, bool canonical_winding = false,
@@ -5987,8 +6003,9 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::extrusion_preview_edges(
             ? parameters.end_condition_forward == EndCondition::ThroughAll
             : parameters.end_condition_reverse == EndCondition::ThroughAll);
     const auto evaluated_profile = sketch->evaluated_profile_sketch();
-    auto request = extrusion_request(evaluated_profile,
-        forward + reverse, parameters.direction);
+    auto request = body_profile_request(evaluated_profile,
+        forward + reverse, parameters.direction, parameters.result_type,
+        parameters.thin_thickness, parameters.thin_mode);
     const double length = std::sqrt(request.direction.x * request.direction.x +
                                     request.direction.y * request.direction.y +
                                     request.direction.z * request.direction.z);
@@ -6081,7 +6098,7 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::extrusion_preview_edges(
     const auto profile_edges = parameters.result_type == ProfileResultType::Thin
         ? thin_profile_preview_edges(evaluated_profile,
               parameters.thin_thickness,
-              parameters.thin_mode)
+              parameters.thin_mode, true, profile_wall_start(evaluated_profile,request))
         : profile_preview_source_edges(evaluated_profile);
     for (const auto& source : profile_edges) {
         if (source.points.size() < 2) continue;
@@ -6750,7 +6767,8 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::revolution_preview_edges(
     const auto evaluated_profile = sketch->evaluated_profile_sketch();
     auto request = revolution_request(
         evaluated_profile, parameters.axis_segment_id,
-        parameters.angle_degrees + reverse);
+        parameters.angle_degrees + reverse, parameters.result_type,
+        parameters.thin_thickness, parameters.thin_mode);
     if (parameters.direction == ExtrusionDirection::Reverse) {
         request.axis_direction.x = -request.axis_direction.x;
         request.axis_direction.y = -request.axis_direction.y;
@@ -6790,7 +6808,7 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::revolution_preview_edges(
     const auto profile_edges = parameters.result_type == ProfileResultType::Thin
         ? thin_profile_preview_edges(evaluated_profile,
               parameters.thin_thickness,
-              parameters.thin_mode)
+              parameters.thin_mode, true, profile_wall_start(evaluated_profile,request))
         : profile_preview_source_edges(evaluated_profile);
     for (const auto& source : profile_edges) {
         if (source.points.size() < 2) continue;
@@ -7161,6 +7179,29 @@ zima::kernel::ExtrusionRequest open_sweep_profile(const zima::sketcher::Sketch& 
         }
     }
     result.outer_profile=std::move(profile);return result;
+}
+
+zima::kernel::ExtrusionRequest body_profile_request(
+    const zima::sketcher::Sketch& sketch, double height, ExtrusionDirection direction,
+    ProfileResultType result_type, double thickness, ThinMode mode) {
+    if (result_type != ProfileResultType::Thin) return extrusion_request(sketch,height,direction);
+    require_positive(thickness,"profile thickness");
+    if (std::ranges::any_of(sketch.offsets,[](const auto& value){return value.broken;}) ||
+        std::ranges::any_of(sketch.curve_trims,[](const auto& value){return value.broken;}))
+        throw std::runtime_error("Sketch contains an unresolved offset or trim intersection");
+    zima::kernel::ExtrusionRequest request;
+    std::string end;
+    try {request=extrusion_request(sketch,height,direction);}
+    catch (const std::exception&) {
+        request=open_sweep_profile(sketch,end);
+        const double sign=direction==ExtrusionDirection::Reverse?-1.0:1.0;
+        const auto normal=sketch.normal();
+        request.direction={normal.x*height*sign,normal.y*height*sign,normal.z*height*sign};
+        request.first_cap_is_start=sign>0;
+    }
+    const double first=mode==ThinMode::OneSide?0.0:mode==ThinMode::OtherSide?-thickness:-thickness/2;
+    request.wall=zima::kernel::ProfileWall{first,first+thickness,std::move(end)};
+    return request;
 }
 }
 
@@ -8459,8 +8500,9 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                 : parameters.extent_mode == ProfileExtentMode::Symmetric
                     ? forward
                     : parameters.length_reverse;
-            auto extrusion = extrusion_request(
-                *sketch, forward + reverse, parameters.direction);
+            auto extrusion = body_profile_request(
+                *sketch, forward + reverse, parameters.direction, parameters.result_type,
+                parameters.thin_thickness, parameters.thin_mode);
             extrusion.start_offset = -reverse;
             const auto condition = legacy_definition
                 ? parameters.extent == ExtrusionExtent::ThroughAll
@@ -8541,7 +8583,8 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                     ? parameters.angle_degrees : parameters.angle_reverse;
             auto revolution = revolution_request(
                 *sketch, parameters.axis_segment_id,
-                parameters.angle_degrees + reverse);
+                parameters.angle_degrees + reverse, parameters.result_type,
+                parameters.thin_thickness, parameters.thin_mode);
             revolution.start_angle_degrees = -reverse;
             if (parameters.direction == ExtrusionDirection::Reverse) {
                 revolution.first_cap_is_start = false;

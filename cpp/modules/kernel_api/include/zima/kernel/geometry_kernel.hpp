@@ -441,6 +441,13 @@ struct WedgeRequest {
     Vec3 rotation_degrees;
 };
 
+// Derived from the persisted feature's thickness and side, never from tessellation.
+struct ProfileWall {
+    double first_offset{};
+    double second_offset{};
+    std::string end_point_id; // Native final point for an open profile; empty for a closed loop.
+};
+
 struct ExtrusionRequest {
     enum class Extent { Blind, UpToPlane, UpToSurface, ThroughAll };
     struct PolygonProfile {
@@ -513,6 +520,7 @@ struct ExtrusionRequest {
     ProfileLoop outer_profile{PolygonProfile{}};
     std::vector<ProfileLoop> inner_profiles;
     std::vector<ProfileRegion> additional_profile_regions;
+    std::optional<ProfileWall> wall;
     bool first_cap_is_start{true};
     Vec3 direction{0.0, 0.0, 10.0};
     double start_offset{};
@@ -547,6 +555,7 @@ struct RevolutionRequest {
     // Stable semantic cap ownership. Reversing the rotation axis changes
     // which OCCT boundary is geometrically first, but must not exchange the
     // persisted ZIMA start/end identities used by downstream references.
+    std::optional<ProfileWall> wall;
     bool first_cap_is_start{true};
     double start_angle_degrees{};
     double angle_degrees{360.0};
@@ -1110,6 +1119,13 @@ struct PlacedBody {
                         u64(std::bit_cast<std::uint64_t>(value));
                     }
                 }
+                if (primitive.wall) {
+                    for (const unsigned char c : std::string_view("profile-wall-v1")) byte(c);
+                    u64(std::bit_cast<std::uint64_t>(primitive.wall->first_offset));
+                    u64(std::bit_cast<std::uint64_t>(primitive.wall->second_offset));
+                    u64(primitive.wall->end_point_id.size());
+                    for (const unsigned char c : primitive.wall->end_point_id) byte(c);
+                }
             } else if constexpr (std::is_same_v<Request, FeatureGroupRequest>) {
                 u64(primitive.children.size());
                 std::vector<HistoryOperation> child_operations;
@@ -1272,6 +1288,13 @@ struct PlacedBody {
                     u64(std::bit_cast<std::uint64_t>(value));
                 }
                 byte(primitive.first_cap_is_start);
+                if (primitive.wall) {
+                    for (const unsigned char c : std::string_view("profile-wall-v1")) byte(c);
+                    u64(std::bit_cast<std::uint64_t>(primitive.wall->first_offset));
+                    u64(std::bit_cast<std::uint64_t>(primitive.wall->second_offset));
+                    u64(primitive.wall->end_point_id.size());
+                    for (const unsigned char c : primitive.wall->end_point_id) byte(c);
+                }
             } else if constexpr (std::is_same_v<Request, Sweep3DRequest>) {
                 const auto append_string = [&](const std::string& value) {
                     u64(value.size());

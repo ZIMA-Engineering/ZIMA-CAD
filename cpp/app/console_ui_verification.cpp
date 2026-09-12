@@ -18,7 +18,6 @@
 #include <QAction>
 #include <QDockWidget>
 #include <QLineEdit>
-#include <QLabel>
 #include <QPlainTextEdit>
 #include <QDialog>
 #include <QDialogButtonBox>
@@ -763,12 +762,14 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
             dialog=edit();QComboBox* result_type=nullptr;
             for(auto* combo:dialog->findChildren<QComboBox*>())if(combo->findData("thin")>=0){result_type=combo;break;}
             check(result_type,"Profile result type missing");result_type->setCurrentIndex(result_type->findData("thin"));
+            dialog->findChild<QDoubleSpinBox*>("extrusionThinThickness")->setValue(.25);
+            for(auto* combo:dialog->findChildren<QComboBox*>())if(combo->findData("other_side")>=0)combo->setCurrentIndex(combo->findData("symmetric"));
             dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
-            const auto message=QObject::tr("Thin profile calculation is not implemented; the document was not changed.");
-            const auto labels=dialog->findChildren<QLabel*>();
-            check(dialog->isVisible() && get().at("result_type")=="solid" &&
-                std::ranges::any_of(labels,[&](const auto* label){return label->text()==message;}),"GUI Thin rejection is missing, untranslated or changed the document");
-            dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
+            check(get().at("result_type")=="thin" && get().at("thin_thickness_mm")==.25,"GUI Thin OK did not calculate the wall");
+            run("save");std::vector<kernel::BodyResult> thin_cache;
+            static_cast<void>(document::PartDocument::load(directory/(stem+"-"+kind+".prtz"),&thin_cache));
+            check(std::abs(thin_cache.back().volume-(kind=="extrusion"?30:36*std::acos(-1.0)))<1e-6,"GUI Thin OK saved a solid instead of a wall");
+            run("undo");check(get().at("result_type")=="solid","Undo did not restore the solid profile");
             dialog=edit();dialog->findChild<QDoubleSpinBox*>(field)->setValue(changed);
             dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
             check(get().at(key)==changed,"Profile GUI OK did not commit shared operation");

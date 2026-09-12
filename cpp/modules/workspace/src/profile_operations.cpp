@@ -91,10 +91,6 @@ bool is_profile(document::FeatureKind kind) {
 void validate_profile(const document::HistoryContainer& value) {
     if (!is_profile(value.feature_kind)) throw ProfileOperationError("wrong_feature", "This container is not an Extrusion or Revolution.");
     const bool extrusion = value.feature_kind == document::FeatureKind::Extrusion;
-    // The existing profile kernel path currently ignores Thin parameters.
-    // Reject explicit OK instead of committing a full solid as a thin wall.
-    if ((extrusion ? value.extrusion.result_type : value.revolution.result_type) == document::ProfileResultType::Thin)
-        throw ProfileOperationError("unsupported_operation", "Thin profile calculation is not implemented; the document was not changed.");
     const auto number = [](double value, double minimum, double maximum) {
         if (!std::isfinite(value) || value < minimum || value > maximum)
             throw ProfileOperationError("invalid_arguments", "Profile dimension is outside the supported range.");

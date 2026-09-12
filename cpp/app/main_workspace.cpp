@@ -2993,7 +2993,13 @@ int verify_owned_profile_external_reference(QApplication& application,const std:
                     QMetaObject::invokeMethod(dialog,"accept",Qt::DirectConnection);
                 }else if(auto* message=qobject_cast<QMessageBox*>(QApplication::activeModalWidget())){failed=true;std::cerr<<message->text().toStdString()<<'\n';message->accept();}
             });
-            QTimer timeout;timeout.setSingleShot(true);QObject::connect(&timeout,&QTimer::timeout,[&]{failed=true;if(auto* modal=qobject_cast<QDialog*>(QApplication::activeModalWidget()))modal->reject();});
+            QTimer timeout;timeout.setSingleShot(true);QObject::connect(&timeout,&QTimer::timeout,[&]{
+                failed=true;auto* modal=QApplication::activeModalWidget();
+                std::cerr<<"Pending DXF timeout: scenario="<<scenario<<", selected="<<selected<<", exists="<<std::filesystem::exists(source)
+                    <<", modal="<<(modal?modal->metaObject()->className():"none")<<'\n';
+                if(auto* file=qobject_cast<QFileDialog*>(modal))std::cerr<<"Pending DXF chooser: "<<file->selectedFiles().join(" | ").toStdString()<<'\n';
+                if(auto* dialog=qobject_cast<QDialog*>(modal))dialog->reject();
+            });
             chooser.start();timeout.start(10000);window.findChild<QAction*>("importDocumentAction")->trigger();chooser.stop();timeout.stop();flush();
             if(!verify(selected&&!failed,"DXF import into pending profile failed"))return 1;
         }
