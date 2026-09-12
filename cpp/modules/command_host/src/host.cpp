@@ -57,6 +57,7 @@ Result Host::execute_text(std::string_view text){return run([&]{return dispatche
 Result Host::execute(const Json& request){return run([&]{return dispatcher_.execute(request);});}
 void Host::register_commands(){
     register_primitive_commands();
+    register_profile_commands();
     register_document_commands();
     register_body_commands();
     register_history_commands();

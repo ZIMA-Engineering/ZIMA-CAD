@@ -1,0 +1,21 @@
+#pragma once
+#include <zima/workspace/model_calculation.hpp>
+#include <stdexcept>
+
+namespace zima::workspace {
+class ProfileOperationError : public std::runtime_error {
+public:
+    ProfileOperationError(const char* code, const char* message) : std::runtime_error(message), code(code) {}
+    const char* code;
+};
+enum class ProfileEditMode { Create, Replace, TransformSketch };
+void normalize_owned_profile_front_references(std::vector<document::ConstructionReference>&,
+    bool preserve_front_through_origin_triad = false);
+[[nodiscard]] std::string revolution_axis_segment_id(const sketcher::Sketch&, const std::string& configured_id = {});
+[[nodiscard]] document::HistoryContainer profile_from_sketch(const document::PartDocument&,
+    const std::string& sketch_id, document::FeatureKind);
+// Same explicit OK transaction for GUI and CLI. A profile owns its Sketch;
+// numerical equality alone cannot prove that its geometry is unchanged.
+void commit_profile(Workspace&, const kernel::OcctKernel&, const std::string& document_id,
+    document::HistoryContainer, ProfileEditMode, const std::optional<sketcher::Sketch>& owned_sketch = {});
+} // namespace zima::workspace

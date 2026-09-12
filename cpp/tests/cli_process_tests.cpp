@@ -557,6 +557,34 @@ int main(int argc,char** argv){
                 curve.curve_points[0].curve_tangent==document::Curve3DTangentMode::PositiveY && document::curve3d_route(curve).segments.size()==3,
                 "Native CLI curve roundtrip lost geometry or point identity");
         }
+        for (const std::string kind : {"extrusion", "revolution"}) {
+            const auto file="cli-profile-"+kind+".prtz";
+            result=launch(executable,root,common+QStringList{"--stdin"},QByteArray::fromStdString(
+                "new part cli-profile-"+kind+"\nsketch.create Profile XY\nsave\n"));
+            require(result.exit_code==0,"CLI profile fixture failed");
+            const auto sketch=result.results()[1].at("data").at("sketch");
+            const auto rectangle=command({{"command","sketch.rectangle.create"},{"arguments",{{"sketch",sketch},{"first",{2,0}},{"second",{4,10}}}}});
+            const auto line=command({{"command","sketch.segment.create"},{"arguments",{{"sketch",sketch},{"first",{0,0}},{"second",{0,10}}}}});
+            result=launch(executable,root,common+QStringList{"--command",QString::fromStdString("open "+file),
+                "--command",rectangle,"--command",line,"--command","save"});
+            require(result.exit_code==0,"CLI profile geometry failed");
+            const auto axis=result.results()[2].at("data").at("geometry");
+            const auto centerline=command({{"command","sketch.segment.centerline"},{"arguments",{{"sketch",sketch},{"segment",axis},{"centerline",true}}}});
+            Json args={{"sketch",sketch},{"name","Profil žluťoučký"}};
+            if(kind=="extrusion")args["length_forward_mm"]=5;else args["axis"]=axis;
+            result=launch(executable,root,common+QStringList{"--command",QString::fromStdString("open "+file),"--command",centerline,
+                "--command",command({{"command",kind+".create"},{"arguments",args}}),"--command","save"});
+            require(result.exit_code==0,"CLI profile creation failed");
+            const auto id=result.results()[2].at("data").at("container").get<std::string>();
+            Json patch={{"container",id},{kind=="extrusion"?"length_forward_mm":"angle_degrees",kind=="extrusion"?8:90}};
+            result=launch(executable,root,common+QStringList{"--command",QString::fromStdString("open "+file),
+                "--command",command({{"command",kind+".set"},{"arguments",patch}}),"--command","undo","--command","redo",
+                "--command","save","--command",command({{"command",kind+".get"},{"arguments",{{"container",id}}}})});
+            require(result.exit_code==0 && result.results()[5].at("data").at("sketch")==sketch,"CLI profile set/get/Undo/Redo failed");
+            std::vector<kernel::BodyResult> cache;const auto native=document::PartDocument::load(project/file,&cache);
+            require(native.history.front().id==id && native.history.front().name=="Profil žluťoučký" &&
+                std::abs(cache.back().volume-(kind=="extrusion"?160:30*std::acos(-1.0)))<1e-6,"CLI profile persistence lost its solid or identity");
+        }
         std::cout<<"CLI processes: native files, Unicode/config, scripts/stdin, errors, streaming and explicit geometry calculation passed\n";
         return 0;
     }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}

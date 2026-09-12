@@ -18,6 +18,7 @@
 #include <QAction>
 #include <QDockWidget>
 #include <QLineEdit>
+#include <QLabel>
 #include <QPlainTextEdit>
 #include <QDialog>
 #include <QDialogButtonBox>
@@ -729,6 +730,57 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
             static_cast<int>(document::Curve3DType::InterpolatingSpline),"GUI did not consume CLI spline type");
         curve_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
         json_run("close",{{"discard",true}});run(QString::fromStdString(activate.dump()));flush();
+        for(const std::string kind:{"extrusion","revolution"}) {
+            run(QString::fromStdString("new part "+stem+"-"+kind));flush();
+            const auto sketch=json_run("sketch.create",{{"name","Profile"},{"plane","XY"}}).data.at("sketch");
+            json_run("sketch.rectangle.create",{{"sketch",sketch},{"first",{2,0}},{"second",{4,10}}});
+            commands::Json args={{"sketch",sketch}};
+            if(kind=="extrusion")args["length_forward_mm"]=5;
+            else {
+                const auto axis=json_run("sketch.segment.create",{{"sketch",sketch},{"first",{0,0}},{"second",{0,10}}}).data.at("geometry");
+                json_run("sketch.segment.centerline",{{"sketch",sketch},{"segment",axis},{"centerline",true}});args["axis"]=axis;
+            }
+            const auto created=json_run((kind+".create").c_str(),args).data;flush();
+            const auto id=created.at("container").get<std::string>();
+            const auto* field=kind=="extrusion"?"extrusionHeight":"revolutionAngle";
+            const auto* key=kind=="extrusion"?"length_forward_mm":"angle_degrees";
+            const double initial=kind=="extrusion"?5:360,changed=kind=="extrusion"?8:90;
+            const auto edit=[&]() {
+                QTreeWidgetItem* item=nullptr;
+                for(QTreeWidgetItemIterator it(model_tree);*it;++it)
+                    if((*it)->data(0,Qt::UserRole).toString().toStdString()==id){item=*it;break;}
+                check(item,"CLI-created profile missing from tree");window.show_tree_item_properties(item);flush();
+                for(auto* dialog:window.findChildren<QDialog*>())if(dialog->isVisible()&&dialog->findChild<QDoubleSpinBox*>(field))return dialog;
+                throw std::runtime_error("Profile Properties missing");
+            };
+            const auto get=[&](){return json_run((kind+".get").c_str(),{{"container",id}}).data;};
+            auto* dialog=edit();check(std::abs(dialog->findChild<QDoubleSpinBox*>(field)->value()-initial)<1e-8,"Properties lost CLI profile dimension");
+            commands::Json patch={{"command",kind+".set"},{"arguments",{{"container",id},{key,changed}}}};
+            check(window.execute_console_command(QString::fromStdString(patch.dump())).code=="editing_in_progress","CLI overwrote pending profile dialog");
+            dialog->findChild<QDoubleSpinBox*>(field)->setValue(changed);
+            dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
+            check(get().at(key)==initial,"Profile Cancel committed a change");
+            dialog=edit();QComboBox* result_type=nullptr;
+            for(auto* combo:dialog->findChildren<QComboBox*>())if(combo->findData("thin")>=0){result_type=combo;break;}
+            check(result_type,"Profile result type missing");result_type->setCurrentIndex(result_type->findData("thin"));
+            dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+            const auto message=QObject::tr("Thin profile calculation is not implemented; the document was not changed.");
+            const auto labels=dialog->findChildren<QLabel*>();
+            check(dialog->isVisible() && get().at("result_type")=="solid" &&
+                std::ranges::any_of(labels,[&](const auto* label){return label->text()==message;}),"GUI Thin rejection is missing, untranslated or changed the document");
+            dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
+            dialog=edit();dialog->findChild<QDoubleSpinBox*>(field)->setValue(changed);
+            dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+            check(get().at(key)==changed,"Profile GUI OK did not commit shared operation");
+            run("undo");check(get().at(key)==initial,"Profile GUI Undo lost original dimension");
+            json_run((kind+".set").c_str(),{{"container",id},{key,changed}});flush();
+            dialog=edit();check(std::abs(dialog->findChild<QDoubleSpinBox*>(field)->value()-changed)<1e-8,"Properties did not consume CLI profile edit");
+            dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();run("save");
+            std::vector<kernel::BodyResult> cache;
+            const auto native=document::PartDocument::load(directory/(stem+"-"+kind+".prtz"),&cache);
+            check(native.history.front().id==id && std::abs(cache.back().volume-(kind=="extrusion"?160:30*std::acos(-1.0)))<1e-6,"GUI profile saved incorrect geometry");
+            json_run("close",{{"discard",true}});run(QString::fromStdString(activate.dump()));flush();
+        }
         input->setText("context");QApplication::sendEvent(input,&enter);flush();
         check(window.grab().save(QString::fromStdString((directory/"command-console.png").string())),"Console screenshot failed");
         toggle->trigger();flush();check(!dock->isVisible(),"Console toggle did not hide panel");

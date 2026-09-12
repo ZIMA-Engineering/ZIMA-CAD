@@ -7,35 +7,6 @@ std::optional<std::string> sketch_text_id_from_key(const std::string& key) {
     return zima::sketcher::text_id_from_viewer_key(key);
 }
 
-std::string revolution_axis_segment_id(
-    const zima::sketcher::Sketch& sketch,
-    const std::string& configured_id) {
-    const auto valid_axis = [&](const auto& segment) {
-        return segment.construction && segment.centerline;
-    };
-    if (!configured_id.empty()) {
-        const auto configured = std::find_if(
-            sketch.segments.begin(), sketch.segments.end(), [&](const auto& segment) {
-                return segment.id == configured_id && valid_axis(segment);
-            });
-        if (configured != sketch.segments.end()) return configured->id;
-    }
-    std::string result;
-    for (const auto& segment : sketch.segments) {
-        if (!valid_axis(segment)) continue;
-        if (!result.empty()) {
-            throw std::runtime_error(
-                "Skica rotace smí obsahovat právě jednu zelenou konstrukční osu.");
-        }
-        result = segment.id;
-    }
-    if (result.empty()) {
-        throw std::runtime_error(
-            "Ve skice rotace nakreslete zelenou konstrukční osu.");
-    }
-    return result;
-}
-
 std::optional<RevolutionCueFrame> revolution_cue_frame(
     const zima::sketcher::Sketch& sketch, const std::string& axis_segment_id) {
     const auto segment = std::find_if(sketch.segments.begin(),

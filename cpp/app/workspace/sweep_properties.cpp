@@ -21,17 +21,7 @@ void AssemblyWorkspaceWindow::transform_sketch_container(
         });
     if (sketch == part->session.document().sketches.end()) return;
 
-    auto draft = target_kind == FeatureKind::Extrusion
-        ? zima::document::PartDocument::create_extrusion_container(sketch->id)
-        : zima::document::PartDocument::create_revolution_container(sketch->id);
-    // Container identity, history position and placement belong to the
-    // existing Sketch container.  Only its feature definition is replaced.
-    draft.id = source->id;
-    draft.feature_parent_id = source->id;
-    draft.container_origin = source->container_origin;
-    draft.placement = source->placement;
-    draft.suppressed = source->suppressed;
-    draft.combine_mode = source->combine_mode;
+    auto draft = zima::workspace::profile_from_sketch(part->session.document(), sketch->id, target_kind);
     if (target_kind == FeatureKind::Extrusion) {
         draft.extrusion.profile_plane_offset = sketch->plane_offset;
     } else {

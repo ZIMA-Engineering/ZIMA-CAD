@@ -296,8 +296,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
     }
     auto* dialog = new PrimitivePropertiesDialog(
         initial, edit_mode, allow_subtract,
-        [this, owner_id, edit_mode, assembly_cut, container_id,
-         pending_profile_edit](
+        [this, owner_id, edit_mode, assembly_cut, container_id](
             zima::document::HistoryContainer committed,
             std::vector<std::string> target_occurrences) mutable {
             if (committed.feature_kind ==
@@ -378,6 +377,23 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 }
                 return;
             }
+            if (committed.feature_kind == zima::document::FeatureKind::Extrusion ||
+                committed.feature_kind == zima::document::FeatureKind::Revolution) {
+                const auto* source = workspace_.open_part(owner_id);
+                const auto* old = source ? source->session.document().find_container(committed.id) : nullptr;
+                const auto mode = !edit_mode ? zima::workspace::ProfileEditMode::Create
+                    : old && old->feature_kind == zima::document::FeatureKind::Sketch
+                        ? zima::workspace::ProfileEditMode::TransformSketch : zima::workspace::ProfileEditMode::Replace;
+                const bool completes_pending = pending_profile_feature_ && pending_profile_feature_->id == committed.id;
+                try {
+                    zima::workspace::commit_profile(workspace_, kernel_, owner_id, std::move(committed), mode,
+                        property_owned_sketch_draft_);
+                } catch (const zima::workspace::ProfileOperationError& error) {
+                    throw std::runtime_error(tr(error.what()).toStdString());
+                }
+                if (completes_pending) pending_profile_feature_.reset();
+                return;
+            }
             auto* target_part = workspace_.open_part(owner_id);
             if (target_part == nullptr) throw std::runtime_error("Part is no longer open");
             auto next = target_part->session.document();
@@ -387,84 +403,15 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 if (found == next.sketches.end()) next.sketches.push_back(*property_owned_sketch_draft_);
                 else *found = *property_owned_sketch_draft_;
             }
-            if (committed.feature_kind ==
-                    zima::document::FeatureKind::Revolution) {
-                const auto axis_sketch = std::find_if(
-                    next.sketches.begin(), next.sketches.end(),
-                    [&](const auto& sketch) {
-                        return sketch.id == committed.revolution.sketch_id;
-                    });
-                if (axis_sketch == next.sketches.end()) {
-                    throw std::runtime_error("Skica rotace nebyla nalezena.");
-                }
-                committed.revolution.axis_segment_id =
-                    revolution_axis_segment_id(*axis_sketch,
-                        committed.revolution.axis_segment_id);
-            }
             if (edit_mode) {
                 auto* target = next.find_container(committed.id);
                 if (target == nullptr) throw std::runtime_error("Container no longer exists");
-                // OK on a profile feature is an explicit body-calculation
-                // request even when its visible numeric fields are unchanged:
-                // the owned Sketch geometry lives outside HistoryContainer
-                // equality and may have changed from blank to a closed
-                // rectangle. Skipping here left the valid cyan preview with
-                // no calculated solid.
-                if (*target == committed && !pending_profile_edit &&
-                    committed.feature_kind !=
-                        zima::document::FeatureKind::Extrusion &&
-                    committed.feature_kind !=
-                        zima::document::FeatureKind::Revolution) return;
+                if (*target == committed) return;
                 *target = std::move(committed);
             } else {
                 next.insert_history_entry(
                     zima::document::PartHistoryKind::Feature, committed.id);
                 next.history.push_back(std::move(committed));
-            }
-            const auto* committed_container = next.find_container(
-                edit_mode ? container_id : next.history.back().id);
-            if (committed_container != nullptr &&
-                (committed_container->feature_kind ==
-                        zima::document::FeatureKind::Extrusion ||
-                 committed_container->feature_kind ==
-                        zima::document::FeatureKind::Revolution)) {
-                const bool extrusion = committed_container->feature_kind ==
-                    zima::document::FeatureKind::Extrusion;
-                const auto profile_source = extrusion
-                    ? committed_container->extrusion.profile_source
-                    : committed_container->revolution.profile_source;
-                const auto& sketch_id = extrusion
-                    ? committed_container->extrusion.sketch_id
-                    : committed_container->revolution.sketch_id;
-                if (profile_source == zima::document::ProfileSource::Internal) {
-                    const auto owned = std::find_if(next.sketches.begin(),
-                        next.sketches.end(), [&](const auto& sketch) {
-                            return sketch.id == sketch_id;
-                        });
-                    if (owned == next.sketches.end()) {
-                        throw std::runtime_error(
-                            "Internal profile Sketch no longer exists");
-                    }
-                    owned->owner_container_id = committed_container->id;
-                    // The first planar placement reference defines local
-                    // FRONT (+Y). The owned profile must therefore use the
-                    // local XZ plane, whose normal is parallel to that first
-                    // reference, exactly like standalone Sketch Properties.
-                    const auto first_reference = std::find_if(
-                        committed_container->placement.references.begin(),
-                        committed_container->placement.references.end(),
-                        [](const auto& reference) {
-                            return !reference.owner_id.empty();
-                        });
-                    if (first_reference !=
-                            committed_container->placement.references.end() &&
-                        first_reference->supports_offset) {
-                        owned->plane = zima::sketcher::SketchPlane::XZ;
-                    }
-                    owned->plane_offset = extrusion
-                        ? committed_container->extrusion.profile_plane_offset
-                        : committed_container->revolution.profile_plane_offset;
-                }
             }
             // Universal container placement: resolve any HistoryContainer
             // placement references against the geometry that existed before
@@ -478,17 +425,10 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 next.origin_viewer_mesh().original_references);
             append_reference_geometry(reference_geometry,
                 next.construction_viewer_mesh().original_references);
-            // Resolving Body histories replaces the working document and
-            // invalidates pointers into its former feature vector.
-            const bool completes_pending_profile = pending_profile_feature_ && committed_container &&
-                pending_profile_feature_->id == committed_container->id;
             next.resolve_constructions(reference_geometry);
             auto calculated = calculate_part(next, &calculated_before);
             static_cast<void>(refresh_sketch_external_references(next, calculated));
             target_part->session.commit(std::move(next), std::move(calculated));
-            if (completes_pending_profile) {
-                pending_profile_feature_.reset();
-            }
         }, this, std::move(assembly_targets), std::move(selected_targets),
         assembly_cut);
     primitive_parameter_owner_id_ = initial.id;

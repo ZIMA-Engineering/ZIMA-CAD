@@ -40,7 +40,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Skicář: geometrie | Základ hotov | 21 příkazů: samostatné a vložené skici, body, úsečky, kružnice, oblouky, elipsy, B-spline, obdélníky, mnohoúhelníky, posun a pomocná geometrie; text create/get/set s nativním písmem a spline get/set hotovy; DXF do vložených profilů hotov; zbývá kontrola dalších variant podle GUI |
 | Skicář: vazby a operace | Vazby/kóty/solver/offset/trim/mirror hotovy | Offset create/get/set/free, úplný podklad a zachování intervalů, trim podle průsečíků, mirror, orientovaný obdélník, tečny a zaoblení rohu; všech 15 druhů vazeb, odstranění a solver; 16 druhů kót včetně vlastností, popisků a mazání; uvolnění externích referencí hotovo |
 | Externí reference skici | Part a kořenová Assembly hotovy | Původní geometrie, přesná projekce, aktualizace, odpojení a zachování trimu; zbývá příkazový kontext Partu aktivovaného v sestavě |
-| Vytažení a rotace | Zbývá | Vlastněný profil, thin, zakončení, více směrů |
+| Vytažení a rotace | Plné profily a směry hotovy | `extrusion/revolution.create/get/set`, vlastněná skica a společné OK; zbývá skutečný výpočet Thin, zadávání cílových referencí a sestavové řezy |
 | Tažení | Zbývá | Sweep 2D/3D, loft a helical včetně profilů a drah |
 | Otvory a závity | Zbývá | Hole, Thread, ShaftThread, DrillPoint a reference |
 | Zaoblení, zkosení, skořepina | Zbývá | Výběr skutečného vstupního tělesa a sdílené transakce |
@@ -546,3 +546,22 @@ rámce prošlo **8/8** dotčených regresí a doplňkový test vlastního počá
 Podrobnosti a logy jsou v [CONSTRUCTION_COMMANDS.md](CONSTRUCTION_COMMANDS.md).
 Další etapa převádí vytažení a rotaci včetně vlastněných profilů; zadání nových
 referencí umístění a ostatní řádky tabulky nadále zůstávají otevřené.
+
+
+Etapa vytažení a rotace přidává šest příkazů `extrusion/revolution.create/get/set`,
+celkem **164 příkazů**. Samostatná skica se mění na vlastněný profil při zachování
+kontejneru, počátku a historie; CLI i Vlastnosti používají společné potvrzení.
+Objemové testy kontrolují délky, úhly, směry, řezy, Undo/Redo a nativní uložení.
+Přesunutý pomocný kód bezpečně uchovává první rovinnou referenci před odstraněním
+staré orientační položky. Potvrzovaný návrh nemůže převzít skicu jiného prvku.
+
+Úplná Windows Release sada prošla **90/90** (420,90 s),
+`build/profile-full-tests.log`; po doplnění uvedených ochran a překladu chyb
+prošlo **9/9** dotčených regresí (112,75 s), `build/profile-final-tests.log`.
+Oba běžné programy i testy jsou přeložené. Formáty ani start šablony se nemění.
+
+Testy zároveň prokázaly starou chybu Thin: plný válec místo stěny. Nové společné
+OK/CLI nyní Thin výslovně odmítá bez změny dokumentu, dokud nebude opraven jeho
+skutečný výpočet. Ten je následující krok; dále zbývá zadávání cílů zakončení
+a ostatní řádky tabulky. Úplná CLI tedy ještě hotová není. Podrobnosti:
+[PROFILE_COMMANDS.md](PROFILE_COMMANDS.md).

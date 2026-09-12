@@ -1,4 +1,5 @@
 #pragma once
+#include <zima/workspace/profile_operations.hpp>
 #include <zima/workspace/sketch_reference_operations.hpp>
 #include <zima/workspace/model_calculation.hpp>
 
@@ -197,9 +198,7 @@ int document_decimal_places(const auto& document) noexcept {
 
 double rounded_to_decimal_places(double value, int decimal_places);
 
-void normalize_owned_profile_front_references(
-        std::vector<zima::document::ConstructionReference>& references,
-        bool preserve_front_through_origin_triad = false);
+using zima::workspace::normalize_owned_profile_front_references;
 
 zima::kernel::Vec3 euler_degrees_from_frame_columns(
         const zima::kernel::Vec3& x_axis,
@@ -378,9 +377,7 @@ using SketchPosition = std::array<double, 2>;
 
 std::optional<std::string> sketch_text_id_from_key(const std::string& key);
 
-std::string revolution_axis_segment_id(
-    const zima::sketcher::Sketch& sketch,
-    const std::string& configured_id = {});
+using zima::workspace::revolution_axis_segment_id;
 
 struct RevolutionCueFrame {
     zima::kernel::Vec3 center;

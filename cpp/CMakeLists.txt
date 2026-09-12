@@ -125,7 +125,8 @@ add_library(zima_workspace modules/workspace/src/workspace.cpp
     modules/workspace/src/part_references.cpp
     modules/workspace/src/model_calculation.cpp
     modules/workspace/src/placement_edit.cpp
-    modules/workspace/src/primitive_operations.cpp)
+    modules/workspace/src/primitive_operations.cpp
+    modules/workspace/src/profile_operations.cpp)
 target_include_directories(zima_workspace PUBLIC modules/workspace/include)
 target_link_libraries(zima_workspace PUBLIC
     zima_document_core zima_assembly zima_drawing zima_kernel_occt zima_interchange
@@ -135,6 +136,7 @@ add_library(zima_command_host
     modules/command_host/src/host.cpp
     modules/command_host/src/model_tree.cpp
     modules/command_host/src/primitive_commands.cpp
+    modules/command_host/src/profile_commands.cpp
     modules/command_host/src/document_commands.cpp
     modules/command_host/src/body_commands.cpp
     modules/command_host/src/history_commands.cpp
@@ -622,6 +624,11 @@ if(ZIMA_BUILD_TESTS)
     target_link_libraries(zima_cpp_construction_command_tests PRIVATE zima_command_host)
     add_test(NAME zima_cpp_construction_command_tests COMMAND zima_cpp_construction_command_tests)
     set_tests_properties(zima_cpp_construction_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
+
+    add_executable(zima_cpp_profile_command_tests tests/profile_command_tests.cpp)
+    target_link_libraries(zima_cpp_profile_command_tests PRIVATE zima_command_host)
+    add_test(NAME zima_cpp_profile_command_tests COMMAND zima_cpp_profile_command_tests)
+    set_tests_properties(zima_cpp_profile_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
 
     add_executable(zima_cpp_primitive_command_tests tests/primitive_command_tests.cpp)
     target_link_libraries(zima_cpp_primitive_command_tests PRIVATE zima_command_host)
