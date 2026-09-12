@@ -1,3 +1,4 @@
+#include <zima/workspace/drawing_projection.hpp>
 #include <zima/workspace/drawing_view_operations.hpp>
 #include <zima/workspace/drawing_operations.hpp>
 #include "drawing_dimension_dialog.hpp"
@@ -430,22 +431,7 @@ private:
     }
 };
 
-zima::drawing::Point2 projection_placement(
-    zima::drawing::ProjectionDirection direction, double distance) {
-    constexpr double diagonal = 0.7071067811865475244;
-    switch (direction) {
-        case zima::drawing::ProjectionDirection::Right: return {-distance,0};
-        case zima::drawing::ProjectionDirection::TopRight: return {-distance*diagonal,distance*diagonal};
-        case zima::drawing::ProjectionDirection::Top: return {0,distance};
-        case zima::drawing::ProjectionDirection::TopLeft: return {distance*diagonal,distance*diagonal};
-        case zima::drawing::ProjectionDirection::Left: return {distance,0};
-        case zima::drawing::ProjectionDirection::BottomLeft: return {distance*diagonal,-distance*diagonal};
-        case zima::drawing::ProjectionDirection::Bottom: return {0,-distance};
-        case zima::drawing::ProjectionDirection::BottomRight: return {-distance*diagonal,-distance*diagonal};
-        case zima::drawing::ProjectionDirection::None: return {};
-    }
-    return {};
-}
+using zima::workspace::projection_placement;
 
 std::pair<std::string, zima::kernel::ViewerMesh> load_drawing_source(
     const std::filesystem::path& path, zima::workspace::Workspace* workspace = nullptr,
@@ -2019,120 +2005,36 @@ void DrawingWindow::show_view_properties(zima::drawing::DrawingView view, bool c
         },state);
     if ((!view.source_document_id.empty() || !view.source_path.empty()) &&
         std::none_of(sources.begin(),sources.end(),[&](const auto& source) {
-            return source.id==view.source_document_id && source.path==view.source_path;
+            return !view.source_document_id.empty() ? source.id==view.source_document_id : source.path==view.source_path;
         })) sources.push_back({view.source_document_id,view.source_path,
             QString::fromStdString(view.source_path.empty() ? view.source_document_id : view.source_path.filename().string())});
-    struct SourceCache {
-        std::string key;
-        std::string id;
-        zima::kernel::ViewerMesh mesh;
-        std::vector<drawing::ModelAnnotationSource> annotations;
-        std::map<std::array<double,9>,std::pair<std::vector<zima::drawing::ProjectedEdge>,std::vector<zima::drawing::ProjectedTriangle>>> projections;
-    };
-    auto cache=std::make_shared<SourceCache>();
-    const auto project=[this,cache](zima::drawing::DrawingView& value,bool pending_settings=false) {
-        auto source_path=value.source_path;
-        if (!source_path.empty() && source_path.is_relative() && !path_.empty())
-            source_path=path_.parent_path()/source_path;
-        const auto key=value.source_document_id+"|"+source_path.generic_string();
-        if (cache->key!=key) {
-            auto [id,mesh]=load_drawing_source(source_path,workspace_,value.source_document_id);
-            if (!value.source_document_id.empty() && id!=value.source_document_id)
-                throw std::runtime_error("Zdroj pohledu patří jinému dokumentu.");
-            if (mesh.edges.empty() && mesh.triangles.empty())
-                throw std::runtime_error("Zdroj nemá vypočtenou geometrii. Nejprve jej regenerujte.");
-            cache->key=key; cache->id=std::move(id); cache->mesh=std::move(mesh);cache->projections.clear();
-            cache->annotations=drawing_annotation_sources(workspace_,cache->id,source_path);
-        }
-        value.source_document_id=cache->id; value.source_path=source_path;
-        // The dialog owns the actual camera, including relative quarter turns.
-        if(!value.section_id.empty()){
-            const auto sections=source_sections(workspace_,value.source_document_id,source_path);
-            const auto section=std::ranges::find(sections,value.section_id,&zima::document::SectionDefinition::id);
-            if(section==sections.end())throw std::runtime_error("Zdrojový řez již neexistuje. Vyberte jiný řez ve vlastnostech pohledu.");
-            const auto pending=value.section_snapshot;
-            value.section_snapshot=*section;
-            if(pending_settings&&pending&&pending->id==section->id)value.section_snapshot->components=pending->components;
-            zima::drawing::refresh_view_geometry(value,cache->mesh);drawing::refresh_model_annotations(value,cache->annotations);return;
-        }
-        const auto& c=value.camera;
-        const std::array camera_key{c.horizontal.x,c.horizontal.y,c.horizontal.z,c.vertical.x,c.vertical.y,c.vertical.z,c.depth.x,c.depth.y,c.depth.z};
-        auto found=cache->projections.find(camera_key);
-        if(found==cache->projections.end())found=cache->projections.emplace(camera_key,std::make_pair(
-            zima::drawing::project_edges(cache->mesh,c),zima::drawing::project_triangles(cache->mesh,c))).first;
-        drawing::capture_measurement_geometry(value,cache->mesh);
-        value.projected_edges=found->second.first;value.projected_triangles=found->second.second;drawing::refresh_model_annotations(value,cache->annotations);
+    for(auto& source:sources)if(!view.source_document_id.empty()&&source.id==view.source_document_id)source.path=view.source_path;
+    auto cache=std::make_shared<zima::workspace::DrawingProjection>(workspace_,path_);
+    const auto project=[cache](zima::drawing::DrawingView& value,bool pending_settings=false){
+        cache->project(value,{.pending_hatch=pending_settings});
     };
     const auto error=[this](const QString& message) {
         if (auto* dialog=dynamic_cast<ViewPropertiesDialog*>(view_dialog_.data())) dialog->set_error(message);
     };
     auto* owner=qobject_cast<QMainWindow*>(window());
     auto* dialog=new ViewPropertiesDialog(owner ? owner : this, view, std::move(sources),sheet->default_scale,
-        [this,project,cache,error,sheet_id,drawing_id,creating](auto accepted) {
+        [this,cache,error,sheet_id,drawing_id,creating](auto accepted) {
             if (document_.document_id!=drawing_id) return false;
             try {
-                if (accepted.name.empty()) throw std::runtime_error("Vyplňte název pohledu.");
-                project(accepted,true);
-                auto* target_sheet=document_.find_sheet(sheet_id); if (!target_sheet) return false;
                 auto next_document=document_;
-                auto& next=*next_document.find_sheet(sheet_id);
+                zima::workspace::edit_drawing_view(next_document,sheet_id,accepted,creating,*cache,true);
                 const auto id=accepted.id;
-                if(!accepted.section_id.empty()&&accepted.section_parent_id.empty())for(auto& parent:next.views)
-                    if(parent.id!=id&&parent.source_document_id==accepted.source_document_id&&parent.section_id.empty()){
-                        accepted.section_parent_id=parent.id;
-                        if(accepted.section_snapshot&&std::ranges::none_of(parent.section_markers,[&](const auto& s){return s.id==accepted.section_id;}))parent.section_markers.push_back(*accepted.section_snapshot);
-                        break;
-                    }
-                std::vector<std::string> refreshed_views{id};
-                if (creating) next.views.push_back(accepted);
-                else {
-                    const auto target=std::find_if(next.views.begin(),next.views.end(),[&](const auto& item) {return item.id==id;});
-                    if (target==next.views.end()) return false;
-                    const double dx=accepted.x-target->x, dy=accepted.y-target->y;
-                    *target=accepted;
-                    std::function<void(const zima::drawing::DrawingView&)> update_children;
-                    update_children=[&](const auto& parent) {
-                        for (auto& child : next.views) if (child.parent_view_id==parent.id) {
-                            child.source_document_id=parent.source_document_id; child.source_path=parent.source_path;
-                            child.camera=zima::drawing::projected_camera(parent.camera,child.projection_direction,next.projection_method);
-                            child.x+=dx; child.y+=dy;
-                            project(child); refreshed_views.push_back(child.id); update_children(child);
-                        }
-                    };
-                    update_children(*target);
-                }
-                auto bom=build_bom_rows_for_source(accepted.source_document_id,accepted.source_path,workspace_);
-                if (!bom.empty()) next.bom_rows=std::move(bom);
+                const auto* result=next_document.find_view(id);
                 std::function<void()> commit_source=[]{};
-                if(accepted.section_snapshot){
-                    commit_source=prepare_section_component_commit(workspace_,accepted.source_document_id,accepted.source_path,*accepted.section_snapshot);
-                    for(auto& sheet:next_document.sheets)for(auto& other:sheet.views)
-                        if(other.source_document_id==accepted.source_document_id&&other.section_id==accepted.section_id){
-                            other.section_snapshot=accepted.section_snapshot;
-                            next_document.refresh_view(other.id,cache->mesh);
-                        }
-                }
-                // Both documents remain unchanged until every projection and
-                // source parameter has passed validation.
-                for(const auto& refreshed_id:refreshed_views)next_document.refresh_view(refreshed_id,cache->mesh);
+                if(result->section_snapshot)
+                    commit_source=prepare_section_component_commit(workspace_,result->source_document_id,cache->source(*result).path,*result->section_snapshot);
                 commit_source();document_=std::move(next_document);
-                if (document_.source_document_id.empty()) {
-                    document_.source_document_id=accepted.source_document_id;
-                    document_.source_path=accepted.source_path;
-                    document_.source_name=accepted.source_path.stem().string();
-                    if (document_.source_name.empty()) {
-                        if (workspace_) {
-                            if (const auto* part=workspace_->open_part(accepted.source_document_id)) document_.source_name=part->session.document().name;
-                            else if (const auto* assembly=workspace_->open_assembly(accepted.source_document_id)) document_.source_name=assembly->session.document().name;
-                        }
-                    }
-                }
                 canvas_->set_preview({}); refresh(); canvas_->select_view_for_test(id);
                 return true;
-            } catch (const std::exception& exception) { error(QString::fromUtf8(exception.what())); return false; }
+            } catch (const std::exception& exception) { error(tr(exception.what())); return false; }
         }, [this,project,error](auto pending) {
             try { project(pending,true); canvas_->set_preview(std::move(pending)); error({}); }
-            catch (const std::exception& exception) { error(QString::fromUtf8(exception.what())); }
+            catch (const std::exception& exception) { error(tr(exception.what())); }
         },[this](const auto& id,auto path){if(!path.empty()&&path.is_relative()&&!path_.empty())path=path_.parent_path()/path;return source_sections(workspace_,id,path);});
     dialog->set_initial_size(QSize(820,980));
     view_dialog_=dialog;

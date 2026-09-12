@@ -1,6 +1,7 @@
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/drawing_view_operations.hpp>
 #include <zima/workspace/drawing_sources.hpp>
+#include <zima/workspace/drawing_projection.hpp>
 #include <zima/drawing/measurement_dimension.hpp>
 #include <zima/document/file_path.hpp>
 #include <algorithm>
@@ -14,6 +15,60 @@ commands::Result run(command_host::Host& host,const char* name,Json args=Json::o
 }
 double width(const drawing::DrawingView& view){double low=1e100,high=-1e100;for(const auto& t:view.projected_triangles)for(auto p:t.points){low=std::min(low,p.x);high=std::max(high,p.x);}return high-low;}
 void near(double a,double b){require(std::abs(a-b)<1e-6,"Projected size or dimension differs from the analytical box size");}
+void verify_editing(const kernel::OcctKernel& kernel,fs::path dir) {
+    workspace::Workspace live;auto part=document::PartDocument::create_default();auto box=document::PartDocument::create_box_container();box.box={20,10,6};part.history={box};
+    auto boundaries=kernel.evaluate_history(part.kernel_operations());
+    auto section=document::create_section();static_cast<void>(section.sketch.add_segment(-30,0,30,0));part.sections.push_back(section);
+    live.add_part(part,boundaries,dir/"editing.prtz");
+    auto doc=drawing::DrawingDocument::create_default();const auto sheet=doc.sheets.front().id,id=doc.document_id;doc.sheets.front().default_scale=2;
+    live.add_drawing(doc,dir/"editing.drwz");live.activate(id);live.display_top_level(id);command_host::Host host(live,kernel,dir);
+    const auto source_revision=live.open_part(part.document_id)->session.revision();
+    const auto base=run(host,"drawing.view.create",{{"sheet",sheet},{"source",part.document_id},{"name","Hlavní pohled"},{"x_mm",80},{"y_mm",50}}).data;
+    const auto parent=base.at("view").get<std::string>();near(base.at("scale").get<double>(),2);near(width(*live.open_drawing(id)->document().find_view(parent)),20);
+    const auto child=run(host,"drawing.view.create",{{"sheet",sheet},{"parent_view",parent},{"projection_direction","right"},{"distance_mm",30}}).data.at("view").get<std::string>();
+    near(width(*live.open_drawing(id)->document().find_view(child)),10);near(live.open_drawing(id)->document().find_view(child)->x,50);
+    const auto grand=run(host,"drawing.view.create",{{"sheet",sheet},{"parent_view",child},{"projection_direction","top"},{"distance_mm",25}}).data.at("view").get<std::string>();
+    run(host,"drawing.view.set",{{"view",parent},{"x_mm",100},{"y_mm",60},{"scale",.5},{"orientation","back"},{"display_style","hidden_edges"},{"value_locks",Json::array({"scale"})}});
+    const auto& current=live.open_drawing(id)->document();near(current.find_view(child)->x,70);near(current.find_view(grand)->x,70);near(current.find_view(grand)->y,85);
+    near(current.find_view(parent)->scale,.5);near(current.find_view(child)->scale,2);require(current.find_view(parent)->value_locks.contains("scale"),"View value locks lost");
+    run(host,"undo");near(live.open_drawing(id)->document().find_view(grand)->y,75);run(host,"redo");near(live.open_drawing(id)->document().find_view(grand)->y,85);
+    run(host,"drawing.view.set",{{"view",child},{"distance_mm",40}});near(live.open_drawing(id)->document().find_view(child)->x,60);near(live.open_drawing(id)->document().find_view(grand)->x,60);
+    const auto revision=live.open_drawing(id)->revision(),generation=live.open_drawing(id)->data_generation();
+    for(const auto& args:std::vector<Json>{
+        {{"view",parent},{"scale",0}},{{"view",parent},{"scale",1},{"use_sheet_scale",true}},{{"view",parent},{"name","   "}},
+        {{"view",child},{"source",part.document_id}},{{"view",child},{"x_mm",0}},{{"view",parent},{"value_locks",Json::array({"other"})}},
+        {{"view",parent},{"camera",{{"horizontal",{1,0,0}},{"vertical",{0,1,0}},{"depth",{0,0,1}}}}},
+        {{"view",parent},{"camera",{{"horizontal",{2,0,0}},{"vertical",{0,1,0}},{"depth",{0,0,-1}}}}},
+        {{"view",parent},{"section","missing"}}}) {
+        require(!host.execute({{"command","drawing.view.set"},{"arguments",args}}).ok,"Invalid view edit accepted");
+        require(live.open_drawing(id)->revision()==revision&&live.open_drawing(id)->data_generation()==generation,"Failed edit changed Drawing history");
+    }
+    run(host,"drawing.view.set",{{"view",parent},{"camera",{{"horizontal",{0,1,0}},{"vertical",{0,0,1}},{"depth",{-1,0,0}}}}});near(width(*live.open_drawing(id)->document().find_view(parent)),10);
+    run(host,"undo");
+    // A late descendant error must not publish the already-projected parent.
+    auto bad=live.open_drawing(id)->document();bad.find_view(grand)->section_id="missing";live.open_drawing(id)->commit(bad);const auto bad_revision=live.open_drawing(id)->revision();
+    require(!host.execute({{"command","drawing.view.set"},{"arguments",{{"view",parent},{"x_mm",150}}}}).ok&&live.open_drawing(id)->revision()==bad_revision,"Descendant failure partly committed parent");
+    near(live.open_drawing(id)->document().find_view(parent)->x,100);run(host,"undo");
+    require(live.open_part(part.document_id)->session.revision()==source_revision,"Drawing edit regenerated its source");
+    run(host,"save");const auto saved=drawing::DrawingDocument::load(dir/"editing.drwz");require(saved.find_view(grand)&&saved.find_view(parent)->name=="Hlavní pohled","Native Drawing lost edited views");
+    run(host,"drawing.view.delete",{{"view",parent}});run(host,"undo");require(live.open_drawing(id)->document().find_view(grand),"Undo lost view identities");
+    auto empty=document::PartDocument::create_default();live.add_part(empty,{},{});
+    require(!host.execute({{"command","drawing.view.create"},{"arguments",{{"sheet",sheet},{"source",empty.document_id}}}}).ok,"Uncalculated empty source accepted");
+    // Separate sources in one projection session must never reuse another mesh.
+    auto second=part;second.document_id=document::PartDocument::create_default().document_id;second.history.front().box={7,7,7};auto small=kernel.evaluate_history(second.kernel_operations());live.add_part(second,small,{});
+    const auto unsaved_view=run(host,"drawing.view.create",{{"sheet",sheet},{"source",second.document_id}}).data.at("view").get<std::string>();
+    near(width(*live.open_drawing(id)->document().find_view(unsaved_view)),7);
+    require(live.open_drawing(id)->document().sheets.front().bom_rows.front().name==second.name,"Unsaved source lost its BOM name");
+    workspace::DrawingProjection projection(&live,{});auto a=drawing::DrawingDocument::create_view(part.document_id,{},{}),b=drawing::DrawingDocument::create_view(second.document_id,{},{});
+    projection.project(a,{});projection.project(b,{});near(width(a),20);near(width(b),7);a.camera=drawing::standard_camera(drawing::ViewOrientation::Right);projection.project(a,{});near(width(a),10);
+    const auto section_view=run(host,"drawing.view.create",{{"sheet",sheet},{"source",part.document_id},{"section",section.id},{"scale",2}}).data.at("view").get<std::string>();
+    const auto* cut=live.open_drawing(id)->document().find_view(section_view);
+    require(cut->section_snapshot&&cut->section_snapshot->id==section.id&&!cut->section_parent_id.empty()&&std::ranges::any_of(cut->projected_edges,[](const auto& edge){return edge.hatch;}),"Command Section view lost its cut, hatch or trace parent");
+    run(host,"drawing.view.set",{{"view",parent},{"section_markers",Json::array({section.id})}});
+    require(run(host,"drawing.view.get",{{"view",parent}}).data.at("section_markers")==Json::array({section.id}),"Section trace selection did not persist");
+    run(host,"drawing.view.set",{{"view",section_view},{"section",""}});require(!live.open_drawing(id)->document().find_view(section_view)->section_snapshot,"Clearing Section kept the old cut");
+    require(live.open_part(part.document_id)->session.revision()==source_revision,"Section view edit changed its source model");
+}
 void verify(const kernel::OcctKernel& kernel,fs::path dir){
     fs::create_directory(dir/"drawings");const auto source_path=dir/"source.prtz";
     auto part=document::PartDocument::create_default();auto box=document::PartDocument::create_box_container();box.box={20,10,6};part.history={box};
@@ -65,4 +120,4 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir){
 
 }
 }
-int main(){try{kernel::OcctKernel kernel;const auto root=fs::canonical(fs::temp_directory_path());const auto dir=root/("zima-drawing-view-"+document::PartDocument::create_default().document_id);fs::create_directory(dir);verify(kernel,dir);require(dir.parent_path()==root,"Unsafe cleanup");fs::remove_all(dir);std::cout<<"Drawing view snapshots, original references, parent-first regeneration, dimensions, native sources and deletion passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
+int main(){try{kernel::OcctKernel kernel;const auto root=fs::canonical(fs::temp_directory_path());const auto dir=root/("zima-drawing-view-"+document::PartDocument::create_default().document_id);fs::create_directory(dir);verify(kernel,dir);verify_editing(kernel,dir);require(dir.parent_path()==root,"Unsafe cleanup");fs::remove_all(dir);std::cout<<"Drawing view snapshots, original references, parent-first regeneration, dimensions, native sources and deletion passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

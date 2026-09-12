@@ -115,6 +115,7 @@ add_library(zima_workspace modules/workspace/src/workspace.cpp
     modules/workspace/src/drawing_sources.cpp
     modules/workspace/src/drawing_annotation_sources.cpp
     modules/workspace/src/drawing_view_operations.cpp
+    modules/workspace/src/drawing_projection.cpp
     modules/workspace/src/sketch_operations.cpp
     modules/workspace/src/sketch_reference_operations.cpp
     modules/workspace/src/native_documents.cpp

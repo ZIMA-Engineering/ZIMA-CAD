@@ -1,8 +1,9 @@
 # Výkresy přes společné příkazy
 
-První výkresová etapa zpřístupňuje listy, jejich parametry, vložené formáty a
-razítka. Katalog má 136 příkazů. Tvorba a parametrická editace pohledů, měřené kóty,
-anotace, BOM, Show/Erase a výkresové exporty zatím nejsou kompletně pokryté.
+Výkresové příkazy zpřístupňují listy, šablony, tvorbu a vlastnosti pohledů,
+uložené reference a výslovnou regeneraci. Katalog má 138 příkazů. Měřené kóty,
+anotace, editace BOM, Show/Erase, zdrojové styly šraf a výkresové exporty
+zatím nejsou kompletně pokryté.
 
 | Příkaz | Argumenty | Výsledek |
 | --- | --- | --- |
@@ -142,3 +143,73 @@ Závěrečná kontrola zdrojů a vstupů prošla **3/3** (17,21 s),
 `build/drawing-view-source-tests.log`: navíc pouze skica bez tělesa, přípona
 `.PRTZ`, český název a čitelně rozmístěné pohledy v GUI. Finální sestavení
 odpovídá `build/drawing-view-source-build.log`.
+
+## Vytvoření a vlastnosti pohledu
+
+`drawing.view.create` vyžaduje `sheet` a buď `source` (ID otevřeného Partu
+nebo Assembly), nebo `parent_view`. `drawing.view.set` vyžaduje `view` a mění
+jen zadané vlastnosti. Oba příkazy přijímají volitelný `document` a používají
+stejnou modelovou operaci jako OK v dosavadním dialogu vlastností pohledu.
+
+- `name`: neprázdný jednořádkový název do 256 bajtů UTF-8.
+- `orientation`: `front`, `back`, `left`, `right`, `top`, `bottom`, `isometric`.
+  Alternativně `camera` s vektory `horizontal`, `vertical`, `depth`, každý
+  jako pole tří čísel. Vektory musí tvořit jednotkovou kolmou bázi ve stejné
+  konvenci jako GUI (`horizontal × vertical = -depth`). Obě možnosti současně
+  se odmítnou. Nový základní pohled má přední orientaci.
+- `x_mm`, `y_mm`: -10000 až 10000 v souřadnicích papíru: počátek vpravo dole,
+  X roste doleva, Y nahoru. Nový základní pohled začíná na 100, 100 mm.
+- `scale`: 0,001 až 1000, automaticky zapne vlastní měřítko.
+  `use_sheet_scale:true` převezme aktuální měřítko listu. Současné zadání
+  konkrétního `scale` a `use_sheet_scale:true` je rozporné a odmítne se.
+- `display_style`: `visible_edges`, `hidden_edges`, `shaded_with_edges`, `shaded`.
+  `hidden_edge_style`: `dashed`, `gray`. `tangent_edge_style`: `visible`, `thin`, `hidden`.
+- `show_caption`, `show_section_label`, `show_dimension_guides`: booleany.
+  `guide_offset_mm`: 0 až 1000; `guide_spacing_mm`: 0,1 až 1000.
+- `value_locks`: celé pole zámků `x`, `y`, `scale`; prázdné pole je odstraní.
+  Stejně jako v dialogu zámek nebrání výslovné ruční změně dané hodnoty.
+- `section`: stabilní ID existujícího řezu zdroje z `model.tree`, prázdný řetězec řez zruší.
+  `section_markers`: celé pole ID zobrazovaných řezových tras; prázdné pole je skryje.
+  `hidden_hatch_components`: celé pole přesných klíčů komponent, které se v tomto
+  pohledu nešrafují. Viditelnost patří pohledu, styl šrafování patří zdrojovému
+  řezu. Příkazy zatím nemění zdrojové parametry šraf; GUI zachovává jejich
+  dosavadní samostatnou zdrojovou transakci.
+
+Pro nový projekční pohled se místo `source` zadá `parent_view`,
+`projection_direction` a `distance_mm` (0,001 až 10000 mm podél jednotkového
+paprsku). Směry jsou `right`, `top_right`, `top`, `top_left`, `left`,
+`bottom_left`, `bottom`, `bottom_right`. Zdroj a kamera se odvodí od rodiče a
+metody promítání listu; `source`, `orientation`, `camera`, `x_mm`, `y_mm` se
+u projekčního pohledu odmítají. Pozdější `distance_mm` mění polohu na jeho
+existujícím paprsku. Změna rodiče nebo směru již existujícího pohledu není
+součástí této etapy.
+
+```json
+{"command":"drawing.view.create","arguments":{"sheet":"LIST","source":"PART","orientation":"front","x_mm":120,"y_mm":80}}
+{"command":"drawing.view.create","arguments":{"sheet":"LIST","parent_view":"POHLED","projection_direction":"right","distance_mm":40}}
+{"command":"drawing.view.set","arguments":{"view":"POHLED","scale":2,"show_caption":true}}
+```
+
+Při posunu rodiče se o stejný rozdíl posunou všichni projekční potomci.
+Změna kamery nebo zdroje znovu promítne jejich řetězec; vlastní měřítka
+potomků zůstávají zachována. Kóty se obnoví z původních měřicích referencí.
+Neplatný parametr, nedostupný zdroj nebo chyba pozdějšího potomka zamítne celý
+návrh před změnou historie. Jeden Undo obnoví celou výkresovou operaci.
+
+Změna vlastností je výslovná projekce, stejně jako potvrzení dialogu: používá
+poslední vypočtená data zdroje, nepočítá zdrojová tělesa a nespouští OCCT.
+Krátkodobá `DrawingProjection` sdílí načtení zdrojů a projekci shodných kamer
+v rámci operace/dialogu; odděluje různé zdroje. Stejnou projekci používá také
+Regenerate. Uložené relativní cesty se zachovávají. Samotné otevření uloženého
+výkresu a dotazy zůstávají bez projekce.
+
+Etapa vytvoření a vlastností pohledů přidává `drawing.view.create/set`, celkem
+**138 příkazů**. GUI a CLI sdílejí výpočet projekce, atomický návrh změny,
+aktualizaci potomků a měřených kót. Pokryté jsou orientace, vlastní kamera,
+měřítko, papírová poloha, styly, řezy a trasy. Opraveno je načtení kusovníku
+neuloženého otevřeného dílu na Windows. Celá Windows Release sada prošla
+**80/80** (410,05 s), `build/drawing-edit-full-tests.log`; oba výsledné programy
+jsou sestavené. Testy zahrnují skutečné GUI i CLI, Undo, zachování přesných
+referencí, chybu pozdějšího potomka bez částečného zápisu, zámky, měřítka,
+neuložené zdroje, řez i nativní uložení. GUI je vizuálně ověřeno na
+`Projects/test/command-drawing-views.png`.

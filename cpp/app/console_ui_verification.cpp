@@ -555,6 +555,17 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         check(json_run("drawing.view.references",{{"view",base_view.id}}).data.at("total").get<int>()>0,"GUI view lacks persisted original references");
         drawing_window->select_view(base_view.id);flush();auto* delete_view=window.findChild<QAction*>("deleteDrawingViewAction");check(delete_view&&delete_view->isEnabled(),"GUI view deletion disabled");delete_view->trigger();flush();
         check(run("drawing.view.list").data.at("total")==0,"GUI view deletion left projected descendants");run("undo");check(run("drawing.view.list").data.at("total")==2,"GUI view deletion Undo lost the hierarchy");
+        json_run("drawing.view.set",{{"view",base_view.id},{"x_mm",110},{"name","Z konzole"}});flush();
+        check(json_run("drawing.view.get",{{"view",projected_view.id}}).data.at("x_mm")==60,"Console did not move the projected child");
+        drawing_window->select_view(base_view.id);auto* edit_view=window.findChild<QAction*>("editDrawingViewAction");check(edit_view&&edit_view->isEnabled(),"View properties disabled");edit_view->trigger();flush();
+        auto* view_properties=window.findChild<QDialog*>("drawingViewProperties");check(view_properties&&view_properties->findChild<QLineEdit*>("drawingViewName")->text()=="Z konzole","View dialog did not consume console edits");
+        view_properties->findChild<QDoubleSpinBox*>("drawingViewX")->setValue(120);
+        check(window.execute_console_command("undo").code=="editing_in_progress","View preview allowed conflicting Undo");
+        view_properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+        check(!window.findChild<QDialog*>("drawingViewProperties")&&json_run("drawing.view.get",{{"view",projected_view.id}}).data.at("x_mm")==70,"GUI did not share the view edit operation");
+        run("undo");check(json_run("drawing.view.get",{{"view",projected_view.id}}).data.at("x_mm")==60,"GUI view edit Undo did not restore the child");
+        const auto console_projection=json_run("drawing.view.create",{{"sheet",view_document.sheets.front().id},{"parent_view",base_view.id},{"projection_direction","top"},{"distance_mm",45}}).data.at("view").get<std::string>();flush();
+        check(run("drawing.view.list").data.at("total")==3&&json_run("drawing.view.get",{{"view",console_projection}}).data.at("parent_view")==base_view.id,"Console-created projection was not displayed");
         check(window.grab().save(QString::fromStdString((directory/"command-drawing-views.png").string())),"Drawing view screenshot failed");
         json_run("close",{{"discard",true}});
         run(QString::fromStdString(activate.dump()));flush();

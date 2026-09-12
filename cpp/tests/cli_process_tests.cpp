@@ -302,6 +302,14 @@ int main(int argc,char** argv){
         if(result.exit_code!=0)std::cerr<<result.output.toStdString()<<result.diagnostics.toStdString();
         require(result.exit_code==0&&result.results().size()==7&&result.results()[1].at("data").at("items").size()==3&&result.results()[3].at("data").at("model_annotations").get<int>()>0,"CLI drawing view regeneration, original references or history failed");
         require(drawing::DrawingDocument::load(project/"cli-views.drwz").sheets.front().views.front().id==native_view.id,"CLI view Undo and save lost its stable identity");
+        const auto create_view=command({{"command","drawing.view.create"},{"arguments",{{"sheet",view_doc.sheets.front().id},{"source",drawing_source.document_id},{"name","Pohled český"},{"orientation","top"},{"scale",2}}}});
+        const auto create_projection=command({{"command","drawing.view.create"},{"arguments",{{"sheet",view_doc.sheets.front().id},{"parent_view",native_view.id},{"projection_direction","right"},{"distance_mm",30}}}});
+        const auto edit_view=command({{"command","drawing.view.set"},{"arguments",{{"view",native_view.id},{"x_mm",120},{"show_caption",true}}}});
+        result=launch(executable,root,common+QStringList{"--command","open cli-step.prtz","--command","open cli-views.drwz","--command",create_view,"--command",create_projection,"--command",edit_view,"--command","save"});
+        if(result.exit_code!=0)std::cerr<<result.output.toStdString()<<result.diagnostics.toStdString();
+        require(result.exit_code==0&&result.results().size()==6,"Standalone CLI view creation or properties failed");
+        const auto edited_views=drawing::DrawingDocument::load(project/"cli-views.drwz");
+        require(edited_views.sheets.front().views.size()==3&&edited_views.sheets.front().views[1].name=="Pohled český"&&edited_views.sheets.front().views[1].scale==2&&edited_views.sheets.front().views[2].x==90,"CLI view parameters, hierarchy or UTF-8 persistence failed");
         const auto assembly_step=command({{"command","import.step"},{"arguments",{{"path",document::path_to_utf8(step_source)},{"output_directory","sestava nativní"},{"mesh_deflection_mm",2.0}}}});
         result=launch(executable,root,common+QStringList{"--command","new assembly cli-import-owner","--command",assembly_step,"--command","save"});
         require(result.exit_code==0 && result.results().size()==3 && result.results()[1].at("data").at("parts").size()==1,"CLI Assembly STEP import failed");

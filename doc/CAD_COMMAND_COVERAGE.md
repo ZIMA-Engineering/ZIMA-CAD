@@ -46,7 +46,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Zaoblení, zkosení, skořepina | Zbývá | Výběr skutečného vstupního tělesa a sdílené transakce |
 | Zrcadlo a pole | Zbývá | Odvozená tělesa a komponenty |
 | Sestavy | Dotazy, vložení a otevření zdrojů komponent hotovy | Uložená hierarchie a přesné výskyty, sdílené vložení a otevření zdroje; zbývají vlastnosti/mazání komponent, vazby, vnořená aktivace a řezy |
-| Výkresy | Listy, šablony, historie, dotazy/mazání pohledů a regenerace hotovy | Tvorba a parametrická editace pohledů, kóty, anotace, editace BOM, Show/Erase a výkresové exporty |
+| Výkresy | Listy, šablony, historie, tvorba/vlastnosti/dotazy/mazání pohledů a regenerace hotovy | Kóty, anotace, editace BOM, Show/Erase, zdrojové styly šraf a výkresové exporty |
 | Řezy, měření a vzhled | Zbývá | Datové operace a uložené výsledky |
 | Parametry, relace a materiál | Společné tabulky a transakce hotovy | Parametry, jednotky, přesnost, relace, materiál včetně přímého načtení knihovny a uložené varianty; řízení rozměrů relacemi a generování variant nejsou dosud zavedené ani v GUI |
 | Import a export | Import Partu/Assembly STEP/IGES/DXF a základní exporty hotovy | Společný STEP včetně vnořených sestav, STL Part/plochá Assembly, DXF úsečky/kružnice/oblouky; zbývá import vložených profilů, další DXF geometrie, vnořený STL a výkresové exporty |
@@ -251,3 +251,14 @@ Závěrečná kontrola zdrojů a vstupů prošla **3/3** (17,21 s),
 `build/drawing-view-source-tests.log`: navíc pouze skica bez tělesa, přípona
 `.PRTZ`, český název a čitelně rozmístěné pohledy v GUI. Finální sestavení
 odpovídá `build/drawing-view-source-build.log`.
+
+Etapa vytvoření a vlastností pohledů přidává `drawing.view.create/set`, celkem
+**138 příkazů**. GUI a CLI sdílejí výpočet projekce, atomický návrh změny,
+aktualizaci potomků a měřených kót. Pokryté jsou orientace, vlastní kamera,
+měřítko, papírová poloha, styly, řezy a trasy. Opraveno je načtení kusovníku
+neuloženého otevřeného dílu na Windows. Celá Windows Release sada prošla
+**80/80** (410,05 s), `build/drawing-edit-full-tests.log`; oba výsledné programy
+jsou sestavené. Testy zahrnují skutečné GUI i CLI, Undo, zachování přesných
+referencí, chybu pozdějšího potomka bez částečného zápisu, zámky, měřítka,
+neuložené zdroje, řez i nativní uložení. GUI je vizuálně ověřeno na
+`Projects/test/command-drawing-views.png`.

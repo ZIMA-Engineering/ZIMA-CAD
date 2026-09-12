@@ -2,6 +2,8 @@
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/drawing_operations.hpp>
 #include <algorithm>
+#include <cmath>
+#include <zima/workspace/drawing_projection.hpp>
 #include <zima/document/file_path.hpp>
 namespace zima::command_host {
 namespace {
@@ -15,15 +17,48 @@ Json view_json(const drawing::DrawingView& v,const std::string& sheet){
     constexpr std::array orientations{"front","back","left","right","top","bottom","isometric"};
     constexpr std::array styles{"visible_edges","hidden_edges","shaded_with_edges","shaded"};
     constexpr std::array directions{"none","right","top_right","top","top_left","left","bottom_left","bottom","bottom_right"};
+    Json markers=Json::array();for(const auto& section:v.section_markers)markers.push_back(section.id);
     return {{"view",v.id},{"sheet",sheet},{"name",v.name},{"source_document",v.source_document_id},{"source_path",document::path_to_utf8(v.source_path)},
         {"parent_view",v.parent_view_id},{"orientation",orientations.at(static_cast<std::size_t>(v.orientation))},{"projection_direction",directions.at(static_cast<std::size_t>(v.projection_direction))},
         {"camera",{{"horizontal",vector_json(v.camera.horizontal)},{"vertical",vector_json(v.camera.vertical)},{"depth",vector_json(v.camera.depth)}}},
         {"x_mm",v.x},{"y_mm",v.y},{"scale",v.scale},{"use_sheet_scale",v.use_sheet_scale},{"display_style",styles.at(static_cast<std::size_t>(v.display_style))},
         {"hidden_edge_style",v.hidden_edge_style==drawing::HiddenEdgeStyle::Dashed?"dashed":"gray"},{"tangent_edge_style",v.tangent_edge_style==drawing::TangentEdgeStyle::Visible?"visible":v.tangent_edge_style==drawing::TangentEdgeStyle::Thin?"thin":"hidden"},
-        {"section",v.section_id},{"section_parent_view",v.section_parent_id},{"show_caption",v.show_caption},{"show_section_label",v.show_section_label},
+        {"section",v.section_id},{"section_markers",std::move(markers)},{"hidden_hatch_components",v.hidden_hatch_components},{"section_parent_view",v.section_parent_id},{"show_caption",v.show_caption},{"show_section_label",v.show_section_label},
         {"show_dimension_guides",v.show_dimension_guides},{"guide_offset_mm",v.dimension_guide_offset},{"guide_spacing_mm",v.dimension_guide_spacing},
         {"projected_edges",v.projected_edges.size()},{"projected_triangles",v.projected_triangles.size()},{"model_annotations",v.model_annotations.size()},
         {"measurement_curves",v.measurement_geometry->curves.size()},{"measurement_points",v.measurement_geometry->points.size()},{"value_locks",v.value_locks}};
+}
+void invalid_view_arguments(){throw workspace::DrawingOperationError("invalid_arguments","Invalid drawing view parameters.");}
+template<class Enum,std::size_t N> void enum_argument(const Json& args,const char* key,Enum& target,const std::array<const char*,N>& names) {
+    if(!args.contains(key))return;const auto text=args[key].get<std::string>();const auto found=std::ranges::find(names,text);
+    if(found==names.end())invalid_view_arguments();target=static_cast<Enum>(found-names.begin());
+}
+void view_settings(drawing::DrawingView& value,const Json& args) {
+    value.name=args.value("name",value.name);value.x=args.value("x_mm",value.x);value.y=args.value("y_mm",value.y);
+    value.scale=args.value("scale",value.scale);value.use_sheet_scale=args.value("use_sheet_scale",args.contains("scale")?false:value.use_sheet_scale);
+    if(args.contains("scale")&&value.use_sheet_scale)invalid_view_arguments();
+    value.show_caption=args.value("show_caption",value.show_caption);value.show_section_label=args.value("show_section_label",value.show_section_label);
+    value.show_dimension_guides=args.value("show_dimension_guides",value.show_dimension_guides);
+    value.dimension_guide_offset=args.value("guide_offset_mm",value.dimension_guide_offset);value.dimension_guide_spacing=args.value("guide_spacing_mm",value.dimension_guide_spacing);
+    enum_argument(args,"orientation",value.orientation,std::array{"front","back","left","right","top","bottom","isometric"});
+    enum_argument(args,"display_style",value.display_style,std::array{"visible_edges","hidden_edges","shaded_with_edges","shaded"});
+    enum_argument(args,"hidden_edge_style",value.hidden_edge_style,std::array{"dashed","gray"});
+    enum_argument(args,"tangent_edge_style",value.tangent_edge_style,std::array{"visible","thin","hidden"});
+    enum_argument(args,"projection_direction",value.projection_direction,std::array{"none","right","top_right","top","top_left","left","bottom_left","bottom","bottom_right"});
+    if(args.contains("orientation"))value.camera=drawing::standard_camera(value.orientation);
+    if(args.contains("camera")) {
+        if(args.contains("orientation"))invalid_view_arguments();const auto& camera=args["camera"];
+        if(camera.size()!=3||!camera.contains("horizontal")||!camera.contains("vertical")||!camera.contains("depth"))invalid_view_arguments();
+        const auto vector=[](const Json& row){if(!row.is_array()||row.size()!=3)invalid_view_arguments();for(const auto& n:row)if(!n.is_number())invalid_view_arguments();return kernel::Vec3{row[0].get<double>(),row[1].get<double>(),row[2].get<double>()};};
+        value.camera={vector(camera["horizontal"]),vector(camera["vertical"]),vector(camera["depth"])};
+    }
+    if(args.contains("value_locks")) {
+        value.value_locks.clear();for(const auto& key:args["value_locks"]){if(!key.is_string()||!value.value_locks.insert(key.get<std::string>()).second)invalid_view_arguments();}
+    }
+    if(args.contains("hidden_hatch_components")) {
+        value.hidden_hatch_components.clear();for(const auto& key:args["hidden_hatch_components"]){if(!key.is_string()||key.get<std::string>().empty()||!value.hidden_hatch_components.insert(key.get<std::string>()).second)invalid_view_arguments();}
+    }
+    if(args.contains("section")){value.section_id=args["section"].get<std::string>();value.section_snapshot.reset();value.section_parent_id.clear();}
 }
 workspace::SheetSettings settings(const Json& args,workspace::SheetSettings value){
     if(args.contains("name"))value.name=args["name"].get<std::string>();
@@ -90,6 +125,65 @@ void Host::register_drawing_commands(){
             Json result={{"document",id},{"revision",state->revision()},{"items",std::move(items)},{"total",total}};
             if(selected){result["view"]=selected->id;result["source_document"]=selected->source_document_id;result["coordinate_system"]="source_model_mm";}
             return Result::success(std::move(result));
+        });
+    }
+    for(bool creating:{true,false}) {
+        std::vector<commands::Argument> parameters={{creating?"sheet":"view",true},{"source",false},{"name",false},{"orientation",false},{"camera",false,Type::Object},
+            {"x_mm",false,Type::Number},{"y_mm",false,Type::Number},{"scale",false,Type::Number},{"use_sheet_scale",false,Type::Boolean},
+            {"display_style",false},{"hidden_edge_style",false},{"tangent_edge_style",false},{"show_caption",false,Type::Boolean},{"show_section_label",false,Type::Boolean},
+            {"show_dimension_guides",false,Type::Boolean},{"guide_offset_mm",false,Type::Number},{"guide_spacing_mm",false,Type::Number},
+            {"section",false},{"section_markers",false,Type::Array},{"hidden_hatch_components",false,Type::Array},{"value_locks",false,Type::Array},{"distance_mm",false,Type::Number},{"document",false}};
+        if(creating){parameters.push_back({"parent_view",false});parameters.push_back({"projection_direction",false});}
+        add({creating?"drawing.view.create":"drawing.view.set",creating?tr("Create a drawing view from a calculated source or a parent view."):tr("Edit a drawing view and update its projected descendants."),std::move(parameters),true},[this,creating](auto& doc,const Json& args,const auto& document_path){
+            std::string sheet_id;drawing::DrawingView value;
+            if(creating) {
+                sheet_id=args["sheet"].get<std::string>();
+                if(!doc.find_sheet(sheet_id))throw workspace::DrawingOperationError("sheet_not_found","The drawing sheet does not exist.");
+                std::string source=args.value("source",std::string{});std::filesystem::path source_path;
+                const auto parent_id=args.value("parent_view",std::string{});const drawing::DrawingView* parent=nullptr;
+                if(!parent_id.empty()) {
+                    const auto& views=doc.find_sheet(sheet_id)->views;const auto found=std::ranges::find(views,parent_id,&drawing::DrawingView::id);
+                    if(found==views.end())throw workspace::DrawingOperationError("view_not_found","The parent drawing view is unavailable.");parent=&*found;
+                    source=parent->source_document_id;source_path=parent->source_path;
+                }
+                if(source.empty())throw workspace::DrawingOperationError("invalid_arguments","A source document or parent view is required.");
+                value=drawing::DrawingDocument::create_view(source,source_path,{});
+                if(parent){value.parent_view_id=parent_id;value.scale=parent->scale;value.use_sheet_scale=parent->use_sheet_scale;value.display_style=parent->display_style;}
+            }else{
+                const auto* current=doc.find_view(args["view"].get<std::string>());if(!current)throw workspace::DrawingOperationError("view_not_found","The drawing view does not exist.");value=*current;
+                for(const auto& sheet:doc.sheets)if(std::ranges::any_of(sheet.views,[&](const auto& v){return v.id==value.id;}))sheet_id=sheet.id;
+            }
+            if(!value.parent_view_id.empty()) {
+                for(const auto* key:{"source","orientation","camera","x_mm","y_mm"})if(args.contains(key))throw workspace::DrawingOperationError("invalid_arguments","A projected view inherits its source and camera; use distance_mm for its position.");
+            }else{
+                if(args.contains("distance_mm")||args.contains("projection_direction"))invalid_view_arguments();
+                if(creating||args.contains("source")) {
+                    const auto source=args.value("source",value.source_document_id);std::filesystem::path path;
+                    if(const auto* part=workspace_.open_part(source))path=part->path;
+                    else if(const auto* assembly=workspace_.open_assembly(source))path=assembly->path;
+                    else throw workspace::DrawingOperationError("source_unavailable","The drawing source must be an open Part or Assembly.");
+                    if(value.source_document_id!=source){value.section_id.clear();value.section_snapshot.reset();value.section_markers.clear();value.section_parent_id.clear();value.hidden_hatch_components.clear();}
+                    value.source_document_id=source;value.source_path=std::move(path);
+                }
+            }
+            view_settings(value,args);
+            if(!value.parent_view_id.empty()) {
+                const auto* parent=doc.find_view(value.parent_view_id);
+                if(!parent||value.projection_direction==drawing::ProjectionDirection::None)invalid_view_arguments();
+                if(creating||args.contains("distance_mm")) {
+                    if(!args.contains("distance_mm"))invalid_view_arguments();const auto distance=args["distance_mm"].get<double>();
+                    if(!std::isfinite(distance)||distance<.001||distance>10000)invalid_view_arguments();
+                    const auto offset=workspace::projection_placement(value.projection_direction,distance);value.x=parent->x+offset.x;value.y=parent->y+offset.y;
+                }
+            }
+            workspace::DrawingProjection projection(&workspace_,document_path);
+            if(args.contains("section_markers")) {
+                value.section_markers.clear();const auto& sections=projection.source(value).sections;std::set<std::string> seen;
+                for(const auto& key:args["section_markers"]){if(!key.is_string()||!seen.insert(key.get<std::string>()).second)invalid_view_arguments();const auto found=std::ranges::find(sections,key.get<std::string>(),&document::SectionDefinition::id);
+                    if(found==sections.end())throw workspace::DrawingOperationError("section_not_found","A source section trace no longer exists. Edit the drawing view first.");value.section_markers.push_back(*found);}
+            }
+            workspace::edit_drawing_view(doc,sheet_id,value,creating,projection);
+            auto result=view_json(*doc.find_view(value.id),sheet_id);result["changed"]=true;return result;
         });
     }
     add({"drawing.view.delete",tr("Delete a drawing view, its projected descendants and their dimensions."),{{"view",true},{"document",false}},true},[](auto& doc,const Json& args,const auto&){
