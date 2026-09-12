@@ -1,3 +1,4 @@
+#include <zima/document/file_path.hpp>
 #include <zima/interchange/dxf.hpp>
 
 #include <algorithm>
@@ -287,7 +288,7 @@ DxfImportResult import_dxf(
             add_point(arc.center_point_id); add_point(arc.start_point_id); add_point(arc.end_point_id);
         }
         result.import_block_id = target.add_import_block(
-            path.stem().string(), path.generic_string(),
+            document::path_to_utf8(path.stem()), document::path_to_utf8(path),
             std::move(geometry_ids), std::move(point_ids));
     }
     target.validate();

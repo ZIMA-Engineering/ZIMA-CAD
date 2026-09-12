@@ -49,7 +49,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Výkresy | Správa neuložených změn hotova | Příkazy pro listy, pohledy, kóty, anotace, šablony, BOM, Show/Erase |
 | Řezy, měření a vzhled | Zbývá | Datové operace a uložené výsledky |
 | Parametry, relace a materiál | Zbývá | Jednotky, fyzikální údaje a rodinné tabulky |
-| Import a export | Zbývá | STEP/IGES/DXF, přesnost, cílový Part/Assembly a podporované exporty |
+| Import a export | Import Partu STEP/IGES/DXF hotov | Přesnost, jednotky a společná transakce; zbývá import Assembly, vložených profilů a podporované exporty |
 
 Každá další etapa aktualizuje tabulku a uvádí ověřené testy. Neobcházíme
 chybějící operaci nevalidovanou změnou serializovaného dokumentu ani voláním
@@ -156,3 +156,20 @@ pod 1e-12 mm²), aktualizaci offsetu, současný posun navázaných bodů, odmí
 neplatné změny, Undo a nativní uložení. Následují příkazy importu/exportu;
 současný DXF writer podporuje pouze LINE/CIRCLE/ARC a nesmí přes konzoli
 tvrdit úplný export ostatní geometrie.
+
+
+Etapa importu Partu přidala `import.step`, `import.iges`, `import.dxf`, celkem
+**105 příkazů**. Menu a CLI sdílejí jednu transakci s kontrolou revize,
+generace, identity otevření a aktivního tělesa po doběhu úlohy. Opravena je
+UTF-8 cesta i metadata STEP/IGES/DXF na Windows. Úplná sada ověřila **70/71**
+testů (401,71 s), `build/part-import-full-tests.log`; jediná chyba byla
+v novém testu výběru souboru z menu. QFileDialog s proxy modelem při načítání
+adresáře zahodil `selectFile()`. Po opravě testu na zadání do skutečného pole
+názvu souboru prošel i tento scénář **1/1** (9,01 s),
+`build/part-import-gui-tests.log`. Finální GUI odpovídá
+`build/part-import-gui-build.log`, ostatní binární soubory úplnému sestavení.
+Ověřeny reálné STEP/IGES objemy, zvolená síť, DXF jednotky, zachování původní
+topologie po smazání zdroje, native save/load, Undo/Redo, neplatné soubory,
+zastaralý výpočet, nové otevření téhož dokumentu a čistý JSON protokol CLI.
+Podrobnosti: [IMPORT_COMMANDS.md](IMPORT_COMMANDS.md). Dále exporty a import
+Assembly.

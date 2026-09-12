@@ -1,6 +1,9 @@
 #include "console_ui_verification.hpp"
 #include "history_tree_widget.hpp"
 #include <QMenu>
+#include <QFileDialog>
+#include <zima/interchange/dxf.hpp>
+#include <zima/document/file_path.hpp>
 #include <QTimer>
 #include <QMessageBox>
 #include "assembly_workspace_window.hpp"
@@ -342,6 +345,41 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         check(saved_sketch.sketches.back().id==command_sketch && saved_sketch.sketches.back().circles.front().radius==10 && saved_sketch.sketches.back().dimensions.front().locked && saved_sketch.dimension_layouts.back().layout.text_along==3,"GUI console did not persist native Sketch");
         check(saved_sketch.sketches.back().texts.size()==1 && saved_sketch.sketches.back().texts.front().value=="ZIMA","Console did not persist native text");
         check(saved_sketch.sketches.back().external_references.size()==1 && !saved_sketch.sketches.back().import_blocks.empty(),"Console did not persist native projected reference");
+        auto dxf_profile=sketcher::Sketch::create_default();static_cast<void>(dxf_profile.add_rectangle(0,0,12,6));
+        const auto dxf_source=directory/std::filesystem::path(u8"obrys konzole.dxf");interchange::export_dxf(dxf_source,dxf_profile);
+        commands::Json dxf_import={{"command","import.dxf"},{"arguments",{{"path",document::path_to_utf8(dxf_source)}}}};
+        const auto dxf_result=run(QString::fromStdString(dxf_import.dump())).data;flush();
+        check(dxf_result.at("imported_entities")==4 && !dxf_result.at("body_calculated").get<bool>(),"Console import did not use the DXF transaction");
+        const auto before_menu_import=run("sketch.list").data.at("total").get<int>();
+        auto* import_action=window.findChild<QAction*>("importDocumentAction");check(import_action,"Import menu action missing");
+        bool chosen=false, timed_out=false;QTimer choose_import;choose_import.setInterval(50);
+        QObject::connect(&choose_import,&QTimer::timeout,[&]{
+            if(auto* dialog=qobject_cast<QFileDialog*>(QApplication::activeModalWidget())) {
+                if (!chosen) {
+                    const auto absolute=std::filesystem::absolute(dxf_source);
+                    dialog->setDirectory(QString::fromStdString(document::path_to_utf8(absolute.parent_path())));
+                    dialog->selectFile(QString::fromStdString(document::path_to_utf8(absolute.filename())));
+                    chosen=true;
+                    return; // Let QFileSystemModel populate the chosen directory first.
+                }
+                // A visible QFileDialog with a proxy model can discard selectFile()
+                // while its directory loads. Enter the path in the same field as a user.
+                if (auto* filename=dialog->findChild<QLineEdit*>("fileNameEdit"))
+                    filename->setText(QString::fromStdString(document::path_to_utf8(std::filesystem::absolute(dxf_source))));
+                std::cout<<"Import chooser: "<<dialog->selectedFiles().join(" | ").toStdString()<<'\n';
+                QMetaObject::invokeMethod(dialog,"accept",Qt::DirectConnection);
+            } else if (auto* message=qobject_cast<QMessageBox*>(QApplication::activeModalWidget())) {
+                std::cout<<"Import menu message: "<<message->text().toStdString()<<'\n';
+                message->accept();
+            }
+        });
+        QTimer import_timeout;import_timeout.setSingleShot(true);
+        QObject::connect(&import_timeout,&QTimer::timeout,[&]{timed_out=true;if(auto* dialog=qobject_cast<QDialog*>(QApplication::activeModalWidget()))dialog->reject();});
+        choose_import.start();import_timeout.start(10000);import_action->trigger();choose_import.stop();import_timeout.stop();flush();
+        const auto after_menu_import=run("sketch.list").data.at("total").get<int>();
+        std::cout<<"Menu import result: selected="<<chosen<<", timeout="<<timed_out<<", sketches="<<before_menu_import<<" -> "<<after_menu_import<<'\n';
+        check(chosen && !timed_out && after_menu_import==before_menu_import+1,"Menu import did not use the shared model transaction");
+        run("save");
         run(QString::fromStdString(activate.dump()));flush();
         input->setText("context");QApplication::sendEvent(input,&enter);flush();
         check(window.grab().save(QString::fromStdString((directory/"command-console.png").string())),"Console screenshot failed");

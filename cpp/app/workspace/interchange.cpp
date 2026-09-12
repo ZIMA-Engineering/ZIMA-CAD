@@ -1,4 +1,5 @@
 #include "workspace_internal.hpp"
+#include <zima/workspace/import_operations.hpp>
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -58,47 +59,65 @@ void AssemblyWorkspaceWindow::import_selected_file(const QString& path, std::opt
         }
         return;
     }
+    if (workspace_.open_part(workspace_.active_document_id())) {
+        begin_status_operation(tr("Importuji %1…").arg(QFileInfo(path).fileName()));
+        try {
+            zima::workspace::PartImportOptions options;
+            options.mesh_deflection = mesh_deflection;
+            options.sketch_id = active_sketch_id_;
+            const auto report = zima::workspace::import_part(workspace_, workspace_.active_document_id(),
+                std::filesystem::u8path(path.toStdString()), options,
+                [](auto task) { run_background_task(std::move(task)); });
+            refresh_tabs(); refresh_scene();
+            if (format == zima::interchange::Format::Dxf) {
+                finish_status_operation(tr("DXF importováno: %1 entit").arg(report.dxf.imported_entities));
+                if (!report.dxf.warnings.empty()) {
+                    QStringList warnings;
+                    for (const auto& warning : report.dxf.warnings)
+                        if (!warnings.contains(QString::fromStdString(warning))) warnings << QString::fromStdString(warning);
+                    QMessageBox::information(this, tr("Upozornění importu DXF"), warnings.join("\n"));
+                }
+            } else finish_status_operation(format == zima::interchange::Format::Step
+                ? tr("STEP importován: %1 těles").arg(report.body_ids.size()) : tr("IGES importován"));
+        } catch (const std::exception& error) {
+            finish_status_operation(tr("Import selhal"), false);
+            QMessageBox::warning(this, tr("Import selhal"), QString::fromUtf8(error.what()));
+        }
+        return;
+    }
     if (format == zima::interchange::Format::Dxf || format == zima::interchange::Format::Iges) {
         const auto target_id = workspace_.active_document_id();
         const auto displayed_id = workspace_.displayed_document_id();
-        auto* part = workspace_.open_part(target_id);
         const auto* assembly = workspace_.open_assembly(target_id);
-        if (!part && !assembly) return;
+        if (!assembly) return;
         const bool dxf = format == zima::interchange::Format::Dxf;
         begin_status_operation(tr("Importuji %1…").arg(QFileInfo(path).fileName()));
         try {
-            auto document = part ? part->session.document() : new_part_from_template(application_settings_);
-            if (!part) {
-                document.name = QFileInfo(path).completeBaseName().toStdString();
-                document.document_precision = assembly->session.document().document_precision;
-                document.document_units = assembly->session.document().document_units;
-            }
-            auto previous = part ? part->session.calculated_boundaries() : std::vector<zima::kernel::BodyResult>{};
+            auto document = new_part_from_template(application_settings_);
+            document.name = QFileInfo(path).completeBaseName().toStdString();
+            document.document_precision = assembly->session.document().document_precision;
+            document.document_units = assembly->session.document().document_units;
             zima::interchange::DxfImportResult report;
-            auto imported = run_background_task([document=std::move(document),previous=std::move(previous),
-                    source=std::filesystem::path(path.toStdString()),sketch_id=active_sketch_id_,dxf,mesh_deflection,&report]() mutable {
-                if (!dxf) return zima::interchange::import_iges_part(std::move(document),previous,source,mesh_deflection);
-                auto result = zima::interchange::import_dxf_part(std::move(document),previous,source,sketch_id);
+            auto imported = run_background_task([document=std::move(document),
+                    source=std::filesystem::u8path(path.toStdString()),sketch_id=active_sketch_id_,dxf,mesh_deflection,&report]() mutable {
+                if (!dxf) return zima::interchange::import_iges_part(std::move(document),{},source,mesh_deflection);
+                auto result = zima::interchange::import_dxf_part(std::move(document),{},source,sketch_id);
                 report = std::move(result.report); return std::move(result.part);
             });
-            if (part) part->session.commit(std::move(imported.document),std::move(imported.calculated));
-            else {
-                const auto base = assembly->path.empty() ? working_directory_ : assembly->path.parent_path();
-                const auto name = imported.document.name;
-                const auto id = imported.document.document_id;
-                std::filesystem::path destination;
-                for (std::size_t suffix=0;;++suffix) {
-                    destination=std::filesystem::absolute(base/(name+(suffix?"_"+std::to_string(suffix):"")+".prtz"));
-                    if (!std::filesystem::exists(destination) && !workspace_.document_id_for_path(destination)) break;
-                }
-                imported.document.save(destination,imported.calculated);
-                workspace_.add_part(std::move(imported.document),std::move(imported.calculated),destination);
-                static_cast<void>(workspace_.insert_open_part(target_id,id,name));
-                workspace_.activate(target_id); workspace_.display_top_level(displayed_id);
+            const auto base = assembly->path.empty() ? working_directory_ : assembly->path.parent_path();
+            const auto name = imported.document.name;
+            const auto id = imported.document.document_id;
+            std::filesystem::path destination;
+            for (std::size_t suffix=0;;++suffix) {
+                destination=std::filesystem::absolute(base/(name+(suffix?"_"+std::to_string(suffix):"")+".prtz"));
+                if (!std::filesystem::exists(destination) && !workspace_.document_id_for_path(destination)) break;
             }
+            imported.document.save(destination,imported.calculated);
+            workspace_.add_part(std::move(imported.document),std::move(imported.calculated),destination);
+            static_cast<void>(workspace_.insert_open_part(target_id,id,name));
+            workspace_.activate(target_id); workspace_.display_top_level(displayed_id);
             refresh_tabs(); refresh_scene();
-            finish_status_operation(dxf ? tr("DXF importováno: %1 entit").arg(report.imported_entities)
-                : tr("IGES importován"));
+            finish_status_operation(dxf ? tr("DXF importováno: %1 entit").arg(report.imported_entities) : tr("IGES importován"));
             if (!report.warnings.empty()) {
                 QStringList warnings;
                 for (const auto& warning : report.warnings)
@@ -112,35 +131,12 @@ void AssemblyWorkspaceWindow::import_selected_file(const QString& path, std::opt
         return;
     }
     if (format == zima::interchange::Format::Step) {
-        auto* part = workspace_.open_part(workspace_.active_document_id());
-        if (part == nullptr) {
-            if (workspace_.open_assembly(workspace_.active_document_id()) != nullptr) {
-                begin_status_operation(tr("Importuji STEP sestavu %1…").arg(
-                    QFileInfo(path).fileName()));
-                try { import_step_into_assembly(path.toStdString(),mesh_deflection); }
-                catch (const std::exception& error) {
-                    finish_status_operation(tr("Import STEP sestavy selhal"), false);
-                    QMessageBox::warning(this, tr("Import STEP selhal"), error.what());
-                }
-            }
-            return;
-        }
-        begin_status_operation(tr("Importuji STEP %1…").arg(
-            QFileInfo(path).fileName()));
-        try {
-            const auto source=std::filesystem::absolute(path.toStdString());
-            update_status_operation(tr("OCCT čte STEP, převádí topologii a vytváří síť…"),-1,0);
-            auto imported=run_background_task([document=part->session.document(),
-                    previous=part->session.calculated_boundaries(),source,mesh_deflection] {
-                return zima::interchange::import_step_part(document,previous,source,mesh_deflection);
-            });
-            const auto count=imported.document.body_history.bodies().size()-part->session.document().body_history.bodies().size();
-            part->session.commit(std::move(imported.document),std::move(imported.calculated));
-            refresh_tabs();refresh_scene();
-            finish_status_operation(tr("STEP importován: %1 těles").arg(count));
-        } catch (const std::exception& error) {
-            finish_status_operation(tr("Import STEP selhal"), false);
-            QMessageBox::warning(this, tr("Import STEP selhal"), error.what());
+        if (!workspace_.open_assembly(workspace_.active_document_id())) return;
+        begin_status_operation(tr("Importuji STEP sestavu %1…").arg(QFileInfo(path).fileName()));
+        try { import_step_into_assembly(std::filesystem::u8path(path.toStdString()),mesh_deflection); }
+        catch (const std::exception& error) {
+            finish_status_operation(tr("Import STEP sestavy selhal"), false);
+            QMessageBox::warning(this, tr("Import STEP selhal"), QString::fromUtf8(error.what()));
         }
         return;
     }

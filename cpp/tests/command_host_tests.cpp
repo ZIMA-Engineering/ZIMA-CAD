@@ -47,7 +47,7 @@ void verify_commands(const kernel::OcctKernel& kernel,const fs::path& root){
         }).get();
     };
     Host host(live,kernel,directory,options);current=&host;
-    require(run(host,"help").data.size()==102,"Command catalog changed");
+    require(run(host,"help").data.size()==105,"Command catalog changed");
     require(run(host,"documents").data.empty()&&run(host,"tree").data.at("items").empty(),"Empty workspace query failed");
     require(host.execute_text("save").code=="no_document","Empty save accepted");
     run(host,"new part \"díl s mezerou\"");const auto id=live.active_document_id();

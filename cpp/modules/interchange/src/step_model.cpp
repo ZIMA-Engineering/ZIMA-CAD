@@ -1,3 +1,4 @@
+#include <zima/document/file_path.hpp>
 #include <zima/document/body_origin_attachment.hpp>
 #include <zima/interchange/step_model.hpp>
 #include <zima/interchange/step.hpp>
@@ -78,7 +79,7 @@ StepImportedPart import_step_part(document::PartDocument doc,
     for(const auto& node:nodes)if(!node.assembly) {
         auto container=document::PartDocument::create_imported_step_container(absolute,node.definition_id,node.name);
         container.imported_step.mesh_deflection=mesh_deflection;
-        requests.push_back({absolute.string(),node.definition_id,{},{},container.id});
+        requests.push_back({document::path_to_utf8(absolute),node.definition_id,{},{},container.id});
         containers.push_back(std::move(container));
     }
     if(requests.empty())throw std::runtime_error("STEP neobsahuje žádné díly");
@@ -110,7 +111,7 @@ StepAssemblyImport import_step_assembly(const std::filesystem::path& source,
         parts[node.definition_id]=unique_parts.size();unique_parts.push_back(&node);
         auto container=document::PartDocument::create_imported_step_container(absolute,node.definition_id,node.name);
         container.imported_step.mesh_deflection=mesh_deflection;
-        requests.push_back({absolute.string(),node.definition_id,{},{},container.id});containers.push_back(std::move(container));
+        requests.push_back({document::path_to_utf8(absolute),node.definition_id,{},{},container.id});containers.push_back(std::move(container));
     }
     kernel::OcctKernel kernel;
     auto frozen=kernel.import_step_components(requests,mesh_deflection.value_or(document::precision_value(precision,"mesh_deflection",0.1)));
@@ -176,7 +177,7 @@ StepAssemblyImport import_step_assembly(const std::filesystem::path& source,
         const auto root_id=roots.front().source_document_id;
         result.root_index=std::ranges::find_if(result.assemblies,[&](const auto& a){return a.document.document_id==root_id;})-result.assemblies.begin();
     } else {
-        auto root=assembly::AssemblyDocument::create_default();root.name=source.stem().string();root.document_precision=precision;
+        auto root=assembly::AssemblyDocument::create_default();root.name=document::path_to_utf8(source.stem());root.document_precision=precision;
         root.components=std::move(roots);result.root_index=result.assemblies.size();
         result.assemblies.push_back({std::move(root),directory/"step-root.asmz"});
     }

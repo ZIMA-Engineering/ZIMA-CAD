@@ -1,4 +1,6 @@
 #include <zima/command_host/host.hpp>
+#include <zima/document/file_path.hpp>
+#include <zima/interchange/step_model.hpp>
 #include "../cli/runner.hpp"
 #include <QCoreApplication>
 #include <QFile>
@@ -202,6 +204,29 @@ int main(int argc,char** argv){
         const auto history_result=document::PartDocument::load(project/"commanded-bodies.prtz",&reloaded);
         require(result.exit_code==0 && result.results().size()==5 && history_result.body_history.booleans().empty() &&
             history_result.body_history.order().front()==tool_body && !reloaded.empty(),"CLI history did not persist deleted Boolean/reordered Bodies");
+        const auto dxf_source=project/fs::path(u8"obrys český.dxf");
+        write(dxf_source,"0\nSECTION\n2\nENTITIES\n0\nLINE\n10\n0\n20\n0\n11\n20\n21\n10\n0\nENDSEC\n0\nEOF\n");
+        const auto dxf_import=command({{"command","import.dxf"},{"arguments",{{"path",document::path_to_utf8(dxf_source)}}}});
+        result=launch(executable,root,common+QStringList{"--command","new part cli-dxf","--command",dxf_import,"--command","save"});
+        require(result.exit_code==0 && result.results()[1].at("data").at("imported_entities")==1,"CLI DXF import failed");
+        const auto dxf_native=document::PartDocument::load(project/"cli-dxf.prtz");
+        require(dxf_native.sketches.back().segments.size()==1 && dxf_native.sketches.back().name=="obrys český","CLI DXF lost native geometry or UTF-8 metadata");
+        kernel::OcctKernel import_kernel;auto import_source=document::PartDocument::create_default();
+        auto source_box=document::PartDocument::create_box_container();source_box.box.length=10;source_box.box.width=20;source_box.box.height=30;import_source.history.push_back(source_box);
+        const auto source_bodies=import_kernel.evaluate_history(import_source.kernel_operations());
+        const auto step_source=project/fs::path(u8"kvádr český.step");
+        import_kernel.export_step(interchange::step_product(import_source,source_bodies),document::path_to_utf8(step_source));
+        const auto step_import=command({{"command","import.step"},{"arguments",{{"path",document::path_to_utf8(step_source)},{"mesh_deflection_mm",2.0}}}});
+        result=launch(executable,root,common+QStringList{"--command","new part cli-step","--command",step_import,"--command","save"});
+        require(result.exit_code==0 && result.results()[1].at("data").at("bodies").size()==1,"CLI STEP import failed or mixed OCCT diagnostics into protocol");
+        std::vector<kernel::BodyResult> step_bodies;const auto step_native=document::PartDocument::load(project/"cli-step.prtz",&step_bodies);
+        require(!step_bodies.empty() && std::abs(step_bodies.back().volume-6000)<1e-5 && step_native.history.back().imported_step.mesh_deflection==2.0,"CLI STEP lost volume or selected precision");
+        const auto iges_source=project/fs::path(u8"krychle česká.igs");fs::copy_file(repository/"cpp/tests/fixtures/import/cube-10mm.igs",iges_source);
+        const auto iges_import=command({{"command","import.iges"},{"arguments",{{"path",document::path_to_utf8(iges_source)}}}});
+        result=launch(executable,root,common+QStringList{"--command","new part cli-iges","--command",iges_import,"--command","save"});
+        require(result.exit_code==0 && result.results()[1].at("data").at("bodies").size()==1,"CLI IGES import failed");
+        std::vector<kernel::BodyResult> iges_bodies;static_cast<void>(document::PartDocument::load(project/"cli-iges.prtz",&iges_bodies));
+        require(!iges_bodies.empty() && std::abs(iges_bodies.back().volume-1000)<1e-4,"CLI IGES changed native scale");
         result=launch(executable,root,common+QStringList{"--stdin"},"new part cli-sketch\nsketch.create Spline XY\nsave\n");
         require(result.exit_code==0 && result.results().size()==3,"CLI could not create an owned Sketch");
         const auto sketch_id=result.results()[1].at("data").at("sketch").get<std::string>();

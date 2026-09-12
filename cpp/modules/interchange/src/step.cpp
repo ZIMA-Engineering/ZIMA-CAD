@@ -1,3 +1,4 @@
+#include <zima/document/file_path.hpp>
 #include <zima/interchange/step.hpp>
 
 #include <BRepAdaptor_Curve.hxx>
@@ -35,7 +36,7 @@ namespace {
 
 TopoDS_Shape read_step(const std::filesystem::path& path) {
     STEPControl_Reader reader;
-    if (reader.ReadFile(path.string().c_str()) != IFSelect_RetDone ||
+    if (reader.ReadFile(document::path_to_utf8(path).c_str()) != IFSelect_RetDone ||
         reader.TransferRoots() == 0) {
         throw std::runtime_error("STEP soubor nelze načíst nebo neobsahuje geometrii");
     }
@@ -95,7 +96,7 @@ std::vector<StepPart> inspect_step_parts(
     XCAFApp_Application::GetApplication()->NewDocument("BinXCAF", document);
     struct CloseDocument { Handle(TDocStd_Document)& value; ~CloseDocument(){XCAFApp_Application::GetApplication()->Close(value);} } close{document};
     STEPCAFControl_Reader reader;
-    if(reader.ReadFile(path.string().c_str())!=IFSelect_RetDone)
+    if(reader.ReadFile(document::path_to_utf8(path).c_str())!=IFSelect_RetDone)
         throw std::runtime_error("STEP produktovou strukturu nelze načíst");
     reader.ChangeReader().SetSystemLengthUnit(1.0);
     if(!reader.Transfer(document))throw std::runtime_error("STEP produktovou strukturu nelze načíst");
