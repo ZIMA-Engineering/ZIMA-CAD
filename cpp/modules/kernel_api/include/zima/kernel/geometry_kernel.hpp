@@ -448,6 +448,16 @@ struct ProfileWall {
     std::string end_point_id; // Native final point for an open profile; empty for a closed loop.
 };
 
+// One explicitly resolved end reference; numerical geometry is in profile coordinates.
+struct ExtrusionLimit {
+    bool planar{true};
+    FaceReference reference;
+    bool datum{};
+    Vec3 origin;
+    Vec3 normal{0.0, 0.0, 1.0};
+    std::vector<Vec3> triangles;
+};
+
 struct ExtrusionRequest {
     enum class Extent { Blind, UpToPlane, UpToSurface, ThroughAll };
     struct PolygonProfile {
@@ -535,6 +545,7 @@ struct ExtrusionRequest {
     Vec3 target_plane_origin;
     Vec3 target_plane_normal{0.0, 0.0, 1.0};
     std::vector<Vec3> target_surface_triangles;
+    std::optional<ExtrusionLimit> reverse_limit;
 };
 
 struct RevolutionRequest {
@@ -961,8 +972,8 @@ struct PlacedBody {
                     u64(std::bit_cast<std::uint64_t>(value));
                 }
             } else if constexpr (std::is_same_v<Request, ExtrusionRequest>) {
-                // Up-to-plane prisms cover the complete curved profile.
-                if (primitive.extent == ExtrusionRequest::Extent::UpToPlane) byte(1);
+                // Exact profile bounds reject an inclined plane crossing away from seam vertices.
+                if (primitive.extent == ExtrusionRequest::Extent::UpToPlane) byte(2);
                 const auto append_profile = [&](const auto& profile_variant) {
                     byte(static_cast<std::uint8_t>(profile_variant.index()));
                     std::visit([&](const auto& profile) {
@@ -1118,6 +1129,16 @@ struct PlacedBody {
                     for (const double value : {point.x, point.y, point.z}) {
                         u64(std::bit_cast<std::uint64_t>(value));
                     }
+                }
+                if (primitive.reverse_limit) {
+                    for (const unsigned char c : std::string_view("extrusion-reverse-limit-v1")) byte(c);
+                    const auto& limit=*primitive.reverse_limit;
+                    byte(limit.planar);byte(limit.datum);
+                    for(const auto& text:{limit.reference.owner_id,limit.reference.semantic_key,limit.reference.instance_path}) {
+                        u64(text.size());for(const unsigned char c:text)byte(c);
+                    }
+                    for(const auto p:{limit.origin,limit.normal})for(const double v:{p.x,p.y,p.z})u64(std::bit_cast<std::uint64_t>(v));
+                    u64(limit.triangles.size());for(const auto p:limit.triangles)for(const double v:{p.x,p.y,p.z})u64(std::bit_cast<std::uint64_t>(v));
                 }
                 if (primitive.wall) {
                     for (const unsigned char c : std::string_view("profile-wall-v1")) byte(c);

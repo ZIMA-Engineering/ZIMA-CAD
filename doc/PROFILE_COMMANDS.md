@@ -136,3 +136,31 @@ Zpřísněná kontrola spline a obráceného směru prošla **1/1** (0,52 s),
 integrálu byla **1,990028e-9 mm³**, povolená mez je 1e-4 mm³. Odsazená hrana
 obsahuje uloženou přesnou B-spline; změna směru zachová rodiče jejích ploch.
 Závěrečné GUI/testovací sestavení: `build/thin-profile-final-build.log`.
+
+
+## Výpočet dvou cílových mezí (navazující etapa)
+
+Kernel má nyní nezávislou dopřednou a zpětnou mez vysunutí. Obě mohou omezovat
+profil šikmou rovinou; zpětná mez podporuje také původní přesnou plochu.
+Průchozí řez může být kombinován s cílovou mezí na opačné straně. Změna mezí
+zachovává identitu obou čel a boků odvozenou od původního profilu.
+
+Kontrola šikmé roviny používá přesné meze celého profilu v souřadnicích roviny.
+Odmítne tedy také rovinu protínající kružnici mimo její švový bod. Rovinná
+plocha původního tělesa při explicitním výpočtu poskytuje svou aktuální rovinu;
+starý číselný snímek cíle ji nemůže přepsat. Kernel ověřuje existenci přesného
+původního vlastníka i u sdružených profilových prvků.
+
+Tato část je zatím kernelovým základem: nativní adaptéry, druhý konec náhledu,
+obnova cílových referencí a jejich CLI zadání se dokončují v další etapě.
+Nepřidává příkaz ani nové pole nativního dokumentu.
+
+První kontrola základních kontraktů a Thin prošla **3/3** (7,31 s),
+`build/extrusion-limits-kernel-tests.log`. Rozšířená sada ověřila všechny
+stávající geometrické kontrakty, Sweep 2D/3D, ShaftThread, Hole a Thin;
+nová řezová zkouška nejprve chybně nezařadila zásobu do tělesa (**6/7**, 22,48 s,
+`build/extrusion-limits-related-tests.log`). Po opravě přípravy testu prošla
+**1/1** (0,23 s), `build/extrusion-limits-fixture-tests.log`. Objemové testy
+zahrnují dvě šikmé roviny, obě kombinace průchozího řezu, Thin, původní rovinu
+se záměrně zastaralým snímkem, přesnou povrchovou mez, chybnou stranu,
+chybějící zdroj, identitu ploch a změnu otisku cache.

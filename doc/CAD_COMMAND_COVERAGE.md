@@ -580,3 +580,12 @@ Thin modelové, CLI i GUI kontroly prošly; zpřísněná kontrola spline namě�
 odchylku objemu 1,990028e-9 mm³. Podrobnosti, omezení a logy:
 [PROFILE_COMMANDS.md](PROFILE_COMMANDS.md). Nativní formát ani start šablony
 se nemění. Pokračujeme cílovými referencemi vysunutí a dalšími řádky tabulky.
+
+
+Navazující kernelová etapa připravila nezávislé dvě meze vysunutí a kombinaci
+cílové plochy s průchozím řezem. Kontroluje celý profil vůči šikmé rovině a
+při výpočtu používá aktuální původní plochu. Stávající související regrese
+prošly, nová objemová zkouška prošla po opravě jejího vlastnictví zásoby.
+Nativní adaptéry, náhled a příkazové zadání cílů zůstávají právě dokončovaným
+krokem; katalog má nadále **164 příkazů**. Podrobnosti:
+[PROFILE_COMMANDS.md](PROFILE_COMMANDS.md).

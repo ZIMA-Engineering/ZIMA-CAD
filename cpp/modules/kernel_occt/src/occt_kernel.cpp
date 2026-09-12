@@ -976,6 +976,55 @@ PrimitiveData make_wedge_data(const WedgeRequest& request, const std::string& ow
         owner_id, "wedge");
 }
 
+struct ExtrusionLimitView {
+    bool planar;
+    const FaceReference& reference;
+    bool datum;
+    Vec3 origin;
+    Vec3 normal;
+    const std::vector<Vec3>& triangles;
+};
+bool has_forward_limit(const ExtrusionRequest& request) {
+    return request.extent==ExtrusionRequest::Extent::UpToPlane || request.extent==ExtrusionRequest::Extent::UpToSurface;
+}
+ExtrusionLimitView forward_limit(const ExtrusionRequest& request) {
+    return {request.extent==ExtrusionRequest::Extent::UpToPlane,request.target_face,request.target_is_datum,
+        request.target_plane_origin,request.target_plane_normal,request.target_surface_triangles};
+}
+ExtrusionLimitView limit_view(const ExtrusionLimit& value) {
+    return {value.planar,value.reference,value.datum,value.origin,value.normal,value.triangles};
+}
+void validate_extrusion_limit(const ExtrusionLimitView& limit,const Vec3& direction) {
+    if (limit.planar) {
+        const double normal_length = std::sqrt(
+            limit.normal.x * limit.normal.x +
+            limit.normal.y * limit.normal.y +
+            limit.normal.z * limit.normal.z);
+        const double dot = direction.x * limit.normal.x +
+            direction.y * limit.normal.y +
+            direction.z * limit.normal.z;
+        if (!limit.reference.valid() || !limit.reference.instance_path.empty() ||
+            !std::isfinite(limit.origin.x) ||
+            !std::isfinite(limit.origin.y) ||
+            !std::isfinite(limit.origin.z) ||
+            !std::isfinite(normal_length) || normal_length <= 1.0e-12 ||
+            std::abs(dot) <= 1.0e-12) {
+            throw std::invalid_argument("Extrusion target plane is invalid or parallel");
+        }
+    } else {
+        if (!limit.reference.valid() || !limit.reference.instance_path.empty() || limit.datum ||
+            limit.triangles.empty() ||
+            limit.triangles.size() % 3 != 0 ||
+            std::any_of(limit.triangles.begin(),
+                limit.triangles.end(), [](const auto& point) {
+                    return !std::isfinite(point.x) || !std::isfinite(point.y) ||
+                           !std::isfinite(point.z);
+                })) {
+            throw std::invalid_argument("Extrusion target surface is invalid");
+        }
+    }
+}
+
 void validate_extrusion(const ExtrusionRequest& request, bool allow_open_profile = false) {
     allow_open_profile = allow_open_profile || request.wall.has_value();
     const auto validate_profile = [&](const auto& profile_variant) {
@@ -1216,33 +1265,10 @@ void validate_extrusion(const ExtrusionRequest& request, bool allow_open_profile
     if (!std::isfinite(length) || length <= 1.0e-12) {
         throw std::invalid_argument("Extrusion direction must be finite and non-zero");
     }
-    if (request.extent == ExtrusionRequest::Extent::UpToPlane) {
-        const double normal_length = std::sqrt(
-            request.target_plane_normal.x * request.target_plane_normal.x +
-            request.target_plane_normal.y * request.target_plane_normal.y +
-            request.target_plane_normal.z * request.target_plane_normal.z);
-        const double dot = request.direction.x * request.target_plane_normal.x +
-            request.direction.y * request.target_plane_normal.y +
-            request.direction.z * request.target_plane_normal.z;
-        if (!request.target_face.valid() || !request.target_face.instance_path.empty() ||
-            !std::isfinite(request.target_plane_origin.x) ||
-            !std::isfinite(request.target_plane_origin.y) ||
-            !std::isfinite(request.target_plane_origin.z) ||
-            !std::isfinite(normal_length) || normal_length <= 1.0e-12 ||
-            std::abs(dot) <= 1.0e-12) {
-            throw std::invalid_argument("Extrusion target plane is invalid or parallel");
-        }
-    } else if (request.extent == ExtrusionRequest::Extent::UpToSurface) {
-        if (!request.target_face.valid() || request.target_is_datum ||
-            request.target_surface_triangles.empty() ||
-            request.target_surface_triangles.size() % 3 != 0 ||
-            std::any_of(request.target_surface_triangles.begin(),
-                request.target_surface_triangles.end(), [](const auto& point) {
-                    return !std::isfinite(point.x) || !std::isfinite(point.y) ||
-                           !std::isfinite(point.z);
-                })) {
-            throw std::invalid_argument("Extrusion target surface is invalid");
-        }
+    if(has_forward_limit(request))validate_extrusion_limit(forward_limit(request),request.direction);
+    if(request.reverse_limit) {
+        validate_extrusion_limit(limit_view(*request.reverse_limit),request.direction);
+        if(request.through_all_reverse)throw std::invalid_argument("An extrusion end cannot be both Up-to and Through-all");
     }
 }
 
@@ -2171,99 +2197,30 @@ void transform_profile_wire(SweepProfileWire& profile, const gp_Trsf& transform)
     profile.wire=TopoDS::Wire(builder.Shape());
 }
 
-PrimitiveData make_extrusion_data(
-    const ExtrusionRequest& request, const std::string& owner_id,
-    const std::optional<TopoDS_Face>& exact_target = std::nullopt,
-    double through_all_forward_span = 2'000'000.0,
-    double through_all_reverse_span = 2'000'000.0,
-    const std::optional<Vec3>& circle_radial_direction = std::nullopt,
-    double linear_tolerance = 0.001) {
-    auto normal=request.direction;
-    if (request.wall) {
-        const double scale=(request.first_cap_is_start?1.0:-1.0)/std::sqrt(
-            normal.x*normal.x+normal.y*normal.y+normal.z*normal.z);
-        normal={normal.x*scale,normal.y*scale,normal.z*scale};
+double extrusion_limit_span(const ExtrusionLimitView& limit,const Vec3& unit,
+    const TopoDS_Face& face,const std::vector<TopoDS_Wire>& wires) {
+    if(limit.planar) {
+        // Bound the complete analytic profile along the plane normal. A circle's
+        // seam vertex does not prove that the rest stays before an inclined plane.
+        gp_Trsf into_plane;
+        into_plane.SetTransformation(gp_Ax3(gp_Pnt(limit.origin.x,limit.origin.y,limit.origin.z),
+            gp_Dir(limit.normal.x,limit.normal.y,limit.normal.z)));
+        const auto local=BRepBuilderAPI_Transform(face,into_plane,false).Shape();
+        Bnd_Box bounds;BRepBndLib::AddOptimal(local,bounds,false,false);
+        if(bounds.IsVoid())throw std::runtime_error("Extrusion profile has no bounds");
+        double xmin,ymin,zmin,xmax,ymax,zmax;bounds.Get(xmin,ymin,zmin,xmax,ymax,zmax);
+        const gp_Dir normal(limit.normal.x,limit.normal.y,limit.normal.z);
+        const double dot=unit.x*normal.X()+unit.y*normal.Y()+unit.z*normal.Z();
+        const double a=-zmin/dot,b=-zmax/dot;
+        const double minimum=std::min(a,b),maximum=std::max(a,b);
+        if(!std::isfinite(minimum)||!std::isfinite(maximum)||minimum<=1e-9)
+            throw std::runtime_error("Extrusion profile crosses or lies beyond target plane");
+        return maximum+std::max(1.0,maximum*.01);
     }
-    auto profiles=make_body_profiles(request,normal,circle_radial_direction);
-    std::vector<TopoDS_Wire> wires;
-    for(const auto& profile:profiles)wires.push_back(profile.wire);
-    BRepBuilderAPI_MakeFace face_builder(wires.front(), true);
-    for(std::size_t i=1;i<wires.size();++i)face_builder.Add(wires[i]);
-    if (!face_builder.IsDone()) throw std::runtime_error("OCCT profile face failed");
-    TopoDS_Face face = face_builder.Face();
-    if (!BRepCheck_Analyzer(face).IsValid()) {
-        throw std::runtime_error("OCCT profile face is invalid");
-    }
-    const double direction_length = std::sqrt(
-        request.direction.x * request.direction.x +
-        request.direction.y * request.direction.y +
-        request.direction.z * request.direction.z);
-    const Vec3 unit{request.direction.x / direction_length,
-                    request.direction.y / direction_length,
-                    request.direction.z / direction_length};
-    if (std::abs(request.start_offset) > 1.0e-12) {
-        gp_Trsf shift;
-        shift.SetTranslation(gp_Vec(unit.x * request.start_offset,
-                                    unit.y * request.start_offset,
-                                    unit.z * request.start_offset));
-        for (std::size_t i=0;i<wires.size();++i) {
-            transform_profile_wire(profiles[i],shift);wires[i]=profiles[i].wire;
-        }
-        BRepBuilderAPI_MakeFace shifted_face(wires.front(), true);
-        for (std::size_t index = 1; index < wires.size(); ++index) {
-            shifted_face.Add(wires[index]);
-        }
-        if (!shifted_face.IsDone()) {
-            throw std::runtime_error("OCCT extrusion start shift failed");
-        }
-        face = shifted_face.Face();
-    }
-    Vec3 prism_direction = request.direction;
-    if (request.extent == ExtrusionRequest::Extent::UpToPlane) {
-        const auto& normal = request.target_plane_normal;
-        const double denominator = unit.x * normal.x + unit.y * normal.y +
-                                   unit.z * normal.z;
-        double maximum_distance = 0.0;
-        for (const auto& wire : wires) {
-            for (TopExp_Explorer explorer(wire, TopAbs_VERTEX);
-                 explorer.More(); explorer.Next()) {
-                const gp_Pnt point = BRep_Tool::Pnt(TopoDS::Vertex(explorer.Current()));
-                const double distance_to_plane =
-                    ((request.target_plane_origin.x - point.X()) * normal.x +
-                     (request.target_plane_origin.y - point.Y()) * normal.y +
-                     (request.target_plane_origin.z - point.Z()) * normal.z) /
-                    denominator;
-                if (!std::isfinite(distance_to_plane) || distance_to_plane <= 1.0e-9) {
-                    throw std::runtime_error(
-                        "Extrusion profile crosses or lies beyond target plane");
-                }
-                maximum_distance = std::max(maximum_distance, distance_to_plane);
-            }
-        }
-        // Closed curves have only a seam vertex; it need not be their point
-        // farthest from an inclined target. Bound the complete profile so the
-        // temporary prism reaches the plane everywhere before clipping.
-        Bnd_Box profile_bounds;
-        BRepBndLib::AddOptimal(face,profile_bounds,false,false);
-        if (!profile_bounds.IsVoid()) {
-            double xmin,ymin,zmin,xmax,ymax,zmax;
-            profile_bounds.Get(xmin,ymin,zmin,xmax,ymax,zmax);
-            for (double x : {xmin,xmax})
-                for (double y : {ymin,ymax})
-                    for (double z : {zmin,zmax}) {
-                        const double distance=((request.target_plane_origin.x-x)*normal.x+
-                            (request.target_plane_origin.y-y)*normal.y+
-                            (request.target_plane_origin.z-z)*normal.z)/denominator;
-                        maximum_distance=std::max(maximum_distance,distance);
-                    }
-        }
-        const double overrun = maximum_distance +
-            std::max(1.0, maximum_distance * 0.01);
-        prism_direction = {unit.x * overrun, unit.y * overrun, unit.z * overrun};
-    } else if (request.extent == ExtrusionRequest::Extent::UpToSurface) {
+
         const auto ray_distance = [&](const gp_Pnt& point) {
             double nearest = std::numeric_limits<double>::infinity();
-            const auto& triangles = request.target_surface_triangles;
+            const auto& triangles = limit.triangles;
             for (std::size_t index = 0; index < triangles.size(); index += 3) {
                 const auto& v0 = triangles[index];
                 const auto& v1 = triangles[index + 1];
@@ -2311,44 +2268,84 @@ PrimitiveData make_extrusion_data(
                 }
             }
         }
-        const double overrun = maximum_distance +
-            std::max(1.0, maximum_distance * 0.01);
-        prism_direction = {unit.x * overrun, unit.y * overrun, unit.z * overrun};
-    } else if (request.extent == ExtrusionRequest::Extent::ThroughAll) {
-        const double forward_span = std::max(1.0, through_all_forward_span);
-        const double reverse_span = std::max(1.0, through_all_reverse_span);
-        const double original_end = request.start_offset + direction_length;
-        const double bounded_start = request.through_all_reverse
-            ? -reverse_span : request.start_offset;
-        const double bounded_end = request.through_all_forward
-            ? forward_span : original_end;
-        if (bounded_end <= bounded_start + 1.0e-12) {
-            throw std::runtime_error("OCCT Through-all interval is empty");
-        }
-        gp_Trsf shift;
-        // The wires already begin at start_offset.  Move them only when the
-        // reverse side is explicitly Through-all; forward-only Through-all
-        // must begin exactly on the persisted Sketch plane.
-        const double offset = bounded_start - request.start_offset;
-        shift.SetTranslation(gp_Vec(unit.x * offset,
-                                    unit.y * offset,
-                                    unit.z * offset));
-        for (std::size_t i=0;i<wires.size();++i) {
-            transform_profile_wire(profiles[i],shift);wires[i]=profiles[i].wire;
-        }
-        BRepBuilderAPI_MakeFace shifted_face(wires.front(), true);
-        for (std::size_t index = 1; index < wires.size(); ++index) {
-            shifted_face.Add(wires[index]);
-        }
-        if (!shifted_face.IsDone()) {
-            throw std::runtime_error("OCCT Through-all profile shift failed");
-        }
-        face = shifted_face.Face();
-        const double bounded_length = bounded_end - bounded_start;
-        prism_direction = {unit.x * bounded_length,
-                           unit.y * bounded_length,
-                           unit.z * bounded_length};
+        return maximum_distance+std::max(1.0,maximum_distance*.01);
+}
+
+std::optional<TopoDS_Face> exact_extrusion_limit(const ExtrusionLimitView& limit,const std::vector<OwnedFace>& faces) {
+    if(limit.datum)return std::nullopt;
+    std::vector<const OwnedFace*> matches;
+    for(const auto& face:faces)if(face.reference.owner_id==limit.reference.owner_id &&
+        face.reference.semantic_key==limit.reference.semantic_key && face.reference.instance_path==limit.reference.instance_path)matches.push_back(&face);
+    if(matches.empty())throw std::runtime_error("Extrusion target face is missing at this history boundary");
+    if(!limit.planar && matches.size()!=1)throw std::runtime_error("Exact Extrusion target surface is missing or ambiguous");
+    return TopoDS::Face(matches.front()->shape);
+}
+
+ExtrusionLimitView resolved_extrusion_limit(ExtrusionLimitView limit,const std::optional<TopoDS_Face>& exact) {
+    if(limit.planar && exact) {
+        BRepAdaptor_Surface surface(*exact,true);
+        if(surface.GetType()!=GeomAbs_Plane)throw std::runtime_error("Extrusion target face is no longer planar");
+        const auto plane=surface.Plane();const auto p=plane.Location();const auto n=plane.Axis().Direction();
+        limit.origin={p.X(),p.Y(),p.Z()};limit.normal={n.X(),n.Y(),n.Z()};
     }
+    return limit;
+}
+
+PrimitiveData make_extrusion_data(
+    const ExtrusionRequest& request, const std::string& owner_id,
+    const std::optional<TopoDS_Face>& exact_target = std::nullopt,
+    double through_all_forward_span = 2'000'000.0,
+    double through_all_reverse_span = 2'000'000.0,
+    const std::optional<Vec3>& circle_radial_direction = std::nullopt,
+    double linear_tolerance = 0.001,
+    const std::optional<TopoDS_Face>& exact_reverse_target = std::nullopt) {
+    auto normal=request.direction;
+    if (request.wall) {
+        const double scale=(request.first_cap_is_start?1.0:-1.0)/std::sqrt(
+            normal.x*normal.x+normal.y*normal.y+normal.z*normal.z);
+        normal={normal.x*scale,normal.y*scale,normal.z*scale};
+    }
+    auto profiles=make_body_profiles(request,normal,circle_radial_direction);
+    std::vector<TopoDS_Wire> wires;
+    for(const auto& profile:profiles)wires.push_back(profile.wire);
+    BRepBuilderAPI_MakeFace face_builder(wires.front(), true);
+    for(std::size_t i=1;i<wires.size();++i)face_builder.Add(wires[i]);
+    if (!face_builder.IsDone()) throw std::runtime_error("OCCT profile face failed");
+    TopoDS_Face face = face_builder.Face();
+    if (!BRepCheck_Analyzer(face).IsValid()) {
+        throw std::runtime_error("OCCT profile face is invalid");
+    }
+    const double direction_length = std::sqrt(
+        request.direction.x * request.direction.x +
+        request.direction.y * request.direction.y +
+        request.direction.z * request.direction.z);
+    const Vec3 unit{request.direction.x / direction_length,
+                    request.direction.y / direction_length,
+                    request.direction.z / direction_length};
+    const auto reference_vertex=TopExp_Explorer(face,TopAbs_VERTEX);
+    if(!reference_vertex.More())throw std::runtime_error("Extrusion profile has no reference point");
+    const auto profile_keep_point=BRep_Tool::Pnt(TopoDS::Vertex(reference_vertex.Current()));
+    std::optional<ExtrusionLimitView> forward_boundary,reverse_boundary;
+    if(has_forward_limit(request))forward_boundary.emplace(resolved_extrusion_limit(forward_limit(request),exact_target));
+    if(request.reverse_limit)reverse_boundary.emplace(resolved_extrusion_limit(limit_view(*request.reverse_limit),exact_reverse_target));
+    double bounded_start=request.start_offset;
+    double bounded_end=request.start_offset+direction_length;
+    if(request.extent==ExtrusionRequest::Extent::ThroughAll && request.through_all_forward)
+        bounded_end=std::max(1.0,through_all_forward_span);
+    if(request.through_all_reverse)bounded_start=-std::max(1.0,through_all_reverse_span);
+    if(forward_boundary)bounded_end=extrusion_limit_span(*forward_boundary,unit,face,wires);
+    if(reverse_boundary)bounded_start=-extrusion_limit_span(*reverse_boundary,{-unit.x,-unit.y,-unit.z},face,wires);
+    if(bounded_end<=bounded_start+1e-12)throw std::runtime_error("OCCT Extrusion interval is empty");
+    if(std::abs(bounded_start)>1e-12) {
+        gp_Trsf shift;shift.SetTranslation(gp_Vec(unit.x*bounded_start,unit.y*bounded_start,unit.z*bounded_start));
+        for(std::size_t i=0;i<wires.size();++i){transform_profile_wire(profiles[i],shift);wires[i]=profiles[i].wire;}
+        BRepBuilderAPI_MakeFace shifted(wires.front(),true);
+        for(std::size_t i=1;i<wires.size();++i)shifted.Add(wires[i]);
+        if(!shifted.IsDone())throw std::runtime_error("OCCT extrusion start shift failed");
+        face=shifted.Face();
+    }
+    const double bounded_length=bounded_end-bounded_start;
+    const Vec3 prism_direction{unit.x*bounded_length,unit.y*bounded_length,unit.z*bounded_length};
     BRepPrimAPI_MakePrism prism(face, gp_Vec(
         prism_direction.x, prism_direction.y, prism_direction.z), true, true);
     prism.Build();
@@ -2436,37 +2433,33 @@ PrimitiveData make_extrusion_data(
             throw std::runtime_error("Extrusion profile provenance count mismatch");
         }
     }
-    if (request.extent == ExtrusionRequest::Extent::UpToPlane ||
-        request.extent == ExtrusionRequest::Extent::UpToSurface) {
+    const auto clip_end=[&](const ExtrusionLimitView& limit,const Vec3& outward,
+        const std::optional<TopoDS_Face>& exact,const FaceReference& cap_reference) {
         TopoDS_Face limiting_face;
         gp_Pnt keep_point;
-        if (request.extent == ExtrusionRequest::Extent::UpToPlane) {
-            const gp_Dir plane_normal(request.target_plane_normal.x,
-                                  request.target_plane_normal.y,
-                                  request.target_plane_normal.z);
-            const gp_Pln plane(gp_Pnt(request.target_plane_origin.x,
-                                  request.target_plane_origin.y,
-                                  request.target_plane_origin.z), plane_normal);
+        if (limit.planar) {
+            const gp_Dir plane_normal(limit.normal.x,
+                                  limit.normal.y,
+                                  limit.normal.z);
+            const gp_Pln plane(gp_Pnt(limit.origin.x,
+                                  limit.origin.y,
+                                  limit.origin.z), plane_normal);
             BRepBuilderAPI_MakeFace plane_face(plane, -5'000'000.0, 5'000'000.0,
                                            -5'000'000.0, 5'000'000.0);
             limiting_face = plane_face.Face();
-            const double side = unit.x * request.target_plane_normal.x +
-                            unit.y * request.target_plane_normal.y +
-                            unit.z * request.target_plane_normal.z;
+            const double side = outward.x * limit.normal.x +
+                            outward.y * limit.normal.y +
+                            outward.z * limit.normal.z;
             keep_point = gp_Pnt(
-                request.target_plane_origin.x - std::copysign(1.0, side) * plane_normal.X(),
-                request.target_plane_origin.y - std::copysign(1.0, side) * plane_normal.Y(),
-                request.target_plane_origin.z - std::copysign(1.0, side) * plane_normal.Z());
+                limit.origin.x - std::copysign(1.0, side) * plane_normal.X(),
+                limit.origin.y - std::copysign(1.0, side) * plane_normal.Y(),
+                limit.origin.z - std::copysign(1.0, side) * plane_normal.Z());
         } else {
-            if (!exact_target) {
+            if (!exact) {
                 throw std::runtime_error("Exact Extrusion target surface is missing");
             }
-            limiting_face = *exact_target;
-            const auto first_vertex = TopExp_Explorer(face, TopAbs_VERTEX);
-            if (!first_vertex.More()) {
-                throw std::runtime_error("Extrusion profile has no reference point");
-            }
-            keep_point = BRep_Tool::Pnt(TopoDS::Vertex(first_vertex.Current()));
+            limiting_face = *exact;
+            keep_point = profile_keep_point;
         }
         BRepPrimAPI_MakeHalfSpace half_space(limiting_face, keep_point);
         BRepAlgoAPI_Common clip;
@@ -2483,7 +2476,7 @@ PrimitiveData make_extrusion_data(
         // Extrusion feature, cap role and persisted profile-region parent.
         // OCCT history only locates the runtime descendant created by Common.
         result.faces = propagate_topology(clip, result.faces,
-            std::vector<OwnedFace>{{limiting_face, last_cap_reference}});
+            std::vector<OwnedFace>{{limiting_face, cap_reference}});
         TopTools_IndexedMapOfShape clipped_faces;
         TopExp::MapShapes(clip.Shape(), TopAbs_FACE, clipped_faces);
         std::erase_if(result.faces, [&](const auto& owned) {
@@ -2492,7 +2485,9 @@ PrimitiveData make_extrusion_data(
         result.edges = propagate_topology(clip, result.edges, {});
         result.vertices = propagate_topology(clip, result.vertices, {});
         result.shape = clip.Shape();
-    }
+    };
+    if(forward_boundary)clip_end(*forward_boundary,unit,exact_target,last_cap_reference);
+    if(reverse_boundary)clip_end(*reverse_boundary,{-unit.x,-unit.y,-unit.z},exact_reverse_target,first_cap_reference);
     if (!request.additional_profile_regions.empty()) {
         TopoDS_Compound compound;
         BRep_Builder builder;
@@ -2522,7 +2517,7 @@ PrimitiveData make_extrusion_data(
             additional_request.additional_profile_regions.clear();
             auto additional = make_extrusion_data(
                 additional_request, owner_id, exact_target,
-                through_all_forward_span, through_all_reverse_span, circle_radial_direction, linear_tolerance);
+                through_all_forward_span, through_all_reverse_span, circle_radial_direction, linear_tolerance, exact_reverse_target);
             builder.Add(compound, additional.shape);
             result.faces.insert(result.faces.end(),
                 std::make_move_iterator(additional.faces.begin()),
@@ -5645,28 +5640,12 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                     if constexpr (std::is_same_v<Child,
                                       ExtrusionRequest>) {
                         validate_extrusion(value);
-                        std::optional<TopoDS_Face> exact_target;
-                        if (value.extent ==
-                                ExtrusionRequest::Extent::UpToSurface) {
-                            std::vector<const OwnedFace*> matches;
-                            for (const auto& face : owned_topology->faces) {
-                                if (face.reference.owner_id ==
-                                        value.target_face.owner_id &&
-                                    face.reference.semantic_key ==
-                                        value.target_face.semantic_key) {
-                                    matches.push_back(&face);
-                                }
-                            }
-                            if (matches.size() != 1) {
-                                throw std::runtime_error(
-                                    "Grouped Extrusion target surface is missing or ambiguous");
-                            }
-                            exact_target = TopoDS::Face(matches.front()->shape);
-                        }
+                        const auto exact_target=has_forward_limit(value)?exact_extrusion_limit(forward_limit(value),owned_topology->faces):std::nullopt;
+                        const auto exact_reverse=value.reverse_limit?exact_extrusion_limit(limit_view(*value.reverse_limit),owned_topology->faces):std::nullopt;
                         double forward_span = 2'000'000.0;
                         double reverse_span = 2'000'000.0;
-                        if (value.extent ==
-                                ExtrusionRequest::Extent::ThroughAll &&
+                        if ((value.extent ==
+                                ExtrusionRequest::Extent::ThroughAll || value.through_all_reverse) &&
                             !result_shape.IsNull()) {
                             const Vec3 profile_origin = std::visit(
                                 [](const auto& profile) {
@@ -5725,7 +5704,7 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                         return make_extrusion_data(value,
                             operation.owner_id, exact_target,
                             forward_span, reverse_span, opening
-                                ? std::optional<Vec3>{opening->radial_direction} : std::nullopt, operation.boolean_tolerance);
+                                ? std::optional<Vec3>{opening->radial_direction} : std::nullopt, operation.boolean_tolerance, exact_reverse);
                     } else {
                         validate_revolution(value);
                         return make_revolution_data(
@@ -7071,40 +7050,11 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                         "Thread surface must use the technological branch");
                 } else if constexpr (std::is_same_v<Request, ExtrusionRequest>) {
                     validate_extrusion(primitive);
-                    if ((primitive.extent == ExtrusionRequest::Extent::UpToPlane ||
-                         primitive.extent == ExtrusionRequest::Extent::UpToSurface) &&
-                        !primitive.target_is_datum &&
-                        std::none_of(owned_topology->faces.begin(),
-                            owned_topology->faces.end(),
-                            [&](const auto& face) {
-                                return face.reference.owner_id ==
-                                           primitive.target_face.owner_id &&
-                                       face.reference.semantic_key ==
-                                           primitive.target_face.semantic_key;
-                            })) {
-                        throw std::runtime_error(
-                            "Extrusion target face is missing at this history boundary");
-                    }
-                    std::optional<TopoDS_Face> exact_target;
-                    if (primitive.extent == ExtrusionRequest::Extent::UpToSurface) {
-                        std::vector<const OwnedFace*> matching_faces;
-                        for (const auto& face : owned_topology->faces) {
-                            if (face.reference.owner_id ==
-                                    primitive.target_face.owner_id &&
-                                face.reference.semantic_key ==
-                                    primitive.target_face.semantic_key) {
-                                matching_faces.push_back(&face);
-                            }
-                        }
-                        if (matching_faces.size() != 1) {
-                            throw std::runtime_error(
-                                "Exact Extrusion target surface is missing or ambiguous");
-                        }
-                        exact_target = TopoDS::Face(matching_faces.front()->shape);
-                    }
+                    const auto exact_target=has_forward_limit(primitive)?exact_extrusion_limit(forward_limit(primitive),owned_topology->faces):std::nullopt;
+                    const auto exact_reverse=primitive.reverse_limit?exact_extrusion_limit(limit_view(*primitive.reverse_limit),owned_topology->faces):std::nullopt;
                     double through_all_forward_span = 2'000'000.0;
                     double through_all_reverse_span = 2'000'000.0;
-                    if (primitive.extent == ExtrusionRequest::Extent::ThroughAll &&
+                    if ((primitive.extent == ExtrusionRequest::Extent::ThroughAll || primitive.through_all_reverse) &&
                         !result_shape.IsNull()) {
                         const Vec3 profile_origin = std::visit([](const auto& profile) {
                             using Profile = std::decay_t<decltype(profile)>;
@@ -7156,7 +7106,7 @@ std::vector<BodyResult> OcctKernel::evaluate_history_incremental(
                     }
                     return make_extrusion_data(
                         primitive, operation.owner_id, exact_target,
-                        through_all_forward_span, through_all_reverse_span, std::nullopt, operation.boolean_tolerance);
+                        through_all_forward_span, through_all_reverse_span, std::nullopt, operation.boolean_tolerance, exact_reverse);
                 } else if constexpr (std::is_same_v<Request, FeatureGroupRequest>) {
                     if (primitive.children.empty()) {
                         throw std::invalid_argument(

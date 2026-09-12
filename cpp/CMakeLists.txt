@@ -625,6 +625,11 @@ if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_cpp_construction_command_tests COMMAND zima_cpp_construction_command_tests)
     set_tests_properties(zima_cpp_construction_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
 
+    add_executable(zima_cpp_extrusion_limit_contract_tests tests/extrusion_limit_contract_tests.cpp)
+    target_link_libraries(zima_cpp_extrusion_limit_contract_tests PRIVATE zima_document_core zima_kernel_occt)
+    add_test(NAME zima_cpp_extrusion_limit_contract_tests COMMAND zima_cpp_extrusion_limit_contract_tests)
+    set_tests_properties(zima_cpp_extrusion_limit_contract_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
+
     add_executable(zima_cpp_thin_profile_contract_tests tests/thin_profile_contract_tests.cpp)
     target_link_libraries(zima_cpp_thin_profile_contract_tests PRIVATE zima_document_core zima_kernel_occt)
     add_test(NAME zima_cpp_thin_profile_contract_tests COMMAND zima_cpp_thin_profile_contract_tests)
