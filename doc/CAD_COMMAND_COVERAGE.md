@@ -36,7 +36,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Historie Partu | Hotovo | Společný přesun, ověření závislostí, potlačení, odstranění a kurzor; včetně historie těles a Booleanů |
 | Tělesa a Boolean | Základ hotov | Tvorba, čtení, aktivace, název/viditelnost, kurzory a Boolean create/get/set; pořadí/mazání řeší historie; zbývá příkazové umístění a odvozené kopie |
 | Umístění a původní reference | Čtení původních referencí hotovo | Part/Assembly, přesné výskyty a geometrická data; zbývá zadání do existujícího společného řešení umístění |
-| Konstrukční geometrie | Zbývá | Body, osy, roviny, 3D křivky |
+| Konstrukční geometrie | Dotazy hotovy | `construction.list/get`: body, osy, roviny, 3D křivky a jejich vlastní body; zbývá tvorba/editace/mazání, reference a vložené dráhy modelovacích prvků |
 | Skicář: geometrie | Základ hotov | 21 příkazů: samostatné a vložené skici, body, úsečky, kružnice, oblouky, elipsy, B-spline, obdélníky, mnohoúhelníky, posun a pomocná geometrie; text create/get/set s nativním písmem a spline get/set hotovy; DXF do vložených profilů hotov; zbývá kontrola dalších variant podle GUI |
 | Skicář: vazby a operace | Vazby/kóty/solver/offset/trim/mirror hotovy | Offset create/get/set/free, úplný podklad a zachování intervalů, trim podle průsečíků, mirror, orientovaný obdélník, tečny a zaoblení rohu; všech 15 druhů vazeb, odstranění a solver; 16 druhů kót včetně vlastností, popisků a mazání; uvolnění externích referencí hotovo |
 | Externí reference skici | Part a kořenová Assembly hotovy | Původní geometrie, přesná projekce, aktualizace, odpojení a zachování trimu; zbývá příkazový kontext Partu aktivovaného v sestavě |
@@ -483,3 +483,19 @@ a oblouků. Ověřeno **10/10** integračních testů (38,20 s),
 objemu **1/1** (0,45 s) a jednotek **1/1** (0,10 s). Příkazů je stále **152**.
 Samostatné POINT a jiné než ohraničené řídicí reprezentace spline zůstávají
 nepodporované. Podrobnosti: [IMPORT_COMMANDS.md](IMPORT_COMMANDS.md).
+
+
+Etapa konstrukčních dotazů přidává `construction.list/get`, celkem
+**154 příkazů**. Body, osy, roviny, 3D křivky a jejich body se čtou přímo
+z modelu v příslušném lokálním rámci; dotazy zachovávají cache, historii
+a diagnostiku chybějících referencí. Kompletní dotčená sada prošla **6/6**
+(26,86 s), `build/construction-query-final-tests.log`. GUI, skutečný CLI,
+nativní Part/Assembly a stránkování jsou ověřené. Podrobnosti a zbývající
+rozsah: [CONSTRUCTION_COMMANDS.md](CONSTRUCTION_COMMANDS.md).
+
+Navazující tvorba/editace konstrukcí má sdílet stávající potvrzovací
+transakci dialogu a nativní řešení umístění. Přesun číselné editace a
+společné výpočetní transakce stále podléhá výše uvedenému čekajícímu
+schválení ochrany umístění; v této etapě se neprovedl. Nativní formáty
+ani start šablony se nemění. Běžící CAD nebyl ukončen; testovací GUI
+je `zima-cad-construction-validation.exe`.

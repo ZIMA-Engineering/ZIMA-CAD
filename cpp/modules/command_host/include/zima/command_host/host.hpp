@@ -61,6 +61,7 @@ private:
     void register_body_commands();
     void register_history_commands();
     void register_reference_commands();
+    void register_construction_commands();
     void register_sketch_commands();
     void register_sketch_curve_commands();
     void register_sketch_relation_commands();

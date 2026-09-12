@@ -222,3 +222,7 @@ ID listu a volitelným DPI (výchozí 150):
 Tento příklad vytvoří 600×400 pixelů. Je to tisková podoba papíru s bílým
 pozadím; příkaz nevyžaduje okno ani kameru. JPEG plugin a jeho závislosti
 kopíruje CMake také vedle CLI.
+
+Konstrukční geometrii a vlastnictví bodů 3D křivek lze číst bez výpočtu
+příkazy `construction.list/get`; jednotky, souřadné soustavy a stránkování
+popisuje [CONSTRUCTION_COMMANDS.md](CONSTRUCTION_COMMANDS.md).

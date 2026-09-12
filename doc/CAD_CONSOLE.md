@@ -426,3 +426,11 @@ Společná tvorba skic, body, kružnice, oblouky, elipsy, B-spline, obdélníky,
 mnohoúhelníky a jejich základní úpravy jsou popsány v
 [SKETCH_COMMANDS.md](SKETCH_COMMANDS.md). Souřadnice příkazů jsou v milimetrech
 skici. Změna křivky ponechá poslední výpočet tělesa do výslovné regenerace.
+
+
+## Konstrukční geometrie
+
+`construction.list/get` čtou konstrukční body, osy, roviny, 3D křivky
+a jejich vlastní body. Výstup rozlišuje lokální soustavu tělesa a křivky,
+stabilní identity, reference a jejich platnost; nespouští výpočet modelu.
+Rozsah, argumenty a testy: [CONSTRUCTION_COMMANDS.md](CONSTRUCTION_COMMANDS.md).

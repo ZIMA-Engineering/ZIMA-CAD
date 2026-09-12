@@ -1,3 +1,4 @@
+#include "construction_query_test_support.hpp"
 #include "dxf_export_test_support.hpp"
 #include "stl_export_test_support.hpp"
 #include <zima/command_host/host.hpp>
@@ -81,6 +82,23 @@ int main(int argc,char** argv){
             config.setValue("Application/Language","en");config.setValue("Units/Length","cm");config.sync();
         }
         const auto common=QStringList{"--working-directory",qpath(project),"--config",qpath(base)};
+        const auto construction_native = test::construction_query_fixture();
+        construction_native.save(project / "construction-query.prtz");
+        const auto& construction_curve = construction_native.constructions[3];
+        const auto child_query = command({{"command", "construction.get"},
+            {"arguments", {{"construction", construction_curve.curve_points[1].id}}}});
+        result = launch(executable, root, common + QStringList{"--command", "open construction-query.prtz",
+            "--command", "construction.list", "--command", child_query});
+        require(result.exit_code == 0 && result.results()[1].at("data").at("total") == 7, "CLI construction list failed");
+        test::check_construction_child(result.results()[2].at("data"), construction_curve,
+            construction_native.body_history.active_body_id());
+        auto construction_assembly = assembly::AssemblyDocument::create_default();
+        construction_assembly.constructions = construction_native.constructions;
+        construction_assembly.save(project / "construction-query.asmz");
+        result = launch(executable, root, common + QStringList{"--stdin"},
+            QByteArray::fromStdString("open construction-query.asmz\nconstruction.get " + construction_curve.curve_points[1].id + "\n"));
+        require(result.exit_code == 0, "CLI Assembly construction query failed");
+        test::check_construction_child(result.results()[1].at("data"), construction_curve, {});
         result=launch(executable,root,common+QStringList{"--command","new part \"díl z příkazů\"","--command","save","--command","tree"});
         require(result.exit_code==0&&result.results().size()==3,"Repeated UTF-8 command arguments failed");
         const auto part_path=project/fs::path(u8"díl z příkazů.prtz");

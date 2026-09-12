@@ -1,3 +1,4 @@
+#include "../tests/construction_query_test_support.hpp"
 #include "../tests/dxf_export_test_support.hpp"
 #include "../tests/stl_export_test_support.hpp"
 #include <QFile>
@@ -644,6 +645,17 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         check(window.grab().save(QString::fromStdString((directory/"command-drawing-views.png").string())),"Drawing view screenshot failed");
         json_run("close",{{"discard",true}});
         run(QString::fromStdString(activate.dump()));flush();
+        const auto construction_native = test::construction_query_fixture();
+        const auto construction_path = directory / (stem + "-constructions.prtz");
+        construction_native.save(construction_path);
+        json_run("open", {{"path", document::path_to_utf8(construction_path)}}); flush();
+        const auto construction_before = run("documents").data;
+        check(json_run("construction.list", commands::Json::object()).data.at("total") == 7, "GUI console construction list failed");
+        const auto& construction_curve = construction_native.constructions[3];
+        test::check_construction_child(json_run("construction.get", {{"construction", construction_curve.curve_points[1].id}}).data,
+            construction_curve, construction_native.body_history.active_body_id());
+        check(run("documents").data == construction_before, "GUI construction query changed document state");
+        json_run("close", {{"discard", true}}); run(QString::fromStdString(activate.dump())); flush();
         input->setText("context");QApplication::sendEvent(input,&enter);flush();
         check(window.grab().save(QString::fromStdString((directory/"command-console.png").string())),"Console screenshot failed");
         toggle->trigger();flush();check(!dock->isVisible(),"Console toggle did not hide panel");
