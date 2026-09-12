@@ -96,3 +96,9 @@ a upravuje jednotky a přesnost skutečnými ovládacími prvky.
 
 Katalog má 112 příkazů. Celá Windows Release sada prošla **74/74**
 (405,58 s); `build/metadata-full-tests.log`.
+
+Texty parametrů, materiálových vlastností a jejich popisů jsou jednořádkové,
+bez okolních mezer či tabulátorů, aby se zachovaly v nativním INI zápisu.
+Klíče nesmí obsahovat `\\`, čárku, `=`, `[` nebo `]` ani začínat `#` či `;`.
+Víceřádkové hodnoty a rezervované oddělovače se odmítnou před transakcí.
+Hodnoty buněk tabulky variant jsou uvnitř JSON, proto toto omezení řádků nemají.

@@ -252,6 +252,16 @@ int main(int argc,char** argv){
         require(metadata_part.user_parameter_values.at("NAME").at("cs")=="Český díl" && !metadata_part.user_parameters.contains("NAME") && metadata_part.document_units.at("Length")=="m" && metadata_part.document_precision.at("decimal_places")=="6" && std::abs(metadata_bodies.back().volume-6000)<1e-5,"CLI metadata update changed geometry or lost localization");
         result=launch(executable,root,common+QStringList{"--command","open cli-step.prtz","--command","document.parameters.get","--command","document.settings.get"});
         require(result.exit_code==0 && result.results()[1].at("data").at("parameters")[1].at("values")==metadata_entries[1].at("values") && result.results()[2].at("data").at("units").at("Length")=="m","CLI metadata readback failed");
+        const auto engineering_material=command({{"command","document.material.set"},{"arguments",{{"properties",Json::array({{{"key","MATERIAL_NAME"},{"value","Hliník"}},{{"key","MASS_DENSITY"},{"value","2700"},{"unit","kg/m^3"}}})}}}});
+        const auto engineering_relations=command({{"command","document.relations.set"},{"arguments",{{"relations",Json::array({{{"target","grams"},{"expression","model.mass * 1000"}}})}}}});
+        const auto engineering_family=command({{"command","document.family.set"},{"arguments",{{"table",{{"columns",{"NUMBER"}},{"instances",Json::array({{{"name","Varianta A"},{"values",{{"NUMBER","ZE-100"}}}}})}}}}}});
+        result=launch(executable,root,common+QStringList{"--command","open cli-step.prtz","--command",engineering_material,"--command",engineering_relations,"--command",engineering_family,"--command","save"});
+        if(result.exit_code!=0)std::cerr<<result.output.toStdString()<<result.diagnostics.toStdString();
+        require(result.exit_code==0 && result.results().size()==5,"CLI engineering metadata update failed");
+        const auto engineering_native=document::PartDocument::load(project/"cli-step.prtz");
+        require(engineering_native.physical_parameters.at("MATERIAL_NAME")=="Hliník" && engineering_native.user_parameters.at("grams")=="16.200000" && engineering_native.family_table.find("ZE-100")!=std::string::npos,"CLI engineering metadata failed native persistence or mass calculation");
+        result=launch(executable,root,common+QStringList{"--command","open cli-step.prtz","--command","document.material.get","--command","document.relations.get","--command","document.family.get"});
+        require(result.exit_code==0 && result.results()[2].at("data").at("parameters").at("grams")=="16.200000" && result.results()[3].at("data").at("table").at("instances")[0].at("name")=="Varianta A","CLI engineering metadata readback failed");
         const auto assembly_step=command({{"command","import.step"},{"arguments",{{"path",document::path_to_utf8(step_source)},{"output_directory","sestava nativní"},{"mesh_deflection_mm",2.0}}}});
         result=launch(executable,root,common+QStringList{"--command","new assembly cli-import-owner","--command",assembly_step,"--command","save"});
         require(result.exit_code==0 && result.results().size()==3 && result.results()[1].at("data").at("parts").size()==1,"CLI Assembly STEP import failed");

@@ -9,6 +9,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string_view>
+#include <set>
 
 namespace zima::document {
 namespace {
@@ -30,6 +31,15 @@ private:
     std::string_view text_;
     const std::map<std::string, double>& values_;
     std::size_t position_{};
+    unsigned depth_{};
+    struct DepthGuard {
+        unsigned& depth;
+        explicit DepthGuard(unsigned& value) : depth(value) {
+            if (depth >= 256) throw std::invalid_argument("Relation expression nesting is too deep.");
+            ++depth;
+        }
+        ~DepthGuard() { --depth; }
+    };
 
     [[noreturn]] void fail(const std::string& message) const {
         throw std::invalid_argument("Relation expression: " + message);
@@ -67,11 +77,13 @@ private:
         }
     }
     double power() {
+        const DepthGuard recursion(depth_);
         double value = unary();
         if (take('^')) value = std::pow(value, power());
         return value;
     }
     double unary() {
+        const DepthGuard recursion(depth_);
         if (take('+')) return unary();
         if (take('-')) return -unary();
         return primary();
@@ -136,10 +148,27 @@ double numeric(const std::string& text, const std::string& name) {
 }
 }  // namespace
 
+void validate_model_relations(const std::vector<ModelRelation>& relations) {
+    if (relations.size() > 4096) throw std::invalid_argument("A document supports at most 4096 relations.");
+    const auto letter=[](unsigned char c){return (c>='a'&&c<='z')||(c>='A'&&c<='Z');};
+    std::set<std::string> targets;
+    for (const auto& relation : relations) {
+        const auto& target=relation.target;
+        if (target.empty() || target.size()>256 || !(letter(target.front())||target.front()=='_') ||
+            !std::ranges::all_of(target,[&](unsigned char c){return letter(c)||(c>='0'&&c<='9')||c=='_';}) || !targets.insert(target).second)
+            throw std::invalid_argument("Relation targets must be unique ASCII identifiers.");
+        const auto& expression=relation.expression;
+        if (expression.empty() || expression.size()>16384 || expression.find('\0')!=std::string::npos)
+            throw std::invalid_argument("A relation expression must contain 1 to 16384 bytes without null characters.");
+    }
+}
+
 std::map<std::string, std::string> evaluate_relations(
     const std::map<std::string, std::string>& parameters,
     const std::vector<ModelRelation>& relations,
     const std::map<std::string, double>& model_values, int decimal_places) {
+    validate_model_relations(relations);
+    if (decimal_places < 0 || decimal_places > 12) throw std::invalid_argument("Relation decimal places must be between 0 and 12.");
     auto output = parameters;
     std::map<std::string, double> values = model_values;
     for (const auto& [name, value] : parameters) {

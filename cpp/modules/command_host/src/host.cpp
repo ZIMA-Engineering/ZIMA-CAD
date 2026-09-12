@@ -70,6 +70,7 @@ void Host::register_commands(){
     register_import_commands();
     register_export_commands();
     register_metadata_commands();
+    register_engineering_metadata_commands();
     dispatcher_.set_guard([this](const commands::Command& command){
         if(!command.changes_state)return Result::success();
         const auto state=interaction();

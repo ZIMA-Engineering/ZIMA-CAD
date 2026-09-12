@@ -15,6 +15,7 @@ struct FileSettingsData {
 };
 // Canonicalizes shared values for expression lookup; localized values remain
 // separate and preserve their language keys and the explicit display order.
+void validate_native_metadata_text(const std::string&);
 void normalize_user_parameters(UserParameterData&);
 void validate_file_settings(const FileSettingsData&);
 [[nodiscard]] const std::map<std::string,std::vector<std::string>>& file_unit_choices();

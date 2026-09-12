@@ -4288,8 +4288,8 @@ int main(int argc, char* argv[]) {
         bool relation_committed = false;
         auto* relations_dialog = new zima::app::RelationsDialog(
             {{"x", "2"}}, {{"result", "x * 3"}},
-            [&](auto parameters, auto relations) {
-                relation_committed = parameters["result"] == "6.000" &&
+            [&](auto relations) {
+                relation_committed = zima::document::evaluate_relations({{"x","2"}},relations).at("result") == "6.000" &&
                     relations.size() == 1;
             }, tool_settings, &parent);
         zima::document::DimensionIdentifiers identifiers;

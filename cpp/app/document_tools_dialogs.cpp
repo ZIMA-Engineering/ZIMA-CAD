@@ -3,6 +3,7 @@
 #include "table_entry.hpp"
 
 #include <zima/document/relations.hpp>
+#include <zima/document/engineering_metadata.hpp>
 
 #include <QComboBox>
 #include <QCheckBox>
@@ -258,13 +259,10 @@ bool FileSettingsDialog::submit() {
 RelationsDialog::RelationsDialog(
     std::map<std::string, std::string> parameters,
     std::vector<zima::document::ModelRelation> relations,
-    std::function<void(std::map<std::string, std::string>,
-        std::vector<zima::document::ModelRelation>)> accepted,
-    const ApplicationSettings& settings, QWidget* parent,
-    std::map<std::string, double> model_values, int decimal_places)
+    std::function<void(std::vector<zima::document::ModelRelation>)> accepted,
+    const ApplicationSettings& settings, QWidget* parent)
     : PropertiesSubWindow(settings.text("dialog.relations.title", "Relace"), parent),
-      parameters_(std::move(parameters)), accepted_(std::move(accepted)),
-      model_values_(std::move(model_values)), decimal_places_(decimal_places) {
+      parameters_(std::move(parameters)), accepted_(std::move(accepted)) {
     setObjectName("relationsDialog"); resize(820, 440);
     auto* explanation = new QLabel(settings.text("dialog.relations.explanation",
         "Relace zapisují vypočítanou hodnotu do cílového parametru."), this);
@@ -274,7 +272,7 @@ RelationsDialog::RelationsDialog(
         settings.text("column.relation.expression", "Výraz")});
     table_->horizontalHeader()->setStretchLastSection(true);
     content_layout()->addWidget(table_);
-    if (relations.empty()) add_row("mass", "model.mass");
+    if (relations.empty()) add_row();
     else for (const auto& relation : relations) add_row(relation.target, relation.expression);
     new TableEntryRows(table_,[this]{add_row();});
 }
@@ -357,25 +355,15 @@ void RelationsDialog::add_row(const std::string& target, const std::string& expr
 
 bool RelationsDialog::submit() {
     std::vector<zima::document::ModelRelation> relations;
-    std::set<std::string> targets;
     for (int row = 0; row < table_->rowCount(); ++row) {
         auto* combo = qobject_cast<QComboBox*>(table_->cellWidget(row, 0));
         const QString target = combo == nullptr ? QString{} : combo->currentText().trimmed();
         const QString expression = table_->item(row, 1) == nullptr ? QString{} : table_->item(row, 1)->text().trimmed();
         if (target.isEmpty() && expression.isEmpty()) continue;
-        static const QRegularExpression identifier(
-            QStringLiteral("^[A-Za-z_][A-Za-z0-9_]*$"));
-        if (target.isEmpty() || !identifier.match(target).hasMatch() ||
-            expression.isEmpty() || targets.contains(target.toStdString())) {
-            QMessageBox::warning(this, windowTitle(), tr("Cíl a výraz musí být neprázdné a cíle jedinečné."));
-            return false;
-        }
-        targets.insert(target.toStdString()); relations.push_back({target.toStdString(), expression.toStdString()});
+        relations.push_back({target.toStdString(),expression.toStdString()});
     }
-    try { parameters_ = zima::document::evaluate_relations(
-        parameters_, relations, model_values_, decimal_places_); }
-    catch (const std::exception& error) { QMessageBox::warning(this, windowTitle(), error.what()); return false; }
-    accepted_(std::move(parameters_), std::move(relations));
+    try { zima::document::validate_model_relations(relations); accepted_(std::move(relations)); }
+    catch(const std::exception& error){throw std::runtime_error(tr(error.what()).toStdString());}
     return true;
 }
 
@@ -447,29 +435,19 @@ void FamilyTableDialog::add_column() {
 }
 
 bool FamilyTableDialog::submit() {
-    nlohmann::json columns = nlohmann::json::array(); std::set<std::string> unique_columns;
-    for (int column = 1; column < table_->columnCount(); ++column) {
-        const auto key = table_->horizontalHeaderItem(column)->text().trimmed().toStdString();
-        if (key.empty() || !unique_columns.insert(key).second) {
-            QMessageBox::warning(this, windowTitle(), tr("Názvy sloupců musí být neprázdné a jedinečné."));
-            return false;
-        }
-        columns.push_back(key);
+    zima::document::FamilyTable table;
+    for(int column=1;column<table_->columnCount();++column)table.columns.push_back(table_->horizontalHeaderItem(column)->text().trimmed().toStdString());
+    for(int row=1;row<table_->rowCount();++row) {
+        if(!table_row_has_text(table_,row))continue;
+        zima::document::FamilyInstance instance;
+        instance.name=table_->item(row,0)?table_->item(row,0)->text().trimmed().toStdString():"";
+        for(int column=1;column<table_->columnCount();++column)instance.values[table.columns[column-1]]=table_->item(row,column)?table_->item(row,column)->text().toStdString():"";
+        table.instances.push_back(std::move(instance));
     }
-    nlohmann::json instances = nlohmann::json::array(); std::set<std::string> names;
-    for (int row = 1; row < table_->rowCount(); ++row) {
-        if (!table_row_has_text(table_,row)) continue;
-        const auto name = table_->item(row, 0) == nullptr ? std::string{} : table_->item(row, 0)->text().trimmed().toStdString();
-        if (name.empty() || name == generic_name_.toStdString() || !names.insert(name).second) {
-            QMessageBox::warning(this, windowTitle(), tr("Názvy instancí musí být neprázdné a jedinečné."));
-            return false;
-        }
-        nlohmann::json values = nlohmann::json::object();
-        for (int column = 1; column < table_->columnCount(); ++column) values[table_->horizontalHeaderItem(column)->text().toStdString()] = table_->item(row, column) == nullptr ? "" : table_->item(row, column)->text().toStdString();
-        instances.push_back({{"name", name}, {"values", std::move(values)}});
-    }
-    data_.family_table = nlohmann::json{{"columns", columns}, {"instances", instances}}.dump();
-    accepted_(std::move(data_)); return true;
+    try {
+        zima::document::validate_family_table(table,generic_name_.toStdString());
+        data_.family_table=zima::document::serialize_family_table(table);accepted_(data_);return true;
+    }catch(const std::exception& error){throw std::runtime_error(tr(error.what()).toStdString());}
 }
 
 MaterialDialog::MaterialDialog(DocumentToolData data, ToolDataAccepted accepted,
@@ -503,30 +481,8 @@ void MaterialDialog::add_row(const QString& name, const QString& value, const QS
     const int row = table_->rowCount(); table_->insertRow(row);
     table_->setItem(row, 0, new QTableWidgetItem(name)); table_->setItem(row, 1, new QTableWidgetItem(value));
     auto* combo = new NoWheelComboBox(table_); combo->setEditable(false);
-    combo->addItems({"", "1", "mm", "cm", "m", "in", "deg", "rad",
-        "kg", "g", "t", "lb", "s", "min", "C", "K", "F", "Pa",
-        "kPa", "MPa", "GPa", "psi", "kg/mm^3", "g/cm^3", "kg/m^3",
-        "lb/in^3", "1/C", "1/K", "1/F", "mm*kg/(s^3*C)", "W/(m*K)",
-        "mm^2/(s^2*C)", "J/(kg*K)"});
-    const QMap<QString, QStringList> property_units{
-        {"YOUNG_MODULUS", {"MPa", "GPa", "kPa", "Pa", "psi"}},
-        {"SHEAR_MODULUS", {"MPa", "GPa", "kPa", "Pa", "psi"}},
-        {"STRESS_LIMIT_FOR_TENSION", {"MPa", "GPa", "kPa", "Pa", "psi"}},
-        {"STRESS_LIMIT_FOR_COMPRESSION", {"MPa", "GPa", "kPa", "Pa", "psi"}},
-        {"STRESS_LIMIT_FOR_SHEAR", {"MPa", "GPa", "kPa", "Pa", "psi"}},
-        {"MASS_DENSITY", {"kg/mm^3", "kg/m^3", "g/cm^3", "lb/in^3"}},
-        {"THERMAL_EXPANSION_COEFFICIENT", {"1/C", "1/K", "1/F"}},
-        {"THERM_EXPANSION_REF_TEMPERATURE", {"C", "K", "F"}},
-        {"THERMAL_CONDUCTIVITY", {"mm*kg/(s^3*C)", "W/(m*K)"}},
-        {"SPECIFIC_HEAT", {"mm^2/(s^2*C)", "J/(kg*K)"}}};
-    if (property_units.contains(name)) {
-        combo->clear(); combo->addItems(property_units.value(name));
-    } else if (QStringList{"POISSON_RATIO", "STRUCTURAL_DAMPING_COEFFICIENT",
-                           "EMISSIVITY", "SHEETMETAL_K_FACTOR"}.contains(name)) {
-        combo->clear(); combo->addItem("1");
-    } else if (QStringList{"MATERIAL_NAME", "HARDNESS", "CONDITION"}.contains(name)) {
-        combo->clear(); combo->addItem(""); combo->setEnabled(false);
-    }
+    for(const auto& choice:zima::document::material_unit_choices(name.toStdString()))combo->addItem(QString::fromStdString(choice));
+    if(combo->count()==1 && combo->itemText(0).isEmpty())combo->setEnabled(false);
     combo->setCurrentText(unit); table_->setCellWidget(row, 2, combo);
     auto* description_item = new QTableWidgetItem(description);
     description_item->setFlags(description_item->flags() & ~Qt::ItemIsEditable);
@@ -568,16 +524,20 @@ void MaterialDialog::load_library() {
 }
 
 bool MaterialDialog::submit() {
-    data_.physical_parameters.clear(); data_.physical_parameter_units.clear();
-    for (int row = 0; row < table_->rowCount(); ++row) {
-        const QString key = table_->item(row, 0) == nullptr ? QString{} : table_->item(row, 0)->text().trimmed();
-        if (!table_row_has_text(table_,row)) continue;
-        if (key.isEmpty()) return false;
-        data_.physical_parameters[key.toStdString()] = table_->item(row, 1) == nullptr ? "" : table_->item(row, 1)->text().toStdString();
-        if (auto* combo = qobject_cast<QComboBox*>(table_->cellWidget(row, 2)); combo != nullptr && !combo->currentText().isEmpty()) data_.physical_parameter_units[key.toStdString()] = combo->currentText().toStdString();
-        if (table_->item(row, 3) != nullptr && !table_->item(row, 3)->text().isEmpty()) data_.descriptions[key.toStdString()][settings_.language.toStdString()] = table_->item(row, 3)->text().toStdString();
-    }
-    accepted_(std::move(data_)); return true;
+    auto next=data_;next.physical_parameters.clear();next.physical_parameter_units.clear();
+    try {
+        for(int row=0;row<table_->rowCount();++row) {
+            if(!table_row_has_text(table_,row))continue;
+            const auto key=table_->item(row,0)?table_->item(row,0)->text().trimmed().toStdString():"";
+            const auto value=table_->item(row,1)?table_->item(row,1)->text().toStdString():"";
+            if(!next.physical_parameters.emplace(key,value).second)throw std::invalid_argument("Material property names must be unique.");
+            if(auto* combo=qobject_cast<QComboBox*>(table_->cellWidget(row,2));combo && !combo->currentText().isEmpty())next.physical_parameter_units[key]=combo->currentText().toStdString();
+            if(table_->item(row,3) && !table_->item(row,3)->text().isEmpty())next.descriptions[key][settings_.language.toStdString()]=table_->item(row,3)->text().toStdString();
+        }
+        std::erase_if(next.descriptions,[&](const auto& entry){return !next.physical_parameters.contains(entry.first);});
+        zima::document::validate_material({next.physical_parameters,next.physical_parameter_units,next.descriptions});
+        accepted_(next);data_=std::move(next);return true;
+    }catch(const std::exception& error){throw std::runtime_error(tr(error.what()).toStdString());}
 }
 
 }  // namespace zima::app

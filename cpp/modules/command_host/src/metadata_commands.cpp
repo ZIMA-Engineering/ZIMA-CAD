@@ -4,22 +4,11 @@
 #include <charconv>
 #include <algorithm>
 #include <set>
+#include "metadata_json.hpp"
 namespace zima::command_host {
 namespace {
-void fields(const Json& object,std::initializer_list<const char*> allowed) {
-    if(!object.is_object())throw std::invalid_argument("Metadata entries must be JSON objects with supported fields.");
-    for(auto it=object.begin();it!=object.end();++it)if(std::ranges::find(allowed,it.key())==allowed.end())
-        throw std::invalid_argument("Metadata entries must be JSON objects with supported fields.");
-}
-std::map<std::string,std::string> strings(const Json& object) {
-    if(!object.is_object())throw std::invalid_argument("Metadata values and labels must be objects of strings.");
-    std::map<std::string,std::string> result;
-    for(auto it=object.begin();it!=object.end();++it) {
-        if(!it.value().is_string())throw std::invalid_argument("Metadata values and labels must be objects of strings.");
-        result[it.key()]=it.value().get<std::string>();
-    }
-    return result;
-}
+using metadata_json::fields;
+using metadata_json::strings;
 Json parameter_data(const document::UserParameterData& data) {
     Json result=Json::array();for(const auto& key:data.order) {
         const auto labels=data.labels.find(key),values=data.values.find(key);

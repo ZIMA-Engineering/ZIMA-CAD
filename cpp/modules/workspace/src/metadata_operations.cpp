@@ -4,28 +4,9 @@
 #include <zima/document/physical_properties.hpp>
 #include <zima/assembly/physical_properties.hpp>
 #include <algorithm>
+#include "metadata_transaction.hpp"
 namespace zima::workspace {
 namespace {
-template<class Fn> auto read(const Workspace& live,const std::string& id,Fn fn) {
-    if(const auto* part=live.open_part(id))return fn(part->session.document());
-    if(const auto* assembly=live.open_assembly(id))return fn(assembly->session.document());
-    throw std::invalid_argument("Document metadata requires an open Part or Assembly.");
-}
-template<class Fn,class Same> bool write(Workspace& live,const std::string& id,Fn fn,Same same) {
-    if(auto* part=live.open_part(id)) {
-        auto next=part->session.document();fn(next);
-        document::refresh_physical_relations(next,document::physical_values(next,part->session.calculated_boundaries()));
-        if(same(next,part->session.document()))return false;
-        part->session.commit(std::move(next),part->session.calculated_boundaries());return true;
-    }
-    if(auto* assembly=live.open_assembly(id)) {
-        auto next=assembly->session.document();fn(next);
-        document::refresh_physical_relations(next,assembly::physical_values(next));
-        if(same(next,assembly->session.document()))return false;
-        assembly->session.commit(std::move(next));return true;
-    }
-    throw std::invalid_argument("Document metadata requires an open Part or Assembly.");
-}
 template<class Doc> document::UserParameterData parameters(const Doc& doc) {
     document::UserParameterData data{doc.user_parameters,doc.user_parameter_order,doc.user_parameter_labels,doc.user_parameter_values};
     // Native factories may initialize shared parameters before a UI order exists.
@@ -37,14 +18,14 @@ template<class Doc> document::UserParameterData parameters(const Doc& doc) {
 }
 }
 document::UserParameterData user_parameters(const Workspace& live,const std::string& id) {
-    return read(live,id,[](const auto& doc){return parameters(doc);});
+    return metadata_detail::read(live,id,[](const auto& doc){return parameters(doc);});
 }
 document::FileSettingsData file_settings(const Workspace& live,const std::string& id) {
-    return read(live,id,[](const auto& doc){return document::FileSettingsData{doc.document_units,doc.document_precision};});
+    return metadata_detail::read(live,id,[](const auto& doc){return document::FileSettingsData{doc.document_units,doc.document_precision};});
 }
 bool set_user_parameters(Workspace& live,const std::string& id,document::UserParameterData values) {
     document::normalize_user_parameters(values);
-    return write(live,id,[&](auto& doc) {
+    return metadata_detail::write(live,id,[&](auto& doc) {
         doc.user_parameters=std::move(values.flat);doc.user_parameter_order=std::move(values.order);
         doc.user_parameter_labels=std::move(values.labels);doc.user_parameter_values=std::move(values.values);
     },[](const auto& a,const auto& b){return parameters(a)==parameters(b);});

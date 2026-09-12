@@ -70,11 +70,8 @@ class RelationsDialog final : public zima::ui::PropertiesSubWindow {
 public:
     RelationsDialog(std::map<std::string, std::string> parameters,
                     std::vector<zima::document::ModelRelation> relations,
-                    std::function<void(std::map<std::string, std::string>,
-                        std::vector<zima::document::ModelRelation>)> accepted,
-                    const ApplicationSettings& settings, QWidget* parent,
-                    std::map<std::string, double> model_values = {},
-                    int decimal_places = 3);
+                    std::function<void(std::vector<zima::document::ModelRelation>)> accepted,
+                    const ApplicationSettings& settings, QWidget* parent);
     void set_dimension_catalog(std::vector<zima::document::DimensionParameter> parameters,
         const zima::document::DimensionIdentifiers& identifiers);
 protected:
@@ -82,11 +79,8 @@ protected:
 private:
     void add_row(const std::string& target = {}, const std::string& expression = {});
     std::map<std::string, std::string> parameters_;
-    std::function<void(std::map<std::string, std::string>,
-        std::vector<zima::document::ModelRelation>)> accepted_;
+    std::function<void(std::vector<zima::document::ModelRelation>)> accepted_;
     QTableWidget* table_{};
-    std::map<std::string, double> model_values_;
-    int decimal_places_{3};
 };
 
 class FamilyTableDialog final : public zima::ui::PropertiesSubWindow {

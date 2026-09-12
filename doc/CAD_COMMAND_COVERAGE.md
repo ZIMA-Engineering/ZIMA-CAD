@@ -48,7 +48,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Sestavy | Zbývá | Komponenty, přesné výskyty, vazby, aktivace a řezy |
 | Výkresy | Správa neuložených změn hotova | Příkazy pro listy, pohledy, kóty, anotace, šablony, BOM, Show/Erase |
 | Řezy, měření a vzhled | Zbývá | Datové operace a uložené výsledky |
-| Parametry, relace a materiál | Parametry a nastavení dokumentu hotovy | Společná tabulka jazykových parametrů, jednotky a přesnost; zbývají relace, materiál a rodinné tabulky |
+| Parametry, relace a materiál | Společné tabulky a transakce hotovy | Parametry, jednotky, přesnost, relace, materiál a uložené varianty; zbývá přímé načtení materiálové knihovny; řízení rozměrů relacemi a generování variant nejsou dosud zavedené ani v GUI |
 | Import a export | Import Partu/Assembly STEP/IGES/DXF a základní exporty hotovy | Společný STEP včetně vnořených sestav, STL Part/plochá Assembly, DXF úsečky/kružnice/oblouky; zbývá import vložených profilů, další DXF geometrie, vnořený STL a výkresové exporty |
 
 Každá další etapa aktualizuje tabulku a uvádí ověřené testy. Neobcházíme
@@ -197,3 +197,11 @@ výpočet, aby cache zůstala uložitelná. Rodiče se neobnovují. Podrobnosti:
 [METADATA_COMMANDS.md](METADATA_COMMANDS.md).
 Celá Windows Release sada této etapy: **74/74** (405,58 s),
 `build/metadata-full-tests.log`.
+
+Etapa technických metadat přidává šest příkazů `document.relations.get/set`,
+`document.material.get/set`, `document.family.get/set`, celkem **118 příkazů**.
+GUI a CLI sdílejí validaci a transakce, zachovávají B-Rep i rodičovské sestavy.
+Cílené modelové, CLI a GUI testy prošly **5/5** (16,77 s). Podrobnosti:
+[ENGINEERING_METADATA_COMMANDS.md](ENGINEERING_METADATA_COMMANDS.md).
+Celá Windows Release sada: **75/75** (406,56 s). Závěrečná kontrola omezení
+nativního textového zápisu: **6/6** (24,23 s). Logy jsou uvedeny v dokumentaci etapy.

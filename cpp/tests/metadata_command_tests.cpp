@@ -34,6 +34,12 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     auto duplicated=entries;duplicated.push_back(entries[0]);reject("document.parameters.set",{{"parameters",duplicated}});
     auto unsupported=entries;unsupported[0]["valeu"]="mistyped";reject("document.parameters.set",{{"parameters",unsupported}});
     auto wrongtype=entries;wrongtype[0]["values"][""]=42;reject("document.parameters.set",{{"parameters",wrongtype}});
+    for(const auto* key:{"name,other","name=other","name\\cs","[section]","#comment",";comment"}) {
+        auto invalid=entries;invalid[0]["key"]=key;reject("document.parameters.set",{{"parameters",invalid}});
+    }
+    for(const auto* value:{"line1\nline2","leading "," trailing","line1\rline2"}) {
+        auto invalid=entries;invalid[0]["values"][""]=value;reject("document.parameters.set",{{"parameters",invalid}});
+    }
     reject("document.settings.set",{{"units",{{"Length","yard"}}}});reject("document.settings.set",{{"units",{{"Lenght","cm"}}}});
     reject("document.settings.set",{{"precision",{{"mesh_deflection",0}}}});reject("document.settings.set",{{"precision",{{"decimal_places",2.5}}}});
     reject("document.settings.set",{{"precision",{{"linear_tolerance",-1}}}});reject("document.settings.set",{{"precision",{{"decimal_places",13}}}});

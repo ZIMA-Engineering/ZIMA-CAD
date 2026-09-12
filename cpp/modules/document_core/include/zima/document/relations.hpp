@@ -12,6 +12,8 @@ struct ModelRelation {
     bool operator==(const ModelRelation&) const = default;
 };
 
+void validate_model_relations(const std::vector<ModelRelation>&);
+
 // Evaluates relations in order. The input map is changed only after every
 // expression succeeds, so a failed OK remains transactional.
 [[nodiscard]] std::map<std::string, std::string> evaluate_relations(

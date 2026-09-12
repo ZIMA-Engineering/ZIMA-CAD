@@ -9,7 +9,16 @@ void key(const std::string& value) {
     if(value.empty() || value.size()>256 || std::isspace(static_cast<unsigned char>(value.front())) ||
         std::isspace(static_cast<unsigned char>(value.back())) || std::ranges::any_of(value,[](unsigned char c){return c<32 || c==127;}))
         throw std::invalid_argument("Parameter keys must be nonempty, unique and contain no surrounding whitespace or control characters.");
+    if(value.find_first_of("\\,=[]")!=std::string::npos || value.front()=='#' || value.front()==';')
+        throw std::invalid_argument("Metadata keys contain a reserved native file separator.");
 }
+}
+void validate_native_metadata_text(const std::string& text) {
+    if(text.size()>65536 || text.find('\0')!=std::string::npos)
+        throw std::invalid_argument("A parameter value is too long or contains a null character.");
+    if(text.find_first_of("\r\n")!=std::string::npos || (!text.empty() &&
+        (text.front()==' ' || text.front()=='\t' || text.back()==' ' || text.back()=='\t')))
+        throw std::invalid_argument("Native metadata values must be single lines without surrounding spaces or tabs.");
 }
 void normalize_user_parameters(UserParameterData& data) {
     if(data.order.size()>4096)throw std::invalid_argument("A document supports at most 4096 user parameters.");
@@ -22,7 +31,7 @@ void normalize_user_parameters(UserParameterData& data) {
         if(values.size()>128)throw std::invalid_argument("A parameter supports at most 128 language variants.");
         for(const auto& [language,text]:values) {
             if(!language.empty())key(language);
-            if(text.size()>65536 || text.find('\0')!=std::string::npos)throw std::invalid_argument("A parameter value is too long or contains a null character.");
+            validate_native_metadata_text(text);
         }
     }
     data.flat.clear();
