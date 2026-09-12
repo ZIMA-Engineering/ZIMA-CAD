@@ -60,22 +60,26 @@ sketcher::Sketch document_sketch(const Workspace& live,const std::string& id,con
     if(!result)throw SketchOperationError("sketch_not_found","The requested Sketch does not exist.");
     return std::move(*result);
 }
-bool mutate_document_sketch(Workspace& live,const std::string& id,const std::string& sketch_id,const SketchMutation& mutation) {
+bool mutate_document_sketch(Workspace& live,const std::string& id,const std::string& sketch_id,const SketchMutation& mutation,const std::vector<kernel::DimensionLayoutEntry>& document_layouts) {
     const auto before=document_sketch(live,id,sketch_id).serialized();
     const auto change=[&](auto& next) {
         if(!mutate(next,sketch_id,mutation))throw SketchOperationError("unsupported_sketch","Edit this Sketch through its owning section operation.");
+        for(const auto& entry:document_layouts) {
+            if(entry.owner_id!=sketch_id)throw SketchOperationError("invalid_layout_reference","Dimension label layout must belong to the edited Sketch.");
+            kernel::store_dimension_layout(next.dimension_layouts,{entry.owner_id,entry.semantic_key,{}},entry.layout);
+        }
     };
     if(auto* part=live.open_part(id)) {
         auto next=part->session.document();change(next);
         std::string after;visit_sketches(next,[&](const auto& sketch){if(sketch.id!=sketch_id)return true;after=sketch.serialized();return false;});
-        if(after==before)return false;
+        if(after==before && next.dimension_layouts==part->session.document().dimension_layouts)return false;
         part->session.commit(std::move(next),part->session.calculated_boundaries());return true;
     }
     auto* assembly=live.open_assembly(id);
     if(!assembly)throw SketchOperationError("unsupported_document","Sketch operations require an open Part or Assembly.");
     auto next=assembly->session.document();change(next);
     std::string after;visit_sketches(next,[&](const auto& sketch){if(sketch.id!=sketch_id)return true;after=sketch.serialized();return false;});
-    if(after==before)return false;
+    if(after==before && next.dimension_layouts==assembly->session.document().dimension_layouts)return false;
     assembly->session.commit(std::move(next));return true;
 }
 void insert_new_sketch(document::PartDocument& document,sketcher::Sketch sketch,document::HistoryContainer container) {

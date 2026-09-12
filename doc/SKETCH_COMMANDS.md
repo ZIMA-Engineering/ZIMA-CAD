@@ -225,3 +225,77 @@ Integrační sada prošla **7/7** (11,69 s),
 z téhož zdroje. Test ověřuje všech patnáct druhů vztahů a obě formy H/V,
 nezávislé geometrické rovnice, volnosti, sloučení topologie, odmítnutí chybných
 vstupů, Undo a nativní uložení. Katalog má nyní **89 příkazů**.
+
+
+## Kóty a jejich vlastnosti
+
+`sketch.dimension.create/get/set/delete` přijímají `sketch` a volitelné
+`document`. Create přijímá `kind`, uspořádané `points` a `geometry`;
+get/set/delete používají vrácené stabilní `dimension`. Používají nativní
+factory a solver skicáře, stejnou validaci čísel jako dialog Vlastnosti kóty
+a společnou transakci dokumentu. Nemění pravidla umístění kontejnerů.
+
+| `kind` | Reference v pořadí |
+| --- | --- |
+| `distance`, `distance_x`, `distance_y` | jedna úsečka v `geometry`, nebo dva body v `points` |
+| `distance_x`, `distance_y` k ose | jeden bod a opačná základní osa: X kóta k `sketch_axis:y`, Y kóta k `sketch_axis:x` |
+| `point_line` | jeden bod a jedna přímka/osa |
+| `symmetric` | jeden nebo dva body a osa |
+| `line_distance` | referenční a řízená rovnoběžná přímka |
+| `radius`, `diameter` | jedna kružnice, oblouk nebo záznam zaoblení rohu |
+| `angle` | jedna úsečka |
+| `three_point_angle` | první bod, vrchol, druhý bod |
+| `angle_between` | dvě přímky; nebo čtyři body dvou přímek; nebo dva body a referenční přímka |
+| `symmetric_angle`, `symmetric_line_distance` | osa a jedna nebo dvě přímky |
+| `ellipse_major`, `ellipse_minor`, `ellipse_rotation` | jedna elipsa |
+
+Délkové hodnoty jsou v **mm**, úhlové ve **stupních**. Výsledek uvádí `unit`.
+Zadání reference nepředpokládá její výběr myší. Nativní solver ověřuje vhodnost,
+řešitelnost i případné zdvojení řídicího rozměru.
+
+Create i set přijímají nepovinné vlastnosti:
+
+- `value`, `driving`, `locked`: zámek chrání geometrii proti tažení. Záměrná
+  číselná změna přes vlastnosti je možná i při zamčené kótě, stejně jako v GUI.
+  Referenční kóta (`driving=false`) zachová naměřenou hodnotu, ignoruje změnu
+  `value` a nemůže zůstat zamčená.
+- `position=[x,y]`: původní poloha popisku ve skice; `solution_side` je -1/1,
+  `angle_sector` je -1/0/1 podle nativního řešení.
+- `limits={lower,upper}`: číselné meze; `null` konkrétní mez odstraní.
+- `text`: řetězce `prefix`, `suffix`, `text_override`, `tolerance_mode`,
+  `symmetric_tolerance`, `single_tolerance`, `upper_tolerance`, `lower_tolerance`.
+  Každé pole má nejvýše 2048 bajtů. Režimy tolerance jsou prázdný řetězec,
+  `symmetric`, `single_deviation`, `deviations`.
+- `layout`: `plane_quarter_turns` 0–3, nezáporný `envelope_offset` nebo null,
+  `text_along`, `text_outward`, `line_offset`, `radius_rotation_degrees`,
+  přepínače `arrows_reversed`, `radius_center_line_hidden`. Úhlová kóta má
+  rovinu danou měřenými rameny a nepovoluje nenulové `plane_quarter_turns`.
+
+Neznámá pole se odmítají. Hodnota, text a rozmístění popisku se potvrzují
+atomicky jedním Undo; odmítnutá hodnota neuloží ani platnou část popisku.
+Samotná změna popisku nemění geometrii. Prázdná či totožná editace nevytváří
+novou revizi. `get` vrací zvlášť `document_layout` a `sketch_layout`, protože
+jde o dvě existující uložené vrstvy. Příkazové vlastnosti ukládají dokumentovou
+vrstvu stejně jako GUI vlastnosti kóty mimo aktivní skicář.
+
+```json
+{"command":"sketch.dimension.create","arguments":{"sketch":"SKETCH_ID","kind":"radius","geometry":["CIRCLE_ID"],"value":12,"locked":true,"layout":{"text_along":3}}}
+```
+
+Těleso zůstává při změně skici v posledním vypočteném stavu. Teprve explicitní
+`regenerate` zpracuje upravený profil. Regrese ověřuje změnu délky profilu
+10 × 5 mm vytaženého 2 mm: původní objem 100 mm³ zůstane až do Regenerate,
+poté je při délce 20 mm objem 200 mm³. Nativní soubory ani šablony nepotřebují
+změnu formátu. Katalog nyní obsahuje **93 příkazů**.
+
+
+Etapa kót přidala `sketch.dimension.create/get/set/delete`, celkem **93 příkazů**.
+Všech 16 druhů používá nativní factory a solver, hodnoty sdílejí validaci s GUI.
+Celá Windows Release sada prošla **66/66** (395,03 s),
+`build/sketch-dimension-full-tests.log`. Po doplnění odmítnutí otočené roviny
+úhlové kóty a testu nativního uložení kót sestavy prošla závěrečná sada **6/6**
+(15,83 s), `build/sketch-dimension-final-tests.log`; odpovídající sestavení
+GUI i CLI je v `build/sketch-dimension-final-build.log`. Testy ověřují také
+společné Undo hodnoty a popisku, číselný zámek, referenční měření, neplatné
+vstupy, zachování posledního tělesa a jeho výslovný Regenerate. Další etapa:
+externí reference a projekce křivek ze STEP.

@@ -38,7 +38,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Umístění a původní reference | Čtení původních referencí hotovo | Part/Assembly, přesné výskyty a geometrická data; zbývá zadání do existujícího společného řešení umístění |
 | Konstrukční geometrie | Zbývá | Body, osy, roviny, 3D křivky |
 | Skicář: geometrie | Základ hotov | 21 příkazů: samostatné a vložené skici, body, úsečky, kružnice, oblouky, elipsy, B-spline, obdélníky, mnohoúhelníky, posun a pomocná geometrie; zbývají další varianty, text a parametrické editace |
-| Skicář: vazby a operace | Vazby/solver/offset/trim/mirror hotovy | Offset create/get/set/free, úplný podklad a zachování intervalů, trim podle průsečíků, mirror, orientovaný obdélník, tečny a zaoblení rohu; všech 15 druhů vazeb, odstranění a solver; zbývají kóty a uvolnění externích referencí |
+| Skicář: vazby a operace | Vazby/kóty/solver/offset/trim/mirror hotovy | Offset create/get/set/free, úplný podklad a zachování intervalů, trim podle průsečíků, mirror, orientovaný obdélník, tečny a zaoblení rohu; všech 15 druhů vazeb, odstranění a solver; 16 druhů kót včetně vlastností, popisků a mazání; zbývá uvolnění externích referencí |
 | Externí reference skici | Zbývá | Původní geometrie, projekce, aktualizace a zachování trimu |
 | Vytažení a rotace | Zbývá | Vlastněný profil, thin, zakončení, více směrů |
 | Tažení | Zbývá | Sweep 2D/3D, loft a helical včetně profilů a drah |
@@ -106,3 +106,15 @@ Etapa vazeb zpřístupnila všech **15 nativních druhů** prostřednictvím
 Katalog má **89 příkazů**. Integrační sada prošla **7/7** (11,69 s),
 `build/sketch-relation-integration-tests.log`, včetně matematických kontrol,
 reálného CLI a konzole GUI. Další etapa: kóty skicáře.
+
+
+Etapa kót přidala `sketch.dimension.create/get/set/delete`, celkem **93 příkazů**.
+Všech 16 druhů používá nativní factory a solver, hodnoty sdílejí validaci s GUI.
+Celá Windows Release sada prošla **66/66** (395,03 s),
+`build/sketch-dimension-full-tests.log`. Po doplnění odmítnutí otočené roviny
+úhlové kóty a testu nativního uložení kót sestavy prošla závěrečná sada **6/6**
+(15,83 s), `build/sketch-dimension-final-tests.log`; odpovídající sestavení
+GUI i CLI je v `build/sketch-dimension-final-build.log`. Testy ověřují také
+společné Undo hodnoty a popisku, číselný zámek, referenční měření, neplatné
+vstupy, zachování posledního tělesa a jeho výslovný Regenerate. Další etapa:
+externí reference a projekce křivek ze STEP.

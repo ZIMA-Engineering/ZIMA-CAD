@@ -7937,6 +7937,32 @@ SketchDimension Sketch::create_ellipse_rotation_dimension(
     return result;
 }
 
+void validate_dimension_property_value(const SketchDimension& result) {
+    require_finite(result.value,"dimension value");
+    if ((result.kind == DimensionKind::Distance ||
+         result.kind == DimensionKind::DistancePointLine ||
+         result.kind == DimensionKind::DistanceSymmetric ||
+         result.kind == DimensionKind::DistanceLine ||
+         result.kind == DimensionKind::DistanceLineSymmetric ||
+         result.kind == DimensionKind::Radius ||
+         result.kind == DimensionKind::Diameter ||
+         result.kind == DimensionKind::EllipseMajorRadius ||
+         result.kind == DimensionKind::EllipseMinorRadius) &&
+        result.value < 0.0) {
+        throw std::invalid_argument("Délka ani poloměr nesmí být záporný.");
+    }
+    if ((result.kind == DimensionKind::Angle ||
+         result.kind == DimensionKind::AngleBetween ||
+         result.kind == DimensionKind::EllipseRotation) &&
+        (result.value < -180.0 || result.value > 180.0)) {
+        throw std::invalid_argument("Úhel musí být v rozsahu −180° až +180°.");
+    }
+    if (result.kind == DimensionKind::AngleSymmetric &&
+        (result.value < 0.0 || result.value > 360.0)) {
+        throw std::invalid_argument("Symetrický úhel musí být v rozsahu 0° až 360°.");
+    }
+}
+
 void Sketch::apply_dimension(SketchDimension dimension) {
     if (dimension.id.empty()) throw std::invalid_argument("Sketch dimension ID is required");
     auto next = *this;

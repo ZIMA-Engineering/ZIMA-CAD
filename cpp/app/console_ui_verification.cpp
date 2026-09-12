@@ -314,8 +314,13 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         commands::Json relation_command={{"command","sketch.constraint.create"},{"arguments",{{"sketch",command_sketch},{"kind","horizontal"},{"geometry",{relation_line}}}}};
         run(QString::fromStdString(relation_command.dump()));flush();
         check(run(QString::fromStdString("sketch.solve_status "+command_sketch)).data.at("maximum_residual").get<double>()<1e-6,"GUI console relation did not solve");
+        commands::Json dimension_command={{"command","sketch.dimension.create"},{"arguments",{{"sketch",command_sketch},{"kind","radius"},{"geometry",{circle_id}},{"value",10},{"locked",true},{"layout",{{"text_along",3}}}}}};
+        const auto dimension_id=run(QString::fromStdString(dimension_command.dump())).data.at("dimension").get<std::string>();flush();
+        const auto dimension_query=QString::fromStdString("sketch.dimension.get "+command_sketch+" "+dimension_id);
+        check(run(dimension_query).data.at("value")==10 && run(dimension_query).data.at("document_layout").at("text_along")==3,"Console dimension did not reach GUI document");
+        run("undo");check(run(QString::fromStdString("sketch.get "+command_sketch)).data.at("counts").at("dimensions")==0,"GUI console dimension Undo failed");run("redo");
         run("save");const auto saved_sketch=document::PartDocument::load(directory/(stem+"-sketch.prtz"));
-        check(saved_sketch.sketches.back().id==command_sketch && saved_sketch.sketches.back().circles.front().radius==8,"GUI console did not persist native Sketch");
+        check(saved_sketch.sketches.back().id==command_sketch && saved_sketch.sketches.back().circles.front().radius==10 && saved_sketch.sketches.back().dimensions.front().locked && saved_sketch.dimension_layouts.back().layout.text_along==3,"GUI console did not persist native Sketch");
         run(QString::fromStdString(activate.dump()));flush();
         input->setText("context");QApplication::sendEvent(input,&enter);flush();
         check(window.grab().save(QString::fromStdString((directory/"command-console.png").string())),"Console screenshot failed");

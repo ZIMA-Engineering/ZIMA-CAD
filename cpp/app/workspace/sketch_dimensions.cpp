@@ -1,4 +1,5 @@
 #include "workspace_internal.hpp"
+#include <zima/workspace/sketch_operations.hpp>
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -1397,17 +1398,6 @@ void AssemblyWorkspaceWindow::show_sketch_dimension_properties(
         [this, sketch_id, edit_mode, creation_kind, active_target, pending_layout, layout_reference,
          segment_dimension_creation, first_geometry_id](
             zima::sketcher::SketchDimension committed) {
-            const auto apply = [&](auto& target) {
-                const auto found = std::find_if(target.sketches.begin(),
-                    target.sketches.end(), [&](const auto& value) {
-                        return value.id == sketch_id;
-                    });
-                if (found == target.sketches.end()) return false;
-                found->apply_dimension(committed);
-                if(*pending_layout)zima::kernel::store_dimension_layout(target.dimension_layouts,layout_reference,**pending_layout);
-                found->validate();
-                return true;
-            };
             bool applied{};
             if (active_target) {
                 applied = active_sketch_id_ == sketch_id &&
@@ -1415,17 +1405,16 @@ void AssemblyWorkspaceWindow::show_sketch_dimension_properties(
                         target.apply_dimension(committed);
                         if(*pending_layout)zima::kernel::store_dimension_layout(target.dimension_layouts,layout_reference,**pending_layout);
                     });
-            } else if (auto* part = workspace_.open_part(
-                           workspace_.active_document_id())) {
-                auto next = part->session.document();
-                applied = apply(next);
-                if (applied) part->session.commit(
-                    std::move(next), part->session.calculated_boundaries());
-            } else if (auto* assembly = workspace_.open_assembly(
-                           workspace_.active_document_id())) {
-                auto next = assembly->session.document();
-                applied = apply(next);
-                if (applied) assembly->session.commit(std::move(next));
+            } else {
+                std::vector<zima::kernel::DimensionLayoutEntry> layouts;
+                if(*pending_layout)layouts.push_back({layout_reference.owner_id,layout_reference.semantic_key,**pending_layout});
+                try {
+                    static_cast<void>(workspace::mutate_document_sketch(workspace_,workspace_.active_document_id(),sketch_id,
+                        [&](auto& target){target.apply_dimension(committed);},layouts));
+                    applied=true;
+                } catch(const workspace::SketchOperationError& error) {
+                    if(std::string_view(error.code)!="sketch_not_found")throw;
+                }
             }
             if (!applied) {
                 throw std::runtime_error("Sketch no longer exists");

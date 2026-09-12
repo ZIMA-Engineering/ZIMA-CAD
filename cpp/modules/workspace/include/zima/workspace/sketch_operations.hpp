@@ -18,7 +18,9 @@ void apply_sketch_geometry(sketcher::Sketch&,const SketchMutation&);
 void visit_document_sketches(const Workspace&,const std::string& document,
     const std::function<bool(const sketcher::Sketch&)>&);
 [[nodiscard]] sketcher::Sketch document_sketch(const Workspace&,const std::string& document,const std::string& sketch);
-[[nodiscard]] bool mutate_document_sketch(Workspace&,const std::string& document,const std::string& sketch,const SketchMutation&);
+// Optional document-level label layouts commit atomically with the Sketch edit.
+[[nodiscard]] bool mutate_document_sketch(Workspace&,const std::string& document,const std::string& sketch,const SketchMutation&,
+    const std::vector<kernel::DimensionLayoutEntry>& document_layouts={});
 // Insert already validated Sketch definitions. No placement values are changed
 // here; callers use their existing factory or property dialog values.
 void insert_new_sketch(document::PartDocument&,sketcher::Sketch,document::HistoryContainer);

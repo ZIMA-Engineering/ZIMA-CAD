@@ -228,6 +228,13 @@ int main(int argc,char** argv){
         require(result.exit_code==0,"CLI relation command failed");const auto relations=document::PartDocument::load(project/"cli-relations.prtz");const auto& rs=relations.sketches.back();
         require(rs.constraints.size()==1 && rs.constraints.front().kind==sketcher::ConstraintKind::Horizontal &&
             std::abs(rs.find_point(rs.segments[0].first_point_id)->y-rs.find_point(rs.segments[0].second_point_id)->y)<1e-7,"CLI did not save the solved horizontal relation");
+        const auto dimension_request=command({{"command","sketch.dimension.create"},{"arguments",{{"sketch",relation_sketch},{"kind","distance"},{"geometry",{relation_line}},{"value",25},{"locked",true},{"layout",{{"text_along",2}}}}}});
+        result=launch(executable,root,common+QStringList{"--command","open cli-relations.prtz","--command",dimension_request,"--command","save"});
+        require(result.exit_code==0,"CLI dimension command failed");const auto dimension_document=document::PartDocument::load(project/"cli-relations.prtz");const auto& ds=dimension_document.sketches.back();
+        require(ds.dimensions.size()==1 && ds.dimensions.front().locked && std::abs(ds.dimensions.front().value-25)<1e-7 &&
+            std::abs(std::hypot(ds.find_point(ds.segments[0].first_point_id)->x-ds.find_point(ds.segments[0].second_point_id)->x,
+                               ds.find_point(ds.segments[0].first_point_id)->y-ds.find_point(ds.segments[0].second_point_id)->y)-25)<1e-6 &&
+            dimension_document.dimension_layouts.back().layout.text_along==2,"CLI dimension did not persist solved length, lock and label together");
         std::cout<<"CLI processes: native files, Unicode/config, scripts/stdin, errors, streaming and explicit geometry calculation passed\n";
         return 0;
     }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}

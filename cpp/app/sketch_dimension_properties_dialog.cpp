@@ -114,32 +114,8 @@ bool SketchDimensionPropertiesDialog::submit() {
     result.prefix=style.prefix;result.suffix=style.suffix;result.display_text_override=style.text_override;
     result.tolerance_mode=style.tolerance_mode;result.symmetric_tolerance=style.symmetric_tolerance;
     result.single_tolerance=style.single_tolerance;result.upper_tolerance=style.upper_tolerance;result.lower_tolerance=style.lower_tolerance;
-    if ((result.kind == zima::sketcher::DimensionKind::Distance ||
-         result.kind == zima::sketcher::DimensionKind::DistancePointLine ||
-         result.kind == zima::sketcher::DimensionKind::DistanceSymmetric ||
-         result.kind == zima::sketcher::DimensionKind::DistanceLine ||
-         result.kind == zima::sketcher::DimensionKind::DistanceLineSymmetric ||
-         result.kind == zima::sketcher::DimensionKind::Radius ||
-         result.kind == zima::sketcher::DimensionKind::Diameter ||
-         result.kind == zima::sketcher::DimensionKind::EllipseMajorRadius ||
-         result.kind == zima::sketcher::DimensionKind::EllipseMinorRadius) &&
-        result.value < 0.0) {
-        error_->setText(tr("Délka ani poloměr nesmí být záporný."));
-        return false;
-    }
-    if ((result.kind == zima::sketcher::DimensionKind::Angle ||
-         result.kind == zima::sketcher::DimensionKind::AngleBetween ||
-         result.kind == zima::sketcher::DimensionKind::EllipseRotation) &&
-        (result.value < -180.0 || result.value > 180.0)) {
-        error_->setText(tr("Úhel musí být v rozsahu −180° až +180°."));
-        return false;
-    }
-    if (result.kind == zima::sketcher::DimensionKind::AngleSymmetric &&
-        (result.value < 0.0 || result.value > 360.0)) {
-        error_->setText(tr("Symetrický úhel musí být v rozsahu 0° až 360°."));
-        return false;
-    }
     try {
+        zima::sketcher::validate_dimension_property_value(result);
         if(placement_fields_&&pending_layout_)pending_layout_(placement_fields_->value());
         commit_(std::move(result));
     } catch (const std::exception& failure) {

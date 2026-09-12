@@ -293,8 +293,9 @@ struct SketchDimension {
     std::string upper_tolerance;
     std::string lower_tolerance;
     // Locked is an editing policy, independent of solver ownership. Both
-    // locked and unlocked driving dimensions constrain geometry; a locked
-    // value cannot be changed until explicitly unlocked.
+    // locked and unlocked driving dimensions constrain geometry. Locking
+    // protects direct geometry dragging; intentional numeric Properties edits
+    // remain available.
     bool locked{};
     // Unsigned point-to-line and line-to-line distances persist their
     // magnitude in value and their selected normal branch independently.
@@ -303,6 +304,9 @@ struct SketchDimension {
     int solution_side{1};
     bool operator==(const SketchDimension&) const = default;
 };
+
+// Numeric entry policy shared by the Properties dialog and command edits.
+void validate_dimension_property_value(const SketchDimension&);
 
 struct SolveResult {
     SolveStatus status{SolveStatus::Invalid};
