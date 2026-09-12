@@ -58,6 +58,7 @@ private:
     void register_commands();
     void register_primitive_commands();
     void register_profile_commands();
+    void register_sweep_commands();
     void register_document_commands();
     void register_body_commands();
     void register_history_commands();

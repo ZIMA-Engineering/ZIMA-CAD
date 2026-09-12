@@ -1,3 +1,4 @@
+#include "../tests/sweep_test_support.hpp"
 #include "../tests/construction_query_test_support.hpp"
 #include "../tests/dxf_export_test_support.hpp"
 #include "../tests/stl_export_test_support.hpp"
@@ -824,6 +825,55 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
                 check(std::abs(target_cache.back().volume-300)<1e-6,"GUI end target used container origin instead of offset plane");
                 run("undo");check(get().at("targets_forward")[0].at("owner")==target_upper.at("entity"),"GUI target Undo did not restore the previous reference");
             }
+            json_run("close",{{"discard",true}});run(QString::fromStdString(activate.dump()));flush();
+        }
+        for(const auto kind:{document::FeatureKind::Sweep2D,document::FeatureKind::Sweep3D,document::FeatureKind::HelicalSweep}) {
+            const bool helical=kind==document::FeatureKind::HelicalSweep;
+            const bool planar=kind==document::FeatureKind::Sweep2D;
+            const std::string prefix=helical?"helical":planar?"sweep2d":"sweep3d";
+            auto native=document::PartDocument::create_default();native.name=stem+"-"+prefix;
+            auto feature=test_support::sweep_fixture(kind);
+            if(!helical) {
+                (planar?feature.sweep2d.result_type:feature.sweep3d.result_type)=document::ProfileResultType::Thin;
+                (planar?feature.sweep2d.thin_mode:feature.sweep3d.thin_mode)=document::ThinMode::Symmetric;
+                (planar?feature.sweep2d.thickness:feature.sweep3d.thickness)=.5;
+            }
+            native.history={feature};document::BodyHistoryGraph graph;
+            static_cast<void>(graph.create_body("Sweep"));graph.insert({document::PartHistoryKind::Feature,feature.id});
+            native.set_body_history(graph);native.resolve_constructions();
+            const auto path=directory/(native.name+".prtz");native.save(path);
+            json_run("open",{{"path",document::path_to_utf8(path)}});flush();
+            const auto* field=helical?"helicalPitch":planar?"sweep2dThickness":"sweep3DThickness";
+            const auto* key=helical?"pitch_mm":"thickness_mm";
+            const double initial=helical?5:.5,changed=helical?10:1;
+            const auto get=[&]{return json_run((prefix+".get").c_str(),{{"container",feature.id}}).data;};
+            const auto edit=[&]() {
+                QTreeWidgetItem* item=nullptr;
+                for(QTreeWidgetItemIterator it(model_tree);*it;++it)
+                    if((*it)->data(0,Qt::UserRole).toString().toStdString()==feature.id){item=*it;break;}
+                check(item,"Sweep missing from tree");window.show_tree_item_properties(item);flush();
+                for(auto* dialog:window.findChildren<QDialog*>())if(dialog->isVisible()&&dialog->findChild<QDoubleSpinBox*>(field))return dialog;
+                throw std::runtime_error("Sweep Properties missing");
+            };
+            auto* dialog=edit();
+            check(dialog->findChild<QDoubleSpinBox*>(field)->value()==initial,"Sweep Properties lost initial dimension");
+            commands::Json patch={{"command",prefix+".set"},{"arguments",{{"container",feature.id},{key,changed}}}};
+            check(window.execute_console_command(QString::fromStdString(patch.dump())).code=="editing_in_progress","CLI overwrote pending Sweep properties");
+            dialog->findChild<QDoubleSpinBox*>(field)->setValue(changed);
+            check(get().at(key)==initial,"Pending Sweep property escaped into model query");
+            dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
+            check(get().at(key)==initial,"Sweep Cancel committed the pending dimension");
+            dialog=edit();dialog->findChild<QDoubleSpinBox*>(field)->setValue(changed);
+            dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+            check(get().at(key)==changed,"Sweep GUI OK did not use shared transaction");
+            run("undo");check(get().at(key)==initial,"Sweep GUI Undo lost the initial dimension");
+            run(QString::fromStdString(patch.dump()));flush();
+            dialog=edit();check(dialog->findChild<QDoubleSpinBox*>(field)->value()==changed,"Sweep Properties did not consume CLI edit");
+            dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();run("save");
+            std::vector<kernel::BodyResult> cache;const auto saved=document::PartDocument::load(path,&cache);
+            const double pi=std::acos(-1.0),expected=helical?pi*.25*std::hypot(2*pi*10,10):80*pi;
+            check(saved.history.front().id==feature.id&&!cache.empty()&&std::abs(cache.back().volume-expected)<(helical?expected*.001:1e-5),
+                "Sweep GUI/CLI saved incorrect geometry or feature ownership");
             json_run("close",{{"discard",true}});run(QString::fromStdString(activate.dump()));flush();
         }
         input->setText("context");QApplication::sendEvent(input,&enter);flush();

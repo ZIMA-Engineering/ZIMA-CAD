@@ -1,3 +1,4 @@
+#include "sweep_test_support.hpp"
 #include "construction_query_test_support.hpp"
 #include "dxf_export_test_support.hpp"
 #include "stl_export_test_support.hpp"
@@ -611,6 +612,27 @@ int main(int argc,char** argv){
                 require(result.exit_code==0,"CLI symmetric target failed");cache.clear();static_cast<void>(document::PartDocument::load(project/file,&cache));
                 require(std::abs(cache.back().volume-280)<1e-6,"CLI symmetric target produced an asymmetric solid");
             }
+        }
+        for(const auto kind:{document::FeatureKind::Sweep2D,document::FeatureKind::Sweep3D,document::FeatureKind::HelicalSweep}) {
+            const bool helical=kind==document::FeatureKind::HelicalSweep;
+            const std::string prefix=helical?"helical":kind==document::FeatureKind::Sweep2D?"sweep2d":"sweep3d";
+            const auto file="cli-"+prefix+".prtz";
+            auto native=document::PartDocument::create_default();native.name="cli-"+prefix;
+            const auto feature=test_support::sweep_fixture(kind);native.history={feature};
+            document::BodyHistoryGraph graph;static_cast<void>(graph.create_body("Sweep"));
+            graph.insert({document::PartHistoryKind::Feature,feature.id});native.set_body_history(graph);native.resolve_constructions();native.save(project/file);
+            const auto get=command({{"command",prefix+".get"},{"arguments",{{"container",feature.id}}}});
+            Json patch={{"container",feature.id},{"name","Tažení žluťoučké"}};
+            if(helical){patch["pitch_mm"]=10;patch["left_handed"]=true;}
+            else{patch["result_type"]="thin";patch["thickness_mm"]=.5;patch["thin_mode"]="symmetric";}
+            result=launch(executable,root,common+QStringList{"--command",QString::fromStdString("open "+file),"--command",get,
+                "--command",command({{"command",prefix+".set"},{"arguments",patch}}),"--command","undo","--command","redo","--command","save","--command",get});
+            require(result.exit_code==0&&result.results().size()==7,"Standalone CLI Sweep get/set or Undo/Redo failed");
+            require(result.results().back().at("data").at("name")=="Tažení žluťoučké","Sweep CLI lost UTF-8 name");
+            std::vector<kernel::BodyResult> cache;const auto reopened=document::PartDocument::load(project/file,&cache);
+            require(reopened.history.front().id==feature.id&&reopened.history.front().name=="Tažení žluťoučké"&&!cache.empty(),"Sweep CLI lost native ownership or body cache");
+            const double pi=std::acos(-1.0),expected=helical?pi*.25*std::hypot(2*pi*10,10):40*pi;
+            require(std::abs(cache.back().volume-expected)<(helical?expected*.001:1e-5),"Standalone CLI Sweep saved incorrect volume");
         }
         std::cout<<"CLI processes: native files, Unicode/config, scripts/stdin, errors, streaming and explicit geometry calculation passed\n";
         return 0;

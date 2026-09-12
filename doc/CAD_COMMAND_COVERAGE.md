@@ -41,7 +41,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Skicář: vazby a operace | Vazby/kóty/solver/offset/trim/mirror hotovy | Offset create/get/set/free, úplný podklad a zachování intervalů, trim podle průsečíků, mirror, orientovaný obdélník, tečny a zaoblení rohu; všech 15 druhů vazeb, odstranění a solver; 16 druhů kót včetně vlastností, popisků a mazání; uvolnění externích referencí hotovo |
 | Externí reference skici | Part a kořenová Assembly hotovy | Původní geometrie, přesná projekce, aktualizace, odpojení a zachování trimu; zbývá příkazový kontext Partu aktivovaného v sestavě |
 | Vytažení a rotace | Profily, Thin, směry a cíle zakončení Partu hotovy | `extrusion/revolution.create/get/set`, vlastněná skica, původní plochy a dvě nezávislé meze, společné OK; zbývají sestavové řezy |
-| Tažení | Zbývá | Sweep 2D/3D, loft a helical včetně profilů a drah |
+| Tažení | Částečně | `sweep2d/sweep3d/helical.get/set`, společné GUI potvrzení; zbývá CLI tvorba a správa profilů/dráhy |
 | Otvory a závity | Zbývá | Hole, Thread, ShaftThread, DrillPoint a reference |
 | Zaoblení, zkosení, skořepina | Zbývá | Výběr skutečného vstupního tělesa a sdílené transakce |
 | Zrcadlo a pole | Zbývá | Odvozená tělesa a komponenty |
@@ -605,3 +605,17 @@ modelových, CLI a GUI regresí (47,02 s), `build/extrusion-target-final-tests.l
 Podrobnosti jsou v [PROFILE_COMMANDS.md](PROFILE_COMMANDS.md).
 Další etapa pokrývá vlastnosti a tvorbu tažení včetně vložených profilů a drah;
 sestavové řezy a ostatní otevřené řádky zůstávají součástí celkového cíle CLI.
+
+
+Etapa vlastností tažení přidává šest příkazů `sweep2d/sweep3d/helical.get/set`,
+katalog má **170 příkazů**. GUI tvorba i editace používá stejné explicitní
+potvrzení s validací, výpočtem a Undo. Test uložení odhalil předčasné přerámování
+šroubovicových skic při načítání; nyní nastává až po načtení umístění prvku.
+
+Cílené regrese prošly **9/9** (120,57 s), `build/sweep-command-gui-tests.log`.
+Oba programy jsou sestavené a úplná Windows Release sada prošla **93/93**
+(432,54 s), `build/sweep-command-full-tests.log`. Ověřené jsou nezávislé objemy,
+Thin, posun/rotace, zámky, atomické chyby, GUI/CLI, Undo/Redo, nativní uložení
+i studený výpočet. Formát ani start šablony se nemění. Podrobnosti:
+[SWEEP_COMMANDS.md](SWEEP_COMMANDS.md). Další část tažení zahrnuje příkazovou
+tvorbu, správu profilů, stanice a vloženou dráhu; ostatní otevřené řádky zůstávají.

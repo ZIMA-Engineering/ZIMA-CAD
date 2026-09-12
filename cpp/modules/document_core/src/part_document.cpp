@@ -9860,7 +9860,6 @@ PartDocument PartDocument::load(
             container.helical.guide_start_point_id=h.at("guide_start_point_id").get<std::string>();
             container.helical.pitch=h.at("pitch").get<double>();
             container.helical.left_handed=h.at("left_handed").get<bool>();
-            reframe_helical_sketches(container);
         } else if (container.feature_kind == FeatureKind::Sweep3D) {
             auto& thin = container.sweep3d;
             const std::string result_type = source.at("result_type");
@@ -10090,6 +10089,11 @@ PartDocument PartDocument::load(
             }
         }
         validate_placement(container.placement);
+        // Derived Sketch frames depend on the fully loaded feature placement.
+        // Reframing before reading it silently resets translated/rotated helices.
+        if (container.feature_kind == FeatureKind::HelicalSweep) {
+            reframe_helical_sketches(container);
+        }
         if (container.feature_kind == FeatureKind::Sweep3D) {
             for (std::size_t index = 0;
                  index < container.sweep3d.profiles.size(); ++index) {

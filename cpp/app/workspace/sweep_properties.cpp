@@ -1,4 +1,5 @@
 #include "workspace_internal.hpp"
+#include <zima/workspace/sweep_operations.hpp>
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -70,12 +71,8 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
     }
     const auto document_id=part->session.document().document_id;
     const auto commit=[this,document_id,editing=!id.empty()](auto c){
-        auto* target=workspace_.open_part(document_id);if(!target)throw std::runtime_error("Part není otevřen");
-        auto next=target->session.document();
-        if(editing){auto* stored=next.find_container(c.id);if(!stored)throw std::runtime_error("Kontejner neexistuje");*stored=std::move(c);}
-        else{next.insert_history_entry(zima::document::PartHistoryKind::Feature,c.id);next.history.push_back(std::move(c));}
-        auto calculated=calculate_part_with_resolved_references(next,&target->session.calculated_boundaries());
-        target->session.commit(std::move(next),std::move(calculated));
+        zima::workspace::commit_sweep(workspace_,kernel_,document_id,std::move(c),
+            editing?zima::workspace::SweepEditMode::Replace:zima::workspace::SweepEditMode::Create);
     };
     SweepPlacementDialog* dialog=planar?static_cast<SweepPlacementDialog*>(new Sweep2DDialog(initial,commit,this)):
         static_cast<SweepPlacementDialog*>(new HelicalSweepDialog(initial,commit,this));
@@ -266,25 +263,8 @@ void AssemblyWorkspaceWindow::show_sweep3d_properties(
         allow_subtract,
         [this, document_id, edit_mode](
                 zima::document::HistoryContainer committed) {
-            auto* target_part = workspace_.open_part(document_id);
-            if (target_part == nullptr)
-                throw std::runtime_error("Part is no longer open");
-            auto next = target_part->session.document();
-            if (edit_mode) {
-                auto* target = next.find_container(committed.id);
-                if (target == nullptr)
-                    throw std::runtime_error("Sweep/Loft no longer exists");
-                *target = std::move(committed);
-            } else {
-                next.insert_history_entry(
-                    zima::document::PartHistoryKind::Feature, committed.id);
-                next.history.push_back(std::move(committed));
-            }
-            const auto& previous = target_part->session.calculated_boundaries();
-            auto calculated = calculate_part_with_resolved_references(
-                next, &previous);
-            target_part->session.commit(
-                std::move(next), std::move(calculated));
+            zima::workspace::commit_sweep(workspace_,kernel_,document_id,std::move(committed),
+                edit_mode?zima::workspace::SweepEditMode::Replace:zima::workspace::SweepEditMode::Create);
         }, this, decimal_places);
 
     dialog->set_reference_request_callback(

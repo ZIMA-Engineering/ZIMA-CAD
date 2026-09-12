@@ -58,6 +58,7 @@ Result Host::execute(const Json& request){return run([&]{return dispatcher_.exec
 void Host::register_commands(){
     register_primitive_commands();
     register_profile_commands();
+    register_sweep_commands();
     register_document_commands();
     register_body_commands();
     register_history_commands();
