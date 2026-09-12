@@ -2166,9 +2166,8 @@ void DrawingWindow::show_dimension_properties(const std::string& id,int extend) 
     auto* dialog=new DrawingDimensionDialog(value,id.empty(),[this](const auto& view){return document_.find_view(view);},
         [this,id](auto committed){
             auto* sheet=active_sheet();if(!sheet)throw std::runtime_error("List již neexistuje.");
-            if(id.empty())sheet->dimensions.push_back(std::move(committed));
-            else{auto found=std::ranges::find(sheet->dimensions,id,&drawing::DrawingDimension::id);if(found==sheet->dimensions.end())throw std::runtime_error("Kóta již neexistuje.");*found=std::move(committed);}
-            sync_workspace_document();
+            if(workspace::edit_drawing_dimension(document_,sheet->id,std::move(committed),id.empty()))
+                sync_workspace_document();
         },owner?owner:this);
     view_dialog_=dialog;canvas_->set_dimension_command(dialog);
     if(extend)dialog->extend(extend<0);

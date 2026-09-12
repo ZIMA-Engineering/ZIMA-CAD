@@ -1,8 +1,8 @@
 # Výkresy přes společné příkazy
 
 Výkresové příkazy zpřístupňují listy, šablony, tvorbu a vlastnosti pohledů,
-uložené reference a výslovnou regeneraci. Katalog má 143 příkazů. Dotazy na modelové anotace a Show/Erase jsou sdílené.
-Tvorba a editace měřených kót, další anotace, editace BOM, zdrojové styly šraf a výkresové exporty
+uložené reference a výslovnou regeneraci. Katalog má 146 příkazů. Dotazy na modelové anotace a Show/Erase jsou sdílené.
+Další anotace, editace BOM, zdrojové styly šraf a výkresové exporty
 zatím nejsou kompletně pokryté.
 
 | Příkaz | Argumenty | Výsledek |
@@ -306,11 +306,84 @@ Chybějící ID se odmítá bez kroku historie. Přidělená čísla kót se ner
 {"command":"drawing.dimension.delete","arguments":{"dimension":"KOTA"}}
 ```
 
-Nativní formát se nemění. Tvorba, oprava referencí, změny stylu a tažení
-měřených kót zatím nemají příkazový protějšek; to je následující etapa.
+Nativní formát se nemění. Tvorba a vlastnosti jsou popsány v navazující části.
 
 Ověřeno sestavením GUI i CLI a cílenou sadou **6/6** (23,53 s),
 `build/drawing-dimension-command-tests.log`. Testy zahrnují hodnotu 60°,
 původní výskyt, poslední hodnotu neplatné kóty, skrytý průmět rádiusu,
 filtry, mazání přes CLI i skutečnou klávesu Delete v GUI, Undo/Redo,
 uchování přidělených čísel a nativní uložení.
+
+## Tvorba a vlastnosti měřených kót
+
+`drawing.dimension.create` vyžaduje `view` a pole `attachments`.
+`kind` má výchozí hodnotu `linear`, další možnosti jsou `radius`, `diameter`,
+`chain`, `angular`. R/⌀ mají jedno napojení, lineární a úhlová kóta dvě,
+řetězec nejméně dvě (nejvýše 4096). Nové identity kóty a úseků přiděluje ZIMA
+před výpočtem. List se určí podle pohledu, není možné vytvořit kótu pohledu
+z jiného listu. ID výsledku je v `dimension`.
+
+`drawing.dimension.set` vyžaduje `dimension`; ostatní parametry jsou částečný
+patch. Podporuje i přepojení na `view` ve stejném listu. Změna typu `kind`
+vyžaduje explicitně nové `attachments`; resetuje rozložení a starou prezentaci,
+přizpůsobí výchozí příponu mm/° a zachová ID kóty i přeživších úseků.
+Samotné nahrazení reference zachová rozložení. Prázdný patch platné kóty
+nevytváří historii. Neplatnou kótu lze tímto příkazem opravit nahrazením
+přesných referencí; nepotvrzené napojení se nikdy nenahradí blízkou hranou.
+
+Každé napojení má `kind` a `reference` (`owner`, `key`, `instance_path`).
+Volitelné jsou `other_reference` pro průsečík, `parameter` (výchozí 0) a
+`side` (1 nebo -1, výchozí 1). Parametr je normalizovaný podél původní křivky;
+průsečíky ho používají také pro volbu větve. Úhel přijímá dvě různé přímé
+reference s `kind: line`. Střed, tečna a průsečík používají stejnou nativní
+geometrii a ověření jako dialog Kóta.
+
+Společné volitelné parametry vytvoření a editace:
+
+- `direction`: `automatic`, `horizontal`, `vertical`, `parallel`;
+- `parallel_reference`: původní přímá reference pro paralelní směr;
+- `anchor_attachment`: index počátečního napojení měřicího směru;
+- `style`: částečný objekt `prefix`, `suffix`, `text_override`, `decimals`
+  (celé 0–12), `tolerance_mode` a textové `symmetric_tolerance`,
+  `single_tolerance`, `upper_tolerance`, `lower_tolerance`;
+- `layouts`: pole částečných rozložení, přesně jedno na každý úsek; přijímá
+  `text_along`, `text_outward`, `line_offset`, `arrows_reversed`,
+  `radius_rotation_degrees`, `radius_center_line_hidden`;
+- `placements`: pole bodů `[x,y]` v rovině průmětu pohledu, přesně jeden na
+  úsek; `null` nechá úsek na místě. Používá stejné umístění jako myš, včetně
+  volby menšího/doplňkového sektoru úhlu;
+- `document`: cílový otevřený výkres.
+
+Souřadnice a délkové posuny jsou v milimetrech promítnutého modelu, X doprava,
+Y nahoru; nejde o absolutní polohu na papíru. Rotace rádiusu a úhlové hodnoty
+jsou ve stupních. `layouts` se aplikuje před `placements`. Režimy tolerance
+jsou prázdný řetězec, `symmetric`, `single_deviation`, `deviations`; odchylky
+jsou text, stejně jako v GUI, a mohou obsahovat například desetinnou čárku.
+
+`drawing.dimension.extend` vyžaduje `dimension` a jediné `attachment`.
+Volitelné `at_first: true` přidá začátek, výchozí `false` konec řetězce.
+`position: [x,y]` umístí jen nový úsek. Příkaz přijímá lineární nebo řetězovou
+kótu; zachová identity a rozložení všech původních úseků, včetně posunutí
+indexu kotvy při vložení na začátek. Přidání na začátek se proto provádí tímto
+příkazem, nikoli přeřazením pole napojení přes `set`.
+
+```json
+{"command":"drawing.dimension.create","arguments":{"view":"POHLED","kind":"angular","attachments":[{"kind":"line","reference":{"owner":"PRVEK","key":"HRANA_A","instance_path":""},"parameter":0.5},{"kind":"line","reference":{"owner":"PRVEK","key":"HRANA_B","instance_path":""},"parameter":0.5}],"placements":[[10,5]]}}
+{"command":"drawing.dimension.set","arguments":{"dimension":"KOTA","style":{"prefix":"A=","decimals":2},"layouts":[{"arrows_reversed":true}]}}
+```
+
+GUI OK i CLI sdílejí atomické ověření a potvrzení. Chybné reference, parametry
+nebo poslední položka pole nezanechají částečný zápis. Potvrzení neplatné kóty
+bez opravy reference se odmítá stejně jako v GUI; skrytý platný radiální průmět
+je dovolený. Výpočet měření používá uložená ZIMA data pohledu, nikoli OCCT
+nebo otevření zdroje. Změny mají jeden krok Undo/Redo a ukládají se výhradně
+v existujícím `.drwz`, bez změny formátu.
+
+Integrační sada nových příkazů prošla **6/6** (21,36 s),
+`build/drawing-dimension-edit-integration-tests.log`; následně celá
+Windows Release regrese **82/82** (376,97 s),
+`build/drawing-dimension-edit-full-tests.log`. GUI i samostatné CLI jsou
+sestavené. Testy ověřují tvorbu, 60°/120°, opravu reference, oba konce
+řetězce, identity, parametry a atomické zamítnutí, Undo/Redo, nativní
+uložení a skutečné zobrazení kóty vytvořené z konzole. Snímek
+`Projects/test/command-drawing-views.png` prošel vizuální kontrolou.

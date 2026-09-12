@@ -48,6 +48,32 @@ void verify(const kernel::OcctKernel& kernel,std::filesystem::path directory) {
     run(host,"undo");require(state->document().sheets.front().dimensions[1]==broken,"Undo lost invalid reference, layout or last value");
     run(host,"redo");run(host,"save");const auto loaded=drawing::DrawingDocument::load(directory/"dimensions.drwz");
     require(loaded.sheets.front().dimensions.size()==2&&loaded.sheets.front().dimensions.front()==angle,"Deletion did not persist");
+    const auto attach=[](kernel::EdgeReference r,const char* kind="line",double parameter=.5){return Json{{"kind",kind},{"reference",{{"owner",r.owner_id},{"key",r.semantic_key},{"instance_path",r.instance_path}}},{"parameter",parameter}};};
+    const auto created=run(host,"drawing.dimension.create",{{"view",view.id},{"kind","angular"},{"attachments",Json::array({attach(first),attach(second)})}}).data;
+    const auto created_id=created.at("dimension").get<std::string>(),segment_id=created.at("segments")[0].at("segment").get<std::string>();
+    require(created.at("measurements")[0].at("text")=="60°","CLI create did not calculate angle");
+    const auto sector=run(host,"drawing.dimension.set",{{"dimension",created_id},{"placements",Json::array({Json::array({-10,10})})},{"style",{{"decimals",2},{"prefix","A="}}}}).data;
+    require(sector.at("measurements")[0].at("text")=="A=120°"&&sector.at("segments")[0].at("segment")==segment_id,"Angle placement lost sector or stable identity");
+    const auto no_op_revision=state->revision();require(run(host,"drawing.dimension.set",{{"dimension",created_id}}).data.at("changed")==false&&state->revision()==no_op_revision,"Empty dimension edit created history");
+    const auto before_bad=state->document();auto absent=second;absent.instance_path="assembly/wrong";
+    require(!host.execute({{"command","drawing.dimension.set"},{"arguments",{{"dimension",created_id},{"attachments",Json::array({attach(first),attach(absent)})}}}}).ok&&state->revision()==no_op_revision,"Invalid reference edit committed");
+    require(!host.execute({{"command","drawing.dimension.set"},{"arguments",{{"dimension",created_id},{"style",{{"decimals",13}}}}}}).ok,"Invalid text precision accepted");
+    require(!host.execute({{"command","drawing.dimension.set"},{"arguments",{{"dimension",created_id},{"layouts",Json::array({Json{{"unknown",2}}})}}}}).ok,"Unknown layout field accepted");
+    require(!host.execute({{"command","drawing.dimension.create"},{"arguments",{{"view",view.id},{"kind","angular"},{"attachments",Json::array({attach(first),attach(first)})}}}}).ok,"Duplicate angular references accepted");
+    require(state->document().sheets.front().dimensions==before_bad.sheets.front().dimensions,"Failed edit modified the document");
+    auto broken_doc=state->document();auto& damaged=broken_doc.sheets.front().dimensions.back();damaged.attachments[1].reference=absent;state->commit(std::move(broken_doc));
+    const auto repaired=run(host,"drawing.dimension.set",{{"dimension",created_id},{"attachments",Json::array({attach(first),attach(second)})}}).data;
+    require(repaired.at("state")=="resolved"&&repaired.at("dimension")==created_id,"Reference repair lost identity");
+    const auto chain=run(host,"drawing.dimension.create",{{"view",view.id},{"attachments",Json::array({attach(first,"curve_point",0),attach(first,"curve_point",.5)})}}).data;
+    const auto chain_id=chain.at("dimension").get<std::string>(),old_segment=chain.at("segments")[0].at("segment").get<std::string>();
+    const auto extended=run(host,"drawing.dimension.extend",{{"dimension",chain_id},{"attachment",attach(first,"curve_point",1)}}).data;
+    require(extended.at("kind")=="chain"&&extended.at("segments").size()==2&&extended.at("segments")[0].at("segment")==old_segment,"Appending chain changed existing segment");
+    const auto prepended=run(host,"drawing.dimension.extend",{{"dimension",chain_id},{"attachment",attach(second,"curve_point",1)},{"at_first",true}}).data;
+    require(prepended.at("segments").size()==3&&prepended.at("segments")[1].at("segment")==old_segment&&prepended.at("anchor_attachment")==1,"Prepending chain lost original segment or anchor");
+    run(host,"undo");require(run(host,"drawing.dimension.get",{{"dimension",chain_id}}).data.at("segments").size()==2,"Chain extension Undo failed");
+    run(host,"redo");run(host,"save");
+    const auto edited=drawing::DrawingDocument::load(directory/"dimensions.drwz");require(edited.sheets.front().dimensions==state->document().sheets.front().dimensions,"Created/edited dimensions did not roundtrip");
+
 }
 }
 int main(){try{kernel::OcctKernel kernel;const auto root=std::filesystem::canonical(std::filesystem::temp_directory_path());const auto dir=root/("zima-dimensions-"+document::PartDocument::create_default().document_id);std::filesystem::create_directory(dir);verify(kernel,dir);require(dir.parent_path()==root,"Unsafe cleanup");std::filesystem::remove_all(dir);std::cout<<"Measured dimension queries, original references, unresolved values, deletion and history passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

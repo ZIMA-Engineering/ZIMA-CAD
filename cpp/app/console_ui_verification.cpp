@@ -1,4 +1,5 @@
 #include "drawing_window.hpp"
+#include <zima/drawing/measurement_dimension.hpp>
 #include "console_ui_verification.hpp"
 #include "history_tree_widget.hpp"
 #include <QMenu>
@@ -579,6 +580,17 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         const commands::Json blocked_annotation={{"command","drawing.annotation.show_erase"},{"arguments",annotation_request}};
         check(window.execute_console_command(QString::fromStdString(blocked_annotation.dump())).code=="editing_in_progress","Console modified annotations during GUI preview");
         annotation_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
+        const auto projected_curves=drawing::projected_measurement_curves(*drawing_window->document_for_test().find_view(base_view.id));
+        const auto chosen_curve=std::ranges::find_if(projected_curves,[](const auto& c){return c.line&&c.points.size()>1&&std::hypot(c.points.back().x-c.points.front().x,c.points.back().y-c.points.front().y)>1e-6;});
+        check(chosen_curve!=projected_curves.end(),"Console dimension fixture has no projected line");
+        const commands::Json dimension_ref={{"owner",chosen_curve->source.owner_id},{"key",chosen_curve->source.semantic_key},{"instance_path",chosen_curve->source.instance_path}};
+        const commands::Json first_attachment={{"kind","curve_point"},{"reference",dimension_ref},{"parameter",0}},second_attachment={{"kind","curve_point"},{"reference",dimension_ref},{"parameter",.5}};
+        const auto console_dimension=json_run("drawing.dimension.create",{{"view",base_view.id},{"attachments",commands::Json::array({first_attachment,second_attachment})}}).data.at("dimension").get<std::string>();flush();
+        check(drawing_window->annotation_handle_for_test(console_dimension,0,true).has_value(),"Console-created dimension is not displayed in GUI");
+        json_run("drawing.dimension.set",{{"dimension",console_dimension},{"style",{{"prefix","GUI="}}}});flush();
+        check(drawing_window->document_for_test().sheets.front().dimensions.back().style.prefix=="GUI=","Console dimension properties did not reach GUI");
+        json_run("drawing.dimension.delete",{{"dimension",console_dimension}});flush();check(!drawing_window->annotation_handle_for_test(console_dimension,0,true).has_value(),"Console deletion left a GUI dimension");
+        run("undo");flush();check(drawing_window->annotation_handle_for_test(console_dimension,0,true).has_value(),"Console dimension Undo did not restore GUI");
         check(window.grab().save(QString::fromStdString((directory/"command-drawing-views.png").string())),"Drawing view screenshot failed");
         json_run("close",{{"discard",true}});
         run(QString::fromStdString(activate.dump()));flush();

@@ -336,14 +336,6 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
     }
     bool submit() override {
         read_fields();
-        const auto *view = view_(value_.view_id);
-        if (!view)
-            throw std::invalid_argument("Vyberte pohled a vazby kóty.");
-        drawing::validate_drawing_dimension(value_);
-        const auto evaluation = drawing::evaluate_drawing_dimension(*view, value_);
-        if (evaluation.state == drawing::MeasurementState::Unresolved)
-            throw std::invalid_argument(evaluation.message);
-        drawing::refresh_drawing_dimension(*view, value_);
         commit_(value_);
         return true;
     }

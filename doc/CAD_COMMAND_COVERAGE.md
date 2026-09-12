@@ -46,7 +46,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Zaoblení, zkosení, skořepina | Zbývá | Výběr skutečného vstupního tělesa a sdílené transakce |
 | Zrcadlo a pole | Zbývá | Odvozená tělesa a komponenty |
 | Sestavy | Dotazy, vložení a otevření zdrojů komponent hotovy | Uložená hierarchie a přesné výskyty, sdílené vložení a otevření zdroje; zbývají vlastnosti/mazání komponent, vazby, vnořená aktivace a řezy |
-| Výkresy | Listy, šablony, historie, tvorba/vlastnosti/dotazy/mazání pohledů, regenerace, modelové anotace, Show/Erase a dotazy/mazání měřených kót hotovy | Tvorba/editace měřených kót, další anotace, editace BOM, zdrojové styly šraf a výkresové exporty |
+| Výkresy | Listy, šablony, historie, tvorba/vlastnosti/dotazy/mazání pohledů, regenerace, modelové anotace, Show/Erase a měřené kóty (dotazy, tvorba, editace, řetězec, mazání) hotovy | Další anotace, editace BOM, zdrojové styly šraf a výkresové exporty |
 | Řezy, měření a vzhled | Zbývá | Datové operace a uložené výsledky |
 | Parametry, relace a materiál | Společné tabulky a transakce hotovy | Parametry, jednotky, přesnost, relace, materiál včetně přímého načtení knihovny a uložené varianty; řízení rozměrů relacemi a generování variant nejsou dosud zavedené ani v GUI |
 | Import a export | Import Partu/Assembly STEP/IGES/DXF a základní exporty hotovy | Společný STEP včetně vnořených sestav, STL Part/plochá Assembly, DXF úsečky/kružnice/oblouky; zbývá import vložených profilů, další DXF geometrie, vnořený STL a výkresové exporty |
@@ -292,3 +292,20 @@ Ověřeno sestavením GUI i CLI a cílenou sadou **6/6** (23,53 s),
 původní výskyt, poslední hodnotu neplatné kóty, skrytý průmět rádiusu,
 filtry, mazání přes CLI i skutečnou klávesu Delete v GUI, Undo/Redo,
 uchování přidělených čísel a nativní uložení.
+
+
+Etapa tvorby a vlastností měřených kót přidává `drawing.dimension.create/set/extend`,
+celkem **146 příkazů**. Potvrzení dialogu i CLI sdílí atomické ověření referencí
+a měření. Pokryté jsou všechny současné druhy měřených kót, napojení, směry,
+styly/tolerance, rozložení a umístění; řetězec se rozšiřuje z obou konců se
+zachováním původních identit. Neplatnou referenci lze opravit přesným nahrazením,
+bez hledání podobné hrany. Výsledek nevytváří nové zdrojové soubory a nevolá OCCT.
+
+Integrační sada nových příkazů prošla **6/6** (21,36 s),
+`build/drawing-dimension-edit-integration-tests.log`; následně celá
+Windows Release regrese **82/82** (376,97 s),
+`build/drawing-dimension-edit-full-tests.log`. GUI i samostatné CLI jsou
+sestavené. Testy ověřují tvorbu, 60°/120°, opravu reference, oba konce
+řetězce, identity, parametry a atomické zamítnutí, Undo/Redo, nativní
+uložení a skutečné zobrazení kóty vytvořené z konzole. Snímek
+`Projects/test/command-drawing-views.png` prošel vizuální kontrolou.

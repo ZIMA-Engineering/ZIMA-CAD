@@ -324,10 +324,11 @@ int main(int argc,char** argv){
         }
         require(shown_count==1,"CLI Show/Erase native persistence lost exact visibility");
         auto measured_doc=drawing::DrawingDocument::create_default();auto measured_view=native_view;
-        const auto& measured_curves=measured_view.measurement_geometry->curves;
-        require(!measured_curves.empty()&&measured_curves.front().line,"CLI dimension fixture needs a straight original edge");
+        const auto measured_curves=drawing::projected_measurement_curves(measured_view);
+        const auto measured_curve=std::ranges::find_if(measured_curves,[](const auto& c){return c.line&&c.points.size()>1&&std::hypot(c.points.back().x-c.points.front().x,c.points.back().y-c.points.front().y)>1e-6;});
+        require(measured_curve!=measured_curves.end(),"CLI dimension fixture needs a straight projected original edge");
         auto measured_dimension=drawing::make_drawing_dimension(measured_view.id);
-        measured_dimension.attachments={{drawing::DimensionAttachmentKind::CurvePoint,measured_curves.front().source,{},0},{drawing::DimensionAttachmentKind::CurvePoint,measured_curves.front().source,{},1}};
+        measured_dimension.attachments={{drawing::DimensionAttachmentKind::CurvePoint,measured_curve->source,{},0},{drawing::DimensionAttachmentKind::CurvePoint,measured_curve->source,{},1}};
         drawing::refresh_drawing_dimension(measured_view,measured_dimension);
         measured_doc.sheets.front().views={measured_view};measured_doc.sheets.front().dimensions={measured_dimension};measured_doc.save(project/"cli-measured.drwz");
         const auto measured_get=command({{"command","drawing.dimension.get"},{"arguments",{{"dimension",measured_dimension.id}}}});
@@ -335,6 +336,19 @@ int main(int argc,char** argv){
         result=launch(executable,root,common+QStringList{"--command","open cli-measured.drwz","--command",measured_get,"--command",measured_delete,"--command","drawing.dimension.list","--command","undo","--command","save"});
         require(result.exit_code==0&&result.results()[1].at("data").at("attachments").size()==2&&result.results()[3].at("data").at("total")==0,"CLI measured dimension query/delete failed");
         require(drawing::DrawingDocument::load(project/"cli-measured.drwz").sheets.front().dimensions.front()==measured_dimension,"CLI measured dimension Undo lost persisted references");
+        const Json measured_ref={{"owner",measured_curve->source.owner_id},{"key",measured_curve->source.semantic_key},{"instance_path",measured_curve->source.instance_path}};
+        const Json start_attachment={{"kind","curve_point"},{"reference",measured_ref},{"parameter",0}},end_attachment={{"kind","curve_point"},{"reference",measured_ref},{"parameter",.5}};
+        const auto create_measured=command({{"command","drawing.dimension.create"},{"arguments",{{"view",measured_view.id},{"attachments",Json::array({start_attachment,end_attachment})}}}});
+        result=launch(executable,root,common+QStringList{"--command","open cli-measured.drwz","--command",create_measured,"--command","save"});
+        require(result.exit_code==0&&result.results()[1].at("data").at("state")=="resolved","Standalone CLI dimension creation failed");
+        const auto new_measured=result.results()[1].at("data").at("dimension").get<std::string>();
+        const auto edit_measured=command({{"command","drawing.dimension.set"},{"arguments",{{"dimension",new_measured},{"style",{{"prefix","CLI="}}},{"layouts",Json::array({Json{{"line_offset",3}}})}}}});
+        auto final_attachment=end_attachment;final_attachment["parameter"]=1;
+        const auto extend_measured=command({{"command","drawing.dimension.extend"},{"arguments",{{"dimension",new_measured},{"attachment",final_attachment}}}});
+        result=launch(executable,root,common+QStringList{"--command","open cli-measured.drwz","--command",edit_measured,"--command",extend_measured,"--command","undo","--command","redo","--command","save"});
+        require(result.exit_code==0,"Standalone CLI dimension properties/extension failed");
+        const auto measured_saved=drawing::DrawingDocument::load(project/"cli-measured.drwz");const auto& new_chain=measured_saved.sheets.front().dimensions.back();
+        require(new_chain.id==new_measured&&new_chain.kind==drawing::DrawingDimensionKind::Chain&&new_chain.segments.size()==2&&new_chain.style.prefix=="CLI="&&new_chain.segments[0].layout.line_offset==3,"CLI dimension properties or extension did not persist");
         const auto assembly_step=command({{"command","import.step"},{"arguments",{{"path",document::path_to_utf8(step_source)},{"output_directory","sestava nativní"},{"mesh_deflection_mm",2.0}}}});
         result=launch(executable,root,common+QStringList{"--command","new assembly cli-import-owner","--command",assembly_step,"--command","save"});
         require(result.exit_code==0 && result.results().size()==3 && result.results()[1].at("data").at("parts").size()==1,"CLI Assembly STEP import failed");
