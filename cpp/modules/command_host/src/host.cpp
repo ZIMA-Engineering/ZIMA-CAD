@@ -59,6 +59,7 @@ void Host::register_commands(){
     register_primitive_commands();
     register_profile_commands();
     register_sweep_commands();
+    register_opening_commands();
     register_document_commands();
     register_body_commands();
     register_history_commands();

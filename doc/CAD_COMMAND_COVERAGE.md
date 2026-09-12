@@ -42,7 +42,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Externí reference skici | Part a kořenová Assembly hotovy | Původní geometrie, přesná projekce, aktualizace, odpojení a zachování trimu; zbývá příkazový kontext Partu aktivovaného v sestavě |
 | Vytažení a rotace | Profily, Thin, směry a cíle zakončení Partu hotovy | `extrusion/revolution.create/get/set`, vlastněná skica, původní plochy a dvě nezávislé meze, společné OK; zbývají sestavové řezy |
 | Tažení | Tvorba a geometrické vlastnosti hotovy | `sweep2d/sweep3d/helical.create/get/set`, společné GUI potvrzení, celá 3D dráha, stanice a úplná správa profilů/párování, reference roviny 2D dráhy a odsazení základní skici H-tažení; generické rozšíření umístění patří do řádku Umístění |
-| Otvory a závity | Zbývá | Hole, Thread, ShaftThread, DrillPoint a reference |
+| Otvory a závity | Společný katalog hotov | `thread.catalog`: stejné rozměry pro CLI a GUI; zbývá tvorba, vlastnosti a reference Hole, Thread, ShaftThread a DrillPoint |
 | Zaoblení, zkosení, skořepina | Zbývá | Výběr skutečného vstupního tělesa a sdílené transakce |
 | Zrcadlo a pole | Zbývá | Odvozená tělesa a komponenty |
 | Sestavy | Dotazy včetně překážek odstranění, vložení a otevření zdrojů komponent hotovy | Uložená hierarchie a přesné výskyty, sdílené vložení a otevření zdroje; zbývají vlastnosti/mazání komponent, vazby, vnořená aktivace a řezy |
@@ -725,3 +725,17 @@ Dodatečně prošel návrat ze skicáře základní kružnice do rozpracovaných
 Vlastností **1/1** (38,31 s), `build/helical-create-sketcher-tests.log`:
 View skutečně ukazuje kružnici v odsazené rovině a návrat zachová pending
 hodnotu i OK/Cancel. Produkční kód se po 15/15 neměnil.
+
+
+### Společný katalog závitů
+
+`thread.catalog` zpřístupňuje přesné označení, průměry, stoupání a stránkování
+bez dokumentu nebo výpočtu. GUI i CLI čtou jediný zabudovaný katalog;
+TSV data se nemění. Katalog příkazů má **174 položek**. Nativní formát ani
+start šablony se nemění. Tvorba a editace otvorů/závitů následují.
+
+Oba programy a testy jsou sestavené. Související regrese prošly **8/8**
+(62,70 s) a po závěrečné úpravě balení a testů **5/5** (61,14 s).
+Ověřené jsou všechny tabulkové řádky, konkrétní metrické i palcové rozměry,
+chyby stránkování, samostatné CLI mimo projekt, GUI konzole a dialog závitu.
+Kontrakt a logy: [THREAD_CATALOG.md](THREAD_CATALOG.md).

@@ -251,3 +251,8 @@ a průřez). Editace zahrnuje stanice a celý seznam profilů,
 3D dráhu a referenci roviny 2D dráhy. Používá společné potvrzení Vlastností,
 explicitní výpočet a Undo; příklady a pravidla vlastnictví uvádí
 [SWEEP_COMMANDS.md](SWEEP_COMMANDS.md).
+
+
+Katalog závitů lze číst bez otevřeného dokumentu příkazem
+`thread.catalog metric M10`; funguje i mimo adresář projektu. Všechny rozměry
+jsou v mm. Stránkování a označení: [THREAD_CATALOG.md](THREAD_CATALOG.md).

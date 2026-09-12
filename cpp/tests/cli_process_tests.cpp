@@ -63,6 +63,9 @@ int main(int argc,char** argv){
         const auto root=path(temporary.path());const auto project=root/fs::path(u8"projekt žluťoučký");fs::create_directory(project);
         auto result=launch(executable,root,{"--help"});require(result.exit_code==0&&result.output.contains("--stdin")&&result.diagnostics.isEmpty(),"CLI help failed");
         result=launch(executable,root,{"--command","documents"});require(result.exit_code==0&&result.results().size()==1&&result.results().front().at("data").empty(),"Empty workspace/default config discovery failed");
+        result=launch(executable,root,{"--command","thread.catalog metric M10"});
+        require(result.exit_code==0&&result.results().size()==1&&result.results().front().at("data").at("items")[0].at("internal_root_diameter_mm")==8.376,
+            "Standalone CLI could not read its bundled thread catalog outside the repository");
         for(const auto& arguments:std::vector<QStringList>{{},{"--unknown"},{"--command"},{"--command","new part forbidden","--stdin"},
             {"--help","--command","new part forbidden"},{"--working-directory",qpath(root/"missing"),"--command","help"},
             {"--config",qpath(root/"missing.ini"),"--command","help"},{"--script",qpath(root/"missing.txt")}}){

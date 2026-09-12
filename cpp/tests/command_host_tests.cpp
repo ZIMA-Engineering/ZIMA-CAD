@@ -47,7 +47,19 @@ void verify_commands(const kernel::OcctKernel& kernel,const fs::path& root){
         }).get();
     };
     Host host(live,kernel,directory,options);current=&host;
-    require(run(host,"help").data.size()==173,"Command catalog changed");
+    require(run(host,"help").data.size()==174,"Command catalog changed");
+    const auto metric=request(host,"thread.catalog",{{"standard","metric"},{"limit",2}}).data;
+    require(metric.at("total")==392&&metric.at("more")==true&&metric.at("next_offset")==2&&!host.change(),"Catalog pagination or read-only state failed");
+    require(request(host,"thread.catalog",{{"standard","metric"},{"designation","M10"}}).data.at("items")[0].at("pitch_mm")==1.5,"Catalog lookup lost M10 pitch");
+    require(request(host,"thread.catalog",{{"standard","metric"},{"offset",392}}).data.at("items").empty(),"Catalog end page is not empty");
+    const auto missing_size=request(host,"thread.catalog",{{"standard","metric"},{"designation","not-a-size"}}).data;
+    require(missing_size.at("total")==0 && !missing_size.at("more").get<bool>() && missing_size.at("items").empty(),"Unknown designation selected a different size");
+    for(const auto& invalid:std::vector<Json>{{{"offset",-1}},{{"limit",1001}},{{"offset",1.5}},{{"limit",true}}}) {
+        auto args=invalid;args["standard"]="metric";
+        require(!host.execute({{"command","thread.catalog"},{"arguments",args}}).ok && !host.change(),"Invalid pagination accepted or mutated state");
+    }
+    require(host.execute_text("thread.catalog unknown").code=="invalid_arguments","Unknown catalog standard was accepted");
+    require(host.execute({{"command","thread.catalog"},{"arguments",{{"standard","metric"},{"limit",0}}}}).code=="invalid_arguments","Invalid catalog limit was accepted");
     require(run(host,"documents").data.empty()&&run(host,"tree").data.at("items").empty(),"Empty workspace query failed");
     require(host.execute_text("save").code=="no_document","Empty save accepted");
     run(host,"new part \"díl s mezerou\"");const auto id=live.active_document_id();

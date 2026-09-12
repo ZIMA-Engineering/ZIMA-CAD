@@ -61,6 +61,25 @@ target_link_libraries(zima_sketcher
     PUBLIC zima_kernel_api
     PRIVATE nlohmann_json::nlohmann_json Freetype::Freetype harfbuzz::harfbuzz)
 
+# Embed the existing thread tables for the shared Qt-free catalog reader.
+set(ZIMA_THREAD_CATALOG_SOURCE "${CMAKE_CURRENT_BINARY_DIR}/thread_catalog_data.cpp")
+file(WRITE "${ZIMA_THREAD_CATALOG_SOURCE}" "#include <string_view>\nnamespace zima::document { std::string_view bundled_thread_catalog(std::string_view standard) {\n")
+foreach(ZIMA_THREAD_STANDARD metric whitworth pipe)
+    if(ZIMA_THREAD_STANDARD STREQUAL "metric")
+        set(ZIMA_THREAD_TABLE "metric_iso")
+    elseif(ZIMA_THREAD_STANDARD STREQUAL "whitworth")
+        set(ZIMA_THREAD_TABLE "whitworth_bsw")
+    else()
+        set(ZIMA_THREAD_TABLE "pipe_iso228")
+    endif()
+    set(ZIMA_THREAD_PATH "${CMAKE_SOURCE_DIR}/../resources/data/threads/${ZIMA_THREAD_TABLE}.tsv")
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${ZIMA_THREAD_PATH}")
+    file(READ "${ZIMA_THREAD_PATH}" ZIMA_THREAD_HEX HEX)
+    string(REGEX REPLACE "(..)" "0x\\1," ZIMA_THREAD_BYTES "${ZIMA_THREAD_HEX}")
+    file(APPEND "${ZIMA_THREAD_CATALOG_SOURCE}" "if (standard == \"${ZIMA_THREAD_STANDARD}\") { static const unsigned char bytes[]={${ZIMA_THREAD_BYTES}}; return {reinterpret_cast<const char*>(bytes),sizeof(bytes)}; }\n")
+endforeach()
+file(APPEND "${ZIMA_THREAD_CATALOG_SOURCE}" "return {}; } }\n")
+
 add_library(zima_document_core
     modules/document_core/src/part_document.cpp
     modules/document_core/src/profile_targets.cpp
@@ -72,6 +91,8 @@ add_library(zima_document_core
     modules/document_core/src/metadata.cpp
     modules/document_core/src/engineering_metadata.cpp
     modules/document_core/src/material_library.cpp
+    modules/document_core/src/thread_catalog.cpp
+    "${ZIMA_THREAD_CATALOG_SOURCE}"
     modules/document_core/src/document_session.cpp
     modules/document_core/src/dimension_identifiers.cpp
     modules/document_core/src/viewer_packet_json.cpp
@@ -141,6 +162,7 @@ add_library(zima_command_host
     modules/command_host/src/primitive_commands.cpp
     modules/command_host/src/profile_commands.cpp
     modules/command_host/src/sweep_commands.cpp
+    modules/command_host/src/opening_commands.cpp
     modules/command_host/src/document_commands.cpp
     modules/command_host/src/body_commands.cpp
     modules/command_host/src/history_commands.cpp
@@ -639,6 +661,10 @@ if(ZIMA_BUILD_TESTS)
     target_link_libraries(zima_cpp_thin_profile_contract_tests PRIVATE zima_document_core zima_kernel_occt)
     add_test(NAME zima_cpp_thin_profile_contract_tests COMMAND zima_cpp_thin_profile_contract_tests)
     set_tests_properties(zima_cpp_thin_profile_contract_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
+
+    add_executable(zima_cpp_thread_catalog_tests tests/thread_catalog_tests.cpp)
+    target_link_libraries(zima_cpp_thread_catalog_tests PRIVATE zima_document_core)
+    add_test(NAME zima_cpp_thread_catalog_tests COMMAND zima_cpp_thread_catalog_tests)
 
     add_executable(zima_cpp_sweep_command_tests tests/sweep_command_tests.cpp)
     target_link_libraries(zima_cpp_sweep_command_tests PRIVATE zima_command_host)

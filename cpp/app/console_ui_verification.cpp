@@ -63,6 +63,9 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         check(output->toPlainText().contains("regenerate"),"Enter did not dispatch help");
         QKeyEvent up(QEvent::KeyPress,Qt::Key_Up,Qt::NoModifier);QApplication::sendEvent(input,&up);check(input->text()=="help","Command history failed");
         input->clear();
+        const auto catalog=run("thread.catalog metric M10").data;
+        check(catalog.at("items").size()==1 && catalog.at("items")[0].at("pitch_mm")==1.5 &&
+            run("documents").data.empty(),"GUI console catalog query failed or created a document");
         check(window.execute_console_command("save").code=="no_document","Empty save is not rejected");
         const auto stem="console-"+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
         run(QString::fromStdString("new part "+stem));flush();
