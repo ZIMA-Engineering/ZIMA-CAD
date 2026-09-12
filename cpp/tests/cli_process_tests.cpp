@@ -376,6 +376,12 @@ int main(int argc,char** argv){
         require(result.exit_code==0&&result.results()[1].at("data").at("sheet")==measured_saved.sheets.front().id&&fs::file_size(sheet_dxf_path)>1000,"Standalone offscreen CLI Drawing DXF failed");
         result=launch(executable,root,common+QStringList{"--command","open cli-measured.drwz","--command",sheet_dxf_command});
         require(result.exit_code==1&&result.results()[1].at("code")=="file_exists","CLI Drawing DXF overwrote an existing file");
+        for(const auto extension:{"png","jpg"}) {
+            const auto image_path=project/fs::path(std::u8string(u8"výřez CLI.")+fs::path(extension).u8string());
+            const auto image_command=command({{"command","export.image"},{"arguments",{{"path",document::path_to_utf8(image_path)},{"sheet",measured_saved.sheets.front().id},{"dpi",127},{"crop_mm",{0,0,80,60}}}}});
+            result=launch(executable,root,common+QStringList{"--command","open cli-measured.drwz","--command",image_command});
+            require(result.exit_code==0&&result.results()[1].at("data").at("width_px")==400&&result.results()[1].at("data").at("height_px")==300&&fs::file_size(image_path)>100,"Standalone CLI image export failed");
+        }
         const auto assembly_step=command({{"command","import.step"},{"arguments",{{"path",document::path_to_utf8(step_source)},{"output_directory","sestava nativní"},{"mesh_deflection_mm",2.0}}}});
         result=launch(executable,root,common+QStringList{"--command","new assembly cli-import-owner","--command",assembly_step,"--command","save"});
         require(result.exit_code==0 && result.results().size()==3 && result.results()[1].at("data").at("parts").size()==1,"CLI Assembly STEP import failed");

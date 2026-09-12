@@ -11,6 +11,7 @@
 #include "dimension_properties_fields.hpp"
 #include "resource_icon.hpp"
 #include <zima/drawing_render/dxf_export.hpp>
+#include <zima/drawing_render/image_export.hpp>
 #include <zima/workspace/drawing_sources.hpp>
 #include "drawing_annotation_layout.hpp"
 #include "show_erase_dialog.hpp"
@@ -1370,11 +1371,7 @@ void DrawingWindow::export_dxf(const std::filesystem::path& path) {
     drawing_render::export_dxf(document_,sheet->id,path,path_,workspace_,true);
 }
 void DrawingWindow::export_jpg(const std::filesystem::path& path) {
-    const auto image=canvas_->grab().toImage();
-    QSaveFile file(QString::fromStdString(path.string()));
-    if(image.isNull() || !file.open(QIODevice::WriteOnly) ||
-       !image.save(&file,"JPG",95) || !file.commit())
-        throw std::runtime_error("Cannot save current drawing view as JPG");
+    drawing_render::write_image(canvas_->grab().toImage(),path,true);
 }
 void DrawingWindow::export_pdf(const std::filesystem::path& path) {
     drawing_render::export_pdf(document_,path,path_,workspace_,true);

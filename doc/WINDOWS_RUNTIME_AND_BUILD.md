@@ -41,11 +41,13 @@ The root `.bat` remains an asynchronous convenience for command-line users.
 ## Local JPEG export dependency
 
 Local CMake builds deploy `Qt6::QJpegPlugin` into `imageformats` next to the
-application and drawing harness. `tools/deploy-qt-image-plugin.cmake` resolves
+application, drawing harness and command-line executable. `tools/deploy-qt-image-plugin.cmake` resolves
 and copies its non-system DLL dependencies, including the JPEG codec, from
 the configured Qt runtime. The installed Windows/MSVC runtime remains the
 same prerequisite as for the existing local C++ executable. The drawing UI
 contract writes and decodes a JPG without an external Qt plugin search path.
+The CLI process test also exports PNG/JPEG through its offscreen graphics
+runtime; the native image command tests decode both formats and verify DPI.
 This is local development deployment, not a portable-release pipeline.
 
 

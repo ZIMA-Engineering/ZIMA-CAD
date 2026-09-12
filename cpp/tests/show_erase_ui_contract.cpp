@@ -1,4 +1,5 @@
 #include <QTabBar>
+#include <QBuffer>
 #include <zima/viewer/dimension_text_layer.hpp>
 #include <QTableWidget>
 #include <zima/ui/reference_cell.hpp>
@@ -366,7 +367,10 @@ int verify_show_erase_ui() {
     const auto handles = found->paper_handles;
     QTemporaryDir dir;
     const auto jpg=dir.filePath("current-view.jpg");
+    QByteArray expected_jpeg;QBuffer expected_buffer(&expected_jpeg);expected_buffer.open(QIODevice::WriteOnly);
+    require(canvas->grab().toImage().save(&expected_buffer,"JPG",95),"Reference viewport JPEG failed");
     window.export_jpg(jpg.toStdString());
+    QFile actual_jpeg(jpg);require(actual_jpeg.open(QIODevice::ReadOnly)&&actual_jpeg.readAll()==expected_jpeg,"Shared image writer changed the captured GUI viewport");
     const QImage exported_jpg(jpg);
     require(!exported_jpg.isNull() && exported_jpg.size()==canvas->size()*canvas->devicePixelRatioF(),"JPG did not capture actual drawing viewport");
     const auto dxf=dir.filePath("current-sheet.dxf");

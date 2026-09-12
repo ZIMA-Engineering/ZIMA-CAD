@@ -1,8 +1,8 @@
 # Výkresy přes společné příkazy
 
 Výkresové příkazy zpřístupňují listy, šablony, tvorbu a vlastnosti pohledů,
-uložené reference a výslovnou regeneraci. Katalog má 151 příkazů. Dotazy na modelové anotace a Show/Erase jsou sdílené.
-Další anotace, zdrojové styly šraf a příkazový export JPG
+uložené reference a výslovnou regeneraci. Katalog má 152 příkazů. Dotazy na modelové anotace a Show/Erase jsou sdílené.
+Další anotace, zdrojové styly šraf a přesný příkazový snímek interaktivního View
 zatím nejsou kompletně pokryté.
 
 | Příkaz | Argumenty | Výsledek |
@@ -510,3 +510,38 @@ analytické kružnice a oblouky.
 
 Hotový DXF se zveřejní atomicky. Neplatný list, nejednoznačné zadání skici
 spolu s listem, chybějící adresář či chyba zdroje nezmění původní cílový soubor.
+
+
+## Obrázek listu nebo výřezu
+
+`export.image` zapisuje PNG (`.png`) nebo JPEG (`.jpg`, `.jpeg`) z jednoho
+výslovně určeného listu. Povinné jsou `path` a `sheet`. Výchozí `dpi` je 150,
+volitelné `crop_mm` má tvar `[levá, horní, šířka, výška]` v milimetrech od
+levého horního rohu papíru. Bez něj se vykreslí celý list. Výřez musí mít
+kladné rozměry a ležet uvnitř listu. Výstup má bílé pozadí a stejnou tiskovou
+podobu jako PDF, včetně již vypočtených pohledů, kót, řezů a razítka.
+
+```json
+{"command":"export.image","arguments":{"path":"list.png","sheet":"SHEET_ID","dpi":150}}
+{"command":"export.image","arguments":{"path":"detail.jpg","sheet":"SHEET_ID","dpi":254,"crop_mm":[30,10,60,40],"quality":95}}
+```
+
+Počet pixelů je `ceil(mm × dpi / 25.4)`; výřez 60×40 mm při 254 DPI má
+600×400 pixelů. Rozlišení se zapisuje také do metadat obrázku. `quality`
+je celé číslo 0–100 (výchozí 95) a řídí ztrátovou kompresi JPEG. PNG vždy
+používá výchozí bezztrátovou kompresi Qt; `quality` jej neovlivňuje. `overwrite` je výchozí `false`;
+`document` volitelně ověřuje aktivní dokument. Výsledek obsahuje `document`,
+`sheet`, `path`, `source_revision`, `bytes`, `width_px`, `height_px`, `dpi`
+a `model_changed:false`.
+
+Před alokací se ověřuje DPI 1–2400, nejvýše 16384 pixelů na rozměr a celkem
+64×1024×1024 pixelů (nejvýše 256 MiB pro samotný RGB32 rastr). Nadlimitní
+požadavek se odmítne; velikost se tiše nesnižuje. Výpočet geometrie ani
+historie se nemění. Zápis používá stejnou atomickou publikaci jako PDF/DXF;
+chyba validace, zdroje nebo kodéru zachová původní cílový soubor.
+
+GUI export „JPEG – aktuální pohled“ nadále snímá skutečné plátno, včetně
+aktuálního přiblížení, posunutí, barev a výběru. Sdílí atomický obrazový
+zapisovač. Příkaz `export.image` má výslovný papírový výřez a DPI; neslibuje
+reprodukci přechodných interaktivních zvýraznění ani obrazovkového rozložení.
+Snímek interaktivního 3D View Partu/Assembly zůstává další etapou.

@@ -180,7 +180,7 @@ target_include_directories(zima_viewer PUBLIC modules/viewer/include)
 target_link_libraries(zima_viewer PUBLIC zima_kernel_api
     Qt6::Widgets Qt6::OpenGL Qt6::OpenGLWidgets Qt6::Svg)
 
-add_library(zima_drawing_render modules/drawing_render/src/sheet_renderer.cpp modules/drawing_render/src/pdf_export.cpp modules/drawing_render/src/dxf_export.cpp)
+add_library(zima_drawing_render modules/drawing_render/src/sheet_renderer.cpp modules/drawing_render/src/pdf_export.cpp modules/drawing_render/src/dxf_export.cpp modules/drawing_render/src/image_export.cpp)
 target_include_directories(zima_drawing_render PUBLIC modules/drawing_render/include PRIVATE app modules/viewer/include)
 target_link_libraries(zima_drawing_render PUBLIC zima_drawing zima_workspace Qt6::Gui Qt6::Svg)
 target_link_libraries(zima_command_host PUBLIC zima_drawing_render)
@@ -288,7 +288,7 @@ add_executable(zima-cad-drawing-harness
     tests/drawing_ui_contract.cpp tests/show_erase_ui_contract.cpp tests/measurement_dimension_ui_contract.cpp
     app/resource_icon.cpp app/zima_resources.qrc)
 if(WIN32 AND TARGET Qt6::QJpegPlugin)
-    foreach(image_target zima-cad-cpp zima-cad-drawing-harness)
+    foreach(image_target zima-cad-cpp zima-cad-drawing-harness zima-cad-cli)
         add_custom_command(TARGET ${image_target} POST_BUILD
             COMMAND ${CMAKE_COMMAND}
                 "-DPLUGIN=$<TARGET_FILE:Qt6::QJpegPlugin>"
@@ -482,6 +482,11 @@ if(ZIMA_BUILD_TESTS)
     add_dependencies(zima_cpp_cli_process_tests zima-cad-cli)
     add_test(NAME zima_cpp_cli_process_tests COMMAND zima_cpp_cli_process_tests "$<TARGET_FILE:zima-cad-cli>")
     set_tests_properties(zima_cpp_cli_process_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120)
+    add_executable(zima_cpp_drawing_image_command_tests tests/drawing_image_command_tests.cpp)
+    target_link_libraries(zima_cpp_drawing_image_command_tests PRIVATE zima_command_host)
+    add_dependencies(zima_cpp_drawing_image_command_tests zima-cad-cli)
+    add_test(NAME zima_cpp_drawing_image_command_tests COMMAND zima_cpp_drawing_image_command_tests)
+    set_tests_properties(zima_cpp_drawing_image_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     add_executable(zima_cpp_drawing_dxf_command_tests tests/drawing_dxf_command_tests.cpp)
     target_link_libraries(zima_cpp_drawing_dxf_command_tests PRIVATE zima_command_host)
     add_dependencies(zima_cpp_drawing_dxf_command_tests zima-cad-cli)

@@ -11,6 +11,8 @@ nenačítá změněné zdrojové party a nevytváří modelovou změnu ani krok 
 - `export.stl path [overwrite] [document]`
 - `export.dxf path [sketch] [overwrite] [document] [sheet]`
 - `export.pdf path [overwrite] [document]`
+- `export.image` s JSON argumenty `path`, `sheet`, volitelně `dpi`, `crop_mm`,
+  `quality`, `overwrite`, `document`
 
 `document` volitelně ověřuje aktivní dokument. `overwrite` je boolean,
 výchozí `false`. Relativní cesta patří pracovnímu adresáři konzole.
@@ -50,8 +52,10 @@ pozičních argumentů exportu skici zůstává zachované. Pro výkres použijt
 pojmenované argumenty v JSON. Rozsah výkresového DXF se liší od skici:
 je to obraz uložených průmětů v milimetrech na papíře, s obrysy převedenými
 na úsečky. Podrobnosti: [DRAWING_COMMANDS.md](DRAWING_COMMANDS.md).
-PNG/JPEG aktuálního View zatím zůstávají adaptéry GUI; příkazový ekvivalent
-vyžaduje explicitně definovaný výřez/kameru.
+PNG/JPEG listu nebo jeho výřezu poskytuje `export.image` s výslovným DPI.
+PNG/JPEG aktuálního interaktivního View zatím zůstávají adaptéry GUI;
+příkazový ekvivalent skutečného 3D snímku vyžaduje explicitně definovanou
+kameru. GUI výkresový JPEG sdílí s příkazem atomický obrazový kodér.
 
 ## Zápis a chyby
 

@@ -46,10 +46,10 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Zaoblení, zkosení, skořepina | Zbývá | Výběr skutečného vstupního tělesa a sdílené transakce |
 | Zrcadlo a pole | Zbývá | Odvozená tělesa a komponenty |
 | Sestavy | Dotazy včetně překážek odstranění, vložení a otevření zdrojů komponent hotovy | Uložená hierarchie a přesné výskyty, sdílené vložení a otevření zdroje; zbývají vlastnosti/mazání komponent, vazby, vnořená aktivace a řezy |
-| Výkresy | Listy, šablony, historie, tvorba/vlastnosti/dotazy/mazání pohledů, regenerace, modelové anotace, Show/Erase a měřené kóty (dotazy, tvorba, editace, řetězec, mazání), razítko, zdrojové parametry BOM, PDF a DXF listu hotovy | Další anotace, zdrojové styly šraf a příkazový export JPG |
+| Výkresy | Listy, šablony, historie, tvorba/vlastnosti/dotazy/mazání pohledů, regenerace, modelové anotace, Show/Erase a měřené kóty (dotazy, tvorba, editace, řetězec, mazání), razítko, zdrojové parametry BOM, PDF, DXF a PNG/JPEG listu/výřezu hotovy | Další anotace, zdrojové styly šraf a příkazový snímek interaktivního View |
 | Řezy, měření a vzhled | Zbývá | Datové operace a uložené výsledky |
 | Parametry, relace a materiál | Společné tabulky a transakce hotovy | Parametry, jednotky, přesnost, relace, materiál včetně přímého načtení knihovny a uložené varianty; řízení rozměrů relacemi a generování variant nejsou dosud zavedené ani v GUI |
-| Import a export | Import Partu/Assembly STEP/IGES/DXF a základní exporty hotovy | Společný STEP včetně vnořených sestav, STL Part/plochá Assembly, DXF úsečky/kružnice/oblouky; zbývá import vložených profilů, další DXF geometrie, vnořený STL a výkresový export JPG |
+| Import a export | Import Partu/Assembly STEP/IGES/DXF a základní exporty hotovy | Společný STEP včetně vnořených sestav, STL Part/plochá Assembly, DXF úsečky/kružnice/oblouky; zbývá import vložených profilů, další DXF geometrie, vnořený STL a snímek interaktivního View |
 
 Každá další etapa aktualizuje tabulku a uvádí ověřené testy. Neobcházíme
 chybějící operaci nevalidovanou změnou serializovaného dokumentu ani voláním
@@ -398,3 +398,32 @@ GUI regrese proto použila `zima-cad-dxf-validation.exe`, slinkovaný
 z aktuálních CMake objektů a knihoven. Dočasná kopie definic CTest změnila
 jen cestu k hlavnímu GUI. Běžný zamčený `zima-cad-cpp.exe` nebyl přepsán;
 po zavření CADu zbývá běžný link tohoto programu. Nejde o distribuční build.
+
+
+Etapa obrazového exportu přidává `export.image`, celkem **152 příkazů**.
+PNG/JPEG obsahuje jeden list nebo výslovný výřez papíru při zadaném DPI,
+se stejným rendererem jako GUI/PDF. GUI JPEG snímek sdílí atomický kodér
+při zachování původního zobrazení. Nadlimitní obrázek se odmítne před alokací;
+formát nativních dokumentů a šablon se nemění. CLI nasazuje vlastní JPEG
+plugin stejným CMake postupem jako GUI. Podrobnosti:
+[DRAWING_COMMANDS.md](DRAWING_COMMANDS.md).
+
+Ověřeno **11/11 cílených testů** (30,73 s),
+`build/drawing-image-final-tests.log`. Samostatný test příkazu kontroluje
+PNG/JPEG dekódování, velikost i DPI, přesnou shodu výřezu s odpovídajícími
+pixely celého listu, mez velikosti před alokací, chybové vstupy a zachování
+souboru/modelu. Skutečný CLI proces exportuje oba formáty bez okna.
+GUI JPEG je bajtově shodné s dosavadním snímkem plátna. Prošly také
+PDF/DXF, modelové exporty, konzole, výkresové kóty a překlady.
+
+Nezávislé načtení knihovnou Pillow potvrdilo 2100×2970 pixelů pro celý list
+A4 a 600×400 pro výřez 60×40 mm, vše při 254 DPI. Náhled českého textu prošel
+vizuální kontrolou. JPEG kvalita nezasahuje do PNG komprese: kontrolní řídký
+list má bezztrátově 30 843 bajtů místo 18 743 977 při vypnuté kompresi.
+Test chrání i toto nastavení. Celá sada má nyní 86 testů; tato etapa spustila
+výše uvedených 11 dotčených testů.
+
+CLI a výkresový harness jsou sestavené; hlavní GUI regrese používá aktuální
+objekty v `zima-cad-image-validation.exe`. Běžící uživatelský CAD nebyl
+ukončen a jeho zamčený `zima-cad-cpp.exe` nebyl přepsán. Po zavření zbývá
+běžný link hlavního programu. Jde o místní vývojové sestavení.

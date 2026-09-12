@@ -211,3 +211,14 @@ Výkresový DXF je dostupný stejným příkazem jako DXF skici, s parametrem
 
 Listy zjistíte přes `drawing.sheet.list`. Výstup používá rozměry na papíře
 v mm a společný renderer GUI/CLI, bez přepočtu geometrie.
+
+Obrázek listu nebo přesného výřezu vytvoří `export.image` s PNG/JPEG cestou,
+ID listu a volitelným DPI (výchozí 150):
+
+```json
+{"command":"export.image","arguments":{"path":"detail.png","sheet":"SHEET_ID","dpi":254,"crop_mm":[30,10,60,40]}}
+```
+
+Tento příklad vytvoří 600×400 pixelů. Je to tisková podoba papíru s bílým
+pozadím; příkaz nevyžaduje okno ani kameru. JPEG plugin a jeho závislosti
+kopíruje CMake také vedle CLI.

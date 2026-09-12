@@ -612,6 +612,10 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         drawing_window->export_dxf(gui_dxf_path);
         QFile console_dxf_file(QString::fromStdString(document::path_to_utf8(console_dxf_path))),gui_dxf_file(QString::fromStdString(document::path_to_utf8(gui_dxf_path)));
         check(console_dxf.at("model_changed")==false&&console_dxf_file.open(QIODevice::ReadOnly)&&gui_dxf_file.open(QIODevice::ReadOnly)&&console_dxf_file.readAll()==gui_dxf_file.readAll(),"GUI and console Drawing DXF differ");
+        const auto console_image_path=directory/(stem+"-drawing.png");
+        const auto console_image=json_run("export.image",{{"path",document::path_to_utf8(console_image_path)},{"sheet",view_document.sheets.front().id},{"dpi",127},{"crop_mm",{0,0,80,60}}}).data;
+        const QImage decoded_image(QString::fromStdString(document::path_to_utf8(console_image_path)));
+        check(decoded_image.size()==QSize(400,300)&&console_image.at("model_changed")==false,"Console sheet image output invalid");
         check(window.grab().save(QString::fromStdString((directory/"command-drawing-views.png").string())),"Drawing view screenshot failed");
         json_run("close",{{"discard",true}});
         run(QString::fromStdString(activate.dump()));flush();
