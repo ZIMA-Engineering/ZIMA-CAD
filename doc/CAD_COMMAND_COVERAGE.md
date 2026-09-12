@@ -45,7 +45,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Otvory a závity | Zbývá | Hole, Thread, ShaftThread, DrillPoint a reference |
 | Zaoblení, zkosení, skořepina | Zbývá | Výběr skutečného vstupního tělesa a sdílené transakce |
 | Zrcadlo a pole | Zbývá | Odvozená tělesa a komponenty |
-| Sestavy | Dotazy, vložení a otevření zdrojů komponent hotovy | Uložená hierarchie a přesné výskyty, sdílené vložení a otevření zdroje; zbývají vlastnosti/mazání komponent, vazby, vnořená aktivace a řezy |
+| Sestavy | Dotazy včetně překážek odstranění, vložení a otevření zdrojů komponent hotovy | Uložená hierarchie a přesné výskyty, sdílené vložení a otevření zdroje; zbývají vlastnosti/mazání komponent, vazby, vnořená aktivace a řezy |
 | Výkresy | Listy, šablony, historie, tvorba/vlastnosti/dotazy/mazání pohledů, regenerace, modelové anotace, Show/Erase a měřené kóty (dotazy, tvorba, editace, řetězec, mazání), razítko a zdrojové parametry BOM hotovy | Další anotace, zdrojové styly šraf a výkresové exporty |
 | Řezy, měření a vzhled | Zbývá | Datové operace a uložené výsledky |
 | Parametry, relace a materiál | Společné tabulky a transakce hotovy | Parametry, jednotky, přesnost, relace, materiál včetně přímého načtení knihovny a uložené varianty; řízení rozměrů relacemi a generování variant nejsou dosud zavedené ani v GUI |
@@ -336,3 +336,16 @@ stejných aktuálních CMake objektů a knihoven do `zima-cad-title-validation.e
 ve stejném build adresáři; dočasná kopie CTest definic změnila pouze tuto cestu.
 Nejde o distribuční balíček. Původní spouštěcí soubor nebyl přepsán a běžící
 program nebyl ukončen; jeho běžné sestavení je potřeba dokončit po zavření CADu.
+
+
+Etapa diagnostiky komponent přidává `component.dependencies`, celkem
+**150 příkazů**. CLI a GUI mazání sdílejí dosavadní kontrolu blokujících vazeb,
+závislých komponent a externích referencí skic. Výsledek rozlišuje jednotlivé
+výskyty a jejich bezprostřední vlastníky; je bez čtení zdrojových souborů,
+OCCT, řešení vazeb a zápisu historie. Samotné příkazové mazání a změny
+společného umístění tím ještě nejsou zavedené.
+
+Ověřeno **4/4** cílených testů (7,76 s) a **2/2** scénářů hlavního GUI
+(18,48 s): `build/component-dependencies-tests.log` a
+`build/component-dependencies-gui-tests.log`. Dokumentace:
+[COMPONENT_COMMANDS.md](COMPONENT_COMMANDS.md).

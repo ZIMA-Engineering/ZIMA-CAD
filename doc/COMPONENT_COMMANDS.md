@@ -2,13 +2,14 @@
 
 První sada příkazů komponent poskytuje čtení uložené hierarchie a vložení
 otevřeného Partu či Assembly. GUI menu vložení používá stejnou operaci.
-Katalog obsahuje 123 příkazů; tato etapa ještě nepokrývá editaci vazeb,
+Katalog nyní obsahuje 150 příkazů; příkazy komponent ještě nepokrývají editaci vazeb,
 umístění, odstranění komponent ani vložení do vnořeného aktivního kontextu.
 
 | Příkaz | Argumenty | Význam |
 | --- | --- | --- |
 | `component.list` | `[recursive:Boolean]`, `[limit:Integer]`, `[document]` | Uložené výskyty komponent, výchozí limit 2000 |
 | `component.get` | `instance_path`, `[document]` | Jeden přesný uložený výskyt |
+| `component.dependencies` | `instance_path`, `[document]` | Závislosti bránící odstranění přímé komponenty |
 | `component.open` | `instance_path`, `[document]` | Otevření zdroje přesného výskytu na samostatné kartě |
 | `component.insert` | `source`, `[name]`, `[document]` | Vložení otevřeného dokumentu do aktivní samostatné sestavy |
 
@@ -98,3 +99,39 @@ Regrese otevírání zdrojů prošly **5/5** (27,35 s),
 `build/component-source-integration-tests.log`. Zahrnují skutečné CLI a GUI
 menu vnořeného dílu, zachování změn otevřeného zdroje, chybnou identitu souboru,
 přesměrování kopie a změny Workspace během čtení.
+
+## Závislosti před odstraněním
+
+`component.dependencies` přijímá `instance_path` bezprostřední komponenty
+vlastnící sestavy. Pro vnořený díl dotazujte jeho vlastnící sestavu přes
+`document` a cestu relativní k ní; nadřazená sestava nesmí převzít vlastnictví
+vnitřního dílu. Zdrojové jméno ani ID dílu nejsou identitou jeho výskytu.
+
+Výsledek obsahuje `blocked` a tři seznamy stabilních ID:
+
+- `placement_components`: komponenty, jejichž uložené řádky vazeb používají
+  dotazovaný výskyt na některé straně;
+- `dependent_components`: jiné komponenty s uloženou závislostí na výskytu;
+- `sketches`: skici vlastnící sestavy s externí referencí na tento výskyt.
+
+Odkaz na vnitřní geometrii podsestavy se počítá jako použití této podsestavy.
+Opakovaná použití se ve výsledku neopakují; jiný výskyt stejného zdroje své
+závislosti nesdílí. Kontrola používá totožnou funkci jako dosavadní GUI mazání.
+`blocked: false` znamená absenci těchto překážek; není to příkaz k odstranění
+ani záruka úspěchu následného výpočtu řezů. Dosavadní mazání, řešení vazeb a
+přepočet řezů se tímto krokem nemění. Dotaz neotevírá soubory, nevolá OCCT,
+nepřepočítává vazby a nemění historii.
+
+```json
+{"command":"component.dependencies","arguments":{"document":"VLASTNICI_SESTAVA","instance_path":"CESTA_Z_COMPONENT_LIST"}}
+```
+
+Ověřeno **4/4** modelových, procesových, katalogových a překladových testů
+(7,76 s), `build/component-dependencies-tests.log`, a **2/2** testů konzole
+hlavního GUI a aktualizace sestavy (18,48 s),
+`build/component-dependencies-gui-tests.log`. Pokryté jsou tři druhy překážek,
+přesné opakované výskyty, duplicity, vlastnící dokument, odmítnutí vnořené
+cesty a chybějícího výskytu, zachování revize a dotazy bez zdrojových souborů.
+GUI bylo kvůli běžícímu uživatelskému CADu ověřeno pomocí samostatně slinkované
+kopie `build/cpp-windows-release/zima-cad-component-validation.exe` ze stejných
+aktuálních CMake objektů a knihoven. Běžný spouštěcí soubor se nepřepisoval.

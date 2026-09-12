@@ -276,7 +276,9 @@ int main(int argc,char** argv){
         const auto component_native=assembly::AssemblyDocument::load(project/"cli-components.asmz");
         require(component_native.components.size()==2 && component_native.components[0].occurrence_id!=component_native.components[1].occurrence_id && component_native.components[0].source_document_id==step_native.document_id,"CLI component persistence lost repeated identities");
         const auto component_get=command({{"command","component.get"},{"arguments",{{"instance_path",assembly::InstancePath{}.child(component_native.components[0].occurrence_id).encoded()}}}});
-        result=launch(executable,root,common+QStringList{"--command","open cli-components.asmz","--command","component.list","--command",component_get});
+        const auto component_dependencies=command({{"command","component.dependencies"},{"arguments",{{"instance_path",assembly::InstancePath{}.child(component_native.components[0].occurrence_id).encoded()}}}});
+        result=launch(executable,root,common+QStringList{"--command","open cli-components.asmz","--command","component.list","--command",component_get,"--command",component_dependencies});
+        require(result.exit_code==0&&result.results()[3].at("data").at("blocked")==false,"Standalone CLI dependency query failed");
         require(result.exit_code==0 && result.results()[1].at("data").at("total")==2 && std::abs(result.results()[2].at("data").at("cached_volume_mm3").get<double>()-6000)<1e-7,"CLI component queries did not read native snapshots");
         const auto component_open=command({{"command","component.open"},{"arguments",{{"instance_path",assembly::InstancePath{}.child(component_native.components[0].occurrence_id).encoded()}}}});
         result=launch(executable,root,common+QStringList{"--command","open cli-components.asmz","--command",component_open,"--command","context"});

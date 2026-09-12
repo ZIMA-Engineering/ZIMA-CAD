@@ -71,6 +71,13 @@ void Host::register_component_commands() {
         if(result["items"].empty())throw workspace::ComponentOperationError("occurrence_not_found","The requested component occurrence does not exist.");
         return result["items"][0];
     });
+    add({"component.dependencies",tr("Read the shared removal blockers of an immediate Assembly component."),{{"instance_path",true},{"document",false}},false},[](const auto& state,const Json& args){
+        const auto path=assembly::InstancePath::decode(args["instance_path"].get<std::string>());
+        if(path.occurrence_ids.size()!=1)throw workspace::ComponentOperationError("unsupported_context","Query component dependencies in its immediate owning Assembly.");
+        const auto dependencies=workspace::component_removal_dependencies(state.session.document(),path.occurrence_ids.front());
+        return Json{{"instance_path",path.encoded()},{"owning_document",state.session.document().document_id},{"blocked",dependencies.blocked()},
+            {"placement_components",dependencies.placement_components},{"dependent_components",dependencies.dependency_components},{"sketches",dependencies.sketches}};
+    });
     dispatcher_.add({"component.open",tr("Open the native source of an exact component occurrence without regenerating it."),{{"instance_path",true},{"document",false}},true},[this](const Json& args){
         const auto top=args.value("document",workspace_.displayed_document_id());
         try {

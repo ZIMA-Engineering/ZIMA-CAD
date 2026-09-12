@@ -514,6 +514,7 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         const auto component_owner=run("context").data.at("active_document").get<std::string>();
         const auto console_occurrence=json_run("component.insert",{{"source",engineering_saved.document_id},{"name","CLI component"}}).data;
         check(run("component.list").data.at("total")==1,"Console component insertion did not reach Assembly");
+        check(json_run("component.dependencies",{{"instance_path",console_occurrence.at("instance_path")}}).data.at("owning_document")==component_owner,"GUI console dependency query lost the component owner");
         auto* insert_menu=window.findChild<QMenu*>("insertComponentMenu");check(insert_menu,"Component menu missing");
         QMetaObject::invokeMethod(insert_menu,"aboutToShow",Qt::DirectConnection);QAction* insert_source=nullptr;
         for(auto* action:insert_menu->actions())if(action->objectName()=="insertSourceAction" && action->text().startsWith(QString::fromStdString(stem+"-metadata")))insert_source=action;

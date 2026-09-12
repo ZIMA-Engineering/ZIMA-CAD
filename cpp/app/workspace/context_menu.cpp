@@ -1,5 +1,6 @@
 #include "workspace_internal.hpp"
 #include <zima/workspace/component_source_operations.hpp>
+#include <zima/workspace/component_operations.hpp>
 #include <zima/document/file_path.hpp>
 
 namespace zima::app {
@@ -316,33 +317,8 @@ void AssemblyWorkspaceWindow::show_component_context_menu(
             return !path.occurrence_ids.empty() &&
                 path.occurrence_ids.front() == address->occurrence_id;
         };
-        const bool used_by_placement_reference = std::any_of(
-            next.components.begin(), next.components.end(), [&](const auto& component) {
-                return std::any_of(component.placement_references.begin(),
-                    component.placement_references.end(), [&](const auto& row) {
-                        return uses_occurrence(row.component_reference.instance_path) ||
-                            uses_occurrence(row.target_reference.instance_path);
-                    });
-            });
-        const bool used_by_dependency = std::any_of(
-            next.dependencies.begin(), next.dependencies.end(), [&](const auto& edge) {
-                return edge.prerequisite_occurrence_id == address->occurrence_id && edge.dependent_occurrence_id != address->occurrence_id;
-            });
-        const bool used_by_sketch = std::any_of(
-            next.sketches.begin(), next.sketches.end(), [&](const auto& sketch) {
-                return std::any_of(sketch.external_references.begin(),
-                    sketch.external_references.end(), [&](const auto& reference) {
-                        if (reference.context_assembly_document_id != next.document_id ||
-                            reference.source_instance_path.empty()) return false;
-                        try {
-                            return uses_occurrence(zima::assembly::InstancePath::decode(
-                                reference.source_instance_path));
-                        } catch (const std::invalid_argument&) {
-                            return false;
-                        }
-                    });
-            });
-        if (used_by_placement_reference || used_by_dependency || used_by_sketch) {
+        const auto dependencies=zima::workspace::component_removal_dependencies(next,address->occurrence_id);
+        if (dependencies.blocked()) {
             QMessageBox::warning(this, tr("Komponentu nelze odstranit"),
                 tr("Komponenta je použita vazbou, závislostí nebo "
                    "externí referencí skici."));

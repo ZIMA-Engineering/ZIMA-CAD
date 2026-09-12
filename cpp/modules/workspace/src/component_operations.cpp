@@ -67,6 +67,21 @@ private:
     }
 };
 }
+ComponentRemovalDependencies component_removal_dependencies(const assembly::AssemblyDocument& doc,const std::string& occurrence) {
+    if(!doc.find_occurrence(occurrence))throw ComponentOperationError("occurrence_not_found","The requested component occurrence does not exist.");
+    const auto uses=[&](const assembly::InstancePath& path){return !path.occurrence_ids.empty()&&path.occurrence_ids.front()==occurrence;};
+    ComponentRemovalDependencies result;
+    for(const auto& component:doc.components)for(const auto& row:component.placement_references)
+        if(uses(row.component_reference.instance_path)||uses(row.target_reference.instance_path))result.placement_components.insert(component.occurrence_id);
+    for(const auto& edge:doc.dependencies)
+        if(edge.prerequisite_occurrence_id==occurrence&&edge.dependent_occurrence_id!=occurrence)result.dependency_components.insert(edge.dependent_occurrence_id);
+    for(const auto& sketch:doc.sketches)for(const auto& reference:sketch.external_references) {
+        if(reference.context_assembly_document_id!=doc.document_id||reference.source_instance_path.empty())continue;
+        try{if(uses(assembly::InstancePath::decode(reference.source_instance_path)))result.sketches.insert(sketch.id);}
+        catch(const std::invalid_argument&){/* Preserve the existing GUI removal policy for unreadable references. */}
+    }
+    return result;
+}
 std::string insert_component(Workspace& live,const std::string& owner,const std::string& source,const std::optional<std::string>& requested_name) {
     if(!live.open_assembly(owner))throw ComponentOperationError("unsupported_document","Component insertion requires an open owning Assembly.");
     if(live.active_document_id()!=owner || live.displayed_document_id()!=owner)

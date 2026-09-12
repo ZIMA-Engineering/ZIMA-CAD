@@ -1,7 +1,7 @@
 # Výkresy přes společné příkazy
 
 Výkresové příkazy zpřístupňují listy, šablony, tvorbu a vlastnosti pohledů,
-uložené reference a výslovnou regeneraci. Katalog má 149 příkazů. Dotazy na modelové anotace a Show/Erase jsou sdílené.
+uložené reference a výslovnou regeneraci. Katalog má 150 příkazů. Dotazy na modelové anotace a Show/Erase jsou sdílené.
 Další anotace, zdrojové styly šraf a výkresové exporty
 zatím nejsou kompletně pokryté.
 

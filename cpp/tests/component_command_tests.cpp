@@ -49,6 +49,23 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     require(run(host,"component.get",{{"instance_path",path1}}).data.at("name")=="component-part" && run(host,"component.list",{{"recursive",true}}).data.at("total")==7,"Snapshot queries loaded closed source files");
     require(live.open_assembly(owner)->session.revision()==before && live.open_assembly(owner)->session.data_generation()==generation,"Queries changed revision or generation");
     const auto loaded=assembly::AssemblyDocument::load(dir/"component-owner.asmz");require(loaded.find_occurrence(sub1)->nested_snapshot.front().occurrence_id==leaf,"Native save lost the nested occurrence identity");
+    const auto target=assembly::InstancePath{}.child(sub1);const auto other=second.at("occurrence").get<std::string>();
+    require(run(host,"component.dependencies",{{"instance_path",target.encoded()}}).data.at("blocked")==false,"Unreferenced component reported blockers");
+    auto referenced=live.open_assembly(owner)->session.document();assembly::ComponentPlacementReference placement;
+    placement.target_reference.instance_path=target.child(leaf);referenced.find_occurrence(other)->placement_references={placement,placement};
+    referenced.dependencies.push_back({"dependency",other,sub1,assembly::ComponentDependencyKind::DerivedCopyReference});
+    referenced.dependencies.push_back({"self",sub1,sub1,assembly::ComponentDependencyKind::PlacementReference});
+    auto sketch=sketcher::Sketch::create_default();sketcher::SketchExternalReference ref;ref.id="external";ref.context_assembly_document_id=owner;ref.source_instance_path=target.child(leaf).encoded();sketch.external_references={ref,ref};const auto sketch_id=sketch.id;referenced.sketches.push_back(sketch);
+    auto unrelated=sketcher::Sketch::create_default();ref.context_assembly_document_id="other-assembly";unrelated.external_references={ref};referenced.sketches.push_back(unrelated);
+    live.open_assembly(owner)->session.commit(std::move(referenced));
+    const auto dependency_revision=live.open_assembly(owner)->session.revision(),dependency_generation=live.open_assembly(owner)->session.data_generation();
+    const auto dependencies=run(host,"component.dependencies",{{"instance_path",target.encoded()}}).data;
+    require(dependencies.at("blocked")==true&&dependencies.at("placement_components")==Json::array({other})&&dependencies.at("dependent_components")==Json::array({other})&&dependencies.at("sketches")==Json::array({sketch_id}),"Dependency query lost exact owners, duplicated rows or included another Assembly");
+    require(run(host,"component.dependencies",{{"instance_path",assembly::InstancePath{}.child(sub2).encoded()}}).data.at("blocked")==false,"Repeated source occurrence inherited another occurrence's blockers");
+    require(!host.execute({{"command","component.dependencies"},{"arguments",{{"instance_path",path1}}}}).ok,"Parent Assembly queried internal component ownership");
+    require(!host.execute({{"command","component.dependencies"},{"arguments",{{"instance_path",assembly::InstancePath{}.child("missing").encoded()}}}}).ok,"Missing component accepted");
+    require(live.open_assembly(owner)->session.revision()==dependency_revision&&live.open_assembly(owner)->session.data_generation()==dependency_generation,"Dependency query changed model history");
+
 }
 void cycles(const kernel::OcctKernel& kernel,fs::path dir) {
     workspace::Workspace live;command_host::Host host(live,kernel,dir,options());
