@@ -13,6 +13,7 @@
 #include <QDoubleSpinBox>
 #include <QFileDialog>
 #include <QLineEdit>
+#include <QLabel>
 #include <QMenu>
 #include <QMessageBox>
 #include <QMouseEvent>
@@ -256,7 +257,7 @@ int verify_drawing_ui() {
             workspace.open_part(part.document_id)->session.undo();
             require(workspace.open_part(part.document_id)->session.document().user_parameters.at("drawn_by")=="Original author","Source Undo failed after title-block edit");
             auto assembly=zima::assembly::AssemblyDocument::create_default();
-            assembly.user_parameters=model.user_parameters;assembly.user_parameter_labels=model.user_parameter_labels;assembly.user_parameter_values=model.user_parameter_values;
+            assembly.user_parameter_order=model.user_parameter_order;assembly.user_parameters=model.user_parameters;assembly.user_parameter_labels=model.user_parameter_labels;assembly.user_parameter_values=model.user_parameter_values;
             auto second=zima::document::PartDocument::create_default();
             second.user_parameter_order={"drawn_by","name","stock"};
             second.user_parameter_labels=model.user_parameter_labels;
@@ -279,6 +280,7 @@ int verify_drawing_ui() {
             require(d->findChild<QLineEdit*>("titleBlockField:DRAWN_BY")->text()=="Original author","Assembly Parameters were not read before view insertion");
             d->findChild<QLineEdit*>("titleBlockField:DRAWN_BY")->setText("Assembly author");
             d->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+            if(auto* pending=window.findChild<QDialog*>("drawingTitleBlockProperties"))throw std::runtime_error(pending->findChild<QLabel*>("titleBlockError")->text().toStdString());
             require(workspace.open_assembly(assembly.document_id)->session.document().user_parameters.at("drawn_by")=="Assembly author","Title block wrote to wrong source");
             action("insertDrawingViewAction")->trigger();click(canvas,canvas->rect().center());flush();
             require(dialog(),"Assembly view placement has no Properties");

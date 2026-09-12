@@ -2,6 +2,7 @@
 #include <zima/workspace/drawing_view_operations.hpp>
 #include <zima/workspace/drawing_annotation_operations.hpp>
 #include <zima/workspace/drawing_dimension_operations.hpp>
+#include <zima/workspace/drawing_title_operations.hpp>
 #include <zima/workspace/drawing_operations.hpp>
 #include "drawing_dimension_dialog.hpp"
 #include <QCursor>
@@ -384,25 +385,19 @@ private:
 class TitleBlockPropertiesDialog final : public zima::ui::PropertiesSubWindow {
 public:
     TitleBlockPropertiesDialog(QMainWindow* parent,
-        const std::vector<zima::drawing::TitleBlockField>& fields,
-        const zima::drawing::TitleBlockContext& context,
-        const zima::drawing::DrawingSheet& sheet, const std::set<std::string>& calculated,
+        const zima::workspace::DrawingTitleEdit& edit,
+        const zima::drawing::DrawingSheet& sheet,
         std::function<void(const std::map<std::string,std::string>&)> accepted)
         : PropertiesSubWindow(QObject::tr("Hodnoty razítka"),parent), accepted_(std::move(accepted)) {
         setObjectName("drawingTitleBlockProperties");
+        const auto& fields=edit.fields;const auto& context=edit.context;
         auto* content=new QWidget(this); auto* form=new QFormLayout(content);
         for(const auto& field:fields) {
             const auto value=zima::drawing::resolve_title_block_text(field,context,sheet);
             auto* editor=new QLineEdit(QString::fromStdString(value),content);
             editor->setObjectName(QString::fromStdString("titleBlockField:"+field.id));
             const auto tokens=zima::drawing::title_block_tokens(field.expression);
-            bool writable=field.editable;
-            if(!tokens.empty()) {
-                writable=writable && tokens.size()==1 && field.expression=="&"+tokens.front();
-                const auto scope=zima::drawing::title_block_token_scope(tokens.front());
-                if(scope=="system" || (scope=="model" && (!field.write_back ||
-                    calculated.contains(zima::drawing::title_block_parameter_key(tokens.front(),context))))) writable=false;
-            }
+            const bool writable=zima::workspace::drawing_title_field_writable(field,edit);
             editor->setReadOnly(!writable);
             if(writable) {editors_[field.id]=editor;initial_[field.id]=value;}
             auto label=field.id;
@@ -429,7 +424,7 @@ private:
             for(const auto& [id,editor]:editors_) if(editor->text().toStdString()!=initial_.at(id))
                 changes[id]=editor->text().toStdString();
             accepted_(changes);return true;
-        } catch(const std::exception& error) {error_->setText(QString::fromUtf8(error.what()));return false;}
+        } catch(const std::exception& error) {error_->setText(QObject::tr(error.what()));return false;}
     }
 };
 
@@ -1807,148 +1802,25 @@ void DrawingWindow::load_title_block() {
     catch(const std::exception& error) { QMessageBox::warning(this,tr("Nelze načíst razítko"),error.what()); }
 }
 void DrawingWindow::edit_title_block() {
-    auto* sheet=active_sheet(); if(sheet==nullptr || (sheet->title_block_fields.empty() && sheet->title_block_texts.empty())) return;
-    if(raise_open_properties(window())) return;
-    auto source_id=sheet->views.empty()?document_.source_document_id:sheet->views.front().source_document_id;
-    auto source_path=sheet->views.empty()?document_.source_path:sheet->views.front().source_path;
-    if(!source_path.empty() && source_path.is_relative() && !path_.empty())
-        source_path=path_.parent_path()/source_path;
-    if(workspace_ && !workspace_->find(source_id))
-        if(const auto open=workspace_->document_id_for_path(source_path))source_id=*open;
+    auto* sheet=active_sheet();if(!sheet||(sheet->title_block_fields.empty()&&sheet->title_block_texts.empty()))return;
+    if(raise_open_properties(window()))return;
     try {
-        const auto selected=canvas_->selected_title_target();
-        if(selected && selected->bom_row) {
-            if(*selected->bom_row>=sheet->bom_rows.size())throw std::runtime_error("BOM row is no longer available");
-            const auto current=build_bom_rows_for_source(source_id,source_path,workspace_);
-            const auto row=std::ranges::find(current,sheet->bom_rows[*selected->bom_row].designation,&zima::drawing::BomRow::designation);
-            if(row==current.end())throw std::runtime_error("Regenerate the drawing before editing this changed BOM row");
-            source_id=row->source_document_id;source_path=row->source_path;
+        const auto selected=canvas_->selected_title_target();std::string bom_row;
+        if(selected&&selected->bom_row) {
+            if(*selected->bom_row>=sheet->bom_rows.size())throw std::runtime_error("The stored BOM row does not exist.");
+            bom_row=sheet->bom_rows[*selected->bom_row].designation;
         }
-        auto context=build_title_block_context_for_source(source_id,source_path,workspace_);
-        // A BOM cell selects the source document, never a smaller editor.
-        // Include the same fields and raw-text parameters for every entry point.
-        auto fields=sheet->title_block_fields;
-        std::string focus=canvas_->selected_title_field();
-        const auto parameter_identity=[&](const std::string& token) {
-            const auto scope=zima::drawing::title_block_token_scope(token);
-            return scope+":"+(scope=="model"
-                ?zima::drawing::title_block_parameter_key(token,context)
-                :token.substr(token.find('.')+1));
-        };
-        const auto add_parameters=[&](const std::string& expression,bool focus_parameter) {
-            for(const auto& token:zima::drawing::title_block_tokens(expression)) {
-                if(zima::drawing::title_block_token_scope(token)=="system")continue;
-                const auto identity=parameter_identity(token);
-                auto found=std::ranges::find_if(fields,[&](const auto& f){
-                    const auto tokens=zima::drawing::title_block_tokens(f.expression);
-                    return tokens.size()==1 && f.expression=="&"+tokens.front() &&
-                        parameter_identity(tokens.front())==identity;
-                });
-                std::string id;
-                if(found!=fields.end())id=found->id;
-                else {
-                    id="parameter:"+token;
-                    zima::drawing::TitleBlockField f;f.id=id;f.expression="&"+token;f.editable=true;f.write_back=true;fields.push_back(f);
-                }
-                if(focus_parameter){focus=id;focus_parameter=false;}
-            }
-        };
-        for(const auto& field:sheet->title_block_fields)add_parameters(field.expression,false);
-        for(const auto& text:sheet->title_block_texts)add_parameters(text.text,false);
-        if(selected)add_parameters(selected->expression,true);
-        const auto field_order=[&](const auto& field) {
-            const auto tokens=zima::drawing::title_block_tokens(field.expression);
-            if(tokens.size()==1 && field.expression=="&"+tokens.front() &&
-                zima::drawing::title_block_token_scope(tokens.front())=="model") {
-                const auto key=zima::drawing::title_block_parameter_key(tokens.front(),context);
-                return std::ranges::find(context.parameter_order,key)-context.parameter_order.begin();
-            }
-            return context.parameter_order.end()-context.parameter_order.begin();
-        };
-        std::stable_sort(fields.begin(),fields.end(),[&](const auto& a,const auto& b){return field_order(a)<field_order(b);});
-        context.sheet_index=sheets_->currentIndex();context.sheet_count=static_cast<int>(document_.sheets.size());
-        std::set<std::string> calculated;
-        const auto collect=[&](const auto& model){for(const auto& r:model.relations)calculated.insert(r.target);};
-        if(workspace_ && workspace_->open_part(source_id)) collect(workspace_->open_part(source_id)->session.document());
-        else if(workspace_ && workspace_->open_assembly(source_id)) collect(workspace_->open_assembly(source_id)->session.document());
-        else if(source_path.extension()==".prtz")collect(zima::document::PartDocument::load(source_path));
-        else if(source_path.extension()==".asmz")collect(zima::assembly::AssemblyDocument::load(source_path));
-        auto* dialog=new TitleBlockPropertiesDialog(this,fields,context,*sheet,calculated,
-            [this,id=sheet->id,source_id,source_path,context,fields](const auto& changes) {
-                auto* target=document_.find_sheet(id);if(!target)throw std::runtime_error("Drawing sheet no longer exists");
-                auto next=*target;
-                std::map<std::string,std::string> updates;
-                for(const auto& field:fields) if(changes.contains(field.id)) {
-                    const auto& value=changes.at(field.id);
-                    const auto tokens=zima::drawing::title_block_tokens(field.expression);
-                    if(tokens.empty()){
-                        const auto stored=std::ranges::find(next.title_block_fields,field.id,&zima::drawing::TitleBlockField::id);
-                        if(stored==next.title_block_fields.end())throw std::runtime_error("Title block field no longer exists");
-                        stored->expression=value;stored->value=value;continue;
-                    }
-                    if(tokens.size()!=1 || field.expression!="&"+tokens.front())throw std::runtime_error("Cannot edit a compound expression");
-                    const auto& token=tokens.front();
-                    const auto scope=zima::drawing::title_block_token_scope(token);
-                    if(scope=="drawing")next.local_parameters[token.substr(token.find('.')+1)]=value;
-                    else if(scope=="model" && field.write_back) {
-                        const auto key=zima::drawing::title_block_parameter_key(token,context);
-                        if(updates.contains(key)&&updates.at(key)!=value)throw std::runtime_error("Conflicting values for one parameter");
-                        updates[key]=value;
-                    }
-                }
-                if(!updates.empty()) {
-                    if(!workspace_)throw std::runtime_error("Open the source model in the workspace to edit its parameters");
-                    auto resolved_id=source_id;
-                    if(!workspace_->find(resolved_id)) {
-                        if(const auto open=workspace_->document_id_for_path(source_path))resolved_id=*open;
-                        else if(source_path.extension()==".prtz") {
-                            std::vector<zima::kernel::BodyResult> boundaries;
-                            auto model=zima::document::PartDocument::load(source_path,&boundaries);resolved_id=model.document_id;
-                            workspace_->add_part(std::move(model),std::move(boundaries),source_path);
-                        } else if(source_path.extension()==".asmz") {
-                            auto model=zima::assembly::AssemblyDocument::load(source_path);resolved_id=model.document_id;
-                            workspace_->add_assembly(std::move(model),source_path);
-                        }
-                    }
-                    const auto update=[&](auto& model) {
-                        for(const auto& [key,value]:updates) {
-                            if(std::ranges::any_of(model.relations,[&](const auto& r){return r.target==key;}))
-                                throw std::runtime_error("Calculated parameters are read-only");
-                            auto& values=model.user_parameter_values[key];
-                            if(values.empty() || values.contains(""))values[""]=value;
-                            else values[next.title_block_locale]=value;
-                            model.user_parameters[key]=value;
-                            if(std::ranges::find(model.user_parameter_order,key)==model.user_parameter_order.end())model.user_parameter_order.push_back(key);
-                        }
-                    };
-                    if(auto* part=workspace_->open_part(resolved_id)) {
-                        auto model=part->session.document();update(model);part->session.commit(std::move(model),part->session.calculated_boundaries());
-                    } else if(auto* assembly=workspace_->open_assembly(resolved_id)) {
-                        auto model=assembly->session.document();update(model);assembly->session.commit(std::move(model));
-                    } else throw std::runtime_error("Source model is unavailable");
-                    // Refresh metadata only. Editing one BOM row must neither
-                    // recalculate its parent Assembly nor update another Part.
-                    const auto fresh=build_title_block_context_for_source(resolved_id,source_path,workspace_);
-                    const auto identity=source_id+"|"+source_path.lexically_normal().string();
-                    const auto update_rows=[&](auto& rows){for(auto& row:rows)
-                        if(row.designation==identity || (row.source_document_id==source_id && row.source_path.lexically_normal()==source_path.lexically_normal())) {
-                            row.source_document_id=resolved_id;row.source_path=source_path;
-                            row.parameters=fresh.parameters;row.parameter_values=fresh.parameter_values;
-                            row.parameter_aliases=fresh.parameter_aliases;row.file_stem=fresh.file_stem;row.mass_unit=fresh.mass_unit;
-                        }
-                    };
-                    update_rows(next.bom_rows);
-                    for(auto& other:document_.sheets)if(other.id!=id)update_rows(other.bom_rows);
-                }
-                *target=std::move(next);refresh();
-            });
+        const auto edit=workspace::prepare_drawing_title_edit(document_,sheet->id,workspace_,path_,bom_row);
+        auto focus=canvas_->selected_title_field();
+        if(selected)if(const auto field=workspace::drawing_title_focus_field(edit,selected->expression);!field.empty())focus=field;
+        auto* dialog=new TitleBlockPropertiesDialog(this,edit,*sheet,[this,edit](const auto& changes) {
+            if(workspace::edit_drawing_title(document_,workspace_,edit,changes).changed)refresh();
+        });
         if(properties_handler_)properties_handler_(dialog);
         connect(dialog,&QObject::destroyed,this,[this]{if(properties_handler_)properties_handler_(nullptr);});
         dialog->show();
-        if(auto* editor=dialog->findChild<QLineEdit*>(QString::fromStdString("titleBlockField:"+focus))) {
-            editor->setFocus();editor->selectAll();
-        }
-    } catch(const std::exception& error) {set_status_message(QString::fromUtf8(error.what()));}
+        if(auto* editor=dialog->findChild<QLineEdit*>(QString::fromStdString("titleBlockField:"+focus))){editor->setFocus();editor->selectAll();}
+    } catch(const std::exception& error){set_status_message(QObject::tr(error.what()));}
 }
 zima::drawing::DrawingSheet* DrawingWindow::active_sheet() { const auto index = sheets_->currentIndex(); return index < 0 || index >= static_cast<int>(document_.sheets.size()) ? nullptr : &document_.sheets[index]; }
 

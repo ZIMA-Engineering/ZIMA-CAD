@@ -349,6 +349,18 @@ int main(int argc,char** argv){
         require(result.exit_code==0,"Standalone CLI dimension properties/extension failed");
         const auto measured_saved=drawing::DrawingDocument::load(project/"cli-measured.drwz");const auto& new_chain=measured_saved.sheets.front().dimensions.back();
         require(new_chain.id==new_measured&&new_chain.kind==drawing::DrawingDimensionKind::Chain&&new_chain.segments.size()==2&&new_chain.style.prefix=="CLI="&&new_chain.segments[0].layout.line_offset==3,"CLI dimension properties or extension did not persist");
+        auto title_doc=drawing::DrawingDocument::create_default();title_doc.source_document_id=drawing_source.document_id;title_doc.source_path=project/"cli-step.prtz";
+        drawing::TitleBlockField title_name;title_name.id="NAME";title_name.expression="&name";title_name.editable=true;title_name.write_back=true;
+        auto title_local=title_name;title_local.id="LOCAL";title_local.expression="&drawing.note";title_local.write_back=false;
+        title_doc.sheets.front().title_block_fields={title_name,title_local};title_doc.save(project/"cli-title.drwz");
+        const auto title_sheet=title_doc.sheets.front().id;
+        const auto get_title=command({{"command","drawing.title.get"},{"arguments",{{"sheet",title_sheet}}}});
+        const auto set_title=command({{"command","drawing.title.set"},{"arguments",{{"sheet",title_sheet},{"values",{{"NAME","CLI český název"},{"LOCAL","Poznámka"}}}}}});
+        const auto save_source=command({{"command","activate"},{"arguments",{{"document",drawing_source.document_id}}}});
+        result=launch(executable,root,common+QStringList{"--command","open cli-title.drwz","--command",get_title,"--command",set_title,"--command","save","--command",save_source,"--command","save"});
+        if(result.exit_code!=0)std::cerr<<result.output.toStdString()<<result.diagnostics.toStdString();
+        require(result.exit_code==0&&result.results()[2].at("data").at("source_changed")==true,"Standalone CLI title write failed");
+        require(document::PartDocument::load(project/"cli-step.prtz").user_parameters.at("name")=="CLI český název"&&drawing::DrawingDocument::load(project/"cli-title.drwz").sheets.front().local_parameters.at("note")=="Poznámka","CLI title/source explicit save did not persist UTF-8 parameters");
         const auto assembly_step=command({{"command","import.step"},{"arguments",{{"path",document::path_to_utf8(step_source)},{"output_directory","sestava nativní"},{"mesh_deflection_mm",2.0}}}});
         result=launch(executable,root,common+QStringList{"--command","new assembly cli-import-owner","--command",assembly_step,"--command","save"});
         require(result.exit_code==0 && result.results().size()==3 && result.results()[1].at("data").at("parts").size()==1,"CLI Assembly STEP import failed");

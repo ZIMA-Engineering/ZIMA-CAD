@@ -46,7 +46,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Zaoblení, zkosení, skořepina | Zbývá | Výběr skutečného vstupního tělesa a sdílené transakce |
 | Zrcadlo a pole | Zbývá | Odvozená tělesa a komponenty |
 | Sestavy | Dotazy, vložení a otevření zdrojů komponent hotovy | Uložená hierarchie a přesné výskyty, sdílené vložení a otevření zdroje; zbývají vlastnosti/mazání komponent, vazby, vnořená aktivace a řezy |
-| Výkresy | Listy, šablony, historie, tvorba/vlastnosti/dotazy/mazání pohledů, regenerace, modelové anotace, Show/Erase a měřené kóty (dotazy, tvorba, editace, řetězec, mazání) hotovy | Další anotace, editace BOM, zdrojové styly šraf a výkresové exporty |
+| Výkresy | Listy, šablony, historie, tvorba/vlastnosti/dotazy/mazání pohledů, regenerace, modelové anotace, Show/Erase a měřené kóty (dotazy, tvorba, editace, řetězec, mazání), razítko a zdrojové parametry BOM hotovy | Další anotace, zdrojové styly šraf a výkresové exporty |
 | Řezy, měření a vzhled | Zbývá | Datové operace a uložené výsledky |
 | Parametry, relace a materiál | Společné tabulky a transakce hotovy | Parametry, jednotky, přesnost, relace, materiál včetně přímého načtení knihovny a uložené varianty; řízení rozměrů relacemi a generování variant nejsou dosud zavedené ani v GUI |
 | Import a export | Import Partu/Assembly STEP/IGES/DXF a základní exporty hotovy | Společný STEP včetně vnořených sestav, STL Part/plochá Assembly, DXF úsečky/kružnice/oblouky; zbývá import vložených profilů, další DXF geometrie, vnořený STL a výkresové exporty |
@@ -309,3 +309,30 @@ sestavené. Testy ověřují tvorbu, 60°/120°, opravu reference, oba konce
 řetězce, identity, parametry a atomické zamítnutí, Undo/Redo, nativní
 uložení a skutečné zobrazení kóty vytvořené z konzole. Snímek
 `Projects/test/command-drawing-views.png` prošel vizuální kontrolou.
+
+
+Etapa razítka a zdrojových parametrů kusovníku přidává
+`drawing.bom.list`, `drawing.title.get/set`, celkem **149 příkazů**.
+GUI a CLI sdílejí ověření zapisovatelných polí, původních hodnot a přesné
+identity zdroje. Modelové parametry se mění ve zdrojovém dokumentu, lokální
+hodnoty ve výkresu; uložení i Undo zdrojového dokumentu zůstávají samostatné.
+Nevyvolává se OCCT ani regenerace nadřazené sestavy. Podrobnosti a příklady:
+[DRAWING_COMMANDS.md](DRAWING_COMMANDS.md). Kompletní příkazovka dosud hotová
+není; zbývají další modelovací funkce a dosud nepokryté výkresové operace.
+
+Ověření etapy: **70/70** nezávislých testů (112,97 s),
+`build/drawing-title-independent-tests.log`, a **13/13** scénářů hlavního GUI
+(269,82 s), `build/drawing-title-gui-tests.log`. Dohromady všech **83 testů**.
+Závěrečná cílená sada po doplnění kontroly duplicitních polí prošla **6/6**
+(9,83 s), `build/drawing-title-tests.log`. Ověřené jsou přesné zdroje řádků,
+opakované výskyty, vypočítané parametry, odmítnutí zastaralých a rozporných
+hodnot, výsledky parametrických vztahů v kusovníku, Undo/Redo, explicitní
+uložení, UTF-8 a obousměrná editace mezi konzolí a dialogem. Dialog razítka
+s reálnou šablonou prošel také vizuální kontrolou.
+
+Běžící uživatelský CAD zamykal `zima-cad-cpp.exe`. CLI a samostatné testy byly
+sestaveny běžným CMake postupem. Hlavní GUI bylo pro tuto regresi slinkováno ze
+stejných aktuálních CMake objektů a knihoven do `zima-cad-title-validation.exe`
+ve stejném build adresáři; dočasná kopie CTest definic změnila pouze tuto cestu.
+Nejde o distribuční balíček. Původní spouštěcí soubor nebyl přepsán a běžící
+program nebyl ukončen; jeho běžné sestavení je potřeba dokončit po zavření CADu.

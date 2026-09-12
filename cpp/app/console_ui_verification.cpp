@@ -547,6 +547,8 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         auto view_document=drawing::DrawingDocument::create_default();view_document.source_document_id=view_source.document_id;view_document.source_path=view_source_path;
         auto base_view=drawing::DrawingDocument::create_view(view_source.document_id,view_source_path,view_source_cache.back().mesh);
         auto projected_view=drawing::DrawingDocument::create_view(view_source.document_id,view_source_path,view_source_cache.back().mesh);projected_view.parent_view_id=base_view.id;projected_view.projection_direction=drawing::ProjectionDirection::Right;projected_view.x=50;
+        drawing::TitleBlockField console_title_field;console_title_field.id="NAME";console_title_field.expression="&name";console_title_field.editable=true;console_title_field.write_back=true;
+        view_document.sheets.front().title_block_fields={console_title_field};
         view_document.sheets.front().views={projected_view,base_view};const auto view_file=directory/(stem+"-drawing-views.drwz");view_document.save(view_file);
         json_run("open",{{"path",document::path_to_utf8(view_file)}});flush();
         check(run("drawing.view.list").data.at("total")==2,"GUI view query lost projected hierarchy");
@@ -591,6 +593,16 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         check(drawing_window->document_for_test().sheets.front().dimensions.back().style.prefix=="GUI=","Console dimension properties did not reach GUI");
         json_run("drawing.dimension.delete",{{"dimension",console_dimension}});flush();check(!drawing_window->annotation_handle_for_test(console_dimension,0,true).has_value(),"Console deletion left a GUI dimension");
         run("undo");flush();check(drawing_window->annotation_handle_for_test(console_dimension,0,true).has_value(),"Console dimension Undo did not restore GUI");
+        const auto title_args=commands::Json{{"sheet",view_document.sheets.front().id},{"values",{{"NAME","Console title"}}}};
+        json_run("drawing.title.set",title_args);flush();
+        check(json_run("drawing.title.get",{{"sheet",view_document.sheets.front().id}}).data.at("fields")[0].at("value")=="Console title","Console title did not update authoritative source");
+        auto* title_action=window.findChild<QAction*>("editDrawingTitleBlockAction");check(title_action&&title_action->isEnabled(),"Title properties disabled");title_action->trigger();flush();
+        auto* title_dialog=window.findChild<QDialog*>("drawingTitleBlockProperties");check(title_dialog,"Title properties missing");
+        auto* title_editor=title_dialog->findChild<QLineEdit*>("titleBlockField:NAME");check(title_editor&&title_editor->text()=="Console title","GUI title did not consume console changes");
+        const commands::Json blocked_title={{"command","drawing.title.set"},{"arguments",title_args}};
+        check(window.execute_console_command(QString::fromStdString(blocked_title.dump())).code=="editing_in_progress","Console overwrote pending title properties");
+        title_editor->setText("GUI title");title_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+        check(!window.findChild<QDialog*>("drawingTitleBlockProperties")&&json_run("drawing.title.get",{{"sheet",view_document.sheets.front().id}}).data.at("fields")[0].at("value")=="GUI title","GUI title did not use shared source writeback");
         check(window.grab().save(QString::fromStdString((directory/"command-drawing-views.png").string())),"Drawing view screenshot failed");
         json_run("close",{{"discard",true}});
         run(QString::fromStdString(activate.dump()));flush();

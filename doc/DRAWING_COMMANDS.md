@@ -1,8 +1,8 @@
 # Výkresy přes společné příkazy
 
 Výkresové příkazy zpřístupňují listy, šablony, tvorbu a vlastnosti pohledů,
-uložené reference a výslovnou regeneraci. Katalog má 146 příkazů. Dotazy na modelové anotace a Show/Erase jsou sdílené.
-Další anotace, editace BOM, zdrojové styly šraf a výkresové exporty
+uložené reference a výslovnou regeneraci. Katalog má 149 příkazů. Dotazy na modelové anotace a Show/Erase jsou sdílené.
+Další anotace, zdrojové styly šraf a výkresové exporty
 zatím nejsou kompletně pokryté.
 
 | Příkaz | Argumenty | Výsledek |
@@ -387,3 +387,62 @@ sestavené. Testy ověřují tvorbu, 60°/120°, opravu reference, oba konce
 řetězce, identity, parametry a atomické zamítnutí, Undo/Redo, nativní
 uložení a skutečné zobrazení kóty vytvořené z konzole. Snímek
 `Projects/test/command-drawing-views.png` prošel vizuální kontrolou.
+
+## Razítko a parametry zdrojů kusovníku
+
+`drawing.bom.list` vrací uložené řádky, jejich přesné `row`, `source_document`,
+`source_path`, množství a metadata. Volitelné jsou `sheet`, `document` a
+`limit` 1–10000 (výchozí 2000). Dotaz neotevírá zdroje a neregeneruje kusovník.
+
+`drawing.title.get` vyžaduje `sheet`. Vrací pole `fields` s identifikátorem
+`field`, výrazem, zobrazenou hodnotou, příznaky `writable` a `write_back`.
+Zahrnuje také parametry použité v prostých textech razítka a respektuje
+pořadí a jazykové názvy zdrojových parametrů. Volitelné `bom_row` je přesné
+`row` z dotazu na kusovník; určuje zdrojový díl/sestavu, nikoli pořadí řádku.
+Bez něj se upravuje zdroj hlavního pohledu, případně zdroj výkresu bez pohledů.
+Otevřený zdroj je autoritativní. Zavřený zdroj se čte z nativního dokumentu,
+bez jeho otevření v pracovním prostoru a bez OCCT.
+
+`drawing.title.set` vyžaduje `sheet` a objekt `values` (ID pole → text).
+Volitelné `expected_values` obsahuje původní hodnoty měněných polí z `get`;
+při jejich změně se celý požadavek odmítne. Stejnou kontrolu používá dialog
+razítka automaticky. `bom_row` a `document` mají stejný význam jako u dotazu.
+Systémové a vypočítané parametry, složené výrazy a nezapisovatelná pole
+nelze přepsat. Všechna pole se ověří před zápisem. Beze změny nevzniká historie.
+
+```json
+{"command":"drawing.bom.list","arguments":{"sheet":"LIST"}}
+{"command":"drawing.title.get","arguments":{"sheet":"LIST","bom_row":"PRESNE_ROW_Z_DOTAZU"}}
+{"command":"drawing.title.set","arguments":{"sheet":"LIST","values":{"NAME":"Nový název"},"expected_values":{"NAME":"Původní název"}}}
+```
+
+Modelové parametry patří zdrojovému Part/Assembly. Zápis do zavřeného zdroje
+jej otevře v pracovním prostoru, zachová vypočítanou geometrii a nezmění aktivní
+výkres. Soubor zdroje se automaticky neukládá; je třeba jej výslovně aktivovat
+a uložit. Lokální `drawing.*` parametry a doslovné texty patří výkresu.
+Úprava zdrojových parametrů osvěží odpovídající uložená metadata řádků ve všech
+listech tohoto výkresu, ale nemění množství ani nepřepočítává nadřazenou sestavu.
+Změněné složení kusovníku vyžaduje explicitní regeneraci výkresu.
+
+Historie zůstává podle vlastníka: Undo ve výkresu vrací jeho lokální změny
+a uložené řádky, Undo ve zdrojovém dílu vrací jeho parametry. Nejde o společné
+Undo více dokumentů. GUI i CLI používají stejnou modelovou operaci; během
+otevřeného editačního dialogu konzole zápis odmítá. Nativní formáty ani startovní
+šablony se tímto krokem nemění.
+
+Ověření etapy: **70/70** nezávislých testů (112,97 s),
+`build/drawing-title-independent-tests.log`, a **13/13** scénářů hlavního GUI
+(269,82 s), `build/drawing-title-gui-tests.log`. Dohromady všech **83 testů**.
+Závěrečná cílená sada po doplnění kontroly duplicitních polí prošla **6/6**
+(9,83 s), `build/drawing-title-tests.log`. Ověřené jsou přesné zdroje řádků,
+opakované výskyty, vypočítané parametry, odmítnutí zastaralých a rozporných
+hodnot, výsledky parametrických vztahů v kusovníku, Undo/Redo, explicitní
+uložení, UTF-8 a obousměrná editace mezi konzolí a dialogem. Dialog razítka
+s reálnou šablonou prošel také vizuální kontrolou.
+
+Běžící uživatelský CAD zamykal `zima-cad-cpp.exe`. CLI a samostatné testy byly
+sestaveny běžným CMake postupem. Hlavní GUI bylo pro tuto regresi slinkováno ze
+stejných aktuálních CMake objektů a knihoven do `zima-cad-title-validation.exe`
+ve stejném build adresáři; dočasná kopie CTest definic změnila pouze tuto cestu.
+Nejde o distribuční balíček. Původní spouštěcí soubor nebyl přepsán a běžící
+program nebyl ukončen; jeho běžné sestavení je potřeba dokončit po zavření CADu.
