@@ -70,3 +70,50 @@ objem.
 
 Katalog obsahuje 170 příkazů. Celkové CLI ještě není dokončené; otevřené oblasti
 zůstávají v [CAD_COMMAND_COVERAGE.md](CAD_COMMAND_COVERAGE.md).
+
+
+## Vložená 3D dráha a stanice
+
+`sweep3d.set` přijímá objekt `path` s položkami `curve_type`
+(`polyline/interpolating_spline`), `rounding_enabled` a úplným polem `points`.
+Bod s `construction` zachová své nativní ID; bod bez něj získá nové ID. Položky
+bodu mají stejná pravidla jako samostatná 3D křivka: `name`, `values`,
+`radius_mm`, `tangent` a `tangent_enabled`. Souřadnice v `values` jsou lokální
+vůči dráze. Umístění celého tažení nadále patří položce `placement` kontejneru;
+nevkládá se další posun do samotné dráhy.
+
+```json
+{"command":"sweep3d.set","arguments":{"container":"<TAZENI>","path":{"curve_type":"polyline","rounding_enabled":true,"points":[{"construction":"<PRVNI_BOD>"},{"values":{"x":0,"y":0,"z":20},"radius_mm":5},{"construction":"<POSLEDNI_BOD>","values":{"x":10,"y":0,"z":20}}]}}}
+```
+
+Seznam je celý navržený stav: vynechaný bod se odstraní spolu se svými profily,
+stejně jako ve Vlastnostech. Pokud tím vznikne nevypočitatelný prvek (například
+zmizí nezbytný první profil), odmítne se celá transakce. Přeživší body a profily
+nezmění identitu. Zámky a vazby existujících bodů platí i při výměně celého pole.
+
+`construction.list/get` zahrnuje vloženou 3D dráhu i její body. Pole
+`owning_feature` rozlišuje vlastnící tažení, `parent`, `body` a
+`coordinate_owner` popisují přesnou hierarchii. Dráha má souřadný systém
+`container`; její body `parent_construction`. Čtení zůstává bez výpočtu a bez
+vytváření dalšího objektu v dokumentu. Samotné `construction.set` na vložené
+objekty odkáže na příkaz vlastnícího tažení, aby změna dráhy vždy potvrzovala
+celý platný prvek.
+
+`sweep3d.get` navíc vrací `stations`: nativní ID bodu, příchozí/odchozí větev,
+aktivitu, lokální polohu, tečnu a případný vlastní profil. `station_coordinate_owner`
+je ID dráhy. `stations_valid` a případné `stations_error` umožňují přečíst i
+prvek s poškozenou dráhou; dotaz ho sám neopravuje ani neregeneruje.
+
+Modelové regrese této navazující části kontrolují objem po prodloužení,
+interpolovanou přímou spline, kruhové zaoblení s nezávislou délkou oblouku,
+identitu vloženého bodu, vlastní rovinnou referenci v současně posunutém a
+natočeném tažení i tělese, dotaz na poškozenou dráhu a atomické odmítnutí
+duplicit či cizích bodů.
+
+Navazující cílená sada prošla **7/7** (61,86 s),
+`build/sweep-path-gui-tests.log`: jádro 3D tažení, překlady, skutečný CLI proces,
+konstrukční a Sweep příkazy, katalog a konzole s vnořenými Vlastnostmi bodu.
+Doplněná zkouška souřadnic tělesa a dotazu na neplatnou dráhu prošla **1/1**
+(4,99 s), `build/sweep-path-frame-tests.log`. Oba programy a testy jsou sestavené,
+`build/sweep-path-gui-build.log`. Katalog nadále obsahuje 170 příkazů; nativní
+formát a start šablony se nemění.

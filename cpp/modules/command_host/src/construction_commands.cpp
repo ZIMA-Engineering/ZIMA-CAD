@@ -1,3 +1,4 @@
+#include "construction_parameters.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/document/placement_json.hpp>
 #include <zima/workspace/placement_edit.hpp>
@@ -50,19 +51,6 @@ const char* definition(document::ConstructionDefinition value) {
     }
     throw std::logic_error("Unknown construction definition");
 }
-const char* tangent(document::Curve3DTangentMode value) {
-    using Mode = document::Curve3DTangentMode;
-    switch (value) {
-    case Mode::Automatic: return "automatic";
-    case Mode::PositiveX: return "+x";
-    case Mode::NegativeX: return "-x";
-    case Mode::PositiveY: return "+y";
-    case Mode::NegativeY: return "-y";
-    case Mode::PositiveZ: return "+z";
-    case Mode::NegativeZ: return "-z";
-    }
-    throw std::logic_error("Unknown curve tangent mode");
-}
 Json vec(kernel::Vec3 value) { return Json::array({value.x, value.y, value.z}); }
 std::size_t size_arg(const Json& args, const char* key, std::size_t fallback,
     std::size_t maximum, bool positive = false) {
@@ -75,27 +63,38 @@ struct Item {
     const Object* object;
     std::string parent, body;
     bool parent_suppressed;
+    std::string feature;
 };
 // Only the requested open document owns these definitions. No dependency file,
 // occurrence snapshot, shape, reference solver or viewer projection is queried.
 template<class Visitor> void visit(const Source& source, Visitor&& visitor) {
+    std::vector<Item> roots;
     for (const auto& root : source.objects) {
         const auto* body = source.part ? source.part->body_owner_for_object(root.id) : nullptr;
         const auto body_id = body ? body->scope.id : std::string{};
-        std::vector<Item> pending{{&root, body ? body_id : source.id, body_id, false}};
+        roots.push_back({&root, body ? body_id : source.id, body_id, false, {}});
+    }
+    if (source.part) for (const auto& feature : source.part->history) {
+        if (feature.feature_kind != document::FeatureKind::Sweep3D) continue;
+        const auto* body = source.part->body_owner_for_object(feature.id);
+        roots.push_back({&feature.sweep3d.path, feature.id, body ? body->scope.id : std::string{}, feature.suppressed, feature.id});
+    }
+    for (const auto& root : roots) {
+        std::vector<Item> pending{root};
         while (!pending.empty()) {
             auto item = std::move(pending.back()); pending.pop_back();
             if (!visitor(item)) return;
             for (auto point = item.object->curve_points.rbegin(); point != item.object->curve_points.rend(); ++point)
                 pending.push_back({&*point, item.object->id, item.body,
-                    item.parent_suppressed || item.object->suppressed});
+                    item.parent_suppressed || item.object->suppressed, item.feature});
         }
     }
 }
+
 Json summary(const Source& source, const Item& item) {
     const auto& value = *item.object;
     return {{"document", source.id}, {"construction", value.id}, {"kind", kind(value.kind)},
-        {"name", value.name}, {"parent", item.parent}, {"body", item.body},
+        {"name", value.name}, {"parent", item.parent}, {"body", item.body}, {"owning_feature", item.feature},
         {"parent_construction", value.parent_construction_id},
         {"entity", value.entity_id}, {"entity_parent", value.entity_parent_id},
         {"origin", value.container_origin.id}, {"reference_valid", value.reference_valid},
@@ -106,7 +105,8 @@ Json details(const Source& source, const Item& item, std::size_t limit) {
     const auto& value = *item.object;
     auto result = summary(source, item);
     result["revision"] = source.revision;
-    result["coordinate_system"] = !value.parent_construction_id.empty() ? "parent_construction"
+    result["coordinate_system"] = !item.feature.empty() && item.parent == item.feature ? "container"
+        : !value.parent_construction_id.empty() ? "parent_construction"
         : !item.body.empty() ? "body" : "document";
     result["coordinate_owner"] = !value.parent_construction_id.empty() ? value.parent_construction_id
         : !item.body.empty() ? item.body : source.id;
@@ -147,7 +147,7 @@ Json details(const Source& source, const Item& item, std::size_t limit) {
         result["children_truncated"] = value.curve_points.size() > limit;
     }
     if (value.kind == document::ConstructionKind::Curve3D || !value.parent_construction_id.empty()) {
-        result["tangent"] = tangent(value.curve_tangent);
+        result["tangent"] = construction_tangent_name(value.curve_tangent);
         result["tangent_enabled"] = value.curve_tangent_enabled;
         result["radius_mm"] = value.curve_radius;
     }
@@ -172,152 +172,7 @@ void writable_body(const Source& source, const Object* object) {
     if (body && body->derived_copy)
         throw QueryError("read_only_body", "A derived Body cannot be edited directly.");
 }
-void properties(Object& value, const Json& args, const kernel::ViewerReferenceGeometry& geometry, const Object* parent = nullptr) {
-    bool specified = false;
-    if (args.contains("name")) {
-        specified = true;
-        const auto text = args.at("name").get<std::string>();
-        const auto space = [](unsigned char c) { return std::isspace(c) != 0; };
-        const auto first = std::find_if_not(text.begin(), text.end(), space);
-        if (first == text.end()) throw QueryError("invalid_arguments", "Specify a nonempty object name.");
-        value.name = {first, std::find_if_not(text.rbegin(), text.rend(), space).base()};
-    }
-    const auto field = [&](const char* key, document::ConstructionKind required) {
-        if (!args.contains(key)) return false;
-        specified = true;
-        if (value.kind != required)
-            throw QueryError("invalid_arguments", "This property is unavailable for the construction kind.");
-        return true;
-    };
-    const auto number = [&](const char* key, const char* lock, double minimum, double maximum) {
-        const double result = args.at(key).get<double>();
-        if (!std::isfinite(result) || result < minimum || result > maximum)
-            throw QueryError("invalid_arguments", "Construction dimension is outside the supported range.");
-        if (value.value_locks.contains(lock)) throw QueryError("value_locked", "The construction dimension is locked.");
-        return result;
-    };
-    if (field("display_size_mm", document::ConstructionKind::Axis))
-        value.display_size = number("display_size_mm", "length", 0.001, 1000000);
-    if (field("offset_mm", document::ConstructionKind::Plane))
-        value.offset = number("offset_mm", "offset", -1000000, 1000000);
-    if (field("direction_axis", document::ConstructionKind::Axis)) {
-        const auto axis = args.at("direction_axis").get<std::string>();
-        if (axis != "x" && axis != "y" && axis != "z")
-            throw QueryError("invalid_arguments", "Construction axis must be x, y or z.");
-        value.direction_axis = axis;
-    }
-    if (field("base_plane", document::ConstructionKind::Plane)) {
-        const auto plane = args.at("base_plane").get<std::string>();
-        if (plane != "xy" && plane != "xz" && plane != "yz")
-            throw QueryError("invalid_arguments", "Construction plane must be xy, xz or yz.");
-        value.base_plane = plane == "xy" ? document::LocalDatumPlane::XY
-            : plane == "xz" ? document::LocalDatumPlane::XZ : document::LocalDatumPlane::YZ;
-    }
-    if (field("curve_type", document::ConstructionKind::Curve3D)) {
-        const auto type = args.at("curve_type").get<std::string>();
-        if (type != "polyline" && type != "interpolating_spline")
-            throw QueryError("invalid_arguments", "Curve type must be polyline or interpolating_spline.");
-        value.curve_type = type == "polyline" ? document::Curve3DType::Polyline : document::Curve3DType::InterpolatingSpline;
-    }
-    if (field("rounding_enabled", document::ConstructionKind::Curve3D)) {
-        if (value.curve_type != document::Curve3DType::Polyline)
-            throw QueryError("parameter_not_editable", "Rounding is editable only for a polyline.");
-        value.curve_rounding_enabled = args.at("rounding_enabled").get<bool>();
-    }
-    for (const auto* key : {"radius_mm", "tangent", "tangent_enabled"}) if (args.contains(key)) {
-        specified = true;
-        if (value.kind != document::ConstructionKind::Point || !parent || parent->kind != document::ConstructionKind::Curve3D)
-            throw QueryError("invalid_arguments", "Curve point properties require a point owned by a 3D curve.");
-    }
-    if (args.contains("radius_mm")) {
-        const auto index = std::ranges::find_if(parent->curve_points, [&](const auto& point) { return point.id == value.id; });
-        if (parent->curve_type != document::Curve3DType::Polyline || !parent->curve_rounding_enabled ||
-            index == parent->curve_points.begin() || index == parent->curve_points.end() || index + 1 == parent->curve_points.end())
-            throw QueryError("parameter_not_editable", "Radius is editable only at an interior point of a rounded polyline.");
-        value.curve_radius = number("radius_mm", "radius", 0, 1000000000);
-    }
-    if (args.contains("tangent")) {
-        using Mode = document::Curve3DTangentMode;
-        const auto mode = args.at("tangent").get<std::string>();
-        const auto modes = {Mode::Automatic, Mode::PositiveX, Mode::NegativeX, Mode::PositiveY,
-            Mode::NegativeY, Mode::PositiveZ, Mode::NegativeZ};
-        const auto selected = std::ranges::find_if(modes, [&](auto candidate) { return mode == tangent(candidate); });
-        if (selected == modes.end()) throw QueryError("invalid_arguments", "Tangent must be automatic, +x, -x, +y, -y, +z or -z.");
-        value.curve_tangent = *selected;
-        value.curve_tangent_enabled = *selected != Mode::Automatic;
-    }
-    if (args.contains("tangent_enabled")) {
-        value.curve_tangent_enabled = args.at("tangent_enabled").get<bool>();
-        if (value.curve_tangent_enabled && value.curve_tangent == document::Curve3DTangentMode::Automatic)
-            value.curve_tangent = document::Curve3DTangentMode::PositiveX;
-    }
-    if (args.contains("values")) {
-        specified = true;
-        if (args.at("values").empty()) throw QueryError("invalid_arguments", "Specify at least one placement parameter.");
-        for (const auto& [key, number] : args.at("values").items()) {
-            if (!number.is_number() || !std::isfinite(number.get<double>()))
-                throw QueryError("invalid_arguments", "Placement parameters must be finite JSON numbers.");
-            if (!workspace::assign_placement_dimension(value, geometry, key, number.get<double>()))
-                throw QueryError("parameter_not_editable", "The placement parameter is unknown, constrained or locked.");
-        }
-    }
-    if (!specified && !args.contains("points")) throw QueryError("invalid_arguments", "Specify at least one construction property.");
-}
-// Point IDs select existing children; entries without an ID allocate native Points.
-// This is the complete ordered list from the Properties dialog, not a merge by name.
-void curve_points(Object& value, const Json& args, const workspace::Workspace& live, const std::string& document) {
-    if (!args.contains("points")) return;
-    if (value.kind != document::ConstructionKind::Curve3D)
-        throw QueryError("invalid_arguments", "A point list requires a 3D curve.");
-    const auto& entries = args.at("points");
-    if (entries.size() < 2 || entries.size() > 5000)
-        throw QueryError("invalid_arguments", "A 3D curve requires between 2 and 5000 points.");
-    const auto old = value.curve_points;
-    std::vector<Object> next; next.reserve(entries.size()); std::set<std::string> identities;
-    for (const auto& entry : entries) {
-        if (!entry.is_object()) throw QueryError("invalid_arguments", "Each curve point must be a property object.");
-        for (const auto& [key, field] : entry.items()) {
-            const bool valid = (key == "construction" || key == "name" || key == "tangent") ? field.is_string()
-                : key == "values" ? field.is_object()
-                : key == "radius_mm" ? field.is_number()
-                : key == "tangent_enabled" ? field.is_boolean() : false;
-            if (!valid) throw QueryError("invalid_arguments", "Unknown or incorrectly typed curve point property.");
-        }
-        Object point;
-        if (entry.contains("construction")) {
-            const auto id = entry.at("construction").get<std::string>();
-            const auto found = std::ranges::find_if(old, [&](const auto& child) { return child.id == id; });
-            if (found == old.end()) throw QueryError("construction_not_found", "The selected point does not belong to this 3D curve.");
-            if (!identities.insert(id).second) throw QueryError("invalid_arguments", "A curve point cannot appear twice in the same list.");
-            point = *found;
-        } else {
-            point = document::PartDocument::create_construction(document::ConstructionKind::Point);
-            point.parent_construction_id = value.id;
-        }
-        next.push_back(std::move(point));
-    }
-    value.curve_points = std::move(next);
-    kernel::ViewerReferenceGeometry point_geometry;
-    for (std::size_t i = 0; i < entries.size(); ++i) {
-        if (!entries[i].contains("values") || value.curve_points[i].references.empty()) continue;
-        // Parent and children may change together. Resolve the proposed parent
-        // in its Body/document frame before testing a child's editable axes.
-        // Reuse one local reference packet for the whole point-list edit.
-        auto geometry = workspace::placement_edit_geometry(live, document, value.id);
-        static_cast<void>(document::resolve_construction(value, geometry));
-        document::PartDocument carrier; carrier.constructions.push_back(value);
-        // Only the frame is needed here. New points have not received their
-        // coordinates yet, so the temporary list is not a valid route.
-        carrier.constructions.back().curve_points = {value.curve_points[i]};
-        point_geometry = carrier.construction_reference_geometry_for(value.curve_points[i].id, std::move(geometry));
-        break;
-    }
-    for (std::size_t i = 0; i < entries.size(); ++i) {
-        const auto& entry = entries[i];
-        if (entry.empty() || (entry.size() == 1 && entry.contains("construction"))) continue;
-        properties(value.curve_points[i], entry, point_geometry, &value);
-    }
-}
+
 }
 void Host::register_construction_commands() {
     dispatcher_.add({"construction.list", tr("List stored construction objects and their owned points without calculation."),
@@ -376,6 +231,8 @@ void Host::register_construction_commands() {
                     const auto before = source(workspace_, args);
                     const auto* existing = create ? nullptr : find(before, args.at("construction").get<std::string>());
                     writable_body(before, existing);
+                    if (existing && before.part && !before.part->find_construction(existing->id))
+                        throw QueryError("embedded_construction", "Edit an embedded path through its owning Sweep command.");
                     auto value = existing ? *existing : Object{};
                     if (create) {
                         const auto type = args.at("kind").get<std::string>();
@@ -391,8 +248,19 @@ void Host::register_construction_commands() {
                     const auto geometry = existing && args.contains("values")
                         ? workspace::placement_edit_geometry(workspace_, document, id) : kernel::ViewerReferenceGeometry{};
                     const auto* parent = value.parent_construction_id.empty() ? nullptr : find(before, value.parent_construction_id);
-                    properties(value, args, geometry, parent);
-                    curve_points(value, args, workspace_, document);
+                    apply_construction_properties(value, args, geometry, parent);
+                    apply_curve_points(value, args, [&](Object& value, std::size_t i) {
+                        // Parent and children may change together. Resolve the proposed parent
+                        // in its Body/document frame before testing a child's editable axes.
+                        // Reuse one local reference packet for the whole point-list edit.
+                        auto geometry = workspace::placement_edit_geometry(workspace_, document, value.id);
+                        static_cast<void>(document::resolve_construction(value, geometry));
+                        document::PartDocument carrier; carrier.constructions.push_back(value);
+                        // Only the frame is needed here. New points have not received their
+                        // coordinates yet, so the temporary list is not a valid route.
+                        carrier.constructions.back().curve_points = {value.curve_points[i]};
+                        return carrier.construction_reference_geometry_for(value.curve_points[i].id, std::move(geometry));
+                    });
                     const bool changed = create || value != *existing;
                     if (changed) {
                         static_cast<void>(workspace::commit_construction(workspace_, document, std::move(value), create
@@ -408,6 +276,7 @@ void Host::register_construction_commands() {
                     result["changed"] = changed;
                     return Result::success(std::move(result));
                 } catch (const QueryError& error) { return Result::failure(error.code, tr(error.what())); }
+                  catch (const ConstructionParameterError& error) { return Result::failure(error.code, tr(error.what())); }
                   catch (const workspace::PlacementEditError& error) { return Result::failure(error.code, tr(error.what())); }
                   catch (const std::exception& error) { return Result::failure("construction_rejected", tr(error.what())); }
             });

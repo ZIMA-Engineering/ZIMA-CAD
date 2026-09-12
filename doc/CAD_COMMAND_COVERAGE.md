@@ -36,12 +36,12 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Historie Partu | Hotovo | Společný přesun, ověření závislostí, potlačení, odstranění a kurzor; včetně historie těles a Booleanů |
 | Tělesa a Boolean | Základ hotov | Tvorba, čtení, aktivace, název/viditelnost, kurzory a Boolean create/get/set; pořadí/mazání řeší historie; zbývá zadání referencí umístění a odvozené kopie |
 | Umístění a původní reference | Původní reference a číselná editace umístění hotovy | `placement.get/set`: tělesa a prvky Partu, konstrukce Partu/Assembly a jejich body; zbývá příkazové přidávání/výměna referencí, zámky, vložené dráhy a umístění komponent |
-| Konstrukční geometrie | Částečně hotovo | `construction.list/get/create/set`: dotazy, tvorba bodů/os/rovin/3D křivek, vlastnosti, umístění, úplné seznamy bodů, tečny a zaoblení; zbývají reference, mazání kořenových konstrukcí a vložené dráhy modelovacích prvků |
+| Konstrukční geometrie | Částečně hotovo | `construction.list/get/create/set`: dotazy, tvorba bodů/os/rovin/3D křivek, vlastnosti, umístění, úplné seznamy bodů, tečny a zaoblení; dotazy zahrnují vložené 3D dráhy; jejich editaci potvrzuje příkaz tažení; zbývají reference a mazání kořenových konstrukcí |
 | Skicář: geometrie | Základ hotov | 21 příkazů: samostatné a vložené skici, body, úsečky, kružnice, oblouky, elipsy, B-spline, obdélníky, mnohoúhelníky, posun a pomocná geometrie; text create/get/set s nativním písmem a spline get/set hotovy; DXF do vložených profilů hotov; zbývá kontrola dalších variant podle GUI |
 | Skicář: vazby a operace | Vazby/kóty/solver/offset/trim/mirror hotovy | Offset create/get/set/free, úplný podklad a zachování intervalů, trim podle průsečíků, mirror, orientovaný obdélník, tečny a zaoblení rohu; všech 15 druhů vazeb, odstranění a solver; 16 druhů kót včetně vlastností, popisků a mazání; uvolnění externích referencí hotovo |
 | Externí reference skici | Part a kořenová Assembly hotovy | Původní geometrie, přesná projekce, aktualizace, odpojení a zachování trimu; zbývá příkazový kontext Partu aktivovaného v sestavě |
 | Vytažení a rotace | Profily, Thin, směry a cíle zakončení Partu hotovy | `extrusion/revolution.create/get/set`, vlastněná skica, původní plochy a dvě nezávislé meze, společné OK; zbývají sestavové řezy |
-| Tažení | Částečně | `sweep2d/sweep3d/helical.get/set`, společné GUI potvrzení; zbývá CLI tvorba a správa profilů/dráhy |
+| Tažení | Částečně | `sweep2d/sweep3d/helical.get/set`, společné GUI potvrzení, celá 3D dráha a dotaz na stanice; zbývá CLI tvorba, správa profilů a reference roviny 2D dráhy |
 | Otvory a závity | Zbývá | Hole, Thread, ShaftThread, DrillPoint a reference |
 | Zaoblení, zkosení, skořepina | Zbývá | Výběr skutečného vstupního tělesa a sdílené transakce |
 | Zrcadlo a pole | Zbývá | Odvozená tělesa a komponenty |
@@ -619,3 +619,19 @@ Thin, posun/rotace, zámky, atomické chyby, GUI/CLI, Undo/Redo, nativní ulože
 i studený výpočet. Formát ani start šablony se nemění. Podrobnosti:
 [SWEEP_COMMANDS.md](SWEEP_COMMANDS.md). Další část tažení zahrnuje příkazovou
 tvorbu, správu profilů, stanice a vloženou dráhu; ostatní otevřené řádky zůstávají.
+
+
+Navazující etapa přidává úplnou vloženou 3D dráhu do `sweep3d.set path`:
+pořadí, přidání/odebrání bodů, rádiusy, tečny, polyline i interpolovanou spline.
+Přeživší body zachovají ID; změna jde přes stejný Sweep commit jako hlavní OK.
+`construction.list/get` nyní čte i dráhu a její body s vlastnícím prvkem;
+`sweep3d.get` vrací aktivní/příchozí stanice. Parametry 3D křivek sdílí jeden
+validátor pro samostatnou i vloženou dráhu.
+
+Ověřeno **7/7** souvisejících regresí (61,86 s), `build/sweep-path-gui-tests.log`,
+a závěrečná geometrická zkouška rámců tělesa a neplatné dráhy **1/1** (4,99 s),
+`build/sweep-path-frame-tests.log`. Reálný GUI test kontroluje také vnořené
+Vlastnosti bodu, hlavní OK/Cancel, Undo a uložený objem. Oba programy jsou
+sestavené; katalog zůstává na **170**, formát ani start šablony se nemění.
+Podrobnosti: [SWEEP_COMMANDS.md](SWEEP_COMMANDS.md). Pokračuje správa profilů,
+reference roviny 2D dráhy a příkazová tvorba tažení.

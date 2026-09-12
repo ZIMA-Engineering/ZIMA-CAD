@@ -874,6 +874,35 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
             const double pi=std::acos(-1.0),expected=helical?pi*.25*std::hypot(2*pi*10,10):80*pi;
             check(saved.history.front().id==feature.id&&!cache.empty()&&std::abs(cache.back().volume-expected)<(helical?expected*.001:1e-5),
                 "Sweep GUI/CLI saved incorrect geometry or feature ownership");
+            if(kind==document::FeatureKind::Sweep3D) {
+                const auto first=feature.sweep3d.path.curve_points.front().id;
+                const auto last=feature.sweep3d.path.curve_points.back().id;
+                commands::Json path_patch={{"curve_type","interpolating_spline"},{"points",commands::Json::array({
+                    commands::Json{{"construction",first}}, commands::Json{{"values",{{"z",15}}}},
+                    commands::Json{{"construction",last},{"values",{{"z",30}}}}
+                })}};
+                json_run("sweep3d.set",{{"container",feature.id},{"path",path_patch}});flush();
+                const auto child_z=[&]{return json_run("construction.get",{{"construction",last}}).data.at("origin_mm")[2].get<double>();};
+                for(const bool commit:{false,true}) {
+                    dialog=edit();
+                    check(dialog->findChild<QComboBox*>("curve3DType")->currentData().toInt()==
+                        static_cast<int>(document::Curve3DType::InterpolatingSpline),"Sweep Properties lost CLI path type");
+                    auto* rows=dialog->findChild<QTableWidget*>("curve3DPoints");check(rows,"Sweep path table missing");
+                    rows->selectRow(2);dialog->findChild<QPushButton*>("curve3DEditPoint")->click();flush();
+                    QDialog* point_dialog=nullptr;
+                    for(auto* child:window.findChildren<QDialog*>())if(child->isVisible()&&child!=dialog&&child->findChild<QDoubleSpinBox*>("constructionZ")){point_dialog=child;break;}
+                    check(point_dialog,"Sweep point Properties did not open");
+                    auto* z=point_dialog->findChild<QDoubleSpinBox*>("constructionZ");
+                    check(z->value()==30,"Point Properties lost CLI path coordinate");z->setValue(35);
+                    point_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+                    check(child_z()==30,"Nested point editor committed before Sweep OK");
+                    dialog->findChild<QDialogButtonBox*>()->button(commit?QDialogButtonBox::Ok:QDialogButtonBox::Cancel)->click();flush();
+                    check(child_z()==(commit?35:30),"Sweep point OK/Cancel violated the shared transaction");
+                }
+                run("save");cache.clear();static_cast<void>(document::PartDocument::load(path,&cache));
+                check(std::abs(cache.back().volume-140*pi)<1e-5,"GUI-edited Sweep path saved an incorrect volume");
+                run("undo");check(child_z()==30,"Sweep path Undo lost the previous coordinate");
+            }
             json_run("close",{{"discard",true}});run(QString::fromStdString(activate.dump()));flush();
         }
         input->setText("context");QApplication::sendEvent(input,&enter);flush();

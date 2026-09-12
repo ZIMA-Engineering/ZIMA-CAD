@@ -146,6 +146,7 @@ add_library(zima_command_host
     modules/command_host/src/history_commands.cpp
     modules/command_host/src/reference_commands.cpp
     modules/command_host/src/construction_commands.cpp
+    modules/command_host/src/construction_parameters.cpp
     modules/command_host/src/placement_commands.cpp
     modules/command_host/src/sketch_commands.cpp
     modules/command_host/src/sketch_curve_commands.cpp

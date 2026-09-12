@@ -625,13 +625,17 @@ int main(int argc,char** argv){
             Json patch={{"container",feature.id},{"name","Tažení žluťoučké"}};
             if(helical){patch["pitch_mm"]=10;patch["left_handed"]=true;}
             else{patch["result_type"]="thin";patch["thickness_mm"]=.5;patch["thin_mode"]="symmetric";}
+            if(kind==document::FeatureKind::Sweep3D) patch["path"]={{"points",Json::array({
+                Json{{"construction",feature.sweep3d.path.curve_points.front().id}},
+                Json{{"construction",feature.sweep3d.path.curve_points.back().id},{"values",{{"z",30}}}}
+            })}};
             result=launch(executable,root,common+QStringList{"--command",QString::fromStdString("open "+file),"--command",get,
                 "--command",command({{"command",prefix+".set"},{"arguments",patch}}),"--command","undo","--command","redo","--command","save","--command",get});
             require(result.exit_code==0&&result.results().size()==7,"Standalone CLI Sweep get/set or Undo/Redo failed");
             require(result.results().back().at("data").at("name")=="Tažení žluťoučké","Sweep CLI lost UTF-8 name");
             std::vector<kernel::BodyResult> cache;const auto reopened=document::PartDocument::load(project/file,&cache);
             require(reopened.history.front().id==feature.id&&reopened.history.front().name=="Tažení žluťoučké"&&!cache.empty(),"Sweep CLI lost native ownership or body cache");
-            const double pi=std::acos(-1.0),expected=helical?pi*.25*std::hypot(2*pi*10,10):40*pi;
+            const double pi=std::acos(-1.0),expected=helical?pi*.25*std::hypot(2*pi*10,10):(kind==document::FeatureKind::Sweep3D?60:40)*pi;
             require(std::abs(cache.back().volume-expected)<(helical?expected*.001:1e-5),"Standalone CLI Sweep saved incorrect volume");
         }
         std::cout<<"CLI processes: native files, Unicode/config, scripts/stdin, errors, streaming and explicit geometry calculation passed\n";

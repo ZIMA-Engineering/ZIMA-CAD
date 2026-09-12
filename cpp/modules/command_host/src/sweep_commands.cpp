@@ -1,3 +1,4 @@
+#include "construction_parameters.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/sweep_operations.hpp>
 #include <zima/workspace/placement_edit.hpp>
@@ -53,7 +54,26 @@ Json sweep_details(const workspace::PartState& state, const document::HistoryCon
             const auto& plane = feature.sweep2d.path_plane;
             result["path_plane"] = plane ? Json{{"owner", plane->owner_id}, {"key", plane->semantic_key},
                 {"instance_path", plane->instance_path}, {"offset_mm", plane->offset}} : Json(nullptr);
-        } else result["path"] = feature.sweep3d.path.id;
+        } else {
+            result["path"] = feature.sweep3d.path.id;
+            auto stations = Json::array();
+            try {
+                for (const auto& station : document::curve3d_route(feature.sweep3d.path).stations) {
+                    const auto found = std::ranges::find_if(feature.sweep3d.profiles, [&](const auto& profile) {
+                        return profile.point_id == station.point_id && profile.incoming == station.incoming;
+                    });
+                    stations.push_back({{"point", station.point_id}, {"incoming", station.incoming}, {"active", station.active},
+                        {"position_mm", {station.origin.x, station.origin.y, station.origin.z}},
+                        {"tangent", {station.tangent.x, station.tangent.y, station.tangent.z}},
+                        {"profile", found == feature.sweep3d.profiles.end() ? Json(nullptr) : Json(found->id)}});
+                }
+                result["stations_valid"] = true;
+            } catch (const std::exception& error) {
+                result["stations_valid"] = false; result["stations_error"] = error.what();
+            }
+            result["stations"] = std::move(stations);
+            result["station_coordinate_owner"] = feature.sweep3d.path.id;
+        }
     }
     return result;
 }
@@ -103,6 +123,36 @@ void sweep_properties(document::HistoryContainer& value, const Json& args,
                 throw Error("parameter_not_editable", "The placement parameter is unknown, constrained or locked.");
         }
     }
+    if (args.contains("path")) {
+        const auto& patch = args.at("path");
+        if (patch.empty()) throw Error("invalid_arguments", "Specify at least one construction property.");
+        for (const auto& [key, field] : patch.items()) {
+            const bool valid = key == "curve_type" ? field.is_string()
+                : key == "rounding_enabled" ? field.is_boolean() : key == "points" ? field.is_array() : false;
+            if (!valid) throw Error("invalid_arguments", "Unknown or incorrectly typed Sweep path property.");
+        }
+        auto& path = value.sweep3d.path;
+        apply_construction_properties(path, patch, {});
+        apply_curve_points(path, patch, [&](document::ConstructionObject& path, std::size_t index) {
+            auto geometry = workspace::placement_edit_geometry(live, id, value.id);
+            auto placement = value.placement;
+            static_cast<void>(document::resolve_placement(placement, geometry));
+            auto frame = path;
+            frame.parent_construction_id.clear(); frame.references.clear();
+            frame.origin = {placement.x, placement.y, placement.z};
+            frame.rotation = {placement.rotation_x, placement.rotation_y, placement.rotation_z};
+            frame.absolute_rotation = frame.rotation;
+            frame.curve_points = {path.curve_points[index]};
+            document::PartDocument carrier; carrier.constructions.push_back(std::move(frame));
+            return carrier.construction_reference_geometry_for(path.curve_points[index].id, std::move(geometry));
+        });
+        // Deleting a path Point deletes its station profiles in the same draft,
+        // just as the 3D Sweep Properties editor does. Kernel validation still
+        // rejects a route left without a usable first profile atomically.
+        std::erase_if(value.sweep3d.profiles, [&](const auto& profile) {
+            return std::ranges::none_of(path.curve_points, [&](const auto& point) { return point.id == profile.point_id; });
+        });
+    }
 }
 }
 void Host::register_sweep_commands() {
@@ -125,6 +175,7 @@ void Host::register_sweep_commands() {
         } else {
             fields.push_back({"result_type", false}); fields.push_back({"thin_mode", false});
             fields.push_back({"thickness_mm", false, Type::Number});
+            if (kind == Kind::Sweep3D) fields.push_back({"path", false, Type::Object});
         }
         dispatcher_.add({prefix + ".set", tr("Edit and calculate a Sweep through the shared Properties transaction."),
             std::move(fields), true}, [this, kind](const Json& args) {
@@ -139,6 +190,7 @@ void Host::register_sweep_commands() {
                 auto result = sweep_details(*state, sweep(state, container, kind)); result["changed"] = true;
                 return Result::success(std::move(result));
             } catch (const Error& error) { return Result::failure(error.code, tr(error.what())); }
+              catch (const ConstructionParameterError& error) { return Result::failure(error.code, tr(error.what())); }
               catch (const workspace::PlacementEditError& error) { return Result::failure(error.code, tr(error.what())); }
               catch (const std::exception& error) { return Result::failure("sweep_rejected", tr(error.what())); }
         });

@@ -97,6 +97,86 @@ void verify_sweep_commands(const kernel::OcctKernel& kernel, const fs::path& dir
     f.run("body.create", {{"name", "Other"}});
     f.reject(prefix + ".set", {{"container", id}, {"name", "Inactive"}}, "inactive_body");
     f.run("body.activate", {{"body", body}});
+    if (kind == document::FeatureKind::Sweep3D) {
+        const auto path_id = definition.sweep3d.path.id;
+        const auto first = definition.sweep3d.path.curve_points.front().id;
+        const auto last = definition.sweep3d.path.curve_points.back().id;
+        const auto path = f.run("construction.get", {{"construction", path_id}});
+        require(path.at("owning_feature") == id && path.at("coordinate_system") == "container" &&
+            path.at("coordinate_owner") == id && path.at("body") == body && path.at("children").size() == 2,
+            "Embedded path query lost its feature, frame or Body");
+        const auto points = f.run("construction.list", {{"parent", path_id}});
+        require(points.at("total") == 2 && points.at("items")[0].at("owning_feature") == id,
+            "Embedded path child query lost ownership");
+        require(f.run(prefix + ".get", {{"container", id}}).at("stations").size() == 2,
+            "Sweep query omitted stable path stations");
+        f.reject("construction.set", {{"construction", first}, {"values", {{"z", 1}}}}, "embedded_construction");
+        const auto update = [&](Json value) { f.run("sweep3d.set", {{"container", id}, {"path", std::move(value)}}); };
+        const auto entry = [](const std::string& point, Json fields = Json::object()) {
+            fields["construction"] = point; return fields;
+        };
+        const auto reject_path = [&](Json path, const char* code) {
+            f.reject("sweep3d.set", {{"container", id}, {"path", std::move(path)}}, code);
+        };
+        update({{"points", Json::array({entry(first), entry(last, {{"values", {{"z", 30}}}})})}});
+        near(f.volume(), 60 * std::numbers::pi);
+        f.run("undo"); near(f.volume(), changed);
+        f.run("redo"); near(f.volume(), 60 * std::numbers::pi);
+        update({{"curve_type", "interpolating_spline"}, {"points", Json::array({entry(first),
+            Json{{"values", {{"z", 15}}}}, entry(last)})}});
+        near(f.volume(), 60 * std::numbers::pi);
+        const auto spline = f.run("construction.get", {{"construction", path_id}});
+        const auto middle = spline.at("children")[1].get<std::string>();
+        require(spline.at("curve_type") == "interpolating_spline" &&
+            spline.at("children")[0] == first && spline.at("children")[2] == last,
+            "Path insertion changed surviving point identities");
+        update({{"curve_type", "polyline"}, {"rounding_enabled", true}, {"points", Json::array({entry(first),
+            entry(middle, {{"values", {{"z", 20}}}, {"radius_mm", 5}}),
+            entry(last, {{"values", {{"x", 10}, {"z", 20}}}})})}});
+        const double rounded_volume = 2 * std::numbers::pi * (20 + 2.5 * std::numbers::pi);
+        near(f.volume(), rounded_volume, 1e-6);
+        const auto rounded = f.run(prefix + ".get", {{"container", id}});
+        require(rounded.at("stations_valid") == true && rounded.at("stations").size() == 4 &&
+            rounded.at("stations")[1].at("incoming") == true && rounded.at("stations")[2].at("point") == middle,
+            "Rounded path stations did not distinguish incoming and outgoing branches");
+        reject_path({{"points", Json::array({entry(first), entry(first)})}}, "invalid_arguments");
+        reject_path({{"points", Json::array({entry(first), entry("foreign")})}}, "construction_not_found");
+        reject_path({{"rounding_enabled", 1}}, "invalid_arguments");
+        reject_path({{"origin_mm", {1, 2, 3}}}, "invalid_arguments");
+        reject_path({{"points", Json::array({entry(middle), entry(last)})}}, "sweep_rejected");
+        auto referenced = f.state().session.document();
+        auto moved_body = *referenced.body_history.find(body);
+        moved_body.scope.placement.references.clear();
+        moved_body.scope.placement.x = 100;
+        moved_body.scope.placement.rotation_z = 40;
+        moved_body.scope.placement.absolute_rotation_z = 40;
+        referenced.body_history.update_body(std::move(moved_body));
+        auto& point = referenced.find_container(id)->sweep3d.path.curve_points.front();
+        point.references.push_back({{}, definition.sweep3d.path.container_origin.id, "origin:plane:xy", 0, true});
+        referenced.resolve_constructions();
+        auto moved_geometry = workspace::calculate_part_with_resolved_references(kernel, referenced);
+        f.state().session.commit(std::move(referenced), std::move(moved_geometry));
+        near(f.volume(), rounded_volume, 1e-6);
+        reject_path({{"points", Json::array({entry(first, {{"values", {{"z", 1}}}}),
+            entry(middle), entry(last)})}}, "parameter_not_editable");
+        update({{"points", Json::array({entry(first, {{"values", {{"x", 0}}}}), entry(middle), entry(last)})}});
+        near(f.volume(), rounded_volume, 1e-6);
+        f.run("save");
+        const auto path_saved = document::PartDocument::load(directory / (prefix + ".prtz"));
+        require(path_saved.history == f.state().session.document().history,
+            "Embedded path save lost points, native references or profile frames");
+        auto broken = f.state().session.document();
+        auto& broken_points = broken.find_container(id)->sweep3d.path.curve_points;
+        broken_points[1].origin = broken_points[0].origin;
+        f.state().session.commit(std::move(broken), f.state().session.calculated_boundaries());
+        const auto broken_revision = f.state().session.revision();
+        const auto* broken_cache = f.state().session.calculated_boundaries().data();
+        const auto inspected = f.run("sweep3d.get", {{"container", id}});
+        require(inspected.at("stations_valid") == false && inspected.contains("stations_error") &&
+            f.state().session.revision() == broken_revision && f.state().session.calculated_boundaries().data() == broken_cache,
+            "Reading an invalid route changed the Part or hid its editable parameters");
+        f.run("undo");
+    }
 }
 }
 int main() {
