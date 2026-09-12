@@ -49,7 +49,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Výkresy | Správa neuložených změn hotova | Příkazy pro listy, pohledy, kóty, anotace, šablony, BOM, Show/Erase |
 | Řezy, měření a vzhled | Zbývá | Datové operace a uložené výsledky |
 | Parametry, relace a materiál | Zbývá | Jednotky, fyzikální údaje a rodinné tabulky |
-| Import a export | Import Partu STEP/IGES/DXF a základní exporty hotovy | Společný STEP včetně vnořených sestav, STL Part/plochá Assembly, DXF úsečky/kružnice/oblouky; zbývá import Assembly, vložených profilů, další DXF geometrie, vnořený STL a výkresové exporty |
+| Import a export | Import Partu/Assembly STEP/IGES/DXF a základní exporty hotovy | Společný STEP včetně vnořených sestav, STL Part/plochá Assembly, DXF úsečky/kružnice/oblouky; zbývá import vložených profilů, další DXF geometrie, vnořený STL a výkresové exporty |
 
 Každá další etapa aktualizuje tabulku a uvádí ověřené testy. Neobcházíme
 chybějící operaci nevalidovanou změnou serializovaného dokumentu ani voláním
@@ -181,3 +181,10 @@ STL zápis do české cesty na Windows. Podrobnosti a omezení jsou v
 [EXPORT_COMMANDS.md](EXPORT_COMMANDS.md).
 Celá Windows Release sada exportní etapy prošla **72/72** (397,87 s),
 `build/export-full-tests.log`.
+
+Importní příkazy rozšířeny na Assembly se společnou GUI transakcí. Katalog
+zůstává na **108 příkazech**. STEP zachovává hierarchii a sdílení zdrojů,
+IGES/DXF vytváří jeden Part. Opožděný výpočet nebo chyba zápisu nezanechá
+částečné vložení do cíle. Podrobnosti: [IMPORT_COMMANDS.md](IMPORT_COMMANDS.md).
+Integrační testy importu sestav **7/7** (17,00 s); závěrečné hraniční, CLI
+a GUI regrese **3/3** (15,52 s). Logy jsou v dokumentaci importu.

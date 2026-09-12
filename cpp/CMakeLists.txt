@@ -102,6 +102,7 @@ add_library(zima_workspace modules/workspace/src/workspace.cpp
     modules/workspace/src/reference_sources.cpp
     modules/workspace/src/export_operations.cpp
     modules/workspace/src/import_operations.cpp
+    modules/workspace/src/assembly_import_operations.cpp
     modules/workspace/src/sketch_operations.cpp
     modules/workspace/src/sketch_reference_operations.cpp
     modules/workspace/src/native_documents.cpp
@@ -451,6 +452,11 @@ if(ZIMA_BUILD_TESTS)
     target_link_libraries(zima_cpp_export_command_tests PRIVATE zima_command_host)
     add_test(NAME zima_cpp_export_command_tests COMMAND zima_cpp_export_command_tests)
     set_tests_properties(zima_cpp_export_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
+
+    add_executable(zima_cpp_assembly_import_command_tests tests/assembly_import_command_tests.cpp)
+    target_link_libraries(zima_cpp_assembly_import_command_tests PRIVATE zima_command_host)
+    add_test(NAME zima_cpp_assembly_import_command_tests COMMAND zima_cpp_assembly_import_command_tests)
+    set_tests_properties(zima_cpp_assembly_import_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
 
     add_executable(zima_cpp_import_command_tests tests/import_command_tests.cpp)
     target_link_libraries(zima_cpp_import_command_tests PRIVATE zima_command_host TKDEIGES TKPrim)

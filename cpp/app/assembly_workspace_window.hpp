@@ -733,7 +733,6 @@ private:
     void show_about();
     void import_file();
     void import_selected_file(const QString& path, std::optional<double> mesh_deflection = {});
-    void import_step_into_assembly(const std::filesystem::path& path, std::optional<double> mesh_deflection = {});
     void export_file();
     void show_primitive_properties(
         zima::document::FeatureKind feature_kind,

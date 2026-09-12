@@ -399,6 +399,17 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         choose_export.start();export_timeout.start(10000);menu_export_action->trigger();choose_export.stop();export_timeout.stop();flush();
         check(export_chosen && !export_timed_out && std::filesystem::is_regular_file(exported_model) && std::filesystem::file_size(exported_model)>0,"Menu export did not publish a STEP model");
         run("save");
+        run(QString::fromStdString("new assembly "+stem+"-import-owner"));
+        commands::Json assembly_import={{"command","import.step"},{"arguments",{{"path",document::path_to_utf8(exported_model)}}}};
+        const auto assembly_result=run(QString::fromStdString(assembly_import.dump())).data;
+        check(!assembly_result.at("parts").empty() && !assembly_result.at("occurrence").get<std::string>().empty(),"GUI console Assembly STEP import failed");
+        chosen=false;timed_out=false;choose_import.start();import_timeout.start(10000);
+        import_action->trigger();choose_import.stop();import_timeout.stop();flush();
+        check(chosen && !timed_out,"Assembly menu import did not finish");run("save");
+        const auto imported_owner=assembly::AssemblyDocument::load(directory/(stem+"-import-owner.asmz"));
+        check(imported_owner.components.size()==2,"Assembly menu import did not add exactly one component");
+        const auto imported_dxf_part=document::PartDocument::load(imported_owner.components.back().source_path);
+        check(imported_dxf_part.sketches.back().segments.size()==4,"Assembly menu DXF did not preserve native geometry");
         run(QString::fromStdString(activate.dump()));flush();
         input->setText("context");QApplication::sendEvent(input,&enter);flush();
         check(window.grab().save(QString::fromStdString((directory/"command-console.png").string())),"Console screenshot failed");

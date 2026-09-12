@@ -2,22 +2,22 @@
 
 ## Rozsah etapy
 
-Menu importu do Partu a příkazy `import.step`, `import.iges`, `import.dxf`
-používají `workspace::import_part`. Geometrický převod zůstává ve stávajících
-nativních funkcích `interchange::import_step_part`, `import_iges_part`
-a `import_dxf_part`; nemění se jejich pravidla těles ani umístění.
+Menu importu a příkazy `import.step`, `import.iges`, `import.dxf` sdílejí
+`workspace::import_part` pro Part a `workspace::import_assembly` pro sestavu.
+Geometrický převod zůstává ve stávajících nativních funkcích interchange;
+nemění se pravidla umístění těles ani komponent.
 
-Tato etapa pokrývá běžný aktivní Part. Import sestavy, aktivní výskyt uvnitř
-sestavy, import do rozpracovaného GUI náhledu, výkresy a exporty jsou další
-oblasti přehledu pokrytí. Importované skici ve vložených profilech zatím
-nemají tento příkazový vstup; DXF přijímá samostatnou nebo vlastněnou skicu
-z hlavního seznamu Partu.
+Tato etapa pokrývá běžný aktivní Part a kořenovou Assembly. Příkazový import
+do aktivního výskytu uvnitř sestavy nebo rozpracovaného GUI náhledu je další
+oblast přehledu pokrytí. DXF do Partu přijímá skicu z jeho hlavního seznamu;
+vložené profily zatím tento příkazový vstup nemají. Exporty popisuje
+[EXPORT_COMMANDS.md](EXPORT_COMMANDS.md).
 
 ## Příkazy a jednotky
 
-- `import.step path [mesh_deflection_mm]`
-- `import.iges path [mesh_deflection_mm]`
-- `import.dxf path [sketch] [unitless_scale_mm] [maximum_entities]`
+- `import.step path [mesh_deflection_mm] [output_directory]`
+- `import.iges path [mesh_deflection_mm] [output_directory]`
+- `import.dxf path [sketch] [unitless_scale_mm] [maximum_entities] [output_directory]`
 
 Všechny příkazy mají volitelný argument `document` pro kontrolu identity
 aktivního dokumentu. Přípona musí odpovídat příkazu (`.stp/.step`,
@@ -43,7 +43,7 @@ DXF entit zahrnuje i nezpracované typy; jejich varování jsou ve výsledku.
 {"command":"import.dxf","arguments":{"path":"import/obrys.dxf","sketch":"SKETCH_ID","maximum_entities":10000}}
 ```
 
-## Výsledek a transakce
+## Výsledek a transakce Partu
 
 Výsledek vrací `document`, `source`, nová ID `bodies` a `containers`,
 `sketch`, `import_block`, `source_entities`, `imported_entities`, `warnings`,
@@ -79,4 +79,63 @@ GUI regrese spouští příkaz i skutečnou akci Importovat přes QFileDialog.
 Celá sada: 70/71 v `build/part-import-full-tests.log`; opravený nový GUI
 test následně 1/1 v `build/part-import-gui-tests.log`. Oprava se týkala
 předvolení souboru testem během načítání proxy modelu dialogu, nikoli
-modelového importu. Katalog má 105 příkazů.
+modelového importu. Katalog měl v této etapě 105 příkazů.
+
+## Import do sestavy
+
+Stejné příkazy v aktivní sestavě vytvoří nativní zdroje a do jejího dokumentu
+vloží jeden kořenový výskyt. STEP zachovává skutečnou produktovou strukturu,
+opakované komponenty sdílejí jeden zdrojový Part či podsestavu a mají vlastní
+identity výskytů. Rozdělení solidu a plochy uvnitř jednoho STEP produktu se
+nemění: nevytváří se z nich samostatné komponenty.
+
+IGES i DXF vytvoří jeden Part podle současné Part šablony. IGES obsahuje
+importované těleso, DXF nativní vlastněnou skicu. Do existující skici sestavy
+se tímto příkazem nepřidává; argument `sketch` zde není povolen. Nové zdroje
+přebírají přesnost a zobrazovací jednotky vlastnící sestavy. STEP souřadnice
+a geometrické výpočty nadále používají mm.
+
+`output_directory` je volitelný pouze pro Assembly. Musí označovat dosud
+neexistující adresář pod existujícím rodičem; import žádné původní zdroje
+nepřepisuje. Relativní hodnota je vůči pracovnímu adresáři konzole.
+Bez argumentu vznikne unikátní `<název_zdroje>_zima`, případně `_1`, `_2`,
+vedle cílové sestavy nebo v pracovním adresáři neuložené sestavy. Stejnou
+organizaci používá menu GUI pro STEP, IGES i DXF. Obsahuje pouze `.prtz`
+a `.asmz`; žádný povinný manifest či další formát.
+
+```json
+{"command":"new","arguments":{"type":"assembly","name":"montáž"}}
+{"command":"import.step","arguments":{"path":"import/celek.step","output_directory":"celek_native","mesh_deflection_mm":2}}
+{"command":"save","arguments":{}}
+```
+
+Výsledek sestavy obsahuje `document`, `source`, `directory`, `files`,
+`occurrence`, `source_document`, seznamy zdrojových ID `parts` a `assemblies`,
+`sketch`, statistiky DXF, `warnings`, `changed` a novou `revision` vlastníka.
+
+Výpočet i zápis pracují s oddělenými připravenými daty. Po obou pracovních
+fázích se kontroluje identita otevření, revize a generace dat cílové sestavy.
+Úplná změna vlastníka včetně Undo je připravena před vložením zdrojů do živého
+Workspace. Chyba či změněný/znovuotevřený cíl nezanechá částečně vložené
+dokumenty; odstraní se pouze soubory této nedokončené operace. Žádné cizí
+adresáře se rekurzivně nemažou. Po úspěchu jsou zdrojové soubory uloženy,
+vlastnící sestavu uživatel ukládá výslovným `save`.
+
+Undo odpojí jediný vložený kořenový výskyt. Nové nezávislé zdrojové dokumenty
+a jejich soubory zachová; Redo připojí stejný výskyt se stejnou identitou.
+Import nemění aktivní/zobrazený dokument a neregeneruje jiné nadřazené sestavy.
+
+`zima_cpp_assembly_import_command_tests` ověřuje čtyři výskyty kvádru
+10×20×30 mm ve dvou výskytech téže podsestavy: celkem 24000 mm³, jeden
+zdrojový Part, dvě zdrojové Assembly a sdílená geometrická data. Dále ověřuje
+Unicode cesty, jednotky, přesnost, nativní uložení a regeneraci po odstranění
+STEP, Undo/Redo, IGES 1000 mm³, DXF a chybové/souběžné dokončení obou fází.
+Skutečné CLI ověřuje všechny tři importy do sestavy a následné otevření souborů.
+GUI scénář používá příkaz pro STEP a skutečnou akci menu pro DXF.
+
+Katalog zůstává na 108 příkazech; importní příkazy nyní podporují oba typy
+dokumentů. Integrační sada **7/7**, 17,00 s,
+`build/assembly-import-integration-tests.log`. Závěrečné regrese **3/3**,
+15,52 s, `build/assembly-import-final-tests.log`, včetně znovuotevřeného cíle,
+pasivního rodiče a zachování cizího souboru při úklidu. GUI i CLI byly
+znovu přeloženy v `build/assembly-import-final-build.log`.

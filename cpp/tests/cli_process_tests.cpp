@@ -243,6 +243,17 @@ int main(int argc,char** argv){
         require(result.exit_code==0 && result.results()[1].at("data").at("bodies").size()==1,"CLI IGES import failed");
         std::vector<kernel::BodyResult> iges_bodies;static_cast<void>(document::PartDocument::load(project/"cli-iges.prtz",&iges_bodies));
         require(!iges_bodies.empty() && std::abs(iges_bodies.back().volume-1000)<1e-4,"CLI IGES changed native scale");
+        const auto assembly_step=command({{"command","import.step"},{"arguments",{{"path",document::path_to_utf8(step_source)},{"output_directory","sestava nativní"},{"mesh_deflection_mm",2.0}}}});
+        result=launch(executable,root,common+QStringList{"--command","new assembly cli-import-owner","--command",assembly_step,"--command","save"});
+        require(result.exit_code==0 && result.results().size()==3 && result.results()[1].at("data").at("parts").size()==1,"CLI Assembly STEP import failed");
+        auto assembly_imported=assembly::AssemblyDocument::load(project/"cli-import-owner.asmz");
+        require(assembly_imported.components.size()==1 && std::abs(assembly_imported.components.front().calculated_source->volume-6000)<1e-5,"CLI Assembly import lost source geometry");
+        result=launch(executable,root,common+QStringList{"--command","open cli-import-owner.asmz","--command",iges_import,"--command",dxf_import,"--command","save"});
+        require(result.exit_code==0 && result.results().size()==4,"CLI Assembly IGES/DXF import failed");
+        assembly_imported=assembly::AssemblyDocument::load(project/"cli-import-owner.asmz");
+        require(assembly_imported.components.size()==3 && std::abs(assembly_imported.components[1].calculated_source->volume-1000)<1e-4,"CLI Assembly import did not persist independent components");
+        const auto imported_profile=document::PartDocument::load(assembly_imported.components[2].source_path);
+        require(imported_profile.sketches.back().segments.size()==1,"CLI Assembly DXF lost its source sketch");
         result=launch(executable,root,common+QStringList{"--stdin"},"new part cli-sketch\nsketch.create Spline XY\nsave\n");
         require(result.exit_code==0 && result.results().size()==3,"CLI could not create an owned Sketch");
         const auto sketch_id=result.results()[1].at("data").at("sketch").get<std::string>();
