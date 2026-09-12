@@ -915,6 +915,29 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
                 check(std::abs(cache.back().volume-140*pi)<1e-5,"GUI-edited Sweep path saved an incorrect volume");
                 run("undo");check(child_z()==30,"Sweep path Undo lost the previous coordinate");
             }
+            if(planar) {
+                const auto source=json_run("sketch.create",{{"name","Imported station profile"},{"plane","XY"}}).data.at("sketch").get<std::string>();
+                const auto circle=json_run("sketch.circle.create",{{"sketch",source},{"center",{0,0}},{"radius_mm",3}}).data.at("geometry").get<std::string>();
+                const auto current=get(),station=current.at("stations").back();
+                json_run("sweep2d.set",{{"container",feature.id},{"result_type","solid"},
+                    {"profiles",commands::Json::array({commands::Json{{"profile",current.at("profiles")[0].at("profile")}},
+                        commands::Json{{"sketch",source},{"point",station.at("point")},{"incoming",station.at("incoming")}}})}});flush();
+                check(get().at("profiles").size()==2&&get().at("profiles")[1].at("sketch")==source,
+                    "GUI console did not adopt the new profile identity");
+                dialog=edit();auto* rows=dialog->findChild<QTableWidget*>("sweep2dProfiles");
+                check(rows&&rows->rowCount()==2,"Sweep Properties omitted the added profile station");
+                dialog->findChild<QPushButton*>("sweep2dStationSketch1")->click();flush();
+                check(std::ranges::any_of(view->mesh().edges,[&](const auto& edge){return edge.reference.owner_id==source&&
+                    edge.reference.semantic_key.starts_with("circle:"+circle);}),"GUI Sketch editor lost the adopted original circle");
+                window.findChild<QAction*>("finishSketchAction")->trigger();flush();
+                dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
+                check(get().at("profiles").size()==2,"GUI Cancel removed the committed imported profile");
+                dialog=edit();dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+                run("save");cache.clear();const auto profiles_saved=document::PartDocument::load(path,&cache);
+                check(profiles_saved.sketches.empty()&&profiles_saved.history.front().sweep2d.profiles[1].sketch_id==source&&
+                    !cache.empty()&&std::abs(cache.back().volume-380*pi/3)<1e-4,
+                    "GUI profile confirmation duplicated sources or changed frustum geometry");
+            }
             json_run("close",{{"discard",true}});run(QString::fromStdString(activate.dump()));flush();
         }
         input->setText("context");QApplication::sendEvent(input,&enter);flush();

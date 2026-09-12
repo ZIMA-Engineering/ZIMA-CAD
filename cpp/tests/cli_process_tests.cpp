@@ -656,6 +656,29 @@ int main(int argc,char** argv){
                 saved.history.front().sweep3d.profiles.front().sketch_id==sketch&&!cache.empty()&&
                 std::abs(cache.back().volume-80*std::acos(-1.0))<1e-5,"Standalone creation duplicated inputs or saved incorrect geometry");
         }
+        for(const auto kind:{document::FeatureKind::Sweep2D,document::FeatureKind::Sweep3D}) {
+            const bool planar=kind==document::FeatureKind::Sweep2D;const std::string prefix=planar?"sweep2d":"sweep3d";
+            const auto feature=test_support::sweep_fixture(kind);
+            auto sketch=sketcher::Sketch::create_default();auto owner=document::PartDocument::create_sketch_container();
+            sketch.owner_container_id=owner.id;static_cast<void>(sketch.add_circle(0,0,3));
+            auto native=document::PartDocument::create_default();native.name="cli-"+prefix+"-profiles";
+            native.history={owner,feature};native.sketches={sketch};document::BodyHistoryGraph graph;
+            static_cast<void>(graph.create_body("Sweep"));graph.insert({document::PartHistoryKind::Feature,owner.id});
+            graph.insert({document::PartHistoryKind::Feature,feature.id});native.set_body_history(graph);native.resolve_constructions();
+            const auto file=native.name+".prtz";native.save(project/file);
+            const auto station=planar?document::PartDocument::sweep2d_route(native.history.back()).stations.back():document::curve3d_route(feature.sweep3d.path).stations.back();
+            const auto first=planar?feature.sweep2d.profiles.front().id:feature.sweep3d.profiles.front().id;
+            const auto patch=command({{"command",prefix+".set"},{"arguments",{{"container",feature.id},
+                {"profiles",Json::array({Json{{"profile",first}},Json{{"sketch",sketch.id},{"point",station.point_id},{"incoming",station.incoming}}})}}}});
+            result=launch(executable,root,common+QStringList{"--command",QString::fromStdString("open "+file),"--command",patch,
+                "--command","undo","--command","redo","--command","save","--command",
+                command({{"command",prefix+".get"},{"arguments",{{"container",feature.id}}}})});
+            require(result.exit_code==0&&result.results().size()==6,"Standalone profile adoption failed");
+            require(result.results().back().at("data").at("profiles")[1].at("sketch")==sketch.id,"Standalone profile adoption lost Sketch ID");
+            std::vector<kernel::BodyResult> cache;const auto saved=document::PartDocument::load(project/file,&cache);
+            require(saved.history.size()==1&&saved.sketches.empty()&&!cache.empty()&&std::abs(cache.back().volume-380*std::acos(-1.0)/3)<1e-4,
+                "Standalone profile adoption duplicated inputs or saved incorrect frustum volume");
+        }
         std::cout<<"CLI processes: native files, Unicode/config, scripts/stdin, errors, streaming and explicit geometry calculation passed\n";
         return 0;
     }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}

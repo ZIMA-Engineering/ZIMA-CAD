@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <optional>
 
 namespace zima::command_host {
 namespace {
@@ -54,28 +55,81 @@ Json sweep_details(const workspace::PartState& state, const document::HistoryCon
             const auto& plane = feature.sweep2d.path_plane;
             result["path_plane"] = plane ? Json{{"owner", plane->owner_id}, {"key", plane->semantic_key},
                 {"instance_path", plane->instance_path}, {"offset_mm", plane->offset}} : Json(nullptr);
-        } else {
-            result["path"] = feature.sweep3d.path.id;
-            auto stations = Json::array();
-            try {
-                for (const auto& station : document::curve3d_route(feature.sweep3d.path).stations) {
-                    const auto found = std::ranges::find_if(feature.sweep3d.profiles, [&](const auto& profile) {
-                        return profile.point_id == station.point_id && profile.incoming == station.incoming;
-                    });
-                    stations.push_back({{"point", station.point_id}, {"incoming", station.incoming}, {"active", station.active},
-                        {"position_mm", {station.origin.x, station.origin.y, station.origin.z}},
-                        {"tangent", {station.tangent.x, station.tangent.y, station.tangent.z}},
-                        {"profile", found == feature.sweep3d.profiles.end() ? Json(nullptr) : Json(found->id)}});
-                }
-                result["stations_valid"] = true;
-            } catch (const std::exception& error) {
-                result["stations_valid"] = false; result["stations_error"] = error.what();
+        } else result["path"] = feature.sweep3d.path.id;
+        auto stations = Json::array();
+        const auto& owned_profiles = planar ? feature.sweep2d.profiles : feature.sweep3d.profiles;
+        try {
+            const auto route = planar ? document::PartDocument::sweep2d_route(feature) : document::curve3d_route(feature.sweep3d.path);
+            for (const auto& station : route.stations) {
+                const auto found = std::ranges::find_if(owned_profiles, [&](const auto& profile) {
+                    return profile.point_id == station.point_id && profile.incoming == station.incoming;
+                });
+                stations.push_back({{"point", station.point_id}, {"incoming", station.incoming}, {"active", station.active},
+                    {"position_mm", {station.origin.x, station.origin.y, station.origin.z}},
+                    {"tangent", {station.tangent.x, station.tangent.y, station.tangent.z}},
+                    {"profile", found == owned_profiles.end() ? Json(nullptr) : Json(found->id)}});
             }
-            result["stations"] = std::move(stations);
-            result["station_coordinate_owner"] = feature.sweep3d.path.id;
+            result["stations_valid"] = true;
+        } catch (const std::exception& error) {
+            result["stations_valid"] = false; result["stations_error"] = error.what();
         }
+        result["stations"] = std::move(stations);
+        result["station_coordinate_owner"] = planar ? (body ? body->scope.id : document.document_id) : feature.sweep3d.path.id;
     }
     return result;
+}
+workspace::SweepProfileSource profile_source(const Json& entry) {
+    if (!entry.is_object() || !entry.contains("sketch") || !entry.contains("point"))
+        throw Error("invalid_profile", "Each Sweep profile requires a Sketch and a path Point.");
+    for (const auto& [key, field] : entry.items()) {
+        const bool valid = key == "incoming" ? field.is_boolean()
+            : (key == "sketch" || key == "point" || key == "start_point") && field.is_string();
+        if (!valid) throw Error("invalid_profile", "Unknown or incorrectly typed Sweep profile property.");
+    }
+    return {entry.at("sketch"), entry.at("point"), entry.value("incoming", false), entry.value("start_point", std::string{})};
+}
+void validate_profile_stations(const document::HistoryContainer& value, const std::vector<document::Sweep3DProfile>& previous) {
+    std::optional<document::Curve3DRoute> route;
+    const bool planar = value.feature_kind == Kind::Sweep2D;
+    for (const auto& profile : planar ? value.sweep2d.profiles : value.sweep3d.profiles) {
+        // Existing inactive stations intentionally persist when path rounding
+        // changes. Only an explicit new binding must select an offered station.
+        if (std::ranges::any_of(previous, [&](const auto& old) { return old.id == profile.id &&
+            old.point_id == profile.point_id && old.incoming == profile.incoming; })) continue;
+        if (!route) route = planar ? document::PartDocument::sweep2d_route(value) : document::curve3d_route(value.sweep3d.path);
+        if (std::ranges::none_of(route->stations, [&](const auto& station) { return station.active &&
+            station.point_id == profile.point_id && station.incoming == profile.incoming; }))
+            throw Error("invalid_profile", "A new or moved Sweep profile requires an active path station.");
+    }
+}
+bool replace_profiles(document::HistoryContainer& value, const document::HistoryContainer& original,
+    const document::PartDocument& part, const Json& entries) {
+    if (entries.empty() || entries.size() > 5000)
+        throw Error("invalid_profile", "A Sweep requires between 1 and 5000 profile Sketches.");
+    const auto& previous = original.feature_kind == Kind::Sweep2D ? original.sweep2d.profiles : original.sweep3d.profiles;
+    std::vector<document::Sweep3DProfile> profiles; bool adopted = false;
+    for (const auto& entry : entries) {
+        if (entry.is_object() && entry.contains("profile")) {
+            for (const auto& [key, field] : entry.items()) {
+                const bool valid = key == "incoming" ? field.is_boolean()
+                    : (key == "profile" || key == "point" || key == "start_point") && field.is_string();
+                if (!valid) throw Error("invalid_profile", "Unknown or incorrectly typed Sweep profile property.");
+            }
+            const auto found = std::ranges::find(previous, entry.at("profile").get<std::string>(), &document::Sweep3DProfile::id);
+            if (found == previous.end()) throw Error("profile_not_found", "The requested Sweep profile does not belong to this feature.");
+            auto profile = *found;
+            if (entry.contains("point")) profile.point_id = entry.at("point").get<std::string>();
+            if (entry.contains("incoming")) profile.incoming = entry.at("incoming").get<bool>();
+            if (entry.contains("start_point")) profile.correspondence_start_point_id = entry.at("start_point").get<std::string>();
+            profiles.push_back(std::move(profile));
+        } else {
+            profiles.push_back(workspace::sweep_profile_from_source(part, value.id, profile_source(entry)));
+            adopted = true;
+        }
+    }
+    (value.feature_kind == Kind::Sweep2D ? value.sweep2d.profiles : value.sweep3d.profiles) = std::move(profiles);
+    validate_profile_stations(value, previous);
+    return adopted;
 }
 void sweep_properties(document::HistoryContainer& value, const Json& args,
     const workspace::Workspace& live, const std::string& id, const std::string& placement_owner = {}) {
@@ -166,20 +220,12 @@ void Host::register_sweep_commands() {
             const auto id = workspace_.active_document_id(); auto* state = workspace_.open_part(id);
             if (!state || interaction().template_document) throw Error("unsupported_document", "Sweep operations require an open Part.");
             std::vector<workspace::SweepProfileSource> profiles;
-            for (const auto& entry : args.at("profiles")) {
-                if (!entry.is_object() || !entry.contains("sketch") || !entry.contains("point"))
-                    throw Error("invalid_profile", "Each Sweep profile requires a Sketch and a path Point.");
-                for (const auto& [key, field] : entry.items()) {
-                    const bool valid = key == "incoming" ? field.is_boolean()
-                        : (key == "sketch" || key == "point" || key == "start_point") && field.is_string();
-                    if (!valid) throw Error("invalid_profile", "Unknown or incorrectly typed Sweep profile property.");
-                }
-                profiles.push_back({entry.at("sketch"), entry.at("point"), entry.value("incoming", false), entry.value("start_point", std::string{})});
-            }
+            for (const auto& entry : args.at("profiles")) profiles.push_back(profile_source(entry));
             const auto path = args.at("source_path").get<std::string>();
             auto feature = workspace::sweep3d_from_sources(state->session.document(), path,
                 workspace::read_placement(workspace_, id, path).placement, profiles);
             sweep_properties(feature, args, workspace_, id, path); const auto container = feature.id;
+            validate_profile_stations(feature, {});
             workspace::commit_sweep(workspace_, kernel_, id, std::move(feature), workspace::SweepEditMode::AdoptSources);
             change_ = Change{ChangeKind::Model, id, true};
             auto result = sweep_details(*state, sweep(state, container, Kind::Sweep3D)); result["changed"] = true;
@@ -207,6 +253,7 @@ void Host::register_sweep_commands() {
         } else {
             fields.push_back({"result_type", false}); fields.push_back({"thin_mode", false});
             fields.push_back({"thickness_mm", false, Type::Number});
+            fields.push_back({"profiles", false, Type::Array});
             if (kind == Kind::Sweep3D) fields.push_back({"path", false, Type::Object});
         }
         dispatcher_.add({prefix + ".set", tr("Edit and calculate a Sweep through the shared Properties transaction."),
@@ -215,10 +262,13 @@ void Host::register_sweep_commands() {
             try {
                 const auto id = workspace_.active_document_id(); auto* state = workspace_.open_part(id);
                 if (!state || interaction().template_document) throw Error("unsupported_document", "Sweep operations require an open Part.");
-                auto value = sweep(state, args.at("container").get<std::string>(), kind);
+                const auto& original = sweep(state, args.at("container").get<std::string>(), kind);
+                auto value = original;
                 sweep_properties(value, args, workspace_, id); const auto container = value.id;
-                workspace::commit_sweep(workspace_, kernel_, id, std::move(value), workspace::SweepEditMode::Replace);
-                change_ = Change{ChangeKind::Model, id};
+                const bool adopted = args.contains("profiles") && replace_profiles(value, original, state->session.document(), args.at("profiles"));
+                workspace::commit_sweep(workspace_, kernel_, id, std::move(value),
+                    adopted ? workspace::SweepEditMode::ReplaceAdoptSources : workspace::SweepEditMode::Replace);
+                change_ = Change{ChangeKind::Model, id, args.contains("profiles")};
                 auto result = sweep_details(*state, sweep(state, container, kind)); result["changed"] = true;
                 return Result::success(std::move(result));
             } catch (const Error& error) { return Result::failure(error.code, tr(error.what())); }

@@ -1,6 +1,7 @@
 #include "sweep_test_support.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/sweep_operations.hpp>
+#include <zima/workspace/sketch_operations.hpp>
 #include <zima/kernel/stable_id.hpp>
 #include <cmath>
 #include <filesystem>
@@ -198,7 +199,9 @@ void verify_creation(const kernel::OcctKernel& kernel, const fs::path& directory
     f.state().session.commit(std::move(dependency), f.state().session.calculated_boundaries());
     f.reject("sweep3d.create", create, "input_in_use"); f.run("undo");
     auto invalid = create; invalid["profiles"][0]["point"] = "foreign-point";
-    f.reject("sweep3d.create", invalid, "sweep_rejected");
+    f.reject("sweep3d.create", invalid, "invalid_profile");
+    invalid = create; invalid["profiles"][0]["incoming"] = true;
+    f.reject("sweep3d.create", invalid, "invalid_profile");
     const auto result = f.run("sweep3d.create", create);
     const auto id = result.at("container").get<std::string>();
     near(f.volume(), 80 * std::numbers::pi);
@@ -287,6 +290,102 @@ void verify_creation_profiles(const kernel::OcctKernel& kernel, const fs::path& 
     open["result_type"] = "thin"; open["thin_mode"] = "symmetric"; open["thickness_mm"] = .5;
     f.run("sweep3d.create", open); near(f.volume(), 40);
 }
+void verify_profile_management(const kernel::OcctKernel& kernel, const fs::path& directory, document::FeatureKind kind) {
+    const bool planar = kind == document::FeatureKind::Sweep2D;
+    const std::string prefix = planar ? "sweep2d" : "sweep3d";
+    Fixture f(kernel, directory); f.run("new", {{"type", "part"}, {"name", prefix + "-profiles"}});
+    // Put the adopted Sketch before the Sweep to exercise the shifted history
+    // validation boundary when its standalone container is removed.
+    const auto source_id = f.run("sketch.create", {{"name", "End profile"}, {"plane", "XY"}}).at("sketch").get<std::string>();
+    f.run("sketch.circle.create", {{"sketch", source_id}, {"center", {0, 0}}, {"radius_mm", 3}});
+    auto feature = test_support::sweep_fixture(kind); const auto id = feature.id;
+    workspace::commit_sweep(f.live, kernel, f.live.active_document_id(), feature, workspace::SweepEditMode::Create);
+    const auto query = [&] { return f.run(prefix + ".get", {{"container", id}}); };
+    const auto details = query(); const auto first_profile = details.at("profiles")[0].at("profile").get<std::string>();
+    const auto end = details.at("stations").back();
+    require(details.at("stations_valid") == true && details.at("stations").size() == 2 &&
+        details.at("station_coordinate_owner") == (planar ? details.at("body") : details.at("path")),
+        "Sweep station query omitted native station IDs or coordinate ownership");
+    const auto update = [&](Json profiles) { return f.run(prefix + ".set", {{"container", id}, {"profiles", std::move(profiles)}}); };
+    const auto reject = [&](Json profiles, const char* code) {
+        f.reject(prefix + ".set", {{"container", id}, {"profiles", std::move(profiles)}}, code);
+    };
+    const Json keep = {{"profile", first_profile}};
+    const auto before = f.state().session.document();
+    const auto result = update(Json::array({keep, Json{{"sketch", source_id}, {"point", end.at("point")}, {"incoming", end.at("incoming")}}}));
+    near(f.volume(), 380 * std::numbers::pi / 3, 1e-6);
+    const auto second_profile = result.at("profiles")[1].at("profile").get<std::string>();
+    require(result.at("profiles")[1].at("sketch") == source_id && f.state().session.document().history.size() == 1 &&
+        f.state().session.document().sketches.empty(), "Profile adoption duplicated or replaced native Sketch identity");
+    f.run("undo"); near(f.volume(), 80 * std::numbers::pi);
+    require(f.state().session.document().history == before.history &&
+        f.state().session.document().sketches.front().serialized() == before.sketches.front().serialized(),
+        "Profile adoption Undo did not restore the standalone Sketch");
+    f.run("redo"); near(f.volume(), 380 * std::numbers::pi / 3, 1e-6);
+    reject(Json::array(), "invalid_profile");
+    reject(Json::array({keep, keep}), "invalid_sketch_owner");
+    reject(Json::array({Json{{"profile", "foreign"}}}), "profile_not_found");
+    reject(Json::array({Json{{"profile", first_profile}, {"incoming", 1}}}), "invalid_profile");
+    reject(Json::array({Json{{"profile", first_profile}, {"sketch", source_id}}}), "invalid_profile");
+    reject(Json::array({Json{{"profile", first_profile}, {"point", "foreign-point"}}}), "invalid_profile");
+    reject(Json::array({Json{{"profile", second_profile}}}), "sweep_rejected");
+    if (!planar) reject(Json::array({keep, Json{{"profile", second_profile}, {"point", details.at("stations")[0].at("point")},
+        {"incoming", !details.at("stations")[0].at("incoming").get<bool>()}}}), "invalid_profile");
+    update(Json::array({keep})); near(f.volume(), 80 * std::numbers::pi);
+    require(query().at("profiles").size() == 1, "Removed profile remained owned by the Sweep");
+    // An independently drawn Sketch after the feature may be adopted, but a
+    // reference to that feature or later history must not create a cycle.
+    const auto late = f.run("sketch.create", {{"name", "Dependent profile"}, {"plane", "XY"}}).at("sketch").get<std::string>();
+    f.run("sketch.circle.create", {{"sketch", late}, {"center", {0, 0}}, {"radius_mm", 3}});
+    auto dependent = f.state().session.document();
+    const auto source = std::ranges::find(dependent.sketches, late, &sketcher::Sketch::id);
+    dependent.find_container(source->owner_container_id)->placement.references.push_back(
+        {{}, feature.container_origin.id, "origin:plane:xy", 0, true});
+    f.state().session.commit(std::move(dependent), f.state().session.calculated_boundaries());
+    const Json with_late = Json::array({keep, Json{{"sketch", late}, {"point", end.at("point")}, {"incoming", end.at("incoming")}}});
+    reject(with_late, "history_dependency"); f.run("undo");
+    update(with_late); near(f.volume(), 380 * std::numbers::pi / 3, 1e-6);
+    const auto moved_profile = query().at("profiles")[1].at("profile");
+    std::string middle;
+    if (planar) {
+        middle = f.run("sketch.point.create", {{"sketch", query().at("path_sketch")}, {"position", {0, 10}}}).at("point").get<std::string>();
+    } else {
+        f.run("sweep3d.set", {{"container", id}, {"path", {{"points", Json::array({
+            Json{{"construction", feature.sweep3d.path.curve_points.front().id}}, Json{{"values", {{"z", 10}}}},
+            Json{{"construction", feature.sweep3d.path.curve_points.back().id}}})}}}});
+        middle = f.run("construction.get", {{"construction", feature.sweep3d.path.id}}).at("children")[1].get<std::string>();
+    }
+    const auto stations = query().at("stations");
+    const auto station = std::ranges::find_if(stations, [&](const auto& entry) { return entry.at("point") == middle; });
+    require(station != stations.end(), "New native path Point has no profile station");
+    update(Json::array({keep, Json{{"profile", moved_profile}, {"point", middle}, {"incoming", station->at("incoming")}}}));
+    // The first half is a frustum; after its new station the R3 section is inherited.
+    near(f.volume(), 460 * std::numbers::pi / 3, 1e-6);
+    require(query().at("profiles")[1].at("profile") == moved_profile && query().at("profiles")[1].at("point") == middle,
+        "Moving a profile to a different station replaced its native identity");
+    update(Json::array({keep})); near(f.volume(), 80 * std::numbers::pi);
+    const auto& current = *f.state().session.document().find_container(id);
+    const auto& profile = planar ? current.sweep2d.profiles.front() : current.sweep3d.profiles.front();
+    auto sketch = sketcher::Sketch::from_serialized(profile.sketch_serialized);
+    const auto sketch_id = sketch.id, circle_id = sketch.circles.front().id;
+    for (int i = 0; i < 4; ++i) {
+        const double a = i * std::numbers::pi / 2;
+        const auto point = f.run("sketch.point.create", {{"sketch", sketch_id}, {"position", {2 * std::cos(a), 2 * std::sin(a)}}}).at("point");
+        f.run("sketch.constraint.create", {{"sketch", sketch_id}, {"kind", "point_on_circle"},
+            {"points", Json::array({point})}, {"geometry", Json::array({circle_id})}});
+    }
+    sketch = workspace::document_sketch(f.live, f.live.active_document_id(), sketch_id);
+    const auto order = document::sweep3d_profile_correspondence(sketch);
+    require(order.point_ids.size() == 4, "Circle profile has no native correspondence points");
+    const auto start = order.point_ids[1];
+    update(Json::array({Json{{"profile", first_profile}, {"start_point", start}}})); near(f.volume(), 80 * std::numbers::pi);
+    require(query().at("profiles")[0].at("start_point") == start, "Profile correspondence start was not committed");
+    reject(Json::array({Json{{"profile", first_profile}, {"start_point", "foreign-point"}}}), "sweep_rejected");
+    f.run("save");
+    const auto saved = document::PartDocument::load(directory / (prefix + "-profiles.prtz"));
+    require(saved.history == f.state().session.document().history, "Profile list or correspondence did not persist");
+
+}
 }
 int main() {
     try {
@@ -297,6 +396,7 @@ int main() {
         for (const auto kind : {document::FeatureKind::Sweep2D, document::FeatureKind::Sweep3D, document::FeatureKind::HelicalSweep}) verify_sweep_commands(kernel, directory, kind);
         verify_creation(kernel, directory);
         verify_creation_profiles(kernel, directory);
+        for (const auto kind : {document::FeatureKind::Sweep2D, document::FeatureKind::Sweep3D}) verify_profile_management(kernel, directory, kind);
         require(directory.parent_path() == root, "Unexpected cleanup path"); fs::remove_all(directory);
         std::cout << "Sweep commands: independent volumes, native profiles, ownership, locks, atomic errors and Undo/Redo passed\n";
         return 0;

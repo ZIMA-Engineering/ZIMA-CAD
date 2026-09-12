@@ -4,8 +4,8 @@ Etapa vlastností přidává `sweep2d.get/set`, `sweep3d.get/set` a
 `helical.get/set`. GUI potvrzení nového i existujícího tažení a příkazová
 změna sdílejí `workspace::commit_sweep`: validace, explicitní výpočet a jeden
 záznam Undo. Níže uvedený `sweep3d.create` už vytváří 3D tažení z nativních vstupů.
-Tvorba 2D a šroubovicového tažení a úplná správa profilových stanic zůstávají
-navazujícími kroky; příkazy `get/set` upravují existující vypočitatelný prvek.
+Tvorba 2D a šroubovicového tažení zůstává navazujícím krokem. `sweep2d.set`
+a `sweep3d.set` už spravují celý seznam profilů a jejich stanice.
 
 ## Použití
 
@@ -182,3 +182,61 @@ binárními soubory prošlo samostatné opakování profilu (89,51 s) a následn
 oba dotčené testy **2/2** (90,14 s, `build/sweep-create-ui-recheck-tests.log`).
 Příčina nepravidelného GUI selhání není prokázána; nejde o tvrzení, že původní
 úplný běh prošel celý. Geometrické, CLI a GUI testy nového tažení prošly.
+
+## Celý seznam profilů 2D a 3D tažení
+
+`profiles` v `sweep2d.set` a `sweep3d.set` je úplný nový seznam profilů.
+Vynechaný existující profil se odstraní. Záznam s `profile` zachovává jeho
+skicu i identitu; lze mu změnit `point`, `incoming` a `start_point`. Záznam
+se `sketch` a `point` přebírá samostatnou skicu podle stejných pravidel jako
+nové 3D tažení. Seznam musí mít 1–5000 položek; platná první stanice musí
+mít použitelný profil. Není možné uložit prvek bez vypočitatelného začátku.
+
+```json
+{"command":"sweep2d.set","arguments":{"container":"<TAZENI>","profiles":[{"profile":"<PRVNI_PROFIL>"},{"sketch":"<SAMOSTATNA_SKICA>","point":"<KONCOVY_BOD>","incoming":true}]}}
+{"command":"sweep3d.set","arguments":{"container":"<TAZENI>","profiles":[{"profile":"<PRVNI_PROFIL>"},{"profile":"<DALSI_PROFIL>","point":"<JINY_BOD>","incoming":false,"start_point":"<BOD_OBVODU>"}]}}
+```
+
+ID bodu a příznak `incoming` se berou z položek `stations` v `get`. Také
+2D tažení nyní vrací tyto stanice, jejich polohu, tečnu a vlastní profil.
+Souřadnice 2D stanic patří tělesu (`station_coordinate_owner`); 3D stanice
+jsou lokální vůči vložené dráze. Jde o čistý dotaz nad ZIMA geometrií bez
+OCCT, změny rámce či cache. Neplatná dráha vrátí `stations_valid:false`
+a diagnostiku, aniž by skryla uložené parametry.
+
+`start_point` určuje skutečný nativní bod párování obvodu; prázdný řetězec
+vrací automatickou volbu. U kružnice se používají její body C, tedy body
+skici se skutečnou vazbou `point_on_circle`. Nevytvářejí se umělá pořadová ID.
+Samotné křivky vlastněného profilu zůstávají dostupné příkazy skicáře.
+
+Nová samostatná skica může ležet před tažením i za ním, ale nesmí záviset
+na tomto tažení nebo na pozdější historii. Převzetí nesmí odstranit vstup
+používaný jiným objektem. Po převzetí se hranice validace hledá znovu podle
+ID tažení, protože odstranění staršího kontejneru skici mění index historie.
+Geometrie, odstranění vstupní skici a seznam profilů se potvrzují jedním
+záznamem Undo; chyba nic z toho částečně neuloží.
+
+Procesové a modelové regrese obou druhů tažení prošly **2/2** (17,19 s,
+`build/sweep-profiles-process-tests.log`). Ověřují převzetí skici, nezávislý
+objem komolého kužele, obnovení samostatných vstupů přes Undo, původní ID,
+odmítnutí duplicit a neplatných stanic, odebrání profilu, skutečné C body,
+uložení párování a ochranu před závislostí na vlastním tažení.
+
+Závěrečné ověření správy profilů:
+
+- **15/15** souvisejících modelových, CLI a GUI testů (128,34 s),
+  `build/sweep-profiles-gui-tests.log`; sestavení obou programů
+  `build/sweep-profiles-gui-build.log`. Přesun profilu R3 do poloviny 20mm
+  dráhy zachová jeho ID a dává nezávisle ověřený objem 460π/3 mm³
+  (komolý kužel na první polovině a válec R3 na druhé). GUI otevírá převzatou
+  kružnici v původní skice a potvrzení nezdvojuje vstupy.
+- Dodatečná regrese prokázala, že 3D profil mohl být přesunut na neexistující
+  příchozí větev prvního bodu a při výpočtu se ignoroval
+  (`build/sweep-profile-station-red-tests.log`). Nové nebo přesunuté vazby
+  nyní vyžadují aktivní stanici, rovněž při `sweep3d.create`. Již uložené
+  neaktivní profily zůstávají zachované při změně zaoblení dráhy.
+- Po opravě prošlo **5/5** závěrečných příkazových, procesových, GUI
+  a překladových testů (53,86 s), `build/sweep-profiles-final-tests.log`;
+  oba programy a všechny testy jsou sestavené v
+  `build/sweep-profiles-final-build.log`. Katalog zůstává na **171 příkazech**;
+  jde o rozšíření existujících `get/set`. Formáty a šablony se nemění.

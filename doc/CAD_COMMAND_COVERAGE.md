@@ -41,7 +41,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Skicář: vazby a operace | Vazby/kóty/solver/offset/trim/mirror hotovy | Offset create/get/set/free, úplný podklad a zachování intervalů, trim podle průsečíků, mirror, orientovaný obdélník, tečny a zaoblení rohu; všech 15 druhů vazeb, odstranění a solver; 16 druhů kót včetně vlastností, popisků a mazání; uvolnění externích referencí hotovo |
 | Externí reference skici | Part a kořenová Assembly hotovy | Původní geometrie, přesná projekce, aktualizace, odpojení a zachování trimu; zbývá příkazový kontext Partu aktivovaného v sestavě |
 | Vytažení a rotace | Profily, Thin, směry a cíle zakončení Partu hotovy | `extrusion/revolution.create/get/set`, vlastněná skica, původní plochy a dvě nezávislé meze, společné OK; zbývají sestavové řezy |
-| Tažení | Částečně | `sweep2d/sweep3d/helical.get/set`, `sweep3d.create`, společné GUI potvrzení, celá 3D dráha a dotaz na stanice; zbývá tvorba 2D/helical, správa profilů a reference roviny 2D dráhy |
+| Tažení | Částečně | `sweep2d/sweep3d/helical.get/set`, `sweep3d.create`, společné GUI potvrzení, celá 3D dráha, stanice obou druhů a úplná správa profilů/párování; zbývá tvorba 2D/helical a reference roviny 2D dráhy |
 | Otvory a závity | Zbývá | Hole, Thread, ShaftThread, DrillPoint a reference |
 | Zaoblení, zkosení, skořepina | Zbývá | Výběr skutečného vstupního tělesa a sdílené transakce |
 | Zrcadlo a pole | Zbývá | Odvozená tělesa a komponenty |
@@ -656,3 +656,17 @@ binárními soubory prošlo samostatné opakování profilu (89,51 s) a následn
 oba dotčené testy **2/2** (90,14 s, `build/sweep-create-ui-recheck-tests.log`).
 Příčina nepravidelného GUI selhání není prokázána; nejde o tvrzení, že původní
 úplný běh prošel celý. Geometrické, CLI a GUI testy nového tažení prošly.
+
+### Profilové stanice 2D a 3D tažení
+
+`sweep2d/sweep3d.set profiles` nyní přebírá další samostatné skici, zachovává
+existující profily, odstraňuje vynechané, mění jejich stanice a počátky
+párování obvodu. `get` vrací stanice i u 2D dráhy. Ochrana historie brání
+závislosti nového profilu na vlastním nebo pozdějším prvku; nová vazba musí
+patřit aktivní stanici. Existující neaktivní profily se při změně dráhy
+neztrácejí. Katalog má stále **171 příkazů**, nativní formát se nemění.
+
+Oba programy a testy jsou sestavené. Související sada prošla **15/15**
+(128,34 s); po dodatečné opravě neexistující větve stanice prošla závěrečná
+sada **5/5** (53,86 s), včetně skutečného CLI procesu a GUI skicáře.
+Logy, nezávislé objemy a přesný kontrakt: [SWEEP_COMMANDS.md](SWEEP_COMMANDS.md).
