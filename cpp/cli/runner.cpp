@@ -1,5 +1,7 @@
 #include "runner.hpp"
 #include "settings.hpp"
+#include <QGuiApplication>
+#include <memory>
 #include <fstream>
 #include <iostream>
 #include <stdexcept>
@@ -85,6 +87,11 @@ int run(const std::vector<std::string>& arguments,const fs::path& executable,
             if(!script)throw std::runtime_error("Cannot open command script");
         }
         const auto settings=load_settings(executable,options.working,options.config);
+        // Offscreen Qt supplies font metrics and PDF painting without any window.
+        int graphics_argc=3;char app_name[]="zima-cad-cli",platform_option[]="-platform",platform_name[]="offscreen";
+        char* graphics_argv[]={app_name,platform_option,platform_name,nullptr};
+        std::unique_ptr<QGuiApplication> graphics;
+        if(!QCoreApplication::instance())graphics=std::make_unique<QGuiApplication>(graphics_argc,graphics_argv);
         workspace::Workspace workspace;kernel::OcctKernel kernel;
         command_host::Options adapters;
         adapters.settings=[&]{return settings.documents;};

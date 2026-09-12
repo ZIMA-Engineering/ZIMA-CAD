@@ -180,6 +180,11 @@ target_include_directories(zima_viewer PUBLIC modules/viewer/include)
 target_link_libraries(zima_viewer PUBLIC zima_kernel_api
     Qt6::Widgets Qt6::OpenGL Qt6::OpenGLWidgets Qt6::Svg)
 
+add_library(zima_drawing_render modules/drawing_render/src/sheet_renderer.cpp modules/drawing_render/src/pdf_export.cpp)
+target_include_directories(zima_drawing_render PUBLIC modules/drawing_render/include PRIVATE app modules/viewer/include)
+target_link_libraries(zima_drawing_render PUBLIC zima_drawing zima_workspace Qt6::Gui Qt6::Svg)
+target_link_libraries(zima_command_host PUBLIC zima_drawing_render)
+
 add_library(zima_ui modules/ui/src/properties_subwindow.cpp
     modules/ui/src/reference_cell.cpp
     modules/ui/src/container_placement_section.cpp)
@@ -257,11 +262,17 @@ if(WIN32 AND TARGET Qt6::QModernWindowsStylePlugin)
             "$<TARGET_FILE:Qt6::QModernWindowsStylePlugin>"
             "$<TARGET_FILE_DIR:zima-cad-cpp>/styles/")
 endif()
+target_link_libraries(zima-cad-cpp PRIVATE zima_drawing_render)
 install(TARGETS zima-cad-cpp RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 
-# A console-subsystem executable, with no QApplication/Qt runtime dependency.
+# A console-subsystem executable. Qt Gui runs offscreen for shared PDF painting; no Widgets are created.
 add_executable(zima-cad-cli cli/main.cpp cli/runner.cpp cli/settings.cpp)
 target_link_libraries(zima-cad-cli PRIVATE zima_command_host)
+if(WIN32 AND TARGET Qt6::QOffscreenIntegrationPlugin)
+    add_custom_command(TARGET zima-cad-cli POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:zima-cad-cli>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:Qt6::QOffscreenIntegrationPlugin>" "$<TARGET_FILE_DIR:zima-cad-cli>/platforms/")
+endif()
 install(TARGETS zima-cad-cli RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 
 if(UNIX AND NOT APPLE)
@@ -288,7 +299,7 @@ if(WIN32 AND TARGET Qt6::QJpegPlugin)
     endforeach()
 endif()
 target_include_directories(zima-cad-drawing-harness PRIVATE app)
-target_link_libraries(zima-cad-drawing-harness PRIVATE zima_viewer)
+target_link_libraries(zima-cad-drawing-harness PRIVATE zima_viewer zima_drawing_render)
 target_link_libraries(zima-cad-drawing-harness PRIVATE
     zima_workspace zima_drawing zima_document_core zima_assembly zima_ui
     Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Svg)
@@ -471,6 +482,11 @@ if(ZIMA_BUILD_TESTS)
     add_dependencies(zima_cpp_cli_process_tests zima-cad-cli)
     add_test(NAME zima_cpp_cli_process_tests COMMAND zima_cpp_cli_process_tests "$<TARGET_FILE:zima-cad-cli>")
     set_tests_properties(zima_cpp_cli_process_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120)
+    add_executable(zima_cpp_drawing_pdf_command_tests tests/drawing_pdf_command_tests.cpp)
+    target_link_libraries(zima_cpp_drawing_pdf_command_tests PRIVATE zima_command_host)
+    add_dependencies(zima_cpp_drawing_pdf_command_tests zima-cad-cli)
+    add_test(NAME zima_cpp_drawing_pdf_command_tests COMMAND zima_cpp_drawing_pdf_command_tests)
+    set_tests_properties(zima_cpp_drawing_pdf_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     add_executable(zima_cpp_drawing_title_command_tests tests/drawing_title_command_tests.cpp)
     target_link_libraries(zima_cpp_drawing_title_command_tests PRIVATE zima_command_host)
     add_test(NAME zima_cpp_drawing_title_command_tests COMMAND zima_cpp_drawing_title_command_tests)

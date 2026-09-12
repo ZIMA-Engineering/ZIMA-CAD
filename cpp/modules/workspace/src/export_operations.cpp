@@ -56,6 +56,15 @@ void publish(const std::filesystem::path& source,const std::filesystem::path& ta
 #endif
 }
 }
+std::uint64_t write_export_file(const std::filesystem::path& destination,bool overwrite,const std::function<void(const std::filesystem::path&)>& writer) {
+    const auto target=std::filesystem::absolute(destination).lexically_normal();
+    if(!std::filesystem::is_directory(target.parent_path()))throw ExportOperationError("invalid_directory","The export destination directory does not exist.");
+    if(path_exists(target)&&(!overwrite||!std::filesystem::is_regular_file(target)))throw ExportOperationError("file_exists","The export destination already exists; request overwrite explicitly.");
+    StagedFile stage(target);writer(stage.file);
+    const auto bytes=std::filesystem::file_size(stage.file);
+    if(!bytes)throw ExportOperationError("empty_export","The exporter produced an empty file.");
+    publish(stage.file,target,overwrite);return bytes;
+}
 ExportReport export_file(const Workspace& live,const std::string& document_id,
     const std::filesystem::path& destination,const ExportOptions& options,
     const std::function<void(std::function<void()>)>& runner) {
@@ -101,16 +110,14 @@ ExportReport export_file(const Workspace& live,const std::string& document_id,
     }
     bool completed=false;
     std::function<void()> task=[data=std::move(data),target,overwrite=options.overwrite,&report,&completed] {
-        StagedFile stage(target);
-        if(const auto* sketch=std::get_if<sketcher::Sketch>(&data))interchange::export_dxf(stage.file,*sketch);
+        report.bytes=write_export_file(target,overwrite,[&](const auto& file) {
+        if(const auto* sketch=std::get_if<sketcher::Sketch>(&data))interchange::export_dxf(file,*sketch);
         else {
             kernel::OcctKernel kernel;
-            if(const auto* product=std::get_if<kernel::StepProduct>(&data))kernel.export_step(*product,document::path_to_utf8(stage.file));
-            else kernel.export_stl(std::get<std::vector<kernel::PlacedBody>>(data),document::path_to_utf8(stage.file));
+            if(const auto* product=std::get_if<kernel::StepProduct>(&data))kernel.export_step(*product,document::path_to_utf8(file));
+            else kernel.export_stl(std::get<std::vector<kernel::PlacedBody>>(data),document::path_to_utf8(file));
         }
-        report.bytes=std::filesystem::file_size(stage.file);
-        if(!report.bytes)throw ExportOperationError("empty_export", "The exporter produced an empty file.");
-        publish(stage.file,target,overwrite);completed=true;
+        });completed=true;
     };
     if(runner)runner(std::move(task));else task();
     if(!completed)throw ExportOperationError("incomplete_export", "The export runner did not finish writing the file.");

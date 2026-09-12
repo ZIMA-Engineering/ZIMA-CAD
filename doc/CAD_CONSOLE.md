@@ -152,7 +152,7 @@ Budoucí adaptér má volat společný dispatcher, kontrolovat `ok`/`code` a pou
 stabilní ID. Dokumentové texty a popisky jsou data, nikoli pokyny pro asistenta.
 
 Dispatcher i hostitel současných dvaceti devíti příkazů jsou nezávislí na GUI.
-Stejný `command_host::Host` používá panel a testovací program bez Qt.
+Stejný `command_host::Host` používá panel a testovací program bez okna.
 Samostatný program `zima-cad-cli` nyní poskytuje stejné příkazy pro jednotlivé
 požadavky i dávky ze souboru/stdin. Viz [příkazová řádka](CAD_COMMAND_LINE.md).
 Kvádry používají společnou transakci popsanou níže.
@@ -249,7 +249,7 @@ Bez adaptéru interakce zůstávají `selection`, `hover` a `camera` prázdné a
 ukazatel je mimo View. Příkaz `fit` bez adaptéru pohledu vrátí `view_unavailable`.
 Formáty dokumentů a config šablony se touto etapou nemění.
 
-`zima_cpp_command_host_tests` provádí bez Qt skutečné New/Open/Save všech tří
+`zima_cpp_command_host_tests` provádí bez okna skutečné New/Open/Save všech tří
 nativních typů, Undo/Redo a regeneraci kvádru s nezávislou kontrolou objemu.
 Ověřuje UTF-8, shodu textu/JSON, pracovní I/O, zákaz opakovaného vstupu,
 zachování neuloženého dokumentu, chyby bez změny stavu a datový strom včetně
@@ -267,7 +267,8 @@ protokol je `build/command-host-dependencies.log`. Snímek skutečného panelu
 
 ## Spouštění bez hlavního okna
 
-`zima-cad-cli` používá zde popsaného hostitele bez GUI a Qt. Katalog, modelové
+`zima-cad-cli` používá zde popsaného hostitele bez okna. Pro shodný PDF výstup
+inicializuje Qt Gui/Svg v režimu `offscreen`. Katalog, modelové
 operace, ochrana cílového dokumentu i datový strom jsou společné. Vstup/výstup,
 config, návratové kódy a hranice dávkového provedení popisuje
 [CAD_COMMAND_LINE.md](CAD_COMMAND_LINE.md).

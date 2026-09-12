@@ -363,6 +363,13 @@ int main(int argc,char** argv){
         if(result.exit_code!=0)std::cerr<<result.output.toStdString()<<result.diagnostics.toStdString();
         require(result.exit_code==0&&result.results()[2].at("data").at("source_changed")==true,"Standalone CLI title write failed");
         require(document::PartDocument::load(project/"cli-step.prtz").user_parameters.at("name")=="CLI český název"&&drawing::DrawingDocument::load(project/"cli-title.drwz").sheets.front().local_parameters.at("note")=="Poznámka","CLI title/source explicit save did not persist UTF-8 parameters");
+        const auto pdf_path=project/fs::path(u8"výkres CLI.pdf");
+        const auto pdf_command=command({{"command","export.pdf"},{"arguments",{{"path",document::path_to_utf8(pdf_path)}}}});
+        result=launch(executable,root,common+QStringList{"--command","open cli-measured.drwz","--command",pdf_command});
+        if(result.exit_code!=0)std::cerr<<result.output.toStdString()<<result.diagnostics.toStdString();
+        require(result.exit_code==0&&result.results()[1].at("data").at("pages")==1&&fs::file_size(pdf_path)>1000,"Standalone offscreen CLI PDF export failed");
+        result=launch(executable,root,common+QStringList{"--command","open cli-measured.drwz","--command",pdf_command});
+        require(result.exit_code==1&&result.results()[1].at("code")=="file_exists","CLI PDF silently overwrote an existing file");
         const auto assembly_step=command({{"command","import.step"},{"arguments",{{"path",document::path_to_utf8(step_source)},{"output_directory","sestava nativní"},{"mesh_deflection_mm",2.0}}}});
         result=launch(executable,root,common+QStringList{"--command","new assembly cli-import-owner","--command",assembly_step,"--command","save"});
         require(result.exit_code==0 && result.results().size()==3 && result.results()[1].at("data").at("parts").size()==1,"CLI Assembly STEP import failed");

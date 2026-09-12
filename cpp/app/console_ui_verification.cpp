@@ -604,6 +604,8 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         check(window.execute_console_command(QString::fromStdString(blocked_title.dump())).code=="editing_in_progress","Console overwrote pending title properties");
         title_editor->setText("GUI title");title_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
         check(!window.findChild<QDialog*>("drawingTitleBlockProperties")&&json_run("drawing.title.get",{{"sheet",view_document.sheets.front().id}}).data.at("fields")[0].at("value")=="GUI title","GUI title did not use shared source writeback");
+        const auto console_pdf=json_run("export.pdf",{{"path",document::path_to_utf8(directory/(stem+"-drawing.pdf"))}}).data;
+        check(console_pdf.at("pages")==1&&console_pdf.at("model_changed")==false&&console_pdf.at("bytes").get<std::uint64_t>()>1000,"Console PDF did not use the shared export");
         check(window.grab().save(QString::fromStdString((directory/"command-drawing-views.png").string())),"Drawing view screenshot failed");
         json_run("close",{{"discard",true}});
         run(QString::fromStdString(activate.dump()));flush();

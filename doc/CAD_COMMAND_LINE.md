@@ -2,7 +2,8 @@
 
 `zima-cad-cli` spouští stejné příkazy jako panel konzole v CADu. Používá
 `command_host::Host`, Workspace a existující nativní operace; nevytváří
-QApplication ani hlavní okno a nelinkuje Qt. Každé spuštění má vlastní Workspace.
+QApplication ani hlavní okno. Pro společný PDF export používá QGuiApplication
+v režimu `offscreen`, Qt Gui/Svg a příslušný platformní plugin. Každé spuštění má vlastní Workspace.
 Není připojením do již běžícího okna CADu.
 
 ## Sestavení a první spuštění
@@ -37,8 +38,8 @@ cmake --build build/cpp-release --target zima-cad-cli
 
 Tato etapa byla sestavena a spuštěna na Windows. Linuxová větev používá POSIX
 vstup/výstup, ale v této etapě nebyla spuštěna. Konfigurace celého CMake projektu
-nadále vyžaduje Qt pro ostatní cíle; samotný CLI program Qt DLL nepotřebuje.
-Spouštějte jej z adresáře sestavení s dostupnými OCCT a C++ runtime knihovnami.
+vyžaduje Qt. Spouštějte CLI z adresáře sestavení s dostupnými Qt, OCCT a C++
+runtime knihovnami; pro příkazový grafický výstup je potřeba plugin `offscreen`.
 Nejde o nový ověřený portable-release balíček.
 
 ## Režimy vstupu
@@ -160,8 +161,9 @@ Ověření: Windows Release, **57/57 testů prošlo** (422,09 s),
 `build/cli-full-tests.log`. Po posledním doplnění překladových kontextů a
 ověření zpětných lomítek v configu byl znovu sestaven CLI cíl a celý jeho
 procesový test prošel samostatně (`build/cli-final-focused-tests.log`).
-`dumpbin /dependents` potvrdil nepřítomnost Qt DLL v CLI; protokol je
-`build/cli-dependencies.log`.
+Při této původní etapě `dumpbin /dependents` potvrdil nepřítomnost Qt DLL
+(`build/cli-dependencies.log`). Od doplnění společného PDF exportu CLI používá
+Qt Gui/Svg v bezokenním režimu; původní údaj již nepopisuje aktuální runtime.
 
 ### Modelování kvádru
 
@@ -183,3 +185,19 @@ Stejné ovládání mají `cylinder`, `sphere`, `cone`, `pyramid` a `wedge`.
 Například `cylinder.create 3 6` vytvoří válec s poloměrem 3 mm a výškou 6 mm;
 `cone.create 4 0 6` ostrý kužel. Úplné pořadí parametrů je v
 [katalogu základních primitiv](CAD_CONSOLE.md#všechna-základní-primitiva).
+
+
+### PDF výkresu bez okna
+
+```text
+open vykres.drwz
+export.pdf vykres.pdf
+```
+
+Příkaz exportuje všechny listy bez regenerace. Již existující PDF vyžaduje
+explicitní JSON argument `overwrite: true`. Stejný renderer používá GUI;
+rozměry listů, kóty, šrafy a písmo nejsou přibližnou samostatnou implementací
+pro CLI. Qt se spouští s platformou `offscreen` i při jiném nastavení
+`QT_QPA_PLATFORM`; nevytváří se QWidget ani okno. `--help` grafické prostředí
+neinicializuje. CLI stále neovládá jiný spuštěný CAD a při ukončení automaticky
+neukládá nativní dokumenty. Podrobnosti: [DRAWING_COMMANDS.md](DRAWING_COMMANDS.md).

@@ -53,7 +53,10 @@ This is local development deployment, not a portable-release pipeline.
 
 `tools/build-windows.ps1` builds both `zima-cad-cpp.exe` and `zima-cad-cli.exe`.
 The CLI uses the console subsystem, a Unicode Windows entry point, UTF-8
-command input/output and the common command host. It does not link Qt or
-create a GUI. OCCT and the C++ runtime remain required. The CLI target is
+command input/output and the common command host. Shared PDF export uses
+Qt Gui/Svg and a QGuiApplication with the offscreen platform; it creates no
+QWidget or main window. CMake deploys Qt6::QOffscreenIntegrationPlugin into
+`platforms` beside the CLI executable. Qt, OCCT and the C++ runtime remain
+required. The CLI target is
 included in the CMake install target; this does not establish a portable
 release pipeline. See [CAD_COMMAND_LINE.md](CAD_COMMAND_LINE.md).

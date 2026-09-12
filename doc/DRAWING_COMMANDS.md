@@ -1,8 +1,8 @@
 # Výkresy přes společné příkazy
 
 Výkresové příkazy zpřístupňují listy, šablony, tvorbu a vlastnosti pohledů,
-uložené reference a výslovnou regeneraci. Katalog má 150 příkazů. Dotazy na modelové anotace a Show/Erase jsou sdílené.
-Další anotace, zdrojové styly šraf a výkresové exporty
+uložené reference a výslovnou regeneraci. Katalog má 151 příkazů. Dotazy na modelové anotace a Show/Erase jsou sdílené.
+Další anotace, zdrojové styly šraf a příkazové exporty DXF/JPG
 zatím nejsou kompletně pokryté.
 
 | Příkaz | Argumenty | Výsledek |
@@ -446,3 +446,36 @@ stejných aktuálních CMake objektů a knihoven do `zima-cad-title-validation.e
 ve stejném build adresáři; dočasná kopie CTest definic změnila pouze tuto cestu.
 Nejde o distribuční balíček. Původní spouštěcí soubor nebyl přepsán a běžící
 program nebyl ukončen; jeho běžné sestavení je potřeba dokončit po zavření CADu.
+
+
+## Export PDF
+
+`export.pdf` vyžaduje `path` s příponou `.pdf`; volitelné jsou `document`
+a `overwrite` (výchozí `false`). Cílem je aktivní otevřený výkres. Exportuje
+všechny listy v jejich pořadí a formátech, včetně kombinace A4/A3, bez změny
+nativního dokumentu a bez regenerace. Cesty mohou obsahovat české znaky.
+Výsledek uvádí `document`, `source_revision`, `path`, `pages`, `bytes`
+a `model_changed: false`.
+
+```json
+{"command":"export.pdf","arguments":{"path":"výkres.pdf","overwrite":true}}
+```
+
+GUI PDF a CLI používají `drawing_render::SheetRenderer`, stejný jako plátno
+výkresu. Při exportu vynechá hover, úchopy, náhledy a výběrové rámečky.
+Zůstávají uložené průměty, měřené i modelové kóty, řezy, šrafy, razítka,
+vložené obrázky a vykreslovací styl pohledů. Čáry a text jsou vektorové,
+stínovaná výplň používá stávající omezený rastr. Export používá rozlišení
+720 DPI a žádné přizpůsobení na tisknutelnou plochu; při tisku volte 100 %.
+Rozměry stránky PDF mohou mít obvyklé zaokrouhlení Qt na tiskové body.
+
+Razítko načítá aktuální parametry otevřeného zdroje i bez jeho uložení;
+uzavřený zdroj používá nativní soubor. Přitom se neotevírají nové dokumenty
+v pracovním prostoru. Uložené řádky kusovníku a geometrie se při exportu
+neregenerují. Export je možné spustit až po ukončení rozpracované editace,
+stejně jako ostatní exportní příkazy.
+
+Zápis sdílí s modelovými exporty atomické publikování dokončeného souboru.
+Chyba na kterémkoli listu zachová původní cíl, uklidí dočasná data a nemění
+Undo historii. Bez `overwrite` nelze přepsat existující cíl ani při souběžném
+zápisu. Formát `.drwz` ani startovní šablony se nemění.
