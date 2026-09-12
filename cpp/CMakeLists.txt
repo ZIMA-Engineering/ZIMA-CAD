@@ -109,6 +109,7 @@ add_library(zima_workspace modules/workspace/src/workspace.cpp
     modules/workspace/src/metadata_operations.cpp
     modules/workspace/src/engineering_metadata_operations.cpp
     modules/workspace/src/component_operations.cpp
+    modules/workspace/src/component_source_operations.cpp
     modules/workspace/src/sketch_operations.cpp
     modules/workspace/src/sketch_reference_operations.cpp
     modules/workspace/src/native_documents.cpp
@@ -457,6 +458,11 @@ if(ZIMA_BUILD_TESTS)
     add_dependencies(zima_cpp_cli_process_tests zima-cad-cli)
     add_test(NAME zima_cpp_cli_process_tests COMMAND zima_cpp_cli_process_tests "$<TARGET_FILE:zima-cad-cli>")
     set_tests_properties(zima_cpp_cli_process_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120)
+    add_executable(zima_cpp_component_source_tests tests/component_source_tests.cpp)
+    target_link_libraries(zima_cpp_component_source_tests PRIVATE zima_command_host)
+    add_test(NAME zima_cpp_component_source_tests COMMAND zima_cpp_component_source_tests)
+    set_tests_properties(zima_cpp_component_source_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
+
     add_executable(zima_cpp_component_command_tests tests/component_command_tests.cpp)
     target_link_libraries(zima_cpp_component_command_tests PRIVATE zima_command_host)
     add_test(NAME zima_cpp_component_command_tests COMMAND zima_cpp_component_command_tests)

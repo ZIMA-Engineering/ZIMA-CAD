@@ -2,13 +2,14 @@
 
 První sada příkazů komponent poskytuje čtení uložené hierarchie a vložení
 otevřeného Partu či Assembly. GUI menu vložení používá stejnou operaci.
-Katalog obsahuje 122 příkazů; tato etapa ještě nepokrývá editaci vazeb,
+Katalog obsahuje 123 příkazů; tato etapa ještě nepokrývá editaci vazeb,
 umístění, odstranění komponent ani vložení do vnořeného aktivního kontextu.
 
 | Příkaz | Argumenty | Význam |
 | --- | --- | --- |
 | `component.list` | `[recursive:Boolean]`, `[limit:Integer]`, `[document]` | Uložené výskyty komponent, výchozí limit 2000 |
 | `component.get` | `instance_path`, `[document]` | Jeden přesný uložený výskyt |
+| `component.open` | `instance_path`, `[document]` | Otevření zdroje přesného výskytu na samostatné kartě |
 | `component.insert` | `source`, `[name]`, `[document]` | Vložení otevřeného dokumentu do aktivní samostatné sestavy |
 
 `source` je ID otevřeného Partu nebo Assembly. `document` je ID vlastnící sestavy.
@@ -76,3 +77,24 @@ použije původní menu vložení a jeho vlastnosti. Integrační sada prošla *
 
 Celá Windows Release sada prošla **77/77** (402,70 s),
 `build/component-full-tests.log`.
+
+## Otevření zdroje
+
+`component.open` přijímá přesnou cestu z `component.list/get`; výchozím
+vlastníkem je zobrazená sestava. Otevře pouze vybraný zdroj, nikoli všechny
+mezilehlé sestavy. U odvozené kopie dohledá její původní zdroj. Výsledek
+obsahuje `document`, `path`, přesměrovanou `source_instance_path` a `opened`
+(příznak nově načteného dokumentu). Zdroj se aktivuje na samostatné kartě.
+
+Již otevřený zdroj se používá v současném stavu bez čtení souboru, takže
+nezmizí neuložené změny. U uzavřeného zdroje se kontroluje ID i druh dokumentu;
+soubor jiného dílu pod stejnou cestou se odmítne. Změna vlastnící sestavy, její
+zavření a opětovné otevření nebo přepnutí kontextu během čtení výsledek zneplatní.
+Čtení používá uložená data bez regenerace zdroje i rodičů. GUI kontextová akce
+Otevřít sdílí stejnou operaci; CLI zatím zachovává obecnou ochranu aktivního
+vnořeného editačního kontextu uvedenou výše.
+
+Regrese otevírání zdrojů prošly **5/5** (27,35 s),
+`build/component-source-integration-tests.log`. Zahrnují skutečné CLI a GUI
+menu vnořeného dílu, zachování změn otevřeného zdroje, chybnou identitu souboru,
+přesměrování kopie a změny Workspace během čtení.

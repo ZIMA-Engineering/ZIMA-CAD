@@ -1,4 +1,6 @@
 #include "workspace_internal.hpp"
+#include <zima/workspace/component_source_operations.hpp>
+#include <zima/document/file_path.hpp>
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -187,26 +189,19 @@ void AssemblyWorkspaceWindow::deactivate_active_occurrence_for_test() {
 
 bool AssemblyWorkspaceWindow::open_component_source(const std::string& instance_path) {
     if (properties_dialog_ || !active_sketch_id_.empty()) return false;
-    const auto top = workspace_.displayed_document_id();
+    const auto top = workspace_.displayed_document_id();bool reading=false;
     try {
-        const auto source = workspace_.derived_source_path(top,
-            zima::assembly::InstancePath::decode(instance_path));
-        const auto address = workspace_.resolve_occurrence(top,source);
-        if (!address) return false;
-        if (workspace_.find(address->source_document_id)) {
-            workspace_.activate(address->source_document_id);
-            workspace_.display_top_level(address->source_document_id);
-            active_occurrence_path_.clear();
-            activate_first_part_body();
-            viewer_->clear_selection();
-            refresh_tabs();
-            refresh_scene();
-            return true;
-        }
-        const auto file = workspace_.occurrence_source_file(top, source);
-        return file && open_document_path(QString::fromStdString(file->string()));
-    } catch(const std::exception& error) {
-        state_->setText(QString::fromUtf8(error.what()));
+        const auto opened=zima::workspace::open_component_source(workspace_,top,zima::assembly::InstancePath::decode(instance_path),
+            [](auto task){run_background_task(std::move(task));},[this,&reading](const auto& path){
+                reading=true;begin_status_operation(tr("Otevírám %1…").arg(QString::fromStdString(zima::document::path_to_utf8(path.filename()))));
+            });
+        workspace_.activate(opened.document_id);workspace_.display_top_level(opened.document_id);
+        if(!opened.path.empty())working_directory_=opened.path.parent_path();
+        viewer_->clear_selection();finish_document_switch(true);
+        if(reading)finish_status_operation(tr("Otevřeno: %1").arg(QString::fromStdString(zima::document::path_to_utf8(opened.path.filename()))));
+        return true;
+    }catch(const std::exception& error) {
+        const auto message=tr(error.what());if(reading)finish_status_operation(message,false);else state_->setText(message);
         return false;
     }
 }

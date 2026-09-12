@@ -218,3 +218,11 @@ CLI/GUI integrace **4/4** (17,30 s). Podrobnosti:
 [COMPONENT_COMMANDS.md](COMPONENT_COMMANDS.md).
 Celá Windows Release sada komponentové etapy: **77/77** (402,70 s),
 `build/component-full-tests.log`.
+
+Etapa otevření zdroje přidala `component.open`, celkem **123 příkazů**.
+CLI i kontextové menu GUI používají stejnou kontrolu přesného výskytu, identity
+souboru a souběžných změn dokumentu. Zdroj se otevře bez regenerace rodičů;
+rozpracovaný otevřený dokument má přednost. Integrační sada prošla **5/5**
+(27,35 s), `build/component-source-integration-tests.log`.
+Podrobnosti jsou v [COMPONENT_COMMANDS.md](COMPONENT_COMMANDS.md).
+Následují nezávislé výkresové operace; chráněná refaktorizace umístění nadále čeká.

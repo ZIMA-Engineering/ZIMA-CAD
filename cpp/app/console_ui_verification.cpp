@@ -503,6 +503,24 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         run("save");const auto saved_components=assembly::AssemblyDocument::load(directory/(stem+"-components.asmz"));check(saved_components.components.size()==2,"GUI component insertion did not persist");
         run(QString::fromStdString("new assembly "+stem+"-component-top"));json_run("component.insert",{{"source",component_owner}});
         check(json_run("component.list",{{"recursive",true}}).data.at("total")==3,"Console nested component query lost its hierarchy");
+        const auto nested_rows=json_run("component.list",{{"recursive",true}}).data.at("items");std::string source_path;
+        for(const auto& row:nested_rows)if(row.at("kind")=="part"){source_path=row.at("instance_path").get<std::string>();break;}
+        check(!source_path.empty(),"Nested source path missing");
+        json_run("close",{{"document",engineering_saved.document_id}});json_run("close",{{"document",component_owner}});flush();
+        QTreeWidgetItem* source_item=nullptr;
+        for(QTreeWidgetItemIterator it(model_tree);*it;++it)if((*it)->data(0,Qt::UserRole+1).toString().toStdString()==source_path){source_item=*it;break;}
+        check(source_item,"Nested source tree item missing");model_tree->setCurrentItem(source_item);model_tree->scrollToItem(source_item);flush();
+        bool chose_source=false;QTimer::singleShot(0,[&]{
+            for(auto* menu:window.findChildren<QMenu*>())if(menu->isVisible())for(auto* action:menu->actions())if(action->objectName()=="openComponentSourceAction") {
+                chose_source=true;menu->setActiveAction(action);QKeyEvent accept(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(menu,&accept);return;
+            }
+        });
+        QTimer source_menu_timeout;source_menu_timeout.setSingleShot(true);
+        QObject::connect(&source_menu_timeout,&QTimer::timeout,[&]{for(auto* menu:window.findChildren<QMenu*>())if(menu->isVisible())menu->close();});
+        source_menu_timeout.start(10000);model_tree->customContextMenuRequested(model_tree->visualItemRect(source_item).center());source_menu_timeout.stop();flush();
+        check(chose_source && run("context").data.at("active_document")==engineering_saved.document_id,"GUI source context action did not use shared source opening");
+        bool middle_open=false;for(const auto& doc:run("documents").data)if(doc.at("id")==component_owner)middle_open=true;
+        check(!middle_open,"Opening a source left intermediate assemblies open");
         run(QString::fromStdString(activate.dump()));flush();
         input->setText("context");QApplication::sendEvent(input,&enter);flush();
         check(window.grab().save(QString::fromStdString((directory/"command-console.png").string())),"Console screenshot failed");
