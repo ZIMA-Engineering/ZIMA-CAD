@@ -1,6 +1,7 @@
 #include "workspace_internal.hpp"
 #include <zima/workspace/primitive_operations.hpp>
 #include <zima/workspace/opening_operations.hpp>
+#include <zima/workspace/drill_point_operations.hpp>
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -397,6 +398,13 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 try {
                     static_cast<void>(zima::workspace::commit_opening(workspace_,kernel_,owner_id,std::move(committed),
                         edit_mode?zima::workspace::OpeningEditMode::Replace:zima::workspace::OpeningEditMode::Create));
+                } catch (const std::exception& error) { throw std::runtime_error(tr(error.what()).toStdString()); }
+                return;
+            }
+            if (committed.feature_kind == zima::document::FeatureKind::DrillPoint) {
+                try {
+                    static_cast<void>(zima::workspace::commit_drill_point(workspace_,kernel_,owner_id,std::move(committed),
+                        edit_mode?zima::workspace::DrillPointEditMode::Replace:zima::workspace::DrillPointEditMode::Create));
                 } catch (const std::exception& error) { throw std::runtime_error(tr(error.what()).toStdString()); }
                 return;
             }

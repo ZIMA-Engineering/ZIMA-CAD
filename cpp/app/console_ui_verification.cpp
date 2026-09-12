@@ -1,3 +1,5 @@
+#include "../tests/drill_point_test_support.hpp"
+#include <QListWidget>
 #include "../tests/sweep_test_support.hpp"
 #include "../tests/construction_query_test_support.hpp"
 #include "../tests/dxf_export_test_support.hpp"
@@ -1065,6 +1067,39 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
             run("save");std::vector<kernel::BodyResult> calculated;
             static_cast<void>(document::PartDocument::load(directory/(stem+"-shaft.prtz"),&calculated));
             check(std::abs(calculated.back().volume-750*std::acos(-1.0))<1e-6,"GUI shaft Properties changed the solid volume");
+            json_run("close",{{"discard",true}});json_run("activate",{{"document",previous_document}});flush();
+        }
+        {
+            const auto previous_document=run("context").data.at("active_document");
+            const auto file=directory/(stem+"-drill.prtz");const auto fixture=test::drill_point_fixture();
+            kernel::OcctKernel fixture_kernel;fixture.save(file,fixture_kernel.evaluate_history(fixture.kernel_operations()));
+            json_run("open",{{"path",file.string()}});
+            const auto face=[&](std::size_t i){return commands::Json{{"owner",fixture.history.at(i).id},{"key","z_min"}};};
+            const auto id=json_run("drill_point.create",{{"faces",commands::Json::array({face(1),face(2)})}}).data.at("container").get<std::string>();flush();
+            const auto get=[&]{return json_run("drill_point.get",{{"container",id}}).data;};
+            const auto edit=[&]() {
+                QTreeWidgetItem* item=nullptr;
+                for(QTreeWidgetItemIterator it(model_tree);*it;++it)
+                    if((*it)->data(0,Qt::UserRole).toString().toStdString()==id&&(*it)->data(0,Qt::UserRole+3).toString()=="part-container"){item=*it;break;}
+                check(item,"CLI drill point is missing from the tree");window.show_tree_item_properties(item);flush();
+                for(auto* dialog:window.findChildren<QDialog*>())if(dialog->isVisible()&&dialog->findChild<QDoubleSpinBox*>("drillPointIncludedAngle"))return dialog;
+                throw std::runtime_error("Drill-point Properties did not open");
+            };
+            for(const bool commit:{false,true}) {
+                auto* dialog=edit();auto* angle=dialog->findChild<QDoubleSpinBox*>("drillPointIncludedAngle");
+                check(angle->value()==118&&dialog->findChild<QListWidget*>("drillPointFaces")->count()==2,"Drill Properties lost its angle or original bottom references");
+                angle->setValue(120);flush();check(get().at("angle_degrees")==118,"Drill Properties committed before OK");
+                dialog->findChild<QDialogButtonBox*>()->button(commit?QDialogButtonBox::Ok:QDialogButtonBox::Cancel)->click();flush();
+                check(get().at("angle_degrees")==(commit?120:118),"Drill Properties OK/Cancel failed");
+            }
+            run("undo");check(get().at("angle_degrees")==118,"Drill Properties Undo failed");
+            auto* dialog=edit();dialog->findChild<QListWidget*>("drillPointFaces")->setCurrentRow(0);
+            dialog->findChild<QPushButton*>("drillPointRemoveFace")->click();flush();
+            check(get().at("faces").size()==2,"Removing a pending bottom changed the saved feature before OK");
+            dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+            check(get().at("faces").size()==1&&get().at("faces")[0].at("owner")==fixture.history[2].id,"Drill Properties removed a different bottom");
+            run("save");std::vector<kernel::BodyResult> calculated;static_cast<void>(document::PartDocument::load(file,&calculated));
+            check(std::abs(calculated.back().volume-test::drilled_block_volume(118,false,true))<1e-5,"GUI drill point saved an incorrect volume");
             json_run("close",{{"discard",true}});json_run("activate",{{"document",previous_document}});flush();
         }
         input->setText("context");QApplication::sendEvent(input,&enter);flush();

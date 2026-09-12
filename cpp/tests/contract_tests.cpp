@@ -6465,7 +6465,7 @@ int main() {
                         [](const auto& reference) {
                             return reference.owner_id == "drill-point" &&
                                 reference.semantic_key ==
-                                    "drill-point:0:side";
+                                    "drill-point:side:from:10:blind-bore:z_min";
                         }),
             "Drill Point did not derive and subtract cones of different "
             "diameters from all selected circular bottom faces");

@@ -1,3 +1,5 @@
+#include "drill_point_test_support.hpp"
+#include <zima/kernel/drill_point_identity.hpp>
 #include "sweep_test_support.hpp"
 #include "construction_query_test_support.hpp"
 #include "dxf_export_test_support.hpp"
@@ -86,6 +88,25 @@ int main(int argc,char** argv){
             config.setValue("Application/Language","en");config.setValue("Units/Length","cm");config.sync();
         }
         const auto common=QStringList{"--working-directory",qpath(project),"--config",qpath(base)};
+        const auto drill_path=project/"drill-cli.prtz";const auto drill_fixture=test::drill_point_fixture();
+        kernel::OcctKernel drill_kernel;drill_fixture.save(drill_path,drill_kernel.evaluate_history(drill_fixture.kernel_operations()));
+        const auto drill_face=[&](std::size_t index){return Json{{"owner",drill_fixture.history.at(index).id},{"key","z_min"}};};
+        const auto make_drill=command({{"command","drill_point.create"},{"arguments",{{"faces",Json::array({drill_face(1),drill_face(2)})}}}});
+        result=launch(executable,root,common+QStringList{"--command","open drill-cli.prtz","--command",make_drill,"--command","save"});
+        require(result.exit_code==0,"CLI drill-point creation failed");
+        const auto drill_created=document::PartDocument::load(drill_path).history.back();
+        require(drill_created.name=="Drill point","CLI drill point name was not translated");
+        const auto edit_drill=command({{"command","drill_point.set"},{"arguments",{{"container",drill_created.id},{"angle_degrees",120},{"faces",Json::array({drill_face(2)})}}}});
+        result=launch(executable,root,common+QStringList{"--command","open drill-cli.prtz","--command",edit_drill,"--command","undo","--command","redo",
+            "--command","save","--command","drill_point.get "+QString::fromStdString(drill_created.id)});
+        require(result.exit_code==0&&result.results()[5].at("data").at("faces").size()==1&&result.results()[5].at("data").at("angle_degrees")==120,
+            "CLI drill-point reference edit/Undo/Redo failed");
+        std::vector<kernel::BodyResult> drill_cache;const auto drill_saved=document::PartDocument::load(drill_path,&drill_cache);
+        const auto drill_parent=drill_saved.history.back().drill_point.bottom_faces.front();
+        require(drill_saved.history.back().feature_id==drill_created.feature_id&&std::abs(drill_cache.back().volume-test::drilled_block_volume(120,false,true))<1e-5&&
+            std::ranges::any_of(drill_cache.back().mesh.triangle_references,[&](const auto& ref){return ref.owner_id==drill_created.id&&ref.semantic_key==kernel::drill_point_key("side",drill_parent);}),
+            "CLI drill point changed its remaining source identity or saved an incorrect volume");
+
         const auto make_opening=command({{"command","opening.create"},{"arguments",{{"type","metric"},{"designation","M10"},
             {"bore_length_mm",20},{"thread_length_mm",10},{"chamfer_enabled",false},{"drill_point_enabled",false},{"placement",{{"z",-20}}}}}});
         result=launch(executable,root,common+QStringList{"--command","new part opening-cli","--command","box.create 40 40 40",

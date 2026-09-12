@@ -265,3 +265,7 @@ pokrytí: [OPENING_COMMANDS.md](OPENING_COMMANDS.md).
 Vnější závit hřídele má `shaft_thread.create/get/set`: původní válec a
 počáteční plocha, katalog, délka, sražení a zakončení Až k/Skrz vše.
 Příklady a kontrakt: [SHAFT_THREAD_COMMANDS.md](SHAFT_THREAD_COMMANDS.md).
+
+Samostatné vrtací špičky mají `drill_point.create/get/set`, společný úhel
+a upravitelný seznam původních den. Příklad a identity vytvořených ploch:
+[DRILL_POINT_COMMANDS.md](DRILL_POINT_COMMANDS.md).

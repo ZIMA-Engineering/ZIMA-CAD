@@ -1,3 +1,4 @@
+#include <zima/kernel/drill_point_identity.hpp>
 #include <zima/kernel/occt_curve_data.hpp>
 #include <zima/kernel/pattern_geometry.hpp>
 #include <zima/kernel/mirror_geometry.hpp>
@@ -742,7 +743,7 @@ PrimitiveData make_cone_data(const ConeRequest& request, const std::string& owne
 }
 
 PrimitiveData make_drill_point_data(const DrillPointRequest& request,
-        const std::vector<TopoDS_Face>& bottom_faces, const TopoDS_Shape& body,
+        const std::vector<std::pair<FaceReference,TopoDS_Face>>& bottom_faces, const TopoDS_Shape& body,
         const std::string& owner_id,
         const std::vector<std::pair<FaceReference,SurfaceGeometry>>& sweep_ends = {}) {
     if (request.bottom_faces.empty() ||
@@ -755,8 +756,7 @@ PrimitiveData make_drill_point_data(const DrillPointRequest& request,
     BRep_Builder builder;
     builder.MakeCompound(cones);
     PrimitiveData result{cones, {}, {}, {}};
-    for (std::size_t index = 0; index < bottom_faces.size(); ++index) {
-        const auto& bottom_face = bottom_faces[index];
+    for (const auto& [reference,bottom_face] : bottom_faces) {
         BRepAdaptor_Surface surface(bottom_face);
         if (surface.GetType() != GeomAbs_Plane) continue;
         std::vector<gp_Circ> circles;
@@ -787,20 +787,18 @@ PrimitiveData make_drill_point_data(const DrillPointRequest& request,
             gp_Ax2(center, normal), circle.Radius(), 0.0, depth).Shape();
         if (cone.IsNull() || !BRepCheck_Analyzer(cone).IsValid()) continue;
         builder.Add(cones, cone);
-        const auto role = std::to_string(index);
         for (TopExp_Explorer explorer(cone, TopAbs_FACE);
              explorer.More(); explorer.Next()) {
             const auto face = TopoDS::Face(explorer.Current());
             const auto kind = BRepAdaptor_Surface(face).GetType();
-            result.faces.push_back({face, {owner_id, "drill-point:" + role +
-                (kind == GeomAbs_Cone ? ":side" : ":base")}});
+            result.faces.push_back({face, {owner_id, drill_point_key(kind == GeomAbs_Cone ? "side" : "base",reference)}});
         }
         for (TopExp_Explorer explorer(cone, TopAbs_EDGE);
              explorer.More(); explorer.Next()) {
             const auto edge = TopoDS::Edge(explorer.Current());
             if (BRepAdaptor_Curve(edge).GetType() == GeomAbs_Circle) {
                 result.edges.push_back({edge,
-                    {owner_id, "drill-point:" + role + ":base-circle"}});
+                    {owner_id, drill_point_key("base-circle",reference)}});
             }
         }
     }
@@ -814,18 +812,16 @@ PrimitiveData make_drill_point_data(const DrillPointRequest& request,
         if (cone.IsNull() || !BRepCheck_Analyzer(cone).IsValid())
             throw std::runtime_error("Nelze vytvořit špičku konce Sweep/Loftu");
         builder.Add(cones,cone);
-        const auto parent = std::to_string(reference.owner_id.size()) + ":" +
-            reference.owner_id + ":" + reference.semantic_key;
         for (TopExp_Explorer faces(cone,TopAbs_FACE);faces.More();faces.Next()) {
             const auto face=TopoDS::Face(faces.Current());
             const auto kind=BRepAdaptor_Surface(face).GetType();
             result.faces.push_back({face,{owner_id,
-                std::string("drill-point:") + (kind==GeomAbs_Cone?"side:from:":"base:from:") + parent}});
+                drill_point_key(kind==GeomAbs_Cone?"side":"base",reference)}});
         }
         for (TopExp_Explorer edges(cone,TopAbs_EDGE);edges.More();edges.Next()) {
             const auto edge=TopoDS::Edge(edges.Current());
             if(BRepAdaptor_Curve(edge).GetType()==GeomAbs_Circle)
-                result.edges.push_back({edge,{owner_id,"drill-point:base-circle:from:"+parent}});
+                result.edges.push_back({edge,{owner_id,drill_point_key("base-circle",reference)}});
         }
     }
     if (result.faces.empty())
@@ -7116,7 +7112,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
             // Keep drill-point lookup outside the generic visitor to avoid an MSVC C1001.
             const auto make_drill_point_operand = [&](const DrillPointRequest& primitive)
                 -> PrimitiveData {
-                std::vector<TopoDS_Face> matches;
+                std::vector<std::pair<FaceReference,TopoDS_Face>> matches;
                 std::vector<std::pair<FaceReference,SurfaceGeometry>> sweep_ends;
                 for (const auto& requested : primitive.bottom_faces) {
                     if (requested.semantic_key.starts_with("sweep:cap:")) {
@@ -7136,7 +7132,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                                     requested.semantic_key;
                         });
                     if (found != owned_topology->faces.end()) {
-                        matches.push_back(TopoDS::Face(found->shape));
+                        matches.emplace_back(requested,TopoDS::Face(found->shape));
                     }
                 }
                 if (matches.empty() && sweep_ends.empty()) {

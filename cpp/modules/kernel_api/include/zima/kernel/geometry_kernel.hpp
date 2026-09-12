@@ -1511,6 +1511,9 @@ struct PlacedBody {
                     for (const unsigned char value : fingerprint) byte(value);
                 }
             } else if constexpr (std::is_same_v<Request, DrillPointRequest>) {
+                // Source-parent topology replaces selection-order identities.
+                // Explicit calculation must not reuse the former derived cache.
+                u64(1); // Drill-point topology schema.
                 u64(primitive.bottom_faces.size());
                 for (const auto& face : primitive.bottom_faces) {
                     for (const auto* text : {&face.owner_id,

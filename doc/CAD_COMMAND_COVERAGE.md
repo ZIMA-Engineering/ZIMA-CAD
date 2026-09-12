@@ -42,7 +42,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Externí reference skici | Part a kořenová Assembly hotovy | Původní geometrie, přesná projekce, aktualizace, odpojení a zachování trimu; zbývá příkazový kontext Partu aktivovaného v sestavě |
 | Vytažení a rotace | Profily, Thin, směry a cíle zakončení Partu hotovy | `extrusion/revolution.create/get/set`, vlastněná skica, původní plochy a dvě nezávislé meze, společné OK; zbývají sestavové řezy |
 | Tažení | Tvorba a geometrické vlastnosti hotovy | `sweep2d/sweep3d/helical.create/get/set`, společné GUI potvrzení, celá 3D dráha, stanice a úplná správa profilů/párování, reference roviny 2D dráhy a odsazení základní skici H-tažení; generické rozšíření umístění patří do řádku Umístění |
-| Otvory a závity | Katalog, současný Otvor a vnější závit částečně hotovy | `thread.catalog`, `opening.create/get/set`: hladký/závitový otvor, rozměry, sražení, špička, směr a průchozí otvor; `shaft_thread.create/get/set` včetně původních referencí; zbývají cílové reference Otvoru Až k, samostatné Hole/DrillPoint a operace vnořených částí otvoru |
+| Otvory a závity | Katalog, současný Otvor a vnější závit částečně hotovy | `thread.catalog`, `opening.create/get/set`: hladký/závitový otvor, rozměry, sražení, špička, směr a průchozí otvor; `shaft_thread.create/get/set` včetně původních referencí; zbývají cílové reference Otvoru Až k, samostatný Hole a operace vnořených částí otvoru; `drill_point.create/get/set` pokrývají samostatnou vrtací špičku |
 | Zaoblení, zkosení, skořepina | Zbývá | Výběr skutečného vstupního tělesa a sdílené transakce |
 | Zrcadlo a pole | Zbývá | Odvozená tělesa a komponenty |
 | Sestavy | Dotazy včetně překážek odstranění, vložení a otevření zdrojů komponent hotovy | Uložená hierarchie a přesné výskyty, sdílené vložení a otevření zdroje; zbývají vlastnosti/mazání komponent, vazby, vnořená aktivace a řezy |
@@ -771,3 +771,18 @@ Oba programy i testy jsou sestavené; související sada prošla **9/9**
 modelové, procesní a GUI testy **3/3** (57,52 s), včetně tří norem,
 nezměněného objemu, sražení, hranice historie, Undo a nativního uložení.
 Následuje samostatná vrtací špička a další zbývající řádky tabulky.
+
+
+### Samostatná vrtací špička
+
+`drill_point.create/get/set` sdílejí potvrzení s GUI Vlastnostmi, ověřují
+původní dna před hranicí editace a podporují celý seznam referencí i úhel.
+Identity kuželových ploch a hran jsou odvozené od zdrojového dna, takže
+odebrání či přeuspořádání výběru nepřejmenuje zbývající geometrii.
+Katalog má **183 příkazů**. Kontrakt: [DRILL_POINT_COMMANDS.md](DRILL_POINT_COMMANDS.md).
+
+
+Oba programy a všechny testy jsou sestavené. Úplná sada prošla **97/97**
+(458,94 s) bez opakování. Doplněný test dna současného Otvoru prošel **1/1**
+(0,53 s); ověřuje nezávislý objem a původ kuželové plochy. Pokračují zbývající
+modelovací operace z tabulky; celá CLI tím ještě není dokončena.
