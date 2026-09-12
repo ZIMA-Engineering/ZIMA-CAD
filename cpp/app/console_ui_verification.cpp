@@ -1,3 +1,4 @@
+#include <QFile>
 #include "drawing_window.hpp"
 #include <zima/drawing/measurement_dimension.hpp>
 #include "console_ui_verification.hpp"
@@ -606,6 +607,11 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         check(!window.findChild<QDialog*>("drawingTitleBlockProperties")&&json_run("drawing.title.get",{{"sheet",view_document.sheets.front().id}}).data.at("fields")[0].at("value")=="GUI title","GUI title did not use shared source writeback");
         const auto console_pdf=json_run("export.pdf",{{"path",document::path_to_utf8(directory/(stem+"-drawing.pdf"))}}).data;
         check(console_pdf.at("pages")==1&&console_pdf.at("model_changed")==false&&console_pdf.at("bytes").get<std::uint64_t>()>1000,"Console PDF did not use the shared export");
+        const auto console_dxf_path=directory/(stem+"-drawing.dxf"),gui_dxf_path=directory/(stem+"-drawing-gui.dxf");
+        const auto console_dxf=json_run("export.dxf",{{"path",document::path_to_utf8(console_dxf_path)},{"sheet",view_document.sheets.front().id}}).data;
+        drawing_window->export_dxf(gui_dxf_path);
+        QFile console_dxf_file(QString::fromStdString(document::path_to_utf8(console_dxf_path))),gui_dxf_file(QString::fromStdString(document::path_to_utf8(gui_dxf_path)));
+        check(console_dxf.at("model_changed")==false&&console_dxf_file.open(QIODevice::ReadOnly)&&gui_dxf_file.open(QIODevice::ReadOnly)&&console_dxf_file.readAll()==gui_dxf_file.readAll(),"GUI and console Drawing DXF differ");
         check(window.grab().save(QString::fromStdString((directory/"command-drawing-views.png").string())),"Drawing view screenshot failed");
         json_run("close",{{"discard",true}});
         run(QString::fromStdString(activate.dump()));flush();

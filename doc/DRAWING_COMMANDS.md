@@ -2,7 +2,7 @@
 
 Výkresové příkazy zpřístupňují listy, šablony, tvorbu a vlastnosti pohledů,
 uložené reference a výslovnou regeneraci. Katalog má 151 příkazů. Dotazy na modelové anotace a Show/Erase jsou sdílené.
-Další anotace, zdrojové styly šraf a příkazové exporty DXF/JPG
+Další anotace, zdrojové styly šraf a příkazový export JPG
 zatím nejsou kompletně pokryté.
 
 | Příkaz | Argumenty | Výsledek |
@@ -479,3 +479,34 @@ Zápis sdílí s modelovými exporty atomické publikování dokončeného soubo
 Chyba na kterémkoli listu zachová původní cíl, uklidí dočasná data a nemění
 Undo historii. Bez `overwrite` nelze přepsat existující cíl ani při souběžném
 zápisu. Formát `.drwz` ani startovní šablony se nemění.
+
+
+## DXF jednoho listu
+
+`export.dxf` podporuje také otevřený Drawing. Vyžaduje `path` s příponou
+`.dxf` a konkrétní `sheet` z `drawing.sheet.list`; ID skici se v tomto režimu
+nezadává. Vícelistý výkres se exportuje po jednotlivých listech. `document`
+ověřuje aktivní dokument, `overwrite` je standardně `false`.
+
+```json
+{"command":"export.dxf","arguments":{"path":"list-2.dxf","sheet":"SHEET_ID","overwrite":true}}
+```
+
+GUI předává aktivní list stejné službě `drawing_render::export_dxf`. Výsledek
+vrací `document`, `sheet`, `path`, `source_revision`, `bytes` a
+`model_changed:false`. Export nemění aktivní list, model, historii ani zdroje.
+Čte hotové průměty a měřítka, neprovádí OCCT ani Regenerate. Razítko používá
+stejná aktuální zdrojová metadata jako PDF; uložený kusovník se nepřepočítává.
+
+Souřadnice jsou milimetry na papíře (`$INSUNITS=4`), se standardní osou Y
+nahoru. Převod proto zachovává nastavené měřítko výkresových pohledů.
+Výstup používá dosavadní výkresový DXF zapisovač: úsečky, textové entity,
+tloušťky čar, čárkované skryté hrany, výplně a šrafy. Křivkové obrysy se
+převádějí na úsečky; nejde o rekonstrukci analytických kružnic, spline ani
+parametrických kót z výsledného průmětu. Obrázky a stínování se zapisují jako
+barevné výplně a nepotřebují externí rastrový soubor. To může zvětšit DXF.
+Dosavadní export nativní skici s `sketch` nadále zachovává její podporované
+analytické kružnice a oblouky.
+
+Hotový DXF se zveřejní atomicky. Neplatný list, nejednoznačné zadání skici
+spolu s listem, chybějící adresář či chyba zdroje nezmění původní cílový soubor.

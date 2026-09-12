@@ -201,3 +201,13 @@ pro CLI. Qt se spouští s platformou `offscreen` i při jiném nastavení
 `QT_QPA_PLATFORM`; nevytváří se QWidget ani okno. `--help` grafické prostředí
 neinicializuje. CLI stále neovládá jiný spuštěný CAD a při ukončení automaticky
 neukládá nativní dokumenty. Podrobnosti: [DRAWING_COMMANDS.md](DRAWING_COMMANDS.md).
+
+Výkresový DXF je dostupný stejným příkazem jako DXF skici, s parametrem
+`sheet` namísto `sketch`:
+
+```json
+{"command":"export.dxf","arguments":{"path":"výkres.dxf","sheet":"SHEET_ID"}}
+```
+
+Listy zjistíte přes `drawing.sheet.list`. Výstup používá rozměry na papíře
+v mm a společný renderer GUI/CLI, bez přepočtu geometrie.

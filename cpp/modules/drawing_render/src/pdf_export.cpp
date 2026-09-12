@@ -1,6 +1,6 @@
 #include <zima/drawing_render/pdf_export.hpp>
 #include <zima/drawing_render/sheet_renderer.hpp>
-#include <zima/workspace/drawing_sources.hpp>
+#include "sheet_export_context.hpp"
 #include <zima/workspace/export_operations.hpp>
 #include <zima/document/file_path.hpp>
 #include <QGuiApplication>
@@ -29,12 +29,7 @@ std::uint64_t export_pdf(const drawing::DrawingDocument& doc,const std::filesyst
                 writer.setPageMargins(QMarginsF(0,0,0,0),QPageLayout::Millimeter);
                 if(index==0){if(!painter.begin(&writer))throw std::runtime_error("Cannot start PDF output");}
                 else if(!writer.newPage())throw std::runtime_error("Cannot add PDF page");
-                const auto id=sheet.views.empty()?doc.source_document_id:sheet.views.front().source_document_id;
-                auto source=sheet.views.empty()?doc.source_path:sheet.views.front().source_path;
-                if(!source.empty()&&source.is_relative()&&!document_path.empty())source=document_path.parent_path()/source;
-                auto context=workspace::build_title_block_context_for_source(id,source,live);
-                context.sheet_index=static_cast<int>(index);context.sheet_count=static_cast<int>(doc.sheets.size());
-                SheetRenderer output;output.set_render_sheet(&sheet);output.set_render_context(std::move(context));
+                SheetRenderer output;output.set_render_sheet(&sheet);output.set_render_context(sheet_export_context(doc,index,document_path,live));
                 output.paint_sheet(painter,writer.resolution()/25.4,{},true);
             }
             if(!painter.end())throw std::runtime_error("Cannot finish PDF output");

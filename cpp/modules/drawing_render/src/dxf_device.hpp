@@ -10,7 +10,7 @@
 #include <cmath>
 #include <algorithm>
 
-namespace zima::app {
+namespace zima::drawing_render {
 // Millimetre drawing output. Qt supplies the same vector primitives as PDF;
 // no model calculation or screen-resolution projection is performed here.
 class DrawingDxfDevice final : public QPaintDevice {

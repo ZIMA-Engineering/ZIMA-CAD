@@ -370,6 +370,12 @@ int main(int argc,char** argv){
         require(result.exit_code==0&&result.results()[1].at("data").at("pages")==1&&fs::file_size(pdf_path)>1000,"Standalone offscreen CLI PDF export failed");
         result=launch(executable,root,common+QStringList{"--command","open cli-measured.drwz","--command",pdf_command});
         require(result.exit_code==1&&result.results()[1].at("code")=="file_exists","CLI PDF silently overwrote an existing file");
+        const auto sheet_dxf_path=project/fs::path(u8"výkres CLI.dxf");
+        const auto sheet_dxf_command=command({{"command","export.dxf"},{"arguments",{{"path",document::path_to_utf8(sheet_dxf_path)},{"sheet",measured_saved.sheets.front().id}}}});
+        result=launch(executable,root,common+QStringList{"--command","open cli-measured.drwz","--command",sheet_dxf_command});
+        require(result.exit_code==0&&result.results()[1].at("data").at("sheet")==measured_saved.sheets.front().id&&fs::file_size(sheet_dxf_path)>1000,"Standalone offscreen CLI Drawing DXF failed");
+        result=launch(executable,root,common+QStringList{"--command","open cli-measured.drwz","--command",sheet_dxf_command});
+        require(result.exit_code==1&&result.results()[1].at("code")=="file_exists","CLI Drawing DXF overwrote an existing file");
         const auto assembly_step=command({{"command","import.step"},{"arguments",{{"path",document::path_to_utf8(step_source)},{"output_directory","sestava nativní"},{"mesh_deflection_mm",2.0}}}});
         result=launch(executable,root,common+QStringList{"--command","new assembly cli-import-owner","--command",assembly_step,"--command","save"});
         require(result.exit_code==0 && result.results().size()==3 && result.results()[1].at("data").at("parts").size()==1,"CLI Assembly STEP import failed");

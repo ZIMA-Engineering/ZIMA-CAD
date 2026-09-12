@@ -46,10 +46,10 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Zaoblení, zkosení, skořepina | Zbývá | Výběr skutečného vstupního tělesa a sdílené transakce |
 | Zrcadlo a pole | Zbývá | Odvozená tělesa a komponenty |
 | Sestavy | Dotazy včetně překážek odstranění, vložení a otevření zdrojů komponent hotovy | Uložená hierarchie a přesné výskyty, sdílené vložení a otevření zdroje; zbývají vlastnosti/mazání komponent, vazby, vnořená aktivace a řezy |
-| Výkresy | Listy, šablony, historie, tvorba/vlastnosti/dotazy/mazání pohledů, regenerace, modelové anotace, Show/Erase a měřené kóty (dotazy, tvorba, editace, řetězec, mazání), razítko, zdrojové parametry BOM a PDF hotovy | Další anotace, zdrojové styly šraf a příkazové exporty DXF/JPG |
+| Výkresy | Listy, šablony, historie, tvorba/vlastnosti/dotazy/mazání pohledů, regenerace, modelové anotace, Show/Erase a měřené kóty (dotazy, tvorba, editace, řetězec, mazání), razítko, zdrojové parametry BOM, PDF a DXF listu hotovy | Další anotace, zdrojové styly šraf a příkazový export JPG |
 | Řezy, měření a vzhled | Zbývá | Datové operace a uložené výsledky |
 | Parametry, relace a materiál | Společné tabulky a transakce hotovy | Parametry, jednotky, přesnost, relace, materiál včetně přímého načtení knihovny a uložené varianty; řízení rozměrů relacemi a generování variant nejsou dosud zavedené ani v GUI |
-| Import a export | Import Partu/Assembly STEP/IGES/DXF a základní exporty hotovy | Společný STEP včetně vnořených sestav, STL Part/plochá Assembly, DXF úsečky/kružnice/oblouky; zbývá import vložených profilů, další DXF geometrie, vnořený STL a výkresové exporty DXF/JPG |
+| Import a export | Import Partu/Assembly STEP/IGES/DXF a základní exporty hotovy | Společný STEP včetně vnořených sestav, STL Part/plochá Assembly, DXF úsečky/kružnice/oblouky; zbývá import vložených profilů, další DXF geometrie, vnořený STL a výkresový export JPG |
 
 Každá další etapa aktualizuje tabulku a uvádí ověřené testy. Neobcházíme
 chybějící operaci nevalidovanou změnou serializovaného dokumentu ani voláním
@@ -373,3 +373,28 @@ slinkováno z aktuálních CMake objektů a knihoven do
 programu. CLI, samostatný výkresový harness a všechny testovací programy byly
 sestaveny běžným CMake postupem. Běžný `zima-cad-cpp.exe` lze přepsat novým
 sestavením po zavření uživatelského CADu. Nejde o distribuční balíček.
+
+
+Etapa DXF rozšiřuje stávající `export.dxf` o výkres s výslovným ID listu;
+katalog zůstává na **151 příkazech**. GUI a CLI sdílejí výkresový zapisovač,
+renderer listu, kontext zdrojových parametrů i atomické zveřejnění souboru.
+Modelový export skici má zachovaný rozsah a pořadí pozičních argumentů.
+Formát nativních dokumentů ani šablon se nemění. Podrobnosti:
+[DRAWING_COMMANDS.md](DRAWING_COMMANDS.md) a [EXPORT_COMMANDS.md](EXPORT_COMMANDS.md).
+
+Ověřeno **10/10 cílených testů** (29,03 s),
+`build/drawing-dxf-verified-tests.log`: překlady, skutečný CLI proces,
+DXF/PDF příkazy, dosavadní modelové exporty, katalog příkazů, hlavní GUI
+konzole, Show/Erase, měřené kóty a výkresové GUI. Test čte souřadnice DXF
+nezávisle na rendereru a ověřuje měřítko 2:1, směr os, kruhový obrys,
+tloušťky/typy čar, češtinu, konkrétní druhý list, živé neuložené parametry,
+nezměněnou historii, ochranu aktivního kontextu a atomické chyby.
+GUI a konzole vytvořily bajtově shodný DXF. Nový test rozšiřuje celou sadu
+na 85 testů; v této etapě byla znovu spuštěna dotčená sada deseti testů,
+nikoli všech 85. Předchozí úplná regrese PDF měla 84/84.
+
+CLI a výkresový harness jsou sestaveny. Uživatelský CAD stále běžel;
+GUI regrese proto použila `zima-cad-dxf-validation.exe`, slinkovaný
+z aktuálních CMake objektů a knihoven. Dočasná kopie definic CTest změnila
+jen cestu k hlavnímu GUI. Běžný zamčený `zima-cad-cpp.exe` nebyl přepsán;
+po zavření CADu zbývá běžný link tohoto programu. Nejde o distribuční build.

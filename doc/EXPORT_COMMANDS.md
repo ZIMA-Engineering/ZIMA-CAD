@@ -1,6 +1,7 @@
 # Export přes společnou příkazovou vrstvu
 
-Menu GUI a konzole/CLI sdílejí `workspace::export_file`. Exportuje se poslední
+Menu GUI a konzole/CLI sdílejí `workspace::export_file` pro model/skici
+a `drawing_render` pro PDF a DXF výkresů. Exportuje se poslední
 vypočtený stav otevřeného dokumentu. Operace sama nevyvolává Regenerate,
 nenačítá změněné zdrojové party a nevytváří modelovou změnu ani krok Undo.
 
@@ -8,7 +9,8 @@ nenačítá změněné zdrojové party a nevytváří modelovou změnu ani krok 
 
 - `export.step path [overwrite] [document]`
 - `export.stl path [overwrite] [document]`
-- `export.dxf path sketch [overwrite] [document]`
+- `export.dxf path [sketch] [overwrite] [document] [sheet]`
+- `export.pdf path [overwrite] [document]`
 
 `document` volitelně ověřuje aktivní dokument. `overwrite` je boolean,
 výchozí `false`. Relativní cesta patří pracovnímu adresáři konzole.
@@ -41,8 +43,15 @@ profilu. B-spline, elipsy, text, offsety, trimy, rohová zaoblení a samostatné
 body zatím odmítá: dosavadní DXF zapisovač by je tiše vynechal. Tyto formáty
 se ještě musejí rozšířit samostatně; příkaz nehlásí neúplný soubor za úspěch.
 
-PNG/JPEG aktuálního View a PDF výkresu zůstávají nynějšími adaptéry GUI.
-Příkazový export výkresů a explicitně definované kamery je další etapa.
+Výkres podporuje `export.pdf` pro všechny listy a `export.dxf` s povinným
+`sheet` pro jeden list. V tomto režimu se nepřijímá `sketch`; v modelovém
+režimu je naopak `sketch` povinný a `sheet` se nepřijímá. Staré pořadí
+pozičních argumentů exportu skici zůstává zachované. Pro výkres použijte
+pojmenované argumenty v JSON. Rozsah výkresového DXF se liší od skici:
+je to obraz uložených průmětů v milimetrech na papíře, s obrysy převedenými
+na úsečky. Podrobnosti: [DRAWING_COMMANDS.md](DRAWING_COMMANDS.md).
+PNG/JPEG aktuálního View zatím zůstávají adaptéry GUI; příkazový ekvivalent
+vyžaduje explicitně definovaný výřez/kameru.
 
 ## Zápis a chyby
 

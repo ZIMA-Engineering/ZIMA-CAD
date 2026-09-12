@@ -10,7 +10,7 @@
 #include <zima/viewer/dimension_text_layer.hpp>
 #include "dimension_properties_fields.hpp"
 #include "resource_icon.hpp"
-#include "drawing_dxf_device.hpp"
+#include <zima/drawing_render/dxf_export.hpp>
 #include <zima/workspace/drawing_sources.hpp>
 #include "drawing_annotation_layout.hpp"
 #include "show_erase_dialog.hpp"
@@ -1367,14 +1367,7 @@ QRectF DrawingWindow::sheet_rectangle_for_test()const{return canvas_->sheet_rect
 void DrawingWindow::export_dxf(const std::filesystem::path& path) {
     auto* sheet=active_sheet();
     if(!sheet) throw std::runtime_error("Drawing has no active sheet");
-    DrawingDxfDevice device(sheet->width_mm(),sheet->height_mm());
-    QPainter painter(&device);
-    canvas_->paint_sheet(painter,1,{},true);
-    if(!painter.end())throw std::runtime_error("Cannot finish DXF output");
-    QSaveFile file(QString::fromStdString(path.string()));
-    if(!file.open(QIODevice::WriteOnly))throw std::runtime_error(file.errorString().toStdString());
-    const auto data=device.data();
-    if(file.write(data)!=data.size() || !file.commit())throw std::runtime_error("Cannot write DXF output");
+    drawing_render::export_dxf(document_,sheet->id,path,path_,workspace_,true);
 }
 void DrawingWindow::export_jpg(const std::filesystem::path& path) {
     const auto image=canvas_->grab().toImage();
