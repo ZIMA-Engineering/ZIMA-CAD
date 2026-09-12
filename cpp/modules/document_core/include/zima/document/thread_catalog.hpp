@@ -13,4 +13,9 @@ struct ThreadCatalogSize {
 // All lengths are millimetres, including Whitworth and pipe catalog entries.
 // No GUI, installed files, or active document are required. Records are immutable.
 [[nodiscard]] const std::vector<ThreadCatalogSize>& thread_catalog(std::string_view standard);
+struct HistoryContainer;
+enum class ThreadStandard;
+// Shared catalog-selection rule for a caller-owned opening draft, without
+// calculation: preserve custom bore diameter and accommodate blind runout.
+void select_opening_thread_size(HistoryContainer&,ThreadStandard,const ThreadCatalogSize&);
 } // namespace zima::document

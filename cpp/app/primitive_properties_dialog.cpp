@@ -423,16 +423,16 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
                 const QSignalBlocker nominal_blocker(hole_thread_nominal_diameter_);
                 const QSignalBlocker profile_blocker(thread_profile_diameter_);
                 const QSignalBlocker bore_blocker(hole_bore_length_);
-                hole_thread_nominal_diameter_->setValue(thread_size_->currentData(Qt::UserRole+1).toDouble());
-                if (!thread_custom_profile_diameter_->isChecked())
-                    thread_profile_diameter_->setValue(thread_size_->currentData(Qt::UserRole+3).toDouble());
-                if (hole_thread_end_->currentData() == "length" &&
-                    reverse_end_condition_->currentData() == "length") {
-                    const double required_depth = hole_thread_length_->value() +
-                        thread_runout_factor_->value() *
-                            thread_size_->currentData(Qt::UserRole+2).toDouble();
-                    hole_bore_length_->setValue(std::max(hole_bore_length_->value(),
-                        std::ceil(required_depth * 1000.0) / 1000.0));
+                auto pending=values();
+                const auto standard=thread_standard_->currentData().toString();
+                const auto& catalog=zima::document::thread_catalog(standard.toStdString());
+                const auto designation=thread_size_->currentData().toString().toStdString();
+                const auto selected=std::ranges::find(catalog,designation,&zima::document::ThreadCatalogSize::designation);
+                if(selected!=catalog.end()) {
+                    zima::document::select_opening_thread_size(pending,pending.thread.standard,*selected);
+                    hole_thread_nominal_diameter_->setValue(pending.thread.nominal_diameter);
+                    thread_profile_diameter_->setValue(pending.thread.profile_diameter);
+                    hole_bore_length_->setValue(pending.thread.bore_length);
                 }
             }
             refresh();

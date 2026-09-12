@@ -1,4 +1,5 @@
 #include <zima/document/thread_catalog.hpp>
+#include <zima/document/part_document.hpp>
 #include <algorithm>
 #include <charconv>
 #include <cmath>
@@ -54,5 +55,14 @@ const std::vector<ThreadCatalogSize>& thread_catalog(std::string_view standard) 
     if(standard=="whitworth") {static const auto values=read("whitworth");return values;}
     if(standard=="pipe") {static const auto values=read("pipe");return values;}
     throw std::invalid_argument("Thread standard must be metric, whitworth or pipe.");
+}
+void select_opening_thread_size(HistoryContainer& value,ThreadStandard standard,
+    const ThreadCatalogSize& size) {
+    if(value.feature_kind!=FeatureKind::Thread)throw std::invalid_argument("This container is not an opening.");
+    auto& p=value.thread;
+    p.standard=standard;p.designation=size.designation;p.nominal_diameter=size.nominal_diameter;p.pitch=size.pitch;
+    if(!p.custom_profile_diameter)p.profile_diameter=size.internal_root_diameter;
+    if(p.end_condition_forward==EndCondition::Length && p.length_end_condition==EndCondition::Length)
+        p.bore_length=std::max(p.bore_length,std::ceil((p.length_forward+p.runout_pitch_factor*p.pitch)*1000.0)/1000.0);
 }
 } // namespace zima::document

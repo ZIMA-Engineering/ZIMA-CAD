@@ -989,6 +989,42 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
             }
             json_run("close",{{"discard",true}});run(QString::fromStdString(activate.dump()));flush();
         }
+        {
+            const auto previous_document=run("context").data.at("active_document");
+            json_run("new",{{"type","part"},{"name",stem+"-opening"}});
+            json_run("box.create",{{"length_mm","40"},{"width_mm","40"},{"height_mm","40"}});
+            const auto created=json_run("opening.create",{{"type","metric"},{"designation","M10"},{"bore_length_mm",20},
+                {"thread_length_mm",10},{"chamfer_enabled",false},{"drill_point_enabled",false},{"placement",{{"z",-20}}}}).data;
+            const auto opening_id=created.at("container").get<std::string>();flush();
+            const auto get=[&]{return json_run("opening.get",{{"container",opening_id}}).data;};
+            const auto edit=[&]() {
+                QTreeWidgetItem* item=nullptr;
+                for(QTreeWidgetItemIterator it(model_tree);*it;++it)
+                    if((*it)->data(0,Qt::UserRole).toString().toStdString()==opening_id&&(*it)->data(0,Qt::UserRole+3).toString()=="part-container"){item=*it;break;}
+                check(item,"CLI opening is missing from the tree");window.show_tree_item_properties(item);flush();
+                for(auto* dialog:window.findChildren<QDialog*>())if(dialog->isVisible()&&dialog->findChild<QDoubleSpinBox*>("threadBoreLength"))return dialog;
+                throw std::runtime_error("Opening Properties did not open");
+            };
+            for(const bool commit:{false,true}) {
+                auto* dialog=edit();auto* depth=dialog->findChild<QDoubleSpinBox*>("threadBoreLength");
+                check(depth->value()==20,"Opening Properties lost the CLI depth");depth->setValue(24);flush();
+                check(get().at("bore_length_mm")==20,"Opening preview committed before OK");
+                dialog->findChild<QDialogButtonBox*>()->button(commit?QDialogButtonBox::Ok:QDialogButtonBox::Cancel)->click();flush();
+                check(get().at("bore_length_mm")== (commit?24:20),"Opening OK/Cancel did not use the shared transaction");
+            }
+            run("undo");check(get().at("bore_length_mm")==20,"Opening Properties Undo lost its original depth");
+            auto* dialog=edit();auto* size=dialog->findChild<QComboBox*>("threadSize");
+            size->setCurrentIndex(size->findData("M12"));flush();
+            const auto catalog=json_run("thread.catalog",{{"standard","metric"},{"designation","M12"}}).data.at("items")[0];
+            const double bore=catalog.at("internal_root_diameter_mm").get<double>();
+            check(std::abs(dialog->findChild<QDoubleSpinBox*>("threadProfileDiameter")->value()-bore)<1e-8,"GUI catalog selection differs from CLI");
+            dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+            check(get().at("designation")=="M12","GUI catalog selection was not committed");
+            const auto file=directory/(stem+"-opening.prtz");run("save");
+            std::vector<kernel::BodyResult> calculated;static_cast<void>(document::PartDocument::load(file,&calculated));
+            check(std::abs(calculated.back().volume-(64000-std::acos(-1.0)*bore*bore/4*20))<1e-5,"GUI-edited opening saved an incorrect volume");
+            json_run("close",{{"discard",true}});json_run("activate",{{"document",previous_document}});flush();
+        }
         input->setText("context");QApplication::sendEvent(input,&enter);flush();
         check(window.grab().save(QString::fromStdString((directory/"command-console.png").string())),"Console screenshot failed");
         toggle->trigger();flush();check(!dock->isVisible(),"Console toggle did not hide panel");

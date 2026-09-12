@@ -1,5 +1,6 @@
 #include "workspace_internal.hpp"
 #include <zima/workspace/primitive_operations.hpp>
+#include <zima/workspace/opening_operations.hpp>
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -304,9 +305,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 committed.feature_kind ==
                     zima::document::FeatureKind::Revolution ||
                 committed.feature_kind ==
-                    zima::document::FeatureKind::Hole ||
-                committed.feature_kind ==
-                    zima::document::FeatureKind::Thread) {
+                    zima::document::FeatureKind::Hole) {
                 normalize_owned_profile_front_references(
                     committed.placement.references);
             }
@@ -392,6 +391,13 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                     throw std::runtime_error(tr(error.what()).toStdString());
                 }
                 if (completes_pending) pending_profile_feature_.reset();
+                return;
+            }
+            if (committed.feature_kind == zima::document::FeatureKind::Thread) {
+                try {
+                    static_cast<void>(zima::workspace::commit_opening(workspace_,kernel_,owner_id,std::move(committed),
+                        edit_mode?zima::workspace::OpeningEditMode::Replace:zima::workspace::OpeningEditMode::Create));
+                } catch (const std::exception& error) { throw std::runtime_error(tr(error.what()).toStdString()); }
                 return;
             }
             auto* target_part = workspace_.open_part(owner_id);

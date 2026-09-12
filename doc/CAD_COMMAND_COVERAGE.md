@@ -42,7 +42,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Externí reference skici | Part a kořenová Assembly hotovy | Původní geometrie, přesná projekce, aktualizace, odpojení a zachování trimu; zbývá příkazový kontext Partu aktivovaného v sestavě |
 | Vytažení a rotace | Profily, Thin, směry a cíle zakončení Partu hotovy | `extrusion/revolution.create/get/set`, vlastněná skica, původní plochy a dvě nezávislé meze, společné OK; zbývají sestavové řezy |
 | Tažení | Tvorba a geometrické vlastnosti hotovy | `sweep2d/sweep3d/helical.create/get/set`, společné GUI potvrzení, celá 3D dráha, stanice a úplná správa profilů/párování, reference roviny 2D dráhy a odsazení základní skici H-tažení; generické rozšíření umístění patří do řádku Umístění |
-| Otvory a závity | Společný katalog hotov | `thread.catalog`: stejné rozměry pro CLI a GUI; zbývá tvorba, vlastnosti a reference Hole, Thread, ShaftThread a DrillPoint |
+| Otvory a závity | Katalog a současný Otvor částečně hotovy | `thread.catalog`, `opening.create/get/set`: hladký/závitový otvor, rozměry, sražení, špička, směr a průchozí otvor; zbývají cílové reference Až k, samostatné Hole/ShaftThread/DrillPoint a operace vnořených částí otvoru |
 | Zaoblení, zkosení, skořepina | Zbývá | Výběr skutečného vstupního tělesa a sdílené transakce |
 | Zrcadlo a pole | Zbývá | Odvozená tělesa a komponenty |
 | Sestavy | Dotazy včetně překážek odstranění, vložení a otevření zdrojů komponent hotovy | Uložená hierarchie a přesné výskyty, sdílené vložení a otevření zdroje; zbývají vlastnosti/mazání komponent, vazby, vnořená aktivace a řezy |
@@ -739,3 +739,20 @@ Oba programy a testy jsou sestavené. Související regrese prošly **8/8**
 Ověřené jsou všechny tabulkové řádky, konkrétní metrické i palcové rozměry,
 chyby stránkování, samostatné CLI mimo projekt, GUI konzole a dialog závitu.
 Kontrakt a logy: [THREAD_CATALOG.md](THREAD_CATALOG.md).
+
+
+### Současný Otvor: tvorba a vlastnosti
+
+`opening.create/get/set` ovládají hladký a závitový Otvor (nativní Thread),
+předvrtání, vstupní sražení, špičku, směr a délkové/průchozí zakončení.
+GUI a CLI sdílejí výběr katalogových rozměrů, existující normalizaci FRONT
+a explicitní potvrzení. Katalog má **177 příkazů**. Formát a šablony se nemění.
+Přidání/výměna referencí Až k a další druhy otvorových operací následují.
+
+Oba programy a všechny testy jsou sestavené. Související sada prošla **11/11**
+(66,97 s), doplněné kontroly **3/3** (16,96 s) a po závěrečném přesunu volání
+normalizace FRONT znovu **5/5** (57,25 s). Ověřeny jsou nezávislé objemy pro
+čtyři druhy otvorů a tři úhly sražení, vrtací špička, směr, průchozí otvor,
+reference původního počátku, přímé/nepřímé zámky, atomické chyby, Undo/Redo,
+identity, uložení, studený výpočet a GUI/CLI. Kontrakt, překlady a logy:
+[OPENING_COMMANDS.md](OPENING_COMMANDS.md).

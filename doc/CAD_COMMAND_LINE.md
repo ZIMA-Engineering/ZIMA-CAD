@@ -256,3 +256,8 @@ explicitní výpočet a Undo; příklady a pravidla vlastnictví uvádí
 Katalog závitů lze číst bez otevřeného dokumentu příkazem
 `thread.catalog metric M10`; funguje i mimo adresář projektu. Všechny rozměry
 jsou v mm. Stránkování a označení: [THREAD_CATALOG.md](THREAD_CATALOG.md).
+
+
+Současný Otvor má příkazy `opening.create/get/set`: hladký nebo katalogový
+závitový otvor, předvrtání, sražení a špička. Jednotky, příklad a hranice
+pokrytí: [OPENING_COMMANDS.md](OPENING_COMMANDS.md).

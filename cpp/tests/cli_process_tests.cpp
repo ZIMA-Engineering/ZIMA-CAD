@@ -86,6 +86,22 @@ int main(int argc,char** argv){
             config.setValue("Application/Language","en");config.setValue("Units/Length","cm");config.sync();
         }
         const auto common=QStringList{"--working-directory",qpath(project),"--config",qpath(base)};
+        const auto make_opening=command({{"command","opening.create"},{"arguments",{{"type","metric"},{"designation","M10"},
+            {"bore_length_mm",20},{"thread_length_mm",10},{"chamfer_enabled",false},{"drill_point_enabled",false},{"placement",{{"z",-20}}}}}});
+        result=launch(executable,root,common+QStringList{"--command","new part opening-cli","--command","box.create 40 40 40",
+            "--command",make_opening,"--command","save"});
+        require(result.exit_code==0,"CLI opening creation failed");
+        const auto opening_path=project/"opening-cli.prtz";const auto opening_created=document::PartDocument::load(opening_path).history.back();
+        require(opening_created.name=="Hole","CLI opening default name was not translated");
+        const auto opening_id=QString::fromStdString(opening_created.id);
+        const auto resize_opening=command({{"command","opening.set"},{"arguments",{{"container",opening_created.id},{"bore_length_mm",25}}}});
+        result=launch(executable,root,common+QStringList{"--command","open opening-cli.prtz","--command","opening.get "+opening_id,
+            "--command",resize_opening,"--command","undo","--command","redo","--command","save","--command","opening.get "+opening_id});
+        require(result.exit_code==0&&result.results()[6].at("data").at("bore_length_mm")==25,"CLI opening query/edit/Undo/Redo failed");
+        std::vector<kernel::BodyResult> opening_cache;const auto opening_saved=document::PartDocument::load(opening_path,&opening_cache);
+        require(opening_saved.history.back().hole.circle_id==opening_created.hole.circle_id&&
+            std::abs(opening_cache.back().volume-(64000-std::acos(-1.0)*std::pow(8.376/2,2)*25))<1e-5,"CLI opening lost source identity or saved the wrong volume");
+
         result = launch(executable, root, common + QStringList{"--command", "new part placement-cli",
             "--command", "box.create 10 20 30", "--command", "save"});
         require(result.exit_code == 0, "CLI placement fixture failed");
