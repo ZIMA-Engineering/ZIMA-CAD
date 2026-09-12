@@ -112,6 +112,9 @@ add_library(zima_workspace modules/workspace/src/workspace.cpp
     modules/workspace/src/component_source_operations.cpp
     modules/workspace/src/drawing_operations.cpp
     modules/workspace/src/drawing_state.cpp
+    modules/workspace/src/drawing_sources.cpp
+    modules/workspace/src/drawing_annotation_sources.cpp
+    modules/workspace/src/drawing_view_operations.cpp
     modules/workspace/src/sketch_operations.cpp
     modules/workspace/src/sketch_reference_operations.cpp
     modules/workspace/src/native_documents.cpp
@@ -204,7 +207,7 @@ add_executable(zima-cad-cpp
     app/main_workspace.cpp app/appearance_dialog.cpp app/appearance_command.cpp app/section_command.cpp app/section_ui_verification.cpp app/assembly_workspace_window.cpp app/template_command.cpp app/numeric_value_lock_command.cpp app/shaft_thread_command.cpp app/derived_copy_command.cpp
     app/application_settings.cpp app/global_settings_dialog.cpp app/measurement_command.cpp app/measurement_ui_verification.cpp
     app/document_tools_dialogs.cpp
-    app/drawing_window.cpp app/drawing_annotation_source.cpp app/show_erase_dialog.cpp app/file_dialog.cpp app/resource_icon.cpp
+    app/drawing_window.cpp app/show_erase_dialog.cpp app/file_dialog.cpp app/resource_icon.cpp
     app/zima_resources.qrc
     app/component_properties_dialog.cpp app/primitive_properties_dialog.cpp
     app/construction_properties_dialog.cpp
@@ -263,7 +266,7 @@ if(UNIX AND NOT APPLE)
 endif()
 
 add_executable(zima-cad-drawing-harness
-    app/main_drawing.cpp app/drawing_window.cpp app/drawing_annotation_source.cpp app/show_erase_dialog.cpp app/file_dialog.cpp app/application_settings.cpp
+    app/main_drawing.cpp app/drawing_window.cpp app/show_erase_dialog.cpp app/file_dialog.cpp app/application_settings.cpp
     tests/drawing_ui_contract.cpp tests/show_erase_ui_contract.cpp tests/measurement_dimension_ui_contract.cpp
     app/resource_icon.cpp app/zima_resources.qrc)
 if(WIN32 AND TARGET Qt6::QJpegPlugin)
@@ -461,6 +464,11 @@ if(ZIMA_BUILD_TESTS)
     add_dependencies(zima_cpp_cli_process_tests zima-cad-cli)
     add_test(NAME zima_cpp_cli_process_tests COMMAND zima_cpp_cli_process_tests "$<TARGET_FILE:zima-cad-cli>")
     set_tests_properties(zima_cpp_cli_process_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120)
+    add_executable(zima_cpp_drawing_view_command_tests tests/drawing_view_command_tests.cpp)
+    target_link_libraries(zima_cpp_drawing_view_command_tests PRIVATE zima_command_host)
+    add_test(NAME zima_cpp_drawing_view_command_tests COMMAND zima_cpp_drawing_view_command_tests)
+    set_tests_properties(zima_cpp_drawing_view_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
+
     add_executable(zima_cpp_drawing_command_tests tests/drawing_command_tests.cpp)
     target_link_libraries(zima_cpp_drawing_command_tests PRIVATE zima_command_host)
     add_test(NAME zima_cpp_drawing_command_tests COMMAND zima_cpp_drawing_command_tests)

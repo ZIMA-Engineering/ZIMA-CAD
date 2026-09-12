@@ -1,3 +1,4 @@
+#include <zima/workspace/drawing_view_operations.hpp>
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/document_operations.hpp>
 #include <algorithm>
@@ -145,8 +146,16 @@ void Host::register_commands(){
     dispatcher_.add({"regenerate",tr("Výslovně regenerovat aktivní model."),{{"document",false}},true},[this](const Json& args){
         auto check=target(args);if(!check.ok)return check;
         const auto id=workspace_.active_document_id();
-        if(workspace_.open_drawing(id)||interaction().template_document)
+        if(interaction().template_document)
             return Result::failure("unsupported_document",tr("Tento příkaz podporuje Part a Assembly."));
+        if(auto* drawing=workspace_.open_drawing(id)) {
+            try {
+                auto next=drawing->document();const auto count=workspace::regenerate_drawing_views(next,&workspace_,drawing->path);
+                if(count){drawing->commit(std::move(next));change_=Change{ChangeKind::Regenerate,id,true};}
+                return Result::success(documents(workspace_));
+            }catch(const workspace::DrawingOperationError& e){return Result::failure(e.code,tr(e.what()));}
+             catch(const std::exception& e){return Result::failure("calculation_failed",tr(e.what()));}
+        }
         change_=Change{ChangeKind::Regenerate,id};
         try{
             if(workspace_.open_part(id))static_cast<void>(workspace::regenerate_part(workspace_,kernel_,id));

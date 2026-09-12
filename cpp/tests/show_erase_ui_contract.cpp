@@ -5,7 +5,7 @@
 #include <QFile>
 #include <QImage>
 #include "drawing_annotation_layout.hpp"
-#include "drawing_annotation_source.hpp"
+#include <zima/workspace/drawing_sources.hpp>
 #include "drawing_window.hpp"
 #include <QAction>
 #include <QApplication>
@@ -72,7 +72,7 @@ int verify_show_erase_ui() {
         {{{-30, 20, 0}, {-30, -20, 0}}, {"model", "edge:left", {}}}};
 
     workspace.add_part(part, {body}, "source.prtz");
-    auto sources = app::drawing_annotation_sources(&workspace, part.document_id,
+    auto sources = workspace::drawing_annotation_sources(&workspace, part.document_id,
                                                    "source.prtz");
     require(!sources.empty() && !sources[0].dimensions.empty(),
             "Sketch dimensions not collected");
@@ -87,7 +87,7 @@ int verify_show_erase_ui() {
       assembly.components.push_back(c);
     }
     workspace.add_assembly(assembly, "source.asmz");
-    auto repeated = app::drawing_annotation_sources(
+    auto repeated = workspace::drawing_annotation_sources(
         &workspace, assembly.document_id, "source.asmz");
     require(repeated.size() == 3 &&
                 repeated[0].instance_path != repeated[1].instance_path,
@@ -104,7 +104,7 @@ int verify_show_erase_ui() {
     angle.target_reference={assembly::MateReferenceKind::Face,assembly::InstancePath{}.child("part-0"),part.document_id+":origin","origin:plane:xz"};
     measured.components[1].placement_references={angle};
     workspace.add_assembly(measured,"measured.asmz");
-    const auto assembly_annotations=app::drawing_annotation_sources(&workspace,measured.document_id,"measured.asmz");
+    const auto assembly_annotations=workspace::drawing_annotation_sources(&workspace,measured.document_id,"measured.asmz");
     require(assembly_annotations.back().dimensions.size()==1 && assembly_annotations.back().dimensions[0].kind==kernel::ViewerDimensionKind::Angular && std::abs(assembly_annotations.back().dimensions[0].value-23)<1e-8,"Assembly angle missing from Show/Erase sources");
     auto top = assembly::AssemblyDocument::create_default();
     assembly::PartOccurrence nested;
@@ -116,7 +116,7 @@ int verify_show_erase_ui() {
     nested.placement.rotation_z = 90;
     top.components.push_back(nested);
     workspace.add_assembly(top, "top.asmz");
-    const auto deep = app::drawing_annotation_sources(
+    const auto deep = workspace::drawing_annotation_sources(
         &workspace, top.document_id, "top.asmz");
     require(deep.size() == 4 && deep[0].instance_path != deep[1].instance_path,
             "Nested annotation paths collapsed");
@@ -131,7 +131,7 @@ int verify_show_erase_ui() {
     tilted.document_id = "tilted-annotation-test";
     tilted.components[0].placement.rotation_y = 90;
     workspace.add_assembly(tilted, "tilted.asmz");
-    const auto tilted_sources = app::drawing_annotation_sources(
+    const auto tilted_sources = workspace::drawing_annotation_sources(
         &workspace, tilted.document_id, "tilted.asmz");
     drawing::DrawingView tilted_view;
     tilted_view.camera = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
@@ -158,7 +158,7 @@ int verify_show_erase_ui() {
     pattern.derived_copy->pattern->linear[0].direction = {1, 0, 0};
     derived.components.push_back(pattern);
     workspace.add_assembly(derived, "derived.asmz");
-    const auto copies = app::drawing_annotation_sources(
+    const auto copies = workspace::drawing_annotation_sources(
         &workspace, derived.document_id, "derived.asmz");
     require(copies.size() == 6,
             "Derived occurrence annotation count is incorrect");
@@ -498,7 +498,7 @@ int verify_show_erase_ui() {
       solid.mesh.axes={{{0,0,0},{0,1,0},100,{container.feature_id,"axis:primary",{}}},
                        {{20,0,0},{0,1,0},100,{container.feature_id,"axis:profile:2",{}}}};
       workspace.add_part(sample,{solid},"controls.prtz");
-      auto packets=app::drawing_annotation_sources(&workspace,sample.document_id,"controls.prtz");
+      auto packets=workspace::drawing_annotation_sources(&workspace,sample.document_id,"controls.prtz");
       require(packets.size()==1 && packets[0].dimensions.size()==3,"Rotated profile dimensions missing");
       const auto frame=packets[0].object_frames.at({profile.id,{}});
       require(frame.maximum.x-frame.minimum.x<=40.000001 && frame.maximum.y-frame.minimum.y<=20.000001,"Sketch working axes inflated drawing bounds");
@@ -510,7 +510,7 @@ int verify_show_erase_ui() {
         c.placement.x=i*100;c.placement.rotation_z=i*90;occurrences.components.push_back(c);
       }
       workspace.add_assembly(occurrences,"controls.asmz");
-      const auto occurrence_packets=app::drawing_annotation_sources(&workspace,occurrences.document_id,"controls.asmz");
+      const auto occurrence_packets=workspace::drawing_annotation_sources(&workspace,occurrences.document_id,"controls.asmz");
       const auto transformed=occurrence_packets[1].axis_frames.at({container.feature_id,"axis:profile:2"});
       require(std::abs(transformed.origin.x-100)<1e-6 && std::abs(transformed.origin.y-20)<1e-6 &&
               std::abs(transformed.axes[2].x+packets[0].axis_frames.at({container.feature_id,"axis:profile:2"}).axes[2].y)<1e-6 && transformed.maximum.x==5 &&
@@ -556,7 +556,7 @@ int verify_show_erase_ui() {
       // Optional read-only acceptance check against an actual supplied project.
       if(const auto file=qEnvironmentVariable("ZIMA_TEST_ANNOTATION_PART");!file.isEmpty()) {
         const auto actual=document::PartDocument::load(file.toStdString());
-        const auto actual_packets=app::drawing_annotation_sources(nullptr,actual.document_id,file.toStdString());
+        const auto actual_packets=workspace::drawing_annotation_sources(nullptr,actual.document_id,file.toStdString());
         auto check=v;check.model_annotations.clear();drawing::refresh_model_annotations(check,actual_packets);
         int holes=0;
         for(const auto& item:check.model_annotations) {

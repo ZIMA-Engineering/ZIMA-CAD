@@ -1,3 +1,4 @@
+#include "drawing_window.hpp"
 #include "console_ui_verification.hpp"
 #include "history_tree_widget.hpp"
 #include <QMenu>
@@ -540,6 +541,22 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         check(chose_source && run("context").data.at("active_document")==engineering_saved.document_id,"GUI source context action did not use shared source opening");
         bool middle_open=false;for(const auto& doc:run("documents").data)if(doc.at("id")==component_owner)middle_open=true;
         check(!middle_open,"Opening a source left intermediate assemblies open");
+        const auto view_source_path=directory/(stem+"-metadata.prtz");std::vector<kernel::BodyResult> view_source_cache;
+        const auto view_source=document::PartDocument::load(view_source_path,&view_source_cache);check(!view_source_cache.empty(),"Drawing GUI source cache missing");
+        auto view_document=drawing::DrawingDocument::create_default();view_document.source_document_id=view_source.document_id;view_document.source_path=view_source_path;
+        auto base_view=drawing::DrawingDocument::create_view(view_source.document_id,view_source_path,view_source_cache.back().mesh);
+        auto projected_view=drawing::DrawingDocument::create_view(view_source.document_id,view_source_path,view_source_cache.back().mesh);projected_view.parent_view_id=base_view.id;projected_view.projection_direction=drawing::ProjectionDirection::Right;projected_view.x=50;
+        view_document.sheets.front().views={projected_view,base_view};const auto view_file=directory/(stem+"-drawing-views.drwz");view_document.save(view_file);
+        json_run("open",{{"path",document::path_to_utf8(view_file)}});flush();
+        check(run("drawing.view.list").data.at("total")==2,"GUI view query lost projected hierarchy");
+        auto* drawing_window=dynamic_cast<DrawingWindow*>(window.findChild<QWidget*>("drawingWorkspace"));check(drawing_window,"Drawing workspace missing");
+        auto* regenerate_view=window.findChild<QAction*>("regenerateDrawingViewAction");check(regenerate_view&&regenerate_view->isEnabled(),"GUI view regeneration disabled");regenerate_view->trigger();flush();
+        check(json_run("drawing.view.get",{{"view",base_view.id}}).data.at("model_annotations").get<int>()>0,"GUI regeneration omitted common model annotations");
+        check(json_run("drawing.view.references",{{"view",base_view.id}}).data.at("total").get<int>()>0,"GUI view lacks persisted original references");
+        drawing_window->select_view(base_view.id);flush();auto* delete_view=window.findChild<QAction*>("deleteDrawingViewAction");check(delete_view&&delete_view->isEnabled(),"GUI view deletion disabled");delete_view->trigger();flush();
+        check(run("drawing.view.list").data.at("total")==0,"GUI view deletion left projected descendants");run("undo");check(run("drawing.view.list").data.at("total")==2,"GUI view deletion Undo lost the hierarchy");
+        check(window.grab().save(QString::fromStdString((directory/"command-drawing-views.png").string())),"Drawing view screenshot failed");
+        json_run("close",{{"discard",true}});
         run(QString::fromStdString(activate.dump()));flush();
         input->setText("context");QApplication::sendEvent(input,&enter);flush();
         check(window.grab().save(QString::fromStdString((directory/"command-console.png").string())),"Console screenshot failed");

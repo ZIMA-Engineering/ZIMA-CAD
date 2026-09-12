@@ -47,7 +47,7 @@ void verify_commands(const kernel::OcctKernel& kernel,const fs::path& root){
         }).get();
     };
     Host host(live,kernel,directory,options);current=&host;
-    require(run(host,"help").data.size()==132,"Command catalog changed");
+    require(run(host,"help").data.size()==136,"Command catalog changed");
     require(run(host,"documents").data.empty()&&run(host,"tree").data.at("items").empty(),"Empty workspace query failed");
     require(host.execute_text("save").code=="no_document","Empty save accepted");
     run(host,"new part \"díl s mezerou\"");const auto id=live.active_document_id();
@@ -107,7 +107,8 @@ void verify_commands(const kernel::OcctKernel& kernel,const fs::path& root){
     require(assembly::AssemblyDocument::load(root/"group.asmz").document_id==group,"Assembly command save failed");
     run(host,"new drawing sheet");const auto drawing_id=live.active_document_id();run(host,"save");
     require(drawing::DrawingDocument::load(root/"sheet.drwz").document_id==drawing_id,"Drawing command save failed");
-    require(host.execute_text("regenerate").code=="unsupported_document","Drawing accepted model regeneration");
+    const auto drawing_revision=live.open_drawing(drawing_id)->revision();
+    require(host.execute_text("regenerate").ok && live.open_drawing(drawing_id)->revision()==drawing_revision && !host.change(),"Empty Drawing regeneration created a model transaction");
     require(live.remove(group)&&live.remove(drawing_id),"Fixture close failed");
     run(host,"open group.asmz");require(live.active_document_id()==group,"Assembly command open failed");
     run(host,"open sheet.drwz");require(live.active_document_id()==drawing_id,"Drawing command open failed");

@@ -1,12 +1,14 @@
 #include <zima/document/object_annotation_frames.hpp>
-#include "drawing_annotation_source.hpp"
+#include <zima/workspace/drawing_sources.hpp>
 #include <algorithm>
+#include <cctype>
+#include <zima/document/file_path.hpp>
 #include <functional>
 #include <stdexcept>
 #include <zima/assembly/assembly_document.hpp>
 #include <zima/document/part_document.hpp>
 #include <zima/workspace/workspace.hpp>
-namespace zima::app {
+namespace zima::workspace {
 namespace {
 struct AnnotationTransform {
   assembly::ComponentPlacement placement;
@@ -49,7 +51,7 @@ void transform_annotations(kernel::ViewerMesh &mesh,
 } // namespace
 
 std::vector<drawing::ModelAnnotationSource>
-drawing_annotation_sources(workspace::Workspace *workspace,
+drawing_annotation_sources(const Workspace *workspace,
                            const std::string &root,
                            const std::filesystem::path &root_path) {
   std::vector<drawing::ModelAnnotationSource> result;
@@ -219,20 +221,24 @@ drawing_annotation_sources(workspace::Workspace *workspace,
                {});
       }
     };
+    auto extension=path.extension().string();
+    std::ranges::transform(extension,extension.begin(),[](unsigned char c){return static_cast<char>(std::tolower(c));});
     if (workspace && workspace->open_part(id))
       part_mesh(workspace->open_part(id)->session.document(),
                 workspace->authoritative_viewer_mesh(id));
     else if (workspace && workspace->open_assembly(id))
       assembly_mesh(workspace->open_assembly(id)->session.document());
-    else if (path.extension() == ".prtz") {
+    else if (extension == ".prtz") {
       std::vector<kernel::BodyResult> boundaries;
       auto part = document::PartDocument::load(path, &boundaries);
-      part_mesh(part, boundaries.empty() ? kernel::ViewerMesh{}
-                                         : boundaries.back().mesh);
-    } else if (path.extension() == ".asmz")
+      Workspace source;
+      source.add_part(std::move(part),std::move(boundaries),path);
+      if(!source.open_part(id))throw std::runtime_error("Annotation source document identity mismatch");
+      part_mesh(source.open_part(id)->session.document(),source.authoritative_viewer_mesh(id));
+    } else if (extension == ".asmz")
       assembly_mesh(assembly::AssemblyDocument::load(path));
     else
-      throw std::runtime_error("Zdroj anotací není dostupný: " + path.string());
+      throw std::runtime_error("Zdroj anotací není dostupný: " + document::path_to_utf8(path));
     std::erase_if(mesh.dimensions,
                   [](const auto &d) { return !d.reference.valid(); });
     std::erase_if(mesh.edges, [](const auto &e) {
@@ -336,4 +342,4 @@ drawing_annotation_sources(workspace::Workspace *workspace,
   visit(root, root_path, {}, {});
   return result;
 }
-} // namespace zima::app
+} // namespace zima::workspace

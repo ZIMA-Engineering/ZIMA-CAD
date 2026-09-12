@@ -61,9 +61,14 @@ std::pair<std::string,kernel::ViewerMesh> read_drawing_source(const Workspace* l
     }
     auto ext=path.extension().string();std::ranges::transform(ext,ext.begin(),[](unsigned char c){return static_cast<char>(std::tolower(c));});
     if(ext==".prtz"){
-        std::vector<kernel::BodyResult> boundaries;const auto part=document::PartDocument::load(path,&boundaries);
+        std::vector<kernel::BodyResult> boundaries;auto part=document::PartDocument::load(path,&boundaries);
         if(boundaries.empty()&&!part.kernel_operations().empty())throw DrawingOperationError("uncalculated_source","The Part has no saved calculated model. Regenerate and save it first.");
-        return checked(part.document_id,boundaries.empty()?kernel::ViewerMesh{}:std::move(boundaries.back().mesh));
+        const auto id=part.document_id;
+        if(!expected.empty()&&id!=expected)throw DrawingOperationError("source_identity","The drawing source file belongs to a different document.");
+        // Use the same persisted Sketch, construction and datum packet as an
+        // open source. This temporary workspace never creates a user tab.
+        Workspace source;source.add_part(std::move(part),std::move(boundaries),path);
+        return checked(id,source.authoritative_viewer_mesh(id));
     }
     if(ext==".asmz"){const auto assembly=assembly::AssemblyDocument::load(path);return checked(assembly.document_id,assembly.build_scene());}
     throw DrawingOperationError("unsupported_format","Drawing sources must be native prtz or asmz files.");

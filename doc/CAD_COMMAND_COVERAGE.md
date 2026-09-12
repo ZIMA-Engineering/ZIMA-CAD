@@ -30,7 +30,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Katalog, kontext, datový strom | Hotovo pro současné příkazy | Doplňovat popisy a dotazy podle domén |
 | Typované argumenty | Hotovo | Řetězce, čísla, celá čísla, boolean, objekty a pole; validace před mutací |
 | New/Open/Save, Save As, aktivace/zavření, pracovní adresář | Hotovo | Přejmenování souborů a správa archivů jsou další samostatné operace |
-| Regenerate, Undo/Redo | Historie Part/Assembly/Drawing hotova | Výkresová regenerace pohledů dosud jen GUI |
+| Regenerate, Undo/Redo | Společné pro Part/Assembly/Drawing | Doplňovat regrese dalších editačních operací |
 | Kvádr | Hotovo | Společná tvorba, čtení a rozměrový patch; včetně zámků a přesnosti |
 | Válec, koule, kužel, jehlan, klín | Hotovo | Společné create/get/set, zámky, přesnost, GUI/CLI a 59/59 regresí |
 | Historie Partu | Hotovo | Společný přesun, ověření závislostí, potlačení, odstranění a kurzor; včetně historie těles a Booleanů |
@@ -46,7 +46,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Zaoblení, zkosení, skořepina | Zbývá | Výběr skutečného vstupního tělesa a sdílené transakce |
 | Zrcadlo a pole | Zbývá | Odvozená tělesa a komponenty |
 | Sestavy | Dotazy, vložení a otevření zdrojů komponent hotovy | Uložená hierarchie a přesné výskyty, sdílené vložení a otevření zdroje; zbývají vlastnosti/mazání komponent, vazby, vnořená aktivace a řezy |
-| Výkresy | Listy, parametry, vložené šablony a historie hotovy | Pohledy, kóty, anotace, BOM, Show/Erase a výkresové exporty |
+| Výkresy | Listy, šablony, historie, dotazy/mazání pohledů a regenerace hotovy | Tvorba a parametrická editace pohledů, kóty, anotace, editace BOM, Show/Erase a výkresové exporty |
 | Řezy, měření a vzhled | Zbývá | Datové operace a uložené výsledky |
 | Parametry, relace a materiál | Společné tabulky a transakce hotovy | Parametry, jednotky, přesnost, relace, materiál včetně přímého načtení knihovny a uložené varianty; řízení rozměrů relacemi a generování variant nejsou dosud zavedené ani v GUI |
 | Import a export | Import Partu/Assembly STEP/IGES/DXF a základní exporty hotovy | Společný STEP včetně vnořených sestav, STL Part/plochá Assembly, DXF úsečky/kružnice/oblouky; zbývá import vložených profilů, další DXF geometrie, vnořený STL a výkresové exporty |
@@ -237,3 +237,17 @@ pohledy a jejich uložená data.
 
 Celá Windows Release sada této etapy prošla **79/79** (407,77 s),
 `build/drawing-sheet-full-tests.log`, včetně obou výsledných programů GUI a CLI.
+
+Etapa pohledů přidala `drawing.view.list/get/references/delete`, celkem
+**136 příkazů**, a rozšířila `regenerate` na výkresy. Načítání anotací,
+řezových údajů a kusovníku přešlo z GUI do Workspace; oba vstupy sdílejí
+regeneraci a odstranění pohledů. Opraven je rozdíl otevřeného a zavřeného
+zdroje (skici, konstrukce, původní reference) i Unicode cesty v kusovníku.
+Integrační sada prošla **12/12** (36,66 s), `build/drawing-view-final-tests.log`.
+Podrobnosti a limity: [DRAWING_COMMANDS.md](DRAWING_COMMANDS.md). Následuje
+tvorba a parametrická editace pohledů.
+
+Závěrečná kontrola zdrojů a vstupů prošla **3/3** (17,21 s),
+`build/drawing-view-source-tests.log`: navíc pouze skica bez tělesa, přípona
+`.PRTZ`, český název a čitelně rozmístěné pohledy v GUI. Finální sestavení
+odpovídá `build/drawing-view-source-build.log`.

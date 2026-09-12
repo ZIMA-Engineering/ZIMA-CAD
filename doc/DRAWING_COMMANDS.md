@@ -1,7 +1,7 @@
 # Výkresy přes společné příkazy
 
 První výkresová etapa zpřístupňuje listy, jejich parametry, vložené formáty a
-razítka. Katalog má 132 příkazů. Tvorba a editace pohledů, měřené kóty,
+razítka. Katalog má 136 příkazů. Tvorba a parametrická editace pohledů, měřené kóty,
 anotace, BOM, Show/Erase a výkresové exporty zatím nejsou kompletně pokryté.
 
 | Příkaz | Argumenty | Výsledek |
@@ -84,3 +84,61 @@ souboru, přidělování čísel kót a uložení během změn historie.
 
 Celá Windows Release sada této etapy prošla **79/79** (407,77 s),
 `build/drawing-sheet-full-tests.log`, včetně obou výsledných programů GUI a CLI.
+
+## Pohledy, reference a regenerace
+
+| Příkaz | Argumenty | Význam |
+| --- | --- | --- |
+| `drawing.view.list` | `[sheet]`, `[limit]`, `[document]` | Uložené pohledy a jejich dostupná metadata |
+| `drawing.view.get` | `view`, `[document]` | Jeden uložený pohled včetně skutečné kamery |
+| `drawing.view.references` | `view`, `[kind]`, `[limit]`, `[document]` | Původní měřicí křivky a body uložené s projekcí |
+| `drawing.view.delete` | `view`, `[document]` | Odstranění pohledu a jeho projekčních potomků |
+| `regenerate` | `[document]` | Výslovná regenerace všech pohledů aktivního výkresu |
+
+`view` a `sheet` jsou stabilní ID z dotazů. `limit` je 1 až 10000, výchozí
+2000; `total` zahrnuje i položky nad limitem. Dotazy neotvírají soubory,
+neprojektují geometrii a nemění potvrzený výběr ani historii. Vrací vlastnosti
+pohledu, zdrojové ID/cestu, vazbu na rodičovský pohled, skutečnou kameru,
+orientaci, polohu v mm papíru, měřítko, styly čar, řez, nastavení popisků a
+vodítek, zámky a počty projekčních a měřicích prvků.
+
+`drawing.view.references` přijímá `kind` s hodnotou `all`, `curve` nebo `point`.
+Každý řádek obsahuje původní `owner`, sémantický `key` a přesnou `instance_path`.
+Výsledek uvádí také kořenový `source_document` pohledu. Nejde o pořadová čísla
+OCCT ani o novou identitu z projekčních čar. Křivka poskytuje příznak přímky,
+počet uložených vzorků, první/poslední bod a případná kruhová data. Bod poskytuje
+souřadnici. Souřadnice jsou v mm souřadného systému zdrojového modelu
+(`source_model_mm`); vektory směru jsou bezrozměrné. Celá vzorkovaná křivka se
+neposílá při běžném seznamovém dotazu.
+
+Regenerate načte dostupné vypočtené zdroje, anotace, aktuální definice vybraných
+řezů a jejich tras a obnoví projekce, měřené kóty a uložený kusovník. Projekční
+potomci se počítají po rodiči bez ohledu na pořadí v souboru. Chybějící rodič,
+nesouhlas zdrojové identity, cyklus, chybějící vybraný řez nebo nedostupný zdroj
+zamítne celou změnu. Hloubka projekčního řetězce je omezena na 256. Prázdný
+výkres bez pohledů nevytvoří krok historie.
+
+Otevřený zdrojový dokument má přednost. Uzavřený Part používá stejný nativní
+snímek jako otevřený Part, včetně samostatných skic, konstrukční geometrie a
+původních datumových referencí. Pomocné načtení zůstává mimo uživatelské taby.
+Regenerace výkresu nepočítá tělesa a neprovádí regeneraci zdrojové sestavy ani
+Partu; pracuje s jejich posledním vypočteným stavem. Relativní cesty se vyhodnotí
+od souboru výkresu. Cesty uložené v kusovníku používají UTF-8 i na Windows.
+
+Mazání odstraní celý řetězec pohledů navázaných přes `parent_view` i jejich
+měřené kóty. Nezávislému řezovému pohledu pouze zruší odkaz na smazaný rodičovský
+pohled trasy; jeho řez a zdroj zůstanou zachovány. Jeden krok Undo obnoví
+pohledy, kóty a jejich původní ID. Původní akce GUI Regenerovat a Odstranit
+používají stejné operace jako konzole.
+
+Regrese této etapy prošly **12/12** (36,66 s),
+`build/drawing-view-final-tests.log`. Obsahují změnu délky kvádru z 20 na 40 mm
+a odpovídající měřenou kótu, projekční strom uložený v opačném pořadí,
+Undo/Redo, zmizelé a zaměněné zdroje, anotace, řezy, kusovník, skutečné CLI,
+GUI mazání i uložení do cesty s českými znaky. GUI bylo také vizuálně ověřeno
+na `Projects/test/command-drawing-views.png`.
+
+Závěrečná kontrola zdrojů a vstupů prošla **3/3** (17,21 s),
+`build/drawing-view-source-tests.log`: navíc pouze skica bez tělesa, přípona
+`.PRTZ`, český název a čitelně rozmístěné pohledy v GUI. Finální sestavení
+odpovídá `build/drawing-view-source-build.log`.

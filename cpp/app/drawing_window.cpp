@@ -1,3 +1,4 @@
+#include <zima/workspace/drawing_view_operations.hpp>
 #include <zima/workspace/drawing_operations.hpp>
 #include "drawing_dimension_dialog.hpp"
 #include <QCursor>
@@ -5,7 +6,7 @@
 #include "dimension_properties_fields.hpp"
 #include "resource_icon.hpp"
 #include "drawing_dxf_device.hpp"
-#include "drawing_annotation_source.hpp"
+#include <zima/workspace/drawing_sources.hpp>
 #include "drawing_annotation_layout.hpp"
 #include "show_erase_dialog.hpp"
 #include <zima/viewer/annotation_arrow.hpp>
@@ -67,6 +68,9 @@
 #include <set>
 
 namespace zima::app {
+using zima::workspace::drawing_annotation_sources;
+using zima::workspace::build_bom_rows_for_source;
+using zima::workspace::build_title_block_context_for_source;
 namespace {
 
 bool raise_open_properties(QWidget* owner) {
@@ -446,87 +450,10 @@ zima::drawing::Point2 projection_placement(
 std::pair<std::string, zima::kernel::ViewerMesh> load_drawing_source(
     const std::filesystem::path& path, zima::workspace::Workspace* workspace = nullptr,
     const std::string& expected_document_id = {}) {
-    return zima::workspace::read_drawing_source(workspace,path,expected_document_id);
+    try{return zima::workspace::read_drawing_source(workspace,path,expected_document_id);}
+    catch(const std::exception& e){throw std::runtime_error(QObject::tr(e.what()).toStdString());}
 }
 
-zima::drawing::TitleBlockContext build_title_block_context_for_source(
-    const std::string&, const std::filesystem::path&, zima::workspace::Workspace*);
-
-// Builds BOM rows from the current state of an Assembly source (by open
-// workspace document if available, otherwise by loading the .asmz file),
-// so both initial view insertion and later view regeneration can rebuild
-// the BOM from the assembly's up-to-date component list.
-std::vector<zima::drawing::BomRow> build_bom_rows_for_source(
-    const std::string& source_id, const std::filesystem::path& source_path,
-    zima::workspace::Workspace* workspace) {
-    std::vector<zima::drawing::BomRow> bom;
-    const zima::assembly::AssemblyDocument* assembly{};
-    std::optional<zima::assembly::AssemblyDocument> loaded;
-    if (workspace != nullptr) if (const auto* open = workspace->open_assembly(source_id))
-        assembly = &open->session.document();
-    if (assembly == nullptr && !source_path.empty() && source_path.extension() == ".asmz") {
-        loaded = zima::assembly::AssemblyDocument::load(source_path); assembly = &*loaded;
-    }
-    const auto append=[&](const std::string& id,std::filesystem::path path,const std::string& name) {
-        if(path.is_relative()&&!source_path.empty())path=source_path.parent_path()/path;
-        const auto key=id+"|"+path.lexically_normal().string();
-        const auto existing=std::ranges::find(bom,key,&zima::drawing::BomRow::designation);
-        if(existing!=bom.end()){++existing->quantity;return;}
-        auto context=build_title_block_context_for_source(id,path,workspace);
-        zima::drawing::BomRow row{static_cast<int>(bom.size()+1),1,name,key,{}};
-        row.source_document_id=id;row.source_path=path;
-        row.mass_unit=context.mass_unit;
-        row.file_stem=context.file_stem;row.parameters=std::move(context.parameters);
-        row.parameter_values=std::move(context.parameter_values);row.parameter_aliases=std::move(context.parameter_aliases);
-        bom.push_back(std::move(row));
-    };
-    if(assembly) {
-        const auto suppressed=assembly->effectively_suppressed_occurrences();
-        for(const auto& component:assembly->components)if(!suppressed.contains(component.occurrence_id))
-            append(component.source_document_id,component.source_path,component.name);
-    }
-    else if((workspace&&workspace->open_part(source_id))||source_path.extension()==".prtz")
-        append(source_id,source_path.is_relative()?std::filesystem::absolute(source_path):source_path,source_path.stem().string());
-    return bom;
-}
-
-// Read the authoritative source Parameters without a geometry calculation.
-zima::drawing::TitleBlockContext build_title_block_context_for_source(
-    const std::string& source_id, const std::filesystem::path& source_path,
-    zima::workspace::Workspace* workspace) {
-    zima::drawing::TitleBlockContext context;
-    context.file_stem = source_path.stem().string();
-    if(workspace && !workspace->find(source_id))if(const auto id=workspace->document_id_for_path(source_path))
-        return build_title_block_context_for_source(*id,source_path,workspace);
-    const zima::document::PartDocument* part{};
-    std::optional<zima::document::PartDocument> loaded_part;
-    if (workspace != nullptr) if (const auto* open = workspace->open_part(source_id))
-        part = &open->session.document();
-    if (part == nullptr && !source_path.empty() && source_path.extension() == ".prtz") {
-        try { loaded_part = zima::document::PartDocument::load(source_path); part = &*loaded_part; }
-        catch (const std::exception&) { part = nullptr; }
-    }
-    const auto use_parameters=[&](const auto& document) {
-        if(context.file_stem.empty())context.file_stem=document.name;
-        context.mass_unit = document.document_units.at("Mass");
-        context.parameters = document.user_parameters;
-        context.parameter_values = document.user_parameter_values;
-        context.parameter_labels = document.user_parameter_labels;
-        context.parameter_order = document.user_parameter_order;
-        if(context.parameter_order.empty())for(const auto& [key,value]:document.user_parameters)
-            context.parameter_order.push_back(key);
-        for (const auto& [key, labels] : document.user_parameter_labels)
-            for (const auto& [locale, label] : labels)
-                if (!label.empty()) context.parameter_aliases[label] = key;
-    };
-    if (part != nullptr) use_parameters(*part);
-    else if(workspace && workspace->open_assembly(source_id))
-        use_parameters(workspace->open_assembly(source_id)->session.document());
-    else if(!source_path.empty() && source_path.extension()==".asmz") {
-        const auto assembly=zima::assembly::AssemblyDocument::load(source_path);use_parameters(assembly);
-    }
-    return context;
-}
 
 }  // namespace
 
@@ -2309,82 +2236,15 @@ void DrawingWindow::show_erase(){
 void DrawingWindow::regenerate_selected_view() {
     if(view_dialog_)return;
     try {
-        auto next=document_;
-        struct Source {std::string id;zima::kernel::ViewerMesh mesh;std::vector<zima::drawing::BomRow> bom;std::vector<drawing::ModelAnnotationSource> annotations;};
-        std::map<std::pair<std::string,std::filesystem::path>,Source> sources;
-        for(auto& sheet:next.sheets) {
-            std::optional<std::vector<zima::drawing::BomRow>> sheet_bom;
-            for(auto& view:sheet.views) {
-                const auto key=std::make_pair(view.source_document_id,view.source_path);
-                auto found=sources.find(key);
-                if(found==sources.end()) {
-                    auto [id,mesh]=load_drawing_source(view.source_path,workspace_,view.source_document_id);
-                    if(id!=view.source_document_id)throw std::runtime_error("Zdrojový soubor patří jinému dokumentu.");
-                    auto bom=build_bom_rows_for_source(id,view.source_path,workspace_);
-                    auto source_path=view.source_path;if(source_path.is_relative()&&!path_.empty())source_path=path_.parent_path()/source_path;
-                    auto annotations=drawing_annotation_sources(workspace_,id,source_path);
-                    found=sources.emplace(key,Source{id,std::move(mesh),std::move(bom),std::move(annotations)}).first;
-                }
-                if(!view.section_id.empty()){
-                    auto path=view.source_path;if(path.is_relative()&&!path_.empty())path=path_.parent_path()/path;
-                    const auto sections=source_sections(workspace_,view.source_document_id,path);
-                    const auto section=std::ranges::find(sections,view.section_id,&zima::document::SectionDefinition::id);
-                    if(section==sections.end())throw std::runtime_error("Zdrojový řez již neexistuje. Vyberte jiný řez ve vlastnostech pohledu.");
-                    view.section_snapshot=*section;
-                }
-                if(!view.section_markers.empty()){
-                    auto source_path=view.source_path;if(source_path.is_relative()&&!path_.empty())source_path=path_.parent_path()/source_path;
-                    const auto sections=source_sections(workspace_,view.source_document_id,source_path);
-                    for(auto& marker:view.section_markers){const auto current=std::ranges::find(sections,marker.id,&zima::document::SectionDefinition::id);if(current==sections.end())throw std::runtime_error("Zdrojová trasa řezu již neexistuje. Upravte výběr tras ve vlastnostech pohledu.");marker=*current;}
-                }
-                if(!sheet_bom || view.source_document_id==next.source_document_id)sheet_bom=found->second.bom;
-            }
-            // Explicit regeneration evaluates the projection tree parent-first,
-            // regardless of the order in which views were saved on the sheet.
-            std::map<std::string,int> visit;
-            std::function<void(zima::drawing::DrawingView&)> refresh_view;
-            refresh_view=[&](auto& view) {
-                auto& state=visit[view.id];
-                if(state==2)return;
-                if(state==1)throw std::runtime_error(tr("Pohledy obsahují cyklickou závislost.").toStdString());
-                state=1;
-                if(!view.parent_view_id.empty()) {
-                    const auto parent=std::ranges::find(sheet.views,view.parent_view_id,&zima::drawing::DrawingView::id);
-                    if(parent==sheet.views.end())throw std::runtime_error(tr("Nadřazený pohled není dostupný.").toStdString());
-                    refresh_view(*parent);
-                    view.camera=zima::drawing::projected_camera(parent->camera,view.projection_direction,sheet.projection_method);
-                }
-                next.refresh_view(view.id,sources.at({view.source_document_id,view.source_path}).mesh);
-                drawing::refresh_model_annotations(view,sources.at({view.source_document_id,view.source_path}).annotations);
-                state=2;
-            };
-            for(auto& view:sheet.views)refresh_view(view);
-            if(sheet_bom)sheet.bom_rows=std::move(*sheet_bom);
-        }
-        document_=std::move(next);
-        refresh();set_status_message(tr("Výkres regenerován."));
-    } catch(const std::exception& error) {
-        QMessageBox::warning(this,tr("Nelze regenerovat pohled"),error.what());
-    }
+        const auto count=zima::workspace::regenerate_drawing_views(document_,workspace_,path_);
+        if(count)refresh();
+        set_status_message(tr("Výkres regenerován."));
+    }catch(const std::exception& error){QMessageBox::warning(this,tr("Nelze regenerovat pohled"),tr(error.what()));}
 }
-
 void DrawingWindow::delete_selected_view() {
-    auto* sheet = active_sheet(); const std::string selected = canvas_->selected_view_id();
-    if (sheet == nullptr || selected.empty()) return;
-    std::vector<std::string> removed{selected};
-    for (std::size_t index = 0; index < removed.size(); ++index) {
-        for (const auto& view : sheet->views)
-            if (view.parent_view_id == removed[index] &&
-                std::find(removed.begin(), removed.end(), view.id) == removed.end())
-                removed.push_back(view.id);
-    }
-    std::erase_if(sheet->views, [&](const auto& view) {
-        return std::find(removed.begin(), removed.end(), view.id) != removed.end();
-    });
-    std::erase_if(sheet->dimensions, [&](const auto& dimension) {
-        return std::find(removed.begin(), removed.end(), dimension.view_id) != removed.end();
-    });
-    refresh();
+    const auto selected=canvas_->selected_view_id();if(selected.empty()||view_dialog_)return;
+    try{zima::workspace::delete_drawing_view(document_,selected);refresh();}
+    catch(const std::exception& error){set_status_message(tr(error.what()));}
 }
 void DrawingWindow::edit_selected_view() {
     if (const auto* view=document_.find_view(canvas_->selected_view_id())) show_view_properties(*view,false);

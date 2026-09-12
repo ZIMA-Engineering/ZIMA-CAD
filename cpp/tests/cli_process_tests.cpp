@@ -292,6 +292,16 @@ int main(int argc,char** argv){
         require(saved_sheets.sheets.size()==2 && saved_sheets.find_sheet(sheet_id)->name=="Český list" && saved_sheets.find_sheet(sheet_id)->default_scale==.5 && !saved_sheets.find_sheet(sheet_id)->frame_lines.empty(),"CLI sheet or embedded frame did not persist");
         result=launch(executable,root,common+QStringList{"--command","open cli-sheets.drwz","--command","drawing.sheet.list"});
         require(result.exit_code==0 && result.results()[1].at("data").at("items")[1].at("locale")=="en","CLI drawing sheet readback failed");
+        std::vector<kernel::BodyResult> drawing_source_cache;const auto drawing_source=document::PartDocument::load(project/"cli-step.prtz",&drawing_source_cache);
+        auto view_doc=drawing::DrawingDocument::create_default();view_doc.source_document_id=drawing_source.document_id;view_doc.source_path=project/"cli-step.prtz";
+        const auto native_view=drawing::DrawingDocument::create_view(drawing_source.document_id,project/"cli-step.prtz",drawing_source_cache.back().mesh);view_doc.sheets.front().views.push_back(native_view);view_doc.save(project/"cli-views.drwz");
+        const auto view_get=command({{"command","drawing.view.get"},{"arguments",{{"view",native_view.id}}}});
+        const auto view_references=command({{"command","drawing.view.references"},{"arguments",{{"view",native_view.id},{"limit",3}}}});
+        const auto view_delete=command({{"command","drawing.view.delete"},{"arguments",{{"view",native_view.id}}}});
+        result=launch(executable,root,common+QStringList{"--command","open cli-views.drwz","--command",view_references,"--command","regenerate","--command",view_get,"--command",view_delete,"--command","undo","--command","save"});
+        if(result.exit_code!=0)std::cerr<<result.output.toStdString()<<result.diagnostics.toStdString();
+        require(result.exit_code==0&&result.results().size()==7&&result.results()[1].at("data").at("items").size()==3&&result.results()[3].at("data").at("model_annotations").get<int>()>0,"CLI drawing view regeneration, original references or history failed");
+        require(drawing::DrawingDocument::load(project/"cli-views.drwz").sheets.front().views.front().id==native_view.id,"CLI view Undo and save lost its stable identity");
         const auto assembly_step=command({{"command","import.step"},{"arguments",{{"path",document::path_to_utf8(step_source)},{"output_directory","sestava nativní"},{"mesh_deflection_mm",2.0}}}});
         result=launch(executable,root,common+QStringList{"--command","new assembly cli-import-owner","--command",assembly_step,"--command","save"});
         require(result.exit_code==0 && result.results().size()==3 && result.results()[1].at("data").at("parts").size()==1,"CLI Assembly STEP import failed");
