@@ -1,3 +1,4 @@
+#include <zima/workspace/drawing_operations.hpp>
 #include "drawing_dimension_dialog.hpp"
 #include <QCursor>
 #include <zima/viewer/dimension_text_layer.hpp>
@@ -332,16 +333,17 @@ public:
                           std::function<void(zima::drawing::DrawingSheet)> accepted)
         : PropertiesSubWindow(QObject::tr("List"), parent),
           value_(std::move(initial)), accepted_(std::move(accepted)) {
+        setObjectName("drawingSheetProperties");
         auto* content = new QWidget(this); auto* form = new QFormLayout(content);
         format_ = new QComboBox(content);
         for (const auto& name : {"A4", "A3", "A2", "A1", "A0"}) format_->addItem(name);
-        format_->setCurrentIndex(static_cast<int>(value_.format));
+        format_->setObjectName("drawingSheetFormat");format_->setCurrentIndex(static_cast<int>(value_.format));
         projection_ = new QComboBox(content);
         projection_->addItem(QObject::tr("První kvadrant"), 0);
         projection_->addItem(QObject::tr("Třetí kvadrant"), 1);
         projection_->setCurrentIndex(value_.projection_method == zima::drawing::ProjectionMethod::FirstAngle ? 0 : 1);
         scale_ = new QDoubleSpinBox(content); scale_->setRange(0.001, 1000.0);
-        scale_->setDecimals(3); scale_->setValue(value_.default_scale);
+        scale_->setObjectName("drawingSheetScale");scale_->setDecimals(3); scale_->setValue(value_.default_scale);
         form->addRow(QObject::tr("Formát"), format_);
         form->addRow(QObject::tr("Promítání"), projection_);
         form->addRow(QObject::tr("Výchozí měřítko"), scale_);
@@ -368,7 +370,7 @@ private:
             : zima::drawing::ProjectionMethod::ThirdAngle;
         value_.title_block_locale=language_->currentText().trimmed().toStdString();
         value_.thick_line_mm=thick_->value();value_.thin_line_mm=thin_->value();value_.red_line_mm=red_->value();
-        value_.default_scale = scale_->value(); accepted_(std::move(value_)); return true;
+        value_.default_scale = scale_->value();try{accepted_(value_);}catch(const std::exception& e){throw std::runtime_error(tr(e.what()).toStdString());}return true;
     }
 };
 
@@ -444,28 +446,7 @@ zima::drawing::Point2 projection_placement(
 std::pair<std::string, zima::kernel::ViewerMesh> load_drawing_source(
     const std::filesystem::path& path, zima::workspace::Workspace* workspace = nullptr,
     const std::string& expected_document_id = {}) {
-    if (workspace != nullptr) {
-        std::optional<std::string> open_id;
-        if (!expected_document_id.empty() && workspace->find(expected_document_id) != nullptr)
-            open_id = expected_document_id;
-        else open_id = workspace->document_id_for_path(path);
-        if (open_id && (workspace->open_part(*open_id) != nullptr ||
-                        workspace->open_assembly(*open_id) != nullptr))
-            return {*open_id, workspace->authoritative_viewer_mesh(*open_id)};
-    }
-    if (path.extension() == ".prtz") {
-        std::vector<zima::kernel::BodyResult> boundaries;
-        const auto part = zima::document::PartDocument::load(path, &boundaries);
-        if(boundaries.empty()&&part.kernel_operations().empty())return {part.document_id,{}};
-        if (boundaries.empty()) throw std::runtime_error(
-            "Part nemá uložený vypočtený model. Nejprve jej regenerujte a uložte.");
-        return {part.document_id, std::move(boundaries.back().mesh)};
-    }
-    if (path.extension() == ".asmz") {
-        const auto assembly = zima::assembly::AssemblyDocument::load(path);
-        return {assembly.document_id, assembly.build_scene()};
-    }
-    throw std::runtime_error("Nepodporovaný zdroj výkresového pohledu.");
+    return zima::workspace::read_drawing_source(workspace,path,expected_document_id);
 }
 
 zima::drawing::TitleBlockContext build_title_block_context_for_source(
@@ -1665,8 +1646,9 @@ void DrawingWindow::create_layout() {
     scale_numerator_ = new QDoubleSpinBox(central);
     scale_denominator_ = new QDoubleSpinBox(central);
     for (auto* spin : {scale_numerator_, scale_denominator_}) {
-        spin->setRange(1.0, 1000.0); spin->setDecimals(0); spin->setValue(1.0);
+        spin->setRange(0.001, 1000.0); spin->setDecimals(3); spin->setValue(1.0);
     }
+    scale_numerator_->setObjectName("drawingSheetScaleNumerator");scale_denominator_->setObjectName("drawingSheetScaleDenominator");
     sheet_format_ = new QComboBox(central);
     sheet_format_->setObjectName("drawingFormatCombo");
     for (const auto* format : {"A4", "A3", "A2", "A1", "A0"})
@@ -1708,34 +1690,19 @@ void DrawingWindow::create_layout() {
     connect(add_title, &QPushButton::clicked, this, [this] { load_title_block(); });
     connect(remove_title, &QPushButton::clicked, this, [this] { remove_title_block(); });
     connect(sheet_format_, &QComboBox::currentIndexChanged, this, [this](int index) {
-        auto* sheet = active_sheet(); if (sheet == nullptr || index < 0) return;
-        const auto format = static_cast<zima::drawing::SheetFormat>(index);
-        if (sheet->format == format) return;
-        sheet->format = format; sheet->frame_lines.clear(); sheet->frame_texts.clear(); sheet->frame_circles.clear();
-        sheet->title_block_lines.clear(); sheet->title_block_texts.clear();
-        sheet->title_block_fields.clear();sheet->title_block_images.clear();sheet->title_block_circles.clear();sheet->repeat_regions.clear(); refresh();
+        auto* sheet=active_sheet();if(!sheet||index<0)return;auto value=zima::workspace::sheet_settings(*sheet);value.format=static_cast<zima::drawing::SheetFormat>(index);
+        try{set_sheet_settings(sheet->id,value);}catch(const std::exception& e){set_status_message(QString::fromUtf8(e.what()));refresh(false);}
     });
-    const auto change_scale = [this] {
-        auto* sheet = active_sheet(); if (sheet == nullptr) return;
-        auto next=*sheet;next.default_scale=scale_numerator_->value()/scale_denominator_->value();
-        try{for(auto& view:next.views)if(view.use_sheet_scale&&view.scale!=next.default_scale){view.scale=next.default_scale;if(!view.section_id.empty()){
-            auto path=view.source_path;if(path.is_relative()&&!path_.empty())path=path_.parent_path()/path;
-            auto source=load_drawing_source(path,workspace_,view.source_document_id);zima::drawing::refresh_view_geometry(view,source.second);
-        }}*sheet=std::move(next);canvas_->update();sync_workspace_document();}
-        catch(const std::exception& e){set_status_message(QString::fromUtf8(e.what()));refresh(false);}
+    const auto change_scale=[this]{
+        auto* sheet=active_sheet();if(!sheet)return;auto value=zima::workspace::sheet_settings(*sheet);value.scale=scale_numerator_->value()/scale_denominator_->value();
+        try{set_sheet_settings(sheet->id,value);}catch(const std::exception& e){refresh(false);set_status_message(QString::fromUtf8(e.what()));}
     };
-    connect(scale_numerator_, &QDoubleSpinBox::valueChanged, this,
-        [change_scale](double) { change_scale(); });
-    connect(scale_denominator_, &QDoubleSpinBox::valueChanged, this,
-        [change_scale](double) { change_scale(); });
-    connect(projection_method_, &QComboBox::currentIndexChanged, this,
-        [this](int index) {
-            auto* sheet = active_sheet(); if (sheet == nullptr || index < 0) return;
-            sheet->projection_method = index == 0
-                ? zima::drawing::ProjectionMethod::FirstAngle
-                : zima::drawing::ProjectionMethod::ThirdAngle;
-            sync_workspace_document();
-        });
+    connect(scale_numerator_,&QDoubleSpinBox::valueChanged,this,[change_scale](double){change_scale();});
+    connect(scale_denominator_,&QDoubleSpinBox::valueChanged,this,[change_scale](double){change_scale();});
+    connect(projection_method_,&QComboBox::currentIndexChanged,this,[this](int index){
+        auto* sheet=active_sheet();if(!sheet||index<0)return;auto value=zima::workspace::sheet_settings(*sheet);value.projection=index==0?zima::drawing::ProjectionMethod::FirstAngle:zima::drawing::ProjectionMethod::ThirdAngle;
+        try{set_sheet_settings(sheet->id,value);}catch(const std::exception& e){refresh(false);set_status_message(QString::fromUtf8(e.what()));}
+    });
     layout->addWidget(canvas_, 1); layout->addWidget(sheet_controls_); layout->addWidget(state_);
     setCentralWidget(central);
     connect(sheets_, &QTabBar::currentChanged, this, [this] { refresh(false); });
@@ -1784,7 +1751,7 @@ std::optional<QPointF> DrawingWindow::view_label_center_for_test(const std::stri
 std::optional<QPointF> DrawingWindow::annotation_handle_for_test(const std::string& id,int end,bool dimension)const{return canvas_->annotation_point(id,end,dimension);}
 void DrawingWindow::load_frame_for_test(const std::filesystem::path& path) {
     auto* sheet = active_sheet(); if (sheet == nullptr) return;
-    zima::drawing::load_frame_template(*sheet, path); refresh();
+    zima::workspace::load_drawing_template(document_,sheet->id,path,false); refresh();
 }
 std::optional<QPointF> DrawingWindow::view_rectangle_center_for_test(const std::string& id)const {
     return canvas_->rectangle_center(id);
@@ -1794,7 +1761,7 @@ std::optional<QPointF> DrawingWindow::title_field_center_for_test(const std::str
 }
 void DrawingWindow::load_title_block_for_test(const std::filesystem::path& path) {
     auto* sheet = active_sheet(); if (sheet == nullptr) return;
-    zima::drawing::load_title_block_template(*sheet, path); refresh();
+    zima::workspace::load_drawing_template(document_,sheet->id,path,true); refresh();
 }
 void DrawingWindow::open_document() {
     const auto path = open_file(this, tr("Otevřít výkres"), {}, tr("Výkres ZIMA-CAD (*.drwz)"));
@@ -1883,51 +1850,46 @@ void DrawingWindow::save_document() {
     catch (const std::exception& error) { QMessageBox::warning(this, tr("Nelze uložit výkres"), error.what()); }
 }
 void DrawingWindow::add_sheet() {
-    zima::drawing::DrawingSheet sheet; sheet.id = zima::drawing::DrawingDocument::create_default().sheets.front().id;
-    sheet.name = tr("List %1").arg(document_.sheets.size() + 1).toStdString(); document_.sheets.push_back(std::move(sheet)); refresh(); sheets_->setCurrentIndex(static_cast<int>(document_.sheets.size() - 1));
+    zima::workspace::SheetSettings settings;settings.name=tr("List %1").arg(document_.sheets.size()+1).toStdString();
+    zima::workspace::create_drawing_sheet(document_,settings);refresh();sheets_->setCurrentIndex(static_cast<int>(document_.sheets.size()-1));
 }
-void DrawingWindow::remove_sheet() { if (document_.sheets.size() <= 1) return; document_.sheets.erase(document_.sheets.begin() + sheets_->currentIndex()); refresh(); }
+void DrawingWindow::remove_sheet() {
+    const auto* sheet=active_sheet();if(!sheet||document_.sheets.size()<=1)return;
+    try{zima::workspace::delete_drawing_sheet(document_,sheet->id);refresh();}catch(const std::exception& e){set_status_message(QString::fromUtf8(e.what()));}
+}
+void DrawingWindow::set_sheet_settings(const std::string& id,const zima::workspace::SheetSettings& settings){
+    if(zima::workspace::set_drawing_sheet(document_,id,settings,[this](const auto& view){
+        auto path=view.source_path;if(path.is_relative()&&!path_.empty())path=path_.parent_path()/path;
+        return zima::workspace::read_drawing_source(workspace_,path,view.source_document_id).second;
+    }))refresh();
+}
 void DrawingWindow::edit_sheet() {
-    auto* sheet = active_sheet(); if (sheet == nullptr) return;
-    auto* dialog = new SheetPropertiesDialog(this, *sheet,
-        [this, id = sheet->id, old_format = sheet->format](auto accepted) {
-        auto* target = document_.find_sheet(id); if (target == nullptr) return;
-        if(accepted.format!=old_format) {
-            accepted.frame_lines.clear(); accepted.frame_texts.clear();
-            accepted.title_block_lines.clear(); accepted.title_block_texts.clear();
-            accepted.title_block_fields.clear();
-        }
-        try{for(auto& view:accepted.views)if(view.use_sheet_scale&&view.scale!=accepted.default_scale){view.scale=accepted.default_scale;if(!view.section_id.empty()){
-            auto path=view.source_path;if(path.is_relative()&&!path_.empty())path=path_.parent_path()/path;
-            auto source=load_drawing_source(path,workspace_,view.source_document_id);zima::drawing::refresh_view_geometry(view,source.second);
-        }}}catch(const std::exception& e){set_status_message(QString::fromUtf8(e.what()));return;}
-        accepted.id = id; *target = std::move(accepted); refresh();
-    });
-    dialog->show();
+    const auto* sheet=active_sheet();if(!sheet||raise_open_properties(window()))return;
+    auto* dialog=new SheetPropertiesDialog(this,*sheet,[this,id=sheet->id](const auto& accepted){set_sheet_settings(id,zima::workspace::sheet_settings(accepted));});
+    view_dialog_=dialog;if(properties_handler_)properties_handler_(dialog);
+    connect(dialog,&QDialog::finished,this,[this,dialog]{if(view_dialog_==dialog){view_dialog_.clear();if(properties_handler_)properties_handler_(nullptr);}update_action_states();});
+    dialog->show();update_action_states();
 }
 void DrawingWindow::load_frame() {
     auto* sheet=active_sheet(); if(sheet==nullptr) return;
     const auto path=open_file(this,tr("Načíst formát"),formats_directory_,
                                                  tr("Formát výkresu (*.frmz)"));
     if(path.isEmpty()) return;
-    try { zima::drawing::load_frame_template(*sheet,path.toStdString()); refresh(); }
+    try { zima::workspace::load_drawing_template(document_,sheet->id,std::filesystem::u8path(path.toStdString()),false); refresh(); }
     catch(const std::exception& error) { QMessageBox::warning(this,tr("Nelze načíst formát"),error.what()); }
 }
 void DrawingWindow::remove_frame() {
-    auto* sheet=active_sheet(); if(sheet==nullptr) return;
-    sheet->frame_lines.clear(); sheet->frame_texts.clear();sheet->frame_circles.clear(); refresh();
+    const auto* sheet=active_sheet();if(sheet&&zima::workspace::clear_drawing_template(document_,sheet->id,false))refresh();
 }
 void DrawingWindow::remove_title_block() {
-    auto* sheet=active_sheet(); if(sheet==nullptr) return;
-    sheet->title_block_lines.clear(); sheet->title_block_texts.clear();
-    sheet->title_block_fields.clear(); refresh();
+    const auto* sheet=active_sheet();if(sheet&&zima::workspace::clear_drawing_template(document_,sheet->id,true))refresh();
 }
 void DrawingWindow::load_title_block() {
     auto* sheet=active_sheet(); if(sheet==nullptr) return;
     const auto path=open_file(this,tr("Načíst razítko"),formats_directory_,
                                                  tr("Razítko výkresu (*.tblz)"));
     if(path.isEmpty()) return;
-    try { zima::drawing::load_title_block_template(*sheet,path.toStdString()); refresh(); }
+    try { zima::workspace::load_drawing_template(document_,sheet->id,std::filesystem::u8path(path.toStdString()),true); refresh(); }
     catch(const std::exception& error) { QMessageBox::warning(this,tr("Nelze načíst razítko"),error.what()); }
 }
 void DrawingWindow::edit_title_block() {
@@ -2506,8 +2468,8 @@ void DrawingWindow::refresh(bool changed) {
         sheet_format_->setCurrentIndex(static_cast<int>(sheet->format));
         projection_method_->setCurrentIndex(
             sheet->projection_method == zima::drawing::ProjectionMethod::FirstAngle ? 0 : 1);
-        scale_numerator_->setValue(1.0);
-        scale_denominator_->setValue(1.0 / std::max(sheet->default_scale, 0.001));
+        scale_numerator_->setValue(sheet->default_scale>=1?sheet->default_scale:1);
+        scale_denominator_->setValue(sheet->default_scale>=1?1:1.0/sheet->default_scale);
     }
     const auto view_count = active_sheet() ? active_sheet()->views.size() : 0;
     set_status_message(view_count == 0

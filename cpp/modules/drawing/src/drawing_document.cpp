@@ -209,6 +209,8 @@ void parse_geometry(const std::map<std::string,std::string>& values,
             } else if (key.starts_with("Text") && parts.size() >= 6) {
                 texts.push_back({parts[0],transform(std::stod(parts[1]),std::stod(parts[2])),
                     std::stod(parts[3]),parse_pen(parts[4]),parts[5]});
+            } else if(key.starts_with("Line") || key.starts_with("Text")) {
+                throw std::runtime_error("Incomplete template geometry");
             }
         } catch (const std::exception&) {
             throw std::runtime_error("Invalid Drawing template geometry: " + key);

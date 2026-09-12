@@ -30,7 +30,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Katalog, kontext, datový strom | Hotovo pro současné příkazy | Doplňovat popisy a dotazy podle domén |
 | Typované argumenty | Hotovo | Řetězce, čísla, celá čísla, boolean, objekty a pole; validace před mutací |
 | New/Open/Save, Save As, aktivace/zavření, pracovní adresář | Hotovo | Přejmenování souborů a správa archivů jsou další samostatné operace |
-| Regenerate, Undo/Redo | Základ Part/Assembly hotov | Výkresové operace a jejich historie |
+| Regenerate, Undo/Redo | Historie Part/Assembly/Drawing hotova | Výkresová regenerace pohledů dosud jen GUI |
 | Kvádr | Hotovo | Společná tvorba, čtení a rozměrový patch; včetně zámků a přesnosti |
 | Válec, koule, kužel, jehlan, klín | Hotovo | Společné create/get/set, zámky, přesnost, GUI/CLI a 59/59 regresí |
 | Historie Partu | Hotovo | Společný přesun, ověření závislostí, potlačení, odstranění a kurzor; včetně historie těles a Booleanů |
@@ -45,8 +45,8 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Otvory a závity | Zbývá | Hole, Thread, ShaftThread, DrillPoint a reference |
 | Zaoblení, zkosení, skořepina | Zbývá | Výběr skutečného vstupního tělesa a sdílené transakce |
 | Zrcadlo a pole | Zbývá | Odvozená tělesa a komponenty |
-| Sestavy | Dotazy a vložení komponent hotovy | Uložená hierarchie a přesné výskyty, sdílené vložení otevřeného zdroje; zbývají vlastnosti/mazání komponent, vazby, vnořená aktivace a řezy |
-| Výkresy | Správa neuložených změn hotova | Příkazy pro listy, pohledy, kóty, anotace, šablony, BOM, Show/Erase |
+| Sestavy | Dotazy, vložení a otevření zdrojů komponent hotovy | Uložená hierarchie a přesné výskyty, sdílené vložení a otevření zdroje; zbývají vlastnosti/mazání komponent, vazby, vnořená aktivace a řezy |
+| Výkresy | Listy, parametry, vložené šablony a historie hotovy | Pohledy, kóty, anotace, BOM, Show/Erase a výkresové exporty |
 | Řezy, měření a vzhled | Zbývá | Datové operace a uložené výsledky |
 | Parametry, relace a materiál | Společné tabulky a transakce hotovy | Parametry, jednotky, přesnost, relace, materiál včetně přímého načtení knihovny a uložené varianty; řízení rozměrů relacemi a generování variant nejsou dosud zavedené ani v GUI |
 | Import a export | Import Partu/Assembly STEP/IGES/DXF a základní exporty hotovy | Společný STEP včetně vnořených sestav, STL Part/plochá Assembly, DXF úsečky/kružnice/oblouky; zbývá import vložených profilů, další DXF geometrie, vnořený STL a výkresové exporty |
@@ -226,3 +226,14 @@ rozpracovaný otevřený dokument má přednost. Integrační sada prošla **5/5
 (27,35 s), `build/component-source-integration-tests.log`.
 Podrobnosti jsou v [COMPONENT_COMMANDS.md](COMPONENT_COMMANDS.md).
 Následují nezávislé výkresové operace; chráněná refaktorizace umístění nadále čeká.
+
+Etapa výkresových listů přidala devět příkazů, celkem **132**. Společné
+operace pokrývají listy, parametry, import/odstranění formátu a razítka;
+`DrawingState` nově podporuje Undo/Redo se zachováním přidělených čísel kót
+a ochranou uložení během změn historie. GUI používá stejné operace.
+Cílená sada prošla **7/7** (21,42 s), `build/drawing-sheet-integration-tests.log`.
+Podrobnosti: [DRAWING_COMMANDS.md](DRAWING_COMMANDS.md). Následují výkresové
+pohledy a jejich uložená data.
+
+Celá Windows Release sada této etapy prošla **79/79** (407,77 s),
+`build/drawing-sheet-full-tests.log`, včetně obou výsledných programů GUI a CLI.

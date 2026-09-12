@@ -19,7 +19,7 @@ class QDoubleSpinBox;
 class QTabBar;
 class QToolBar;
 
-namespace zima::workspace { class Workspace; }
+namespace zima::workspace { class Workspace; struct SheetSettings; }
 
 namespace zima::app {
 
@@ -101,6 +101,7 @@ private:
     void add_sheet();
     void remove_sheet();
     void edit_sheet();
+    void set_sheet_settings(const std::string&,const zima::workspace::SheetSettings&);
     void load_frame();
     void remove_frame();
     void load_title_block();

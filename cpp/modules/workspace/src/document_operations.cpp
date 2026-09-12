@@ -15,7 +15,7 @@ DocumentSave prepare_document_save(const Workspace& workspace,
         job.receipt_.original_path_=value.path;
         job.receipt_.runtime_identity_=value.runtime_identity;
         if constexpr(std::is_same_v<State, DrawingState>) {
-            job.snapshot_=value.document(); job.receipt_.revision_=value.revision();
+            job.snapshot_=value.document(); job.receipt_.revision_=value.revision();job.receipt_.generation_=value.data_generation();
         }
         else {
             job.receipt_.revision_=value.session.revision();
@@ -46,7 +46,7 @@ bool complete_document_save(Workspace& workspace, const SavedDocument& saved) {
         value.path=saved.target_;
         using State=std::decay_t<decltype(value)>;
         if constexpr(std::is_same_v<State, DrawingState>) {
-            if(value.revision()==saved.revision_)value.mark_saved();
+            if(value.revision()==saved.revision_ && value.data_generation()==saved.generation_)value.mark_saved();
         } else {
             if(value.session.revision()==saved.revision_ &&
                value.session.data_generation()==saved.generation_ &&
@@ -82,6 +82,7 @@ bool can_step_document_history(const Workspace& workspace,
     const bool redo=direction==HistoryDirection::Redo;
     if(const auto* part=workspace.open_part(id))return redo?part->session.can_redo():part->session.can_undo();
     if(const auto* assembly=workspace.open_assembly(id))return redo?assembly->session.can_redo():assembly->session.can_undo();
+    if(const auto* drawing=workspace.open_drawing(id))return redo?drawing->can_redo():drawing->can_undo();
     return false;
 }
 
@@ -94,6 +95,7 @@ bool step_document_history(Workspace& workspace,
         return changed;
     }
     if(auto* assembly=workspace.open_assembly(id))return redo?assembly->session.redo():assembly->session.undo();
+    if(auto* drawing=workspace.open_drawing(id))return redo?drawing->redo():drawing->undo();
     return false;
 }
 } // namespace zima::workspace

@@ -32,25 +32,25 @@ struct AssemblyState {
 
 class DrawingState {
 public:
-    DrawingState(zima::drawing::DrawingDocument document, std::filesystem::path file = {})
-        : path(std::move(file)), document_(std::move(document)) { document_.synchronize_dimension_identifiers(); }
-    [[nodiscard]] const zima::drawing::DrawingDocument& document() const { return document_; }
-    // Every confirmed drawing edit goes through this boundary. Presentation-only
-    // refreshes do not call it; tracking requires no serialized geometry copy.
-    void commit(zima::drawing::DrawingDocument document) {
-        if(document.document_id!=document_.document_id)
-            throw std::invalid_argument("Drawing edit cannot change document identity");
-        document.synchronize_dimension_identifiers();
-        document_=std::move(document); ++revision_;
-    }
-    [[nodiscard]] std::uint64_t revision() const { return revision_; }
-    [[nodiscard]] bool is_dirty() const { return revision_!=saved_revision_; }
-    void mark_saved() { saved_revision_=revision_; }
+    DrawingState(zima::drawing::DrawingDocument document, std::filesystem::path file = {});
+    [[nodiscard]] const zima::drawing::DrawingDocument& document() const { return current_.document; }
+    void commit(zima::drawing::DrawingDocument document);
+    [[nodiscard]] std::uint64_t revision() const { return current_.revision; }
+    [[nodiscard]] std::uint64_t data_generation() const { return generation_; }
+    [[nodiscard]] bool is_dirty() const;
+    [[nodiscard]] bool can_undo() const { return !undo_.empty(); }
+    [[nodiscard]] bool can_redo() const { return !redo_.empty(); }
+    bool undo();
+    bool redo();
+    void mark_saved();
     std::filesystem::path path;
     std::shared_ptr<const int> runtime_identity=std::make_shared<const int>(0);
 private:
-    zima::drawing::DrawingDocument document_;
-    std::uint64_t revision_{}, saved_revision_{};
+    struct State { drawing::DrawingDocument document; std::uint64_t revision{}; };
+    State current_;
+    std::vector<State> undo_,redo_;
+    std::uint64_t generation_{},next_revision_{1},saved_revision_{},saved_allocations_{};
+    bool step(std::vector<State>& from,std::vector<State>& to);
 };
 
 using DocumentState = std::variant<PartState, AssemblyState, DrawingState>;

@@ -1473,7 +1473,7 @@ void AssemblyWorkspaceWindow::create_layout() {
     workspace_stack_->addWidget(model_workspace_);
     drawing_workspace_ = new DrawingWindow(&workspace_, false);
     drawing_workspace_->set_formats_directory(application_settings_.resolved_paths.value("Formats"));
-    drawing_workspace_->set_document_changed_handler([this] { refresh_drawing_tree(); });
+    drawing_workspace_->set_document_changed_handler([this] { refresh_drawing_tree();refresh_tabs();if(const auto* state=workspace_.open_drawing(workspace_.displayed_document_id())){undo_action_->setEnabled(state->can_undo());redo_action_->setEnabled(state->can_redo());} });
     drawing_workspace_->set_properties_handler([this](QDialog* dialog) {
         properties_dialog_=dialog;
         if(dialog)connect(dialog,&QObject::destroyed,this,[this,dialog] {

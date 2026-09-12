@@ -280,6 +280,18 @@ int main(int argc,char** argv){
         const auto component_open=command({{"command","component.open"},{"arguments",{{"instance_path",assembly::InstancePath{}.child(component_native.components[0].occurrence_id).encoded()}}}});
         result=launch(executable,root,common+QStringList{"--command","open cli-components.asmz","--command",component_open,"--command","context"});
         require(result.exit_code==0 && result.results()[1].at("data").at("document")==step_native.document_id && result.results()[1].at("data").at("opened")==true && result.results()[2].at("data").at("active_document")==step_native.document_id,"CLI could not open the exact native source occurrence");
+        const auto sheet_create=command({{"command","drawing.sheet.create"},{"arguments",{{"name","Český list"},{"format","A3"},{"scale",2}}}});
+        result=launch(executable,root,common+QStringList{"--command","new drawing cli-sheets","--command",sheet_create,"--command","undo","--command","redo","--command","save"});
+        require(result.exit_code==0 && result.results().size()==5,"CLI drawing sheet creation and history failed");
+        const auto sheet_id=result.results()[1].at("data").at("sheet").get<std::string>();
+        const auto sheet_edit=command({{"command","drawing.sheet.set"},{"arguments",{{"sheet",sheet_id},{"scale",.5},{"locale","en"}}}});
+        const auto sheet_frame=command({{"command","drawing.frame.load"},{"arguments",{{"sheet",sheet_id},{"path",document::path_to_utf8(repository/"config/formats/ZE-A3.frmz")}}}});
+        result=launch(executable,root,common+QStringList{"--command","open cli-sheets.drwz","--command",sheet_edit,"--command",sheet_frame,"--command","save"});
+        require(result.exit_code==0,"CLI drawing settings or native frame load failed");
+        const auto saved_sheets=drawing::DrawingDocument::load(project/"cli-sheets.drwz");
+        require(saved_sheets.sheets.size()==2 && saved_sheets.find_sheet(sheet_id)->name=="Český list" && saved_sheets.find_sheet(sheet_id)->default_scale==.5 && !saved_sheets.find_sheet(sheet_id)->frame_lines.empty(),"CLI sheet or embedded frame did not persist");
+        result=launch(executable,root,common+QStringList{"--command","open cli-sheets.drwz","--command","drawing.sheet.list"});
+        require(result.exit_code==0 && result.results()[1].at("data").at("items")[1].at("locale")=="en","CLI drawing sheet readback failed");
         const auto assembly_step=command({{"command","import.step"},{"arguments",{{"path",document::path_to_utf8(step_source)},{"output_directory","sestava nativní"},{"mesh_deflection_mm",2.0}}}});
         result=launch(executable,root,common+QStringList{"--command","new assembly cli-import-owner","--command",assembly_step,"--command","save"});
         require(result.exit_code==0 && result.results().size()==3 && result.results()[1].at("data").at("parts").size()==1,"CLI Assembly STEP import failed");

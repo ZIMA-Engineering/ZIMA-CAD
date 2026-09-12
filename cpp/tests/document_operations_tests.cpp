@@ -109,7 +109,7 @@ int main() {
         auto wrong_drawing=workspace.open_drawing(drawing_id)->document();wrong_drawing.document_id="wrong-id";
         fails([&]{workspace.open_drawing(drawing_id)->commit(wrong_drawing);},"Drawing identity could be overwritten");
         require(workspace.open_drawing(drawing_id)->revision()==drawing_revision && !workspace.open_drawing(drawing_id)->is_dirty(),"Rejected Drawing edit changed revision");
-        require(!can_step_document_history(workspace,drawing_id,HistoryDirection::Undo),"Unsupported drawing history advertised");
+        require(can_step_document_history(workspace,drawing_id,HistoryDirection::Undo),"Drawing edit has no history");
         require(workspace.active_document_id()==id && workspace.displayed_document_id()==id,"Operations activated another document");
 
         auto retargeted=prepare_document_save(workspace,id,part_path);

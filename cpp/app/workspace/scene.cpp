@@ -1031,8 +1031,8 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         save_as_action_->setEnabled(true);
         close_document_action_->setEnabled(true);
         regenerate_document_action_->setEnabled(true);
-        undo_action_->setEnabled(false);
-        redo_action_->setEnabled(false);
+        undo_action_->setEnabled(drawing->can_undo());
+        redo_action_->setEnabled(drawing->can_redo());
         update_application_actions();
         rebuild_application_toolbar();
         return;
