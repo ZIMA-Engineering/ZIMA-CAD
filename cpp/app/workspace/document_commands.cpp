@@ -1,4 +1,5 @@
 #include "workspace_internal.hpp"
+#include <zima/workspace/metadata_operations.hpp>
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -75,41 +76,11 @@ void AssemblyWorkspaceWindow::edit_parameters_for_document(std::string active_id
             return;
         }
     }
-    UserParameterData data;
-    if (const auto* part = workspace_.open_part(active_id)) {
-        const auto& document = part->session.document();
-        data = {document.user_parameters, document.user_parameter_order,
-            document.user_parameter_labels, document.user_parameter_values};
-    } else if (const auto* assembly = workspace_.open_assembly(active_id)) {
-        const auto& document = assembly->session.document();
-        data = {document.user_parameters, document.user_parameter_order,
-            document.user_parameter_labels, document.user_parameter_values};
-    } else {
-        return;
-    }
-    if (data.order.empty()) {
-        for (const auto& [key, value] : data.flat) {
-            data.order.push_back(key); data.values[key][""] = value;
-        }
-    }
+    if(!workspace_.open_part(active_id) && !workspace_.open_assembly(active_id))return;
+    auto data=zima::workspace::user_parameters(workspace_,active_id);
     auto* dialog = new UserParametersDialog(std::move(data),
         application_settings_.language, [this, active_id](UserParameterData values) {
-            if (auto* part = workspace_.open_part(active_id)) {
-                auto next = part->session.document();
-                next.user_parameters = std::move(values.flat);
-                next.user_parameter_order = std::move(values.order);
-                next.user_parameter_labels = std::move(values.labels);
-                next.user_parameter_values = std::move(values.values);
-                part->session.commit(
-                    std::move(next), part->session.calculated_boundaries());
-            } else if (auto* assembly = workspace_.open_assembly(active_id)) {
-                auto next = assembly->session.document();
-                next.user_parameters = std::move(values.flat);
-                next.user_parameter_order = std::move(values.order);
-                next.user_parameter_labels = std::move(values.labels);
-                next.user_parameter_values = std::move(values.values);
-                assembly->session.commit(std::move(next));
-            }
+            static_cast<void>(zima::workspace::set_user_parameters(workspace_,active_id,std::move(values)));
             refresh_tabs();
         }, application_settings_, this);
     dialog->setAttribute(Qt::WA_DeleteOnClose);
@@ -233,8 +204,8 @@ void AssemblyWorkspaceWindow::edit_file_settings() {
     else if (const auto* assembly = workspace_.open_assembly(id)) { const auto& d = assembly->session.document(); data.units = d.document_units; data.precision = d.document_precision; }
     else return;
     auto* dialog = new FileSettingsDialog(std::move(data), [this, id](DocumentToolData values) {
-        if (auto* part = workspace_.open_part(id)) { auto next = part->session.document(); next.document_units = std::move(values.units); next.document_precision = std::move(values.precision); part->session.commit(std::move(next), part->session.calculated_boundaries()); }
-        else if (auto* assembly = workspace_.open_assembly(id)) { auto next = assembly->session.document(); next.document_units = std::move(values.units); next.document_precision = std::move(values.precision); assembly->session.commit(std::move(next)); }
+        const auto change=zima::workspace::set_file_settings(workspace_,kernel_,id,{std::move(values.units),std::move(values.precision)});
+        if(change.calculated){preserve_view_on_refresh_=true;refresh_scene();}
         if (const auto* part=workspace_.open_part(id)) setProperty("zimaDocumentDecimalPlaces",document_decimal_places(part->session.document()));
         else if (const auto* assembly=workspace_.open_assembly(id)) setProperty("zimaDocumentDecimalPlaces",document_decimal_places(assembly->session.document()));
         refresh_tabs();

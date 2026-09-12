@@ -243,6 +243,15 @@ int main(int argc,char** argv){
         require(result.exit_code==0 && result.results()[1].at("data").at("bodies").size()==1,"CLI IGES import failed");
         std::vector<kernel::BodyResult> iges_bodies;static_cast<void>(document::PartDocument::load(project/"cli-iges.prtz",&iges_bodies));
         require(!iges_bodies.empty() && std::abs(iges_bodies.back().volume-1000)<1e-4,"CLI IGES changed native scale");
+        const Json metadata_entries=Json::array({{{"key","NUMBER"},{"values",{{"","CLI-001"}}}},{{"key","NAME"},{"values",{{"cs","Český díl"},{"en","Part"}}}}});
+        const auto metadata_set=command({{"command","document.parameters.set"},{"arguments",{{"parameters",metadata_entries}}}});
+        const auto settings_set=command({{"command","document.settings.set"},{"arguments",{{"units",{{"Length","m"}}},{"precision",{{"mesh_deflection",2},{"decimal_places",6}}}}}});
+        result=launch(executable,root,common+QStringList{"--command","open cli-step.prtz","--command",metadata_set,"--command",settings_set,"--command","save"});
+        require(result.exit_code==0 && result.results().size()==4,"CLI document metadata update failed");
+        std::vector<kernel::BodyResult> metadata_bodies;const auto metadata_part=document::PartDocument::load(project/"cli-step.prtz",&metadata_bodies);
+        require(metadata_part.user_parameter_values.at("NAME").at("cs")=="Český díl" && !metadata_part.user_parameters.contains("NAME") && metadata_part.document_units.at("Length")=="m" && metadata_part.document_precision.at("decimal_places")=="6" && std::abs(metadata_bodies.back().volume-6000)<1e-5,"CLI metadata update changed geometry or lost localization");
+        result=launch(executable,root,common+QStringList{"--command","open cli-step.prtz","--command","document.parameters.get","--command","document.settings.get"});
+        require(result.exit_code==0 && result.results()[1].at("data").at("parameters")[1].at("values")==metadata_entries[1].at("values") && result.results()[2].at("data").at("units").at("Length")=="m","CLI metadata readback failed");
         const auto assembly_step=command({{"command","import.step"},{"arguments",{{"path",document::path_to_utf8(step_source)},{"output_directory","sestava nativní"},{"mesh_deflection_mm",2.0}}}});
         result=launch(executable,root,common+QStringList{"--command","new assembly cli-import-owner","--command",assembly_step,"--command","save"});
         require(result.exit_code==0 && result.results().size()==3 && result.results()[1].at("data").at("parts").size()==1,"CLI Assembly STEP import failed");

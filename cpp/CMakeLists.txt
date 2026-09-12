@@ -68,6 +68,7 @@ add_library(zima_document_core
     modules/document_core/src/section.cpp
     modules/document_core/src/measurement_record.cpp
     modules/document_core/src/relations.cpp
+    modules/document_core/src/metadata.cpp
     modules/document_core/src/document_session.cpp
     modules/document_core/src/dimension_identifiers.cpp
     modules/document_core/src/viewer_packet_json.cpp
@@ -103,6 +104,7 @@ add_library(zima_workspace modules/workspace/src/workspace.cpp
     modules/workspace/src/export_operations.cpp
     modules/workspace/src/import_operations.cpp
     modules/workspace/src/assembly_import_operations.cpp
+    modules/workspace/src/metadata_operations.cpp
     modules/workspace/src/sketch_operations.cpp
     modules/workspace/src/sketch_reference_operations.cpp
     modules/workspace/src/native_documents.cpp
@@ -130,7 +132,8 @@ add_library(zima_command_host
     modules/command_host/src/sketch_text_commands.cpp
     modules/command_host/src/sketch_spline_commands.cpp
     modules/command_host/src/import_commands.cpp
-    modules/command_host/src/export_commands.cpp)
+    modules/command_host/src/export_commands.cpp
+    modules/command_host/src/metadata_commands.cpp)
 target_include_directories(zima_command_host PUBLIC modules/command_host/include)
 target_link_libraries(zima_command_host PUBLIC zima_commands zima_workspace)
 # Commands carry UTF-8 paths and localized text even without Qt's build flags.
@@ -448,6 +451,11 @@ if(ZIMA_BUILD_TESTS)
     add_dependencies(zima_cpp_cli_process_tests zima-cad-cli)
     add_test(NAME zima_cpp_cli_process_tests COMMAND zima_cpp_cli_process_tests "$<TARGET_FILE:zima-cad-cli>")
     set_tests_properties(zima_cpp_cli_process_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120)
+    add_executable(zima_cpp_metadata_command_tests tests/metadata_command_tests.cpp)
+    target_link_libraries(zima_cpp_metadata_command_tests PRIVATE zima_command_host)
+    add_test(NAME zima_cpp_metadata_command_tests COMMAND zima_cpp_metadata_command_tests)
+    set_tests_properties(zima_cpp_metadata_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
+
     add_executable(zima_cpp_export_command_tests tests/export_command_tests.cpp)
     target_link_libraries(zima_cpp_export_command_tests PRIVATE zima_command_host)
     add_test(NAME zima_cpp_export_command_tests COMMAND zima_cpp_export_command_tests)

@@ -3,6 +3,7 @@
 #include "application_settings.hpp"
 
 #include <zima/document/relations.hpp>
+#include <zima/document/metadata.hpp>
 #include <zima/document/dimension_identifiers.hpp>
 #include <zima/ui/properties_subwindow.hpp>
 
@@ -29,12 +30,7 @@ struct DocumentToolData {
 
 using ToolDataAccepted = std::function<void(DocumentToolData)>;
 
-struct UserParameterData {
-    std::map<std::string, std::string> flat;
-    std::vector<std::string> order;
-    std::map<std::string, std::map<std::string, std::string>> labels;
-    std::map<std::string, std::map<std::string, std::string>> values;
-};
+using UserParameterData = zima::document::UserParameterData;
 
 class UserParametersDialog final : public zima::ui::PropertiesSubWindow {
 public:

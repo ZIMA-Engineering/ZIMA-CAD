@@ -195,14 +195,12 @@ void UserParametersDialog::add_row() {
 
 bool UserParametersDialog::submit() {
     if (!read_table()) return false;
-    data_.flat.clear();
-    for (const auto& key : data_.order) {
-        const auto values = data_.values.find(key);
-        if (values == data_.values.end()) continue;
-        const auto shared = values->second.find("");
-        if (shared != values->second.end()) data_.flat[key] = shared->second;
+    try {
+        zima::document::normalize_user_parameters(data_);
+        accepted_(data_);
+    } catch(const std::exception& error) {
+        throw std::runtime_error(tr(error.what()).toStdString());
     }
-    accepted_(std::move(data_));
     return true;
 }
 
@@ -213,23 +211,18 @@ FileSettingsDialog::FileSettingsDialog(
       data_(std::move(data)), accepted_(std::move(accepted)) {
     setObjectName("fileSettingsDialog");
     auto* form = new QFormLayout;
-    const std::map<std::string, QStringList> choices{
-        {"Length", {"mm", "cm", "m", "in"}}, {"Angle", {"deg", "rad"}},
-        {"Mass", {"kg", "g", "t", "lb"}}, {"Time", {"s", "min"}},
-        {"Temperature", {"C", "K", "F"}},
-        {"Stress", {"Pa", "kPa", "MPa", "GPa", "psi"}}};
-    for (const auto& [key, values] : choices) {
+    for (const auto& [key, values] : zima::document::file_unit_choices()) {
         auto* combo = new NoWheelComboBox(this);
         combo->setObjectName(QStringLiteral("fileUnit") + QString::fromStdString(key));
-        combo->setEditable(true);
-        combo->addItems(values);
-        combo->setCurrentText(value_or(data_.units, key.c_str(), values.front().toUtf8()));
+        for(const auto& value:values)combo->addItem(QString::fromStdString(value));
+        combo->setCurrentText(value_or(data_.units, key.c_str(), values.front().c_str()));
         units_[key] = combo;
         form->addRow(settings.text(QStringLiteral("document.unit.") +
             QString::fromStdString(key).toLower(), QString::fromStdString(key)), combo);
     }
     const auto precision = [&](const char* key, const char* fallback) {
         auto* spin = new QDoubleSpinBox(this);
+        spin->setObjectName(QStringLiteral("filePrecision")+QString::fromLatin1(key));
         spin->setDecimals(9); spin->setRange(0.0, 1000000.0);
         spin->setValue(value_or(data_.precision, key, fallback).toDouble());
         return spin;
@@ -238,7 +231,7 @@ FileSettingsDialog::FileSettingsDialog(
     angular_ = precision("angular_tolerance", "0.001");
     mesh_ = precision("mesh_deflection", "0.1");
     mesh_->setMinimum(0.000000001);
-    decimals_ = new QSpinBox(this); decimals_->setRange(0, 12);
+    decimals_ = new QSpinBox(this); decimals_->setObjectName("filePrecisiondecimal_places");decimals_->setRange(0, 12);
     decimals_->setValue(value_or(data_.precision, "decimal_places", "3").toInt());
     form->addRow(settings.text("document.precision.linear_tolerance", "Lineární tolerance"), linear_);
     form->addRow(settings.text("document.precision.angular_tolerance", "Úhlová tolerance"), angular_);
@@ -253,7 +246,12 @@ bool FileSettingsDialog::submit() {
     data_.precision["angular_tolerance"] = QString::number(angular_->value(), 'g', 15).toStdString();
     data_.precision["mesh_deflection"] = QString::number(mesh_->value(), 'g', 15).toStdString();
     data_.precision["decimal_places"] = QString::number(decimals_->value()).toStdString();
-    accepted_(std::move(data_));
+    try {
+        zima::document::validate_file_settings({data_.units,data_.precision});
+        accepted_(data_);
+    } catch(const std::exception& error) {
+        throw std::runtime_error(tr(error.what()).toStdString());
+    }
     return true;
 }
 

@@ -48,7 +48,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Sestavy | Zbývá | Komponenty, přesné výskyty, vazby, aktivace a řezy |
 | Výkresy | Správa neuložených změn hotova | Příkazy pro listy, pohledy, kóty, anotace, šablony, BOM, Show/Erase |
 | Řezy, měření a vzhled | Zbývá | Datové operace a uložené výsledky |
-| Parametry, relace a materiál | Zbývá | Jednotky, fyzikální údaje a rodinné tabulky |
+| Parametry, relace a materiál | Parametry a nastavení dokumentu hotovy | Společná tabulka jazykových parametrů, jednotky a přesnost; zbývají relace, materiál a rodinné tabulky |
 | Import a export | Import Partu/Assembly STEP/IGES/DXF a základní exporty hotovy | Společný STEP včetně vnořených sestav, STL Part/plochá Assembly, DXF úsečky/kružnice/oblouky; zbývá import vložených profilů, další DXF geometrie, vnořený STL a výkresové exporty |
 
 Každá další etapa aktualizuje tabulku a uvádí ověřené testy. Neobcházíme
@@ -188,3 +188,12 @@ IGES/DXF vytváří jeden Part. Opožděný výpočet nebo chyba zápisu nezanec
 částečné vložení do cíle. Podrobnosti: [IMPORT_COMMANDS.md](IMPORT_COMMANDS.md).
 Integrační testy importu sestav **7/7** (17,00 s); závěrečné hraniční, CLI
 a GUI regrese **3/3** (15,52 s). Logy jsou v dokumentaci importu.
+
+Etapa parametrů a nastavení přidává `document.parameters.get/set`
+a `document.settings.get/set`, celkem **112 příkazů**. GUI i CLI sdílejí
+validaci, jazykové varianty a transakce. Pouhá změna jednotek zachovává
+geometrii; změna skutečné výpočetní přesnosti potvrdí také potřebný místní
+výpočet, aby cache zůstala uložitelná. Rodiče se neobnovují. Podrobnosti:
+[METADATA_COMMANDS.md](METADATA_COMMANDS.md).
+Celá Windows Release sada této etapy: **74/74** (405,58 s),
+`build/metadata-full-tests.log`.

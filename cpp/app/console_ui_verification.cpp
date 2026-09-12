@@ -24,6 +24,8 @@
 #include <QTreeWidgetItemIterator>
 #include <QDoubleSpinBox>
 #include <QComboBox>
+#include <QTableWidget>
+#include <QSpinBox>
 #include <cmath>
 #include <zima/viewer/mesh_view.hpp>
 #include <chrono>
@@ -410,6 +412,30 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         check(imported_owner.components.size()==2,"Assembly menu import did not add exactly one component");
         const auto imported_dxf_part=document::PartDocument::load(imported_owner.components.back().source_path);
         check(imported_dxf_part.sketches.back().segments.size()==4,"Assembly menu DXF did not preserve native geometry");
+        run(QString::fromStdString("new part "+stem+"-metadata"));
+        run("box.create 10 20 30");
+        commands::Json metadata_parameters=commands::Json::array({{{"key","CLI_TEST"},{"values",{{"","before"}}}}});
+        run(QString::fromStdString(commands::Json{{"command","document.parameters.set"},{"arguments",{{"parameters",metadata_parameters}}}}.dump()));
+        auto* parameter_action=window.findChild<QAction*>("documentParametersAction");check(parameter_action,"Parameters action missing");
+        parameter_action->trigger();flush();auto* parameter_dialog=window.findChild<QDialog*>("documentParametersDialog");
+        auto* parameter_table=parameter_dialog?parameter_dialog->findChild<QTableWidget*>("documentParametersTable"):nullptr;
+        check(parameter_table && parameter_table->rowCount()>=1 && parameter_table->item(0,0)->text()=="CLI_TEST","GUI did not read common parameter data");
+        parameter_table->item(0,3)->setText("after GUI");parameter_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+        check(!window.findChild<QDialog*>("documentParametersDialog") && run("document.parameters.get").data.at("parameters")[0].at("values").at("")=="after GUI","GUI parameter callback did not use shared transaction");
+        parameter_action->trigger();flush();parameter_dialog=window.findChild<QDialog*>("documentParametersDialog");
+        parameter_dialog->findChild<QTableWidget*>("documentParametersTable")->item(0,3)->setText("cancelled");
+        parameter_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
+        check(run("document.parameters.get").data.at("parameters")[0].at("values").at("")=="after GUI","Parameter Cancel committed pending values");
+        auto* settings_action=window.findChild<QAction*>("fileSettingsAction");check(settings_action,"File settings action missing");settings_action->trigger();flush();
+        auto* settings_dialog=window.findChild<QDialog*>("fileSettingsDialog");check(settings_dialog,"File settings dialog missing");
+        settings_dialog->findChild<QComboBox*>("fileUnitLength")->setCurrentText("cm");
+        settings_dialog->findChild<QDoubleSpinBox*>("filePrecisionmesh_deflection")->setValue(2);
+        settings_dialog->findChild<QSpinBox*>("filePrecisiondecimal_places")->setValue(6);
+        settings_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+        const auto metadata_settings=run("document.settings.get").data;
+        check(!window.findChild<QDialog*>("fileSettingsDialog") && metadata_settings.at("units").at("Length")=="cm" && metadata_settings.at("precision").at("mesh_deflection")==2 && window.property("zimaDocumentDecimalPlaces").toInt()==6,"GUI settings callback did not share the metadata transaction");
+        run("save");const auto metadata_saved=document::PartDocument::load(directory/(stem+"-metadata.prtz"));
+        check(metadata_saved.user_parameters.at("CLI_TEST")=="after GUI" && metadata_saved.document_units.at("Length")=="cm","GUI metadata did not persist");
         run(QString::fromStdString(activate.dump()));flush();
         input->setText("context");QApplication::sendEvent(input,&enter);flush();
         check(window.grab().save(QString::fromStdString((directory/"command-console.png").string())),"Console screenshot failed");
