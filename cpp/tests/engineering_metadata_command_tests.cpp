@@ -2,6 +2,7 @@
 #include <zima/workspace/engineering_metadata_operations.hpp>
 #include <zima/workspace/metadata_operations.hpp>
 #include <zima/document/physical_properties.hpp>
+#include <zima/document/file_path.hpp>
 #include <zima/assembly/physical_properties.hpp>
 #include <cmath>
 #include <iostream>
@@ -69,6 +70,13 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     run(host,"save");const auto saved=document::PartDocument::load(dir/"engineering-part.prtz");
     require(saved.family_table==part->session.document().family_table && saved.relations==part->session.document().relations && saved.material_parameter_descriptions.at("MATERIAL_NAME").at("cs")=="Název","Native save lost engineering metadata");
     require(part->session.calculated_boundaries().back().kernel_shape==geometry,"Engineering metadata rebuilt geometry");
+    const auto library=dir/fs::path(u8"Ocel česká.matz");fs::copy_file("config/materials/01_oceli/konstrukcni/S235JR.matz",library);
+    const auto aluminum_before=workspace::material_data(live,id);
+    run(host,"document.material.load",{{"path",document::path_to_utf8(library.filename())}});
+    require(std::abs(document::physical_values(part->session.document(),part->session.calculated_boundaries()).at("model.mass")-.0471)<1e-10 && part->session.calculated_boundaries().back().kernel_shape==geometry,"Library assignment did not use cached volume and steel density");
+    require(!run(host,"document.material.load",{{"path",document::path_to_utf8(library.filename())}}).data.at("changed").get<bool>(),"Reloading identical material created Undo");
+    rejected("document.material.load",{{"path","missing.matz"}});rejected("document.material.load",{{"path","engineering-part.prtz"}});
+    run(host,"undo");require(workspace::material_data(live,id)==aluminum_before,"Material library Undo failed");
     run(host,"new",{{"type","assembly"},{"name","engineering-assembly"}});const auto owner=live.active_document_id();static_cast<void>(live.insert_open_part(owner,id,"Part"));
     const auto snapshot=live.open_assembly(owner)->session.document().components.front().calculated_source;
     const auto owner_revision=live.open_assembly(owner)->session.revision();

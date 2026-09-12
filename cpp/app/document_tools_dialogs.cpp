@@ -4,6 +4,7 @@
 
 #include <zima/document/relations.hpp>
 #include <zima/document/engineering_metadata.hpp>
+#include <zima/document/material_library.hpp>
 
 #include <QComboBox>
 #include <QCheckBox>
@@ -16,7 +17,6 @@
 #include <QMessageBox>
 #include <QPushButton>
 #include <QRegularExpression>
-#include <QSettings>
 #include <QSpinBox>
 #include <QTableWidget>
 #include <QVBoxLayout>
@@ -460,21 +460,27 @@ MaterialDialog::MaterialDialog(DocumentToolData data, ToolDataAccepted accepted,
     setSizeGripEnabled(true);
     auto* top = new QHBoxLayout; top->addWidget(new QLabel(settings.text("dialog.material.current_data", "Data materiálu uložená v dokumentu")));
     top->addStretch(); auto* load = new QPushButton(settings.text("dialog.material.load", "Načíst z knihovny..."));
+    load->setObjectName("loadMaterialLibrary");
     connect(load, &QPushButton::clicked, this, &MaterialDialog::load_library); top->addWidget(load); content_layout()->addLayout(top);
     table_ = new QTableWidget(0, 4, this); table_->setObjectName("materialTable");
     table_->setHorizontalHeaderLabels({settings.text("column.parameter", "Parametr"), settings.text("column.value", "Hodnota"), settings.text("column.unit", "Jednotka"), settings.text("column.description", "Popis")});
     table_->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch); content_layout()->addWidget(table_);
+    populate();
+    new TableEntryRows(table_,[this]{add_row();});
+}
+
+void MaterialDialog::populate() {
+    table_->setRowCount(0);
     for (const auto& [key, value] : data_.physical_parameters) {
         const auto unit = data_.physical_parameter_units.find(key);
         const auto description = data_.descriptions.find(key);
         QString description_text;
         if (description != data_.descriptions.end()) {
-            auto localized = description->second.find(settings.language.toStdString());
+            auto localized = description->second.find(settings_.language.toStdString());
             if (localized != description->second.end()) description_text = QString::fromStdString(localized->second);
         }
         add_row(QString::fromStdString(key), QString::fromStdString(value), unit == data_.physical_parameter_units.end() ? QString{} : QString::fromStdString(unit->second), description_text);
     }
-    new TableEntryRows(table_,[this]{add_row();});
 }
 
 void MaterialDialog::add_row(const QString& name, const QString& value, const QString& unit, const QString& description) {
@@ -492,35 +498,11 @@ void MaterialDialog::add_row(const QString& name, const QString& value, const QS
 void MaterialDialog::load_library() {
     const QString file = open_file(this, settings_.text("file.select_material", "Vybrat materiál"), settings_.resolved_paths.value("Materials"), settings_.text("file.filter.material", "Materiál ZIMA-CAD (*.matz)"), settings_.translations);
     if (file.isEmpty()) return;
-    QSettings material(file, QSettings::IniFormat); table_->setRowCount(0); data_.descriptions.clear();
-    material.beginGroup("ParameterDescriptions");
-    for (const auto& raw_key : material.childKeys()) {
-        const int separator = raw_key.lastIndexOf('\\');
-        const QString key = separator < 0 ? raw_key : raw_key.left(separator);
-        const QString language = separator < 0 ? QString{} : raw_key.mid(separator + 1);
-        data_.descriptions[key.toStdString()][language.toStdString()] =
-            material.value(raw_key).toString().toStdString();
-    }
-    material.endGroup();
-    material.beginGroup("Material");
-    const QString material_name = material.value("Name").toString();
-    material.endGroup();
-    if (!material_name.isEmpty()) {
-        const auto descriptions = data_.descriptions.find("MATERIAL_NAME");
-        QString description;
-        if (descriptions != data_.descriptions.end()) {
-            const auto localized = descriptions->second.find(settings_.language.toStdString());
-            if (localized != descriptions->second.end()) description = QString::fromStdString(localized->second);
-        }
-        add_row("MATERIAL_NAME", material_name, {}, description);
-    }
-    material.beginGroup("Properties"); const auto keys = material.childKeys();
-    for (const auto& key : keys) {
-        material.endGroup(); material.beginGroup("PropertyUnits"); const QString unit = material.value(key).toString(); material.endGroup();
-        const QString description_key = key + "\\" + settings_.language; material.beginGroup("ParameterDescriptions"); const QString description = material.value(description_key).toString(); material.endGroup();
-        material.beginGroup("Properties"); add_row(key, material.value(key).toString(), unit, description);
-    }
-    material.endGroup();
+    try {
+        auto material=zima::document::load_material_library(std::filesystem::u8path(file.toStdString()));
+        data_.physical_parameters=std::move(material.properties);data_.physical_parameter_units=std::move(material.units);data_.descriptions=std::move(material.descriptions);
+        populate();
+    }catch(const std::exception& error){QMessageBox::warning(this,windowTitle(),tr(error.what()));}
 }
 
 bool MaterialDialog::submit() {

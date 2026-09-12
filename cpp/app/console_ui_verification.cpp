@@ -448,6 +448,27 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         check(window.findChild<QDialog*>("materialDialog") && material_table->item(density_row,1)->text()=="-1" && QApplication::activeModalWidget()==nullptr,"Material validation lost pending data or closed the editor");
         material_table->item(density_row,1)->setText("7800");material_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
         check(!window.findChild<QDialog*>("materialDialog") && std::abs(run("document.relations.get").data.at("model_values").at("model.mass").get<double>()-.0468)<1e-9,"Material GUI did not update cached physical mass");
+        const auto library_source=std::filesystem::absolute(std::filesystem::path("config/materials/01_oceli/konstrukcni/S235JR.matz"));
+        const auto load_gui_library=[&](bool confirm) {
+            material_action->trigger();flush();auto* dialog=window.findChild<QDialog*>("materialDialog");
+            auto* load=dialog?dialog->findChild<QPushButton*>("loadMaterialLibrary"):nullptr;check(load,"Material library button missing");
+            bool chosen=false,failed=false;QTimer chooser;chooser.setInterval(50);
+            QObject::connect(&chooser,&QTimer::timeout,[&]{
+                if(auto* file=qobject_cast<QFileDialog*>(QApplication::activeModalWidget())) {
+                    if(!chosen){file->setDirectory(QString::fromStdString(document::path_to_utf8(library_source.parent_path())));chosen=true;return;}
+                    if(auto* input=file->findChild<QLineEdit*>("fileNameEdit"))input->setText(QString::fromStdString(document::path_to_utf8(library_source)));
+                    QMetaObject::invokeMethod(file,"accept",Qt::DirectConnection);
+                }else if(auto* message=qobject_cast<QMessageBox*>(QApplication::activeModalWidget())){failed=true;message->accept();}
+            });
+            QTimer timeout;timeout.setSingleShot(true);QObject::connect(&timeout,&QTimer::timeout,[&]{failed=true;if(auto* modal=qobject_cast<QDialog*>(QApplication::activeModalWidget()))modal->reject();});
+            chooser.start();timeout.start(10000);load->click();chooser.stop();timeout.stop();flush();check(chosen && !failed,"GUI material library read failed");
+            auto* table=dialog->findChild<QTableWidget*>("materialTable");bool found=false;
+            for(int row=0;row<table->rowCount();++row)if(table->item(row,0) && table->item(row,0)->text()=="MASS_DENSITY")found=table->item(row,3)->text()=="Hustota";
+            check(found,"GUI library lost the Czech description");
+            dialog->findChild<QDialogButtonBox*>()->button(confirm?QDialogButtonBox::Ok:QDialogButtonBox::Cancel)->click();flush();
+        };
+        load_gui_library(false);check(std::abs(run("document.relations.get").data.at("model_values").at("model.mass").get<double>()-.0468)<1e-9,"Library Cancel committed its pending material");
+        load_gui_library(true);check(std::abs(run("document.relations.get").data.at("model_values").at("model.mass").get<double>()-.0471)<1e-9,"Library OK did not use the shared material transaction");
         json_run("document.relations.set",{{"relations",commands::Json::array({{{"target","double_volume"},{"expression","model.volume * 2"}}})}});
         auto* relations_action=window.findChild<QAction*>("relationsAction");check(relations_action,"Relations action missing");relations_action->trigger();flush();
         auto* relations_dialog=window.findChild<QDialog*>("relationsDialog");auto* relations_table=relations_dialog?relations_dialog->findChild<QTableWidget*>("relationsTable"):nullptr;
@@ -467,7 +488,7 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         family_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
         check(run("document.family.get").data.at("table").at("instances")[0].at("values").at("LENGTH")=="20","Family Cancel committed pending values");
         run("save");const auto engineering_saved=document::PartDocument::load(directory/(stem+"-metadata.prtz"));
-        check(engineering_saved.physical_parameters.at("MASS_DENSITY")=="7800" && engineering_saved.relations.empty() && engineering_saved.family_table.find("20")!=std::string::npos,"GUI engineering metadata did not persist");
+        check(std::abs(std::stod(engineering_saved.physical_parameters.at("MASS_DENSITY"))-7.85e-6)<1e-12 && engineering_saved.relations.empty() && engineering_saved.family_table.find("20")!=std::string::npos,"GUI engineering metadata did not persist");
         run(QString::fromStdString(activate.dump()));flush();
         input->setText("context");QApplication::sendEvent(input,&enter);flush();
         check(window.grab().save(QString::fromStdString((directory/"command-console.png").string())),"Console screenshot failed");

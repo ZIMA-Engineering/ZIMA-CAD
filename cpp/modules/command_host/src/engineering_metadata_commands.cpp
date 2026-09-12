@@ -1,6 +1,8 @@
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/engineering_metadata_operations.hpp>
 #include "metadata_json.hpp"
+#include <zima/document/material_library.hpp>
+#include <zima/document/file_path.hpp>
 namespace zima::command_host {
 namespace {
 using metadata_json::fields;
@@ -49,6 +51,12 @@ void Host::register_engineering_metadata_commands() {
         const auto changed=workspace::set_model_relations(workspace_,id,std::move(rows));auto result=relation_data(workspace::model_relations(workspace_,id));result["changed"]=changed;return result;
     });
     add({"document.material.get",tr("Read document material properties, units and localized descriptions."),{{"document",false}},false},[this](const auto& id,const Json&){return material_data(workspace::material_data(workspace_,id));});
+    add({"document.material.load",tr("Load a native material library into the document without retaining a file dependency."),{{"path",true},{"document",false}},true},[this](const auto& id,const Json& args){
+        auto source=std::filesystem::u8path(args["path"].get<std::string>());
+        if(source.is_relative())source=directory_/source;source=std::filesystem::absolute(source).lexically_normal();
+        const auto changed=workspace::set_material_data(workspace_,id,document::load_material_library(source));
+        auto result=material_data(workspace::material_data(workspace_,id));result["changed"]=changed;result["source"]=document::path_to_utf8(source);return result;
+    });
     add({"document.material.set",tr("Replace material data and update cached physical relations."),{{"properties",true,Type::Array},{"document",false}},true},[this](const auto& id,const Json& args){
         document::MaterialData data;
         for(const auto& row:args["properties"]) {

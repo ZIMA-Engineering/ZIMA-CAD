@@ -48,7 +48,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Sestavy | Zbývá | Komponenty, přesné výskyty, vazby, aktivace a řezy |
 | Výkresy | Správa neuložených změn hotova | Příkazy pro listy, pohledy, kóty, anotace, šablony, BOM, Show/Erase |
 | Řezy, měření a vzhled | Zbývá | Datové operace a uložené výsledky |
-| Parametry, relace a materiál | Společné tabulky a transakce hotovy | Parametry, jednotky, přesnost, relace, materiál a uložené varianty; zbývá přímé načtení materiálové knihovny; řízení rozměrů relacemi a generování variant nejsou dosud zavedené ani v GUI |
+| Parametry, relace a materiál | Společné tabulky a transakce hotovy | Parametry, jednotky, přesnost, relace, materiál včetně přímého načtení knihovny a uložené varianty; řízení rozměrů relacemi a generování variant nejsou dosud zavedené ani v GUI |
 | Import a export | Import Partu/Assembly STEP/IGES/DXF a základní exporty hotovy | Společný STEP včetně vnořených sestav, STL Part/plochá Assembly, DXF úsečky/kružnice/oblouky; zbývá import vložených profilů, další DXF geometrie, vnořený STL a výkresové exporty |
 
 Každá další etapa aktualizuje tabulku a uvádí ověřené testy. Neobcházíme
@@ -205,3 +205,8 @@ Cílené modelové, CLI a GUI testy prošly **5/5** (16,77 s). Podrobnosti:
 [ENGINEERING_METADATA_COMMANDS.md](ENGINEERING_METADATA_COMMANDS.md).
 Celá Windows Release sada: **75/75** (406,56 s). Závěrečná kontrola omezení
 nativního textového zápisu: **6/6** (24,23 s). Logy jsou uvedeny v dokumentaci etapy.
+
+Přímé přiřazení `.matz` sdílí nativní čteč a potvrzení s GUI:
+`document.material.load`, celkem **119 příkazů**. Ověřeno všech 62 dodávaných
+materiálů a celá cílená integrační sada **6/6** (25,05 s),
+`build/material-library-integration-tests.log`.

@@ -110,6 +110,7 @@ private:
     void add_row(const QString& name = {}, const QString& value = {},
                  const QString& unit = {}, const QString& description = {});
     void load_library();
+    void populate();
     DocumentToolData data_;
     ToolDataAccepted accepted_;
     ApplicationSettings settings_;

@@ -13,6 +13,7 @@ bez výpočtu B-Rep a bez obnovy rodičovských sestav.
 | `document.relations.get` | `[document]` | Pořadí relací, uživatelské parametry, dostupné fyzikální hodnoty a přesnost |
 | `document.relations.set` | `relations:Array`, `[document]` | Úplná náhrada a vyhodnocení relací |
 | `document.material.get` | `[document]` | Vlastnosti, jednotky, jazykové popisy a nabídka jednotek |
+| `document.material.load` | `path`, `[document]` | Načtení a přiřazení souboru `.matz` |
 | `document.material.set` | `properties:Array`, `[document]` | Úplná náhrada materiálových dat |
 | `document.family.get` | `[document]` | Uložená tabulka variant |
 | `document.family.set` | `table:Object`, `[document]` | Úplná náhrada tabulky variant |
@@ -75,3 +76,34 @@ bez okolních mezer či tabulátorů, aby se zachovaly v nativním INI zápisu.
 Klíče nesmí obsahovat `\\`, čárku, `=`, `[` nebo `]` ani začínat `#` či `;`.
 Víceřádkové hodnoty a rezervované oddělovače se odmítnou před transakcí.
 Hodnoty buněk tabulky variant jsou uvnitř JSON, proto toto omezení řádků nemají.
+
+## Materiálová knihovna
+
+`document.material.load` načte nativní `.matz` a potvrdí stejná materiálová data
+jako OK v dialogu. Relativní cesta vychází z pracovního adresáře CLI.
+Výsledek navíc vrací absolutní `source`. Dokument uchovává celý přiřazený materiál;
+původní soubor lze poté přesunout či odstranit. Výsledná hmotnost a fyzikální
+relace používají uložený objem, bez OCCT a obnovy rodičů.
+
+```json
+{"command":"document.material.load","arguments":{"path":"Ocel česká.matz"}}
+```
+
+Čteč je společný pro GUI i CLI a nepoužívá Qt. Podporuje současný UTF-8 INI
+formát se sekcemi `Material`, `Properties`, `PropertyUnits`,
+`ParameterDescriptions`, včetně CRLF a volitelného UTF-8 BOM. Hodnoty jsou
+prostý text; uvnitř hodnoty zůstává `=`, `;` i `#` doslova. Celý řádek začínající
+`;` nebo `#` je komentář. Jazykový popis má klíč například `MASS_DENSITY\cs`.
+Knihovna má nejvýše 16 MiB. Duplicitní klíče/sekce, neznámé sekce, poškozené
+UTF-8, chybějící název, nepovolené jednotky nebo neplatná hustota se odmítnou
+před změnou dokumentu či rozpracované tabulky GUI.
+
+GUI tlačítko Načíst z knihovny mění pouze rozpracovaná data. OK je potvrdí,
+Cancel zahodí. Opětovné přiřazení shodných dat nevytvoří zbytečný krok Undo.
+
+Ověřeno všech **62** dodávaných materiálů, české cesty, popisy, UTF-8 BOM,
+literální texty a chybné soubory. Nezávislý příklad S235JR: objem 6000 mm³
+při hustotě 7,85·10⁻⁶ kg/mm³ dává 47,1 g. Procesový test uloží dokument,
+odstraní zdrojovou knihovnu a znovu jej otevře. GUI test provede skutečný výběr
+souboru a potvrzení i Cancel. Závěrečná sada prošla **6/6** (25,05 s),
+`build/material-library-integration-tests.log`. Katalog má **119 příkazů**.

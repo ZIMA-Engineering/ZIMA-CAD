@@ -70,6 +70,7 @@ add_library(zima_document_core
     modules/document_core/src/relations.cpp
     modules/document_core/src/metadata.cpp
     modules/document_core/src/engineering_metadata.cpp
+    modules/document_core/src/material_library.cpp
     modules/document_core/src/document_session.cpp
     modules/document_core/src/dimension_identifiers.cpp
     modules/document_core/src/viewer_packet_json.cpp
@@ -454,6 +455,11 @@ if(ZIMA_BUILD_TESTS)
     add_dependencies(zima_cpp_cli_process_tests zima-cad-cli)
     add_test(NAME zima_cpp_cli_process_tests COMMAND zima_cpp_cli_process_tests "$<TARGET_FILE:zima-cad-cli>")
     set_tests_properties(zima_cpp_cli_process_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120)
+    add_executable(zima_cpp_material_library_tests tests/material_library_tests.cpp)
+    target_link_libraries(zima_cpp_material_library_tests PRIVATE zima_document_core)
+    add_test(NAME zima_cpp_material_library_tests COMMAND zima_cpp_material_library_tests)
+    set_tests_properties(zima_cpp_material_library_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
+
     add_executable(zima_cpp_engineering_metadata_command_tests tests/engineering_metadata_command_tests.cpp)
     target_link_libraries(zima_cpp_engineering_metadata_command_tests PRIVATE zima_command_host)
     add_test(NAME zima_cpp_engineering_metadata_command_tests COMMAND zima_cpp_engineering_metadata_command_tests)

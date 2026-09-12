@@ -262,6 +262,12 @@ int main(int argc,char** argv){
         require(engineering_native.physical_parameters.at("MATERIAL_NAME")=="Hliník" && engineering_native.user_parameters.at("grams")=="16.200000" && engineering_native.family_table.find("ZE-100")!=std::string::npos,"CLI engineering metadata failed native persistence or mass calculation");
         result=launch(executable,root,common+QStringList{"--command","open cli-step.prtz","--command","document.material.get","--command","document.relations.get","--command","document.family.get"});
         require(result.exit_code==0 && result.results()[2].at("data").at("parameters").at("grams")=="16.200000" && result.results()[3].at("data").at("table").at("instances")[0].at("name")=="Varianta A","CLI engineering metadata readback failed");
+        const auto material_source=project/fs::path(u8"Ocel česká.matz");fs::copy_file(repository/"config/materials/01_oceli/konstrukcni/S235JR.matz",material_source);
+        const auto material_load=command({{"command","document.material.load"},{"arguments",{{"path",document::path_to_utf8(material_source)}}}});
+        result=launch(executable,root,common+QStringList{"--command","open cli-step.prtz","--command",material_load,"--command","save"});
+        require(result.exit_code==0 && result.results().size()==3,"CLI material library assignment failed");fs::remove(material_source);
+        result=launch(executable,root,common+QStringList{"--command","open cli-step.prtz","--command","document.material.get","--command","document.relations.get"});
+        require(result.exit_code==0 && result.results()[2].at("data").at("parameters").at("grams")=="47.100000","Assigned material retained a file dependency or lost mass");
         const auto assembly_step=command({{"command","import.step"},{"arguments",{{"path",document::path_to_utf8(step_source)},{"output_directory","sestava nativní"},{"mesh_deflection_mm",2.0}}}});
         result=launch(executable,root,common+QStringList{"--command","new assembly cli-import-owner","--command",assembly_step,"--command","save"});
         require(result.exit_code==0 && result.results().size()==3 && result.results()[1].at("data").at("parts").size()==1,"CLI Assembly STEP import failed");
