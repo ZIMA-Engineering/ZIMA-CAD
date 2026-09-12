@@ -177,6 +177,32 @@ void sweep_properties(document::HistoryContainer& value, const Json& args,
                 throw Error("parameter_not_editable", "The placement parameter is unknown, constrained or locked.");
         }
     }
+    if (args.contains("path_plane")) {
+        const auto& plane = args.at("path_plane");
+        if (plane.empty()) value.sweep2d.path_plane.reset();
+        else {
+            if (!plane.contains("owner") || !plane.contains("key"))
+                throw Error("invalid_arguments", "A path plane requires owner and key.");
+            for (const auto& [key, field] : plane.items()) {
+                const bool valid = key == "offset_mm" ? field.is_number()
+                    : (key == "owner" || key == "key" || key == "instance_path") && field.is_string();
+                if (!valid) throw Error("invalid_arguments", "Unknown or incorrectly typed path plane property.");
+            }
+            document::ConstructionReference reference{plane.value("instance_path", std::string{}), plane.at("owner"), plane.at("key"), 0};
+            if (value.sweep2d.path_plane) {
+                const auto& old = *value.sweep2d.path_plane;
+                if (old.owner_id == reference.owner_id && old.semantic_key == reference.semantic_key && old.instance_path == reference.instance_path)
+                    reference = old;
+            }
+            const auto offset = plane.value("offset_mm", reference.offset);
+            if (!std::isfinite(offset) || std::abs(offset) > 1000000)
+                throw Error("invalid_arguments", "The path plane offset is outside the supported range.");
+            if (reference.offset_locked && offset != reference.offset)
+                throw Error("value_locked", "The requested value is locked.");
+            reference.offset = offset;
+            value.sweep2d.path_plane = std::move(reference);
+        }
+    }
     if (args.contains("path")) {
         const auto& patch = args.at("path");
         if (patch.empty()) throw Error("invalid_arguments", "Specify at least one construction property.");
@@ -255,6 +281,7 @@ void Host::register_sweep_commands() {
             fields.push_back({"thickness_mm", false, Type::Number});
             fields.push_back({"profiles", false, Type::Array});
             if (kind == Kind::Sweep3D) fields.push_back({"path", false, Type::Object});
+            else fields.push_back({"path_plane", false, Type::Object});
         }
         dispatcher_.add({prefix + ".set", tr("Edit and calculate a Sweep through the shared Properties transaction."),
             std::move(fields), true}, [this, kind](const Json& args) {

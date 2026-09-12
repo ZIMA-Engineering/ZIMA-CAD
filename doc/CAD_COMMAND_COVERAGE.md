@@ -41,7 +41,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Skicář: vazby a operace | Vazby/kóty/solver/offset/trim/mirror hotovy | Offset create/get/set/free, úplný podklad a zachování intervalů, trim podle průsečíků, mirror, orientovaný obdélník, tečny a zaoblení rohu; všech 15 druhů vazeb, odstranění a solver; 16 druhů kót včetně vlastností, popisků a mazání; uvolnění externích referencí hotovo |
 | Externí reference skici | Part a kořenová Assembly hotovy | Původní geometrie, přesná projekce, aktualizace, odpojení a zachování trimu; zbývá příkazový kontext Partu aktivovaného v sestavě |
 | Vytažení a rotace | Profily, Thin, směry a cíle zakončení Partu hotovy | `extrusion/revolution.create/get/set`, vlastněná skica, původní plochy a dvě nezávislé meze, společné OK; zbývají sestavové řezy |
-| Tažení | Částečně | `sweep2d/sweep3d/helical.get/set`, `sweep3d.create`, společné GUI potvrzení, celá 3D dráha, stanice obou druhů a úplná správa profilů/párování; zbývá tvorba 2D/helical a reference roviny 2D dráhy |
+| Tažení | Částečně | `sweep2d/sweep3d/helical.get/set`, `sweep3d.create`, společné GUI potvrzení, celá 3D dráha, stanice obou druhů a úplná správa profilů/párování a reference roviny 2D dráhy; zbývá tvorba 2D/helical |
 | Otvory a závity | Zbývá | Hole, Thread, ShaftThread, DrillPoint a reference |
 | Zaoblení, zkosení, skořepina | Zbývá | Výběr skutečného vstupního tělesa a sdílené transakce |
 | Zrcadlo a pole | Zbývá | Odvozená tělesa a komponenty |
@@ -670,3 +670,18 @@ Oba programy a testy jsou sestavené. Související sada prošla **15/15**
 (128,34 s); po dodatečné opravě neexistující větve stanice prošla závěrečná
 sada **5/5** (53,86 s), včetně skutečného CLI procesu a GUI skicáře.
 Logy, nezávislé objemy a přesný kontrakt: [SWEEP_COMMANDS.md](SWEEP_COMMANDS.md).
+
+### Původní rovina 2D dráhy
+
+`sweep2d.set path_plane` nastavuje, mění a odstraňuje referenci roviny
+dráhy včetně odsazení. Zdrojem je původní dostupná rovina/plochy tohoto
+Partu nebo rovina vlastního počátku. Společný commit kontroluje vlastnictví
+a pořadí historie; nevytváří nový solver ani OCCT picker. Testy ověřily
+konstrukční rovinu s nenulovým odsazením, natočený vlastní počátek, původní
+plochu jiného tělesa, změnu tělesového rámce, CLI, GUI OK/Cancel a uložení.
+
+Související sada prošla **14/15** (126,33 s); po opravách přípravy posledního
+modelového scénáře prošel tento test **1/1** (6,73 s). Produkční kód se
+mezi těmito běhy neměnil. Podrobnosti: [SWEEP_COMMANDS.md](SWEEP_COMMANDS.md).
+Oba programy jsou sestavené; katalog zůstává na **171**, formát a šablony
+se nemění. Z tažení zbývá příkazová tvorba 2D a šroubovicové varianty.

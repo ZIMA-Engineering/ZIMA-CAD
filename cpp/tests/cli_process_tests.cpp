@@ -678,6 +678,17 @@ int main(int argc,char** argv){
             std::vector<kernel::BodyResult> cache;const auto saved=document::PartDocument::load(project/file,&cache);
             require(saved.history.size()==1&&saved.sketches.empty()&&!cache.empty()&&std::abs(cache.back().volume-380*std::acos(-1.0)/3)<1e-4,
                 "Standalone profile adoption duplicated inputs or saved incorrect frustum volume");
+            if(planar) {
+                const auto set_plane=command({{"command","sweep2d.set"},{"arguments",{{"container",feature.id},
+                    {"path_plane",{{"owner",feature.container_origin.id},{"key","origin:plane:xy"},{"offset_mm",7}}}}}});
+                result=launch(executable,root,common+QStringList{"--command",QString::fromStdString("open "+file),"--command",set_plane,"--command","save"});
+                require(result.exit_code==0&&result.results().size()==3,"Standalone path plane assignment failed");
+                cache.clear();const auto with_plane=document::PartDocument::load(project/file,&cache);
+                const auto path_sketch=sketcher::Sketch::from_serialized(with_plane.history.front().sweep2d.path_sketch);
+                require(with_plane.history.front().sweep2d.path_plane->owner_id==feature.container_origin.id&&
+                    std::abs(path_sketch.resolved_origin.z-7)<1e-8&&!cache.empty()&&std::abs(cache.back().volume-380*std::acos(-1.0)/3)<1e-4,
+                    "Standalone path plane lost original identity, position or calculated geometry");
+            }
         }
         std::cout<<"CLI processes: native files, Unicode/config, scripts/stdin, errors, streaming and explicit geometry calculation passed\n";
         return 0;

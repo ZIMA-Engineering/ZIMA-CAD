@@ -937,6 +937,17 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
                 check(profiles_saved.sketches.empty()&&profiles_saved.history.front().sweep2d.profiles[1].sketch_id==source&&
                     !cache.empty()&&std::abs(cache.back().volume-380*pi/3)<1e-4,
                     "GUI profile confirmation duplicated sources or changed frustum geometry");
+                json_run("sweep2d.set",{{"container",feature.id},{"path_plane",{{"owner",feature.container_origin.id},
+                    {"key","origin:plane:xy"},{"offset_mm",7}}}});flush();
+                dialog=edit();check(dialog->findChild<QTableWidget*>("sweep2dPathPlane"),"Path plane reference control missing");
+                dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
+                check(get().at("path_plane").at("offset_mm")==7,"Properties Cancel lost the CLI path plane");
+                dialog=edit();dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+                run("save");cache.clear();const auto plane_saved=document::PartDocument::load(path,&cache);
+                const auto path_sketch=sketcher::Sketch::from_serialized(plane_saved.history.front().sweep2d.path_sketch);
+                check(plane_saved.history.front().sweep2d.path_plane->owner_id==feature.container_origin.id&&
+                    std::abs(path_sketch.resolved_origin.z-7)<1e-8&&!cache.empty()&&std::abs(cache.back().volume-380*pi/3)<1e-4,
+                    "GUI Properties did not preserve the assigned path plane and offset");
             }
             json_run("close",{{"discard",true}});run(QString::fromStdString(activate.dump()));flush();
         }

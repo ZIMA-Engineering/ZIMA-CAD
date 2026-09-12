@@ -386,6 +386,92 @@ void verify_profile_management(const kernel::OcctKernel& kernel, const fs::path&
     require(saved.history == f.state().session.document().history, "Profile list or correspondence did not persist");
 
 }
+void verify_path_plane(const kernel::OcctKernel& kernel, const fs::path& directory) {
+    Fixture f(kernel, directory); f.run("new", {{"type", "part"}, {"name", "sweep-path-plane"}});
+    const auto plane = f.run("construction.create", {{"kind", "plane"}, {"name", "Offset plane"},
+        {"base_plane", "xy"}, {"offset_mm", 3}, {"values", {{"z", 10}}}});
+    const auto feature = test_support::sweep_fixture(document::FeatureKind::Sweep2D); const auto id = feature.id;
+    workspace::commit_sweep(f.live, kernel, f.live.active_document_id(), feature, workspace::SweepEditMode::Create);
+    const auto get = [&] { return f.run("sweep2d.get", {{"container", id}}); };
+    const auto set = [&](Json plane) { return f.run("sweep2d.set", {{"container", id}, {"path_plane", std::move(plane)}}); };
+    const auto reject = [&](Json plane, const char* code) { f.reject("sweep2d.set", {{"container", id}, {"path_plane", std::move(plane)}}, code); };
+    const Json external = {{"owner", plane.at("entity")}, {"key", "plane"}, {"offset_mm", 2}};
+    set(external); near(f.volume(), 80 * std::numbers::pi);
+    const auto path = [&] { return sketcher::Sketch::from_serialized(f.state().session.document().find_container(id)->sweep2d.path_sketch); };
+    near(path().resolved_origin.z, 15); near(path().resolved_normal.z, 1);
+    require(get().at("path_plane").at("owner") == plane.at("entity"), "Path plane query changed original owner");
+    f.run("undo"); require(get().at("path_plane").is_null(), "Path plane Undo lost the original local plane");
+    f.run("redo"); near(path().resolved_origin.z, 15);
+    f.run("construction.set", {{"construction", plane.at("construction")}, {"offset_mm", 6}});
+    f.run("regenerate"); near(path().resolved_origin.z, 18); near(f.volume(), 80 * std::numbers::pi);
+    f.run("sweep2d.set", {{"container", id}, {"placement", {{"x", 7}, {"y", -3}, {"z", 8}, {"rotation_y", 30}}},
+        {"path_plane", {{"owner", feature.container_origin.id}, {"key", "origin:plane:xy"}, {"offset_mm", 4}}}});
+    near(path().resolved_origin.x, 9); near(path().resolved_origin.y, -3); near(path().resolved_origin.z, 8 + 2 * std::sqrt(3.0));
+    near(path().resolved_normal.x, .5); near(path().resolved_normal.z, std::sqrt(3.0) / 2);
+    double low = 1e100, high = -1e100;
+    for (const auto& vertex : f.state().session.calculated_boundaries().back().mesh.vertices) {
+        const double projection = (vertex.x - 7) * .5 + (vertex.z - 8) * std::sqrt(3.0) / 2;
+        low = std::min(low, projection); high = std::max(high, projection);
+    }
+    require(std::abs(low - 2) < .05 && std::abs(high - 6) < .05, "Sweep body did not follow its rotated and offset path plane");
+    reject({{"owner", "missing"}, {"key", "plane"}}, "invalid_reference_source");
+    reject({{"owner", id}, {"key", "plane"}}, "invalid_reference_source");
+    reject({{"owner", plane.at("entity")}, {"key", "plane"}, {"instance_path", "foreign"}}, "invalid_reference");
+    reject({{"owner", plane.at("entity")}}, "invalid_arguments");
+    reject({{"owner", plane.at("entity")}, {"key", "plane"}, {"offset_mm", true}}, "invalid_arguments");
+    reject({{"owner", plane.at("entity")}, {"key", "plane"}, {"offset_mm", 1000001}}, "invalid_arguments");
+    const auto later = f.run("construction.create", {{"kind", "plane"}, {"name", "Later plane"}, {"base_plane", "xy"}});
+    reject({{"owner", later.at("entity")}, {"key", "plane"}}, "invalid_reference_source");
+    auto locked = f.state().session.document(); locked.find_container(id)->sweep2d.path_plane->offset_locked = true;
+    f.state().session.commit(std::move(locked), f.state().session.calculated_boundaries());
+    reject({{"owner", feature.container_origin.id}, {"key", "origin:plane:xy"}, {"offset_mm", 5}}, "value_locked");
+    f.run("undo"); // Remove the deliberately injected transient lock before native round-trip.
+    f.run("save"); const auto saved = document::PartDocument::load(directory / "sweep-path-plane.prtz");
+    require(saved.history == f.state().session.document().history, "Path plane reference or offset did not persist");
+    set(Json::object()); require(get().at("path_plane").is_null(), "Clearing the explicit path plane failed");
+    near(f.volume(), 80 * std::numbers::pi);
+}
+void verify_original_path_plane(const kernel::OcctKernel& kernel, const fs::path& directory) {
+    Fixture f(kernel, directory); f.run("new", {{"type", "part"}, {"name", "sweep-original-plane"}});
+    const auto box = f.run("box.create", {{"length_mm", "4"}, {"width_mm", "4"}, {"height_mm", "4"}}).at("container").get<std::string>();
+    f.run("placement.set", {{"object", box}, {"values", {{"z", 40}}}});
+    const auto faces = f.run("reference.list", {{"kind", "face"}, {"owner", box}}).at("items");
+    Json top; double height = -1e100;
+    for (const auto& item : faces) {
+        const auto face = f.run("reference.get", {{"kind", "face"}, {"owner", box}, {"key", item.at("key")}});
+        // The analytic plane axis does not encode the oriented face normal.
+        // Select the physically highest horizontal face, independently of its
+        // underlying surface axis sign or enumeration order.
+        const auto z = face.at("surface").at("origin")[2].get<double>();
+        if (std::abs(face.at("surface").at("axis")[2].get<double>()) > .9 && z > height) {
+            top = {{"owner", box}, {"key", item.at("key")}, {"offset_mm", 3}};
+            height = z;
+        }
+    }
+    require(!top.is_null(), "Original top face missing from source box");
+    const auto body = f.run("body.create", {{"name", "Sweep body"}}).at("body").get<std::string>();
+    const auto feature = test_support::sweep_fixture(document::FeatureKind::Sweep2D);
+    workspace::commit_sweep(f.live, kernel, f.live.active_document_id(), feature, workspace::SweepEditMode::Create);
+    const auto set = [&](Json plane) { f.run("sweep2d.set", {{"container", feature.id}, {"path_plane", std::move(plane)}}); };
+    const auto path = [&] { return sketcher::Sketch::from_serialized(f.state().session.document().find_container(feature.id)->sweep2d.path_sketch); };
+    const double volume = f.volume(); set(top); near(f.volume(), volume);
+    near(path().resolved_origin.z, height + 3); near(path().resolved_normal.z, 1);
+    std::string offset_key; std::size_t row = 0;
+    for (const auto& ref : f.state().session.document().body_history.find(body)->scope.placement.references) {
+        if (ref.orientation_only) continue;
+        if (ref.semantic_key == "origin:plane:xy" && ref.supports_offset) offset_key = "reference_offset:" + std::to_string(row);
+        ++row;
+    }
+    require(!offset_key.empty(), "Body has no editable XY placement offset");
+    f.run("placement.set", {{"object", body}, {"values", {{offset_key, 10}}}});
+    near(f.state().session.document().body_history.find(body)->scope.placement.z, 10);
+    near(path().resolved_origin.z, height - 7); near(f.volume(), volume);
+    top["offset_mm"] = 4; set(top); near(path().resolved_origin.z, height - 6); near(f.volume(), volume);
+    const auto edge = f.run("reference.list", {{"kind", "edge"}, {"owner", box}}).at("items")[0];
+    f.reject("sweep2d.set", {{"container", feature.id}, {"path_plane", {{"owner", box}, {"key", edge.at("key")}}}}, "sweep_rejected");
+    f.run("save"); const auto saved = document::PartDocument::load(directory / "sweep-original-plane.prtz");
+    require(saved.history == f.state().session.document().history, "Original path plane lost source identity or Body frame on reload");
+}
 }
 int main() {
     try {
@@ -396,6 +482,8 @@ int main() {
         for (const auto kind : {document::FeatureKind::Sweep2D, document::FeatureKind::Sweep3D, document::FeatureKind::HelicalSweep}) verify_sweep_commands(kernel, directory, kind);
         verify_creation(kernel, directory);
         verify_creation_profiles(kernel, directory);
+        verify_path_plane(kernel, directory);
+        verify_original_path_plane(kernel, directory);
         for (const auto kind : {document::FeatureKind::Sweep2D, document::FeatureKind::Sweep3D}) verify_profile_management(kernel, directory, kind);
         require(directory.parent_path() == root, "Unexpected cleanup path"); fs::remove_all(directory);
         std::cout << "Sweep commands: independent volumes, native profiles, ownership, locks, atomic errors and Undo/Redo passed\n";

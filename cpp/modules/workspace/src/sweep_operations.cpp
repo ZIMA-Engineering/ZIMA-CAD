@@ -38,6 +38,24 @@ void validate_sweep(const document::HistoryContainer& feature) {
             throw SweepOperationError("invalid_profile", "Sweep profiles require distinct identities and valid path stations.");
     }
 }
+void validate_path_plane_source(const document::PartDocument& part, const document::HistoryContainer& feature) {
+    if (feature.feature_kind != Kind::Sweep2D || !feature.sweep2d.path_plane) return;
+    const auto& reference = *feature.sweep2d.path_plane;
+    if (!reference.instance_path.empty() || reference.owner_id.empty() || reference.semantic_key.empty())
+        throw SweepOperationError("invalid_reference", "The Sweep path plane must belong to this Part.");
+    if (!std::isfinite(reference.offset) || std::abs(reference.offset) > 1000000)
+        throw SweepOperationError("invalid_arguments", "The path plane offset is outside the supported range.");
+    if (reference.owner_id == feature.container_origin.id) return;
+    auto allowed = sketch_external_reference_source_owners(part, sketcher::Sketch::from_serialized(feature.sweep2d.path_sketch).id);
+    allowed.insert(part.document_id + ":origin");
+    const auto* target = part.body_owner_for_object(feature.id);
+    for (const auto& body : part.body_history.bodies()) {
+        allowed.insert(body.origin().id);
+        if (target && body.scope.id == target->scope.id) break;
+    }
+    if (!allowed.contains(reference.owner_id))
+        throw SweepOperationError("invalid_reference_source", "The Sweep path plane must be an earlier object or an available Origin.");
+}
 void adopt_sources(document::PartDocument& next, const document::HistoryContainer& feature,
     const document::HistoryContainer* existing) {
     const bool creating = existing == nullptr;
@@ -141,6 +159,7 @@ void commit_sweep(Workspace& live, const kernel::OcctKernel& kernel, const std::
     if (!state) throw SweepOperationError("unsupported_document", "Sweep operations require an open Part.");
     validate_sweep(feature);
     const auto& before = state->session.document();
+    const auto container_id = feature.id;
     const auto* existing = before.find_container(feature.id);
     PartCalculationPolicy policy;
     policy.reject_errors = true;
@@ -176,6 +195,8 @@ void commit_sweep(Workspace& live, const kernel::OcctKernel& kernel, const std::
         next.insert_history_entry(document::PartHistoryKind::Feature, feature.id);
         next.history.push_back(std::move(feature));
     }
+    const auto& stored = *next.find_container(container_id);
+    validate_path_plane_source(next, stored);
     // Adopted Sketch containers may precede the edited feature. Resolve its
     // validation boundary after removing those inputs, not at the old index.
     if (existing) policy.edited_history_limit = next.history_index(existing->id);

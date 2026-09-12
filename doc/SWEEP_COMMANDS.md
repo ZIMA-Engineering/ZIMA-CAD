@@ -240,3 +240,56 @@ Závěrečné ověření správy profilů:
   oba programy a všechny testy jsou sestavené v
   `build/sweep-profiles-final-build.log`. Katalog zůstává na **171 příkazech**;
   jde o rozšíření existujících `get/set`. Formáty a šablony se nemění.
+
+## Rovina dráhy 2D tažení
+
+`sweep2d.set path_plane` přijímá původního `owner`, sémantický `key`, volitelný
+prázdný `instance_path` a `offset_mm` v rozsahu ±1 000 000 mm. Prázdný objekt
+`{}` odstraní explicitní referenci a obnoví místní rovinu dráhy podle běžných
+Vlastností. U stejné reference vynechané odsazení zachová aktuální hodnotu;
+nová reference má výchozí odsazení nula.
+
+```json
+{"command":"sweep2d.set","arguments":{"container":"<TAZENI>","path_plane":{"owner":"<POCATEK_TAZENI>","key":"origin:plane:xy","offset_mm":7}}}
+{"command":"sweep2d.set","arguments":{"container":"<TAZENI>","path_plane":{"owner":"<PUVODNI_OBJEKT>","key":"<KLIC_ROVINNE_PLOCHY>"}}}
+{"command":"sweep2d.set","arguments":{"container":"<TAZENI>","path_plane":{}}}
+```
+
+Volba smí mířit na jednu ze tří rovin vlastního počátku, dostupný hlavní
+počátek/počátek tělesa nebo na dřívější původní rovinu či rovinnou plochu
+tohoto Partu. Výsledné těleso, cizí výskyt, vlastní výsledná plocha a pozdější
+historie nejsou přípustné zdroje. Platnost pořadí kontroluje společný commit
+pro CLI i GUI. Typ roviny a její skutečnou geometrii určuje stávající nativní
+řešení roviny dráhy; CLI nezavádí jiný picker ani procházení OCCT.
+
+Konstrukční rovina se používá včetně svého vlastního odsazení. Další
+`offset_mm` patří rovině dráhy. Referenci i odsazení lze změnit ve stejné
+transakci jako umístění kontejneru; profily se přerámují do výsledné dráhy.
+Změna zdroje se do tělesa promítne při explicitním výpočtu. Dotaz `get`
+čte uloženou referenci a stanice, bez regenerace. Částečný chybný požadavek
+neprovede ani ostatní současně zadané změny.
+
+První modelový běh prošel **1/1** (6,47 s),
+`build/sweep-path-plane-model-final-tests.log`: konstrukční rovina z=10 mm
+s vlastním odsazením 3 mm a odsazením dráhy 2 mm dává z=15 mm. Po změně
+zdroje a Regenerate dává z=18 mm. Vlastní rovina natočená o 30° a odsazená
+o 4 mm byla ověřena také přímo na vykreslovací geometrii vypočteného tělesa.
+Uložení zachovává původní ID, odsazení i rámy skic. Formát reference zůstává
+stejný: původní vlastník, klíč, výskyt a odsazení; nevznikají nová persistentní
+pole ani změny start šablon.
+
+Rozšířená sada ověřila **14/15** případů (126,33 s,
+`build/sweep-path-plane-gui-tests.log`), včetně GUI a samostatného CLI.
+Poslední modelový scénář nejprve odhalil chyby přípravy testu: textové
+rozměry příkazu `box.create`, záměnu osy analytické roviny za orientaci
+konkrétní plochy a pokus měnit zavazbené Z tělesa přímo. Test nyní volí
+skutečně nejvyšší vodorovnou plochu a těleso posouvá jeho existujícím
+offsetem vazby XY. Následně prošel celý modelový test **1/1** (6,73 s),
+`build/sweep-path-plane-body-tests.log`. Ověřuje původní plochu jiného
+tělesa, kompenzaci jeho 10mm posunu v lokálních souřadnicích, odmítnutí
+hrany místo roviny, zachovaný objem a přesnou nativní perzistenci.
+
+Oba programy a celá sada testovacích programů jsou sestavené
+(`build/sweep-path-plane-gui-build.log`); poslední změny byly pouze
+v uvedeném testovacím scénáři (`build/sweep-path-plane-body-build.log`).
+Katalog zůstává na **171 příkazech**.
