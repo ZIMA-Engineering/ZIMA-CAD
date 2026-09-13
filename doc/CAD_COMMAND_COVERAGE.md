@@ -35,7 +35,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Válec, koule, kužel, jehlan, klín | Hotovo | Společné create/get/set, zámky, přesnost, GUI/CLI a 59/59 regresí |
 | Historie Partu | Hotovo | Společný přesun, ověření závislostí, potlačení, odstranění a kurzor; včetně historie těles a Booleanů |
 | Tělesa a Boolean | Základ hotov | Tvorba, čtení, aktivace, název/viditelnost, kurzory a Boolean create/get/set; pořadí/mazání řeší historie; zbývá zadání referencí umístění a odvozené kopie |
-| Umístění a původní reference | Původní reference a číselná editace umístění hotovy | `placement.get/set`: tělesa a prvky Partu, konstrukce Partu/Assembly a jejich body; zbývá příkazové přidávání/výměna referencí, zámky, vložené dráhy a umístění komponent |
+| Umístění a původní reference | Původní reference a číselná editace umístění hotovy | `placement.get/set`: tělesa a prvky Partu, konstrukce Partu/Assembly a jejich body; `value_lock.list/set` sdílejí číselné zámky s GUI; zbývá příkazové přidávání/výměna referencí, vložené dráhy a umístění komponent |
 | Konstrukční geometrie | Částečně hotovo | `construction.list/get/create/set`: dotazy, tvorba bodů/os/rovin/3D křivek, vlastnosti, umístění, úplné seznamy bodů, tečny a zaoblení; dotazy zahrnují vložené 3D dráhy; jejich editaci potvrzuje příkaz tažení; zbývají reference a mazání kořenových konstrukcí |
 | Skicář: geometrie | Základ hotov | 21 příkazů: samostatné a vložené skici, body, úsečky, kružnice, oblouky, elipsy, B-spline, obdélníky, mnohoúhelníky, posun a pomocná geometrie; text create/get/set s nativním písmem a spline get/set hotovy; DXF do vložených profilů hotov; zbývá kontrola dalších variant podle GUI |
 | Skicář: vazby a operace | Vazby/kóty/solver/offset/trim/mirror hotovy | Offset create/get/set/free, úplný podklad a zachování intervalů, trim podle průsečíků, mirror, orientovaný obdélník, tečny a zaoblení rohu; všech 15 druhů vazeb, odstranění a solver; 16 druhů kót včetně vlastností, popisků a mazání; uvolnění externích referencí hotovo |
@@ -848,3 +848,17 @@ Oba programy jsou sestavené; modelový běh **1/1** (2,16 s), související
 sada **38/38** (250,10 s) a překlady **1/1** (1,43 s). Skutečné CLI i GUI
 ověřují poslední trasu a návrat historie. Kontrakt, příklady a logy:
 [EDGE_TREATMENT_COMMANDS.md](EDGE_TREATMENT_COMMANDS.md).
+
+
+### Společné číselné zámky
+
+`value_lock.list/set` sdílejí uložené zámky s Vlastnostmi a kótami ve View,
+včetně nulových hodnot, originových offsetů, lokálních bodů a konkrétních
+výskytů v sestavě. Přepnutí zachovává vypočítaná data bez OCCT a má jedno
+Undo. Katalog má **198 příkazů**, formát a šablony se nemění.
+
+Oba programy jsou sestavené; úplná sada prošla **102/102** (479,54 s).
+Po závěrečném sjednocení adres katalogové velikosti závitu a stoupání
+prošla dotčená sada **7/7** (162,86 s). Geometrie, zámky, chyby, nativní
+soubory, CLI i skutečné GUI jsou ověřené; podrobnosti a logy:
+[VALUE_LOCK_COMMANDS.md](VALUE_LOCK_COMMANDS.md). Následují Zrcadlo a Pole.

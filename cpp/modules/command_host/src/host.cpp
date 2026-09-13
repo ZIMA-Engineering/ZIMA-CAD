@@ -64,6 +64,7 @@ void Host::register_commands(){
     register_shell_commands();
     register_edge_treatment_queries();
     register_edge_treatment_commands();
+    register_value_lock_commands();
     register_document_commands();
     register_body_commands();
     register_history_commands();

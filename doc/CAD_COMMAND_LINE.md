@@ -292,3 +292,9 @@ Jednotlivou hranu nebo celou uživatelskou trasu odebere `edge_treatment.remove`
 pomocí `container`, `route` (index v uloženém seznamu od nuly) a volitelné
 původní reference `edge`. Poslední trasa odstraní celý prvek jedním Undo
 krokem; navazující chyby vrací výslovně se stavem provedeného mazání.
+
+Číselné zámky polí vypíše `value_lock.list OBJECT`. Příkaz
+`value_lock.set OBJECT KEY true` zamkne hodnotu, `false` ji odemkne.
+Změna zachová vypočítanou geometrii a vytvoří jeden krok Undo; zahrnuje
+také skryté/nulové hodnoty, konstrukce a konkrétní výskyty v sestavě.
+Platné klíče, vlastnictví a adresování referencí: [VALUE_LOCK_COMMANDS.md](VALUE_LOCK_COMMANDS.md).

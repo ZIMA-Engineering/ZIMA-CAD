@@ -149,9 +149,14 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         commands::Json precise_patch={{"command","box.set"},{"arguments",{{"container",feature_id},
             {"width_mm","80.123456789"},{"height_mm","50.987654321"}}}};
         run(QString::fromStdString(precise_patch.dump()));
-        window.toggle_parameter_value_lock(feature_id,"parameter:width");flush();
+        const auto lock_request=[&](bool locked){return commands::Json{{"command","value_lock.set"},{"arguments",{{"object",feature_id},{"key","width"},{"locked",locked}}}};};
+        run(QString::fromStdString(lock_request(true).dump()));flush();
+        check(window.parameter_value_locked(feature_id,"parameter:width").value_or(false),"CLI lock is not visible to the View action");
+        const auto lock_revision=parameters().at("revision");
+        check(run(QString::fromStdString(lock_request(true).dump())).data.at("changed")==false&&parameters().at("revision")==lock_revision,"Repeated GUI console lock committed again");
         edit=edit_box();auto* width=edit->findChild<QDoubleSpinBox*>("boxWidth");
         check(width && width->isReadOnly(),"Persisted width lock did not reach GUI");
+        check(window.execute_console_command(QString::fromStdString(lock_request(false).dump())).code=="editing_in_progress","Console changed a lock during pending Properties");
         edit->findChild<QDoubleSpinBox*>("boxLength")->setValue(130);
         edit->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
         check(parameters().at("width_mm")==80.123456789 && parameters().at("height_mm")==50.987654321,

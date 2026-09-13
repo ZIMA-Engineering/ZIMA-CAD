@@ -98,6 +98,21 @@ int main(int argc,char** argv){
             "--command","shell.create","--command","save"});
         require(result.exit_code==0&&result.results()[1].at("data").at("total")==6,"CLI Shell creation/input face query failed");
         require(result.results()[2].at("data").at("total")==12&&result.results()[3].at("data").at("edges").size()==1,"Actual CLI edge/route queries failed");
+        const auto lock_path=project/fs::path(u8"zámky CLI.prtz");shell_fixture.save(lock_path,shell_kernel.evaluate_history(shell_fixture.kernel_operations()));
+        const auto lock_open=command({{"command","open"},{"arguments",{{"path",qpath(lock_path).toStdString()}}}});
+        const auto lock_command=[&](bool locked){return command({{"command","value_lock.set"},{"arguments",{{"object",shell_box.id},{"key","length"},{"locked",locked}}}});};
+        const auto lock_list=command({{"command","value_lock.list"},{"arguments",{{"object",shell_box.id}}}});
+        result=launch(executable,root,common+QStringList{"--command",lock_open,"--command",lock_command(true),"--command",lock_list,"--command","save"});
+        require(result.exit_code==0&&result.results()[2].at("data").at("items").size()==12&&document::PartDocument::load(lock_path).find_container(shell_box.id)->value_locks.contains("length"),
+            "CLI lock list/set did not persist on a Unicode path");
+        const auto lock_edit=command({{"command","box.set"},{"arguments",{{"container",shell_box.id},{"length_mm","11"}}}});
+        result=launch(executable,root,common+QStringList{"--command",lock_open,"--command",lock_edit});
+        require(result.exit_code==1&&result.results().back().at("code")=="value_locked","Cold CLI process bypassed persisted lock");
+        result=launch(executable,root,common+QStringList{"--command",lock_open,"--command",lock_command(false),"--command",lock_edit,"--command",lock_command(true),
+            "--command","undo","--command","redo","--command","save"});
+        std::vector<kernel::BodyResult> lock_cache;const auto lock_saved=document::PartDocument::load(lock_path,&lock_cache);
+        require(result.exit_code==0&&lock_saved.find_container(shell_box.id)->box.length==11&&lock_saved.find_container(shell_box.id)->value_locks.contains("length")&&
+            std::abs(lock_cache.back().volume-1100)<1e-6,"CLI unlock/edit/relock/Undo lost values or geometry");
         const auto shell_created=document::PartDocument::load(shell_path).history.back();
         const auto shell_edit=command({{"command","shell.set"},{"arguments",{{"container",shell_created.id},{"thickness_mm",2},
             {"faces",Json::array({Json{{"owner",shell_box.id},{"key","z_max"}}})}}}});

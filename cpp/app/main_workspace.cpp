@@ -8563,6 +8563,16 @@ int verify_startup_contract(
                     return true;
             return false;
         };
+        opening_window.toggle_parameter_value_lock(opening.id,"parameter:thread_designation");
+        if (!verify(opening_window.parameter_value_locked(opening.id,"parameter:nominal_diameter").value_or(false),
+                "Catalog View dimension did not lock the actual nominal diameter")) return 1;
+        opening_window.edit_dimension_inline(*catalog);
+        wait_for_popup();
+        if (!verify(!opening_window.findChild<QComboBox*>("inlineThreadSizeEdit"),
+                "Locked catalog dimension still opened its inline size editor")) return 1;
+        opening_window.toggle_parameter_value_lock(opening.id,"parameter:thread_designation");
+        if (!verify(!opening_window.parameter_value_locked(opening.id,"parameter:nominal_diameter").value_or(true),
+                "Catalog View dimension did not unlock the actual nominal diameter")) return 1;
         opening_window.edit_dimension_inline(*catalog);
         wait_for_popup();
         auto* sizes=opening_window.findChild<QComboBox*>("inlineThreadSizeEdit");

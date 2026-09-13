@@ -74,7 +74,7 @@ void AssemblyWorkspaceWindow::apply_console_change(const command_host::Change& c
     if(change.kind==Kind::Metadata || change.kind==Kind::Model) {
         if(const auto* part=workspace_.open_part(change.document_id))setProperty("zimaDocumentDecimalPlaces",document_decimal_places(part->session.document()));
         else if(const auto* assembly=workspace_.open_assembly(change.document_id))setProperty("zimaDocumentDecimalPlaces",document_decimal_places(assembly->session.document()));
-        if(change.kind==Kind::Metadata){refresh_tabs();return;}
+        if(change.kind==Kind::Metadata){refresh_tabs();if(viewer_)viewer_->update();return;}
     }
     if(change.kind==Kind::Directory) {refresh_delete_file_actions();return;}
     if(change.kind==Kind::Copy) {refresh_delete_file_actions();return;}
