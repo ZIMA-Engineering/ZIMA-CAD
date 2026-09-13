@@ -298,3 +298,9 @@ krokem; navazující chyby vrací výslovně se stavem provedeného mazání.
 Změna zachová vypočítanou geometrii a vytvoří jeden krok Undo; zahrnuje
 také skryté/nulové hodnoty, konstrukce a konkrétní výskyty v sestavě.
 Platné klíče, vlastnictví a adresování referencí: [VALUE_LOCK_COMMANDS.md](VALUE_LOCK_COMMANDS.md).
+
+Zdroje dostupné pro Zrcadlo/Pole vrátí `derived_copy.sources`, případně
+s `object` pro hranici před editovanou kopií. `mirror.get OBJECT` a
+`pattern.get OBJECT` čtou její uložený zdroj, umístění, reference a parametry
+bez regenerace. Příklady a počty směrových kombinací:
+[DERIVED_COPY_COMMANDS.md](DERIVED_COPY_COMMANDS.md).

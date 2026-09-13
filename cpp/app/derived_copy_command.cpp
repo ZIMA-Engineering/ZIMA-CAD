@@ -1,5 +1,6 @@
 #include "assembly_workspace_window.hpp"
 #include "derived_copy_dialog.hpp"
+#include <zima/workspace/derived_copy_operations.hpp>
 #include <zima/viewer/mesh_view.hpp>
 #include <zima/kernel/stable_id.hpp>
 #include <QTreeWidget>
@@ -36,30 +37,30 @@ void AssemblyWorkspaceWindow::show_derived_copy_properties(const std::string& id
     initial.feature_id=initial.id+":entity";initial.container_origin=document::create_container_origin(initial.id);initial.name=pattern?"Pole":"Zrcadlo";
     document::DerivedCopyParameters parameters;
     if(pattern){parameters.pattern=kernel::PatternRequest{};parameters.reference={{},initial.container_origin.id,"origin:axis:z"};}
+    workspace::CopySources choices;
+    try {
+        choices=workspace::derived_copy_sources(workspace_,document_id,id);
+        if(!id.empty()) {
+            const auto stored=workspace::derived_copy_definition(workspace_,document_id,id);
+            parameters=stored.parameters;initial.name=stored.name;initial.placement=stored.placement;
+        }
+    }catch(const workspace::DerivedCopyError& error){state_->setText(tr(error.what()));return;}
     document::BodyHistoryGraph graph;
     std::map<std::string,MirrorSource> sources;
     kernel::ViewerReferenceGeometry geometry;
     std::vector<std::string> available;
     if(part) {
         const auto& document=part->session.document();graph=document.body_history;
-        if(graph.bodies().empty()&&!document.history_order.empty()) {
-            static_cast<void>(graph.create_body("Těleso 1"));for(const auto& entry:document.history_order)graph.insert(entry);graph.activate({});
-        }
-        if(id.empty()&&!graph.active_body_id().empty()) {
-            const auto active=std::ranges::find(graph.order(),graph.active_body_id());
-            graph.set_insertion_cursor(static_cast<std::size_t>(std::distance(graph.order().begin(),active))+1);
-        }
-        const auto boundary=id.empty()?graph.insertion_cursor():static_cast<std::size_t>(std::distance(graph.order().begin(),std::ranges::find(graph.order(),id)));
-        available=graph.available_before(boundary);
-        if(!id.empty()) {const auto* body=graph.find(id);if(!body||!body->derived_copy)return;parameters=*body->derived_copy;initial.name=body->name;initial.placement=body->scope.placement;}
+        if(id.empty())graph.set_insertion_cursor(choices.boundary);
+        for(const auto& source:choices.items)available.push_back(source.id);
         if(!part->session.calculated_boundaries().empty()) {
             const auto& result=part->session.calculated_boundaries().back();geometry=result.mesh.original_references;
             for(const auto& source:available) {
                 const auto found=result.body_outputs.find(source);
-                if(found==result.body_outputs.end()&&graph.bodies().size()!=1)continue;
+                if(found==result.body_outputs.end())continue;
                 const auto* body=graph.find(source);
                 sources.emplace(source,MirrorSource{QString::fromStdString(body?body->name:graph.find_boolean(source)->name),
-                    found==result.body_outputs.end()?result.mesh:found->second->mesh});
+                    found->second->mesh});
             }
         }
         append_derived_copy_references(geometry,document.origin_viewer_mesh().original_references);
@@ -73,13 +74,11 @@ void AssemblyWorkspaceWindow::show_derived_copy_properties(const std::string& id
         const auto& document=assembly->session.document();geometry=document.build_scene().original_references;
         append_derived_copy_references(geometry,document.origin_viewer_mesh().original_references);
         append_derived_copy_references(geometry,document.construction_viewer_mesh().original_references);
-        if(!id.empty()){const auto* c=document.find_occurrence(id);if(!c||!c->derived_copy)return;parameters=*c->derived_copy;initial.name=c->name;initial.placement=c->copy_placement;}
         auto preview=document;bool downstream=false;
         for(auto& component:preview.components){if(component.occurrence_id==id)downstream=true;if(downstream)component.visible=false;}
         derived_copy_assembly_preview_=std::move(preview);
-        for(const auto& source:document.components) {
-            if(source.occurrence_id==id)break;
-            if(source.suppressed)continue;
+        for(const auto& choice:choices.items) {
+            const auto& source=*document.find_occurrence(choice.id);
             auto isolated=document;isolated.components={source};isolated.dependencies.clear();isolated.constructions.clear();
             sources.emplace(source.occurrence_id,MirrorSource{QString::fromStdString(source.name),isolated.build_scene()});
         }
@@ -101,7 +100,6 @@ void AssemblyWorkspaceWindow::show_derived_copy_properties(const std::string& id
             if(candidate.instance_path!=prefix)return {};
             if(sources.contains(candidate.owner_id))return candidate.owner_id;
             if(const auto* body=part->session.document().body_owner_for_object(candidate.owner_id);body&&sources.contains(body->scope.id))return body->scope.id;
-            if(part->session.document().body_history.bodies().empty()&&sources.size()==1)return sources.begin()->first;
             return {};
         }
         const auto path=assembly::InstancePath::decode(candidate.instance_path),parent=assembly::InstancePath::decode(prefix);

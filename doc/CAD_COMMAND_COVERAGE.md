@@ -44,7 +44,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Tažení | Tvorba a geometrické vlastnosti hotovy | `sweep2d/sweep3d/helical.create/get/set`, společné GUI potvrzení, celá 3D dráha, stanice a úplná správa profilů/párování, reference roviny 2D dráhy a odsazení základní skici H-tažení; generické rozšíření umístění patří do řádku Umístění |
 | Otvory a závity | Katalog, současný Otvor a vnější závit částečně hotovy | `thread.catalog`, `opening.create/get/set`: hladký/závitový otvor, rozměry, sražení, špička, směr a průchozí otvor; `shaft_thread.create/get/set` včetně původních referencí; zbývají cílové reference Otvoru Až k, samostatný Hole a operace vnořených částí otvoru; `drill_point.create/get/set` pokrývají samostatnou vrtací špičku |
 | Zaoblení, zkosení, skořepina | Hotovo | `shell.faces/create/get/set`, `fillet.create/get/set`, `chamfer.create/get/set`; `edge_treatment.edges/route/remove`: skutečný vstup, společná tečná trasa a odebrání člena/trasy/posledního prvku podle stromového kontraktu |
-| Zrcadlo a pole | Zbývá | Odvozená tělesa a komponenty |
+| Zrcadlo a pole | Dotazy hotovy | `derived_copy.sources`, `mirror.get`, `pattern.get`: stejné zdroje a uložené vlastnosti jako GUI; zbývá příkazová tvorba a změny odvozených těles/komponent |
 | Sestavy | Dotazy včetně překážek odstranění, vložení a otevření zdrojů komponent hotovy | Uložená hierarchie a přesné výskyty, sdílené vložení a otevření zdroje; zbývají vlastnosti/mazání komponent, vazby, vnořená aktivace a řezy |
 | Výkresy | Listy, šablony, historie, tvorba/vlastnosti/dotazy/mazání pohledů, regenerace, modelové anotace, Show/Erase a měřené kóty (dotazy, tvorba, editace, řetězec, mazání), razítko, zdrojové parametry BOM, PDF, DXF a PNG/JPEG listu/výřezu hotovy | Další anotace, zdrojové styly šraf a příkazový snímek interaktivního View |
 | Řezy, měření a vzhled | Zbývá | Datové operace a uložené výsledky |
@@ -862,3 +862,19 @@ Po závěrečném sjednocení adres katalogové velikosti závitu a stoupání
 prošla dotčená sada **7/7** (162,86 s). Geometrie, zámky, chyby, nativní
 soubory, CLI i skutečné GUI jsou ověřené; podrobnosti a logy:
 [VALUE_LOCK_COMMANDS.md](VALUE_LOCK_COMMANDS.md). Následují Zrcadlo a Pole.
+
+
+### Zrcadlo a Pole: společné zdroje a datové dotazy
+
+`derived_copy.sources`, `mirror.get` a `pattern.get` čtou přesnou hranici
+historie, Boolean zdroje, bezprostřední komponenty, umístění kopií a všechny
+směry pole. GUI používá stejný výběr zdrojů i uložená data. Dotazy nemění
+geometrii, tab ani revizi. Katalog má **201 příkazů**, formát a šablony
+se nemění. Tvorba a editace kopií pokračují v další etapě.
+
+Oba programy jsou sestavené; modelová sada **1/1** (0,49 s), první
+související sada **8/9** (80,94 s) odhalila chybu nového napojení editace
+Pole ze stromu. Po opravě prošla celá dotčená sada **9/9** (77,04 s),
+včetně trvale registrované GUI regrese a skutečného CLI procesu. Přesný
+kontrakt, rozdíl kruhového/lineárního počtu a logy:
+[DERIVED_COPY_COMMANDS.md](DERIVED_COPY_COMMANDS.md).

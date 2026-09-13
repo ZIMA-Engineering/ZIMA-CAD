@@ -284,6 +284,13 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
         return nullptr;
     };
     if(!verify(action&&action->isEnabled()&&!action->icon().isNull()&&view,"Mirror action/icon missing"))return 1;
+    const auto copy_query=[&](const char* command,const std::string& object={}) {
+        commands::Json args=commands::Json::object();if(!object.empty())args["object"]=object;
+        return window.execute_console_command(QString::fromStdString(commands::Json{{"command",command},{"arguments",std::move(args)}}.dump()));
+    };
+    const auto source_query=copy_query("derived_copy.sources");
+    if(!verify(source_query.ok&&source_query.data.at("items").size()==1&&source_query.data.at("items")[0].at("id")==source,
+            "GUI console and Mirror Properties disagree about available sources"))return 1;
     tree->setCurrentItem(row(source,"part-body"));flush();action->trigger();flush();
     auto* dialog=dynamic_cast<app::DerivedCopyDialog*>(window.findChild<QDialog*>("mirrorDialog"));
     if(!verify(dialog&&dialog->derived_copy.source_id==source,"Mirror did not prefill selected body"))return 1;
@@ -308,6 +315,10 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
     for(const auto& ref:view->mesh().triangle_references)
         if(!verify(ref.owner_id!=id,"Mirror edit displays final output instead of rollback input"))return 1;
     dialog->findChild<QDoubleSpinBox*>("sweepTranslation0")->setValue(90);
+    const auto* query_mesh=view->mesh().vertices.data();
+    const auto persisted_copy=copy_query("mirror.get",id);
+    if(!verify(persisted_copy.ok&&persisted_copy.data.at("placement").at("x")==-2&&view->mesh().vertices.data()==query_mesh,
+            "Read-only Mirror query consumed pending Properties or rebuilt rollback geometry"))return 1;
     dialog->buttons()->button(QDialogButtonBox::Cancel)->click();flush();save->trigger();flush();
     stored=document::PartDocument::load(path);
     if(!verify(stored.body_history.find(id)->scope.placement.x==-2,"Cancel committed Mirror placement"))return 1;
@@ -346,6 +357,9 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
     if(auto* failed=window.findChild<QDialog*>("patternDialog")){for(auto* label:failed->findChildren<QLabel*>())std::cerr<<label->text().toStdString()<<"\n";return 1;}
     save->trigger();flush();stored=document::PartDocument::load(path);
     const auto* pattern_body=stored.body_history.find(pattern_id);
+    const auto persisted_pattern=copy_query("pattern.get",pattern_id);
+    if(!verify(persisted_pattern.ok&&persisted_pattern.data.at("source")==source&&persisted_pattern.data.at("pattern").at("instance_count")==4,
+            "GUI-created Pattern is not readable through the common query"))return 1;
     if(!verify(pattern_body&&pattern_body->derived_copy->pattern->linear[0].count==4&&std::abs(pattern_body->derived_copy->pattern->linear[0].direction.y-1)<1e-7,"Pattern did not persist local direction/count"))return 1;
     bodies=kernel.evaluate_history(stored.kernel_operations());
     if(!verify(std::abs(bodies.back().body_outputs.at(pattern_id)->volume-576)<1e-7,"Pattern does not produce a full body"))return 1;

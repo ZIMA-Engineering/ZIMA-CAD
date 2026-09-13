@@ -1,3 +1,4 @@
+#include "derived_copy_query_test_support.hpp"
 #include "drill_point_test_support.hpp"
 #include <zima/kernel/drill_point_identity.hpp>
 #include "sweep_test_support.hpp"
@@ -113,6 +114,19 @@ int main(int argc,char** argv){
         std::vector<kernel::BodyResult> lock_cache;const auto lock_saved=document::PartDocument::load(lock_path,&lock_cache);
         require(result.exit_code==0&&lock_saved.find_container(shell_box.id)->box.length==11&&lock_saved.find_container(shell_box.id)->value_locks.contains("length")&&
             std::abs(lock_cache.back().volume-1100)<1e-6,"CLI unlock/edit/relock/Undo lost values or geometry");
+        const auto copy_fixture=test::copy_query_fixture();const auto copy_path=project/fs::path(u8"kopie příkazy.prtz");
+        copy_fixture.document.save(copy_path,shell_kernel.evaluate_history(copy_fixture.document.kernel_operations()));
+        const auto copy_open=command({{"command","open"},{"arguments",{{"path",qpath(copy_path).toStdString()}}}});
+        const auto copy_sources=command({{"command","derived_copy.sources"},{"arguments",{{"object",copy_fixture.mirror}}}});
+        const auto mirror_get=command({{"command","mirror.get"},{"arguments",{{"object",copy_fixture.mirror}}}});
+        const auto pattern_get=command({{"command","pattern.get"},{"arguments",{{"object",copy_fixture.pattern}}}});
+        result=launch(executable,root,common+QStringList{"--command",copy_open,"--command",copy_sources,"--command",mirror_get,"--command",pattern_get});
+        const auto copy_records=result.results();
+        require(result.exit_code==0&&copy_records.size()==4&&copy_records[1].at("data").at("items").size()==2&&
+            copy_records[2].at("data").at("source")==copy_fixture.source&&copy_records[2].at("data").at("placement").at("x")==-2&&
+            copy_records[3].at("data").at("pattern").at("instance_count")==12&&copy_records[3].at("data").at("name")=="Pole žluťoučké"&&
+            copy_records[1].at("data").at("revision")==copy_records[3].at("data").at("revision"),
+            "Actual CLI failed persisted copy source/Mirror/Pattern queries or changed revision");
         const auto shell_created=document::PartDocument::load(shell_path).history.back();
         const auto shell_edit=command({{"command","shell.set"},{"arguments",{{"container",shell_created.id},{"thickness_mm",2},
             {"faces",Json::array({Json{{"owner",shell_box.id},{"key","z_max"}}})}}}});
