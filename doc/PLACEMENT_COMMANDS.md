@@ -120,3 +120,45 @@ Ověření běžného EXE prošlo **3/3** (29,51 s): start samostatných instanc
 GUI konzole a skutečný CLI proces (`build/placement-normal-tests.log`).
 Předchozí alternativní testovací EXE už pro spuštění této etapy není potřebné.
 Jde o místní vývojové sestavení, nikoli distribuční balíček.
+
+
+## Výslovný souhlas se sdíleným zadáváním referencí (2026-09-13)
+
+Uživatel výslovně schválil přesun datové části
+`ContainerPlacementSection::set_reference` do společné funkce pro GUI a CLI
+odpovědí „Ano, schvaluji tento přesun“. Souhlas se týká zachování rozdělení
+pozičních polí a FRONT/TOP, kontroly duplicit, naměřené zamčené vzdálenosti
+a automatického doplnění orientace. Platí pro všechny dialogy používající
+sekci a vyžaduje modelové i GUI regrese. Předchozí automatická kontrola
+přesun odmítla; před tímto souhlasem nebyl kód změněn. Řešič umístění,
+geometrické rovnice a perzistenční kontrakt se tím nemění. Push zůstává
+odložený podle samostatného uživatelova pokynu.
+
+
+## Společné přiřazení referenčního pole (2026-09-13)
+
+`assign_placement_reference` v dokumentové vrstvě přebírá čistě datovou část
+`ContainerPlacementSection::set_reference`. GUI si ponechává popisky,
+překlady, zvýraznění a oznámení změny. Společná část pracuje pouze s návrhem
+pozičních/orientačních řádků a zámků; nevytváří geometrii ani historii.
+Zachovává přesnou cestu instance, nezávislé FRONT/TOP, případný automatický
+přenos roviny do orientace a jednorázové zachycení zamčené vzdálenosti.
+
+Nový test odhalil dosavadní chybu při opakovaném zadání stejné poziční
+reference: kontrola automaticky doplněné orientace porovnávala zdroj až
+po přesunu jeho řetězců do cílového řádku. Mohla proto doplnit stejnou
+referenci znovu do TOP. Kontrola nyní drží původní trojici cesta/vlastník/klíč
+před přesunem. Výměna zdroje tak nepřidá druhou automatickou kopii.
+Tuto konkrétní chybu ověřuje datový i skutečný widgetový test.
+
+První regrese ji reprodukovala (**0/1 za 0,13 s**); oprava prošla
+**1/1 za 0,12 s**. Obě aplikace i testovací programy se sestavily a širší
+regrese prošla **11/11 za 90,45 s**, včetně vlastností, Windows zámků,
+modelových umístění, konstrukcí, konzole a referencí vložených profilů.
+Logy: `build/placement-reference-assignment-tests.log`,
+`build/placement-reference-assignment-fixed-tests.log`,
+`build/placement-reference-assignment-integration-build.log`,
+`build/placement-reference-assignment-integration-tests.log`.
+
+Tato etapa připravuje společnou datovou cestu; samostatný příkaz zadávání
+referencí ještě nepřidává. Nativní formát se nemění.

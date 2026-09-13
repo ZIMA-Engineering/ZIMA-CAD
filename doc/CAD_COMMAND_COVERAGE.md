@@ -1354,3 +1354,18 @@ nebo oprava DXF. Katalog má 234 příkazů, celková sada nyní 133 testů.
 Poslední úplný běh 132 testů patří předchozí etapě bodového importu;
 tato etapa má uvedenou cílenou regresi 13 testů. Následuje vstup referencí
 umístění přes současný sdílený kontrakt. Push zůstává odložený.
+
+
+## Sdílené zadávání referencí umístění (2026-09-13)
+
+Uživatel nově výslovně schválil přesun datové části
+`ContainerPlacementSection::set_reference`. GUI nyní používá společné
+`assign_placement_reference`, které zachovává samostatná poziční a FRONT/TOP
+pole, přesné instance a zámky. Nová regrese odhalila čtení identity po přesunu
+objektu; oprava brání dvojímu automatickému vložení téhož zdroje do orientace.
+Podrobnosti a souhlas: [PLACEMENT_COMMANDS.md](PLACEMENT_COMMANDS.md).
+
+Cílený datový a widgetový test prošel **1/1 za 0,12 s**. Obě aplikace
+se sestavily a související regrese prošla **11/11 za 90,45 s**. Celková sada
+má 134 testů, katalog nadále 234 příkazů. Následuje příkazový vstup do této
+sdílené datové cesty. Push stále čeká na samostatný pokyn uživatele.

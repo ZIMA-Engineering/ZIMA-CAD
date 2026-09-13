@@ -1,4 +1,5 @@
 #include <zima/ui/numeric_value_lock.hpp>
+#include <zima/document/placement_reference_assignment.hpp>
 #include "zima/ui/container_placement_section.hpp"
 #include <zima/ui/properties_subwindow.hpp>
 
@@ -543,92 +544,35 @@ void ContainerPlacementSection::initialize_from_references(
 bool ContainerPlacementSection::set_reference(std::size_t index,
     zima::document::ConstructionReference reference, const QString& label,
     QString* error_text, bool derive_orientation) {
-    const auto duplicate = [&](const auto& existing) {
-        return existing.instance_path == reference.instance_path &&
-            existing.owner_id == reference.owner_id &&
-            existing.semantic_key == reference.semantic_key;
-    };
-    if (index >= 3) {
-        const auto orientation_index = index - 3;
-        if (!with_orientation_ || orientation_index >= 2) return false;
-        if (std::any_of(orientation_references_.begin(),
-                orientation_references_.end(), duplicate)) {
-            if (error_text) *error_text = tr("Stejnou referenci nelze zadat vícekrát.");
-            return false;
+    const auto result=zima::document::assign_placement_reference(
+        {references_,orientation_references_,empty_reference_locks_},
+        with_orientation_,index,std::move(reference),derive_orientation);
+    using Error=zima::document::PlacementReferenceError;
+    if(result.error!=Error::None) {
+        if(result.error==Error::Duplicate&&error_text)
+            *error_text=tr("Stejnou referenci nelze zadat vícekrát.");
+        if(result.error==Error::MissingMeasuredOffset) {
+            if(reference_labels_.size()<=index)reference_labels_.resize(index+1);
+            if(error_text)*error_text=tr("Současnou vzdálenost od reference nelze určit.");
         }
-        reference.orientation_drives_rotation = true;
-        reference.orientation_role = orientation_index == 0 ? "front" : "top";
-        reference.orientation_only = true;
-        if (orientation_references_.size() <= orientation_index)
-            orientation_references_.resize(orientation_index + 1);
-        if (orientation_labels_.size() <= orientation_index)
-            orientation_labels_.resize(orientation_index + 1);
-        orientation_references_[orientation_index] = std::move(reference);
-        orientation_labels_[orientation_index] = label;
-        if (error_text) error_text->clear();
-        refresh_orientation_table();
-        notify_changed();
-        return true;
+        return false;
     }
-    for (std::size_t existing_index = 0;
-         existing_index < references_.size(); ++existing_index) {
-        if (existing_index != index && duplicate(references_[existing_index])) {
-            if (error_text) *error_text = tr("Stejnou referenci nelze zadat vícekrát.");
-            return false;
+    if(error_text)error_text->clear();
+    if(index>=3) {
+        const auto slot=index-3;
+        if(orientation_labels_.size()<=slot)orientation_labels_.resize(slot+1);
+        orientation_labels_[slot]=label;refresh_orientation_table();notify_changed();return true;
+    }
+    if(reference_labels_.size()<=index)reference_labels_.resize(index+1);
+    reference_labels_[index]=label.trimmed().isEmpty()?readable_reference_kind(references_[index].semantic_key):label;
+    if(with_orientation_&&derive_orientation&&references_[index].supports_offset) {
+        if(orientation_labels_.size()<2)orientation_labels_.resize(2);
+        if(result.mirrored_orientation) {
+            orientation_labels_[*result.mirrored_orientation]=reference_labels_[index];
+            refresh_orientation_table();
         }
     }
-    if (error_text) error_text->clear();
-    if (references_.size() <= index) references_.resize(index + 1);
-    if (reference_labels_.size() <= index) reference_labels_.resize(index + 1);
-    const bool capture_once=references_[index].semantic_key.empty() && empty_reference_locks_[index];
-    const bool locked=index<references_.size() && !references_[index].semantic_key.empty()
-        ? references_[index].offset_locked : empty_reference_locks_[index];
-    if(reference.supports_offset) {
-        reference.offset_locked=locked && !capture_once;
-        if(locked && !reference.measured_offset){if(error_text)*error_text=tr("Současnou vzdálenost od reference nelze určit.");return false;}
-        if(locked)reference.offset=*reference.measured_offset;
-    } else { reference.offset=0;reference.offset_locked=true; }
-    empty_reference_locks_[index]=false;
-    reference.measured_offset.reset();
-    references_[index] = std::move(reference);
-    reference_labels_[index] = label.trimmed().isEmpty()
-        ? readable_reference_kind(references_[index].semantic_key) : label;
-    // Plane properties mirror the first two planar placement references
-    // into the independent container-orientation slots, matching the
-    // reference implementation's _record_automatic_container_orientation().
-    // The mirrored descriptors keep the same stable source geometry but are
-    // persisted as orientation-only mappings, so position and rotation
-    // remain separate concerns and either mapping can later be replaced.
-    if (with_orientation_ && derive_orientation &&
-        references_[index].supports_offset) {
-        if (orientation_references_.size() < 2) orientation_references_.resize(2);
-        if (orientation_labels_.size() < 2) orientation_labels_.resize(2);
-        const auto same_source = [&](const auto& existing) {
-            return !existing.owner_id.empty() && duplicate(existing);
-        };
-        const bool already_mirrored = std::any_of(
-            orientation_references_.begin(), orientation_references_.end(),
-            same_source);
-        if (!already_mirrored) {
-            const auto empty = std::find_if(orientation_references_.begin(),
-                orientation_references_.end(), [](const auto& existing) {
-                    return existing.owner_id.empty() && existing.semantic_key.empty();
-                });
-            if (empty != orientation_references_.end()) {
-                const auto slot = static_cast<std::size_t>(std::distance(
-                    orientation_references_.begin(), empty));
-                *empty = references_[index];
-                empty->orientation_drives_rotation = true;
-                empty->orientation_role = slot == 0 ? "front" : "top";
-                empty->orientation_only = true;
-                orientation_labels_[slot] = reference_labels_[index];
-                refresh_orientation_table();
-            }
-        }
-    }
-    refresh_reference_table();
-    notify_changed();
-    return true;
+    refresh_reference_table();notify_changed();return true;
 }
 
 void ContainerPlacementSection::set_remaining_translation_dof(int dof) {
