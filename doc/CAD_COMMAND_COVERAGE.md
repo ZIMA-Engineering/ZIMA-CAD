@@ -48,7 +48,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Sestavy | Dotazy, vložení, otevření zdrojů, vlastnosti, odstranění a přesná aktivace hotovy | `component.set`: název, viditelnost, potlačení, uzemnění, umístění a všechny čtyři druhy vložených vazeb s mezemi/zámky; `component.remove` sdílí kontrolu závislostí a atomické mazání s GUI; `component.activate/deactivate` sdílejí přesný zdrojový kontext s GUI; souhrny referencí jsou společné pro Assembly Undo a explicitní regeneraci; zbývají řezy; schválená oprava pořadí řetězce vazeb je hotová a ověřená |
 | Výkresy | Listy, šablony, historie, tvorba/vlastnosti/dotazy/mazání pohledů, regenerace, modelové anotace, Show/Erase a měřené kóty (dotazy, tvorba, editace, řetězec, mazání), razítko, zdrojové parametry BOM, PDF, DXF a PNG/JPEG listu/výřezu hotovy | Další anotace, zdrojové styly šraf a příkazový snímek interaktivního View |
 | Vzhled | Společné operace GUI/CLI hotovy | `appearance.get/set/reset/faces/palette`: styly Partu a jednotlivých výskytů, skupiny ploch, dědění zdroje, reset, historie a nativní uložení; bez výpočtu těles |
-| Řezy | Čtení, aktivace a odstranění hotovy | `section.list/get/components`: vlastněná skica, čára, soustavy, přesné výskyty a šrafování; `section.activate/delete` sdílejí akce stromu; tvorba a editace zbývají |
+| Řezy | Čtení, tvorba, vlastnosti, aktivace a odstranění | `section.list/get/components/create/set/activate/delete`: úplná otevřená čára, vlastní skica, společné OK vlastností, číselné umístění, přesné výskyty a šrafování; zbývá dávková úprava vlastněné skici a vstup referencí umístění |
 | Měření | Zbývá | Datové operace a uložené výsledky |
 | Parametry, relace a materiál | Společné tabulky a transakce hotovy | Parametry, jednotky, přesnost, relace, materiál včetně přímého načtení knihovny a uložené varianty; řízení rozměrů relacemi a generování variant nejsou dosud zavedené ani v GUI |
 | Import a export | Import Partu/Assembly STEP/IGES/DXF a základní exporty hotovy | Společný STEP včetně vnořených sestav, STL Part/vnořená Assembly, DXF úsečky/osy/body/kružnice/oblouky/elipsy/spline/trimy/offsety; DXF do vložených profilů hotov; zbývá DXF text/rohová zaoblení, import POINT/neohraničených spline a snímek interaktivního View |
@@ -1191,3 +1191,19 @@ Zahrnuje skutečný CLI proces, přechod z CLI cílů do GUI vlastností otvoru
 (56,80 s), start aplikace a překlady (92,26 s), obě schválené opravy,
 sestavy, skici, importy, řezy i výkresy. Výsledek se vztahuje k této etapě;
 celé CLI ještě není dokončené.
+
+
+## Tvorba a vlastnosti řezů (2026-09-13)
+
+`section.create/set` sdílejí potvrzení s dialogem vlastností. Tvorba přijímá
+úplnou otevřenou řezovou čáru; editace zachovává identity vlastní skici a
+počátku, upravuje jméno, rovinu, směr, zobrazení, číselné umístění a přesné
+volby šrafování jednotlivých těles nebo výskytů. Neplatný či zastaralý návrh
+se odmítne před jediným zápisem do historie. Výpočet řezu používá aktuální
+síť, bez OCCT či regenerace vazeb/těles. Podrobnosti a limity:
+[SECTION_COMMANDS.md](SECTION_COMMANDS.md).
+
+Sestavily se obě aplikace a všechny testy; dotčená sada prošla **9/9 za
+190,58 s**, včetně CLI, GUI konzole, vlastností, výkresů, startu a překladů.
+Katalog má **225 příkazů**, celá sada 125 testů. Další krok je dávková úprava
+řezové skici; přímé běžné mutace této vlastněné skici zůstávají odmítnuté.

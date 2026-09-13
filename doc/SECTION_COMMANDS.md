@@ -44,7 +44,8 @@ Chybějící řez vrací `section_not_found`; chybějící otevřený model
 ## Stav implementace a ověření
 
 Čtení doplňují společné příkazy aktivace a odstranění popsané níže.
-Příkazová tvorba, změna celé řezové skici a šrafování ještě zbývají. Obyčejné příkazy
+Tvorbu a vlastnosti včetně šrafování doplňují níže uvedené příkazy.
+Dávková změna celé řezové skici ještě zbývá. Obyčejné příkazy
 skicáře nadále odmítají přímou změnu skici řezu: celý návrh musí potvrdit
 transakce řezu po kontrole jeho otevřené souvislé čáry. Společné umístění,
 formát dokumentů a start šablony se nemění.
@@ -117,3 +118,74 @@ Nová GUI regrese nejprve selhala na zaokrouhlení nezměněných hodnot
 aplikace a testovací programy. Dotčené testy řezů a výkresů včetně obou GUI
 kontraktů prošly **4/4 za 19,40 s**
 (`build/section-hatch-verified-tests.log`). Katalog zůstává na 223 příkazech.
+
+## Tvorba a vlastnosti
+
+`section.create` vytváří řez z celé otevřené lomené čáry. `section.set`
+upravuje uloženou definici a zachovává ID řezu, vlastní skici i počátku.
+Oba příkazy i OK v dialogu vlastností používají společné
+`workspace::prepare_section_edit/commit_section`.
+
+```json
+{"command":"section.create","arguments":{"path_mm":[[-50,0],[50,0]],"plane":"XY","name":"A–A","show_cut":true}}
+{"command":"section.set","arguments":{"object":"<section-id>","reversed":true,"placement":{"y":2}}}
+{"command":"section.set","arguments":{"object":"<section-id>","components":[{"component":"<body-id-or-occurrence-path>","mode":"cut_hatch","hatch":{"angle_degrees":12.3456789,"spacing_mm":2.3456789,"offset_mm":0,"pattern":"cross"}}]}}
+```
+
+- `path_mm` je povinné pouze při tvorbě: 2 až 10 000 dvojic konečných
+  souřadnic, každá nejvýše ±1 000 000 mm. Sousední body musí být vzdálené
+  více než 1e-7 mm. Nativní kontrola odmítá uzavřenou, rozvětvenou nebo
+  nesouvislou čáru. Vytvářejí se běžné úsečky a body se stabilními ID.
+- Volitelné vlastnosti jsou `name`, `plane` (`XY`, `XZ`, `YZ`), `reversed`,
+  `show_plane`, `show_cut`, `placement`, `components` a cílové `document`.
+  Prázdný či duplicitní název se odmítá. Bez názvu tvorba najde volné A–A,
+  B–B atd. Aktivace nového řezu vypne dosavadní aktivní řez v téže transakci.
+- `placement` mění číselná pole `x/y/z`, `rotation_x/y/z` nebo
+  `reference_offset:N` podle existujícího kontraktu umístění. Vzdálenosti
+  jsou v mm, úhly ve stupních. Zamčené, vázané a neznámé parametry se odmítají.
+  Tyto příkazy zatím nepřidávají ani nenahrazují reference umístění.
+- `components` je částečný seznam změn nejvýše 10 000 komponent. Každý
+  přesný klíč smí být uveden jen jednou. Neuvedené komponenty i jejich
+  nedotčená pole zůstávají beze změny; platí to i pro dříve uložené volby
+  momentálně nedostupného tělesa nebo výskytu.
+- Komponenta přijímá `mode`, `custom_hatch` a částečný objekt `hatch`.
+  Vlastní šrafování se při prvním zapnutí odvodí z aktuálního děděného
+  stylu. Zadání `hatch` je automaticky zapne; současné `custom_hatch:false`
+  se odmítá. Samotné `custom_hatch:false` obnoví dědění bez ztráty uložených
+  vlastních hodnot. Rozteč musí být 0,1 až 100 mm. Číselné hodnoty se
+  uchovávají s plnou přesností, nezávisle na zaokrouhlení polí GUI.
+- Celý soukromý návrh se ověří před jediným zápisem do historie. Kontrola
+  používá již vypočtenou síť a původní reference. Nevolá OCCT, nemění
+  geometrii těles ani neřeší vazby sestavy. Počítá pouze definovaný řez
+  nad sítí, stejným způsobem jako potvrzení vlastností.
+- Zastaralý dialog, změněná identita, neplatný vstup nebo nevyřešená
+  reference nezmění dokument ani cache. Beze změny výsledného návrhu
+  vrací editace `changed:false` a nepřidává historii. Výsledek obsahuje
+  data `section.get`, `document`, `revision`, `changed` a `body_calculated:false`.
+
+Formát `.prtz/.asmz` ani start šablony se nemění. Úpravu jednotlivých
+entit řezové skici nadále nelze potvrdit běžným příkazem skicáře: pro
+přestavbu čáry je nutná validace celé změny jako jedné operace řezu.
+
+Výchozí regrese selhala na chybějícím `section.create` (0/1 za 0,11 s).
+Základní modelové testy potom prošly **2/2 za 0,35 s**. Rozšířený test
+odhalil vlastní neplatný ukazatel po přidání dokumentů do Workspace;
+po opětovném vyhledání Partu podle ID prošel **1/1 za 0,19 s**. Ověřuje
+nezávisle spočtenou plochu 300 mm², zachování objemu 6000 mm³, přesnost
+šraf, neplatné dávky, jednu aktivaci, zastaralé návrhy, identity, Undo/Redo,
+nativní soubory a oddělené volby opakovaných vnořených výskytů.
+
+Obě aplikace i všechny testovací programy se sestavily. Integrační sada
+prošla **9/9 za 190,58 s**: modelové kontrakty řezů, nový i dosavadní příkazy,
+katalog, skutečný CLI proces (28,22 s), GUI konzole (47,29 s), start a
+překlady (98,20 s), GUI vlastnosti řezu (15,08 s) a výkresový kontrakt.
+GUI zkouška zahrnuje vytvoření řezu konzolí, otevření jeho vlastností a
+potvrzení změny jména bez ztráty přesných hodnot šrafování.
+Logy: `build/section-properties-baseline-tests.log`,
+`build/section-properties-first-tests.log`,
+`build/section-properties-expanded-tests.log`,
+`build/section-properties-pointer-tests.log`,
+`build/section-properties-full-build.log`,
+`build/section-properties-integration-tests.log`.
+Katalog má **225 příkazů**, CTest obsahuje 125 testů; tato etapa spustila
+uvedených 9 dotčených integračních testů.

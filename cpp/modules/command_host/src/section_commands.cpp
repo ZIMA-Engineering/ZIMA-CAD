@@ -2,6 +2,8 @@
 #include <zima/workspace/drawing_sources.hpp>
 #include <zima/workspace/section_operations.hpp>
 #include <zima/document/placement_json.hpp>
+#include <zima/workspace/placement_edit.hpp>
+#include <cmath>
 #include <algorithm>
 #include <set>
 namespace zima::command_host {
@@ -10,6 +12,87 @@ struct QueryError : std::runtime_error {
     const char* code;
     QueryError(const char* code,const char* message):std::runtime_error(message),code(code){}
 };
+using EditError=workspace::SectionOperationError;
+void patch_section(document::SectionDefinition& section,const Json& args,const workspace::Workspace& live,const std::string& id) {
+    if(args.contains("name"))section.name=args.at("name").get<std::string>();
+    if(args.contains("plane")) {
+        const auto plane=args.at("plane").get<std::string>();
+        if(plane!="XY"&&plane!="XZ"&&plane!="YZ")throw EditError("invalid_arguments","Sketch plane must be XY, XZ or YZ.");
+        section.sketch.plane=plane=="XY"?sketcher::SketchPlane::XY:plane=="XZ"?sketcher::SketchPlane::XZ:sketcher::SketchPlane::YZ;
+    }
+    if(args.contains("reversed"))section.reversed=args.at("reversed").get<bool>();
+    if(args.contains("show_plane"))section.show_plane=args.at("show_plane").get<bool>();
+    if(args.contains("show_cut"))section.show_cut=args.at("show_cut").get<bool>();
+    if(args.contains("path_mm")) {
+        const auto& path=args.at("path_mm");
+        if(path.size()<2||path.size()>10000)throw EditError("invalid_arguments","A Section path requires 2 to 10000 points.");
+        std::vector<std::array<double,2>> points;
+        for(const auto& point:path) {
+            if(!point.is_array()||point.size()!=2)throw EditError("invalid_arguments","Section points require two finite coordinates in millimetres.");
+            for(const auto& value:point)if(!value.is_number()||!std::isfinite(value.get<double>())||std::abs(value.get<double>())>1000000)
+                throw EditError("invalid_arguments","Section points require two finite coordinates in millimetres.");
+            points.push_back({point[0].get<double>(),point[1].get<double>()});
+        }
+        for(std::size_t i=1;i<points.size();++i) {
+            const auto a=points[i-1],b=points[i];
+            if(std::hypot(b[0]-a[0],b[1]-a[1])<=1e-7)throw EditError("invalid_arguments","Řez obsahuje nulovou úsečku.");
+            static_cast<void>(section.sketch.add_segment(a[0],a[1],b[0],b[1],1e-7));
+        }
+    }
+    if(args.contains("placement")) {
+        if(args.at("placement").empty())throw EditError("invalid_arguments","Specify at least one placement parameter.");
+        const auto geometry=workspace::section_placement_geometry(live,id);
+        for(const auto& [key,value]:args.at("placement").items()) {
+            if(!value.is_number()||!std::isfinite(value.get<double>()))throw EditError("invalid_arguments","Placement parameters must be finite JSON numbers.");
+            if(!workspace::assign_placement_dimension(section.placement,geometry,key,value.get<double>()))
+                throw EditError("parameter_not_editable","The placement parameter is unknown, constrained or locked.");
+        }
+    }
+    if(args.contains("components")) {
+        if(args.at("components").size()>10000)throw EditError("invalid_arguments","A Section component patch is too large.");
+        std::set<std::string> touched;
+        for(const auto& patch:args.at("components")) {
+            if(!patch.is_object()||!patch.contains("component")||!patch.at("component").is_string())
+                throw EditError("invalid_arguments","A Section component patch requires an exact component ID.");
+            const auto key=patch.at("component").get<std::string>();
+            if(!touched.insert(key).second)throw EditError("invalid_arguments","A Section component may be changed only once per patch.");
+            if(!section.component_names.contains(key)&&!section.components.contains(key))
+                throw EditError("component_not_found","The requested component does not belong to this Section.");
+            for(const auto& [name,value]:patch.items())if(name!="component"&&name!="mode"&&name!="custom_hatch"&&name!="hatch")
+                throw EditError("invalid_arguments","Unknown Section component property.");
+            auto& component=section.components[key];
+            if(patch.contains("mode")) {
+                if(!patch.at("mode").is_string())throw EditError("invalid_arguments","Neplatný režim komponenty řezu.");
+                const auto mode=patch.at("mode").get<std::string>();
+                if(mode!="cut_hatch"&&mode!="cut_only"&&mode!="uncut")throw EditError("invalid_arguments","Neplatný režim komponenty řezu.");
+                component.mode=mode=="cut_hatch"?0:mode=="cut_only"?1:2;
+            }
+            if(patch.contains("custom_hatch")&&!patch.at("custom_hatch").is_boolean())
+                throw EditError("invalid_arguments","custom_hatch must be a boolean.");
+            const bool custom=patch.value("custom_hatch",patch.contains("hatch")||component.custom_hatch);
+            if(patch.contains("hatch")&&!custom)throw EditError("invalid_arguments","Custom hatch values require custom_hatch enabled.");
+            if(custom&&!component.custom_hatch)component.hatch=document::section_component_hatch(section,key);
+            component.custom_hatch=custom;
+            if(patch.contains("hatch")) {
+                if(!patch.at("hatch").is_object()||patch.at("hatch").empty())throw EditError("invalid_arguments","Specify at least one hatch property.");
+                for(const auto& [name,value]:patch.at("hatch").items()) {
+                    if(name=="pattern") {
+                        if(!value.is_string())throw EditError("invalid_arguments","Unknown Section hatch pattern.");
+                        const auto pattern=value.get<std::string>();
+                        if(pattern!="parallel"&&pattern!="cross"&&pattern!="dashed")throw EditError("invalid_arguments","Unknown Section hatch pattern.");
+                        component.hatch.pattern=pattern=="parallel"?0:pattern=="cross"?1:2;
+                    }else {
+                        if(!value.is_number()||!std::isfinite(value.get<double>()))throw EditError("invalid_arguments","Hatch parameters must be finite numbers.");
+                        if(name=="angle_degrees")component.hatch.angle=value.get<double>();
+                        else if(name=="spacing_mm")component.hatch.spacing_mm=value.get<double>();
+                        else if(name=="offset_mm")component.hatch.offset_mm=value.get<double>();
+                        else throw EditError("invalid_arguments","Unknown Section hatch property.");
+                    }
+                }
+            }
+        }
+    }
+}
 struct Source {
     std::string id;
     std::uint64_t revision;
@@ -69,6 +152,29 @@ Json component(const document::SectionDefinition& section,const std::string& key
 }
 void Host::register_section_commands() {
     using Type=commands::ArgumentType;
+    for(const bool create:{true,false}) {
+        std::vector<commands::Argument> args{{"name",false},{"plane",false},{"reversed",false,Type::Boolean},
+            {"show_plane",false,Type::Boolean},{"show_cut",false,Type::Boolean},{"placement",false,Type::Object},
+            {"components",false,Type::Array},{"document",false}};
+        if(create)args.insert(args.begin(),{"path_mm",true,Type::Array});else args.insert(args.begin(),{"object",true});
+        dispatcher_.add({create?"section.create":"section.set",create?tr("Create a Section from a complete open polyline."):
+            tr("Change Section properties through the same transaction as Properties OK."),std::move(args),true},[this,create](const Json& args) {
+            const auto checked=target(args);if(!checked.ok)return checked;
+            if(interaction().template_document)return Result::failure("unsupported_document",tr("Section operations require an open Part or Assembly."));
+            try {
+                const auto id=workspace_.active_document_id();
+                const auto edit=workspace::prepare_section_edit(workspace_,id,create?std::string{}:args.at("object").get<std::string>());
+                auto value=edit.initial;patch_section(value,args,workspace_,id);
+                const bool changed=workspace::commit_section(workspace_,edit,std::move(value));
+                const auto current=source(workspace_,{{"document",id}});
+                auto result=details(find(current,{{"object",edit.initial.id}}));
+                result["document"]=id;result["revision"]=current.revision;result["changed"]=changed;result["body_calculated"]=false;
+                if(changed)change_=Change{ChangeKind::Model,id,true};
+                return Result::success(std::move(result));
+            }catch(const EditError& error){return Result::failure(error.code,tr(error.what()));}
+             catch(const std::exception& error){return Result::failure("section_edit_rejected",tr(error.what()));}
+        });
+    }
     for(const bool remove:{false,true})dispatcher_.add({remove?"section.delete":"section.activate",
         remove?tr("Remove a saved Section through the same transaction as the tree action."):
             tr("Activate a saved Section, or the unsectioned display when object is omitted."),

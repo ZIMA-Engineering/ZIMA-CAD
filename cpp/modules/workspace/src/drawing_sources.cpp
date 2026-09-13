@@ -6,15 +6,16 @@ namespace zima::workspace {
 namespace {
 std::string source_extension(const std::filesystem::path& path){auto extension=path.extension().string();std::ranges::transform(extension,extension.begin(),[](unsigned char c){return static_cast<char>(std::tolower(c));});return extension;}
 }
-std::vector<zima::document::SectionDefinition> sections_for_part(const zima::document::PartDocument& doc){
-    auto result=doc.sections;
+std::vector<zima::document::SectionDefinition> sections_for_part(const zima::document::PartDocument& doc){return sections_for_part(doc,doc.sections);}
+std::vector<zima::document::SectionDefinition> sections_for_part(const zima::document::PartDocument& doc,std::vector<zima::document::SectionDefinition> result){
     for(auto& s:result){s.component_names.clear();s.body_owners.clear();for(const auto& body:doc.body_history.bodies()){
         s.component_names[body.scope.id]=body.name;s.body_owners[body.scope.id]=body.scope.id;
         for(const auto& entry:body.entries)s.body_owners[entry.id]=body.scope.id;
     }}return result;
 }
-std::vector<zima::document::SectionDefinition> sections_for_assembly(const zima::assembly::AssemblyDocument& doc){
-    auto result=doc.sections;std::map<std::string,std::string> names;
+std::vector<zima::document::SectionDefinition> sections_for_assembly(const zima::assembly::AssemblyDocument& doc){return sections_for_assembly(doc,doc.sections);}
+std::vector<zima::document::SectionDefinition> sections_for_assembly(const zima::assembly::AssemblyDocument& doc,std::vector<zima::document::SectionDefinition> result){
+    std::map<std::string,std::string> names;
     const auto visit=[&](auto&& self,const auto& nodes,zima::assembly::InstancePath path,std::string label)->void{
         for(const auto& node:nodes){auto child=path.child(node.occurrence_id);auto text=label.empty()?node.name:label+" / "+node.name;
             if(node.children.empty())names[child.encoded()]=text;else self(self,node.children,child,text);}

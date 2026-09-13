@@ -234,6 +234,19 @@ int main(int argc,char** argv){
         require(restored_section.sections.size()==1&&restored_section.sections.front().id==section.id&&!restored_section.sections.front().show_cut,
             "CLI Section Undo did not persist the same inactive definition");
 
+        const auto create_section=command({{"command","section.create"},{"arguments",{{"path_mm",Json::array({Json::array({-20,0}),Json::array({20,0})})},{"name","CLI section"},{"show_cut",true}}}});
+        result=launch(executable,root,common+QStringList{"--command","open section-cli.prtz","--command",create_section,"--command","save"});
+        require(result.exit_code==0,"CLI Section creation failed");
+        const auto created_section=document::PartDocument::load(section_path).sections.back();
+        const auto edit_section=command({{"command","section.set"},{"arguments",{{"object",created_section.id},{"name","CLI edited"},{"reversed",true},{"placement",{{"y",2}}},
+            {"components",Json::array({{{"component",appearance_saved.body_history.active_body_id()},{"hatch",{{"angle_degrees",12.3456789},{"spacing_mm",2.3456789}}}}})}}}});
+        result=launch(executable,root,common+QStringList{"--command","open section-cli.prtz","--command",edit_section,"--command","undo","--command","redo","--command","save"});
+        require(result.exit_code==0,"CLI Section properties/Undo/Redo failed");
+        std::vector<kernel::BodyResult> section_cache;const auto edited_section=document::PartDocument::load(section_path,&section_cache).sections.back();
+        require(edited_section.id==created_section.id&&edited_section.sketch.id==created_section.sketch.id&&edited_section.name=="CLI edited"&&edited_section.reversed&&
+            edited_section.placement.y==2&&edited_section.components.at(appearance_saved.body_history.active_body_id()).hatch.angle==12.3456789&&
+            std::abs(section_cache.back().volume-6000)<1e-6,"CLI Section properties lost identity, precision or cached geometry");
+
         const auto make_hole=command({{"command","hole.create"},{"arguments",{{"diameter_mm",10},{"bore_length_mm",10},{"placement",{{"z",-20}}}}}});
         result=launch(executable,root,common+QStringList{"--command","new part native-hole-cli","--command","box.create 40 40 40",
             "--command",make_hole,"--command","save"});

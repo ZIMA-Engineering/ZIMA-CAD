@@ -1,5 +1,4 @@
 #include <zima/workspace/section_operations.hpp>
-#include <zima/workspace/part_transactions.hpp>
 #include "assembly_workspace_window.hpp"
 #include "section_properties_dialog.hpp"
 #include "section_source.hpp"
@@ -26,37 +25,19 @@ void append(zima::kernel::ViewerMesh& a,const zima::kernel::ViewerMesh& b){
 }
 
 }
-void AssemblyWorkspaceWindow::commit_sections(std::vector<zima::document::SectionDefinition> sections){
-    const auto id=section_document_id_.empty()?workspace_.displayed_document_id():section_document_id_;
-    if(auto* p=workspace_.open_part(id)){auto next=p->session.document();next.sections=std::move(sections);workspace::commit_part_document(workspace_,id,std::move(next),p->session.calculated_boundaries());}
-    else if(auto* a=workspace_.open_assembly(id)){auto next=a->session.document();next.sections=std::move(sections);a->session.commit(std::move(next));}
-    else throw std::runtime_error("Section source is no longer open");
-}
 void AssemblyWorkspaceWindow::show_section_properties(const std::string& id,bool draw){
     if(properties_dialog_||!active_sketch_id_.empty()||template_sketch()||workspace_.active_document_id()!=workspace_.displayed_document_id())return;
     section_document_id_=workspace_.displayed_document_id();
     if(!workspace_.open_part(section_document_id_)&&!workspace_.open_assembly(section_document_id_))return;
     try{
-        auto sections=source_sections(&workspace_,section_document_id_,{});auto value=zima::document::create_section();
-        if(!id.empty()){const auto found=std::ranges::find(sections,id,&zima::document::SectionDefinition::id);if(found==sections.end())return;value=*found;}
-        else{
-            for(int i=0;;++i){const auto tag=i<26?std::string(1,static_cast<char>('A'+i)):std::to_string(i+1);value.name=tag+"–"+tag;if(std::ranges::none_of(sections,[&](const auto& s){return s.name==value.name;}))break;}
-            if(auto* p=workspace_.open_part(section_document_id_)){auto doc=p->session.document();doc.sections.push_back(value);value=sections_for_part(doc).back();}
-            else {auto doc=workspace_.open_assembly(section_document_id_)->session.document();doc.sections.push_back(value);value=sections_for_assembly(doc).back();}
-        }
+        const auto edit=workspace::prepare_section_edit(workspace_,section_document_id_,id);
+        auto value=edit.initial;
         section_preview_source_=workspace_.authoritative_viewer_mesh(section_document_id_);section_camera_=viewer_->camera_state();
         primitive_reference_geometry_=section_preview_source_.original_references;
         if(auto* p=workspace_.open_part(section_document_id_)){const auto& doc=p->session.document();append(primitive_reference_geometry_,doc.origin_viewer_mesh().original_references);append(primitive_reference_geometry_,doc.construction_viewer_mesh().original_references);append(primitive_reference_geometry_,doc.history_origin_reference_geometry_before(value.id));append(primitive_reference_geometry_,doc.body_origin_reference_geometry());}
         else{const auto& doc=workspace_.open_assembly(section_document_id_)->session.document();append(primitive_reference_geometry_,doc.origin_viewer_mesh().original_references);append(primitive_reference_geometry_,doc.construction_viewer_mesh().original_references);}
-        auto* dialog=new SectionPropertiesDialog(this,value,[this](auto next){
-            // Validate the complete chain, including end extensions, before any
-            // transaction. An inactive invalid section must not enter a file.
-            static_cast<void>(zima::document::calculate_section(section_preview_source_,next));
-            auto all=source_sections(&workspace_,section_document_id_,{});
-            if(std::ranges::any_of(all,[&](const auto& s){return s.id!=next.id&&s.name==next.name;})){section_dialog_->set_error(tr("Název řezu již existuje."));return false;}
-            if(next.show_cut)for(auto& s:all)s.show_cut=false;
-            const auto found=std::ranges::find(all,next.id,&zima::document::SectionDefinition::id);if(found==all.end())all.push_back(next);else *found=next;
-            commit_sections(std::move(all));return true;
+        auto* dialog=new SectionPropertiesDialog(this,value,[this,edit](auto next){
+            static_cast<void>(workspace::commit_section(workspace_,edit,std::move(next)));return true;
         },[this]{
             pending_primitive_reference_index_.reset();section_dialog_->set_active_reference_index(std::nullopt);section_component_picking_=true;viewer_->clear_selection();viewer_->set_mesh(section_preview_source_,false);
             viewer_->set_selection_contract({workspace_.open_assembly(section_document_id_)?zima::viewer::CandidateKind::Occurrence:zima::viewer::CandidateKind::Container});viewer_->set_candidate_filter({});state_->setText(tr("Vyberte díl nebo těleso ve View; jeho řádek se označí v seznamu."));

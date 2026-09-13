@@ -114,7 +114,6 @@ private:
     bool section_sketch_history(bool redo);
     bool section_confirmation(const zima::viewer::ViewerCandidate&);
     bool section_context_menu(QTreeWidgetItem*,const QPoint&);
-    void commit_sections(std::vector<zima::document::SectionDefinition> sections);
     QAction* section_action_{};
     QAction* cancel_section_sketch_action_{};
     QPointer<SectionPropertiesDialog> section_dialog_;

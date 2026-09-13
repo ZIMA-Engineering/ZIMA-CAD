@@ -267,6 +267,28 @@ int verify_sections(QApplication& application,AssemblyWorkspaceWindow& window,co
         check(owning->session.revision()==revision,"Preparing hatch OK modified the Assembly");commit();
         check(owning->session.revision()==revision+1&&owning->session.document().sections.front().components.at(first_key).hatch.offset_mm==.75&&owning->session.document().sections.front().components.at(second_key)==original.at(second_key),"Hatch OK did not update the exact Assembly component");
         check(fixture.open_part(part.document_id)->session.revision()==part_revision,"Assembly hatch edit changed a child Part");
+        const auto console=[&](const char* name,zima::commands::Json args=zima::commands::Json::object()) {
+            const auto request=zima::commands::Json{{"command",name},{"arguments",std::move(args)}}.dump();
+            const auto result=window.execute_console_command(QString::fromUtf8(request.c_str()));
+            check(result.ok,result.message.c_str());flush();return result.data;
+        };
+        const auto cli_section=console("section.create",{{"path_mm",zima::commands::Json::array({zima::commands::Json::array({-50,0}),zima::commands::Json::array({100,0})})},
+            {"components",zima::commands::Json::array({{{"component",first_key},{"hatch",{{"angle_degrees",12.3456789},{"spacing_mm",2.3456789}}}}})}});
+        const auto cli_id=cli_section.at("object").get<std::string>();
+        QTreeWidgetItem* cli_row{};
+        for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==cli_id){cli_row=*it;break;}
+        check(cli_row!=nullptr,"Console-created Section is missing from the Tree");
+        window.show_tree_item_properties(cli_row);flush();check(dialog()!=nullptr,"Console-created Section cannot open Properties");
+        check(dialog()->values().sketch.id==cli_section.at("sketch").get<std::string>()&&
+            dialog()->values().components.at(first_key).hatch.angle==12.3456789,"Properties lost CLI Section identity or hatch precision");
+        dialog()->findChild<QLineEdit*>("sectionName")->setText("CLI to Properties");
+        dialog()->buttons()->button(QDialogButtonBox::Ok)->click();flush();check(!dialog(),"Properties OK rejected a console-created Section");
+        const auto cli_after=console("section.get",{{"object",cli_id}});
+        check(cli_after.at("name")=="CLI to Properties"&&cli_after.at("sketch")==cli_section.at("sketch")&&
+            cli_after.at("revision").get<std::uint64_t>()==cli_section.at("revision").get<std::uint64_t>()+1,"Properties did not commit one shared Section edit");
+        const auto cli_components=console("section.components",{{"object",cli_id}}).at("items");
+        check(std::ranges::any_of(cli_components,[&](const auto& item){return item.at("component")==first_key&&item.at("hatch").at("angle_degrees")==12.3456789&&
+            item.at("hatch").at("spacing_mm")==2.3456789;}),"Properties OK rounded untouched CLI hatch values");
         std::cout<<"Section UI: container placement, own plane, full Sketcher, local undo/redo, nested cancel, MMB, tree, Drawing hatch/PDF and repeated Assembly components passed\n";return 0;
     }catch(const std::exception& e){std::cerr<<"Section UI: "<<e.what()<<'\n';return 1;}
 }
