@@ -17,6 +17,16 @@ void apply_sketch_geometry(sketcher::Sketch&,const SketchMutation&);
 // Return false to stop without deserializing unrelated profiles.
 void visit_document_sketches(const Workspace&,const std::string& document,
     const std::function<bool(const sketcher::Sketch&)>&);
+void visit_document_sketches(const document::PartDocument&,
+    const std::function<bool(const sketcher::Sketch&)>&);
+void visit_document_sketches(const assembly::AssemblyDocument&,
+    const std::function<bool(const sketcher::Sketch&)>&);
+// Explicit calculation works on its private document candidate. The callback
+// returns whether it changed the Sketch; untouched embedded data stays intact.
+[[nodiscard]] bool update_document_sketches(document::PartDocument&,
+    const std::function<bool(sketcher::Sketch&)>&);
+[[nodiscard]] bool update_document_sketches(assembly::AssemblyDocument&,
+    const std::function<bool(sketcher::Sketch&)>&);
 [[nodiscard]] sketcher::Sketch document_sketch(const Workspace&,const std::string& document,const std::string& sketch);
 // Optional document-level label layouts commit atomically with the Sketch edit.
 [[nodiscard]] bool mutate_document_sketch(Workspace&,const std::string& document,const std::string& sketch,const SketchMutation&,

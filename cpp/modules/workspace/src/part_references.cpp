@@ -1,4 +1,5 @@
 #include <zima/workspace/model_calculation.hpp>
+#include <zima/workspace/sketch_operations.hpp>
 #include <zima/document/feature_sketches.hpp>
 #include <algorithm>
 #include <cstdint>
@@ -50,7 +51,8 @@ std::set<std::string> sketch_external_reference_source_owners(
         const auto consumer = first_consumer < document.history.size()
             ? document.history[first_consumer].id : sketch_id;
         const auto* target = document.body_history.owner(consumer);
-        if (!target) return owners;
+        const bool section=std::ranges::any_of(document.sections,[&](const auto& value){return value.sketch.id==sketch_id;});
+        if (!target && !section) return owners;
         const auto add_construction = [&](const auto& self, const auto& object) -> void {
             owners.insert(object.id); owners.insert(object.entity_id);
             owners.insert(object.container_origin.id);
@@ -70,7 +72,7 @@ std::set<std::string> sketch_external_reference_source_owners(
                 for (const auto& source_sketch : document.sketches)
                     if (source_sketch.owner_container_id == entry.id) owners.insert(source_sketch.id);
             }
-            if (body.scope.id == target->scope.id) break;
+            if (target && body.scope.id == target->scope.id) break;
         }
         return owners;
     }
@@ -122,7 +124,6 @@ bool refresh_sketch_external_references(
     const std::vector<zima::kernel::BodyResult>& calculated_boundaries) {
     const auto source = sketch_external_reference_source_geometry(
         document, calculated_boundaries);
-    bool changed = false;
     const auto refresh=[&](zima::sketcher::Sketch& sketch) {
         const auto allowed_owners = sketch_external_reference_source_owners(
             document, sketch.id);
@@ -153,15 +154,10 @@ bool refresh_sketch_external_references(
                 source.triangles[triangle * 3 + 1],
                 source.triangles[triangle * 3 + 2]});
         }
-        if (sketch.refresh_external_references(
-                document.document_id, document.sketch_reference_geometry_for(sketch, std::move(allowed_source)))) {
-            changed = true;
-        }
+        return sketch.refresh_external_references(
+            document.document_id, document.sketch_reference_geometry_for(sketch, std::move(allowed_source)));
     };
-    for(auto& sketch:document.sketches)refresh(sketch);
-    for(auto& container:document.history)if(container.feature_kind==zima::document::FeatureKind::Sweep2D)
-        for(auto& data:container.sweep2d.sketches()){auto sketch=zima::sketcher::Sketch::from_serialized(data);refresh(sketch);data=sketch.serialized();}
-    return changed;
+    return update_document_sketches(document,refresh);
 }
 
 bool prune_missing_drill_point_references(
@@ -195,20 +191,15 @@ bool prune_missing_drill_point_references(
 bool refresh_assembly_sketch_external_references(
     zima::assembly::AssemblyDocument& document) {
     const auto source = document.build_scene().original_references;
-    bool changed = false;
-    for (auto& sketch : document.sketches) {
+    return update_document_sketches(document,[&](auto& sketch) {
+        bool changed=false;
         std::set<std::string> source_documents;
-        for (const auto& reference : sketch.external_references) {
-            if (!reference.source_document_id.empty()) {
-                source_documents.insert(reference.source_document_id);
-            }
-        }
-        for (const auto& source_document_id : source_documents) {
-            changed = sketch.refresh_external_references(
-                source_document_id, source) || changed;
-        }
-    }
-    return changed;
+        for(const auto& reference:sketch.external_references)
+            if(!reference.source_document_id.empty())source_documents.insert(reference.source_document_id);
+        for(const auto& source_document_id:source_documents)
+            changed=sketch.refresh_external_references(source_document_id,source)||changed;
+        return changed;
+    });
 }
 
 } // namespace zima::workspace

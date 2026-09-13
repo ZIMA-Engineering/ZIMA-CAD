@@ -19,6 +19,20 @@ template<class Document,class Visitor> void visit_sketches(const Document& docum
     if constexpr(requires{document.cuts;})for(const auto& cut:document.cuts) {if(!more)return;feature(cut.definition);}
     if(more)for(const auto& section:document.sections)if(!visit(section.sketch))return;
 }
+template<class Document> bool update_sketches(Document& document,const std::function<bool(sketcher::Sketch&)>& update) {
+    bool changed=false;
+    for(auto& sketch:document.sketches)changed=update(sketch)||changed;
+    const auto feature=[&](auto& container) {
+        document::visit_feature_sketches(container,[&](auto& data,std::size_t) {
+            auto sketch=sketcher::Sketch::from_serialized(data);
+            if(update(sketch)){data=sketch.serialized();changed=true;}
+        });
+    };
+    if constexpr(requires{document.history;})for(auto& container:document.history)feature(container);
+    if constexpr(requires{document.cuts;})for(auto& cut:document.cuts)feature(cut.definition);
+    for(auto& section:document.sections)changed=update(section.sketch)||changed;
+    return changed;
+}
 void require_editable(const document::PartDocument& document,const std::string& owner) {
     if(const auto* body=document.body_owner_for_object(owner)) {
         if(body->derived_copy)throw SketchOperationError("read_only_body","A derived Body cannot be edited directly.");
@@ -54,6 +68,10 @@ void visit_document_sketches(const Workspace& live,const std::string& id,const s
     else if(const auto* assembly=live.open_assembly(id))visit_sketches(assembly->session.document(),visit);
     else throw SketchOperationError("unsupported_document","Sketch operations require an open Part or Assembly.");
 }
+void visit_document_sketches(const document::PartDocument& document,const std::function<bool(const sketcher::Sketch&)>& visit){visit_sketches(document,visit);}
+void visit_document_sketches(const assembly::AssemblyDocument& document,const std::function<bool(const sketcher::Sketch&)>& visit){visit_sketches(document,visit);}
+bool update_document_sketches(document::PartDocument& document,const std::function<bool(sketcher::Sketch&)>& update){return update_sketches(document,update);}
+bool update_document_sketches(assembly::AssemblyDocument& document,const std::function<bool(sketcher::Sketch&)>& update){return update_sketches(document,update);}
 sketcher::Sketch document_sketch(const Workspace& live,const std::string& id,const std::string& sketch_id) {
     std::optional<sketcher::Sketch> result;
     visit_document_sketches(live,id,[&](const auto& sketch) {if(sketch.id!=sketch_id)return true;result=sketch;return false;});

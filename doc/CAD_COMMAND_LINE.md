@@ -342,3 +342,12 @@ nebo vazeb. Chybějící zdroj zůstane neplatný se svou poslední geometrií;
 jiný výskyt stejného Partu příkaz odmítne. Výsledek uvádí
 `body_calculated: false` a seznam `broken_references`.
 Podrobnosti: [CONTEXT_REFERENCE_REFRESH.md](CONTEXT_REFERENCE_REFRESH.md).
+
+### Reference uvnitř profilů při regeneraci
+
+Explicitní regenerace zahrnuje také skici uložené uvnitř tažení, šroubovice,
+otvoru a závitu a skici řezů. Při regeneraci sestavy se kontextová reference
+v aktivovaném otevřeném Partu obnoví i tehdy, když Part nemá žádnou samostatnou
+kořenovou skicu. Uložené původní identity, oříznuté intervaly a vazby offsetu
+zůstávají zachované. Ověřený průchod přes CLI a nativní soubor popisuje
+[OWNED_SKETCH_REFERENCE_REFRESH.md](OWNED_SKETCH_REFERENCE_REFRESH.md).

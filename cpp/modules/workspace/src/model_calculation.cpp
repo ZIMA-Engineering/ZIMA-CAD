@@ -1,5 +1,6 @@
 #include <zima/workspace/model_calculation.hpp>
 #include <zima/workspace/profile_operations.hpp>
+#include <zima/workspace/sketch_operations.hpp>
 #include <algorithm>
 #include <functional>
 #include <stdexcept>
@@ -196,23 +197,19 @@ void regenerate_assembly(Workspace& workspace, const kernel::OcctKernel& kernel,
                 visiting_parts.erase(part_id);
                 return;
             }
-            for (const auto& sketch : part->session.document().sketches) {
-                for (const auto& reference : sketch.external_references) {
-                    if (reference.context_assembly_document_id == id &&
-                        reference.source_document_id != part_id) {
-                        regenerate_part_dependencies(
-                            reference.source_document_id);
+            std::set<std::string> sources;
+            bool has_context=false;
+            visit_document_sketches(part->session.document(),[&](const auto& sketch) {
+                for(const auto& reference:sketch.external_references)
+                    if(reference.context_assembly_document_id==id) {
+                        has_context=true;
+                        if(reference.source_document_id!=part_id)sources.insert(reference.source_document_id);
                     }
-                }
-            }
-            auto next = part->session.document();
-            const bool has_context = std::any_of(
-                next.sketches.begin(), next.sketches.end(), [&](const auto& sketch) {
-                    return std::any_of(sketch.external_references.begin(),
-                        sketch.external_references.end(), [&](const auto& reference) {
-                            return reference.context_assembly_document_id == id;
-                        });
-                });
+                return true;
+            });
+            for(const auto& source:sources)regenerate_part_dependencies(source);
+            part=workspace.open_part(part_id);
+            auto next=part->session.document();
             if (has_context) {
                 const auto& previous = part->session.calculated_boundaries();
                 auto calculated = calculate_part(kernel, next, &previous, policy);

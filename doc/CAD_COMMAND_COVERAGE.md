@@ -1039,3 +1039,18 @@ Sestavení obou aplikací a **115/115 testů prošlo za 502,04 s**. Podrobnosti 
 v [PART_SESSION_TRANSACTIONS.md](PART_SESSION_TRANSACTIONS.md). Jde o společnou
 transakční hranici pro GUI a CLI; kontextová tvorba/odpojení reference se
 sestavovými závislostmi stále zbývá a katalog má nadále 209 příkazů.
+
+## Obnova všech vlastněných skic (2026-09-13)
+
+Lokální a kontextová regenerace nově zahrnují všechny profily Sweep2D,
+Sweep3D, Helical Sweep, Hole a Thread i skici řezů. Stejný rozsah používá
+hledání kontextových závislostí před regenerací Assembly a jejich souhrn
+pro otevřené Party. Nová regrese kontroluje přesnou racionální křivku, trim,
+offset, chybějící/obnovený zdroj, Undo a nedotčený sousední profil.
+Skutečný CLI proces navíc regeneruje a nativně uloží platnou šroubovici
+s referencí pouze ve vnitřní základní skici.
+
+**116/116 testů prošlo za 501,40 s** po sestavení obou aplikací. Podrobnosti:
+[OWNED_SKETCH_REFERENCE_REFRESH.md](OWNED_SKETCH_REFERENCE_REFRESH.md).
+Katalog zůstává na 209 příkazech. Společná transakce kontextové tvorby/odpojení
+a bezpečné zachování závislostí sdílených s uzavřenými Party nadále zbývají.

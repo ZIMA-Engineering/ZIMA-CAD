@@ -1,6 +1,8 @@
 #include <zima/workspace/workspace.hpp>
 #include <zima/workspace/reference_sources.hpp>
 #include <zima/workspace/document_dependencies.hpp>
+#include <zima/workspace/sketch_operations.hpp>
+#include <zima/document/feature_sketches.hpp>
 #include <zima/document/object_annotation_frames.hpp>
 #include <zima/assembly/physical_properties.hpp>
 #include <zima/kernel/occt_kernel.hpp>
@@ -628,11 +630,14 @@ bool Workspace::refresh_context_external_references(
     using Context = std::tuple<std::string, std::string, std::string>;
     std::set<Context> contexts;
     std::vector<std::pair<std::string*,zima::sketcher::Sketch>> owned;
-    for(auto& container:document.history)if(container.feature_kind==zima::document::FeatureKind::Sweep2D)
-        for(auto& data:container.sweep2d.sketches())owned.emplace_back(&data,zima::sketcher::Sketch::from_serialized(data));
+    for(auto& container:document.history)
+        zima::document::visit_feature_sketches(container,[&](auto& data,std::size_t) {
+            owned.emplace_back(&data,zima::sketcher::Sketch::from_serialized(data));
+        });
     std::vector<zima::sketcher::Sketch*> sketches;
     for(auto& sketch:document.sketches)sketches.push_back(&sketch);
     for(auto& entry:owned)sketches.push_back(&entry.second);
+    for(auto& section:document.sections)sketches.push_back(&section.sketch);
     for (const auto* source : sketches) {
         const auto& sketch=*source;
         for (const auto& reference : sketch.external_references) {
@@ -643,6 +648,7 @@ bool Workspace::refresh_context_external_references(
         }
     }
     bool changed = false;
+    std::unordered_set<zima::sketcher::Sketch*> changed_sketches;
     for (const auto& [assembly_id, dependent_path, source_document_id] : contexts) {
         zima::kernel::ViewerReferenceGeometry geometry;
         if (open_assembly(assembly_id) != nullptr) {
@@ -662,10 +668,11 @@ bool Workspace::refresh_context_external_references(
             if (owns_context && sketch.refresh_external_references(
                     source_document_id, document.sketch_reference_geometry_for(sketch, geometry))) {
                 changed = true;
+                changed_sketches.insert(&sketch);
             }
         }
     }
-    for(auto& [data,sketch]:owned)*data=sketch.serialized();
+    for(auto& [data,sketch]:owned)if(changed_sketches.contains(&sketch))*data=sketch.serialized();
     return changed;
 }
 
@@ -745,7 +752,7 @@ void Workspace::synchronize_external_sketch_dependencies() {
     for (const auto& state : documents_) {
         const auto* part = std::get_if<PartState>(&state);
         if (part == nullptr) continue;
-        for (const auto& sketch : part->session.document().sketches) {
+        visit_document_sketches(part->session.document(),[&](const auto& sketch) {
             for (const auto& reference : sketch.external_references) {
                 if (reference.context_assembly_document_id.empty() ||
                     reference.context_instance_path.empty() ||
@@ -780,7 +787,8 @@ void Workspace::synchronize_external_sketch_dependencies() {
                     dependent_path.occurrence_ids[common_depth],
                     prerequisite_path.occurrence_ids[common_depth]);
             }
-        }
+            return true;
+        });
     }
     for (auto& state : documents_) {
         auto* assembly = std::get_if<AssemblyState>(&state);

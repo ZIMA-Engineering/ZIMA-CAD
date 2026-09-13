@@ -2,7 +2,7 @@
 #include "drill_point_test_support.hpp"
 #include <zima/kernel/drill_point_identity.hpp>
 #include "sweep_test_support.hpp"
-#include "context_reference_test_support.hpp"
+#include "owned_reference_test_support.hpp"
 #include "construction_query_test_support.hpp"
 #include "dxf_export_test_support.hpp"
 #include "stl_export_test_support.hpp"
@@ -745,6 +745,24 @@ int main(int argc,char** argv){
             const auto other_context=command({{"command","component.activate"},{"arguments",{{"instance_path",context.other_target_path.encoded()}}}});
             result=launch(executable,root,common+QStringList{"--command","open context-top.asmz","--command",other_context,"--command",refresh_context});
             require(result.exit_code==1&&result.results().back().at("code")=="context_reference","CLI refreshed a reference from another occurrence of the same Part");
+            test_support::install_owned_helical_reference(context,kernel);
+            std::vector<kernel::BodyResult> before_owned;
+            static_cast<void>(document::PartDocument::load(project/"context-target.prtz",&before_owned));
+            result=launch(executable,root,common+QStringList{"--command","open context-top.asmz","--command",activate_context,
+                "--command","component.deactivate","--command","regenerate","--command",activate_context,"--command","save"});
+            require(result.exit_code==0,"CLI Assembly regeneration failed for an owned Helical reference");
+            std::vector<kernel::BodyResult> after_owned;
+            const auto owned=document::PartDocument::load(project/"context-target.prtz",&after_owned);
+            require(owned.sketches.empty() && owned.history.front().feature_kind==document::FeatureKind::HelicalSweep,
+                "Owned regeneration fixture unexpectedly has a root Sketch");
+            const auto base=sketcher::Sketch::from_serialized(owned.history.front().helical.sketches[0]);
+            require(base.external_references.size()==1 && !base.external_references.front().broken && base.external_references.front().exact_spline,
+                "CLI regeneration lost the owned exact reference");
+            const auto first=base.external_references.front().exact_spline->poles.front();
+            require(std::abs(first.x-8)<1e-8 && std::abs(first.y-18.02)<1e-8,
+                "CLI regeneration skipped the reference inside the Helical base Sketch");
+            require(!after_owned.empty() && std::abs(after_owned.back().volume-before_owned.back().volume)<1e-7,
+                "Refreshing a reference-only curve changed the Helical body");
         }
         const auto text_request=command({{"command","sketch.text.create"},{"arguments",{{"sketch",projection_sketch},{"value","Řez Ø10"},{"position",{20,30}},{"height_mm",3},{"modeling_geometry",false}}}});
         result=launch(executable,root,common+QStringList{"--command","open cli-projection.prtz","--command",text_request,"--command","save"});
