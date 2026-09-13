@@ -45,6 +45,11 @@ template<bool Const,class Set,class References> void placement(std::vector<Field
         out.push_back({"placement:reference_offset:"+std::to_string(index++),{},nullptr,&ref.offset_locked,editable});
     }
 }
+template<bool Const,class Parameters> void derived_numbers(std::vector<Field<Const>>& out,Parameters& parameters) {
+    if(!parameters||!parameters->pattern)return;
+    number(out,parameters->value_locks,"pattern:angle");
+    for(std::size_t i=0;i<3;++i)number(out,parameters->value_locks,"pattern:spacing:"+std::to_string(i));
+}
 template<class Document> auto fields(Document& doc,const std::string& owner) {
     constexpr bool Const=std::is_const_v<Document>;std::vector<Field<Const>> out;
     const auto construction=[&](auto&& self,auto& object)->void {
@@ -91,9 +96,17 @@ template<class Document> auto fields(Document& doc,const std::string& owner) {
     if constexpr(requires{doc.history;})for(auto& object:doc.history)feature(object);
     if constexpr(requires{doc.cuts;})for(auto& cut:doc.cuts)feature(cut.definition);
     if constexpr(requires{doc.components;})for(auto& component:doc.components)
-        if(component.occurrence_id==owner)placement(out,component.value_locks,component.placement_references,true,false);
+        if(component.occurrence_id==owner) {
+            if(component.derived_copy) {
+                placement(out,component.copy_placement.value_locks,component.copy_placement.references,false);
+                derived_numbers(out,component.derived_copy);
+            }else placement(out,component.value_locks,component.placement_references,true,false);
+        }
     if constexpr(Const&&requires{doc.body_history;})
-        if(const auto* body=doc.body_history.find(owner))placement(out,body->scope.placement.value_locks,body->scope.placement.references,false);
+        if(const auto* body=doc.body_history.find(owner)) {
+            placement(out,body->scope.placement.value_locks,body->scope.placement.references,false);
+            derived_numbers(out,body->derived_copy);
+        }
     return out;
 }
 template<class Document> std::vector<ValueLockInfo> list(const Document& doc,const std::string& object) {
@@ -127,7 +140,7 @@ bool set_value_lock(Workspace& live,const std::string& id,const std::string& obj
     if(auto* part=live.open_part(id)) {
         const auto& before=part->session.document();
         if(const auto* body=before.body_owner_for_object(owner)) {
-            if(body->derived_copy)throw ValueLockError("read_only_body","A derived Body cannot be edited directly.");
+            if(body->derived_copy&&owner!=body->scope.id)throw ValueLockError("read_only_body","A derived Body cannot be edited directly.");
             if(owner!=body->scope.id&&body->scope.id!=before.body_history.active_body_id())
                 throw ValueLockError("inactive_body","Activate the owning Body before changing its value locks.");
         }
@@ -135,7 +148,8 @@ bool set_value_lock(Workspace& live,const std::string& id,const std::string& obj
         auto next=before;
         if(const auto* stored=next.body_history.find(owner)) {
             auto body=*stored;std::vector<Field<false>> values;
-            placement(values,body.scope.placement.value_locks,body.scope.placement.references,false);assign(values);
+            placement(values,body.scope.placement.value_locks,body.scope.placement.references,false);
+            derived_numbers(values,body.derived_copy);assign(values);
             next.body_history.update_body(std::move(body));
         }else {auto values=fields(next,owner);assign(values);}
         // Same metadata-only commit as the existing View lock action. Retain

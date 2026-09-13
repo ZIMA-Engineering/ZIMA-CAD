@@ -66,6 +66,7 @@ private:
     void register_edge_treatment_commands();
     void register_value_lock_commands();
     void register_derived_copy_queries();
+    void register_derived_copy_commands();
     void register_document_commands();
     void register_body_commands();
     void register_history_commands();

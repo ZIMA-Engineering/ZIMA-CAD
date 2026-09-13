@@ -127,6 +127,26 @@ int main(int argc,char** argv){
             copy_records[3].at("data").at("pattern").at("instance_count")==12&&copy_records[3].at("data").at("name")=="Pole žluťoučké"&&
             copy_records[1].at("data").at("revision")==copy_records[3].at("data").at("revision"),
             "Actual CLI failed persisted copy source/Mirror/Pattern queries or changed revision");
+        const auto create_mirror=command({{"command","mirror.create"},{"arguments",{{"source",copy_fixture.combined},{"local_plane","yz"}}}});
+        const auto unlock_mirror=command({{"command","value_lock.set"},{"arguments",{{"object",copy_fixture.mirror},{"key","placement:x"},{"locked",false}}}});
+        const auto edit_mirror=command({{"command","mirror.set"},{"arguments",{{"object",copy_fixture.mirror},{"source",copy_fixture.other},{"placement",{{"x",-4}}}}}});
+        const auto create_pattern=command({{"command","pattern.create"},{"arguments",{{"source",copy_fixture.combined},{"mode","circular"},{"count",3}}}});
+        const auto edit_pattern=command({{"command","pattern.set"},{"arguments",{{"object",copy_fixture.pattern},
+            {"linear",Json::array({Json{{"axis","x"},{"spacing_mm",40}},Json{{"axis","y"}}})}}}});
+        result=launch(executable,root,common+QStringList{"--command",copy_open,"--command",create_mirror,"--command",unlock_mirror,
+            "--command",edit_mirror,"--command",create_pattern,"--command",edit_pattern,"--command","save"});
+        const auto edited_records=result.results();
+        require(result.exit_code==0&&edited_records.size()==7,"Actual CLI could not create/edit Mirror and Pattern");
+        std::vector<kernel::BodyResult> copied_cache;const auto copy_saved=document::PartDocument::load(copy_path,&copied_cache);
+        const auto new_mirror=edited_records[1].at("data").at("object").get<std::string>();
+        const auto new_pattern=edited_records[4].at("data").at("object").get<std::string>();
+        require(copy_saved.body_history.find(copy_fixture.mirror)->scope.placement.x==-4&&
+            copy_saved.body_history.find(copy_fixture.mirror)->derived_copy->source_id==copy_fixture.other&&
+            std::abs(copied_cache.back().body_outputs.at(copy_fixture.mirror)->volume-12)<1e-6&&
+            copy_saved.body_history.find(copy_fixture.pattern)->derived_copy->pattern->linear[0].spacing==40&&
+            std::abs(copied_cache.back().body_outputs.at(new_mirror)->volume-60)<1e-6&&
+            std::abs(copied_cache.back().body_outputs.at(new_pattern)->volume-120)<1e-6,
+            "CLI copy properties or independent Boolean-source copy volumes did not persist");
         const auto shell_created=document::PartDocument::load(shell_path).history.back();
         const auto shell_edit=command({{"command","shell.set"},{"arguments",{{"container",shell_created.id},{"thickness_mm",2},
             {"faces",Json::array({Json{{"owner",shell_box.id},{"key","z_max"}}})}}}});

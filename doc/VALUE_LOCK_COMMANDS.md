@@ -17,7 +17,8 @@ krok Undo. Opakované nastavení stejného stavu je beze změny revize.
 přijímá volitelné `document` také pro jiný otevřený dokument; změna smí
 cílit pouze aktivní dokument a vyžaduje ukončený dialog/skicář. V Partu
 musí být aktivní vlastnící Těleso, kromě zámků samotného umístění Tělesa.
-Odvozené Těleso se touto operací přímo neupravuje. V sestavě se používá ID
+Odvozené Těleso dovoluje zámky vlastního umístění a parametrů kopie; jeho
+zdrojovou geometrii tato operace neupravuje. V sestavě se používá ID
 bezprostředně vlastněného výskytu: dvě vložení téhož zdroje mají nezávislé
 zámky. Zámek zdrojového Partu nemění rodičovská sestava.
 
@@ -31,11 +32,13 @@ Klíče odpovídají konkrétním polím Vlastností, například `length`, `rad
 `primary`, `secondary`, `profile_offset`, `pitch`, `base_offset` nebo
 `placement:x`. Platné klíče se vždy zjišťují výpisem pro konkrétní objekt.
 Neznámý klíč nesmí vytvářet libovolná metadata. Kóty skic a výkresů mají
-své již existující příkazy; pole odvozených kopií se řeší v jejich etapě.
+své již existující příkazy. Pole má klíče `pattern:angle` a
+`pattern:spacing:0/1/2` pro jednotlivé řádky Vlastností.
 
 Umístění Partu/konstrukce má samostatné `placement:rotation_x/y/z` a
-`placement:rotation_offset_x/y/z`. Komponenta Assembly má pouze běžné
-rotace a polohu. GUI nadále překládá nabízenou kótu na její skutečný uložený
+`placement:rotation_offset_x/y/z`. Běžná komponenta Assembly má pouze
+rotace a polohu; Zrcadlo/Pole používá vlastní `copy_placement` se stejnými
+zámky jako umístění Partu a případnými číselnými poli Pole. GUI nadále překládá nabízenou kótu na její skutečný uložený
 zámek podle `value_lock_key` ve vieweru. CLI zadává konkrétní klíč výslovně.
 
 `placement:reference_offset:N` je současná adresa pole reference od nuly:
@@ -89,3 +92,8 @@ sada prošla **7/7** (162,86 s), včetně skutečného CLI, konzole, Vlastností
 a inline katalogu ve View. Logy: `build/value-lock-alias-build.log`,
 `build/value-lock-alias-tests.log`. Úplný běh 102 testů výše předcházel
 této poslední úpravě adresování.
+
+
+Rozšíření pro Zrcadlo/Pole a ověření zamčené rozteče ve skutečných
+Vlastnostech popisuje [DERIVED_COPY_COMMANDS.md](DERIVED_COPY_COMMANDS.md).
+Zamčený úhel brání i změně počtu, která by změnila krok plného kruhu.

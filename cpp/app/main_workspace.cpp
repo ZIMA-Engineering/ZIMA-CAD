@@ -307,6 +307,24 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
     if(!verify(stored.body_history.find(id)&&stored.body_history.find(id)->derived_copy->source_id==source,"Body Mirror was not persisted"))return 1;
     auto bodies=kernel.evaluate_history(stored.kernel_operations());
     if(!verify(std::abs(bodies.back().volume-384)<1e-7&&bodies.back().body_inputs.contains(id),"Mirror is not a selectable full body"))return 1;
+    const auto copy_command=[&](const char* command,commands::Json args) {
+        return window.execute_console_command(QString::fromStdString(commands::Json{{"command",command},{"arguments",std::move(args)}}.dump()));
+    };
+    for(const bool patterned:{false,true}) {
+        const auto created=copy_command(patterned?"pattern.create":"mirror.create",patterned?
+            commands::Json{{"source",source},{"linear",commands::Json::array({commands::Json{{"axis","x"},{"count",2}}})}}:
+            commands::Json{{"source",source},{"local_plane","yz"}});flush();
+        if(!verify(created.ok,"GUI console copy creation failed"))return 1;
+        const auto created_id=created.data.at("object").get<std::string>();
+        if(!verify(row(created_id,"part-body")!=nullptr,"CLI-created copy did not appear in the Tree"))return 1;
+        const auto changed=copy_command(patterned?"pattern.set":"mirror.set",patterned?
+            commands::Json{{"object",created_id},{"linear",commands::Json::array({commands::Json{{"axis","x"},{"count",3}}})}}:
+            commands::Json{{"object",created_id},{"placement",{{"x",-4}}}});flush();
+        if(!verify(changed.ok&&changed.data.at("changed")==true,"GUI console copy editing failed"))return 1;
+        const auto undo_edit=window.execute_console_command("undo");flush();
+        const auto undo_create=window.execute_console_command("undo");flush();
+        if(!verify(undo_edit.ok&&undo_create.ok&&!row(created_id,"part-body"),"GUI console copy Undo left a stale Tree item"))return 1;
+    }
     tree->setCurrentItem(row(id,"part-body"));flush();
     if(!verify(view->confirmed_candidate()&&view->confirmed_candidate()->owner_id==id,"Tree did not confirm the Mirror body"))return 1;
     window.show_tree_item_properties(row(id,"part-body"));flush();
@@ -363,11 +381,17 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
     if(!verify(pattern_body&&pattern_body->derived_copy->pattern->linear[0].count==4&&std::abs(pattern_body->derived_copy->pattern->linear[0].direction.y-1)<1e-7,"Pattern did not persist local direction/count"))return 1;
     bodies=kernel.evaluate_history(stored.kernel_operations());
     if(!verify(std::abs(bodies.back().body_outputs.at(pattern_id)->volume-576)<1e-7,"Pattern does not produce a full body"))return 1;
+    if(!verify(copy_command("value_lock.set",{{"object",pattern_id},{"key","pattern:spacing:0"},{"locked",true}}).ok,
+            "Cannot lock Pattern spacing through the console"))return 1;
     window.show_tree_item_properties(row(pattern_id,"part-body"));flush();
     dialog=dynamic_cast<app::DerivedCopyDialog*>(window.findChild<QDialog*>("patternDialog"));
     if(!verify(dialog!=nullptr,"Pattern editing uses a different dialog"))return 1;
+    if(!verify(dialog->findChild<QDoubleSpinBox*>("patternSpacing0")->isReadOnly(),
+            "Pattern Properties did not use the common spacing lock"))return 1;
     dialog->findChild<QSpinBox*>("patternCount0")->setValue(7);dialog->reject();flush();save->trigger();flush();
     if(!verify(document::PartDocument::load(path).body_history.find(pattern_id)->derived_copy->pattern->linear[0].count==4,"Cancel changed Pattern count"))return 1;
+    if(!verify(copy_command("value_lock.set",{{"object",pattern_id},{"key","pattern:spacing:0"},{"locked",false}}).ok,
+            "Cannot unlock Pattern spacing through the console"))return 1;
     // Three independent fields use the real ordered hover/click picker.
     tree->setCurrentItem(row(source,"part-body"));flush();pattern_action->trigger();flush();
     dialog=dynamic_cast<app::DerivedCopyDialog*>(window.findChild<QDialog*>("patternDialog"));

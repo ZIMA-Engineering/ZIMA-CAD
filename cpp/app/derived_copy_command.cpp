@@ -33,28 +33,24 @@ void AssemblyWorkspaceWindow::show_derived_copy_properties(const std::string& id
     const auto document_id=workspace_.active_document_id();auto* part=workspace_.open_part(document_id);auto* assembly=workspace_.open_assembly(document_id);
     if(!part&&!assembly)return;
     const auto selected=viewer_->confirmed_candidate();
-    document::HistoryContainer initial;initial.id=id.empty()?kernel::make_stable_id():id;
-    initial.feature_id=initial.id+":entity";initial.container_origin=document::create_container_origin(initial.id);initial.name=pattern?"Pole":"Zrcadlo";
-    document::DerivedCopyParameters parameters;
-    if(pattern){parameters.pattern=kernel::PatternRequest{};parameters.reference={{},initial.container_origin.id,"origin:axis:z"};}
-    workspace::CopySources choices;
-    try {
-        choices=workspace::derived_copy_sources(workspace_,document_id,id);
-        if(!id.empty()) {
-            const auto stored=workspace::derived_copy_definition(workspace_,document_id,id);
-            parameters=stored.parameters;initial.name=stored.name;initial.placement=stored.placement;
-        }
-    }catch(const workspace::DerivedCopyError& error){state_->setText(tr(error.what()));return;}
+    std::shared_ptr<workspace::DerivedCopyEdit> edit;
+    try {edit=std::make_shared<workspace::DerivedCopyEdit>(workspace::prepare_derived_copy_edit(workspace_,document_id,id,pattern));}
+    catch(const std::exception& error){state_->setText(tr(error.what()));return;}
+    document::HistoryContainer initial;initial.id=edit->initial.id;
+    initial.feature_id=initial.id+":entity";initial.container_origin=document::create_container_origin(initial.id);
+    initial.name=edit->initial.name;initial.placement=edit->initial.placement;
+    auto parameters=edit->initial.parameters;
+    const auto& choices=edit->sources;
     document::BodyHistoryGraph graph;
     std::map<std::string,MirrorSource> sources;
-    kernel::ViewerReferenceGeometry geometry;
+    const auto& geometry=edit->references;
     std::vector<std::string> available;
     if(part) {
         const auto& document=part->session.document();graph=document.body_history;
         if(id.empty())graph.set_insertion_cursor(choices.boundary);
         for(const auto& source:choices.items)available.push_back(source.id);
         if(!part->session.calculated_boundaries().empty()) {
-            const auto& result=part->session.calculated_boundaries().back();geometry=result.mesh.original_references;
+            const auto& result=part->session.calculated_boundaries().back();
             for(const auto& source:available) {
                 const auto found=result.body_outputs.find(source);
                 if(found==result.body_outputs.end())continue;
@@ -63,17 +59,8 @@ void AssemblyWorkspaceWindow::show_derived_copy_properties(const std::string& id
                     found->second->mesh});
             }
         }
-        append_derived_copy_references(geometry,document.origin_viewer_mesh().original_references);
-        append_derived_copy_references(geometry,document.body_origin_reference_geometry());
-        append_derived_copy_references(geometry,document.construction_viewer_mesh().original_references);
-        append_derived_copy_references(geometry,document.history_origin_reference_geometry_before({}));
-        // Reference owners must precede the Mirror in this document history.
-        for(auto& ref:geometry.triangle_references)if(const auto* owner=document.body_owner_for_object(ref.owner_id);
-            owner&&std::ranges::find(available,owner->scope.id)==available.end())ref={};
     } else {
-        const auto& document=assembly->session.document();geometry=document.build_scene().original_references;
-        append_derived_copy_references(geometry,document.origin_viewer_mesh().original_references);
-        append_derived_copy_references(geometry,document.construction_viewer_mesh().original_references);
+        const auto& document=assembly->session.document();
         auto preview=document;bool downstream=false;
         for(auto& component:preview.components){if(component.occurrence_id==id)downstream=true;if(downstream)component.visible=false;}
         derived_copy_assembly_preview_=std::move(preview);
@@ -83,16 +70,6 @@ void AssemblyWorkspaceWindow::show_derived_copy_properties(const std::string& id
             sources.emplace(source.occurrence_id,MirrorSource{QString::fromStdString(source.name),isolated.build_scene()});
         }
     }
-    const auto unavailable=[&](const auto& reference) {
-        if(part){const auto* owner=part->session.document().body_owner_for_object(reference.owner_id);
-            return owner&&std::ranges::find(available,owner->scope.id)==available.end();}
-        const auto path=assembly::InstancePath::decode(reference.instance_path);
-        return !path.occurrence_ids.empty()&&!sources.contains(path.occurrence_ids.front());
-    };
-    for(auto& ref:geometry.triangle_references)if(unavailable(ref))ref={};
-    std::erase_if(geometry.edges,[&](const auto& e){return unavailable(e.reference);});
-    std::erase_if(geometry.points,[&](const auto& p){return unavailable(p.reference);});
-    std::erase_if(geometry.axes,[&](const auto& a){return unavailable(a.reference);});
     if(sources.empty()){derived_copy_assembly_preview_.reset();state_->setText(tr("Nejprve vytvořte zdrojové těleso nebo vložte komponentu."));return;}
     const auto prefix=active_occurrence_path_;
     const auto source_id=[this,document_id,prefix,sources](const viewer::ViewerCandidate& candidate)->std::string {
@@ -107,25 +84,11 @@ void AssemblyWorkspaceWindow::show_derived_copy_properties(const std::string& id
         const auto& source=path.occurrence_ids.back();return sources.contains(source)?source:std::string{};
     };
     if(id.empty()&&selected)parameters.source_id=source_id(*selected);
-    auto* dialog=new DerivedCopyDialog(initial,parameters,[this,document_id,graph,id,geometry](auto value,auto mirror) mutable {
-        if(!document::resolve_placement(value.placement,geometry))throw std::invalid_argument("Chybí reference umístění kontejneru.");
-        document::PartDocument::resolve_copy_reference(mirror,value.id,value.placement,geometry);
-        if(auto* part=workspace_.open_part(document_id)) {
-            auto next=part->session.document();auto updated=graph;document::BodyHistory body;
-            if(!id.empty())body=*updated.find(id);
-            body.scope.id=value.id;body.scope.placement=value.placement;body.name=value.name;body.derived_copy=mirror;
-            if(id.empty())static_cast<void>(updated.create_derived_copy(body));else updated.update_body(body);
-            updated.activate({});next.set_body_history(std::move(updated));
-            auto result=calculate_part_with_resolved_references(next,&part->session.calculated_boundaries());
-            part->session.commit(std::move(next),std::move(result));
-        } else if(auto* assembly=workspace_.open_assembly(document_id)) {
-            auto next=assembly->session.document();const auto* source=next.find_occurrence(mirror.source_id);
-            if(!source)throw std::invalid_argument("Zdrojová komponenta není dostupná.");
-            auto result=*source;result.occurrence_id=value.id;result.name=value.name;result.derived_copy=mirror;
-            result.copy_placement=value.placement;result.placement={};result.placement_references.clear();result.grounded=true;
-            if(id.empty())next.components.push_back(std::move(result));else *next.find_occurrence(id)=std::move(result);
-            next.calculate_derived_copies(kernel_);assembly->session.commit(std::move(next));
-        }
+    auto* dialog=new DerivedCopyDialog(initial,parameters,[this,edit](auto value,auto parameters) {
+        auto copy=edit->initial;copy.id=value.id;copy.name=value.name;
+        copy.placement=value.placement;copy.parameters=std::move(parameters);
+        try {static_cast<void>(workspace::commit_derived_copy(workspace_,kernel_,*edit,std::move(copy)));}
+        catch(const std::exception& error){throw std::runtime_error(tr(error.what()).toStdString());}
     },this);
     if(sources.contains(parameters.source_id))dialog->set_source(parameters.source_id,sources.at(parameters.source_id).name);
     properties_dialog_=dialog;properties_dialog_instance_path_=prefix;primitive_parameter_owner_id_=initial.id;

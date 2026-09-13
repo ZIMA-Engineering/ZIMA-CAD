@@ -1,9 +1,9 @@
 # Zrcadlo a Pole v příkazové vrstvě
 
-První etapa zpřístupňuje `derived_copy.sources`, `mirror.get` a `pattern.get`.
-GUI Vlastnosti používají stejnou funkci pro dostupné zdroje a pro načtení
-uložených parametrů. Samotná příkazová tvorba a změny následují; tento krok
-je neoznačuje za dokončené. Katalog má **201 příkazů**.
+Příkazová vrstva zpřístupňuje `derived_copy.sources`, `mirror.create/get/set`
+a `pattern.create/get/set`. GUI Vlastnosti používají stejné zdroje, načtení
+parametrů, přípravu a potvrzení jako CLI. Katalog má **205 příkazů**.
+Následující popis tvorby a změn je součástí právě ověřované etapy.
 
 ```json
 {"command":"derived_copy.sources","arguments":{}}
@@ -112,3 +112,125 @@ zaregistrovaný v CTest; ověřuje Zrcadlo a Pole v Partu i Assembly,
 znovuotevření stejných Vlastností, rollback/Cancel, směry mřížky, zdrojový
 výběr a potvrzení prostředním tlačítkem. Konzole navíc čte uložené hodnoty
 během rozpracované editace bez výměny rollback geometrie.
+
+
+## Vytváření a změny
+
+```json
+{"command":"mirror.create","arguments":{"source":"ID-ZDROJE","local_plane":"yz","placement":{"x":-2}}}
+{"command":"mirror.set","arguments":{"object":"ID-ZRCADLA","reference":{"owner":"ID-PUVODNIHO-OBJEKTU","key":"KLIC-PLOCHY","instance_path":"","offset_mm":1}}}
+{"command":"pattern.create","arguments":{"source":"ID-ZDROJE","linear":[{"axis":"x","spacing_mm":30,"count":3,"distribution":"symmetric"},{"axis":"y","spacing_mm":20,"count":2,"reverse_count":2,"distribution":"both"}]}}
+{"command":"pattern.set","arguments":{"object":"ID-POLE","mode":"circular","count":6,"full_circle":true,"local_axis":"z"}}
+```
+
+Tvorba vyžaduje `source`, editace `object` a alespoň jeden měněný parametr.
+Obě podporují `name`, `source`, `placement` a vlastní parametry uvedené níže.
+Změna smí cílit jen aktivní Part/Assembly s ukončeným dialogem a skicářem.
+Vnořenou aktivaci dosud omezuje společný guard příkazové vrstvy; její
+rozšíření zůstává v celkovém seznamu CLI. Nový příkaz si nevymýšlí zdroj
+podle názvu ani podle aktuálního hoveru.
+
+Zrcadlo potřebuje `local_plane` (`xy/xz/yz`) vlastního počátku nebo přesnou
+`reference`; nesmí být zadány současně. Výslovné `offset_mm` reference
+posouvá její rovinu po normále. Zdroj se odráží ve svých skutečných
+souřadnicích dokumentu, rovina patří umístění Zrcadla.
+
+Pole je při vytvoření lineární. `linear` je úplný seznam jednoho až tří
+směrových řádků; každý vyžaduje `axis` (`x/y/z` nebo `null`). Ostatní pole
+řádku jsou volitelná a zachovají dosavadní hodnoty: `spacing_mm`, `count`,
+`reverse_count`, `distribution`. Vynechané řádky se deaktivují, ale jejich
+číselná nastavení zůstanou uložená. Osy se nesmějí opakovat. Tímto polem
+se nezadávají libovolné vektory: používají se osy vlastního počátku Pole.
+
+Rozteč je 0,001 až 1 000 000 mm, počet ve směru 2 až 1000. `forward`,
+`reverse` a `symmetric` počítají celkem včetně zdroje; symetrický počet
+musí být lichý. `both` má `count` vpřed včetně zdroje a `reverse_count`
+(1 až 999) dalších pozic vzad. Celkový součin nesmí přesáhnout 1000 pozic.
+
+Kruhový režim se volí `mode:"circular"`. Používá `count` (2 až 1000),
+`full_circle` a `angle_degrees` (−359,999 až 359,999°); vlastní krok musí
+rozlišovat výskyty v jedné otáčce. `local_axis` vybírá vlastní `x/y/z`,
+alternativní `reference` původní osu či přímou hranu. Nulové odsazení osy
+je přípustné; nenulové odsazení reference je vyhrazené rovině Zrcadla.
+Výchozí kruhová reference je vlastní osa Z.
+
+Kruhová pole argumentů se zadávají pouze při kruhovém režimu, `linear`
+pouze při lineárním. `mode` lze změnit ve stejném příkazu. Přepnutí druhu
+Pole zachová neaktivní směry i kruhové nastavení. Druh Zrcadlo ↔ Pole
+se touto editací nemění.
+
+`placement` je číselný patch stejného umístění jako ve Vlastnostech:
+`x/y/z`, `rotation_x/y/z` a `reference_offset:N`. Jednotky jsou mm/stupně.
+Existující pravidla zamčených a referencí řízených polí se nemění.
+Nové generické přidávání umísťovacích referencí patří do samostatné etapy.
+
+## Potvrzení, zámky a chyby
+
+Společný `prepare_derived_copy_edit` uchová revizi, hranici historie,
+původní parametry a původní viewer reference. Nevolá OCCT. OK/příkaz
+použije `commit_derived_copy`, současný solver umístění a současný výpočet
+odvozených těles/komponent. Nová geometrie se počítá výslovně při potvrzení.
+Cancel nic z pending hodnot neuloží. Změněný dokument odmítne starou
+přípravu přes `document_changed`.
+
+Změna má jeden krok Undo; přesně stejné nastavení je no-op bez nové
+revize a výpočtu. Zdroj musí být dostupný před operací. Vlastní, chybějící,
+cizí a pozdější zdroje se odmítají před změnou dokumentu. Chyba nového
+výsledku nebo jeho zdroje v Partu zabrání commitu. Samostatná chyba
+navazujícího prvku může stejně jako v historii zůstat v dokumentu;
+příkaz pak výslovně vrátí `calculation_errors` a `changed:true`.
+
+Zámky kopie nyní používají `value_lock.list/set`: její vlastní umístění
+v `placement:*` a u Pole `pattern:angle`, `pattern:spacing:0/1/2`.
+Komponenta používá `copy_placement`, nikoli běžné umístění komponenty.
+Zámek úhlu brání také nepřímé změně úhlu přes počet plného kruhu. Zámek
+rozteče patří konkrétnímu řádku Vlastností, včetně dočasně neaktivního řádku.
+Odemykání uvnitř dialogu se potvrdí společně s hodnotami; konzole změnu
+během pending Vlastností odmítne.
+
+Editace komponentové kopie zachovává její vlastní viditelnost a barevné/
+vzhledové přepisy. Geometrie, materiál a zdrojové vlastnosti nadále přicházejí
+ze zdroje podle stávajícího výpočtu. Při vytvoření se zachová dosavadní
+převzetí vlastností ze zdrojové komponenty. Zdrojový Part se tím neupravuje.
+
+## Průběžné ověření tvorby a editace
+
+Po přesunu potvrzení prošly existující dotazové a skutečné GUI testy
+**2/2** (8,01 s), `build/derived-copy-shared-edit-build.log` a
+`build/derived-copy-shared-edit-tests.log`.
+
+Nový modelový test prošel **1/1** (0,81 s),
+`build/derived-copy-command-model-build.log`,
+`build/derived-copy-command-model-tests.log`. Ověřuje nezávislé objemy
+48 mm³ u zrcadla, 528 mm³ u pole 12 pozic, 912 mm³ u 20 pozic a 2000 mm³
+u sestavového pole tří pozic ze zdroje 1000 mm³. Porovnává ručně spočtené
+meze zrcadlení a směrové mřížky, původní rovinu, identity kopií při změně
+počtu, neaktivní režimy, zámky a nepřímý úhel, atomické chyby a překročení
+počtů, zdroj za hranicí, starou přípravu, Undo/Redo, studený nativní výpočet
+a zachování vlastního vzhledu komponenty.
+
+První úplný běh rozšířené sady prošel **105/105** (496,11 s),
+`build/derived-copy-command-all-build.log` a
+`build/derived-copy-command-full-tests.log`. Následuje dodatečné ověření
+aktuálního neuloženého zdroje v čistém CLI bez GUI obnovy scény.
+
+Doplňující scénář neuloženého Partu odhalil stale zdroj čistého CLI:
+po zvětšení zdroje z 1000 na 2000 mm³ měla nově potvrzená kopie stále
+1000 mm³ (`build/derived-copy-unsaved-repro-tests.log`, 0/1). GUI tuto
+obnovu provádí v `refresh_scene`; příprava kopie Assembly proto nyní
+přebírá aktuální zdroje existujícím `Workspace::refresh_source_geometry`.
+Ten sdílí vypočítaná data a neřeší vazby ani nepočítá staré kopie/řezy.
+Datové dotazy tuto přípravu nevolají. Zdrojový Part se neukládá ani
+nemění a obnova zdroje nevytváří samostatný krok Undo.
+
+
+Po opravě aktuálního zdroje prošel modelový test **1/1** (0,75 s),
+`build/derived-copy-unsaved-fix-build.log` a
+`build/derived-copy-unsaved-fix-tests.log`. Závěrečný test přidal návrat
+kopie na starý výsledek pomocí Undo při zachování současných sdílených
+zdrojových dat, následné Redo, změnu zdroje ve skutečném CLI procesu
+a zamčenou rozteč v GUI Vlastnostech. Oba programy jsou sestavené;
+všech **14/14** dotčených testů prošlo (85,98 s),
+`build/derived-copy-final-build.log` a `build/derived-copy-final-tests.log`.
+Úplná sada 105 testů výše předcházela poslední opravě sdílení zdroje.
+Formát dokumentů ani šablony se touto etapou nemění.

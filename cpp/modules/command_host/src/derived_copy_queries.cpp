@@ -1,4 +1,4 @@
-#include <zima/command_host/host.hpp>
+#include "derived_copy_command_support.hpp"
 #include <zima/workspace/derived_copy_operations.hpp>
 #include <zima/document/placement_json.hpp>
 #include <zima/kernel/pattern_geometry.hpp>
@@ -26,7 +26,8 @@ std::uint64_t revision(const workspace::Workspace& live,const std::string& id) {
     if(const auto* part=live.open_part(id))return part->session.revision();
     return live.open_assembly(id)->session.revision();
 }
-Json details(const workspace::Workspace& live,const std::string& id,const std::string& object,bool pattern) {
+} // namespace
+Json derived_copy_details(const workspace::Workspace& live,const std::string& id,const std::string& object,bool pattern) {
     const auto copy=workspace::derived_copy_definition(live,id,object);
     if(copy.parameters.pattern.has_value()!=pattern)
         throw workspace::DerivedCopyError("wrong_feature","The requested copy type does not match this object.");
@@ -53,7 +54,6 @@ Json details(const workspace::Workspace& live,const std::string& id,const std::s
         {"resolved_origin",xyz(request.origin)},{"resolved_axis",xyz(request.axis)},{"linear",std::move(linear)}};
     return result;
 }
-}
 void Host::register_derived_copy_queries() {
     dispatcher_.add({"derived_copy.sources",tr("List available Bodies or immediate components before a derived copy."),
         {{"object",false},{"document",false}},false},[this](const Json& args) {
@@ -71,7 +71,7 @@ void Host::register_derived_copy_queries() {
     for(const bool pattern:{false,true})dispatcher_.add({pattern?"pattern.get":"mirror.get",
         pattern?tr("Read persisted Pattern parameters and source identity."):tr("Read persisted Mirror parameters and source identity."),
         {{"object",true},{"document",false}},false},[this,pattern](const Json& args) {
-            try {return Result::success(details(workspace_,args.value("document",workspace_.active_document_id()),args.at("object"),pattern));}
+            try {return Result::success(derived_copy_details(workspace_,args.value("document",workspace_.active_document_id()),args.at("object"),pattern));}
             catch(const workspace::DerivedCopyError& error){return Result::failure(error.code,tr(error.what()));}
         });
 }

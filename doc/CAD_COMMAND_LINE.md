@@ -302,5 +302,10 @@ Platné klíče, vlastnictví a adresování referencí: [VALUE_LOCK_COMMANDS.md
 Zdroje dostupné pro Zrcadlo/Pole vrátí `derived_copy.sources`, případně
 s `object` pro hranici před editovanou kopií. `mirror.get OBJECT` a
 `pattern.get OBJECT` čtou její uložený zdroj, umístění, reference a parametry
-bez regenerace. Příklady a počty směrových kombinací:
+bez regenerace. `mirror.create/set` a `pattern.create/set` používají stejné
+potvrzení jako Vlastnosti. Tvorba vyžaduje `source`, změna `object`;
+zrcadlo zadává lokální rovinu nebo původní plošnou referenci, pole směrovou
+mřížku nebo kruhové parametry. Číselné umístění přijímá objekt `placement`.
+Výslovný výpočet kopie Assembly používá aktuální vypočítaný zdroj i před
+jeho uložením. Příklady, rozsahy, zámky a počty směrových kombinací:
 [DERIVED_COPY_COMMANDS.md](DERIVED_COPY_COMMANDS.md).
