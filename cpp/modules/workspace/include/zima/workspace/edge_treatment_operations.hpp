@@ -14,4 +14,10 @@ enum class EdgeTreatmentEditMode { Create, Replace };
     const std::vector<kernel::ViewerEdge>&,const std::vector<kernel::EdgeReference>&);
 [[nodiscard]] bool commit_edge_treatment(Workspace&,const kernel::OcctKernel&,
     const std::string& document_id,document::HistoryContainer,EdgeTreatmentEditMode);
+// Removes one persisted edge or the whole user-defined route. Returns true
+// when the last route removes the history container. Downstream calculation
+// errors then follow the existing history-delete contract and remain undoable.
+[[nodiscard]] bool remove_edge_treatment_selection(Workspace&,const kernel::OcctKernel&,
+    const std::string& document_id,const std::string& container_id,std::size_t route,
+    std::optional<kernel::EdgeReference> edge=std::nullopt);
 } // namespace zima::workspace

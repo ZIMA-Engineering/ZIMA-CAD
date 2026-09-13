@@ -287,3 +287,8 @@ explicitního konce R1 a obrácení směru. `chamfer.create/get/set` ovládají
 stejné/dvě vzdálenosti i vzdálenost s úhlem a přepnutí strany FLIP.
 Příkazy sdílejí potvrzení s GUI; rozměry přijímají jako JSON čísla v mm.
 Příklady tras a pravidla R1: [EDGE_TREATMENT_COMMANDS.md](EDGE_TREATMENT_COMMANDS.md).
+
+Jednotlivou hranu nebo celou uživatelskou trasu odebere `edge_treatment.remove`
+pomocí `container`, `route` (index v uloženém seznamu od nuly) a volitelné
+původní reference `edge`. Poslední trasa odstraní celý prvek jedním Undo
+krokem; navazující chyby vrací výslovně se stavem provedeného mazání.

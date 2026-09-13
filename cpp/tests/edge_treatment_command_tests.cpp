@@ -5,6 +5,7 @@
 #include <cmath>
 #include <iostream>
 #include <numbers>
+#include <limits>
 #include <set>
 using namespace zima;
 using commands::Json;
@@ -146,6 +147,73 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     run(host,"save");const auto four_saved=document::PartDocument::load(directory/"four-linear-routes.prtz");kernel::OcctKernel cold;
     const auto four_cold=cold.evaluate_history(four_saved.kernel_operations());check_radii(four_cold.back(),true);
     near(four_cold.back().volume,many_volume,.001);require(face_ids(four_cold.back())==ids,"Cold calculation lost Fillet ancestry");
+    const auto before_remove=*state->session.document().find_container(many);
+    auto removal=run(host,"edge_treatment.remove",{{"container",many},{"route",0},{"edge",four_routes[0].at("edges")[0]}}).data;
+    require(!removal.at("removed").get<bool>()&&removal.at("routes").size()==3,"Removing one linear route removed its feature");
+    const auto& surviving=state->session.document().find_container(many)->edge_treatment;
+    for(std::size_t i=0;i<surviving.routes.size();++i)require(surviving.routes[i]==before_remove.edge_treatment.routes[i+1]&&
+        surviving.route_start_vertices[i]==before_remove.edge_treatment.route_start_vertices[i+1],"Removing an earlier linear route moved a surviving R1");
+    run(host,"undo");require(*state->session.document().find_container(many)==before_remove,"Undo did not restore linear routes and explicit R1");
+    // Remove an exact member, a whole route, then the last member for each type.
+    for(const bool fillet:{true,false}) {
+        const std::string prefix=fillet?"fillet":"chamfer",name=prefix+"-remove";
+        run(host,"new",{{"type","part"},{"name",name}});
+        const auto block=run(host,"box.create",{{"length_mm","10"},{"width_mm","10"},{"height_mm","10"}}).data.at("container").get<std::string>();
+        state=live.open_part(live.active_document_id());const auto owning_body=state->session.document().body_history.active_body_id();
+        const Json a={{"owner",block},{"key",edge_key}},b={{"owner",block},{"key","edge:x_min:y_max:z_max--x_min:y_max:z_min"}},
+            c={{"owner",block},{"key","edge:x_min:y_min:z_max--x_min:y_min:z_min"}};
+        const auto grouped=Json::array({Json{{"edges",Json::array({a,b})}},Json{{"edges",Json::array({c})}}});
+        const auto treatment=run(host,(prefix+".create").c_str(),{{"routes",grouped}}).data.at("container").get<std::string>();
+        const auto full=*state->session.document().find_container(treatment);const double cut=10*(fillet?corner:.5);
+        near(state->session.calculated_boundaries().back().volume,1000-3*cut);
+        const auto unchanged=state->session.revision();const auto* original_cache=state->session.calculated_boundaries().data();
+        for(auto args:std::vector<Json>{{{"route",-1}},{{"route",Json(std::numeric_limits<std::uint64_t>::max())}},{{"route",3}},{{"route",.5}},
+            {{"route",0},{"edge",c}},{{"route",0},{"edge",Json{{"owner",block},{"key",edge_key},{"instance_path","foreign"}}}},
+            {{"route",0},{"edge",Json{{"owner",block},{"key",edge_key},{"geometry_index",0}}}},{{"route",0},{"edge",nullptr}}}) {
+            args["container"]=treatment;require(!host.execute({{"command","edge_treatment.remove"},{"arguments",args}}).ok,"Invalid route removal succeeded");
+            require(state->session.revision()==unchanged&&state->session.calculated_boundaries().data()==original_cache&&*state->session.document().find_container(treatment)==full,"Rejected removal mutated the document");
+        }
+        require(host.execute({{"command","edge_treatment.remove"},{"arguments",{{"container",block},{"route",0}}}}).code=="wrong_feature","Removal accepted a primitive");
+        run(host,"body.create",{{"name","Inactive check"}});
+        require(host.execute({{"command","edge_treatment.remove"},{"arguments",{{"container",treatment},{"route",0}}}}).code=="inactive_body","Removal edited another Body");
+        run(host,"body.activate",{{"body",owning_body}});
+        removal=run(host,"edge_treatment.remove",{{"container",treatment},{"route",0},{"edge",a}}).data;
+        require(!removal.at("removed").get<bool>()&&removal.at("routes").size()==2&&removal.at("routes")[0].at("edges")[0].at("key")==b.at("key"),"Exact member deletion removed another edge");
+        near(state->session.calculated_boundaries().back().volume,1000-2*cut);
+        run(host,"undo");require(*state->session.document().find_container(treatment)==full,"Member removal took multiple Undo steps");run(host,"redo");
+        removal=run(host,"edge_treatment.remove",{{"container",treatment},{"route",1}}).data;
+        require(!removal.at("removed").get<bool>()&&removal.at("routes").size()==1,"Route deletion removed the wrong selection");
+        near(state->session.calculated_boundaries().back().volume,1000-cut);
+        run(host,"save");const auto remaining=document::PartDocument::load(directory/(name+".prtz"));
+        require(*remaining.find_container(treatment)==*state->session.document().find_container(treatment),"Native file lost remaining route identity");
+        near(kernel.evaluate_history(remaining.kernel_operations()).back().volume,1000-cut);
+        const auto single=*state->session.document().find_container(treatment);
+        removal=run(host,"edge_treatment.remove",{{"container",treatment},{"route",0},{"edge",b}}).data;
+        require(removal.at("removed").get<bool>()&&removal.at("calculation_errors").empty()&&!state->session.document().find_container(treatment),"Last edge retained an empty treatment");
+        near(state->session.calculated_boundaries().back().volume,1000);
+        run(host,"undo");require(*state->session.document().find_container(treatment)==single,"Undo lost deleted feature identity");run(host,"redo");
+        require(!state->session.document().find_container(treatment),"Redo failed to delete the last route");
+    }
+    // The last route follows history deletion: retain a dependent feature with
+    // its error, expose changed=true, and allow one Undo to restore both bodies.
+    run(host,"new",{{"type","part"},{"name","dependent-route-removal"}});
+    const auto source=run(host,"box.create",{{"length_mm","10"},{"width_mm","10"},{"height_mm","10"}}).data.at("container");
+    state=live.open_part(live.active_document_id());
+    const auto parent=run(host,"fillet.create",{{"radius_mm",2},{"routes",Json::array({Json{{"edges",Json::array({Json{{"owner",source},{"key",edge_key}}})}}})}}).data.at("container").get<std::string>();
+    const auto& parent_body=state->session.calculated_boundaries().back();
+    const auto generated=std::ranges::find_if(parent_body.mesh.edges,[&](const auto& e){return e.reference.owner_id==parent&&e.points.size()>2&&
+        std::ranges::all_of(e.points,[](const auto& p){return std::abs(p.z-5)<1e-6;});});
+    require(generated!=parent_body.mesh.edges.end(),"Missing generated rim for dependency fixture");
+    const Json generated_edge={{"owner",generated->reference.owner_id},{"key",generated->reference.semantic_key}};
+    const auto child=run(host,"fillet.create",{{"radius_mm",.2},{"routes",Json::array({Json{{"edges",Json::array({generated_edge})}}})}}).data.at("container").get<std::string>();
+    const auto intact_volume=state->session.calculated_boundaries().back().volume;
+    const auto deletion=host.execute({{"command","edge_treatment.remove"},{"arguments",{{"container",parent},{"route",0}}}});
+    require(!deletion.ok&&deletion.code=="calculation_errors"&&deletion.data.at("changed")==true&&deletion.data.at("removed")==true,
+        "Dependent last-route removal did not report its committed history change");
+    require(!state->session.document().find_container(parent)&&state->session.document().find_container(child)&&
+        !deletion.data.at("calculation_errors").empty(),"Dependent feature or its error was lost");
+    run(host,"undo");require(state->session.document().find_container(parent)&&state->session.calculated_boundaries().back().calculation_errors.empty(),"Undo failed to restore dependency geometry");
+    near(state->session.calculated_boundaries().back().volume,intact_volume);
     // A closed circular edge needs no invented R1 endpoint for constant radius.
     run(host,"new",{{"type","part"},{"name","circular-fillet"}});run(host,"cylinder.create",{{"radius_mm","10"},{"height_mm","20"}});state=live.open_part(live.active_document_id());
     const auto& input=state->session.calculated_boundaries().back();

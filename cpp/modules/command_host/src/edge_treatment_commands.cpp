@@ -3,6 +3,8 @@
 #include <zima/document/metadata.hpp>
 #include <algorithm>
 #include <cctype>
+#include <limits>
+#include <zima/workspace/history_operations.hpp>
 namespace zima::command_host {
 namespace {
 using Error=workspace::EdgeTreatmentOperationError;
@@ -64,6 +66,30 @@ Json details(const workspace::PartState& state,const document::HistoryContainer&
 }
 void Host::register_edge_treatment_commands() {
     using Type=commands::ArgumentType;
+    dispatcher_.add({"edge_treatment.remove",tr("Remove an input edge or route; the last route removes its treatment."),
+        {{"container",true},{"route",true,Type::Integer},{"edge",false,Type::Object},{"document",false}},true},[this](const Json& args) {
+            const auto checked=target(args);if(!checked.ok)return checked;const auto id=workspace_.active_document_id();
+            try {
+                auto* state=workspace_.open_part(id);
+                if(!state||interaction().template_document)throw Error("unsupported_document","Edge treatment operations require an open Part.");
+                if(args.at("route")<0||args.at("route").get<std::uint64_t>()>std::numeric_limits<std::size_t>::max())
+                    throw Error("invalid_route","The selected edge route does not exist.");
+                const auto container=args.at("container").get<std::string>();
+                const auto edge=args.contains("edge")?std::optional{parse_reference<kernel::EdgeReference>(args.at("edge"))}:std::nullopt;
+                const bool removed=workspace::remove_edge_treatment_selection(workspace_,kernel_,id,container,args.at("route").get<std::size_t>(),edge);
+                Json data={{"document",id},{"container",container},{"revision",state->session.revision()}};
+                if(!removed)data=details(*state,*state->session.document().find_container(container));
+                data["changed"]=true;data["removed"]=removed;
+                const auto& boundaries=state->session.calculated_boundaries();
+                data["calculation_errors"]=boundaries.empty()?Json::object():Json(boundaries.back().calculation_errors);
+                change_=Change{ChangeKind::Model,id,true};
+                if(!data.at("calculation_errors").empty())
+                    return Result{false,"calculation_errors",tr("History changed; some dependent features could not be calculated."),std::move(data)};
+                return Result::success(std::move(data));
+            }catch(const Error& error){return Result::failure(error.code,tr(error.what()));}
+             catch(const workspace::HistoryOperationError& error){return Result::failure(error.code,tr(error.what()));}
+             catch(const std::exception& error){return Result::failure("edge_treatment_rejected",tr(error.what()));}
+        });
     for(const bool fillet:{true,false}) {
         const std::string prefix=fillet?"fillet":"chamfer";
         dispatcher_.add({prefix+".get",fillet?tr("Read Fillet radii, mode and original input routes."):tr("Read Chamfer distances, angle and original input routes."),

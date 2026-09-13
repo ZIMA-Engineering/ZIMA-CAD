@@ -125,6 +125,14 @@ int main(int argc,char** argv){
             const auto expected=1000-90*(fillet?1-std::acos(-1.)/4:.5);
             require(saved.history.back().feature_id==created.feature_id&&saved.history.back().edge_treatment.routes==created.edge_treatment.routes&&!cache.empty()&&std::abs(cache.back().volume-expected)<1e-5,
                 "Standalone edge treatment lost input identity or saved incorrect volume");
+            const auto remove=command({{"command","edge_treatment.remove"},{"arguments",{{"container",created.id},{"route",0},
+                {"edge",Json{{"owner",shell_box.id},{"key","edge:x_max:y_min:z_max--x_max:y_min:z_min"}}}}}});
+            result=launch(executable,root,common+QStringList{"--command",open,"--command",remove,"--command","undo","--command",get,
+                "--command","redo","--command","save"});
+            require(result.exit_code==0&&result.results()[1].at("data").at("removed")==true&&result.results()[3].at("data").at("feature")==created.feature_id,
+                "Standalone last-route removal or Undo failed");
+            std::vector<kernel::BodyResult> restored_input;const auto removed=document::PartDocument::load(path,&restored_input);
+            require(!removed.find_container(created.id)&&std::abs(restored_input.back().volume-1000)<1e-5,"CLI last-route removal did not persist the real input body");
         }
         const auto drill_path=project/"drill-cli.prtz";const auto drill_fixture=test::drill_point_fixture();
         kernel::OcctKernel drill_kernel;drill_fixture.save(drill_path,drill_kernel.evaluate_history(drill_fixture.kernel_operations()));

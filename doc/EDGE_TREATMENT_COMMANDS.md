@@ -171,3 +171,47 @@ OK/Cancel, více tras s opačným R1, stromové odebrání hrany/trasy a překla
 Logy: `build/fillet-multiple-routes-fixed-tests.log`,
 `build/fillet-multiple-routes-all-build.log`,
 `build/fillet-multiple-routes-full-tests.log`.
+
+
+## Odebrání člena nebo trasy
+
+`edge_treatment.remove` je společná modelová operace stromu a CLI pro Fillet
+i Chamfer. Vyžaduje `container` a celé nezáporné `route`: index od nuly
+v uloženém uživatelském seznamu `routes` z `.get`. Nejde o index OCCT hrany.
+Volitelné `edge` je přesná původní reference jediného člena zvolené trasy.
+Bez `edge` se odebere celá trasa. `document` volitelně ověřuje aktivní Part.
+
+```json
+{"command":"edge_treatment.remove","arguments":{"container":"ID-PRVKU","route":0,"edge":{"owner":"ID-ZDROJE","key":"KLIC-HRANY"}}}
+{"command":"edge_treatment.remove","arguments":{"container":"ID-PRVKU","route":1}}
+```
+
+Zbývající skupiny vzniknou stejným rozdělením podle původních koncových bodů
+jako při odebrání ve Vlastnostech. Začátky proměnného R1 se zachovají nebo
+vyberou na rozdělené trase podle původního topologického směru. Geometrickou
+proveditelnost znovu ověří výpočet; neproveditelná dílčí úprava se neuloží.
+Automatické pokračování OCCT po tečných hranách se tím nemění.
+
+Pokud nezůstane žádná trasa, odstraní se celý kontejner stejným příkazem
+historie jako ve stromu. Výsledek obsahuje `changed`, `removed`, `revision`
+a `calculation_errors`; přežívající prvek navíc vrací stejné detaily jako
+`.get`. Jedna operace znamená jeden krok Undo, včetně odstranění poslední
+trasy. Prázdný neplatný kontejner se nevytváří.
+
+Stejně jako `history.delete` může odstranění celého prvku zanechat navazující
+prvek s chybějící referencí. Pak výsledek hlásí `ok:false`, kód
+`calculation_errors` a současně **`data.changed:true`, `data.removed:true`**:
+mazání proběhlo a jde vrátit přes Undo. Tuto odpověď klient nesmí chápat
+jako nezměněný dokument. Chybné argumenty, cizí reference nebo neaktivní
+Těleso naopak dokument nezmění.
+
+Modelový test prošel **1/1** (2,16 s), `build/edge-remove-model-tests.log`.
+Ověřuje přesné objemy obou typů, odebrání člena i trasy, R1, chyby argumentů,
+vlastnictví, nativní uložení, poslední trasu, navazující skutečné zaoblení
+a Undo/Redo. Oba programy i testovací cíle jsou sestavené; související sada
+prošla **38/38** (250,10 s), včetně původního stromového testu odebrání
+člena/trasy/poslední trasy pro oba typy a nových skutečných CLI i GUI
+konzolových scénářů. Samostatně prošly překlady **1/1** (1,43 s).
+Logy: `build/edge-remove-all-build.log`, `build/edge-remove-related-tests.log`,
+`build/edge-remove-translations-tests.log`. Katalog má **196 příkazů**;
+formát dokumentů a start šablony se nemění.

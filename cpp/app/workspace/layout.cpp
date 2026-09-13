@@ -2214,23 +2214,22 @@ void AssemblyWorkspaceWindow::create_layout() {
                 else if (selected==properties) show_primitive_properties(kind,id);
                 else if (selected==remove) {
                     try {
-                        const auto boundary=part->session.rollback_boundary(id);
-                        if (!boundary || !boundary->input_body)
-                            throw std::runtime_error("Chybí uložený vstup operace. Regenerujte Part.");
-                        auto next=part->session.document();
-                        auto* target=next.find_container(id);
-                        zima::document::remove_treatment_selection(target->edge_treatment,route,member,boundary->input_body->mesh);
-                        if (target->edge_treatment.routes.empty()) {
-                            delete_part_object(id,QStringLiteral("container"),false);
-                            return;
+                        std::optional<zima::kernel::EdgeReference> edge;
+                        if(member) {
+                            if(route>=container->edge_treatment.routes.size()||*member>=container->edge_treatment.routes[route].size())
+                                throw std::runtime_error("The edge must identify one member of the selected route.");
+                            edge=container->edge_treatment.routes[route][*member];
                         }
-                        static_cast<void>(zima::workspace::commit_edge_treatment(workspace_,kernel_,
-                            part->session.document().document_id,*target,zima::workspace::EdgeTreatmentEditMode::Replace));
+                        static_cast<void>(zima::workspace::remove_edge_treatment_selection(workspace_,kernel_,
+                            part->session.document().document_id,id,route,edge));
                         viewer_->clear_selection();
                         preserve_view_on_refresh_=true;
                         refresh_tabs();refresh_scene();
+                        const auto& boundaries=part->session.calculated_boundaries();
+                        if(!boundaries.empty()&&!boundaries.back().calculation_errors.empty())
+                            state_->setText(tr("History changed; some dependent features could not be calculated."));
                     } catch (const std::exception& error) {
-                        QMessageBox::warning(this,tr("Trasu nelze změnit"),error.what());
+                        QMessageBox::warning(this,tr("Trasu nelze změnit"),tr(error.what()));
                     }
                 }
             } else if(item->data(0,Qt::UserRole+3).toString()=="part-helical-sketch" || item->data(0,Qt::UserRole+3).toString()=="part-sweep2d-sketch") {

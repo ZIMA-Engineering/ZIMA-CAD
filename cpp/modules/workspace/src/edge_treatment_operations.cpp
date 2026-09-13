@@ -1,5 +1,7 @@
 #include <zima/workspace/edge_treatment_operations.hpp>
 #include <zima/workspace/operation_input.hpp>
+#include <zima/workspace/history_operations.hpp>
+#include <zima/document/edge_treatment_selection.hpp>
 #include <algorithm>
 #include <cmath>
 #include <map>
@@ -118,5 +120,41 @@ bool commit_edge_treatment(Workspace& live,const kernel::OcctKernel& kernel,cons
     // projections must describe the same explicitly calculated result.
     auto calculated=calculate_part_with_resolved_references(kernel,next,&previous,policy);
     state->session.commit(std::move(next),std::move(calculated));return true;
+}
+bool remove_edge_treatment_selection(Workspace& live,const kernel::OcctKernel& kernel,
+    const std::string& document_id,const std::string& container_id,std::size_t route,
+    std::optional<kernel::EdgeReference> edge) {
+    using Error=EdgeTreatmentOperationError;
+    auto* state=live.open_part(document_id);
+    if(!state)throw Error("unsupported_document","Edge treatment operations require an open Part.");
+    const auto& before=state->session.document();const auto* stored=before.find_container(container_id);
+    if(!stored)throw Error("container_not_found","The requested container does not exist.");
+    if(stored->feature_kind!=document::FeatureKind::Fillet&&stored->feature_kind!=document::FeatureKind::Chamfer)
+        throw Error("wrong_feature","This container is not a Fillet or Chamfer.");
+    if(const auto* body=before.body_owner_for_object(container_id)) {
+        if(body->derived_copy)throw Error("read_only_body","A derived Body cannot be edited directly.");
+        if(body->scope.id!=before.body_history.active_body_id())
+            throw Error("inactive_body","Activate the owning Body before editing its edge treatment.");
+    }
+    if(route>=stored->edge_treatment.routes.size())throw Error("invalid_route","The selected edge route does not exist.");
+    std::optional<std::size_t> member;
+    if(edge) {
+        if(!edge->valid()||!edge->instance_path.empty())throw Error("invalid_reference","Select a local persisted input reference.");
+        const auto& selected=stored->edge_treatment.routes[route];
+        const auto found=std::ranges::find(selected,*edge);
+        if(found==selected.end()||std::count(selected.begin(),selected.end(),*edge)!=1)
+            throw Error("invalid_reference","The edge must identify one member of the selected route.");
+        member=static_cast<std::size_t>(found-selected.begin());
+    }
+    const auto* input=calculated_operation_input(state->session,container_id);
+    if(!input)throw Error("missing_input","Edge treatment requires a calculated input body.");
+    auto next=*stored;
+    document::remove_treatment_selection(next.edge_treatment,route,member,input->mesh);
+    if(next.edge_treatment.routes.empty()) {
+        delete_part_history(*state,kernel,container_id);
+        return true;
+    }
+    static_cast<void>(commit_edge_treatment(live,kernel,document_id,std::move(next),EdgeTreatmentEditMode::Replace));
+    return false;
 }
 } // namespace zima::workspace

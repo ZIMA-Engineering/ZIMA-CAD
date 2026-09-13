@@ -1215,6 +1215,12 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
                 check(dialog->isVisible()&&get().at("routes").size()==1,"Empty Fillet edit changed the document");
                 dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
             }
+            const auto before_delete=get();
+            const auto deleted=json_run("edge_treatment.remove",{{"container",id},{"route",0}}).data;flush();
+            check(deleted.at("removed")==true,"Console did not delete the final route");
+            run("save");check(!document::PartDocument::load(path).find_container(id),"Console retained an empty edge treatment");
+            run("undo");flush();check(get().at("routes")==before_delete.at("routes"),"Console deletion Undo lost routes");
+            dialog=edit();dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
             json_run("close",{{"discard",true}});json_run("activate",{{"document",previous_document}});flush();
         }
         input->setText("context");QApplication::sendEvent(input,&enter);flush();
