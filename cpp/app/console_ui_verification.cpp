@@ -741,6 +741,33 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         curve_dialog=edit_curve();check(curve_dialog->findChild<QComboBox*>("curve3DType")->currentData().toInt()==
             static_cast<int>(document::Curve3DType::InterpolatingSpline),"GUI did not consume CLI spline type");
         curve_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
+        const auto remove_tree_construction=[&](const std::string& object) {
+            QTreeWidgetItem* item=nullptr;
+            for(QTreeWidgetItemIterator i(model_tree);*i;++i)if((*i)->data(0,Qt::UserRole).toString().toStdString()==object&&
+                ((*i)->data(0,Qt::UserRole+3).toString()=="part-construction"||(*i)->data(0,Qt::UserRole+3).toString()=="assembly-construction")){item=*i;break;}
+            check(item,"Construction removal row is missing");model_tree->clearSelection();model_tree->setCurrentItem(item);item->setSelected(true);model_tree->scrollToItem(item);flush();
+            bool invoked=false;QString issue;QTimer messages;messages.setInterval(10);
+            QObject::connect(&messages,&QTimer::timeout,[&]{if(auto* box=qobject_cast<QMessageBox*>(QApplication::activeModalWidget())) {
+                if(auto* yes=box->button(QMessageBox::Yes))yes->click();else{issue=box->text();box->accept();}
+            }});
+            messages.start();QTimer::singleShot(0,&window,[&]{auto* menu=qobject_cast<QMenu*>(QApplication::activePopupWidget());if(!menu)return;
+                for(auto* action:menu->actions())if(action->objectName()=="deleteHistoryObject"||action->text()==QObject::tr("Odstranit")) {
+                    invoked=true;menu->setActiveAction(action);QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(menu,&enter);return;
+                }menu->close();
+            });
+            model_tree->customContextMenuRequested(model_tree->visualItemRect(item).center());messages.stop();flush();
+            check(invoked&&issue.isEmpty(),"GUI construction removal failed");
+        };
+        remove_tree_construction(curve_id);check(json_run("construction.list",commands::Json::object()).data.at("total")==1,"GUI root curve removal left its owned Points");
+        run("undo");check(json_run("construction.get",{{"construction",curve_middle}}).data.at("parent")==curve_id,"GUI construction Undo lost owned Points");
+        json_run("construction.delete",{{"construction",curve_id}});flush();
+        check(json_run("construction.list",commands::Json::object()).data.at("total")==1,"Console construction removal left the root Curve");
+        json_run("close",{{"discard",true}});
+        run(QString::fromStdString("new assembly "+stem+"-construction-delete"));
+        const auto assembly_axis=json_run("construction.create",{{"kind","axis"},{"name","Axis to remove"}}).data.at("construction").get<std::string>();flush();
+        remove_tree_construction(assembly_axis);check(json_run("construction.list",commands::Json::object()).data.at("total")==0,"Assembly menu removal left its construction");
+        run("undo");json_run("construction.delete",{{"construction",assembly_axis}});run("save");
+        check(assembly::AssemblyDocument::load(directory/(stem+"-construction-delete.asmz")).constructions.empty(),"Shared GUI/CLI Assembly removal did not persist");
         json_run("close",{{"discard",true}});run(QString::fromStdString(activate.dump()));flush();
         for(const std::string kind:{"extrusion","revolution"}) {
             run(QString::fromStdString("new part "+stem+"-"+kind));flush();

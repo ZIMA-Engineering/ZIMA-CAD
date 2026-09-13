@@ -274,6 +274,16 @@ int main(int argc,char** argv){
         require(result.exit_code==0,"Text stdin construction creation failed");
         const auto saved_axis=assembly::AssemblyDocument::load(project/"construction-created.asmz").constructions.front();
         require(saved_axis.direction_axis=="y"&&saved_axis.display_size==100&&std::abs(saved_axis.direction.y-1)<1e-7,"Text CLI axis parameters lost");
+        for(const auto& [file,object]:std::vector<std::pair<std::string,std::string>>{
+            {"construction-created.prtz",created_plane.id},{"construction-created.asmz",saved_axis.id}}) {
+            const auto remove=command({{"command","construction.delete"},{"arguments",{{"construction",object}}}});
+            result=launch(executable,root,common+QStringList{"--command",QString::fromStdString("open "+file),"--command",remove,
+                "--command","undo","--command","redo","--command","save","--command","construction.list"});
+            require(result.exit_code==0&&result.results()[1].at("data").at("removed").get<bool>()&&
+                result.results().back().at("data").at("total")==0,"CLI construction removal/Undo/Redo failed");
+            require(file.ends_with("prtz")?document::PartDocument::load(project/file).constructions.empty():
+                assembly::AssemblyDocument::load(project/file).constructions.empty(),"CLI construction deletion did not persist in the native document");
+        }
         const auto construction_native = test::construction_query_fixture();
         construction_native.save(project / "construction-query.prtz");
         const auto& construction_curve = construction_native.constructions[3];

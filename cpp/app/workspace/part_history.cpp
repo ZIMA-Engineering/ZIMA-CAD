@@ -1,4 +1,5 @@
 #include "workspace_internal.hpp"
+#include <zima/workspace/construction_removal.hpp>
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -214,52 +215,12 @@ void AssemblyWorkspaceWindow::delete_part_object(
                 [&](const auto& sketch) { return sketch.id == object_id; });
             assembly->session.commit(std::move(next));
         } else if (kind == QStringLiteral("assembly-construction")) {
-            auto* assembly = workspace_.open_assembly(workspace_.active_document_id());
-            if (assembly == nullptr) return;
-            auto next = assembly->session.document();
-            const auto document_states = workspace_.documents();
-            const bool used_by_external_sketch = std::any_of(
-                document_states.begin(), document_states.end(),
-                [&](const auto& state) {
-                    const auto* part = std::get_if<zima::workspace::PartState>(&state);
-                    return part != nullptr && std::any_of(
-                        part->session.document().sketches.begin(),
-                        part->session.document().sketches.end(), [&](const auto& sketch) {
-                            return std::any_of(sketch.external_references.begin(),
-                                sketch.external_references.end(), [&](const auto& reference) {
-                                    return reference.source_document_id == next.document_id &&
-                                        reference.source_owner_id == object_id;
-                                });
-                        });
-                });
-            if (std::any_of(next.components.begin(), next.components.end(), [&](const auto& component) {
-                    return std::any_of(component.placement_references.begin(),
-                        component.placement_references.end(), [&](const auto& row) {
-                            return row.component_reference.owner_id == object_id ||
-                                row.target_reference.owner_id == object_id;
-                        });
-                }) || std::any_of(next.constructions.begin(), next.constructions.end(),
-                    [&](const auto& construction) {
-                        return construction.id != object_id &&
-                            std::any_of(construction.references.begin(),
-                                construction.references.end(), [&](const auto& reference) {
-                                    return reference.owner_id == object_id;
-                                });
-                    }) || used_by_external_sketch) {
-                throw std::runtime_error(
-                    "Assembly datum is still used by a placement reference or another datum");
-            }
-            const auto old_size = next.constructions.size();
-            std::erase_if(next.constructions,
-                [&](const auto& object) { return object.id == object_id; });
-            if (next.constructions.size() == old_size) return;
-            next.resolve_constructions();
-            next.calculate_placement_references();
-            assembly->session.commit(std::move(next));
+            workspace::delete_construction(workspace_,kernel_,workspace_.active_document_id(),object_id);
         } else {
             auto* part = workspace_.open_part(workspace_.active_document_id());
             if (part == nullptr) return;
-            workspace::delete_part_history(workspace_,workspace_.active_document_id(),kernel_,object_id);
+            if(kind==QStringLiteral("part-construction"))workspace::delete_construction(workspace_,kernel_,workspace_.active_document_id(),object_id);
+            else workspace::delete_part_history(workspace_,workspace_.active_document_id(),kernel_,object_id);
             part=workspace_.open_part(workspace_.active_document_id());
             const auto& calculated=part->session.calculated_boundaries();
             if (!calculated.empty() && !calculated.back().calculation_errors.empty())

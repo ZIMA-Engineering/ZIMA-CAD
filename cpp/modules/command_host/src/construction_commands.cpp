@@ -2,6 +2,8 @@
 #include <zima/command_host/host.hpp>
 #include <zima/document/placement_json.hpp>
 #include <zima/workspace/placement_edit.hpp>
+#include <zima/workspace/construction_removal.hpp>
+#include <zima/workspace/history_operations.hpp>
 #include <algorithm>
 #include <cctype>
 #include <cmath>
@@ -214,6 +216,24 @@ void Host::register_construction_commands() {
                 return Result::success(std::move(result));
             } catch (const QueryError& error) { return Result::failure(error.code, tr(error.what())); }
         });
+    dispatcher_.add({"construction.delete",tr("Delete an independent construction using its document's shared removal transaction."),
+        {{"construction",true},{"document",false}},true},[this](const Json& args) {
+        const auto check=target(args);if(!check.ok)return check;
+        if(interaction().template_document)return Result::failure("unsupported_document",tr("Construction operations require an open Part or Assembly."));
+        try {
+            const auto id=source(workspace_,args).id,object=args.at("construction").get<std::string>();
+            workspace::delete_construction(workspace_,kernel_,id,object);
+            change_=Change{ChangeKind::Model,id};
+            const auto* part=workspace_.open_part(id);
+            Json result={{"document",id},{"construction",object},{"removed",true},{"changed",true},
+                {"revision",source(workspace_,args).revision},{"body_calculated",part!=nullptr}};
+            if(part&&!part->session.calculated_boundaries().empty())result["calculation_errors"]=part->session.calculated_boundaries().back().calculation_errors;
+            return Result::success(std::move(result));
+        }catch(const QueryError& error){return Result::failure(error.code,tr(error.what()));}
+         catch(const workspace::ConstructionRemovalError& error){return Result::failure(error.code,tr(error.what()));}
+         catch(const workspace::HistoryOperationError& error){return Result::failure(error.code,tr(error.what()));}
+         catch(const std::exception& error){return Result::failure("construction_rejected",tr(error.what()));}
+    });
     for (const bool create : {true, false}) {
         std::vector<commands::Argument> fields{{create ? "kind" : "construction", true}, {"name", create},
             {"values", false, commands::ArgumentType::Object}, {"direction_axis", false}, {"base_plane", false},

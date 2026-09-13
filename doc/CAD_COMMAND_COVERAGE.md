@@ -36,7 +36,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Historie Partu | Hotovo | Společný přesun, ověření závislostí, potlačení, odstranění a kurzor; včetně historie těles a Booleanů |
 | Tělesa a Boolean | Základ hotov | Tvorba, čtení, aktivace, název/viditelnost, kurzory a Boolean create/get/set; pořadí/mazání řeší historie; odvozené kopie pokrývá řádek Zrcadlo a pole; zbývá zadání referencí umístění |
 | Umístění a původní reference | Původní reference a číselná editace umístění hotovy | `placement.get/set`: tělesa a prvky Partu, konstrukce Partu/Assembly a jejich body; `value_lock.list/set` sdílejí číselné zámky s GUI; zbývá příkazové přidávání/výměna referencí, vložené dráhy; umístění komponent řeší `component.set` |
-| Konstrukční geometrie | Částečně hotovo | `construction.list/get/create/set`: dotazy, tvorba bodů/os/rovin/3D křivek, vlastnosti, umístění, úplné seznamy bodů, tečny a zaoblení; dotazy zahrnují vložené 3D dráhy; jejich editaci potvrzuje příkaz tažení; zbývají reference a mazání kořenových konstrukcí |
+| Konstrukční geometrie | Částečně hotovo | `construction.list/get/create/set/delete`: dotazy, tvorba a mazání kořenových bodů/os/rovin/3D křivek, vlastnosti, umístění, úplné seznamy bodů, tečny a zaoblení; dotazy zahrnují vložené 3D dráhy; jejich editaci potvrzuje příkaz tažení; zbývá zadání referencí |
 | Skicář: geometrie | Základ hotov | 21 příkazů: samostatné a vložené skici, body, úsečky, kružnice, oblouky, elipsy, B-spline, obdélníky, mnohoúhelníky, posun a pomocná geometrie; text create/get/set s nativním písmem a spline get/set hotovy; DXF do vložených profilů hotov; zbývá kontrola dalších variant podle GUI |
 | Skicář: vazby a operace | Vazby/kóty/solver/offset/trim/mirror hotovy | Offset create/get/set/free, úplný podklad a zachování intervalů, trim podle průsečíků, mirror, orientovaný obdélník, tečny a zaoblení rohu; všech 15 druhů vazeb, odstranění a solver; 16 druhů kót včetně vlastností, popisků a mazání; uvolnění externích referencí hotovo |
 | Externí reference skici | Lokální i kontextová tvorba, obnova a odpojení | Přesná projekce, trim, společné potvrzení Partu a závislostí, vlastněné profily, Part/Assembly Undo/Redo a souhrny zavřených nativních vlastníků při explicitní regeneraci |
@@ -1099,3 +1099,17 @@ Následně prošla **celá sada 119/119 za 528,05 s**, včetně odmítnutého GU
 a úspěšného opakování po opravě vlastního testovacího zdroje.
 Podrobnosti: [ASSEMBLY_REFERENCE_SUMMARIES.md](ASSEMBLY_REFERENCE_SUMMARIES.md).
 Katalog zůstává na **209 příkazech**. Následuje sjednocení mazání konstrukcí.
+
+## Společné mazání konstrukcí (2026-09-13)
+
+Nový `construction.delete` má stejnou modelovou transakci jako strom GUI.
+Assembly kontroluje i vlastněné entity a body, komponentové vazby, řezy,
+cíle odečtů a vložené externí profily Partů. Kontrola nekopíruje celý Workspace.
+Part zachovává dosavadní historii, aktivní těleso a následný výpočet modelu.
+
+Obě aplikace se sestavily. Z integračních deseti testů prošlo devět včetně
+skutečného CLI, GUI nabídky stromu a překladů; poslední odhalil chybu vlastního
+nastavení zobrazeného dokumentu. Po opravě tohoto nastavení prošly **4/4 za
+0,89 s**. Produkční kód již zůstal stejný. Podrobnosti a logy jsou v
+[CONSTRUCTION_REMOVAL.md](CONSTRUCTION_REMOVAL.md). Katalog má **210 příkazů**.
+Následuje samostatný nativní Hole, který zatím CLI příkaz nemá.

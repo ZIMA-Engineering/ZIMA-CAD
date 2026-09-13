@@ -367,3 +367,11 @@ zdrojových Partů. `regenerate` ověří i zavřené nativní vlastníky po úp
 Partu se zavřeným kontextem; změněná podsestava bude otevřená a neuložená.
 Při chybě přípravy se historie neposune. Podrobnosti a hranice této transakce:
 [ASSEMBLY_REFERENCE_SUMMARIES.md](ASSEMBLY_REFERENCE_SUMMARIES.md).
+
+### Odstranění samostatné konstrukce
+
+`construction.delete <construction-ID>` odstraní kořenový bod, osu, rovinu
+nebo 3D křivku v aktivním Partu či Assembly. Respektuje vlastnictví tělesa a
+v Assembly odmítne konstrukci, na kterou odkazuje jiný objekt. Má jeden krok Undo/Redo.
+Vlastněné body a vložené dráhy se upravují přes rodičovské příkazy.
+Podrobnosti: [CONSTRUCTION_REMOVAL.md](CONSTRUCTION_REMOVAL.md).

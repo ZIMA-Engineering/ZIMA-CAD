@@ -47,7 +47,7 @@ void verify_commands(const kernel::OcctKernel& kernel,const fs::path& root){
         }).get();
     };
     Host host(live,kernel,directory,options);current=&host;
-    require(run(host,"help").data.size()==209,"Command catalog changed");
+    require(run(host,"help").data.size()==210,"Command catalog changed");
     const auto metric=request(host,"thread.catalog",{{"standard","metric"},{"limit",2}}).data;
     require(metric.at("total")==392&&metric.at("more")==true&&metric.at("next_offset")==2&&!host.change(),"Catalog pagination or read-only state failed");
     require(request(host,"thread.catalog",{{"standard","metric"},{"designation","M10"}}).data.at("items")[0].at("pitch_mm")==1.5,"Catalog lookup lost M10 pitch");

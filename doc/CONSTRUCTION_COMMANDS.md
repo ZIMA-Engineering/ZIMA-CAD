@@ -72,9 +72,9 @@ opakované výskyty nejsou samostatnými vlastníky konstrukcí.
 
 ## Rozsah a ověření
 
-Tato etapa pokrývá `document.constructions` a body jejich 3D křivek. Vložené
-3D dráhy uvnitř parametrických modelovacích prvků, mazání kořenových konstrukcí
-a zadávání referencí zůstávají dalšími etapami. Samostatné 3D křivky včetně
+Základní dotazy pokrývají `document.constructions` a body jejich 3D křivek.
+Novější rozšíření zahrnují také vložené dráhy a samostatné mazání konstrukcí,
+popsané v navazujících částech. Zadávání referencí ještě zbývá. Samostatné 3D křivky včetně
 bodů a jejich parametrů jsou popsány níže. Tvorbu bodů, os a rovin
 a obecné vlastnosti popisuje následující část. Číselné umístění
 také zpřístupňují [placement.get/set](PLACEMENT_COMMANDS.md). Nativní schéma ani start šablony se nemění.
@@ -150,7 +150,8 @@ regenerací. Nativní formáty a start Part/Assembly šablony se nemění.
 
 Název a umístění lze upravit také u samostatné 3D křivky a jejích bodů.
 Geometrii křivky a úplný seznam bodů upravuje rozšíření popsané níže.
-Výměna referencí a mazání kořenových konstrukcí zůstávají navazujícím rozsahem.
+Výměna referencí zůstává navazujícím rozsahem. Mazání kořenových konstrukcí
+pokrývá níže popsaný příkaz `construction.delete`.
 
 Při čtení nativních konstrukcí se nyní obnoví i odvozená poloha entity
 roviny z jejího uloženého počátku, normály a odsazení. Dříve ji samotný
@@ -273,3 +274,15 @@ změní na zaoblenou lomenou čáru, provede Undo/Redo a kontroluje nativní sou
 GUI test otevírá CLI křivku ve stejných Vlastnostech, ověřuje poloměr, Cancel,
 OK, Undo a zobrazení změny typu. Jeho původní očekávání počtu řádků bylo
 opraveno: tabulka obsahuje i nabídku „Nový bod…“, která není geometrickým bodem.
+
+## Odstranění samostatné konstrukce (2026-09-13)
+
+`construction.delete <construction-ID>` sdílí odstranění s nabídkou stromu.
+Part používá dosavadní mazání historie a kontrolu aktivního tělesa. Assembly
+chrání i reference na vlastněné body, entity a počátky konstrukce, včetně
+skic řezů a vložených profilů otevřených Partů. Vlastněný bod se mění seznamem
+bodů nadřazené křivky; vložená dráha přes vlastnící tažení.
+
+Příkaz má společné Undo/Redo a nativní uložení. Katalog má 210 příkazů.
+Přesný rozsah, chyby, výpočetní chování a ověřené testy:
+[CONSTRUCTION_REMOVAL.md](CONSTRUCTION_REMOVAL.md).
