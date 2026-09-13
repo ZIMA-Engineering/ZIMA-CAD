@@ -1,3 +1,5 @@
+#include <zima/workspace/template_object_operations.hpp>
+#include <zima/drawing_render/template_image_import.hpp>
 #include <zima/workspace/template_operations.hpp>
 #include <zima/ui/numeric_value_lock.hpp>
 #include "assembly_workspace_window.hpp"
@@ -9,11 +11,6 @@
 #include <zima/kernel/stable_id.hpp>
 #include <QDoubleSpinBox>
 #include <QCheckBox>
-#include <QBuffer>
-#include <QImageReader>
-#include <QSvgRenderer>
-#include <QFile>
-#include <QFileInfo>
 #include <QPushButton>
 #include <QComboBox>
 #include <QDialogButtonBox>
@@ -29,30 +26,6 @@
 
 namespace zima::app {
 namespace {
-zima::sketcher::TemplateImage read_template_image(const QString& path) {
-    if(QFileInfo(path).suffix().compare("svg",Qt::CaseInsensitive)==0) {
-        QFile source(path);if(!source.open(QIODevice::ReadOnly))throw std::runtime_error(QObject::tr("SVG nelze otevřít.").toStdString());
-        if(source.size()>24*1024*1024)throw std::runtime_error(QObject::tr("SVG je příliš velké (nejvýše 24 MB).").toStdString());
-        const auto bytes=source.readAll();QSvgRenderer renderer(bytes);
-        if(!renderer.isValid()||renderer.viewBoxF().isEmpty())throw std::runtime_error(QObject::tr("Soubor neobsahuje platný obrázek SVG.").toStdString());
-        zima::sketcher::TemplateImage result;result.id=zima::kernel::make_stable_id();result.name=QFileInfo(path).fileName().toStdString();
-        result.format="svg";result.data_base64=bytes.toBase64().toStdString();
-        const auto size=renderer.viewBoxF().size();result.pixel_width=size.width();result.pixel_height=size.height();
-        result.width=30;result.height=30*size.height()/size.width();result.validate();return result;
-    }
-    QImageReader reader(path);reader.setAutoTransform(true);
-    const auto size=reader.size();
-    if(size.isValid() && static_cast<double>(size.width())*size.height()>32'000'000)
-        throw std::runtime_error(QObject::tr("Obrázek je příliš velký (nejvýše 32 megapixelů).").toStdString());
-    const auto image=reader.read();
-    if(image.isNull())throw std::runtime_error(QObject::tr("Obrázek nelze načíst: %1").arg(reader.errorString()).toStdString());
-    QByteArray bytes;QBuffer buffer(&bytes);buffer.open(QIODevice::WriteOnly);
-    if(!image.save(&buffer,"PNG"))throw std::runtime_error(QObject::tr("Obrázek nelze uložit do razítka.").toStdString());
-    zima::sketcher::TemplateImage result;
-    result.id=zima::kernel::make_stable_id();result.name=QFileInfo(path).fileName().toStdString();
-    result.data_base64=bytes.toBase64().toStdString();result.pixel_width=image.width();result.pixel_height=image.height();
-    result.width=30;result.height=result.width*image.height()/image.width();result.validate();return result;
-}
 class TemplateImageDialog final : public zima::ui::PropertiesSubWindow {
 public:
     using Image=zima::sketcher::TemplateImage;
@@ -89,7 +62,7 @@ public:
         connect(vertical_,&QComboBox::currentIndexChanged,this,[this]{update_preview();});
         connect(replace,&QPushButton::clicked,this,[this]{
             const auto path=open_file(this,tr("Vybrat obrázek"),{},tr("Obrázky (*.svg *.png *.jpg *.jpeg *.bmp *.webp)"));if(path.isEmpty())return;
-            try {const auto image=read_template_image(path);initial_.name=image.name;initial_.data_base64=image.data_base64;initial_.format=image.format;
+            try {const auto image=zima::drawing_render::read_template_image(std::filesystem::path(path.toStdU16String()));initial_.name=image.name;initial_.data_base64=image.data_base64;initial_.format=image.format;
                 initial_.pixel_width=image.pixel_width;initial_.pixel_height=image.pixel_height;file_->setText(QString::fromStdString(initial_.name));resize_other(2);update_preview();
             }catch(const std::exception& e){QMessageBox::warning(this,tr("Obrázek"),QString::fromUtf8(e.what()));}
         });
@@ -205,17 +178,13 @@ void AssemblyWorkspaceWindow::show_template_region_properties(const std::string&
     const auto owner=workspace_.active_document_id();
     auto* dialog=new RepeatRegionDialog(*initial,[this,owner,id](auto region){
         auto* part=workspace_.open_part(owner);if(!part)throw std::runtime_error(QObject::tr("Šablona již není otevřená.").toStdString());
-        auto next=part->session.document();auto& regions=next.sketches.front().drawing_template->repeat_regions;
-        const auto found=std::ranges::find(regions,id,&zima::sketcher::SketchRepeatRegion::id);
-        if(found==regions.end())regions.push_back(std::move(region));else *found=std::move(region);
-        part->session.commit(std::move(next),{});
+        static_cast<void>(workspace::commit_template_region(workspace_,owner,id,std::move(region)));
     },this);properties_dialog_=dialog;
     connect(dialog,&QDialog::finished,this,[this,dialog]{if(properties_dialog_==dialog)properties_dialog_=nullptr;preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();});dialog->show();
 }
 void AssemblyWorkspaceWindow::remove_template_region(const std::string& id) {
     auto* part=workspace_.open_part(workspace_.active_document_id());if(!part||!template_sketch()||properties_dialog_)return;
-    auto next=part->session.document();std::erase_if(next.sketches.front().drawing_template->repeat_regions,[&](const auto& r){return r.id==id;});
-    part->session.commit(std::move(next),{});selected_template_region_.clear();viewer_->clear_selection();preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();
+    static_cast<void>(workspace::remove_template_region(workspace_,workspace_.active_document_id(),id));selected_template_region_.clear();viewer_->clear_selection();preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();
 }
 void AssemblyWorkspaceWindow::select_template_region(const std::string& id) {
     clear_selected_sketch_geometry();selected_template_region_=id;const QSignalBlocker blocked(tree_);tree_->clearSelection();
@@ -227,7 +196,7 @@ void AssemblyWorkspaceWindow::start_template_image() {
     const auto* sketch=template_sketch();if(!sketch||sketch->drawing_template->kind!="title_block"||properties_dialog_)return;
     const auto path=open_file(this,tr("Vybrat obrázek"),QString::fromStdString(working_directory_.string()),tr("Obrázky (*.svg *.png *.jpg *.jpeg *.bmp *.webp)"),application_settings_.translations);
     if(path.isEmpty())return;
-    try {auto image=read_template_image(path);cancel_sketch_segment();clear_selected_sketch_geometry();viewer_->clear_selection();show_template_image_properties({},std::move(image));}
+    try {auto image=zima::drawing_render::read_template_image(std::filesystem::path(path.toStdU16String()));cancel_sketch_segment();clear_selected_sketch_geometry();viewer_->clear_selection();show_template_image_properties({},std::move(image));}
     catch(const std::exception& e){QMessageBox::warning(this,tr("Obrázek"),QString::fromUtf8(e.what()));}
 }
 void AssemblyWorkspaceWindow::show_template_image_properties(const std::string& id,std::optional<zima::sketcher::TemplateImage> initial) {
@@ -241,10 +210,7 @@ void AssemblyWorkspaceWindow::show_template_image_properties(const std::string& 
         if(found==images.end())images.push_back(image);else *found=image;show_sketch_drag_preview(preview);
     },[this,owner,id](auto image){
         auto* part=workspace_.open_part(owner);if(!part)throw std::runtime_error(QObject::tr("Šablona již není otevřená.").toStdString());
-        auto next=part->session.document();auto& images=next.sketches.front().drawing_template->images;
-        const auto found=std::ranges::find(images,id,&zima::sketcher::TemplateImage::id);
-        if(found==images.end())images.push_back(std::move(image));else *found=std::move(image);
-        part->session.commit(std::move(next),{});
+        static_cast<void>(workspace::commit_template_image(workspace_,owner,id,std::move(image)));
     },this);
     properties_dialog_=dialog;template_image_anchor_=[dialog](double x,double y){dialog->set_anchor(x,y);};
     viewer_->set_selection_contract({});
@@ -257,8 +223,7 @@ bool AssemblyWorkspaceWindow::template_image_ray(const zima::kernel::Vec3& origi
 }
 void AssemblyWorkspaceWindow::remove_template_image(const std::string& id) {
     auto* part=workspace_.open_part(workspace_.active_document_id());if(!part||!template_sketch()||properties_dialog_)return;
-    auto next=part->session.document();std::erase_if(next.sketches.front().drawing_template->images,[&](const auto& i){return i.id==id;});
-    part->session.commit(std::move(next),{});selected_template_image_.clear();viewer_->clear_selection();preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();
+    static_cast<void>(workspace::remove_template_image(workspace_,workspace_.active_document_id(),id));selected_template_image_.clear();viewer_->clear_selection();preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();
 }
 void AssemblyWorkspaceWindow::select_template_image(const std::string& id) {
     clear_selected_sketch_geometry();selected_template_image_=id;const QSignalBlocker blocked(tree_);tree_->clearSelection();

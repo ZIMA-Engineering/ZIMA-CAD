@@ -35,8 +35,9 @@ tažení a dialog je odmítnou. Modelová operace jiného pracovního prostoru
 se tím nezpřístupňuje. Stejnou detekci aktivního skicového příkazu používá
 panel nástrojů i konzole.
 
-Samostatné vlastnosti obrázků, oblastí kusovníku a metadat rámečku/razítka
-navazují dalšími příkazy; jejich existující data otevření a uložení zachovává.
+Samostatné vlastnosti obrázků a oblastí kusovníku obsluhují příkazy popsané
+v [TEMPLATE_OBJECT_COMMANDS.md](TEMPLATE_OBJECT_COMMANDS.md). Existující metadata
+rámečku a razítka se při otevření a uložení zachovávají.
 
 Ověření: cílené modelové/GUI testy **2/2 za 75,55 s** a úplná regrese
 **140/140 za 563,84 s**, včetně skutečného CLI procesu, překladů a editoru

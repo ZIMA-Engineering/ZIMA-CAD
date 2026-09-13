@@ -2024,12 +2024,14 @@ void AssemblyWorkspaceWindow::create_layout() {
             if(step_kind=="template-image"&&!properties_dialog_) {
                 const auto id=item->data(0,Qt::UserRole).toString().toStdString();QMenu menu(this);
                 auto* properties=menu.addAction(tr("Vlastnosti…"));auto* remove=menu.addAction(tr("Odstranit"));
+                properties->setObjectName("templateImagePropertiesAction");remove->setObjectName("templateImageRemoveAction");
                 const auto* chosen=menu.exec(tree_->viewport()->mapToGlobal(position));
                 if(chosen==properties)show_template_image_properties(id);else if(chosen==remove)remove_template_image(id);return;
             }
             if(step_kind=="template-repeat-region"&&!properties_dialog_) {
                 const auto id=item->data(0,Qt::UserRole).toString().toStdString();QMenu menu(this);
                 auto* properties=menu.addAction(tr("Vlastnosti…"));auto* remove=menu.addAction(tr("Odstranit"));
+                properties->setObjectName("templateRegionPropertiesAction");remove->setObjectName("templateRegionRemoveAction");
                 const auto* chosen=menu.exec(tree_->viewport()->mapToGlobal(position));
                 if(chosen==properties)show_template_region_properties(id);else if(chosen==remove)remove_template_region(id);return;
             }

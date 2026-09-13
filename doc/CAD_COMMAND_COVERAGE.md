@@ -47,7 +47,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Zrcadlo a pole | Hotovo pro Part a bezprostřední komponenty Assembly | `derived_copy.sources`, `mirror.create/get/set`, `pattern.create/get/set`: společné zdroje a potvrzení GUI/CLI, roviny/osy, lineární i kruhové režimy, umístění, zámky, neuložené zdroje a Undo/Redo; vnořená aktivace patří do řádku Sestavy |
 | Sestavy | Dotazy, vložení, otevření zdrojů, vlastnosti, odstranění a přesná aktivace hotovy | `component.set`: název, viditelnost, potlačení, uzemnění, umístění a všechny čtyři druhy vložených vazeb s mezemi/zámky; `component.remove` sdílí kontrolu závislostí a atomické mazání s GUI; `component.activate/deactivate` sdílejí přesný zdrojový kontext s GUI; souhrny referencí jsou společné pro Assembly Undo a explicitní regeneraci; profilové odečty mají create/get/set/list i mazání, potlačení a pořadí přes společné operace; schválená oprava pořadí řetězce vazeb je hotová a ověřená |
 | Výkresy | Listy, šablony, historie, tvorba/vlastnosti/dotazy/mazání pohledů, regenerace, modelové anotace, Show/Erase a měřené kóty (dotazy, tvorba, editace, řetězec, mazání), razítko, zdrojové parametry BOM, styly šraf, PDF, DXF a PNG/JPEG listu/výřezu hotovy | Další anotace a příkazový snímek interaktivního View |
-| Editor šablon | Společné New/Open/Save/Copy a atomická geometrie | `template.new/open/get/save/sketch.edit`, rámečky i razítka, nativní text a Undo/Redo; zbývají samostatné obrázky a oblasti kusovníku |
+| Editor šablon | Životní cyklus, skica, obrázky a oblasti kusovníku hotovy | `template.new/open/get/save/sketch.edit`, rámečky i razítka, nativní text a Undo/Redo; `template.image/region.list/get/create/set/remove`, zámky a společné GUI transakce |
 | Vzhled | Společné operace GUI/CLI hotovy | `appearance.get/set/reset/faces/palette`: styly Partu a jednotlivých výskytů, skupiny ploch, dědění zdroje, reset, historie a nativní uložení; bez výpočtu těles |
 | Řezy | Čtení, tvorba, vlastnosti, aktivace a odstranění | `section.list/get/components/create/set/activate/delete`: úplná otevřená čára, vlastní skica, společné OK vlastností, číselné umístění, přesné výskyty a šrafování; `section.sketch.edit` upravuje celou skicu v jedné transakci; zbývá vstup referencí umístění |
 | Měření | Společné GUI/CLI operace | `measurement.list/get/evaluate/create/set/delete`; původní reference a uložené výsledky |
@@ -1489,3 +1489,20 @@ Ověření: cílené modelové/GUI testy **2/2 za 75,55 s** a úplná regrese
 251 příkazů. Testovací záznam: `build/template-lifecycle-full-tests.log`.
 Samostatné obrázky a oblasti kusovníku následují; kompletní CLI tím ještě
 není uzavřené. Push zůstává odložený podle posledního pokynu uživatele.
+
+## Obrázky a oblasti kusovníku v šabloně (2026-09-14)
+
+Deset příkazů `template.image/region.list/get/create/set/remove` sdílí
+potvrzení a odstranění s GUI. Importér obrázku byl přesunut do modulu
+`drawing_render`; jeho limity a normalizaci používá dialog i CLI. Výměna
+obsahu zachovává identitu, obrázky zůstávají vložené do nativní šablony.
+Rozměry, poměr stran, zarovnání, směr/rozteč opakování a číselné zámky mají
+testovaný příkazový vstup. Podrobnosti: [TEMPLATE_OBJECT_COMMANDS.md](TEMPLATE_OBJECT_COMMANDS.md).
+
+Modelová regrese prošla **1/1 za 0,15 s**, finální související sada
+**8/8 za 121,90 s** (GUI konzole, původní editor, skutečné CLI, modely,
+výkres a překlady), rastrové exporty navíc **1/1 za 0,29 s**.
+Sestaveny obě aplikace a všechny testovací cíle. Katalog má **261 příkazů**,
+sada **141 testů**. Poslední úplný běh **140/140** patří bezprostředně
+předchozí etapě; nynější rozsah má uvedenou související regresi.
+Formáty a startovací Part/Assembly šablony se nemění. Push je odložený.

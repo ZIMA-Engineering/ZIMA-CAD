@@ -1538,6 +1538,32 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
             check(drawing::load_template_sketch(directory/(name+"-copy"+suffix),load).texts.front().height==4,"Template Copy lost GUI changes");
             json_run("close",{{"discard",true}});flush();json_run("template.open",{{"path",name+suffix}});flush();
             check(json_run("template.get",commands::Json::object()).data.at("sketch")==created.at("sketch"),"GUI template reopen lost Sketch identity");
+            if(title) {
+                const auto logo=directory/(name+".svg");{std::ofstream out(logo);out<<R"(<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 4 2"><rect width="4" height="2" fill="red"/></svg>)";}
+                const auto image=json_run("template.image.create",{{"path",logo.filename().string()},{"x_mm",10},{"y_mm",20},{"width_mm",20}}).data;
+                const auto image_id=image.at("image").get<std::string>();flush();
+                const auto get_image=[&](){return json_run("template.image.get",{{"image",image_id}}).data;};
+                const auto image_dialog=[&](){component_menu_action(image_id,"template-image","","templateImagePropertiesAction");auto* dialog=window.findChild<QDialog*>("templateImageDialog");check(dialog&&dialog->isVisible(),"Template image Properties missing");return dialog;};
+                auto* image_properties=image_dialog();auto* width=image_properties->findChild<QDoubleSpinBox*>("templateImageValue2");auto* height=image_properties->findChild<QDoubleSpinBox*>("templateImageValue3");
+                check(width->value()==20&&height->value()==10,"Image Properties lost CLI dimensions");width->setValue(24);check(height->value()==12,"GUI aspect ratio differs from CLI");
+                check(window.execute_console_command(QString::fromStdString(commands::Json({{"command","template.image.remove"},{"arguments",{{"image",image_id}}}}).dump())).code=="editing_in_progress","Image command interrupted Properties");
+                image_properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();check(get_image().at("width_mm")==20,"Image Cancel committed a preview");
+                image_properties=image_dialog();image_properties->findChild<QDoubleSpinBox*>("templateImageValue2")->setValue(24);image_properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+                check(get_image().at("width_mm")==24&&get_image().at("height_mm")==12,"Image GUI OK did not reach command data");run("undo");check(get_image().at("width_mm")==20,"Image edit Undo failed");run("redo");
+                json_run("template.image.set",{{"image",image_id},{"value_locks",{"height"}}});flush();image_properties=image_dialog();height=image_properties->findChild<QDoubleSpinBox*>("templateImageValue3");width=image_properties->findChild<QDoubleSpinBox*>("templateImageValue2");
+                check(height->isReadOnly(),"CLI image numeric lock did not reach GUI");width->setValue(30);check(width->value()==24&&height->value()==12,"Image aspect change ignored locked height");
+                image_properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
+                const auto region_id=json_run("template.region.create",{{"x_mm",0},{"y_mm",0},{"width_mm",50},{"height_mm",8},{"direction","left"}}).data.at("region").get<std::string>();flush();
+                const auto region_dialog=[&](){component_menu_action(region_id,"template-repeat-region","","templateRegionPropertiesAction");auto* dialog=window.findChild<QDialog*>("templateRepeatRegionDialog");check(dialog&&dialog->isVisible(),"Template region Properties missing");return dialog;};
+                auto* region_properties=region_dialog();region_properties->findChild<QDoubleSpinBox*>("templateRegionValue4")->setValue(12);region_properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
+                check(json_run("template.region.get",{{"region",region_id}}).data.at("step_mm")==8,"Region Cancel changed pitch");
+                region_properties=region_dialog();region_properties->findChild<QDoubleSpinBox*>("templateRegionValue4")->setValue(12);auto* direction=region_properties->findChild<QComboBox*>("templateRegionDirection");direction->setCurrentIndex(direction->findData("down"));region_properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+                check(json_run("template.region.get",{{"region",region_id}}).data.at("step_mm")==12,"Region GUI OK lost pitch");
+                component_menu_action(image_id,"template-image","","templateImageRemoveAction");check(json_run("template.image.list",commands::Json::object()).data.at("total")==0,"GUI image removal failed");run("undo");flush();
+                component_menu_action(region_id,"template-repeat-region","","templateRegionRemoveAction");check(json_run("template.region.list",commands::Json::object()).data.at("total")==0,"GUI region removal failed");run("undo");flush();run("template.save");
+                const auto saved=drawing::load_template_sketch(file,load);check(saved.drawing_template->images.front().id==image_id&&saved.drawing_template->images.front().value_locks.contains("height")&&saved.drawing_template->repeat_regions.front().id==region_id&&saved.drawing_template->repeat_regions.front().direction=="down","GUI object save lost identity or metadata");
+            }
+
             json_run("close",{{"discard",true}});flush();
         }
         input->setText("context");QApplication::sendEvent(input,&enter);flush();

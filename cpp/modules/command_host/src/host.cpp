@@ -65,6 +65,7 @@ void Host::register_commands(){
     register_primitive_commands();
     register_profile_commands();
     register_template_commands();
+    register_template_object_commands();
     register_assembly_cut_commands();
     register_sweep_commands();
     register_opening_commands();

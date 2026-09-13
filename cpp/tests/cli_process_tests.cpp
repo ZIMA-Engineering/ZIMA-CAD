@@ -108,6 +108,22 @@ int main(int argc,char** argv){
                 "--command",command({{"command","template.save"},{"arguments",{{"path",name+" copy"+suffix},{"copy",true}}}}),"--command","close"});
             require(result.exit_code==0&&drawing::load_template_sketch(project/fs::u8path(name+" copy"+suffix),load).id==saved.id,"CLI template copy or reopen changed its identity");
         }
+        {
+            const auto logo=project/"CLI logo.svg";{std::ofstream out(logo);out<<R"(<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 4 2"><rect width="4" height="2" fill="red"/></svg>)";}
+            result=launch(executable,root,common+QStringList{"--command",command({{"command","template.new"},{"arguments",{{"kind","title_block"},{"name","CLI objects"}}}}),
+                "--command",command({{"command","template.image.create"},{"arguments",{{"path","CLI logo.svg"},{"x_mm",10},{"y_mm",20},{"width_mm",20}}}}),
+                "--command",command({{"command","template.region.create"},{"arguments",{{"x_mm",0},{"y_mm",0},{"width_mm",50},{"height_mm",8}}}}),"--command","template.save"});
+            require(result.exit_code==0,"CLI template objects could not be created");
+            const auto image=result.results()[1].at("data").at("image").get<std::string>(),region=result.results()[2].at("data").at("region").get<std::string>();
+            result=launch(executable,root,common+QStringList{"--command",command({{"command","template.open"},{"arguments",{{"path","CLI objects.tblz"}}}}),
+                "--command",command({{"command","template.image.set"},{"arguments",{{"image",image},{"height_mm",15}}}}),
+                "--command",command({{"command","template.region.set"},{"arguments",{{"region",region},{"step_mm",9.123456789},{"direction","right"},{"value_locks",{"step"}}}}}),"--command","template.save",
+                "--command",command({{"command","template.image.remove"},{"arguments",{{"image",image}}}}),"--command","undo","--command","template.image.list"});
+            require(result.exit_code==0&&result.results().back().at("data").at("items").front().at("image")==image,"CLI object update or removal Undo failed");
+            fs::remove(logo);const auto saved=drawing::load_template_sketch(project/"CLI objects.tblz",[](auto& text){sketcher::rebuild_text_contours(text,true);});
+            require(saved.drawing_template->images.front().id==image&&saved.drawing_template->images.front().width==30&&saved.drawing_template->images.front().height==15&&
+                saved.drawing_template->repeat_regions.front().id==region&&saved.drawing_template->repeat_regions.front().direction=="right"&&saved.drawing_template->repeat_regions.front().value_locks.contains("step"),"CLI object save lost geometry, identity or locks");
+        }
         const auto shell_path=project/"shell-cli.prtz";
         auto shell_fixture=document::PartDocument::create_default();auto shell_box=document::PartDocument::create_box_container();shell_box.box={10,10,10};
         shell_fixture.insert_history_entry(document::PartHistoryKind::Feature,shell_box.id);shell_fixture.history.push_back(shell_box);

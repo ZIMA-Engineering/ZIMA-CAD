@@ -169,7 +169,7 @@ add_library(zima_workspace modules/workspace/src/workspace.cpp
     modules/workspace/src/hole_operations.cpp
     modules/workspace/src/opening_operations.cpp
     modules/workspace/src/opening_component_operations.cpp
-    modules/workspace/src/template_operations.cpp
+    modules/workspace/src/template_operations.cpp modules/workspace/src/template_object_operations.cpp
     modules/workspace/src/opening_targets.cpp
     modules/workspace/src/shaft_thread_operations.cpp
     modules/workspace/src/drill_point_operations.cpp
@@ -195,7 +195,7 @@ add_library(zima_command_host
     modules/command_host/src/primitive_commands.cpp
     modules/command_host/src/assembly_cut_commands.cpp
     modules/command_host/src/profile_commands.cpp
-    modules/command_host/src/template_commands.cpp
+    modules/command_host/src/template_commands.cpp modules/command_host/src/template_object_commands.cpp
     modules/command_host/src/sweep_commands.cpp
     modules/command_host/src/measurement_commands.cpp
     modules/command_host/src/section_commands.cpp
@@ -259,7 +259,7 @@ target_include_directories(zima_viewer PUBLIC modules/viewer/include)
 target_link_libraries(zima_viewer PUBLIC zima_kernel_api zima_measurement
     Qt6::Widgets Qt6::OpenGL Qt6::OpenGLWidgets Qt6::Svg)
 
-add_library(zima_drawing_render modules/drawing_render/src/sheet_renderer.cpp modules/drawing_render/src/pdf_export.cpp modules/drawing_render/src/dxf_export.cpp modules/drawing_render/src/image_export.cpp)
+add_library(zima_drawing_render modules/drawing_render/src/template_image_import.cpp modules/drawing_render/src/sheet_renderer.cpp modules/drawing_render/src/pdf_export.cpp modules/drawing_render/src/dxf_export.cpp modules/drawing_render/src/image_export.cpp)
 target_include_directories(zima_drawing_render PUBLIC modules/drawing_render/include PRIVATE app modules/viewer/include)
 target_link_libraries(zima_drawing_render PUBLIC zima_drawing zima_workspace Qt6::Gui Qt6::Svg)
 target_link_libraries(zima_command_host PUBLIC zima_drawing_render)
@@ -916,6 +916,10 @@ if(ZIMA_BUILD_TESTS)
     target_link_libraries(zima_cpp_box_command_tests PRIVATE zima_command_host)
     add_test(NAME zima_cpp_box_command_tests COMMAND zima_cpp_box_command_tests)
     set_tests_properties(zima_cpp_box_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
+    add_executable(zima_cpp_template_object_command_tests tests/template_object_command_tests.cpp)
+    target_link_libraries(zima_cpp_template_object_command_tests PRIVATE zima_command_host)
+    add_test(NAME zima_cpp_template_object_command_tests COMMAND zima_cpp_template_object_command_tests)
+    set_tests_properties(zima_cpp_template_object_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     add_executable(zima_cpp_template_command_tests tests/template_command_tests.cpp)
     target_link_libraries(zima_cpp_template_command_tests PRIVATE zima_command_host)
     add_test(NAME zima_cpp_template_command_tests COMMAND zima_cpp_template_command_tests)

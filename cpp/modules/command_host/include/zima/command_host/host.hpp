@@ -65,6 +65,7 @@ private:
     std::optional<Change> change_;
     void register_commands();
     void register_template_commands();
+    void register_template_object_commands();
     void register_primitive_commands();
     void register_profile_commands();
     void register_assembly_cut_commands();
