@@ -89,7 +89,8 @@ namespace {
 bool is_profile(document::FeatureKind kind) {
     return kind == document::FeatureKind::Extrusion || kind == document::FeatureKind::Revolution;
 }
-void validate_profile(const document::HistoryContainer& value) {
+}
+void validate_profile_definition(const document::HistoryContainer& value) {
     if (!is_profile(value.feature_kind)) throw ProfileOperationError("wrong_feature", "This container is not an Extrusion or Revolution.");
     const bool extrusion = value.feature_kind == document::FeatureKind::Extrusion;
     const auto number = [](double value, double minimum, double maximum) {
@@ -111,7 +112,6 @@ void validate_profile(const document::HistoryContainer& value) {
     if (value.extrusion.extent_mode == document::ProfileExtentMode::TwoSides)
         side(value.extrusion.end_condition_reverse, value.extrusion.end_targets_reverse);
 }
-}
 document::HistoryContainer profile_from_sketch(const document::PartDocument& part,
     const std::string& sketch_id, document::FeatureKind kind) {
     if (!is_profile(kind)) throw ProfileOperationError("wrong_feature", "This container is not an Extrusion or Revolution.");
@@ -132,7 +132,7 @@ void commit_profile(Workspace& live, const kernel::OcctKernel& kernel, const std
     document::HistoryContainer value, ProfileEditMode mode, const std::optional<sketcher::Sketch>& owned_sketch) {
     auto* state = live.open_part(id);
     if (!state) throw ProfileOperationError("unsupported_document", "Profile operations require an open Part.");
-    validate_profile(value);
+    validate_profile_definition(value);
     const auto& before = state->session.document();
     const auto* existing = before.find_container(value.id);
     if (mode == ProfileEditMode::Create) {

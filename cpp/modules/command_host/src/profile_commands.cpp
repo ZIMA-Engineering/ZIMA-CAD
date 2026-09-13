@@ -11,12 +11,27 @@ namespace {
 using Feature = document::HistoryContainer;
 using Kind = document::FeatureKind;
 using Error = workspace::ProfileOperationError;
-const Feature& profile(const workspace::PartState* state, const std::string& id, Kind kind) {
-    if (!state) throw Error("unsupported_document", "Profile operations require an open Part.");
-    const auto* value = state->session.document().find_container(id);
+const Feature& profile(const workspace::Workspace& live, const std::string& document, const std::string& id, Kind kind) {
+    const Feature* value = nullptr;
+    if (const auto* state = live.open_part(document)) value = state->session.document().find_container(id);
+    else if (const auto* state = live.open_assembly(document)) {
+        const auto* cut = state->session.document().find_cut(id);
+        if (cut) value = &cut->definition;
+    } else throw Error("unsupported_document", "Profile operations require an open Part or Assembly.");
     if (!value) throw Error("container_not_found", "The requested container does not exist.");
     if (value->feature_kind != kind) throw Error("wrong_feature", "The requested profile type does not match the container.");
     return *value;
+}
+Feature assembly_profile(const assembly::AssemblyDocument& doc, const std::string& sketch_id, Kind kind) {
+    const auto sketch = std::ranges::find(doc.sketches, sketch_id, &sketcher::Sketch::id);
+    if (sketch == doc.sketches.end()) throw Error("sketch_not_found", "The requested Sketch does not exist.");
+    if (!sketch->owner_container_id.empty()) throw Error("profile_owned", "The Sketch already belongs to another container.");
+    auto value = kind == Kind::Extrusion ? document::PartDocument::create_extrusion_container(sketch_id)
+                                        : document::PartDocument::create_revolution_container(sketch_id);
+    value.combine_mode = document::CombineMode::Subtract;
+    if (kind == Kind::Extrusion) value.extrusion.profile_plane_offset = sketch->plane_offset;
+    else value.revolution.profile_plane_offset = sketch->plane_offset;
+    return value;
 }
 const char* extent(document::ProfileExtentMode mode) {
     return mode == document::ProfileExtentMode::OneSide ? "one_side" : mode == document::ProfileExtentMode::TwoSides ? "two_sides" : "symmetric";
@@ -30,15 +45,16 @@ Json targets(const std::vector<document::ExtrusionParameters::EndTarget>& values
         {"owner",target.reference.owner_id},{"key",target.reference.semantic_key},{"instance_path",target.reference.instance_path},{"label",target.label}});
     return result;
 }
-Json details(const workspace::PartState& state, const Feature& value) {
+Json details(const workspace::Workspace& live, const std::string& id, const Feature& value) {
     const bool extrusion=value.feature_kind==Kind::Extrusion;
-    const auto& doc=state.session.document();const auto* owner=doc.body_owner_for_object(value.id);
+    const auto* part=live.open_part(id);const auto* assembly=live.open_assembly(id);
+    const auto* owner=part?part->session.document().body_owner_for_object(value.id):nullptr;
     const auto result_type=extrusion?value.extrusion.result_type:value.revolution.result_type;
     const auto thin_mode=extrusion?value.extrusion.thin_mode:value.revolution.thin_mode;
     const auto direction=extrusion?value.extrusion.direction:value.revolution.direction;
-    Json result={{"document",doc.document_id},{"container",value.id},{"feature",value.feature_id},
+    Json result={{"document",id},{"container",value.id},{"feature",value.feature_id},
         {"sketch",extrusion?value.extrusion.sketch_id:value.revolution.sketch_id},{"body",owner?owner->scope.id:std::string{}},
-        {"name",value.name},{"kind",extrusion?"extrusion":"revolution"},{"revision",state.session.revision()},
+        {"name",value.name},{"kind",extrusion?"extrusion":"revolution"},{"revision",part?part->session.revision():assembly->session.revision()},
         {"combine",value.combine_mode==document::CombineMode::Add?"add":"subtract"},
         {"profile_source",(extrusion?value.extrusion.profile_source:value.revolution.profile_source)==document::ProfileSource::Internal?"internal":"external"},
         {"profile_offset_mm",extrusion?value.extrusion.profile_plane_offset:value.revolution.profile_plane_offset},
@@ -52,6 +68,10 @@ Json details(const workspace::PartState& state, const Feature& value) {
         {"end_forward",condition(value.extrusion.end_condition_forward)},{"end_reverse",condition(value.extrusion.end_condition_reverse)},
         {"targets_forward",targets(value.extrusion.end_targets_forward)},{"targets_reverse",targets(value.extrusion.end_targets_reverse)}});
     else result.update({{"angle_degrees",value.revolution.angle_degrees},{"angle_reverse_degrees",value.revolution.angle_reverse},{"axis",value.revolution.axis_segment_id}});
+    if (assembly) {
+        result["targets"] = assembly->session.document().find_cut(value.id)->target_occurrence_ids;
+        result["suppressed"] = value.suppressed;
+    }
     return result;
 }
 void properties(Feature& value, const Json& args, const workspace::Workspace& live, const std::string& document) {
@@ -115,8 +135,9 @@ void properties(Feature& value, const Json& args, const workspace::Workspace& li
         value.extrusion.height=extent_mode==document::ProfileExtentMode::OneSide?forward:forward+reverse;
     } else if(args.contains("axis")) {
         const auto id=args.at("axis").get<std::string>();const auto* part=live.open_part(document);
-        const auto sketch=std::ranges::find(part->session.document().sketches,value.revolution.sketch_id,&sketcher::Sketch::id);
-        if(sketch==part->session.document().sketches.end()||std::ranges::none_of(sketch->segments,[&](const auto& s){return s.id==id&&s.centerline&&s.construction;}))
+        const auto& sketches=part?part->session.document().sketches:live.open_assembly(document)->session.document().sketches;
+        const auto sketch=std::ranges::find(sketches,value.revolution.sketch_id,&sketcher::Sketch::id);
+        if(sketch==sketches.end()||std::ranges::none_of(sketch->segments,[&](const auto& s){return s.id==id&&s.centerline&&s.construction;}))
             throw Error("invalid_reference","The revolution axis must identify a construction centerline in its own Sketch.");
         value.revolution.axis_segment_id=id;
     }
@@ -138,31 +159,54 @@ void properties(Feature& value, const Json& args, const workspace::Workspace& li
 }
 void Host::register_profile_commands() {
     using Type=commands::ArgumentType;
+    dispatcher_.add({"assembly.cut.list",tr("List Assembly profile cuts without calculation."),{{"document",false}},false},[this](const Json& args){
+        const auto id=args.value("document",workspace_.active_document_id());const auto* state=workspace_.open_assembly(id);
+        if(!state)return Result::failure("unsupported_document",tr("Cut operations require an open Assembly."));
+        auto items=Json::array();for(const auto& cut:state->session.document().cuts)items.push_back(details(workspace_,id,cut.definition));
+        return Result::success({{"document",id},{"items",std::move(items)},{"total",state->session.document().cuts.size()}});
+    });
     for(const auto kind:{Kind::Extrusion,Kind::Revolution}) {
         const bool extrusion=kind==Kind::Extrusion;const std::string prefix=extrusion?"extrusion":"revolution";
         dispatcher_.add({prefix+".get",tr("Read an Extrusion or Revolution and its owned profile without calculation."),{{"container",true},{"document",false}},false},[this,kind](const Json& args){
-            try{const auto* state=workspace_.open_part(args.value("document",workspace_.active_document_id()));const auto& value=profile(state,args.at("container").get<std::string>(),kind);return Result::success(details(*state,value));}
+            try{const auto id=args.value("document",workspace_.active_document_id());const auto& value=profile(workspace_,id,args.at("container").get<std::string>(),kind);return Result::success(details(workspace_,id,value));}
             catch(const Error& e){return Result::failure(e.code,tr(e.what()));}
         });
         for(const bool create:{true,false}) {
             std::vector<commands::Argument> fields{{create?"sketch":"container",true},{"name",false},{"combine",false},
                 {"result_type",false},{"thin_thickness_mm",false,Type::Number},{"thin_mode",false},{"extent",false},{"direction",false},
                 {extrusion?"length_forward_mm":"angle_degrees",false,Type::Number},{extrusion?"length_reverse_mm":"angle_reverse_degrees",false,Type::Number},
-                {"profile_offset_mm",false,Type::Number},{"placement",false,Type::Object},{"document",false}};
+                {"profile_offset_mm",false,Type::Number},{"placement",false,Type::Object},{"targets",false,Type::Array},{"document",false}};
             if(extrusion){fields.push_back({"end_forward",false});fields.push_back({"end_reverse",false});fields.push_back({"targets_forward",false,Type::Array});fields.push_back({"targets_reverse",false,Type::Array});}else fields.push_back({"axis",false});
             dispatcher_.add({prefix+(create?".create":".set"),create?tr("Convert a standalone Sketch to an Extrusion or Revolution in one transaction."):tr("Edit and calculate a profile feature through the shared Properties transaction."),std::move(fields),true},
                 [this,create,kind](const Json& args){
                     const auto check=target(args);if(!check.ok)return check;
                     try {
                         const auto id=workspace_.active_document_id();auto* state=workspace_.open_part(id);
-                        if(!state||interaction().template_document)throw Error("unsupported_document","Profile operations require an open Part.");
-                        auto value=create?workspace::profile_from_sketch(state->session.document(),args.at("sketch").get<std::string>(),kind)
-                            :profile(state,args.at("container").get<std::string>(),kind);
-                        const auto* body=state->session.document().body_owner_for_object(value.id);
-                        if(body&&body->scope.id!=state->session.document().body_history.active_body_id())throw Error("inactive_body","Activate the owning Body before editing its profile.");
+                        auto* assembly=workspace_.open_assembly(id);
+                        if((!state&&!assembly)||interaction().template_document)throw Error("unsupported_document","Profile operations require an open Part or Assembly.");
+                        auto value=create?(state?workspace::profile_from_sketch(state->session.document(),args.at("sketch").get<std::string>(),kind)
+                                                :assembly_profile(assembly->session.document(),args.at("sketch").get<std::string>(),kind))
+                                         :profile(workspace_,id,args.at("container").get<std::string>(),kind);
+                        if(state) {
+                            const auto* body=state->session.document().body_owner_for_object(value.id);
+                            if(body&&body->scope.id!=state->session.document().body_history.active_body_id())throw Error("inactive_body","Activate the owning Body before editing its profile.");
+                            if(args.contains("targets"))throw Error("invalid_arguments","Occurrence targets are available only in an Assembly.");
+                        }
                         properties(value,args,workspace_,id);const auto container=value.id;
-                        workspace::commit_profile(workspace_,kernel_,id,std::move(value),create?workspace::ProfileEditMode::TransformSketch:workspace::ProfileEditMode::Replace);
-                        change_=Change{ChangeKind::Model,id};auto result=details(*state,profile(state,container,kind));result["changed"]=true;return Result::success(std::move(result));
+                        if(assembly) {
+                            std::vector<std::string> selected;
+                            if(args.contains("targets")) {
+                                for(const auto& target:args.at("targets")) {
+                                    if(!target.is_string()||target.get<std::string>().empty())throw Error("invalid_arguments","Cut targets must be nonempty occurrence identities.");
+                                    selected.push_back(target.get<std::string>());
+                                }
+                            } else if(!create) selected=assembly->session.document().find_cut(container)->target_occurrence_ids;
+                            else for(const auto& item:assembly->session.document().components)
+                                if(!item.suppressed&&!item.derived_copy&&item.source_kind==zima::assembly::ComponentSourceKind::Part)selected.push_back(item.occurrence_id);
+                            workspace::commit_assembly_profile(workspace_,kernel_,id,std::move(value),std::move(selected),
+                                create?workspace::ProfileEditMode::Create:workspace::ProfileEditMode::Replace);
+                        } else workspace::commit_profile(workspace_,kernel_,id,std::move(value),create?workspace::ProfileEditMode::TransformSketch:workspace::ProfileEditMode::Replace);
+                        change_=Change{ChangeKind::Model,id};auto result=details(workspace_,id,profile(workspace_,id,container,kind));result["changed"]=true;return Result::success(std::move(result));
                     } catch(const Error& e){return Result::failure(e.code,tr(e.what()));}
                       catch(const workspace::PlacementEditError& e){return Result::failure(e.code,tr(e.what()));}
                       catch(const std::exception& e){return Result::failure("profile_rejected",tr(e.what()));}

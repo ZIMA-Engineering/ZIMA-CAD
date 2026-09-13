@@ -389,6 +389,25 @@ int main(int argc,char** argv){
         const auto referenced_body=document::PartDocument::load(body_reference_path).body_history.find(body_reference_target)->scope.placement;
         require(referenced_body.z==7&&referenced_body.references[0].owner_id==body_reference_source&&referenced_body.references[0].offset==7,"CLI lost native Body source or offset");
 
+        result=launch(executable,root,common+QStringList{"--command","new part cli-cut-source","--command","box.create 10 10 10","--command","save"});
+        require(result.exit_code==0,"CLI cut source creation failed");
+        const auto cut_source=document::PartDocument::load(project/"cli-cut-source.prtz");
+        const auto insert_cut_source=command({{"command","component.insert"},{"arguments",{{"source",cut_source.document_id}}}});
+        result=launch(executable,root,common+QStringList{"--command","open cli-cut-source.prtz","--command","new assembly cli-profile-cuts","--command",insert_cut_source,"--command",insert_cut_source,"--command","sketch.create CutProfile XY","--command","save"});
+        require(result.exit_code==0,"CLI cut Assembly creation failed");
+        const auto cut_path=project/"cli-profile-cuts.asmz";const auto cut_fixture=assembly::AssemblyDocument::load(cut_path);
+        const auto cut_sketch=cut_fixture.sketches.front().id,cut_target=cut_fixture.components.front().occurrence_id;
+        QStringList cut_commands{"--command","open cli-profile-cuts.asmz"};
+        for(const auto& points:std::vector<std::array<double,4>>{{-1,-1.5,1,-1.5},{1,-1.5,1,1.5},{1,1.5,-1,1.5},{-1,1.5,-1,-1.5}})
+            cut_commands<<"--command"<<command({{"command","sketch.segment.create"},{"arguments",{{"sketch",cut_sketch},{"first",{points[0],points[1]}},{"second",{points[2],points[3]}},{"snap_mm",0.000001}}}});
+        cut_commands<<"--command"<<command({{"command","extrusion.create"},{"arguments",{{"sketch",cut_sketch},{"length_forward_mm",4},{"targets",{cut_target}}}}})
+                    <<"--command"<<"undo"<<"--command"<<"redo"<<"--command"<<"save"<<"--command"<<"assembly.cut.list";
+        result=launch(executable,root,common+cut_commands);
+        require(result.exit_code==0&&result.results().back().at("data").at("total")==1,"CLI Assembly cut or history failed");
+        const auto cut_saved=assembly::AssemblyDocument::load(cut_path);
+        require(cut_saved.cuts.front().target_occurrence_ids==std::vector<std::string>{cut_target}&&cut_saved.sketches.front().owner_container_id==cut_saved.cuts.front().definition.id,"CLI cut lost native ownership");
+        require(std::abs(cut_saved.components.front().calculated_source->volume-976)<1e-6&&std::abs(cut_saved.components.back().calculated_source->volume-1000)<1e-6,"CLI cut changed wrong occurrence or volume");
+
         const auto create_plane = command({{"command","construction.create"},{"arguments",{{"kind","plane"},{"name","CLI rovina žluťoučká"},
             {"base_plane","yz"},{"offset_mm",10},{"values",{{"x",1},{"y",2},{"z",3},{"rotation_z",90}}}}}});
         result=launch(executable,root,common+QStringList{"--command","new part construction-created","--command",create_plane,"--command","save"});

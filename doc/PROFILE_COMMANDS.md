@@ -1,7 +1,7 @@
 # Vytažení a rotace přes konzoli a CLI
 
 Příkazy `extrusion.create/get/set` a `revolution.create/get/set` používají
-stejné potvrzení profilu jako OK ve Vlastnostech. Tvorba převádí samostatnou
+stejné potvrzení profilu jako OK ve Vlastnostech. V Partu tvorba převádí samostatnou
 skicu na profilový prvek: zachová ID kontejneru, jeho počátek, umístění,
 vlastníka v tělese a pozici historie. Nová operace získá nové ID prvku;
 její skica zůstane v témže kontejneru. Nejde o kopii skici.
@@ -232,3 +232,75 @@ První úplný běh odhalil dvě chyby nových testovacích vstupů: parametr ur
 ose byl použit u roviny a odmítnuté mazání reference očekávalo jiný kód chyby.
 Obě přípravy testů byly opraveny; poslední výsledky výše zahrnují jejich
 funkční scénáře. Žádná tato změna nevytváří externí cache či nový formát souboru.
+
+
+## Profilové odečty sestavy
+
+Stejné příkazy `extrusion.create/get/set` a `revolution.create/get/set`
+pracují i v aktivní Assembly. `assembly.cut.list` vypíše její odečty bez
+výpočtu a bez otevírání zdrojů. `create` převezme samostatnou skicu sestavy
+a přiřadí jí nový vlastnický kontejner odečtu. Part nadále zachovává
+původní kontejner při převodu samostatné skici.
+
+```json
+{"command":"extrusion.create","arguments":{"sketch":"ID-SKICI","length_forward_mm":4,"targets":["ID-VYSKYTU"]}}
+{"command":"extrusion.set","arguments":{"container":"ID-ODECTU","length_forward_mm":2,"targets":["PRVNI-VYSKYT","DRUHY-VYSKYT"]}}
+{"command":"assembly.cut.list"}
+```
+
+`targets` je pole identifikátorů přímo vložených výskytů Partu v cílové
+sestavě. Opakované vložení téhož Partu má samostatné cíle. Nelze zasáhnout
+vnitřní díl podsestavy, podsestavu jako celek ani odvozený výskyt. Duplicitní
+a neznámé cíle se odmítnou. Při vytvoření bez `targets` se použijí všechny
+aktuální nepotlačené přímo vložené editovatelné Party, stejně jako v GUI;
+při změně bez `targets` se zachová dosavadní seznam. Prázdné pole ukládá
+odečet bez zasažených výskytů. V Partu se tento argument odmítne.
+
+Režim `combine` musí být `subtract`. Ostatní parametry jsou společné
+s Partem: rozměry, tenká stěna, rozsah a směr, vlastní konstrukční osa
+rotace, číselné umístění a původní koncové reference. U `targets_forward`
+a `targets_reverse` určuje `instance_path` přesný výskyt původní plochy;
+geometrie se čte z uložených referencí. Výstupy navíc obsahují `targets`
+a `suppressed`. Změna tvoří jeden krok Undo, zdrojový Part se nemění.
+
+GUI i CLI volají `commit_assembly_profile`. Kontrola identity, vlastníka
+skici a cílů předchází potvrzení. Přepočet závislostí probíhá v připravené
+kopii dokumentu a respektuje aktuální neuložené otevřené zdroje. Teprve
+po dokončení všech odečtů se potvrdí sestava. Neplatný požadavek nepublikuje
+mezistav regenerace. Uložení vstupních těl pro Properties rollback zůstává
+součástí nativního dokumentu.
+
+### Úplné uložení profilových parametrů
+
+Test nové transakce odhalil, že Assembly ukládala jen část parametrů
+vysunutí a rotace. Nyní používají Part i Assembly společné
+`save_profile_parameters` / `load_profile_parameters`. Zachovají se
+oboustranné délky a úhly, tenká stěna, odsazení skici, koncové podmínky
+a původní reference. Assembly ukládá také úplné stávající umístění
+a číselné zámky přes existující datový formát Placement. Neúplná
+sestavová serializační větev byla odstraněna.
+
+Přípony se nemění. Assembly má verzi INI **17** a vnitřní verzi **26**;
+starší verze není podporována podle pravidel projektu. Part zůstává na
+verzích **19/43**, protože jeho profilová pole mají stejnou podobu.
+Startovací Assembly i verzovaná testovací sestava odpovídají nové verzi.
+Všechna potřebná data zůstávají pouze v nativních dokumentech.
+
+Ověření této etapy:
+
+- Původní test objevil neúplnou serializaci Assembly; po opravě prošel model
+  vysunutí i rotace. Rozsahy, tenká stěna, zdrojové díly a původní koncová
+  plocha mají kontrolované objemy, nikoli jen počet objektů.
+- Integrační běh **8/9 za 121,68 s** ověřil skutečný CLI proces, obousměrné
+  GUI Properties, historii, šablony a původní profilové reference. Jedinou
+  chybou bylo očekávání celého průchozího řezu v jednostranném testu ze středu
+  kvádru. Test nyní samostatně ověřuje 30 mm³ jednostranně a 60 mm³ oboustranně.
+- Opravený model, překlady a obě startovací šablony prošly **4/4 za 13,93 s**
+  (`build/assembly-profile-final-model-tests.log`). Obě šablony byly přeuloženy
+  nativní aplikací; Part neztratil ani nezměnil žádnou původní hodnotu.
+- Doplněná kontrola chyby výpočtu otevřeného profilu, zákazu zásahu dovnitř
+  podsestavy a uložených zámků prošla **1/1 za 0,83 s**
+  (`build/assembly-profile-atomic-tests.log`).
+- Finální sestavení obou aplikací i všech testovacích programů následovala
+  **úplná regrese 136/136 za 540,06 s**, bez chyby
+  (`build/assembly-profile-full-build.log`, `build/assembly-profile-full-tests.log`).

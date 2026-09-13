@@ -1,3 +1,4 @@
+#include <zima/document/profile_serialization.hpp>
 #include <zima/document/cache_storage.hpp>
 #include <zima/document/object_annotation_frames.hpp>
 #include <zima/document/dimension_layout_json.hpp>
@@ -1805,7 +1806,7 @@ zima::kernel::ViewerMesh AssemblyDocument::build_scene_with_part_override(
 
 AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
     const auto ini = read_ini(path);
-    if (ini_value(ini, "Document", "format_version") != "16" ||
+    if (ini_value(ini, "Document", "format_version") != "17" ||
         ini_value(ini, "Document", "type") != "assembly") {
         throw std::runtime_error("Unsupported ZIMA-CAD Assembly document format");
     }
@@ -1886,40 +1887,13 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
         const auto kind = value.at("kind").get<std::string>();
         feature.feature_kind = kind == "extrusion"
             ? zima::document::FeatureKind::Extrusion
-            : zima::document::FeatureKind::Revolution;
+            : kind == "revolution" ? zima::document::FeatureKind::Revolution
+            : throw std::runtime_error("Invalid Assembly cut kind");
         feature.combine_mode = zima::document::CombineMode::Subtract;
         feature.suppressed = value.at("suppressed").get<bool>();
-        feature.placement = {value.at("x").get<double>(), value.at("y").get<double>(),
-            value.at("z").get<double>(), value.at("rx").get<double>(),
-            value.at("ry").get<double>(), value.at("rz").get<double>()};
-        const auto sketch_id = value.at("sketch_id").get<std::string>();
-        if (feature.feature_kind == zima::document::FeatureKind::Extrusion) {
-            feature.extrusion.sketch_id = sketch_id;
-        } else {
-            feature.revolution.sketch_id = sketch_id;
-        }
-        feature.extrusion.height = value.at("height").get<double>();
-        feature.extrusion.direction = static_cast<zima::document::ExtrusionDirection>(
-            value.at("direction").get<int>());
-        feature.extrusion.extent = static_cast<zima::document::ExtrusionExtent>(
-            value.at("extent").get<int>());
-        feature.extrusion.target_face = {value.at("target_owner").get<std::string>(),
-            value.at("target_key").get<std::string>(),
-            value.at("target_path").get<std::string>()};
-        const auto& origin = value.at("target_origin");
-        const auto& normal = value.at("target_normal");
-        feature.extrusion.target_plane_origin = {origin.at(0).get<double>(),
-            origin.at(1).get<double>(), origin.at(2).get<double>()};
-        feature.extrusion.target_plane_normal = {normal.at(0).get<double>(),
-            normal.at(1).get<double>(), normal.at(2).get<double>()};
-        for (const auto& point : value.at("target_triangles")) {
-            feature.extrusion.target_surface_triangles.push_back({
-                point.at(0).get<double>(), point.at(1).get<double>(),
-                point.at(2).get<double>()});
-        }
-        feature.revolution.axis_segment_id =
-            value.at("axis_segment_id").get<std::string>();
-        feature.revolution.angle_degrees = value.at("angle").get<double>();
+        value.at("placement").get_to(feature.placement);
+        value.at("value_locks").get_to(feature.value_locks);
+        zima::document::load_profile_parameters(feature, value);
         cut.target_occurrence_ids = value.at("targets").get<std::vector<std::string>>();
         for (const auto& [occurrence_id, body] : value.at("input_component_bodies").items()) {
             cut.input_component_bodies.emplace(
@@ -2150,10 +2124,6 @@ void AssemblyDocument::save(const std::filesystem::path& path,
             feature.feature_kind != zima::document::FeatureKind::Revolution) {
             throw std::runtime_error("Assembly cut must be an Extrusion or Revolution");
         }
-        nlohmann::json triangles = nlohmann::json::array();
-        for (const auto& point : feature.extrusion.target_surface_triangles) {
-            triangles.push_back({point.x, point.y, point.z});
-        }
         nlohmann::json input_bodies = nlohmann::json::object();
         for (const auto& [occurrence_id, body] : cut.input_component_bodies) {
             input_bodies[occurrence_id] =
@@ -2162,36 +2132,17 @@ void AssemblyDocument::save(const std::filesystem::path& path,
         if (feature.feature_parent_id != feature.id) {
             throw std::runtime_error("Assembly cut feature parent is invalid");
         }
-        cuts_json.push_back({{"id", feature.id},
-            {"feature_id", feature.feature_id},
+        nlohmann::json saved_cut = {{"id", feature.id}, {"feature_id", feature.feature_id},
             {"feature_parent_id", feature.feature_parent_id}, {"name", feature.name},
-            {"kind", feature.feature_kind == zima::document::FeatureKind::Extrusion
-                ? "extrusion" : "revolution"}, {"suppressed", feature.suppressed},
-            {"x", feature.placement.x}, {"y", feature.placement.y},
-            {"z", feature.placement.z}, {"rx", feature.placement.rotation_x},
-            {"ry", feature.placement.rotation_y}, {"rz", feature.placement.rotation_z},
-            {"sketch_id", feature.feature_kind == zima::document::FeatureKind::Extrusion
-                ? feature.extrusion.sketch_id : feature.revolution.sketch_id},
-            {"height", feature.extrusion.height},
-            {"direction", static_cast<int>(feature.extrusion.direction)},
-            {"extent", static_cast<int>(feature.extrusion.extent)},
-            {"target_owner", feature.extrusion.target_face.owner_id},
-            {"target_key", feature.extrusion.target_face.semantic_key},
-            {"target_path", feature.extrusion.target_face.instance_path},
-            {"target_origin", {feature.extrusion.target_plane_origin.x,
-                feature.extrusion.target_plane_origin.y,
-                feature.extrusion.target_plane_origin.z}},
-            {"target_normal", {feature.extrusion.target_plane_normal.x,
-                feature.extrusion.target_plane_normal.y,
-                feature.extrusion.target_plane_normal.z}},
-            {"target_triangles", std::move(triangles)},
-            {"axis_segment_id", feature.revolution.axis_segment_id},
-            {"angle", feature.revolution.angle_degrees},
-            {"targets", cut.target_occurrence_ids},
-            {"input_component_bodies", std::move(input_bodies)}});
+            {"kind", feature.feature_kind == zima::document::FeatureKind::Extrusion ? "extrusion" : "revolution"},
+            {"suppressed", feature.suppressed}, {"placement", feature.placement},
+            {"value_locks", feature.value_locks}, {"targets", cut.target_occurrence_ids},
+            {"input_component_bodies", std::move(input_bodies)}};
+        zima::document::save_profile_parameters(feature, saved_cut);
+        cuts_json.push_back(std::move(saved_cut));
     }
     nlohmann::json root = {
-        {"format", "zima-cad-cpp"}, {"format_version", 25},
+        {"format", "zima-cad-cpp"}, {"format_version", 26},
         {"type", "assembly"}, {"document_id", document_id}, {"name", name},
         {"user_parameters", user_parameters},
         {"user_parameter_order", user_parameter_order},
@@ -2220,7 +2171,7 @@ void AssemblyDocument::save(const std::filesystem::path& path,
     const auto saved_name = root.at("name").get<std::string>();
     IniSections ini;
     ini["Document"] = {
-        {"format_version", "16"},
+        {"format_version", "17"},
         {"type", "assembly"},
         {"document_id", saved_id},
         {"name", saved_name},

@@ -1374,6 +1374,46 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
             dialog=edit();dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
             json_run("close",{{"discard",true}});json_run("activate",{{"document",previous_document}});flush();
         }
+        run(QString::fromStdString("new part "+stem+"-cut-source"));
+        json_run("box.create",{{"length_mm","10"},{"width_mm","10"},{"height_mm","10"}});run("save");
+        const auto cut_source_id=run("context").data.at("active_document");
+        for(const std::string kind:{"extrusion","revolution"}) {
+            const bool extrusion=kind=="extrusion";
+            run(QString::fromStdString("new assembly "+stem+"-cut-"+kind));
+            const auto occurrence=json_run("component.insert",{{"source",cut_source_id}}).data.at("occurrence");
+            const auto sketch=json_run("sketch.create",{{"name","Cut"},{"plane","XY"}}).data.at("sketch");
+            json_run("sketch.rectangle.create",{{"sketch",sketch},{"first",extrusion?commands::Json::array({-1,-1.5}):commands::Json::array({1,0})},{"second",extrusion?commands::Json::array({1,1.5}):commands::Json::array({2,4})}});
+            commands::Json args={{"sketch",sketch},{"targets",{occurrence}}};
+            if(extrusion)args["length_forward_mm"]=4;
+            else {
+                const auto axis=json_run("sketch.segment.create",{{"sketch",sketch},{"first",{0,0}},{"second",{0,4}}}).data.at("geometry");
+                json_run("sketch.segment.centerline",{{"sketch",sketch},{"segment",axis},{"centerline",true}});args["axis"]=axis;
+            }
+            const auto created=json_run((kind+".create").c_str(),args).data;const auto id=created.at("container").get<std::string>();flush();
+            const auto* field=extrusion?"extrusionHeight":"revolutionAngle";
+            const auto* key=extrusion?"length_forward_mm":"angle_degrees";
+            const double initial=extrusion?4:360,changed=extrusion?3:180;
+            const auto edit=[&]() {
+                QTreeWidgetItem* item=nullptr;
+                for(QTreeWidgetItemIterator it(model_tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==id){item=*it;break;}
+                check(item,"Assembly cut missing from Tree");window.show_tree_item_properties(item);flush();
+                for(auto* dialog:window.findChildren<QDialog*>())if(dialog->isVisible()&&dialog->findChild<QDoubleSpinBox*>(field))return dialog;
+                throw std::runtime_error("Assembly cut Properties missing");
+            };
+            const auto get=[&](){return json_run((kind+".get").c_str(),{{"container",id}}).data;};
+            auto* dialog=edit();check(std::abs(dialog->findChild<QDoubleSpinBox*>(field)->value()-initial)<1e-8,"Assembly Properties lost profile dimensions");
+            dialog->findChild<QDoubleSpinBox*>(field)->setValue(changed);
+            dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();check(get().at(key)==initial,"Assembly cut Cancel changed model");
+            dialog=edit();dialog->findChild<QDoubleSpinBox*>(field)->setValue(changed);
+            const commands::Json patch={{"command",kind+".set"},{"arguments",{{"container",id},{key,changed}}}};
+            check(window.execute_console_command(QString::fromStdString(patch.dump())).code=="editing_in_progress","CLI overwrote Assembly cut Properties");
+            dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+            check(get().at(key)==changed&&get().at("targets")==commands::Json::array({occurrence}),"Assembly cut OK lost dimension or target");
+            run("save");const auto saved=assembly::AssemblyDocument::load(directory/(stem+"-cut-"+kind+".asmz"));
+            check(std::abs(saved.components.front().calculated_source->volume-(extrusion?982:1000-6*std::acos(-1.0)))<1e-5,"GUI Assembly cut saved incorrect volume");
+            check(saved.find_cut(id)->definition.feature_id==created.at("feature").get<std::string>(),"GUI Assembly cut changed feature identity");
+            run("undo");check(get().at(key)==initial,"Assembly cut Undo failed");json_run("close",{{"discard",true}});flush();
+        }
         input->setText("context");QApplication::sendEvent(input,&enter);flush();
         check(window.grab().save(QString::fromStdString((directory/"command-console.png").string())),"Console screenshot failed");
         toggle->trigger();flush();check(!dock->isVisible(),"Console toggle did not hide panel");

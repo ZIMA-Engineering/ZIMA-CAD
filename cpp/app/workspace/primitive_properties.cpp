@@ -314,56 +314,16 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                     committed.placement.references);
             }
             if (assembly_cut) {
-                workspace_.regenerate_assembly_from_open_dependencies(owner_id);
-                auto* target = workspace_.open_assembly(owner_id);
-                if (target == nullptr) throw std::runtime_error(
-                    "Assembly is no longer open");
-                auto next = target->session.document();
-                if (property_owned_sketch_draft_) {
-                    auto owned = *property_owned_sketch_draft_;
-                    owned.owner_container_id = committed.id;
-                    owned.plane_offset = committed.feature_kind ==
-                            zima::document::FeatureKind::Extrusion
-                        ? committed.extrusion.profile_plane_offset
-                        : committed.revolution.profile_plane_offset;
-                    const auto existing = std::find_if(
-                        next.sketches.begin(), next.sketches.end(),
-                        [&](const auto& sketch) {
-                            return sketch.id == owned.id;
-                        });
-                    if (existing == next.sketches.end()) {
-                        next.sketches.push_back(std::move(owned));
-                    } else {
-                        *existing = std::move(owned);
-                    }
+                const auto committed_cut_id = committed.id;
+                try {
+                    zima::workspace::commit_assembly_profile(workspace_, kernel_, owner_id,
+                        std::move(committed), std::move(target_occurrences),
+                        edit_mode ? zima::workspace::ProfileEditMode::Replace
+                                  : zima::workspace::ProfileEditMode::Create,
+                        property_owned_sketch_draft_);
+                } catch (const std::exception& error) {
+                    throw std::runtime_error(tr(error.what()).toStdString());
                 }
-                if (committed.feature_kind ==
-                        zima::document::FeatureKind::Revolution) {
-                    const auto axis_sketch = std::find_if(
-                        next.sketches.begin(), next.sketches.end(),
-                        [&](const auto& sketch) {
-                            return sketch.id == committed.revolution.sketch_id;
-                        });
-                    if (axis_sketch == next.sketches.end()) {
-                        throw std::runtime_error("Skica rotace nebyla nalezena.");
-                    }
-                    committed.revolution.axis_segment_id =
-                        revolution_axis_segment_id(*axis_sketch,
-                            committed.revolution.axis_segment_id);
-                }
-                zima::assembly::AssemblyCut cut{
-                    std::move(committed), std::move(target_occurrences)};
-                const auto committed_cut_id = cut.definition.id;
-                if (edit_mode) {
-                    auto* existing = next.find_cut(cut.definition.id);
-                    if (existing == nullptr) throw std::runtime_error(
-                        "Assembly cut no longer exists");
-                    *existing = std::move(cut);
-                } else {
-                    next.cuts.push_back(std::move(cut));
-                }
-                calculate_assembly_cuts(next);
-                target->session.commit(std::move(next));
                 if (pending_profile_feature_ &&
                     pending_profile_feature_->id == committed_cut_id) {
                     pending_profile_feature_.reset();

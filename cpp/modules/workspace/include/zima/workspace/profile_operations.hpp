@@ -9,6 +9,11 @@ public:
     const char* code;
 };
 enum class ProfileEditMode { Create, Replace, TransformSketch };
+void validate_profile_definition(const document::HistoryContainer&);
+// Assembly cutters affect immediate Part occurrences, never their source files.
+void commit_assembly_profile(Workspace&, const kernel::OcctKernel&, const std::string& document_id,
+    document::HistoryContainer, std::vector<std::string> targets, ProfileEditMode,
+    const std::optional<sketcher::Sketch>& owned_sketch = {});
 void normalize_owned_profile_front_references(std::vector<document::ConstructionReference>&,
     bool preserve_front_through_origin_triad = false);
 [[nodiscard]] std::string revolution_axis_segment_id(const sketcher::Sketch&, const std::string& configured_id = {});

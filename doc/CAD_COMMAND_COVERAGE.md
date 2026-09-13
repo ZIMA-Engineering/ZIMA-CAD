@@ -40,12 +40,12 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Skicář: geometrie | Základ hotov | 21 příkazů: samostatné a vložené skici, body, úsečky, kružnice, oblouky, elipsy, B-spline, obdélníky, mnohoúhelníky, posun a pomocná geometrie; text create/get/set s nativním písmem a spline get/set hotovy; DXF do vložených profilů hotov; zbývá kontrola dalších variant podle GUI |
 | Skicář: vazby a operace | Vazby/kóty/solver/offset/trim/mirror hotovy | Offset create/get/set/free, úplný podklad a zachování intervalů, trim podle průsečíků, mirror, orientovaný obdélník, tečny a zaoblení rohu; všech 15 druhů vazeb, odstranění a solver; 16 druhů kót včetně vlastností, popisků a mazání; uvolnění externích referencí hotovo |
 | Externí reference skici | Lokální i kontextová tvorba, obnova a odpojení | Přesná projekce, trim, společné potvrzení Partu a závislostí, vlastněné profily, Part/Assembly Undo/Redo a souhrny zavřených nativních vlastníků při explicitní regeneraci |
-| Vytažení a rotace | Profily, Thin, směry a cíle zakončení Partu hotovy | `extrusion/revolution.create/get/set`, vlastněná skica, původní plochy a dvě nezávislé meze, společné OK; zbývají sestavové řezy |
+| Vytažení a rotace | Profily Partu a profilové odečty Assembly implementovány | `extrusion/revolution.create/get/set`, `assembly.cut.list`, vlastněná skica, Thin, směry, původní koncové reference a konkrétní výskyty; společné OK; zbývá příkazová správa historie odečtů |
 | Tažení | Tvorba a geometrické vlastnosti hotovy | `sweep2d/sweep3d/helical.create/get/set`, společné GUI potvrzení, celá 3D dráha, stanice a úplná správa profilů/párování, reference roviny 2D dráhy a odsazení základní skici H-tažení; generické rozšíření umístění patří do řádku Umístění |
 | Otvory a závity | Katalog, současný Otvor a vnější závit částečně hotovy | `thread.catalog`, `opening.create/get/set`: hladký/závitový otvor, rozměry, sražení, špička, směr a průchozí otvor; `shaft_thread.create/get/set` včetně původních referencí; `hole.create/get/set`: nativní Hole s vlastními profily, rozměry a závitovým drátem; `opening.create/set` přijímají nezávislé původní cíle `bore_targets/thread_targets`; `hole.create/set` přijímají původní `bore_targets`; zbývají operace vnořených částí otvoru; `drill_point.create/get/set` pokrývají samostatnou vrtací špičku |
 | Zaoblení, zkosení, skořepina | Hotovo | `shell.faces/create/get/set`, `fillet.create/get/set`, `chamfer.create/get/set`; `edge_treatment.edges/route/remove`: skutečný vstup, společná tečná trasa a odebrání člena/trasy/posledního prvku podle stromového kontraktu |
 | Zrcadlo a pole | Hotovo pro Part a bezprostřední komponenty Assembly | `derived_copy.sources`, `mirror.create/get/set`, `pattern.create/get/set`: společné zdroje a potvrzení GUI/CLI, roviny/osy, lineární i kruhové režimy, umístění, zámky, neuložené zdroje a Undo/Redo; vnořená aktivace patří do řádku Sestavy |
-| Sestavy | Dotazy, vložení, otevření zdrojů, vlastnosti, odstranění a přesná aktivace hotovy | `component.set`: název, viditelnost, potlačení, uzemnění, umístění a všechny čtyři druhy vložených vazeb s mezemi/zámky; `component.remove` sdílí kontrolu závislostí a atomické mazání s GUI; `component.activate/deactivate` sdílejí přesný zdrojový kontext s GUI; souhrny referencí jsou společné pro Assembly Undo a explicitní regeneraci; zbývají řezy; schválená oprava pořadí řetězce vazeb je hotová a ověřená |
+| Sestavy | Dotazy, vložení, otevření zdrojů, vlastnosti, odstranění a přesná aktivace hotovy | `component.set`: název, viditelnost, potlačení, uzemnění, umístění a všechny čtyři druhy vložených vazeb s mezemi/zámky; `component.remove` sdílí kontrolu závislostí a atomické mazání s GUI; `component.activate/deactivate` sdílejí přesný zdrojový kontext s GUI; souhrny referencí jsou společné pro Assembly Undo a explicitní regeneraci; profilové odečty mají create/get/set/list; zbývá jejich mazání, potlačení a pořadí; schválená oprava pořadí řetězce vazeb je hotová a ověřená |
 | Výkresy | Listy, šablony, historie, tvorba/vlastnosti/dotazy/mazání pohledů, regenerace, modelové anotace, Show/Erase a měřené kóty (dotazy, tvorba, editace, řetězec, mazání), razítko, zdrojové parametry BOM, styly šraf, PDF, DXF a PNG/JPEG listu/výřezu hotovy | Další anotace a příkazový snímek interaktivního View |
 | Vzhled | Společné operace GUI/CLI hotovy | `appearance.get/set/reset/faces/palette`: styly Partu a jednotlivých výskytů, skupiny ploch, dědění zdroje, reset, historie a nativní uložení; bez výpočtu těles |
 | Řezy | Čtení, tvorba, vlastnosti, aktivace a odstranění | `section.list/get/components/create/set/activate/delete`: úplná otevřená čára, vlastní skica, společné OK vlastností, číselné umístění, přesné výskyty a šrafování; `section.sketch.edit` upravuje celou skicu v jedné transakci; zbývá vstup referencí umístění |
@@ -1388,3 +1388,25 @@ Finální sestavení obou aplikací i všech testovacích programů následovala
 `build/body-reference-full-build.log`, `build/body-reference-full-tests.log`.
 Katalog má 235 příkazů. Nativní formát se nemění. Následují společné
 transakce a příkazy profilových odečtů sestavy. Push čeká na návrat uživatele.
+
+
+## Profilové odečty Assembly a úplné uložení parametrů (2026-09-13)
+
+Příkazy `extrusion/revolution.create/get/set` používají ve vlastnící sestavě
+stejnou transakci jako GUI. `assembly.cut.list` čte odečty bez výpočtu.
+Konkrétní bezprostřední výskyty zůstávají oddělené, zdrojový Part se nemění;
+chyba výpočtu ani neplatný cíl nezanechají částečnou regeneraci.
+
+Modelová regrese odhalila neúplné ukládání parametrů sestavového profilu.
+Part a Assembly nyní používají jednu profilovou serializaci, přesunutou
+z velkého souboru PartDocument. Assembly INI má verzi 17, vnitřní verzi 26;
+Part zůstává 19/43. Přípony zůstávají zachované, obě startovací šablony byly
+přeuloženy a verzovaná fixture odpovídá současnému formátu. Podrobnosti
+a průběžné ověření: [PROFILE_COMMANDS.md](PROFILE_COMMANDS.md).
+
+Ověřen skutečný CLI proces i GUI editace. Cílená závěrečná regrese **4/4
+za 13,93 s** a dodatečné kontroly chyb, vlastnictví a zámků **1/1 za 0,83 s**
+prošly. Finální sestavení obou aplikací i všech testů následovala **úplná
+regrese 136/136 za 540,06 s**, bez chyby (`build/assembly-profile-full-tests.log`).
+Katalog má 236 příkazů. Následuje mazání, potlačení a pořadí sestavových
+odečtů. Push čeká na návrat uživatele.

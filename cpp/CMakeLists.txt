@@ -81,6 +81,7 @@ endforeach()
 file(APPEND "${ZIMA_THREAD_CATALOG_SOURCE}" "return {}; } }\n")
 
 add_library(zima_document_core
+    modules/document_core/src/profile_serialization.cpp
     modules/document_core/src/part_document.cpp
     modules/document_core/src/hole_profiles.cpp
     modules/document_core/src/profile_targets.cpp
@@ -176,6 +177,7 @@ add_library(zima_workspace modules/workspace/src/workspace.cpp
     modules/workspace/src/derived_copy_edits.cpp
     modules/workspace/src/edge_treatment_operations.cpp
     modules/workspace/src/shell_operations.cpp
+    modules/workspace/src/assembly_profile_operations.cpp
     modules/workspace/src/profile_operations.cpp
     modules/workspace/src/profile_targets.cpp
     modules/workspace/src/sweep_operations.cpp)
@@ -880,6 +882,10 @@ if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_cpp_sweep_command_tests COMMAND zima_cpp_sweep_command_tests)
     set_tests_properties(zima_cpp_sweep_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
 
+    add_executable(zima_cpp_assembly_profile_command_tests tests/assembly_profile_command_tests.cpp)
+    target_link_libraries(zima_cpp_assembly_profile_command_tests PRIVATE zima_command_host)
+    add_test(NAME zima_cpp_assembly_profile_command_tests COMMAND zima_cpp_assembly_profile_command_tests)
+    set_tests_properties(zima_cpp_assembly_profile_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     add_executable(zima_cpp_profile_command_tests tests/profile_command_tests.cpp)
     target_link_libraries(zima_cpp_profile_command_tests PRIVATE zima_command_host)
     add_test(NAME zima_cpp_profile_command_tests COMMAND zima_cpp_profile_command_tests)
