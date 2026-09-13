@@ -1,5 +1,6 @@
 #include <zima/workspace/workspace.hpp>
 #include <zima/workspace/reference_sources.hpp>
+#include <zima/workspace/document_dependencies.hpp>
 #include <zima/document/object_annotation_frames.hpp>
 #include <zima/assembly/physical_properties.hpp>
 #include <zima/kernel/occt_kernel.hpp>
@@ -681,23 +682,9 @@ void Workspace::add_external_sketch_dependency(
         throw std::invalid_argument(
             "External Sketch dependency requires two exact Part occurrences");
     }
-    zima::assembly::DependencyGraph document_dependencies;
-    for (const auto& state : documents_) {
-        const auto* part = std::get_if<PartState>(&state);
-        if (part == nullptr) continue;
-        for (const auto& sketch : part->session.document().sketches) {
-            for (const auto& reference : sketch.external_references) {
-                if (reference.source_document_id.empty() ||
-                    reference.source_document_id ==
-                        part->session.document().document_id) continue;
-                document_dependencies.add_dependency(
-                    part->session.document().document_id,
-                    reference.source_document_id);
-            }
-        }
-    }
-    document_dependencies.add_dependency(
-        dependent->source_document_id, prerequisite->source_document_id);
+    try{require_acyclic_document_dependency(*this,dependent->source_document_id,
+        prerequisite->source_document_id);}
+    catch(const DocumentDependencyError& error){throw std::invalid_argument(error.what());}
     std::size_t common_depth = 0;
     while (common_depth < dependent_instance_path.occurrence_ids.size() &&
            common_depth < prerequisite_instance_path.occurrence_ids.size() &&

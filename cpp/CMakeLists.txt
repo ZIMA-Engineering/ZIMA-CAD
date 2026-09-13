@@ -126,6 +126,7 @@ add_library(zima_workspace modules/workspace/src/workspace.cpp
     modules/workspace/src/history_operations.cpp
     modules/workspace/src/reference_sources.cpp
     modules/workspace/src/context_reference_sources.cpp
+    modules/workspace/src/document_dependencies.cpp
     modules/workspace/src/export_operations.cpp
     modules/workspace/src/import_operations.cpp
     modules/workspace/src/assembly_import_operations.cpp
@@ -571,6 +572,10 @@ if(ZIMA_BUILD_TESTS)
     target_link_libraries(zima_cpp_drawing_command_tests PRIVATE zima_command_host)
     add_test(NAME zima_cpp_drawing_command_tests COMMAND zima_cpp_drawing_command_tests)
     set_tests_properties(zima_cpp_drawing_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
+
+    add_executable(zima_cpp_document_dependency_tests tests/document_dependency_tests.cpp)
+    target_link_libraries(zima_cpp_document_dependency_tests PRIVATE zima_workspace)
+    add_test(NAME zima_cpp_document_dependency_tests COMMAND zima_cpp_document_dependency_tests)
 
     add_executable(zima_cpp_context_reference_geometry_tests tests/context_reference_geometry_tests.cpp)
     target_link_libraries(zima_cpp_context_reference_geometry_tests PRIVATE zima_workspace)

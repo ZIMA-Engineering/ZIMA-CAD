@@ -982,3 +982,14 @@ CLI procesu a přesných spline. Katalog zůstává na **209 příkazech**;
 následuje společná transakce příkazového vytvoření/odpojení reference
 v kontextu sestavy. Kontrakt a logy:
 [CONTEXT_REFERENCE_GEOMETRY.md](CONTEXT_REFERENCE_GEOMETRY.md).
+
+
+### Jedna kontrola cyklů pro vložení a externí reference
+
+Kontrola externí závislosti nyní prochází stejný dokumentový graf jako
+vložení komponenty, včetně vlastněných profilů a zavřených vnořených
+zdrojů. Neúplná dostupnost se odmítá, otevřená neuložená data jsou
+rozhodující a čtení nemění živý Workspace. Modelová sada **3/3** (0,83 s)
+a po sestavení všech programů související sada **9/9** (37,09 s) prošly.
+Počet příkazů zůstává **209**; společná transakce kontextové skici
+pokračuje. Podrobnosti: [DOCUMENT_DEPENDENCY_VALIDATION.md](DOCUMENT_DEPENDENCY_VALIDATION.md).
