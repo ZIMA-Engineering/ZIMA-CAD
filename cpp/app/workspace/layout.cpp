@@ -1,3 +1,4 @@
+#include <zima/workspace/edge_treatment_operations.hpp>
 #include "workspace_internal.hpp"
 #include <zima/workspace/body_operations.hpp>
 
@@ -1859,7 +1860,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                 if (!container || !boundary || !boundary->input_body) return;
                 const auto route=static_cast<std::size_t>(item->data(0,Qt::UserRole+6).toInt());
                 const int segment=item->data(0,Qt::UserRole+7).toInt();
-                auto wire=treatment_selection_wire(container->edge_treatment,route,
+                auto wire=zima::document::treatment_selection_wire(container->edge_treatment,route,
                     segment<0 ? std::nullopt : std::optional<std::size_t>{segment},boundary->input_body->mesh);
                 const auto path=item->data(0,Qt::UserRole+1).toString().toStdString();
                 if (!path.empty()) {
@@ -2218,14 +2219,13 @@ void AssemblyWorkspaceWindow::create_layout() {
                             throw std::runtime_error("Chybí uložený vstup operace. Regenerujte Part.");
                         auto next=part->session.document();
                         auto* target=next.find_container(id);
-                        remove_treatment_selection(target->edge_treatment,route,member,boundary->input_body->mesh);
+                        zima::document::remove_treatment_selection(target->edge_treatment,route,member,boundary->input_body->mesh);
                         if (target->edge_treatment.routes.empty()) {
                             delete_part_object(id,QStringLiteral("container"),false);
                             return;
                         }
-                        const auto& previous=part->session.calculated_boundaries();
-                        auto calculated=calculate_part_with_resolved_references(next,&previous);
-                        part->session.commit(std::move(next),std::move(calculated));
+                        static_cast<void>(zima::workspace::commit_edge_treatment(workspace_,kernel_,
+                            part->session.document().document_id,*target,zima::workspace::EdgeTreatmentEditMode::Replace));
                         viewer_->clear_selection();
                         preserve_view_on_refresh_=true;
                         refresh_tabs();refresh_scene();

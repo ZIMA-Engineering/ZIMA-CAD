@@ -107,6 +107,25 @@ int main(int argc,char** argv){
         std::vector<kernel::BodyResult> shell_cache;const auto shell_saved=document::PartDocument::load(shell_path,&shell_cache);
         require(shell_saved.history.back().feature_id==shell_created.feature_id&&shell_saved.history.back().shell.removed_faces==std::vector<kernel::FaceReference>{{shell_box.id,"z_max",{}}}&&
             std::abs(shell_cache.back().volume-712)<1e-6,"CLI Shell lost identities or saved a wrong material volume");
+        for(const bool fillet:{true,false}) {
+            const std::string prefix=fillet?"fillet":"chamfer";
+            const auto path=project/(prefix+"-cli.prtz");shell_fixture.save(path,shell_kernel.evaluate_history(shell_fixture.kernel_operations()));
+            const auto open=command({{"command","open"},{"arguments",{{"path",qpath(path).toStdString()}}}});
+            const auto routes=Json::array({Json{{"edges",Json::array({Json{{"owner",shell_box.id},{"key","edge:x_max:y_min:z_max--x_max:y_min:z_min"}}})}}});
+            result=launch(executable,root,common+QStringList{"--command",open,"--command",
+                command({{"command",prefix+".create"},{"arguments",{{"routes",routes},{fillet?"radius_mm":"distance_a_mm",2}}}}),"--command","save"});
+            require(result.exit_code==0,"Standalone edge treatment creation failed");
+            const auto created=document::PartDocument::load(path).history.back();
+            const auto get=command({{"command",prefix+".get"},{"arguments",{{"container",created.id}}}});
+            result=launch(executable,root,common+QStringList{"--command",open,"--command",get,"--command",
+                command({{"command",prefix+".set"},{"arguments",{{"container",created.id},{fillet?"radius_mm":"distance_a_mm",3},{"name","Úprava žluťoučká"}}}}),
+                "--command","undo","--command","redo","--command","save","--command",get});
+            require(result.exit_code==0&&result.results().size()==7&&result.results().back().at("data").at("name")=="Úprava žluťoučká","Standalone edge treatment edit/query/Undo/Unicode failed");
+            std::vector<kernel::BodyResult> cache;const auto saved=document::PartDocument::load(path,&cache);
+            const auto expected=1000-90*(fillet?1-std::acos(-1.)/4:.5);
+            require(saved.history.back().feature_id==created.feature_id&&saved.history.back().edge_treatment.routes==created.edge_treatment.routes&&!cache.empty()&&std::abs(cache.back().volume-expected)<1e-5,
+                "Standalone edge treatment lost input identity or saved incorrect volume");
+        }
         const auto drill_path=project/"drill-cli.prtz";const auto drill_fixture=test::drill_point_fixture();
         kernel::OcctKernel drill_kernel;drill_fixture.save(drill_path,drill_kernel.evaluate_history(drill_fixture.kernel_operations()));
         const auto drill_face=[&](std::size_t index){return Json{{"owner",drill_fixture.history.at(index).id},{"key","z_min"}};};

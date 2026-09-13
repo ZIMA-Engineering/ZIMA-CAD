@@ -1,4 +1,4 @@
-#include "../app/edge_treatment_tree_policy.hpp"
+#include <zima/document/edge_treatment_selection.hpp>
 #include "../app/opening_tree_policy.hpp"
 #include <zima/document/part_document.hpp>
 #include <zima/document/document_session.hpp>
@@ -1243,26 +1243,26 @@ int main() {
             parameters.route_start_vertices={input.edges[0].edge_treatment_endpoint_references.front()};
             parameters.fillet_mode=zima::document::EdgeTreatmentParameters::FilletMode::Linear;
             parameters.primary_size=2;parameters.secondary_size=4;
-            require(zima::app::treatment_selection_wire(parameters,0,std::nullopt,input).size()==4 &&
-                zima::app::treatment_selection_wire(parameters,0,0,input).front().reference==refs[2],
+            require(zima::document::treatment_selection_wire(parameters,0,std::nullopt,input).size()==4 &&
+                zima::document::treatment_selection_wire(parameters,0,0,input).front().reference==refs[2],
                 "Treatment Tree wire does not distinguish route and segment");
-            zima::app::remove_treatment_selection(parameters,0,0,input);
+            zima::document::remove_treatment_selection(parameters,0,0,input);
             require(parameters.routes.size()==2 && parameters.routes[0].size()==2 &&
                 parameters.routes[1].size()==1 && parameters.primary_size==2 && parameters.secondary_size==4 &&
                 parameters.route_start_vertices[0].semantic_key=="point-0" &&
                 parameters.route_start_vertices[1].semantic_key=="point-3",
                 "Deleting an interior segment did not split the route with preserved R1 direction");
             auto shortened_start=parameters;
-            zima::app::remove_treatment_selection(shortened_start,0,0,input);
+            zima::document::remove_treatment_selection(shortened_start,0,0,input);
             require(shortened_start.route_start_vertices[0].semantic_key=="point-1",
                 "Deleting the first segment did not move R1 to the surviving route end");
-            zima::app::remove_treatment_selection(parameters,0,1,input);
+            zima::document::remove_treatment_selection(parameters,0,1,input);
             require(parameters.route_start_vertices[0].semantic_key=="point-0",
                 "Deleting the end of a variable Fillet changed its R1 end");
-            zima::app::remove_treatment_selection(parameters,0,std::nullopt,input);
+            zima::document::remove_treatment_selection(parameters,0,std::nullopt,input);
             require(parameters.routes.size()==1 && parameters.route_start_vertices.size()==1,
                 "Deleting a route did not remove its matching endpoint");
-            zima::app::remove_treatment_selection(parameters,0,0,input);
+            zima::document::remove_treatment_selection(parameters,0,0,input);
             require(parameters.routes.empty() && parameters.route_start_vertices.empty(),
                 "Deleting the final segment left an empty route");
         }

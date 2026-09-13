@@ -1,3 +1,4 @@
+#include "primitive_properties_dialog.hpp"
 #include "../tests/drill_point_test_support.hpp"
 #include <QListWidget>
 #include "../tests/sweep_test_support.hpp"
@@ -1145,6 +1146,75 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
             dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();run("save");
             saved=document::PartDocument::load(file,&calculated);
             check(saved.history.back().shell.removed_faces==std::vector<kernel::FaceReference>{{box,"x_max",{}}}&&std::abs(calculated.back().volume-424)<1e-6,"GUI Shell removed the wrong opening face");
+            json_run("close",{{"discard",true}});json_run("activate",{{"document",previous_document}});flush();
+        }
+        for(const bool fillet:{true,false}) {
+            const auto previous_document=run("context").data.at("active_document");
+            const std::string prefix=fillet?"fillet":"chamfer";const auto name=stem+"-"+prefix;
+            json_run("new",{{"type","part"},{"name",name}});
+            const auto box=json_run("box.create",{{"length_mm","10"},{"width_mm","10"},{"height_mm","10"}}).data.at("container").get<std::string>();flush();
+            const auto path=directory/(name+".prtz");const kernel::EdgeReference edge{box,"edge:x_max:y_min:z_max--x_max:y_min:z_min",{}};
+            const auto dialog_open=[&]() {
+                for(auto* candidate:window.findChildren<QDialog*>())if(auto* dialog=dynamic_cast<PrimitivePropertiesDialog*>(candidate);dialog&&dialog->isVisible()&&dialog->findChild<QDoubleSpinBox*>("edgeTreatmentPrimary"))return dialog;
+                throw std::runtime_error("Edge treatment Properties did not open");
+            };
+            auto* action=window.findChild<QAction*>(fillet?"filletAction":"chamferAction");check(action&&action->isEnabled(),"Edge treatment action is unavailable");
+            for(const bool commit:{false,true}) {
+                action->trigger();flush();auto* dialog=dialog_open();dialog->set_edge_groups({{edge}});
+                dialog->findChild<QDoubleSpinBox*>("edgeTreatmentPrimary")->setValue(1);
+                dialog->findChild<QDialogButtonBox*>()->button(commit?QDialogButtonBox::Ok:QDialogButtonBox::Cancel)->click();flush();run("save");
+                check(document::PartDocument::load(path).history.size()==(commit?2:1),"GUI edge treatment creation OK/Cancel failed");
+            }
+            const auto id=document::PartDocument::load(path).history.back().id;
+            const auto input_edges=json_run("edge_treatment.edges",{{"container",id},{"owner",box}}).data.at("items");
+            const auto selected=std::ranges::find_if(input_edges,[&](const auto& value){return value.at("key")==edge.semantic_key;});check(selected!=input_edges.end(),"Missing rollback edge");
+            auto start=selected->at("segments")[0].at("endpoints")[1];const double start_z=start.at("position_mm")[2];start.erase("position_mm");
+            const auto routes=commands::Json::array({commands::Json{{"edges",commands::Json::array({commands::Json{{"owner",box},{"key",edge.semantic_key}}})},{"start",start}}});
+            if(fillet)json_run("fillet.set",{{"container",id},{"routes",routes},{"mode","linear"},{"radius_mm",2},{"radius_end_mm",3}});
+            else json_run("chamfer.set",{{"container",id},{"mode","two_distances"},{"distance_b_mm",2},{"flip",true}});
+            flush();const auto get=[&]{return json_run((prefix+".get").c_str(),{{"container",id}}).data;};const auto stored_routes=get().at("routes");
+            const auto edit=[&]() {
+                QTreeWidgetItem* item=nullptr;
+                for(QTreeWidgetItemIterator it(model_tree);*it;++it)
+                    if((*it)->data(0,Qt::UserRole).toString().toStdString()==id&&(*it)->data(0,Qt::UserRole+3).toString()=="part-container"){item=*it;break;}
+                check(item,"CLI edge treatment is missing from tree");window.show_tree_item_properties(item);flush();return dialog_open();
+            };
+            auto* dialog=edit();dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+            check(get().at("routes")==stored_routes,"Opening Properties silently replaced the stored R1 endpoint");
+            for(const bool commit:{false,true}) {
+                dialog=edit();auto* value=dialog->findChild<QDoubleSpinBox*>("edgeTreatmentPrimary");check(value->value()==(fillet?2:1),"Properties lost CLI edge treatment size");
+                value->setValue(2.5);flush();check(get().at(fillet?"radius_mm":"distance_a_mm")== (fillet?2:1),"Edge preview committed before OK");
+                dialog->findChild<QDialogButtonBox*>()->button(commit?QDialogButtonBox::Ok:QDialogButtonBox::Cancel)->click();flush();
+                check(get().at(fillet?"radius_mm":"distance_a_mm")== (commit?2.5:fillet?2:1),"Edge treatment Properties OK/Cancel failed");
+                check(get().at("routes")==stored_routes,"Properties changed the explicit input route or R1");
+            }
+            run("save");std::vector<kernel::BodyResult> calculated;static_cast<void>(document::PartDocument::load(path,&calculated));
+            if(fillet) {
+                double radius=-1;for(const auto& value:calculated.back().mesh.edges)if(value.reference.owner_id==id&&!value.points.empty()&&std::ranges::all_of(value.points,[&](const auto& p){return std::abs(p.z-start_z)<1e-6;}))
+                    for(const auto& p:value.points)radius=std::max(radius,std::hypot(p.x-5,p.y+5));
+                check(std::abs(radius-2.5)<.1,"GUI changed the physical R1 end after CLI creation");
+            }else check(std::abs(calculated.back().volume-975)<1e-5,"GUI Chamfer distances produced incorrect volume");
+            run("undo");check(get().at(fillet?"radius_mm":"distance_a_mm")== (fillet?2:1),"Edge Properties Undo failed");
+            if(fillet) {
+                const std::string other_key="edge:x_min:y_max:z_max--x_min:y_max:z_min";
+                const auto other=std::ranges::find_if(input_edges,[&](const auto& value){return value.at("key")==other_key;});check(other!=input_edges.end(),"Missing second input route");
+                auto other_start=other->at("segments")[0].at("endpoints")[0];other_start.erase("position_mm");
+                const commands::Json other_route={{"edges",commands::Json::array({commands::Json{{"owner",box},{"key",other_key}}})},{"start",other_start}};
+                auto two_routes=routes;two_routes.push_back(other_route);
+                json_run("fillet.set",{{"container",id},{"routes",two_routes}});flush();
+                for(const bool commit:{false,true}) {
+                    dialog=edit();auto* rows=dialog->findChild<QTreeWidget*>("edgeTreatmentEdges");check(rows&&rows->topLevelItemCount()==2,"Properties lost separate routes");
+                    rows->setCurrentItem(rows->topLevelItem(0));dialog->findChild<QPushButton*>("edgeTreatmentRemove")->click();flush();
+                    check(rows->topLevelItemCount()==1&&get().at("routes").size()==2,"Pending route deletion committed too early");
+                    dialog->findChild<QDialogButtonBox*>()->button(commit?QDialogButtonBox::Ok:QDialogButtonBox::Cancel)->click();flush();
+                    check(get().at("routes").size()==(commit?1:2),"Route deletion OK/Cancel failed");
+                }
+                check(get().at("routes")[0].at("start")==other_start,"Deleting an earlier route moved the surviving R1 to the wrong group");
+                dialog=edit();auto* rows=dialog->findChild<QTreeWidget*>("edgeTreatmentEdges");rows->setCurrentItem(rows->topLevelItem(0));dialog->findChild<QPushButton*>("edgeTreatmentRemove")->click();
+                dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+                check(dialog->isVisible()&&get().at("routes").size()==1,"Empty Fillet edit changed the document");
+                dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
+            }
             json_run("close",{{"discard",true}});json_run("activate",{{"document",previous_document}});flush();
         }
         input->setText("context");QApplication::sendEvent(input,&enter);flush();

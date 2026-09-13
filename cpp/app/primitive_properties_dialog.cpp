@@ -1135,6 +1135,7 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         edge_list_->setMinimumHeight(90);
         form->addRow(edge_list_);
         remove_edge_button_ = new QPushButton(tr("Odebrat vybranou hranu"), this);
+        remove_edge_button_->setObjectName("edgeTreatmentRemove");
         restore_route_button_ = new QPushButton(tr("Obnovit celou trasu"), this);
         form->addRow(remove_edge_button_); form->addRow(restore_route_button_);
         connect(remove_edge_button_, &QPushButton::clicked, this, [this] {

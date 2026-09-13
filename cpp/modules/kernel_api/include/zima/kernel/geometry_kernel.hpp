@@ -1545,6 +1545,9 @@ struct PlacedBody {
                     for (const unsigned char value : edge.semantic_key) byte(value);
                 }
                 if constexpr (std::is_same_v<Request, FilletRequest>) {
+                    // R1 is mapped from each persisted request to all matching
+                    // runtime edge uses. Earlier multi-route caches are unsafe.
+                    u64(1); // Fillet calculation schema.
                     byte(static_cast<std::uint8_t>(primitive.mode));
                     u64(std::bit_cast<std::uint64_t>(primitive.radius_start));
                     u64(std::bit_cast<std::uint64_t>(primitive.radius_end));

@@ -456,7 +456,9 @@ void AssemblyWorkspaceWindow::create_actions() {
     revolution_action_ = make_action(tr("Rotace"), "revolve");
     revolution_action_->setObjectName("revolutionAction");
     fillet_action_ = make_action(tr("Zaoblení"), "fillet");
+    fillet_action_->setObjectName("filletAction");
     chamfer_action_ = make_action(tr("Sražení"), "chamfer");
+    chamfer_action_->setObjectName("chamferAction");
     shell_action_ = make_action(tr("Shell"), "shell");
     shell_action_->setObjectName("shellAction");
     sketch_action_ = make_action(tr("Skica"), "sketch");

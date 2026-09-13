@@ -1,6 +1,8 @@
 #include "workspace_internal.hpp"
 #include <zima/workspace/profile_operations.hpp>
 #include <zima/workspace/shell_operations.hpp>
+#include <zima/workspace/edge_treatment_operations.hpp>
+#include <zima/workspace/operation_input.hpp>
 #include <limits>
 
 namespace zima::app {
@@ -38,18 +40,10 @@ void AssemblyWorkspaceWindow::start_edge_treatment(
         initial, false, false,
         [this, part_id](zima::document::HistoryContainer committed,
                         std::vector<std::string>) {
-            if (committed.edge_treatment.flattened_edges().empty()) {
-                throw std::runtime_error("Vyberte alespoň jednu hranu Tělesa");
-            }
-            auto* target = workspace_.open_part(part_id);
-            if (target == nullptr) throw std::runtime_error("Part is no longer open");
-            auto next = target->session.document();
-            next.insert_history_entry(
-                zima::document::PartHistoryKind::Feature, committed.id);
-            next.history.push_back(std::move(committed));
-            auto calculated = calculate_part(next);
-            static_cast<void>(refresh_sketch_external_references(next, calculated));
-            target->session.commit(std::move(next), std::move(calculated));
+            try {
+                static_cast<void>(zima::workspace::commit_edge_treatment(workspace_,kernel_,part_id,std::move(committed),
+                    zima::workspace::EdgeTreatmentEditMode::Create));
+            } catch(const std::exception& error) { throw std::runtime_error(tr(error.what()).toStdString()); }
         }, this);
     properties_dialog_ = dialog;
     track_tree_edit(dialog);
@@ -212,7 +206,8 @@ void AssemblyWorkspaceWindow::refresh_edge_treatment_preview() {
     std::vector<zima::kernel::VertexReference> route_start_vertices;
     display_groups.reserve(pending_edge_treatment_groups_.size());
     route_start_vertices.reserve(pending_edge_treatment_groups_.size());
-    for (const auto& group : pending_edge_treatment_groups_) {
+    for (std::size_t group_index=0;group_index<pending_edge_treatment_groups_.size();++group_index) {
+        const auto& group=pending_edge_treatment_groups_[group_index];
         std::vector<zima::kernel::ViewerEdge> display_group;
         display_group.reserve(group.size());
         for (const auto& stored : group) {
@@ -234,22 +229,25 @@ void AssemblyWorkspaceWindow::refresh_edge_treatment_preview() {
                     }
                 }
             }
+            // Preview is in the active Part frame, including semantic R1.
+            for(auto& endpoint:edge->edge_treatment_endpoint_references)endpoint.instance_path.clear();
             display_group.push_back(std::move(*edge));
         }
-        if (!display_group.empty()) {
-            zima::kernel::VertexReference route_start;
-            const auto paths =
-                ordered_edge_treatment_preview_paths(display_group);
-            if (paths.size() == 1 && !paths.front().edges.empty() &&
-                paths.front().edges.front().
-                    edge_treatment_endpoint_references.size() == 2) {
-                route_start = paths.front().edges.front().
-                    edge_treatment_endpoint_references.front();
+        // Opening Properties must never choose a different R1 merely because
+        // the viewer orders edges differently. An unavailable stored endpoint
+        // is retained for explicit validation at OK, not silently repaired.
+        auto route_start=group_index<edge_treatment_preview_parameters_.route_start_vertices.size()
+            ?edge_treatment_preview_parameters_.route_start_vertices[group_index]:zima::kernel::VertexReference{};
+        if(!route_start.valid()&&*edge_treatment_selection_==zima::document::FeatureKind::Fillet&&
+            edge_treatment_preview_parameters_.fillet_mode==zima::document::EdgeTreatmentParameters::FilletMode::Linear&&!display_group.empty()) {
+            const auto paths=ordered_edge_treatment_preview_paths(display_group);
+            if(paths.size()==1&&!paths.front().edges.empty()&&paths.front().edges.front().edge_treatment_endpoint_references.size()==2) {
+                route_start=paths.front().edges.front().edge_treatment_endpoint_references.front();
                 route_start.instance_path.clear();
             }
-            route_start_vertices.push_back(std::move(route_start));
-            display_groups.push_back(std::move(display_group));
         }
+        route_start_vertices.push_back(std::move(route_start));
+        display_groups.push_back(std::move(display_group));
     }
     edge_treatment_preview_parameters_.route_start_vertices =
         route_start_vertices;
@@ -268,19 +266,20 @@ void AssemblyWorkspaceWindow::refresh_edge_treatment_preview() {
 void AssemblyWorkspaceWindow::remove_edge_treatment_member(
     std::size_t group, std::optional<std::size_t> member) {
     if (group >= pending_edge_treatment_groups_.size()) return;
-    if (member && *member < pending_edge_treatment_groups_[group].size()) {
-        pending_edge_treatment_groups_[group].erase(
-            pending_edge_treatment_groups_[group].begin() + *member);
-        if (pending_edge_treatment_groups_[group].empty()) member.reset();
-    }
-    if (!member) {
-        pending_edge_treatment_groups_.erase(
-            pending_edge_treatment_groups_.begin() + group);
-        if (group < pending_edge_treatment_seeds_.size()) {
-            pending_edge_treatment_seeds_.erase(
-                pending_edge_treatment_seeds_.begin() + group);
-        }
-    }
+    const auto* part=workspace_.open_part(workspace_.active_document_id());
+    if(!part)return;
+    const auto* input=zima::workspace::calculated_operation_input(part->session,
+        part->session.document().find_container(edge_treatment_preview_owner_id_)?edge_treatment_preview_owner_id_:std::string{});
+    if(!input)return;
+    auto parameters=edge_treatment_preview_parameters_;
+    parameters.routes=pending_edge_treatment_groups_;
+    try {zima::document::remove_treatment_selection(parameters,group,member,input->mesh);}
+    catch(const std::exception& error){state_->setText(tr(error.what()));return;}
+    pending_edge_treatment_groups_=parameters.routes;
+    pending_edge_treatment_seeds_.clear();
+    for(const auto& route:parameters.routes)pending_edge_treatment_seeds_.push_back(route.front());
+    edge_treatment_preview_parameters_=parameters;
+    if(edge_treatment_dialog_)edge_treatment_dialog_->set_edge_route_start_vertices(parameters.route_start_vertices);
     refresh_edge_treatment_selection_ui();
 }
 
@@ -304,8 +303,22 @@ void AssemblyWorkspaceWindow::restore_edge_treatment_route(std::size_t group) {
     candidate.geometry_index = std::numeric_limits<std::size_t>::max();
     auto route = viewer_->tangent_edge_route(candidate);
     for (auto& edge : route) edge.instance_path.clear();
-    pending_edge_treatment_groups_[group] = route.empty()
-        ? std::vector{seed} : std::move(route);
+    if(route.empty())route={seed};
+    // Restoring one route must not duplicate edges already assigned elsewhere.
+    std::erase_if(route,[&](const auto& edge) {
+        for(std::size_t i=0;i<pending_edge_treatment_groups_.size();++i)
+            if(i!=group&&std::ranges::find(pending_edge_treatment_groups_[i],edge)!=pending_edge_treatment_groups_[i].end())return true;
+        return false;
+    });
+    if(route.empty())return;
+    pending_edge_treatment_groups_[group]=std::move(route);
+    if(part)if(const auto* input=zima::workspace::calculated_operation_input(part->session,
+        part->session.document().find_container(edge_treatment_preview_owner_id_)?edge_treatment_preview_owner_id_:std::string{})) {
+        auto& starts=edge_treatment_preview_parameters_.route_start_vertices;starts.resize(pending_edge_treatment_groups_.size());
+        const auto ends=zima::workspace::edge_treatment_route_endpoints(input->mesh.edges,pending_edge_treatment_groups_[group]);
+        if(std::ranges::find(ends,starts[group])==ends.end())starts[group]={};
+        if(edge_treatment_dialog_)edge_treatment_dialog_->set_edge_route_start_vertices(starts);
+    }
     refresh_edge_treatment_selection_ui();
 }
 

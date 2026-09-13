@@ -152,6 +152,7 @@ add_library(zima_workspace modules/workspace/src/workspace.cpp
     modules/workspace/src/shaft_thread_operations.cpp
     modules/workspace/src/drill_point_operations.cpp
     modules/workspace/src/operation_input.cpp
+    modules/workspace/src/edge_treatment_operations.cpp
     modules/workspace/src/shell_operations.cpp
     modules/workspace/src/profile_operations.cpp
     modules/workspace/src/profile_targets.cpp
@@ -171,6 +172,7 @@ add_library(zima_command_host
     modules/command_host/src/drill_point_commands.cpp
     modules/command_host/src/shell_commands.cpp
     modules/command_host/src/edge_treatment_queries.cpp
+    modules/command_host/src/edge_treatment_commands.cpp
     modules/command_host/src/document_commands.cpp
     modules/command_host/src/body_commands.cpp
     modules/command_host/src/history_commands.cpp
@@ -669,6 +671,11 @@ if(ZIMA_BUILD_TESTS)
     target_link_libraries(zima_cpp_thin_profile_contract_tests PRIVATE zima_document_core zima_kernel_occt)
     add_test(NAME zima_cpp_thin_profile_contract_tests COMMAND zima_cpp_thin_profile_contract_tests)
     set_tests_properties(zima_cpp_thin_profile_contract_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
+
+    add_executable(zima_cpp_edge_treatment_command_tests tests/edge_treatment_command_tests.cpp)
+    target_link_libraries(zima_cpp_edge_treatment_command_tests PRIVATE zima_command_host)
+    add_test(NAME zima_cpp_edge_treatment_command_tests COMMAND zima_cpp_edge_treatment_command_tests)
+    set_tests_properties(zima_cpp_edge_treatment_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
 
     add_executable(zima_cpp_edge_treatment_query_tests tests/edge_treatment_query_tests.cpp)
     target_link_libraries(zima_cpp_edge_treatment_query_tests PRIVATE zima_command_host)

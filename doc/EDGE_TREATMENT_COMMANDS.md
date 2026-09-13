@@ -86,3 +86,88 @@ Po opravě testovacího požadavku prošel celý skutečný GUI scénář **1/1*
 (45,78 s). Produkční dotazy, proces CLI, viewer, modelové regrese, historie
 a překlady v prvním běhu prošly. Logy: `build/edge-query-related-tests.log`,
 `build/edge-query-final-build.log`, `build/edge-query-gui-tests.log`.
+
+
+## Tvorba a editace Fillet/Chamfer
+
+Příkazy `fillet.create/get/set` a `chamfer.create/get/set` jsou zapojené na
+`workspace::commit_edge_treatment`, kterou používá i tvorba a Vlastnosti v
+GUI. Katalog obsahuje 195 příkazů; předchozí výsledky výše patří pouze
+čtecím dotazům.
+
+```json
+{"command":"fillet.create","arguments":{"radius_mm":2,"routes":[{"edges":[{"owner":"ID-ZDROJE","key":"KLIC-HRANY"}]}]}}
+{"command":"fillet.set","arguments":{"container":"ID-ZAOBLENI","mode":"linear","radius_mm":2,"radius_end_mm":5,"routes":[{"edges":[{"owner":"ID-ZDROJE","key":"KLIC-HRANY"}],"start":{"owner":"VLASTNIK-BODU","key":"KLIC-BODU-R1"}}]}}
+{"command":"chamfer.create","arguments":{"mode":"two_distances","distance_a_mm":2,"distance_b_mm":5,"flip":false,"routes":[{"edges":[{"owner":"ID-ZDROJE","key":"KLIC-HRANY"}]}]}}
+```
+
+- `fillet`: `mode` je `constant` nebo `linear`; `radius_mm` je R nebo R1,
+  `radius_end_mm` je R2. `reverse` obrací přiřazení R1/R2 mezi konci.
+- `chamfer`: `mode` je `equal_distance`, `two_distances` nebo
+  `distance_angle`; `distance_a_mm` a `distance_b_mm` jsou A/B,
+  `angle_degrees` je úhel. `flip` volí druhou podpěrnou plochu podle
+  existujícího stabilního pořadí původních identit ploch.
+- Rozměry mají stejný rozsah jako Vlastnosti: 0,001–1000000 mm, úhel
+  0,1–89,9 stupně. Argumenty rozměrů jsou JSON čísla v mm nezávisle na
+  zobrazovaných jednotkách. Výchozí hodnoty jsou 1 mm a 45 stupňů.
+- `routes` je úplná náhrada seznamu tras, 1–10000 neprázdných tras,
+  dohromady nejvýše 10000 hran. Každá trasa má pole `edges` a volitelný
+  `start` (nebo `null`). Reference obsahuje pouze textové `owner`, `key`
+  a volitelnou prázdnou `instance_path`. Shodná hrana smí být vybraná jednou.
+- Proměnné zaoblení vyžaduje explicitní původní koncový bod R1 každé jedné
+  souvislé otevřené trasy. CLI směr neodhaduje. Konce získá z čtecího dotazu;
+  uzavřená kružnice bez dvou konců umožňuje konstantní zaoblení.
+- `name` je volitelný název, `document` volitelné ID aktivního dokumentu.
+  Čtení `.get` může cílit i jiný otevřený Part. Změna vyžaduje aktivní
+  vlastnící Těleso a nesmí upravovat odvozenou kopii.
+
+`.get` vrací identity kontejneru, prvku a Tělesa, parametry, původní trasy,
+uložené počátky, `value_locks` a revizi. `.create/.set` přidávají `changed`.
+Shodný patch nic nepřepočítá. Zámky mají stejné klíče jako GUI: `primary`,
+`secondary`, `treatment_angle`. Chybějící či nejednoznačné hrany, špatné R1,
+hrany jiného Tělesa a neplatné rozměry nezanechají částečnou změnu. Kernel
+ověřuje geometrickou proveditelnost při explicitním potvrzení.
+
+GUI náhled zachovává uložený R1 i při jiném pořadí hran. Rozdělení trasy po
+odebrání člena používá původní společné pravidlo přesunuté do
+`document/edge_treatment_selection.hpp`: konce a směr určuje z původních
+bodů. Tato změna nezasahuje do obecného umístění kontejnerů.
+
+První modelový test odhalil nesprávný předpoklad testu o objemu proměnného
+zaoblení: integrál rovinných čtvrtkružnic v souřadnici Z není jeho obecný
+objemový vztah. Kontrola nyní ověřuje skutečné koncové poloměry, objem mezi
+analytickými mezemi konstantních R1/R2 a objemovou symetrii po obrácení
+na symetrickém kvádru. Další běh došel k chybějícím rozměrům pomocného
+kvádru v testu; požadavek byl doplněn. Produkční geometrie kvůli těmto
+předpokladům testu upravována nebyla.
+
+Cílený modelový běh následně prošel **1/1** (0,66 s), včetně skutečného
+objemu kruhového zaoblení válce. Oba programy jsou sestavené a související
+sada prošla **12/12** (82,26 s), `build/edge-treatment-related-tests.log`.
+GUI ověřuje vytvoření obou typů, OK/Cancel, nativní výsledek a uložený R1
+na opačném konci proti výchozímu pořadí vieweru.
+
+Závěrečná revize zachovává i dosavadní obnovu závislostí stromové úpravy:
+společné potvrzení volá existující `calculate_part_with_resolved_references`,
+aby uložilo stejný stav geometrie a návazných skic/referencí. Obecný solver
+umístění se nemění. Doplněná GUI regrese odstraňuje první ze dvou tras,
+ověřuje počátek zbývající trasy a odmítnutí prázdného zaoblení. Následoval úplný
+běh 101 testů.
+
+Úplný běh skončil **100/101** (471,33 s). Nová dvoutrasová GUI regrese
+odhalila chybu výpočtu R1: rozbalení jedné původní hrany na více runtime
+použití posunulo index do původního seznamu konců a mohlo číst mimo jeho
+rozsah. Samostatný modelový test čtyř tras reprodukoval stejné odmítnutí.
+
+Oprava přenáší uložený R1 společně s každým runtime výskytem jeho původní
+hrany. Identitu stále určuje původní ZIMA reference. Verze výpočetního otisku
+Filletu zneplatňuje staré odvozené výsledky této operace; struktura dokumentu
+a prázdné start šablony se nemění. Nová regrese měří všech osm koncových
+poloměrů, obrácení směru, přeuspořádání tras a nový výpočet z nativního souboru.
+Cílený modelový test opravy prošel **1/1** (1,66 s). Následné sestavení
+obou programů i všech testovacích cílů dokončeno; úplná regresní sada
+prošla **101/101** (470,10 s). Zahrnuje také skutečné CLI procesy, GUI
+OK/Cancel, více tras s opačným R1, stromové odebrání hrany/trasy a překlady.
+Logy: `build/fillet-multiple-routes-fixed-tests.log`,
+`build/fillet-multiple-routes-all-build.log`,
+`build/fillet-multiple-routes-full-tests.log`.

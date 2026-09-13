@@ -43,7 +43,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Vytažení a rotace | Profily, Thin, směry a cíle zakončení Partu hotovy | `extrusion/revolution.create/get/set`, vlastněná skica, původní plochy a dvě nezávislé meze, společné OK; zbývají sestavové řezy |
 | Tažení | Tvorba a geometrické vlastnosti hotovy | `sweep2d/sweep3d/helical.create/get/set`, společné GUI potvrzení, celá 3D dráha, stanice a úplná správa profilů/párování, reference roviny 2D dráhy a odsazení základní skici H-tažení; generické rozšíření umístění patří do řádku Umístění |
 | Otvory a závity | Katalog, současný Otvor a vnější závit částečně hotovy | `thread.catalog`, `opening.create/get/set`: hladký/závitový otvor, rozměry, sražení, špička, směr a průchozí otvor; `shaft_thread.create/get/set` včetně původních referencí; zbývají cílové reference Otvoru Až k, samostatný Hole a operace vnořených částí otvoru; `drill_point.create/get/set` pokrývají samostatnou vrtací špičku |
-| Zaoblení, zkosení, skořepina | Shell a dotazy hran hotovy | `shell.faces/create/get/set`; `edge_treatment.edges/route`: skutečný vstup a společná tečná trasa GUI/CLI; zbývá tvorba a editace Fillet/Chamfer |
+| Zaoblení, zkosení, skořepina | Tvorba, vlastnosti a vstupní dotazy hotovy | `shell.faces/create/get/set`, `fillet.create/get/set`, `chamfer.create/get/set`; `edge_treatment.edges/route`: skutečný vstup a společná tečná trasa GUI/CLI; zbývá samostatné odebrání člena/trasy podle stromového kontraktu |
 | Zrcadlo a pole | Zbývá | Odvozená tělesa a komponenty |
 | Sestavy | Dotazy včetně překážek odstranění, vložení a otevření zdrojů komponent hotovy | Uložená hierarchie a přesné výskyty, sdílené vložení a otevření zdroje; zbývají vlastnosti/mazání komponent, vazby, vnořená aktivace a řezy |
 | Výkresy | Listy, šablony, historie, tvorba/vlastnosti/dotazy/mazání pohledů, regenerace, modelové anotace, Show/Erase a měřené kóty (dotazy, tvorba, editace, řetězec, mazání), razítko, zdrojové parametry BOM, PDF, DXF a PNG/JPEG listu/výřezu hotovy | Další anotace, zdrojové styly šraf a příkazový snímek interaktivního View |
@@ -817,3 +817,20 @@ po opravě JSON vstupu nového GUI testu prošel jeho celý scénář **1/1**
 (45,78 s). Modelové a procesové testy i viewer prošly již v první sadě.
 Podrobnosti: [EDGE_TREATMENT_COMMANDS.md](EDGE_TREATMENT_COMMANDS.md).
 Tvorba a editace Fillet/Chamfer jsou následující etapa.
+
+
+### Zaoblení a sražení: společné potvrzení a směr R1
+
+`fillet.create/get/set` a `chamfer.create/get/set` sdílejí modelové potvrzení
+s GUI, původní hrany skutečného vstupu, zámky a úplné seznamy tras. Proměnné
+zaoblení vyžaduje explicitní R1. Nový test více tras odhalil a opravil
+nesprávné přiřazení R1 při rozbalení hrany na runtime použití v jádře.
+Nativní identita ani struktura souboru se nemění; otisk Filletu zneplatní
+stará vypočítaná data této operace. Katalog má **195 příkazů**.
+
+Oba programy a testovací cíle jsou sestavené; po opravě prošla celá sada
+**101/101** (470,10 s), `build/fillet-multiple-routes-full-tests.log`.
+Ověřeny jsou nezávislé objemy a koncové poloměry, všechny režimy sražení,
+směr/FLIP, více tras, původní identity, nativní výpočet, zámky, atomické
+chyby, Undo/Redo a skutečné GUI i CLI. Kontrakt a předchozí neúspěšné
+běhy: [EDGE_TREATMENT_COMMANDS.md](EDGE_TREATMENT_COMMANDS.md).

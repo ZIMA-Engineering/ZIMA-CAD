@@ -29,7 +29,7 @@
 #include <zima/workspace/history_operations.hpp>
 #include "history_tree_widget.hpp"
 #include "reference_tree_policy.hpp"
-#include "edge_treatment_tree_policy.hpp"
+#include <zima/document/edge_treatment_selection.hpp>
 #include "opening_tree_policy.hpp"
 #include "assembly_workspace_window.hpp"
 #include "reference_display.hpp"

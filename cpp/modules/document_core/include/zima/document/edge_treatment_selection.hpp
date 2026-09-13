@@ -8,7 +8,7 @@
 #include <set>
 #include <stdexcept>
 
-namespace zima::app {
+namespace zima::document {
 inline std::vector<kernel::ViewerEdge> treatment_selection_wire(
         const document::EdgeTreatmentParameters& parameters, std::size_t route,
         std::optional<std::size_t> segment, const kernel::ViewerMesh& input) {

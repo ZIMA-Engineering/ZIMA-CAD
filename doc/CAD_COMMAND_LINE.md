@@ -280,3 +280,10 @@ Hrany skutečného vstupu zaoblení a sražení vypíše `edge_treatment.edges`.
 `edge_treatment.route` vrací tečnou trasu z konkrétní původní hrany; při
 editaci oba dotazy přijímají ID kontejneru. Čtou uložená data bez regenerace.
 Reference, koncové body a nejednoznačné případy: [EDGE_TREATMENT_COMMANDS.md](EDGE_TREATMENT_COMMANDS.md).
+
+
+`fillet.create/get/set` ovládají konstantní a proměnné zaoblení včetně
+explicitního konce R1 a obrácení směru. `chamfer.create/get/set` ovládají
+stejné/dvě vzdálenosti i vzdálenost s úhlem a přepnutí strany FLIP.
+Příkazy sdílejí potvrzení s GUI; rozměry přijímají jako JSON čísla v mm.
+Příklady tras a pravidla R1: [EDGE_TREATMENT_COMMANDS.md](EDGE_TREATMENT_COMMANDS.md).

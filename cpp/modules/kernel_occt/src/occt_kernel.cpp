@@ -6205,13 +6205,23 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     }
                 }
                 std::vector<std::pair<TopoDS_Edge, EdgeReference>> selected;
-                for (const auto& requested : treatment.edges) {
+                std::vector<VertexReference> selected_starts;
+                for (std::size_t requested_index=0;requested_index<treatment.edges.size();++requested_index) {
+                    const auto& requested=treatment.edges[requested_index];
                     bool found = false;
                     for (const auto& owned : owned_topology->edges) {
                         if (owned.reference.owner_id == requested.owner_id &&
                             owned.reference.semantic_key == requested.semantic_key) {
                             selected.emplace_back(
                                 TopoDS::Edge(owned.shape), owned.reference);
+                            // One persisted edge can resolve to several shape
+                            // uses (or split shapes). Carry its explicit ZIMA R1
+                            // with every match; runtime expansion must not shift
+                            // the following route's endpoint or read past it.
+                            if constexpr (std::is_same_v<Treatment, FilletRequest>) {
+                                if(treatment.mode==FilletRequest::Mode::Linear)
+                                    selected_starts.push_back(treatment.contour_start_vertices.at(requested_index));
+                            }
                             found = true;
                         }
                     }
@@ -6265,8 +6275,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                                         "Variable Fillet edge endpoints have no stable ZIMA identity");
                                 }
                                 const auto& semantic_start =
-                                    treatment.contour_start_vertices[
-                                        selected_index];
+                                    selected_starts.at(selected_index);
                                 const bool semantic_start_is_first =
                                     semantic_start == first_reference;
                                 if (!semantic_start_is_first &&
