@@ -203,6 +203,21 @@ int main(int argc,char** argv){
             std::ranges::any_of(drill_cache.back().mesh.triangle_references,[&](const auto& ref){return ref.owner_id==drill_created.id&&ref.semantic_key==kernel::drill_point_key("side",drill_parent);}),
             "CLI drill point changed its remaining source identity or saved an incorrect volume");
 
+        const auto make_hole=command({{"command","hole.create"},{"arguments",{{"diameter_mm",10},{"bore_length_mm",10},{"placement",{{"z",-20}}}}}});
+        result=launch(executable,root,common+QStringList{"--command","new part native-hole-cli","--command","box.create 40 40 40",
+            "--command",make_hole,"--command","save"});
+        require(result.exit_code==0,"CLI native Hole creation failed");
+        const auto hole_path=project/"native-hole-cli.prtz";const auto hole_created=document::PartDocument::load(hole_path).history.back();
+        require(hole_created.feature_kind==document::FeatureKind::Hole&&hole_created.name=="Hole","CLI native Hole kind or translation is wrong");
+        const auto hole_id=QString::fromStdString(hole_created.id);
+        const auto resize_hole=command({{"command","hole.set"},{"arguments",{{"container",hole_created.id},{"diameter_mm",8},{"entrance_chamfer_mm",1}}}});
+        result=launch(executable,root,common+QStringList{"--command","open native-hole-cli.prtz","--command","hole.get "+hole_id,
+            "--command",resize_hole,"--command","undo","--command","redo","--command","save","--command","hole.get "+hole_id});
+        require(result.exit_code==0&&result.results()[6].at("data").at("diameter_mm")==8,"CLI native Hole edit/history failed");
+        std::vector<kernel::BodyResult> hole_cache;const auto hole_saved=document::PartDocument::load(hole_path,&hole_cache);
+        require(hole_saved.history.back().hole.circle_id==hole_created.hole.circle_id&&
+            std::abs(hole_cache.back().volume-(64000-std::acos(-1.0)*(160+4+1.0/3)))<1e-5,"CLI native Hole lost identity or saved wrong chamfer geometry");
+
         const auto make_opening=command({{"command","opening.create"},{"arguments",{{"type","metric"},{"designation","M10"},
             {"bore_length_mm",20},{"thread_length_mm",10},{"chamfer_enabled",false},{"drill_point_enabled",false},{"placement",{{"z",-20}}}}}});
         result=launch(executable,root,common+QStringList{"--command","new part opening-cli","--command","box.create 40 40 40",

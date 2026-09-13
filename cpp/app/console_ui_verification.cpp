@@ -215,6 +215,35 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
             run("undo");check(run(QString::fromStdString(kind+".get "+primitive_id)).data.at(sample.parameter)==result.at(sample.parameter),"Primitive Undo lost original command value");
             run("redo");run("save");
         }
+        {
+            run(QString::fromStdString("new part "+stem+"-native-hole"));run("box.create 40 40 40");
+            commands::Json create={{"command","hole.create"},{"arguments",{{"diameter_mm",10},{"bore_length_mm",10.123456789},{"placement",{{"z",-20}}}}}};
+            const auto made=run(QString::fromStdString(create.dump())).data;const auto id=made.at("container").get<std::string>();flush();
+            const auto open_hole=[&]() -> QDialog* {
+                QTreeWidgetItem* item=nullptr;
+                for(QTreeWidgetItemIterator it(model_tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==id&&
+                    (*it)->data(0,Qt::UserRole+3).toString()=="part-container"){item=*it;break;}
+                check(item,"CLI Hole absent from tree");window.show_tree_item_properties(item);flush();
+                for(auto* d:window.findChildren<QDialog*>())if(d->isVisible()&&d->findChild<QDoubleSpinBox*>("holeDiameter"))return d;
+                throw std::runtime_error("Hole properties did not open");
+            };
+            auto* dialog=open_hole();dialog->findChild<QDoubleSpinBox*>("holeDiameter")->setValue(8);
+            dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
+            check(run(QString::fromStdString("hole.get "+id)).data.at("diameter_mm")==10,"Hole Cancel committed draft");
+            dialog=open_hole();dialog->findChild<QDoubleSpinBox*>("holeDiameter")->setValue(8);
+            dialog->findChild<QDoubleSpinBox*>("holeEntranceChamfer")->setValue(1);
+            dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+            const auto changed=run(QString::fromStdString("hole.get "+id)).data;
+            check(changed.at("diameter_mm")==8&&changed.at("bore_length_mm")==10.123456789,"GUI Hole edit rounded untouched depth");
+            check(changed.at("bore_circle")==made.at("bore_circle"),"GUI Hole edit changed the circle identity");
+            dialog=open_hole();dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+            check(run(QString::fromStdString("hole.get "+id)).data.at("revision")==changed.at("revision"),"Unchanged Hole OK created history");
+            run("undo");check(run(QString::fromStdString("hole.get "+id)).data.at("diameter_mm")==10,"GUI Hole did not Undo in one step");
+            run("redo");run("save");
+            std::vector<kernel::BodyResult> cache;
+            const auto saved=document::PartDocument::load(directory/(stem+"-native-hole.prtz"),&cache);
+            check(std::abs(cache.back().volume-(64000-std::acos(-1.0)*(16*10.123456789+4+1.0/3)))<1e-5,"GUI Hole saved wrong bore/chamfer volume");
+        }
         commands::Json restore_box={{"command","open"},{"arguments",{{"path",path.generic_string()}}}};
         run(QString::fromStdString(restore_box.dump()));flush();
         const auto missing=(directory/(stem+"-missing.prtz")).generic_string();

@@ -1,3 +1,4 @@
+#include <zima/workspace/hole_operations.hpp>
 #include "workspace_internal.hpp"
 #include <zima/workspace/primitive_operations.hpp>
 #include <zima/workspace/opening_operations.hpp>
@@ -367,6 +368,13 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                     pending_profile_feature_->id == committed_cut_id) {
                     pending_profile_feature_.reset();
                 }
+                return;
+            }
+            if (committed.feature_kind == zima::document::FeatureKind::Hole) {
+                try {
+                    static_cast<void>(zima::workspace::commit_hole(workspace_,kernel_,owner_id,std::move(committed),
+                        edit_mode?zima::workspace::HoleEditMode::Replace:zima::workspace::HoleEditMode::Create));
+                } catch (const std::exception& error) { throw std::runtime_error(tr(error.what()).toStdString()); }
                 return;
             }
             if (zima::workspace::primitive_definition(committed.feature_kind)) {

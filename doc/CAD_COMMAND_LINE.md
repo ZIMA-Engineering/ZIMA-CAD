@@ -258,6 +258,11 @@ Katalog závitů lze číst bez otevřeného dokumentu příkazem
 jsou v mm. Stránkování a označení: [THREAD_CATALOG.md](THREAD_CATALOG.md).
 
 
+Nativní `FeatureKind::Hole` má `hole.create/get/set`: vlastní skici vrtání,
+sražení a špičky, závitový drát, rozměry a zámky. Podporuje pevnou délku a
+průchozí vrtání; cíle `up_to` ještě nejsou přes CLI nastavitelné. Podrobnosti
+a meze: [NATIVE_HOLE_COMMANDS.md](NATIVE_HOLE_COMMANDS.md).
+
 Současný Otvor má příkazy `opening.create/get/set`: hladký nebo katalogový
 závitový otvor, předvrtání, sražení a špička. Jednotky, příklad a hranice
 pokrytí: [OPENING_COMMANDS.md](OPENING_COMMANDS.md).

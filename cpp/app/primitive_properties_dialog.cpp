@@ -1,3 +1,4 @@
+#include <zima/document/hole_profiles.hpp>
 #include <zima/ui/numeric_value_lock.hpp>
 #include "feature_operation_buttons.hpp"
 #include "primitive_properties_dialog.hpp"
@@ -1240,6 +1241,11 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
     };
     using Kind = zima::document::FeatureKind;
     switch(initial_.feature_kind) {
+    case Kind::Hole:
+        remember(hole_diameter_,initial_.hole.diameter);remember(hole_bore_length_,initial_.hole.bore_length);
+        remember(hole_entrance_chamfer_,initial_.hole.entrance_chamfer);remember(hole_exit_chamfer_,initial_.hole.exit_chamfer);
+        remember(hole_drill_angle_,initial_.hole.drill_point_angle_degrees);remember(hole_thread_nominal_diameter_,initial_.hole.thread_nominal_diameter);
+        remember(hole_thread_pitch_,initial_.hole.thread_pitch);remember(hole_thread_length_,initial_.hole.thread_length);break;
     case Kind::Box: remember(length_,initial_.box.length);remember(width_,initial_.box.width);remember(height_,initial_.box.height);break;
     case Kind::Cylinder: remember(radius_,initial_.cylinder.radius);remember(height_,initial_.cylinder.height);break;
     case Kind::Sphere: remember(radius_,initial_.sphere.radius);break;
@@ -1349,79 +1355,26 @@ zima::document::HistoryContainer PrimitivePropertiesDialog::values() const {
             : type == "pipe" ? zima::document::HoleType::PipeThread
             : type == "whitworth" ? zima::document::HoleType::WhitworthThread
             : zima::document::HoleType::Plain;
-        result.hole.diameter = hole_diameter_->value();
-        auto profile = zima::sketcher::Sketch::from_serialized(
-            result.hole.sketch_serialized);
-        const auto profile_circle = std::find_if(profile.circles.begin(),
-            profile.circles.end(), [&](const auto& circle) {
-                return circle.id == result.hole.circle_id;
-            });
-        if (profile_circle != profile.circles.end()) {
-            profile_circle->radius = result.hole.diameter * 0.5;
-            result.hole.sketch_serialized = profile.serialized();
-        }
+        result.hole.diameter = primitive_value(hole_diameter_);
         result.hole.bore_end_condition = end(hole_bore_end_);
-        result.hole.bore_length = hole_bore_length_->value();
+        result.hole.bore_length = primitive_value(hole_bore_length_);
         result.hole.bore_end_targets = initial_.hole.bore_end_targets;
-        result.hole.entrance_chamfer = hole_entrance_chamfer_->value();
+        result.hole.entrance_chamfer = primitive_value(hole_entrance_chamfer_);
         result.hole.drill_point_enabled = hole_drill_point_->isChecked();
-        result.hole.drill_point_angle_degrees = hole_drill_angle_->value();
+        result.hole.drill_point_angle_degrees = primitive_value(hole_drill_angle_);
         result.hole.exit_chamfer_enabled =
             hole_exit_chamfer_enabled_->isChecked() &&
             !result.hole.drill_point_enabled;
-        result.hole.exit_chamfer = hole_exit_chamfer_->value();
-        const double radius = result.hole.diameter * 0.5;
-        auto chamfer_profile = zima::sketcher::Sketch::from_serialized(
-            result.hole.chamfer_sketch_serialized);
-        if (result.hole.entrance_chamfer > 0.0) {
-            const std::array<std::array<double, 2>, 3> chamfer_points{{
-                {{radius, 0.0}},
-                {{radius + result.hole.entrance_chamfer, 0.0}},
-                {{radius, result.hole.entrance_chamfer}}}};
-            for (std::size_t index = 0; index < chamfer_points.size(); ++index) {
-                if (auto* point = chamfer_profile.find_point(
-                        result.hole.chamfer_point_ids[index])) {
-                    point->x = chamfer_points[index][0];
-                    point->y = chamfer_points[index][1];
-                }
-            }
-            result.hole.chamfer_sketch_serialized = chamfer_profile.serialized();
-        }
-        auto tip_profile = zima::sketcher::Sketch::from_serialized(
-            result.hole.tip_sketch_serialized);
-        const double half_angle = std::clamp(
-            result.hole.drill_point_angle_degrees *
-                std::numbers::pi / 360.0,
-            1.0e-4, std::numbers::pi*0.5-1.0e-4);
-        const double point_depth = radius/std::tan(half_angle);
-        const std::array<std::array<double, 2>, 3> tip_points =
-            result.hole.drill_point_enabled
-            ? std::array<std::array<double, 2>, 3>{{
-                {{0.0, result.hole.bore_length}},
-                {{radius, result.hole.bore_length}},
-                {{0.0, result.hole.bore_length + point_depth}}}}
-            : std::array<std::array<double, 2>, 3>{{
-                {{radius, result.hole.bore_length -
-                    result.hole.exit_chamfer}},
-                {{radius + result.hole.exit_chamfer,
-                    result.hole.bore_length}},
-                {{radius, result.hole.bore_length}}}};
-        for (std::size_t index = 0; index < tip_points.size(); ++index) {
-            if (auto* point = tip_profile.find_point(
-                    result.hole.tip_point_ids[index])) {
-                point->x = tip_points[index][0];
-                point->y = tip_points[index][1];
-            }
-        }
-        result.hole.tip_sketch_serialized = tip_profile.serialized();
+        result.hole.exit_chamfer = primitive_value(hole_exit_chamfer_);
         result.hole.thread_enabled = hole_thread_enabled_->isChecked();
-        result.hole.thread_nominal_diameter = hole_thread_nominal_diameter_->value();
-        result.hole.thread_pitch = hole_thread_pitch_->value();
+        result.hole.thread_nominal_diameter = primitive_value(hole_thread_nominal_diameter_);
+        result.hole.thread_pitch = primitive_value(hole_thread_pitch_);
         result.hole.thread_end_condition = end(hole_thread_end_);
         result.hole.thread_length = result.hole.thread_end_condition ==
                 zima::document::EndCondition::ThroughAll
-            ? result.hole.bore_length : hole_thread_length_->value();
+            ? result.hole.bore_length : primitive_value(hole_thread_length_);
         result.hole.left_hand_thread = hole_left_hand_->isChecked();
+        zima::document::update_hole_profiles(result.hole);
     } else if (result.feature_kind ==
             zima::document::FeatureKind::DrillPoint) {
         result.combine_mode = zima::document::CombineMode::Subtract;

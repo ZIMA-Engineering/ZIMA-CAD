@@ -42,7 +42,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Externí reference skici | Lokální i kontextová tvorba, obnova a odpojení | Přesná projekce, trim, společné potvrzení Partu a závislostí, vlastněné profily, Part/Assembly Undo/Redo a souhrny zavřených nativních vlastníků při explicitní regeneraci |
 | Vytažení a rotace | Profily, Thin, směry a cíle zakončení Partu hotovy | `extrusion/revolution.create/get/set`, vlastněná skica, původní plochy a dvě nezávislé meze, společné OK; zbývají sestavové řezy |
 | Tažení | Tvorba a geometrické vlastnosti hotovy | `sweep2d/sweep3d/helical.create/get/set`, společné GUI potvrzení, celá 3D dráha, stanice a úplná správa profilů/párování, reference roviny 2D dráhy a odsazení základní skici H-tažení; generické rozšíření umístění patří do řádku Umístění |
-| Otvory a závity | Katalog, současný Otvor a vnější závit částečně hotovy | `thread.catalog`, `opening.create/get/set`: hladký/závitový otvor, rozměry, sražení, špička, směr a průchozí otvor; `shaft_thread.create/get/set` včetně původních referencí; zbývají cílové reference Otvoru Až k, samostatný Hole a operace vnořených částí otvoru; `drill_point.create/get/set` pokrývají samostatnou vrtací špičku |
+| Otvory a závity | Katalog, současný Otvor a vnější závit částečně hotovy | `thread.catalog`, `opening.create/get/set`: hladký/závitový otvor, rozměry, sražení, špička, směr a průchozí otvor; `shaft_thread.create/get/set` včetně původních referencí; `hole.create/get/set`: nativní Hole s vlastními profily, rozměry a závitovým drátem; zbývají cílové reference Až k a operace vnořených částí otvoru; `drill_point.create/get/set` pokrývají samostatnou vrtací špičku |
 | Zaoblení, zkosení, skořepina | Hotovo | `shell.faces/create/get/set`, `fillet.create/get/set`, `chamfer.create/get/set`; `edge_treatment.edges/route/remove`: skutečný vstup, společná tečná trasa a odebrání člena/trasy/posledního prvku podle stromového kontraktu |
 | Zrcadlo a pole | Hotovo pro Part a bezprostřední komponenty Assembly | `derived_copy.sources`, `mirror.create/get/set`, `pattern.create/get/set`: společné zdroje a potvrzení GUI/CLI, roviny/osy, lineární i kruhové režimy, umístění, zámky, neuložené zdroje a Undo/Redo; vnořená aktivace patří do řádku Sestavy |
 | Sestavy | Dotazy, vložení, otevření zdrojů, vlastnosti, odstranění a přesná aktivace hotovy | `component.set`: název, viditelnost, potlačení, uzemnění, umístění a všechny čtyři druhy vložených vazeb s mezemi/zámky; `component.remove` sdílí kontrolu závislostí a atomické mazání s GUI; `component.activate/deactivate` sdílejí přesný zdrojový kontext s GUI; souhrny referencí jsou společné pro Assembly Undo a explicitní regeneraci; zbývají řezy, oprava řetězce vazeb čeká na konkrétní souhlas |
@@ -1113,3 +1113,17 @@ nastavení zobrazeného dokumentu. Po opravě tohoto nastavení prošly **4/4 za
 0,89 s**. Produkční kód již zůstal stejný. Podrobnosti a logy jsou v
 [CONSTRUCTION_REMOVAL.md](CONSTRUCTION_REMOVAL.md). Katalog má **210 příkazů**.
 Následuje samostatný nativní Hole, který zatím CLI příkaz nemá.
+
+## Nativní Hole (2026-09-13)
+
+`hole.create/get/set` sdílejí přípravu tří vlastněných skic a potvrzení s GUI.
+Objemové regrese odhalily a opravily opačný směr axiálních profilů sražení a
+špičky. Identita kružnice, bodů a os se zachovává. GUI respektuje přesnost
+nedotčených čísel, CLI všech osm zámků. Ukončení `up_to` ještě není příkazově
+nastavitelné; úpravy konce vrtání vyžadují pevnou délku.
+
+Úplné sestavení prošlo. Dotčená integrační sada prošla **11/11 za 179,53 s**
+a doplňkový test obnovy vlastněných referencí **1/1 za 0,22 s**. Zahrnuty jsou
+samostatný CLI proces, skutečný GUI dialog, nativní geometrie a překlady.
+Podrobnosti: [NATIVE_HOLE_COMMANDS.md](NATIVE_HOLE_COMMANDS.md).
+Katalog má **213 příkazů**. Následují společné operace vzhledu.

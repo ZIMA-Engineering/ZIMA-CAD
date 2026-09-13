@@ -82,6 +82,7 @@ file(APPEND "${ZIMA_THREAD_CATALOG_SOURCE}" "return {}; } }\n")
 
 add_library(zima_document_core
     modules/document_core/src/part_document.cpp
+    modules/document_core/src/hole_profiles.cpp
     modules/document_core/src/profile_targets.cpp
     modules/document_core/src/appearance.cpp
     modules/document_core/src/body_history.cpp
@@ -154,6 +155,7 @@ add_library(zima_workspace modules/workspace/src/workspace.cpp
     modules/workspace/src/model_calculation.cpp
     modules/workspace/src/placement_edit.cpp
     modules/workspace/src/primitive_operations.cpp
+    modules/workspace/src/hole_operations.cpp
     modules/workspace/src/opening_operations.cpp
     modules/workspace/src/shaft_thread_operations.cpp
     modules/workspace/src/drill_point_operations.cpp
@@ -177,6 +179,7 @@ add_library(zima_command_host
     modules/command_host/src/primitive_commands.cpp
     modules/command_host/src/profile_commands.cpp
     modules/command_host/src/sweep_commands.cpp
+    modules/command_host/src/hole_commands.cpp
     modules/command_host/src/opening_commands.cpp
     modules/command_host/src/drill_point_commands.cpp
     modules/command_host/src/shell_commands.cpp
@@ -785,6 +788,10 @@ if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_cpp_shaft_thread_command_tests COMMAND zima_cpp_shaft_thread_command_tests)
     set_tests_properties(zima_cpp_shaft_thread_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
 
+    add_executable(zima_cpp_hole_command_tests tests/hole_command_tests.cpp)
+    target_link_libraries(zima_cpp_hole_command_tests PRIVATE zima_command_host)
+    add_test(NAME zima_cpp_hole_command_tests COMMAND zima_cpp_hole_command_tests)
+    set_tests_properties(zima_cpp_hole_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     add_executable(zima_cpp_opening_command_tests tests/opening_command_tests.cpp)
     target_link_libraries(zima_cpp_opening_command_tests PRIVATE zima_command_host)
     add_test(NAME zima_cpp_opening_command_tests COMMAND zima_cpp_opening_command_tests)
