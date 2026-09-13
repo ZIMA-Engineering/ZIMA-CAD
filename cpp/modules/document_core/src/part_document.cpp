@@ -8251,8 +8251,17 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
             }
             auto bore = extrusion_request(sketch, container.hole.bore_length,
                 ExtrusionDirection::Forward);
-            const auto* bore_target = container.hole.bore_end_targets.empty()
-                ? nullptr : &container.hole.bore_end_targets.front();
+            std::optional<ExtrusionParameters::EndTarget> resolved_bore_target;
+            if(container.hole.bore_end_condition==EndCondition::UpTo) {
+                if(container.hole.bore_end_targets.size()!=1)
+                    throw std::runtime_error("Select exactly one opening end reference.");
+                resolved_bore_target=resolved_extrusion_end_target(*this,container,container.hole.bore_end_targets.front(),allow_persisted_external_target);
+                const bool datum=profile_target_is_datum(resolved_bore_target->reference)||
+                    (allow_persisted_external_target&&!resolved_bore_target->reference.instance_path.empty());
+                if(!datum&&std::ranges::none_of(operations,[&](const auto& prior){return prior.owner_id==resolved_bore_target->reference.owner_id;}))
+                    throw std::runtime_error("The opening target must be an earlier object or an available Origin.");
+            }
+            const auto* bore_target=resolved_bore_target?&*resolved_bore_target:nullptr;
             bore.extent = container.hole.bore_end_condition == EndCondition::ThroughAll
                 ? zima::kernel::ExtrusionRequest::Extent::ThroughAll
                 : container.hole.bore_end_condition == EndCondition::UpTo &&
@@ -8267,7 +8276,8 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                 if (allow_persisted_external_target) {
                     bore.target_face.instance_path.clear();
                 }
-                bore.target_is_datum = bore_target->kind == EndTargetKind::Plane;
+                bore.target_is_datum = profile_target_is_datum(bore_target->reference)||
+                    (allow_persisted_external_target&&!bore_target->reference.instance_path.empty());
                 bore.target_plane_origin = bore_target->fallback_origin;
                 bore.target_plane_normal = bore_target->fallback_normal;
                 bore.target_surface_triangles = bore_target->fallback_triangles;

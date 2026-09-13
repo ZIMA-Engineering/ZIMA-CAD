@@ -5,7 +5,7 @@ namespace zima::workspace {
 document::ExtrusionParameters::EndTarget prepare_opening_end_target(
     const document::PartDocument& part,const std::vector<kernel::BodyResult>& calculated,
     const document::HistoryContainer& feature,const document::ExtrusionParameters::EndTarget& requested,bool thread_end) {
-    if(feature.feature_kind!=document::FeatureKind::Thread)
+    if(feature.feature_kind!=document::FeatureKind::Thread&&feature.feature_kind!=document::FeatureKind::Hole)
         throw OpeningOperationError("wrong_feature","This container is not an opening.");
     if(!requested.reference.valid()||!requested.reference.instance_path.empty()||requested.kind==document::EndTargetKind::Point)
         throw OpeningOperationError("invalid_reference","An opening end requires an original face or plane of this Part.");
@@ -30,14 +30,15 @@ document::ExtrusionParameters::EndTarget prepare_opening_end_target(
 bool refresh_opening_end_targets(document::PartDocument& part,const std::vector<kernel::BodyResult>& calculated) {
     bool changed=false;
     for(auto& feature:part.history) {
-        if(feature.feature_kind!=document::FeatureKind::Thread)continue;
+        if(feature.feature_kind!=document::FeatureKind::Thread&&feature.feature_kind!=document::FeatureKind::Hole)continue;
         const auto refresh=[&](auto& targets,bool thread_end) {
             for(auto& target:targets)try {
                 const auto next=prepare_opening_end_target(part,calculated,feature,target,thread_end);
                 if(next!=target){target=next;changed=true;}
             }catch(const OpeningOperationError&) { /* Preserve the last target geometry and identity for repair. */ }
         };
-        refresh(feature.thread.end_targets_forward,false);refresh(feature.thread.length_end_targets,true);
+        if(feature.feature_kind==document::FeatureKind::Hole)refresh(feature.hole.bore_end_targets,false);
+        else {refresh(feature.thread.end_targets_forward,false);refresh(feature.thread.length_end_targets,true);}
     }
     return changed;
 }

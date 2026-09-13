@@ -274,6 +274,14 @@ int main(int argc,char** argv){
         require(hole_saved.history.back().hole.circle_id==hole_created.hole.circle_id&&
             std::abs(hole_cache.back().volume-(64000-std::acos(-1.0)*(160+4+1.0/3)))<1e-5,"CLI native Hole lost identity or saved wrong chamfer geometry");
 
+        const auto hole_targets=Json::array({Json{{"owner",hole_saved.document_id+":origin"},{"key","origin:plane:xy"},{"label","Origin XY"}}});
+        const auto target_hole=command({{"command","hole.set"},{"arguments",{{"container",hole_created.id},{"bore_end","up_to"},{"bore_targets",hole_targets}}}});
+        result=launch(executable,root,common+QStringList{"--command","open native-hole-cli.prtz","--command",target_hole,"--command","undo","--command","redo","--command","save"});
+        require(result.exit_code==0,"CLI native Hole original target/history failed");
+        const auto targeted_hole=document::PartDocument::load(hole_path,&hole_cache);
+        require(targeted_hole.history.back().hole.bore_end_targets.front().reference.owner_id==hole_saved.document_id+":origin"&&
+            std::abs(hole_cache.back().volume-(64000-std::acos(-1.0)*(320+4+1.0/3)))<1e-5,"CLI native Hole saved stale target geometry");
+
         const auto make_opening=command({{"command","opening.create"},{"arguments",{{"type","metric"},{"designation","M10"},
             {"bore_length_mm",20},{"thread_length_mm",10},{"chamfer_enabled",false},{"drill_point_enabled",false},{"placement",{{"z",-20}}}}}});
         result=launch(executable,root,common+QStringList{"--command","new part opening-cli","--command","box.create 40 40 40",

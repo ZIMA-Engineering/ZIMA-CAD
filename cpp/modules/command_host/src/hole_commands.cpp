@@ -1,3 +1,4 @@
+#include "opening_target_input.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/hole_operations.hpp>
 #include <zima/workspace/placement_edit.hpp>
@@ -57,10 +58,13 @@ void properties(Feature& feature,const Json& args,const workspace::Workspace& li
     flag("thread_enabled",h.thread_enabled);flag("left_handed",h.left_hand_thread);
     const auto end=[&](const char* key,document::EndCondition& field) {
         if(!args.contains(key))return;const auto text=args.at(key).get<std::string>();
-        if(text!="length"&&text!="through_all")throw Error("unsupported_end_condition","Hole CLI supports length and through_all end conditions.");
-        field=text=="length"?document::EndCondition::Length:document::EndCondition::ThroughAll;
+        const bool bore=std::string_view(key)=="bore_end";
+        if(text!="length"&&text!="through_all"&&(!bore||text!="up_to"))
+            throw Error("unsupported_end_condition",bore?"Unknown Hole end condition.":"Native Hole thread endings support length and through_all.");
+        field=text=="length"?document::EndCondition::Length:text=="up_to"?document::EndCondition::UpTo:document::EndCondition::ThroughAll;
     };
     end("bore_end",h.bore_end_condition);end("thread_end",h.thread_end_condition);
+    if(args.contains("bore_targets"))h.bore_end_targets=opening_target_input<Error>(args.at("bore_targets"));
     // Same effective states as the Hole properties dialog.
     if(h.type!=document::HoleType::Plain)h.thread_enabled=true;
     if(h.drill_point_enabled)h.exit_chamfer_enabled=false;
@@ -95,6 +99,7 @@ void Host::register_hole_commands() {
         for(const auto* key:{"diameter_mm","bore_length_mm","entrance_chamfer_mm","exit_chamfer_mm","drill_point_angle_degrees",
                 "thread_diameter_mm","thread_pitch_mm","thread_length_mm"})arguments.push_back({key,false,Type::Number});
         for(const auto* key:{"thread_enabled","drill_point_enabled","exit_chamfer_enabled","left_handed"})arguments.push_back({key,false,Type::Boolean});
+        arguments.push_back({"bore_targets",false,Type::Array});
         arguments.push_back({"placement",false,Type::Object});arguments.push_back({"document",false});
         dispatcher_.add({create?"hole.create":"hole.set",create?tr("Create a native Hole with owned bore, chamfer and tip Sketches."):
             tr("Change native Hole dimensions with the same transaction as Properties OK."),std::move(arguments),true},[this,create](const Json& args) {

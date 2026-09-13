@@ -19,7 +19,7 @@ s katalogovými rozměry a závitovou plochou. Nejde o změnu formátu souboru.
   Úhel špičky je `drill_point_angle_degrees` ve stupních.
 - Přepínače: `drill_point_enabled`, `exit_chamfer_enabled`, `thread_enabled`,
   `left_handed`. Špička vypne výstupní sražení stejně jako dialog.
-- `bore_end`: `length`, `through_all`. `thread_end`: `length`, `through_all`;
+- `bore_end`: `length`, `through_all`, `up_to`. `thread_end`: `length`, `through_all`;
   u závitu druhá volba kopíruje uloženou jmenovitou délku válcové části.
   Neukončuje závit na automaticky nalezené výstupní ploše průchozího vrtání.
 - `name`, `placement`, `document`: společný kontrakt názvu, editovatelných
@@ -54,8 +54,9 @@ uloženou přesnost; Cancel nepotvrzuje a shodné OK nevytváří další histor
 
 ## Meze této etapy
 
-CLI zatím nenastavuje cíle `up_to`; vrací `unsupported_end_condition`.
-Zůstává práce na společné přípravě, obnově a ověření cílových referencí.
+Cílové zakončení vrtání `up_to` je podporované podle níže uvedeného kontraktu.
+Nativní závitový drát nadále přijímá jen `length` a `through_all`; toto
+rozšíření nezavádí samostatnou cílovou referenci jeho délky.
 Špička a výstupní sražení vyžadují pevnou délku vrtání; kombinace s průchozím
 ukončením nebo cílem se odmítne, protože profil potřebuje skutečnou koncovou
 hloubku. Závit této varianty je drát a neodebírá další objem.
@@ -99,3 +100,69 @@ podmnožina, nikoli všech 121. Katalog má **213 příkazů**.
 
 Logy: `build/native-hole-integration-build.log`,
 `build/native-hole-integration-tests.log`, `build/native-hole-owned-reference-tests.log`.
+
+
+## Zakončení vrtání k původní ploše nebo rovině
+
+```json
+{"command":"hole.set","arguments":{"container":"<hole-id>","bore_end":"up_to","bore_targets":[{"owner":"<original-owner-id>","key":"<original-semantic-key>","label":"Cílová plocha"}]}}
+```
+
+`bore_targets` lze použít v `hole.create` i `hole.set`. Je to pole nejvýše
+jedné reference; aktivní `up_to` vyžaduje právě jednu. Reference obsahuje
+povinné texty `owner/key` a volitelně `kind` (`face` nebo `plane`), `label`
+a prázdnou `instance_path`. Souřadnice, náhradní trojúhelníky ani výsledná
+topologie Partu nejsou vstupem příkazu. Formát vstupu je společný s
+`opening.*`; oba typy používají jeden parser.
+
+Příprava pro GUI i CLI ověří původní geometrii a vlastníka před potvrzením.
+Přípustné jsou předchozí objekty a dostupné počátky stejného Partu včetně
+původního objektu jiného tělesa. Těleso se svými vlastními souřadnicemi
+zůstává samostatné; cílová reference se převede existujícím kontraktem.
+Sebereference, pozdější prvek, chybějící zdroj, bod, neprázdná cesta výskytu,
+více cílů či podvržené odvozené souřadnice se odmítnou bez zápisu do historie.
+
+Nativní výpočet obnoví aktivní datumovou rovinu z původních ZIMA dat.
+Původní rovinná plocha solidu zůstává referencí na tento solid; její
+geometrii při výslovném výpočtu nalezne OCCT v aktuálním původním tělese.
+Nesmí se změnit na nezávislou datumovou rovinu jen kvůli svému rovinnému
+tvaru. Změna zdrojového tělesa se tak uplatní i při studeném výpočtu nativního
+souboru nebo použití uložené cache. Chybějící aktivní cíl nesmí použít staré
+souřadnice jako platnou náhradu.
+
+Obnova cílových dat používá společnou funkci pro Opening a nativní Hole.
+Uložené souřadnice i identity nedostupného cíle se zachovají pro opravu,
+ale aktivní výpočet s chybějícím cílem selže. Neaktivní uložený cíl
+neovlivňuje pevnou délku ani průchozí vrtání. Opakované přiřazení téže
+normalizované reference nepřepočítává těleso a nepřidává historii.
+
+Tato etapa mění pouze cílové zakončení vrtání. Nativní Hole má závitový
+drát s uloženou jmenovitou délkou; nezavádíme mu novou cílovou vlastnost.
+Zakončení závitové plochy u samostatného `opening.*` popisuje
+[OPENING_COMMANDS.md](OPENING_COMMANDS.md). Špička vrtáku a výstupní sražení
+stále vyžadují pevnou délku. Formát a přípony souborů ani start šablony se nemění.
+
+Výchozí regrese selhala na chybějícím argumentu `bore_targets`
+(**0/1 za 0,14 s**, `build/hole-target-baseline-tests.log`). Po implementaci
+byla opravena chyba testovacího vstupu `box.set`, který vyžaduje rozměrový
+řetězec. Rozšířená geometrická regrese prošla **1/1 za 0,49 s**
+(`build/hole-target-expanded-tests.log`). Ověřuje nezávisle spočtené objemy,
+změnu roviny a zdrojového solidu, původní identity, neplatné vstupy,
+Undo/Redo, nativní uložení, různě umístěná tělesa a studený přírůstkový
+výpočet. Dosavadní testy Hole a cílových referencí Opening také prošly.
+
+Úplné sestavení obou aplikací a všech testovacích programů prošlo. Celá
+Windows Release sada skončila **124/127 za 489,43 s**. Tři neúspěšné testy
+obsahovaly neplatné vstupy: dva používaly `origin:plane:XY` místo platného
+`origin:plane:xy`; starší geometrický test deklaroval neexistující rovinu
+`datum:test-plane`. Nahrazení skutečnou rovinou počátku zachovalo nezávisle
+ověřovaný objem. Po opravě těchto vstupů a novém sestavení prošlo všech
+**7/7 dotčených testů za 68,55 s**, včetně CLI procesu, GUI konzole,
+Hole a původních cílů Opening. V této opravě se produkční kód neměnil.
+
+GUI regrese ověřuje přechod CLI → vlastnosti Hole → OK: cílová rovina,
+identity vlastní skici i revize při nezměněném potvrzení zůstávají stejné.
+Modelová sada navíc ověřuje ztrátu původní roviny, pozdější cíl a neaktivní
+uloženou referenci. Logy: `build/hole-target-full-tests.log`,
+`build/hole-target-fixtures-build.log`, `build/hole-target-fixtures-tests.log`.
+Katalog zůstává na **226 příkazech**, celá sada obsahuje **127 testů**.

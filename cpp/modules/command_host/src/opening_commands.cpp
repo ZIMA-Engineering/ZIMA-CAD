@@ -1,3 +1,4 @@
+#include "opening_target_input.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/document/thread_catalog.hpp>
 #include <stdexcept>
@@ -73,23 +74,8 @@ void opening_properties(Feature& value,const Json& args,const workspace::Workspa
         if(p.end_condition_forward!=document::EndCondition::Length&&!args.contains("drill_point_enabled"))value.hole.drill_point_enabled=false;
     }
     if(args.contains("thread_end"))p.length_end_condition=choose("thread_end",{"length","up_to"})=="length"?document::EndCondition::Length:document::EndCondition::UpTo;
-    const auto targets=[&](const char* key,auto& values) {
-        if(!args.contains(key))return;
-        const auto& input=args.at(key);if(input.size()>1)throw Error("invalid_arguments","Each opening end accepts one target reference.");
-        values.clear();
-        for(const auto& item:input) {
-            if(!item.is_object()||!item.contains("owner")||!item.contains("key"))throw Error("invalid_arguments","A target reference requires owner and key.");
-            for(const auto& [name,field]:item.items())if((name!="owner"&&name!="key"&&name!="instance_path"&&name!="kind"&&name!="label")||!field.is_string())
-                throw Error("invalid_arguments","Target reference fields must be supported text fields.");
-            const auto kind=item.value("kind",std::string("face"));
-            if(kind!="face"&&kind!="plane")throw Error("invalid_reference","An opening end requires an original face or plane of this Part.");
-            document::ExtrusionParameters::EndTarget target;
-            target.reference={item.at("owner"),item.at("key"),item.value("instance_path",std::string{})};
-            target.label=item.value("label",std::string{});target.kind=kind=="plane"?document::EndTargetKind::Plane:document::EndTargetKind::Face;
-            values.push_back(std::move(target));
-        }
-    };
-    targets("bore_targets",p.end_targets_forward);targets("thread_targets",p.length_end_targets);
+    if(args.contains("bore_targets"))p.end_targets_forward=opening_target_input<Error>(args.at("bore_targets"));
+    if(args.contains("thread_targets"))p.length_end_targets=opening_target_input<Error>(args.at("thread_targets"));
     if(args.contains("nominal_diameter_mm")) {
         if(p.enabled)throw Error("invalid_arguments","Select a catalog size for a threaded opening; nominal diameter is editable for a plain opening.");
         number("nominal_diameter_mm",p.nominal_diameter);

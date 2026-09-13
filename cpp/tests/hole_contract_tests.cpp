@@ -190,7 +190,7 @@ int main() {
             zima::document::EndCondition::UpTo;
         zima::document::ExtrusionParameters::EndTarget plane_target;
         plane_target.kind = zima::document::EndTargetKind::Plane;
-        plane_target.reference = {up_to_base.id, "datum:test-plane", {}};
+        plane_target.reference = {up_to_document.document_id+":origin", "origin:plane:xy", {}};
         plane_target.label = "Test plane";
         plane_target.fallback_origin = {0.0, 0.0, 0.0};
         plane_target.fallback_normal = {0.0, 0.0, 1.0};

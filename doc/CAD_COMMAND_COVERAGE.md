@@ -42,7 +42,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Externí reference skici | Lokální i kontextová tvorba, obnova a odpojení | Přesná projekce, trim, společné potvrzení Partu a závislostí, vlastněné profily, Part/Assembly Undo/Redo a souhrny zavřených nativních vlastníků při explicitní regeneraci |
 | Vytažení a rotace | Profily, Thin, směry a cíle zakončení Partu hotovy | `extrusion/revolution.create/get/set`, vlastněná skica, původní plochy a dvě nezávislé meze, společné OK; zbývají sestavové řezy |
 | Tažení | Tvorba a geometrické vlastnosti hotovy | `sweep2d/sweep3d/helical.create/get/set`, společné GUI potvrzení, celá 3D dráha, stanice a úplná správa profilů/párování, reference roviny 2D dráhy a odsazení základní skici H-tažení; generické rozšíření umístění patří do řádku Umístění |
-| Otvory a závity | Katalog, současný Otvor a vnější závit částečně hotovy | `thread.catalog`, `opening.create/get/set`: hladký/závitový otvor, rozměry, sražení, špička, směr a průchozí otvor; `shaft_thread.create/get/set` včetně původních referencí; `hole.create/get/set`: nativní Hole s vlastními profily, rozměry a závitovým drátem; `opening.create/set` přijímají nezávislé původní cíle `bore_targets/thread_targets`; zbývají cíle nativního Hole a operace vnořených částí otvoru; `drill_point.create/get/set` pokrývají samostatnou vrtací špičku |
+| Otvory a závity | Katalog, současný Otvor a vnější závit částečně hotovy | `thread.catalog`, `opening.create/get/set`: hladký/závitový otvor, rozměry, sražení, špička, směr a průchozí otvor; `shaft_thread.create/get/set` včetně původních referencí; `hole.create/get/set`: nativní Hole s vlastními profily, rozměry a závitovým drátem; `opening.create/set` přijímají nezávislé původní cíle `bore_targets/thread_targets`; `hole.create/set` přijímají původní `bore_targets`; zbývají operace vnořených částí otvoru; `drill_point.create/get/set` pokrývají samostatnou vrtací špičku |
 | Zaoblení, zkosení, skořepina | Hotovo | `shell.faces/create/get/set`, `fillet.create/get/set`, `chamfer.create/get/set`; `edge_treatment.edges/route/remove`: skutečný vstup, společná tečná trasa a odebrání člena/trasy/posledního prvku podle stromového kontraktu |
 | Zrcadlo a pole | Hotovo pro Part a bezprostřední komponenty Assembly | `derived_copy.sources`, `mirror.create/get/set`, `pattern.create/get/set`: společné zdroje a potvrzení GUI/CLI, roviny/osy, lineární i kruhové režimy, umístění, zámky, neuložené zdroje a Undo/Redo; vnořená aktivace patří do řádku Sestavy |
 | Sestavy | Dotazy, vložení, otevření zdrojů, vlastnosti, odstranění a přesná aktivace hotovy | `component.set`: název, viditelnost, potlačení, uzemnění, umístění a všechny čtyři druhy vložených vazeb s mezemi/zámky; `component.remove` sdílí kontrolu závislostí a atomické mazání s GUI; `component.activate/deactivate` sdílejí přesný zdrojový kontext s GUI; souhrny referencí jsou společné pro Assembly Undo a explicitní regeneraci; zbývají řezy; schválená oprava pořadí řetězce vazeb je hotová a ověřená |
@@ -1182,7 +1182,7 @@ Nativní model a nové cíle prošly **2/2 za 7,16 s**; rozšířený test mezi
 umístěnými tělesy včetně studené inkrementální regenerace **1/1 za 0,85 s**.
 Podrobnosti: [OPENING_COMMANDS.md](OPENING_COMMANDS.md). Katalog má
 **223 příkazů**, sada 124 testů. Nativní Hole je samostatný druh prvku;
-jeho cílové vstupy nadále zůstávají v plánu CLI.
+jeho cílové vstupy vrtání doplňuje následná etapa níže.
 
 Úplné sestavení obou aplikací a všech testovacích programů prošlo. Celá
 Windows Release sada následně prošla **124/124 za 527,41 s**, bez selhání
@@ -1224,3 +1224,21 @@ vlastností řezu. Po lokální opravě OK/Cancel a novém sestavení prošla
 dotčená sada **6/6 za 58,71 s**, včetně GUI konzole a celého GUI řezů.
 Katalog má **226 příkazů**, sada 126 testů. Dalším krokem jsou cílové vstupy
 zakončení vrtání u samostatného nativního Hole.
+
+
+## Nativní Hole: původní cíle vrtání (2026-09-13)
+
+`hole.create/set` přijímají `bore_end: up_to` a `bore_targets`. Sdílená
+příprava pro GUI a CLI ověřuje skutečné původní plochy a roviny; nativní
+výpočet sleduje aktuální zdroj i mezi různě umístěnými tělesy. Chybějící
+aktivní cíl nesmí použít staré souřadnice jako platnou náhradu. Výchozí
+regrese nejprve selhala na chybějícím argumentu; rozšířené testy ověřují
+analytické objemy, Undo/Redo, neplatné vstupy a studenou regeneraci.
+Podrobnosti a rozsah závitových parametrů: [NATIVE_HOLE_COMMANDS.md](NATIVE_HOLE_COMMANDS.md).
+
+Sestavily se obě aplikace i všechny testovací programy. Úplná sada prošla
+**124/127 za 489,43 s**; tři selhání způsobily neplatné referenční klíče
+v testovacích vstupech. Po jejich opravě a novém sestavení prošla dotčená
+sada **7/7 za 68,55 s**, včetně skutečného CLI a GUI vlastností. Katalog
+má **226 příkazů**, sada **127 testů**. Další oblastí CLI jsou měření
+nad již vypočtenou geometrií a ukládání jejich záznamů.

@@ -243,6 +243,19 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
             std::vector<kernel::BodyResult> cache;
             const auto saved=document::PartDocument::load(directory/(stem+"-native-hole.prtz"),&cache);
             check(std::abs(cache.back().volume-(64000-std::acos(-1.0)*(16*10.123456789+4+1.0/3)))<1e-5,"GUI Hole saved wrong bore/chamfer volume");
+            const auto targets=commands::Json::array({commands::Json{{"owner",saved.document_id+":origin"},{"key","origin:plane:xy"},{"label","Origin XY"}}});
+            const commands::Json target_patch={{"command","hole.set"},{"arguments",{{"container",id},{"bore_end","up_to"},{"bore_targets",targets}}}};
+            const auto targeted=run(QString::fromStdString(target_patch.dump())).data;dialog=open_hole();
+            check(dialog->findChild<QComboBox*>("holeBoreEnd")->currentData()=="up_to"&&dialog->findChild<QLineEdit*>("holeBoreEndTarget")->text()=="Origin XY",
+                "GUI Hole did not consume the CLI original end reference");
+            dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+            const auto target_after=run(QString::fromStdString("hole.get "+id)).data;
+            check(target_after.at("revision")==targeted.at("revision")&&target_after.at("bore_targets")==targeted.at("bore_targets"),
+                "Unchanged GUI Hole target lost identity or added history");
+            run("save");const auto target_saved=document::PartDocument::load(directory/(stem+"-native-hole.prtz"),&cache);
+            check(std::abs(cache.back().volume-(64000-std::acos(-1.0)*(320+4+1.0/3)))<1e-5&&
+                target_saved.history.back().hole.circle_id==saved.history.back().hole.circle_id,"GUI Hole target changed its profile or depth");
+
         }
         {
             run(QString::fromStdString("new part "+stem+"-appearance"));run("box.create 40 40 40");

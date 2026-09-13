@@ -1,3 +1,4 @@
+#include <zima/workspace/opening_operations.hpp>
 #include <zima/workspace/hole_operations.hpp>
 #include <zima/workspace/profile_operations.hpp>
 #include <zima/workspace/part_transactions.hpp>
@@ -22,7 +23,7 @@ void validate(const document::HistoryContainer& feature) {
     if(feature.combine_mode!=document::CombineMode::Subtract)
         throw HoleOperationError("invalid_arguments","A Hole removes material.");
     if(h.bore_end_condition==document::EndCondition::UpTo &&
-        (h.bore_end_targets.empty()||!h.bore_end_targets.front().reference.valid()))
+        (h.bore_end_targets.size()!=1||!h.bore_end_targets.front().reference.valid()))
         throw HoleOperationError("missing_reference","Select a target plane or face for the Hole.");
     if(h.bore_end_condition!=document::EndCondition::Length && (h.drill_point_enabled||h.exit_chamfer_enabled))
         throw HoleOperationError("unsupported_end_condition","Hole end treatments require a fixed bore length.");
@@ -78,11 +79,17 @@ bool commit_hole(Workspace& live,const kernel::OcctKernel& kernel,const std::str
     const auto* body=existing?before.body_owner_for_object(feature.id):before.body_history.find(before.body_history.active_body_id());
     if(body&&body->derived_copy)throw HoleOperationError("read_only_body","A derived Body cannot be edited directly.");
     if(body&&body->scope.id!=before.body_history.active_body_id())throw HoleOperationError("inactive_body","Activate the owning Body before editing its Hole.");
-    if(existing&&*existing==feature)return false;
+    const auto container_id=feature.id;
     auto next=before;
     if(existing)*next.find_container(feature.id)=std::move(feature);
     else {next.insert_history_entry(document::PartHistoryKind::Feature,feature.id);next.history.push_back(std::move(feature));}
     const auto& previous=state->session.calculated_boundaries();
+    auto& prepared=*next.find_container(container_id);
+    if(prepared.hole.bore_end_condition==document::EndCondition::UpTo)try {
+        auto& target=prepared.hole.bore_end_targets.front();
+        target=prepare_opening_end_target(next,previous,prepared,target,false);
+    }catch(const OpeningOperationError& error){throw HoleOperationError(error.code,error.what());}
+    if(existing&&*existing==prepared)return false;
     auto references=construction_reference_source_geometry(previous);
     append_reference_geometry(references,next.origin_viewer_mesh().original_references);
     append_reference_geometry(references,next.construction_viewer_mesh().original_references);
