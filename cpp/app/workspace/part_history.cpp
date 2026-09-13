@@ -1,3 +1,4 @@
+#include <zima/workspace/assembly_cut_operations.hpp>
 #include "workspace_internal.hpp"
 #include <zima/workspace/construction_removal.hpp>
 
@@ -99,6 +100,16 @@ bool AssemblyWorkspaceWindow::reorder_tree_item(QTreeWidgetItem* item,const QStr
     auto* assembly=workspace_.open_assembly(workspace_.active_document_id());
     if (!assembly) return false;
     const auto kind=item->data(0,Qt::UserRole+3).toString();
+    if (kind=="assembly-cut") {
+        try {
+            const bool changed=workspace::move_assembly_cut(workspace_,kernel_,workspace_.active_document_id(),id,before.toStdString(),commit);
+            if (commit && changed) {preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();}
+            return true;
+        } catch (const std::exception& error) {
+            if (commit) state_->setText(tr(error.what()));
+            return false;
+        }
+    }
     const auto& original=assembly->session.document();
     const bool components=kind=="part-occurrence" || kind=="assembly-occurrence";
     std::vector<std::string> order;
@@ -111,8 +122,7 @@ bool AssemblyWorkspaceWindow::reorder_tree_item(QTreeWidgetItem* item,const QStr
         carrier.constructions=original.constructions;carrier.sketches=original.sketches;
         for (const auto& cut : original.cuts) carrier.history.push_back(cut.definition);
         dependencies=part_history_dependencies(carrier);
-        if (kind=="assembly-cut") for (const auto& cut : original.cuts) order.push_back(cut.definition.id);
-        else if (kind=="assembly-construction") for (const auto& object : original.constructions) order.push_back(object.id);
+        if (kind=="assembly-construction") for (const auto& object : original.constructions) order.push_back(object.id);
         else for (const auto& sketch : original.sketches) if (sketch.owner_container_id.empty()) order.push_back(sketch.id);
     }
     const auto reordered=reordered_history(order,id,before.toStdString());
@@ -121,36 +131,7 @@ bool AssemblyWorkspaceWindow::reorder_tree_item(QTreeWidgetItem* item,const QStr
     try {
         auto next=original;
         if (components) sort_history_records(next.components,reordered,[](const auto& c){return c.occurrence_id;});
-        else if (kind=="assembly-cut") {
-            if (!original.cuts.empty()) {
-                const auto& inputs=original.cuts.front().input_component_bodies;
-                for (auto& component : next.components) {
-                    const auto input=inputs.find(component.occurrence_id);
-                    if (input==inputs.end()) throw std::runtime_error("Chybí uložené vstupní těleso operace.");
-                    component.calculated_source=input->second;
-                }
-            }
-            sort_history_records(next.cuts,reordered,[](const auto& c){return c.definition.id;});
-            calculate_assembly_cuts(next);
-            document::PartDocument old_cut_references,new_cut_references;
-            old_cut_references.sketches=original.sketches;
-            new_cut_references.sketches=next.sketches;
-            for (const auto& cut : original.cuts) {
-                old_cut_references.history.push_back(cut.definition);
-                const auto* changed=next.find_cut(cut.definition.id);
-                if (!changed || (cut.definition.placement.reference_valid && !changed->definition.placement.reference_valid))
-                    throw std::runtime_error("Přesun by poškodil referenci operace sestavy.");
-            }
-            for (const auto& cut : next.cuts) new_cut_references.history.push_back(cut.definition);
-            const auto old_graph=part_history_dependency_graph(old_cut_references);
-            const auto new_graph=part_history_dependency_graph(new_cut_references);
-            if (!std::includes(new_graph.references.begin(),new_graph.references.end(),
-                    old_graph.references.begin(),old_graph.references.end()))
-                throw std::runtime_error("Přesun by odstranil uloženou referenci operace sestavy.");
-            const auto old_refs=assembly_reference_index(original),new_refs=assembly_reference_index(next);
-            if (!std::includes(new_refs.keys.begin(),new_refs.keys.end(),old_refs.keys.begin(),old_refs.keys.end()))
-                throw std::runtime_error("Přesun by odstranil referenční geometrii sestavy.");
-        } else if (kind=="assembly-construction") sort_history_records(next.constructions,reordered,[](const auto& c){return c.id;});
+        else if (kind=="assembly-construction") sort_history_records(next.constructions,reordered,[](const auto& c){return c.id;});
         else sort_history_records(next.sketches,reordered,[](const auto& c){return c.id;});
         assembly->session.commit(std::move(next));
         preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();
@@ -184,18 +165,7 @@ void AssemblyWorkspaceWindow::delete_part_object(
     QString calculation_issue;
     try {
         if (kind == QStringLiteral("assembly-cut")) {
-            auto* assembly = workspace_.open_assembly(workspace_.active_document_id());
-            if (assembly == nullptr) return;
-            const auto assembly_id = assembly->session.document().document_id;
-            workspace_.regenerate_assembly_from_open_dependencies(assembly_id);
-            assembly = workspace_.open_assembly(assembly_id);
-            if (assembly == nullptr) return;
-            auto next = assembly->session.document();
-            std::erase_if(next.cuts, [&](const auto& cut) {
-                return cut.definition.id == object_id;
-            });
-            calculate_assembly_cuts(next);
-            assembly->session.commit(std::move(next));
+            workspace::remove_assembly_cut(workspace_,kernel_,workspace_.active_document_id(),object_id);
         } else if (kind == QStringLiteral("assembly-sketch")) {
             auto* assembly = workspace_.open_assembly(workspace_.active_document_id());
             if (assembly == nullptr) return;

@@ -408,6 +408,19 @@ int main(int argc,char** argv){
         require(cut_saved.cuts.front().target_occurrence_ids==std::vector<std::string>{cut_target}&&cut_saved.sketches.front().owner_container_id==cut_saved.cuts.front().definition.id,"CLI cut lost native ownership");
         require(std::abs(cut_saved.components.front().calculated_source->volume-976)<1e-6&&std::abs(cut_saved.components.back().calculated_source->volume-1000)<1e-6,"CLI cut changed wrong occurrence or volume");
 
+        const auto cut_id=cut_saved.cuts.front().definition.id;
+        result=launch(executable,root,common+QStringList{"--command","open cli-profile-cuts.asmz",
+            "--command",command({{"command","assembly.cut.can_move"},{"arguments",{{"container",cut_id}}}}),
+            "--command",command({{"command","assembly.cut.move"},{"arguments",{{"container",cut_id}}}}),
+            "--command",command({{"command","assembly.cut.suppress"},{"arguments",{{"container",cut_id},{"suppressed",true}}}}),
+            "--command",command({{"command","component.get"},{"arguments",{{"instance_path",assembly::InstancePath{}.child(cut_target).encoded()}}}}),
+            "--command",command({{"command","assembly.cut.suppress"},{"arguments",{{"container",cut_id},{"suppressed",false}}}}),
+            "--command",command({{"command","assembly.cut.remove"},{"arguments",{{"container",cut_id}}}}),
+            "--command","undo","--command","redo","--command","save","--command","assembly.cut.list"});
+        require(result.exit_code==0&&result.results()[1].at("data").at("would_change")==false&&result.results()[2].at("data").at("changed")==false&&std::abs(result.results()[4].at("data").at("cached_volume_mm3").get<double>()-1000)<1e-6&&result.results().back().at("data").at("total")==0,"CLI cut history or suppression failed");
+        const auto removed_cut=assembly::AssemblyDocument::load(cut_path);
+        require(removed_cut.cuts.empty()&&removed_cut.sketches.empty()&&std::abs(removed_cut.components.front().calculated_source->volume-1000)<1e-6,"CLI removal left orphan profile data or a cut body");
+
         const auto create_plane = command({{"command","construction.create"},{"arguments",{{"kind","plane"},{"name","CLI rovina žluťoučká"},
             {"base_plane","yz"},{"offset_mm",10},{"values",{{"x",1},{"y",2},{"z",3},{"rotation_z",90}}}}}});
         result=launch(executable,root,common+QStringList{"--command","new part construction-created","--command",create_plane,"--command","save"});

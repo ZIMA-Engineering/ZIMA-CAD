@@ -304,3 +304,5 @@ Ověření této etapy:
 - Finální sestavení obou aplikací i všech testovacích programů následovala
   **úplná regrese 136/136 za 540,06 s**, bez chyby
   (`build/assembly-profile-full-build.log`, `build/assembly-profile-full-tests.log`).
+
+Správa pořadí, potlačení a odstranění odečtů: [ASSEMBLY_CUT_HISTORY_COMMANDS.md](ASSEMBLY_CUT_HISTORY_COMMANDS.md).

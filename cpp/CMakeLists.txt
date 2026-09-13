@@ -177,6 +177,7 @@ add_library(zima_workspace modules/workspace/src/workspace.cpp
     modules/workspace/src/derived_copy_edits.cpp
     modules/workspace/src/edge_treatment_operations.cpp
     modules/workspace/src/shell_operations.cpp
+    modules/workspace/src/assembly_cut_operations.cpp
     modules/workspace/src/assembly_profile_operations.cpp
     modules/workspace/src/profile_operations.cpp
     modules/workspace/src/profile_targets.cpp
@@ -190,6 +191,7 @@ add_library(zima_command_host
     modules/command_host/src/host.cpp
     modules/command_host/src/model_tree.cpp
     modules/command_host/src/primitive_commands.cpp
+    modules/command_host/src/assembly_cut_commands.cpp
     modules/command_host/src/profile_commands.cpp
     modules/command_host/src/sweep_commands.cpp
     modules/command_host/src/measurement_commands.cpp
@@ -882,6 +884,10 @@ if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_cpp_sweep_command_tests COMMAND zima_cpp_sweep_command_tests)
     set_tests_properties(zima_cpp_sweep_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
 
+    add_executable(zima_cpp_assembly_cut_history_tests tests/assembly_cut_history_tests.cpp)
+    target_link_libraries(zima_cpp_assembly_cut_history_tests PRIVATE zima_command_host)
+    add_test(NAME zima_cpp_assembly_cut_history_tests COMMAND zima_cpp_assembly_cut_history_tests)
+    set_tests_properties(zima_cpp_assembly_cut_history_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     add_executable(zima_cpp_assembly_profile_command_tests tests/assembly_profile_command_tests.cpp)
     target_link_libraries(zima_cpp_assembly_profile_command_tests PRIVATE zima_command_host)
     add_test(NAME zima_cpp_assembly_profile_command_tests COMMAND zima_cpp_assembly_profile_command_tests)

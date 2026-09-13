@@ -1,3 +1,4 @@
+#include <zima/workspace/assembly_cut_operations.hpp>
 #include <zima/workspace/edge_treatment_operations.hpp>
 #include "workspace_internal.hpp"
 #include <zima/workspace/body_operations.hpp>
@@ -2312,6 +2313,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                     ? nullptr : assembly->session.document().find_cut(id);
                 if (cut == nullptr) return;
                 QMenu menu(this);
+                menu.setObjectName("assemblyCutHistoryMenu");
                 auto* edit = menu.addAction(tr("Upravit"));
                 auto* properties = menu.addAction(tr("Vlastnosti…"));
                 auto* suppress = menu.addAction(cut->definition.suppressed
@@ -2319,6 +2321,10 @@ void AssemblyWorkspaceWindow::create_layout() {
                 auto* move_up = menu.addAction(tr("Posunout výše"));
                 auto* move_down = menu.addAction(tr("Posunout níže"));
                 auto* remove = menu.addAction(tr("Odstranit"));
+                suppress->setObjectName("assemblyCutSuppressAction");
+                move_up->setObjectName("assemblyCutMoveUpAction");
+                move_down->setObjectName("assemblyCutMoveDownAction");
+                remove->setObjectName("assemblyCutRemoveAction");
                 const auto* selected = menu.exec(
                     tree_->viewport()->mapToGlobal(position));
                 if (selected == edit) {
@@ -2326,40 +2332,22 @@ void AssemblyWorkspaceWindow::create_layout() {
                 } else if (selected == properties) {
                     show_primitive_properties(cut->definition.feature_kind, id);
                 } else if (selected == suppress) {
-                    const auto assembly_id = assembly->session.document().document_id;
-                    workspace_.regenerate_assembly_from_open_dependencies(assembly_id);
-                    assembly = workspace_.open_assembly(assembly_id);
-                    if (assembly == nullptr) return;
-                    auto next = assembly->session.document();
-                    if (auto* value = next.find_cut(id)) {
-                        value->definition.suppressed = !value->definition.suppressed;
-                        calculate_assembly_cuts(next);
-                        assembly->session.commit(std::move(next));
-                        refresh_tabs();
-                        refresh_scene();
-                    }
+                    try {
+                        workspace::set_assembly_cut_suppressed(workspace_,kernel_,workspace_.active_document_id(),id,!cut->definition.suppressed);
+                        preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();
+                    } catch (const std::exception& error) {state_->setText(tr(error.what()));}
                 } else if (selected == move_up || selected == move_down) {
-                    const auto assembly_id = assembly->session.document().document_id;
-                    workspace_.regenerate_assembly_from_open_dependencies(assembly_id);
-                    assembly = workspace_.open_assembly(assembly_id);
-                    if (assembly == nullptr) return;
-                    auto next = assembly->session.document();
-                    const auto found = std::find_if(
-                        next.cuts.begin(), next.cuts.end(), [&](const auto& value) {
-                            return value.definition.id == id;
-                        });
-                    if (found == next.cuts.end()) return;
-                    const auto index = static_cast<std::size_t>(
-                        std::distance(next.cuts.begin(), found));
-                    const bool upward = selected == move_up;
-                    if ((upward && index == 0) ||
-                        (!upward && index + 1 >= next.cuts.size())) return;
-                    const auto target = upward ? index - 1 : index + 1;
-                    std::swap(next.cuts[index], next.cuts[target]);
-                    calculate_assembly_cuts(next);
-                    assembly->session.commit(std::move(next));
-                    refresh_tabs();
-                    refresh_scene();
+                    const auto& cuts=assembly->session.document().cuts;
+                    const auto found=std::ranges::find_if(cuts,[&](const auto& value){return value.definition.id==id;});
+                    if(found==cuts.end())return;
+                    const auto index=static_cast<std::size_t>(std::distance(cuts.begin(),found));
+                    const bool upward=selected==move_up;
+                    if((upward&&index==0)||(!upward&&index+1>=cuts.size()))return;
+                    const auto before=upward?cuts[index-1].definition.id:index+2<cuts.size()?cuts[index+2].definition.id:std::string{};
+                    try {
+                        workspace::move_assembly_cut(workspace_,kernel_,workspace_.active_document_id(),id,before);
+                        preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();
+                    } catch (const std::exception& error) {state_->setText(tr(error.what()));}
                 } else if (selected == remove) {
                     delete_tree_selection();
                 }

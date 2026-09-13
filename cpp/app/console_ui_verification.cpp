@@ -1412,7 +1412,39 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
             run("save");const auto saved=assembly::AssemblyDocument::load(directory/(stem+"-cut-"+kind+".asmz"));
             check(std::abs(saved.components.front().calculated_source->volume-(extrusion?982:1000-6*std::acos(-1.0)))<1e-5,"GUI Assembly cut saved incorrect volume");
             check(saved.find_cut(id)->definition.feature_id==created.at("feature").get<std::string>(),"GUI Assembly cut changed feature identity");
-            run("undo");check(get().at(key)==initial,"Assembly cut Undo failed");json_run("close",{{"discard",true}});flush();
+            run("undo");check(get().at(key)==initial,"Assembly cut Undo failed");
+            const auto extra_sketch=json_run("sketch.create",{{"name","Second cut"},{"plane","XY"}}).data.at("sketch");
+            json_run("sketch.rectangle.create",{{"sketch",extra_sketch},{"first",{-4,-1}},{"second",{-3,1}}});
+            const auto extra=json_run("extrusion.create",{{"sketch",extra_sketch},{"length_forward_mm",2},{"targets",{occurrence}}}).data.at("container").get<std::string>();flush();
+            const auto history_action=[&](const std::string& target,const char* action_name) {
+                QTreeWidgetItem* item=nullptr;
+                for(QTreeWidgetItemIterator it(model_tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==target){item=*it;break;}
+                check(item,"Cut history row missing");model_tree->clearSelection();model_tree->setCurrentItem(item);item->setSelected(true);model_tree->scrollToItem(item);flush();
+                bool invoked=false;QString issue;QTimer messages;messages.setInterval(10);
+                QObject::connect(&messages,&QTimer::timeout,[&]{if(auto* box=qobject_cast<QMessageBox*>(QApplication::activeModalWidget())) {
+                    if(auto* yes=box->button(QMessageBox::Yes))yes->click();else{issue=box->text();box->accept();}
+                }});
+                QTimer timeout;timeout.setSingleShot(true);QObject::connect(&timeout,&QTimer::timeout,[&]{for(auto* menu:window.findChildren<QMenu*>())if(menu->isVisible())menu->close();});
+                messages.start();timeout.start(8000);
+                QTimer::singleShot(0,&window,[&]{auto* menu=qobject_cast<QMenu*>(QApplication::activePopupWidget());if(!menu)return;
+                    for(auto* action:menu->actions())if(action->objectName()==action_name) {
+                        invoked=true;menu->setActiveAction(action);QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(menu,&enter);return;
+                    }menu->close();
+                });
+                model_tree->customContextMenuRequested(model_tree->visualItemRect(item).center());messages.stop();timeout.stop();flush();
+                check(invoked&&issue.isEmpty(),"Assembly cut history menu failed");
+            };
+            history_action(extra,"assemblyCutMoveUpAction");
+            check(json_run("assembly.cut.list",commands::Json::object()).data.at("items").front().at("container")==extra,"GUI cut move-up did not change order");
+            history_action(extra,"assemblyCutMoveDownAction");
+            check(json_run("assembly.cut.list",commands::Json::object()).data.at("items").front().at("container")==id,"GUI cut move-down did not restore order");
+            history_action(id,"assemblyCutSuppressAction");check(get().at("suppressed")==true,"GUI cut suppression failed");
+            history_action(id,"assemblyCutSuppressAction");check(get().at("suppressed")==false,"GUI cut restoration failed");
+            history_action(id,"assemblyCutRemoveAction");run("save");
+            const auto removed=assembly::AssemblyDocument::load(directory/(stem+"-cut-"+kind+".asmz"));
+            check(removed.cuts.size()==1&&removed.sketches.size()==1&&removed.cuts.front().definition.id==extra&&std::abs(removed.components.front().calculated_source->volume-996)<1e-5,"GUI removal left an orphan Sketch or incorrect cut body");
+            run("undo");check(get().at("sketch")==sketch&&json_run("assembly.cut.list",commands::Json::object()).data.at("total")==2,"GUI cut removal Undo lost ownership");
+            json_run("close",{{"discard",true}});flush();
         }
         input->setText("context");QApplication::sendEvent(input,&enter);flush();
         check(window.grab().save(QString::fromStdString((directory/"command-console.png").string())),"Console screenshot failed");
