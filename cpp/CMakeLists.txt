@@ -170,6 +170,7 @@ add_library(zima_command_host
     modules/command_host/src/opening_commands.cpp
     modules/command_host/src/drill_point_commands.cpp
     modules/command_host/src/shell_commands.cpp
+    modules/command_host/src/edge_treatment_queries.cpp
     modules/command_host/src/document_commands.cpp
     modules/command_host/src/body_commands.cpp
     modules/command_host/src/history_commands.cpp
@@ -668,6 +669,15 @@ if(ZIMA_BUILD_TESTS)
     target_link_libraries(zima_cpp_thin_profile_contract_tests PRIVATE zima_document_core zima_kernel_occt)
     add_test(NAME zima_cpp_thin_profile_contract_tests COMMAND zima_cpp_thin_profile_contract_tests)
     set_tests_properties(zima_cpp_thin_profile_contract_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
+
+    add_executable(zima_cpp_edge_treatment_query_tests tests/edge_treatment_query_tests.cpp)
+    target_link_libraries(zima_cpp_edge_treatment_query_tests PRIVATE zima_command_host)
+    add_test(NAME zima_cpp_edge_treatment_query_tests COMMAND zima_cpp_edge_treatment_query_tests)
+    set_tests_properties(zima_cpp_edge_treatment_query_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
+
+    add_executable(zima_cpp_tangent_edge_route_tests tests/tangent_edge_route_tests.cpp)
+    target_link_libraries(zima_cpp_tangent_edge_route_tests PRIVATE zima_kernel_api)
+    add_test(NAME zima_cpp_tangent_edge_route_tests COMMAND zima_cpp_tangent_edge_route_tests)
 
     add_executable(zima_cpp_shell_command_tests tests/shell_command_tests.cpp)
     target_link_libraries(zima_cpp_shell_command_tests PRIVATE zima_command_host)

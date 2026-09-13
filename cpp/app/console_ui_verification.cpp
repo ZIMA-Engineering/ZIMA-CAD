@@ -1111,6 +1111,10 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
                 for(auto* dialog:window.findChildren<QDialog*>())if(dialog->isVisible()&&dialog->findChild<QDoubleSpinBox*>("shellThickness"))return dialog;
                 throw std::runtime_error("Shell Properties did not open");
             };
+            const auto edges=json_run("edge_treatment.edges",commands::Json::object()).data;
+            check(edges.at("total")==12,"GUI console lost input edges");
+            const auto first=edges.at("items")[0];const auto route=json_run("edge_treatment.route",{{"seed",{{"owner",first.at("owner")},{"key",first.at("key")}}}}).data;
+            check(route.at("edges").size()==1&&route.at("endpoints").size()==2,"GUI console tangent-route query failed");
             auto* action=window.findChild<QAction*>("shellAction");check(action&&action->isEnabled(),"Shell action is unavailable");
             action->trigger();flush();auto* dialog=dialog_open();dialog->findChild<QDoubleSpinBox*>("shellThickness")->setValue(2);
             dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();run("save");

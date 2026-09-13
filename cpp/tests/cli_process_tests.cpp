@@ -93,8 +93,11 @@ int main(int argc,char** argv){
         shell_fixture.insert_history_entry(document::PartHistoryKind::Feature,shell_box.id);shell_fixture.history.push_back(shell_box);
         kernel::OcctKernel shell_kernel;shell_fixture.save(shell_path,shell_kernel.evaluate_history(shell_fixture.kernel_operations()));
         result=launch(executable,root,common+QStringList{"--command",command({{"command","open"},{"arguments",{{"path",qpath(shell_path).toStdString()}}}}),
-            "--command","shell.faces","--command","shell.create","--command","save"});
+            "--command","shell.faces","--command","edge_treatment.edges",
+            "--command",command({{"command","edge_treatment.route"},{"arguments",{{"seed",{{"owner",shell_box.id},{"key","edge:x_max:y_min:z_max--x_max:y_min:z_min"}}}}}}),
+            "--command","shell.create","--command","save"});
         require(result.exit_code==0&&result.results()[1].at("data").at("total")==6,"CLI Shell creation/input face query failed");
+        require(result.results()[2].at("data").at("total")==12&&result.results()[3].at("data").at("edges").size()==1,"Actual CLI edge/route queries failed");
         const auto shell_created=document::PartDocument::load(shell_path).history.back();
         const auto shell_edit=command({{"command","shell.set"},{"arguments",{{"container",shell_created.id},{"thickness_mm",2},
             {"faces",Json::array({Json{{"owner",shell_box.id},{"key","z_max"}}})}}}});

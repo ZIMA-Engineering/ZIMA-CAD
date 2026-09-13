@@ -1,3 +1,4 @@
+#include <limits>
 #include "table_entry.hpp"
 #include "shaft_thread_dialog.hpp"
 #include "sweep2d_dialog.hpp"
@@ -1433,6 +1434,21 @@ int main(int argc, char* argv[]) {
                         {"missing-owner", "edge:missing", {}}),
                 "Viewer could not resolve a calculated display edge by its "
                 "stable ZIMA identity for an analytical preview");
+
+        {
+            zima::kernel::ViewerMesh ambiguous;
+            ambiguous.edges={*stable_display_edge,*stable_display_edge};
+            for(auto& point:ambiguous.edges[1].points)point.y+=4;
+            for(auto& vertex:ambiguous.edges[1].edge_treatment_endpoint_references)vertex.semantic_key+=":other";
+            zima::viewer::MeshView ambiguous_view(&parent);ambiguous_view.setGeometry(0,0,500,360);
+            ambiguous_view.set_mesh(std::move(ambiguous));
+            auto restored=tangent_seed;restored.geometry_index=std::numeric_limits<std::size_t>::max();
+            require(ambiguous_view.tangent_edge_route(restored).empty(),
+                "Programmatic route restoration guessed the first ambiguous mesh edge");
+            restored.geometry_index=0;
+            require(ambiguous_view.tangent_edge_route(restored).size()==1,
+                "Tangent route lost the exact offered geometry index");
+        }
 
         zima::viewer::MeshView pending_point_view(&parent);
         pending_point_view.setGeometry(0,0,500,360);

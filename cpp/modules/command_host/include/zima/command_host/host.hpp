@@ -62,6 +62,7 @@ private:
     void register_opening_commands();
     void register_drill_point_commands();
     void register_shell_commands();
+    void register_edge_treatment_queries();
     void register_document_commands();
     void register_body_commands();
     void register_history_commands();

@@ -1,6 +1,7 @@
 #include "workspace_internal.hpp"
 #include <zima/workspace/profile_operations.hpp>
 #include <zima/workspace/shell_operations.hpp>
+#include <limits>
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -299,6 +300,8 @@ void AssemblyWorkspaceWindow::restore_edge_treatment_route(std::size_t group) {
     candidate.owner_id = seed.owner_id;
     candidate.semantic_key = seed.semantic_key;
     candidate.instance_path = path;
+    // Restoration has a persisted identity, not an offered mesh-edge index.
+    candidate.geometry_index = std::numeric_limits<std::size_t>::max();
     auto route = viewer_->tangent_edge_route(candidate);
     for (auto& edge : route) edge.instance_path.clear();
     pending_edge_treatment_groups_[group] = route.empty()

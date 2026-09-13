@@ -274,3 +274,9 @@ a upravitelný seznam původních den. Příklad a identity vytvořených ploch:
 Skořepinu ovládají `shell.create/get/set`. Dostupné plochy skutečného vstupu
 vrací `shell.faces`, při editaci s ID kontejneru. Prázdný seznam otvorů
 znamená uzavřenou dutinu. Příklady a pravidla: [SHELL_COMMANDS.md](SHELL_COMMANDS.md).
+
+
+Hrany skutečného vstupu zaoblení a sražení vypíše `edge_treatment.edges`.
+`edge_treatment.route` vrací tečnou trasu z konkrétní původní hrany; při
+editaci oba dotazy přijímají ID kontejneru. Čtou uložená data bez regenerace.
+Reference, koncové body a nejednoznačné případy: [EDGE_TREATMENT_COMMANDS.md](EDGE_TREATMENT_COMMANDS.md).
