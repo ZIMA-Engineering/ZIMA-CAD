@@ -278,6 +278,7 @@ void AssemblyWorkspaceWindow::show_component_context_menu(
         occurrence->grounded ? tr("Uvolnit") : tr("Uzemnit"));
     grounding->setEnabled(!occurrence->derived_copy);
     auto* remove = menu.addAction(tr("Odstranit"));
+    remove->setObjectName("removeComponentAction");
     const QAction* selected = menu.exec(global_position);
     if(selected==open) {
         if(!open_component_source(instance_path)) state_->setText(tr("Zdrojový dokument komponenty nelze otevřít."));
@@ -309,57 +310,10 @@ void AssemblyWorkspaceWindow::show_component_context_menu(
             tr("Opravdu chcete komponentu ze sestavy odstranit?"),
             QMessageBox::Yes | QMessageBox::No, QMessageBox::No) !=
         QMessageBox::Yes) return;
-    auto next = assembly->session.document();
-    auto found = std::find_if(next.components.begin(), next.components.end(),
-        [&](const auto& item) { return item.occurrence_id == address->occurrence_id; });
-    if (found == next.components.end()) return;
     if (selected == remove) {
-        const auto uses_occurrence = [&](const auto& path) {
-            return !path.occurrence_ids.empty() &&
-                path.occurrence_ids.front() == address->occurrence_id;
-        };
-        const auto dependencies=zima::workspace::component_removal_dependencies(next,address->occurrence_id);
-        if (dependencies.blocked()) {
-            QMessageBox::warning(this, tr("Komponentu nelze odstranit"),
-                tr("Komponenta je použita vazbou, závislostí nebo "
-                   "externí referencí skici."));
-            return;
-        }
-        const auto assembly_id = next.document_id;
-        const auto occurrence_id = address->occurrence_id;
-        if(!found->derived_copy)workspace_.regenerate_assembly_from_open_dependencies(assembly_id);
-        assembly = workspace_.open_assembly(assembly_id);
-        if (assembly == nullptr) return;
-        next = assembly->session.document();
-        found = std::find_if(next.components.begin(), next.components.end(),
-            [&](const auto& item) { return item.occurrence_id == occurrence_id; });
-        if (found == next.components.end()) return;
-        for (auto& cut : next.cuts) {
-            std::erase(cut.target_occurrence_ids, occurrence_id);
-            auto& extrusion = cut.definition.extrusion;
-            bool lost_extent_target = false;
-            if (!extrusion.target_face.instance_path.empty()) {
-                try {
-                    lost_extent_target = uses_occurrence(
-                        zima::assembly::InstancePath::decode(
-                            extrusion.target_face.instance_path));
-                } catch (const std::invalid_argument&) {
-                    lost_extent_target = true;
-                }
-            }
-            if (lost_extent_target &&
-                (extrusion.extent == zima::document::ExtrusionExtent::UpToPlane ||
-                 extrusion.extent == zima::document::ExtrusionExtent::UpToSurface)) {
-                extrusion.extent = zima::document::ExtrusionExtent::Blind;
-                extrusion.target_face = {};
-                extrusion.target_surface_triangles.clear();
-            }
-        }
-        next.components.erase(found);
-        std::erase_if(next.dependencies,[&](const auto& dependency){return dependency.dependent_occurrence_id==occurrence_id;});
-        next.calculate_placement_references();
-        calculate_assembly_cuts(next);
-        assembly->session.commit(std::move(next));
+        try {
+            zima::workspace::remove_component(workspace_,kernel_,address->owner_assembly_document_id,address->occurrence_id);
+        }catch(const std::exception& error){QMessageBox::warning(this,tr("Komponentu nelze odstranit"),tr(error.what()));return;}
         refresh_tabs();
         refresh_scene();
         return;

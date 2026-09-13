@@ -1,6 +1,7 @@
 #pragma once
 #include <zima/workspace/workspace.hpp>
 #include <stdexcept>
+namespace zima::kernel { class OcctKernel; }
 namespace zima::workspace {
 class ComponentOperationError : public std::runtime_error {
 public:
@@ -15,6 +16,10 @@ struct ComponentRemovalDependencies {
 };
 [[nodiscard]] ComponentRemovalDependencies component_removal_dependencies(
     const assembly::AssemblyDocument&,const std::string& occurrence);
+// Explicit removal preserves the GUI dependency/cut policy and publishes one
+// final candidate. Source documents and their files remain untouched.
+void remove_component(Workspace&,const kernel::OcctKernel&,const std::string& owner,
+    const std::string& occurrence);
 // Explicit insertion consumes the existing native Part/Assembly insertion contract.
 // Dependency validation reads native data only and never changes the open documents.
 [[nodiscard]] std::string insert_component(Workspace&,const std::string& owner,

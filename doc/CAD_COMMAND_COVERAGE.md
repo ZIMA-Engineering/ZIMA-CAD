@@ -45,7 +45,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Otvory a závity | Katalog, současný Otvor a vnější závit částečně hotovy | `thread.catalog`, `opening.create/get/set`: hladký/závitový otvor, rozměry, sražení, špička, směr a průchozí otvor; `shaft_thread.create/get/set` včetně původních referencí; zbývají cílové reference Otvoru Až k, samostatný Hole a operace vnořených částí otvoru; `drill_point.create/get/set` pokrývají samostatnou vrtací špičku |
 | Zaoblení, zkosení, skořepina | Hotovo | `shell.faces/create/get/set`, `fillet.create/get/set`, `chamfer.create/get/set`; `edge_treatment.edges/route/remove`: skutečný vstup, společná tečná trasa a odebrání člena/trasy/posledního prvku podle stromového kontraktu |
 | Zrcadlo a pole | Hotovo pro Part a bezprostřední komponenty Assembly | `derived_copy.sources`, `mirror.create/get/set`, `pattern.create/get/set`: společné zdroje a potvrzení GUI/CLI, roviny/osy, lineární i kruhové režimy, umístění, zámky, neuložené zdroje a Undo/Redo; vnořená aktivace patří do řádku Sestavy |
-| Sestavy | Dotazy, vložení, otevření zdrojů a vlastnosti komponent hotovy | `component.set`: název, viditelnost, potlačení, uzemnění, umístění a všechny čtyři druhy vložených vazeb s mezemi/zámky; zbývá mazání komponent, vnořená aktivace a řezy |
+| Sestavy | Dotazy, vložení, otevření zdrojů, vlastnosti a odstranění komponent hotovy | `component.set`: název, viditelnost, potlačení, uzemnění, umístění a všechny čtyři druhy vložených vazeb s mezemi/zámky; `component.remove` sdílí kontrolu závislostí a atomické mazání s GUI; zbývá vnořená aktivace a řezy, oprava řetězce vazeb čeká na konkrétní souhlas |
 | Výkresy | Listy, šablony, historie, tvorba/vlastnosti/dotazy/mazání pohledů, regenerace, modelové anotace, Show/Erase a měřené kóty (dotazy, tvorba, editace, řetězec, mazání), razítko, zdrojové parametry BOM, PDF, DXF a PNG/JPEG listu/výřezu hotovy | Další anotace, zdrojové styly šraf a příkazový snímek interaktivního View |
 | Řezy, měření a vzhled | Zbývá | Datové operace a uložené výsledky |
 | Parametry, relace a materiál | Společné tabulky a transakce hotovy | Parametry, jednotky, přesnost, relace, materiál včetně přímého načtení knihovny a uložené varianty; řízení rozměrů relacemi a generování variant nejsou dosud zavedené ani v GUI |
@@ -927,3 +927,21 @@ nebyl změněn, reprodukce je zachována samostatně a jiné CLI operace pokrač
 Konkrétní návrh, dopady, testy a umístění reprodukce:
 [ASSEMBLY_MATE_ORDER_REVIEW.md](ASSEMBLY_MATE_ORDER_REVIEW.md).
 Tato chyba zůstává otevřená; nelze tvrdit, že jsou všechny řetězce vazeb ověřené.
+
+
+### Odstranění komponenty: společné kontroly a atomický výsledek
+
+`component.remove` doplňuje katalog na **207 příkazů**. GUI i CLI sdílejí
+kontrolu závislostí, práci s cíli řezů a jediný výsledný commit. Běžné
+odstranění používá současné vypočítané zdroje v soukromém kandidátovi;
+nevystaví živé sestavě částečnou regeneraci, když další výpočet selže.
+Zdrojové dokumenty a ostatní výskyty zůstávají zachované.
+
+Nové modelové testy a obnovená commitovaná regrese vlastností prošly **2/2**
+(0,83 s). Po sestavení obou programů prošla související sada **20/20**
+(192,48 s), včetně skutečného kontextového menu, CLI procesu a celkového
+startu GUI. Ověřuje objem řezu 2800 mm³, aktuální neuložené zdroje,
+atomické chyby, blokující reference, nativní soubory a Undo/Redo.
+Kontrakt a logy: [COMPONENT_REMOVAL_COMMAND.md](COMPONENT_REMOVAL_COMMAND.md).
+Následuje vnořená aktivace a povolení příkazů v přesném zdrojovém kontextu.
+Oprava řetězce vazeb zůstává samostatně čekající na konkrétní souhlas.

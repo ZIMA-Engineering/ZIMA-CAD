@@ -1252,14 +1252,21 @@ void Workspace::calculate_assembly_cuts(
     }
 }
 
+zima::assembly::AssemblyDocument Workspace::prepare_assembly_calculation(
+    const std::string& assembly_document_id) const {
+    if(!open_assembly(assembly_document_id))
+        throw std::invalid_argument("Regenerate target must be an open Assembly");
+    std::vector<std::string> recursion_stack;
+    return refreshed_assembly(assembly_document_id,recursion_stack);
+}
+
 void Workspace::regenerate_assembly_from_open_dependencies(
     const std::string& assembly_document_id) {
     auto* assembly = open_assembly(assembly_document_id);
     if (assembly == nullptr) {
         throw std::invalid_argument("Regenerate target must be an open Assembly");
     }
-    std::vector<std::string> recursion_stack;
-    auto refreshed = refreshed_assembly(assembly_document_id, recursion_stack);
+    auto refreshed = prepare_assembly_calculation(assembly_document_id);
     assembly->session.update_dependency_snapshots(std::move(refreshed));
 }
 

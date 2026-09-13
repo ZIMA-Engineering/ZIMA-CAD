@@ -317,3 +317,10 @@ uzemnění, číselné `placement` a úplné `placement_references` (nejvýše t
 plošné, úhlové, osové nebo bodové vazby). Používá stejné potvrzení a solver
 jako GUI Vlastnosti, včetně zámků a jediného kroku Undo. Podrobný kontrakt,
 jednotky a příklady: [COMPONENT_PROPERTY_COMMANDS.md](COMPONENT_PROPERTY_COMMANDS.md).
+
+
+`component.remove` odstraní výskyt z aktivní vlastnící sestavy jedním
+Undo krokem. Přijímá přesný `instance_path`; zdrojový soubor zůstává.
+Použití vazbami a závislostmi předem vypíše `component.dependencies`.
+Společná GUI/CLI transakce ověří celý kandidát včetně řezů, než změní
+živou sestavu: [COMPONENT_REMOVAL_COMMAND.md](COMPONENT_REMOVAL_COMMAND.md).

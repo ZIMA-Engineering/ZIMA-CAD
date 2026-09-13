@@ -4434,6 +4434,29 @@ int verify_component_references(QApplication& application, const std::filesystem
     const auto restored=component_command("component.get",{{"instance_path",second_path}});
     if(!verify(restored.ok&&restored.data.at("placement_references").empty()&&restored.data.at("placement").at("z_mm")==20,
         "CLI and GUI component edits did not each create one Undo transaction"))return 1;
+    if(!verify(component_command("component.remove",{{"instance_path",second_path}}).ok,"GUI console component removal failed"))return 1;
+    flush();if(!verify(!find(second,second_path),"CLI removal left the component in the Tree"))return 1;
+    window.findChild<QAction*>("undoAction")->trigger();flush();
+    if(!verify(find(second,second_path)!=nullptr,"CLI removal Undo lost the exact occurrence"))return 1;
+    {
+        auto* selected=find(second,second_path);tree->clearSelection();tree->setCurrentItem(selected);selected->setSelected(true);tree->scrollToItem(selected);flush();
+        bool invoked=false;QString failure;QTimer messages;
+        QObject::connect(&messages,&QTimer::timeout,[&]{if(auto* box=qobject_cast<QMessageBox*>(QApplication::activeModalWidget())) {
+            if(auto* yes=box->button(QMessageBox::Yes))yes->click();else{failure=box->text();box->accept();}
+        }});messages.start(20);
+        QTimer::singleShot(0,&window,[&]{auto* menu=qobject_cast<QMenu*>(QApplication::activePopupWidget());if(!menu)return;
+            for(auto* action:menu->actions())if(action->objectName()=="removeComponentAction") {
+                invoked=true;menu->setActiveAction(action);QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(menu,&enter);return;
+            }menu->close();
+        });
+        tree->customContextMenuRequested(tree->visualItemRect(selected).center());flush();
+        if(!verify(invoked&&failure.isEmpty()&&!find(second,second_path),"Context menu removal did not use the shared component transaction")) {
+            std::cerr<<failure.toStdString()<<'\n';return 1;
+        }
+    }
+    window.findChild<QAction*>("undoAction")->trigger();flush();
+    if(!verify(find(second,second_path)!=nullptr,"GUI removal Undo lost the exact occurrence"))return 1;
+
 
     window.show_tree_item_properties(find(second,second_path));flush();
     if(!verify(dialog()!=nullptr,"Cannot open component properties"))return 1;

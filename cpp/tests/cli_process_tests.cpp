@@ -539,6 +539,16 @@ int main(int argc,char** argv){
         const auto component_open=command({{"command","component.open"},{"arguments",{{"instance_path",assembly::InstancePath{}.child(component_native.components[0].occurrence_id).encoded()}}}});
         result=launch(executable,root,common+QStringList{"--command","open cli-components.asmz","--command",component_open,"--command","context"});
         require(result.exit_code==0 && result.results()[1].at("data").at("document")==step_native.document_id && result.results()[1].at("data").at("opened")==true && result.results()[2].at("data").at("active_document")==step_native.document_id,"CLI could not open the exact native source occurrence");
+        const auto component_clear=command({{"command","component.set"},{"arguments",{{"instance_path",property_path},{"placement_references",Json::array()}}}});
+        const auto component_remove=command({{"command","component.remove"},{"arguments",{{"instance_path",property_path}}}});
+        result=launch(executable,root,common+QStringList{"--command","open cli-components.asmz","--command",component_clear,"--command",component_remove,
+            "--command","undo","--command","redo","--command","save"});
+        if(result.exit_code!=0)std::cerr<<result.output.toStdString()<<result.diagnostics.toStdString();
+        require(result.exit_code==0&&result.results().size()==6&&result.results()[2].at("data").at("removed")==true,"Standalone component removal failed");
+        const auto removed_native=assembly::AssemblyDocument::load(project/"cli-components.asmz");
+        require(removed_native.components.size()==1&&removed_native.components.front().occurrence_id==component_native.components.front().occurrence_id&&
+            std::abs(removed_native.components.front().calculated_source->volume-6000)<1e-7&&fs::exists(project/"cli-step.prtz"),
+            "CLI removal changed the remaining instance or deleted its native source");
         const auto sheet_create=command({{"command","drawing.sheet.create"},{"arguments",{{"name","Český list"},{"format","A3"},{"scale",2}}}});
         result=launch(executable,root,common+QStringList{"--command","new drawing cli-sheets","--command",sheet_create,"--command","undo","--command","redo","--command","save"});
         require(result.exit_code==0 && result.results().size()==5,"CLI drawing sheet creation and history failed");

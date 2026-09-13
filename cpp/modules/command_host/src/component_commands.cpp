@@ -92,6 +92,13 @@ void Host::register_component_commands() {
          catch(const std::invalid_argument& e){return Result::failure("invalid_arguments",tr(e.what()));}
          catch(const std::exception& e){return Result::failure("component_open_failed",tr(e.what()));}
     });
+    add({"component.remove",tr("Remove one owned component through the shared dependency and cut transaction."),{{"instance_path",true},{"document",false}},true},[this](const auto& state,const Json& args){
+        const auto path=assembly::InstancePath::decode(args.at("instance_path").get<std::string>());
+        if(path.occurrence_ids.size()!=1)throw workspace::ComponentOperationError("unsupported_context","Edit a component only in its immediate owning Assembly.");
+        const auto id=state.session.document().document_id;const auto occurrence=path.occurrence_ids.front();
+        workspace::remove_component(workspace_,kernel_,id,occurrence);
+        return Json{{"instance_path",path.encoded()},{"occurrence",occurrence},{"removed",true},{"changed",true}};
+    });
     add({"component.insert",tr("Insert an open Part or Assembly through the shared native insertion transaction."),{{"source",true},{"name",false},{"document",false}},true},[this](const auto& state,const Json& args){
         const auto id=state.session.document().document_id;
         const auto occurrence=workspace::insert_component(workspace_,id,args["source"].get<std::string>(),args.contains("name")?std::optional<std::string>(args["name"].get<std::string>()):std::nullopt);

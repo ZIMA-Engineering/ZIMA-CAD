@@ -165,6 +165,11 @@ public:
         const std::string& source_assembly_document_id,
         std::string occurrence_name);
     void calculate_assembly_cuts(zima::assembly::AssemblyDocument& document) const;
+    // Explicit calculation on a private candidate. Reuses the same current
+    // dependency calculation as Regenerate, before the root Assembly cuts.
+    // Does not publish a partial update into the live Assembly session.
+    [[nodiscard]] zima::assembly::AssemblyDocument prepare_assembly_calculation(
+        const std::string& assembly_document_id) const;
     void regenerate_assembly_from_open_dependencies(
         const std::string& assembly_document_id);
 
