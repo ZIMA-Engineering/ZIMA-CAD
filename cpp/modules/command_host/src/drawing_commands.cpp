@@ -1,4 +1,6 @@
 #include <zima/workspace/drawing_view_operations.hpp>
+#include <zima/workspace/drawing_hatch_operations.hpp>
+#include "section_component_input.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/drawing_operations.hpp>
 #include <algorithm>
@@ -27,6 +29,21 @@ Json view_json(const drawing::DrawingView& v,const std::string& sheet){
         {"show_dimension_guides",v.show_dimension_guides},{"guide_offset_mm",v.dimension_guide_offset},{"guide_spacing_mm",v.dimension_guide_spacing},
         {"projected_edges",v.projected_edges.size()},{"projected_triangles",v.projected_triangles.size()},{"model_annotations",v.model_annotations.size()},
         {"measurement_curves",v.measurement_geometry->curves.size()},{"measurement_points",v.measurement_geometry->points.size()},{"value_locks",v.value_locks}};
+}
+Json hatch_json(const drawing::DrawingView& view,const document::SectionDefinition& source,std::size_t limit=10000) {
+    constexpr std::array modes{"cut_hatch","cut_only","uncut"},patterns{"parallel","cross","dashed"};
+    const auto components=workspace::drawing_section_components(view,source);auto items=Json::array();
+    for(const auto& [key,value]:components) {
+        if(items.size()>=limit)break;
+        const auto stored=source.components.find(key);const auto hatch=document::section_component_hatch(source,key);
+        items.push_back({{"component",key},{"name",source.component_names.contains(key)?source.component_names.at(key):""},
+            {"available",source.component_names.contains(key)},{"mode",modes.at(value.mode)},
+            {"source_mode",modes.at(stored==source.components.end()?0:stored->second.mode)},
+            {"hidden_in_view",view.hidden_hatch_components.contains(key)},{"custom_hatch",value.custom_hatch},
+            {"hatch",{{"pattern",patterns.at(hatch.pattern)},{"angle_degrees",hatch.angle},{"spacing_mm",hatch.spacing_mm},{"offset_mm",hatch.offset_mm}}}});
+    }
+    return {{"view",view.id},{"source_document",view.source_document_id},{"section",source.id},{"items",std::move(items)},
+        {"total",components.size()},{"length_unit","mm"},{"angle_unit","degrees"},{"body_calculated",false}};
 }
 void invalid_view_arguments(){throw workspace::DrawingOperationError("invalid_arguments","Invalid drawing view parameters.");}
 template<class Enum,std::size_t N> void enum_argument(const Json& args,const char* key,Enum& target,const std::array<const char*,N>& names) {
@@ -77,13 +94,51 @@ void Host::register_drawing_commands(){
             if(!state)return Result::failure("unsupported_document",tr("Drawing commands require an open Drawing."));
             try{
                 // Queries are registered separately below and never copy projected geometry.
-                auto next=state->document();auto result=action(next,args,state->path);
+                auto next=state->document();const auto path=state->path;auto result=action(next,args,path);
+                // Source hatch edits may open a source and reallocate Workspace storage.
+                state=workspace_.open_drawing(id);
                 if(result.value("changed",true)){state->commit(std::move(next));change_=Change{ChangeKind::Model,id,true};}
                 result["document"]=id;result["revision"]=state->revision();return Result::success(std::move(result));
             }catch(const workspace::DrawingOperationError& e){return Result::failure(e.code,tr(e.what()));}
              catch(const std::exception& e){return Result::failure("drawing_failed",tr(e.what()));}
         });
     };
+    dispatcher_.add({"drawing.view.hatch.get",tr("Read current source hatch styles and local drawing visibility."),
+        {{"view",true},{"limit",false,Type::Integer},{"document",false}},false},[this](const Json& args) {
+        const auto id=args.value("document",workspace_.active_document_id());const auto* state=workspace_.open_drawing(id);
+        if(!state)return Result::failure("unsupported_document",tr("Drawing commands require an open Drawing."));
+        try {
+            const auto limit=args.value("limit",2000LL);if(limit<1||limit>10000)invalid_view_arguments();
+            const auto* view=state->document().find_view(args.at("view").get<std::string>());
+            if(!view)throw workspace::DrawingOperationError("view_not_found","The drawing view does not exist.");
+            auto result=hatch_json(*view,workspace::drawing_source_section(&workspace_,*view,state->path),static_cast<std::size_t>(limit));
+            result["document"]=id;result["revision"]=state->revision();return Result::success(std::move(result));
+        }catch(const workspace::DrawingOperationError& e){return Result::failure(e.code,tr(e.what()));}
+         catch(const std::exception& e){return Result::failure("drawing_failed",tr(e.what()));}
+    });
+    add({"drawing.view.hatch.set",tr("Change source hatch styles and local drawing visibility in one confirmed edit."),
+        {{"view",true},{"components",true,Type::Array},{"document",false}},true},[this](auto& doc,const Json& args,const auto& path) {
+        const auto id=args.at("view").get<std::string>();const auto* original=doc.find_view(id);
+        if(!original)throw workspace::DrawingOperationError("view_not_found","The drawing view does not exist.");
+        if(args.at("components").empty())throw workspace::DrawingOperationError("invalid_arguments","Specify at least one Section component.");
+        const auto source=workspace::drawing_source_section(&workspace_,*original,path);
+        auto table=source;table.components=workspace::drawing_section_components(*original,source);
+        patch_section_components<workspace::DrawingOperationError>(table,args.at("components"));
+        workspace::SectionComponents patch;
+        for(const auto& row:args.at("components")){const auto key=row.at("component").get<std::string>();patch.emplace(key,table.components.at(key));}
+        auto value=*original;workspace::set_drawing_section_components(value,source,patch);
+        auto result=hatch_json(value,*value.section_snapshot);
+        const bool source_changed=value.section_snapshot->components!=source.components;
+        const bool changed=source_changed||value.hidden_hatch_components!=original->hidden_hatch_components;
+        result["source_changed"]=source_changed;result["changed"]=changed;
+        if(!changed)return result;
+        std::string sheet_id;for(const auto& sheet:doc.sheets)if(std::ranges::any_of(sheet.views,[&](const auto& view){return view.id==id;})){sheet_id=sheet.id;break;}
+        workspace::DrawingProjection projection(&workspace_,path);
+        workspace::edit_drawing_view(doc,sheet_id,value,false,projection,true);
+        const auto* accepted=doc.find_view(id);
+        auto commit=workspace::prepare_section_component_commit(&workspace_,value.source_document_id,projection.source(*accepted).path,*accepted->section_snapshot,&source);
+        commit();return result;
+    });
     for(bool single:{false,true})dispatcher_.add({single?"drawing.sheet.get":"drawing.sheet.list",single?tr("Read the stored properties of one drawing sheet."):tr("List stored drawing sheets without projection or source loading."),single?std::vector<commands::Argument>{{"sheet",true},{"document",false}}:std::vector<commands::Argument>{{"document",false}},false},[this,single](const Json& args){
         const auto id=args.value("document",workspace_.active_document_id());const auto* state=workspace_.open_drawing(id);if(!state)return Result::failure("unsupported_document",tr("Drawing commands require an open Drawing."));
         if(single){const auto* sheet=state->document().find_sheet(args["sheet"].get<std::string>());if(!sheet)return Result::failure("sheet_not_found",tr("The drawing sheet does not exist."));auto result=sheet_json(*sheet);result["document"]=id;result["revision"]=state->revision();return Result::success(std::move(result));}

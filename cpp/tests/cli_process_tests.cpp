@@ -738,6 +738,17 @@ int main(int argc,char** argv){
             ++shown_count;require(item.source.semantic_id==annotation_ref.at("key").get<std::string>()&&item.source.instance_path==annotation_ref.at("instance_path").get<std::string>(),"CLI showed a different occurrence");
         }
         require(shown_count==1,"CLI Show/Erase native persistence lost exact visibility");
+        auto hatch_source=drawing_source;hatch_source.document_id=document::PartDocument::create_default().document_id;
+        auto hatch_section=document::create_section();static_cast<void>(hatch_section.sketch.add_segment(-100,0,100,0));hatch_source.sections={hatch_section};hatch_source.save(project/"cli-hatch.prtz",drawing_source_cache);
+        auto hatch_doc=drawing::DrawingDocument::create_default();auto hatch_view=drawing::DrawingDocument::create_view(hatch_source.document_id,"cli-hatch.prtz",drawing_source_cache.back().mesh);
+        hatch_view.section_id=hatch_section.id;hatch_view.section_snapshot=hatch_section;hatch_doc.sheets.front().views={hatch_view};hatch_doc.save(project/"cli-hatch.drwz");
+        const auto hatch_component=hatch_source.body_history.bodies().front().scope.id;
+        const auto hatch_get=command({{"command","drawing.view.hatch.get"},{"arguments",{{"view",hatch_view.id}}}});
+        const auto hatch_set=command({{"command","drawing.view.hatch.set"},{"arguments",{{"view",hatch_view.id},{"components",Json::array({{{"component",hatch_component},{"mode","cut_only"},{"hatch",{{"spacing_mm",3.125},{"offset_mm",.375}}}}})}}}});
+        result=launch(executable,root,common+QStringList{"--command","open cli-hatch.drwz","--command",hatch_get,"--command",hatch_set,"--command","undo","--command","redo","--command","save","--command",command({{"command","activate"},{"arguments",{{"document",hatch_source.document_id}}}}),"--command","save"});
+        if(result.exit_code!=0)std::cerr<<result.output.toStdString()<<result.diagnostics.toStdString();
+        require(result.exit_code==0&&result.results().size()==8&&result.results()[1]["data"]["items"][0]["component"]==hatch_component&&result.results()[2]["data"]["source_changed"]==true,"Standalone CLI hatch query/edit or history failed");
+        require(document::PartDocument::load(project/"cli-hatch.prtz").sections.front().components.at(hatch_component).hatch.spacing_mm==3.125&&drawing::DrawingDocument::load(project/"cli-hatch.drwz").find_view(hatch_view.id)->hidden_hatch_components.contains(hatch_component),"Standalone hatch persistence lost source style or view visibility");
         auto measured_doc=drawing::DrawingDocument::create_default();auto measured_view=native_view;
         const auto measured_curves=drawing::projected_measurement_curves(measured_view);
         const auto measured_curve=std::ranges::find_if(measured_curves,[](const auto& c){return c.line&&c.points.size()>1&&std::hypot(c.points.back().x-c.points.front().x,c.points.back().y-c.points.front().y)>1e-6;});

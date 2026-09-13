@@ -5,7 +5,7 @@ class DrawingProjection;
 void validate_drawing_view(const drawing::DrawingView&);
 drawing::Point2 projection_placement(drawing::ProjectionDirection,double distance);
 // Edits only the Drawing draft. Pending source hatch metadata is committed by
-// the GUI caller after all projections succeed; ordinary commands use source data.
+// the caller after all projections succeed; ordinary view edits use source data.
 void edit_drawing_view(drawing::DrawingDocument&,const std::string& sheet,
     drawing::DrawingView,bool creating,DrawingProjection&,bool pending_hatch=false);
 // Whole-document draft operations: failure leaves the caller unchanged.

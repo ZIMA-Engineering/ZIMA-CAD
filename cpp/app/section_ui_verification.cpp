@@ -200,6 +200,27 @@ int verify_sections(QApplication& application,AssemblyWorkspaceWindow& window,co
         auto* hatch_table=props->findChild<QTableWidget*>("sectionComponents");check(hatch_table&&hatch_table->columnCount()==7,"Component hatch table has no offset column");
         static_cast<QDoubleSpinBox*>(hatch_table->cellWidget(0,4))->setValue(.35);
         props->findChild<QComboBox*>("drawingViewOrientation")->setCurrentIndex(0);props->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();check(has_hatch()&&std::abs(dw->document_for_test().find_view(cut.id)->section_snapshot->components.begin()->second.hatch.offset_mm-.35)<1e-9,"Component hatch offset did not persist");
+        {
+            const auto component=dw->document_for_test().find_view(cut.id)->section_snapshot->components.begin()->first;
+            const auto execute_hatch=[&](const char* command,zima::commands::Json arguments) {
+                const auto request=zima::commands::Json{{"command",command},{"arguments",std::move(arguments)}}.dump();
+                const auto result=window.execute_console_command(QString::fromUtf8(request.c_str()));
+                check(result.ok,(std::string(command)+": "+result.code+": "+result.message).c_str());flush();return result.data;
+            };
+            const auto before=execute_hatch("drawing.view.hatch.get",{{"view",cut.id}});
+            check(before["items"][0]["hatch"]["offset_mm"]==.35,"CLI cannot read GUI hatch edit");
+            execute_hatch("drawing.view.hatch.set",{{"view",cut.id},{"components",zima::commands::Json::array({{{"component",component},{"hatch",{{"offset_mm",.375}}}}})}});
+            dw->select_view_for_test(cut.id);window.findChild<QAction*>("editDrawingViewAction")->trigger();flush();props=window.findChild<QDialog*>("drawingViewProperties");
+            auto* table=props->findChild<QTableWidget*>("sectionComponents");
+            auto* settings=dynamic_cast<SectionComponentsWidget*>(table);
+            check(settings&&settings->values().at(component).hatch.offset_mm==.375&&std::abs(static_cast<QDoubleSpinBox*>(table->cellWidget(0,4))->value()-.375)<=.0051,"GUI properties did not preserve CLI hatch precision");
+            props->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+            check(execute_hatch("drawing.view.hatch.get",{{"view",cut.id}})["items"][0]["hatch"]["offset_mm"]==.375,"Opening and confirming properties rounded the source hatch");
+            execute_hatch("drawing.view.hatch.set",{{"view",cut.id},{"components",zima::commands::Json::array({{{"component",component},{"hatch",{{"offset_mm",.35}}}}})}});
+        }
+        // A console mutation clears ordinary selection; restore the view for
+        // the subsequent GUI-only property actions in this scenario.
+        dw->select_view_for_test(cut.id);flush();
         const auto after_style=*dw->document_for_test().find_view(cut.id)->section_snapshot;
         check(document::serialize_sections(document::parse_sections(source_before)).size()>0&&after_style.sketch.serialized()==document::parse_sections(source_before).front().sketch.serialized(),"Hatch editing changed the cutting sketch");
         // Per-view hatch visibility changes no source settings or cut geometry.

@@ -1,4 +1,5 @@
 #include <zima/workspace/drawing_sources.hpp>
+#include <zima/workspace/drawing_operations.hpp>
 #include <algorithm>
 #include <zima/document/file_path.hpp>
 #include <cctype>
@@ -27,12 +28,21 @@ std::vector<zima::document::SectionDefinition> source_sections(
     if(workspace){if(const auto* p=workspace->open_part(id))return sections_for_part(p->session.document());
         if(const auto* a=workspace->open_assembly(id))return sections_for_assembly(a->session.document());}
     if(workspace&&!path.empty())if(const auto open=workspace->document_id_for_path(path)){
+        if(!id.empty()&&*open!=id)throw DrawingOperationError("source_identity","Source model identity changed");
         if(const auto* p=workspace->open_part(*open))return sections_for_part(p->session.document());
         if(const auto* a=workspace->open_assembly(*open))return sections_for_assembly(a->session.document());
     }
     auto extension=path.extension().string();std::ranges::transform(extension,extension.begin(),[](unsigned char c){return static_cast<char>(std::tolower(c));});
-    if(extension==".prtz")return sections_for_part(zima::document::PartDocument::load(path));
-    if(extension==".asmz")return sections_for_assembly(zima::assembly::AssemblyDocument::load(path));
+    if(extension==".prtz") {
+        const auto model=zima::document::PartDocument::load(path);
+        if(!id.empty()&&model.document_id!=id)throw DrawingOperationError("source_identity","Source model identity changed");
+        return sections_for_part(model);
+    }
+    if(extension==".asmz") {
+        const auto model=zima::assembly::AssemblyDocument::load(path);
+        if(!id.empty()&&model.document_id!=id)throw DrawingOperationError("source_identity","Source model identity changed");
+        return sections_for_assembly(model);
+    }
     return {};
 }
 

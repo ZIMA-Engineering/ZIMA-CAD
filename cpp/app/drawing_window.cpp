@@ -266,16 +266,7 @@ public:
         }
         if(result.section_id.empty()){result.section_snapshot.reset();result.section_parent_id.clear();}
         else for(const auto& section:available_sections_)if(section.id==result.section_id){
-            result.section_snapshot=section;result.hidden_hatch_components.clear();
-            for(auto [key,c]:components_->values()){
-                if(c.mode==1)result.hidden_hatch_components.insert(key);
-                const auto stored=section.components.find(key);
-                // The table's hatch visibility is local to this Drawing view.
-                // Preserve the independent 3D visibility in the source model.
-                if(c.mode!=2)c.mode=stored!=section.components.end()&&stored->second.mode==1?1:0;
-                if(c==zima::document::SectionComponent{} && stored==section.components.end())continue;
-                result.section_snapshot->components[key]=c;
-            }
+            zima::workspace::set_drawing_section_components(result,section,components_->values(),true);
         }
         return result;
     }
@@ -1533,8 +1524,12 @@ void DrawingWindow::show_view_properties(zima::drawing::DrawingView view, bool c
                 const auto id=accepted.id;
                 const auto* result=next_document.find_view(id);
                 std::function<void()> commit_source=[]{};
-                if(result->section_snapshot)
-                    commit_source=prepare_section_component_commit(workspace_,result->source_document_id,cache->source(*result).path,*result->section_snapshot);
+                if(result->section_snapshot) {
+                    const auto& source=cache->source(*result);
+                    const auto original=std::ranges::find(source.sections,result->section_id,&zima::document::SectionDefinition::id);
+                    commit_source=prepare_section_component_commit(workspace_,result->source_document_id,source.path,*result->section_snapshot,
+                        original==source.sections.end()?nullptr:&*original);
+                }
                 commit_source();document_=std::move(next_document);
                 canvas_->set_preview({}); refresh(); canvas_->select_view_for_test(id);
                 return true;
