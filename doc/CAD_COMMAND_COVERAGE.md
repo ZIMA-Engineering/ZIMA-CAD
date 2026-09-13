@@ -1054,3 +1054,17 @@ s referencí pouze ve vnitřní základní skici.
 [OWNED_SKETCH_REFERENCE_REFRESH.md](OWNED_SKETCH_REFERENCE_REFRESH.md).
 Katalog zůstává na 209 příkazech. Společná transakce kontextové tvorby/odpojení
 a bezpečné zachování závislostí sdílených s uzavřenými Party nadále zbývají.
+
+## Publikace stavů otevřených dokumentů (2026-09-13)
+
+Assembly a Drawing nyní sdílejí princip jednoznačně vlastněných stavů s Partem.
+Bezvýjimečný přesun `DocumentState` odstranil kopírování geometrie a historie
+existujících Partů při růstu seznamu otevřených dokumentů. Cílený test otevírá
+48 smíšených dokumentů a sleduje přímo jejich alokace; doplňuje odmítnuté
+aktualizace, historie a nezávislost výslovných kopií.
+
+Celé sestavení GUI/CLI a **117/117 testů prošlo za 501,22 s**. Podrobnosti:
+[WORKSPACE_STATE_PUBLICATION.md](WORKSPACE_STATE_PUBLICATION.md).
+Tato hranice umožňuje bezpečně přidat potřebný zdrojový dokument do připravené
+společné transakce. Samotná kontextová tvorba a odpojení reference s atomickou
+aktualizací závislostí nadále zbývají; katalog má stále 209 příkazů.

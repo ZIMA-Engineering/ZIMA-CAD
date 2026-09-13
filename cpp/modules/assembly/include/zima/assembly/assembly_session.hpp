@@ -4,12 +4,17 @@
 
 #include <cstdint>
 #include <vector>
+#include <memory>
 
 namespace zima::assembly {
 
 class AssemblySession {
 public:
     explicit AssemblySession(AssemblyDocument document);
+    AssemblySession(const AssemblySession&);
+    AssemblySession& operator=(const AssemblySession&);
+    AssemblySession(AssemblySession&&) noexcept = default;
+    AssemblySession& operator=(AssemblySession&&) noexcept = default;
 
     [[nodiscard]] const AssemblyDocument& document() const;
     [[nodiscard]] std::uint64_t revision() const;
@@ -32,10 +37,13 @@ private:
         std::uint64_t revision{};
         bool dependency_state_dirty{};
     };
+    using States = std::vector<std::unique_ptr<State>>;
+    [[nodiscard]] static States copy_states(const States&);
+    bool step(States& from, States& to);
     std::uint64_t data_generation_{};
-    State current_;
-    std::vector<State> undo_;
-    std::vector<State> redo_;
+    std::unique_ptr<State> current_;
+    States undo_;
+    States redo_;
     std::uint64_t next_revision_{1};
     std::uint64_t saved_revision_{};
     std::uint64_t saved_dimension_allocations_{};

@@ -33,9 +33,13 @@ struct AssemblyState {
 class DrawingState {
 public:
     DrawingState(zima::drawing::DrawingDocument document, std::filesystem::path file = {});
-    [[nodiscard]] const zima::drawing::DrawingDocument& document() const { return current_.document; }
+    [[nodiscard]] const zima::drawing::DrawingDocument& document() const { return current_->document; }
+    DrawingState(const DrawingState&);
+    DrawingState& operator=(const DrawingState&);
+    DrawingState(DrawingState&&) noexcept = default;
+    DrawingState& operator=(DrawingState&&) noexcept = default;
     void commit(zima::drawing::DrawingDocument document);
-    [[nodiscard]] std::uint64_t revision() const { return current_.revision; }
+    [[nodiscard]] std::uint64_t revision() const { return current_->revision; }
     [[nodiscard]] std::uint64_t data_generation() const { return generation_; }
     [[nodiscard]] bool is_dirty() const;
     [[nodiscard]] bool can_undo() const { return !undo_.empty(); }
@@ -47,10 +51,12 @@ public:
     std::shared_ptr<const int> runtime_identity=std::make_shared<const int>(0);
 private:
     struct State { drawing::DrawingDocument document; std::uint64_t revision{}; };
-    State current_;
-    std::vector<State> undo_,redo_;
+    using States=std::vector<std::unique_ptr<State>>;
+    [[nodiscard]] static States copy_states(const States&);
+    std::unique_ptr<State> current_;
+    States undo_,redo_;
     std::uint64_t generation_{},next_revision_{1},saved_revision_{},saved_allocations_{};
-    bool step(std::vector<State>& from,std::vector<State>& to);
+    bool step(States& from,States& to);
 };
 
 using DocumentState = std::variant<PartState, AssemblyState, DrawingState>;
