@@ -2,6 +2,7 @@
 #include "drill_point_test_support.hpp"
 #include <zima/kernel/drill_point_identity.hpp>
 #include "sweep_test_support.hpp"
+#include "context_reference_test_support.hpp"
 #include "construction_query_test_support.hpp"
 #include "dxf_export_test_support.hpp"
 #include "stl_export_test_support.hpp"
@@ -726,6 +727,25 @@ int main(int argc,char** argv){
         result=launch(executable,root,common+QStringList{"--command","open cli-projection.prtz","--command",QString::fromStdString("sketch.reference.delete "+projection_sketch+" "+projection_id),"--command","save"});
         require(result.exit_code==0,"CLI reference detach failed");const auto detached=document::PartDocument::load(project/"cli-projection.prtz");
         require(detached.sketches.back().external_references.empty() && detached.sketches.back().segments==projected.sketches.back().segments,"CLI detach destroyed native projection");
+        {
+            test_support::ContextReferenceFixture context(kernel,project);
+            auto shifted=context.calculated;auto& exact=shifted.back().mesh.original_references.edges.back();
+            for(auto& p:exact.points)p.x+=.02;for(auto& p:exact.exact_spline->poles)p.x+=.02;
+            context.source.save(project/"context-source.prtz",shifted);
+            const auto activate_context=command({{"command","component.activate"},{"arguments",{{"instance_path",context.target_path.encoded()}}}});
+            const auto refresh_context=command({{"command","sketch.reference.refresh"},{"arguments",{{"sketch",context.sketch_id}}}});
+            result=launch(executable,root,common+QStringList{"--command","open context-top.asmz","--command",activate_context,"--command",refresh_context,"--command","save"});
+            require(result.exit_code==0,"CLI contextual reference refresh failed");
+            const auto records=result.results();require(records.size()==4&&records[2].at("data").at("changed").get<bool>()&&
+                !records[2].at("data").at("body_calculated").get<bool>()&&records[2].at("data").at("broken_references").empty(),"CLI contextual refresh did not report its exact noncalculating transaction");
+            const auto saved=document::PartDocument::load(project/"context-target.prtz");const auto& sketch=saved.sketches.front();
+            const auto p=kernel::bspline_value(sketch.supporting_curve(context.curve_id),0);
+            require(sketch.external_references.size()==4&&std::abs(p.x-8)<1e-8&&std::abs(p.y-18.02)<1e-8&&
+                sketch.external_references.front().context_instance_path==context.target_path.encoded(),"CLI contextual refresh lost exact poles or native occurrence identity");
+            const auto other_context=command({{"command","component.activate"},{"arguments",{{"instance_path",context.other_target_path.encoded()}}}});
+            result=launch(executable,root,common+QStringList{"--command","open context-top.asmz","--command",other_context,"--command",refresh_context});
+            require(result.exit_code==1&&result.results().back().at("code")=="context_reference","CLI refreshed a reference from another occurrence of the same Part");
+        }
         const auto text_request=command({{"command","sketch.text.create"},{"arguments",{{"sketch",projection_sketch},{"value","Řez Ø10"},{"position",{20,30}},{"height_mm",3},{"modeling_geometry",false}}}});
         result=launch(executable,root,common+QStringList{"--command","open cli-projection.prtz","--command",text_request,"--command","save"});
         require(result.exit_code==0,"Qt-free CLI text generation failed");const auto text_document=document::PartDocument::load(project/"cli-projection.prtz");

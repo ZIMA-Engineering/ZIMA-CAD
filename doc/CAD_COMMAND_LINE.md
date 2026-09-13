@@ -333,3 +333,12 @@ podsestava přijímá lokální cesty z vlastního `component.list` a vlastní
 vložené komponenty. `component.deactivate` vrátí editaci do hlavní sestavy.
 Příklady a rozlišení úplných/lokálních cest:
 [COMPONENT_ACTIVATION_COMMANDS.md](COMPONENT_ACTIVATION_COMMANDS.md).
+
+
+Po aktivaci přesného Partu lze jeho existující externí reference obnovit
+příkazem `sketch.reference.refresh SKETCH_ID`. Obnoví i navázanou nativní
+křivku, trim a offset z aktuálních původních dat zdroje, bez výpočtu tělesa
+nebo vazeb. Chybějící zdroj zůstane neplatný se svou poslední geometrií;
+jiný výskyt stejného Partu příkaz odmítne. Výsledek uvádí
+`body_calculated: false` a seznam `broken_references`.
+Podrobnosti: [CONTEXT_REFERENCE_REFRESH.md](CONTEXT_REFERENCE_REFRESH.md).

@@ -10,7 +10,11 @@ void populate_external_reference_cache(const sketcher::Sketch&,
     const Workspace&,const std::string& document,const sketcher::Sketch&,
     sketcher::ExternalReferenceKind,const std::string& owner,const std::string& key,
     const std::string& instance_path);
-// Explicitly refresh only this Sketch from the document's calculated snapshot.
+// A contextual reference is editable only at its exact active source occurrence.
+void require_sketch_reference_context(const Workspace&,const std::string& document,
+    const sketcher::SketchExternalReference&);
+// Explicitly refresh this Sketch from calculated original sources, including
+// the exact active Part context. Never regenerates a body or Assembly mate.
 // Missing original identities remain broken; they are never guessed or rebound.
 [[nodiscard]] bool refresh_sketch_reference_snapshot(
     const Workspace&,const std::string& document,sketcher::Sketch&);

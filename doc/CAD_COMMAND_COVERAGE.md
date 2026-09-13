@@ -39,7 +39,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Konstrukční geometrie | Částečně hotovo | `construction.list/get/create/set`: dotazy, tvorba bodů/os/rovin/3D křivek, vlastnosti, umístění, úplné seznamy bodů, tečny a zaoblení; dotazy zahrnují vložené 3D dráhy; jejich editaci potvrzuje příkaz tažení; zbývají reference a mazání kořenových konstrukcí |
 | Skicář: geometrie | Základ hotov | 21 příkazů: samostatné a vložené skici, body, úsečky, kružnice, oblouky, elipsy, B-spline, obdélníky, mnohoúhelníky, posun a pomocná geometrie; text create/get/set s nativním písmem a spline get/set hotovy; DXF do vložených profilů hotov; zbývá kontrola dalších variant podle GUI |
 | Skicář: vazby a operace | Vazby/kóty/solver/offset/trim/mirror hotovy | Offset create/get/set/free, úplný podklad a zachování intervalů, trim podle průsečíků, mirror, orientovaný obdélník, tečny a zaoblení rohu; všech 15 druhů vazeb, odstranění a solver; 16 druhů kót včetně vlastností, popisků a mazání; uvolnění externích referencí hotovo |
-| Externí reference skici | Part a kořenová Assembly hotovy | Původní geometrie, přesná projekce, aktualizace, odpojení a zachování trimu; zbývá příkazový kontext Partu aktivovaného v sestavě |
+| Externí reference skici | Part, kořenová Assembly a kontextové obnovení hotovy | Původní geometrie, přesná projekce, aktualizace, odpojení a zachování trimu; aktivní Part má kontextový refresh s přesným výskytem; zbývá kontextová tvorba a odpojení se společnou transakcí závislostí |
 | Vytažení a rotace | Profily, Thin, směry a cíle zakončení Partu hotovy | `extrusion/revolution.create/get/set`, vlastněná skica, původní plochy a dvě nezávislé meze, společné OK; zbývají sestavové řezy |
 | Tažení | Tvorba a geometrické vlastnosti hotovy | `sweep2d/sweep3d/helical.create/get/set`, společné GUI potvrzení, celá 3D dráha, stanice a úplná správa profilů/párování, reference roviny 2D dráhy a odsazení základní skici H-tažení; generické rozšíření umístění patří do řádku Umístění |
 | Otvory a závity | Katalog, současný Otvor a vnější závit částečně hotovy | `thread.catalog`, `opening.create/get/set`: hladký/závitový otvor, rozměry, sražení, špička, směr a průchozí otvor; `shaft_thread.create/get/set` včetně původních referencí; zbývají cílové reference Otvoru Až k, samostatný Hole a operace vnořených částí otvoru; `drill_point.create/get/set` pokrývají samostatnou vrtací špičku |
@@ -993,3 +993,19 @@ rozhodující a čtení nemění živý Workspace. Modelová sada **3/3** (0,83 
 a po sestavení všech programů související sada **9/9** (37,09 s) prošly.
 Počet příkazů zůstává **209**; společná transakce kontextové skici
 pokračuje. Podrobnosti: [DOCUMENT_DEPENDENCY_VALIDATION.md](DOCUMENT_DEPENDENCY_VALIDATION.md).
+
+
+### Obnovení referencí Partu v přesném sestavovém kontextu
+
+`sketch.reference.refresh` podporuje všechny čtyři druhy původních referencí
+aktivovaného Partu, aktuální neuložený zdroj i soukromě načtený nativní
+zdroj. Zachovává přesnou spline, trim a navázaný offset, při ztrátě zdroje
+ponechá poslední geometrii a nepřepočítává sestavu. Jiný výskyt stejného
+Partu se odmítne; změna skici má jeden krok Undo/Redo.
+
+Modelové testy a skutečné CLI prošly **4/4** (18,20 s). Po doplnění fyzicky
+chybějícího souboru, pěti lokalizací a sestavení obou programů prošla
+**celá sada 113/113** (511,11 s). Katalog zůstává **209 příkazů**.
+Kontextová tvorba a odpojení s atomickým potvrzením sestavové závislosti
+pokračují; před nimi následuje ověření původních ploch vnořených kopií.
+Kontrakt a logy: [CONTEXT_REFERENCE_REFRESH.md](CONTEXT_REFERENCE_REFRESH.md).

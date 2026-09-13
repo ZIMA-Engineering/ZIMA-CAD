@@ -127,18 +127,58 @@ sketcher::SketchExternalReference prepare_sketch_external_reference(const Worksp
     populate_external_reference_cache(sketch,reference,geometry);
     return reference;
 }
+void require_sketch_reference_context(const Workspace& live,const std::string& doc,const Reference& reference) {
+    if(reference.context_assembly_document_id.empty())return;
+    if(!live.open_part(doc)||live.active_document_id()!=doc||live.displayed_document_id()!=reference.context_assembly_document_id||
+        live.active_occurrence_path()!=reference.context_instance_path)
+        throw SketchOperationError("context_reference","Activate the exact Part occurrence that owns this external reference.");
+    const auto address=live.resolve_occurrence(reference.context_assembly_document_id,
+        assembly::InstancePath::decode(reference.context_instance_path));
+    if(!address||address->source_kind!=assembly::ComponentSourceKind::Part||address->source_document_id!=doc)
+        throw SketchOperationError("context_reference","Activate the exact Part occurrence that owns this external reference.");
+}
 bool refresh_sketch_reference_snapshot(const Workspace& live,const std::string& doc,sketcher::Sketch& sketch) {
     std::set<std::string> documents;std::vector<Reference> wanted;
+    using Context=std::tuple<std::string,std::string,std::string>;
+    std::map<Context,std::vector<Reference>> contexts;
     std::optional<std::set<std::string>> allowed;
     if(const auto* part=live.open_part(doc))allowed=sketch_external_reference_source_owners(part->session.document(),sketch.id);
     for(const auto& reference:sketch.external_references) {
-        if(!reference.context_assembly_document_id.empty())throw SketchOperationError("context_reference","Refresh in-context Sketch dependencies with explicit document Regenerate.");
+        if(!reference.context_assembly_document_id.empty()) {
+            require_sketch_reference_context(live,doc,reference);
+            contexts[{reference.context_assembly_document_id,reference.context_instance_path,reference.source_document_id}].push_back(reference);
+            continue;
+        }
         documents.insert(reference.source_document_id);
         const auto source=source_document(live,doc,sketch,reference,allowed?&*allowed:nullptr);
         if(source && *source==reference.source_document_id)wanted.push_back(reference);
     }
     const auto geometry=collect(live,doc,sketch,wanted);bool changed=false;
     for(const auto& source:documents)changed=sketch.refresh_external_references(source,geometry)||changed;
+    for(const auto& [context,references]:contexts) {
+        const auto& [top,dependent,source]=context;std::set<Key> keys;
+        for(const auto& reference:references) {
+            const auto address=live.resolve_occurrence(top,assembly::InstancePath::decode(reference.source_instance_path));
+            if(address&&address->source_kind==assembly::ComponentSourceKind::Part&&address->source_document_id==source)
+                keys.emplace(reference.kind,reference.source_owner_id,reference.source_semantic_key,reference.source_instance_path);
+        }
+        kernel::ViewerReferenceGeometry current;
+        if(!keys.empty())try {
+            current=context_original_reference_geometry(live,top,assembly::InstancePath::decode(dependent),source,
+                [&](OriginalReferenceKind kind,const auto& owner,const auto& key,const auto& path) {
+                    const auto sketch_kind=kind==OriginalReferenceKind::Face?Kind::Face:kind==OriginalReferenceKind::Edge?Kind::Edge:
+                        kind==OriginalReferenceKind::Point?Kind::Point:Kind::Axis;
+                    return keys.contains({sketch_kind,owner,key,path});
+                });
+        }catch(const ReferenceQueryError& error) {
+            // An unavailable/replaced native source is a broken persisted
+            // reference, not permission to select another source or erase it.
+            if(std::string_view(error.code)!="source_unavailable"&&std::string_view(error.code)!="dependency_identity")
+                throw SketchOperationError(error.code,error.what());
+        }
+        current=live.open_part(doc)->session.document().sketch_reference_geometry_for(sketch,std::move(current));
+        changed=sketch.refresh_external_references(source,current)||changed;
+    }
     return changed;
 }
 }
