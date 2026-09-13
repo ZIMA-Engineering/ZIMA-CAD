@@ -89,3 +89,9 @@ stejné větvi. Part Undo/Redo připraví odpovídající souhrny před změnou 
 `history.can_move` výslovně respektuje zadaný neaktivní Part i při aktivní
 Assembly a nemění aktivaci nebo vypočtenou geometrii.
 Podrobnosti: [CONTEXT_REFERENCE_TRANSACTIONS.md](CONTEXT_REFERENCE_TRANSACTIONS.md).
+
+Samostatné Assembly Undo/Redo zachovává aktuální zdrojové Party a přepočítá
+pouze jejich odvozený seznam závislostí, bez výpočtu geometrie. Neověřitelnou
+závislost zachová; pokud by tak vznikl cyklus, odmítne krok před publikací.
+GUI chybu ohlásí a umožní opakování po zpřístupnění zdroje. Podrobnosti:
+[ASSEMBLY_REFERENCE_SUMMARIES.md](ASSEMBLY_REFERENCE_SUMMARIES.md).

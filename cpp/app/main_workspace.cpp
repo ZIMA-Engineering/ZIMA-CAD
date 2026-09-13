@@ -3029,6 +3029,11 @@ int verify_owned_profile_external_reference(QApplication& application,const std:
         zima::app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));window.resize(1200,900);window.show();
         const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
         if(!verify(window.open_document_path(QString::fromStdString((context?assembly_file:path).string())),"Owned reference fixture failed to open"))return 1;
+        if(context&&accept) {
+            const nlohmann::json request={{"command","component.set"},{"arguments",{{"instance_path",zima::assembly::InstancePath{{top.components.front().occurrence_id}}.encoded()},
+                {"name","Renamed before reference"}}}};
+            if(!verify(window.execute_console_command(QString::fromStdString(request.dump())).ok,"Cannot prepare independent Assembly history"))return 1;
+        }
         if(context&&!verify(window.activate_occurrence_for_test(target_path),"Context profile activation failed"))return 1;
         flush();if(!verify(activate_test_body(application,window,owner->scope.id),"Target Body activation failed"))return 1;
         const auto top_state=[&]() {
@@ -3113,6 +3118,38 @@ int verify_owned_profile_external_reference(QApplication& application,const std:
             window.deactivate_active_occurrence_for_test();flush();window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
             const auto saved_top=zima::assembly::AssemblyDocument::load(assembly_file);
             if(!verify(saved_top.dependencies.size()==(accept?1u:0u),"Parent OK/Cancel did not publish the matching Assembly dependency"))return 1;
+            if(accept) {
+                auto* undo=window.findChild<QAction*>("undoAction");auto* redo=window.findChild<QAction*>("redoAction");
+                if(!verify(undo&&undo->isEnabled()&&redo,"Assembly history actions are unavailable"))return 1;
+                const auto save_owner=[&]{window.findChild<QAction*>("saveDocumentAction")->trigger();flush();return zima::assembly::AssemblyDocument::load(assembly_file);};
+                undo->trigger();flush();const auto restored=save_owner();
+                if(!verify(restored.dependencies==saved_top.dependencies&&restored.components.front().name==top.components.front().name,
+                    "GUI Assembly Undo lost a current reference dependency"))return 1;
+                redo->trigger();flush();const auto redone=save_owner();
+                if(!verify(redone.dependencies==saved_top.dependencies&&redone.components.front().name=="Renamed before reference",
+                    "GUI Assembly Redo lost the reconciled dependency"))return 1;
+                // A corrupt owned test source makes summary verification fail.
+                // The action must report it without advancing history or exiting Qt.
+                const auto documents=window.execute_console_command("documents").data;
+                for(const auto& state:documents)if(state.at("id")==top.components.front().source_document_id) {
+                    const nlohmann::json close={{"command","close"},{"arguments",{{"document",top.components.front().source_document_id}}}};
+                    if(!verify(window.execute_console_command(QString::fromStdString(close.dump())).ok,"Cannot close GUI test reference source"))return 1;
+                }
+                const auto before_failure=window.execute_console_command("documents").data;
+                QFile source(QString::fromStdString((directory/top.components.front().source_path).string()));
+                if(!verify(source.open(QIODevice::ReadOnly),"Cannot read owned GUI test source"))return 1;
+                const auto bytes=source.readAll();source.close();
+                if(!verify(source.open(QIODevice::WriteOnly)&&source.write("invalid native document")==23,"Cannot prepare invalid owned GUI source"))return 1;source.close();
+                QString issue;QTimer messages;messages.setInterval(10);
+                QObject::connect(&messages,&QTimer::timeout,[&]{if(auto* box=qobject_cast<QMessageBox*>(QApplication::activeModalWidget())){issue=box->text();box->accept();}});
+                messages.start();undo->trigger();messages.stop();flush();
+                if(!verify(source.open(QIODevice::WriteOnly)&&source.write(bytes)==bytes.size(),"Cannot restore owned GUI source"))return 1;source.close();
+                if(!verify(!issue.isEmpty()&&window.execute_console_command("documents").data==before_failure,
+                    "GUI rejected Undo escaped or changed document state"))return 1;
+                undo->trigger();flush();const auto retried=save_owner();
+                if(!verify(retried.dependencies==saved_top.dependencies&&retried.components.front().name==top.components.front().name,
+                    "GUI could not retry the rejected Undo"))return 1;
+            }
         }
     }
     std::cout<<"Owned profile external reference, projection, Cancel and OK persistence passed\n";return 0;

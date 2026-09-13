@@ -70,8 +70,8 @@ Po této poslední úpravě prošlo nové sestavení obou aplikací a **9/9 cíl
 testů za 53,72 s**, včetně GUI, skutečného CLI, historie a profilů.
 
 Etapa zahrnuje společnou transakci skic, vlastněných profilů, Part historie
-(včetně odstranění tělesa) a skic řezů. Zbývá navazující sjednocení souhrnů
-při samostatném Assembly Undo a explicitní regeneraci po úpravě Partu se
-zavřeným původním kontextem. Odpojení v takovém Partu může zachovat neověřitelný
-souhrn v nedostupné Assembly; nepokouší se odhadnout její cestu podle názvu.
-Tato otevřená práce není změnou formátu ani důvodem k zavedení sidecarů.
+(včetně odstranění tělesa) a skic řezů. Navazující sjednocení při Assembly Undo
+a explicitní regeneraci popisuje [ASSEMBLY_REFERENCE_SUMMARIES.md](ASSEMBLY_REFERENCE_SUMMARIES.md).
+Odpojení při zavřeném původním kontextu se nepokouší odhadnout cestu Assembly
+podle názvu. Její odvozený souhrn se ověří po zpřístupnění skutečné hierarchie
+při explicitní regeneraci. Nevyžaduje to změnu formátu ani sidecary.

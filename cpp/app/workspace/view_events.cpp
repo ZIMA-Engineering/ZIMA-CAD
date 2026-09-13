@@ -209,18 +209,26 @@ void AssemblyWorkspaceWindow::undo() {
     if (properties_dialog_ != nullptr) return;
     if(section_sketch_history(false))return;
     cancel_sketch_segment();
-    if (workspace::step_document_history(workspace_, workspace_.active_document_id(),
-            workspace::HistoryDirection::Undo)) refresh_scene();
-    refresh_tabs();
+    try {
+        if (workspace::step_document_history(workspace_, workspace_.active_document_id(),
+                workspace::HistoryDirection::Undo)) refresh_scene();
+        refresh_tabs();
+    } catch (const std::exception& error) {
+        report_operation_error(tr("Zpět"), tr(error.what()));
+    }
 }
 
 void AssemblyWorkspaceWindow::redo() {
     if (properties_dialog_ != nullptr) return;
     if(section_sketch_history(true))return;
     cancel_sketch_segment();
-    if (workspace::step_document_history(workspace_, workspace_.active_document_id(),
-            workspace::HistoryDirection::Redo)) refresh_scene();
-    refresh_tabs();
+    try {
+        if (workspace::step_document_history(workspace_, workspace_.active_document_id(),
+                workspace::HistoryDirection::Redo)) refresh_scene();
+        refresh_tabs();
+    } catch (const std::exception& error) {
+        report_operation_error(tr("Znovu"), tr(error.what()));
+    }
 }
 
 } // namespace zima::app

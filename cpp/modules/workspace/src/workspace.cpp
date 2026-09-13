@@ -141,13 +141,16 @@ struct PersistedOccurrence {
 
 std::optional<std::vector<PersistedOccurrence>> persisted_occurrence_chain(
     const zima::assembly::AssemblyDocument& top_assembly,
-    const zima::assembly::InstancePath& instance_path) {
+    const zima::assembly::InstancePath& instance_path,
+    const zima::assembly::AssemblyDocument* source_override = nullptr) {
     if (instance_path.occurrence_ids.empty()) return std::nullopt;
     std::vector<PersistedOccurrence> result;
     const std::vector<zima::assembly::OccurrenceSnapshot>* snapshots = nullptr;
+    const auto* source = source_override && source_override->document_id == top_assembly.document_id
+        ? source_override : &top_assembly;
     for (std::size_t depth = 0; depth < instance_path.occurrence_ids.size(); ++depth) {
-        if (depth == 0) {
-            const auto* occurrence = top_assembly.find_occurrence(
+        if (source) {
+            const auto* occurrence = source->find_occurrence(
                 instance_path.occurrence_ids[depth]);
             if (occurrence == nullptr) return std::nullopt;
             result.push_back({occurrence->occurrence_id,
@@ -164,6 +167,8 @@ std::optional<std::vector<PersistedOccurrence>> persisted_occurrence_chain(
                               found->source_kind, found->placement});
             snapshots = &found->children;
         }
+        source = source_override && result.back().source_kind == zima::assembly::ComponentSourceKind::Assembly &&
+            result.back().source_document_id == source_override->document_id ? source_override : nullptr;
         if (depth + 1 < instance_path.occurrence_ids.size() &&
             result.back().source_kind != zima::assembly::ComponentSourceKind::Assembly &&
             result.back().source_kind != zima::assembly::ComponentSourceKind::Pattern) return std::nullopt;
@@ -474,14 +479,18 @@ std::optional<OccurrenceAddress> Workspace::resolve_occurrence(
     const zima::assembly::InstancePath& instance_path) const {
     const auto* top = open_assembly(top_assembly_document_id);
     if (top == nullptr) return std::nullopt;
-    const auto chain = persisted_occurrence_chain(
-        top->session.document(), instance_path);
+    return resolve_document_occurrence(top->session.document(), instance_path);
+}
+
+std::optional<OccurrenceAddress> resolve_document_occurrence(
+    const assembly::AssemblyDocument& top, const assembly::InstancePath& instance_path,
+    const assembly::AssemblyDocument* source_override) {
+    const auto chain = persisted_occurrence_chain(top, instance_path, source_override);
     if (!chain) return std::nullopt;
     const auto& occurrence = chain->back();
-    std::string owner_id=top_assembly_document_id;
-    // Pattern's virtual instances are owned by the surrounding real Assembly;
-    // the copied source document is not their positioning owner.
-    for(std::size_t i=chain->size()-1;i>0;--i)if((*chain)[i-1].source_kind==zima::assembly::ComponentSourceKind::Assembly) {
+    std::string owner_id=top.document_id;
+    // A virtual Pattern instance is owned by the surrounding real Assembly.
+    for(std::size_t i=chain->size()-1;i>0;--i)if((*chain)[i-1].source_kind==assembly::ComponentSourceKind::Assembly) {
         owner_id=(*chain)[i-1].source_document_id;break;
     }
     return OccurrenceAddress{owner_id, occurrence.occurrence_id,

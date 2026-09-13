@@ -747,19 +747,23 @@ int main(int argc,char** argv){
             require(result.exit_code==1&&result.results().back().at("code")=="context_reference","CLI refreshed a reference from another occurrence of the same Part");
             auto clean=context.target;const auto references=clean.sketches.front().external_references;
             for(const auto& r:references)clean.sketches.front().remove_geometry(r.id);
-            clean.save(project/"context-target.prtz",{});context.inner.dependencies.clear();context.inner.save(project/"context-inner.asmz");
+            clean.save(project/"context-target.prtz",{});context.inner.dependencies.clear();context.inner.cuts.clear();context.inner.sketches.clear();context.inner.save(project/"context-inner.asmz");
             const auto create_context=command({{"command","sketch.reference.create"},{"arguments",{{"sketch",context.sketch_id},{"kind","edge"},
                 {"owner",context.edge.reference.owner_id},{"key",context.edge.reference.semantic_key},{"instance_path",context.source_path.encoded()},{"profile",true}}}});
             const auto activate_owner=command({{"command","component.activate"},{"arguments",{{"instance_path",assembly::InstancePath{{context.target_path.occurrence_ids.front()}}.encoded()}}}});
-            result=launch(executable,root,common+QStringList{"--command","open context-top.asmz","--command",activate_context,"--command",create_context,
-                "--command","save","--command",activate_owner,"--command","save"});
-            require(result.exit_code==0,"CLI context creation and owner save failed");
-            const auto created=result.results()[2].at("data");const auto projected_context=document::PartDocument::load(project/"context-target.prtz");
+            const auto rename_context=command({{"command","component.set"},{"arguments",{{"instance_path",assembly::InstancePath{{context.source_path.occurrence_ids.back()}}.encoded()},
+                {"name","Renamed before Part reference change"}}}});
+            result=launch(executable,root,common+QStringList{"--command","open context-top.asmz","--command",activate_owner,"--command",rename_context,
+                "--command",activate_context,"--command",create_context,"--command","save","--command",activate_owner,"--command","undo","--command","save"});
+            require(result.exit_code==0,"CLI context creation, Assembly Undo and owner save failed");
+            const auto created=result.results()[4].at("data");const auto projected_context=document::PartDocument::load(project/"context-target.prtz");
             require(projected_context.sketches.front().external_references.size()==1&&
-                assembly::AssemblyDocument::load(project/"context-inner.asmz").dependencies.size()==1,"CLI did not persist both sides of the reference transaction");
+                assembly::AssemblyDocument::load(project/"context-inner.asmz").dependencies.size()==1&&
+                assembly::AssemblyDocument::load(project/"context-inner.asmz").components.front().name==context.inner.components.front().name,
+                "CLI Assembly Undo did not preserve the current reference summary");
             const auto detach_context=command({{"command","sketch.reference.delete"},{"arguments",{{"sketch",context.sketch_id},{"reference",created.at("reference")}}}});
-            result=launch(executable,root,common+QStringList{"--command","open context-top.asmz","--command",activate_context,"--command",detach_context,
-                "--command","save","--command",activate_owner,"--command","save"});
+            result=launch(executable,root,common+QStringList{"--command","open context-top.asmz","--command",activate_owner,"--command",rename_context,
+                "--command",activate_context,"--command",detach_context,"--command","save","--command",activate_owner,"--command","undo","--command","save"});
             require(result.exit_code==0,"CLI context detach and owner save failed");
             const auto detached_context=document::PartDocument::load(project/"context-target.prtz");
             require(detached_context.sketches.front().external_references.empty()&&

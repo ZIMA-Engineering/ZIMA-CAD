@@ -1,5 +1,6 @@
 #include <zima/workspace/model_calculation.hpp>
 #include <zima/workspace/profile_operations.hpp>
+#include <zima/workspace/part_transactions.hpp>
 #include <zima/workspace/sketch_operations.hpp>
 #include <algorithm>
 #include <functional>
@@ -182,7 +183,9 @@ PartRegenerationResult regenerate_part(Workspace& workspace,
 }
 
 void regenerate_assembly(Workspace& workspace, const kernel::OcctKernel& kernel,
-    const std::string& id, const PartCalculationPolicy& policy) {
+    const std::string& document_id, const PartCalculationPolicy& policy) {
+    const auto id=document_id;
+    reconcile_external_sketch_dependencies(workspace,id);
     std::set<std::string> regenerated_parts;
     std::set<std::string> visiting_parts;
     const std::function<void(const std::string&)> regenerate_part_dependencies =

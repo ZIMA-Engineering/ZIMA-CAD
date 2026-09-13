@@ -361,3 +361,9 @@ uložte Part i změněnou Assembly. `sketch.reference.delete` odpojí zdroj a
 zachová nativní profilovou křivku. Stejnou cestu používá GUI a Part Undo/Redo.
 Pravidla, nativní CLI regrese a navazující práce jsou v
 [CONTEXT_REFERENCE_TRANSACTIONS.md](CONTEXT_REFERENCE_TRANSACTIONS.md).
+
+Assembly Undo/Redo nyní srovná svůj odvozený souhrn s aktuálními referencemi
+zdrojových Partů. `regenerate` ověří i zavřené nativní vlastníky po úpravě
+Partu se zavřeným kontextem; změněná podsestava bude otevřená a neuložená.
+Při chybě přípravy se historie neposune. Podrobnosti a hranice této transakce:
+[ASSEMBLY_REFERENCE_SUMMARIES.md](ASSEMBLY_REFERENCE_SUMMARIES.md).

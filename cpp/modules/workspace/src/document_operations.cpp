@@ -91,7 +91,7 @@ bool step_document_history(Workspace& workspace,
     const std::string& id, HistoryDirection direction) {
     const bool redo=direction==HistoryDirection::Redo;
     if(workspace.open_part(id))return step_part_document_history(workspace,id,redo);
-    if(auto* assembly=workspace.open_assembly(id))return redo?assembly->session.redo():assembly->session.undo();
+    if(workspace.open_assembly(id))return step_assembly_document_history(workspace,id,redo);
     if(auto* drawing=workspace.open_drawing(id))return redo?drawing->redo():drawing->undo();
     return false;
 }

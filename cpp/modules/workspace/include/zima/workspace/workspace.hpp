@@ -69,6 +69,12 @@ struct OccurrenceAddress {
     zima::assembly::InstancePath instance_path;
 };
 
+// Resolve persisted occurrence identity against an optional, privately prepared
+// source Assembly. This does not calculate geometry or placements.
+[[nodiscard]] std::optional<OccurrenceAddress> resolve_document_occurrence(
+    const assembly::AssemblyDocument&, const assembly::InstancePath&,
+    const assembly::AssemblyDocument* source_override = nullptr);
+
 class Workspace {
 public:
     void add_part(

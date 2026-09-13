@@ -39,13 +39,13 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Konstrukční geometrie | Částečně hotovo | `construction.list/get/create/set`: dotazy, tvorba bodů/os/rovin/3D křivek, vlastnosti, umístění, úplné seznamy bodů, tečny a zaoblení; dotazy zahrnují vložené 3D dráhy; jejich editaci potvrzuje příkaz tažení; zbývají reference a mazání kořenových konstrukcí |
 | Skicář: geometrie | Základ hotov | 21 příkazů: samostatné a vložené skici, body, úsečky, kružnice, oblouky, elipsy, B-spline, obdélníky, mnohoúhelníky, posun a pomocná geometrie; text create/get/set s nativním písmem a spline get/set hotovy; DXF do vložených profilů hotov; zbývá kontrola dalších variant podle GUI |
 | Skicář: vazby a operace | Vazby/kóty/solver/offset/trim/mirror hotovy | Offset create/get/set/free, úplný podklad a zachování intervalů, trim podle průsečíků, mirror, orientovaný obdélník, tečny a zaoblení rohu; všech 15 druhů vazeb, odstranění a solver; 16 druhů kót včetně vlastností, popisků a mazání; uvolnění externích referencí hotovo |
-| Externí reference skici | Lokální i kontextová tvorba, obnova a odpojení | Přesná projekce, trim, společné potvrzení Partu a závislostí, vlastněné profily, Part Undo/Redo a zavřené sourozenecké zdroje; navazuje souhrn po Assembly Undo a regeneraci zavřeného původního kontextu |
+| Externí reference skici | Lokální i kontextová tvorba, obnova a odpojení | Přesná projekce, trim, společné potvrzení Partu a závislostí, vlastněné profily, Part/Assembly Undo/Redo a souhrny zavřených nativních vlastníků při explicitní regeneraci |
 | Vytažení a rotace | Profily, Thin, směry a cíle zakončení Partu hotovy | `extrusion/revolution.create/get/set`, vlastněná skica, původní plochy a dvě nezávislé meze, společné OK; zbývají sestavové řezy |
 | Tažení | Tvorba a geometrické vlastnosti hotovy | `sweep2d/sweep3d/helical.create/get/set`, společné GUI potvrzení, celá 3D dráha, stanice a úplná správa profilů/párování, reference roviny 2D dráhy a odsazení základní skici H-tažení; generické rozšíření umístění patří do řádku Umístění |
 | Otvory a závity | Katalog, současný Otvor a vnější závit částečně hotovy | `thread.catalog`, `opening.create/get/set`: hladký/závitový otvor, rozměry, sražení, špička, směr a průchozí otvor; `shaft_thread.create/get/set` včetně původních referencí; zbývají cílové reference Otvoru Až k, samostatný Hole a operace vnořených částí otvoru; `drill_point.create/get/set` pokrývají samostatnou vrtací špičku |
 | Zaoblení, zkosení, skořepina | Hotovo | `shell.faces/create/get/set`, `fillet.create/get/set`, `chamfer.create/get/set`; `edge_treatment.edges/route/remove`: skutečný vstup, společná tečná trasa a odebrání člena/trasy/posledního prvku podle stromového kontraktu |
 | Zrcadlo a pole | Hotovo pro Part a bezprostřední komponenty Assembly | `derived_copy.sources`, `mirror.create/get/set`, `pattern.create/get/set`: společné zdroje a potvrzení GUI/CLI, roviny/osy, lineární i kruhové režimy, umístění, zámky, neuložené zdroje a Undo/Redo; vnořená aktivace patří do řádku Sestavy |
-| Sestavy | Dotazy, vložení, otevření zdrojů, vlastnosti, odstranění a přesná aktivace hotovy | `component.set`: název, viditelnost, potlačení, uzemnění, umístění a všechny čtyři druhy vložených vazeb s mezemi/zámky; `component.remove` sdílí kontrolu závislostí a atomické mazání s GUI; `component.activate/deactivate` sdílejí přesný zdrojový kontext s GUI; zbývají řezy a sjednocení souhrnů referencí při Assembly Undo/regeneraci, oprava řetězce vazeb čeká na konkrétní souhlas |
+| Sestavy | Dotazy, vložení, otevření zdrojů, vlastnosti, odstranění a přesná aktivace hotovy | `component.set`: název, viditelnost, potlačení, uzemnění, umístění a všechny čtyři druhy vložených vazeb s mezemi/zámky; `component.remove` sdílí kontrolu závislostí a atomické mazání s GUI; `component.activate/deactivate` sdílejí přesný zdrojový kontext s GUI; souhrny referencí jsou společné pro Assembly Undo a explicitní regeneraci; zbývají řezy, oprava řetězce vazeb čeká na konkrétní souhlas |
 | Výkresy | Listy, šablony, historie, tvorba/vlastnosti/dotazy/mazání pohledů, regenerace, modelové anotace, Show/Erase a měřené kóty (dotazy, tvorba, editace, řetězec, mazání), razítko, zdrojové parametry BOM, PDF, DXF a PNG/JPEG listu/výřezu hotovy | Další anotace, zdrojové styly šraf a příkazový snímek interaktivního View |
 | Řezy, měření a vzhled | Zbývá | Datové operace a uložené výsledky |
 | Parametry, relace a materiál | Společné tabulky a transakce hotovy | Parametry, jednotky, přesnost, relace, materiál včetně přímého načtení knihovny a uložené varianty; řízení rozměrů relacemi a generování variant nejsou dosud zavedené ani v GUI |
@@ -1084,3 +1084,18 @@ kontextové reference a oprava explicitního cíle dotazu `history.can_move`.
 Závěrečné sestavení a **9/9 cílených testů prošlo za 53,72 s**.
 Podrobnosti a navazující práce: [CONTEXT_REFERENCE_TRANSACTIONS.md](CONTEXT_REFERENCE_TRANSACTIONS.md).
 Katalog zůstává na 209 příkazech.
+
+## Historie a regenerace souhrnů Assembly (2026-09-13)
+
+Assembly Undo/Redo obnovuje souhrn proti aktuálním Partům a připravené hierarchii.
+Explicitní regenerace projde i zavřené nativní vlastníky. Zdrojové Party se při
+kontrole neotevírají do tabů a jejich vypočtené alokace se nemění. Chybějící
+zdroj zachová známé hrany; cyklický kandidát se odmítne před změnou historie.
+Obrácení směru reference odstraní nejprve prokazatelně zastaralé hrany.
+
+Modelové regrese prošly **2/2 za 0,69 s**. Po úplném sestavení prošly procesové
+CLI a modelové regrese **3/3 za 21,22 s** a rozšířený GUI test **1/1 za 18,57 s**.
+Následně prošla **celá sada 119/119 za 528,05 s**, včetně odmítnutého GUI Undo
+a úspěšného opakování po opravě vlastního testovacího zdroje.
+Podrobnosti: [ASSEMBLY_REFERENCE_SUMMARIES.md](ASSEMBLY_REFERENCE_SUMMARIES.md).
+Katalog zůstává na **209 příkazech**. Následuje sjednocení mazání konstrukcí.

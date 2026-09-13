@@ -6,7 +6,9 @@ namespace zima::workspace {
 void commit_part_document(Workspace&,const std::string& document,
     document::PartDocument,std::vector<kernel::BodyResult> calculated_boundaries);
 [[nodiscard]] bool step_part_document_history(Workspace&,const std::string& document,bool redo);
-// Reconcile open owners using open authoritative and closed native source Parts.
+[[nodiscard]] bool step_assembly_document_history(Workspace&,const std::string& document,bool redo);
+// Reconcile owners in the requested hierarchy (or all open roots), reading
+// open authoritative and closed native source documents without opening Parts.
 // A missing source preserves existing summary edges; it never deletes by guess.
-void reconcile_external_sketch_dependencies(Workspace&);
+void reconcile_external_sketch_dependencies(Workspace&,const std::string& root_document = {});
 }
