@@ -904,6 +904,18 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
                 throw std::runtime_error("Profile Properties missing");
             };
             const auto get=[&](){return json_run((kind+".get").c_str(),{{"container",id}}).data;};
+            run("save");
+            const auto batch_path=directory/(stem+"-"+kind+".prtz");
+            const auto batch_input=document::PartDocument::load(batch_path);
+            auto batch_operations=commands::Json::array();
+            for(const auto& point:batch_input.sketches.front().points)if(std::abs(point.x-4)<1e-9)
+                batch_operations.push_back({{"command","sketch.point.move"},{"arguments",{{"point",point.id},{"position",{5,point.y}}}}});
+            check(batch_operations.size()==2,"GUI Part batch fixture lacks vertices");
+            check(json_run((kind+".sketch.edit").c_str(),{{"container",id},{"operations",batch_operations}}).data.at("body_calculated")==true,"GUI Part batch did not calculate");
+            run("save");std::vector<kernel::BodyResult> batch_cache;
+            static_cast<void>(document::PartDocument::load(batch_path,&batch_cache));
+            check(std::abs(batch_cache.back().volume-(kind=="extrusion"?150:210*std::acos(-1.0)))<1e-6,"GUI Part batch saved incorrect volume");
+            auto* batch_dialog=edit();batch_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();run("undo");flush();
             auto* dialog=edit();check(std::abs(dialog->findChild<QDoubleSpinBox*>(field)->value()-initial)<1e-8,"Properties lost CLI profile dimension");
             commands::Json patch={{"command",kind+".set"},{"arguments",{{"container",id},{key,changed}}}};
             check(window.execute_console_command(QString::fromStdString(patch.dump())).code=="editing_in_progress","CLI overwrote pending profile dialog");
@@ -1401,6 +1413,17 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
                 throw std::runtime_error("Assembly cut Properties missing");
             };
             const auto get=[&](){return json_run((kind+".get").c_str(),{{"container",id}}).data;};
+            run("save");
+            const auto batch_path=directory/(stem+"-cut-"+kind+".asmz");
+            const auto batch_input=assembly::AssemblyDocument::load(batch_path);
+            auto batch_operations=commands::Json::array();
+            for(const auto& point:batch_input.sketches.front().points)if(std::abs(point.x-(extrusion?1:2))<1e-9)
+                batch_operations.push_back({{"command","sketch.point.move"},{"arguments",{{"point",point.id},{"position",{point.x+1,point.y}}}}});
+            check(batch_operations.size()==2,"GUI Assembly batch fixture lacks vertices");
+            check(json_run((kind+".sketch.edit").c_str(),{{"container",id},{"operations",batch_operations}}).data.at("body_calculated")==true,"GUI Assembly batch did not calculate");
+            run("save");const auto batch_saved=assembly::AssemblyDocument::load(batch_path);
+            check(std::abs(batch_saved.components.front().calculated_source->volume-(extrusion?964:1000-32*std::acos(-1.0)))<1e-5,"GUI Assembly batch saved incorrect volume");
+            auto* batch_dialog=edit();batch_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();run("undo");flush();
             auto* dialog=edit();check(std::abs(dialog->findChild<QDoubleSpinBox*>(field)->value()-initial)<1e-8,"Assembly Properties lost profile dimensions");
             dialog->findChild<QDoubleSpinBox*>(field)->setValue(changed);
             dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();check(get().at(key)==initial,"Assembly cut Cancel changed model");

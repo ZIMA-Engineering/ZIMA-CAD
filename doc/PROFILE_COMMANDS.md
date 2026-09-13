@@ -306,3 +306,35 @@ Ověření této etapy:
   (`build/assembly-profile-full-build.log`, `build/assembly-profile-full-tests.log`).
 
 Správa pořadí, potlačení a odstranění odečtů: [ASSEMBLY_CUT_HISTORY_COMMANDS.md](ASSEMBLY_CUT_HISTORY_COMMANDS.md).
+
+
+## Dávkové potvrzení profilové skici (2026-09-13)
+
+`extrusion.sketch.edit` a `revolution.sketch.edit` upravují skicu daného
+profilového kontejneru a jednou přepočítají jeho těleso. Fungují v Partu
+i pro profilový odečet Assembly. Používají stejné potvrzení jako Properties
+v GUI; uchovávají vlastníka, identitu prvku a cílové výskyty odečtu.
+
+```json
+{"command":"extrusion.sketch.edit","arguments":{"container":"ID-PRVKU","operations":[{"command":"sketch.point.move","arguments":{"point":"ID-BODU-1","position":[12,0]}},{"command":"sketch.point.move","arguments":{"point":"ID-BODU-2","position":[12,8]}}]}}
+```
+
+Pole `operations` obsahuje 1 až 1000 dostupných editačních příkazů skici.
+Vnitřní příkazy nezadávají `sketch` ani `document`: vždy mění pouze vlastní
+pracovní kopii této skici. Nejsou dostupné příkazy dokumentu jako `save`.
+Podporována je také práce s původními externími referencemi a přesnými
+cestami výskytů. Neúspěšná vnitřní operace vrací `operation_index` počítaný
+od nuly. Chyba dávky nebo výpočtu finálního profilu nepublikuje žádné změny.
+
+Úspěch vrací profilová data a `results` v pořadí operací, `changed` a
+`body_calculated`. Změněná dávka je jedním krokem Undo/Redo. Dávka se stejným
+výsledným stavem nic nepočítá a nepřidává historii. Samostatné `sketch.*`
+příkazy nadále mění jen skicu; jejich dosavadní smlouva se nemění.
+
+Ověření: modelové testy **4/4 za 2,27 s**, finální CLI a modelová integrace
+**9/9 za 29,29 s** a GUI konzole s překlady **2/2 za 70,63 s** prošly.
+Sestaveny obě aplikace a všechny testovací programy. Kontrolovány objemy
+všech čtyř kombinací, chyba otevřeného profilu, hranice dávky, neměnná
+historie při chybě/no-op, původní reference konkrétního výskytu a nativní
+uložení po Undo/Redo. Logy: `build/profile-sketch-batch-integration-build.log`,
+`build/profile-sketch-batch-integration-tests.log`, `build/profile-sketch-batch-gui-tests.log`.

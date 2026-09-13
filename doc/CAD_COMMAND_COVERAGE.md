@@ -40,7 +40,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Skicář: geometrie | Základ hotov | 21 příkazů: samostatné a vložené skici, body, úsečky, kružnice, oblouky, elipsy, B-spline, obdélníky, mnohoúhelníky, posun a pomocná geometrie; text create/get/set s nativním písmem a spline get/set hotovy; DXF do vložených profilů hotov; zbývá kontrola dalších variant podle GUI |
 | Skicář: vazby a operace | Vazby/kóty/solver/offset/trim/mirror hotovy | Offset create/get/set/free, úplný podklad a zachování intervalů, trim podle průsečíků, mirror, orientovaný obdélník, tečny a zaoblení rohu; všech 15 druhů vazeb, odstranění a solver; 16 druhů kót včetně vlastností, popisků a mazání; uvolnění externích referencí hotovo |
 | Externí reference skici | Lokální i kontextová tvorba, obnova a odpojení | Přesná projekce, trim, společné potvrzení Partu a závislostí, vlastněné profily, Part/Assembly Undo/Redo a souhrny zavřených nativních vlastníků při explicitní regeneraci |
-| Vytažení a rotace | Profily Partu a profilové odečty Assembly implementovány | `extrusion/revolution.create/get/set`, `assembly.cut.list`, vlastněná skica, Thin, směry, původní koncové reference a konkrétní výskyty; společné OK; `assembly.cut.remove/suppress/move/can_move` sdílejí historii s GUI; navazuje dávkové potvrzení úprav vlastněné skici |
+| Vytažení a rotace | Profily Partu a profilové odečty Assembly implementovány | `extrusion/revolution.create/get/set`, `assembly.cut.list`, vlastněná skica, Thin, směry, původní koncové reference a konkrétní výskyty; společné OK; `assembly.cut.remove/suppress/move/can_move` sdílejí historii s GUI; `extrusion/revolution.sketch.edit` potvrzují dávku úprav vlastní skici s jedním přepočtem a Undo |
 | Tažení | Tvorba a geometrické vlastnosti hotovy | `sweep2d/sweep3d/helical.create/get/set`, společné GUI potvrzení, celá 3D dráha, stanice a úplná správa profilů/párování, reference roviny 2D dráhy a odsazení základní skici H-tažení; generické rozšíření umístění patří do řádku Umístění |
 | Otvory a závity | Katalog, současný Otvor a vnější závit částečně hotovy | `thread.catalog`, `opening.create/get/set`: hladký/závitový otvor, rozměry, sražení, špička, směr a průchozí otvor; `shaft_thread.create/get/set` včetně původních referencí; `hole.create/get/set`: nativní Hole s vlastními profily, rozměry a závitovým drátem; `opening.create/set` přijímají nezávislé původní cíle `bore_targets/thread_targets`; `hole.create/set` přijímají původní `bore_targets`; zbývají operace vnořených částí otvoru; `drill_point.create/get/set` pokrývají samostatnou vrtací špičku |
 | Zaoblení, zkosení, skořepina | Hotovo | `shell.faces/create/get/set`, `fillet.create/get/set`, `chamfer.create/get/set`; `edge_treatment.edges/route/remove`: skutečný vstup, společná tečná trasa a odebrání člena/trasy/posledního prvku podle stromového kontraktu |
@@ -1425,3 +1425,19 @@ Sestaveny obě aplikace a všechny testovací programy. Katalog má 240 příkaz
 sada 137 testů; poslední úplný běh 136/136 je z předchozí etapy, tato etapa
 je ověřena uvedenou související regresí. Nativní formát se nemění. Následuje
 dávková editace profilové skici s jedním výpočtem a Undo. Push zůstává odložený.
+
+
+## Dávková editace profilové skici (2026-09-14)
+
+`extrusion.sketch.edit` a `revolution.sketch.edit` potvrzují sadu skicových
+operací přes stejnou profilovou transakci jako GUI. Part a Assembly mají
+jeden krok Undo/Redo, no-op bez výpočtu a atomické odmítnutí chybné dávky
+nebo finálního profilu. Samostatné skicové příkazy se nemění. Podrobnosti:
+[PROFILE_COMMANDS.md](PROFILE_COMMANDS.md).
+
+Modelová sada **4/4 za 2,27 s**, finální CLI/modelová integrace **9/9 za
+29,29 s** a GUI konzole s překlady **2/2 za 70,63 s** prošly. Obě aplikace
+a všechny testovací programy jsou sestavené. Katalog má 242 příkazů a sada
+138 testů; poslední úplný běh je 136/136 z etapy serializace Assembly.
+Nativní formát se nemění. Následují zbývající operace částí otvoru.
+Push čeká na návrat uživatele.

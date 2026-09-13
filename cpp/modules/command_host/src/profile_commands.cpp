@@ -1,5 +1,6 @@
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/profile_operations.hpp>
+#include <zima/workspace/sketch_operations.hpp>
 #include <zima/workspace/placement_edit.hpp>
 #include <zima/document/metadata.hpp>
 #include <cmath>
@@ -170,6 +171,45 @@ void Host::register_profile_commands() {
         dispatcher_.add({prefix+".get",tr("Read an Extrusion or Revolution and its owned profile without calculation."),{{"container",true},{"document",false}},false},[this,kind](const Json& args){
             try{const auto id=args.value("document",workspace_.active_document_id());const auto& value=profile(workspace_,id,args.at("container").get<std::string>(),kind);return Result::success(details(workspace_,id,value));}
             catch(const Error& e){return Result::failure(e.code,tr(e.what()));}
+        });
+        dispatcher_.add({prefix+".sketch.edit",tr("Edit an owned profile Sketch and calculate its feature in one atomic batch."),
+            {{"container",true},{"operations",true,Type::Array},{"document",false}},true},[this,kind](const Json& args) {
+            const auto checked=target(args);if(!checked.ok)return checked;
+            if(interaction().template_document)return Result::failure("unsupported_document",tr("Profile operations require an open Part or Assembly."));
+            const auto& operations=args.at("operations");
+            if(operations.empty()||operations.size()>1000)return Result::failure("invalid_arguments",tr("A profile Sketch batch requires 1 to 1000 operations."));
+            try {
+                const auto id=workspace_.active_document_id(),container=args.at("container").get<std::string>();
+                auto value=profile(workspace_,id,container,kind);
+                auto* part=workspace_.open_part(id);
+                if(part) {
+                    const auto* body=part->session.document().body_owner_for_object(container);
+                    if(body&&body->derived_copy)throw Error("read_only_body","A derived Body cannot be edited directly.");
+                    if(body&&body->scope.id!=part->session.document().body_history.active_body_id())throw Error("inactive_body","Activate the owning Body before editing its profile.");
+                }
+                const auto sketch_id=kind==Kind::Extrusion?value.extrusion.sketch_id:value.revolution.sketch_id;
+                auto draft=workspace::document_sketch(workspace_,id,sketch_id);
+                const auto before=draft.serialized();const auto batch=sketch_draft_dispatcher(draft);auto results=Json::array();
+                for(std::size_t i=0;i<operations.size();++i) {
+                    auto result=batch.execute(operations[i]);
+                    if(!result.ok){result.data={{"operation_index",i}};return result;}
+                    results.push_back(std::move(result.data));
+                }
+                const bool changed=before!=draft.serialized();
+                if(changed) {
+                    if(part) workspace::commit_profile(workspace_,kernel_,id,std::move(value),workspace::ProfileEditMode::Replace,draft);
+                    else {
+                        const auto targets=workspace_.open_assembly(id)->session.document().find_cut(container)->target_occurrence_ids;
+                        workspace::commit_assembly_profile(workspace_,kernel_,id,std::move(value),targets,workspace::ProfileEditMode::Replace,draft);
+                    }
+                    change_=Change{ChangeKind::Model,id,true};
+                }
+                auto result=details(workspace_,id,profile(workspace_,id,container,kind));
+                result["changed"]=changed;result["body_calculated"]=changed;result["results"]=std::move(results);
+                return Result::success(std::move(result));
+            } catch(const Error& error){return Result::failure(error.code,tr(error.what()));}
+              catch(const workspace::SketchOperationError& error){return Result::failure(error.code,tr(error.what()));}
+              catch(const std::exception& error){return Result::failure("profile_rejected",tr(error.what()));}
         });
         for(const bool create:{true,false}) {
             std::vector<commands::Argument> fields{{create?"sketch":"container",true},{"name",false},{"combine",false},

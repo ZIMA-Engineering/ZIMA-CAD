@@ -409,6 +409,16 @@ int main(int argc,char** argv){
         require(std::abs(cut_saved.components.front().calculated_source->volume-976)<1e-6&&std::abs(cut_saved.components.back().calculated_source->volume-1000)<1e-6,"CLI cut changed wrong occurrence or volume");
 
         const auto cut_id=cut_saved.cuts.front().definition.id;
+        auto cut_batch=commands::Json::array();
+        for(const auto& point:cut_saved.sketches.front().points)if(std::abs(point.x-1)<1e-9)
+            cut_batch.push_back({{"command","sketch.point.move"},{"arguments",{{"point",point.id},{"position",{2,point.y}}}}});
+        require(cut_batch.size()==2,"CLI batch fixture lacks two right vertices");
+        result=launch(executable,root,common+QStringList{"--command","open cli-profile-cuts.asmz",
+            "--command",command({{"command","extrusion.sketch.edit"},{"arguments",{{"container",cut_id},{"operations",cut_batch}}}}),
+            "--command","undo","--command","redo","--command","save"});
+        require(result.exit_code==0&&result.results()[1].at("data").at("body_calculated")==true,"CLI profile batch or history failed");
+        const auto batched_cut=assembly::AssemblyDocument::load(cut_path);
+        require(std::abs(batched_cut.components.front().calculated_source->volume-964)<1e-6&&batched_cut.sketches.front().id==cut_sketch,"CLI batch lost calculated geometry or Sketch identity");
         result=launch(executable,root,common+QStringList{"--command","open cli-profile-cuts.asmz",
             "--command",command({{"command","assembly.cut.can_move"},{"arguments",{{"container",cut_id}}}}),
             "--command",command({{"command","assembly.cut.move"},{"arguments",{{"container",cut_id}}}}),
