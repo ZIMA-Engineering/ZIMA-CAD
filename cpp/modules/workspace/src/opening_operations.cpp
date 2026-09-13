@@ -39,6 +39,7 @@ bool commit_opening(Workspace& workspace,const kernel::OcctKernel& kernel,const 
     if(!state)throw OpeningOperationError("unsupported_document","Opening operations require an open Part.");
     normalize_owned_profile_front_references(committed.placement.references);
     validate(committed);
+    const auto container_id=committed.id;
     const auto& before=state->session.document();const auto* existing=before.find_container(committed.id);
     PartCalculationPolicy policy;policy.reject_errors=true;
     if(mode==OpeningEditMode::Replace) {
@@ -62,11 +63,20 @@ bool commit_opening(Workspace& workspace,const kernel::OcctKernel& kernel,const 
     else {next.insert_history_entry(document::PartHistoryKind::Feature,committed.id);next.history.push_back(std::move(committed));}
     // Same placement resolution and explicit calculation as current Otvor OK.
     const auto& previous=state->session.calculated_boundaries();
+    auto& parameters=next.find_container(container_id)->thread;
+    const auto prepare=[&](document::EndCondition condition,auto& targets,bool thread_end) {
+        if(condition!=document::EndCondition::UpTo)return;
+        if(targets.size()!=1)throw OpeningOperationError("missing_reference","Select exactly one opening end reference.");
+        targets.front()=prepare_opening_end_target(next,previous,*next.find_container(container_id),targets.front(),thread_end);
+    };
+    prepare(parameters.end_condition_forward,parameters.end_targets_forward,false);
+    if(parameters.enabled)prepare(parameters.length_end_condition,parameters.length_end_targets,true);
+    if(existing && *next.find_container(container_id)==*existing)return false;
     auto references=construction_reference_source_geometry(previous);
     append_reference_geometry(references,next.origin_viewer_mesh().original_references);
     append_reference_geometry(references,next.construction_viewer_mesh().original_references);
     next.resolve_constructions(references);
-    auto calculated=calculate_part(kernel,next,&previous,policy);
+    auto calculated=calculate_part_with_resolved_references(kernel,next,&previous,policy);
     static_cast<void>(refresh_sketch_external_references(next,calculated));
     state->session.commit(std::move(next),std::move(calculated));return true;
 }

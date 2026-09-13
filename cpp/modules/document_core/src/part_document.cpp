@@ -8350,8 +8350,21 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                 !container.thread.length_end_targets.front().reference.valid() ||
                 container.thread.length_end_targets.front().kind != EndTargetKind::Plane))
                 throw std::runtime_error("Vyberte cílovou rovinu závitu Až k");
-            const double cylinder_length=container.thread.enabled ? thread_length(container)
-                : container.thread.length_forward;
+            const auto resolve_target=[&](const auto& values) {
+                if(values.size()!=1)throw std::runtime_error("Select exactly one opening end reference.");
+                auto target=resolved_extrusion_end_target(*this,container,values.front(),allow_persisted_external_target);
+                const bool datum=profile_target_is_datum(target.reference) ||
+                    (allow_persisted_external_target && !target.reference.instance_path.empty());
+                if(!datum && std::ranges::none_of(operations,[&](const auto& prior){return prior.owner_id==target.reference.owner_id;}))
+                    throw std::runtime_error("The opening target must be an earlier object or an available Origin.");
+                return target;
+            };
+            std::optional<ExtrusionParameters::EndTarget> thread_target;
+            if(thread_up_to)thread_target=resolve_target(container.thread.length_end_targets);
+            const bool thread_face=thread_target && !profile_target_is_datum(thread_target->reference) &&
+                !(allow_persisted_external_target && !thread_target->reference.instance_path.empty());
+            const double cylinder_length=thread_target && !thread_face
+                ? opening_target_depth(*thread_target,translation,axis) : container.thread.length_forward;
             require_positive(cylinder_length,"Délka závitu Až k");
             const double runout = container.thread.enabled && !thread_up_to
                 ? container.thread.runout_pitch_factor * container.thread.pitch : 0.0;
@@ -8361,25 +8374,29 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
             thread.runout_end = runout;
             double bore_length = container.thread.bore_length;
             const auto condition = container.thread.end_condition_forward;
-            const auto& targets = container.thread.end_targets_forward;
+            auto targets = container.thread.end_targets_forward;
+            if(condition == EndCondition::UpTo)targets={resolve_target(targets)};
+            const bool bore_face=condition == EndCondition::UpTo && !profile_target_is_datum(targets.front().reference) &&
+                !(allow_persisted_external_target && !targets.front().reference.instance_path.empty());
             if (condition == EndCondition::UpTo) {
                 if (targets.empty() || !targets.front().reference.valid())
                     throw std::runtime_error("Vyberte cíl otvoru Až k");
-                bore_length = opening_target_depth(targets.front(),translation,axis);
+                if(!bore_face)bore_length = opening_target_depth(targets.front(),translation,axis);
                 require_positive(bore_length, "Hloubka otvoru Až k");
             }
-            if (thread.enabled && condition != EndCondition::ThroughAll &&
+            if (thread.enabled && !thread_face && !bore_face && condition != EndCondition::ThroughAll &&
                 thread.length > bore_length + 1.0e-7)
                 throw std::runtime_error("Závit včetně výběhu přesahuje válcovou hloubku otvoru");
             if (thread_up_to) {
-                const auto& target=container.thread.length_end_targets.front();
+                const auto& target=*thread_target;
+                if(thread_face)thread.end_plane_reference=target.reference;
                 thread.end_plane_origin=target.fallback_origin;
                 thread.end_plane_normal=target.fallback_normal;
                 const auto& n=target.fallback_normal;
                 const double normal_axis=n.x*axis.x+n.y*axis.y+n.z*axis.z;
                 const double amplitude=thread.nominal_radius*std::sqrt(std::max(0.0,
                     (n.x*n.x+n.y*n.y+n.z*n.z)/(normal_axis*normal_axis)-1.0));
-                if (condition == EndCondition::Length && cylinder_length+amplitude>bore_length+1e-7)
+                if (!thread_face && condition == EndCondition::Length && cylinder_length+amplitude>bore_length+1e-7)
                     throw std::runtime_error("Cíl závitu přesahuje hloubku otvoru");
                 thread.length=cylinder_length+amplitude+1.0;
             }
@@ -8413,7 +8430,9 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                 const auto& target = targets.front();
                 bore.target_face = target.reference;
                 if (allow_persisted_external_target) bore.target_face.instance_path.clear();
-                bore.target_is_datum = target.kind == EndTargetKind::Plane;
+                bore.target_is_datum = target.kind == EndTargetKind::Plane &&
+                    (profile_target_is_datum(target.reference) ||
+                     (allow_persisted_external_target && !target.reference.instance_path.empty()));
                 bore.target_plane_origin = target.fallback_origin;
                 bore.target_plane_normal = target.fallback_normal;
                 bore.target_surface_triangles = target.fallback_triangles;

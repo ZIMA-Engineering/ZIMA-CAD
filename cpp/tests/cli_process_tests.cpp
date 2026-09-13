@@ -265,6 +265,16 @@ int main(int argc,char** argv){
         require(opening_saved.history.back().hole.circle_id==opening_created.hole.circle_id&&
             std::abs(opening_cache.back().volume-(64000-std::acos(-1.0)*std::pow(8.376/2,2)*25))<1e-5,"CLI opening lost source identity or saved the wrong volume");
 
+        const auto opening_target=nlohmann::json::array({{{"owner",opening_saved.document_id+":origin"},{"key","origin:plane:xy"}}});
+        const auto limit_opening=command({{"command","opening.set"},{"arguments",{{"container",opening_created.id},
+            {"bore_end","up_to"},{"bore_targets",opening_target},{"thread_end","up_to"},{"thread_targets",opening_target}}}});
+        result=launch(executable,root,common+QStringList{"--command","open opening-cli.prtz","--command",limit_opening,
+            "--command","undo","--command","redo","--command","save"});
+        require(result.exit_code==0,"CLI original opening end references failed");
+        opening_cache.clear();const auto limited_opening=document::PartDocument::load(opening_path,&opening_cache);
+        require(limited_opening.history.back().thread.end_targets_forward.front().reference.owner_id==opening_saved.document_id+":origin"&&
+            std::abs(opening_cache.back().volume-(64000-std::acos(-1.0)*std::pow(8.376/2,2)*20))<1e-5,"CLI opening target lost its identity or depth");
+
         result=launch(executable,root,common+QStringList{"--command","new part shaft-cli","--command","cylinder.create 5 30","--command","save"});
         require(result.exit_code==0,"CLI shaft fixture failed");
         const auto shaft_path=project/"shaft-cli.prtz";

@@ -6620,14 +6620,26 @@ int main() {
             require(std::abs(thread_boundaries.back().volume-calculated.back().volume-expected)<1e-5,
                 "Chamfer included angle did not control its revolved profile");
         }
+        const auto native_opening_plane=[](auto& document,auto& target) {
+            auto plane=zima::document::PartDocument::create_construction(zima::document::ConstructionKind::Plane);
+            plane.base_plane=zima::document::LocalDatumPlane::XY;
+            plane.reference_valid=true;plane.origin=plane.entity_origin=target.fallback_origin;
+            const auto n=target.fallback_normal;
+            const double length=std::hypot(n.x,n.y,n.z);
+            plane.direction={n.x/length,n.y/length,n.z/length};
+            plane.rotation.y=std::atan2(n.x,n.z)*180.0/std::numbers::pi;
+            target.reference={plane.entity_id,"plane",{}};
+            document.constructions.push_back(std::move(plane));
+        };
         auto up_to_opening = thread_document;
         auto& up_to_thread = up_to_opening.history.back().thread;
         up_to_thread.end_condition_forward=zima::document::EndCondition::UpTo;
         zima::document::ExtrusionParameters::EndTarget opening_target;
         opening_target.kind=zima::document::EndTargetKind::Plane;
-        opening_target.reference={"end-plane","origin:plane:xy",{}};
+
         opening_target.fallback_origin={0,0,10};
         opening_target.fallback_normal={0,0,1};
+        native_opening_plane(up_to_opening,opening_target);
         up_to_thread.end_targets_forward={opening_target};
         const auto up_to_boundaries=kernel.evaluate_history(up_to_opening.kernel_operations());
         require(std::abs(up_to_boundaries.back().volume-(64000.0-std::numbers::pi*bore_radius*bore_radius*30.0))<1e-5,
@@ -6636,6 +6648,7 @@ int main() {
         auto& inclined_target=inclined_opening.history.back().thread.end_targets_forward.front();
         inclined_target.fallback_normal={0.2,0,1};
         inclined_target.fallback_origin={20,0,6}; // same center intersection z=10
+        native_opening_plane(inclined_opening,inclined_target);
         const auto inclined_boundaries=kernel.evaluate_history(inclined_opening.kernel_operations());
         std::optional<zima::kernel::ViewerAxis> inclined_preview_axis;
         static_cast<void>(inclined_opening.thread_edges(inclined_opening.history.back(),
@@ -6650,6 +6663,7 @@ int main() {
             auto target=opening_target;
             target.fallback_origin={0,0,0};
             target.fallback_normal={slope,0,1};
+            native_opening_plane(limited,target);
             parameters.length_end_targets={target};
             const auto operations=limited.kernel_operations();
             const auto& request=std::get<zima::kernel::ThreadSurfaceRequest>(operations.back().primitive);
@@ -6689,6 +6703,7 @@ int main() {
         exit_thread.length_end_condition=zima::document::EndCondition::UpTo;
         auto exit_target=opening_target;
         exit_target.fallback_origin={0,0,20};
+        native_opening_plane(exit_thread_document,exit_target);
         exit_thread.length_end_targets={exit_target};
         auto exit_operations=exit_thread_document.kernel_operations();
         const auto exit_input=kernel.evaluate_history(exit_operations);

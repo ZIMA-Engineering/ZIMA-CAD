@@ -227,8 +227,13 @@ std::vector<FaceReference> extrusion_references(const std::vector<HistoryOperati
     for(const auto& operation:operations) {
         if(operation.suppressed)continue;
         if(const auto* value=std::get_if<ExtrusionRequest>(&operation.primitive))collect(*value);
-        else if(const auto* group=std::get_if<FeatureGroupRequest>(&operation.primitive))
+        else if(const auto* group=std::get_if<FeatureGroupRequest>(&operation.primitive)) {
             for(const auto& child:group->children)if(const auto* value=std::get_if<ExtrusionRequest>(&child))collect(*value);
+        } else if(const auto* thread=std::get_if<ThreadSurfaceRequest>(&operation.primitive)) {
+            if(thread->enabled && thread->end_plane_reference)result.push_back(*thread->end_plane_reference);
+            for(const auto& group:{thread->cuts_before,thread->cuts_after})if(group)
+                for(const auto& child:group->children)if(const auto* value=std::get_if<ExtrusionRequest>(&child))collect(*value);
+        }
     }
     return result;
 }
@@ -5922,6 +5927,22 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     shaft_request=resolve_shaft_thread(std::move(shaft_request));
                     thread=&shaft_request;
                 }
+                if(thread->enabled && thread->end_plane_reference) {
+                    if(!thread->end_plane_origin)throw std::runtime_error("The original opening end reference is unavailable.");
+                    const std::vector<Vec3> no_triangles;
+                    const ExtrusionLimitView limit{true,*thread->end_plane_reference,false,
+                        *thread->end_plane_origin,thread->end_plane_normal,no_triangles};
+                    const auto resolved=resolved_extrusion_limit(limit,original_target(limit));
+                    validate_extrusion_limit(resolved,thread->axis_direction);
+                    const auto n=resolved.normal,p=resolved.origin,o=thread->origin,d=thread->axis_direction;
+                    const double denominator=n.x*d.x+n.y*d.y+n.z*d.z;
+                    const double depth=(n.x*(p.x-o.x)+n.y*(p.y-o.y)+n.z*(p.z-o.z))/denominator;
+                    if(!std::isfinite(depth)||depth<=0)throw std::runtime_error("Opening axis has an invalid length");
+                    const double amplitude=thread->nominal_radius*std::sqrt(std::max(0.0,
+                        (n.x*n.x+n.y*n.y+n.z*n.z)/(denominator*denominator)-1.0));
+                    shaft_request.end_plane_origin=p;shaft_request.end_plane_normal=n;
+                    shaft_request.length=depth+amplitude+1.0;thread=&shaft_request;
+                }
                 std::optional<ViewerAxis> opening_axis;
                 std::optional<PrimitiveData> opening_reference_operand;
                 const auto axial_end = [&](const TopoDS_Shape& shape) {
@@ -5952,6 +5973,25 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                                     ? axial_end(result_shape) : axial_end(operand.shape);
                                 if (!std::isfinite(depth) || depth <= 0.0)
                                     throw std::runtime_error("Opening axis has an invalid length");
+                                if(thread->enabled && bore->extent!=ExtrusionRequest::Extent::ThroughAll) {
+                                    double bore_depth=depth;
+                                    if(bore->extent==ExtrusionRequest::Extent::UpToPlane) {
+                                        const auto limit=resolved_extrusion_limit(forward_limit(*bore),original_target(forward_limit(*bore)));
+                                        const auto p=limit.origin,n=limit.normal,o=thread->origin,d=thread->axis_direction;
+                                        bore_depth=(n.x*(p.x-o.x)+n.y*(p.y-o.y)+n.z*(p.z-o.z))/(n.x*d.x+n.y*d.y+n.z*d.z);
+                                    }
+                                    double thread_depth=thread->length;
+                                    if(thread->end_plane_origin) {
+                                        const auto p=*thread->end_plane_origin,n=thread->end_plane_normal,o=thread->origin,d=thread->axis_direction;
+                                        const double denominator=n.x*d.x+n.y*d.y+n.z*d.z;
+                                        thread_depth=(n.x*(p.x-o.x)+n.y*(p.y-o.y)+n.z*(p.z-o.z))/denominator;
+                                        if(bore->extent==ExtrusionRequest::Extent::Blind)
+                                            thread_depth+=thread->nominal_radius*std::sqrt(std::max(0.0,
+                                                (n.x*n.x+n.y*n.y+n.z*n.z)/(denominator*denominator)-1.0));
+                                    }
+                                    if(!std::isfinite(thread_depth)||!std::isfinite(bore_depth)||thread_depth>bore_depth+1e-7)
+                                        throw std::runtime_error("Závit včetně výběhu přesahuje válcovou hloubku otvoru");
+                                }
                                 opening_axis = ViewerAxis{
                                     {thread->origin.x + thread->axis_direction.x*depth*0.5,
                                      thread->origin.y + thread->axis_direction.y*depth*0.5,

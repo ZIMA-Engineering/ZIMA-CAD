@@ -72,11 +72,10 @@ u hladkého otvoru skutečný průměr určuje `nominal_diameter_mm`.
 
 ## Hranice této etapy
 
-Příkazové přidávání a výměna původních cílových referencí bude následovat.
-Tato etapa je čte a zachovává, ale nenahrazuje je souřadnicemi ani výslednou
-plochou tělesa. Příkazová editace vnějšího závitu, samostatné vrtací špičky
-a samostatného nativního Hole patří do dalších kroků celkového CLI.
-Nativní formát a start šablony se nemění.
+Otvor (`FeatureKind::Thread`) podporuje cíle popsané níže. Samostatný nativní
+Hole má vlastní příkazy `hole.create/get/set` a jeho cíle Až k zůstávají
+samostatným bodem CLI. Vnější závit a vrtací špička mají vlastní hotové
+příkazy. Nativní formát a start šablony se v této etapě nemění.
 
 ## Ověření
 
@@ -104,3 +103,79 @@ Po tomto posledním přesunu prošlo znovu sestavení obou programů a **5/5**
 (57,25 s), `build/opening-command-placement-build.log`,
 `build/opening-command-placement-tests.log`: Otvor, umístění, profily,
 CLI proces a skutečné GUI potvrzení. Katalog má **177 příkazů**.
+
+## Cíle Až k: vrtání a závit
+
+`opening.create/set` přijímají dvě nezávislá pole: `bore_targets` a
+`thread_targets`. Příslušné ukončení zapne `bore_end:"up_to"` nebo
+`thread_end:"up_to"`. Každý aktivní cíl vyžaduje právě jednu původní
+referenci. Například otvor a závit ukončené v hlavní rovině XY:
+
+```json
+{
+  "command": "opening.set",
+  "arguments": {
+    "container": "<opening-id>",
+    "bore_end": "up_to",
+    "bore_targets": [{"owner": "<part-id>:origin", "key": "origin:plane:xy"}],
+    "thread_end": "up_to",
+    "thread_targets": [{"owner": "<part-id>:origin", "key": "origin:plane:xy"}]
+  }
+}
+```
+
+Každá reference obsahuje povinné textové `owner` a `key`, volitelné `label`,
+`kind` (`face`/`plane`) a prázdné `instance_path`. Reference musí patřit
+předchozímu objektu stejného Partu nebo dostupnému počátku. Cíl může ležet
+v předchozím tělese s jiným umístěním. Cíle z jiné sestavové instance,
+vlastního nebo pozdějšího prvku a uživatelsky dodané náhradní souřadnice
+se odmítají. Skutečný typ a geometrii cíle určí uložená původní reference.
+Vrtání přijímá původní plochu nebo rovinu; konec závitu musí být rovinný.
+
+Potvrzení GUI i CLI používá `prepare_opening_end_target` a společný výpočet.
+Opakované přiřazení stejných referencí vrací `changed:false` bez dalšího
+Undo. Chybné vytvoření nebo editace nepublikuje částečnou změnu.
+
+Při explicitním výpočtu se konstrukční rovina obnoví z aktuálního dokumentu.
+Rovinná plocha tělesa zůstává odkazem na původní plochu; nepromění se v
+nezávislou konstrukční rovinu. Kernel ověří původní identitu u vrtání i
+závitu a použije její aktuální polohu. Závislosti vnitřních řezů otvoru
+jsou zahrnuté také při inkrementálním výpočtu mezi tělesy. Stejná kontrola
+platí při studeném výpočtu po otevření nativního souboru.
+
+Ztracený nebo potlačený cíl označí otvor jako chybný. Jeho původní ID a
+poslední data reference zůstávají pro opravu; neudržují prvek zdánlivě
+platný. Potlačení zdroje se může potvrdit s výsledkem `calculation_errors`,
+protože navazující otvor již nelze spočítat. Obnovení zdroje nebo Undo
+umožní platný výpočet znovu. Čtení vlastností, hover a změna tabu nevolají
+OCCT. Všechna trvalá data nadále žijí v nativním Partu; nevzniká nový
+formát ani vedlejší soubor.
+
+### Ověření opravy
+
+Uživatel výslovně povolil původně odloženou opravu cíle zprávou
+„povluji opravu.“ dne 2026-09-13. Výchozí test po zapojení vstupů CLI
+potvrdil chybu: potlačená cílová rovina nechala otvor platný
+(`build/opening-target-baseline-tests.log`, 0/1 za 0,32 s).
+
+Po opravě prošel úplný nativní modelový kontrakt a test nových cílů
+**2/2 za 7,16 s** (`build/opening-target-second-tests.log`). Regrese
+kontroluje analytické objemy, konec závitové plochy, dvě nezávislé roviny,
+zastaralá pomocná data, přepočet posunuté původní plochy, chybějící vrtací
+i závitový cíl, no-op, chybové stavy, Undo/Redo a nativní uložení.
+Dosavadní příkazy otvorů a samostatné vnější závity prošly také.
+
+Rozšíření mezi dvěma umístěnými tělesy prošlo **1/1 za 0,85 s**
+(`build/opening-target-bodies-tests.log`). Ověřuje hloubky 55/56 mm,
+změnu zdroje, Undo/Redo a studený inkrementální výpočet při změně průměru.
+Starší geometrické testy nyní vytvářejí skutečné konstrukční roviny;
+neexistující datum s libovolnými náhradními souřadnicemi se nepovažuje za
+platnou referenci. Katalog zůstává na **223 příkazech**; sada má 124 testů.
+
+Úplné sestavení obou aplikací a všech testovacích programů prošlo. Celá
+Windows Release sada následně prošla **124/124 za 527,41 s**, bez selhání
+(`build/opening-target-full-build.log`, `build/opening-target-full-tests.log`).
+Zahrnuje skutečný CLI proces, přechod z CLI cílů do GUI vlastností otvoru
+(56,80 s), start aplikace a překlady (92,26 s), obě schválené opravy,
+sestavy, skici, importy, řezy i výkresy. Výsledek se vztahuje k této etapě;
+celé CLI ještě není dokončené.

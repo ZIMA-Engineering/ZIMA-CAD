@@ -42,7 +42,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Externí reference skici | Lokální i kontextová tvorba, obnova a odpojení | Přesná projekce, trim, společné potvrzení Partu a závislostí, vlastněné profily, Part/Assembly Undo/Redo a souhrny zavřených nativních vlastníků při explicitní regeneraci |
 | Vytažení a rotace | Profily, Thin, směry a cíle zakončení Partu hotovy | `extrusion/revolution.create/get/set`, vlastněná skica, původní plochy a dvě nezávislé meze, společné OK; zbývají sestavové řezy |
 | Tažení | Tvorba a geometrické vlastnosti hotovy | `sweep2d/sweep3d/helical.create/get/set`, společné GUI potvrzení, celá 3D dráha, stanice a úplná správa profilů/párování, reference roviny 2D dráhy a odsazení základní skici H-tažení; generické rozšíření umístění patří do řádku Umístění |
-| Otvory a závity | Katalog, současný Otvor a vnější závit částečně hotovy | `thread.catalog`, `opening.create/get/set`: hladký/závitový otvor, rozměry, sražení, špička, směr a průchozí otvor; `shaft_thread.create/get/set` včetně původních referencí; `hole.create/get/set`: nativní Hole s vlastními profily, rozměry a závitovým drátem; zbývají cílové reference Až k a operace vnořených částí otvoru; `drill_point.create/get/set` pokrývají samostatnou vrtací špičku |
+| Otvory a závity | Katalog, současný Otvor a vnější závit částečně hotovy | `thread.catalog`, `opening.create/get/set`: hladký/závitový otvor, rozměry, sražení, špička, směr a průchozí otvor; `shaft_thread.create/get/set` včetně původních referencí; `hole.create/get/set`: nativní Hole s vlastními profily, rozměry a závitovým drátem; `opening.create/set` přijímají nezávislé původní cíle `bore_targets/thread_targets`; zbývají cíle nativního Hole a operace vnořených částí otvoru; `drill_point.create/get/set` pokrývají samostatnou vrtací špičku |
 | Zaoblení, zkosení, skořepina | Hotovo | `shell.faces/create/get/set`, `fillet.create/get/set`, `chamfer.create/get/set`; `edge_treatment.edges/route/remove`: skutečný vstup, společná tečná trasa a odebrání člena/trasy/posledního prvku podle stromového kontraktu |
 | Zrcadlo a pole | Hotovo pro Part a bezprostřední komponenty Assembly | `derived_copy.sources`, `mirror.create/get/set`, `pattern.create/get/set`: společné zdroje a potvrzení GUI/CLI, roviny/osy, lineární i kruhové režimy, umístění, zámky, neuložené zdroje a Undo/Redo; vnořená aktivace patří do řádku Sestavy |
 | Sestavy | Dotazy, vložení, otevření zdrojů, vlastnosti, odstranění a přesná aktivace hotovy | `component.set`: název, viditelnost, potlačení, uzemnění, umístění a všechny čtyři druhy vložených vazeb s mezemi/zámky; `component.remove` sdílí kontrolu závislostí a atomické mazání s GUI; `component.activate/deactivate` sdílejí přesný zdrojový kontext s GUI; souhrny referencí jsou společné pro Assembly Undo a explicitní regeneraci; zbývají řezy; schválená oprava pořadí řetězce vazeb je hotová a ověřená |
@@ -1167,3 +1167,27 @@ prošla dotčená integrační sada **6/6 za 129,03 s**, včetně skutečného C
 GUI nabídky stromu, geometrie, startu a překladů. Podrobnosti:
 [SECTION_COMMANDS.md](SECTION_COMMANDS.md). Katalog má **223 příkazů**.
 Následuje tvorba a editace vlastností řezu včetně celé řezové skici.
+
+### Původní cíle současného Otvoru Až k
+
+`opening.create/set` přijímají nezávislé `bore_targets` a `thread_targets`.
+Konkrétní oprava původně odloženého nativního výpočtu byla výslovně povolena
+uživatelem 2026-09-13. Konstrukční roviny i původní rovinné plochy se při
+výpočtu ověřují proti aktuálním zdrojům. Potlačený či chybějící cíl vrátí
+navazujícímu otvoru chybu; ID zůstává opravitelné. Referenci lze použít
+z předchozího tělesa s jiným umístěním. Schválená oprava pořadí sestavových
+vazeb je samostatný předchozí commit `dc7a842`.
+
+Nativní model a nové cíle prošly **2/2 za 7,16 s**; rozšířený test mezi
+umístěnými tělesy včetně studené inkrementální regenerace **1/1 za 0,85 s**.
+Podrobnosti: [OPENING_COMMANDS.md](OPENING_COMMANDS.md). Katalog má
+**223 příkazů**, sada 124 testů. Nativní Hole je samostatný druh prvku;
+jeho cílové vstupy nadále zůstávají v plánu CLI.
+
+Úplné sestavení obou aplikací a všech testovacích programů prošlo. Celá
+Windows Release sada následně prošla **124/124 za 527,41 s**, bez selhání
+(`build/opening-target-full-build.log`, `build/opening-target-full-tests.log`).
+Zahrnuje skutečný CLI proces, přechod z CLI cílů do GUI vlastností otvoru
+(56,80 s), start aplikace a překlady (92,26 s), obě schválené opravy,
+sestavy, skici, importy, řezy i výkresy. Výsledek se vztahuje k této etapě;
+celé CLI ještě není dokončené.

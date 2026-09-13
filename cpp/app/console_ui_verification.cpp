@@ -1116,6 +1116,19 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
             const auto file=directory/(stem+"-opening.prtz");run("save");
             std::vector<kernel::BodyResult> calculated;static_cast<void>(document::PartDocument::load(file,&calculated));
             check(std::abs(calculated.back().volume-(64000-std::acos(-1.0)*bore*bore/4*20))<1e-5,"GUI-edited opening saved an incorrect volume");
+            const auto targets=nlohmann::json::array({{{"owner",get().at("document").get<std::string>()+":origin"},
+                {"key","origin:plane:xy"},{"label","Origin XY"}}});
+            json_run("opening.set",{{"container",opening_id},{"bore_end","up_to"},{"bore_targets",targets},
+                {"thread_end","up_to"},{"thread_targets",targets}});
+            dialog=edit();
+            check(dialog->findChild<QComboBox*>("threadEnd")->currentData()=="up_to"&&
+                dialog->findChild<QComboBox*>("threadLengthEnd")->currentData()=="up_to"&&
+                dialog->findChild<QLineEdit*>("threadBoreEndTarget")->text()=="Origin XY"&&
+                dialog->findChild<QLineEdit*>("threadLengthEndTarget")->text()=="Origin XY", "Opening Properties lost CLI end references");
+            const QPointer<QDialog> target_dialog(dialog);
+            dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+            check((!target_dialog||!target_dialog->isVisible())&&get().at("bore_targets")[0].at("owner")==targets[0].at("owner"),"Opening Properties did not preserve the original end target");
+
             json_run("close",{{"discard",true}});json_run("activate",{{"document",previous_document}});flush();
         }
         {

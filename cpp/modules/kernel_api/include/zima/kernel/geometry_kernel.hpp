@@ -392,6 +392,8 @@ struct ThreadSurfaceRequest {
     double length{15.0};
     double runout_start{};
     double runout_end{3.0};
+    // Present only for an original solid face, resolved during body calculation.
+    std::optional<FaceReference> end_plane_reference;
     std::optional<Vec3> end_plane_origin;
     Vec3 end_plane_normal{0,0,1};
     bool through_all_forward{};
@@ -1480,8 +1482,14 @@ struct PlacedBody {
                             primitive.end_plane_normal.y,primitive.end_plane_normal.z})
                         u64(std::bit_cast<std::uint64_t>(value));
                 }
-                // Opening result revision: unified source wire and persisted axis.
-                byte(2);
+                byte(primitive.end_plane_reference.has_value());
+                if (primitive.end_plane_reference)
+                    for (const auto* text : {&primitive.end_plane_reference->owner_id,
+                            &primitive.end_plane_reference->semantic_key,&primitive.end_plane_reference->instance_path}) {
+                        u64(text->size());for (const unsigned char ch : *text) byte(ch);
+                    }
+                // Opening result revision: validate and resolve original end faces.
+                byte(3);
                 for (const double value : {primitive.nominal_radius,
                         primitive.root_radius, primitive.start_offset,
                         primitive.length, primitive.runout_start,

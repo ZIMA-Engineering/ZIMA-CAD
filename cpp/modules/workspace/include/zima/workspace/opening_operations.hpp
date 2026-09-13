@@ -15,4 +15,8 @@ enum class OpeningEditMode { Create, Replace };
 [[nodiscard]] bool commit_opening(Workspace&,const kernel::OcctKernel&,
     const std::string& document_id,document::HistoryContainer,OpeningEditMode);
 [[nodiscard]] std::vector<std::pair<std::string,double>> opening_dimensions(const document::HistoryContainer&);
+[[nodiscard]] document::ExtrusionParameters::EndTarget prepare_opening_end_target(
+    const document::PartDocument&,const std::vector<kernel::BodyResult>&,
+    const document::HistoryContainer&,const document::ExtrusionParameters::EndTarget&,bool thread_end);
+bool refresh_opening_end_targets(document::PartDocument&,const std::vector<kernel::BodyResult>&);
 } // namespace zima::workspace
