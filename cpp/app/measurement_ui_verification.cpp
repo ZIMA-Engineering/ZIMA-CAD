@@ -6,6 +6,8 @@
 #include <zima/viewer/mesh_view.hpp>
 #include <zima/kernel/occt_kernel.hpp>
 #include <zima/document/part_document.hpp>
+#include <zima/document/measurement_record.hpp>
+#include <zima/commands/dispatcher.hpp>
 #include <QAction>
 #include <QKeyEvent>
 #include <QMouseEvent>
@@ -88,6 +90,13 @@ try{
     select(viewer::CandidateKind::Face);
     check(dialog()->geometries()[1]&&dialog()->geometries()[1]->values.area&&dialog()->distance(),"Second face has no area/distance");
     check(dialog()->findChild<QPushButton*>("saveMeasurement")->isEnabled(),"Valid measurement cannot be saved");
+    const auto gui_value=commands::Json::parse(document::serialize_measurements({dialog()->current()})).at(0);
+    const commands::Json evaluate_request={{"command","measurement.evaluate"},{"arguments",{{"references",gui_value.at("references")}}}};
+    const auto from_console=window.execute_console_command(QString::fromStdString(evaluate_request.dump()));
+    check(from_console.ok&&from_console.data.at("values")==gui_value.at("values")&&from_console.data.at("distance")==gui_value.at("distance"),
+        "Read-only console measurement disagrees with the active GUI inspector");
+    check(dialog()!=nullptr,"Measurement query closed the active inspector");
+
     auto* tree=window.findChild<QTreeWidget*>();tree->collapseAll();
     dialog()->findChild<QPushButton*>("saveMeasurement")->click();flush();check(!dialog(),"Save did not close inspector");
     check(tree->currentItem()&&tree->currentItem()->data(0,Qt::UserRole+3)=="document-measurement","Save did not reveal/select its Tree record");
@@ -95,6 +104,12 @@ try{
     window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
     auto stored=document::PartDocument::load(path);
     check(stored.measurements.size()==1&&stored.measurements[0].references.size()==2,"Save did not persist two references");
+    const auto saved_list=window.execute_console_command("measurement.list");
+    const commands::Json get_request={{"command","measurement.get"},{"arguments",{{"object",stored.measurements[0].id}}}};
+    const auto saved_get=window.execute_console_command(QString::fromStdString(get_request.dump()));
+    check(saved_list.ok&&saved_list.data.at("total")==1&&saved_get.ok&&saved_get.data.at("values")==gui_value.at("values"),
+        "Console cannot read a measurement saved by GUI");
+
     QTreeWidgetItem* row{};
     for(QTreeWidgetItemIterator i(tree);*i;++i)if((*i)->data(0,Qt::UserRole+3)=="document-measurement"){row=*i;break;}
     check(row,"Saved measurement not in tree");

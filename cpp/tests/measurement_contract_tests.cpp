@@ -1,3 +1,4 @@
+#include <zima/measurement/measurement.hpp>
 #include <zima/viewer/measurement.hpp>
 #include <zima/kernel/occt_kernel.hpp>
 #include <zima/kernel/dimension_layout.hpp>
@@ -13,7 +14,7 @@
 
 using namespace zima;
 using P=kernel::Vec3;
-using G=viewer::MeasurementGeometry;
+using G=measurement::MeasurementGeometry;
 using K=kernel::MeasurementKind;
 void require(bool value,const char* message){if(!value)throw std::runtime_error(message);}
 void near(double value,double expected,const char* message,double epsilon=1e-8){require(std::abs(value-expected)<=epsilon,message);}
@@ -22,7 +23,7 @@ G line(P a,P b){G g;g.segments={{a,b}};return g;}
 G axis(P a,P direction){G g;g.axis={{a,direction}};return g;}
 G plane(P a,P normal){G g;g.plane={{a,normal}};return g;}
 void distance(const G& a,const G& b,double expected){
-    const auto d=viewer::measure_distance(a,b),reverse=viewer::measure_distance(b,a);
+    const auto d=measurement::measure_distance(a,b),reverse=measurement::measure_distance(b,a);
     require(d.has_value()&&reverse.has_value(),"Distance unavailable");
     near(d->distance.value,expected,"Incorrect shortest distance");
     near(reverse->distance.value,expected,"Distance is not symmetric");
@@ -52,14 +53,14 @@ try{
     auto box=document::PartDocument::create_box_container();box.box={10,20,30};
     part.history={box};
     auto bodies=kernel.evaluate_history(part.kernel_operations());
-    const auto object=viewer::measure_entity(bodies.back().mesh,{K::Object,box.id,{},{}});
+    const auto object=measurement::measure_entity(bodies.back().mesh,{K::Object,box.id,{},{}});
     require(object&&object->solid&&object->values.volume,"Closed solid was not measured");
     near(object->values.volume->value,6000,"Box volume incorrect");
     near(object->values.area->value,2200,"Box surface area incorrect");
     distance(*object,point({0,0,0}),0); // A contained point is in the solid.
     auto shifted=bodies.back().mesh;
     for(auto& p:shifted.original_references.vertices){p.x+=1e9;p.y-=1e9;p.z+=1e9;}
-    const auto shifted_object=viewer::measure_entity(shifted,{K::Object,box.id,{},{}});
+    const auto shifted_object=measurement::measure_entity(shifted,{K::Object,box.id,{},{}});
     require(shifted_object&&shifted_object->values.volume,"Translated solid disappeared");
     near(shifted_object->values.volume->value,6000,"Volume loses precision far from origin");
     auto cylinder=document::PartDocument::create_cylinder_container();cylinder.cylinder.radius=5;cylinder.cylinder.height=12;
@@ -68,7 +69,7 @@ try{
     bool circular_edge=false,cylindrical_face=false;
     for(const auto& edge:loaded.mesh.original_references.edges){
         require(edge.measured_length.has_value(),"Calculated edge length was not persisted");
-        auto measured=viewer::measure_entity(loaded.mesh,{K::Curve,edge.reference.owner_id,edge.reference.semantic_key,edge.reference.instance_path});
+        auto measured=measurement::measure_entity(loaded.mesh,{K::Curve,edge.reference.owner_id,edge.reference.semantic_key,edge.reference.instance_path});
         require(measured&&measured->values.length&&!measured->values.length->approximate,"Exact edge length unavailable");
         if(std::abs(*edge.measured_length-10*std::numbers::pi)<1e-6){
             circular_edge=true;near(measured->values.length->value,10*std::numbers::pi,"Circle length follows tessellation",1e-6);
@@ -78,7 +79,7 @@ try{
         require(face.measured_area.has_value(),"Calculated face area was not persisted");
         if(face.surface&&face.surface->kind==kernel::SurfaceGeometry::Kind::Cylinder){
             cylindrical_face=true;
-            auto measured=viewer::measure_entity(loaded.mesh,{K::Face,face.owner_id,face.semantic_key,face.instance_path});
+            auto measured=measurement::measure_entity(loaded.mesh,{K::Face,face.owner_id,face.semantic_key,face.instance_path});
             require(measured&&measured->values.area&&!measured->values.area->approximate,"Cylinder area marked approximate");
             near(measured->values.area->value,120*std::numbers::pi,"Cylinder area follows tessellation",1e-5);
             require(measured->approximate,"Curved surface distance did not disclose approximation");
@@ -89,7 +90,7 @@ try{
     const auto& edge=loaded.mesh.original_references.edges.front();
     kernel::SavedMeasurement saved;saved.id="measurement-test";saved.name="Saved measurement";saved.after_object_id=cylinder.id;
     saved.references={{K::Curve,edge.reference.owner_id,edge.reference.semantic_key,{}}};
-    saved.values={viewer::measure_entity(loaded.mesh,saved.references[0])->values};
+    saved.values={measurement::measure_entity(loaded.mesh,saved.references[0])->values};
     require(document::parse_measurements(document::serialize_measurements({saved}))==std::vector{saved},"Record roundtrip changed measurement");
     part.measurements={saved};
     const auto directory=std::filesystem::temp_directory_path()/part.document_id;
@@ -98,14 +99,14 @@ try{
     std::vector<kernel::BodyResult> restored;
     const auto reloaded=document::PartDocument::load(directory/"measurement.prtz",&restored);
     require(reloaded.measurements==part.measurements,"Part lost saved measurement");
-    require(!restored.empty()&&viewer::measure_entity(restored.back().mesh,saved.references[0]).has_value(),"Saved Part lost measurement reference");
+    require(!restored.empty()&&measurement::measure_entity(restored.back().mesh,saved.references[0]).has_value(),"Saved Part lost measurement reference");
     auto assembly=assembly::AssemblyDocument::create_default();assembly.measurements={saved};
     assembly.save(directory/"measurement.asmz");
     require(assembly::AssemblyDocument::load(directory/"measurement.asmz").measurements==assembly.measurements,"Assembly lost saved measurement");
     document::DocumentSession session(part,bodies);auto next=part;next.measurements.clear();session.commit(next,bodies);
     require(session.undo()&&session.document().measurements==part.measurements,"Measurement history cannot undo");
     auto missing=saved;missing.references[0].semantic_key="missing";
-    require(!viewer::measure_entity(loaded.mesh,missing.references[0]),"Missing reference silently changed owner");
+    require(!measurement::measure_entity(loaded.mesh,missing.references[0]),"Missing reference silently changed owner");
     kernel::ViewerDimension d;d.kind=kernel::ViewerDimensionKind::Diameter;d.label_prefix="⌀";d.value=12;d.unit_suffix=" mm";
     require(kernel::dimension_text(d,kernel::dimension_text_style(d))=="⌀12mm","Diameter is not U+2300, is duplicated, or unit spacing is wrong");
     require(kernel::dimension_number(10,3)=="10"&&kernel::dimension_number(10.5,3)=="10,5"&&

@@ -100,7 +100,7 @@ private:
     void update_sketch_offset_preview();
     void show_measurement(const std::string& id = {});
     bool accept_measurement(const zima::viewer::ViewerCandidate&);
-    std::optional<zima::viewer::MeasurementGeometry> resolve_measurement(const zima::kernel::MeasurementReference&) const;
+    std::optional<zima::measurement::MeasurementGeometry> resolve_measurement(const zima::kernel::MeasurementReference&) const;
     QString measurement_label(const zima::kernel::MeasurementReference&) const;
     void update_measurement_selection();
     void update_measurement_ui();

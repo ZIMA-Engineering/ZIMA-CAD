@@ -72,7 +72,9 @@ podporují dokumentové Undo/Redo.
 
 Uložené hodnoty jsou snímkem posledního uložení měření; otevření vlastností
 je aktualizuje pro právě zobrazený vypočtený model. Změny zdrojového Partu
-se do nadřazené sestavy nadále přebírají pouze příkazem **Regenerovat**.
+se zobrazí i v jejích výskytech bez regenerace sestavy. Vazby a vlastní operace
+sestavy se přepočítávají pouze výslovným příkazem **Regenerovat**. Čtení
+měření tyto výpočty nespouští.
 
 ## Související ovládání kót
 
@@ -98,3 +100,75 @@ do výstupů používajících společné formátování kót.
   zpět do Partu ověřuje uvolnění dialogu a opětovné spuštění Měření bez pádu.
 - `zima_cpp_assembly_refresh_ui_contract`: výběr komponenty, dvojklik,
   dostupnost kóty a její vlastní editor.
+
+
+## Čtecí CLI příkazy (2026-09-13)
+
+- `measurement.list [offset] [limit] [document]` vypíše uložené informační
+  záznamy. Výchozí limit je 2000, povolený 1–10000; offset je nezáporný.
+- `measurement.get object [document]` vrátí původní reference a poslední
+  uložené hodnoty, včetně bodů nejkratší vzdálenosti. `saved_values: true`
+  výslovně označuje uložený snímek. Dotaz nic neaktualizuje ani neukládá.
+- `measurement.evaluate references [document]` nově vyhodnotí jednu nebo
+  dvě reference proti aktuálním vypočteným datům. Nevyžaduje otevřené GUI,
+  nevytváří historii, neukládá soubor a nevolá OCCT ani řešení vazeb.
+
+```json
+{"command":"measurement.evaluate","arguments":{"references":[{"kind":"plane","owner":"<part-id>:origin","key":"origin:plane:xy"},{"kind":"face","owner":"<original-feature-id>","key":"<original-face-key>"}]}}
+```
+
+Typ reference je `point`, `curve`, `face`, `object`, `axis` nebo `plane`.
+Topologické reference potřebují původní `owner/key`; souřadnice či náhradní
+geometrie se nepřijímají. Celý objekt používá `kind: object`, jeho `owner`
+a prázdný klíč. Celá komponenta používá prázdného vlastníka a přesný
+`instance_path`. Vnořené reference rozlišuje celá kódovaná cesta výskytu,
+nikoli jméno nebo společné ID zdrojového Partu. Typ musí odpovídat geometrii:
+například zakřivenou plochu nelze vydávat za nekonečnou rovinu.
+
+Při chybějící geometrii vrátí vyhodnocení `missing_reference` a nulou
+číslovaný `reference_index`. Poslední uložený záznam zůstane čitelný.
+Dotazy lze směrovat na jiný otevřený dokument bez jeho aktivace a lze je
+používat i během otevřeného dialogu. Měření výkresu je samostatná oblast
+kót; tyto příkazy pracují s Partem nebo sestavou.
+
+Strojový výstup používá vždy **mm, mm², mm³ a kg**, nezávisle na jednotkách
+formátovaných GUI. Objekt `units` je popisuje pro jednotlivé hodnoty.
+Každá délka, obsah, objem, hmotnost či vzdálenost obsahuje `value` a
+`approximate`. Chybějící hodnota je `null`, nikoli nula. Přesná uložená
+délka kruhové hrany zůstává přesná i při hrubém zobrazení; vzdálenosti
+k zakřivené síti závisejí na jejím rozlišení.
+
+Společný modul `zima_measurement` závisí pouze na `zima_kernel_api`, nikoli
+na Qt. Obsahuje původní geometrický algoritmus inspectoru, který sdílejí
+GUI i CLI. Viewer převádí jen kandidáta výběru na měřicí referenci.
+Workspace doplňuje dostupné autoritativní objemy, plochy a hmotnosti;
+GUI zachovává měření celého výskytu také při zobrazení řezu.
+
+První modelová sada prošla **2/2 za 0,35 s**: analytická geometrie,
+nejkratší vzdálenost, nezávislé objemy a jednotky, přesná kruhová délka,
+neplatné vstupy, nezměněná historie/cache, opakované vnořené výskyty,
+čtení neaktivního dokumentu a nativní uložení Partu i sestavy.
+Konečné integrační výsledky jsou uvedeny níže.
+Tato etapa zavádí tři čtecí příkazy; tvorba, změna a odstranění uložených
+záznamů přes CLI následují samostatnou transakcí sdílenou s GUI.
+
+
+Sestavily se obě aplikace a všechny testovací programy. Integrační sada
+prošla **5/6 za 87,48 s**; jediná chyba byla stará očekávaná velikost
+katalogu 226 místo 229. Po její aktualizaci prošly katalog a úplný start
+aplikace včetně překladů **2/2 za 96,19 s**. Dodatečná kontrola platné osy
+a rozdílu mezi přesnou kruhovou délkou a aproximovanou vzdáleností prošla
+**1/1 za 0,25 s**. Kontrola kruhového okraje používá osovou rovinu válce,
+aby nezávisela na pořadí jeho horního a dolního okraje.
+
+GUI regrese porovnává skutečné hodnoty a oba body nejkratší vzdálenosti
+s dotazem konzole, také během otevřeného inspectoru. Čte i měření uložené
+GUI. Samostatný CLI proces běží s úmyslně neplatným názvem Qt platformy;
+nové příkazy tedy nevyžadují inicializaci okna. Byla ověřena i zachovaná
+přesná kruhová délka a odmítnutí zakřivené plochy jako roviny či kružnice
+jako přímé osy. Katalog má **229 příkazů**, celá sada **128 testů**.
+
+Logy: `build/measurement-query-integration-build.log`,
+`build/measurement-query-integration-tests.log`,
+`build/measurement-query-catalog-startup-tests.log`,
+`build/measurement-query-precision-tests.log`.

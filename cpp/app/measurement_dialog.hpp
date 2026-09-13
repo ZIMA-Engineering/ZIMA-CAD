@@ -1,5 +1,5 @@
 #pragma once
-#include <zima/viewer/measurement.hpp>
+#include <zima/measurement/measurement.hpp>
 #include <zima/kernel/dimension_layout.hpp>
 #include <zima/ui/properties_subwindow.hpp>
 #include <zima/ui/reference_cell.hpp>
@@ -20,7 +20,7 @@
 namespace zima::app {
 class MeasurementDialog final : public ui::PropertiesSubWindow {
 public:
-    using Resolve=std::function<std::optional<viewer::MeasurementGeometry>(const kernel::MeasurementReference&)>;
+    using Resolve=std::function<std::optional<measurement::MeasurementGeometry>(const kernel::MeasurementReference&)>;
     using Label=std::function<QString(const kernel::MeasurementReference&)>;
     using Save=std::function<void(kernel::SavedMeasurement)>;
     MeasurementDialog(kernel::SavedMeasurement initial,Resolve resolve,Label label,Save save,
@@ -112,7 +112,7 @@ private:
         return (value.approximate?QStringLiteral("≈ "):QString{})+number(value.value/std::pow(scale,power))+unit+
             (power==2?QStringLiteral("²"):power==3?QStringLiteral("³"):QString{});
     }
-    QString details(const viewer::MeasurementGeometry& geometry)const{
+    QString details(const measurement::MeasurementGeometry& geometry)const{
         QStringList lines;const auto& v=geometry.values;
         if(v.position)lines<<tr("X: %1   Y: %2   Z: %3").arg(
             number(v.position->x/length_scale_)+length_unit_,number(v.position->y/length_scale_)+length_unit_,number(v.position->z/length_scale_)+length_unit_);
@@ -136,7 +136,7 @@ private:
             geometries_[i]=references_[i]?resolve_(*references_[i]):std::nullopt;
             info_[i]->setText(geometries_[i]?details(*geometries_[i]):references_[i]?tr("Reference chybí. Klikněte do pole a vyberte náhradu."):QString{});
         }
-        distance_=geometries_[0]&&geometries_[1]?viewer::measure_distance(*geometries_[0],*geometries_[1]):std::nullopt;
+        distance_=geometries_[0]&&geometries_[1]?measurement::measure_distance(*geometries_[0],*geometries_[1]):std::nullopt;
         result_->setText(distance_?tr("Nejkratší vzdálenost: %1").arg(distance_text()):QString{});
         bool approximate=distance_&&distance_->distance.approximate;
         for(const auto& g:geometries_)if(g)approximate|=(g->values.area&&g->values.area->approximate)||(g->values.length&&g->values.length->approximate)||(g->values.volume&&g->values.volume->approximate);
@@ -160,7 +160,7 @@ private:
     std::array<QWidget*,2> indicators_{};std::array<QToolButton*,2> eyes_{};std::array<QLabel*,2> info_{};
     QLabel *result_{},*hint_{};QPushButton* save_button_{};
     std::array<std::optional<kernel::MeasurementReference>,2> references_;
-    std::array<std::optional<viewer::MeasurementGeometry>,2> geometries_;
+    std::array<std::optional<measurement::MeasurementGeometry>,2> geometries_;
     std::array<bool,2> inspected_{};std::optional<kernel::MeasurementDistance> distance_;
     int active_{};QPointF middle_;bool pending_middle_{},dragged_{};
 };

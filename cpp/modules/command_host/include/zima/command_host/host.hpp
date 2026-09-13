@@ -70,6 +70,7 @@ private:
     void register_hole_commands();
     void register_appearance_commands();
     void register_section_commands();
+    void register_measurement_commands();
     void register_drill_point_commands();
     void register_shell_commands();
     void register_edge_treatment_queries();

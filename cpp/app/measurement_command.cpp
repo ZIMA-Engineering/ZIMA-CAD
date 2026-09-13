@@ -1,8 +1,8 @@
 #include "assembly_workspace_window.hpp"
 #include "measurement_dialog.hpp"
 #include "resource_icon.hpp"
+#include <zima/workspace/measurement_operations.hpp>
 #include <zima/document/physical_properties.hpp>
-#include <zima/assembly/physical_properties.hpp>
 #include <zima/viewer/measurement.hpp>
 #include <zima/viewer/mesh_view.hpp>
 #include <QAction>
@@ -16,7 +16,7 @@
 namespace zima::app {
 namespace {
 using Ref=kernel::MeasurementReference;
-using Geometry=viewer::MeasurementGeometry;
+using Geometry=measurement::MeasurementGeometry;
 const std::vector<viewer::CandidateKind> measurement_kinds{
     viewer::CandidateKind::Vertex,viewer::CandidateKind::SketchPoint,
     viewer::CandidateKind::Edge,viewer::CandidateKind::SketchSegment,viewer::CandidateKind::SketchCurve,
@@ -86,38 +86,14 @@ void AssemblyWorkspaceWindow::show_measurement(const std::string& saved_id){
     dialog->show();
 }
 std::optional<Geometry> AssemblyWorkspaceWindow::resolve_measurement(const Ref& reference)const{
-    auto geometry=viewer::measure_entity(viewer_->mesh(),reference);
     const auto id=workspace_.displayed_document_id();
-    if(reference.kind==kernel::MeasurementKind::Object && reference.owner_id.empty()&&!reference.instance_path.empty()){
-        // Measure the complete last-calculated occurrence, even in a section view.
-        const auto full=workspace_.authoritative_viewer_mesh(id);
-        geometry=viewer::measure_entity(full,reference);
-        const auto address=workspace_.resolve_occurrence(id,assembly::InstancePath::decode(reference.instance_path));
-        if(geometry&&address)if(const auto* owner=workspace_.open_assembly(address->owner_assembly_document_id))
-            if(const auto* item=owner->session.document().find_occurrence(address->occurrence_id)){
-                geometry->values.volume=kernel::MeasurementValue{std::abs(item->calculated_source->volume),false};
-                geometry->values.area=kernel::MeasurementValue{std::abs(item->calculated_source->surface_area),false};
-                if(const auto mass=assembly::occurrence_mass_kg(*item))geometry->values.mass=kernel::MeasurementValue{*mass,false};
-            }
+    if(reference.kind==kernel::MeasurementKind::Object&&reference.owner_id.empty()&&!reference.instance_path.empty()) {
+        const auto scene=workspace_.authoritative_viewer_mesh(id);
+        return workspace::resolve_measurement(workspace_,id,reference,scene);
     }
-    if(!geometry)return {};
-    if(const auto* part=workspace_.open_part(id)){
-        if(reference.kind==kernel::MeasurementKind::Object){
-            // A single-owner snapshot is the selected source solid. Never use
-            // a later multi-feature total as the volume of an earlier object.
-            for(const auto& result:part->session.calculated_boundaries()){
-                const auto& faces=result.mesh.original_references.triangle_references;
-                if(!faces.empty()&&std::ranges::all_of(faces,[&](const auto& ref){return ref.owner_id==reference.owner_id;})){
-                    geometry->values.volume=kernel::MeasurementValue{std::abs(result.volume),false};
-                    geometry->values.area=kernel::MeasurementValue{std::abs(result.surface_area),false};break;
-                }
-            }
-        }
-        if(geometry->values.volume)if(const auto density=document::material_density_kg_mm3(part->session.document()))
-            geometry->values.mass=kernel::MeasurementValue{geometry->values.volume->value * *density,geometry->values.volume->approximate};
-    }
-    return geometry;
+    return workspace::resolve_measurement(workspace_,id,reference,viewer_->mesh());
 }
+
 QString AssemblyWorkspaceWindow::measurement_label(const Ref& ref)const{
     QString type;
     switch(ref.kind){

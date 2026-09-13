@@ -8,6 +8,7 @@
 #include "stl_export_test_support.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/document/file_path.hpp>
+#include <zima/document/measurement_record.hpp>
 #include <zima/drawing/measurement_dimension.hpp>
 #include <zima/interchange/step_model.hpp>
 #include <zima/interchange/dxf.hpp>
@@ -210,6 +211,22 @@ int main(int argc,char** argv){
         std::vector<kernel::BodyResult> appearance_cache;const auto appearance_saved=document::PartDocument::load(project/"appearance-cli.prtz",&appearance_cache);
         require(appearance_saved.appearance.bodies.at(appearance_saved.body_history.active_body_id()).color=="#5588CC"&&
             std::abs(appearance_cache.back().volume-6000)<1e-6,"CLI appearance persistence changed geometry");
+
+        const auto measure_owner=appearance_saved.history.front().id;
+        const auto measure_query=command({{"command","measurement.evaluate"},{"arguments",{{"references",Json::array({
+            {{"kind","object"},{"owner",measure_owner}}})}}}});
+        const auto measurement_stamp=fs::last_write_time(project/"appearance-cli.prtz");
+        result=launch(executable,root,common+QStringList{"--command","open appearance-cli.prtz","--command",measure_query,"--command","measurement.list"});
+        require(result.exit_code==0&&result.results()[1]["data"]["values"][0]["volume"]["value"]==6000&&
+            result.results()[2]["data"]["total"]==0&&fs::last_write_time(project/"appearance-cli.prtz")==measurement_stamp,
+            "CLI measurement evaluation or empty list mutated the native Part");
+        auto measurement_row=result.results()[1].at("data");measurement_row["id"]="cli-control";measurement_row["name"]="Control";
+        measurement_row["body_id"]=appearance_saved.body_history.active_body_id();measurement_row["after_object_id"]=measure_owner;
+        auto measured_part=appearance_saved;measured_part.measurements=document::parse_measurements(Json::array({measurement_row}).dump());
+        measured_part.save(project/"measurement-cli.prtz",appearance_cache);
+        result=launch(executable,root,common+QStringList{"--command","open measurement-cli.prtz","--command","measurement.get cli-control","--command","measurement.list"});
+        require(result.exit_code==0&&result.results()[1]["data"]["saved_values"]==true&&result.results()[2]["data"]["total"]==1&&
+            result.results()[1]["data"]["values"]==measurement_row["values"],"CLI could not read native saved measurements");
 
         auto section_source=appearance_saved;auto section=document::create_section();
         static_cast<void>(section.sketch.add_segment(-20,0,20,0));

@@ -49,7 +49,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Výkresy | Listy, šablony, historie, tvorba/vlastnosti/dotazy/mazání pohledů, regenerace, modelové anotace, Show/Erase a měřené kóty (dotazy, tvorba, editace, řetězec, mazání), razítko, zdrojové parametry BOM, PDF, DXF a PNG/JPEG listu/výřezu hotovy | Další anotace, zdrojové styly šraf a příkazový snímek interaktivního View |
 | Vzhled | Společné operace GUI/CLI hotovy | `appearance.get/set/reset/faces/palette`: styly Partu a jednotlivých výskytů, skupiny ploch, dědění zdroje, reset, historie a nativní uložení; bez výpočtu těles |
 | Řezy | Čtení, tvorba, vlastnosti, aktivace a odstranění | `section.list/get/components/create/set/activate/delete`: úplná otevřená čára, vlastní skica, společné OK vlastností, číselné umístění, přesné výskyty a šrafování; `section.sketch.edit` upravuje celou skicu v jedné transakci; zbývá vstup referencí umístění |
-| Měření | Zbývá | Datové operace a uložené výsledky |
+| Měření | Čtení a vyhodnocení | `measurement.list/get/evaluate`; tvorba a změna uložených záznamů zbývá |
 | Parametry, relace a materiál | Společné tabulky a transakce hotovy | Parametry, jednotky, přesnost, relace, materiál včetně přímého načtení knihovny a uložené varianty; řízení rozměrů relacemi a generování variant nejsou dosud zavedené ani v GUI |
 | Import a export | Import Partu/Assembly STEP/IGES/DXF a základní exporty hotovy | Společný STEP včetně vnořených sestav, STL Part/vnořená Assembly, DXF úsečky/osy/body/kružnice/oblouky/elipsy/spline/trimy/offsety; DXF do vložených profilů hotov; zbývá DXF text/rohová zaoblení, import POINT/neohraničených spline a snímek interaktivního View |
 
@@ -1242,3 +1242,21 @@ v testovacích vstupech. Po jejich opravě a novém sestavení prošla dotčená
 sada **7/7 za 68,55 s**, včetně skutečného CLI a GUI vlastností. Katalog
 má **226 příkazů**, sada **127 testů**. Další oblastí CLI jsou měření
 nad již vypočtenou geometrií a ukládání jejich záznamů.
+
+
+## Čtení a vyhodnocení měření (2026-09-13)
+
+`measurement.list/get/evaluate` čtou poslední uložené záznamy nebo měří
+jednu či dvě původní reference nad aktuálně vypočtenou geometrií. Sdílejí
+s GUI jeden geometrický modul bez Qt a stejné doplnění přesných fyzikálních
+hodnot. Rozlišují přesné výskyty, uložené a čerstvé hodnoty, nedostupné
+reference, jednotky a aproximace. Čtení neukládá soubory, nemění historii
+ani nepřepočítává tělesa. Podrobnosti: [MEASUREMENT.md](MEASUREMENT.md).
+
+Úplné sestavení obou aplikací a všech testovacích programů prošlo.
+Integrace: **5/6 za 87,48 s**; stará kontrola velikosti katalogu byla
+aktualizována z 226 na 229. Následně katalog a celý start s překlady
+prošly **2/2 za 96,19 s**, rozšířená kontrola měření osy a přesnosti kružnice
+**1/1 za 0,25 s**. Skutečný CLI proces, GUI inspector i celá konzole prošly.
+Katalog má **229 příkazů**, sada **128 testů**. Následuje společná transakce
+pro vytvoření, změnu a odstranění uloženého měření.
