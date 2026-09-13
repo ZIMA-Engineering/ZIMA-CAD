@@ -380,3 +380,9 @@ nebo 3D křivku v aktivním Partu či Assembly. Respektuje vlastnictví tělesa 
 v Assembly odmítne konstrukci, na kterou odkazuje jiný objekt. Má jeden krok Undo/Redo.
 Vlastněné body a vložené dráhy se upravují přes rodičovské příkazy.
 Podrobnosti: [CONSTRUCTION_REMOVAL.md](CONSTRUCTION_REMOVAL.md).
+
+Barvy a vzhled zpřístupňují `appearance.get/set/reset/faces/palette`. Styl
+tělesa i skupiny ploch používají společnou transakci s GUI. V sestavě lze
+přepsat jednotlivý výskyt nebo obnovit dědění ze zdroje bez přepočtu modelu.
+Rozsah, identitu ploch a příklady popisuje
+[APPEARANCE_COMMANDS.md](APPEARANCE_COMMANDS.md).

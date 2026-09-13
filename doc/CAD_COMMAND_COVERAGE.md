@@ -47,7 +47,8 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Zrcadlo a pole | Hotovo pro Part a bezprostřední komponenty Assembly | `derived_copy.sources`, `mirror.create/get/set`, `pattern.create/get/set`: společné zdroje a potvrzení GUI/CLI, roviny/osy, lineární i kruhové režimy, umístění, zámky, neuložené zdroje a Undo/Redo; vnořená aktivace patří do řádku Sestavy |
 | Sestavy | Dotazy, vložení, otevření zdrojů, vlastnosti, odstranění a přesná aktivace hotovy | `component.set`: název, viditelnost, potlačení, uzemnění, umístění a všechny čtyři druhy vložených vazeb s mezemi/zámky; `component.remove` sdílí kontrolu závislostí a atomické mazání s GUI; `component.activate/deactivate` sdílejí přesný zdrojový kontext s GUI; souhrny referencí jsou společné pro Assembly Undo a explicitní regeneraci; zbývají řezy, oprava řetězce vazeb čeká na konkrétní souhlas |
 | Výkresy | Listy, šablony, historie, tvorba/vlastnosti/dotazy/mazání pohledů, regenerace, modelové anotace, Show/Erase a měřené kóty (dotazy, tvorba, editace, řetězec, mazání), razítko, zdrojové parametry BOM, PDF, DXF a PNG/JPEG listu/výřezu hotovy | Další anotace, zdrojové styly šraf a příkazový snímek interaktivního View |
-| Řezy, měření a vzhled | Zbývá | Datové operace a uložené výsledky |
+| Vzhled | Společné operace GUI/CLI hotovy | `appearance.get/set/reset/faces/palette`: styly Partu a jednotlivých výskytů, skupiny ploch, dědění zdroje, reset, historie a nativní uložení; bez výpočtu těles |
+| Řezy a měření | Zbývá | Datové operace a uložené výsledky |
 | Parametry, relace a materiál | Společné tabulky a transakce hotovy | Parametry, jednotky, přesnost, relace, materiál včetně přímého načtení knihovny a uložené varianty; řízení rozměrů relacemi a generování variant nejsou dosud zavedené ani v GUI |
 | Import a export | Import Partu/Assembly STEP/IGES/DXF a základní exporty hotovy | Společný STEP včetně vnořených sestav, STL Part/vnořená Assembly, DXF úsečky/osy/body/kružnice/oblouky/elipsy/spline/trimy/offsety; DXF do vložených profilů hotov; zbývá DXF text/rohová zaoblení, import POINT/neohraničených spline a snímek interaktivního View |
 
@@ -1127,3 +1128,17 @@ a doplňkový test obnovy vlastněných referencí **1/1 za 0,22 s**. Zahrnuty j
 samostatný CLI proces, skutečný GUI dialog, nativní geometrie a překlady.
 Podrobnosti: [NATIVE_HOLE_COMMANDS.md](NATIVE_HOLE_COMMANDS.md).
 Katalog má **213 příkazů**. Následují společné operace vzhledu.
+
+## Společný vzhled Partu a výskytů Assembly (2026-09-13)
+
+`appearance.get/set/reset/faces/palette` sdílejí nastavení a potvrzení s GUI.
+Skupiny ploch používají uložené výsledné identity, změna jednoho výskytu
+neobarví sourozence ani zdroj. Odvozená tělesa mají vlastní mapování ploch
+i při vložení zdroje do sestavy. GUI změna barvy zachovává přesná nedotčená
+čísla, nezměněné OK nevytváří historii a nezměněná paleta se nezapisuje.
+
+Po úplném sestavení prošla **celá sada 122/122 za 531,19 s**, včetně
+skutečného CLI procesu, GUI konzole, vizuálního kontraktu vzhledu,
+nativních dokumentů, startu a překladů. Podrobnosti a logy:
+[APPEARANCE_COMMANDS.md](APPEARANCE_COMMANDS.md). Katalog má **218 příkazů**.
+Následují uložené definice řezů a jejich společné datové operace.

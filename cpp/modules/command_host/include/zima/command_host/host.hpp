@@ -19,7 +19,7 @@ struct Interaction {
     Json selection=nullptr, hover=nullptr, camera=nullptr;
     Json pointer={{"inside_view",false}};
 };
-enum class ChangeKind { Open, New, Save, Regenerate, History, Model, Activate, Occurrence, Close, Copy, Directory, Metadata };
+enum class ChangeKind { Open, New, Save, Regenerate, History, Model, Activate, Occurrence, Close, Copy, Directory, Metadata, Appearance };
 struct Change { ChangeKind kind; std::string document_id; bool clear_selection{}; };
 enum class Activity { Read, Write, Export };
 struct Options {
@@ -61,6 +61,7 @@ private:
     void register_sweep_commands();
     void register_opening_commands();
     void register_hole_commands();
+    void register_appearance_commands();
     void register_drill_point_commands();
     void register_shell_commands();
     void register_edge_treatment_queries();

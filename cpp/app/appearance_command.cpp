@@ -1,3 +1,4 @@
+#include <zima/workspace/appearance_operations.hpp>
 #include "appearance_dialog.hpp"
 #include "assembly_workspace_window.hpp"
 #include <QAction>
@@ -11,42 +12,9 @@
 #include <zima/document/appearance.hpp>
 #include <zima/document/body_history.hpp>
 namespace zima::app {
-namespace {
 using kernel::Appearance;
 using kernel::SurfaceStyle;
-void original_colors(Appearance &a, const std::string &body,
-                     const std::map<std::string, std::string> &faces) {
-  a.body.color = body;
-  for (const auto &[key, color] : faces) {
-    bool assigned = false;
-    for (const auto &g : a.groups)
-      if (std::ranges::find(g.faces, key) != g.faces.end())
-        assigned = true;
-    if (!assigned)
-      a.groups.push_back({"face-" + key,
-                          "Plochy " + std::to_string(a.groups.size() + 1),
-                          {},
-                          SurfaceStyle{color, .55, 0},
-                          {key}});
-  }
-}
-Appearance part_appearance(const document::PartDocument &doc) {
-  auto a = doc.appearance;
-  original_colors(a, doc.body_color, doc.face_colors);
-  a.owner_bodies.clear();
-  for (const auto &c : doc.history)
-    if (const auto *b = doc.body_history.owner(c.id))
-      a.owner_bodies[c.id] = b->scope.id;
-  return a;
-}
-std::map<std::string, std::string> face_colors(const Appearance &a) {
-  std::map<std::string, std::string> colors;
-  for (const auto &g : a.groups)
-    for (const auto &f : g.faces)
-      colors[f] = g.style.color;
-  return colors;
-}
-} // namespace
+using workspace::part_appearance;
 void AssemblyWorkspaceWindow::show_body_color_dialog() {
   if (properties_dialog_ || tree_edit_dialog_ || !section_dialog_.isNull())
     return;
@@ -82,13 +50,10 @@ void AssemblyWorkspaceWindow::show_body_color_dialog() {
           tr("Vyberte konkrétní Part v podsestavě a aktivujte jeho vlastnící sestavu."));
       return;
     }
-    initial = occurrence->appearance_override.value_or(occurrence->appearance);
-    if (!occurrence->appearance_override)
-      original_colors(
-          initial,
-          occurrence->body_color_override.value_or(occurrence->body_color),
-          occurrence->face_colors);
+    initial = workspace::occurrence_appearance(workspace_, *occurrence);
   }
+  const auto edit = workspace::prepare_appearance_edit(workspace_, active, occurrence_id, body_id);
+  initial = edit.initial;
   const auto palette_path = QFileInfo(application_settings_.config_path)
                                 .absoluteDir()
                                 .filePath("appearances.json");
@@ -106,38 +71,27 @@ void AssemblyWorkspaceWindow::show_body_color_dialog() {
       return;
     }
   const auto builtin_count = document::default_surface_palette().size();
+  const auto initial_custom = document::serialize_palette(
+      std::vector<kernel::NamedStyle>(palette.begin()+builtin_count,palette.end()));
   auto *dialog = new AppearanceDialog(
       initial, body_id, std::move(palette),
       [this, path](const Appearance &a) {
         update_viewer_body_colors(&a, path);
       },
-      [this, active, owner_id, occurrence_id, palette_path,
-       builtin_count](const Appearance &a, const auto &palette) {
+      [this, edit, palette_path,
+       builtin_count, initial_custom](const Appearance &a, const auto &palette) {
         std::vector<kernel::NamedStyle> custom(palette.begin() + builtin_count,
                                                palette.end());
-        QSaveFile file(palette_path);
-        if (!file.open(QIODevice::WriteOnly))
-          throw std::runtime_error("Nelze uložit paletu vzhledů");
-        const auto bytes =
-            QByteArray::fromStdString(document::serialize_palette(custom));
-        if (file.write(bytes) != bytes.size() || !file.commit())
-          throw std::runtime_error("Uložení palety selhalo");
-        if (auto *target = workspace_.open_part(active)) {
-          auto next = target->session.document();
-          next.appearance = a;
-          next.body_color = a.body.color;
-          next.face_colors = face_colors(a);
-          target->session.commit(std::move(next),
-                                 target->session.calculated_boundaries());
-        } else {
-          auto *assembly_target = workspace_.open_assembly(owner_id);
-          auto next = assembly_target->session.document();
-          auto *occurrence = next.find_occurrence(occurrence_id);
-          if (!occurrence)
-            throw std::runtime_error("Komponenta již neexistuje");
-          occurrence->appearance_override = a;
-          assembly_target->session.commit(std::move(next));
+        const auto serialized = document::serialize_palette(custom);
+        if (serialized != initial_custom) {
+          QSaveFile file(palette_path);
+          if (!file.open(QIODevice::WriteOnly))
+            throw std::runtime_error("Nelze uložit paletu vzhledů");
+          const auto bytes = QByteArray::fromStdString(serialized);
+          if (file.write(bytes) != bytes.size() || !file.commit())
+            throw std::runtime_error("Uložení palety selhalo");
         }
+        static_cast<void>(workspace::commit_appearance(workspace_, edit, a));
         update_viewer_body_colors();
       },
       [this, path](const std::vector<std::string> &keys) {
@@ -234,11 +188,7 @@ void AssemblyWorkspaceWindow::update_viewer_body_colors(
           owner->session.document().find_occurrence(address->occurrence_id);
       if (!occurrence)
         continue;
-      auto a = occurrence->appearance_override.value_or(occurrence->appearance);
-      if (!occurrence->appearance_override)
-        original_colors(
-            a, occurrence->body_color_override.value_or(occurrence->body_color),
-            occurrence->face_colors);
+      const auto a = workspace::occurrence_appearance(workspace_, *occurrence);
       add(a, path);
     }
     if (const auto *active =

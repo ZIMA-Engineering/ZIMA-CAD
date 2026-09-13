@@ -65,6 +65,7 @@ void Host::register_commands(){
     register_sweep_commands();
     register_opening_commands();
     register_hole_commands();
+    register_appearance_commands();
     register_drill_point_commands();
     register_shell_commands();
     register_edge_treatment_queries();

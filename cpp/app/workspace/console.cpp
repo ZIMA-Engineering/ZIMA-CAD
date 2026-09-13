@@ -71,6 +71,7 @@ Result AssemblyWorkspaceWindow::execute_console_command(const QString& text) {
 void AssemblyWorkspaceWindow::apply_console_change(const command_host::Change& change){
     using Kind=command_host::ChangeKind;
     if(change.clear_selection && viewer_)viewer_->clear_selection();
+    if(change.kind==Kind::Appearance){update_viewer_body_colors();refresh_tabs();return;}
     if(change.kind==Kind::Metadata || change.kind==Kind::Model) {
         if(const auto* part=workspace_.open_part(change.document_id))setProperty("zimaDocumentDecimalPlaces",document_decimal_places(part->session.document()));
         else if(const auto* assembly=workspace_.open_assembly(change.document_id))setProperty("zimaDocumentDecimalPlaces",document_decimal_places(assembly->session.document()));

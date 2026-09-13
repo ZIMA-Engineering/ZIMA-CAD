@@ -203,6 +203,14 @@ int main(int argc,char** argv){
             std::ranges::any_of(drill_cache.back().mesh.triangle_references,[&](const auto& ref){return ref.owner_id==drill_created.id&&ref.semantic_key==kernel::drill_point_key("side",drill_parent);}),
             "CLI drill point changed its remaining source identity or saved an incorrect volume");
 
+        const auto appearance_style=command({{"command","appearance.set"},{"arguments",{{"style",{{"color","#5588CC"},{"roughness",.123456789},{"metallic",.75}}}}}});
+        result=launch(executable,root,common+QStringList{"--command","new part appearance-cli","--command","box.create 10 20 30",
+            "--command","appearance.faces","--command",appearance_style,"--command","undo","--command","redo","--command","save","--command","appearance.get"});
+        require(result.exit_code==0&&result.results()[2].at("data").at("total")==6&&result.results()[7].at("data").at("style").at("roughness")==.123456789,"CLI appearance faces/edit/Undo/Redo failed");
+        std::vector<kernel::BodyResult> appearance_cache;const auto appearance_saved=document::PartDocument::load(project/"appearance-cli.prtz",&appearance_cache);
+        require(appearance_saved.appearance.bodies.at(appearance_saved.body_history.active_body_id()).color=="#5588CC"&&
+            std::abs(appearance_cache.back().volume-6000)<1e-6,"CLI appearance persistence changed geometry");
+
         const auto make_hole=command({{"command","hole.create"},{"arguments",{{"diameter_mm",10},{"bore_length_mm",10},{"placement",{{"z",-20}}}}}});
         result=launch(executable,root,common+QStringList{"--command","new part native-hole-cli","--command","box.create 40 40 40",
             "--command",make_hole,"--command","save"});

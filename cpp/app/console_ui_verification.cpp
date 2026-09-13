@@ -244,6 +244,35 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
             const auto saved=document::PartDocument::load(directory/(stem+"-native-hole.prtz"),&cache);
             check(std::abs(cache.back().volume-(64000-std::acos(-1.0)*(16*10.123456789+4+1.0/3)))<1e-5,"GUI Hole saved wrong bore/chamfer volume");
         }
+        {
+            run(QString::fromStdString("new part "+stem+"-appearance"));run("box.create 40 40 40");
+            commands::Json set={{"command","appearance.set"},{"arguments",{{"style",{{"color","#2288CC"},{"roughness",.123456789},{"metallic",.456789123}}}}}};
+            run(QString::fromStdString(set.dump()));flush();const auto initial=run("appearance.get").data;
+            auto* action=window.findChild<QAction*>("customBodyColorAction");check(action&&action->isEnabled(),"Appearance action missing");
+            const auto open_appearance=[&]() {
+                action->trigger();flush();auto* dialog=window.findChild<QDialog*>("bodyColorPropertiesDialog");
+                check(dialog&&dialog->isVisible(),"Appearance properties did not open");return dialog;
+            };
+            const auto color=[&](QDialog* dialog,const QString& text) {
+                auto* field=dialog->findChild<QLineEdit*>("appearanceColor");check(field,"Appearance color input missing");field->setText(text);
+                check(QMetaObject::invokeMethod(field,"textEdited",Qt::DirectConnection,Q_ARG(QString,text)),"Appearance color event failed");flush();
+            };
+            auto* dialog=open_appearance();color(dialog,"#BB6633");
+            check(window.execute_console_command(QString::fromStdString(set.dump())).code=="editing_in_progress","Console overwrote appearance preview");
+            dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
+            check(run("appearance.get").data==initial,"Appearance Cancel changed stored style");
+            dialog=open_appearance();color(dialog,"#BB6633");
+            dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+            const auto edited=run("appearance.get").data;
+            check(QColor(QString::fromStdString(edited.at("style").at("color").get<std::string>()))==QColor("#BB6633")&&
+                edited.at("style").at("roughness")==.123456789&&edited.at("style").at("metallic")==.456789123,"GUI color edit rounded untouched style parameters");
+            dialog=open_appearance();dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+            check(run("appearance.get").data.at("revision")==edited.at("revision"),"Unchanged appearance OK added history");
+            run("undo");check(run("appearance.get").data.at("style")==initial.at("style"),"Appearance GUI edit did not undo once");
+            run("redo");run("save");
+            const auto saved=document::PartDocument::load(directory/(stem+"-appearance.prtz"));
+            check(QColor(QString::fromStdString(saved.appearance.bodies.at(saved.body_history.active_body_id()).color))==QColor("#BB6633"),"GUI appearance did not persist");
+        }
         commands::Json restore_box={{"command","open"},{"arguments",{{"path",path.generic_string()}}}};
         run(QString::fromStdString(restore_box.dump()));flush();
         const auto missing=(directory/(stem+"-missing.prtz")).generic_string();

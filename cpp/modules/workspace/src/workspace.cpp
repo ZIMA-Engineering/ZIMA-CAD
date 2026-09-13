@@ -1,3 +1,4 @@
+#include <zima/workspace/appearance_operations.hpp>
 #include <zima/workspace/part_transactions.hpp>
 #include <zima/workspace/workspace.hpp>
 #include <zima/workspace/reference_sources.hpp>
@@ -383,11 +384,7 @@ void Workspace::refresh_source_geometry() {
                         component.calculated_source=source;
                         component.body_color=part->session.document().body_color;
                         component.face_colors=part->session.document().face_colors;
-                        component.appearance=part->session.document().appearance;
-                        component.appearance.owner_bodies.clear();
-                        for(const auto& container:part->session.document().history)
-                            if(const auto* body=part->session.document().body_history.owner(container.id))
-                                component.appearance.owner_bodies[container.id]=body->scope.id;
+                        component.appearance=part_appearance(part->session.document());
                         component.density_kg_mm3=zima::document::material_density_kg_mm3(part->session.document());
                         component.mass_volume_mm3=std::abs(source->volume);
                         changed=true;
@@ -874,11 +871,7 @@ std::string Workspace::insert_open_part(
         part_snapshot(*part));
     occurrence.density_kg_mm3=zima::document::material_density_kg_mm3(part->session.document());
     occurrence.body_color = part->session.document().body_color;
-    occurrence.appearance = part->session.document().appearance;
-    occurrence.appearance.owner_bodies.clear();
-    for (const auto& container : part->session.document().history)
-        if (const auto* body = part->session.document().body_history.owner(container.id))
-            occurrence.appearance.owner_bodies[container.id] = body->scope.id;
+    occurrence.appearance = part_appearance(part->session.document());
     occurrence.face_colors = part->session.document().face_colors;
     const std::string occurrence_id = occurrence.occurrence_id;
     next.components.push_back(std::move(occurrence));
@@ -991,11 +984,7 @@ zima::assembly::AssemblyDocument Workspace::refreshed_assembly(
         occurrence.calculated_source = part_snapshot(*part);
         occurrence.density_kg_mm3=zima::document::material_density_kg_mm3(part->session.document());
         occurrence.body_color = part->session.document().body_color;
-    occurrence.appearance = part->session.document().appearance;
-    occurrence.appearance.owner_bodies.clear();
-    for (const auto& container : part->session.document().history)
-        if (const auto* body = part->session.document().body_history.owner(container.id))
-            occurrence.appearance.owner_bodies[container.id] = body->scope.id;
+        occurrence.appearance = part_appearance(part->session.document());
         occurrence.face_colors = part->session.document().face_colors;
         occurrence.source_path = part->path;
     }

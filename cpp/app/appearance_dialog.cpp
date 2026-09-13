@@ -285,8 +285,13 @@ void AppearanceDialog::editor_changed() {
   if (!color.isValid())
     return;
   auto &s = target_style();
-  s = {color.name(QColor::HexArgb).toStdString(), 1 - gloss_->value() / 100.0,
-       metal_->value() / 100.0};
+  // Changing one control must not round untouched values from CLI/native data.
+  if (QColor(QString::fromStdString(s.color)) != color)
+    s.color = color.name(QColor::HexArgb).toStdString();
+  if (gloss_->value() != qRound((1-s.roughness)*100))
+    s.roughness = 1-gloss_->value()/100.0;
+  if (metal_->value() != qRound(s.metallic*100))
+    s.metallic = metal_->value()/100.0;
   sphere_->set_body_surface_styles(s);
   body_button_->setIcon(
       style_icon(body_id_.empty() ? value_.body : value_.bodies.at(body_id_)));
