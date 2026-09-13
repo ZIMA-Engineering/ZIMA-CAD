@@ -1,5 +1,6 @@
 #include <zima/workspace/drawing_view_operations.hpp>
 #include <zima/command_host/host.hpp>
+#include <zima/workspace/template_operations.hpp>
 #include <zima/workspace/document_operations.hpp>
 #include <algorithm>
 #include <chrono>
@@ -41,6 +42,7 @@ Host::Host(workspace::Workspace& workspace,const kernel::OcctKernel& kernel,
 Interaction Host::interaction() const {
     auto state=options_.interaction?options_.interaction():Interaction{};
     if(state.active_occurrence.empty())state.active_occurrence=workspace_.active_occurrence_path();
+    state.template_document=state.template_document||workspace::is_drawing_template(workspace_,workspace_.active_document_id());
     return state;
 }
 std::string Host::tr(const char* text) const{return options_.translate?options_.translate(text):std::string(text);}
@@ -62,6 +64,7 @@ Result Host::execute(const Json& request){return run([&]{return dispatcher_.exec
 void Host::register_commands(){
     register_primitive_commands();
     register_profile_commands();
+    register_template_commands();
     register_assembly_cut_commands();
     register_sweep_commands();
     register_opening_commands();
@@ -102,7 +105,8 @@ void Host::register_commands(){
     dispatcher_.set_guard([this](const commands::Command& command){
         if(!command.changes_state)return Result::success();
         const auto state=interaction();
-        if(state.editing)return Result::failure("editing_in_progress",tr("Nejprve dokončete nebo zrušte otevřenou editaci."));
+        const bool template_command=command.name.starts_with("template.")||command.name=="undo"||command.name=="redo"||command.name=="close"||command.name=="activate";
+        if(state.editing&&!(state.template_document&&state.template_editor_ready&&template_command))return Result::failure("editing_in_progress",tr("Nejprve dokončete nebo zrušte otevřenou editaci."));
         if(command.name=="component.activate"||command.name=="component.deactivate")return Result::success();
         if(workspace_.active_document_id()!=workspace_.displayed_document_id()||!state.active_occurrence.empty()) {
             const auto& actual=workspace_.active_occurrence_path();

@@ -169,6 +169,7 @@ add_library(zima_workspace modules/workspace/src/workspace.cpp
     modules/workspace/src/hole_operations.cpp
     modules/workspace/src/opening_operations.cpp
     modules/workspace/src/opening_component_operations.cpp
+    modules/workspace/src/template_operations.cpp
     modules/workspace/src/opening_targets.cpp
     modules/workspace/src/shaft_thread_operations.cpp
     modules/workspace/src/drill_point_operations.cpp
@@ -194,6 +195,7 @@ add_library(zima_command_host
     modules/command_host/src/primitive_commands.cpp
     modules/command_host/src/assembly_cut_commands.cpp
     modules/command_host/src/profile_commands.cpp
+    modules/command_host/src/template_commands.cpp
     modules/command_host/src/sweep_commands.cpp
     modules/command_host/src/measurement_commands.cpp
     modules/command_host/src/section_commands.cpp
@@ -914,6 +916,10 @@ if(ZIMA_BUILD_TESTS)
     target_link_libraries(zima_cpp_box_command_tests PRIVATE zima_command_host)
     add_test(NAME zima_cpp_box_command_tests COMMAND zima_cpp_box_command_tests)
     set_tests_properties(zima_cpp_box_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
+    add_executable(zima_cpp_template_command_tests tests/template_command_tests.cpp)
+    target_link_libraries(zima_cpp_template_command_tests PRIVATE zima_command_host)
+    add_test(NAME zima_cpp_template_command_tests COMMAND zima_cpp_template_command_tests)
+    set_tests_properties(zima_cpp_template_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     add_executable(zima_cpp_command_host_tests tests/command_host_tests.cpp)
     target_link_libraries(zima_cpp_command_host_tests PRIVATE zima_command_host)
     add_test(NAME zima_cpp_command_host_tests COMMAND zima_cpp_command_host_tests)

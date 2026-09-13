@@ -372,7 +372,10 @@ void AssemblyWorkspaceWindow::sync_sketch_tool_action_checks() {
     set_checked(sketch_trim_action_, sketch_trim_active_);
     set_checked(sketch_universal_dimension_action_,
         sketch_universal_dimension_active_);
-    const bool command_active = sketch_point_active_ || sketch_segment_active_ ||
+    set_checked(selection_action_, !sketch_command_active());
+}
+bool AssemblyWorkspaceWindow::sketch_command_active() const {
+    return sketch_point_active_ || sketch_segment_active_ ||
         sketch_rectangle_active_ || sketch_polygon_active_ ||
         sketch_circle_active_ || sketch_arc_active_ || sketch_ellipse_active_ ||
         sketch_elliptical_arc_active_ || sketch_bspline_active_ ||
@@ -384,7 +387,6 @@ void AssemblyWorkspaceWindow::sync_sketch_tool_action_checks() {
         sketch_segment_pair_active_ || sketch_point_dimension_active_ ||
         sketch_universal_dimension_active_ ||
         sketch_line_pair_dimension_active_ || pending_sketch_dimension_.has_value();
-    set_checked(selection_action_, !command_active);
 }
 
 } // namespace zima::app

@@ -639,6 +639,7 @@ private:
     void insert_component(const std::string& source_document_id);
     void rebuild_application_toolbar();
     void sync_sketch_tool_action_checks();
+    [[nodiscard]] bool sketch_command_active() const;
     void update_application_actions();
     void set_active_application(ApplicationMode mode);
     void update_document_area_visibility();

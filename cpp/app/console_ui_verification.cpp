@@ -1,3 +1,5 @@
+#include <zima/drawing/drawing_template.hpp>
+#include <zima/sketcher/text_geometry.hpp>
 #include "primitive_properties_dialog.hpp"
 #include "../tests/drill_point_test_support.hpp"
 #include <QListWidget>
@@ -221,14 +223,18 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
             for(QTreeWidgetItemIterator it(model_tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==container&&
                 (*it)->data(0,Qt::UserRole+3).toString()==node_kind&&(*it)->data(0,Qt::UserRole+5).toString()==role){item=*it;break;}
             check(item,"Opening component missing from Tree");model_tree->clearSelection();model_tree->setCurrentItem(item);item->setSelected(true);model_tree->scrollToItem(item);flush();
-            bool invoked=false;QString issue;QTimer messages;messages.setInterval(10);
+            bool invoked=false;QString issue;QStringList offered;QTimer messages;messages.setInterval(10);
             QObject::connect(&messages,&QTimer::timeout,[&]{if(auto* box=qobject_cast<QMessageBox*>(QApplication::activeModalWidget())){issue=box->text();box->accept();}});
             QTimer timeout;timeout.setSingleShot(true);QObject::connect(&timeout,&QTimer::timeout,[&]{if(auto* menu=qobject_cast<QMenu*>(QApplication::activePopupWidget()))menu->close();});
             messages.start();timeout.start(8000);
             QTimer::singleShot(0,&window,[&]{auto* menu=qobject_cast<QMenu*>(QApplication::activePopupWidget());if(!menu)return;
+                for(auto* action:menu->actions())offered.append(action->objectName()+":"+action->text());
+                if(!action_name){invoked=true;menu->close();return;}
                 for(auto* action:menu->actions())if(action->objectName()==action_name){invoked=true;menu->setActiveAction(action);QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(menu,&enter);return;}menu->close();});
-            model_tree->customContextMenuRequested(model_tree->visualItemRect(item).center());messages.stop();timeout.stop();flush();
-            check(invoked&&issue.isEmpty(),"Opening component menu failed");
+            const auto menu_position=model_tree->visualItemRect(item).center();
+            check(model_tree->itemAt(menu_position)==item,"Context menu row is not visible");
+            model_tree->customContextMenuRequested(menu_position);messages.stop();timeout.stop();flush();
+            if(!invoked||!issue.isEmpty())throw std::runtime_error(std::string("Tree context menu failed: ")+(action_name?action_name:"dismiss")+"; offered="+offered.join(", ").toStdString()+"; issue="+issue.toStdString());
         };
         {
             run(QString::fromStdString("new part "+stem+"-native-hole"));run("box.create 40 40 40");
@@ -1500,6 +1506,38 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
             const auto removed=assembly::AssemblyDocument::load(directory/(stem+"-cut-"+kind+".asmz"));
             check(removed.cuts.size()==1&&removed.sketches.size()==1&&removed.cuts.front().definition.id==extra&&std::abs(removed.components.front().calculated_source->volume-996)<1e-5,"GUI removal left an orphan Sketch or incorrect cut body");
             run("undo");check(get().at("sketch")==sketch&&json_run("assembly.cut.list",commands::Json::object()).data.at("total")==2,"GUI cut removal Undo lost ownership");
+            json_run("close",{{"discard",true}});flush();
+        }
+        for(const bool title:{false,true}) {
+            const std::string name=stem+(title?"-template-title":"-template-frame"),suffix=title?".tblz":".frmz";
+            const auto created=json_run("template.new",{{"kind",title?"title_block":"drawing_format"},{"name",name}}).data;flush();
+            const auto operations=commands::Json::array({{{"command","sketch.segment.create"},{"arguments",{{"first",{0,0}},{"second",{-20,0}}}}},
+                {{"command","sketch.text.create"},{"arguments",{{"value","Console template"},{"position",{-5,3}},{"height_mm",2.5}}}}});
+            const commands::Json batch={{"command","template.sketch.edit"},{"arguments",{{"operations",operations}}}};
+            auto* line_action=window.findChild<QAction*>("sketchSegmentAction");check(line_action,"Missing template line action");line_action->trigger();flush();
+            check(window.execute_console_command(QString::fromStdString(batch.dump())).code=="editing_in_progress","Template command overwrote active drawing tool");
+            window.findChild<QAction*>("viewSelectionAction")->trigger();flush();
+            const auto made=run(QString::fromStdString(batch.dump())).data;flush();const auto text_id=made.at("results")[1].at("text").get<std::string>();
+            const auto edit_text=[&]() {
+                QTreeWidgetItem* item=nullptr;for(QTreeWidgetItemIterator it(model_tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==text_id){item=*it;break;}
+                check(item,"Template text missing from Tree");component_menu_action(text_id,"sketch-geometry","",nullptr);
+                check(!window.findChild<QDialog*>("sketchTextProperties"),"Dismissing text menu opened Properties");
+                component_menu_action(text_id,"sketch-geometry","","sketchGeometryPropertiesAction");
+                auto* dialog=window.findChild<QDialog*>("sketchTextProperties");check(dialog&&dialog->isVisible(),"Template text Properties did not open");return dialog;
+            };
+            auto* dialog=edit_text();check(dialog->findChild<QDoubleSpinBox*>("sketchTextHeight")->value()==2.5,"Template Properties lost CLI text size");
+            check(window.execute_console_command("template.save").code=="editing_in_progress","Template save interrupted Properties");
+            dialog->findChild<QDoubleSpinBox*>("sketchTextHeight")->setValue(4);
+            dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
+            dialog=edit_text();check(dialog->findChild<QDoubleSpinBox*>("sketchTextHeight")->value()==2.5,"Template Cancel changed text");
+            dialog->findChild<QDoubleSpinBox*>("sketchTextHeight")->setValue(4);dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+            run("template.save");const auto file=directory/(name+suffix);const auto load=[](auto& text){sketcher::rebuild_text_contours(text,true);};
+            check(drawing::load_template_sketch(file,load).texts.front().height==4,"GUI template edit did not persist through CLI Save");
+            run("undo");run("template.save");check(drawing::load_template_sketch(file,load).texts.front().height==2.5,"Template GUI edit did not Undo once");
+            run("redo");json_run("template.save",{{"path",name+"-copy"+suffix},{"copy",true}});flush();
+            check(drawing::load_template_sketch(directory/(name+"-copy"+suffix),load).texts.front().height==4,"Template Copy lost GUI changes");
+            json_run("close",{{"discard",true}});flush();json_run("template.open",{{"path",name+suffix}});flush();
+            check(json_run("template.get",commands::Json::object()).data.at("sketch")==created.at("sketch"),"GUI template reopen lost Sketch identity");
             json_run("close",{{"discard",true}});flush();
         }
         input->setText("context");QApplication::sendEvent(input,&enter);flush();

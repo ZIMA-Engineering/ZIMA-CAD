@@ -47,8 +47,10 @@ void Host::register_sketch_text_commands() {
         const std::vector<commands::Argument> fields={{"height_mm",false,Type::Number},{"angle_degrees",false,Type::Number},{"flipped",false,Type::Boolean},{"modeling_geometry",false,Type::Boolean},{"horizontal",false},{"vertical",false},{"color",false}};
         args.insert(args.end(),fields.begin(),fields.end());
         add_sketch_command({create?"sketch.text.create":"sketch.text.set",tr("Create or edit Sketch text with native outlines of the bundled font."),args},[create](Sketch& s,const Json& a) {
-            auto t=create?Sketch::create_text():text(s,a["text"].get<std::string>());const auto before=t;patch(t,a);
-            if(create||t!=before)sketcher::rebuild_text_contours(t);
+            auto t=create?Sketch::create_text():text(s,a["text"].get<std::string>());
+            if(create&&s.drawing_template){t.modeling_geometry=false;t.flipped=true;}
+            const auto before=t;patch(t,a);
+            if(create||t!=before)sketcher::rebuild_text_contours(t,s.drawing_template.has_value());
             if(create)s.add_text(t);else s.update_text(t);return data(text(s,t.id));
         });
     }

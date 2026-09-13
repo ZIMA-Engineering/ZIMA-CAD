@@ -1,3 +1,4 @@
+#include <zima/workspace/template_operations.hpp>
 #include <zima/ui/numeric_value_lock.hpp>
 #include "assembly_workspace_window.hpp"
 #include "file_dialog.hpp"
@@ -176,7 +177,7 @@ void AssemblyWorkspaceWindow::save_template_document(bool copy) {
     if(const auto other=workspace_.document_id_for_path(target);other&&*other!=id) {
         QMessageBox::warning(this,tr("Soubor je otevřen"),tr("Cílovou šablonu již upravujete v jiné kartě."));return;
     }
-    try {zima::drawing::save_template_sketch(*sketch,target);if(!copy){part->path=target;part->session.mark_saved();}
+    try {zima::workspace::save_drawing_template(workspace_,id,target,copy,true);
         working_directory_=target.parent_path();refresh_tabs();state_->setText(tr("Šablona uložena: %1").arg(QString::fromStdString(target.filename().string())));
     }catch(const std::exception& e){QMessageBox::critical(this,tr("Uložení šablony selhalo"),QString::fromUtf8(e.what()));}
 }

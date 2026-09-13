@@ -1,3 +1,5 @@
+#include <zima/drawing/drawing_template.hpp>
+#include <zima/sketcher/text_geometry.hpp>
 #include "derived_copy_query_test_support.hpp"
 #include "drill_point_test_support.hpp"
 #include <zima/kernel/drill_point_identity.hpp>
@@ -92,6 +94,20 @@ int main(int argc,char** argv){
             config.setValue("Application/Language","en");config.setValue("Units/Length","cm");config.sync();
         }
         const auto common=QStringList{"--working-directory",qpath(project),"--config",qpath(base)};
+        for(const bool title:{false,true}) {
+            const std::string kind=title?"title_block":"drawing_format",name=title?"CLI razítko":"CLI rámeček",suffix=title?".tblz":".frmz";
+            const auto operations=Json::array({{{"command","sketch.segment.create"},{"arguments",{{"first",{0,0}},{"second",{-20,0}}}}},
+                {{"command","sketch.text.create"},{"arguments",{{"value","Žluťoučký &name"},{"position",{-5,3}},{"height_mm",2.5}}}}});
+            result=launch(executable,root,common+QStringList{"--command",command({{"command","template.new"},{"arguments",{{"kind",kind},{"name",name}}}}),
+                "--command",command({{"command","template.sketch.edit"},{"arguments",{{"operations",operations}}}}),
+                "--command","undo","--command","redo","--command","template.save","--command","template.get"});
+            require(result.exit_code==0&&result.results()[1].at("data").at("body_calculated")==false&&result.results().back().at("data").at("texts")==1,"CLI template batch or history failed");
+            const auto file=project/fs::u8path(name+suffix);const auto load=[](auto& text){sketcher::rebuild_text_contours(text,true);};
+            const auto saved=drawing::load_template_sketch(file,load);require(saved.drawing_template->kind==kind&&saved.segments.size()==1&&saved.texts.front().value=="Žluťoučký &name"&&!saved.texts.front().modeling_geometry,"CLI template lost native data");
+            result=launch(executable,root,common+QStringList{"--command",command({{"command","template.open"},{"arguments",{{"path",name+suffix}}}}),
+                "--command",command({{"command","template.save"},{"arguments",{{"path",name+" copy"+suffix},{"copy",true}}}}),"--command","close"});
+            require(result.exit_code==0&&drawing::load_template_sketch(project/fs::u8path(name+" copy"+suffix),load).id==saved.id,"CLI template copy or reopen changed its identity");
+        }
         const auto shell_path=project/"shell-cli.prtz";
         auto shell_fixture=document::PartDocument::create_default();auto shell_box=document::PartDocument::create_box_container();shell_box.box={10,10,10};
         shell_fixture.insert_history_entry(document::PartHistoryKind::Feature,shell_box.id);shell_fixture.history.push_back(shell_box);

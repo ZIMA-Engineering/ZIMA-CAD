@@ -2158,41 +2158,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                     delete_part_object(target.id, target.kind, false);
                 }
             };
-            if (item->data(0, Qt::UserRole + 3).toString() ==
-                    "sketch-geometry") {
-                const auto geometry_id =
-                    item->data(0, Qt::UserRole).toString().toStdString();
-                const auto* sketch = active_sketch();
-                if (sketch == nullptr) return;
-                std::optional<bool> construction;
-                const auto inspect = [&](const auto& values) {
-                    const auto found = std::find_if(values.begin(), values.end(),
-                        [&](const auto& value) { return value.id == geometry_id; });
-                    if (found != values.end()) construction = found->construction;
-                };
-                inspect(sketch->segments); inspect(sketch->circles);
-                inspect(sketch->arcs); inspect(sketch->ellipses);
-                inspect(sketch->elliptical_arcs); inspect(sketch->bsplines);
-                QMenu menu(this);
-                QAction* role{};
-                if (construction) {
-                    role = menu.addAction(*construction
-                        ? tr("Převést na obrys profilu")
-                        : tr("Převést na pomocnou geometrii"));
-                }
-                auto* remove = menu.addAction(tr("Odstranit"));
-                const auto* selected = menu.exec(
-                    tree_->viewport()->mapToGlobal(position));
-                if (selected == role) {
-                    set_active_sketch_geometry_construction(
-                        geometry_id, !*construction);
-                } else if (selected == remove) {
-                    item->setSelected(true);
-                    tree_->setCurrentItem(item);
-                    synchronize_tree_selection();
-                    static_cast<void>(delete_selected_sketch_geometry());
-                }
-            } else if (item->data(0,Qt::UserRole+3).toString()=="part-treatment-component") {
+            if (item->data(0,Qt::UserRole+3).toString()=="part-treatment-component") {
                 if (properties_dialog_!=nullptr) return;
                 auto* part=workspace_.open_part(workspace_.active_document_id());
                 const auto id=item->data(0,Qt::UserRole).toString().toStdString();
@@ -2544,6 +2510,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                 QAction* role{};
                 if (text_geometry || bspline_geometry) {
                     properties = menu.addAction(tr("Vlastnosti…"));
+                    properties->setObjectName("sketchGeometryPropertiesAction");
                 }
                 if (construction) {
                     role = menu.addAction(*construction
@@ -2557,7 +2524,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                     show_sketch_text_properties(sketch_id, geometry_id);
                 } else if (selected == properties && bspline_geometry) {
                     show_sketch_bspline_properties(sketch_id, geometry_id);
-                } else if (selected == role) {
+                } else if (role && selected == role) {
                     set_active_sketch_geometry_construction(
                         geometry_id, !*construction);
                 } else if (selected == remove) {

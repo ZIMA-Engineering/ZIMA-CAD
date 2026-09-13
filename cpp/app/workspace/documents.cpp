@@ -1,4 +1,5 @@
 #include "workspace_internal.hpp"
+#include <zima/workspace/template_operations.hpp>
 #include <zima/workspace/document_operations.hpp>
 
 namespace zima::app {
@@ -133,13 +134,7 @@ QString AssemblyWorkspaceWindow::create_document(
     std::string id;
     try {
         if (document_type == "title_block" || document_type == "drawing_format") {
-            auto document = zima::document::PartDocument::create_default(); document.name=name;
-            auto sketch = zima::drawing::create_template_sketch(document_type=="title_block",name);
-            auto container=zima::document::PartDocument::create_sketch_container();
-            container.name=name;sketch.owner_container_id=container.id;
-            document.insert_history_entry(zima::document::PartHistoryKind::Feature,container.id);
-            document.history.push_back(std::move(container));document.sketches.push_back(std::move(sketch));
-            id=document.document_id;workspace_.add_part(std::move(document),{},path);
+            id=workspace::create_drawing_template(workspace_,document_type=="title_block",name,path);
         } else {
             const auto type=workspace::native_document_type(path);
             std::map<std::string,std::string> units;
@@ -244,13 +239,7 @@ bool AssemblyWorkspaceWindow::open_document_path(const QString& path) {
             update_status_operation(tr("Aktivuji již otevřený dokument…"));
             id = *already_open;
         } else if (path.endsWith(".frmz",Qt::CaseInsensitive) || path.endsWith(".tblz",Qt::CaseInsensitive)) {
-            auto sketch=zima::drawing::load_template_sketch(opened_path,[](auto& text){rebuild_sketch_text_contours(text,true);});
-            auto document=zima::document::PartDocument::create_default();document.name=opened_path.stem().string();
-            auto container=zima::document::PartDocument::create_sketch_container();container.name=sketch.name;
-            sketch.owner_container_id=container.id;
-            document.insert_history_entry(zima::document::PartHistoryKind::Feature,container.id);
-            document.history.push_back(std::move(container));document.sketches.push_back(std::move(sketch));
-            id=document.document_id;workspace_.add_part(std::move(document),{},opened_path);
+            id=workspace::open_drawing_template(workspace_,opened_path);
         } else {
             const auto type=workspace::native_document_type(opened_path);
             switch(type) {

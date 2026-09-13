@@ -15,6 +15,7 @@ struct Settings {
 struct Interaction {
     bool editing{};
     bool template_document{};
+    bool template_editor_ready{};
     std::string active_occurrence, active_sketch;
     Json selection=nullptr, hover=nullptr, camera=nullptr;
     Json pointer={{"inside_view",false}};
@@ -63,6 +64,7 @@ private:
     bool executing_{};
     std::optional<Change> change_;
     void register_commands();
+    void register_template_commands();
     void register_primitive_commands();
     void register_profile_commands();
     void register_assembly_cut_commands();
