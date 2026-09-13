@@ -75,3 +75,54 @@ Kompletní Windows Release regrese: **60/60 prošlo**, 383,35 s,
 výběru při aktivaci tělesa prošlo znovu **6/6** dotčených testů, 12,28 s,
 `build/body-commands-final-tests.log`. GUI i CLI byly přeloženy z konečného
 stavu (`build/body-commands-final-build.log`).
+
+
+## Přiřazení původní reference tělesu
+
+`body.reference.set` přiřadí jednomu poli existujícího tělesa původní referenci
+umístění. Tato etapa pokrývá tělesa Partu; modelovací prvky, konstrukce,
+řezy a odstranění reference zůstávají navazující prací.
+
+```json
+{"command":"body.reference.set","arguments":{"body":"ID-TELESA","index":0,"reference":{"owner":"ID-ZDROJE","key":"PUVODNI-KLIC"},"offset_mm":2}}
+```
+
+- `index`: 0–2 jsou poziční pole, 3 je FRONT, 4 TOP.
+- `reference`: povinné řetězce `owner` a `key`, volitelný `instance_path`.
+  V Partu je tato cesta místní, tedy prázdná. Jiné položky objektu se odmítnou.
+- `offset_mm`: vzdálenost od rovinného zdroje, výchozí 0. U zamčeného
+  pozičního pole se převezme naměřená současná vzdálenost a zámek zůstane.
+  U bodu, osy a orientačního pole se nenulové `offset_mm` odmítne.
+- `flip`: obrácení směru reference, výchozí false.
+- `derive_orientation`: stávající automatické doplnění orientačního pole
+  při výběru rovinné poziční reference, výchozí true.
+- `document`: volitelné ID otevřeného Partu podle společného cílení příkazů.
+
+Zdrojem smí být počátek Partu nebo původní geometrie předchozího tělesa
+podle pořadí grafu. Stejné omezení používá okno vlastností tělesa. Vlastní
+geometrie, pozdější těleso, neznámý zdroj a cizí cesta instance se odmítnou.
+Odvozené těleso nelze přímo měnit. Zdroj se hledá výhradně v uložených
+původních datech a geometrii počátků; jeho druh nelze podvrhnout vstupem.
+
+Příkaz používá sdílené přiřazení referenčního pole a stávající
+`prepare_body_edit` / `commit_body_edit` jako Body Properties. Úspěšná změna
+explicitně přepočítá těleso a tvoří jednu transakci Undo. Aktivní těleso se
+zachová. Shodné zadání nevytvoří nový výpočet nebo krok historie. Chyba
+nezanechá částečnou změnu grafu ani geometrie. Výstup je `body.get` doplněné
+o `changed`; následné čtení `body.get` / `placement.get` nic nepřepočítává.
+
+Modelový test ověřil skutečný posun o 13 mm při zachování objemu 24 mm³,
+závislost na předchozím tělese, převzetí zamčené vzdálenosti, reakci na
+změnu zdroje, FRONT, chyby bez částečné změny, Undo/Redo a nativní Part.
+Původní test mylně zadal globální počet operací do dotazu na lokální hranici
+tělesa; po opravě testu na jednu operaci cílového tělesa prošel **1/1 za 0,17 s**
+(`build/body-reference-model-fixed-tests.log`). Po sestavení obou aplikací
+prošla integrace **10/10 za 105,00 s**, včetně CLI, obousměrného GUI,
+překladů, zámků a historie. Doplněná kontrola původní horní plochy kvádru
+(výsledná poloha Z=33 mm), bodu a odmítnutí neúčinného offsetu prošla
+**1/1 za 0,17 s** (`build/body-reference-topology-final-tests.log`).
+Při doplnění testu bylo nutné ponechat výsledek dotazu na plochy naživu po
+celou iteraci a zohlednit, že nativní kvádr je vystředěný. Produkční zdroje
+ploch se neměnily. Finální sestavení obou aplikací i všech testovacích
+programů následovala úplná regrese **135/135 za 551,56 s**, bez chyby
+(`build/body-reference-full-build.log`, `build/body-reference-full-tests.log`).

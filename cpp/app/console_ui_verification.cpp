@@ -374,6 +374,17 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
         check(run(QString::fromStdString("body.get "+tool_body)).data.at("name")=="GUI tool","GUI Body properties did not reach command model");
         run("undo");check(run(QString::fromStdString("body.get "+tool_body)).data.at("name")=="Tool","Body edit lost shared Undo");run("redo");
+        const auto base_origin=run(QString::fromStdString("body.get "+base_body)).data.at("origin").get<std::string>();
+        const commands::Json body_reference={{"command","body.reference.set"},{"arguments",{{"body",tool_body},{"index",0},{"reference",{{"owner",base_origin},{"key","origin:plane:xy"}}},{"offset_mm",7}}}};
+        run(QString::fromStdString(body_reference.dump()));edit_object(tool_body,"part-body");properties=visible_properties("bodyName");check(properties,"Referenced Body Properties missing");
+        auto* body_reference_table=properties->findChild<QTableWidget*>("bodyReferenceTable");check(body_reference_table,"Body reference table missing");
+        auto* body_offset=qobject_cast<QDoubleSpinBox*>(body_reference_table->cellWidget(0,2));check(body_offset&&std::abs(body_offset->value()-7)<1e-8,"Body Properties did not consume CLI reference offset");
+        check(window.execute_console_command(QString::fromStdString(body_reference.dump())).code=="editing_in_progress","Body reference overwrote pending Properties");
+        body_offset->setValue(9);properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+        const auto body_reference_read=run(QString::fromStdString("body.get "+tool_body)).data.at("placement");
+        check(body_reference_read.at("z")==9&&body_reference_read.at("references")[0].at("owner_id")==base_origin,"GUI Body reference edit lost CLI source or offset");
+        run("undo");check(run(QString::fromStdString("body.get "+tool_body)).data.at("placement").at("z")==7,"GUI Body reference Undo lost command value");
+        run("undo");check(run(QString::fromStdString("body.get "+tool_body)).data.at("placement").at("z")==0,"Body reference Undo did not restore original attachment");
         const auto boolean=run(QString::fromStdString("body.boolean.create subtract "+base_body+" "+tool_body)).data.at("boolean").get<std::string>();flush();
         edit_object(boolean,"part-body-boolean");properties=visible_properties("bodyBooleanOperation");check(properties,"Body Boolean Properties missing");
         auto* boolean_mode=properties->findChild<QComboBox*>("bodyBooleanOperation");

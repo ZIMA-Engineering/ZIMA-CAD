@@ -379,6 +379,16 @@ int main(int argc,char** argv){
         require(placed_native.history.front().placement.rotation_z == 90 && std::abs(placed_bodies.back().volume - 6000) < 1e-7,
             "CLI placement lost its saved angle or changed solid volume");
 
+        result=launch(executable,root,common+QStringList{"--command","new part cli-body-references","--command","box.create 10 10 10","--command","body.create Follower","--command","box.create 2 3 4","--command","save"});
+        require(result.exit_code==0,"CLI Body reference fixture failed");
+        const auto body_reference_path=project/"cli-body-references.prtz";const auto body_reference_fixture=document::PartDocument::load(body_reference_path);
+        const auto body_reference_source=body_reference_fixture.body_history.bodies().front().origin().id,body_reference_target=body_reference_fixture.body_history.bodies().back().scope.id;
+        const auto body_reference_command=command({{"command","body.reference.set"},{"arguments",{{"body",body_reference_target},{"index",0},{"reference",{{"owner",body_reference_source},{"key","origin:plane:xy"}}},{"offset_mm",7}}}});
+        result=launch(executable,root,common+QStringList{"--command","open cli-body-references.prtz","--command",body_reference_command,"--command","undo","--command","redo","--command","save","--command","body.get "+QString::fromStdString(body_reference_target)});
+        require(result.exit_code==0&&result.results()[5].at("data").at("placement").at("z")==7,"CLI Body reference or history failed");
+        const auto referenced_body=document::PartDocument::load(body_reference_path).body_history.find(body_reference_target)->scope.placement;
+        require(referenced_body.z==7&&referenced_body.references[0].owner_id==body_reference_source&&referenced_body.references[0].offset==7,"CLI lost native Body source or offset");
+
         const auto create_plane = command({{"command","construction.create"},{"arguments",{{"kind","plane"},{"name","CLI rovina žluťoučká"},
             {"base_plane","yz"},{"offset_mm",10},{"values",{{"x",1},{"y",2},{"z",3},{"rotation_z",90}}}}}});
         result=launch(executable,root,common+QStringList{"--command","new part construction-created","--command",create_plane,"--command","save"});

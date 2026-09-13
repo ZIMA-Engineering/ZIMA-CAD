@@ -1,5 +1,6 @@
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/body_operations.hpp>
+#include <zima/workspace/body_reference_operations.hpp>
 #include <zima/document/placement_json.hpp>
 #include <algorithm>
 #include <cctype>
@@ -99,6 +100,18 @@ void Host::register_body_commands() {
         if(args.contains("visible"))value.visible=args["visible"].get<bool>();
         const auto changed=workspace::commit_body_edit(workspace_,kernel_,edit,std::move(value),args.value("active",edit.original.active_body_id()==edit.object_id));
         auto result=body_data(state,edit.object_id);result["changed"]=changed;return result;
+    });
+    add({"body.reference.set",tr("Assign an original placement reference to a Body using the shared Properties transaction."),
+        {{"body",true},{"index",true,commands::ArgumentType::Integer},{"reference",true,commands::ArgumentType::Object},
+         {"offset_mm",false,commands::ArgumentType::Number},{"flip",false,commands::ArgumentType::Boolean},{"derive_orientation",false,commands::ArgumentType::Boolean},{"document",false}},true},[this](const Json& args) {
+        auto& state=part(workspace_,args);const auto& ref=args.at("reference");
+        const auto invalid=[] {throw workspace::BodyOperationError("invalid_arguments","Specify owner, key and an optional local instance_path for the Body reference.");};
+        for(const auto& [key,item]:ref.items())if((key!="owner"&&key!="key"&&key!="instance_path")||!item.is_string())invalid();
+        if(!ref.contains("owner")||!ref.contains("key")||args.at("index")<0||args.at("index")>4)invalid();
+        document::ConstructionReference source;source.owner_id=ref.at("owner").get<std::string>();source.semantic_key=ref.at("key").get<std::string>();source.instance_path=ref.value("instance_path",std::string{});
+        source.offset=args.value("offset_mm",0.0);source.flip=args.value("flip",false);
+        const auto body=args.at("body").get<std::string>();const auto changed=workspace::set_body_placement_reference(workspace_,kernel_,state.session.document().document_id,body,args.at("index").get<std::size_t>(),std::move(source),args.value("derive_orientation",true));
+        auto result=body_data(state,body);result["changed"]=changed;return result;
     });
     add({"body.activate",tr("Activate a Body; omit its ID to deactivate it."),{{"body",false},{"document",false}},true},[this](const Json& args) {
         auto& state=part(workspace_,args);
