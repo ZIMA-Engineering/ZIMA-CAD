@@ -185,7 +185,8 @@ Uzavřená spline musí mít shodné koncové souřadnice v toleranci 1e-8 mm.
 Geometrie musí ležet v rovině XY zdrojového DXF; cílová rovina existující
 skici se přitom nemění. Měřítko a jednotky ovlivňují souřadnice a osy,
 nikoli uzly nebo váhy. `XLINE` se uloží jako nekonečná pomocná osa.
-Samostatné `POINT` zůstávají výslovným varováním ve výsledku importu.
+Samostatné `POINT` jsou nyní podporované; podrobnosti jsou v následující
+části o bodových importech.
 
 Každý soubor se nejprve převede do samostatného návrhu importního bloku.
 Teprve celý ověřený blok se připojí ke kopii cílové skici. Kružnice ani
@@ -211,3 +212,47 @@ odmítly úklid; po uzavření streamu prošel i úklid. Produkční importer se
 neměnil. GUI odpovídá `build/cpp-windows-release/zima-cad-dxf-import-validation.exe`;
 běžící uživatelský CAD nebyl nahrazován. Katalog zůstává na 152 příkazech,
 nativní datový formát a startovací šablony se nemění.
+
+
+## Samostatné DXF body (2026-09-13)
+
+`import.dxf` přijímá rovinné entity POINT včetně souboru obsahujícího
+pouze body. Každý výslovný POINT dostane vlastní stabilní ZIMA identitu,
+i když leží přesně na jiném bodu nebo na konci úsečky. Křivky nadále
+sdílejí shodné vrcholy pouze uvnitř svého importu. Opakované načtení
+souboru neváže nové body na předchozí blok.
+
+Hladina CONSTRUCTION zachová příznak pomocného bodu. Jednotky `$INSUNITS`
+jsou autoritativní; `unitless_scale_mm` se použije jen u souboru bez
+jednotek. Prostorový bod, neúplné či nekonečné souřadnice, přetečení
+měřítka nebo překročení `maximum_entities` odmítnou celý import a
+zachovají vstupní skicu i historii.
+
+Používají se existující pole importního bloku: `point_ids` pro všechny
+jeho body a `geometry_ids` pro jeho křivky. Seznam křivek smí být prázdný,
+pokud blok obsahuje body. Nativní pole ani přípony se nemění; není potřeba
+nový soubor nebo povinná cache. Bodový blok se dá transformovat stejnou
+modelovou operací jako dosavadní bloky. Individuální mazání vlastněného
+bodu nadále respektuje stávající ochranu celého importního bloku.
+
+Part bez zadaného `sketch` vytvoří vlastněnou skicu. Se zadaným ID přidá
+blok do dané skici Partu nebo Assembly. Import do Assembly bez ID skici
+vytvoří komponentu s nativním Partem obsahujícím body. Uložení a Undo/Redo
+zachovají všechny identity; nedochází k výpočtu tělesa kvůli bodové skice.
+Při zpětném exportu se explicitní body zapíší jako POINT; nepromění se
+v pouhé editační úchyty křivek.
+
+Modelové testy ověřují samostatné i smíšené entity, shodné souřadnice
+s rozdílnými ID, příznaky konstrukce, mm/palce/bezrozměrné soubory,
+přesný posun a otočení nového bloku bez změny starého, spojení bodů,
+neplatné pozdní entity, limity, nativní Part/Assembly a Undo/Redo.
+Modelová sada prošla **5/5 za 1,16 s** a rozšíření o vložení bodového
+Partu do sestavy **1/1 za 0,13 s**. Celková sada prošla **132/132 za
+553,70 s** (`build/dxf-points-full-tests.log`). Dodatečný test smíšeného
+bloku odhalil, že sloučení konců jeho poslední úsečky odpojilo také zbývající
+samostatné body. Blok se nyní zachová, pokud v něm tyto body zůstávají;
+dosavadní sloučení samotné úsečky do jednoho bodu zůstává beze změny.
+Oprava prošla **2/2 za 0,38 s**. Po opětovném sestavení obou aplikací
+a všech testů prošla závěrečná sada **7/7 za 72,34 s**, včetně skutečné
+CLI a importu přes nabídku GUI (`build/dxf-points-final-build.log`,
+`build/dxf-points-final-tests.log`).

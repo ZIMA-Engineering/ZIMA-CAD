@@ -148,9 +148,9 @@ neobnovuje externí reference a nemění parametry nebo závislosti skici.
 Samostatné body jsou `POINT`; středy a řídicí body křivek se jako další
 entity nezapisují. Nekonečná osa je `XLINE`, konečná pomocná úsečka zůstává
 `LINE`. Pomocná geometrie používá vrstvu `CONSTRUCTION`, ostatní `PROFILE`.
-Text a rohové zaoblení nadále vracejí `unsupported_geometry`, včetně ochrany
-již existujícího cíle. Navazující importní etapa už přijímá `ELLIPSE`,
-ohraničenou `SPLINE` a `XLINE`; samostatné `POINT` zatím hlásí varováním.
+V této původní etapě se text a rohové zaoblení ještě odmítaly; nynější
+podpora je popsána níže. Navazující importní etapy přijímají `ELLIPSE`,
+ohraničenou `SPLINE`, `XLINE` i samostatné `POINT`.
 Podmínky zpětného importu popisuje [IMPORT_COMMANDS.md](IMPORT_COMMANDS.md).
 
 Test čte skutečné skupinové kódy a nezávisle kontroluje analytický tvar
@@ -189,7 +189,8 @@ Každý uložený obrys textu se zapíše jako uzavřená 2D polyline s původn�
 souřadnicemi a orientací. Nevytváří se systémové písmo ani nová aproximace
 textu. Modelový text používá hladinu PROFILE, text určený jen k anotaci
 hladinu CONSTRUCTION. Při importu vzniknou běžné úsečky obrysu.
-Existující omezení importu samostatných POINT se tímto krokem nemění.
+Navazující bodová etapa importuje také samostatné POINT, takže je možné
+opětovně načíst celý export včetně samostatných bodů.
 
 Validace textu a materializace rohu doběhnou před otevřením cílového
 souboru i v nízkoúrovňovém zapisovači. Neplatný poloměr, chybějící obrys

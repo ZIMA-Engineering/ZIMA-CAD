@@ -102,12 +102,12 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     run(host,"undo");require(workspace::document_sketch(live,assembly_id,assembly_sketch).segments.empty(),"Assembly DXF Undo failed");
     const auto curves_file=dir/"curves.dxf";interchange::export_dxf(curves_file,test::dxf_curve_fixture());
     const auto curves=run(host,"import.dxf",{{"path",document::path_to_utf8(curves_file)},{"sketch",assembly_sketch}}).data;
-    require(curves.at("imported_entities")==11&&curves.at("warnings").size()==1&&curves.at("body_calculated")==false,"Exact DXF command lost geometry or its explicit unsupported-point warning");
+    require(curves.at("imported_entities")==12&&curves.at("warnings").empty()&&curves.at("body_calculated")==false,"Exact DXF command lost curves or its standalone point");
     const auto& imported=workspace::document_sketch(live,assembly_id,assembly_sketch);const auto imported_data=imported.serialized();
     require(imported.ellipses.size()==2&&imported.elliptical_arcs.size()==1&&imported.bsplines.size()==6&&imported.import_blocks.size()==1,"Command did not persist native ellipse and spline objects");
     run(host,"undo");require(workspace::document_sketch(live,assembly_id,assembly_sketch).bsplines.empty(),"Exact DXF import was not one Undo step");run(host,"redo");
     require(workspace::document_sketch(live,assembly_id,assembly_sketch).serialized()==imported_data,"Exact DXF Redo lost geometry or identities");
-    run(host,"export.dxf",{{"path","command-curves.dxf"},{"sketch",assembly_sketch}});test::check_dxf_curves(dir/"command-curves.dxf",false);
+    run(host,"export.dxf",{{"path","command-curves.dxf"},{"sketch",assembly_sketch}});test::check_dxf_curves(dir/"command-curves.dxf");
     run(host,"save");const auto saved=assembly::AssemblyDocument::load(dir/"assembly-dxf-sketch.asmz");
     require(saved.sketches.front().serialized()==imported_data&&saved.components.empty()&&live.size()==document_count,"Exact DXF import lost native persistence or created component sources");
 

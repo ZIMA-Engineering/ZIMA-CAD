@@ -546,7 +546,16 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         const auto imported_curve_sketch=run("sketch.list").data.at("items").back().at("sketch");
         const auto imported_curves_dxf=std::filesystem::absolute(directory/(stem+"-dxf-roundtrip.dxf"));
         run(QString::fromStdString(commands::Json{{"command","export.dxf"},{"arguments",{{"path",document::path_to_utf8(imported_curves_dxf)},{"sketch",imported_curve_sketch}}}}.dump()));
-        test::check_dxf_curves(imported_curves_dxf,false);run("save");menu_import_source=dxf_source;
+        test::check_dxf_curves(imported_curves_dxf);run("save");menu_import_source=dxf_source;
+
+        const auto points_source=std::filesystem::absolute(directory/(stem+"-only-points.dxf"));test::write_dxf_points(points_source);
+        run(QString::fromStdString("new part "+stem+"-dxf-points"));menu_import_source=points_source;chosen=false;timed_out=false;
+        choose_import.start();import_timeout.start(10000);import_action->trigger();choose_import.stop();import_timeout.stop();flush();
+        check(chosen&&!timed_out,"POINT-only DXF import menu did not finish");run("save");
+        const auto points_file=directory/(stem+"-dxf-points.prtz");const auto points_before=document::PartDocument::load(points_file);
+        check(points_before.sketches.back().points.size()==3&&points_before.sketches.back().import_blocks.size()==1&&points_before.sketches.back().import_blocks[0].geometry_ids.empty(),"GUI import lost POINT-only native block");
+        run("undo");run("redo");run("save");
+        check(document::PartDocument::load(points_file).sketches.back().serialized()==points_before.sketches.back().serialized(),"GUI POINT import Undo/Redo changed identities");menu_import_source=dxf_source;
 
         const auto details_native=std::filesystem::absolute(directory/(stem+"-dxf-details.prtz"));
         auto details_part=document::PartDocument::create_default();details_part.sketches.push_back(test::dxf_detail_fixture());details_part.save(details_native);

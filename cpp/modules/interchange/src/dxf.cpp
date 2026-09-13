@@ -118,6 +118,7 @@ DxfImportResult import_dxf(
             std::to_string(maximum_entities) + ". Import byl zrušen.");
     }
     std::vector<std::string> geometry_ids;
+    std::vector<std::string> standalone_points;
     struct CoordinateKey {
         std::uint64_t x{};
         std::uint64_t y{};
@@ -198,14 +199,20 @@ DxfImportResult import_dxf(
         const bool construction = values.contains(8) && values.at(8) == "CONSTRUCTION";
         if (values.contains(67) && number(values,67) == 1) continue; // paper space
         try {
-            if (type == "LINE" || type == "CIRCLE" || type == "ARC" ||
+            if (type == "POINT" || type == "LINE" || type == "CIRCLE" || type == "ARC" ||
                 type == "LWPOLYLINE" || type == "POLYLINE" || type == "XLINE") planar(values);
             if(type=="ELLIPSE"||type=="SPLINE") {
                 auto xy=values;
                 if(xy.contains(230)&&std::abs(std::abs(number(xy,230))-1)<1e-9)xy.erase(230);
                 planar(xy);
             }
-            if(type=="SPLINE") {
+            if(type=="POINT") {
+                // An explicit POINT is an entity, not a coincident curve handle.
+                // Keep its identity even when another entity uses these coordinates.
+                auto point=sketcher::Sketch::create_point(number(values,10)*ambiguous_unit_scale_to_mm,
+                    number(values,20)*ambiguous_unit_scale_to_mm);
+                point.construction=construction;standalone_points.push_back(point.id);target.points.push_back(std::move(point));
+            } else if(type=="SPLINE") {
                 const int degree=integer(values,71),count=integer(values,73),knot_count=integer(values,72);
                 if(degree<1||count<=degree||knot_count<=0)throw std::runtime_error("DXF spline degree or array counts are invalid.");
                 kernel::BSplineGeometry curve;curve.degree=static_cast<unsigned>(degree);
@@ -330,13 +337,14 @@ DxfImportResult import_dxf(
             throw std::runtime_error(type + ": " + error.what());
         }
     }
-    if (!geometry_ids.empty()) {
+    if (!geometry_ids.empty()||!standalone_points.empty()) {
         std::vector<std::string> point_ids;
         std::unordered_set<std::string> seen_points;
         const std::unordered_set<std::string> imported_ids(geometry_ids.begin(),geometry_ids.end());
         const auto add_point = [&](const std::string& id) {
             if (seen_points.insert(id).second) point_ids.push_back(id);
         };
+        for(const auto& id:standalone_points)add_point(id);
         for (const auto& segment : target.segments) if (imported_ids.contains(segment.id)) {
             add_point(segment.first_point_id); add_point(segment.second_point_id);
         }

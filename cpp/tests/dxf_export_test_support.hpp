@@ -124,4 +124,13 @@ inline void check_dxf_details(const std::filesystem::path& path,const sketcher::
     require(index==types["LWPOLYLINE"].size()&&near(area,20),"DXF duplicated text or changed the analytic 24-4 square-millimetre letter area");
 }
 
+inline void write_dxf_points(const std::filesystem::path& path,bool line=false,int units=4) {
+    std::ofstream out(path);out<<"0\nSECTION\n2\nHEADER\n9\n$INSUNITS\n70\n"<<units<<"\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n";
+    out<<"0\nPOINT\n8\nPROFILE\n10\n0\n20\n0\n30\n0\n";
+    out<<"0\nPOINT\n8\nCONSTRUCTION\n10\n1\n20\n2\n";
+    out<<"0\nPOINT\n8\nCONSTRUCTION\n10\n0\n20\n0\n";
+    if(line)out<<"0\nLINE\n10\n0\n20\n0\n11\n2\n21\n0\n";
+    out<<"0\nENDSEC\n0\nEOF\n";
+}
+
 }

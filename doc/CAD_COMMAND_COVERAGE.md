@@ -51,7 +51,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Řezy | Čtení, tvorba, vlastnosti, aktivace a odstranění | `section.list/get/components/create/set/activate/delete`: úplná otevřená čára, vlastní skica, společné OK vlastností, číselné umístění, přesné výskyty a šrafování; `section.sketch.edit` upravuje celou skicu v jedné transakci; zbývá vstup referencí umístění |
 | Měření | Společné GUI/CLI operace | `measurement.list/get/evaluate/create/set/delete`; původní reference a uložené výsledky |
 | Parametry, relace a materiál | Společné tabulky a transakce hotovy | Parametry, jednotky, přesnost, relace, materiál včetně přímého načtení knihovny a uložené varianty; řízení rozměrů relacemi a generování variant nejsou dosud zavedené ani v GUI |
-| Import a export | Import Partu/Assembly STEP/IGES/DXF a základní exporty hotovy | Společný STEP včetně vnořených sestav, STL Part/vnořená Assembly, DXF úsečky/osy/body/kružnice/oblouky/elipsy/spline/trimy/offsety i textové obrysy a rohová zaoblení; DXF do vložených profilů hotov; zbývá import POINT/neohraničených spline a snímek interaktivního View |
+| Import a export | Import Partu/Assembly STEP/IGES/DXF a základní exporty hotovy | Společný STEP včetně vnořených sestav, STL Part/vnořená Assembly, DXF úsečky/osy/body/kružnice/oblouky/elipsy/spline/trimy/offsety i textové obrysy a rohová zaoblení; DXF do vložených profilů hotov; zbývá import neohraničených spline a snímek interaktivního View |
 
 Každá další etapa aktualizuje tabulku a uvádí ověřené testy. Neobcházíme
 chybějící operaci nevalidovanou změnou serializovaného dokumentu ani voláním
@@ -1319,3 +1319,21 @@ příkazovky a celé GUI konzole. Logy: `build/dxf-details-full-build.log`,
 `build/dxf-details-integration-tests.log`, `build/dxf-details-ezdxf-validation.json`.
 Katalog má 234 příkazů, sada 131 testů. Pokračuje import samostatných
 DXF bodů; push stále čeká na návrat uživatele.
+
+
+## DXF samostatné body (2026-09-13)
+
+Společný importer GUI/CLI přijímá POINT i samostatné bodové soubory.
+Explicitní body mají vlastní identitu i na shodných souřadnicích; opakovaný
+import tvoří nezávislý blok. Nativní importní blok používá existující pole,
+umí posun, otočení i sloučení bodů a přežije zánik poslední křivky,
+pokud obsahuje další body. Part i Assembly zachovají data při uložení
+a Undo/Redo. Podrobnosti: [IMPORT_COMMANDS.md](IMPORT_COMMANDS.md).
+
+Celková sada prošla **132/132 za 553,70 s**. Dodatečná oprava zachování
+smíšeného bloku prošla **2/2 za 0,38 s**; finální sestavení obou aplikací
+a všech testů následovala regrese **7/7 za 72,34 s** včetně CLI a GUI.
+Logy: `build/dxf-points-full-tests.log`, `build/dxf-points-mixed-fixed-tests.log`,
+`build/dxf-points-final-build.log`, `build/dxf-points-final-tests.log`.
+Katalog zůstává na 234 příkazech. Následuje kontrola přesného importu spline
+s neupnutými krajními uzly. Push čeká na návrat uživatele.

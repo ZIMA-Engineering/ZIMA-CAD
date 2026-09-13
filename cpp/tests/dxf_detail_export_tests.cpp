@@ -15,7 +15,7 @@ void verify(const fs::path& dir) {
     auto imported=sketcher::Sketch::create_default();const auto report=interchange::import_dxf(path,imported);
     std::size_t vertices=0;for(const auto& text:sketch.texts)for(const auto& contour:text.contours)vertices+=contour.size();
     require(imported.arcs.size()==1&&std::abs(imported.arcs[0].radius-2)<1e-8&&imported.segments.size()==vertices+2,"DXF outline/fillet roundtrip lost editable curves");
-    require(report.warnings.size()==1&&report.warnings[0].find("POINT")!=std::string::npos,"Unexpected unsupported DXF detail entity");
+    require(report.warnings.empty(),"Unexpected unsupported DXF detail entity");
     const auto protected_bytes=bytes(path);
     for(int failure=0;failure<3;++failure) {
         auto invalid=sketch;

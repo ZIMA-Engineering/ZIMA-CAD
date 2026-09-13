@@ -2778,7 +2778,7 @@ void Sketch::validate() const {
     };
     for (const auto& block : import_blocks) {
         if (block.id.empty() || block.name.empty() ||
-            !block_ids.insert(block.id).second || block.geometry_ids.empty() ||
+            !block_ids.insert(block.id).second ||
             block.point_ids.empty() || !std::isfinite(block.translation_x) ||
             !std::isfinite(block.translation_y) || !std::isfinite(block.rotation)) {
             throw std::runtime_error("Sketch import block is invalid");
@@ -4203,14 +4203,17 @@ std::string Sketch::merge_points(
         if (removed) removed_corner_ids.insert(corner.id);
         return removed;
     });
-    for (auto& block : next.import_blocks) {
-        std::erase_if(block.geometry_ids, [&](const auto& geometry_id) {
+    for(auto block=next.import_blocks.begin();block!=next.import_blocks.end();) {
+        const bool had_curves=!block->geometry_ids.empty();
+        std::erase_if(block->geometry_ids, [&](const auto& geometry_id) {
             return collapsed_segment_ids.contains(geometry_id);
         });
+        // A POINT-only import is already a complete block. Detach a consumed
+        // curve block only when nothing remains but its one merged endpoint;
+        // otherwise its independent points still belong to this block.
+        if(had_curves&&block->geometry_ids.empty()&&block->point_ids.size()==1)block=next.import_blocks.erase(block);
+        else ++block;
     }
-    std::erase_if(next.import_blocks, [](const auto& block) {
-        return block.geometry_ids.empty();
-    });
 
     // Point-point C is topology, never a persisted solver equation. Remove
     // historical self-relations and constraints made intrinsically true by
@@ -6649,7 +6652,7 @@ std::string Sketch::add_import_block(
     std::string name, std::string source_path,
     std::vector<std::string> geometry_ids,
     std::vector<std::string> point_ids) {
-    if (name.empty() || geometry_ids.empty() || point_ids.empty()) {
+    if (name.empty() || point_ids.empty()) {
         throw std::invalid_argument("Import block identity or contents are empty");
     }
     SketchImportBlock block{make_id(), std::move(name), std::move(source_path),
