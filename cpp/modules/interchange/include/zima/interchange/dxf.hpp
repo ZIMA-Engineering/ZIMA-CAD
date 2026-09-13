@@ -21,7 +21,7 @@ struct DxfImportResult {
     double ambiguous_unit_scale_to_mm = 1.0,
     std::size_t maximum_entities = 100000);
 class DxfExportError : public std::runtime_error { public: using std::runtime_error::runtime_error; };
-// Reject unsupported visible geometry before opening an output file.
+// Validate native outlines and exact corner materialization before opening output.
 void validate_dxf_export(const zima::sketcher::Sketch& sketch);
 void export_dxf(
     const std::filesystem::path& path, const zima::sketcher::Sketch& sketch);

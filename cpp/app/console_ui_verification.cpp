@@ -548,6 +548,13 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         run(QString::fromStdString(commands::Json{{"command","export.dxf"},{"arguments",{{"path",document::path_to_utf8(imported_curves_dxf)},{"sketch",imported_curve_sketch}}}}.dump()));
         test::check_dxf_curves(imported_curves_dxf,false);run("save");menu_import_source=dxf_source;
 
+        const auto details_native=std::filesystem::absolute(directory/(stem+"-dxf-details.prtz"));
+        auto details_part=document::PartDocument::create_default();details_part.sketches.push_back(test::dxf_detail_fixture());details_part.save(details_native);
+        run(QString::fromStdString(commands::Json{{"command","open"},{"arguments",{{"path",document::path_to_utf8(details_native)}}}}.dump()));
+        const auto details_dxf=std::filesystem::absolute(directory/(stem+"-dxf-details.dxf"));
+        run(QString::fromStdString(commands::Json{{"command","export.dxf"},{"arguments",{{"path",document::path_to_utf8(details_dxf)},{"sketch",details_part.sketches.front().id}}}}.dump()));
+        test::check_dxf_details(details_dxf,details_part.sketches.front());
+
         run(QString::fromStdString("new assembly "+stem+"-import-owner"));
         commands::Json assembly_import={{"command","import.step"},{"arguments",{{"path",document::path_to_utf8(exported_model)}}}};
         const auto assembly_result=run(QString::fromStdString(assembly_import.dump())).data;

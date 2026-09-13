@@ -1,5 +1,6 @@
 #pragma once
 #include <zima/sketcher/sketch.hpp>
+#include <zima/sketcher/text_geometry.hpp>
 #include <fstream>
 #include <map>
 #include <numbers>
@@ -89,4 +90,38 @@ inline void check_dxf_curves(const std::filesystem::path& path,bool standalone_p
     const double x=5*(.36+2*w*.24)/den,y=5*(2*w*.24+.16)/den;
     require(near(circle_start.x,-50+x)&&near(circle_start.y,60+y)&&near(circle_end.x,-50-x)&&near(circle_end.y,60+y),"DXF circle trim changed its rational-parameter endpoints");
 }
+inline sketcher::Sketch dxf_detail_fixture() {
+    auto sketch=sketcher::Sketch::create_default();
+    const auto first=sketch.add_segment(0,0,10,0),second=sketch.add_segment(0,0,0,10);
+    static_cast<void>(sketch.add_corner_fillet(first,second,2));
+    auto outline=sketcher::Sketch::create_text();outline.value="O";
+    outline.contours={{{30,10},{36,10},{36,14},{30,14}},{{32,11},{32,13},{34,13},{34,11}}};sketch.add_text(outline);
+    auto native=sketcher::Sketch::create_text();native.value="Žluťoučký";native.height=4;native.anchor_x=40;native.anchor_y=12;
+    native.angle_degrees=37;native.flipped=true;native.modeling_geometry=false;sketcher::rebuild_text_contours(native);sketch.add_text(native);
+    auto point=sketcher::Sketch::create_point(50,50);point.construction=true;sketch.points.push_back(point);sketch.validate();return sketch;
+}
+inline void check_dxf_details(const std::filesystem::path& path,const sketcher::Sketch& source) {
+    const auto require=[](bool value,const char* text){if(!value)throw std::runtime_error(text);};
+    const auto near=[](double a,double b){return std::abs(a-b)<1e-8;};
+    std::map<std::string,std::vector<DxfEntity>> types;for(auto& entity:read_dxf_entities(path))types[entity.type].push_back(std::move(entity));
+    require(types["LINE"].size()==2&&types["ARC"].size()==1&&types["POINT"].size()==1,"DXF corner duplicated a source line or exported an editing handle");
+    const auto& arc=types["ARC"].front();double sweep=arc.number(51)-arc.number(50);if(sweep<0)sweep+=360;
+    require(near(arc.number(10),2)&&near(arc.number(20),2)&&near(arc.number(40),2)&&near(sweep,90),"DXF corner is not the analytic R2 quarter-circle at (2,2)");
+    double length=0;for(const auto& line:types["LINE"])length+=std::hypot(line.number(11)-line.number(10),line.number(21)-line.number(20));
+    require(near(length,16),"DXF source segments were not trimmed to the tangent points");
+    require(near(types["POINT"][0].number(10),50)&&near(types["POINT"][0].number(20),50),"DXF standalone point was replaced by a sharp corner handle");
+    std::size_t index=0;double area=0;
+    for(const auto& text:source.texts)for(const auto& contour:text.contours) {
+        require(index<types["LWPOLYLINE"].size(),"DXF lost a stored text outline");const auto& polyline=types["LWPOLYLINE"][index++];
+        require(polyline.number(70)==1&&polyline.number(90)==contour.size()&&polyline.values.at(10).size()==contour.size()&&polyline.values.at(20).size()==contour.size(),"DXF text contour is open or has wrong vertex counts");
+        require(polyline.values.at(8)[0]==(text.modeling_geometry?"PROFILE":"CONSTRUCTION"),"DXF lost the text modeling/annotation distinction");
+        for(std::size_t i=0;i<contour.size();++i) {
+            const auto j=(i+1)%contour.size();
+            require(near(polyline.number(10,i),contour[i][0])&&near(polyline.number(20,i),contour[i][1]),"DXF rebuilt or transformed an already positioned glyph");
+            if(&text==&source.texts.front())area+=(polyline.number(10,i)*polyline.number(20,j)-polyline.number(10,j)*polyline.number(20,i))/2;
+        }
+    }
+    require(index==types["LWPOLYLINE"].size()&&near(area,20),"DXF duplicated text or changed the analytic 24-4 square-millimetre letter area");
+}
+
 }

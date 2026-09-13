@@ -51,7 +51,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Řezy | Čtení, tvorba, vlastnosti, aktivace a odstranění | `section.list/get/components/create/set/activate/delete`: úplná otevřená čára, vlastní skica, společné OK vlastností, číselné umístění, přesné výskyty a šrafování; `section.sketch.edit` upravuje celou skicu v jedné transakci; zbývá vstup referencí umístění |
 | Měření | Společné GUI/CLI operace | `measurement.list/get/evaluate/create/set/delete`; původní reference a uložené výsledky |
 | Parametry, relace a materiál | Společné tabulky a transakce hotovy | Parametry, jednotky, přesnost, relace, materiál včetně přímého načtení knihovny a uložené varianty; řízení rozměrů relacemi a generování variant nejsou dosud zavedené ani v GUI |
-| Import a export | Import Partu/Assembly STEP/IGES/DXF a základní exporty hotovy | Společný STEP včetně vnořených sestav, STL Part/vnořená Assembly, DXF úsečky/osy/body/kružnice/oblouky/elipsy/spline/trimy/offsety; DXF do vložených profilů hotov; zbývá DXF text/rohová zaoblení, import POINT/neohraničených spline a snímek interaktivního View |
+| Import a export | Import Partu/Assembly STEP/IGES/DXF a základní exporty hotovy | Společný STEP včetně vnořených sestav, STL Part/vnořená Assembly, DXF úsečky/osy/body/kružnice/oblouky/elipsy/spline/trimy/offsety i textové obrysy a rohová zaoblení; DXF do vložených profilů hotov; zbývá import POINT/neohraničených spline a snímek interaktivního View |
 
 Každá další etapa aktualizuje tabulku a uvádí ověřené testy. Neobcházíme
 chybějící operaci nevalidovanou změnou serializovaného dokumentu ani voláním
@@ -1301,3 +1301,21 @@ GUI a překlady poté prošly 2/2 za 16,82 s. Celková sada má 130 testů,
 katalog 234 příkazů. **Úplná regrese prošla 130/130 za 542,95 s**
 (`build/drawing-hatch-full-tests.log`). Push zůstává odložený podle
 uživatelova zadání. Následuje export textu a zaoblených rohů skic do DXF.
+
+
+## DXF obrysy textu a rohová zaoblení (2026-09-13)
+
+Stávající `export.dxf` nově exportuje text jako uložené uzavřené obrysy
+`LWPOLYLINE` a rohy jako přesné oblouky se zkrácenými úsečkami.
+Používá existující vyhodnocení skici, nepřepočítává tělesa a nemění
+zdroj. Neplatný tvar zachová cílový soubor. Nativní formát se nemění.
+Podrobnosti: [EXPORT_COMMANDS.md](EXPORT_COMMANDS.md).
+
+Modelová sada prošla 3/3 za 0,62 s. Nezávislý ezdxf 1.4.4 ověřil
+20 entit včetně 16 uzavřených obrysů bez chyby nebo opravy; souhlasí
+kontrolní R2 oblouk, tečné délky a plocha 20 mm². Obě aplikace i všechny
+testy se sestavily a integrace prošla **9/9 za 80,73 s**, včetně skutečné
+příkazovky a celé GUI konzole. Logy: `build/dxf-details-full-build.log`,
+`build/dxf-details-integration-tests.log`, `build/dxf-details-ezdxf-validation.json`.
+Katalog má 234 příkazů, sada 131 testů. Pokračuje import samostatných
+DXF bodů; push stále čeká na návrat uživatele.

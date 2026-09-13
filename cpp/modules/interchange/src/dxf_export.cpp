@@ -33,11 +33,18 @@ void ellipse(std::ostream& output,const sketcher::SketchPoint& center,double rx,
 }
 }
 void validate_dxf_export(const sketcher::Sketch& sketch) {
-    sketch.validate();
-    if(!sketch.texts.empty()||!sketch.corner_radii.empty())throw DxfExportError("DXF export does not yet support Sketch text or corner fillets.");
+    try {
+        sketch.validate();
+        if(!sketch.corner_radii.empty())static_cast<void>(sketch.evaluated_profile_sketch());
+    }catch(const std::exception& error){throw DxfExportError(error.what());}
 }
-void export_dxf(const std::filesystem::path& path,const sketcher::Sketch& sketch) {
-    validate_dxf_export(sketch);
+void export_dxf(const std::filesystem::path& path,const sketcher::Sketch& source) {
+    validate_dxf_export(source);
+    // Use the same exact tangent trims and arcs as Sketch display/body input.
+    // Finish materialization before opening an existing destination file.
+    std::optional<sketcher::Sketch> evaluated;
+    if(!source.corner_radii.empty())evaluated=source.evaluated_profile_sketch();
+    const auto& sketch=evaluated?*evaluated:source;
     std::ofstream output(path);if(!output)throw std::runtime_error("Nelze vytvořit DXF soubor");
     output.imbue(std::locale::classic());output<<std::setprecision(17);
     pair(output,0,"SECTION");pair(output,2,"HEADER");
@@ -85,6 +92,18 @@ void export_dxf(const std::filesystem::path& path,const sketcher::Sketch& sketch
         if(rational)for(double weight:curve.weights)pair(output,41,weight);
         for(const auto& pole:curve.poles)point(output,10,pole.x,pole.y,pole.z);
     }
+    for(const auto& text:sketch.texts) {
+        if(!text.anchor_point_id.empty())used_points.insert(text.anchor_point_id);
+        // Native contours already contain alignment, rotation and flipping.
+        // Export their stored outline without requiring a foreign text font.
+        for(const auto& contour:text.contours) {
+            entity(output,"LWPOLYLINE","AcDbPolyline",!text.modeling_geometry);
+            pair(output,90,contour.size());pair(output,70,1);
+            for(const auto& vertex:contour){pair(output,10,vertex[0]);pair(output,20,vertex[1]);}
+        }
+    }
+    // The retained sharp corner is an editing handle of the source treatment.
+    for(const auto& corner:source.corner_radii)used_points.insert(corner.vertex_id);
     // Centers and control vertices are editing handles, not standalone entities.
     // Curve-support snapshots are also not additional visible geometry.
     for(const auto& value:sketch.points)if(!used_points.contains(value.id)) {

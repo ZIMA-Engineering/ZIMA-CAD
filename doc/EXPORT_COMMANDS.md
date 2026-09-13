@@ -42,9 +42,11 @@ STL podporuje Part i vnořené sestavy včetně opakovaných výskytů. Sestavu
 převede do jedné sítě; STL neuchovává jména ani produktovou hierarchii.
 DXF podporuje úsečky, osy, samostatné body, kružnice, kruhové a eliptické
 oblouky, elipsy i B-spline vybrané skici, včetně uložené geometrie offsetů
-a trimů. Skicu lze určit i ve vlastněném profilu. Text a rohová zaoblení
-zatím odmítá před zápisem: jejich úplný viditelný tvar není v této etapě
-převeden. Příkaz nehlásí neúplný soubor za úspěch.
+a trimů. Skicu lze určit i ve vlastněném profilu. Rohová zaoblení se
+exportují jako přesné kruhové oblouky s tečně zkrácenými úsečkami.
+Text se exportuje jako uložené uzavřené obrysy v `LWPOLYLINE`; zachová
+vnitřní otvory, natočení a převrácení. Jde o geometrii písmen, nikoli
+editovatelnou entitu DXF TEXT. Neplatný tvar se odmítne před zápisem.
 
 Výkres podporuje `export.pdf` pro všechny listy a `export.dxf` s povinným
 `sheet` pro jeden list. V tomto režimu se nepřijímá `sketch`; v modelovém
@@ -172,3 +174,49 @@ GUI bylo ověřeno samostatným EXE
 `build/cpp-windows-release/zima-cad-dxf-curves-validation.exe`; uživatelský
 běžící CAD zůstal spuštěný. Počet příkazů zůstává 152. Nativní formát ani
 startovací šablony se touto změnou nemění.
+
+
+## DXF text a rohová zaoblení (2026-09-13)
+
+`export.dxf` i GUI používají stejné rozšířené rozhraní. Rohy se materializují
+pomocí `Sketch::evaluated_profile_sketch`, tedy stejným algoritmem jako
+zobrazení a vstup tělesa. Původní skica, záznamy rohů, jejich ID a historie
+se nemění. Potlačený roh zůstane ostrý. Dva rohy na jedné úsečce zachovají
+své nezávislé tečné konce. Původní vrchol rohu a kotva textu jsou editační
+body; export z nich nevytváří samostatné entity POINT.
+
+Každý uložený obrys textu se zapíše jako uzavřená 2D polyline s původními
+souřadnicemi a orientací. Nevytváří se systémové písmo ani nová aproximace
+textu. Modelový text používá hladinu PROFILE, text určený jen k anotaci
+hladinu CONSTRUCTION. Při importu vzniknou běžné úsečky obrysu.
+Existující omezení importu samostatných POINT se tímto krokem nemění.
+
+Validace textu a materializace rohu doběhnou před otevřením cílového
+souboru i v nízkoúrovňovém zapisovači. Neplatný poloměr, chybějící obrys
+nebo nekonečná souřadnice zachovají již existující výstup. Společná
+pracovní exportní transakce nadále chrání soubor také při chybě zápisu.
+Není potřeba OCCT, změna formátu ani aktualizace nativních šablon.
+
+Testy kontrolují R2 oblouk se středem (2,2), součet délek tečných úseček
+16 mm, rohy R2/R3 na stejné úsečce, potlačený roh, textovou plochu
+24−4 = 20 mm², nativní uložení, přesné uložené obrysy otočeného a
+převráceného českého textu i ochranu cíle při chybě. První srovnání
+zpětně načteného poloměru používalo rovnost double; po použití geometrické
+tolerance 1e-8 mm prošly všechny tři modelové/exportní/výměnné testy
+**3/3 za 0,62 s** (`build/dxf-details-model-tests.log`).
+
+Nezávislý parser **ezdxf 1.4.4** přečetl 20 entit včetně 16 uzavřených
+textových obrysů bez chyby nebo opravy. Ověřil poloměr, tečné délky i
+analytickou plochu. Zapsaný poloměr je 1,9999999999999996 mm, tedy chyba
+jen v rozsahu běžného zaokrouhlení double. Protokol:
+`build/dxf-details-ezdxf-validation.json`. Parser zůstává dočasnou
+ověřovací závislostí pod `build`, není součástí aplikace.
+
+Obě aplikace a všechny testovací programy se sestavily. Integrační
+sada prošla **9/9 za 80,73 s**, včetně skutečného CLI (24,24 s), celé
+GUI konzole (53,69 s), výměnných kontraktů, exportních příkazů, textu,
+vazeb, křivek a překladů. Logy: `build/dxf-details-full-build.log`,
+`build/dxf-details-integration-tests.log`. Katalog zůstává na 234
+příkazech, celá sada nyní obsahuje 131 testů. Plná sada 130/130 byla
+ověřena před tímto krokem; po změně zapisovače se opakovaly související
+testy. Další krok je import samostatných DXF bodů.

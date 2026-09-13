@@ -61,7 +61,10 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     const auto dxf_before=bytes(dxf);const auto& sketch_data=workspace::document_sketch(live,part_id,sketch);
     const auto first_edge=sketch_data.segments[0].id,second_edge=sketch_data.segments[1].id;
     run(host,"sketch.corner_fillet.create",{{"sketch",sketch},{"first",first_edge},{"second",second_edge},{"radius_mm",1}});
-    require(host.execute({{"command","export.dxf"},{"arguments",{{"path",document::path_to_utf8(dxf)},{"sketch",sketch},{"overwrite",true}}}}).code=="unsupported_geometry" && bytes(dxf)==dxf_before,"DXF silently lost corner fillets or replaced the destination on failure");
+    const auto corner_revision=part->session.revision();
+    run(host,"export.dxf",{{"path",document::path_to_utf8(dxf)},{"sketch",sketch},{"overwrite",true}});
+    const auto corner_entities=test::read_dxf_entities(dxf);
+    require(std::ranges::count_if(corner_entities,[](const auto& e){return e.type=="ARC";})==2&&part->session.revision()==corner_revision&&bytes(dxf)!=dxf_before,"DXF command lost corner geometry or changed the document");
     require(!host.execute({{"command","export.step"},{"arguments",{{"path","wrong.igs"}}}}).ok && !fs::exists(dir/"wrong.igs"),"Mismatched export extension wrote a file");
     // The nested source is intentionally never saved. Export must consume its
     // persisted occurrence snapshot, not reopen dependencies or refresh them.
@@ -82,9 +85,15 @@ void exact_dxf(const kernel::OcctKernel& kernel,fs::path dir) {
     require(live.open_part(id)->session.revision()==0&&live.open_part(id)->session.document().sketches.front().serialized()==before,"DXF export changed spline or dependency data");
     interchange::export_dxf(dir/"direct-curves.dxf",sketch);test::check_dxf_curves(dir/"direct-curves.dxf");
     auto unsupported=sketcher::Sketch::create_default();const auto a=unsupported.add_segment(0,0,10,0),b=unsupported.add_segment(10,0,10,10);static_cast<void>(unsupported.add_corner_fillet(a,b,1));
+    unsupported.corner_radii.front().radius=20;
     bool rejected=false;const auto original=bytes(dir/"direct-curves.dxf");
     try{interchange::export_dxf(dir/"direct-curves.dxf",unsupported);}catch(const interchange::DxfExportError&){rejected=true;}
     require(rejected&&bytes(dir/"direct-curves.dxf")==original,"Low-level DXF writer destroyed a destination before validation");
+    auto detailed=test::dxf_detail_fixture();static_cast<void>(workspace::mutate_document_sketch(live,id,sketch.id,[&](auto& target){detailed.id=target.id;target=detailed;}));
+    const auto detailed_revision=live.open_part(id)->session.revision();
+    run(host,"export.dxf",{{"path","detail-command.dxf"},{"sketch",sketch.id}});test::check_dxf_details(dir/"detail-command.dxf",detailed);
+    require(live.open_part(id)->session.revision()==detailed_revision&&workspace::document_sketch(live,id,sketch.id).serialized()==detailed.serialized(),"Detail export modified its source transaction");
+
 }
 void nested_stl(const kernel::OcctKernel& kernel,fs::path dir) {
     workspace::Workspace live;auto doc=test::nested_stl_fixture(kernel,dir);const auto id=doc.document_id;

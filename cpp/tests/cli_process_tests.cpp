@@ -641,6 +641,12 @@ int main(int argc,char** argv){
         const auto roundtrip_export=command({{"command","export.dxf"},{"arguments",{{"path","roundtrip-curves.dxf"},{"sketch",roundtrip_sketch}}}});
         result=launch(executable,root,common+QStringList{"--command","open cli-dxf-roundtrip.prtz","--command",roundtrip_export});
         require(result.exit_code==0,"CLI exact-curve native reload failed");test::check_dxf_curves(project/"roundtrip-curves.dxf",false);
+        auto detail_part=document::PartDocument::create_default();detail_part.sketches.push_back(test::dxf_detail_fixture());detail_part.save(project/"cli-dxf-details.prtz");
+        const auto detail_export=command({{"command","export.dxf"},{"arguments",{{"path","details.dxf"},{"sketch",detail_part.sketches.front().id}}}});
+        result=launch(executable,root,common+QStringList{"--command","open cli-dxf-details.prtz","--command",detail_export});
+        if(result.exit_code!=0)std::cerr<<result.output.toStdString()<<result.diagnostics.toStdString();
+        require(result.exit_code==0&&result.results().size()==2&&result.results()[1]["data"]["model_changed"]==false,"CLI DXF corner/text export failed");
+        test::check_dxf_details(project/"details.dxf",detail_part.sketches.front());
         const auto nested_stl_doc=test::nested_stl_fixture(kernel,project);
         nested_stl_doc.save(project/"cli-nested-stl.asmz");
         result=launch(executable,root,common+QStringList{"--command","open cli-nested-stl.asmz","--command","export.stl nested-output.stl","--command","documents"});
