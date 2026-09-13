@@ -43,7 +43,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Vytažení a rotace | Profily, Thin, směry a cíle zakončení Partu hotovy | `extrusion/revolution.create/get/set`, vlastněná skica, původní plochy a dvě nezávislé meze, společné OK; zbývají sestavové řezy |
 | Tažení | Tvorba a geometrické vlastnosti hotovy | `sweep2d/sweep3d/helical.create/get/set`, společné GUI potvrzení, celá 3D dráha, stanice a úplná správa profilů/párování, reference roviny 2D dráhy a odsazení základní skici H-tažení; generické rozšíření umístění patří do řádku Umístění |
 | Otvory a závity | Katalog, současný Otvor a vnější závit částečně hotovy | `thread.catalog`, `opening.create/get/set`: hladký/závitový otvor, rozměry, sražení, špička, směr a průchozí otvor; `shaft_thread.create/get/set` včetně původních referencí; zbývají cílové reference Otvoru Až k, samostatný Hole a operace vnořených částí otvoru; `drill_point.create/get/set` pokrývají samostatnou vrtací špičku |
-| Zaoblení, zkosení, skořepina | Zbývá | Výběr skutečného vstupního tělesa a sdílené transakce |
+| Zaoblení, zkosení, skořepina | Shell hotov | `shell.faces/create/get/set`: skutečný vstup, tloušťka, otevřené plochy a společné GUI potvrzení; zbývá Fillet/Chamfer |
 | Zrcadlo a pole | Zbývá | Odvozená tělesa a komponenty |
 | Sestavy | Dotazy včetně překážek odstranění, vložení a otevření zdrojů komponent hotovy | Uložená hierarchie a přesné výskyty, sdílené vložení a otevření zdroje; zbývají vlastnosti/mazání komponent, vazby, vnořená aktivace a řezy |
 | Výkresy | Listy, šablony, historie, tvorba/vlastnosti/dotazy/mazání pohledů, regenerace, modelové anotace, Show/Erase a měřené kóty (dotazy, tvorba, editace, řetězec, mazání), razítko, zdrojové parametry BOM, PDF, DXF a PNG/JPEG listu/výřezu hotovy | Další anotace, zdrojové styly šraf a příkazový snímek interaktivního View |
@@ -786,3 +786,20 @@ Oba programy a všechny testy jsou sestavené. Úplná sada prošla **97/97**
 (458,94 s) bez opakování. Doplněný test dna současného Otvoru prošel **1/1**
 (0,53 s); ověřuje nezávislý objem a původ kuželové plochy. Pokračují zbývající
 modelovací operace z tabulky; celá CLI tím ještě není dokončena.
+
+
+### Skořepina a její skutečný vstup
+
+`shell.faces/create/get/set` zpřístupňují tloušťku, celý seznam otevření a
+společné potvrzení GUI/CLI. Dotaz vrací plochy před Shellem nebo u kurzoru
+aktivního Tělesa, bez kopie triangulace a bez OCCT. Prázdný seznam vytvoří
+uzavřenou dutinu. Nové testy odhalily a opravily kolizi identit pomocných
+ševů/pólů při Shellu koule; skutečné kruhové okraje zůstávají zachované.
+Katalog má **187 příkazů**, nativní struktura a start šablony se nemění.
+
+Oba programy a všechny testy jsou sestavené. Úplná sada prošla **98/98**
+(463,81 s) bez opakování, `build/shell-command-final-build.log` a
+`build/shell-command-full-tests.log`. Ověřuje nezávislé objemy kvádru,
+válce, koule, otevřené polokoule i tělesa po zaoblení, reference, zámky,
+Undo/Redo, nativní uložení, skutečné CLI a GUI OK/Cancel. Kontrakt a průběh
+ověření: [SHELL_COMMANDS.md](SHELL_COMMANDS.md). Pokračuje Fillet/Chamfer.

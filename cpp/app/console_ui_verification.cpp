@@ -1102,6 +1102,47 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
             check(std::abs(calculated.back().volume-test::drilled_block_volume(118,false,true))<1e-5,"GUI drill point saved an incorrect volume");
             json_run("close",{{"discard",true}});json_run("activate",{{"document",previous_document}});flush();
         }
+        {
+            const auto previous_document=run("context").data.at("active_document");
+            const auto name=stem+"-shell";json_run("new",{{"type","part"},{"name",name}});
+            const auto file=directory/(name+".prtz");
+            const auto box=json_run("box.create",{{"length_mm","10"},{"width_mm","10"},{"height_mm","10"}}).data.at("container").get<std::string>();flush();
+            const auto dialog_open=[&]() {
+                for(auto* dialog:window.findChildren<QDialog*>())if(dialog->isVisible()&&dialog->findChild<QDoubleSpinBox*>("shellThickness"))return dialog;
+                throw std::runtime_error("Shell Properties did not open");
+            };
+            auto* action=window.findChild<QAction*>("shellAction");check(action&&action->isEnabled(),"Shell action is unavailable");
+            action->trigger();flush();auto* dialog=dialog_open();dialog->findChild<QDoubleSpinBox*>("shellThickness")->setValue(2);
+            dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();run("save");
+            check(document::PartDocument::load(file).history.size()==1,"Shell creation Cancel changed history");
+            action->trigger();flush();dialog=dialog_open();dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();run("save");
+            std::vector<kernel::BodyResult> calculated;auto saved=document::PartDocument::load(file,&calculated);
+            check(saved.history.size()==2&&saved.history.back().feature_kind==document::FeatureKind::Shell&&std::abs(calculated.back().volume-488)<1e-6,"GUI closed Shell creation failed");
+            const auto id=saved.history.back().id;const auto face=[&](const char* key){return commands::Json{{"owner",box},{"key",key}};};
+            json_run("shell.set",{{"container",id},{"faces",commands::Json::array({face("z_max"),face("x_max")})}});flush();
+            const auto get=[&]{return json_run("shell.get",{{"container",id}}).data;};
+            const auto edit=[&]() {
+                QTreeWidgetItem* item=nullptr;
+                for(QTreeWidgetItemIterator it(model_tree);*it;++it)
+                    if((*it)->data(0,Qt::UserRole).toString().toStdString()==id&&(*it)->data(0,Qt::UserRole+3).toString()=="part-container"){item=*it;break;}
+                check(item,"CLI Shell is missing from the tree");window.show_tree_item_properties(item);flush();return dialog_open();
+            };
+            for(const bool commit:{false,true}) {
+                dialog=edit();auto* thickness=dialog->findChild<QDoubleSpinBox*>("shellThickness");
+                check(thickness->value()==1&&dialog->findChild<QListWidget*>("shellFaces")->count()==2,"Shell Properties lost thickness or opening faces");
+                thickness->setValue(2);flush();check(get().at("thickness_mm")==1,"Shell Properties committed before OK");
+                dialog->findChild<QDialogButtonBox*>()->button(commit?QDialogButtonBox::Ok:QDialogButtonBox::Cancel)->click();flush();
+                check(get().at("thickness_mm")==(commit?2:1),"Shell Properties OK/Cancel failed");
+            }
+            run("save");static_cast<void>(document::PartDocument::load(file,&calculated));check(std::abs(calculated.back().volume-616)<1e-6,"GUI adjacent Shell openings have incorrect wall volume");
+            run("undo");check(get().at("thickness_mm")==1,"Shell Properties Undo failed");dialog=edit();
+            dialog->findChild<QListWidget*>("shellFaces")->setCurrentRow(0);dialog->findChild<QPushButton*>("shellRemoveFace")->click();flush();
+            check(get().at("faces").size()==2,"Shell opening removal committed before OK");
+            dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();run("save");
+            saved=document::PartDocument::load(file,&calculated);
+            check(saved.history.back().shell.removed_faces==std::vector<kernel::FaceReference>{{box,"x_max",{}}}&&std::abs(calculated.back().volume-424)<1e-6,"GUI Shell removed the wrong opening face");
+            json_run("close",{{"discard",true}});json_run("activate",{{"document",previous_document}});flush();
+        }
         input->setText("context");QApplication::sendEvent(input,&enter);flush();
         check(window.grab().save(QString::fromStdString((directory/"command-console.png").string())),"Console screenshot failed");
         toggle->trigger();flush();check(!dock->isVisible(),"Console toggle did not hide panel");

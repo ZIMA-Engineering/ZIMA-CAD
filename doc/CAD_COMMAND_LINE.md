@@ -269,3 +269,8 @@ Příklady a kontrakt: [SHAFT_THREAD_COMMANDS.md](SHAFT_THREAD_COMMANDS.md).
 Samostatné vrtací špičky mají `drill_point.create/get/set`, společný úhel
 a upravitelný seznam původních den. Příklad a identity vytvořených ploch:
 [DRILL_POINT_COMMANDS.md](DRILL_POINT_COMMANDS.md).
+
+
+Skořepinu ovládají `shell.create/get/set`. Dostupné plochy skutečného vstupu
+vrací `shell.faces`, při editaci s ID kontejneru. Prázdný seznam otvorů
+znamená uzavřenou dutinu. Příklady a pravidla: [SHELL_COMMANDS.md](SHELL_COMMANDS.md).

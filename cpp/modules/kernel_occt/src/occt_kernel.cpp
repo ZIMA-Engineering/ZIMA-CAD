@@ -3850,6 +3850,34 @@ std::vector<OwnedFace> shell_result_faces(
     return result;
 }
 
+// A spherical seam and its collapsed pole edges are OCCT parameterization,
+// not boundaries between ZIMA faces. A seam endpoint shared with a real rim
+// remains real topology. This classification only runs during Shell calculation.
+TopTools_IndexedMapOfShape shell_parameterization_artifacts(const TopoDS_Shape& shape) {
+    TopTools_IndexedMapOfShape artifacts;
+    TopTools_IndexedDataMapOfShapeListOfShape edge_faces,vertex_edges;
+    TopExp::MapShapesAndAncestors(shape,TopAbs_EDGE,TopAbs_FACE,edge_faces);
+    TopExp::MapShapesAndAncestors(shape,TopAbs_VERTEX,TopAbs_EDGE,vertex_edges);
+    for(int i=1;i<=edge_faces.Extent();++i) {
+        const auto edge=TopoDS::Edge(edge_faces.FindKey(i));
+        TopTools_IndexedMapOfShape adjacent;
+        for(TopTools_ListIteratorOfListOfShape it(edge_faces.FindFromIndex(i));it.More();it.Next())adjacent.Add(it.Value());
+        if(adjacent.Extent()!=1)continue;
+        const auto face=TopoDS::Face(adjacent.FindKey(1));
+        // Restrict this rule to smooth spherical parameterization. In
+        // particular, a cone apex may be an intentional source vertex.
+        if(BRepAdaptor_Surface(face).GetType()==GeomAbs_Sphere&&
+            (BRep_Tool::Degenerated(edge)||BRep_Tool::IsClosed(edge,face)))artifacts.Add(edge);
+    }
+    for(int i=1;i<=vertex_edges.Extent();++i) {
+        bool only_artifacts=!vertex_edges.FindFromIndex(i).IsEmpty();
+        for(TopTools_ListIteratorOfListOfShape it(vertex_edges.FindFromIndex(i));it.More();it.Next())
+            if(!artifacts.Contains(it.Value())){only_artifacts=false;break;}
+        if(only_artifacts)artifacts.Add(vertex_edges.FindKey(i));
+    }
+    return artifacts;
+}
+
 template <typename Owned>
 void require_complete_unique_shell_topology(
     const TopoDS_Shape& result_shape, TopAbs_ShapeEnum kind,
@@ -3869,10 +3897,14 @@ void require_complete_unique_shell_topology(
                 std::string(label));
         }
     }
-    if (mapped.Extent() != expected.Extent()) {
-        throw std::runtime_error(
-            "Shell did not define stable identity for every " +
-            std::string(label));
+    const auto artifacts=shell_parameterization_artifacts(result_shape);
+    for(int i=1;i<=expected.Extent();++i) {
+        const auto& shape=expected.FindKey(i);
+        if(!mapped.Contains(shape)&&!artifacts.Contains(shape)) {
+            throw std::runtime_error(
+                "Shell did not define stable identity for every " +
+                std::string(label));
+        }
     }
 }
 
@@ -4242,6 +4274,27 @@ std::vector<OwnedVertex> complete_edge_treatment_vertices(
         result.push_back({vertex,
             VertexReference{treatment_owner, std::move(semantic_key), {}}});
     }
+    return result;
+}
+
+// Preserve any already persisted source references, but do not invent a
+// Shell-owned entity for an unowned seam/pole. Complete real topology using
+// the same parent-derived identities as before.
+std::vector<OwnedEdge> complete_shell_edges(const TopoDS_Shape& shape,
+    const std::vector<OwnedFace>& faces,const std::vector<OwnedEdge>& propagated,
+    const std::string& owner,std::string_view role) {
+    auto result=complete_boolean_edges(shape,faces,propagated,owner,role);
+    const auto artifacts=shell_parameterization_artifacts(shape);
+    std::erase_if(result,[&](const auto& edge){return edge.reference.owner_id==owner&&artifacts.Contains(edge.shape);});
+    return result;
+}
+std::vector<OwnedVertex> complete_shell_vertices(const TopoDS_Shape& shape,
+    const std::vector<OwnedEdge>& edges,const std::vector<OwnedVertex>& propagated,
+    const std::vector<std::pair<TopoDS_Edge,EdgeReference>>& selected,
+    const std::string& owner,std::string_view role) {
+    auto result=complete_edge_treatment_vertices(shape,edges,propagated,selected,owner,role);
+    const auto artifacts=shell_parameterization_artifacts(shape);
+    std::erase_if(result,[&](const auto& vertex){return vertex.reference.owner_id==owner&&artifacts.Contains(vertex.shape);});
     return result;
 }
 
@@ -6536,7 +6589,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                             owned_topology->edges,
                             owned_topology->vertices,
                             operation.owner_id, "shell:face");
-                        auto direct_edges = complete_boolean_edges(
+                        auto direct_edges = complete_shell_edges(
                             direct_shell->Shape(), direct_faces,
                             keep_unambiguous_topology_references(
                                 propagate_topology(*direct_shell,
@@ -6544,7 +6597,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                                     std::vector<OwnedEdge>{})),
                             operation.owner_id, "shell");
                         auto direct_vertices =
-                            complete_edge_treatment_vertices(
+                            complete_shell_vertices(
                                 direct_shell->Shape(), direct_edges,
                                 keep_unambiguous_topology_references(
                                     propagate_topology(*direct_shell,
@@ -6627,13 +6680,13 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     inner_offset.Shape(), owned_topology->faces,
                     owned_topology->edges, owned_topology->vertices,
                     operation.owner_id, "shell:inner-face");
-                auto inner_edges = complete_boolean_edges(
+                auto inner_edges = complete_shell_edges(
                     inner_offset.Shape(), inner_faces,
                     keep_unambiguous_topology_references(propagate_topology(
                         inner_offset, owned_topology->edges,
                         std::vector<OwnedEdge>{})),
                     operation.owner_id, "shell:inner");
-                auto inner_vertices = complete_edge_treatment_vertices(
+                auto inner_vertices = complete_shell_vertices(
                     inner_offset.Shape(), inner_edges,
                     keep_unambiguous_topology_references(propagate_topology(
                         inner_offset, owned_topology->vertices,
@@ -6673,12 +6726,12 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     closed_wall.Shape(), wall_face_inputs, wall_edge_inputs,
                     wall_vertex_inputs, operation.owner_id,
                     "shell:wall-face");
-                auto shell_edges = complete_boolean_edges(closed_wall.Shape(),
+                auto shell_edges = complete_shell_edges(closed_wall.Shape(),
                     shell_faces,
                     keep_unambiguous_topology_references(propagate_topology(
                         closed_wall, owned_topology->edges, inner_edges)),
                     operation.owner_id, "shell:wall");
-                auto shell_vertices = complete_edge_treatment_vertices(
+                auto shell_vertices = complete_shell_vertices(
                     closed_wall.Shape(), shell_edges,
                     keep_unambiguous_topology_references(propagate_topology(
                         closed_wall, owned_topology->vertices,
@@ -6794,7 +6847,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                             best.tool->Shape(), source,
                             conceptual_source, face_edges,
                             operation.owner_id, tool_role);
-                        auto tool_edges = complete_boolean_edges(
+                        auto tool_edges = complete_shell_edges(
                             best.tool->Shape(), tool_faces,
                             keep_unambiguous_topology_references(
                                 propagate_topology(*best.tool, face_edges,
@@ -6802,7 +6855,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                             operation.owner_id,
                             std::string(tool_role) + ":edge");
                         auto tool_vertices =
-                            complete_edge_treatment_vertices(
+                            complete_shell_vertices(
                                 best.tool->Shape(), tool_edges,
                                 keep_unambiguous_topology_references(
                                     propagate_topology(*best.tool,
@@ -6950,7 +7003,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                                 bridge_vertex_inputs,
                                 operation.owner_id,
                                 "shell:opening-bridge-face");
-                            auto bridge_edges = complete_boolean_edges(
+                            auto bridge_edges = complete_shell_edges(
                                 bridge.Shape(), bridge_faces,
                                 keep_unambiguous_topology_references(
                                     propagate_topology(bridge,
@@ -6959,7 +7012,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                                 operation.owner_id,
                                 "shell:opening-bridge");
                             auto bridge_vertices =
-                                complete_edge_treatment_vertices(
+                                complete_shell_vertices(
                                     bridge.Shape(), bridge_edges,
                                     keep_unambiguous_topology_references(
                                         propagate_topology(bridge,
@@ -7032,14 +7085,14 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                         opening_face_inputs, opening_edge_inputs,
                         opening_vertex_inputs, operation.owner_id,
                         "shell:opening-face");
-                    auto next_edges = complete_boolean_edges(
+                    auto next_edges = complete_shell_edges(
                         opening_cut.Shape(), next_faces,
                         keep_unambiguous_topology_references(
                             propagate_topology(opening_cut, shell_edges,
                                 opening_tool_edges)),
                         operation.owner_id, "shell:opening");
                     auto next_vertices =
-                        complete_edge_treatment_vertices(
+                        complete_shell_vertices(
                             opening_cut.Shape(), next_edges,
                             keep_unambiguous_topology_references(
                                 propagate_topology(opening_cut,

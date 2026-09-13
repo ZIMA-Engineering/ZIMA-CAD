@@ -1525,6 +1525,9 @@ struct PlacedBody {
                 u64(std::bit_cast<std::uint64_t>(
                     primitive.included_angle_degrees));
             } else if constexpr (std::is_same_v<Request, ShellRequest>) {
+                // Do not reuse derived Shell topology which treated unowned
+                // spherical seams/poles as persistent reference entities.
+                u64(1); // Shell topology schema.
                 u64(primitive.removed_faces.size());
                 for (const auto& face : primitive.removed_faces) {
                     u64(face.owner_id.size());

@@ -88,6 +88,22 @@ int main(int argc,char** argv){
             config.setValue("Application/Language","en");config.setValue("Units/Length","cm");config.sync();
         }
         const auto common=QStringList{"--working-directory",qpath(project),"--config",qpath(base)};
+        const auto shell_path=project/"shell-cli.prtz";
+        auto shell_fixture=document::PartDocument::create_default();auto shell_box=document::PartDocument::create_box_container();shell_box.box={10,10,10};
+        shell_fixture.insert_history_entry(document::PartHistoryKind::Feature,shell_box.id);shell_fixture.history.push_back(shell_box);
+        kernel::OcctKernel shell_kernel;shell_fixture.save(shell_path,shell_kernel.evaluate_history(shell_fixture.kernel_operations()));
+        result=launch(executable,root,common+QStringList{"--command",command({{"command","open"},{"arguments",{{"path",qpath(shell_path).toStdString()}}}}),
+            "--command","shell.faces","--command","shell.create","--command","save"});
+        require(result.exit_code==0&&result.results()[1].at("data").at("total")==6,"CLI Shell creation/input face query failed");
+        const auto shell_created=document::PartDocument::load(shell_path).history.back();
+        const auto shell_edit=command({{"command","shell.set"},{"arguments",{{"container",shell_created.id},{"thickness_mm",2},
+            {"faces",Json::array({Json{{"owner",shell_box.id},{"key","z_max"}}})}}}});
+        result=launch(executable,root,common+QStringList{"--command",command({{"command","open"},{"arguments",{{"path",qpath(shell_path).toStdString()}}}}),
+            "--command",shell_edit,"--command","undo","--command","redo","--command","save","--command","shell.get "+QString::fromStdString(shell_created.id)});
+        require(result.exit_code==0&&result.results().back().at("data").at("thickness_mm")==2,"CLI Shell properties/Undo failed");
+        std::vector<kernel::BodyResult> shell_cache;const auto shell_saved=document::PartDocument::load(shell_path,&shell_cache);
+        require(shell_saved.history.back().feature_id==shell_created.feature_id&&shell_saved.history.back().shell.removed_faces==std::vector<kernel::FaceReference>{{shell_box.id,"z_max",{}}}&&
+            std::abs(shell_cache.back().volume-712)<1e-6,"CLI Shell lost identities or saved a wrong material volume");
         const auto drill_path=project/"drill-cli.prtz";const auto drill_fixture=test::drill_point_fixture();
         kernel::OcctKernel drill_kernel;drill_fixture.save(drill_path,drill_kernel.evaluate_history(drill_fixture.kernel_operations()));
         const auto drill_face=[&](std::size_t index){return Json{{"owner",drill_fixture.history.at(index).id},{"key","z_min"}};};

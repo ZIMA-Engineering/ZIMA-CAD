@@ -1,5 +1,6 @@
 #include "workspace_internal.hpp"
 #include <zima/workspace/profile_operations.hpp>
+#include <zima/workspace/shell_operations.hpp>
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -333,17 +334,10 @@ void AssemblyWorkspaceWindow::start_shell() {
         initial, false, false,
         [this, part_id](zima::document::HistoryContainer committed,
                         std::vector<std::string>) {
-            auto* target = workspace_.open_part(part_id);
-            if (target == nullptr)
-                throw std::runtime_error("Part is no longer open");
-            auto next = target->session.document();
-            next.insert_history_entry(
-                zima::document::PartHistoryKind::Feature, committed.id);
-            next.history.push_back(std::move(committed));
-            auto calculated = calculate_part(next);
-            static_cast<void>(
-                refresh_sketch_external_references(next, calculated));
-            target->session.commit(std::move(next), std::move(calculated));
+            try {
+                static_cast<void>(zima::workspace::commit_shell(workspace_,kernel_,part_id,std::move(committed),
+                    zima::workspace::ShellEditMode::Create));
+            } catch (const std::exception& error) { throw std::runtime_error(tr(error.what()).toStdString()); }
         }, this);
     properties_dialog_ = dialog;
     track_tree_edit(dialog);
