@@ -211,6 +211,19 @@ int main(int argc,char** argv){
         require(appearance_saved.appearance.bodies.at(appearance_saved.body_history.active_body_id()).color=="#5588CC"&&
             std::abs(appearance_cache.back().volume-6000)<1e-6,"CLI appearance persistence changed geometry");
 
+        auto section_source=appearance_saved;auto section=document::create_section();
+        static_cast<void>(section.sketch.add_segment(-20,0,20,0));
+        section_source.sections.push_back(section);const auto section_path=project/"section-cli.prtz";
+        section_source.save(section_path,appearance_cache);
+        const auto section_stamp=fs::last_write_time(section_path);
+        result=launch(executable,root,common+QStringList{"--command",command({{"command","open"},{"arguments",{{"path",document::path_to_utf8(section_path)}}}}),
+            "--command","section.list","--command",command({{"command","section.get"},{"arguments",{{"object",section.id}}}}),
+            "--command",command({{"command","section.components"},{"arguments",{{"object",section.id}}}})});
+        require(result.exit_code==0&&result.results()[1].at("data").at("total")==1&&result.results()[2].at("data").at("valid")==true&&
+            result.results()[2].at("data").at("sketch")==section.sketch.id&&result.results()[3].at("data").at("total")==1,
+            "CLI native Section queries lost definitions or Body options");
+        require(fs::last_write_time(section_path)==section_stamp,"Section query rewrote its native document");
+
         const auto make_hole=command({{"command","hole.create"},{"arguments",{{"diameter_mm",10},{"bore_length_mm",10},{"placement",{{"z",-20}}}}}});
         result=launch(executable,root,common+QStringList{"--command","new part native-hole-cli","--command","box.create 40 40 40",
             "--command",make_hole,"--command","save"});

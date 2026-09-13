@@ -48,7 +48,8 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Sestavy | Dotazy, vložení, otevření zdrojů, vlastnosti, odstranění a přesná aktivace hotovy | `component.set`: název, viditelnost, potlačení, uzemnění, umístění a všechny čtyři druhy vložených vazeb s mezemi/zámky; `component.remove` sdílí kontrolu závislostí a atomické mazání s GUI; `component.activate/deactivate` sdílejí přesný zdrojový kontext s GUI; souhrny referencí jsou společné pro Assembly Undo a explicitní regeneraci; zbývají řezy, oprava řetězce vazeb čeká na konkrétní souhlas |
 | Výkresy | Listy, šablony, historie, tvorba/vlastnosti/dotazy/mazání pohledů, regenerace, modelové anotace, Show/Erase a měřené kóty (dotazy, tvorba, editace, řetězec, mazání), razítko, zdrojové parametry BOM, PDF, DXF a PNG/JPEG listu/výřezu hotovy | Další anotace, zdrojové styly šraf a příkazový snímek interaktivního View |
 | Vzhled | Společné operace GUI/CLI hotovy | `appearance.get/set/reset/faces/palette`: styly Partu a jednotlivých výskytů, skupiny ploch, dědění zdroje, reset, historie a nativní uložení; bez výpočtu těles |
-| Řezy a měření | Zbývá | Datové operace a uložené výsledky |
+| Řezy | Čtení uložených definic hotovo | `section.list/get/components`: vlastněná skica, čára, soustavy, přesné výskyty a šrafování; tvorba, editace, aktivace a mazání zbývají |
+| Měření | Zbývá | Datové operace a uložené výsledky |
 | Parametry, relace a materiál | Společné tabulky a transakce hotovy | Parametry, jednotky, přesnost, relace, materiál včetně přímého načtení knihovny a uložené varianty; řízení rozměrů relacemi a generování variant nejsou dosud zavedené ani v GUI |
 | Import a export | Import Partu/Assembly STEP/IGES/DXF a základní exporty hotovy | Společný STEP včetně vnořených sestav, STL Part/vnořená Assembly, DXF úsečky/osy/body/kružnice/oblouky/elipsy/spline/trimy/offsety; DXF do vložených profilů hotov; zbývá DXF text/rohová zaoblení, import POINT/neohraničených spline a snímek interaktivního View |
 
@@ -1142,3 +1143,17 @@ skutečného CLI procesu, GUI konzole, vizuálního kontraktu vzhledu,
 nativních dokumentů, startu a překladů. Podrobnosti a logy:
 [APPEARANCE_COMMANDS.md](APPEARANCE_COMMANDS.md). Katalog má **218 příkazů**.
 Následují uložené definice řezů a jejich společné datové operace.
+
+## Čtení uložených řezů (2026-09-13)
+
+`section.list/get/components` používají společné definice a pravidla
+šrafování s GUI. Vrací identitu vlastněné skici, soustavy řezu a přesné
+cesty výskytů. Poškozený řez i nastavení již chybějící komponenty zůstávají
+čitelné. Čtení nemění historii, aktivaci ani vypočtenou geometrii.
+
+Modelové regrese a katalog prošly **2/2 za 0,53 s**. Obě aplikace se sestavily.
+Integrační sada prošla 4/5; po opravě převodu cesty v novém testovacím vstupu
+prošel i skutečný CLI proces **1/1 za 21,32 s**. Produkční kód se již nezměnil;
+start aplikace a překlady prošly. Podrobnosti:
+[SECTION_COMMANDS.md](SECTION_COMMANDS.md). Katalog má **221 příkazů**.
+Tvorba, editace, aktivace a mazání řezu ještě zbývají.

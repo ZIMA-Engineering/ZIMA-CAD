@@ -180,6 +180,7 @@ add_library(zima_command_host
     modules/command_host/src/primitive_commands.cpp
     modules/command_host/src/profile_commands.cpp
     modules/command_host/src/sweep_commands.cpp
+    modules/command_host/src/section_queries.cpp
     modules/command_host/src/appearance_commands.cpp
     modules/command_host/src/hole_commands.cpp
     modules/command_host/src/opening_commands.cpp
@@ -789,6 +790,11 @@ if(ZIMA_BUILD_TESTS)
     target_link_libraries(zima_cpp_shaft_thread_command_tests PRIVATE zima_command_host)
     add_test(NAME zima_cpp_shaft_thread_command_tests COMMAND zima_cpp_shaft_thread_command_tests)
     set_tests_properties(zima_cpp_shaft_thread_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
+
+    add_executable(zima_cpp_section_command_tests tests/section_command_tests.cpp)
+    target_link_libraries(zima_cpp_section_command_tests PRIVATE zima_command_host)
+    add_test(NAME zima_cpp_section_command_tests COMMAND zima_cpp_section_command_tests)
+    set_tests_properties(zima_cpp_section_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
 
     add_executable(zima_cpp_appearance_command_tests tests/appearance_command_tests.cpp)
     target_link_libraries(zima_cpp_appearance_command_tests PRIVATE zima_command_host)

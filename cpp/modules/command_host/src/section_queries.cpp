@@ -1,0 +1,103 @@
+#include <zima/command_host/host.hpp>
+#include <zima/workspace/drawing_sources.hpp>
+#include <zima/document/placement_json.hpp>
+#include <algorithm>
+#include <set>
+namespace zima::command_host {
+namespace {
+struct QueryError : std::runtime_error {
+    const char* code;
+    QueryError(const char* code,const char* message):std::runtime_error(message),code(code){}
+};
+struct Source {
+    std::string id;
+    std::uint64_t revision;
+    std::vector<document::SectionDefinition> sections;
+};
+Source source(const workspace::Workspace& live,const Json& args) {
+    const auto id=args.value("document",live.active_document_id());
+    if(const auto* part=live.open_part(id))return {id,part->session.revision(),workspace::sections_for_part(part->session.document())};
+    if(const auto* assembly=live.open_assembly(id))return {id,assembly->session.revision(),workspace::sections_for_assembly(assembly->session.document())};
+    throw QueryError("unsupported_document","Section queries require an open Part or Assembly.");
+}
+const document::SectionDefinition& find(const Source& source,const Json& args) {
+    const auto id=args.at("object").get<std::string>();
+    const auto found=std::ranges::find(source.sections,id,&document::SectionDefinition::id);
+    if(found==source.sections.end())throw QueryError("section_not_found","The requested Section does not exist in this document.");
+    return *found;
+}
+struct Page {std::size_t offset,limit;};
+Page page(const Json& args) {
+    const auto offset=args.value("offset",0LL),limit=args.value("limit",2000LL);
+    if(offset<0||offset>100000000||limit<1||limit>10000)
+        throw QueryError("invalid_arguments","Section query offset or limit is outside the supported range.");
+    return {static_cast<std::size_t>(offset),static_cast<std::size_t>(limit)};
+}
+Json vec(kernel::Vec3 value){return Json::array({value.x,value.y,value.z});}
+Json row(const document::SectionDefinition& section) {
+    return {{"object",section.id},{"name",section.name},{"sketch",section.sketch.id},{"origin",section.container_origin.id},
+        {"reversed",section.reversed},{"show_plane",section.show_plane},{"show_cut",section.show_cut},
+        {"reference_valid",section.placement.reference_valid}};
+}
+Json details(const document::SectionDefinition& section) {
+    auto result=row(section);result["placement"]=section.placement;
+    result["length_unit"]="mm";result["angle_unit"]="degrees";
+    result["sketch_frame"]={{"origin",vec(section.plane_origin)},{"x",vec(section.plane_x)},{"y",vec(section.plane_y)}};
+    result["path_mm"]=Json::array();result["frames"]=Json::array();
+    result["valid"]=section.placement.reference_valid;
+    result["error"]=section.placement.reference_valid?"":"Section placement has unresolved references.";
+    // Derive only the chain and its local frames from stored ZIMA data. There
+    // is deliberately no source mesh construction, placement solve or OCCT.
+    try {
+        result["path_mm"]=document::section_path(section);
+        for(const auto& frame:document::section_frames(section))result["frames"].push_back({{"origin",vec(frame.origin)},
+            {"horizontal",vec(frame.horizontal)},{"vertical",vec(frame.vertical)},{"normal",vec(frame.normal)}});
+    }catch(const std::exception& error){result["valid"]=false;result["error"]=error.what();}
+    return result;
+}
+Json component(const document::SectionDefinition& section,const std::string& key) {
+    const auto named=section.component_names.find(key);const auto setting=section.components.find(key);
+    const auto value=setting==section.components.end()?document::SectionComponent{}:setting->second;
+    const auto hatch=document::section_component_hatch(section,key);
+    return {{"component",key},{"name",named==section.component_names.end()?std::string{}:named->second},
+        {"available",named!=section.component_names.end()},{"stored",setting!=section.components.end()},
+        {"mode",value.mode==0?"cut_hatch":value.mode==1?"cut_only":"uncut"},{"custom_hatch",value.custom_hatch},
+        {"hatch",{{"angle_degrees",hatch.angle},{"spacing_mm",hatch.spacing_mm},{"offset_mm",hatch.offset_mm},
+            {"pattern",hatch.pattern==0?"parallel":hatch.pattern==1?"cross":"dashed"}}}};
+}
+}
+void Host::register_section_queries() {
+    using Type=commands::ArgumentType;
+    const std::vector<commands::Argument> query{{"offset",false,Type::Integer},{"limit",false,Type::Integer},{"document",false}};
+    dispatcher_.add({"section.list",tr("List saved Sections without calculating or activating a document."),query,false},[this](const Json& args) {
+        try {
+            const auto window=page(args);const auto data=source(workspace_,args);auto items=Json::array();
+            for(std::size_t i=window.offset;i<data.sections.size()&&items.size()<window.limit;++i)items.push_back(row(data.sections[i]));
+            return Result::success({{"document",data.id},{"revision",data.revision},{"items",std::move(items)},{"total",data.sections.size()}});
+        }catch(const QueryError& error){return Result::failure(error.code,tr(error.what()));}
+         catch(const std::exception& error){return Result::failure("section_query_failed",tr(error.what()));}
+    });
+    dispatcher_.add({"section.get",tr("Read a saved Section, its owned Sketch and cutting frames from persisted data."),
+        {{"object",true},{"document",false}},false},[this](const Json& args) {
+        try {
+            const auto data=source(workspace_,args);auto result=details(find(data,args));result["document"]=data.id;result["revision"]=data.revision;
+            result["error"]=tr(result.at("error").get<std::string>().c_str());
+            return Result::success(std::move(result));
+        }catch(const QueryError& error){return Result::failure(error.code,tr(error.what()));}
+         catch(const std::exception& error){return Result::failure("section_query_failed",tr(error.what()));}
+    });
+    auto components=query;components.insert(components.begin(),{"object",true});
+    dispatcher_.add({"section.components",tr("Read exact Section component paths, cut modes and effective hatch settings."),std::move(components),false},[this](const Json& args) {
+        try {
+            const auto window=page(args);const auto data=source(workspace_,args);const auto& section=find(data,args);
+            std::set<std::string> keys;
+            for(const auto& [id,name]:section.component_names)keys.insert(id);
+            for(const auto& [id,setting]:section.components)keys.insert(id);
+            auto items=Json::array();std::size_t index=0;
+            for(const auto& key:keys)if(index++>=window.offset&&items.size()<window.limit)items.push_back(component(section,key));
+            return Result::success({{"document",data.id},{"object",section.id},{"revision",data.revision},{"items",std::move(items)},{"total",keys.size()}});
+        }catch(const QueryError& error){return Result::failure(error.code,tr(error.what()));}
+         catch(const std::exception& error){return Result::failure("section_query_failed",tr(error.what()));}
+    });
+}
+}

@@ -386,3 +386,8 @@ tělesa i skupiny ploch používají společnou transakci s GUI. V sestavě lze
 přepsat jednotlivý výskyt nebo obnovit dědění ze zdroje bez přepočtu modelu.
 Rozsah, identitu ploch a příklady popisuje
 [APPEARANCE_COMMANDS.md](APPEARANCE_COMMANDS.md).
+
+Uložené řezy čtou `section.list/get/components`: definici a vlastní skicu,
+řezové soustavy, přesné výskyty a jejich šrafování. Čtení nepočítá těleso
+ani nepřepíná dokument. Rozsah a stav doplňování příkazů uvádí
+[SECTION_COMMANDS.md](SECTION_COMMANDS.md).
