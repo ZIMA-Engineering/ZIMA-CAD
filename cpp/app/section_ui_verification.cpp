@@ -21,6 +21,23 @@ int verify_sections(QApplication& application,AssemblyWorkspaceWindow& window,co
         const auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
         const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);};
         QString modal_error;QTimer catcher;QObject::connect(&catcher,&QTimer::timeout,[&]{if(auto* box=qobject_cast<QMessageBox*>(QApplication::activeModalWidget())){modal_error=box->text();box->accept();}});catcher.start(30);
+        {
+            SectionComponentsWidget hatch(&window);
+            document::SectionComponent a{0,{12.3456789,2.3456789,1.23456789,0},true};
+            document::SectionComponent b{0,{-23.456789,3.456789,-.23456789,1},true};
+            const document::SectionComponent missing{2,{31.23456789,1.23456789,.3456789,2},true};
+            hatch.set_components({{"a","A"},{"b","B"}},{{"a",a},{"b",b},{"missing",missing}});
+            check(hatch.values().at("a")==a&&hatch.values().at("b")==b,"Opening hatch fields rounded untouched settings");
+            check(hatch.values().contains("missing")&&hatch.values().at("missing")==missing,"Hatch editor dropped an unavailable component's settings");
+            static_cast<QComboBox*>(hatch.cellWidget(0,1))->setCurrentIndex(2);a.mode=2;
+            check(hatch.values().at("a")==a&&hatch.values().at("b")==b,"Changing cut mode rounded hatch values");
+            hatch.item(0,0)->setSelected(true);hatch.item(1,0)->setSelected(true);
+            static_cast<QDoubleSpinBox*>(hatch.cellWidget(0,3))->setValue(4.5);a.hatch.spacing_mm=b.hatch.spacing_mm=4.5;
+            check(hatch.values().at("a")==a&&hatch.values().at("b")==b,"Bulk hatch edit changed an untouched parameter");
+            static_cast<QPushButton*>(hatch.cellWidget(0,6))->click();
+            a.hatch.angle=std::remainder(a.hatch.angle+90,180);b.hatch.angle=std::remainder(b.hatch.angle+90,180);
+            check(hatch.values().at("a")==a&&hatch.values().at("b")==b&&hatch.values().at("missing")==missing,"Hatch reverse lost exact per-component parameters");
+        }
         kernel::OcctKernel kernel;auto part=document::PartDocument::create_default();part.name="Section test tube";
         auto box=document::PartDocument::create_box_container();box.box={40,30,30};auto bore=document::PartDocument::create_box_container();bore.box={20,50,14};bore.combine_mode=document::CombineMode::Subtract;part.history={box,bore};
         document::BodyHistoryGraph body_graph;static_cast<void>(body_graph.create_body("Tube"));

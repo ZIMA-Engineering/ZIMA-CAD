@@ -31,7 +31,7 @@ public:
     }
     void set_components(const std::map<std::string,std::string>& names,const std::map<std::string,zima::document::SectionComponent>& settings,
                         zima::document::HatchStyle defaults={}){
-        setRowCount(0);settings_.clear();defaults_=defaults;
+        setRowCount(0);settings_=settings;defaults_=defaults;
         for(const auto& [id,name]:names){
             const int row=rowCount();insertRow(row);auto* item=new QTableWidgetItem(QString::fromStdString(name));
             item->setData(Qt::UserRole,QString::fromStdString(id));item->setFlags(item->flags()&~Qt::ItemIsEditable);setItem(row,0,item);
@@ -53,18 +53,16 @@ public:
             connect(reverse,&QPushButton::clicked,this,[this,row]{
                 for(int target=0;target<rowCount();++target)if(target==row||(this->item(row,0)->isSelected()&&this->item(target,0)->isSelected())){
                     auto* angle=static_cast<QDoubleSpinBox*>(cellWidget(target,2));QSignalBlocker block(angle);
-                    angle->setValue(std::remainder(angle->value()+90,180));mark_custom(target);
+                    mark_custom(target);auto& style=settings_.at(key(target)).hatch;
+                    style.angle=std::remainder(style.angle+90,180);angle->setValue(style.angle);
                 }notify();
             });
         }
         resizeRowsToContents();fit_height();setVisible(!names.empty());
     }
-    std::map<std::string,zima::document::SectionComponent> values()const{
-        auto result=settings_;
-        for(int row=0;row<rowCount();++row){auto& c=result.at(key(row));c.mode=static_cast<QComboBox*>(cellWidget(row,1))->currentIndex();
-            if(c.custom_hatch){c.hatch.angle=static_cast<QDoubleSpinBox*>(cellWidget(row,2))->value();c.hatch.spacing_mm=static_cast<QDoubleSpinBox*>(cellWidget(row,3))->value();c.hatch.offset_mm=static_cast<QDoubleSpinBox*>(cellWidget(row,4))->value();c.hatch.pattern=static_cast<QComboBox*>(cellWidget(row,5))->currentIndex();}}
-        return result;
-    }
+    // Widgets may display rounded numbers; only an edited field changes its
+    // pending value. Keep options for temporarily unavailable components too.
+    std::map<std::string,zima::document::SectionComponent> values()const{return settings_;}
     void select_component(const std::string& id){for(int row=0;row<rowCount();++row)if(key(row)==id){selectRow(row);scrollToItem(item(row,0));return;}}
     std::function<void()> changed;
 protected:
@@ -84,14 +82,25 @@ private:
     void fit_height(){const int height=std::min(220,horizontalHeader()->height()+verticalHeader()->length()+2*frameWidth()+(horizontalHeader()->length()>viewport()->width()?style()->pixelMetric(QStyle::PM_ScrollBarExtent):0));if(this->height()!=height||minimumHeight()!=height)setFixedHeight(height);}
     void notify(){if(changed)changed();}
     void mark_custom(int row){auto& c=settings_.at(key(row));if(!c.custom_hatch)c.hatch=inherited_style(row);c.custom_hatch=true;}
+    void assign_value(int row,int col,double value){
+        if(col!=1)mark_custom(row);
+        auto& component=settings_.at(key(row));
+        switch(col){
+        case 1:component.mode=static_cast<int>(value);break;
+        case 2:component.hatch.angle=value;break;
+        case 3:component.hatch.spacing_mm=value;break;
+        case 4:component.hatch.offset_mm=value;break;
+        case 5:component.hatch.pattern=static_cast<int>(value);break;
+        }
+    }
     void propagate(int source,int col,double value){
-        if(col!=1)mark_custom(source);
+        assign_value(source,col,value);
         if(!item(source,0)->isSelected())return;
         for(int row=0;row<rowCount();++row)if(row!=source&&item(row,0)->isSelected()){
             auto* w=cellWidget(row,col);QSignalBlocker block(w);
             if(auto* combo=qobject_cast<QComboBox*>(w))combo->setCurrentIndex(static_cast<int>(value));
             else if(auto* spin=qobject_cast<QDoubleSpinBox*>(w))spin->setValue(value);
-            if(col!=1)mark_custom(row);
+            assign_value(row,col,value);
         }
     }
 };

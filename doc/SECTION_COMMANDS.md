@@ -104,3 +104,16 @@ proces (20,95 s), katalog, start a překlady (93,20 s) i GUI kontextové akce
 (14,06 s). GUI regrese ověřuje také no-op aktivaci, skutečné odstranění
 přes nabídku stromu a návrat celého tělesa. Log:
 `build/section-action-integration-tests.log`. Katalog má **223 příkazů**.
+
+## Přesnost vlastností šrafování
+
+Otevření a potvrzení vlastností zachovává plnou přesnost uložených hodnot
+šrafování i volby momentálně nedostupných komponent. Změna jednoho pole
+aktualizuje pouze tento parametr; hromadná změna se přenese na vybrané
+řádky. Otočení přičítá 90° k vlastnímu přesnému úhlu každého řádku.
+
+Nová GUI regrese nejprve selhala na zaokrouhlení nezměněných hodnot
+(`build/section-hatch-baseline-tests.log`, 0/1). Po opravě se sestavily obě
+aplikace a testovací programy. Dotčené testy řezů a výkresů včetně obou GUI
+kontraktů prošly **4/4 za 19,40 s**
+(`build/section-hatch-verified-tests.log`). Katalog zůstává na 223 příkazech.
