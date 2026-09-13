@@ -151,7 +151,7 @@ bool remove_edge_treatment_selection(Workspace& live,const kernel::OcctKernel& k
     auto next=*stored;
     document::remove_treatment_selection(next.edge_treatment,route,member,input->mesh);
     if(next.edge_treatment.routes.empty()) {
-        delete_part_history(*state,kernel,container_id);
+        delete_part_history(live,document_id,kernel,container_id);
         return true;
     }
     static_cast<void>(commit_edge_treatment(live,kernel,document_id,std::move(next),EdgeTreatmentEditMode::Replace));

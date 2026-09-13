@@ -51,29 +51,29 @@ void Host::register_history_commands() {
     });
     add({"history.suppress",tr("Set suppression of a history object and calculate the Part."),
         {{"object",true},{"suppressed",true,commands::ArgumentType::Boolean},{"document",false}},true},[this](const Json& args) {
-        auto& state=part(workspace_,args);
-        const bool changed=workspace::set_part_history_suppressed(state,kernel_,args["object"].get<std::string>(),args["suppressed"].get<bool>());
-        auto data=history_data(state);data["changed"]=changed;return data;
+        const auto document_id=part(workspace_,args).session.document().document_id;
+        const bool changed=workspace::set_part_history_suppressed(workspace_,document_id,kernel_,args["object"].get<std::string>(),args["suppressed"].get<bool>());
+        auto data=history_data(part(workspace_,args));data["changed"]=changed;return data;
     });
     add({"history.delete",tr("Delete a history object, Body or Boolean and calculate the Part."),{{"object",true},{"document",false}},true},[this](const Json& args) {
-        auto& state=part(workspace_,args);workspace::delete_part_history(state,kernel_,args["object"].get<std::string>());
-        auto data=history_data(state);data["changed"]=true;return data;
+        const auto document_id=part(workspace_,args).session.document().document_id;workspace::delete_part_history(workspace_,document_id,kernel_,args["object"].get<std::string>());
+        auto data=history_data(part(workspace_,args));data["changed"]=true;return data;
     });
     for(bool commit:{false,true}) {
         add({commit?"history.move":"history.can_move",commit?tr("Move an object before another in the same history; omit before for the end."):
             tr("Check history order and dependencies without calculating geometry."),{{"object",true},{"before",false},{"document",false}},commit},[this,commit](const Json& args) {
-            auto& state=part(workspace_,args);
-            const bool changed=workspace::move_part_history(state,kernel_,args["object"].get<std::string>(),args.value("before",std::string{}),commit);
-            if(!commit)return Json{{"allowed",true},{"would_change",changed},{"document",state.session.document().document_id},{"revision",state.session.revision()}};
-            auto data=history_data(state);data["changed"]=changed;return data;
+            const auto document_id=part(workspace_,args).session.document().document_id;
+            const bool changed=workspace::move_part_history(workspace_,document_id,kernel_,args["object"].get<std::string>(),args.value("before",std::string{}),commit);
+            if(!commit)return Json{{"allowed",true},{"would_change",changed},{"document",document_id},{"revision",workspace_.open_part(document_id)->session.revision()}};
+            auto data=history_data(part(workspace_,args));data["changed"]=changed;return data;
         });
     }
     add({"history.cursor",tr("Set the insertion index in the flattened Part history."),{{"index",true,commands::ArgumentType::Integer},{"document",false}},true},[this](const Json& args) {
-        auto& state=part(workspace_,args);
+        const auto document_id=part(workspace_,args).session.document().document_id;
         if(args["index"]<0 || args["index"].get<std::uint64_t>()>std::numeric_limits<std::size_t>::max())
             throw workspace::HistoryOperationError("invalid_arguments","The history index must be a nonnegative integer.");
-        const bool changed=workspace::set_part_history_cursor(state,args["index"].get<std::size_t>());
-        auto data=history_data(state);data["changed"]=changed;return data;
+        const bool changed=workspace::set_part_history_cursor(workspace_,document_id,args["index"].get<std::size_t>());
+        auto data=history_data(part(workspace_,args));data["changed"]=changed;return data;
     });
 }
 }

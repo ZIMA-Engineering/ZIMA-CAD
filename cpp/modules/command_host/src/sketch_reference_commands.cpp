@@ -31,7 +31,7 @@ void Host::register_sketch_reference_commands() {
     });
     add_sketch_command({"sketch.reference.delete",tr("Detach an external reference while preserving its native profile curves."),{{"reference",true}}},[](Sketch& s,const Json& a) {
         const auto id=a["reference"].get<std::string>();
-        if(!reference(s,id).context_assembly_document_id.empty())throw workspace::SketchOperationError("context_reference","Edit an in-context reference in its owning Assembly context.");
+        static_cast<void>(reference(s,id));
         s.remove_geometry(id);return Json{{"reference",id}};
     });
     add_sketch_command({"sketch.reference.refresh",tr("Explicitly refresh a Sketch's references from its document's calculated snapshot."),{}},[this](Sketch& s,const Json&) {

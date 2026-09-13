@@ -1,4 +1,5 @@
 #pragma once
+#include <zima/workspace/part_transactions.hpp>
 #include <zima/workspace/workspace.hpp>
 #include <zima/document/physical_properties.hpp>
 #include <zima/assembly/physical_properties.hpp>
@@ -13,7 +14,7 @@ template<class Fn,class Same> bool write(Workspace& live,const std::string& id,F
         auto next=part->session.document();fn(next);
         document::refresh_physical_relations(next,document::physical_values(next,part->session.calculated_boundaries()));
         if(same(next,part->session.document()))return false;
-        part->session.commit(std::move(next),part->session.calculated_boundaries());return true;
+        commit_part_document(live,id,std::move(next),part->session.calculated_boundaries());return true;
     }
     if(auto* assembly=live.open_assembly(id)) {
         auto next=assembly->session.document();fn(next);

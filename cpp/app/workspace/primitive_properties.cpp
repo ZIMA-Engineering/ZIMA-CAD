@@ -458,7 +458,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             next.resolve_constructions(reference_geometry);
             auto calculated = calculate_part(next, &calculated_before);
             static_cast<void>(refresh_sketch_external_references(next, calculated));
-            target_part->session.commit(std::move(next), std::move(calculated));
+            workspace::commit_part_document(workspace_,target_part->session.document().document_id,std::move(next), std::move(calculated));
         }, this, std::move(assembly_targets), std::move(selected_targets),
         assembly_cut);
     primitive_parameter_owner_id_ = initial.id;
@@ -1375,7 +1375,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                     append_reference_geometry(reference_geometry,
                         next.construction_viewer_mesh().original_references);
                     next.resolve_constructions(reference_geometry);
-                    target_part->session.commit(std::move(next), calculated);
+                    workspace::commit_part_document(workspace_,target_part->session.document().document_id,std::move(next), calculated);
                 } else {
                     auto* target_assembly = workspace_.open_assembly(owner_id);
                     if (target_assembly == nullptr) return;
@@ -1603,7 +1603,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 if (auto* container = next.find_container(dialog_container_id)) {
                     *container = *pending_profile_transform_original_;
                 }
-                target_part->session.commit(std::move(next),
+                workspace::commit_part_document(workspace_,target_part->session.document().document_id,std::move(next),
                     target_part->session.calculated_boundaries());
             }
             pending_profile_feature_.reset();
@@ -1622,7 +1622,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             std::erase_if(next.history_order, [&](const auto& entry) {
                 return entry.id == dialog_container_id;
             });
-            target_part->session.commit(std::move(next),
+            workspace::commit_part_document(workspace_,target_part->session.document().document_id,std::move(next),
                 target_part->session.calculated_boundaries());
         } else if (auto* target_assembly = workspace_.open_assembly(
                        workspace_.active_document_id())) {

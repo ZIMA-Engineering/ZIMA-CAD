@@ -70,160 +70,30 @@ void AssemblyWorkspaceWindow::accept_sketch_external_reference(
          candidate.kind != zima::viewer::CandidateKind::Vertex &&
          candidate.kind != zima::viewer::CandidateKind::Axis &&
          candidate.kind != zima::viewer::CandidateKind::Face)) return;
-    if (auto* assembly = workspace_.open_assembly(workspace_.active_document_id())) {
-        try {
-            auto next = assembly->session.document();
-            const auto sketch = std::find_if(next.sketches.begin(), next.sketches.end(),
-                [&](const auto& value) { return value.id == active_sketch_id_; });
-            if (sketch == next.sketches.end() || candidate.instance_path.empty()) return;
-            const auto address = workspace_.resolve_occurrence(next.document_id,
-                zima::assembly::InstancePath::decode(candidate.instance_path));
-            if (!address) throw std::invalid_argument(
-                "External reference requires an exact component occurrence");
-            auto reference = zima::sketcher::Sketch::create_external_reference(
-                candidate.kind == zima::viewer::CandidateKind::Edge
-                    ? zima::sketcher::ExternalReferenceKind::Edge
-                    : candidate.kind == zima::viewer::CandidateKind::Axis
-                        ? zima::sketcher::ExternalReferenceKind::Axis
-                        : candidate.kind == zima::viewer::CandidateKind::Face
-                            ? zima::sketcher::ExternalReferenceKind::Face
-                            : zima::sketcher::ExternalReferenceKind::Point);
-            reference.source_document_id = address->source_document_id;
-            reference.source_owner_id = candidate.owner_id;
-            reference.source_semantic_key = candidate.semantic_key;
-            reference.source_instance_path = candidate.instance_path;
-            populate_external_reference_cache(
-                *sketch, reference, next.build_scene().original_references);
-            const auto reference_id = reference.id;
-            sketch->add_external_reference(std::move(reference));
-            if (sketch_external_profile_active_) {
-                static_cast<void>(
-                    sketch->add_external_profile_geometry(reference_id));
-            }
-            assembly->session.commit(std::move(next));
-            preserve_view_on_refresh_ = true;
-            refresh_tabs();
-            refresh_scene();
-            state_->setText(tr(
-                "Externí reference Assembly skici byla uložena bez volání OCCT."));
-        } catch (const std::exception& error) {
-            state_->setText(QString::fromUtf8(error.what()));
-        }
-        return;
-    }
-    auto* part = workspace_.open_part(workspace_.active_document_id());
-    if (part == nullptr) return;
     try {
-        auto next = part->session.document();
-        const auto* active = active_sketch();
-        if (active == nullptr) return;
-        auto pending_sketch = *active;
-        auto* sketch = &pending_sketch;
-        auto reference = zima::sketcher::Sketch::create_external_reference(
-            candidate.kind == zima::viewer::CandidateKind::Edge
-                ? zima::sketcher::ExternalReferenceKind::Edge
-                : candidate.kind == zima::viewer::CandidateKind::Axis
-                    ? zima::sketcher::ExternalReferenceKind::Axis
-                    : candidate.kind == zima::viewer::CandidateKind::Face
-                        ? zima::sketcher::ExternalReferenceKind::Face
-                        : zima::sketcher::ExternalReferenceKind::Point);
-        const auto* assembly =
-            workspace_.open_assembly(workspace_.displayed_document_id());
-        std::optional<zima::assembly::InstancePath> dependent_path;
-        std::optional<zima::assembly::InstancePath> source_path;
-        std::string source_document_id = next.document_id;
-        zima::kernel::ViewerReferenceGeometry source_geometry;
-        if (assembly == nullptr) {
-            if (!candidate.instance_path.empty() ||
-                !sketch_external_reference_source_owners(next, active_sketch_id_)
-                    .contains(candidate.owner_id)) {
-                throw std::invalid_argument(
-                    "Geometry is not a valid source before the active Sketch");
-            }
-            source_geometry = sketch_external_reference_source_geometry(
-                next, part->session.calculated_boundaries());
-        } else {
-            const auto dependent_encoded = resolve_active_occurrence(next.document_id);
-            if (!dependent_encoded || dependent_encoded->empty() ||
-                candidate.instance_path.empty()) {
-                throw std::invalid_argument(
-                    "In-context reference requires exact occurrence paths");
-            }
-            dependent_path = zima::assembly::InstancePath::decode(*dependent_encoded);
-            source_path = zima::assembly::InstancePath::decode(
-                candidate.instance_path);
-            const auto source_address = workspace_.resolve_occurrence(
-                assembly->session.document().document_id, *source_path);
-            if (!source_address || source_address->source_kind !=
-                    zima::assembly::ComponentSourceKind::Part) {
-                throw std::invalid_argument(
-                    "External reference source must be an exact Part occurrence");
-            }
-            if (*source_path == *dependent_path) {
-                if (!sketch_external_reference_source_owners(next, active_sketch_id_)
-                        .contains(candidate.owner_id)) {
-                    throw std::invalid_argument(
-                        "Geometry is not a valid source before the active Sketch");
-                }
-                source_geometry = sketch_external_reference_source_geometry(
-                    next, part->session.calculated_boundaries());
-                source_path.reset();
-            } else {
-                source_document_id = source_address->source_document_id;
-                source_geometry =
-                    workspace_.authoritative_external_reference_geometry(
-                        assembly->session.document().document_id,
-                        *dependent_path, source_document_id);
-            }
+        const auto* active=active_sketch();if(!active)return;
+        const auto owner=workspace_.active_document_id();auto pending=*active;
+        auto path=candidate.instance_path;
+        if(workspace_.open_assembly(owner)&&owner!=workspace_.displayed_document_id()) {
+            const auto& prefix=workspace_.active_occurrence_path();
+            if(prefix.empty()||!path.starts_with(prefix))throw std::invalid_argument(
+                "External reference requires an exact component occurrence");
+            path.erase(0,prefix.size());
         }
-        reference.source_document_id = source_document_id;
-        reference.source_owner_id = candidate.owner_id;
-        reference.source_semantic_key = candidate.semantic_key;
-        reference.source_instance_path = source_path
-            ? source_path->encoded() : std::string{};
-        if (assembly != nullptr && dependent_path && source_path) {
-            for (const auto& existing_sketch : next.sketches) {
-                for (const auto& existing : existing_sketch.external_references) {
-                    if (existing.context_assembly_document_id.empty()) continue;
-                    if (existing.context_assembly_document_id !=
-                            assembly->session.document().document_id ||
-                        existing.context_instance_path != dependent_path->encoded()) {
-                        throw std::invalid_argument(
-                            "Part already owns external references from another occurrence context");
-                    }
-                }
-            }
-            reference.context_assembly_document_id =
-                assembly->session.document().document_id;
-            reference.context_instance_path = dependent_path->encoded();
-        }
-        populate_external_reference_cache(*sketch, reference,
-            next.sketch_reference_geometry_for(*sketch, std::move(source_geometry)));
-        const auto reference_id = reference.id;
-        sketch->add_external_reference(std::move(reference));
-        if (sketch_external_profile_active_) {
-            static_cast<void>(
-                sketch->add_external_profile_geometry(reference_id));
-        }
-        if (assembly != nullptr && dependent_path && source_path) {
-            workspace_.add_external_sketch_dependency(
-                assembly->session.document().document_id,
-                *dependent_path, *source_path);
-        }
-        // Owned feature profiles live in a transient Sketch until the parent
-        // dialog accepts. Use the same mutation route as native Sketch tools.
-        if (!mutate_active_sketch([&](auto& target) {
-                target = std::move(pending_sketch);
-            })) return;
-        workspace_.synchronize_external_sketch_dependencies();
-        preserve_view_on_refresh_ = true;
-        refresh_tabs();
-        refresh_scene();
-        state_->setText(tr(
-            "Externí reference byla uložena bez volání OCCT. Vyberte další zdroj."));
-    } catch (const std::exception& error) {
-        state_->setText(tr("Externí referenci nelze vytvořit: %1")
-            .arg(QString::fromUtf8(error.what())));
+        const auto kind=candidate.kind==zima::viewer::CandidateKind::Edge?zima::sketcher::ExternalReferenceKind::Edge:
+            candidate.kind==zima::viewer::CandidateKind::Axis?zima::sketcher::ExternalReferenceKind::Axis:
+            candidate.kind==zima::viewer::CandidateKind::Face?zima::sketcher::ExternalReferenceKind::Face:zima::sketcher::ExternalReferenceKind::Point;
+        auto reference=workspace::prepare_sketch_external_reference(workspace_,owner,pending,kind,
+            candidate.owner_id,candidate.semantic_key,path);
+        const auto reference_id=reference.id;pending.add_external_reference(std::move(reference));
+        if(sketch_external_profile_active_)static_cast<void>(pending.add_external_profile_geometry(reference_id));
+        // Drafts are local to the parent dialog. Only its final Part commit
+        // publishes the derived Assembly dependency together with the Sketch.
+        if(!mutate_active_sketch([&](auto& target){target=std::move(pending);}))return;
+        preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();
+        state_->setText(tr("Externí reference byla uložena bez volání OCCT. Vyberte další zdroj."));
+    }catch(const std::exception& error) {
+        state_->setText(tr("Externí referenci nelze vytvořit: %1").arg(QString::fromUtf8(error.what())));
     }
 }
 

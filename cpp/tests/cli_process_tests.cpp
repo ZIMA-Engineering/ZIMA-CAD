@@ -745,6 +745,31 @@ int main(int argc,char** argv){
             const auto other_context=command({{"command","component.activate"},{"arguments",{{"instance_path",context.other_target_path.encoded()}}}});
             result=launch(executable,root,common+QStringList{"--command","open context-top.asmz","--command",other_context,"--command",refresh_context});
             require(result.exit_code==1&&result.results().back().at("code")=="context_reference","CLI refreshed a reference from another occurrence of the same Part");
+            auto clean=context.target;const auto references=clean.sketches.front().external_references;
+            for(const auto& r:references)clean.sketches.front().remove_geometry(r.id);
+            clean.save(project/"context-target.prtz",{});context.inner.dependencies.clear();context.inner.save(project/"context-inner.asmz");
+            const auto create_context=command({{"command","sketch.reference.create"},{"arguments",{{"sketch",context.sketch_id},{"kind","edge"},
+                {"owner",context.edge.reference.owner_id},{"key",context.edge.reference.semantic_key},{"instance_path",context.source_path.encoded()},{"profile",true}}}});
+            const auto activate_owner=command({{"command","component.activate"},{"arguments",{{"instance_path",assembly::InstancePath{{context.target_path.occurrence_ids.front()}}.encoded()}}}});
+            result=launch(executable,root,common+QStringList{"--command","open context-top.asmz","--command",activate_context,"--command",create_context,
+                "--command","save","--command",activate_owner,"--command","save"});
+            require(result.exit_code==0,"CLI context creation and owner save failed");
+            const auto created=result.results()[2].at("data");const auto projected_context=document::PartDocument::load(project/"context-target.prtz");
+            require(projected_context.sketches.front().external_references.size()==1&&
+                assembly::AssemblyDocument::load(project/"context-inner.asmz").dependencies.size()==1,"CLI did not persist both sides of the reference transaction");
+            const auto detach_context=command({{"command","sketch.reference.delete"},{"arguments",{{"sketch",context.sketch_id},{"reference",created.at("reference")}}}});
+            result=launch(executable,root,common+QStringList{"--command","open context-top.asmz","--command",activate_context,"--command",detach_context,
+                "--command","save","--command",activate_owner,"--command","save"});
+            require(result.exit_code==0,"CLI context detach and owner save failed");
+            const auto detached_context=document::PartDocument::load(project/"context-target.prtz");
+            require(detached_context.sketches.front().external_references.empty()&&
+                assembly::AssemblyDocument::load(project/"context-inner.asmz").dependencies.empty(),"CLI detach left a native dependency");
+            for(unsigned sample=0;sample<=256;++sample) {
+                const auto p=kernel::bspline_value(detached_context.sketches.front().supporting_curve(created.at("geometry").get<std::string>()),sample/256.);
+                require(std::abs((p.x-8)*(p.x-8)+(p.y-17.02)*(p.y-17.02)-1)<1e-8,"CLI detach changed the exact projected curve");
+            }
+            context.inner.add_dependency(assembly::AssemblyDocument::create_dependency(context.target_path.occurrence_ids.back(),
+                context.source_path.occurrence_ids.back(),assembly::ComponentDependencyKind::ExternalSketchReference));
             test_support::install_owned_helical_reference(context,kernel);
             std::vector<kernel::BodyResult> before_owned;
             static_cast<void>(document::PartDocument::load(project/"context-target.prtz",&before_owned));

@@ -1,4 +1,5 @@
 #pragma once
+#include <zima/workspace/part_transactions.hpp>
 #include <zima/workspace/profile_operations.hpp>
 #include <zima/workspace/sketch_reference_operations.hpp>
 #include <zima/workspace/model_calculation.hpp>

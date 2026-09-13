@@ -1,3 +1,5 @@
+#include <zima/workspace/part_transactions.hpp>
+#include <zima/workspace/sketch_reference_operations.hpp>
 #include <zima/workspace/workspace.hpp>
 #include <zima/assembly/physical_properties.hpp>
 #include <zima/kernel/occt_kernel.hpp>
@@ -498,7 +500,20 @@ int main() {
                         ->session.document().build_scene().vertices) ==
                     point_tuples(persisted_reference_scene.vertices),
                 "Explicit external refresh did not use open unsaved source or mutated parent cache");
-        workspace.add_external_sketch_dependency(
+        const auto before_context_tests=workspace.open_part(part_id)->session.document();
+        const auto add_context_reference=[&](const std::string& top,const zima::assembly::InstancePath& dependent,const zima::assembly::InstancePath& source) {
+            const auto address=workspace.activate_occurrence(top,dependent);require(address.has_value(),"Context test activation failed");
+            const auto origin=workspace.resolve_occurrence(top,source);require(origin.has_value(),"Context test source missing");
+            auto next=workspace.open_part(address->source_document_id)->session.document();auto sketch=zima::sketcher::Sketch::create_default();
+            const auto geometry=workspace.authoritative_external_reference_geometry(top,dependent,origin->source_document_id);
+            const auto point=std::ranges::find_if(geometry.points,[&](const auto& p){return p.reference.instance_path==source.encoded();});
+            require(point!=geometry.points.end(),"Context test source point missing");
+            sketch.add_external_reference(zima::workspace::prepare_sketch_external_reference(workspace,address->source_document_id,sketch,
+                zima::sketcher::ExternalReferenceKind::Point,point->reference.owner_id,point->reference.semantic_key,source.encoded()));
+            next.sketches.push_back(std::move(sketch));
+            zima::workspace::commit_part_document(workspace,address->source_document_id,std::move(next),workspace.open_part(address->source_document_id)->session.calculated_boundaries());
+        };
+        add_context_reference(
             topassembly_id,
             zima::assembly::InstancePath::decode(expected_nested_path),
             zima::assembly::InstancePath::decode(reference_part_path));
@@ -516,7 +531,7 @@ int main() {
                 "External Sketch dependency was not stored at the common Assembly owner");
         const auto dependency_revision =
             workspace.open_assembly(topassembly_id)->session.revision();
-        workspace.add_external_sketch_dependency(
+        add_context_reference(
             topassembly_id,
             zima::assembly::InstancePath::decode(expected_nested_path),
             zima::assembly::InstancePath::decode(reference_part_path));
@@ -525,11 +540,11 @@ int main() {
                 "Repeated external dependency created an intermediate transaction");
         bool reverse_external_cycle_rejected = false;
         try {
-            workspace.add_external_sketch_dependency(
+            add_context_reference(
                 topassembly_id,
                 zima::assembly::InstancePath::decode(reference_part_path),
                 zima::assembly::InstancePath::decode(expected_nested_path));
-        } catch (const std::invalid_argument&) {
+        } catch (const std::exception&) {
             reverse_external_cycle_rejected = true;
         }
         require(reverse_external_cycle_rejected,
@@ -539,15 +554,17 @@ int main() {
                 "Rejected external dependency partially changed the Assembly");
         bool repeated_source_cycle_rejected = false;
         try {
-            workspace.add_external_sketch_dependency(
+            add_context_reference(
                 topassembly_id,
                 zima::assembly::InstancePath::decode(direct_part_path),
                 zima::assembly::InstancePath::decode(expected_nested_path));
-        } catch (const std::invalid_argument&) {
+        } catch (const std::exception&) {
             repeated_source_cycle_rejected = true;
         }
         require(repeated_source_cycle_rejected,
                 "Repeated Part source accepted a contextual self-dependency");
+        require(workspace.activate_occurrence(topassembly_id,zima::assembly::InstancePath::decode(expected_nested_path)).has_value(),"Cannot restore lifecycle context");
+        zima::workspace::commit_part_document(workspace,part_id,before_context_tests,workspace.open_part(part_id)->session.calculated_boundaries());
         auto dependent_with_reference = workspace.open_part(part_id)->session.document();
         auto dependent_sketch = zima::sketcher::Sketch::create_default();
         auto lifecycle_reference = zima::sketcher::Sketch::create_external_reference(
@@ -579,9 +596,7 @@ int main() {
         dependent_sketch.apply_dimension(lifecycle_dimension);
         const std::string lifecycle_sketch_id = dependent_sketch.id;
         dependent_with_reference.sketches.push_back(std::move(dependent_sketch));
-        workspace.open_part(part_id)->session.commit(
-            std::move(dependent_with_reference), changed_calculation);
-        workspace.synchronize_external_sketch_dependencies();
+        zima::workspace::commit_part_document(workspace,part_id,std::move(dependent_with_reference),changed_calculation);
         const auto has_external_dependency = [&] {
             return std::any_of(workspace.open_assembly(topassembly_id)
                 ->session.document().dependencies.begin(),
@@ -601,14 +616,10 @@ int main() {
                 return sketch.id == lifecycle_sketch_id;
             });
         lifecycle_sketch->remove_geometry(lifecycle_reference.id);
-        workspace.open_part(part_id)->session.commit(
-            std::move(without_reference), changed_calculation);
-        workspace.synchronize_external_sketch_dependencies();
+        zima::workspace::commit_part_document(workspace,part_id,std::move(without_reference),changed_calculation);
         require(!has_external_dependency(),
                 "Removing the last external reference left an orphan dependency");
-        require(workspace.open_part(part_id)->session.undo(),
-                "External reference removal Undo failed");
-        workspace.synchronize_external_sketch_dependencies();
+        require(zima::workspace::step_part_document_history(workspace,part_id,false),"External reference removal Undo failed");
         require(has_external_dependency(),
                 "External reference Undo did not restore its dependency");
         const auto lifecycle_save_path = std::filesystem::temp_directory_path() /
@@ -653,9 +664,7 @@ int main() {
                     loaded_lifecycle_sketch->dimensions.front()
                             .second_point_id == lifecycle_reference.id,
                 "Exact contextual occurrence identity did not survive Part save/load");
-        require(workspace.open_part(part_id)->session.redo(),
-                "External reference removal Redo failed");
-        workspace.synchronize_external_sketch_dependencies();
+        require(zima::workspace::step_part_document_history(workspace,part_id,true),"External reference removal Redo failed");
         require(!has_external_dependency(),
                 "External reference Redo did not remove its dependency again");
         require(!rollback_scene.original_references.triangle_references.empty() &&

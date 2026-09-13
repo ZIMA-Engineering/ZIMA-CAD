@@ -1,5 +1,6 @@
 #include <zima/workspace/sketch_reference_operations.hpp>
 #include <zima/workspace/reference_sources.hpp>
+#include <zima/workspace/document_dependencies.hpp>
 #include <map>
 #include <set>
 #include <tuple>
@@ -120,6 +121,37 @@ sketcher::SketchExternalReference prepare_sketch_external_reference(const Worksp
     const std::string& key,const std::string& path) {
     auto reference=sketcher::Sketch::create_external_reference(kind);
     reference.source_owner_id=owner;reference.source_semantic_key=key;reference.source_instance_path=path;
+    if(const auto* part=live.open_part(doc);part&&!path.empty()) {
+        reference.context_assembly_document_id=live.displayed_document_id();
+        reference.context_instance_path=live.active_occurrence_path();
+        require_sketch_reference_context(live,doc,reference);
+        if(path==reference.context_instance_path) {
+            // Picking the edited occurrence itself is the ordinary earlier
+            // feature contract; no cross-document edge or scene path persists.
+            return prepare_sketch_external_reference(live,doc,sketch,kind,owner,key,{});
+        }
+        const auto source=live.resolve_occurrence(reference.context_assembly_document_id,assembly::InstancePath::decode(path));
+        if(!source||source->source_kind!=assembly::ComponentSourceKind::Part)
+            throw SketchOperationError("invalid_reference_source","External reference source must be an exact Part occurrence");
+        reference.source_document_id=source->source_document_id;
+        const auto compatible=[&](const auto& current) {
+            for(const auto& existing:current.external_references)if(!existing.context_assembly_document_id.empty()&&
+                (existing.context_assembly_document_id!=reference.context_assembly_document_id||existing.context_instance_path!=reference.context_instance_path))
+                throw SketchOperationError("context_reference","Part already owns external references from another occurrence context");
+            return true;
+        };
+        visit_document_sketches(part->session.document(),compatible);compatible(sketch);
+        require_acyclic_document_dependency(live,doc,reference.source_document_id);
+        auto geometry=context_original_reference_geometry(live,reference.context_assembly_document_id,
+            assembly::InstancePath::decode(reference.context_instance_path),reference.source_document_id,
+            [&](OriginalReferenceKind candidate,const auto& candidate_owner,const auto& candidate_key,const auto& candidate_path) {
+                const auto requested=kind==Kind::Face?OriginalReferenceKind::Face:kind==Kind::Edge?OriginalReferenceKind::Edge:
+                    kind==Kind::Point?OriginalReferenceKind::Point:OriginalReferenceKind::Axis;
+                return candidate==requested&&candidate_owner==owner&&candidate_key==key&&candidate_path==path;
+            });
+        geometry=part->session.document().sketch_reference_geometry_for(sketch,std::move(geometry));
+        populate_external_reference_cache(sketch,reference,geometry);return reference;
+    }
     const auto source=source_document(live,doc,sketch,reference);
     if(!source)throw SketchOperationError("invalid_reference_source","The reference must identify an earlier Part object or an exact Assembly occurrence.");
     reference.source_document_id=*source;

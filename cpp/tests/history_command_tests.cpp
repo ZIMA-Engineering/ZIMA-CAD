@@ -110,6 +110,14 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     run(host,"undo");require(edges->session.document().find_container(treatment_a) && edges->session.calculated_boundaries().back().calculation_errors.empty(),"Recovery Undo lost the source feature");
     run(host,"new",{{"type","assembly"},{"name","other"}});
     require(run(host,"history.list",{{"document",doc}}).data.at("document")==doc && live.active_document_id()!=doc,"History query activated inactive document");
+    const auto active=live.active_document_id(),displayed=live.displayed_document_id();
+    const auto inactive_revision=live.open_part(doc)->session.revision(),inactive_generation=live.open_part(doc)->session.data_generation();
+    const auto inactive_cache=live.open_part(doc)->session.calculated_boundaries().data();
+    const auto preview=run(host,"history.can_move",{{"document",doc},{"object",boolean}}).data;
+    require(preview.at("document")==doc&&preview.at("allowed")==true&&preview.at("would_change")==false&&
+        live.active_document_id()==active&&live.displayed_document_id()==displayed&&
+        live.open_part(doc)->session.revision()==inactive_revision&&live.open_part(doc)->session.data_generation()==inactive_generation&&
+        live.open_part(doc)->session.calculated_boundaries().data()==inactive_cache,"Inactive history query used or changed the active document");
     require(host.execute_text("history.cursor 0").code=="unsupported_document","Part history mutated Assembly");
 }
 }

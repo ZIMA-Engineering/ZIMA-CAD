@@ -1,3 +1,4 @@
+#include <zima/workspace/part_transactions.hpp>
 #include <zima/workspace/profile_operations.hpp>
 #include <algorithm>
 #include <cmath>
@@ -194,6 +195,6 @@ void commit_profile(Workspace& live, const kernel::OcctKernel& kernel, const std
     if (existing) {policy.edited_document_id = id; policy.edited_history_limit = before.history_index(container_id);}
     auto calculated = calculate_part_with_resolved_references(kernel, next, &previous, policy);
     static_cast<void>(refresh_sketch_external_references(next, calculated));
-    state->session.commit(std::move(next), std::move(calculated));
+    commit_part_document(live,id,std::move(next), std::move(calculated));
 }
 } // namespace zima::workspace

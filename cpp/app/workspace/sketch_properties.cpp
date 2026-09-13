@@ -129,7 +129,7 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
                 // in the same transaction.
                 auto calculated = calculate_part_with_resolved_references(
                     next, &previous);
-                target_part->session.commit(std::move(next), std::move(calculated));
+                workspace::commit_part_document(workspace_,target_part->session.document().document_id,std::move(next), std::move(calculated));
                 return;
             }
             auto* target_assembly = workspace_.open_assembly(owner_id);

@@ -1,4 +1,5 @@
 #include <zima/workspace/sketch_operations.hpp>
+#include <zima/workspace/part_transactions.hpp>
 #include <zima/document/feature_sketches.hpp>
 #include <algorithm>
 
@@ -91,7 +92,7 @@ bool mutate_document_sketch(Workspace& live,const std::string& id,const std::str
         auto next=part->session.document();change(next);
         std::string after;visit_sketches(next,[&](const auto& sketch){if(sketch.id!=sketch_id)return true;after=sketch.serialized();return false;});
         if(after==before && next.dimension_layouts==part->session.document().dimension_layouts)return false;
-        part->session.commit(std::move(next),part->session.calculated_boundaries());return true;
+        commit_part_document(live,id,std::move(next),part->session.calculated_boundaries());return true;
     }
     auto* assembly=live.open_assembly(id);
     if(!assembly)throw SketchOperationError("unsupported_document","Sketch operations require an open Part or Assembly.");
@@ -123,7 +124,7 @@ std::string create_document_sketch(Workspace& live,const kernel::OcctKernel& ker
         auto next=part->session.document();insert_new_sketch(next,std::move(sketch),std::move(container));
         PartCalculationPolicy policy;policy.reject_errors=true;
         auto calculated=calculate_part_with_resolved_references(kernel,next,&part->session.calculated_boundaries(),policy);
-        part->session.commit(std::move(next),std::move(calculated));return sketch_id;
+        commit_part_document(live,id,std::move(next),std::move(calculated));return sketch_id;
     }
     if(auto* assembly=live.open_assembly(id)) {
         auto next=assembly->session.document();insert_new_sketch(next,std::move(sketch));next.resolve_constructions();

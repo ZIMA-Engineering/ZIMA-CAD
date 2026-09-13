@@ -16,7 +16,7 @@ void AssemblyWorkspaceWindow::toggle_part_container_suppressed(
     auto* part = workspace_.open_part(workspace_.active_document_id());
     if (part == nullptr || properties_dialog_ != nullptr) return;
     try {
-        if (!workspace::set_part_history_suppressed(*part, kernel_, container_id,
+        if (!workspace::set_part_history_suppressed(workspace_,workspace_.active_document_id(), kernel_, container_id,
                 !workspace::part_history_suppressed(part->session.document(), container_id))) return;
         refresh_tabs();
         refresh_scene();
@@ -79,7 +79,7 @@ bool AssemblyWorkspaceWindow::reorder_part_history(const std::string& id,const s
     auto* part=workspace_.open_part(workspace_.active_document_id());
     if (!part || properties_dialog_ || !active_sketch_id_.empty()) return false;
     try {
-        const bool changed=workspace::move_part_history(*part,kernel_,id,before,commit);
+        const bool changed=workspace::move_part_history(workspace_,workspace_.active_document_id(),kernel_,id,before,commit);
         if (!commit || !changed) return true;
         preserve_view_on_refresh_=true;
         refresh_tabs();refresh_scene();
@@ -259,7 +259,8 @@ void AssemblyWorkspaceWindow::delete_part_object(
         } else {
             auto* part = workspace_.open_part(workspace_.active_document_id());
             if (part == nullptr) return;
-            workspace::delete_part_history(*part,kernel_,object_id);
+            workspace::delete_part_history(workspace_,workspace_.active_document_id(),kernel_,object_id);
+            part=workspace_.open_part(workspace_.active_document_id());
             const auto& calculated=part->session.calculated_boundaries();
             if (!calculated.empty() && !calculated.back().calculation_errors.empty())
                 calculation_issue = tr("Platná předcházející geometrie zůstala zachována. Chyby jsou označeny ve stromu.");

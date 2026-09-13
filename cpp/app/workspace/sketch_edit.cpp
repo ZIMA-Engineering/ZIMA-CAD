@@ -128,7 +128,6 @@ bool AssemblyWorkspaceWindow::delete_selected_sketch_geometry() {
                     sketch.remove_point(selected_sketch_point_id_);
                 }
             })) return false;
-        workspace_.synchronize_external_sketch_dependencies();
         clear_selected_sketch_geometry();
         preserve_view_on_refresh_ = true;
         refresh_tabs();
@@ -169,7 +168,6 @@ void AssemblyWorkspaceWindow::remove_sketch_relation(
                 if (dimension) sketch.remove_dimension(relation_id);
                 else sketch.remove_constraint(relation_id);
             })) return;
-        workspace_.synchronize_external_sketch_dependencies();
         preserve_view_on_refresh_ = true;
         refresh_tabs();
         refresh_scene();

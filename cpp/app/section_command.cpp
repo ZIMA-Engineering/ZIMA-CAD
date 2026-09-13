@@ -1,3 +1,4 @@
+#include <zima/workspace/part_transactions.hpp>
 #include "assembly_workspace_window.hpp"
 #include "section_properties_dialog.hpp"
 #include "section_source.hpp"
@@ -26,7 +27,7 @@ void append(zima::kernel::ViewerMesh& a,const zima::kernel::ViewerMesh& b){
 }
 void AssemblyWorkspaceWindow::commit_sections(std::vector<zima::document::SectionDefinition> sections){
     const auto id=section_document_id_.empty()?workspace_.displayed_document_id():section_document_id_;
-    if(auto* p=workspace_.open_part(id)){auto next=p->session.document();next.sections=std::move(sections);p->session.commit(std::move(next),p->session.calculated_boundaries());}
+    if(auto* p=workspace_.open_part(id)){auto next=p->session.document();next.sections=std::move(sections);workspace::commit_part_document(workspace_,id,std::move(next),p->session.calculated_boundaries());}
     else if(auto* a=workspace_.open_assembly(id)){auto next=a->session.document();next.sections=std::move(sections);a->session.commit(std::move(next));}
     else throw std::runtime_error("Section source is no longer open");
 }

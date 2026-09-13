@@ -337,6 +337,16 @@ validace nyní tento případ rozlišuje od Partu upravovaného v kontextu sesta
 ten nadále vyžaduje obě cesty a ID vlastnící sestavy. Oprava odstraňuje stejné
 chybné odmítnutí i v GUI. Nativní pole ani přípony souborů se nemění.
 
+Aktivní Part v sestavě podporuje také přímé `sketch.reference.create` pro
+všechny čtyři druhy zdroje. `instance_path` je úplná cesta od zobrazené hlavní
+Assembly. Vlastní výskyt používá lokální pravidlo dřívějšího zdroje; jiný
+výskyt stejného zdrojového Partu nesmí vytvořit vlastní závislost. Souhrn
+závislostí společné Assembly se potvrdí spolu s Partem, včetně Part Undo/Redo.
+`sketch.reference.delete` zachová nativní křivku a souhrnnou závislost odstraní
+teprve po ověření, že ji nepoužívají další Party ve větvi. Totéž platí pro
+vlastněné rozpracované profily v GUI, kde se vše uloží až po OK jejich prvku.
+Podrobnosti a hranice: [CONTEXT_REFERENCE_TRANSACTIONS.md](CONTEXT_REFERENCE_TRANSACTIONS.md).
+
 Pro příkazovou projekci se ze zapůjčených referenčních dat zkopíruje pouze
 vybraná hrana/bod/osa nebo trojúhelníky vybrané plochy. Celá sestava se kvůli
 jedné hraně nekopíruje. Přesné uzly, váhy a póly spline se promítnou přímo;

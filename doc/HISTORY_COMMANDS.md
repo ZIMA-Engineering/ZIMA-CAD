@@ -79,3 +79,13 @@ procesy, historii v GUI, již existující test přetažení stromu i scénáře
 modelování, sestav, výkresů, spline křivek a offsetů. GUI a CLI byly přeloženy
 ze stejného konečného zdroje. Samostatná rozšířená regrese hran prošla rovněž
 (`build/history-edge-tests.log`, 0,47 s).
+
+## Kontextové reference (2026-09-13)
+
+Potvrzení Part historie nyní používá společnou transakci referencí a souhrnů
+závislostí Assembly. Odstranění prvku, tělesa nebo vlastněné skici tak odstraní
+jen prokazatelně nepoužívané závislosti; kontroluje i zavřené nativní Party ve
+stejné větvi. Part Undo/Redo připraví odpovídající souhrny před změnou historie.
+`history.can_move` výslovně respektuje zadaný neaktivní Part i při aktivní
+Assembly a nemění aktivaci nebo vypočtenou geometrii.
+Podrobnosti: [CONTEXT_REFERENCE_TRANSACTIONS.md](CONTEXT_REFERENCE_TRANSACTIONS.md).

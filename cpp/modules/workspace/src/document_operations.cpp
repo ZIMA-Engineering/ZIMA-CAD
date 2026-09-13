@@ -1,4 +1,5 @@
 #include <zima/workspace/document_operations.hpp>
+#include <zima/workspace/part_transactions.hpp>
 #include <stdexcept>
 #include <type_traits>
 
@@ -89,11 +90,7 @@ bool can_step_document_history(const Workspace& workspace,
 bool step_document_history(Workspace& workspace,
     const std::string& id, HistoryDirection direction) {
     const bool redo=direction==HistoryDirection::Redo;
-    if(auto* part=workspace.open_part(id)) {
-        const bool changed=redo?part->session.redo():part->session.undo();
-        if(changed)workspace.synchronize_external_sketch_dependencies();
-        return changed;
-    }
+    if(workspace.open_part(id))return step_part_document_history(workspace,id,redo);
     if(auto* assembly=workspace.open_assembly(id))return redo?assembly->session.redo():assembly->session.undo();
     if(auto* drawing=workspace.open_drawing(id))return redo?drawing->redo():drawing->undo();
     return false;

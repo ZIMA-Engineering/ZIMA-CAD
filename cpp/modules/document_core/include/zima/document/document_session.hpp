@@ -58,6 +58,8 @@ public:
         std::vector<zima::kernel::BodyResult> calculated_boundaries = {});
     void update_calculated_boundaries(
         std::vector<zima::kernel::BodyResult> calculated_boundaries);
+    // Borrowed candidate for validation before a cross-document history step.
+    [[nodiscard]] const PartDocument* history_document(bool redo) const noexcept;
     bool undo();
     bool redo();
     // Editing focus only: keep geometry, dirty state and Undo/Redo intact.

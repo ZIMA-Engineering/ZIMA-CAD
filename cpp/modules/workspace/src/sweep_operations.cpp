@@ -1,3 +1,4 @@
+#include <zima/workspace/part_transactions.hpp>
 #include <zima/workspace/sweep_operations.hpp>
 #include <zima/document/feature_sketches.hpp>
 #include <zima/document/sweep_inputs.hpp>
@@ -279,6 +280,6 @@ void commit_sweep(Workspace& live, const kernel::OcctKernel& kernel, const std::
     append_reference_geometry(references, next.construction_viewer_mesh().original_references);
     next.resolve_constructions(references);
     auto calculated = calculate_part_with_resolved_references(kernel, next, &previous, policy);
-    state->session.commit(std::move(next), std::move(calculated));
+    commit_part_document(live,id,std::move(next), std::move(calculated));
 }
 } // namespace zima::workspace

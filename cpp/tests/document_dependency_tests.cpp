@@ -1,4 +1,5 @@
 #include <zima/workspace/document_dependencies.hpp>
+#include <zima/workspace/part_transactions.hpp>
 #include <iostream>
 #include "sweep_test_support.hpp"
 using namespace zima;namespace fs=std::filesystem;
@@ -30,14 +31,15 @@ void verify(const fs::path& dir) {
     auto sketch=sketcher::Sketch::create_default();sketch.add_external_reference(reference(dependent.document_id,c_path,a_path));middle.sketches={sketch};
     dependent.save(dir/"dependent.prtz",{});source.save(dir/"source.prtz",{});middle.save(dir/"middle.prtz",{});
     live.add_part(dependent,{},dir/"dependent.prtz");live.add_assembly(top,dir/"top.asmz");
+    require(live.activate_occurrence(top.document_id,a_path).has_value(),"Cannot activate dependency test context");
     const auto before=live.open_assembly(top.document_id)->session.revision(),generation=live.open_assembly(top.document_id)->session.data_generation(),count=live.size();
     const auto context=live.active_document_id(),displayed=live.displayed_document_id();
     const auto check=[&]{workspace::require_acyclic_document_dependency(live,dependent.document_id,source.document_id);};
     // Both source Parts and the intermediate Assembly are closed. The reference
     // is in an embedded Helical profile, not the root Sketch list.
     rejected(check,"dependency_cycle");
-    bool edge_rejected=false;try{live.add_external_sketch_dependency(top.document_id,a_path,b_path);}catch(const std::invalid_argument&){edge_rejected=true;}
-    require(edge_rejected,"Context reference ignored a closed embedded-profile cycle");
+    auto draft=dependent;auto pending=sketcher::Sketch::create_default();pending.add_external_reference(reference(source.document_id,a_path,b_path));draft.sketches.push_back(pending);
+    rejected([&]{workspace::commit_part_document(live,dependent.document_id,draft,{});},"dependency_cycle");
     require(live.size()==count&&live.active_document_id()==context&&live.displayed_document_id()==displayed&&
         live.open_assembly(top.document_id)->session.revision()==before&&live.open_assembly(top.document_id)->session.data_generation()==generation&&
         live.open_assembly(top.document_id)->session.document().dependencies.empty(),"Rejected dependency changed live documents or Assembly state");

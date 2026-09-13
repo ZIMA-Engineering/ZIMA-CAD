@@ -351,3 +351,13 @@ v aktivovaném otevřeném Partu obnoví i tehdy, když Part nemá žádnou samo
 kořenovou skicu. Uložené původní identity, oříznuté intervaly a vazby offsetu
 zůstávají zachované. Ověřený průchod přes CLI a nativní soubor popisuje
 [OWNED_SKETCH_REFERENCE_REFRESH.md](OWNED_SKETCH_REFERENCE_REFRESH.md).
+
+### Tvorba a odpojení kontextových referencí
+
+Po `component.activate` přijímá `sketch.reference.create` úplnou cestu zdroje
+v `instance_path`; podporuje hranu, bod, osu i plochu. Reference a souhrn
+závislostí společné Assembly se potvrdí společně v paměti. Při ukládání změn
+uložte Part i změněnou Assembly. `sketch.reference.delete` odpojí zdroj a
+zachová nativní profilovou křivku. Stejnou cestu používá GUI a Part Undo/Redo.
+Pravidla, nativní CLI regrese a navazující práce jsou v
+[CONTEXT_REFERENCE_TRANSACTIONS.md](CONTEXT_REFERENCE_TRANSACTIONS.md).

@@ -126,6 +126,7 @@ add_library(zima_workspace modules/workspace/src/workspace.cpp
     modules/workspace/src/history_operations.cpp
     modules/workspace/src/reference_sources.cpp
     modules/workspace/src/context_reference_sources.cpp
+    modules/workspace/src/part_transactions.cpp
     modules/workspace/src/document_dependencies.cpp
     modules/workspace/src/export_operations.cpp
     modules/workspace/src/import_operations.cpp
@@ -585,6 +586,9 @@ if(ZIMA_BUILD_TESTS)
     target_link_libraries(zima_cpp_nested_copy_reference_tests PRIVATE zima_command_host)
     add_test(NAME zima_cpp_nested_copy_reference_tests COMMAND zima_cpp_nested_copy_reference_tests)
 
+    add_executable(zima_cpp_context_reference_transaction_tests tests/context_reference_transaction_tests.cpp)
+    target_link_libraries(zima_cpp_context_reference_transaction_tests PRIVATE zima_command_host)
+    add_test(NAME zima_cpp_context_reference_transaction_tests COMMAND zima_cpp_context_reference_transaction_tests)
     add_executable(zima_cpp_owned_reference_refresh_tests tests/owned_reference_refresh_tests.cpp)
     target_link_libraries(zima_cpp_owned_reference_refresh_tests PRIVATE zima_command_host)
     add_test(NAME zima_cpp_owned_reference_refresh_tests COMMAND zima_cpp_owned_reference_refresh_tests)

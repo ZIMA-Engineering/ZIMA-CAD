@@ -333,6 +333,10 @@ bool DocumentSession::step(States& from,States& to) {
     ++data_generation_;
     return true;
 }
+const PartDocument* DocumentSession::history_document(bool redo) const noexcept {
+    const auto& history=redo?redo_:undo_;
+    return history.empty()?nullptr:&history.back()->document;
+}
 bool DocumentSession::undo() { return step(undo_,redo_); }
 bool DocumentSession::redo() { return step(redo_,undo_); }
 

@@ -153,10 +153,6 @@ public:
         const std::string& source_document_id) const;
     [[nodiscard]] bool refresh_context_external_references(
         zima::document::PartDocument& document) const;
-    void add_external_sketch_dependency(
-        const std::string& top_assembly_document_id,
-        const zima::assembly::InstancePath& dependent_instance_path,
-        const zima::assembly::InstancePath& prerequisite_instance_path);
     void synchronize_external_sketch_dependencies();
     [[nodiscard]] zima::kernel::ViewerMesh build_scene_with_part_override(
         const std::string& top_assembly_document_id,

@@ -71,7 +71,7 @@ void AssemblyWorkspaceWindow::create_layout() {
     history_tree->history_cursor_moved = [this](std::size_t cursor) {
         auto* part = workspace_.open_part(workspace_.active_document_id());
         if (part == nullptr || !part_history_insertion_allowed()) return;
-        if (!workspace::set_part_history_cursor(*part,cursor)) return;
+        if (!workspace::set_part_history_cursor(workspace_,workspace_.active_document_id(),cursor)) return;
         preserve_view_on_refresh_ = true;
         refresh_tabs();
         refresh_scene();

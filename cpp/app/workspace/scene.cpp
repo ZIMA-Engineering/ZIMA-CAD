@@ -2120,6 +2120,10 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         if (active_part != nullptr) {
             zima::kernel::BodyResult boundary = part_rollback_->input_body
                 .value_or(zima::kernel::BodyResult{});
+            if(editing_sketch&&active_part->session.document().document_id==workspace_.active_document_id()) {
+                boundary.mesh=sketch_input_mesh(active_part->session);
+                append_mesh(boundary.mesh,sketch_viewer_mesh(*editing_sketch));
+            }
             viewer_->set_mesh(workspace_.build_scene_with_part_override(
                 document.document_id,
                 zima::assembly::InstancePath::decode(part_rollback_->instance_path),
@@ -2185,6 +2189,9 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                 append_mesh(live_source.mesh, std::move(sketch_mesh));
             }
 
+            if(editing_sketch&&std::ranges::none_of(active_part->session.document().sketches,
+                [&](const auto& sketch){return sketch.id==editing_sketch->id;}))
+                append_mesh(live_source.mesh,sketch_viewer_mesh(*editing_sketch));
             append_mesh(live_source.mesh,
                 construction_mesh(active_part->session.document(),
                     zima::document::viewer_mesh_bounds_diagonal(

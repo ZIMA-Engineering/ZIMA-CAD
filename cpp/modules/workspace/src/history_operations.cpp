@@ -1,3 +1,4 @@
+#include <zima/workspace/part_transactions.hpp>
 #include <zima/workspace/history_operations.hpp>
 #include <zima/workspace/history_policy.hpp>
 #include <zima/workspace/reference_index.hpp>
@@ -104,7 +105,10 @@ bool part_history_suppressed(const document::PartDocument& document,const std::s
     if (sketch!=document.sketches.end()) return sketch->suppressed;
     throw HistoryOperationError("history_not_found", "The requested history object does not exist or is owned by a feature.");
 }
-bool set_part_history_suppressed(PartState& part,const kernel::OcctKernel& kernel,const std::string& id,bool suppressed) {
+bool set_part_history_suppressed(Workspace& live,const std::string& document_id,const kernel::OcctKernel& kernel,const std::string& id,bool suppressed) {
+    auto* state=live.open_part(document_id);
+    if(!state)throw HistoryOperationError("unsupported_document","Part document is not open");
+    auto& part=*state;
     const auto current=part_history_suppressed(part.session.document(),id);
     require_editable(part.session.document(),id);
     if (current==suppressed) return false;
@@ -115,10 +119,13 @@ bool set_part_history_suppressed(PartState& part,const kernel::OcctKernel& kerne
     auto calculated=calculate_part(kernel,next,&part.session.calculated_boundaries());
     next.resolve_constructions(calculated.empty()?kernel::ViewerReferenceGeometry{}:calculated.back().mesh.original_references);
     static_cast<void>(refresh_sketch_external_references(next,calculated));
-    part.session.commit(std::move(next),std::move(calculated));
+    commit_part_document(live,document_id,std::move(next),std::move(calculated));
     return true;
 }
-bool move_part_history(PartState& part,const kernel::OcctKernel& kernel,const std::string& id,const std::string& before,bool commit) {
+bool move_part_history(Workspace& live,const std::string& document_id,const kernel::OcctKernel& kernel,const std::string& id,const std::string& before,bool commit) {
+    auto* state=live.open_part(document_id);
+    if(!state)throw HistoryOperationError("unsupported_document","Part document is not open");
+    auto& part=*state;
     require_editable(part.session.document(),id);
     const auto& original=part.session.document();
     const bool body_step = original.body_history.find(id) || original.body_history.find_boolean(id);
@@ -203,10 +210,13 @@ bool move_part_history(PartState& part,const kernel::OcctKernel& kernel,const st
                 throw HistoryOperationError("history_dependency", "The move would break an external Sketch reference.");
         }
     }
-    part.session.commit(std::move(next),std::move(calculated));
+    commit_part_document(live,document_id,std::move(next),std::move(calculated));
     return true;
 }
-void delete_part_history(PartState& part,const kernel::OcctKernel& kernel,const std::string& id) {
+void delete_part_history(Workspace& live,const std::string& document_id,const kernel::OcctKernel& kernel,const std::string& id) {
+    auto* state=live.open_part(document_id);
+    if(!state)throw HistoryOperationError("unsupported_document","Part document is not open");
+    auto& part=*state;
     const auto& original=part.session.document();
     if (!original.body_history.find(id) && !original.body_history.find_boolean(id)) {
         static_cast<void>(part_history_suppressed(original,id));
@@ -218,14 +228,17 @@ void delete_part_history(PartState& part,const kernel::OcctKernel& kernel,const 
     if (rollback && rollback->input_body)
         static_cast<void>(restore_surviving_edge_references_after_history_delete(next,id,*rollback->input_body,part.session.calculated_boundaries()));
     auto calculated=calculate_part_with_resolved_references(kernel,next);
-    part.session.commit(std::move(next),std::move(calculated));
+    commit_part_document(live,document_id,std::move(next),std::move(calculated));
 }
-bool set_part_history_cursor(PartState& part,std::size_t index) {
+bool set_part_history_cursor(Workspace& live,const std::string& document_id,std::size_t index) {
+    auto* state=live.open_part(document_id);
+    if(!state)throw HistoryOperationError("unsupported_document","Part document is not open");
+    auto& part=*state;
     auto next=part.session.document();
     if (index>next.history_order.size()) throw HistoryOperationError("invalid_arguments", "The history index is outside the document history.");
     if (next.effective_history_cursor()==index) return false;
     next.set_history_cursor(index);
-    part.session.commit(std::move(next),part.session.calculated_boundaries());
+    commit_part_document(live,document_id,std::move(next),part.session.calculated_boundaries());
     return true;
 }
 }
