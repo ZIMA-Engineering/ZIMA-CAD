@@ -48,7 +48,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Sestavy | Dotazy, vložení, otevření zdrojů, vlastnosti, odstranění a přesná aktivace hotovy | `component.set`: název, viditelnost, potlačení, uzemnění, umístění a všechny čtyři druhy vložených vazeb s mezemi/zámky; `component.remove` sdílí kontrolu závislostí a atomické mazání s GUI; `component.activate/deactivate` sdílejí přesný zdrojový kontext s GUI; souhrny referencí jsou společné pro Assembly Undo a explicitní regeneraci; zbývají řezy; schválená oprava pořadí řetězce vazeb je hotová a ověřená |
 | Výkresy | Listy, šablony, historie, tvorba/vlastnosti/dotazy/mazání pohledů, regenerace, modelové anotace, Show/Erase a měřené kóty (dotazy, tvorba, editace, řetězec, mazání), razítko, zdrojové parametry BOM, PDF, DXF a PNG/JPEG listu/výřezu hotovy | Další anotace, zdrojové styly šraf a příkazový snímek interaktivního View |
 | Vzhled | Společné operace GUI/CLI hotovy | `appearance.get/set/reset/faces/palette`: styly Partu a jednotlivých výskytů, skupiny ploch, dědění zdroje, reset, historie a nativní uložení; bez výpočtu těles |
-| Řezy | Čtení, tvorba, vlastnosti, aktivace a odstranění | `section.list/get/components/create/set/activate/delete`: úplná otevřená čára, vlastní skica, společné OK vlastností, číselné umístění, přesné výskyty a šrafování; zbývá dávková úprava vlastněné skici a vstup referencí umístění |
+| Řezy | Čtení, tvorba, vlastnosti, aktivace a odstranění | `section.list/get/components/create/set/activate/delete`: úplná otevřená čára, vlastní skica, společné OK vlastností, číselné umístění, přesné výskyty a šrafování; `section.sketch.edit` upravuje celou skicu v jedné transakci; zbývá vstup referencí umístění |
 | Měření | Zbývá | Datové operace a uložené výsledky |
 | Parametry, relace a materiál | Společné tabulky a transakce hotovy | Parametry, jednotky, přesnost, relace, materiál včetně přímého načtení knihovny a uložené varianty; řízení rozměrů relacemi a generování variant nejsou dosud zavedené ani v GUI |
 | Import a export | Import Partu/Assembly STEP/IGES/DXF a základní exporty hotovy | Společný STEP včetně vnořených sestav, STL Part/vnořená Assembly, DXF úsečky/osy/body/kružnice/oblouky/elipsy/spline/trimy/offsety; DXF do vložených profilů hotov; zbývá DXF text/rohová zaoblení, import POINT/neohraničených spline a snímek interaktivního View |
@@ -1207,3 +1207,20 @@ Sestavily se obě aplikace a všechny testy; dotčená sada prošla **9/9 za
 190,58 s**, včetně CLI, GUI konzole, vlastností, výkresů, startu a překladů.
 Katalog má **225 příkazů**, celá sada 125 testů. Další krok je dávková úprava
 řezové skici; přímé běžné mutace této vlastněné skici zůstávají odmítnuté.
+
+
+## Atomické dávky řezové skici (2026-09-13)
+
+`section.sketch.edit` používá původní typované deklarace a nativní mutace
+skicáře nad jediným soukromým návrhem. Teprve platná konečná řezová čára
+se potvrdí společnou transakcí vlastností. Zachovává identity, referenční
+pravidla, přesné výskyty, jednu historii a vypočtená data těles. Chybný krok
+vrací svůj index bez publikace mezivýsledků. Dokumentace:
+[SECTION_COMMANDS.md](SECTION_COMMANDS.md).
+
+Plná sada po sestavení obou aplikací prošla **125/126 za 534,86 s**; nová
+GUI regrese odhalila neukončený příznak výběru referencí po zavření
+vlastností řezu. Po lokální opravě OK/Cancel a novém sestavení prošla
+dotčená sada **6/6 za 58,71 s**, včetně GUI konzole a celého GUI řezů.
+Katalog má **226 příkazů**, sada 126 testů. Dalším krokem jsou cílové vstupy
+zakončení vrtání u samostatného nativního Hole.

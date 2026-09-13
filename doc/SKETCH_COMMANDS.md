@@ -464,3 +464,9 @@ Regenerate. Beze změny parametrů nevzniká revize.
 
 Katalog po této etapě obsahuje **102 příkazů**. Zbývající modelovací domény
 jsou nadále uvedeny v přehledu pokrytí.
+
+
+Vlastní skicu řezu lze číst uvedenými dotazy. Její mutace potvrzuje jedině
+`section.sketch.edit`: dávka používá stejné nativní mutační příkazy bez
+vnitřních argumentů `sketch/document` a na konci ověří celou řezovou čáru.
+Podrobný kontrakt a příklady jsou v [SECTION_COMMANDS.md](SECTION_COMMANDS.md).

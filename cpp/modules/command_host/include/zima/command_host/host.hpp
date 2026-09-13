@@ -53,6 +53,13 @@ private:
     std::filesystem::path& directory_;
     Options options_;
     commands::Dispatcher dispatcher_;
+    struct SketchEditCommand {
+        commands::Command declaration;
+        std::function<Json(sketcher::Sketch&,const Json&)> operation;
+    };
+    // Only local Sketch mutations are eligible for an owning feature's batch.
+    std::map<std::string,SketchEditCommand> sketch_edit_commands_;
+    [[nodiscard]] commands::Dispatcher sketch_draft_dispatcher(sketcher::Sketch&) const;
     bool executing_{};
     std::optional<Change> change_;
     void register_commands();

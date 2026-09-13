@@ -5,6 +5,7 @@
 namespace zima::command_host {
 using namespace sketch_commands;
 void Host::add_sketch_command(commands::Command command,std::function<Json(Sketch&,const Json&)> operation) {
+    sketch_edit_commands_.emplace(command.name,SketchEditCommand{command,operation});
     command.arguments.insert(command.arguments.begin(),{"sketch",true});command.arguments.push_back({"document",false});command.changes_state=true;
     dispatcher_.add(std::move(command),[this,operation=std::move(operation)](const Json& args) {
         const auto check=target(args);if(!check.ok)return check;
@@ -24,6 +25,19 @@ void Host::add_sketch_command(commands::Command command,std::function<Json(Sketc
           catch(const sketcher::RedundantConstraint& error){return Result::failure("redundant_constraint",tr(error.what()));}
           catch(const std::exception& error){return Result::failure("sketch_rejected",tr(error.what()));}
     });
+}
+commands::Dispatcher Host::sketch_draft_dispatcher(Sketch& sketch) const {
+    commands::Dispatcher batch;
+    for(const auto& [name,entry]:sketch_edit_commands_)batch.add(entry.declaration,[this,&sketch,operation=entry.operation](const Json& args) {
+        try {
+            Json data;workspace::apply_sketch_geometry(sketch,[&](Sketch& draft){data=operation(draft,args);});
+            return Result::success(std::move(data));
+        }catch(const workspace::SketchOperationError& error){return Result::failure(error.code,tr(error.what()));}
+         catch(const workspace::DocumentDependencyError& error){return Result::failure(error.code,tr(error.what()));}
+         catch(const sketcher::RedundantConstraint& error){return Result::failure("redundant_constraint",tr(error.what()));}
+         catch(const std::exception& error){return Result::failure("sketch_rejected",tr(error.what()));}
+    });
+    return batch;
 }
 void Host::register_sketch_commands() {
     const auto query=[this](commands::Command command,std::function<Json(const Json&)> operation) {

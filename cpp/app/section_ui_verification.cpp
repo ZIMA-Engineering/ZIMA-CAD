@@ -270,7 +270,8 @@ int verify_sections(QApplication& application,AssemblyWorkspaceWindow& window,co
         const auto console=[&](const char* name,zima::commands::Json args=zima::commands::Json::object()) {
             const auto request=zima::commands::Json{{"command",name},{"arguments",std::move(args)}}.dump();
             const auto result=window.execute_console_command(QString::fromUtf8(request.c_str()));
-            check(result.ok,result.message.c_str());flush();return result.data;
+            const auto error=std::string(name)+": "+result.code+": "+result.message;
+            check(result.ok,error.c_str());flush();return result.data;
         };
         const auto cli_section=console("section.create",{{"path_mm",zima::commands::Json::array({zima::commands::Json::array({-50,0}),zima::commands::Json::array({100,0})})},
             {"components",zima::commands::Json::array({{{"component",first_key},{"hatch",{{"angle_degrees",12.3456789},{"spacing_mm",2.3456789}}}}})}});
@@ -283,12 +284,28 @@ int verify_sections(QApplication& application,AssemblyWorkspaceWindow& window,co
             dialog()->values().components.at(first_key).hatch.angle==12.3456789,"Properties lost CLI Section identity or hatch precision");
         dialog()->findChild<QLineEdit*>("sectionName")->setText("CLI to Properties");
         dialog()->buttons()->button(QDialogButtonBox::Ok)->click();flush();check(!dialog(),"Properties OK rejected a console-created Section");
+        check(!tree->property("commandSelectionActive").toBool(),"Section OK left reference selection active");
         const auto cli_after=console("section.get",{{"object",cli_id}});
         check(cli_after.at("name")=="CLI to Properties"&&cli_after.at("sketch")==cli_section.at("sketch")&&
             cli_after.at("revision").get<std::uint64_t>()==cli_section.at("revision").get<std::uint64_t>()+1,"Properties did not commit one shared Section edit");
         const auto cli_components=console("section.components",{{"object",cli_id}}).at("items");
         check(std::ranges::any_of(cli_components,[&](const auto& item){return item.at("component")==first_key&&item.at("hatch").at("angle_degrees")==12.3456789&&
             item.at("hatch").at("spacing_mm")==2.3456789;}),"Properties OK rounded untouched CLI hatch values");
+        const auto entities=console("sketch.entities",{{"sketch",cli_section.at("sketch")}}).at("items");
+        const auto point_entity=std::ranges::find_if(entities,[](const auto& item){return item.at("kind")=="point";});
+        check(point_entity!=entities.end(),"Console Section has no native point");const auto edit_point=point_entity->at("id").get<std::string>();
+        const auto batch=console("section.sketch.edit",{{"object",cli_id},{"operations",zima::commands::Json::array({
+            {{"command","sketch.point.move"},{"arguments",{{"point",edit_point},{"position",zima::commands::Json::array({-50,3})}}}}})}});
+        check(batch.at("results").size()==1&&batch.at("changed")==true,"Console Section Sketch batch failed");
+        cli_row=nullptr;for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==cli_id){cli_row=*it;break;}
+        check(cli_row!=nullptr,"Batched Section disappeared from Tree");window.show_tree_item_properties(cli_row);flush();
+        check(dialog()&&dialog()->values().sketch.find_point(edit_point)&&dialog()->values().sketch.find_point(edit_point)->y==3,
+            "Properties did not consume the console-edited Section Sketch");
+        dialog()->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
+        check(!dialog()&&!tree->property("commandSelectionActive").toBool(),"Section Cancel left reference selection active");
+        console("undo");
+        check(console("sketch.entity.get",{{"sketch",cli_section.at("sketch")},{"entity",edit_point}}).at("entity").at("y")==0,
+            "Console Undo after Properties did not restore the whole Section Sketch batch");
         std::cout<<"Section UI: container placement, own plane, full Sketcher, local undo/redo, nested cancel, MMB, tree, Drawing hatch/PDF and repeated Assembly components passed\n";return 0;
     }catch(const std::exception& e){std::cerr<<"Section UI: "<<e.what()<<'\n';return 1;}
 }

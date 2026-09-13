@@ -175,6 +175,31 @@ void Host::register_section_commands() {
              catch(const std::exception& error){return Result::failure("section_edit_rejected",tr(error.what()));}
         });
     }
+    dispatcher_.add({"section.sketch.edit",tr("Edit a complete Section Sketch with one atomic batch of native Sketch commands."),
+        {{"object",true},{"operations",true,Type::Array},{"document",false}},true},[this](const Json& args) {
+        const auto checked=target(args);if(!checked.ok)return checked;
+        if(interaction().template_document)return Result::failure("unsupported_document",tr("Section operations require an open Part or Assembly."));
+        const auto& operations=args.at("operations");
+        if(operations.empty()||operations.size()>1000)return Result::failure("invalid_arguments",tr("A Section Sketch batch requires 1 to 1000 operations."));
+        try {
+            const auto id=workspace_.active_document_id();
+            const auto edit=workspace::prepare_section_edit(workspace_,id,args.at("object").get<std::string>());
+            auto value=edit.initial;const auto batch=sketch_draft_dispatcher(value.sketch);auto results=Json::array();
+            for(std::size_t i=0;i<operations.size();++i) {
+                auto result=batch.execute(operations[i]);
+                if(!result.ok){result.message=tr(result.message.c_str());result.data={{"operation_index",i}};return result;}
+                results.push_back(std::move(result.data));
+            }
+            const bool changed=workspace::commit_section(workspace_,edit,std::move(value));
+            const auto current=source(workspace_,{{"document",id}});
+            auto result=details(find(current,{{"object",edit.initial.id}}));
+            result["document"]=id;result["revision"]=current.revision;result["changed"]=changed;result["body_calculated"]=false;
+            result["results"]=std::move(results);
+            if(changed)change_=Change{ChangeKind::Model,id,true};
+            return Result::success(std::move(result));
+        }catch(const EditError& error){return Result::failure(error.code,tr(error.what()));}
+         catch(const std::exception& error){return Result::failure("section_edit_rejected",tr(error.what()));}
+    });
     for(const bool remove:{false,true})dispatcher_.add({remove?"section.delete":"section.activate",
         remove?tr("Remove a saved Section through the same transaction as the tree action."):
             tr("Activate a saved Section, or the unsectioned display when object is omitted."),

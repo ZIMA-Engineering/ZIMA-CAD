@@ -45,7 +45,7 @@ Chybějící řez vrací `section_not_found`; chybějící otevřený model
 
 Čtení doplňují společné příkazy aktivace a odstranění popsané níže.
 Tvorbu a vlastnosti včetně šrafování doplňují níže uvedené příkazy.
-Dávková změna celé řezové skici ještě zbývá. Obyčejné příkazy
+Dávkovou změnu celé řezové skici řeší `section.sketch.edit`. Obyčejné příkazy
 skicáře nadále odmítají přímou změnu skici řezu: celý návrh musí potvrdit
 transakce řezu po kontrole jeho otevřené souvislé čáry. Společné umístění,
 formát dokumentů a start šablony se nemění.
@@ -189,3 +189,77 @@ Logy: `build/section-properties-baseline-tests.log`,
 `build/section-properties-integration-tests.log`.
 Katalog má **225 příkazů**, CTest obsahuje 125 testů; tato etapa spustila
 uvedených 9 dotčených integračních testů.
+
+## Dávková úprava vlastní skici
+
+`section.sketch.edit` přijímá `object`, pole `operations` a volitelné
+`document`. Všech 1 až 1000 operací pracuje s jednou soukromou kopií vlastní
+skici. Konečný řez potvrzuje stejná transakce jako OK ve vlastnostech.
+
+```json
+{"command":"section.sketch.edit","arguments":{"object":"<section-id>","operations":[{"command":"sketch.point.move","arguments":{"point":"<first-point-id>","position":[-20,2]}},{"command":"sketch.point.move","arguments":{"point":"<second-point-id>","position":[20,2]}}]}}
+```
+
+Vnitřní operace používají stejné názvy, argumenty a nativní implementace
+jako mutační příkazy `sketch.*`, ale **bez `sketch` a `document`**. Vlastníka
+pevně určuje vnější příkaz. Dostupné jsou lokální změny geometrie, vazeb,
+kót, ořezů, offsetů, textu, spline a externích referencí. Příkazy pro nový
+samostatný dokument/skicu, dotazy, import ze souboru, ukládání nebo ostatní
+modelové operace v této dávce dostupné nejsou. Obecné `sketch.*` nad uloženou
+řezovou skicou zůstávají odmítnuté, aby neobešly konečné ověření řezu.
+
+Každý krok použije původní typovanou deklaraci argumentů, geometrii skicáře,
+obnovu odvozených křivek a validaci skici. Konečná kontrola řezu proběhne až
+po celé dávce. Proto lze například starou úsečku odstranit a nahradit dvěma
+novými, i když mezistav ještě netvoří řezovou čáru. Výsledkem musí být stále
+otevřená souvislá lomená čára z běžných úseček, podle stejného geometrického
+kontraktu jako GUI. Kružnice, oblouky či importované bloky nesmějí vytvořit
+nepodporovaný profil řezu. Pomocná geometrie zůstává součástí vlastní skici.
+
+- ID již existujících bodů, křivek a vazeb poskytují `sketch.entities` a
+  `sketch.entity.get` pro ID skici vrácené `section.get`.
+- Změna polohy zachovává identity; výslovné odstranění a nová tvorba mají
+  standardní identitní a závislostní pravidla skicáře.
+- Reference se vytváří z původního vlastníka a sémantického klíče. Assembly
+  navíc používá přesnou `instance_path`; stejné hrany dvou výskytů zůstávají
+  dvěma různými referencemi. Jejich vytvoření, explicitní obnova a odpojení
+  používají společné operace skicáře a nepřepočítávají tělesa.
+- Chyba kroku vrací původní kód a `operation_index` počítaný od nuly. Chyba
+  konečné čáry odmítne celou dávku. Žádné mezivýsledky se nepublikují.
+- Úspěch vrací `results` ve stejném pořadí jako operace, včetně nových ID,
+  spolu s daty řezu, `changed`, `revision` a `body_calculated:false`.
+  Nová ID výsledků nejsou zástupné proměnné pro další krok téže dávky;
+  požadavek obsahuje konkrétní ID nebo souřadnice příslušných operací.
+- Celá změna má jeden krok Undo/Redo. Shodný konečný návrh historii
+  nerozšiřuje. Data zůstávají pouze v nativním Partu nebo Assembly.
+
+Výchozí test prokázal chybějící příkaz (0/1 za 0,13 s). Po implementaci
+rozšířený modelový test prošel **1/1 za 0,17 s**: posun se stabilními ID,
+no-op, dávka s chybou po platných změnách, neplatná konečná čára, nahrazení
+celé čáry, původní reference, její obnova a odpojení, opakované výskyty
+Assembly, sdílení zdrojové geometrie, Undo/Redo a nativní uložení.
+První kontrola cache v testu chybně porovnávala adresu obalu nové historie;
+opravená kontrola ověřuje zachování vypočtené geometrie a v Assembly
+sdílení stejného zdrojového snímku. Logy:
+`build/section-sketch-baseline-tests.log`, `build/section-sketch-first-tests.log`,
+`build/section-sketch-expanded-tests.log`.
+
+
+Po sestavení obou aplikací a všech testovacích programů prošla plná sada
+**125/126 za 534,86 s**. Nová GUI regrese odhalila skutečnou chybu zavírání
+vlastností řezu: zůstal zapnutý příznak výběru referencí ve stromu a další
+mutační příkaz konzole byl odmítnut jako probíhající editace. Lokální obsluha
+ukončení dialogu nyní tento příznak vypne při OK i Cancel. Obecné řešení
+umístění se nemění.
+
+Po opravě se znovu sestavily obě aplikace i všechny testy a dotčená sada
+prošla **6/6 za 58,71 s**. Zahrnuje všechny modelové testy řezů, GUI konzoli
+(45,47 s) a kompletní GUI řezů (12,65 s), včetně následné dávky a Undo po
+zavření vlastností. Ostatních 125 testů předchozí plné sady prošlo; po této
+lokální opravě se neopakovala celá sada. Skutečný CLI proces a nové překlady
+byly součástí plné kontroly. Logy: `build/section-sketch-verified-build.log`,
+`build/section-sketch-full-tests.log`,
+`build/section-sketch-gui-diagnosis-tests.log`,
+`build/section-sketch-gui-fixed-build.log`,
+`build/section-sketch-gui-fixed-tests.log`.
+Katalog má **226 příkazů**, celá sada obsahuje 126 testů.

@@ -247,6 +247,18 @@ int main(int argc,char** argv){
             edited_section.placement.y==2&&edited_section.components.at(appearance_saved.body_history.active_body_id()).hatch.angle==12.3456789&&
             std::abs(section_cache.back().volume-6000)<1e-6,"CLI Section properties lost identity, precision or cached geometry");
 
+        const auto section_move=[](const std::string& point,double x) {
+            Json args={{"point",point},{"position",Json::array({x,1.})}};
+            return Json{{"command","sketch.point.move"},{"arguments",std::move(args)}};
+        };
+        const auto section_operations=Json::array({section_move(created_section.sketch.points.front().id,-20),section_move(created_section.sketch.points.back().id,20)});
+        const auto edit_section_sketch=command({{"command","section.sketch.edit"},{"arguments",{{"object",created_section.id},{"operations",section_operations}}}});
+        result=launch(executable,root,common+QStringList{"--command","open section-cli.prtz","--command",edit_section_sketch,"--command","undo","--command","redo","--command","save"});
+        require(result.exit_code==0&&result.results()[1].at("data").at("results").size()==2,"CLI Section Sketch batch/Undo/Redo failed");
+        const auto edited_trace=document::PartDocument::load(section_path).sections.back();
+        require(edited_trace.sketch.id==created_section.sketch.id&&edited_trace.sketch.find_point(created_section.sketch.points.front().id)->y==1&&
+            edited_trace.sketch.find_point(created_section.sketch.points.back().id)->y==1,"CLI native Section lost batched point edits");
+
         const auto make_hole=command({{"command","hole.create"},{"arguments",{{"diameter_mm",10},{"bore_length_mm",10},{"placement",{{"z",-20}}}}}});
         result=launch(executable,root,common+QStringList{"--command","new part native-hole-cli","--command","box.create 40 40 40",
             "--command",make_hole,"--command","save"});
