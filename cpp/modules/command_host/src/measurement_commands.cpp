@@ -1,5 +1,5 @@
 #include <zima/command_host/host.hpp>
-#include <zima/workspace/measurement_operations.hpp>
+#include <zima/workspace/measurement_edits.hpp>
 #include <zima/document/measurement_record.hpp>
 #include <array>
 namespace zima::command_host {
@@ -32,13 +32,6 @@ std::vector<kernel::MeasurementReference> references(const Json& input) {
         if(found==kinds.end())throw Error("invalid_arguments","Unknown measurement reference kind.");
         kernel::MeasurementReference ref{static_cast<kernel::MeasurementKind>(found-kinds.begin()),item.value("owner",std::string{}),
             item.value("key",std::string{}),item.value("instance_path",std::string{})};
-        if(ref.kind==kernel::MeasurementKind::Object?
-            ((ref.owner_id.empty()&&ref.instance_path.empty())||!ref.semantic_key.empty()):
-            (ref.owner_id.empty()||ref.semantic_key.empty()||ref.semantic_key=="container:display"))
-            throw Error("invalid_reference","A measurement requires an original object or exact occurrence identity.");
-        if(!ref.instance_path.empty())try {
-            if(assembly::InstancePath::decode(ref.instance_path).encoded()!=ref.instance_path)throw std::invalid_argument("path");
-        }catch(const std::exception&) {throw Error("invalid_reference","The measurement occurrence path is invalid.");}
         result.push_back(std::move(ref));
     }
     return result;
@@ -53,6 +46,45 @@ Json details(const kernel::SavedMeasurement& record) {
 }
 void Host::register_measurement_commands() {
     using Type=commands::ArgumentType;
+    for(const bool create:{true,false}) {
+        std::vector<commands::Argument> arguments{{"name",false},{"references",create,Type::Array},{"document",false}};
+        if(!create)arguments.insert(arguments.begin(),{"object",true});
+        dispatcher_.add({create?"measurement.create":"measurement.set",create?
+            tr("Create a saved measurement from original references."):tr("Change or refresh a saved measurement in one transaction."),
+            std::move(arguments),true},[this,create](const Json& args) {
+            const auto checked=target(args);if(!checked.ok)return checked;
+            if(interaction().template_document)return Result::failure("unsupported_document",tr("Measurement commands require an open Part or Assembly."));
+            try {
+                const auto id=workspace_.active_document_id();
+                const auto edit=workspace::prepare_measurement_edit(workspace_,id,create?std::string{}:args.at("object").get<std::string>(),tr("Měření"));
+                auto record=edit.initial;if(args.contains("name"))record.name=args.at("name").get<std::string>();
+                if(args.contains("references"))record.references=references(args.at("references"));
+                const bool changed=workspace::commit_measurement(workspace_,edit,std::move(record));
+                const auto current=source(workspace_,{{"document",id}});
+                const auto found=std::ranges::find(*current.records,edit.initial.id,&kernel::SavedMeasurement::id);
+                auto result=details(*found);result["document"]=id;result["revision"]=current.revision;
+                result["changed"]=changed;result["body_calculated"]=false;
+                if(changed)change_=Change{ChangeKind::Model,id,true};return Result::success(std::move(result));
+            }catch(const workspace::MeasurementOperationError& error) {
+                auto result=Result::failure(error.code,tr(error.what()));
+                if(error.reference_index)result.data={{"reference_index",*error.reference_index}};return result;
+            }catch(const Error& error){return Result::failure(error.code,tr(error.what()));}
+             catch(const std::exception& error){return Result::failure("measurement_edit_rejected",tr(error.what()));}
+        });
+    }
+    dispatcher_.add({"measurement.delete",tr("Delete a saved measurement without recalculating bodies."),
+        {{"object",true},{"document",false}},true},[this](const Json& args) {
+        const auto checked=target(args);if(!checked.ok)return checked;
+        if(interaction().template_document)return Result::failure("unsupported_document",tr("Measurement commands require an open Part or Assembly."));
+        try {
+            const auto id=workspace_.active_document_id(),object=args.at("object").get<std::string>();
+            const bool changed=workspace::remove_measurement(workspace_,id,object);const auto current=source(workspace_,{{"document",id}});
+            if(changed)change_=Change{ChangeKind::Model,id,true};
+            return Result::success({{"document",id},{"object",object},{"revision",current.revision},{"changed",changed},{"body_calculated",false}});
+        }catch(const workspace::MeasurementOperationError& error){return Result::failure(error.code,tr(error.what()));}
+         catch(const std::exception& error){return Result::failure("measurement_edit_rejected",tr(error.what()));}
+    });
+
     dispatcher_.add({"measurement.list",tr("List saved measurements without recalculating their values."),
         {{"offset",false,Type::Integer},{"limit",false,Type::Integer},{"document",false}},false},[this](const Json& args) {
         try {
@@ -82,21 +114,14 @@ void Host::register_measurement_commands() {
         {{"references",true,Type::Array},{"document",false}},false},[this](const Json& args) {
         try {
             const auto data=source(workspace_,args);kernel::SavedMeasurement record;record.references=references(args.at("references"));
-            const auto scene=workspace::measurement_scene(workspace_,data.id);
-            std::vector<measurement::MeasurementGeometry> geometry;
-            for(std::size_t i=0;i<record.references.size();++i) {
-                auto value=workspace::resolve_measurement(workspace_,data.id,record.references[i],scene);
-                if(!value) {
-                    auto result=Result::failure("missing_reference",tr("The original measurement reference is unavailable."));
-                    result.data={{"reference_index",i}};return result;
-                }
-                record.values.push_back(value->values);geometry.push_back(std::move(*value));
-            }
-            if(geometry.size()==2)record.distance=measurement::measure_distance(geometry[0],geometry[1]);
+            workspace::evaluate_measurement_references(workspace_,data.id,record);
             auto result=details(record);
             for(const auto* field:{"id","object","name","body_id","after_object_id"})result.erase(field);
             result["document"]=data.id;result["revision"]=data.revision;result["body_calculated"]=false;result["saved_values"]=false;
             return Result::success(std::move(result));
+        }catch(const workspace::MeasurementOperationError& error) {
+            auto result=Result::failure(error.code,tr(error.what()));
+            if(error.reference_index)result.data={{"reference_index",*error.reference_index}};return result;
         }catch(const Error& error){return Result::failure(error.code,tr(error.what()));}
          catch(const std::exception& error){return Result::failure("measurement_query_failed",tr(error.what()));}
     });

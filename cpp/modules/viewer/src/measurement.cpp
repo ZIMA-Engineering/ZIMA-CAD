@@ -16,6 +16,8 @@ std::optional<kernel::MeasurementReference> measurement_reference(const ViewerCa
     // Display body topology is not a stable reference owner.
     if((kind==K::Face||kind==K::Curve)&&candidate.geometry==CandidateGeometry::Display&&
        (candidate.semantic_key.empty()||candidate.semantic_key=="container:display"))return {};
-    return kernel::MeasurementReference{kind,candidate.owner_id,candidate.semantic_key,candidate.instance_path};
+    // A whole object is identified by its owner and occurrence; the picker key
+    // describes its display category, not a subentity of that object.
+    return kernel::MeasurementReference{kind,candidate.owner_id,kind==K::Object?std::string{}:candidate.semantic_key,candidate.instance_path};
 }
 }

@@ -63,6 +63,9 @@ public:
         connect(name_,&QLineEdit::textChanged,this,[this]{update_save();});
         active_=initial_.references.empty()?0:-1;refresh();
     }
+    void set_save_available(bool available,const QString& reason) {
+        save_available_=available;if(!available)save_button_->setToolTip(reason);update_save();
+    }
     int active_reference()const{return active_;}
     bool entering()const{return active_>=0;}
     void set_changed(std::function<void()> changed){changed_=std::move(changed);publish();}
@@ -129,7 +132,7 @@ private:
     void update_save(){
         bool any=false,valid=!name_->text().trimmed().isEmpty();
         for(int i=0;i<2;++i)if(references_[i]){any=true;valid&=geometries_[i].has_value();}
-        save_button_->setEnabled(any&&valid);
+        save_button_->setEnabled(save_available_&&any&&valid);
     }
     void refresh(){
         for(int i=0;i<2;++i){
@@ -154,6 +157,7 @@ private:
         }
         if(changed_)changed_();
     }
+    bool save_available_{true};
     kernel::SavedMeasurement initial_;Resolve resolve_;Label label_;Save save_;std::function<void()> changed_;
     double length_scale_,mass_scale_;QString length_unit_,mass_unit_;
     QLineEdit* name_{};std::array<QTableWidget*,2> tables_{};std::array<ui::ReferenceCellItem*,2> items_{};

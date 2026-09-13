@@ -1,7 +1,7 @@
 #include "assembly_workspace_window.hpp"
 #include "measurement_dialog.hpp"
 #include "resource_icon.hpp"
-#include <zima/workspace/measurement_operations.hpp>
+#include <zima/workspace/measurement_edits.hpp>
 #include <zima/document/physical_properties.hpp>
 #include <zima/viewer/measurement.hpp>
 #include <zima/viewer/mesh_view.hpp>
@@ -11,7 +11,6 @@
 #include <QSignalBlocker>
 #include <QTreeWidget>
 #include <QTreeWidgetItemIterator>
-#include <QUuid>
 
 namespace zima::app {
 namespace {
@@ -30,39 +29,23 @@ void AssemblyWorkspaceWindow::show_measurement(const std::string& saved_id){
     const auto* part=workspace_.open_part(id);const auto* assembly=workspace_.open_assembly(id);
     if(!part&&!assembly)return;
     cancel_sketch_segment();
-    kernel::SavedMeasurement initial;
-    const auto& records=part?part->session.document().measurements:assembly->session.document().measurements;
-    if(!saved_id.empty()){
-        const auto found=std::ranges::find(records,saved_id,&kernel::SavedMeasurement::id);
-        if(found==records.end())return;initial=*found;
-    }else{
-        initial.id=QUuid::createUuid().toString(QUuid::WithoutBraces).toStdString();
-        int number=1;do{initial.name=tr("Měření %1").arg(number++).toStdString();}
-        while(std::ranges::any_of(records,[&](const auto& item){return item.name==initial.name;}));
-        if(part){
-            const auto& doc=part->session.document();initial.body_id=doc.body_history.active_body_id();
-            const auto cursor=doc.effective_history_cursor();if(cursor>0&&cursor<=doc.history_order.size())initial.after_object_id=doc.history_order[cursor-1].id;
-        }
-    }
+    workspace::MeasurementEdit edit;
+    try {edit=workspace::prepare_measurement_edit(workspace_,id,saved_id,tr("Měření").toStdString());}
+    catch(const std::exception& error){state_->setText(tr(error.what()));return;}
+    const auto& initial=edit.initial;
     const auto saved_record=std::make_shared<std::string>();
     const auto units=part?part->session.document().document_units:assembly->session.document().document_units;
     auto* dialog=new MeasurementDialog(initial,
         [this](const Ref& ref){return resolve_measurement(ref);},
         [this](const Ref& ref){return measurement_label(ref);},
-        [this,id,saved_record](kernel::SavedMeasurement record){
-            const auto update=[&](auto& document){
-                auto it=std::ranges::find(document.measurements,record.id,&kernel::SavedMeasurement::id);
-                if(it==document.measurements.end())document.measurements.push_back(record);else *it=record;
-            };
-            if(auto* source=workspace_.open_part(id)){
-                auto next=source->session.document();update(next);
-                source->session.commit(std::move(next),source->session.calculated_boundaries());
-            }else if(auto* source=workspace_.open_assembly(id)){
-                auto next=source->session.document();update(next);source->session.commit(std::move(next));
-            }
-            *saved_record=record.id;
+        [this,edit,saved_record](kernel::SavedMeasurement record){
+            try {static_cast<void>(workspace::commit_measurement(workspace_,edit,std::move(record)));}
+            catch(const std::exception& error){throw std::runtime_error(tr(error.what()).toStdString());}
+            *saved_record=edit.initial.id;
         },document::length_unit_mm(units.at("Length")),QString::fromStdString(units.at("Length")),
         document::mass_unit_kg(units.at("Mass")),QString::fromStdString(units.at("Mass")),this);
+    dialog->set_save_available(workspace_.active_document_id()==id,
+        tr("Activate the displayed model before changing saved measurements."));
     measurement_dialog_=dialog;properties_dialog_=dialog;
     viewer_->clear_selection();tree_->clearSelection();tree_->setProperty("commandSelectionActive",true);
     viewer_->set_dimension_layout_editable(false);
@@ -196,16 +179,13 @@ bool AssemblyWorkspaceWindow::measurement_context_menu(QTreeWidgetItem* item,con
     if(properties_dialog_)return true;
     const auto key=item->data(0,Qt::UserRole).toString().toStdString();QMenu menu(this);
     auto* edit=menu.addAction(tr("Vlastnosti…"));auto* remove=menu.addAction(tr("Odstranit"));
+    remove->setEnabled(workspace_.active_document_id()==workspace_.displayed_document_id());
     const auto* selected=menu.exec(tree_->viewport()->mapToGlobal(position));
     if(selected==edit)show_measurement(key);
     else if(selected==remove){
         const auto id=workspace_.displayed_document_id();
-        if(auto* source=workspace_.open_part(id)){
-            auto next=source->session.document();std::erase_if(next.measurements,[&](const auto& m){return m.id==key;});
-            source->session.commit(std::move(next),source->session.calculated_boundaries());
-        }else if(auto* source=workspace_.open_assembly(id)){
-            auto next=source->session.document();std::erase_if(next.measurements,[&](const auto& m){return m.id==key;});source->session.commit(std::move(next));
-        }
+        try {static_cast<void>(workspace::remove_measurement(workspace_,id,key));}
+        catch(const std::exception& error){state_->setText(tr(error.what()));return true;}
         preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();
     }
     return true;

@@ -110,11 +110,30 @@ try{
     check(saved_list.ok&&saved_list.data.at("total")==1&&saved_get.ok&&saved_get.data.at("values")==gui_value.at("values"),
         "Console cannot read a measurement saved by GUI");
 
+    const auto execute=[&](const char* command,commands::Json args=commands::Json::object()) {
+        const commands::Json request={{"command",command},{"arguments",std::move(args)}};
+        const auto result=window.execute_console_command(QString::fromStdString(request.dump()));
+        if(!result.ok)throw std::runtime_error(std::string(command)+": "+result.code+": "+result.message);return result;
+    };
+    const auto measurement_id=stored.measurements[0].id;
+    check(execute("measurement.set",{{"object",measurement_id},{"name","CLI renamed"}}).data.at("changed")==true,"Console did not edit GUI measurement");
     QTreeWidgetItem* row{};
     for(QTreeWidgetItemIterator i(tree);*i;++i)if((*i)->data(0,Qt::UserRole+3)=="document-measurement"){row=*i;break;}
     check(row,"Saved measurement not in tree");
     window.show_tree_item_properties(row);flush();
     check(dialog()&&dialog()->distance()&&dialog()->active_reference()==-1,"Saved measurement cannot reopen");
+    check(dialog()->findChild<QLineEdit*>("measurementName")->text()=="CLI renamed","Properties did not display the CLI rename");
+    dialog()->findChild<QLineEdit*>("measurementName")->setText("GUI renamed");
+    dialog()->findChild<QPushButton*>("saveMeasurement")->click();flush();check(!dialog(),"Shared GUI measurement commit did not close");
+    const auto renamed=execute("measurement.get",{{"object",measurement_id}}).data;
+    check(renamed.at("name")=="GUI renamed"&&renamed.at("references")==gui_value.at("references"),"GUI mutation changed original identities");
+    const auto reopen=[&] {
+        row=nullptr;for(QTreeWidgetItemIterator i(tree);*i;++i)if((*i)->data(0,Qt::UserRole+3)=="document-measurement"){row=*i;break;}
+        check(row,"Measurement disappeared from tree");window.show_tree_item_properties(row);flush();check(dialog()!=nullptr,"Cannot reopen measurement properties");
+    };
+    reopen();dialog()->findChild<QPushButton*>("saveMeasurement")->click();flush();
+    check(!dialog()&&execute("measurement.get",{{"object",measurement_id}}).data.at("revision")==renamed.at("revision"),"Unchanged GUI Save added history");
+    execute("measurement.delete",{{"object",measurement_id}});execute("undo");reopen();
     // A broken reference remains editable through the same reference-entry control.
     const auto saved_ref=dialog()->current().references[0];
     dialog()->reject();flush();
@@ -169,6 +188,12 @@ try{
     check(tree->currentItem()&&tree->currentItem()->data(0,Qt::UserRole+3)=="document-measurement","Assembly Save did not reveal record");
     window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
     check(assembly::AssemblyDocument::load(assembly_path).measurements.size()==1,"Assembly lost saved measurement");
+    execute("component.activate",{{"instance_path",assembly::InstancePath{{first.occurrence_id}}.encoded()}});flush();
+    action->trigger();flush();check(dialog()!=nullptr,"Read-only measurement inspector unavailable during activation");
+    select(viewer::CandidateKind::Vertex);
+    check(dialog()->geometries()[0]&&!dialog()->findChild<QPushButton*>("saveMeasurement")->isEnabled(),
+        "Inactive displayed Assembly allowed a measurement write through the active Part");
+    dialog()->reject();flush();execute("component.deactivate");
     std::cout<<"Measurement inspector picking, MMB, persistence and repair passed\n";return 0;
 }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
 }

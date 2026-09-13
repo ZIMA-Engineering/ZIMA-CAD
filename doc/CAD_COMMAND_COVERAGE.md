@@ -49,7 +49,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Výkresy | Listy, šablony, historie, tvorba/vlastnosti/dotazy/mazání pohledů, regenerace, modelové anotace, Show/Erase a měřené kóty (dotazy, tvorba, editace, řetězec, mazání), razítko, zdrojové parametry BOM, PDF, DXF a PNG/JPEG listu/výřezu hotovy | Další anotace, zdrojové styly šraf a příkazový snímek interaktivního View |
 | Vzhled | Společné operace GUI/CLI hotovy | `appearance.get/set/reset/faces/palette`: styly Partu a jednotlivých výskytů, skupiny ploch, dědění zdroje, reset, historie a nativní uložení; bez výpočtu těles |
 | Řezy | Čtení, tvorba, vlastnosti, aktivace a odstranění | `section.list/get/components/create/set/activate/delete`: úplná otevřená čára, vlastní skica, společné OK vlastností, číselné umístění, přesné výskyty a šrafování; `section.sketch.edit` upravuje celou skicu v jedné transakci; zbývá vstup referencí umístění |
-| Měření | Čtení a vyhodnocení | `measurement.list/get/evaluate`; tvorba a změna uložených záznamů zbývá |
+| Měření | Společné GUI/CLI operace | `measurement.list/get/evaluate/create/set/delete`; původní reference a uložené výsledky |
 | Parametry, relace a materiál | Společné tabulky a transakce hotovy | Parametry, jednotky, přesnost, relace, materiál včetně přímého načtení knihovny a uložené varianty; řízení rozměrů relacemi a generování variant nejsou dosud zavedené ani v GUI |
 | Import a export | Import Partu/Assembly STEP/IGES/DXF a základní exporty hotovy | Společný STEP včetně vnořených sestav, STL Part/vnořená Assembly, DXF úsečky/osy/body/kružnice/oblouky/elipsy/spline/trimy/offsety; DXF do vložených profilů hotov; zbývá DXF text/rohová zaoblení, import POINT/neohraničených spline a snímek interaktivního View |
 
@@ -1260,3 +1260,22 @@ prošly **2/2 za 96,19 s**, rozšířená kontrola měření osy a přesnosti kr
 **1/1 za 0,25 s**. Skutečný CLI proces, GUI inspector i celá konzole prošly.
 Katalog má **229 příkazů**, sada **128 testů**. Následuje společná transakce
 pro vytvoření, změnu a odstranění uloženého měření.
+
+
+## Společné transakce uloženého měření (2026-09-13)
+
+`measurement.create/set/delete` používají stejnou transakci jako GUI
+Uložit a Odstranit. Validují původní reference, identitu, jméno, historii
+a vlastníka. Zastaralý návrh, neplatná reference ani duplicitní jméno
+nepřepíší původní data. `set` bez změn může výslovně obnovit uložené
+hodnoty; nezměněný výsledek nevytváří další Undo krok. Formát, přípony
+ani šablony se nemění. Podrobnosti: [MEASUREMENT.md](MEASUREMENT.md).
+
+Obě aplikace a všechny testovací programy se sestavily. Integrace prošla
+**8/8 za 223,07 s**, včetně CLI, inspectoru, celé konzole a startu
+s překlady. Dodatečná regrese odhalila přenos kategorie vykreslení do
+reference celého objektu; po normalizaci a novém sestavení prošla
+závěrečná sada **4/4 za 3,52 s**. Katalog má **232 příkazů**, sada
+**129 testů**. Uživatelské zadání nadále vyžaduje pokračovat v ostatních
+nepokrytých operacích CLI. Od 2026-09-13 uživatel požaduje místní commity
+bez pushů do svého návratu.

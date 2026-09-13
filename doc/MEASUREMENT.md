@@ -62,7 +62,10 @@ například `12mm`, `240mm²` nebo `0,047kg`.
 Měření je informační položka, ne operace tělesa. V Partu se vloží k aktuálnímu
 místu historie tělesa, v sestavě do stromu sestavy. Nese název, stabilní
 reference včetně cesty instance a poslední uložené výsledky. V sestavovém
-kontextu se ukládá do zobrazené sestavy.
+kontextu se ukládá do zobrazené sestavy. Pro uložení nebo odstranění musí
+být zobrazený dokument také aktivní; během aktivace vnořeného dílu zůstává
+inspector dostupný pro čtení, jeho Uložit je vypnuté. Nesmí zapisovat do
+pasivní nadřazené sestavy za aktivní díl.
 
 **Vlastnosti** znovu vyhodnotí reference nad aktuální geometrií. Chybějící
 reference se označí červeně a lze ji nahradit výběrem do téhož pole. Uložení
@@ -172,3 +175,65 @@ Logy: `build/measurement-query-integration-build.log`,
 `build/measurement-query-integration-tests.log`,
 `build/measurement-query-catalog-startup-tests.log`,
 `build/measurement-query-precision-tests.log`.
+
+
+## Ukládání a úpravy přes CLI (2026-09-13)
+
+- `measurement.create` přijímá `references` a volitelný `name`. Vytvoří
+  stabilní záznam; v Partu jej ukotví k aktuálnímu tělesu a místu historie.
+- `measurement.set` přijímá `object`, volitelný `name` a `references`.
+  Vynechané reference zůstanou zachované. Příkaz s pouhým `object`
+  výslovně obnoví poslední uložené hodnoty podle současné vypočtené geometrie.
+- `measurement.delete object` odstraní právě jeden uložený záznam.
+
+```json
+{"command":"measurement.create","arguments":{"name":"Kontrolní vzdálenost","references":[{"kind":"plane","owner":"<part-id>:origin","key":"origin:plane:xy"},{"kind":"face","owner":"<original-feature-id>","key":"<original-face-key>"}]}}
+```
+
+Všechny tři mutace používají stejnou transakci jako Uložit nebo Odstranit
+v GUI. Vstupem nejsou vypočtené hodnoty, náhradní souřadnice ani místo
+historie. Sdílená operace vyhodnotí původní reference v soukromém návrhu;
+teprve úplný platný výsledek potvrdí jedním krokem dokumentové historie.
+Zachovává původní identitu a ukotvení. Název ořízne o vnější bílé znaky,
+ověří jej a odmítne duplicitu. Ztráta reference či jiná chyba nepřepíše
+poslední uložené výsledky. Nezměněné uložení nepřidává Undo krok.
+
+Příkazy pracují se zobrazeným aktivním Partem nebo sestavou. Při aktivaci
+vnořeného dílu musí uživatel nejprve aktivaci ukončit nebo otevřít zdroj
+samostatně. Tím zůstává jednoznačný vlastník a souřadný systém měření;
+inspekce celého zobrazeného modelu zůstává možná. Otevřený inspector je
+chráněn revizí, generací dat a runtime identitou dokumentu. Změna a následné
+Undo nebo zavření a opětovné otevření dokumentu nesmějí obnovit platnost
+starého editovacího návrhu.
+
+Body, vazby ani umístění se při těchto mutacích nepřepočítávají. Ukládají
+se pouze existující nativní záznamy měření; přípony, formát a start šablony
+se nemění. Part i Assembly podporují Undo/Redo a nativní uložení/reopen.
+
+Modelová sada po opravě dvou názvů testovacích vstupů prošla **3/3 za
+0,67 s**. Ověřuje vznik a změnu hodnot, smazání, no-op, atomické chyby,
+Undo/Redo, stárnutí návrhu při Undo a reopen, identitu a historii,
+oddělené výskyty, zachování B-Rep a sdílení zdrojových dat sestavy.
+Konečné integrační výsledky jsou uvedeny níže.
+
+
+Úplné sestavení obou aplikací a testovacích programů prošlo. Integrační
+sada prošla **8/8 za 223,07 s**: skutečný CLI proces, celý inspector
+měření, všechny příkazové testy, katalog, GUI konzole a start s překlady.
+GUI test porovnává změnu CLI → Vlastnosti → Uložit, nezměněné uložení,
+Delete/Undo a dostupnou inspekci bez možnosti zápisu do pasivní sestavy.
+
+Dodatečná regrese pro celé skici/solidy/roviny nejprve selhala
+(**0/1 za 0,18 s**): picker přenášel do měřicí reference pomocnou kategorii
+zobrazení. Celý objekt má identitu vlastníka a výskytu; klíč podentity je
+prázdný. Po normalizaci na hranici pickeru regrese prošla **1/1 za 0,17 s**.
+Po novém sestavení obou aplikací prošla závěrečná měřicí sada **4/4 za
+3,52 s**, včetně GUI a uložení měření skutečné samostatné skici. Její
+vzdálenost se počítá z konečné geometrie a nevzniká fiktivní objem.
+
+Katalog má **232 příkazů**, celá sada **129 testů**. Logy:
+`build/measurement-edit-integration-build.log`,
+`build/measurement-edit-integration-tests.log`,
+`build/measurement-object-identity-baseline-tests.log`,
+`build/measurement-object-identity-tests.log`,
+`build/measurement-edit-final-build.log`, `build/measurement-edit-final-tests.log`.

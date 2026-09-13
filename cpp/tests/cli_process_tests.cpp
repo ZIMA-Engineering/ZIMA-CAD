@@ -228,6 +228,22 @@ int main(int argc,char** argv){
         require(result.exit_code==0&&result.results()[1]["data"]["saved_values"]==true&&result.results()[2]["data"]["total"]==1&&
             result.results()[1]["data"]["values"]==measurement_row["values"],"CLI could not read native saved measurements");
 
+        const auto create_measurement=command({{"command","measurement.create"},{"arguments",{{"name","Created"},{"references",measurement_row.at("references")}}}});
+        result=launch(executable,root,common+QStringList{"--command","open measurement-cli.prtz","--command",create_measurement,"--command","save"});
+        require(result.exit_code==0&&result.results()[1]["data"]["changed"]==true,"CLI measurement creation failed");
+        const auto measured_id=result.results()[1]["data"]["object"].get<std::string>();
+        const auto change_measurement=command({{"command","measurement.set"},{"arguments",{{"object",measured_id},{"name","Changed"},
+            {"references",Json::array({{{"kind","plane"},{"owner",appearance_saved.document_id+":origin"},{"key","origin:plane:xy"}},
+                {{"kind","face"},{"owner",measure_owner},{"key","z_max"}}})}}}});
+        const auto delete_measurement=command({{"command","measurement.delete"},{"arguments",{{"object",measured_id}}}});
+        result=launch(executable,root,common+QStringList{"--command","open measurement-cli.prtz","--command",change_measurement,
+            "--command",delete_measurement,"--command","undo","--command","redo","--command","undo","--command","save",
+            "--command","measurement.get "+QString::fromStdString(measured_id)});
+        require(result.exit_code==0&&result.results()[7]["data"]["name"]=="Changed"&&
+            std::abs(result.results()[7]["data"]["distance"]["value"]["value"].get<double>()-15)<1e-8,
+            "CLI measurement edit/delete/Undo/Redo lost values");
+        require(document::PartDocument::load(project/"measurement-cli.prtz").measurements.size()==2,"CLI measurement history lost the existing record");
+
         auto section_source=appearance_saved;auto section=document::create_section();
         static_cast<void>(section.sketch.add_segment(-20,0,20,0));
         section_source.sections.push_back(section);const auto section_path=project/"section-cli.prtz";

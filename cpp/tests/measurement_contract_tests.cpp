@@ -115,6 +115,12 @@ try{
             "Nominal dimension formatting lost comma, rounding or zero trimming");
     const viewer::ViewerCandidate external{viewer::CandidateKind::SketchExternalReference,0,0,"sketch","external_point:p",{}};
     require(viewer::measurement_reference(external)->kind==K::Point,"External Sketch point resolved as a curve");
+    for(const auto* display_key:{"sketch","solid","plane","container:display"}) {
+        const viewer::ViewerCandidate candidate{viewer::CandidateKind::Container,0,0,"source-object",display_key,{}};
+        const auto reference=viewer::measurement_reference(candidate);
+        require(reference&&reference->kind==K::Object&&reference->owner_id=="source-object"&&reference->semantic_key.empty(),
+            "Whole-object measurement retained a display classification as topology identity");
+    }
     std::filesystem::remove_all(directory);
     std::cout<<"Measurement geometry, analytic cache, persistence and units passed\n";return 0;
 }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
