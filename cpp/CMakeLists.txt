@@ -130,6 +130,7 @@ add_library(zima_workspace modules/workspace/src/workspace.cpp
     modules/workspace/src/assembly_import_operations.cpp
     modules/workspace/src/metadata_operations.cpp
     modules/workspace/src/engineering_metadata_operations.cpp
+    modules/workspace/src/component_properties.cpp
     modules/workspace/src/component_operations.cpp
     modules/workspace/src/component_source_operations.cpp
     modules/workspace/src/drawing_operations.cpp
@@ -197,6 +198,7 @@ add_library(zima_command_host
     modules/command_host/src/export_commands.cpp
     modules/command_host/src/metadata_commands.cpp
     modules/command_host/src/engineering_metadata_commands.cpp
+    modules/command_host/src/component_property_commands.cpp
     modules/command_host/src/component_commands.cpp
     modules/command_host/src/drawing_title_commands.cpp
     modules/command_host/src/drawing_dimension_commands.cpp
@@ -573,6 +575,11 @@ if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_cpp_component_source_tests COMMAND zima_cpp_component_source_tests)
     set_tests_properties(zima_cpp_component_source_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
 
+    add_executable(zima_cpp_component_property_command_tests tests/component_property_command_tests.cpp)
+    target_link_libraries(zima_cpp_component_property_command_tests PRIVATE zima_command_host)
+    add_test(NAME zima_cpp_component_property_command_tests COMMAND zima_cpp_component_property_command_tests)
+    set_tests_properties(zima_cpp_component_property_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
+
     add_executable(zima_cpp_component_command_tests tests/component_command_tests.cpp)
     target_link_libraries(zima_cpp_component_command_tests PRIVATE zima_command_host)
     add_test(NAME zima_cpp_component_command_tests COMMAND zima_cpp_component_command_tests)
@@ -756,6 +763,10 @@ if(ZIMA_BUILD_TESTS)
     add_executable(zima_cpp_command_dispatcher_tests tests/command_dispatcher_tests.cpp)
     target_link_libraries(zima_cpp_command_dispatcher_tests PRIVATE zima_commands)
     add_test(NAME zima_cpp_command_dispatcher_tests COMMAND zima_cpp_command_dispatcher_tests)
+    add_test(NAME zima_cpp_component_properties_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_component_properties_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_COMPONENT_REFERENCE_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120)
     add_test(NAME zima_cpp_derived_copy_ui_contract COMMAND zima-cad-cpp --verify-startup)
     set_tests_properties(zima_cpp_derived_copy_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_DERIVED_COPY_ONLY=1"

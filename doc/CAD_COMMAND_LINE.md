@@ -309,3 +309,11 @@ mřížku nebo kruhové parametry. Číselné umístění přijímá objekt `pla
 Výslovný výpočet kopie Assembly používá aktuální vypočítaný zdroj i před
 jeho uložením. Příklady, rozsahy, zámky a počty směrových kombinací:
 [DERIVED_COPY_COMMANDS.md](DERIVED_COPY_COMMANDS.md).
+
+
+Vlastnosti bezprostřední komponenty mění `component.set` pomocí přesného
+`instance_path` z `component.list/get`. Zadává název, viditelnost, potlačení,
+uzemnění, číselné `placement` a úplné `placement_references` (nejvýše tři
+plošné, úhlové, osové nebo bodové vazby). Používá stejné potvrzení a solver
+jako GUI Vlastnosti, včetně zámků a jediného kroku Undo. Podrobný kontrakt,
+jednotky a příklady: [COMPONENT_PROPERTY_COMMANDS.md](COMPONENT_PROPERTY_COMMANDS.md).

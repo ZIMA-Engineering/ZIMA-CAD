@@ -85,6 +85,7 @@ void Host::register_commands(){
     register_metadata_commands();
     register_engineering_metadata_commands();
     register_component_commands();
+    register_component_property_commands();
     register_drawing_commands();
     register_drawing_annotation_commands();
     register_drawing_dimension_commands();

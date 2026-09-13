@@ -1,4 +1,5 @@
 #include "workspace_internal.hpp"
+#include <zima/workspace/component_properties.hpp>
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -69,24 +70,12 @@ void AssemblyWorkspaceWindow::show_component_properties(
     const auto* occurrence = assembly->session.document().find_occurrence(
         address->occurrence_id);
     if (occurrence == nullptr) return;
+    const auto edit = zima::workspace::prepare_component_edit(workspace_,address->owner_assembly_document_id,address->occurrence_id);
     auto* dialog = new ComponentPropertiesDialog(
         *occurrence,
-        [this, assembly_id = address->owner_assembly_document_id]
-        (zima::assembly::PartOccurrence committed) {
-            auto* assembly = workspace_.open_assembly(assembly_id);
-            if (assembly == nullptr) {
-                throw std::runtime_error("Assembly is no longer open");
-            }
-            auto next = assembly->session.document();
-            auto found = std::find_if(next.components.begin(), next.components.end(),
-                [&](const auto& item) { return item.occurrence_id == committed.occurrence_id; });
-            if (found == next.components.end()) {
-                throw std::runtime_error("Assembly occurrence no longer exists");
-            }
-            *found = std::move(committed);
-            // Solve all embedded rows together before committing the occurrence.
-            next.calculate_placement_references();
-            assembly->session.commit(std::move(next));
+        [this,edit](zima::assembly::PartOccurrence committed) {
+            static_cast<void>(zima::workspace::commit_component_properties(workspace_,edit,
+                zima::workspace::component_properties(committed)));
         }, this);
     dialog->set_reference_request_callback(
         [this](std::size_t index, bool component_side) {

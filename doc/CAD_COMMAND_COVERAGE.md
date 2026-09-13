@@ -35,7 +35,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Válec, koule, kužel, jehlan, klín | Hotovo | Společné create/get/set, zámky, přesnost, GUI/CLI a 59/59 regresí |
 | Historie Partu | Hotovo | Společný přesun, ověření závislostí, potlačení, odstranění a kurzor; včetně historie těles a Booleanů |
 | Tělesa a Boolean | Základ hotov | Tvorba, čtení, aktivace, název/viditelnost, kurzory a Boolean create/get/set; pořadí/mazání řeší historie; odvozené kopie pokrývá řádek Zrcadlo a pole; zbývá zadání referencí umístění |
-| Umístění a původní reference | Původní reference a číselná editace umístění hotovy | `placement.get/set`: tělesa a prvky Partu, konstrukce Partu/Assembly a jejich body; `value_lock.list/set` sdílejí číselné zámky s GUI; zbývá příkazové přidávání/výměna referencí, vložené dráhy a umístění komponent |
+| Umístění a původní reference | Původní reference a číselná editace umístění hotovy | `placement.get/set`: tělesa a prvky Partu, konstrukce Partu/Assembly a jejich body; `value_lock.list/set` sdílejí číselné zámky s GUI; zbývá příkazové přidávání/výměna referencí, vložené dráhy; umístění komponent řeší `component.set` |
 | Konstrukční geometrie | Částečně hotovo | `construction.list/get/create/set`: dotazy, tvorba bodů/os/rovin/3D křivek, vlastnosti, umístění, úplné seznamy bodů, tečny a zaoblení; dotazy zahrnují vložené 3D dráhy; jejich editaci potvrzuje příkaz tažení; zbývají reference a mazání kořenových konstrukcí |
 | Skicář: geometrie | Základ hotov | 21 příkazů: samostatné a vložené skici, body, úsečky, kružnice, oblouky, elipsy, B-spline, obdélníky, mnohoúhelníky, posun a pomocná geometrie; text create/get/set s nativním písmem a spline get/set hotovy; DXF do vložených profilů hotov; zbývá kontrola dalších variant podle GUI |
 | Skicář: vazby a operace | Vazby/kóty/solver/offset/trim/mirror hotovy | Offset create/get/set/free, úplný podklad a zachování intervalů, trim podle průsečíků, mirror, orientovaný obdélník, tečny a zaoblení rohu; všech 15 druhů vazeb, odstranění a solver; 16 druhů kót včetně vlastností, popisků a mazání; uvolnění externích referencí hotovo |
@@ -45,7 +45,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Otvory a závity | Katalog, současný Otvor a vnější závit částečně hotovy | `thread.catalog`, `opening.create/get/set`: hladký/závitový otvor, rozměry, sražení, špička, směr a průchozí otvor; `shaft_thread.create/get/set` včetně původních referencí; zbývají cílové reference Otvoru Až k, samostatný Hole a operace vnořených částí otvoru; `drill_point.create/get/set` pokrývají samostatnou vrtací špičku |
 | Zaoblení, zkosení, skořepina | Hotovo | `shell.faces/create/get/set`, `fillet.create/get/set`, `chamfer.create/get/set`; `edge_treatment.edges/route/remove`: skutečný vstup, společná tečná trasa a odebrání člena/trasy/posledního prvku podle stromového kontraktu |
 | Zrcadlo a pole | Hotovo pro Part a bezprostřední komponenty Assembly | `derived_copy.sources`, `mirror.create/get/set`, `pattern.create/get/set`: společné zdroje a potvrzení GUI/CLI, roviny/osy, lineární i kruhové režimy, umístění, zámky, neuložené zdroje a Undo/Redo; vnořená aktivace patří do řádku Sestavy |
-| Sestavy | Dotazy včetně překážek odstranění, vložení a otevření zdrojů komponent hotovy | Uložená hierarchie a přesné výskyty, sdílené vložení a otevření zdroje; zbývají vlastnosti/mazání komponent, vazby, vnořená aktivace a řezy |
+| Sestavy | Dotazy, vložení, otevření zdrojů a vlastnosti komponent hotovy | `component.set`: název, viditelnost, potlačení, uzemnění, umístění a všechny čtyři druhy vložených vazeb s mezemi/zámky; zbývá mazání komponent, vnořená aktivace a řezy |
 | Výkresy | Listy, šablony, historie, tvorba/vlastnosti/dotazy/mazání pohledů, regenerace, modelové anotace, Show/Erase a měřené kóty (dotazy, tvorba, editace, řetězec, mazání), razítko, zdrojové parametry BOM, PDF, DXF a PNG/JPEG listu/výřezu hotovy | Další anotace, zdrojové styly šraf a příkazový snímek interaktivního View |
 | Řezy, měření a vzhled | Zbývá | Datové operace a uložené výsledky |
 | Parametry, relace a materiál | Společné tabulky a transakce hotovy | Parametry, jednotky, přesnost, relace, materiál včetně přímého načtení knihovny a uložené varianty; řízení rozměrů relacemi a generování variant nejsou dosud zavedené ani v GUI |
@@ -896,3 +896,21 @@ prošlo všech **14/14** dotčených testů (85,98 s). Geometrické výpočty,
 atomické chyby, nativní soubory, procesové CLI a GUI jsou popsány
 v [DERIVED_COPY_COMMANDS.md](DERIVED_COPY_COMMANDS.md). Další etapou jsou
 vlastnosti a správa komponent sestavy.
+
+
+### Vlastnosti a vložené vazby komponent
+
+`component.set` doplňuje katalog na **206 příkazů**. Sdílí potvrzení s GUI
+Vlastnostmi a kontextovými akcemi: název, viditelnost, potlačení, uzemnění,
+číselné umístění a seznam nejvýše tří původních referencí pro všechny čtyři
+druhy vazeb. Ruční souřadnice respektují volnost pohybu i zámky; změna
+názvu/viditelnosti neřeší vazby. Kandidát přebírá pouze data vlastněná
+výskytem, takže nepřepíše mezitím aktualizovanou geometrii zdroje.
+
+Test odmítnutí fyzikální relace opravil předčasnou změnu interního čítače
+`AssemblySession::commit`; selhání nyní zachová revizi, obsah i generaci.
+Kompletní sestavení a **107/107** testů prošlo (496,95 s). Po dorovnání
+uložených mezí a výchozího zámku shodnosti podle GUI a přidání scénáře
+neuloženého zdroje prošlo **16/16** dotčených testů (93,45 s).
+Podrobný kontrakt a logy: [COMPONENT_PROPERTY_COMMANDS.md](COMPONENT_PROPERTY_COMMANDS.md).
+Následuje kontrola řetězení sestavových vazeb a odstranění komponent.

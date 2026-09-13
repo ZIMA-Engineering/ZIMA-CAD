@@ -4413,6 +4413,28 @@ int verify_component_references(QApplication& application, const std::filesystem
     };
     const auto first_path=assembly::InstancePath{{first}}.encoded(),second_path=assembly::InstancePath{{second}}.encoded();
     const auto origin=part.document_id+":origin";
+    const auto component_command=[&](const char* command,commands::Json args) {
+        return window.execute_console_command(QString::fromStdString(commands::Json{{"command",command},{"arguments",std::move(args)}}.dump()));
+    };
+    const commands::Json console_mate={{"kind","plane_coincident"},{"offset",6},
+        {"component",{{"owner",origin},{"key","origin:plane:xy"},{"instance_path",second_path}}},
+        {"target",{{"owner",assembly_id+":origin"},{"key","origin:plane:xy"},{"instance_path",""}}}};
+    if(!verify(component_command("component.set",{{"instance_path",second_path},{"name","Komponenta z CLI"},
+        {"placement_references",commands::Json::array({console_mate})}}).ok,"GUI console component edit failed"))return 1;
+    flush();window.show_tree_item_properties(find(second,second_path));flush();
+    if(!verify(dialog()&&dialog()->findChild<QLineEdit*>("componentName")->text()==QStringLiteral("Komponenta z CLI")&&
+        dialog()->placement_references().size()==1&&std::abs(dialog()->pending_value().placement.z-6)<1e-7,
+        "Properties did not display the CLI name, original reference and solved placement"))return 1;
+    dialog()->findChild<QLineEdit*>("componentName")->setText(QStringLiteral("Komponenta z GUI"));
+    dialog()->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+    if(!verify(!dialog()&&component_command("component.get",{{"instance_path",second_path}}).data.at("name")=="Komponenta z GUI",
+        "GUI Properties did not commit through the shared component transaction"))return 1;
+    window.findChild<QAction*>("undoAction")->trigger();flush();
+    window.findChild<QAction*>("undoAction")->trigger();flush();
+    const auto restored=component_command("component.get",{{"instance_path",second_path}});
+    if(!verify(restored.ok&&restored.data.at("placement_references").empty()&&restored.data.at("placement").at("z_mm")==20,
+        "CLI and GUI component edits did not each create one Undo transaction"))return 1;
+
     window.show_tree_item_properties(find(second,second_path));flush();
     if(!verify(dialog()!=nullptr,"Cannot open component properties"))return 1;
     if(!verify(pick(0,true,origin,second_path,"origin:plane:xy") && pick(0,false,origin,first_path,"origin:plane:xy"),
@@ -4530,6 +4552,7 @@ int verify_component_references(QApplication& application, const std::filesystem
     sliding.resize(1);sliding[0]={assembly::MateKind::AxisCoincident,
         {assembly::MateReferenceKind::Axis,assembly::InstancePath{}.child(second),origin,"origin:axis:z"},
         {assembly::MateReferenceKind::Axis,{},assembly_id+":origin","origin:axis:z"}};
+    sliding[0].lower_limit=-5;sliding[0].upper_limit=5;
     dialog()->set_placement_references(sliding);
     dialog()->buttons()->button(QDialogButtonBox::Ok)->click();flush();
     window.findChild<QAction*>("saveDocumentAction")->trigger();flush();

@@ -85,6 +85,7 @@ private:
     void register_metadata_commands();
     void register_engineering_metadata_commands();
     void register_component_commands();
+    void register_component_property_commands();
     void register_drawing_commands();
     void register_drawing_annotation_commands();
     void register_drawing_dimension_commands();

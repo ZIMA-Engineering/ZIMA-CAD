@@ -1,4 +1,4 @@
-#include <zima/command_host/host.hpp>
+#include "component_command_support.hpp"
 #include <zima/workspace/component_operations.hpp>
 #include <zima/workspace/component_source_operations.hpp>
 #include <zima/document/file_path.hpp>
@@ -46,6 +46,12 @@ Json component_rows(const assembly::AssemblyDocument& doc,bool recursive,std::si
     return {{"items",std::move(items)},{"total",total}};
 }
 }
+Json component_details(const assembly::AssemblyDocument& document,const assembly::InstancePath& path) {
+    if(path.occurrence_ids.empty())throw workspace::ComponentOperationError("occurrence_not_found","The requested component occurrence does not exist.");
+    auto result=component_rows(document,true,1,path.encoded());
+    if(result["items"].empty())throw workspace::ComponentOperationError("occurrence_not_found","The requested component occurrence does not exist.");
+    return result["items"][0];
+}
 void Host::register_component_commands() {
     using Type=commands::ArgumentType;
     const auto add=[this](commands::Command command,std::function<Json(const workspace::AssemblyState&,const Json&)> action) {
@@ -65,11 +71,7 @@ void Host::register_component_commands() {
         return component_rows(state.session.document(),args.value("recursive",false),static_cast<std::size_t>(limit));
     });
     add({"component.get",tr("Read one exact persisted occurrence and its available component data."),{{"instance_path",true},{"document",false}},false},[](const auto& state,const Json& args){
-        const auto path=assembly::InstancePath::decode(args["instance_path"].get<std::string>());
-        if(path.occurrence_ids.empty())throw workspace::ComponentOperationError("occurrence_not_found","The requested component occurrence does not exist.");
-        auto result=component_rows(state.session.document(),true,1,path.encoded());
-        if(result["items"].empty())throw workspace::ComponentOperationError("occurrence_not_found","The requested component occurrence does not exist.");
-        return result["items"][0];
+        return component_details(state.session.document(),assembly::InstancePath::decode(args["instance_path"].get<std::string>()));
     });
     add({"component.dependencies",tr("Read the shared removal blockers of an immediate Assembly component."),{{"instance_path",true},{"document",false}},false},[](const auto& state,const Json& args){
         const auto path=assembly::InstancePath::decode(args["instance_path"].get<std::string>());

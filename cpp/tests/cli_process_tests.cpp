@@ -519,6 +519,23 @@ int main(int argc,char** argv){
         result=launch(executable,root,common+QStringList{"--command","open cli-components.asmz","--command","component.list","--command",component_get,"--command",component_dependencies});
         require(result.exit_code==0&&result.results()[3].at("data").at("blocked")==false,"Standalone CLI dependency query failed");
         require(result.exit_code==0 && result.results()[1].at("data").at("total")==2 && std::abs(result.results()[2].at("data").at("cached_volume_mm3").get<double>()-6000)<1e-7,"CLI component queries did not read native snapshots");
+        const auto property_path=assembly::InstancePath{}.child(component_native.components[1].occurrence_id).encoded();
+        const auto fixed_path=assembly::InstancePath{}.child(component_native.components[0].occurrence_id).encoded();
+        const Json property_row={{"kind","plane_coincident"},{"offset",7},{"locked",true},{"lower_limit",2},{"upper_limit",9},
+            {"component",{{"owner",step_native.document_id+":origin"},{"key","origin:plane:xy"},{"instance_path",property_path}}},
+            {"target",{{"owner",step_native.document_id+":origin"},{"key","origin:plane:xy"},{"instance_path",fixed_path}}}};
+        const auto property_set=command({{"command","component.set"},{"arguments",{{"instance_path",property_path},{"name","Šroub CLI"},
+            {"placement_references",Json::array({property_row})}}}});
+        result=launch(executable,root,common+QStringList{"--command","open cli-components.asmz","--command",property_set,"--command","undo","--command","redo","--command","save"});
+        if(result.exit_code!=0)std::cerr<<result.output.toStdString()<<result.diagnostics.toStdString();
+        require(result.exit_code==0&&result.results().size()==5,"Standalone component property edit failed");
+        const auto property_native=assembly::AssemblyDocument::load(project/"cli-components.asmz");
+        const auto& property_component=property_native.components[1];
+        require(property_component.name=="Šroub CLI"&&std::abs(property_component.placement.z-7)<1e-7&&
+            property_component.placement_references.size()==1&&property_component.placement_references[0].offset_locked&&
+            property_component.placement_references[0].lower_limit==2&&property_component.placement_references[0].upper_limit==9&&
+            std::abs(property_component.calculated_source->volume-6000)<1e-7&&property_native.components[0].placement.z==0,
+            "CLI native component properties lost exact placement, limits, lock, geometry or occurrence isolation");
         const auto component_open=command({{"command","component.open"},{"arguments",{{"instance_path",assembly::InstancePath{}.child(component_native.components[0].occurrence_id).encoded()}}}});
         result=launch(executable,root,common+QStringList{"--command","open cli-components.asmz","--command",component_open,"--command","context"});
         require(result.exit_code==0 && result.results()[1].at("data").at("document")==step_native.document_id && result.results()[1].at("data").at("opened")==true && result.results()[2].at("data").at("active_document")==step_native.document_id,"CLI could not open the exact native source occurrence");

@@ -165,6 +165,7 @@ ComponentPropertiesDialog::ComponentPropertiesDialog(
     resize(820, sizeHint().height());
     auto* form = new QFormLayout;
     name_ = new QLineEdit(QString::fromStdString(initial.name), this);
+    name_->setObjectName("componentName");
     form->addRow(tr("Název"), name_);
     auto* source = new QLineEdit(QString::fromStdString(initial.source_path.string()), this);
     source->setReadOnly(true);

@@ -1,3 +1,4 @@
+#include <zima/workspace/component_properties.hpp>
 #include "workspace_internal.hpp"
 #include <zima/workspace/component_source_operations.hpp>
 #include <zima/workspace/component_operations.hpp>
@@ -363,11 +364,14 @@ void AssemblyWorkspaceWindow::show_component_context_menu(
         refresh_scene();
         return;
     }
-    if (selected == visibility) found->visible = !found->visible;
-    if (selected == suppression) found->suppressed = !found->suppressed;
-    if (selected == grounding) found->grounded = !found->grounded;
-    next.calculate_placement_references();
-    assembly->session.commit(std::move(next));
+    try {
+        const auto edit=zima::workspace::prepare_component_edit(workspace_,address->owner_assembly_document_id,address->occurrence_id);
+        auto value=edit.initial;
+        if(selected==visibility)value.visible=!value.visible;
+        if(selected==suppression)value.suppressed=!value.suppressed;
+        if(selected==grounding)value.grounded=!value.grounded;
+        static_cast<void>(zima::workspace::commit_component_properties(workspace_,edit,value));
+    }catch(const std::exception& error){QMessageBox::warning(this,tr("Vlastnosti komponenty"),tr(error.what()));return;}
     refresh_tabs();
     refresh_scene();
 }

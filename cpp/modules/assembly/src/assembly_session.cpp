@@ -34,10 +34,12 @@ void AssemblySession::replace(AssemblyDocument document) {
 }
 
 void AssemblySession::commit(AssemblyDocument document) {
-    ++data_generation_;
     zima::document::refresh_physical_relations(document,physical_values(document));
     document.dimension_identifiers.retain(current_.document.dimension_identifiers);
     document.synchronize_dimension_identifiers();
+    // Validation above may reject the candidate. A rejected transaction must
+    // not invalidate consumers of the still-current calculated document.
+    ++data_generation_;
     undo_.push_back(std::move(current_));
     current_ = {std::move(document), next_revision_++, false};
     redo_.clear();
