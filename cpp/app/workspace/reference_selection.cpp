@@ -251,7 +251,7 @@ void AssemblyWorkspaceWindow::set_local_origin_selection_mode(bool active) {
         viewer_->set_candidate_filter([this](const auto& candidate) {
             return (candidate.kind == zima::viewer::CandidateKind::Occurrence &&
                     !candidate.instance_path.empty()) ||
-                (candidate.instance_path == active_occurrence_path_ &&
+                (candidate.instance_path == workspace_.active_occurrence_path() &&
                  selectable_local_origin_container_ids_.contains(candidate.owner_id));
         });
         state_->setText(tr("POČÁTEK: kliknutím zobrazte nebo skryjte počátek dílu, podsestavy či kontejneru."));
@@ -382,9 +382,9 @@ void AssemblyWorkspaceWindow::start_construction_reference_selection(
     // The active container contract interprets a candidate after hover/RMB
     // cycling instead of prematurely hiding valid placement references here.
     viewer_->set_selection_contract(placement_reference_candidate_kinds());
-    const auto prefix = active_occurrence_path_.empty()
+    const auto prefix = workspace_.active_occurrence_path().empty()
         ? zima::assembly::InstancePath{}
-        : zima::assembly::InstancePath::decode(active_occurrence_path_);
+        : zima::assembly::InstancePath::decode(workspace_.active_occurrence_path());
     const bool active_part =
         workspace_.open_part(workspace_.active_document_id()) != nullptr;
     std::set<std::string> unavailable_construction_owners;
@@ -508,10 +508,10 @@ void AssemblyWorkspaceWindow::accept_construction_reference(
         selected_index < 3 && selection_translation_dof == 0 &&
         selection_rotation_dof > 0;
     auto local_path = candidate.instance_path;
-    if (!active_occurrence_path_.empty()) {
+    if (!workspace_.active_occurrence_path().empty()) {
         auto path = zima::assembly::InstancePath::decode(candidate.instance_path);
         const auto prefix =
-            zima::assembly::InstancePath::decode(active_occurrence_path_);
+            zima::assembly::InstancePath::decode(workspace_.active_occurrence_path());
         if (path.occurrence_ids.size() < prefix.occurrence_ids.size() ||
             !std::equal(prefix.occurrence_ids.begin(), prefix.occurrence_ids.end(),
                 path.occurrence_ids.begin())) return;
@@ -760,9 +760,9 @@ void AssemblyWorkspaceWindow::start_primitive_reference_selection(
     pending_primitive_reference_index_ = index;
     tree_->setProperty("commandSelectionActive", true);
     viewer_->set_selection_contract(placement_reference_candidate_kinds());
-    const auto prefix = active_occurrence_path_.empty()
+    const auto prefix = workspace_.active_occurrence_path().empty()
         ? zima::assembly::InstancePath{}
-        : zima::assembly::InstancePath::decode(active_occurrence_path_);
+        : zima::assembly::InstancePath::decode(workspace_.active_occurrence_path());
     const bool active_part =
         workspace_.open_part(workspace_.active_document_id()) != nullptr;
     viewer_->set_candidate_filter([this, prefix, active_part, index,
@@ -970,10 +970,10 @@ void AssemblyWorkspaceWindow::accept_primitive_reference(
         primitive_reference_dialog_->owns_reference_owner(candidate.owner_id) ||
         !placement_reference_candidate_has_stable_geometry(candidate)) return;
     auto local_path = candidate.instance_path;
-    if (!active_occurrence_path_.empty()) {
+    if (!workspace_.active_occurrence_path().empty()) {
         auto path = zima::assembly::InstancePath::decode(candidate.instance_path);
         const auto prefix =
-            zima::assembly::InstancePath::decode(active_occurrence_path_);
+            zima::assembly::InstancePath::decode(workspace_.active_occurrence_path());
         if (path.occurrence_ids.size() < prefix.occurrence_ids.size() ||
             !std::equal(prefix.occurrence_ids.begin(), prefix.occurrence_ids.end(),
                 path.occurrence_ids.begin())) return;
@@ -1395,9 +1395,9 @@ bool AssemblyWorkspaceWindow::accept_construction_tree_reference(
     try {
         const auto path = zima::assembly::InstancePath::decode(
             candidate.instance_path);
-        const auto prefix = active_occurrence_path_.empty()
+        const auto prefix = workspace_.active_occurrence_path().empty()
             ? zima::assembly::InstancePath{}
-            : zima::assembly::InstancePath::decode(active_occurrence_path_);
+            : zima::assembly::InstancePath::decode(workspace_.active_occurrence_path());
         const bool active_part =
             workspace_.open_part(workspace_.active_document_id()) != nullptr;
         const bool in_scope = active_part ? path == prefix
@@ -1471,9 +1471,9 @@ bool AssemblyWorkspaceWindow::accept_origin_reference_value(
     try {
         const auto path = zima::assembly::InstancePath::decode(
             candidate.instance_path);
-        const auto prefix = active_occurrence_path_.empty()
+        const auto prefix = workspace_.active_occurrence_path().empty()
             ? zima::assembly::InstancePath{}
-            : zima::assembly::InstancePath::decode(active_occurrence_path_);
+            : zima::assembly::InstancePath::decode(workspace_.active_occurrence_path());
         const bool active_part =
             workspace_.open_part(workspace_.active_document_id()) != nullptr;
         const bool in_scope = active_part ? path == prefix

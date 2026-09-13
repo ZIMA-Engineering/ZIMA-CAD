@@ -4616,10 +4616,55 @@ int verify_component_references(QApplication& application, const std::filesystem
     const auto passive=fixture.insert_open_part(top_id,part.document_id,"Kontext");
     top=fixture.open_assembly(top_id)->session.document();top.find_occurrence(passive)->placement.x=200;top.find_occurrence(outer)->placement={30,40,10,20,35,15};top.save(top_path);
     const auto outer_path=assembly::InstancePath{{outer}}.encoded(),nested_path=assembly::InstancePath{{outer,second}}.encoded();
+    {
+        app::AssemblyWorkspaceWindow closed_sources(QString::fromStdString(directory.string()));
+        closed_sources.resize(1000,800);closed_sources.show();
+        if(!verify(closed_sources.open_document_path(QString::fromStdString(top_path.string())),"Cannot open closed-source activation fixture"))return 1;flush();
+        const auto activate=commands::Json{{"command","component.activate"},{"arguments",{{"instance_path",nested_path}}}};
+        if(!verify(closed_sources.execute_console_command(QString::fromStdString(activate.dump())).ok,
+            "GUI cannot activate a nested Part through a closed owning Assembly"))return 1;flush();
+        const auto context=closed_sources.execute_console_command("context");
+        const auto documents=closed_sources.execute_console_command("documents");
+        if(!verify(context.data.at("active_document")==part.document_id&&context.data.at("displayed_document")==top_id&&
+            context.data.at("active_occurrence")==nested_path&&documents.data.size()==2,
+            "GUI activation opened intermediate source tabs or lost the exact occurrence"))return 1;
+        if(!verify(closed_sources.execute_console_command("close").ok&&
+            closed_sources.execute_console_command("context").data.at("active_document")==top_id,
+            "Closing the active nested Part did not restore Assembly editing"))return 1;flush();
+    }
     if(!verify(window.open_document_path(QString::fromStdString(top_path.string())) && window.activate_occurrence_for_test(outer_path),
         "Cannot activate owning nested Assembly"))return 1;
-    flush();window.show_tree_item_properties(find(second,nested_path));flush();
+    flush();
+    const auto activation_context=component_command("context",commands::Json::object());
+    if(!verify(activation_context.ok&&activation_context.data.at("active_document")==assembly_id&&
+        activation_context.data.at("displayed_document")==top_id&&activation_context.data.at("active_occurrence")==outer_path,
+        "GUI activation and command context disagree about the nested Assembly"))return 1;
+    if(!verify(component_command("component.set",{{"instance_path",second_path},{"name","Nested console edit"}}).ok,
+        "GUI console refused editing the active owning Assembly"))return 1;flush();
+    if(!verify(window.active_occurrence_path_for_test()==outer_path&&find(second,nested_path)&&
+        tree->topLevelItem(0)->text(0)==QString::fromStdString(top_path.filename().string()),
+        "Console edit replaced the top-level scene or lost its active occurrence"))return 1;
+    if(!verify(window.execute_console_command("undo").ok,"Nested GUI console Undo failed"))return 1;flush();
+    if(!verify(component_command("component.activate",{{"instance_path",nested_path}}).ok&&
+        component_command("component.activate",{{"instance_path",outer_path}}).ok,"Cannot prepare GUI nested insertion source"))return 1;flush();
+    auto* insert_menu=window.findChild<QMenu*>("insertComponentMenu");
+    if(!verify(insert_menu,"Missing component insertion menu"))return 1;
+    insert_menu->aboutToShow();QAction* insert_source=nullptr;
+    for(auto* action:insert_menu->actions())if(action->objectName()=="insertSourceAction"&&
+        action->text().startsWith(QString::fromStdString(part.name)+QStringLiteral(" — Part")))insert_source=action;
+    if(!verify(insert_source&&insert_source->isEnabled(),"Active nested Assembly cannot insert an open source Part"))return 1;
+    insert_source->trigger();flush();
+    const auto inserted_items=component_command("component.list",commands::Json::object());
+    if(!verify(dialog()&&inserted_items.ok&&inserted_items.data.at("total")==3&&
+        component_command("component.list",{{"document",top_id}}).data.at("total")==2&&
+        window.active_occurrence_path_for_test()==outer_path,"GUI inserted into the parent Assembly or lost insertion Properties"))return 1;
+    dialog()->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
+    if(!verify(window.execute_console_command("undo").ok&&component_command("component.list",commands::Json::object()).data.at("total")==2,
+        "GUI nested insertion Undo did not restore its owning Assembly"))return 1;flush();
+    window.show_tree_item_properties(find(second,nested_path));flush();
     if(!verify(dialog()!=nullptr,"Cannot open nested Part properties"))return 1;
+    window.deactivate_active_occurrence_for_test();
+    if(!verify(window.active_occurrence_path_for_test()==outer_path,"Return to Assembly abandoned open component Properties"))return 1;
     const auto nested_before=dialog()->pending_value().placement;
     if(!verify(drag_origin(nested_path) && std::abs(dialog()->pending_value().placement.x-nested_before.x)<1e-3 &&
         std::abs(dialog()->pending_value().placement.y-nested_before.y)<1e-3 &&
@@ -4639,6 +4684,22 @@ int verify_component_references(QApplication& application, const std::filesystem
         "Component preview discarded top-level passive context"))return 1;
     dialog()->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
     window.deactivate_active_occurrence_for_test();flush();
+    if(!verify(component_command("component.activate",{{"instance_path",nested_path}}).ok,
+        "Console could not activate the exact nested Part"))return 1;flush();
+    const auto part_context=component_command("context",commands::Json::object());
+    auto* box_action=window.findChild<QAction*>("boxAction");
+    if(!verify(part_context.data.at("active_document")==part.document_id&&part_context.data.at("displayed_document")==top_id&&
+        part_context.data.at("active_occurrence")==nested_path&&window.active_occurrence_path_for_test()==nested_path&&
+        box_action&&box_action->isEnabled(),"Console Part activation lost Modeling tools or retained another occurrence"))return 1;
+    if(!verify(component_command("box.set",{{"container",box.id},{"height_mm","12"}}).ok,
+        "Console cannot model the activated Part source"))return 1;flush();
+    if(!verify(std::ranges::any_of(view->mesh().triangle_references,[&](const auto& r){return r.instance_path==passive_path;})&&
+        tree->topLevelItem(0)->text(0)==QString::fromStdString(top_path.filename().string()),
+        "Source modeling discarded the passive top-level context"))return 1;
+    if(!verify(window.execute_console_command("undo").ok&&window.execute_console_command("component.deactivate").ok,
+        "Console Part Undo or deactivation failed"))return 1;flush();
+    if(!verify(window.active_occurrence_path_for_test().empty()&&component_command("context",commands::Json::object()).data.at("active_document")==top_id,
+        "Console deactivation did not restore top-level Assembly editing"))return 1;
     window.show_tree_item_properties(find(outer,outer_path));flush();
     if(!verify(dialog() && dialog()->windowTitle()==QStringLiteral("Vlastnosti sestavy"),
         "Inserted Assembly does not use Assembly properties"))return 1;
@@ -7514,6 +7575,15 @@ int verify_startup_contract(
                     "multi-level occurrence tree item has no composed instance path")) {
             return 1;
         }
+        // Insertion leaves its Properties open. Activation must not abandon
+        // that pending edit; finish it through the same GUI Cancel action.
+        zima::app::ComponentPropertiesDialog* insertion_properties=nullptr;
+        for(auto* candidate:window.findChildren<QDialog*>())if(candidate->isVisible())
+            if(auto* component=dynamic_cast<zima::app::ComponentPropertiesDialog*>(candidate))insertion_properties=component;
+        if(!verify(insertion_properties&&!window.activate_occurrence_for_test(nested_instance_path),
+            "Nested activation abandoned pending insertion Properties"))return 1;
+        insertion_properties->buttons()->button(QDialogButtonBox::Cancel)->click();
+        QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();
         if (!verify(window.activate_occurrence_for_test(nested_instance_path),
                     "activating a two-level-deep Assembly occurrence through the real window failed")) {
             return 1;

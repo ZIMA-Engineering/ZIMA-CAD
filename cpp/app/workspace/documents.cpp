@@ -193,7 +193,6 @@ void AssemblyWorkspaceWindow::close_document(int tab_index) {
         }
     }
     if (workspace::close_document(workspace_,id,discard)!=workspace::CloseDocumentResult::Closed) return;
-    active_occurrence_path_.clear();
     active_sketch_id_.clear();
     selected_sketch_id_.clear();
     selected_sketch_segment_id_.clear();
@@ -291,7 +290,6 @@ bool AssemblyWorkspaceWindow::open_document_path(const QString& path) {
 }
 
 void AssemblyWorkspaceWindow::finish_document_switch(bool opening) {
-    active_occurrence_path_.clear();
     active_sketch_id_.clear();
     selected_sketch_id_.clear();
     selected_sketch_segment_id_.clear();
@@ -462,7 +460,6 @@ void AssemblyWorkspaceWindow::navigate_document_kind() {
         } else {
             workspace_.activate(source_document_id);
             workspace_.display_top_level(source_document_id);
-            active_occurrence_path_.clear();
             activate_first_part_body();
             viewer_->clear_selection();
             refresh_tabs();

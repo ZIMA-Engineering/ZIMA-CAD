@@ -38,7 +38,11 @@ Json documents(const workspace::Workspace& workspace) {
 Host::Host(workspace::Workspace& workspace,const kernel::OcctKernel& kernel,
     std::filesystem::path& directory,Options options)
     :workspace_(workspace),kernel_(kernel),directory_(directory),options_(std::move(options)){register_commands();}
-Interaction Host::interaction() const{return options_.interaction?options_.interaction():Interaction{};}
+Interaction Host::interaction() const {
+    auto state=options_.interaction?options_.interaction():Interaction{};
+    if(state.active_occurrence.empty())state.active_occurrence=workspace_.active_occurrence_path();
+    return state;
+}
 std::string Host::tr(const char* text) const{return options_.translate?options_.translate(text):std::string(text);}
 void Host::io(std::function<void()> task) const{if(options_.run_io)options_.run_io(std::move(task));else task();}
 void Host::activate(const std::string& id){workspace_.activate(id);workspace_.display_top_level(id);}
@@ -94,8 +98,14 @@ void Host::register_commands(){
         if(!command.changes_state)return Result::success();
         const auto state=interaction();
         if(state.editing)return Result::failure("editing_in_progress",tr("Nejprve dokončete nebo zrušte otevřenou editaci."));
-        if(workspace_.active_document_id()!=workspace_.displayed_document_id()||!state.active_occurrence.empty())
-            return Result::failure("active_occurrence",tr("Nejprve ukončete aktivaci komponenty v sestavě."));
+        if(command.name=="component.activate"||command.name=="component.deactivate")return Result::success();
+        if(workspace_.active_document_id()!=workspace_.displayed_document_id()||!state.active_occurrence.empty()) {
+            const auto& actual=workspace_.active_occurrence_path();
+            const auto address=actual.empty()?std::optional<workspace::OccurrenceAddress>{}:
+                workspace_.resolve_occurrence(workspace_.displayed_document_id(),assembly::InstancePath::decode(actual));
+            if(actual.empty()||actual!=state.active_occurrence||!address||address->source_document_id!=workspace_.active_document_id())
+                return Result::failure("active_occurrence",tr("Nejprve ukončete aktivaci komponenty v sestavě."));
+        }
         return Result::success();
     });
     dispatcher_.add({"help",tr("Seznam příkazů a jejich argumentů."),{},false},[this](const Json&){return Result::success(dispatcher_.catalog());});

@@ -228,6 +228,7 @@ bool Workspace::remove(const std::string& document_id) {
     const auto index = static_cast<std::size_t>(std::distance(documents_.begin(), found));
     const bool removed_active = active_document_id_ == document_id;
     const bool removed_displayed = displayed_document_id_ == document_id;
+    if(removed_active||removed_displayed)active_occurrence_path_.clear();
     documents_.erase(found);
     if (documents_.empty()) {
         active_document_id_.clear();
@@ -236,7 +237,8 @@ bool Workspace::remove(const std::string& document_id) {
     }
     const std::string replacement = id_of(documents_[
         std::min(index, documents_.size() - 1)]);
-    if (removed_displayed) displayed_document_id_ = replacement;
+    if (removed_displayed) displayed_document_id_ = !removed_active && find(active_document_id_)
+        ? active_document_id_ : replacement;
     if (removed_active) {
         active_document_id_ = removed_displayed
             ? replacement
@@ -268,10 +270,13 @@ const std::string& Workspace::displayed_document_id() const {
     return displayed_document_id_;
 }
 
+const std::string& Workspace::active_occurrence_path() const {return active_occurrence_path_;}
+
 void Workspace::activate(const std::string& document_id) {
     if (find(document_id) == nullptr) {
         throw std::invalid_argument("Cannot activate a document outside the Workspace");
     }
+    if(active_document_id_!=document_id)active_occurrence_path_.clear();
     active_document_id_ = document_id;
 }
 
@@ -279,6 +284,7 @@ void Workspace::display_top_level(const std::string& document_id) {
     if (find(document_id) == nullptr) {
         throw std::invalid_argument("Cannot display a document outside the Workspace");
     }
+    if(displayed_document_id_!=document_id||active_document_id_==document_id)active_occurrence_path_.clear();
     displayed_document_id_ = document_id;
 }
 
@@ -541,6 +547,7 @@ std::optional<OccurrenceAddress> Workspace::activate_occurrence(
     if (!address || find(address->source_document_id) == nullptr) return std::nullopt;
     display_top_level(top_assembly_document_id);
     activate(address->source_document_id);
+    active_occurrence_path_=address->instance_path.encoded();
     return address;
 }
 

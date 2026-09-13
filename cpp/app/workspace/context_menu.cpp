@@ -132,61 +132,22 @@ void AssemblyWorkspaceWindow::show_tree_item_properties(QTreeWidgetItem* item) {
     }
 }
 
-bool AssemblyWorkspaceWindow::activate_occurrence_for_test(
-    const std::string& selected_path) {
-    const std::string top_assembly_id = workspace_.displayed_document_id();
-    std::string instance_path;
-    try{instance_path=workspace_.derived_source_path(top_assembly_id,zima::assembly::InstancePath::decode(selected_path)).encoded();}
-    catch(const std::exception&){return false;}
-    std::optional<zima::workspace::OccurrenceAddress> address;
+bool AssemblyWorkspaceWindow::activate_occurrence_for_test(const std::string& selected_path) {
+    if(properties_dialog_||!active_sketch_id_.empty())return false;
     try {
-        address = workspace_.resolve_occurrence(
-            top_assembly_id, zima::assembly::InstancePath::decode(instance_path));
-    } catch (const std::invalid_argument&) {
-        return false;
-    }
-    if (!address) return false;
-    auto* assembly = workspace_.open_assembly(address->owner_assembly_document_id);
-    if (assembly == nullptr) return false;
-    const auto* occurrence = assembly->session.document().find_occurrence(
-        address->occurrence_id);
-    if (occurrence == nullptr) return false;
-    const bool source_is_assembly =
-        address->source_kind == zima::assembly::ComponentSourceKind::Assembly;
-    try {
-        if (workspace_.find(address->source_document_id) == nullptr) {
-            if (occurrence->source_path.empty() ||
-                !open_document_path(QString::fromStdString(
-                    occurrence->source_path.string()))) {
-                return false;
-            }
-        }
-        const auto activated = workspace_.activate_occurrence(
-            top_assembly_id, zima::assembly::InstancePath::decode(instance_path));
-        if (!activated) return false;
-        active_occurrence_path_ = instance_path;
-        active_sketch_id_.clear();
-        selected_sketch_id_.clear();
-        active_application_ = source_is_assembly
-            ? ApplicationMode::Assembly : ApplicationMode::Modeling;
-        refresh_tabs();
-        refresh_scene();
-        return true;
-    } catch (const std::invalid_argument&) {
-        return false;
-    }
+        const auto opened=zima::workspace::activate_component_source(workspace_,workspace_.displayed_document_id(),
+            zima::assembly::InstancePath::decode(selected_path),[](auto task){run_background_task(std::move(task));});
+        active_sketch_id_.clear();selected_sketch_id_.clear();
+        active_application_=workspace_.open_assembly(opened.document_id)?ApplicationMode::Assembly:ApplicationMode::Modeling;
+        refresh_tabs();refresh_scene();return true;
+    }catch(const std::exception&){return false;}
 }
 
 void AssemblyWorkspaceWindow::deactivate_active_occurrence_for_test() {
-    const std::string displayed = workspace_.displayed_document_id();
-    if (workspace_.open_assembly(displayed) == nullptr) return;
-    workspace_.activate(displayed);
-    active_occurrence_path_.clear();
-    active_sketch_id_.clear();
-    selected_sketch_id_.clear();
-    active_application_ = ApplicationMode::Assembly;
-    refresh_tabs();
-    refresh_scene();
+    if(properties_dialog_||!active_sketch_id_.empty())return;
+    if(!zima::workspace::deactivate_component_source(workspace_))return;
+    active_sketch_id_.clear();selected_sketch_id_.clear();active_application_=ApplicationMode::Assembly;
+    refresh_tabs();refresh_scene();
 }
 
 bool AssemblyWorkspaceWindow::open_component_source(const std::string& instance_path) {
@@ -254,7 +215,7 @@ void AssemblyWorkspaceWindow::show_component_context_menu(
     if (occurrence == nullptr) return;
     const bool is_active_occurrence =
         workspace_.active_document_id() == address->source_document_id &&
-        active_occurrence_path_ == instance_path;
+        workspace_.active_occurrence_path() == instance_path;
     const bool source_is_assembly =
         address->source_kind == zima::assembly::ComponentSourceKind::Assembly;
     QMenu menu(this);

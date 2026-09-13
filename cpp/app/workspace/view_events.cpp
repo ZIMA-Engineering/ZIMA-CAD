@@ -106,14 +106,14 @@ std::optional<std::string> AssemblyWorkspaceWindow::resolve_active_occurrence(
     const std::string& part_document_id) const {
     const auto* assembly = workspace_.open_assembly(workspace_.displayed_document_id());
     if (assembly == nullptr) return std::string{};
-    if (!active_occurrence_path_.empty()) {
+    if (!workspace_.active_occurrence_path().empty()) {
         try {
             const auto address = workspace_.resolve_occurrence(
                 workspace_.displayed_document_id(),
-                zima::assembly::InstancePath::decode(active_occurrence_path_));
+                zima::assembly::InstancePath::decode(workspace_.active_occurrence_path()));
             if (address && address->source_document_id == part_document_id &&
                 address->source_kind == zima::assembly::ComponentSourceKind::Part) {
-                return active_occurrence_path_;
+                return workspace_.active_occurrence_path();
             }
         } catch (const std::invalid_argument&) {
             return std::nullopt;
@@ -174,8 +174,8 @@ AssemblyWorkspaceWindow::active_assembly_local_ray(
     if (active == nullptr || displayed == nullptr ||
         active->session.document().document_id ==
             displayed->session.document().document_id ||
-        active_occurrence_path_.empty()) return {origin, direction};
-    const auto path = zima::assembly::InstancePath::decode(active_occurrence_path_);
+        workspace_.active_occurrence_path().empty()) return {origin, direction};
+    const auto path = zima::assembly::InstancePath::decode(workspace_.active_occurrence_path());
     return {
         workspace_.occurrence_point_from_scene(
             displayed->session.document().document_id, path, origin),

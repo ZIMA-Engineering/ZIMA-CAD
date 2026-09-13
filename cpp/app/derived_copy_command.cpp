@@ -71,7 +71,7 @@ void AssemblyWorkspaceWindow::show_derived_copy_properties(const std::string& id
         }
     }
     if(sources.empty()){derived_copy_assembly_preview_.reset();state_->setText(tr("Nejprve vytvořte zdrojové těleso nebo vložte komponentu."));return;}
-    const auto prefix=active_occurrence_path_;
+    const auto prefix=workspace_.active_occurrence_path();
     const auto source_id=[this,document_id,prefix,sources](const viewer::ViewerCandidate& candidate)->std::string {
         if(const auto* part=workspace_.open_part(document_id)) {
             if(candidate.instance_path!=prefix)return {};
@@ -249,7 +249,7 @@ void AssemblyWorkspaceWindow::show_derived_source_properties(const std::string& 
         }
     } else if(const auto* assembly=workspace_.open_assembly(workspace_.active_document_id())) {
         if(const auto* source=assembly->session.document().derived_source(id)) {
-            auto path=assembly::InstancePath::decode(active_occurrence_path_).child(source->occurrence_id);show_component_properties(path.encoded());
+            auto path=assembly::InstancePath::decode(workspace_.active_occurrence_path()).child(source->occurrence_id);show_component_properties(path.encoded());
         }
     }
 }

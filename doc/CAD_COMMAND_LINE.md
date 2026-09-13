@@ -324,3 +324,12 @@ Undo krokem. Přijímá přesný `instance_path`; zdrojový soubor zůstává.
 Použití vazbami a závislostmi předem vypíše `component.dependencies`.
 Společná GUI/CLI transakce ověří celý kandidát včetně řezů, než změní
 živou sestavu: [COMPONENT_REMOVAL_COMMAND.md](COMPONENT_REMOVAL_COMMAND.md).
+
+
+`component.activate` aktivuje přesný `instance_path` od zobrazené hlavní
+sestavy; její ID lze předat jako `document`. Modelové příkazy a Save pak
+pracují se zdrojem, zatímco celá sestava zůstává zobrazená. Aktivovaná
+podsestava přijímá lokální cesty z vlastního `component.list` a vlastní
+vložené komponenty. `component.deactivate` vrátí editaci do hlavní sestavy.
+Příklady a rozlišení úplných/lokálních cest:
+[COMPONENT_ACTIVATION_COMMANDS.md](COMPONENT_ACTIVATION_COMMANDS.md).

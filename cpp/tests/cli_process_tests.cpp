@@ -539,6 +539,20 @@ int main(int argc,char** argv){
         const auto component_open=command({{"command","component.open"},{"arguments",{{"instance_path",assembly::InstancePath{}.child(component_native.components[0].occurrence_id).encoded()}}}});
         result=launch(executable,root,common+QStringList{"--command","open cli-components.asmz","--command",component_open,"--command","context"});
         require(result.exit_code==0 && result.results()[1].at("data").at("document")==step_native.document_id && result.results()[1].at("data").at("opened")==true && result.results()[2].at("data").at("active_document")==step_native.document_id,"CLI could not open the exact native source occurrence");
+        const auto component_activate=command({{"command","component.activate"},{"arguments",{{"instance_path",fixed_path}}}});
+        const auto source_metadata=command({{"command","document.settings.set"},{"arguments",{{"precision",{{"decimal_places",5}}}}}});
+        result=launch(executable,root,common+QStringList{"--command","open cli-components.asmz","--command",component_activate,
+            "--command","context","--command",source_metadata,"--command","undo","--command","redo","--command","save",
+            "--command","component.deactivate","--command","context"});
+        if(result.exit_code!=0)std::cerr<<result.output.toStdString()<<result.diagnostics.toStdString();
+        require(result.exit_code==0&&result.results().size()==9&&result.results()[2].at("data").at("active_document")==step_native.document_id&&
+            result.results()[2].at("data").at("displayed_document")==component_native.document_id&&
+            result.results()[2].at("data").at("active_occurrence")==fixed_path&&
+            result.results()[8].at("data").at("active_document")==component_native.document_id&&
+            result.results()[8].at("data").at("active_occurrence")=="","CLI activation did not retain exact context while editing its source");
+        require(document::PartDocument::load(project/"cli-step.prtz").document_precision.at("decimal_places")=="5"&&
+            assembly::AssemblyDocument::load(project/"cli-components.asmz").components[1].name=="Šroub CLI",
+            "CLI activation saved metadata to the wrong native document");
         const auto component_clear=command({{"command","component.set"},{"arguments",{{"instance_path",property_path},{"placement_references",Json::array()}}}});
         const auto component_remove=command({{"command","component.remove"},{"arguments",{{"instance_path",property_path}}}});
         result=launch(executable,root,common+QStringList{"--command","open cli-components.asmz","--command",component_clear,"--command",component_remove,

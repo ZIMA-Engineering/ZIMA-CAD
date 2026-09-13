@@ -88,7 +88,7 @@ public:
     [[nodiscard]] bool activate_occurrence_for_test(const std::string& instance_path);
     void deactivate_active_occurrence_for_test();
     [[nodiscard]] const std::string& active_occurrence_path_for_test() const {
-        return active_occurrence_path_;
+        return workspace_.active_occurrence_path();
     }
 
 private:
@@ -370,7 +370,6 @@ private:
     // exact container instead of deleting an existing history entry.
     std::optional<zima::document::HistoryContainer>
         pending_profile_transform_original_;
-    std::string active_occurrence_path_;
     // "Pohled kolmo" (normal_view_action in Python): while active the viewer
     // is restricted to Face candidates; on selection the camera is rotated
     // to be perpendicular to the picked face and the mode is exited.

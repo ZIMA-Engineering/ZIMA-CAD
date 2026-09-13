@@ -78,10 +78,10 @@ void AssemblyWorkspaceWindow::apply_console_change(const command_host::Change& c
     }
     if(change.kind==Kind::Directory) {refresh_delete_file_actions();return;}
     if(change.kind==Kind::Copy) {refresh_delete_file_actions();return;}
-    if(change.kind==Kind::Open||change.kind==Kind::New||change.kind==Kind::Activate||change.kind==Kind::Close){
+    if(change.kind==Kind::Open||change.kind==Kind::New||change.kind==Kind::Activate||change.kind==Kind::Occurrence||change.kind==Kind::Close){
         if(change.kind!=Kind::Open){
-            if(workspace_.open_part(change.document_id))active_application_=ApplicationMode::Modeling;
-            else if(workspace_.open_assembly(change.document_id))active_application_=ApplicationMode::Assembly;
+            if(workspace_.open_part(workspace_.active_document_id()))active_application_=ApplicationMode::Modeling;
+            else if(workspace_.open_assembly(workspace_.active_document_id()))active_application_=ApplicationMode::Assembly;
             else active_application_=ApplicationMode::Drawing;
         }
         finish_document_switch(change.kind==Kind::Open);
@@ -109,7 +109,7 @@ void AssemblyWorkspaceWindow::create_command_console() {
         for(auto* dialog:findChildren<QDialog*>())state.editing|=dialog->isVisible();
         state.editing|=tree_&&tree_->property("commandSelectionActive").toBool();
         state.template_document=template_sketch()!=nullptr;
-        state.active_occurrence=active_occurrence_path_;state.active_sketch=active_sketch_id_;
+        state.active_occurrence=workspace_.active_occurrence_path();state.active_sketch=active_sketch_id_;
         const auto candidate_json=[](const viewer::ViewerCandidate& candidate) -> Json {
             return {{"owner_id",candidate.owner_id},{"semantic_key",candidate.semantic_key},
                 {"instance_path",candidate.instance_path},{"kind",candidate_kind(candidate.kind)},

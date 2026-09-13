@@ -5,7 +5,7 @@ using namespace workspace_detail;
 
 
 void AssemblyWorkspaceWindow::commit_dimension_layout(const zima::kernel::EdgeReference& reference,zima::kernel::DimensionLayout layout) {
-    if(reference.instance_path!=active_occurrence_path_||(!part_element_context_menu_enabled(reference.owner_id)&&reference.owner_id!=active_sketch_id_))throw std::invalid_argument("Dimension is outside the active editing occurrence");
+    if(reference.instance_path!=workspace_.active_occurrence_path()||(!part_element_context_menu_enabled(reference.owner_id)&&reference.owner_id!=active_sketch_id_))throw std::invalid_argument("Dimension is outside the active editing occurrence");
     if(const auto* sketch=active_sketch();sketch && reference.owner_id==sketch->id) {
         if(mutate_active_sketch([&](auto& pending){zima::kernel::store_dimension_layout(pending.dimension_layouts,reference,layout);})) {
             preserve_view_on_refresh_=true;refresh_scene();refresh_tabs();
@@ -26,7 +26,7 @@ void AssemblyWorkspaceWindow::commit_dimension_layout(const zima::kernel::EdgeRe
 void AssemblyWorkspaceWindow::show_dimension_layout_properties(const zima::viewer::ViewerCandidate& candidate) {
     if(properties_dialog_)return;
     const auto source=viewer_->dimension_source(candidate);if(!source)return;
-    if(source->reference.instance_path!=active_occurrence_path_)return;
+    if(source->reference.instance_path!=workspace_.active_occurrence_path())return;
     if(candidate.semantic_key.starts_with("dimension:")) {
         const auto dimension_id=candidate.semantic_key.substr(10);
         const std::vector<zima::sketcher::Sketch>* sketches=nullptr;

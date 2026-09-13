@@ -331,10 +331,10 @@ void AssemblyWorkspaceWindow::track_tree_edit(QDialog* dialog) {
             auto* row = *rows++;
             if (row->data(0, Qt::UserRole + 3).toString() == "document-origin" &&
                 row->data(0, Qt::UserRole).toString().toStdString() == tree_edit_document_id_ + ":origin" &&
-                row->data(0, Qt::UserRole + 1).toString().toStdString() == active_occurrence_path_) {
+                row->data(0, Qt::UserRole + 1).toString().toStdString() == workspace_.active_occurrence_path()) {
                 const bool assembly = workspace_.open_assembly(tree_edit_document_id_) != nullptr;
                 add_pending_tree_item(row->parent(), tree_edit_document_id_,
-                    zima::assembly::InstancePath::decode(active_occurrence_path_), assembly);
+                    zima::assembly::InstancePath::decode(workspace_.active_occurrence_path()), assembly);
                 if (!assembly) {
                     // Editing another body's row must also retire the active
                     // body's marker, even when the command needed no rebuild.
@@ -356,7 +356,7 @@ void AssemblyWorkspaceWindow::add_pending_tree_item(QTreeWidgetItem* parent,
     const std::string& document_id,
     const zima::assembly::InstancePath& instance_path, bool assembly) {
     if (document_id != workspace_.active_document_id() ||
-        instance_path.encoded() != active_occurrence_path_) return;
+        instance_path.encoded() != workspace_.active_occurrence_path()) return;
     std::optional<zima::document::HistoryContainer> feature;
     std::optional<zima::document::ConstructionObject> construction;
     std::optional<zima::sketcher::Sketch> pending_sketch;
@@ -476,9 +476,9 @@ void AssemblyWorkspaceWindow::add_part_tree_children(
     const std::string pending_creation_id =
         pending_profile_feature_ && !pending_profile_transform_original_
         ? pending_profile_feature_->id : std::string{};
-    const auto construction_path = active_occurrence_path_.empty()
+    const auto construction_path = workspace_.active_occurrence_path().empty()
         ? zima::assembly::InstancePath{}
-        : zima::assembly::InstancePath::decode(active_occurrence_path_);
+        : zima::assembly::InstancePath::decode(workspace_.active_occurrence_path());
     zima::workspace::ReferenceIndex references;
     if (const auto* part=workspace_.open_part(document.document_id)) {
         const auto& boundaries=part->session.calculated_boundaries();
@@ -885,7 +885,7 @@ void AssemblyWorkspaceWindow::add_snapshot_tree_children(
             tree_reference_state_.apply(item,owner_assembly_document_id,component.occurrence_id,
                 occurrence_reference_issue(*occurrence,references));
         const bool active_occurrence =
-            path.encoded() == active_occurrence_path_ &&
+            path.encoded() == workspace_.active_occurrence_path() &&
             component.source_document_id == workspace_.active_document_id();
         if ((part_rollback_ && path.encoded() == part_rollback_->instance_path) ||
             (component.occurrence_id==primitive_parameter_owner_id_&&owner_assembly_document_id==workspace_.active_document_id()) || active_occurrence) {

@@ -6,7 +6,7 @@ using namespace workspace_detail;
 
 
 bool AssemblyWorkspaceWindow::has_insertable_component() const {
-    const std::string owner_id = workspace_.displayed_document_id();
+    const std::string owner_id = workspace_.active_document_id();
     if (workspace_.open_assembly(owner_id) == nullptr) return false;
     for (const auto& state : workspace_.documents()) {
         const bool available = std::visit([&](const auto& item) {
@@ -28,7 +28,7 @@ bool AssemblyWorkspaceWindow::has_insertable_component() const {
 
 void AssemblyWorkspaceWindow::rebuild_insert_menu() {
     insert_menu_->clear();
-    const std::string owner_id = workspace_.displayed_document_id();
+    const std::string owner_id = workspace_.active_document_id();
     if (workspace_.open_assembly(owner_id) == nullptr) return;
     auto* choose_file = insert_menu_->addAction(tr("Vybrat soubor…"));
     choose_file->setObjectName("insertComponentFromFileAction");
@@ -103,24 +103,24 @@ void AssemblyWorkspaceWindow::insert_component_from_file() {
 
 void AssemblyWorkspaceWindow::insert_component(
     const std::string& source_document_id) {
-    const std::string assembly_id = workspace_.displayed_document_id();
+    const std::string assembly_id = workspace_.active_document_id();
     if (workspace_.open_assembly(assembly_id) == nullptr) return;
     try {
         const auto occurrence_id=zima::workspace::insert_component(workspace_,assembly_id,source_document_id);
         workspace_.activate(assembly_id);
         refresh_tabs();
         refresh_scene();
-        viewer_->confirm_occurrence(
-            zima::assembly::InstancePath{}.child(occurrence_id).encoded());
-        show_component_properties(
-            zima::assembly::InstancePath{}.child(occurrence_id).encoded(), true);
+        const auto path=(workspace_.active_occurrence_path().empty()?zima::assembly::InstancePath{}:
+            zima::assembly::InstancePath::decode(workspace_.active_occurrence_path())).child(occurrence_id).encoded();
+        viewer_->confirm_occurrence(path);
+        show_component_properties(path, true);
     } catch (const std::exception& error) {
         QMessageBox::critical(this, tr("Vložení selhalo"), error.what());
     }
 }
 
 void AssemblyWorkspaceWindow::regenerate_assembly() {
-    const std::string id = workspace_.displayed_document_id();
+    const std::string id = workspace_.active_document_id();
     try {
         workspace::regenerate_assembly(workspace_, kernel_, id, part_calculation_policy());
         refresh_tabs();

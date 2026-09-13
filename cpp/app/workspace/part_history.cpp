@@ -64,7 +64,7 @@ bool AssemblyWorkspaceWindow::tree_item_reorder_enabled(QTreeWidgetItem* item) c
     }
     if (const auto* assembly=workspace_.open_assembly(workspace_.active_document_id())) {
         if (kind=="part-occurrence" || kind=="assembly-occurrence")
-            return item->parent()->data(0,Qt::UserRole+1).toString().toStdString()==active_occurrence_path_ &&
+            return item->parent()->data(0,Qt::UserRole+1).toString().toStdString()==workspace_.active_occurrence_path() &&
                 item->data(0,Qt::UserRole+4).toString().toStdString()==workspace_.active_document_id() &&
                 assembly->session.document().find_occurrence(id);
         if (kind=="assembly-cut") return assembly->session.document().find_cut(id)!=nullptr;

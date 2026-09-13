@@ -8,6 +8,19 @@ std::filesystem::path source_path(const Workspace& workspace,const std::string& 
     throw ComponentOperationError("source_not_open","The component source must be an open Part or Assembly.");
 }
 }
+ComponentSourceOpen activate_component_source(Workspace& workspace,const std::string& top_id,const assembly::InstancePath& requested,
+    const std::function<void(std::function<void()>)>& runner,const std::function<void(const std::filesystem::path&)>& before_read) {
+    auto source=open_component_source(workspace,top_id,requested,runner,before_read);
+    if(!workspace.activate_occurrence(top_id,source.source_instance_path))
+        throw ComponentOperationError("occurrence_not_found","The requested component occurrence does not exist.");
+    return source;
+}
+bool deactivate_component_source(Workspace& workspace) {
+    if(workspace.active_occurrence_path().empty())return false;
+    const auto top=workspace.displayed_document_id();
+    if(!workspace.open_assembly(top))throw ComponentOperationError("unsupported_document","Component commands require an open Assembly.");
+    workspace.activate(top);return true;
+}
 ComponentSourceOpen open_component_source(Workspace& workspace,const std::string& top_id,const assembly::InstancePath& requested,
     const std::function<void(std::function<void()>)>& runner,const std::function<void(const std::filesystem::path&)>& before_read) {
     const auto* top=workspace.open_assembly(top_id);
@@ -28,13 +41,13 @@ ComponentSourceOpen open_component_source(Workspace& workspace,const std::string
     const auto path=std::filesystem::absolute(*file).lexically_normal();
     if(const auto same_path=workspace.document_id_for_path(path);same_path && *same_path!=id)
         throw ComponentOperationError("dependency_identity","The component source file belongs to a different document.");
-    const auto active=workspace.active_document_id(),displayed=workspace.displayed_document_id();
+    const auto active=workspace.active_document_id(),displayed=workspace.displayed_document_id(),active_path=workspace.active_occurrence_path();
     const auto runtime=top->runtime_identity;const auto revision=top->session.revision(),generation=top->session.data_generation();
     if(before_read)before_read(path);
     std::optional<PreparedNativeDocument> prepared;
     const auto read=[&]{prepared=read_native_document(path);};if(runner)runner(read);else read();
     const auto* current=workspace.open_assembly(top_id);
-    if(workspace.active_document_id()!=active || workspace.displayed_document_id()!=displayed || !current || current->runtime_identity!=runtime || current->session.revision()!=revision || current->session.data_generation()!=generation)
+    if(workspace.active_document_id()!=active || workspace.displayed_document_id()!=displayed || workspace.active_occurrence_path()!=active_path || !current || current->runtime_identity!=runtime || current->session.revision()!=revision || current->session.data_generation()!=generation)
         throw ComponentOperationError("document_changed","The owning Assembly changed while its component source was being opened.");
     if(!prepared)throw ComponentOperationError("read_incomplete","Native source reading did not complete.");
     if(prepared->id()!=id || prepared->type()!=expected)

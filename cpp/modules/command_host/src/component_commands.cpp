@@ -80,6 +80,28 @@ void Host::register_component_commands() {
         return Json{{"instance_path",path.encoded()},{"owning_document",state.session.document().document_id},{"blocked",dependencies.blocked()},
             {"placement_components",dependencies.placement_components},{"dependent_components",dependencies.dependency_components},{"sketches",dependencies.sketches}};
     });
+    dispatcher_.add({"component.activate",tr("Activate the exact component source while retaining the displayed top-level Assembly."),{{"instance_path",true},{"document",false}},true},[this](const Json& args){
+        const auto top=args.value("document",workspace_.displayed_document_id());
+        const auto previous_document=workspace_.active_document_id(),previous_top=workspace_.displayed_document_id(),previous_path=workspace_.active_occurrence_path();
+        try {
+            const auto opened=workspace::activate_component_source(workspace_,top,assembly::InstancePath::decode(args.at("instance_path").get<std::string>()),
+                [this](auto task){io(std::move(task));},[this](const auto& path){if(options_.progress)options_.progress(Activity::Read,path);});
+            const bool changed=previous_document!=opened.document_id||previous_top!=top||previous_path!=workspace_.active_occurrence_path();
+            if(changed)change_=Change{ChangeKind::Occurrence,opened.document_id,true};
+            return Result::success({{"document",opened.document_id},{"displayed_document",top},{"instance_path",workspace_.active_occurrence_path()},
+                {"opened",opened.opened},{"changed",changed}});
+        }catch(const workspace::ComponentOperationError& error){return Result::failure(error.code,tr(error.what()));}
+         catch(const std::invalid_argument& error){return Result::failure("invalid_arguments",tr(error.what()));}
+         catch(const std::exception& error){return Result::failure("component_activation_failed",tr(error.what()));}
+    });
+    dispatcher_.add({"component.deactivate",tr("Return editing from a component to the displayed top-level Assembly."),{},true},[this](const Json&){
+        try {
+            const bool changed=workspace::deactivate_component_source(workspace_);
+            if(changed)change_=Change{ChangeKind::Occurrence,workspace_.active_document_id(),true};
+            return Result::success({{"document",workspace_.active_document_id()},{"displayed_document",workspace_.displayed_document_id()},
+                {"instance_path",workspace_.active_occurrence_path()},{"changed",changed}});
+        }catch(const workspace::ComponentOperationError& error){return Result::failure(error.code,tr(error.what()));}
+    });
     dispatcher_.add({"component.open",tr("Open the native source of an exact component occurrence without regenerating it."),{{"instance_path",true},{"document",false}},true},[this](const Json& args){
         const auto top=args.value("document",workspace_.displayed_document_id());
         try {

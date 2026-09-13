@@ -2150,10 +2150,10 @@ void AssemblyWorkspaceWindow::refresh_scene() {
             workspace_.open_assembly(workspace_.active_document_id());
         if (active_assembly != nullptr &&
             active_assembly->session.document().document_id != document.document_id &&
-            !active_occurrence_path_.empty()) {
+            !workspace_.active_occurrence_path().empty()) {
             viewer_->set_mesh(workspace_.build_scene_with_assembly_override(
                 document.document_id,
-                zima::assembly::InstancePath::decode(active_occurrence_path_),
+                zima::assembly::InstancePath::decode(workspace_.active_occurrence_path()),
                 active_assembly->session.document()), fit_assembly_view);
         } else if (active_part_occurrence && !active_part_occurrence->empty()) {
             zima::kernel::BodyResult live_source;

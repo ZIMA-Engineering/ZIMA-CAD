@@ -45,7 +45,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Otvory a závity | Katalog, současný Otvor a vnější závit částečně hotovy | `thread.catalog`, `opening.create/get/set`: hladký/závitový otvor, rozměry, sražení, špička, směr a průchozí otvor; `shaft_thread.create/get/set` včetně původních referencí; zbývají cílové reference Otvoru Až k, samostatný Hole a operace vnořených částí otvoru; `drill_point.create/get/set` pokrývají samostatnou vrtací špičku |
 | Zaoblení, zkosení, skořepina | Hotovo | `shell.faces/create/get/set`, `fillet.create/get/set`, `chamfer.create/get/set`; `edge_treatment.edges/route/remove`: skutečný vstup, společná tečná trasa a odebrání člena/trasy/posledního prvku podle stromového kontraktu |
 | Zrcadlo a pole | Hotovo pro Part a bezprostřední komponenty Assembly | `derived_copy.sources`, `mirror.create/get/set`, `pattern.create/get/set`: společné zdroje a potvrzení GUI/CLI, roviny/osy, lineární i kruhové režimy, umístění, zámky, neuložené zdroje a Undo/Redo; vnořená aktivace patří do řádku Sestavy |
-| Sestavy | Dotazy, vložení, otevření zdrojů, vlastnosti a odstranění komponent hotovy | `component.set`: název, viditelnost, potlačení, uzemnění, umístění a všechny čtyři druhy vložených vazeb s mezemi/zámky; `component.remove` sdílí kontrolu závislostí a atomické mazání s GUI; zbývá vnořená aktivace a řezy, oprava řetězce vazeb čeká na konkrétní souhlas |
+| Sestavy | Dotazy, vložení, otevření zdrojů, vlastnosti, odstranění a přesná aktivace hotovy | `component.set`: název, viditelnost, potlačení, uzemnění, umístění a všechny čtyři druhy vložených vazeb s mezemi/zámky; `component.remove` sdílí kontrolu závislostí a atomické mazání s GUI; `component.activate/deactivate` sdílejí přesný zdrojový kontext s GUI; zbývají řezy a externí reference aktivního Partu, oprava řetězce vazeb čeká na konkrétní souhlas |
 | Výkresy | Listy, šablony, historie, tvorba/vlastnosti/dotazy/mazání pohledů, regenerace, modelové anotace, Show/Erase a měřené kóty (dotazy, tvorba, editace, řetězec, mazání), razítko, zdrojové parametry BOM, PDF, DXF a PNG/JPEG listu/výřezu hotovy | Další anotace, zdrojové styly šraf a příkazový snímek interaktivního View |
 | Řezy, měření a vzhled | Zbývá | Datové operace a uložené výsledky |
 | Parametry, relace a materiál | Společné tabulky a transakce hotovy | Parametry, jednotky, přesnost, relace, materiál včetně přímého načtení knihovny a uložené varianty; řízení rozměrů relacemi a generování variant nejsou dosud zavedené ani v GUI |
@@ -945,3 +945,23 @@ atomické chyby, blokující reference, nativní soubory a Undo/Redo.
 Kontrakt a logy: [COMPONENT_REMOVAL_COMMAND.md](COMPONENT_REMOVAL_COMMAND.md).
 Následuje vnořená aktivace a povolení příkazů v přesném zdrojovém kontextu.
 Oprava řetězce vazeb zůstává samostatně čekající na konkrétní souhlas.
+
+
+### Přesná aktivace komponenty a příkazy uvnitř sestavy
+
+`component.activate/deactivate` doplňují katalog na **209 příkazů**.
+Workspace spravuje přesnou cestu aktivace společně pro GUI a CLI. Modelové
+příkazy mění aktivní zdroj a zachovají zobrazenou hlavní sestavu; podsestava
+vlastní své lokální vložení, vlastnosti, odstranění a regeneraci. Otevřený
+neuložený zdroj je autoritativní. Aktivace ani návrat neopustí otevřenou editaci.
+
+Modelové testy prošly **3/3** (0,64 s). Úplná sada **108/109** (490,27 s)
+odhalila starý startovací test, který aktivoval jinou komponentu během
+nedokončených Vlastností vložení. Po doplnění správného GUI dokončení a
+ověření blokované aktivace/návratu prošla závěrečná sada **9/9** (174,88 s),
+včetně celého startu GUI, konzole, CLI a překladů. Testy také ověřují přesné
+opakované výskyty, zavřené mezilehlé karty, aktuální zdroje, objem, Undo/Redo,
+lokální vlastnictví a zachování kontextu při ukládání a zavírání.
+Podrobnosti: [COMPONENT_ACTIVATION_COMMANDS.md](COMPONENT_ACTIVATION_COMMANDS.md).
+Následuje sjednocení původních referencí a příkazové projekce pro Part
+aktivovaný v sestavě; při čtení referencí nesmí docházet k výpočtu řezů.

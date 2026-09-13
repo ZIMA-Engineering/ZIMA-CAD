@@ -205,16 +205,9 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
     if (editing_nested_document) {
         auto* return_action = new QAction(
             resource_icon("assembly"), tr("Zpět do sestavy"), tools_toolbar_);
+        return_action->setEnabled(!properties_dialog_&&active_sketch_id_.empty());
         connect(return_action, &QAction::triggered, this, [this] {
-            const std::string displayed = workspace_.displayed_document_id();
-            if (workspace_.open_assembly(displayed) == nullptr) return;
-            workspace_.activate(displayed);
-            active_occurrence_path_.clear();
-            active_sketch_id_.clear();
-            selected_sketch_id_.clear();
-            active_application_ = ApplicationMode::Assembly;
-            refresh_tabs();
-            refresh_scene();
+            deactivate_active_occurrence_for_test();
         });
         add_command(return_action);
         tools_toolbar_->addSeparator();

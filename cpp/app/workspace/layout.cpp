@@ -106,7 +106,7 @@ void AssemblyWorkspaceWindow::create_layout() {
             !workspace_.open_assembly(workspace_.displayed_document_id())) return true;
         return reference.instance_path.empty() ||
             visible_occurrence_origin_paths_.contains(reference.instance_path) ||
-            (reference.instance_path == active_occurrence_path_ &&
+            (reference.instance_path == workspace_.active_occurrence_path() &&
              visible_local_origin_ids_.contains(reference.owner_id));
     });
     viewer_->set_selection_contract({zima::viewer::CandidateKind::Dimension,
@@ -643,16 +643,16 @@ void AssemblyWorkspaceWindow::create_layout() {
         std::map<zima::kernel::ObjectEnvelopeKey,zima::kernel::ModelEnvelope> frames;
         const auto id=workspace_.active_document_id();
         if(const auto* part=workspace_.open_part(id)) {
-            frames=active_occurrence_path_.empty()?zima::document::part_annotation_envelopes(part->session.document(),mesh):zima::document::part_annotation_frames(part->session.document());
+            frames=workspace_.active_occurrence_path().empty()?zima::document::part_annotation_envelopes(part->session.document(),mesh):zima::document::part_annotation_frames(part->session.document());
         }
-        if(!active_occurrence_path_.empty()) {
-            const auto path=zima::assembly::InstancePath::decode(active_occurrence_path_);
+        if(!workspace_.active_occurrence_path().empty()) {
+            const auto path=zima::assembly::InstancePath::decode(workspace_.active_occurrence_path());
             std::map<zima::kernel::ObjectEnvelopeKey,zima::kernel::ModelEnvelope> placed;
-            for(const auto& [key,value]:frames){auto frame=value;const auto point=[&](auto p){return workspace_.occurrence_point_to_scene(workspace_.displayed_document_id(),path,p);};const auto origin=point(frame.origin);for(auto& axis:frame.axes)axis=zima::kernel::dimension_sub(point(zima::kernel::dimension_add(frame.origin,axis)),origin);frame.origin=origin;placed[{key.first,active_occurrence_path_}]=frame;}frames=std::move(placed);
+            for(const auto& [key,value]:frames){auto frame=value;const auto point=[&](auto p){return workspace_.occurrence_point_to_scene(workspace_.displayed_document_id(),path,p);};const auto origin=point(frame.origin);for(auto& axis:frame.axes)axis=zima::kernel::dimension_sub(point(zima::kernel::dimension_add(frame.origin,axis)),origin);frame.origin=origin;placed[{key.first,workspace_.active_occurrence_path()}]=frame;}frames=std::move(placed);
         }
-        if(!active_occurrence_path_.empty())if(const auto* part=workspace_.open_part(id)){
+        if(!workspace_.active_occurrence_path().empty())if(const auto* part=workspace_.open_part(id)){
             frames=zima::kernel::object_envelopes(mesh,std::move(frames));
-            const auto alias=[&](const std::string& source,const std::string& owner){const auto found=frames.find({source,active_occurrence_path_});if(found!=frames.end()&&found->second.valid)frames[{owner,active_occurrence_path_}]=found->second;};
+            const auto alias=[&](const std::string& source,const std::string& owner){const auto found=frames.find({source,workspace_.active_occurrence_path()});if(found!=frames.end()&&found->second.valid)frames[{owner,workspace_.active_occurrence_path()}]=found->second;};
             for(const auto& c:part->session.document().history)alias(c.feature_id,c.id);
             for(const auto& c:part->session.document().constructions)alias(c.entity_id,c.id);
         }
@@ -1557,7 +1557,6 @@ void AssemblyWorkspaceWindow::create_layout() {
         const std::string id = tabs_->tabData(index).toString().toStdString();
         workspace_.activate(id);
         workspace_.display_top_level(id);
-        active_occurrence_path_.clear();
         active_sketch_id_.clear();
         selected_sketch_id_.clear();
         selected_sketch_segment_id_.clear();

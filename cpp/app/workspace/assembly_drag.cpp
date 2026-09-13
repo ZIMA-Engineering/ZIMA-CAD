@@ -13,7 +13,7 @@ void AssemblyWorkspaceWindow::set_selected_component_origin(const std::string& i
         const auto path=zima::assembly::InstancePath::decode(instance_path);
         const auto address=workspace_.resolve_occurrence(workspace_.displayed_document_id(),path);
         if (!address || address->owner_assembly_document_id!=workspace_.active_document_id() ||
-            path.parent().value_or(zima::assembly::InstancePath{}).encoded()!=active_occurrence_path_) return;
+            path.parent().value_or(zima::assembly::InstancePath{}).encoded()!=workspace_.active_occurrence_path()) return;
         const auto* owner=workspace_.open_assembly(address->owner_assembly_document_id);
         const auto* occurrence=owner?owner->session.document().find_occurrence(address->occurrence_id):nullptr;
         if (!occurrence || occurrence->derived_copy || occurrence->source_kind==zima::assembly::ComponentSourceKind::Pattern) return;

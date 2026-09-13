@@ -44,6 +44,22 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     const auto copied=assembly::InstancePath{}.child("derived-occurrence").child(leaf);
     opened=workspace::open_component_source(live,top,copied);
     require(opened.document_id==part_id && opened.source_instance_path==path,"Derived occurrence did not open its editable original source");
+    opened=workspace::activate_component_source(live,top,copied);
+    require(live.active_document_id()==part_id&&live.displayed_document_id()==top&&live.active_occurrence_path()==path.encoded(),
+        "Derived activation did not retain the original exact editable path");
+    // A source read may pump GUI events. Changing only the occurrence of the
+    // same active source must invalidate the pending activation as well.
+    require(workspace::deactivate_component_source(live),"Cannot deactivate derived source");
+    auto updated=live.open_assembly(top)->session.document();auto alternate=updated.components.front();alternate.occurrence_id="second-ordinary";updated.components.push_back(std::move(alternate));
+    live.open_assembly(top)->session.commit(std::move(updated));
+    const auto first_middle=assembly::InstancePath{}.child(root),second_middle=assembly::InstancePath{}.child("second-ordinary");
+    static_cast<void>(workspace::activate_component_source(live,top,first_middle));
+    static_cast<void>(live.remove(part_id));bool path_rejected=false;
+    try {static_cast<void>(workspace::activate_component_source(live,top,path,[&](auto read){read();static_cast<void>(live.activate_occurrence(top,second_middle));}));}
+    catch(const workspace::ComponentOperationError& error){path_rejected=error.code=="document_changed";}
+    require(path_rejected&&!live.open_part(part_id)&&live.active_document_id()==middle_id&&live.active_occurrence_path()==second_middle.encoded(),
+        "Delayed activation overwrote a newer exact occurrence of the same source");
+
 }
 }
 int main(){try{kernel::OcctKernel kernel;const auto parent=fs::canonical(fs::temp_directory_path());const auto dir=parent/("zima-component-source-"+document::PartDocument::create_default().document_id);fs::create_directory(dir);verify(kernel,dir);require(dir.parent_path()==parent,"Unsafe cleanup");fs::remove_all(dir);std::cout<<"Source opening, nested paths, identity checks, delayed reads and authoritative open documents passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

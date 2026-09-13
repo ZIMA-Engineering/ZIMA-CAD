@@ -58,7 +58,7 @@ void AssemblyWorkspaceWindow::show_body_color_dialog() {
   if (part) {
     initial = part_appearance(part->session.document());
     body_id = part->session.document().body_history.active_body_id();
-    path = displayed == active ? std::string{} : active_occurrence_path_;
+    path = displayed == active ? std::string{} : workspace_.active_occurrence_path();
   } else {
     const auto selected = selected_occurrence_path();
     if (!selected)
@@ -243,8 +243,8 @@ void AssemblyWorkspaceWindow::update_viewer_body_colors(
     }
     if (const auto *active =
             workspace_.open_part(workspace_.active_document_id());
-        active && !active_occurrence_path_.empty())
-      add(part_appearance(active->session.document()), active_occurrence_path_);
+        active && !workspace_.active_occurrence_path().empty())
+      add(part_appearance(active->session.document()), workspace_.active_occurrence_path());
   }
   if (preview)
     add(*preview, preview_path);

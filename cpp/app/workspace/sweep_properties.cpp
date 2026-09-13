@@ -393,7 +393,7 @@ void AssemblyWorkspaceWindow::show_sweep3d_properties(
                 ? std::optional<zima::kernel::BodyResult>{}
                 : part->session.calculated_boundary(*history_index);
             part_rollback_ = PartRollbackContext{document_id,
-                active_occurrence_path_, *history_index, input};
+                workspace_.active_occurrence_path(), *history_index, input};
             preserve_view_on_refresh_ = true;
             refresh_scene();
         }

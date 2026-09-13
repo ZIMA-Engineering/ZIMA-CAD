@@ -87,6 +87,10 @@ public:
     [[nodiscard]] const DocumentState* find(const std::string& document_id) const;
     [[nodiscard]] const std::string& active_document_id() const;
     [[nodiscard]] const std::string& displayed_document_id() const;
+    // Exact runtime editing occurrence inside the displayed top-level Assembly.
+    // Source IDs alone cannot distinguish repeated instances. Not file data.
+    [[nodiscard]] const std::string& active_occurrence_path() const;
+
     void activate(const std::string& document_id);
     // Share already calculated source data; never calculate OCCT or solve mates.
     void refresh_source_geometry();
@@ -187,6 +191,7 @@ private:
     std::map<std::filesystem::path,NativeAssemblyCache> native_assembly_cache_;
     std::string active_document_id_;
     std::string displayed_document_id_;
+    std::string active_occurrence_path_;
     [[nodiscard]] static const std::string& id_of(const DocumentState& state);
     [[nodiscard]] bool assembly_reaches(
         const std::string& start_document_id,

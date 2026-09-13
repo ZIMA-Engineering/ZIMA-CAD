@@ -84,8 +84,10 @@ ComponentRemovalDependencies component_removal_dependencies(const assembly::Asse
 }
 std::string insert_component(Workspace& live,const std::string& owner,const std::string& source,const std::optional<std::string>& requested_name) {
     if(!live.open_assembly(owner))throw ComponentOperationError("unsupported_document","Component insertion requires an open owning Assembly.");
-    if(live.active_document_id()!=owner || live.displayed_document_id()!=owner)
-        throw ComponentOperationError("unsupported_context","Open the owning Assembly in its own tab before inserting a component.");
+    const auto address=live.active_occurrence_path().empty()?std::optional<OccurrenceAddress>{}:
+        live.resolve_occurrence(live.displayed_document_id(),assembly::InstancePath::decode(live.active_occurrence_path()));
+    if(live.active_document_id()!=owner || (live.displayed_document_id()!=owner && (!address || address->source_document_id!=owner)))
+        throw ComponentOperationError("unsupported_context","Activate the owning Assembly before inserting a component.");
     const auto* part=live.open_part(source);const auto* assembly=live.open_assembly(source);
     if(!part && !assembly)throw ComponentOperationError("source_not_open","The component source must be an open Part or Assembly.");
     const auto name=requested_name.value_or(part?part->session.document().name:assembly->session.document().name);

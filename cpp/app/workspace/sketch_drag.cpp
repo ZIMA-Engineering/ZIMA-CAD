@@ -505,10 +505,10 @@ void AssemblyWorkspaceWindow::update_placement_reference_drag(
     }
     placement_reference_drag_changed_ = true;
     if (placement_reference_drag_document_id_ != workspace_.displayed_document_id() &&
-        !active_occurrence_path_.empty()) {
+        !workspace_.active_occurrence_path().empty()) {
         viewer_->set_mesh(workspace_.build_scene_with_assembly_override(
             workspace_.displayed_document_id(),
-            zima::assembly::InstancePath::decode(active_occurrence_path_),
+            zima::assembly::InstancePath::decode(workspace_.active_occurrence_path()),
             *placement_reference_drag_document_), false);
     } else {
         viewer_->set_mesh(placement_reference_drag_document_->build_scene(), false);

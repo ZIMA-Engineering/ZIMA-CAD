@@ -1393,7 +1393,7 @@ void AssemblyWorkspaceWindow::show_sketch_dimension_properties(
         !selected_sketch_segment_id_.empty() && first_point_id.empty() &&
         first_geometry_id.empty();
     auto pending_layout=std::make_shared<std::optional<zima::kernel::DimensionLayout>>();
-    const zima::kernel::EdgeReference layout_reference{sketch_id,"dimension:"+initial.id,active_occurrence_path_};
+    const zima::kernel::EdgeReference layout_reference{sketch_id,"dimension:"+initial.id,workspace_.active_occurrence_path()};
     const auto commit_dimension =
         [this, sketch_id, edit_mode, creation_kind, active_target, pending_layout, layout_reference,
          segment_dimension_creation, first_geometry_id](
