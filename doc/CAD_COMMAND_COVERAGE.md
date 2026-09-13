@@ -1026,3 +1026,16 @@ projekce. Po úplném sestavení prošla související sada **21/21** (142,57 s)
 včetně GUI, CLI a překladů. Katalog má **209 příkazů**. Následuje společné
 potvrzení kontextové reference a jejích závislostí.
 Podrobnosti: [NESTED_COPY_REFERENCES.md](NESTED_COPY_REFERENCES.md).
+
+## Atomická historie Partu (2026-09-13)
+
+Společná `DocumentSession` odmítne chybnou fyzikální relaci, jednotku či identitu
+rozměru bez změny revize, generace, geometrie a Undo/Redo. Stavy historie mají
+jednoznačné vlastnictví; její růst nepřekopírovává staré vypočtené hranice.
+Nová regrese ověřuje odmítnuté potvrzení, výměnu a přepočet, 24 kroků historie,
+identitu uložených alokací a nezávislost výslovné kopie relace.
+
+Sestavení obou aplikací a **115/115 testů prošlo za 502,04 s**. Podrobnosti jsou
+v [PART_SESSION_TRANSACTIONS.md](PART_SESSION_TRANSACTIONS.md). Jde o společnou
+transakční hranici pro GUI a CLI; kontextová tvorba/odpojení reference se
+sestavovými závislostmi stále zbývá a katalog má nadále 209 příkazů.

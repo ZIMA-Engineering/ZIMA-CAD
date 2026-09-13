@@ -5,6 +5,7 @@
 #include <iterator>
 #include <unordered_set>
 #include <utility>
+#include <type_traits>
 
 namespace zima::document {
 namespace {
@@ -66,34 +67,49 @@ zima::kernel::ViewerReferenceGeometry references_for_owners(
 DocumentSession::DocumentSession(
     PartDocument document,
     std::vector<zima::kernel::BodyResult> calculated_boundaries)
-    : current_{std::move(document), std::move(calculated_boundaries), 0, false} {
-    refresh_physical_relations(current_.document,physical_values(current_.document,current_.calculated_boundaries));
-    retain_shaft_reference_geometry(current_.document,current_.calculated_boundaries);
-    current_.document.synchronize_dimension_identifiers();
-    saved_dimension_allocations_ = current_.document.dimension_identifiers.allocation_count();
+    : current_(std::make_unique<State>(State{std::move(document), std::move(calculated_boundaries), 0, false})) {
+    refresh_physical_relations(current_->document,physical_values(current_->document,current_->calculated_boundaries));
+    retain_shaft_reference_geometry(current_->document,current_->calculated_boundaries);
+    current_->document.synchronize_dimension_identifiers();
+    saved_dimension_allocations_ = current_->document.dimension_identifiers.allocation_count();
 }
 
-const PartDocument& DocumentSession::document() const { return current_.document; }
-std::uint64_t DocumentSession::revision() const { return current_.revision; }
+DocumentSession::States DocumentSession::copy_states(const States& states) {
+    States result;result.reserve(states.size());
+    for(const auto& state:states)result.push_back(std::make_unique<State>(*state));
+    return result;
+}
+DocumentSession::DocumentSession(const DocumentSession& other)
+    : data_generation_(other.data_generation_), current_(std::make_unique<State>(*other.current_)),
+      undo_(copy_states(other.undo_)), redo_(copy_states(other.redo_)),
+      next_revision_(other.next_revision_), saved_revision_(other.saved_revision_),
+      saved_dimension_allocations_(other.saved_dimension_allocations_) {}
+DocumentSession& DocumentSession::operator=(const DocumentSession& other) {
+    if(this!=&other){DocumentSession copy(other);*this=std::move(copy);}
+    return *this;
+}
+
+const PartDocument& DocumentSession::document() const { return current_->document; }
+std::uint64_t DocumentSession::revision() const { return current_->revision; }
 bool DocumentSession::is_dirty() const {
-    return current_.revision != saved_revision_ || current_.calculated_state_dirty ||
-        current_.document.dimension_identifiers.allocation_count() != saved_dimension_allocations_;
+    return current_->revision != saved_revision_ || current_->calculated_state_dirty ||
+        current_->document.dimension_identifiers.allocation_count() != saved_dimension_allocations_;
 }
 bool DocumentSession::can_undo() const { return !undo_.empty(); }
 bool DocumentSession::can_redo() const { return !redo_.empty(); }
 const std::vector<zima::kernel::BodyResult>&
 DocumentSession::calculated_boundaries() const {
-    return current_.calculated_boundaries;
+    return current_->calculated_boundaries;
 }
 
 std::optional<zima::kernel::BodyResult> DocumentSession::calculated_boundary(
     const std::size_t operation_count) const {
     if (operation_count == 0 ||
-        current_.calculated_boundaries.size() < operation_count) {
+        current_->calculated_boundaries.size() < operation_count) {
         return std::nullopt;
     }
-    auto result = current_.calculated_boundaries[operation_count - 1];
-    const auto operations = current_.document.kernel_operations();
+    auto result = current_->calculated_boundaries[operation_count - 1];
+    const auto operations = current_->document.kernel_operations();
     std::unordered_set<std::string> owners;
     for (std::size_t operation = 0;
          operation < operation_count && operation < operations.size();
@@ -103,7 +119,7 @@ std::optional<zima::kernel::BodyResult> DocumentSession::calculated_boundary(
         }
     }
     result.mesh.original_references = references_for_owners(
-        current_.calculated_boundaries.back().mesh.original_references, owners);
+        current_->calculated_boundaries.back().mesh.original_references, owners);
     // Feature axes are persisted reference geometry, but they are also part
     // of the ordinary Part presentation. A loaded or fully reused calculated
     // boundary can legitimately contain them only in original_references;
@@ -124,10 +140,10 @@ std::optional<zima::kernel::BodyResult> DocumentSession::calculated_boundary(
 
 zima::kernel::ViewerMesh DocumentSession::body_context_mesh(const BodyHistoryGraph* context) const {
     zima::kernel::ViewerMesh result;
-    if (current_.calculated_boundaries.empty()) return result;
-    const auto& document = current_.document;
+    if (current_->calculated_boundaries.empty()) return result;
+    const auto& document = current_->document;
     const auto& graph = context ? *context : document.body_history;
-    const auto& outputs = current_.calculated_boundaries.back().body_outputs;
+    const auto& outputs = current_->calculated_boundaries.back().body_outputs;
     for (const auto& id : graph.visible_context()) {
         zima::kernel::ViewerMesh mesh;
         if (id == graph.active_body_id()) {
@@ -165,9 +181,9 @@ zima::kernel::ViewerMesh DocumentSession::body_context_mesh(const BodyHistoryGra
 }
 
 std::optional<BooleanEditInputs> DocumentSession::boolean_edit_inputs(const std::string& id) const {
-    const auto* operation = current_.document.body_history.find_boolean(id);
-    if (!operation || current_.calculated_boundaries.empty()) return std::nullopt;
-    const auto& outputs = current_.calculated_boundaries.back().body_outputs;
+    const auto* operation = current_->document.body_history.find_boolean(id);
+    if (!operation || current_->calculated_boundaries.empty()) return std::nullopt;
+    const auto& outputs = current_->calculated_boundaries.back().body_outputs;
     const auto target = outputs.find(operation->target_id);
     const auto tool = outputs.find(operation->tool_id);
     if (target == outputs.end() || tool == outputs.end()) return std::nullopt;
@@ -176,18 +192,18 @@ std::optional<BooleanEditInputs> DocumentSession::boolean_edit_inputs(const std:
 
 std::optional<zima::kernel::BodyResult> DocumentSession::calculated_body_boundary(
     const std::string& body_id, const std::size_t operation_count) const {
-    if (operation_count == 0 || current_.calculated_boundaries.empty()) return std::nullopt;
-    const auto& caches = current_.calculated_boundaries.back().body_boundaries;
+    if (operation_count == 0 || current_->calculated_boundaries.empty()) return std::nullopt;
+    const auto& caches = current_->calculated_boundaries.back().body_boundaries;
     const auto found = caches.find(body_id);
     if (found == caches.end() || found->second.size() < operation_count) return std::nullopt;
     auto result = found->second[operation_count - 1];
     std::unordered_set<std::string> owners;
     std::size_t count{};
-    const auto* body = current_.document.body_history.find(body_id);
+    const auto* body = current_->document.body_history.find(body_id);
     if (!body) return std::nullopt;
     for (const auto& entry : body->entries) {
         if (entry.kind != PartHistoryKind::Feature) continue;
-        const auto* feature = current_.document.find_container(entry.id);
+        const auto* feature = current_->document.find_container(entry.id);
         if (!feature || feature->feature_kind == FeatureKind::Sketch) continue;
         if (count++ == operation_count) break;
         if (!feature->suppressed) owners.insert(feature->id);
@@ -199,15 +215,15 @@ std::optional<zima::kernel::BodyResult> DocumentSession::calculated_body_boundar
 
 std::optional<HistoryRollbackBoundary> DocumentSession::rollback_boundary(
     const std::string& container_id) const {
-    const auto index = current_.document.history_index(container_id);
+    const auto index = current_->document.history_index(container_id);
     if (!index) return std::nullopt;
-    if (!current_.document.body_history.bodies().empty()) {
-        const auto boundary = current_.document.body_history.rollback_before(container_id);
-        const auto* body = current_.document.body_history.find(boundary.body_id);
+    if (!current_->document.body_history.bodies().empty()) {
+        const auto boundary = current_->document.body_history.rollback_before(container_id);
+        const auto* body = current_->document.body_history.find(boundary.body_id);
         std::size_t operations{};
         for (std::size_t entry = 0; entry < boundary.entry_count; ++entry) {
             if (body->entries[entry].kind != PartHistoryKind::Feature) continue;
-            const auto* container = current_.document.find_container(body->entries[entry].id);
+            const auto* container = current_->document.find_container(body->entries[entry].id);
             if (container && container->feature_kind != FeatureKind::Sketch) ++operations;
         }
         return HistoryRollbackBoundary{*index, calculated_body_boundary(boundary.body_id, operations)};
@@ -217,36 +233,36 @@ std::optional<HistoryRollbackBoundary> DocumentSession::rollback_boundary(
     // operations preceding the edited container, while history_index keeps
     // the actual Tree/history position used to suppress downstream items.
     std::size_t calculated_before{};
-    if (current_.document.history_order.empty()) {
+    if (current_->document.history_order.empty()) {
         for (std::size_t history_index = 0; history_index < *index;
              ++history_index) {
-            if (current_.document.history[history_index].feature_kind !=
+            if (current_->document.history[history_index].feature_kind !=
                     FeatureKind::Sketch) {
                 ++calculated_before;
             }
         }
     } else {
         const auto ordered = std::find_if(
-            current_.document.history_order.begin(),
-            current_.document.history_order.end(), [&](const auto& entry) {
+            current_->document.history_order.begin(),
+            current_->document.history_order.end(), [&](const auto& entry) {
                 return entry.kind == PartHistoryKind::Feature &&
                     entry.id == container_id;
             });
-        if (ordered == current_.document.history_order.end()) {
+        if (ordered == current_->document.history_order.end()) {
             return std::nullopt;
         }
-        for (auto entry = current_.document.history_order.begin();
+        for (auto entry = current_->document.history_order.begin();
              entry != ordered; ++entry) {
             if (entry->kind != PartHistoryKind::Feature) continue;
             const auto* container =
-                current_.document.find_container(entry->id);
+                current_->document.find_container(entry->id);
             if (container != nullptr &&
                 container->feature_kind != FeatureKind::Sketch) {
                 ++calculated_before;
             }
         }
     }
-    if (current_.calculated_boundaries.size() < calculated_before) {
+    if (current_->calculated_boundaries.size() < calculated_before) {
         return std::nullopt;
     }
     HistoryRollbackBoundary result{*index, std::nullopt};
@@ -259,69 +275,75 @@ std::optional<HistoryRollbackBoundary> DocumentSession::rollback_boundary(
 void DocumentSession::replace(
     PartDocument document,
     std::vector<zima::kernel::BodyResult> calculated_boundaries) {
-    ++data_generation_;
     refresh_physical_relations(document, physical_values(document,calculated_boundaries));
     retain_shaft_reference_geometry(document,calculated_boundaries);
-    current_ = {std::move(document), std::move(calculated_boundaries), 0, false};
+    document.synchronize_dimension_identifiers();
+    const auto allocations=document.dimension_identifiers.allocation_count();
+    auto next=std::make_unique<State>(State{std::move(document), std::move(calculated_boundaries), 0, false});
+    current_=std::move(next);
     undo_.clear();
     redo_.clear();
     next_revision_ = 1;
     saved_revision_ = 0;
-    current_.document.synchronize_dimension_identifiers();
-    saved_dimension_allocations_ = current_.document.dimension_identifiers.allocation_count();
+    saved_dimension_allocations_ = allocations;
+    ++data_generation_;
 }
 
 void DocumentSession::commit(
     PartDocument document,
     std::vector<zima::kernel::BodyResult> calculated_boundaries) {
-    ++data_generation_;
+    static_assert(std::is_nothrow_move_assignable_v<PartDocument>);
     refresh_physical_relations(document, physical_values(document,calculated_boundaries));
     retain_shaft_reference_geometry(document,calculated_boundaries);
-    document.dimension_identifiers.retain(current_.document.dimension_identifiers);
+    document.dimension_identifiers.retain(current_->document.dimension_identifiers);
     document.synchronize_dimension_identifiers();
+    // Finish validation and allocation before publishing either document or
+    // history. Consumers must never observe a rejected edit as a new generation.
+    auto next=std::make_unique<State>(State{
+        std::move(document),std::move(calculated_boundaries),next_revision_,false});
     undo_.push_back(std::move(current_));
-    current_ = {
-        std::move(document), std::move(calculated_boundaries), next_revision_++, false};
+    current_=std::move(next);
+    ++next_revision_;
     redo_.clear();
+    ++data_generation_;
 }
 
 void DocumentSession::update_calculated_boundaries(
     std::vector<zima::kernel::BodyResult> calculated_boundaries) {
+    // Stage document metadata only; calculated boundaries and imported B-Rep
+    // storage are not cloned to validate physical relations.
+    auto document=current_->document;
+    refresh_physical_relations(document,physical_values(document,calculated_boundaries));
+    retain_shaft_reference_geometry(document,calculated_boundaries);
+    current_->document=std::move(document);
+    current_->calculated_boundaries = std::move(calculated_boundaries);
+    current_->calculated_state_dirty = true;
     ++data_generation_;
-    refresh_physical_relations(current_.document,physical_values(current_.document,calculated_boundaries));
-    retain_shaft_reference_geometry(current_.document,calculated_boundaries);
-    current_.calculated_boundaries = std::move(calculated_boundaries);
-    current_.calculated_state_dirty = true;
 }
 
-bool DocumentSession::undo() {
-    if (undo_.empty()) return false;
+bool DocumentSession::step(States& from,States& to) {
+    if(from.empty())return false;
+    static_assert(std::is_nothrow_move_assignable_v<DimensionIdentifiers>);
+    auto identifiers=from.back()->document.dimension_identifiers;
+    identifiers.retain(current_->document.dimension_identifiers);
+    to.push_back(std::move(current_));
+    current_=std::move(from.back());
+    current_->document.dimension_identifiers=std::move(identifiers);
+    from.pop_back();
     ++data_generation_;
-    redo_.push_back(std::move(current_));
-    current_ = std::move(undo_.back());
-    undo_.pop_back();
-    current_.document.dimension_identifiers.retain(redo_.back().document.dimension_identifiers);
     return true;
 }
-
-bool DocumentSession::redo() {
-    if (redo_.empty()) return false;
-    ++data_generation_;
-    undo_.push_back(std::move(current_));
-    current_ = std::move(redo_.back());
-    redo_.pop_back();
-    current_.document.dimension_identifiers.retain(undo_.back().document.dimension_identifiers);
-    return true;
-}
+bool DocumentSession::undo() { return step(undo_,redo_); }
+bool DocumentSession::redo() { return step(redo_,undo_); }
 
 void DocumentSession::activate_body(const std::string& id) {
-    current_.document.body_history.activate(id);
+    current_->document.body_history.activate(id);
 }
 
 void DocumentSession::mark_saved() {
-    saved_revision_ = current_.revision;
-    saved_dimension_allocations_ = current_.document.dimension_identifiers.allocation_count();
-    current_.calculated_state_dirty = false;
+    saved_revision_ = current_->revision;
+    saved_dimension_allocations_ = current_->document.dimension_identifiers.allocation_count();
+    current_->calculated_state_dirty = false;
 }
 
 }  // namespace zima::document

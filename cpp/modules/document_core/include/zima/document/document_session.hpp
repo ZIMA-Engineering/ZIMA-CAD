@@ -4,6 +4,7 @@
 
 #include <cstdint>
 #include <optional>
+#include <memory>
 #include <vector>
 
 namespace zima::document {
@@ -25,6 +26,11 @@ public:
     explicit DocumentSession(
         PartDocument document,
         std::vector<zima::kernel::BodyResult> calculated_boundaries = {});
+
+    DocumentSession(const DocumentSession&);
+    DocumentSession& operator=(const DocumentSession&);
+    DocumentSession(DocumentSession&&) noexcept = default;
+    DocumentSession& operator=(DocumentSession&&) noexcept = default;
 
     [[nodiscard]] const PartDocument& document() const;
     [[nodiscard]] std::uint64_t revision() const;
@@ -66,10 +72,14 @@ private:
         bool calculated_state_dirty{};
     };
 
+    using States = std::vector<std::unique_ptr<State>>;
+    [[nodiscard]] static States copy_states(const States&);
+    bool step(States& from, States& to);
+
     std::uint64_t data_generation_{};
-    State current_;
-    std::vector<State> undo_;
-    std::vector<State> redo_;
+    std::unique_ptr<State> current_;
+    States undo_;
+    States redo_;
     std::uint64_t next_revision_{1};
     std::uint64_t saved_revision_{};
     std::uint64_t saved_dimension_allocations_{};
