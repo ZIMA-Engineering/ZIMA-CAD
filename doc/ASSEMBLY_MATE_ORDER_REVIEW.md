@@ -1,4 +1,4 @@
-# Ke schválení: pořadí výpočtu vazeb komponent
+# Opraveno: pořadí výpočtu vazeb komponent
 
 ## Ověřená chyba
 
@@ -17,7 +17,7 @@ uchované ve stashi `953168c8669d7391df429da82c4b187454e3f028`
 5 mm, skutečnost 2 mm. Výchozí etapa CLI je commit `efbfc58`; její úplná
 sada 107/107 a závěrečná sada 16/16 prošly před tímto novým scénářem.
 
-## Konkrétní navržený zásah
+## Schválený a provedený zásah
 
 Pouze v `cpp/modules/assembly/src/assembly_document.cpp`, ve funkci
 `calculate_placement_references`, nahradit přímý průchod kandidátem:
@@ -39,7 +39,7 @@ Použije se iterativní fronta, nikoli rekurze nebo opakovaná regenerace.
 Změna se projeví také v náhledu Vlastností, při tažení a regeneraci všech
 sestavových vazeb; proto jde o společný zásah vyžadující konkrétní souhlas.
 
-## Připravené ověření po schválení
+## Ověření
 
 - Řetězec A/B/C musí po založení mít 5/3/0 mm a po změně C na 10 mm 15/13/10 mm.
 - Jediné Undo/Redo změny C vrátí/obnoví celý řetězec.
@@ -47,6 +47,25 @@ sestavových vazeb; proto jde o společný zásah vyžadující konkrétní souh
 - Cyklus v nativním výpočtu bude odmítnut bez úniku dílčích poloh.
 - Dosavadní modelové, procesové CLI a skutečné GUI testy vazeb a odvozených kopií.
 
-Automatická kontrola schválení odmítla provedení změny: dopad na sdílené
-umístění přesahuje samotné převedení příkazů do CLI a AGENTS.md vyžaduje
-konkrétní předchozí souhlas. Produkční funkce tedy zůstává nezměněná.
+Uživatel po vysvětlení dopadu na společné umístění výslovně povolil opravu
+zprávou „povluji opravu.“ dne 2026-09-13. Dřívější blokace této konkrétní
+opravy je tím vyřešena. Nativní solver nyní používá frontu závislostí nad
+soukromým kandidátem a odmítá cyklus před publikováním výsledku.
+
+Aktuální reprodukce nejprve selhala: očekáváno 5 mm, skutečnost 2 mm
+(`build/mate-order-baseline-tests.log`, 0/1 za 0,28 s). Po opravě prošly
+modelové testy **2/2 za 0,88 s** (`build/mate-order-first-tests.log`).
+Kromě řetězce a všech šesti pořadí ověřují duplicitní cíl, zachování pořadí
+stromu a sdílené geometrie, opakovaný výpočet, explicitní regeneraci,
+nativní uložení, cyklus bez dílčích změn a původní pravidlo uzemnění.
+
+Obě aplikace a všechny testovací programy se sestavily. Integrační sada
+prošla **9/9 za 34,98 s** (`build/mate-order-integration-tests.log`):
+Assembly, komponenty, vnořená aktivace, umístění, odvozené kopie včetně GUI
+a skutečný CLI proces. Navazující GUI sada prošla **3/3 za 117,99 s**
+(`build/mate-order-ui-tests.log`): vlastnosti komponenty, start a překlady
+a aktualizace zobrazení sestavy. Nová chyba cyklu má všech pět překladů.
+
+Rozsah opravy je pořadí existujících sestavových vazeb. Nemění rovnice,
+zámky, identity, uložené pořadí stromu ani formát dokumentů. Nezavádí OCCT
+při přepínání tabů. Samostatný výpočet odvozených kopií zůstává beze změny.

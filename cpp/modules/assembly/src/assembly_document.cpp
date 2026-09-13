@@ -26,6 +26,7 @@
 #include <tuple>
 #include <stdexcept>
 #include <unordered_set>
+#include <unordered_map>
 #include <utility>
 
 namespace zima::assembly {
@@ -1287,11 +1288,45 @@ void AssemblyDocument::calculate_derived_copies(const zima::kernel::GeometryKern
 void AssemblyDocument::calculate_placement_references() {
     // No partial placement changes escape if any component has conflicting rows.
     auto pending = *this;
-    for (auto& component : pending.components) {
-        if (component.grounded || component.placement_references.empty()) continue;
-        const auto system = make_placement_system(pending, component);
-        component.placement = solve_placement(system, component);
+    // A follower must consume its targets' current positions, independently
+    // of the persisted tree order. Only the immediate owner positions an
+    // occurrence; a nested target depends on its top-level component here.
+    const auto count = pending.components.size();
+    std::unordered_map<std::string, std::size_t> indices;
+    indices.reserve(count);
+    for (std::size_t i = 0; i < count; ++i)
+        indices.emplace(pending.components[i].occurrence_id, i);
+    std::vector<std::vector<std::size_t>> followers(count);
+    std::vector<std::size_t> prerequisites(count, 0), ready;
+    ready.reserve(count);
+    for (std::size_t i = 0; i < count; ++i) {
+        const auto& component = pending.components[i];
+        if (!component.grounded) {
+            std::unordered_set<std::size_t> targets;
+            for (const auto& row : component.placement_references) {
+                const auto& path = row.target_reference.instance_path.occurrence_ids;
+                if (path.empty()) continue; // The owning Assembly is stationary.
+                const auto target = indices.find(path.front());
+                if (target != indices.end() && targets.insert(target->second).second) {
+                    followers[target->second].push_back(i);
+                    ++prerequisites[i];
+                }
+            }
+        }
+        if (prerequisites[i] == 0) ready.push_back(i);
     }
+    for (std::size_t cursor = 0; cursor < ready.size(); ++cursor) {
+        const auto index = ready[cursor];
+        auto& component = pending.components[index];
+        if (!component.grounded && !component.placement_references.empty()) {
+            const auto system = make_placement_system(pending, component);
+            component.placement = solve_placement(system, component);
+        }
+        for (const auto follower : followers[index])
+            if (--prerequisites[follower] == 0) ready.push_back(follower);
+    }
+    if (ready.size() != count)
+        throw std::runtime_error("Assembly placement references contain a cycle.");
     for (std::size_t i = 0; i < components.size(); ++i)
         components[i].placement = pending.components[i].placement;
 }

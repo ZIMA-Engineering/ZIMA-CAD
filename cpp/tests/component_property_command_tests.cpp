@@ -1,6 +1,8 @@
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/component_properties.hpp>
 #include <iostream>
+#include <algorithm>
+#include <array>
 #include <cmath>
 using namespace zima;using commands::Json;namespace fs=std::filesystem;
 namespace {
@@ -120,6 +122,62 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
         "Prepared properties overwrote updated source geometry or regenerated a derived result");
     require(live.open_part(source)->session.is_dirty()&&document::PartDocument::load(dir/"source.prtz").find_container(box)->box.length==10,
         "Properties saved the authoritative source Part");
+    // Followers precede their targets in component storage. Changing C must
+    // settle B and then A without relying on tree/insertion order.
+    run(host,"new",{{"type","assembly"},{"name","mate-chain"}});const auto chain_id=live.active_document_id();
+    std::array<std::string,3> chain;
+    for(auto& occurrence:chain)occurrence=run(host,"component.insert",{{"source",source}}).data.at("occurrence").get<std::string>();
+    const auto chain_row=[&](std::size_t moving,std::size_t target,double distance){return Json{{"kind","plane_coincident"},
+        {"component",ref(chain[moving],source+":origin","origin:plane:xy")},
+        {"target",ref(chain[target],source+":origin","origin:plane:xy")},{"offset",distance}};};
+    const auto chain_z=[&](std::size_t index){return live.open_assembly(chain_id)->session.document().find_occurrence(chain[index])->placement.z;};
+    set(chain[0],{{"grounded",false},{"placement_references",Json::array({chain_row(0,1,2)})}});
+    set(chain[1],{{"placement_references",Json::array({chain_row(1,2,3)})}});
+    near(chain_z(1),3);near(chain_z(0),5);
+    set(chain[2],{{"placement",{{"z_mm",10}}}});
+    near(chain_z(2),10);near(chain_z(1),13);near(chain_z(0),15);
+    run(host,"undo");near(chain_z(2),0);near(chain_z(1),3);near(chain_z(0),5);
+    run(host,"redo");near(chain_z(0),15);
+    run(host,"regenerate");near(chain_z(0),15);near(chain_z(1),13);near(chain_z(2),10);
+    run(host,"save");
+    const auto settled=assembly::AssemblyDocument::load(dir/"mate-chain.asmz");
+    std::array<std::size_t,3> order{0,1,2};
+    do {
+        auto candidate=settled;
+        for(std::size_t i=0;i<3;++i)candidate.components[i]=settled.components[order[i]];
+        candidate.find_occurrence(chain[0])->placement.z=-40;
+        candidate.find_occurrence(chain[1])->placement.z=70;
+        // Several valid rows may depend on the same target occurrence.
+        auto& rows=candidate.find_occurrence(chain[0])->placement_references;
+        rows.push_back(rows.front());
+        candidate.calculate_placement_references();
+        near(candidate.find_occurrence(chain[0])->placement.z,15);
+        near(candidate.find_occurrence(chain[1])->placement.z,13);
+        near(candidate.find_occurrence(chain[2])->placement.z,10);
+        for(std::size_t i=0;i<3;++i)require(candidate.components[i].occurrence_id==chain[order[i]]&&
+            candidate.components[i].calculated_source.shares_with(settled.components[order[i]].calculated_source),
+            "Mate solve reordered the tree or replaced source geometry");
+        candidate.calculate_placement_references();near(candidate.find_occurrence(chain[0])->placement.z,15);
+    }while(std::next_permutation(order.begin(),order.end()));
+    auto cyclic=settled;
+    auto back_edge=cyclic.find_occurrence(chain[0])->placement_references.front();
+    back_edge.component_reference.instance_path=assembly::InstancePath{}.child(chain[2]);
+    back_edge.target_reference.instance_path=assembly::InstancePath{}.child(chain[0]);
+    back_edge.offset=0;
+    cyclic.find_occurrence(chain[2])->placement_references={back_edge};
+    const auto before_cycle=cyclic.components;
+    bool cycle_failed=false;
+    try{cyclic.calculate_placement_references();}catch(const std::runtime_error& e){
+        cycle_failed=std::string(e.what()).find("cycle")!=std::string::npos;
+    }
+    require(cycle_failed,"Native mate evaluation accepted a cycle");
+    for(std::size_t i=0;i<3;++i)require(cyclic.components[i].placement==before_cycle[i].placement&&
+        cyclic.components[i].calculated_source.shares_with(before_cycle[i].calculated_source),
+        "Rejected cyclic solve published a partial placement");
+    // Native evaluation retains its existing grounded-component contract.
+    cyclic.find_occurrence(chain[2])->grounded=true;
+    cyclic.calculate_placement_references();near(cyclic.find_occurrence(chain[0])->placement.z,15);
+
 
 }
 }

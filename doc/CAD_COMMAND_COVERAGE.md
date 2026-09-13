@@ -45,7 +45,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Otvory a závity | Katalog, současný Otvor a vnější závit částečně hotovy | `thread.catalog`, `opening.create/get/set`: hladký/závitový otvor, rozměry, sražení, špička, směr a průchozí otvor; `shaft_thread.create/get/set` včetně původních referencí; `hole.create/get/set`: nativní Hole s vlastními profily, rozměry a závitovým drátem; zbývají cílové reference Až k a operace vnořených částí otvoru; `drill_point.create/get/set` pokrývají samostatnou vrtací špičku |
 | Zaoblení, zkosení, skořepina | Hotovo | `shell.faces/create/get/set`, `fillet.create/get/set`, `chamfer.create/get/set`; `edge_treatment.edges/route/remove`: skutečný vstup, společná tečná trasa a odebrání člena/trasy/posledního prvku podle stromového kontraktu |
 | Zrcadlo a pole | Hotovo pro Part a bezprostřední komponenty Assembly | `derived_copy.sources`, `mirror.create/get/set`, `pattern.create/get/set`: společné zdroje a potvrzení GUI/CLI, roviny/osy, lineární i kruhové režimy, umístění, zámky, neuložené zdroje a Undo/Redo; vnořená aktivace patří do řádku Sestavy |
-| Sestavy | Dotazy, vložení, otevření zdrojů, vlastnosti, odstranění a přesná aktivace hotovy | `component.set`: název, viditelnost, potlačení, uzemnění, umístění a všechny čtyři druhy vložených vazeb s mezemi/zámky; `component.remove` sdílí kontrolu závislostí a atomické mazání s GUI; `component.activate/deactivate` sdílejí přesný zdrojový kontext s GUI; souhrny referencí jsou společné pro Assembly Undo a explicitní regeneraci; zbývají řezy, oprava řetězce vazeb čeká na konkrétní souhlas |
+| Sestavy | Dotazy, vložení, otevření zdrojů, vlastnosti, odstranění a přesná aktivace hotovy | `component.set`: název, viditelnost, potlačení, uzemnění, umístění a všechny čtyři druhy vložených vazeb s mezemi/zámky; `component.remove` sdílí kontrolu závislostí a atomické mazání s GUI; `component.activate/deactivate` sdílejí přesný zdrojový kontext s GUI; souhrny referencí jsou společné pro Assembly Undo a explicitní regeneraci; zbývají řezy; schválená oprava pořadí řetězce vazeb je hotová a ověřená |
 | Výkresy | Listy, šablony, historie, tvorba/vlastnosti/dotazy/mazání pohledů, regenerace, modelové anotace, Show/Erase a měřené kóty (dotazy, tvorba, editace, řetězec, mazání), razítko, zdrojové parametry BOM, PDF, DXF a PNG/JPEG listu/výřezu hotovy | Další anotace, zdrojové styly šraf a příkazový snímek interaktivního View |
 | Vzhled | Společné operace GUI/CLI hotovy | `appearance.get/set/reset/faces/palette`: styly Partu a jednotlivých výskytů, skupiny ploch, dědění zdroje, reset, historie a nativní uložení; bez výpočtu těles |
 | Řezy | Čtení, aktivace a odstranění hotovy | `section.list/get/components`: vlastněná skica, čára, soustavy, přesné výskyty a šrafování; `section.activate/delete` sdílejí akce stromu; tvorba a editace zbývají |
@@ -918,17 +918,14 @@ Podrobný kontrakt a logy: [COMPONENT_PROPERTY_COMMANDS.md](COMPONENT_PROPERTY_C
 Následuje kontrola řetězení sestavových vazeb a odstranění komponent.
 
 
-### Zjištěná chyba společného řešení řetězce vazeb — čeká na souhlas
+### Řetězec sestavových vazeb — oprava schválena a ověřena
 
-Nový nezávislý test A → B → C po dokončení `component.set` potvrdil závislost
-výsledku na pořadí komponent: očekávané 2 + 3 = 5 mm zůstává 2 mm.
-Jde o dosavadní společnou funkci GUI/CLI, která řeší komponenty jedním
-průchodem v pořadí stromu. Automatická kontrola odmítla opravu společného
-umístění bez konkrétního souhlasu požadovaného AGENTS.md. Produkční kód
-nebyl změněn, reprodukce je zachována samostatně a jiné CLI operace pokračují.
-Konkrétní návrh, dopady, testy a umístění reprodukce:
+Test A → B → C potvrdil chybu pořadí výpočtu: 2 + 3 mm dávalo 2 mm.
+Po konkrétním povolení uživatele („povluji opravu.“, 2026-09-13) společný
+solver GUI/CLI řeší cílové komponenty před jejich následovníky. Zachovává
+pořadí stromu a rovnice; cyklus odmítá atomicky. Modelové testy **2/2**,
+integrační **9/9** a navazující GUI **3/3** prošly. Detaily a logy:
 [ASSEMBLY_MATE_ORDER_REVIEW.md](ASSEMBLY_MATE_ORDER_REVIEW.md).
-Tato chyba zůstává otevřená; nelze tvrdit, že jsou všechny řetězce vazeb ověřené.
 
 
 ### Odstranění komponenty: společné kontroly a atomický výsledek
@@ -946,7 +943,7 @@ startu GUI. Ověřuje objem řezu 2800 mm³, aktuální neuložené zdroje,
 atomické chyby, blokující reference, nativní soubory a Undo/Redo.
 Kontrakt a logy: [COMPONENT_REMOVAL_COMMAND.md](COMPONENT_REMOVAL_COMMAND.md).
 Následuje vnořená aktivace a povolení příkazů v přesném zdrojovém kontextu.
-Oprava řetězce vazeb zůstává samostatně čekající na konkrétní souhlas.
+Oprava řetězce vazeb byla později výslovně schválena a ověřena; viz předchozí oddíl.
 
 
 ### Přesná aktivace komponenty a příkazy uvnitř sestavy
