@@ -42,7 +42,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Externí reference skici | Lokální i kontextová tvorba, obnova a odpojení | Přesná projekce, trim, společné potvrzení Partu a závislostí, vlastněné profily, Part/Assembly Undo/Redo a souhrny zavřených nativních vlastníků při explicitní regeneraci |
 | Vytažení a rotace | Profily Partu a profilové odečty Assembly implementovány | `extrusion/revolution.create/get/set`, `assembly.cut.list`, vlastněná skica, Thin, směry, původní koncové reference a konkrétní výskyty; společné OK; `assembly.cut.remove/suppress/move/can_move` sdílejí historii s GUI; `extrusion/revolution.sketch.edit` potvrzují dávku úprav vlastní skici s jedním přepočtem a Undo |
 | Tažení | Tvorba a geometrické vlastnosti hotovy | `sweep2d/sweep3d/helical.create/get/set`, společné GUI potvrzení, celá 3D dráha, stanice a úplná správa profilů/párování, reference roviny 2D dráhy a odsazení základní skici H-tažení; generické rozšíření umístění patří do řádku Umístění |
-| Otvory a závity | Katalog, současný Otvor a vnější závit částečně hotovy | `thread.catalog`, `opening.create/get/set`: hladký/závitový otvor, rozměry, sražení, špička, směr a průchozí otvor; `shaft_thread.create/get/set` včetně původních referencí; `hole.create/get/set`: nativní Hole s vlastními profily, rozměry a závitovým drátem; `opening.create/set` přijímají nezávislé původní cíle `bore_targets/thread_targets`; `hole.create/set` přijímají původní `bore_targets`; zbývají operace vnořených částí otvoru; `drill_point.create/get/set` pokrývají samostatnou vrtací špičku |
+| Otvory a závity | Katalog, současný Otvor a vnější závit částečně hotovy | `thread.catalog`, `opening.create/get/set`: hladký/závitový otvor, rozměry, sražení, špička, směr a průchozí otvor; `shaft_thread.create/get/set` včetně původních referencí; `hole.create/get/set`: nativní Hole s vlastními profily, rozměry a závitovým drátem; `opening.create/set` přijímají nezávislé původní cíle `bore_targets/thread_targets`; `hole.create/set` přijímají původní `bore_targets`; `opening/hole.components` a `opening/hole.component.remove` sdílejí volitelné části se stromem; `drill_point.create/get/set` pokrývají samostatnou vrtací špičku |
 | Zaoblení, zkosení, skořepina | Hotovo | `shell.faces/create/get/set`, `fillet.create/get/set`, `chamfer.create/get/set`; `edge_treatment.edges/route/remove`: skutečný vstup, společná tečná trasa a odebrání člena/trasy/posledního prvku podle stromového kontraktu |
 | Zrcadlo a pole | Hotovo pro Part a bezprostřední komponenty Assembly | `derived_copy.sources`, `mirror.create/get/set`, `pattern.create/get/set`: společné zdroje a potvrzení GUI/CLI, roviny/osy, lineární i kruhové režimy, umístění, zámky, neuložené zdroje a Undo/Redo; vnořená aktivace patří do řádku Sestavy |
 | Sestavy | Dotazy, vložení, otevření zdrojů, vlastnosti, odstranění a přesná aktivace hotovy | `component.set`: název, viditelnost, potlačení, uzemnění, umístění a všechny čtyři druhy vložených vazeb s mezemi/zámky; `component.remove` sdílí kontrolu závislostí a atomické mazání s GUI; `component.activate/deactivate` sdílejí přesný zdrojový kontext s GUI; souhrny referencí jsou společné pro Assembly Undo a explicitní regeneraci; profilové odečty mají create/get/set/list i mazání, potlačení a pořadí přes společné operace; schválená oprava pořadí řetězce vazeb je hotová a ověřená |
@@ -1441,3 +1441,25 @@ a všechny testovací programy jsou sestavené. Katalog má 242 příkazů a sad
 138 testů; poslední úplný běh je 136/136 z etapy serializace Assembly.
 Nativní formát se nemění. Následují zbývající operace částí otvoru.
 Push čeká na návrat uživatele.
+
+
+## Volitelné části otvoru (2026-09-14)
+
+`opening.components`, `hole.components`, `opening.component.remove` a
+`hole.component.remove` pokrývají dostupné stromové role a jejich povolené
+samostatné odstranění. GUI i CLI používají jednu transakci; původní datový
+helper se přesunul z aplikace do modelové vrstvy. Závit nativního Hole se
+odebere bez přepočtu tělesa, protože jeho drát vzniká z parametrů.
+Podrobnosti: [OPENING_COMPONENT_COMMANDS.md](OPENING_COMPONENT_COMMANDS.md).
+
+Modelová sada **4/4 za 2,64 s** a finální integrace **12/12 za 128,16 s**
+prošly; sestaveny obě aplikace a všechny testovací programy. Katalog má
+246 příkazů a sada 139 testů. Poslední úplný běh 136/136 zůstává z etapy
+serializace Assembly; tato etapa má uvedenou související regresi.
+Nativní formát se nemění, push zůstává odložený.
+
+Kontrola panelu nástrojů potvrdila konkrétní další mezeru: interaktivní
+editor šablon umí tvořit a upravovat rámečky a razítka včetně opakované
+oblasti kusovníku a vložených obrázků; CLI zatím načítá již hotové šablony
+do výkresu. Následuje sdílení těchto editačních operací. Zbývá také
+zadávání/odebírání dalších referencí umístění a snímek interaktivního View.

@@ -216,6 +216,20 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
             run("undo");check(run(QString::fromStdString(kind+".get "+primitive_id)).data.at(sample.parameter)==result.at(sample.parameter),"Primitive Undo lost original command value");
             run("redo");run("save");
         }
+        const auto component_menu_action=[&](const std::string& container,const char* node_kind,const char* role,const char* action_name) {
+            QTreeWidgetItem* item=nullptr;
+            for(QTreeWidgetItemIterator it(model_tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==container&&
+                (*it)->data(0,Qt::UserRole+3).toString()==node_kind&&(*it)->data(0,Qt::UserRole+5).toString()==role){item=*it;break;}
+            check(item,"Opening component missing from Tree");model_tree->clearSelection();model_tree->setCurrentItem(item);item->setSelected(true);model_tree->scrollToItem(item);flush();
+            bool invoked=false;QString issue;QTimer messages;messages.setInterval(10);
+            QObject::connect(&messages,&QTimer::timeout,[&]{if(auto* box=qobject_cast<QMessageBox*>(QApplication::activeModalWidget())){issue=box->text();box->accept();}});
+            QTimer timeout;timeout.setSingleShot(true);QObject::connect(&timeout,&QTimer::timeout,[&]{if(auto* menu=qobject_cast<QMenu*>(QApplication::activePopupWidget()))menu->close();});
+            messages.start();timeout.start(8000);
+            QTimer::singleShot(0,&window,[&]{auto* menu=qobject_cast<QMenu*>(QApplication::activePopupWidget());if(!menu)return;
+                for(auto* action:menu->actions())if(action->objectName()==action_name){invoked=true;menu->setActiveAction(action);QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(menu,&enter);return;}menu->close();});
+            model_tree->customContextMenuRequested(model_tree->visualItemRect(item).center());messages.stop();timeout.stop();flush();
+            check(invoked&&issue.isEmpty(),"Opening component menu failed");
+        };
         {
             run(QString::fromStdString("new part "+stem+"-native-hole"));run("box.create 40 40 40");
             commands::Json create={{"command","hole.create"},{"arguments",{{"diameter_mm",10},{"bore_length_mm",10.123456789},{"placement",{{"z",-20}}}}}};
@@ -256,6 +270,18 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
             run("save");const auto target_saved=document::PartDocument::load(directory/(stem+"-native-hole.prtz"),&cache);
             check(std::abs(cache.back().volume-(64000-std::acos(-1.0)*(320+4+1.0/3)))<1e-5&&
                 target_saved.history.back().hole.circle_id==saved.history.back().hole.circle_id,"GUI Hole target changed its profile or depth");
+            const auto hole_command=[&](const char* command,commands::Json args){return run(QString::fromStdString(commands::Json{{"command",command},{"arguments",std::move(args)}}.dump())).data;};
+            hole_command("hole.set",{{"container",id},{"type","metric"},{"thread_diameter_mm",10},{"thread_pitch_mm",1.5},{"thread_length_mm",8}});flush();
+            const auto thread_components=hole_command("hole.components",{{"container",id}});
+            check(thread_components.at("items").back().at("role")=="thread","GUI Hole query omitted thread row");
+            const auto removed=hole_command("hole.component.remove",{{"container",id},{"role","thread"}});flush();
+            check(removed.at("changed")==true&&removed.at("body_calculated")==false&&!removed.at("thread_enabled").get<bool>(),"GUI console did not remove derived thread wire");
+            dialog=open_hole();dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();run("undo");flush();
+            component_menu_action(id,"part-hole-component","thread","deleteHoleThread");run("save");
+            const auto without_thread=document::PartDocument::load(directory/(stem+"-native-hole.prtz"),&cache);
+            check(!without_thread.find_container(id)->hole.thread_enabled&&without_thread.hole_thread_edges(*without_thread.find_container(id)).empty()&&without_thread.find_container(id)->hole.circle_id==saved.history.back().hole.circle_id,"GUI Hole removal lost native identity or retained wire");
+            check(std::abs(cache.back().volume-(64000-std::acos(-1.0)*(320+4+1.0/3)))<1e-5,"GUI Hole thread removal changed bore volume");
+            run("undo");check(hole_command("hole.get",{{"container",id}}).at("thread_enabled")==true,"GUI Hole thread removal did not Undo");
 
         }
         {
@@ -1188,6 +1214,13 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
             const QPointer<QDialog> target_dialog(dialog);
             dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
             check((!target_dialog||!target_dialog->isVisible())&&get().at("bore_targets")[0].at("owner")==targets[0].at("owner"),"Opening Properties did not preserve the original end target");
+            check(json_run("opening.components",{{"container",opening_id}}).data.at("total")==2,"Opening component query differs from Tree");
+            const auto removed=json_run("opening.component.remove",{{"container",opening_id},{"role","thread"}}).data;flush();
+            check(removed.at("changed")==true&&removed.at("body_calculated")==true&&get().at("type")=="plain","Opening console did not remove thread sheet");
+            dialog=edit();dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();run("undo");flush();
+            component_menu_action(opening_id,"part-opening-component","thread","deleteOpeningComponent");
+            check(get().at("type")=="plain"&&json_run("opening.components",{{"container",opening_id}}).data.at("total")==1,"Opening menu did not share component removal");
+            run("undo");check(get().at("type")=="metric","Opening component Undo lost original thread");
 
             json_run("close",{{"discard",true}});json_run("activate",{{"document",previous_document}});flush();
         }

@@ -166,3 +166,6 @@ Modelová sada navíc ověřuje ztrátu původní roviny, pozdější cíl a nea
 uloženou referenci. Logy: `build/hole-target-full-tests.log`,
 `build/hole-target-fixtures-build.log`, `build/hole-target-fixtures-tests.log`.
 Katalog zůstává na **226 příkazech**, celá sada obsahuje **127 testů**.
+
+
+Dotazy a samostatné odstranění volitelných částí: [OPENING_COMPONENT_COMMANDS.md](OPENING_COMPONENT_COMMANDS.md).

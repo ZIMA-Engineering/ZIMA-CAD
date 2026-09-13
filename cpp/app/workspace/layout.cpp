@@ -1,4 +1,5 @@
 #include <zima/workspace/assembly_cut_operations.hpp>
+#include <zima/workspace/opening_component_operations.hpp>
 #include <zima/workspace/edge_treatment_operations.hpp>
 #include "workspace_internal.hpp"
 #include <zima/workspace/body_operations.hpp>
@@ -2257,13 +2258,8 @@ void AssemblyWorkspaceWindow::create_layout() {
                 if (selected==edit) show_parameter_dimensions(id,role);
                 else if (selected==properties) show_primitive_properties(zima::document::FeatureKind::Thread,id);
                 else if (remove && selected==remove) {
-                    auto next=part->session.document();
-                    auto* opening=next.find_container(id);
-                    if (!opening || !disable_opening_component(*opening,role)) return;
                     try {
-                        const auto& previous=part->session.calculated_boundaries();
-                        auto calculated=calculate_part_with_resolved_references(next,&previous);
-                        part->session.commit(std::move(next),std::move(calculated));
+                        if(!workspace::remove_opening_component(workspace_,kernel_,workspace_.active_document_id(),id,role))return;
                         viewer_->clear_selection();
                         preserve_view_on_refresh_=true;
                         refresh_tabs();
@@ -2274,6 +2270,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                 }
             } else if (item->data(0, Qt::UserRole + 3).toString() ==
                     "part-hole-component") {
+                if(properties_dialog_!=nullptr)return;
                 const auto id = item->data(
                     0, Qt::UserRole).toString().toStdString();
                 const auto role = item->data(0, Qt::UserRole + 5).toString();
@@ -2287,6 +2284,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                 auto* properties = menu.addAction(tr("Vlastnosti…"));
                 QAction* remove_thread = role == QStringLiteral("thread")
                     ? menu.addAction(tr("Odstranit závit")) : nullptr;
+                if(remove_thread)remove_thread->setObjectName("deleteHoleThread");
                 const auto* selected = menu.exec(
                     tree_->viewport()->mapToGlobal(position));
                 if (selected == properties) {
@@ -2294,16 +2292,12 @@ void AssemblyWorkspaceWindow::create_layout() {
                         zima::document::FeatureKind::Hole, id);
                 } else if (remove_thread != nullptr &&
                            selected == remove_thread) {
-                    auto next = part->session.document();
-                    auto* edited = next.find_container(id);
-                    if (edited == nullptr) return;
-                    edited->hole.thread_enabled = false;
-                    edited->hole.type = zima::document::HoleType::Plain;
-                    part->session.commit(std::move(next),
-                        part->session.calculated_boundaries());
-                    preserve_view_on_refresh_ = true;
-                    refresh_tabs();
-                    refresh_scene();
+                    try {
+                        if(!workspace::remove_opening_component(workspace_,kernel_,workspace_.active_document_id(),id,"thread"))return;
+                        preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();
+                    } catch(const std::exception& error) {
+                        QMessageBox::critical(this,tr("Změna otvoru selhala"),tr(error.what()));
+                    }
                 }
             } else if (item->data(0, Qt::UserRole + 3).toString() == "assembly-cut") {
                 const auto id = item->data(0, Qt::UserRole).toString().toStdString();

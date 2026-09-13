@@ -1,3 +1,4 @@
+#include <zima/workspace/opening_component_operations.hpp>
 #include "opening_target_input.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/hole_operations.hpp>
@@ -84,6 +85,30 @@ void properties(Feature& feature,const Json& args,const workspace::Workspace& li
 }
 }
 void Host::register_hole_commands() {
+    dispatcher_.add({"hole.components",tr("List the visible components of an opening without calculation."),{{"container",true},{"document",false}},false},[this](const Json& args) {
+        try {
+            const auto id=args.value("document",workspace_.active_document_id());const auto* state=workspace_.open_part(id);
+            const auto& feature=hole(state,args.at("container"));auto items=Json::array();
+            for(const auto& item:workspace::opening_components(feature))items.push_back({{"role",item.role},{"removable",item.removable}});
+            return Result::success({{"document",id},{"container",feature.id},{"feature",feature.feature_id},{"items",items},{"total",items.size()},{"revision",state->session.revision()}});
+        }catch(const Error& error){return Result::failure(error.code,tr(error.what()));}
+    });
+    dispatcher_.add({"hole.component.remove",tr("Remove an optional opening component through the shared Tree transaction."),{{"container",true},{"role",true},{"document",false}},true},[this](const Json& args) {
+        const auto checked=target(args);if(!checked.ok)return checked;
+        if(interaction().template_document)return Result::failure("unsupported_document",tr("Opening operations require an open Part."));
+        try {
+            const auto id=workspace_.active_document_id(),container=args.at("container").get<std::string>();
+            const auto* state=workspace_.open_part(id);static_cast<void>(hole(state,container));
+            const auto role=args.at("role").get<std::string>();
+            const bool changed=workspace::remove_opening_component(workspace_,kernel_,id,container,role);
+            auto result=details(*state,hole(state,container));result["component"]=role;result["changed"]=changed;
+            result["body_calculated"]=false;
+            if(changed)change_=Change{ChangeKind::Model,id};return Result::success(std::move(result));
+        }catch(const Error& error){return Result::failure(error.code,tr(error.what()));}
+        catch(const workspace::OpeningOperationError& error){return Result::failure(error.code,tr(error.what()));}
+         catch(const std::exception& error){return Result::failure("opening_rejected",tr(error.what()));}
+    });
+
     using Type=commands::ArgumentType;
     dispatcher_.add({"hole.get",tr("Read native Hole properties and owned profile identities without calculating geometry."),
         {{"container",true},{"document",false}},false},[this](const Json& args) {

@@ -342,6 +342,24 @@ int main(int argc,char** argv){
         require(limited_opening.history.back().thread.end_targets_forward.front().reference.owner_id==opening_saved.document_id+":origin"&&
             std::abs(opening_cache.back().volume-(64000-std::acos(-1.0)*std::pow(8.376/2,2)*20))<1e-5,"CLI opening target lost its identity or depth");
 
+        for(const bool native:{false,true}) {
+            const std::string kind=native?"hole":"opening",container=native?hole_created.id:opening_created.id;
+            QStringList component_commands{"--command",native?"open native-hole-cli.prtz":"open opening-cli.prtz"};
+            if(native)component_commands<<"--command"<<command({{"command","hole.set"},{"arguments",{{"container",container},{"type","metric"},{"thread_diameter_mm",10},{"thread_pitch_mm",1.5},{"thread_length_mm",8}}}});
+            component_commands<<"--command"<<command({{"command",kind+".components"},{"arguments",{{"container",container}}}})
+                <<"--command"<<command({{"command",kind+".component.remove"},{"arguments",{{"container",container},{"role","thread"}}}})
+                <<"--command"<<"undo"<<"--command"<<"redo"<<"--command"<<"save"
+                <<"--command"<<command({{"command",kind+".components"},{"arguments",{{"container",container}}}});
+            result=launch(executable,root,common+component_commands);
+            require(result.exit_code==0,"CLI component removal or history failed");
+            const auto rows=result.results().back().at("data").at("items");
+            require(std::ranges::none_of(rows,[](const auto& row){return row.at("role")=="thread";}),"CLI still reports removed thread");
+            std::vector<kernel::BodyResult> cache;const auto saved=document::PartDocument::load(native?hole_path:opening_path,&cache);
+            const auto& feature=*saved.find_container(container);
+            require((native?!feature.hole.thread_enabled:!feature.thread.enabled)&&feature.hole.circle_id==(native?hole_created.hole.circle_id:opening_created.hole.circle_id),"CLI removed original profile identity");
+            require(std::abs(cache.back().volume-(native?hole_cache.back().volume:opening_cache.back().volume))<1e-5,"CLI thread removal changed bore volume");
+        }
+
         result=launch(executable,root,common+QStringList{"--command","new part shaft-cli","--command","cylinder.create 5 30","--command","save"});
         require(result.exit_code==0,"CLI shaft fixture failed");
         const auto shaft_path=project/"shaft-cli.prtz";

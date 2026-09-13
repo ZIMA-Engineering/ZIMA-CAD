@@ -33,17 +33,4 @@ inline std::set<std::size_t> opening_component_edges(
     return result;
 }
 
-inline bool disable_opening_component(document::HistoryContainer& opening,
-        const std::string& component) {
-    if (opening.feature_kind != document::FeatureKind::Thread) return false;
-    if (component == "thread" && opening.thread.enabled) {
-        opening.thread.enabled=false;
-        opening.thread.nominal_diameter=opening.thread.profile_diameter;
-    } else if (component == "chamfer" && opening.thread.chamfer_enabled) {
-        opening.thread.chamfer_enabled=false;
-    } else if (component == "tip" && opening.hole.drill_point_enabled) {
-        opening.hole.drill_point_enabled=false;
-    } else return false;
-    return true;
-}
 }

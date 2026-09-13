@@ -168,6 +168,7 @@ add_library(zima_workspace modules/workspace/src/workspace.cpp
     modules/workspace/src/appearance_operations.cpp
     modules/workspace/src/hole_operations.cpp
     modules/workspace/src/opening_operations.cpp
+    modules/workspace/src/opening_component_operations.cpp
     modules/workspace/src/opening_targets.cpp
     modules/workspace/src/shaft_thread_operations.cpp
     modules/workspace/src/drill_point_operations.cpp
@@ -870,6 +871,10 @@ if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_cpp_opening_target_command_tests COMMAND zima_cpp_opening_target_command_tests)
     set_tests_properties(zima_cpp_opening_target_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
 
+    add_executable(zima_cpp_opening_component_command_tests tests/opening_component_command_tests.cpp)
+    target_link_libraries(zima_cpp_opening_component_command_tests PRIVATE zima_command_host)
+    add_test(NAME zima_cpp_opening_component_command_tests COMMAND zima_cpp_opening_component_command_tests)
+    set_tests_properties(zima_cpp_opening_component_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     add_executable(zima_cpp_opening_command_tests tests/opening_command_tests.cpp)
     target_link_libraries(zima_cpp_opening_command_tests PRIVATE zima_command_host)
     add_test(NAME zima_cpp_opening_command_tests COMMAND zima_cpp_opening_command_tests)

@@ -1,3 +1,4 @@
+#include <zima/document/opening_component_state.hpp>
 #include <zima/document/edge_treatment_selection.hpp>
 #include "../app/opening_tree_policy.hpp"
 #include <zima/document/part_document.hpp>
@@ -6538,7 +6539,7 @@ int main() {
                 require(mesh.edges[index].reference.semantic_key.starts_with("thread:boundary:"),
                     "Thread component selected the bore wire");
             auto changed=opening_document;
-            const bool disabled=zima::app::disable_opening_component(changed.history.back(),role);
+            const bool disabled=zima::document::disable_opening_component(changed.history.back(),role);
             require(disabled==(role!="bore"),"Opening allowed deleting its mandatory bore");
             if (role=="thread") {
                 require(!changed.history.back().thread.enabled &&

@@ -179,3 +179,6 @@ Zahrnuje skutečný CLI proces, přechod z CLI cílů do GUI vlastností otvoru
 (56,80 s), start aplikace a překlady (92,26 s), obě schválené opravy,
 sestavy, skici, importy, řezy i výkresy. Výsledek se vztahuje k této etapě;
 celé CLI ještě není dokončené.
+
+
+Dotazy a samostatné odstranění volitelných částí: [OPENING_COMPONENT_COMMANDS.md](OPENING_COMPONENT_COMMANDS.md).
