@@ -1,4 +1,5 @@
 #include <zima/workspace/workspace.hpp>
+#include <zima/workspace/reference_sources.hpp>
 #include <zima/document/object_annotation_frames.hpp>
 #include <zima/assembly/physical_properties.hpp>
 #include <zima/kernel/occt_kernel.hpp>
@@ -614,79 +615,8 @@ Workspace::authoritative_external_reference_geometry(
     const std::string& top_assembly_document_id,
     const zima::assembly::InstancePath& dependent_instance_path,
     const std::string& source_document_id) const {
-    if (source_document_id.empty()) {
-        throw std::invalid_argument("External reference source document ID is required");
-    }
-    std::vector<std::string> recursion_stack;
-    const auto refreshed = refreshed_assembly(
-        top_assembly_document_id, recursion_stack);
-    const auto dependent_chain = persisted_occurrence_chain(
-        refreshed, dependent_instance_path);
-    if (!dependent_chain || dependent_chain->back().source_kind !=
-            zima::assembly::ComponentSourceKind::Part) {
-        throw std::invalid_argument(
-            "External reference requires an exact dependent Part occurrence");
-    }
-    const auto local_point = [&](zima::kernel::Vec3 point) {
-        for (const auto& occurrence : *dependent_chain) {
-            point = remove_placement(point, occurrence.placement, true);
-        }
-        return point;
-    };
-    const auto local_direction = [&](zima::kernel::Vec3 direction) {
-        for (const auto& occurrence : *dependent_chain) {
-            direction = remove_placement(direction, occurrence.placement, false);
-        }
-        return direction;
-    };
-    const auto belongs_to_source = [&](const std::string& encoded_path) {
-        if (encoded_path.empty()) return false;
-        try {
-            const auto chain = persisted_occurrence_chain(
-                refreshed, zima::assembly::InstancePath::decode(encoded_path));
-            return chain && chain->back().source_kind ==
-                    zima::assembly::ComponentSourceKind::Part &&
-                chain->back().source_document_id == source_document_id;
-        } catch (const std::invalid_argument&) {
-            return false;
-        }
-    };
-    const auto scene = refreshed.build_scene();
-    const auto& source = scene.original_references;
-    zima::kernel::ViewerReferenceGeometry result;
-    result.vertices.reserve(source.vertices.size());
-    for (const auto& vertex : source.vertices) {
-        result.vertices.push_back(local_point(vertex));
-    }
-    for (std::size_t triangle = 0;
-         triangle < source.triangle_references.size(); ++triangle) {
-        const auto& reference = source.triangle_references[triangle];
-        if (!belongs_to_source(reference.instance_path)) continue;
-        result.triangle_references.push_back(reference);
-        result.triangles.insert(result.triangles.end(), {
-            source.triangles[triangle * 3], source.triangles[triangle * 3 + 1],
-            source.triangles[triangle * 3 + 2]});
-    }
-    for (auto edge : source.edges) {
-        if (!belongs_to_source(edge.reference.instance_path)) continue;
-        for (auto& point : edge.points) point = local_point(point);
-        for (auto& side : edge.edge_treatment_side_directions) {
-            for (auto& direction : side) direction = local_direction(direction);
-        }
-        result.edges.push_back(std::move(edge));
-    }
-    for (auto point : source.points) {
-        if (!belongs_to_source(point.reference.instance_path)) continue;
-        point.position = local_point(point.position);
-        result.points.push_back(std::move(point));
-    }
-    for (auto axis : source.axes) {
-        if (!belongs_to_source(axis.reference.instance_path)) continue;
-        axis.point = local_point(axis.point);
-        axis.direction = local_direction(axis.direction);
-        result.axes.push_back(std::move(axis));
-    }
-    return result;
+    return context_original_reference_geometry(*this,top_assembly_document_id,
+        dependent_instance_path,source_document_id);
 }
 
 bool Workspace::refresh_context_external_references(

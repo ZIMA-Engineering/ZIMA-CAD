@@ -89,46 +89,14 @@ kernel::ViewerReferenceGeometry collect(const Workspace& live,const std::string&
     kernel::ViewerReferenceGeometry result;
     if(keys.empty())return result;
     visit_original_references(live,doc,[&](const auto& source,const ReferenceFrame& frame) {
-        const auto matches=[&](Kind kind,const auto& r){return keys.contains({kind,r.owner_id,r.semantic_key,frame.path(r.instance_path)});};
-        for(const auto& edge:source.edges)if(matches(Kind::Edge,edge.reference)) {
-            auto copy=edge;copy.reference.instance_path=frame.path(edge.reference.instance_path);
-            for(auto& p:copy.points)p=frame.point(p);
-            if(copy.exact_spline)for(auto& p:copy.exact_spline->poles)p=frame.point(p);
-            result.edges.push_back(std::move(copy));
-        }
-        for(const auto& point:source.points)if(matches(Kind::Point,point.reference)) {
-            auto copy=point;copy.reference.instance_path=frame.path(point.reference.instance_path);
-            copy.position=frame.point(point.position);result.points.push_back(std::move(copy));
-        }
-        for(const auto& axis:source.axes)if(matches(Kind::Axis,axis.reference)) {
-            auto copy=axis;copy.reference.instance_path=frame.path(axis.reference.instance_path);
-            copy.point=frame.point(axis.point);copy.direction=frame.direction(axis.direction);result.axes.push_back(std::move(copy));
-        }
-        std::map<std::uint32_t,std::uint32_t> vertices;
-        std::map<std::tuple<std::string,std::string,std::string>,std::shared_ptr<const kernel::SurfaceGeometry>> surfaces;
-        for(std::size_t triangle=0;triangle<source.triangle_references.size();++triangle) {
-            const auto& face=source.triangle_references[triangle];if(!matches(Kind::Face,face))continue;
-            if(triangle*3+2>=source.triangles.size())throw SketchOperationError("invalid_reference_geometry","The persisted reference geometry is incomplete.");
-            auto copy=face;copy.instance_path=frame.path(face.instance_path);
-            if(face.surface) {
-                const auto key=std::make_tuple(face.owner_id,face.semantic_key,face.instance_path);
-                auto [entry,inserted]=surfaces.try_emplace(key);
-                if(inserted) {
-                    auto surface=*face.surface;surface.origin=frame.surface_point(face.instance_path,surface.origin);
-                    surface.axis=frame.surface_direction(face.instance_path,surface.axis);surface.radial=frame.surface_direction(face.instance_path,surface.radial);
-                    entry->second=std::make_shared<const kernel::SurfaceGeometry>(std::move(surface));
-                }
-                copy.surface=entry->second;
-            }
-            result.triangle_references.push_back(std::move(copy));
-            for(std::size_t corner=0;corner<3;++corner) {
-                const auto index=source.triangles[triangle*3+corner];
-                if(index>=source.vertices.size())throw SketchOperationError("invalid_reference_geometry","The persisted reference geometry is incomplete.");
-                auto [entry,inserted]=vertices.try_emplace(index,static_cast<std::uint32_t>(result.vertices.size()));
-                if(inserted)result.vertices.push_back(frame.point(source.vertices[index]));
-                result.triangles.push_back(entry->second);
-            }
-        }
+        try {
+            append_original_reference_geometry(result,source,frame,[&](OriginalReferenceKind kind,
+                const std::string& owner,const std::string& key,const std::string& path) {
+                const auto sketch_kind=kind==OriginalReferenceKind::Face?Kind::Face:kind==OriginalReferenceKind::Edge?Kind::Edge:
+                    kind==OriginalReferenceKind::Point?Kind::Point:Kind::Axis;
+                return keys.contains({sketch_kind,owner,key,path});
+            });
+        }catch(const ReferenceQueryError& error){throw SketchOperationError(error.code,error.what());}
         return true;
     });
     if(const auto* part=live.open_part(doc))return part->session.document().sketch_reference_geometry_for(sketch,std::move(result));

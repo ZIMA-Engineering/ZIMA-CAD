@@ -965,3 +965,20 @@ lokální vlastnictví a zachování kontextu při ukládání a zavírání.
 Podrobnosti: [COMPONENT_ACTIVATION_COMMANDS.md](COMPONENT_ACTIVATION_COMMANDS.md).
 Následuje sjednocení původních referencí a příkazové projekce pro Part
 aktivovaný v sestavě; při čtení referencí nesmí docházet k výpočtu řezů.
+
+
+### Původní reference aktivovaného Partu bez skrytého přepočtu
+
+Společný převod používá přesné uložené cesty výskytů a aktuální data
+zdrojového Partu. Čtení referencí již nepřipravuje výpočet sestavových
+řezů, kopií ani vazeb. Převádí také póly přesné spline a analytické plochy;
+sdílí převedenou plochu mezi jejími trojúhelníky a kopíruje jen vybrané
+reference. Ověřuje identitu zavřeného nativního zdroje a zachovává
+vypočtenou zrcadlenou kopii i počátek přímého Partu.
+
+Modelová sada prošla **4/4** (1,02 s), po sestavení obou aplikací širší
+regrese **17/17** (142,93 s), včetně celého startu GUI, projekce, offsetů,
+CLI procesu a přesných spline. Katalog zůstává na **209 příkazech**;
+následuje společná transakce příkazového vytvoření/odpojení reference
+v kontextu sestavy. Kontrakt a logy:
+[CONTEXT_REFERENCE_GEOMETRY.md](CONTEXT_REFERENCE_GEOMETRY.md).
