@@ -914,3 +914,16 @@ uložených mezí a výchozího zámku shodnosti podle GUI a přidání scéná�
 neuloženého zdroje prošlo **16/16** dotčených testů (93,45 s).
 Podrobný kontrakt a logy: [COMPONENT_PROPERTY_COMMANDS.md](COMPONENT_PROPERTY_COMMANDS.md).
 Následuje kontrola řetězení sestavových vazeb a odstranění komponent.
+
+
+### Zjištěná chyba společného řešení řetězce vazeb — čeká na souhlas
+
+Nový nezávislý test A → B → C po dokončení `component.set` potvrdil závislost
+výsledku na pořadí komponent: očekávané 2 + 3 = 5 mm zůstává 2 mm.
+Jde o dosavadní společnou funkci GUI/CLI, která řeší komponenty jedním
+průchodem v pořadí stromu. Automatická kontrola odmítla opravu společného
+umístění bez konkrétního souhlasu požadovaného AGENTS.md. Produkční kód
+nebyl změněn, reprodukce je zachována samostatně a jiné CLI operace pokračují.
+Konkrétní návrh, dopady, testy a umístění reprodukce:
+[ASSEMBLY_MATE_ORDER_REVIEW.md](ASSEMBLY_MATE_ORDER_REVIEW.md).
+Tato chyba zůstává otevřená; nelze tvrdit, že jsou všechny řetězce vazeb ověřené.
