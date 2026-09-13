@@ -5,6 +5,7 @@
 #include "owned_reference_test_support.hpp"
 #include "construction_query_test_support.hpp"
 #include "dxf_export_test_support.hpp"
+#include "dxf_spline_import_test_support.hpp"
 #include "stl_export_test_support.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/document/file_path.hpp>
@@ -583,6 +584,13 @@ int main(int argc,char** argv){
         const auto points_export=command({{"command","export.dxf"},{"arguments",{{"path","only-points-roundtrip.dxf"},{"sketch",points_native.sketches.back().id}}}});
         result=launch(executable,root,common+QStringList{"--command","open cli-points.prtz","--command",points_export});
         require(result.exit_code==0&&test::read_dxf_entities(project/"only-points-roundtrip.dxf").size()==3,"CLI point-only native roundtrip lost POINT entities");
+        test::write_unclamped_dxf(project/"unclamped-splines.dxf");
+        result=launch(executable,root,common+QStringList{"--command","new part cli-unclamped-splines","--command","import.dxf unclamped-splines.dxf","--command","undo","--command","redo","--command","save"});
+        require(result.exit_code==0&&result.results()[1].at("data").at("imported_entities")==4,"Standalone CLI unclamped spline import failed");
+        const auto splines_native=document::PartDocument::load(project/"cli-unclamped-splines.prtz");test::check_unclamped_dxf_sketch(splines_native.sketches.back());
+        const auto splines_export=command({{"command","export.dxf"},{"arguments",{{"path","unclamped-roundtrip.dxf"},{"sketch",splines_native.sketches.back().id}}}});
+        result=launch(executable,root,common+QStringList{"--command","open cli-unclamped-splines.prtz","--command",splines_export});
+        require(result.exit_code==0,"CLI native spline DXF export failed");auto splines_roundtrip=sketcher::Sketch::create_default();static_cast<void>(interchange::import_dxf(project/"unclamped-roundtrip.dxf",splines_roundtrip));test::check_unclamped_dxf_sketch(splines_roundtrip);
         kernel::OcctKernel import_kernel;auto import_source=document::PartDocument::create_default();
         auto source_box=document::PartDocument::create_box_container();source_box.box.length=10;source_box.box.width=20;source_box.box.height=30;import_source.history.push_back(source_box);
         const auto source_bodies=import_kernel.evaluate_history(import_source.kernel_operations());

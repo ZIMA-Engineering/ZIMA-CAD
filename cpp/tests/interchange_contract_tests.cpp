@@ -42,7 +42,7 @@ void verify_exact_dxf_import() {
     for(int failure=0;failure<5;++failure) {
         const auto file=dir/"invalid.dxf";std::ofstream out(file);out<<std::setprecision(17);
         out<<"0\nSECTION\n2\nENTITIES\n0\nLINE\n10\n0\n20\n0\n11\n1\n21\n0\n0\nSPLINE\n70\n"<<(failure==4?9:12)<<"\n71\n2\n72\n6\n73\n"<<(failure==3?4:3)<<'\n';
-        const std::array<double,6> knots=failure==1?std::array<double,6>{0,1,2,3,4,5}:std::array<double,6>{0,0,0,1,1,1};
+        const std::array<double,6> knots=failure==1?std::array<double,6>{0,1,3,2,4,5}:std::array<double,6>{0,0,0,1,1,1};
         for(double knot:knots)out<<"40\n"<<knot<<'\n';
         out<<"41\n1\n41\n"<<(failure==2?-1:std::sqrt(.5))<<"\n41\n1\n10\n1\n20\n0\n30\n0\n10\n1\n20\n1\n30\n"<<(failure==0?1:0)<<"\n10\n0\n20\n1\n30\n0\n0\nENDSEC\n0\nEOF\n";out.close();
         bool rejected=false;try{static_cast<void>(import_dxf(file,target));}catch(const std::runtime_error&){rejected=true;}

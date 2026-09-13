@@ -88,6 +88,42 @@ Curve conic(V center,double rx,double ry,double rotation,bool reverse,double sta
 }
 }
 
+kernel::BSplineGeometry clamp_curve_geometry(Curve curve) {
+    const auto n=curve.poles.size();const auto p=curve.degree;
+    if(p<1||n<=p||curve.knots.size()!=n+p+1||curve.weights.size()!=n)
+        throw std::invalid_argument("Invalid spline control arrays");
+    for(const auto& pole:curve.poles)
+        if(!std::isfinite(pole.x)||!std::isfinite(pole.y)||!std::isfinite(pole.z))
+            throw std::invalid_argument("Invalid spline control point");
+    for(double w:curve.weights)if(!std::isfinite(w)||w<=0)
+        throw std::invalid_argument("Invalid spline weight");
+    for(double k:curve.knots)if(!std::isfinite(k))
+        throw std::invalid_argument("Invalid spline knot");
+    if(!std::is_sorted(curve.knots.begin(),curve.knots.end()))
+        throw std::invalid_argument("Unsorted spline knots");
+    const double a=curve.knots[p],b=curve.knots[n];
+    if(!(a<b)||!std::isfinite(b-a))throw std::invalid_argument("Empty or unbounded spline interval");
+    for(std::size_t i=0;i<curve.knots.size();) {
+        auto end=i+1;while(end<curve.knots.size()&&curve.knots[end]==curve.knots[i])++end;
+        const bool interior=curve.knots[i]>a&&curve.knots[i]<b;
+        if(end-i>(interior?p:p+1))throw std::invalid_argument("Invalid spline knot multiplicity");
+        i=end;
+    }
+    if(curve.knots.front()==a&&curve.knots.back()==b){curve.validate();return curve;}
+    // The same homogeneous knot insertion is used by exact trimming and by
+    // native periodic Sketch curves. Preserve rational weights through cropping.
+    while(std::count(curve.knots.begin(),curve.knots.end(),a)<p)insert_knot(curve,a);
+    while(std::count(curve.knots.begin(),curve.knots.end(),b)<p)insert_knot(curve,b);
+    const auto first=std::upper_bound(curve.knots.begin(),curve.knots.end(),a)-curve.knots.begin()-1-p;
+    const auto last=std::lower_bound(curve.knots.begin(),curve.knots.end(),b)-curve.knots.begin()-1;
+    Curve result;result.degree=p;
+    result.poles.assign(curve.poles.begin()+first,curve.poles.begin()+last+1);
+    result.weights.assign(curve.weights.begin()+first,curve.weights.begin()+last+1);
+    result.knots.assign(p+1,a);
+    for(double knot:curve.knots)if(knot>a&&knot<b)result.knots.push_back(knot);
+    result.knots.insert(result.knots.end(),p+1,b);result.validate();return result;
+}
+
 kernel::BSplineGeometry sketch_curve_geometry(const Sketch& s,const std::string& id) {
     const auto point=[&](const std::string& id){const auto* p=s.find_point(id);if(!p)throw std::invalid_argument("Missing curve point");return V{p->x,p->y,0};};
     for(const auto& c:s.segments)if(c.id==id){if(c.centerline)throw std::invalid_argument("Offset requires a finite curve");return {1,{point(c.first_point_id),point(c.second_point_id)},{0,0,1,1},{1,1}};}
@@ -116,16 +152,7 @@ kernel::BSplineGeometry sketch_curve_geometry(const Sketch& s,const std::string&
             for(unsigned i=0;i<c.degree;++i)result.poles.push_back(result.poles[i]);
             for(unsigned i=0;i<result.poles.size()+c.degree+1;++i)result.knots.push_back(double(i));
             result.weights.assign(result.poles.size(),1);
-            const double a=c.degree,b=n+c.degree;
-            while(std::count(result.knots.begin(),result.knots.end(),a)<c.degree)insert_knot(result,a);
-            while(std::count(result.knots.begin(),result.knots.end(),b)<c.degree)insert_knot(result,b);
-            const auto first=std::upper_bound(result.knots.begin(),result.knots.end(),a)-result.knots.begin()-1-c.degree;
-            const auto last=std::lower_bound(result.knots.begin(),result.knots.end(),b)-result.knots.begin()-1;
-            const auto poles=result.poles;const auto knots=result.knots;
-            result.poles.assign(poles.begin()+first,poles.begin()+last+1);
-            result.knots.assign(c.degree+1,a);
-            for(double k:knots)if(k>a&&k<b)result.knots.push_back(k);
-            result.knots.insert(result.knots.end(),c.degree+1,b);
+            return clamp_curve_geometry(std::move(result));
         } else {
             result.knots.assign(c.degree+1,0);
             for(unsigned i=1;i<n-c.degree;++i)result.knots.push_back(double(i)/(n-c.degree));

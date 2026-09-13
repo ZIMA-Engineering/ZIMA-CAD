@@ -1,5 +1,6 @@
 #include <zima/document/file_path.hpp>
 #include <zima/interchange/dxf.hpp>
+#include <zima/sketcher/curve_geometry.hpp>
 #include <zima/kernel/stable_id.hpp>
 #include <numbers>
 
@@ -232,10 +233,10 @@ DxfImportResult import_dxf(
                 for(double z:zs)if(std::abs(z)>1e-9)throw std::runtime_error("DXF spline control points must lie in XY.");
                 for(std::size_t i=0;i<xs.size();++i)curve.poles.push_back({xs[i],ys[i],0});
                 if(curve.weights.empty())curve.weights.assign(xs.size(),1);
-                try{curve.validate();}catch(const std::exception&){throw std::runtime_error("DXF spline control data is invalid or not clamped.");}
+                try{curve=sketcher::clamp_curve_geometry(std::move(curve));}catch(const std::exception&){throw std::runtime_error("DXF spline control data is invalid.");}
                 const int flags=values.contains(70)?integer(values,70):0;
                 const bool closed=(flags&(1|2))!=0;
-                if(closed&&std::hypot(xs.front()-xs.back(),ys.front()-ys.back())>1e-8)
+                if(closed&&std::hypot(curve.poles.front().x-curve.poles.back().x,curve.poles.front().y-curve.poles.back().y)>1e-8)
                     throw std::runtime_error("Closed DXF spline endpoints do not coincide.");
                 sketcher::SketchBSpline spline;spline.id=kernel::make_stable_id();spline.degree=curve.degree;spline.closed=closed;spline.construction=construction;
                 spline.knots=std::move(curve.knots);spline.weights=std::move(curve.weights);

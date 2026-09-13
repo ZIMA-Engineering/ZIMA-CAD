@@ -51,7 +51,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Řezy | Čtení, tvorba, vlastnosti, aktivace a odstranění | `section.list/get/components/create/set/activate/delete`: úplná otevřená čára, vlastní skica, společné OK vlastností, číselné umístění, přesné výskyty a šrafování; `section.sketch.edit` upravuje celou skicu v jedné transakci; zbývá vstup referencí umístění |
 | Měření | Společné GUI/CLI operace | `measurement.list/get/evaluate/create/set/delete`; původní reference a uložené výsledky |
 | Parametry, relace a materiál | Společné tabulky a transakce hotovy | Parametry, jednotky, přesnost, relace, materiál včetně přímého načtení knihovny a uložené varianty; řízení rozměrů relacemi a generování variant nejsou dosud zavedené ani v GUI |
-| Import a export | Import Partu/Assembly STEP/IGES/DXF a základní exporty hotovy | Společný STEP včetně vnořených sestav, STL Part/vnořená Assembly, DXF úsečky/osy/body/kružnice/oblouky/elipsy/spline/trimy/offsety i textové obrysy a rohová zaoblení; DXF do vložených profilů hotov; zbývá import neohraničených spline a snímek interaktivního View |
+| Import a export | Import Partu/Assembly STEP/IGES/DXF a základní exporty hotovy | Společný STEP včetně vnořených sestav, STL Part/vnořená Assembly, DXF úsečky/osy/body/kružnice/oblouky/elipsy/spline/trimy/offsety i textové obrysy a rohová zaoblení; DXF do vložených profilů hotov; přesný import neupnutých/periodických spline hotov; zbývá snímek interaktivního View |
 
 Každá další etapa aktualizuje tabulku a uvádí ověřené testy. Neobcházíme
 chybějící operaci nevalidovanou změnou serializovaného dokumentu ani voláním
@@ -1337,3 +1337,20 @@ Logy: `build/dxf-points-full-tests.log`, `build/dxf-points-mixed-fixed-tests.log
 `build/dxf-points-final-build.log`, `build/dxf-points-final-tests.log`.
 Katalog zůstává na 234 příkazech. Následuje kontrola přesného importu spline
 s neupnutými krajními uzly. Push čeká na návrat uživatele.
+
+
+## Neupnuté a periodické DXF spline (2026-09-13)
+
+Importer a nativní periodické křivky sdílejí přesné upnutí pomocí vložení
+uzlů. Racionální váhy i skutečná geometrie zůstávají zachované; neplatný
+vstup nezmění dokument. Kontrola uzavření používá konce křivky. Podrobnosti:
+[IMPORT_COMMANDS.md](IMPORT_COMMANDS.md). Nativní formát se nemění.
+
+Modelová sada **3/3 za 0,53 s**, sestavení obou aplikací a integrační sada
+**13/13 za 91,43 s** ověřily matematiku, výpočet objemu, import/export,
+Undo/Redo, CLI, GUI a související ořez/offsety. Nezávislý ezdxf ověřil
+24 křivek po 402 vzorcích: největší odchylka 1,168e-14 mm, žádná chyba
+nebo oprava DXF. Katalog má 234 příkazů, celková sada nyní 133 testů.
+Poslední úplný běh 132 testů patří předchozí etapě bodového importu;
+tato etapa má uvedenou cílenou regresi 13 testů. Následuje vstup referencí
+umístění přes současný sdílený kontrakt. Push zůstává odložený.

@@ -178,10 +178,11 @@ Interpolovaný nebo periodický tvar exportovaný ZIMA-CADem se tak vrátí jako
 přesná ohraničená spline, nikoli jako vzorkovaný řetězec úseček. Vazby a
 konstrukční historii offsetu samotný výměnný DXF neuchovává.
 
-Import spline vyžaduje platný ohraničený uzlový vektor (`clamped`), řídicí
-body a kladné váhy; chybějící váhy znamenají jedničky. Spline určená jen
-interpolačními body a neohraničená periodická parametrizace se zatím odmítnou.
-Uzavřená spline musí mít shodné koncové souřadnice v toleranci 1e-8 mm.
+Import spline vyžaduje platný uzlový vektor, řídicí body a kladné váhy;
+chybějící váhy znamenají jedničky. Neupnuté a periodické vstupní křivky
+se přesně upnou na svém aktivním intervalu (podrobnosti níže). Spline
+určená pouze interpolačními body se nadále odmítne. Uzavřená spline musí
+mít shodné skutečné konce křivky v toleranci 1e-8 mm.
 Geometrie musí ležet v rovině XY zdrojového DXF; cílová rovina existující
 skici se přitom nemění. Měřítko a jednotky ovlivňují souřadnice a osy,
 nikoli uzly nebo váhy. `XLINE` se uloží jako nekonečná pomocná osa.
@@ -196,7 +197,7 @@ entitu. Zachovává se identita a rovina cílové skici i její starší referen
 
 Testy ověřují cyklus DXF–nativní skica–DXF, nativní serializaci, nezávislost
 opakovaných bloků, jednotky a odmítnutí chybných počtů, záporných vah,
-neohraničených uzlů, prostorových řídicích bodů a nespojené uzavřené spline.
+chybně seřazených uzlů, prostorových řídicích bodů a nespojené uzavřené spline.
 Příkazový test kontroluje jeden krok Undo/Redo a uložení do `.asmz`;
 skutečné CLI navíc uloží a znovu otevře `.prtz`. GUI používá skutečnou akci
 Importovat i regresi vloženého profilu. Samostatná kontrola explicitně vytáhne
@@ -256,3 +257,39 @@ Oprava prošla **2/2 za 0,38 s**. Po opětovném sestavení obou aplikací
 a všech testů prošla závěrečná sada **7/7 za 72,34 s**, včetně skutečné
 CLI a importu přes nabídku GUI (`build/dxf-points-final-build.log`,
 `build/dxf-points-final-tests.log`).
+
+
+## Přesný import neupnutých spline (2026-09-13)
+
+`import.dxf` i nabídka Importovat nyní přijímají otevřenou nebo periodickou
+SPLINE s neupnutými krajními uzly. Příznaky a pole odpovídají
+[definici SPLINE v DXF od Autodesk](https://help.autodesk.com/cloudhelp/2016/ENU/AutoCAD-DXF/files/GUID-E1F884F8-AA90-4864-A215-3182D47A9C74.htm).
+Aktivní interval je od uzlu na indexu stupně po uzel na indexu počtu pólů.
+Přesné vložení uzlů a odstranění neaktivních krajních částí zachová tvar,
+parametrizaci a racionální váhy. Nevzniká aproximace úsečkami ani práce OCCT.
+
+Importer a nativní periodické křivky skicáře sdílejí `clamp_curve_geometry`
+a stejný algoritmus vkládání uzlů jako přesný ořez. Výsledkem je dosavadní
+nativní upnutá spline; serializace ani startovací šablony se nemění.
+Již upnutá spline se vrátí beze změny. Uzavření se kontroluje na skutečných
+koncích výsledné křivky; krajní póly periodického vstupu se shodovat nemusejí.
+
+Neplatné počty, nekladné váhy, nekonečné hodnoty, nesprávné násobnosti uzlů,
+prázdný interval a nespojený tvar označený jako uzavřený odmítnou celý import.
+Vstup jen s interpolačními body bez řídicích pólů zůstává nepodporovaný také
+v GUI. Import sám nepočítá těleso; původní cache zůstává dostupná.
+
+Modelové testy porovnávají analytickou parabolu a její racionální variantu,
+periodické tvary, stupně 1–5, částečně upnuté konce, přesný ořez, nezávislost
+bloků, chyby bez částečného zápisu, Undo/Redo a nativní Part/Assembly.
+Uzavřený profil ze čtyř kvadratických oblouků má plochu 40/3 mm²;
+explicitní vytažení o 3 mm ověřilo objem 40 mm³.
+
+Modelová sada prošla **3/3 za 0,53 s**. Po sestavení obou aplikací i všech
+testů prošla integrace **13/13 za 91,43 s** včetně skutečné CLI, importu
+z nabídky GUI, offsetů a přesných spline (`build/dxf-spline-model-tests.log`,
+`build/dxf-spline-integration-build.log`, `build/dxf-spline-integration-tests.log`).
+Nezávislý ezdxf 1.4.4 vytvořil 24 různých křivek a porovnal jejich návrat
+přes CLI/nativní Part/DXF v 402 vzorcích na křivku. Největší odchylka byla
+1,168e-14 mm; audit exportu našel 0 chyb a 0 oprav.
+Výsledek: `build/dxf-spline-ezdxf-validation.json`.

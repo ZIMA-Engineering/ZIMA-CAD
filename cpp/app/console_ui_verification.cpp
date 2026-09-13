@@ -4,6 +4,7 @@
 #include "../tests/sweep_test_support.hpp"
 #include "../tests/construction_query_test_support.hpp"
 #include "../tests/dxf_export_test_support.hpp"
+#include "../tests/dxf_spline_import_test_support.hpp"
 #include "../tests/stl_export_test_support.hpp"
 #include <QFile>
 #include "drawing_window.hpp"
@@ -556,6 +557,13 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         check(points_before.sketches.back().points.size()==3&&points_before.sketches.back().import_blocks.size()==1&&points_before.sketches.back().import_blocks[0].geometry_ids.empty(),"GUI import lost POINT-only native block");
         run("undo");run("redo");run("save");
         check(document::PartDocument::load(points_file).sketches.back().serialized()==points_before.sketches.back().serialized(),"GUI POINT import Undo/Redo changed identities");menu_import_source=dxf_source;
+
+        const auto splines_source=std::filesystem::absolute(directory/(stem+"-unclamped-splines.dxf"));test::write_unclamped_dxf(splines_source);
+        run(QString::fromStdString("new part "+stem+"-dxf-splines"));menu_import_source=splines_source;chosen=false;timed_out=false;
+        choose_import.start();import_timeout.start(10000);import_action->trigger();choose_import.stop();import_timeout.stop();flush();
+        check(chosen&&!timed_out,"Unclamped DXF spline import menu did not finish");run("save");
+        const auto splines_file=directory/(stem+"-dxf-splines.prtz");const auto splines_before=document::PartDocument::load(splines_file);test::check_unclamped_dxf_sketch(splines_before.sketches.back());
+        run("undo");run("redo");run("save");check(document::PartDocument::load(splines_file).sketches.back().serialized()==splines_before.sketches.back().serialized(),"GUI spline import Undo/Redo changed native geometry");menu_import_source=dxf_source;
 
         const auto details_native=std::filesystem::absolute(directory/(stem+"-dxf-details.prtz"));
         auto details_part=document::PartDocument::create_default();details_part.sketches.push_back(test::dxf_detail_fixture());details_part.save(details_native);
