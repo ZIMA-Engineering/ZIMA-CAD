@@ -1,3 +1,4 @@
+#include <zima/workspace/section_operations.hpp>
 #include <zima/workspace/part_transactions.hpp>
 #include "assembly_workspace_window.hpp"
 #include "section_properties_dialog.hpp"
@@ -191,6 +192,12 @@ bool AssemblyWorkspaceWindow::section_context_menu(QTreeWidgetItem* item,const Q
     if(!id.empty()){edit=menu.addAction(tr("Vlastnosti / přejmenovat…"));draw=menu.addAction(tr("Upravit skicu řezu…"));remove=menu.addAction(tr("Odstranit"));}
     const auto chosen=menu.exec(tree_->viewport()->mapToGlobal(position));if(!chosen)return true;
     if(chosen==create)show_section_properties();else if(chosen==edit)show_section_properties(id);else if(chosen==draw)show_section_properties(id,true);
-    else if(chosen==activate||chosen==remove){auto all=source_sections(&workspace_,workspace_.displayed_document_id(),{});if(chosen==remove)std::erase_if(all,[&](const auto& s){return s.id==id;});else for(auto& s:all)s.show_cut=s.id==id;commit_sections(std::move(all));preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();}return true;
+    else if(chosen==activate||chosen==remove){
+        try {
+            if(chosen==remove)static_cast<void>(workspace::remove_section(workspace_,workspace_.displayed_document_id(),id));
+            else static_cast<void>(workspace::activate_section(workspace_,workspace_.displayed_document_id(),id));
+            preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();
+        }catch(const std::exception& error){state_->setText(tr(error.what()));}
+    }return true;
 }
 } // namespace zima::app

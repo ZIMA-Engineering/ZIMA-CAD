@@ -52,12 +52,26 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
         require(!host.execute({{"command","section.list"},{"arguments",args}}).ok,"Invalid section pagination accepted");
     require(host.execute({{"command","section.get"},{"arguments",{{"object","absent"}}}}).code=="section_not_found","Missing section did not return a precise error");
     require(part->session.revision()==revision&&part->session.calculated_boundaries().data()==cache,"Section queries changed history or calculated geometry");
+    require(run(host,"section.activate").data.at("changed")==true,"Normal view did not deactivate the Section");
+    const auto normal_revision=part->session.revision();
+    require(run(host,"section.activate").data.at("changed")==false&&part->session.revision()==normal_revision,"Unchanged Section activation added history");
+    run(host,"section.activate",{{"object",cut.id}});
+    require(part->session.document().sections.front().show_cut,"Section activation did not persist");
+    const auto before_rejection=part->session.revision();
+    require(!host.execute({{"command","section.activate"},{"arguments",{{"object","missing"}}}}).ok&&
+        !host.execute({{"command","section.delete"},{"arguments",{{"object","missing"}}}}).ok&&part->session.revision()==before_rejection,"Invalid Section action changed history");
+    run(host,"section.delete",{{"object",cut.id}});require(part->session.document().sections.empty(),"Section removal failed");
+    run(host,"undo");require(part->session.document().sections.front().id==cut.id&&part->session.document().sections.front().show_cut,"Section removal Undo lost its identity or activation");
+    run(host,"redo");require(part->session.document().sections.empty(),"Section removal Redo failed");run(host,"undo");
+    require(std::abs(part->session.calculated_boundaries().back().volume-6000)<1e-8,"Section actions changed solid volume");
     run(host,"save");
     auto invalid=section();invalid.sketch.segments.clear();
     auto broken=part->session.document();broken.sections.push_back(invalid);
     part->session.commit(std::move(broken),part->session.calculated_boundaries());
     const auto inspected=run(host,"section.get",{{"object",invalid.id}}).data;
     require(inspected.at("valid")==false&&!inspected.at("error").get<std::string>().empty()&&inspected.at("object")==invalid.id,"Invalid section disappeared instead of remaining inspectable");
+    const auto invalid_revision=part->session.revision();
+    require(!host.execute({{"command","section.activate"},{"arguments",{{"object",invalid.id}}}}).ok&&part->session.revision()==invalid_revision,"Invalid Section activation changed the model");
     run(host,"undo");
     run(host,"new",{{"type","assembly"},{"name","section-sub"}});const auto sub=live.active_document_id();
     const auto leaf=run(host,"component.insert",{{"source",part_id}}).data.at("occurrence").get<std::string>();run(host,"save");
@@ -81,6 +95,13 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     require(owner->session.revision()==owner_revision&&owner->session.document().find_occurrence(first)->calculated_source.shares_with(source_packet),"Section query mutated Assembly cache");
     run(host,"save");run(host,"close",{{"document",parent}});run(host,"open",{{"path",(dir/"section-parent.asmz").generic_string()}});
     require(run(host,"section.components",{{"object",assembly_cut.id}}).data.at("items")==nested.at("items"),"Native Assembly round trip lost section options");
+    const auto action_packet=live.open_assembly(parent)->session.document().find_occurrence(first)->calculated_source;
+    run(host,"section.activate",{{"object",assembly_cut.id}});
+    require(live.open_assembly(parent)->session.document().sections.front().show_cut,"Assembly Section was not activated");
+    require(!host.execute({{"command","section.delete"},{"arguments",{{"document",part_id},{"object",cut.id}}}}).ok,"Section removal wrote to an inactive document");
+    run(host,"section.delete",{{"object",assembly_cut.id}});run(host,"undo");
+    require(run(host,"section.components",{{"object",assembly_cut.id}}).data.at("items")==nested.at("items"),"Assembly Section removal Undo lost component paths");
+    require(live.open_assembly(parent)->session.document().find_occurrence(first)->calculated_source.shares_with(action_packet),"Assembly Section actions copied source geometry");
 }
 }
 int main(){try {

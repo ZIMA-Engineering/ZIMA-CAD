@@ -391,3 +391,8 @@ Uložené řezy čtou `section.list/get/components`: definici a vlastní skicu,
 řezové soustavy, přesné výskyty a jejich šrafování. Čtení nepočítá těleso
 ani nepřepíná dokument. Rozsah a stav doplňování příkazů uvádí
 [SECTION_COMMANDS.md](SECTION_COMMANDS.md).
+
+`section.activate` zapne řez podle ID, bez ID obnoví zobrazení Bez řezu.
+`section.delete` odstraní uloženou definici s podporou Undo. Oba příkazy
+používají stejné datové operace jako nabídka stromu a zachovávají vypočtená
+tělesa. Podrobnosti: [SECTION_COMMANDS.md](SECTION_COMMANDS.md).

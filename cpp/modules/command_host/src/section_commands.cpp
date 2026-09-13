@@ -1,5 +1,6 @@
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/drawing_sources.hpp>
+#include <zima/workspace/section_operations.hpp>
 #include <zima/document/placement_json.hpp>
 #include <algorithm>
 #include <set>
@@ -66,8 +67,23 @@ Json component(const document::SectionDefinition& section,const std::string& key
             {"pattern",hatch.pattern==0?"parallel":hatch.pattern==1?"cross":"dashed"}}}};
 }
 }
-void Host::register_section_queries() {
+void Host::register_section_commands() {
     using Type=commands::ArgumentType;
+    for(const bool remove:{false,true})dispatcher_.add({remove?"section.delete":"section.activate",
+        remove?tr("Remove a saved Section through the same transaction as the tree action."):
+            tr("Activate a saved Section, or the unsectioned display when object is omitted."),
+        {{"object",remove},{"document",false}},true},[this,remove](const Json& args) {
+        const auto checked=target(args);if(!checked.ok)return checked;
+        if(interaction().template_document)return Result::failure("unsupported_document",tr("Section operations require an open Part or Assembly."));
+        try {
+            const auto id=workspace_.active_document_id(),object=args.value("object",std::string{});
+            const bool changed=remove?workspace::remove_section(workspace_,id,object):workspace::activate_section(workspace_,id,object);
+            const auto revision=workspace_.open_part(id)?workspace_.open_part(id)->session.revision():workspace_.open_assembly(id)->session.revision();
+            if(changed)change_=Change{ChangeKind::Model,id,true};
+            return Result::success({{"document",id},{"object",object},{"changed",changed},{"revision",revision}});
+        }catch(const workspace::SectionOperationError& error){return Result::failure(error.code,tr(error.what()));}
+         catch(const std::exception& error){return Result::failure("section_action_rejected",tr(error.what()));}
+    });
     const std::vector<commands::Argument> query{{"offset",false,Type::Integer},{"limit",false,Type::Integer},{"document",false}};
     dispatcher_.add({"section.list",tr("List saved Sections without calculating or activating a document."),query,false},[this](const Json& args) {
         try {

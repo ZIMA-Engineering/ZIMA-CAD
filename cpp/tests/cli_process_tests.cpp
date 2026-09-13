@@ -223,6 +223,16 @@ int main(int argc,char** argv){
             result.results()[2].at("data").at("sketch")==section.sketch.id&&result.results()[3].at("data").at("total")==1,
             "CLI native Section queries lost definitions or Body options");
         require(fs::last_write_time(section_path)==section_stamp,"Section query rewrote its native document");
+        result=launch(executable,root,common+QStringList{"--command",command({{"command","open"},{"arguments",{{"path",document::path_to_utf8(section_path)}}}}),
+            "--command",command({{"command","section.activate"},{"arguments",{{"object",section.id}}}}),
+            "--command",command({{"command","section.get"},{"arguments",{{"object",section.id}}}}),
+            "--command","section.activate","--command",command({{"command","section.delete"},{"arguments",{{"object",section.id}}}}),
+            "--command","section.list","--command","undo","--command","save"});
+        require(result.exit_code==0&&result.results()[2].at("data").at("show_cut")==true&&result.results()[5].at("data").at("total")==0,
+            "CLI Section activation/normal/removal failed");
+        const auto restored_section=document::PartDocument::load(section_path);
+        require(restored_section.sections.size()==1&&restored_section.sections.front().id==section.id&&!restored_section.sections.front().show_cut,
+            "CLI Section Undo did not persist the same inactive definition");
 
         const auto make_hole=command({{"command","hole.create"},{"arguments",{{"diameter_mm",10},{"bore_length_mm",10},{"placement",{{"z",-20}}}}}});
         result=launch(executable,root,common+QStringList{"--command","new part native-hole-cli","--command","box.create 40 40 40",

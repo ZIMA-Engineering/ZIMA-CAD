@@ -120,6 +120,10 @@ int verify_sections(QApplication& application,AssemblyWorkspaceWindow& window,co
             }});tree->customContextMenuRequested(tree->visualItemRect(row).center());flush();check(protected_ok,"Section row exposes an invalid create, delete, or edit action");return chosen;
         };
         check(menu_action(group->child(0),QObject::tr("Aktivní"),true),"Normal cannot be activated");check(view->mesh().triangles.size()==cache.back().mesh.triangles.size(),"Normal did not restore the complete body");
+        const auto normal_revision=window.execute_console_command("section.list").data.at("revision");
+        group=tree->topLevelItem(0)->child(1);
+        check(menu_action(group->child(0),QObject::tr("Aktivní"),true),"Normal cannot be activated twice");
+        check(window.execute_console_command("section.list").data.at("revision")==normal_revision,"Unchanged GUI Section activation added history");
         group=tree->topLevelItem(0)->child(1);
         window.show_tree_item_properties(group->child(1));flush();
         check(dialog()&&!dialog()->values().show_cut&&view->mesh().triangles.size()==cache.back().mesh.triangles.size(),
