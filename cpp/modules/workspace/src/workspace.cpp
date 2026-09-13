@@ -162,8 +162,8 @@ std::optional<std::vector<PersistedOccurrence>> persisted_occurrence_chain(
             snapshots = &found->children;
         }
         if (depth + 1 < instance_path.occurrence_ids.size() &&
-            result.back().source_kind !=
-                zima::assembly::ComponentSourceKind::Assembly) return std::nullopt;
+            result.back().source_kind != zima::assembly::ComponentSourceKind::Assembly &&
+            result.back().source_kind != zima::assembly::ComponentSourceKind::Pattern) return std::nullopt;
     }
     return result;
 }
@@ -475,9 +475,12 @@ std::optional<OccurrenceAddress> Workspace::resolve_occurrence(
         top->session.document(), instance_path);
     if (!chain) return std::nullopt;
     const auto& occurrence = chain->back();
-    const std::string owner_id = chain->size() == 1
-        ? top_assembly_document_id
-        : (*chain)[chain->size() - 2].source_document_id;
+    std::string owner_id=top_assembly_document_id;
+    // Pattern's virtual instances are owned by the surrounding real Assembly;
+    // the copied source document is not their positioning owner.
+    for(std::size_t i=chain->size()-1;i>0;--i)if((*chain)[i-1].source_kind==zima::assembly::ComponentSourceKind::Assembly) {
+        owner_id=(*chain)[i-1].source_document_id;break;
+    }
     return OccurrenceAddress{owner_id, occurrence.occurrence_id,
         occurrence.source_document_id, occurrence.source_kind, instance_path};
 }

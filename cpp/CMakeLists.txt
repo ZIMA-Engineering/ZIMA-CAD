@@ -573,6 +573,10 @@ if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_cpp_drawing_command_tests COMMAND zima_cpp_drawing_command_tests)
     set_tests_properties(zima_cpp_drawing_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
 
+    add_executable(zima_cpp_nested_copy_reference_tests tests/nested_copy_reference_tests.cpp)
+    target_link_libraries(zima_cpp_nested_copy_reference_tests PRIVATE zima_command_host)
+    add_test(NAME zima_cpp_nested_copy_reference_tests COMMAND zima_cpp_nested_copy_reference_tests)
+
     add_executable(zima_cpp_context_reference_refresh_tests tests/context_reference_refresh_tests.cpp)
     target_link_libraries(zima_cpp_context_reference_refresh_tests PRIVATE zima_command_host)
     add_test(NAME zima_cpp_context_reference_refresh_tests COMMAND zima_cpp_context_reference_refresh_tests)

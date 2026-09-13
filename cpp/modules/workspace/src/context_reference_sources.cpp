@@ -68,13 +68,13 @@ kernel::ViewerReferenceGeometry context_original_reference_geometry(const Worksp
         for(const auto& node:nodes) {
             const auto path=parent.child(node.occurrence_id);const bool copied=derived||!node.derived_source_id.empty();
             if(node.source_kind==assembly::ComponentSourceKind::Part&&node.source_document_id==source_document)append_source(path,root,copied);
-            if(node.source_kind==assembly::ComponentSourceKind::Assembly)self(self,node.children,path,root,copied,depth+1);
+            if(node.source_kind==assembly::ComponentSourceKind::Assembly||node.source_kind==assembly::ComponentSourceKind::Pattern)self(self,node.children,path,root,copied,depth+1);
         }
     };
     for(const auto& root:top->session.document().components) {
         const auto path=assembly::InstancePath{}.child(root.occurrence_id);const bool derived=root.derived_copy.has_value();
         if(root.source_kind==assembly::ComponentSourceKind::Part&&root.source_document_id==source_document)append_source(path,root,derived);
-        if(root.source_kind==assembly::ComponentSourceKind::Assembly)children(children,root.nested_snapshot,path,root,derived,1);
+        if(root.source_kind==assembly::ComponentSourceKind::Assembly||root.source_kind==assembly::ComponentSourceKind::Pattern)children(children,root.nested_snapshot,path,root,derived,1);
     }
     return result;
 }

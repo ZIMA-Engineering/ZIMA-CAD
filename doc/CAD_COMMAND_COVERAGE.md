@@ -1009,3 +1009,20 @@ chybějícího souboru, pěti lokalizací a sestavení obou programů prošla
 Kontextová tvorba a odpojení s atomickým potvrzením sestavové závislosti
 pokračují; před nimi následuje ověření původních ploch vnořených kopií.
 Kontrakt a logy: [CONTEXT_REFERENCE_REFRESH.md](CONTEXT_REFERENCE_REFRESH.md).
+
+
+### Analytické plochy a přesné cesty vnořených kopií
+
+Nový nezávislý test nalezl odchylku roviny zrcadlené podsestavy až
+51,5766 mm od jejích vrcholů a odmítnutou cestu do Pole. Výslovný výpočet
+kopie nyní převádí analytické údaje přes správný rámec paketu a vrací
+uložený rámec výskytu. Společné cesty zahrnují Pole, zachovávají skutečného
+Assembly vlastníka a aktivují správný původní zdroj. Solver umístění,
+identity a formát se nemění.
+
+Po opravě prošly modelové a geometrické regrese, včetně válce, více těles,
+tří zrcadlových rovin, kopií kopií, nativního znovuotevření a kontextové
+projekce. Po úplném sestavení prošla související sada **21/21** (142,57 s),
+včetně GUI, CLI a překladů. Katalog má **209 příkazů**. Následuje společné
+potvrzení kontextové reference a jejích závislostí.
+Podrobnosti: [NESTED_COPY_REFERENCES.md](NESTED_COPY_REFERENCES.md).

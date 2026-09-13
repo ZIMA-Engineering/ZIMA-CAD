@@ -234,3 +234,13 @@ všech **14/14** dotčených testů prošlo (85,98 s),
 `build/derived-copy-final-build.log` a `build/derived-copy-final-tests.log`.
 Úplná sada 105 testů výše předcházela poslední opravě sdílení zdroje.
 Formát dokumentů ani šablony se touto etapou nemění.
+
+
+## Původní reference vnořených kopií
+
+Analytické plochy Zrcadla/Pole respektují vnořená umístění a lze je číst
+přes přesné virtuální cesty Pole. Stejná pravidla platí při další kopii,
+kontextové projekci a nativním znovuotevření. Aktivace přechází na původní
+zdroj; virtuální uzel nevlastní umístění svých zdrojových dokumentů.
+Starší vypočtená data opraví výslovný přepočet kopie, nikoli pouhé čtení.
+Geometrický důkaz a regrese: [NESTED_COPY_REFERENCES.md](NESTED_COPY_REFERENCES.md).

@@ -23,6 +23,7 @@
 #include <optional>
 #include <numbers>
 #include <sstream>
+#include <tuple>
 #include <stdexcept>
 #include <unordered_set>
 #include <utility>
@@ -763,6 +764,50 @@ AssemblyDocument AssemblyDocument::create_default() {
     return document;
 }
 
+namespace {
+// Assembly packets retain analytic surfaces in the referenced leaf's frame,
+// while triangle samples already include the nested placements. The kernel
+// transforms a whole copy in one packet frame. Convert analytic data at this
+// explicit calculation boundary, then restore its persisted leaf-frame contract.
+void copy_surface_frames(kernel::ViewerMesh& mesh,const std::vector<OccurrenceSnapshot>& roots,bool to_packet) {
+    std::map<std::string,std::vector<ComponentPlacement>> paths;
+    const auto chain=[&](const std::string& encoded)->const std::vector<ComponentPlacement>& {
+        auto [entry,inserted]=paths.try_emplace(encoded);if(!inserted||encoded.empty())return entry->second;
+        const auto path=InstancePath::decode(encoded);const auto* siblings=&roots;
+        for(const auto& id:path.occurrence_ids) {
+            const auto found=std::ranges::find(*siblings,id,&OccurrenceSnapshot::occurrence_id);
+            if(found==siblings->end())throw std::runtime_error("Calculated copy surface has no exact source occurrence.");
+            entry->second.push_back(found->placement);siblings=&found->children;
+        }
+        return entry->second;
+    };
+    using Identity=std::tuple<std::string,std::string,std::string>;
+    std::map<Identity,std::shared_ptr<const kernel::SurfaceGeometry>> transformed;
+    const auto face=[&](kernel::FaceReference& reference) {
+        if(!reference.surface)return;
+        const auto& placements=chain(reference.instance_path);if(placements.empty())return;
+        auto [entry,inserted]=transformed.try_emplace(Identity{reference.owner_id,reference.semantic_key,reference.instance_path});
+        if(inserted) {
+            auto surface=*reference.surface;
+            if(to_packet)for(auto p=placements.rbegin();p!=placements.rend();++p) {
+                surface.origin=transform_point(surface.origin,*p);
+                surface.axis=transform_direction(surface.axis,*p);surface.radial=transform_direction(surface.radial,*p);
+            }else for(const auto& p:placements) {
+                const auto rotation=placement_rotation(p);
+                surface.origin=unrotate(rotation,subtract(surface.origin,{p.x,p.y,p.z}));
+                surface.axis=unrotate(rotation,surface.axis);surface.radial=unrotate(rotation,surface.radial);
+            }
+            entry->second=std::make_shared<const kernel::SurfaceGeometry>(std::move(surface));
+        }
+        reference.surface=entry->second;
+    };
+    for(auto& reference:mesh.triangle_references)face(reference);
+    // Display and original packets may have distinct material-side metadata.
+    transformed.clear();
+    for(auto& reference:mesh.original_references.triangle_references)face(reference);
+}
+}
+
 kernel::BodyResult calculate_component_body(
     const PartOccurrence& occurrence, const kernel::GeometryKernel& kernel) {
     const auto calculate = [&](const auto& self, const kernel::BodySnapshot& source,
@@ -1183,23 +1228,30 @@ void AssemblyDocument::calculate_derived_copies(const zima::kernel::GeometryKern
         const auto* source=find_occurrence(result->derived_copy->source_id);
         const auto translation=zima::kernel::Vec3{source->placement.x,source->placement.y,source->placement.z};
         const auto rotation=zima::kernel::Vec3{source->placement.rotation_x,source->placement.rotation_y,source->placement.rotation_z};
-        const auto source_body=calculate_component_body(*source,kernel);
-        result->calculated_source=result->derived_copy->pattern
+        auto source_body=calculate_component_body(*source,kernel);
+        copy_surface_frames(source_body.mesh,source->nested_snapshot,true);
+        auto calculated_copy=result->derived_copy->pattern
             ? kernel.pattern_body(source_body,*result->derived_copy->pattern,id,translation,rotation,true)
             : kernel.mirror_body(source_body,result->derived_copy->resolved_plane,{},translation,rotation);
+        // Build the copy's exact instance hierarchy before restoring surface
+        // frames; Pattern adds one persisted virtual occurrence for each copy.
+        result->nested_snapshot=source->nested_snapshot;
+        if(result->derived_copy->pattern) {
+            result->nested_snapshot.clear();
+            for(unsigned index=1;index<kernel::pattern_instance_count(*result->derived_copy->pattern);++index)
+                result->nested_snapshot.push_back({kernel::pattern_copy_id(*result->derived_copy->pattern,index),source->name+" ("+std::to_string(index+1)+")",
+                    source->source_document_id,source->source_kind,false,false,true,true,{},source->nested_snapshot});
+        }
+        copy_surface_frames(calculated_copy.mesh,result->nested_snapshot,false);
+        result->calculated_source=std::move(calculated_copy);
         result->density_kg_mm3=source->density_kg_mm3;
         result->nested_mass_kg=source->nested_mass_kg;
         result->mass_volume_mm3=std::abs(result->calculated_source->volume);
         if(result->nested_mass_kg && result->derived_copy->pattern)
             *result->nested_mass_kg*=kernel::pattern_instance_count(*result->derived_copy->pattern)-1;
         result->source_document_id=source->source_document_id;result->source_path=source->source_path;result->source_kind=source->source_kind;
-        result->nested_snapshot=source->nested_snapshot;result->body_color=source->body_color;result->appearance=source->appearance;result->face_colors=source->face_colors;
-        if(result->derived_copy->pattern) {
-            result->source_kind=ComponentSourceKind::Pattern;result->nested_snapshot.clear();
-            for(unsigned index=1;index<kernel::pattern_instance_count(*result->derived_copy->pattern);++index)
-                result->nested_snapshot.push_back({zima::kernel::pattern_copy_id(*result->derived_copy->pattern,index),source->name+" ("+std::to_string(index+1)+")",
-                    source->source_document_id,source->source_kind,false,false,true,true,{},source->nested_snapshot});
-        }
+        result->body_color=source->body_color;result->appearance=source->appearance;result->face_colors=source->face_colors;
+        if(result->derived_copy->pattern)result->source_kind=ComponentSourceKind::Pattern;
         result->placement={};result->placement_references.clear();result->grounded=true;
         visiting.erase(id);done.insert(id);
     };
