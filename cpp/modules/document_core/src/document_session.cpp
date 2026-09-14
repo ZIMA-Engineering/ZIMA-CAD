@@ -64,6 +64,19 @@ zima::kernel::ViewerReferenceGeometry references_for_owners(
 
 }  // namespace
 
+void DocumentSession::rebase_native_files(std::span<const FileRelocation> files) {
+    FileRelocationEdits edits(files);
+    prepare_native_file_rebase(edits);
+    edits.apply();
+}
+void DocumentSession::prepare_native_file_rebase(FileRelocationEdits& edits) {
+    const auto before = edits.edit_count();
+    edits.document_name(current_->document.document_id, current_->document.name);
+    for (auto& state : undo_) edits.document_name(state->document.document_id, state->document.name);
+    for (auto& state : redo_) edits.document_name(state->document.document_id, state->document.name);
+    if (edits.edit_count() != before) edits.track_generation(data_generation_);
+}
+
 DocumentSession::DocumentSession(
     PartDocument document,
     std::vector<zima::kernel::BodyResult> calculated_boundaries)

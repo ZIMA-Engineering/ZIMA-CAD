@@ -17,6 +17,10 @@ class PreparedNativeDocument {
 public:
     [[nodiscard]] NativeDocumentType type() const;
     [[nodiscard]] const std::string& id() const;
+    [[nodiscard]] bool is_drawing_for(const std::string& source_document_id) const;
+    // Work only on this private, loaded snapshot; no Workspace or body calculation.
+    bool rebase_native_files(std::span<const document::FileRelocation>);
+    void write(const std::filesystem::path& target) const;
 private:
     friend PreparedNativeDocument read_native_document(const std::filesystem::path&);
     friend PreparedNativeDocument prepare_new_native_document(NativeDocumentType, const std::string&,

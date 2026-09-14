@@ -3,6 +3,7 @@
 #include <zima/assembly/assembly_document.hpp>
 #include <zima/assembly/assembly_session.hpp>
 #include <zima/document/document_session.hpp>
+#include <zima/document/file_relocation.hpp>
 #include <zima/drawing/drawing_document.hpp>
 
 #include <filesystem>
@@ -46,6 +47,12 @@ public:
     [[nodiscard]] bool can_redo() const { return !redo_.empty(); }
     bool undo();
     bool redo();
+    // Append a deferred metadata batch. Owner/session storage must stay stable
+    // until the caller applies or discards it on the Workspace owner thread.
+    void prepare_native_file_rebase(document::FileRelocationEdits&);
+    // Metadata-only rebase after native file relocation; preserves history,
+    // calculated geometry and dirty state. Never invokes the modeling kernel.
+    void rebase_native_files(std::span<const document::FileRelocation>);
     void mark_saved();
     std::filesystem::path path;
     std::shared_ptr<const int> runtime_identity=std::make_shared<const int>(0);

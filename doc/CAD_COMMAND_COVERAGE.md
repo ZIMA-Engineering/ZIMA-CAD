@@ -1851,3 +1851,18 @@ Závěrečná cílená sada prošla **7/7 za 150,02 s**: nové mazání souborů
 archivy, dokumentové ukládání a historie, skutečný proces CLI, katalog
 příkazů, překlady a GUI konzole. Logy: `build/file-removal-final-build.log`
 a `build/file-removal-targeted-tests.log`.
+
+
+## Příprava přejmenování nativních souborů (2026-09-14)
+
+Sdílené přesměrování názvů a souborových odkazů zachovává geometrii, identity,
+dirty stav a celou historii otevřených dokumentů. Umí jednu odloženou dávku
+pro více dokumentů bez kopírování těles i přípravu samostatných uložených
+snímků. Výkres zahrnuje také kořenový zdroj a kusovník. Detaily a hranice
+další etapy: [NATIVE_FILE_RENAME.md](NATIVE_FILE_RENAME.md).
+
+Katalog zůstává na **287 příkazech**, registrováno je **153 testů**.
+Příkaz přejmenování a jeho GUI integrace zatím nejsou dokončené.
+Přípravná část prošla **4/4 cílených regresí za 0,85 s**
+(`build/file-relocation-batch-tests.log`); žádná nová GUI cesta v této etapě
+ještě není zapojená.

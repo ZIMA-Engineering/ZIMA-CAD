@@ -1,9 +1,28 @@
 #include <zima/assembly/assembly_session.hpp>
+#include <zima/assembly/file_relocation.hpp>
 #include <zima/assembly/physical_properties.hpp>
 #include <type_traits>
 #include <utility>
 
 namespace zima::assembly {
+void AssemblySession::rebase_native_files(std::span<const document::FileRelocation> files,
+        const std::filesystem::path& owning_file) {
+    document::FileRelocationEdits edits(files);
+    prepare_native_file_rebase(edits, owning_file);
+    edits.apply();
+}
+void AssemblySession::prepare_native_file_rebase(document::FileRelocationEdits& edits,
+        const std::filesystem::path& owning_file) {
+    const auto before = edits.edit_count();
+    const auto collect = [&](AssemblyDocument& value) {
+        collect_file_relocation_edits(value, edits, owning_file);
+    };
+    collect(current_->document);
+    for (auto& state : undo_) collect(state->document);
+    for (auto& state : redo_) collect(state->document);
+    if (edits.edit_count() != before) edits.track_generation(data_generation_);
+}
+
 AssemblySession::AssemblySession(AssemblyDocument document)
     : current_(std::make_unique<State>(State{std::move(document),0,false})) {
     zima::document::refresh_physical_relations(current_->document,physical_values(current_->document));

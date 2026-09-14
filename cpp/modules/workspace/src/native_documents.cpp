@@ -1,4 +1,6 @@
 #include <zima/workspace/native_documents.hpp>
+#include <zima/assembly/file_relocation.hpp>
+#include <zima/drawing/file_relocation.hpp>
 #include <zima/document/body_origin_attachment.hpp>
 #include <algorithm>
 #include <cctype>
@@ -52,6 +54,33 @@ const std::string& PreparedNativeDocument::id() const {
         if constexpr(std::is_same_v<std::decay_t<decltype(value)>,Part>)return value.document.document_id;
         else return value.document_id;
     },document_);
+}
+bool PreparedNativeDocument::is_drawing_for(const std::string& source_id) const {
+    const auto* value = std::get_if<drawing::DrawingDocument>(&document_);
+    return value && !source_id.empty() && value->source_document_id == source_id;
+}
+bool PreparedNativeDocument::rebase_native_files(std::span<const document::FileRelocation> files) {
+    document::FileRelocationEdits edits(files);
+    std::visit([&](auto& value) {
+        using T = std::decay_t<decltype(value)>;
+        if constexpr (std::is_same_v<T, Part>)
+            edits.document_name(value.document.document_id, value.document.name);
+        else if constexpr (std::is_same_v<T, assembly::AssemblyDocument>)
+            assembly::collect_file_relocation_edits(value, edits, path_);
+        else drawing::collect_file_relocation_edits(value, edits, path_);
+    }, document_);
+    const bool changed = !edits.empty();
+    edits.apply();
+    return changed;
+}
+void PreparedNativeDocument::write(const std::filesystem::path& target) const {
+    if (native_document_type(target) != type())
+        throw std::invalid_argument("Document type does not match target path");
+    std::visit([&](const auto& value) {
+        using T = std::decay_t<decltype(value)>;
+        if constexpr (std::is_same_v<T, Part>) value.document.save(target, value.boundaries);
+        else value.save(target);
+    }, document_);
 }
 PreparedNativeDocument read_native_document(const std::filesystem::path& path) {
     PreparedNativeDocument prepared;prepared.path_=path;

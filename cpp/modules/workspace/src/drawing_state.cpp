@@ -1,6 +1,23 @@
 #include <zima/workspace/workspace.hpp>
+#include <zima/drawing/file_relocation.hpp>
 #include <type_traits>
 namespace zima::workspace {
+void DrawingState::rebase_native_files(std::span<const document::FileRelocation> files) {
+    document::FileRelocationEdits edits(files);
+    prepare_native_file_rebase(edits);
+    edits.apply();
+}
+void DrawingState::prepare_native_file_rebase(document::FileRelocationEdits& edits) {
+    const auto before = edits.edit_count();
+    const auto collect = [&](drawing::DrawingDocument& value) {
+        drawing::collect_file_relocation_edits(value, edits, path);
+    };
+    collect(current_->document);
+    for (auto& state : undo_) collect(state->document);
+    for (auto& state : redo_) collect(state->document);
+    if (edits.edit_count() != before) edits.track_generation(generation_);
+}
+
 DrawingState::DrawingState(drawing::DrawingDocument document,std::filesystem::path file)
     :path(std::move(file)),current_(std::make_unique<State>(State{std::move(document),0})) {
     current_->document.synchronize_dimension_identifiers();mark_saved();

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <zima/document/part_document.hpp>
+#include <zima/document/file_relocation.hpp>
 
 #include <cstdint>
 #include <optional>
@@ -64,6 +65,12 @@ public:
     bool redo();
     // Editing focus only: keep geometry, dirty state and Undo/Redo intact.
     void activate_body(const std::string& id);
+    // Append a deferred metadata batch. Owner/session storage must stay stable
+    // until the caller applies or discards it on the Workspace owner thread.
+    void prepare_native_file_rebase(FileRelocationEdits&);
+    // Metadata-only rebase after native file relocation; preserves history,
+    // calculated geometry and dirty state. Never invokes the modeling kernel.
+    void rebase_native_files(std::span<const FileRelocation>);
     void mark_saved();
 
 private:

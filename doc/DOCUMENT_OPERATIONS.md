@@ -268,3 +268,13 @@ vrátí přesný částečný výsledek a promítne už provedené zavření tak
 Příprava kontroluje identitu otevření, generaci dat, historii a snímek souborů.
 Formáty, start šablony ani pravidla výpočtu geometrie se nemění.
 Kontrakt a výsledky testů: [FILE_REMOVAL_COMMANDS.md](FILE_REMOVAL_COMMANDS.md).
+
+
+## Příprava přejmenování (2026-09-14)
+
+Datové přesměrování je společné pro otevřené session včetně Undo/Redo
+a soukromé načtené nativní snímky. Zachovává ID, vypočtené těleso a dirty stav;
+otevřená data umí změnit v jedné odložené dávce bez kopií geometrie.
+`PreparedNativeDocument` nově ověřuje vlastnictví výkresu, přesměruje uložené
+cesty a uloží vlastní snímek. Souborová transakce a GUI/CLI napojení
+následují. Ověření a návrh: [NATIVE_FILE_RENAME.md](NATIVE_FILE_RENAME.md).

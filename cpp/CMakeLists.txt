@@ -96,6 +96,7 @@ add_library(zima_document_core
     modules/document_core/src/thread_catalog.cpp
     "${ZIMA_THREAD_CATALOG_SOURCE}"
     modules/document_core/src/document_session.cpp
+    modules/document_core/src/file_relocation.cpp
     modules/document_core/src/dimension_identifiers.cpp
     modules/document_core/src/viewer_packet_json.cpp
     modules/document_core/src/cache_storage.cpp)
@@ -107,13 +108,13 @@ target_link_libraries(zima_document_core
 
 add_library(zima_assembly
     modules/assembly/src/assembly_document.cpp
-    modules/assembly/src/assembly_session.cpp)
+    modules/assembly/src/assembly_session.cpp modules/assembly/src/file_relocation.cpp)
 target_include_directories(zima_assembly PUBLIC modules/assembly/include)
 target_link_libraries(zima_assembly
     PUBLIC zima_kernel_api zima_document_core
     PRIVATE nlohmann_json::nlohmann_json)
 
-add_library(zima_drawing modules/drawing/src/drawing_document.cpp modules/drawing/src/model_annotations.cpp
+add_library(zima_drawing modules/drawing/src/file_relocation.cpp modules/drawing/src/drawing_document.cpp modules/drawing/src/model_annotations.cpp
     modules/drawing/src/measurement_dimension.cpp
     modules/drawing/src/drawing_template.cpp modules/drawing/src/drawing_section_trace.cpp)
 target_include_directories(zima_drawing PUBLIC modules/drawing/include)
@@ -572,6 +573,10 @@ if(ZIMA_BUILD_TESTS)
     add_executable(zima_cpp_document_session_transaction_tests tests/document_session_transaction_tests.cpp)
     target_link_libraries(zima_cpp_document_session_transaction_tests PRIVATE zima_document_core zima_kernel_occt)
     add_test(NAME zima_cpp_document_session_transaction_tests COMMAND zima_cpp_document_session_transaction_tests)
+
+    add_executable(zima_cpp_file_relocation_state_tests tests/file_relocation_state_tests.cpp)
+    target_link_libraries(zima_cpp_file_relocation_state_tests PRIVATE zima_command_host)
+    add_test(NAME zima_cpp_file_relocation_state_tests COMMAND zima_cpp_file_relocation_state_tests)
 
     add_executable(zima_cpp_file_removal_command_tests tests/file_removal_command_tests.cpp)
     target_link_libraries(zima_cpp_file_removal_command_tests PRIVATE zima_command_host)

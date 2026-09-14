@@ -1,6 +1,7 @@
 #pragma once
 
 #include <zima/assembly/assembly_document.hpp>
+#include <zima/document/file_relocation.hpp>
 
 #include <cstdint>
 #include <vector>
@@ -29,6 +30,12 @@ public:
     void update_source_geometry(AssemblyDocument document);
     bool undo();
     bool redo();
+    // Append a deferred metadata batch. Owner/session storage must stay stable
+    // until the caller applies or discards it on the Workspace owner thread.
+    void prepare_native_file_rebase(document::FileRelocationEdits&, const std::filesystem::path& owning_file);
+    // Metadata-only rebase after native file relocation; preserves history,
+    // calculated geometry and dirty state. Never invokes the modeling kernel.
+    void rebase_native_files(std::span<const document::FileRelocation>, const std::filesystem::path& owning_file);
     void mark_saved();
 
 private:
