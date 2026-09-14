@@ -229,7 +229,7 @@ void sweep_properties(document::HistoryContainer& value, const Json& args,
             frame.origin = {placement.x, placement.y, placement.z};
             frame.rotation = {placement.rotation_x, placement.rotation_y, placement.rotation_z};
             frame.absolute_rotation = frame.rotation;
-            frame.curve_points = {path.curve_points[index]};
+            // Keep every native child datum: a Point may depend on an earlier Point.
             document::PartDocument carrier; carrier.constructions.push_back(std::move(frame));
             return carrier.construction_reference_geometry_for(path.curve_points[index].id, std::move(geometry));
         });

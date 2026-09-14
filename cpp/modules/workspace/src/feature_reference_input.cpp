@@ -13,23 +13,6 @@ std::vector<Ref> combined(const std::vector<Ref>& position,const std::vector<Ref
     for(std::size_t i=0;i<orientation.size();++i)if(skip!=i+3&&(!orientation[i].owner_id.empty()||!orientation[i].semantic_key.empty()))result.push_back(orientation[i]);
     return result;
 }
-void check_source(const document::PartDocument& doc,const std::string& target,const Ref& ref) {
-    if(ref.owner_id==doc.document_id+":origin")return;
-    const auto* target_body=doc.body_owner_for_object(target);
-    const auto* source_body=doc.body_owner_for_object(ref.owner_id);
-    if(target_body&&source_body) {
-        const auto& order=doc.body_history.order();
-        const auto source=std::ranges::find(order,source_body->scope.id),destination=std::ranges::find(order,target_body->scope.id);
-        if(source>destination)reject("reference_not_available","A feature reference must precede it in model history.");
-        if(ref.owner_id==source_body->origin().id||source<destination)return;
-    }
-    const auto graph=part_history_dependency_graph(doc);const auto owner=graph.owners.find(ref.owner_id);
-    if(owner==graph.owners.end())reject("reference_not_available","A feature reference must precede it in model history.");
-    const auto source=std::ranges::find(doc.history_order,owner->second,&document::PartHistoryEntry::id);
-    const auto destination=std::ranges::find(doc.history_order,target,&document::PartHistoryEntry::id);
-    if(source==doc.history_order.end()||destination==doc.history_order.end()||source>=destination)
-        reject("reference_not_available","A feature reference must precede it in model history.");
-}
 document::HistoryContainer assign_feature_reference(document::HistoryContainer value,
     const kernel::ViewerReferenceGeometry& geometry,std::size_t index,Ref source,bool derive_orientation) {
     const auto matches=[&](const auto& item){return item.reference.owner_id==source.owner_id&&item.reference.semantic_key==source.semantic_key&&item.reference.instance_path==source.instance_path;};
@@ -79,6 +62,23 @@ document::HistoryContainer assign_feature_reference(document::HistoryContainer v
     return value;
 }
 }
+void validate_part_feature_reference_source(const document::PartDocument& doc,const std::string& target,const Ref& ref) {
+    if(ref.owner_id==doc.document_id+":origin")return;
+    const auto* target_body=doc.body_owner_for_object(target);
+    const auto* source_body=doc.body_owner_for_object(ref.owner_id);
+    if(target_body&&source_body) {
+        const auto& order=doc.body_history.order();
+        const auto source=std::ranges::find(order,source_body->scope.id),destination=std::ranges::find(order,target_body->scope.id);
+        if(source>destination)reject("reference_not_available","A feature reference must precede it in model history.");
+        if(ref.owner_id==source_body->origin().id||source<destination)return;
+    }
+    const auto graph=part_history_dependency_graph(doc);const auto owner=graph.owners.find(ref.owner_id);
+    if(owner==graph.owners.end())reject("reference_not_available","A feature reference must precede it in model history.");
+    const auto source=std::ranges::find(doc.history_order,owner->second,&document::PartHistoryEntry::id);
+    const auto destination=std::ranges::find(doc.history_order,target,&document::PartHistoryEntry::id);
+    if(source==doc.history_order.end()||destination==doc.history_order.end()||source>=destination)
+        reject("reference_not_available","A feature reference must precede it in model history.");
+}
 document::HistoryContainer prepare_part_feature_reference(Workspace& live,const std::string& id,
     const std::string& container,std::size_t index,Ref source,bool derive_orientation) {
     if(index>4||source.owner_id.empty()||source.semantic_key.empty()||!source.instance_path.empty()||!std::isfinite(source.offset))
@@ -90,7 +90,7 @@ document::HistoryContainer prepare_part_feature_reference(Workspace& live,const 
         if(body->derived_copy)reject("read_only_body","A derived Body cannot be edited directly.");
         if(body->scope.id!=before.body_history.active_body_id())reject("inactive_body","Activate the owning Body before editing its placement.");
     }
-    check_source(before,container,source);
+    validate_part_feature_reference_source(before,container,source);
     auto geometry=part_construction_dimension_geometry(before,state->session.calculated_boundaries());
     append_reference_geometry(geometry,before.history_origin_reference_geometry_before(container));
     geometry=before.construction_reference_geometry_for(container,std::move(geometry));

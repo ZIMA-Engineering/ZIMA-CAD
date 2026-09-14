@@ -3,7 +3,9 @@
 `construction.reference.set` přiřadí původní referenci existujícímu nezávislému
 bodu, ose, rovině, celému kontejneru 3D křivky nebo jejímu vlastnímu bodu. Používá schválený společný
 helper pozičních polí a FRONT/TOP a stejnou transakci `commit_construction`
-jako OK konstrukčních Vlastností. Tělesa se při tomto příkazu nepřepočítávají.
+jako OK konstrukčních Vlastností. U samostatných konstrukcí se tělesa
+nepřepočítávají. Bod vlastněný Sweep3D potvrzuje celé tažení přes jeho
+společnou transakci; viz [SWEEP_POINT_REFERENCES.md](SWEEP_POINT_REFERENCES.md).
 
 ```json
 {"command":"construction.create","arguments":{"kind":"plane","name":"Navázaná rovina","base_plane":"xy"}}
@@ -61,7 +63,11 @@ rám (bod, osy a roviny) pro následující body. Stejný postup používá vlo�
 dráha Sweep3D. Chybějící zdroj ponechá poslední uloženou polohu a nastaví
 neplatnost reference; nepoužije se starý rám pozdějšího bodu.
 
-Příkazové přiřazení referencí bodům vložené dráhy navazuje další etapou.
+Příkazové přiřazení referencí bodům vložené dráhy je implementované.
+Stejný příkaz přijímá ID vlastněného bodu; skutečná změna přepočítá tažení
+a vrátí `body_calculated: true`. Hodnoty bodů se zadávají přes `sweep3d.set`
+a úplný seznam `path.points`. Obecné `placement.get/set/reference.set`
+zůstávají pro umístění tažení a samostatné konstrukce.
 Odebrání existujících referencí pokrývá
 [placement.reference.remove](PLACEMENT_REFERENCE_REMOVAL.md), včetně bodů
 samostatných i vložených drah. Formát souborů se nemění.

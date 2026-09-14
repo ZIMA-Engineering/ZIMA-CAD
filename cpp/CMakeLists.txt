@@ -196,6 +196,7 @@ add_library(zima_workspace modules/workspace/src/workspace.cpp
     modules/workspace/src/assembly_profile_operations.cpp
     modules/workspace/src/profile_operations.cpp
     modules/workspace/src/profile_targets.cpp
+    modules/workspace/src/sweep_point_operations.cpp
     modules/workspace/src/sweep_operations.cpp)
 target_include_directories(zima_workspace PUBLIC modules/workspace/include)
 target_link_libraries(zima_workspace PUBLIC
@@ -964,6 +965,11 @@ if(ZIMA_BUILD_TESTS)
     target_link_libraries(zima_cpp_box_command_tests PRIVATE zima_command_host)
     add_test(NAME zima_cpp_box_command_tests COMMAND zima_cpp_box_command_tests)
     set_tests_properties(zima_cpp_box_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
+    add_executable(zima_cpp_sweep_point_reference_tests tests/sweep_point_reference_tests.cpp)
+    target_link_libraries(zima_cpp_sweep_point_reference_tests PRIVATE zima_command_host)
+    add_test(NAME zima_cpp_sweep_point_reference_tests COMMAND zima_cpp_sweep_point_reference_tests)
+    set_tests_properties(zima_cpp_sweep_point_reference_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
+
     add_executable(zima_cpp_construction_curve_reference_tests tests/construction_curve_reference_tests.cpp)
     target_link_libraries(zima_cpp_construction_curve_reference_tests PRIVATE zima_command_host)
     add_test(NAME zima_cpp_construction_curve_reference_tests COMMAND zima_cpp_construction_curve_reference_tests)

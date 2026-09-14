@@ -35,8 +35,8 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Válec, koule, kužel, jehlan, klín | Hotovo | Společné create/get/set, zámky, přesnost, GUI/CLI a 59/59 regresí |
 | Historie Partu | Hotovo | Společný přesun, ověření závislostí, potlačení, odstranění a kurzor; včetně historie těles a Booleanů |
 | Tělesa a Boolean | Modelové operace a reference hotovy | Tvorba, čtení, aktivace, název/viditelnost, kurzory, Boolean, pořadí a mazání; `body.reference.set`, společný vstup `placement.reference.set` a odebrání přes `placement.reference.remove` |
-| Umístění a původní reference | Číselná editace, reference Body/konstrukcí/primitiv, otvorů, řezů a profilů Partu/Assembly | `placement.get/set`, `value_lock.list/set`; `placement.reference.set` pro Body, konstrukce včetně bodů samostatných křivek, šest primitiv a profily Partu, `body.reference.set`, `construction.reference.set`; `hole/opening.reference.set`, `section.reference.set`, `extrusion/revolution.reference.set` také pro profilové odečty Assembly a `sweep2d/sweep3d/helical.reference.set`, importované prvky přes `import.reference.set`; odebrání referencí přes `placement.reference.remove` je implementované; zbývá přiřazení referencí bodům vložených drah; komponenty používají `component.set` |
-| Konstrukční geometrie | Tvorba, vlastnosti a reference kořenů i bodů samostatných křivek hotovy | `construction.list/get/create/set/delete`, `construction.reference.set`; body křivek, tečny, zaoblení a seznamy; přiřazení referencí bodům a schválená oprava starých zdrojových rámů jsou implementované; příkazové přiřazení referencí bodům vložených drah následuje |
+| Umístění a původní reference | Číselná editace, reference Body/konstrukcí/primitiv, otvorů, řezů a profilů Partu/Assembly | `placement.get/set`, `value_lock.list/set`; `placement.reference.set` pro Body, konstrukce včetně bodů samostatných křivek, šest primitiv a profily Partu, `body.reference.set`, `construction.reference.set`; `hole/opening.reference.set`, `section.reference.set`, `extrusion/revolution.reference.set` také pro profilové odečty Assembly a `sweep2d/sweep3d/helical.reference.set`, importované prvky přes `import.reference.set`; odebrání referencí přes `placement.reference.remove` je implementované; přiřazení referencí bodům vložených drah přes `construction.reference.set` je implementované; komponenty používají `component.set` |
+| Konstrukční geometrie | Tvorba, vlastnosti a reference kořenů i bodů samostatných křivek hotovy | `construction.list/get/create/set/delete`, `construction.reference.set`; body křivek, tečny, zaoblení a seznamy; přiřazení referencí bodům a schválená oprava starých zdrojových rámů jsou implementované; příkazové přiřazení referencí bodům vložených drah potvrzuje celé tažení |
 | Skicář: geometrie | Základ hotov | 21 příkazů: samostatné a vložené skici, body, úsečky, kružnice, oblouky, elipsy, B-spline, obdélníky, mnohoúhelníky, posun a pomocná geometrie; text create/get/set s nativním písmem a spline get/set hotovy; DXF do vložených profilů hotov; zbývá kontrola dalších variant podle GUI |
 | Skicář: vazby a operace | Vazby/kóty/solver/offset/trim/mirror hotovy | Offset create/get/set/free, úplný podklad a zachování intervalů, trim podle průsečíků, mirror, orientovaný obdélník, tečny a zaoblení rohu; všech 15 druhů vazeb, odstranění a solver; 16 druhů kót včetně vlastností, popisků a mazání; uvolnění externích referencí hotovo |
 | Externí reference skici | Lokální i kontextová tvorba, obnova a odpojení | Přesná projekce, trim, společné potvrzení Partu a závislostí, vlastněné profily, Part/Assembly Undo/Redo a souhrny zavřených nativních vlastníků při explicitní regeneraci |
@@ -1946,3 +1946,23 @@ Detaily a logy: [PLACEMENT_REFERENCE_REMOVAL.md](PLACEMENT_REFERENCE_REMOVAL.md)
 
 Zbývá přiřazení referencí bodům vložených drah Sweep3D a závěrečný audit
 variant GUI a příkazů. Výše popsaný blok schválení odebrání je vyřešený.
+
+## Reference bodů vložené dráhy a další audit (2026-09-14)
+
+`construction.reference.set` nyní upraví také bod uvnitř Sweep3D přes
+společné potvrzení celého tažení. Přebírá původní reference, správně
+převádí rámy tělesa a tažení a zachovává identity i zámky.
+Při dávkové editaci bodů již nechybějí rámy předchozích bodů.
+Podrobnosti: [SWEEP_POINT_REFERENCES.md](SWEEP_POINT_REFERENCES.md).
+
+Obě aplikace a všechny testy jsou sestavené. Širší regrese prošla
+**12/12 za 185,54 s** včetně samostatného CLI a GUI. Katalog má
+**289 příkazů**, CTest **157 testů**.
+
+Audit menu a kontextových Vlastností našel další konkrétní nedokončenou
+oblast: změnu názvu, pracovní roviny a odsazení samostatné skici, včetně
+jejího zadání a odebrání referencí umístění. `sketch.create` nyní přijímá
+základní rovinu při vytvoření; existující příkazy geometrie ani
+`placement.set` tuto celou datovou operaci nenahrazují. Nejprve se doplní
+tato společná transakce a její GUI/CLI regrese. Pak bude dokončen audit
+dalších kontextových variant. CLI zatím není označeno za úplné.

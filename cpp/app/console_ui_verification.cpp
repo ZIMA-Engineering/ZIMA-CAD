@@ -1497,6 +1497,34 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
                 run("save");cache.clear();static_cast<void>(document::PartDocument::load(path,&cache));
                 check(std::abs(cache.back().volume-140*pi)<1e-5,"GUI-edited Sweep path saved an incorrect volume");
                 run("undo");check(child_z()==30,"Sweep path Undo lost the previous coordinate");
+                const commands::Json point_reference={{"construction",last},{"index",0},{"reference",{
+                    {"owner",get().at("document").get<std::string>()+":origin"},{"key","origin:plane:xy"}}},{"offset_mm",30},{"derive_orientation",false}};
+                json_run("construction.reference.set",point_reference);flush();
+                for(const bool commit:{false,true}) {
+                    dialog=edit();dialog->findChild<QTableWidget*>("curve3DPoints")->selectRow(2);
+                    dialog->findChild<QPushButton*>("curve3DEditPoint")->click();flush();
+                    QDialog* child=nullptr;for(auto* candidate:window.findChildren<QDialog*>())
+                        if(candidate->isVisible()&&candidate!=dialog&&candidate->findChild<QDoubleSpinBox*>("constructionZ")){child=candidate;break;}
+                    check(child,"Referenced Sweep Point Properties missing");
+                    auto* table=child->findChild<QTableWidget*>("constructionReferenceTable");
+                    auto* offset=table?qobject_cast<QDoubleSpinBox*>(table->cellWidget(0,2)):nullptr;
+                    check(offset&&offset->isEnabled()&&std::abs(offset->value()-30)<1e-7,"Sweep Point Properties lost CLI reference");
+                    check(window.execute_console_command(QString::fromStdString(commands::Json{
+                        {"command","construction.reference.set"},{"arguments",point_reference}}.dump())).code=="editing_in_progress",
+                        "Point reference command interrupted Sweep Properties");
+                    offset->setValue(35);child->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+                    check(std::abs(child_z()-30)<1e-7,"Referenced Point committed before parent Sweep OK");
+                    dialog->findChild<QDialogButtonBox*>()->button(commit?QDialogButtonBox::Ok:QDialogButtonBox::Cancel)->click();flush();
+                    check(std::abs(child_z()-(commit?35:30))<1e-7,"Referenced Sweep Point violated parent OK/Cancel");
+                }
+                run("save");const auto gui_point=*document::PartDocument::load(path).find_container(feature.id);
+                run("undo");check(std::abs(child_z()-30)<1e-7,"Referenced Sweep Point Undo failed");
+                auto cli_reference=point_reference;cli_reference["offset_mm"]=35;
+                json_run("construction.reference.set",cli_reference);run("save");
+                check(*document::PartDocument::load(path).find_container(feature.id)==gui_point,
+                    "GUI and CLI Sweep Point reference produced different native definitions");
+                run("undo");json_run("placement.reference.remove",{{"object",last},{"index",0}});
+
             }
             if(planar) {
                 const auto source=json_run("sketch.create",{{"name","Imported station profile"},{"plane","XY"}}).data.at("sketch").get<std::string>();

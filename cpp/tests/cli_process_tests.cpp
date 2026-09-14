@@ -1459,6 +1459,21 @@ int main(int argc,char** argv){
                 referenced.history.front().placement.x==3&&!cache.empty()&&
                 std::abs(cache.back().volume-expected)<(helical?expected*.001:1e-5),
                 "Standalone Sweep reference lost native identity, placement or geometry");
+            if(kind==document::FeatureKind::Sweep3D) {
+                const auto point=feature.sweep3d.path.curve_points.back().id;
+                const auto assign=command({{"command","construction.reference.set"},{"arguments",{{"construction",point},{"index",0},
+                    {"reference",{{"owner",native.document_id+":origin"},{"key","origin:plane:xy"}}},{"offset_mm",35},{"derive_orientation",false}}}});
+                result=launch(executable,root,common+QStringList{"--command",QString::fromStdString("open "+file),
+                    "--command",assign,"--command","undo","--command","redo","--command","save"});
+                require(result.exit_code==0&&result.results()[1].at("data").at("body_calculated")==true,
+                    "Standalone CLI owned Sweep Point reference failed");
+                cache.clear();const auto point_saved=document::PartDocument::load(project/file,&cache);
+                const auto& last=point_saved.history.front().sweep3d.path.curve_points.back();
+                require(last.id==point&&last.references.front().owner_id==native.document_id+":origin"&&
+                    std::abs(last.origin.z-35)<1e-7&&!cache.empty()&&std::abs(cache.back().volume-70*pi)<1e-5,
+                    "Standalone CLI lost owned Point reference, calculated length or profile identity");
+            }
+
         }
         for(const auto kind:{document::FeatureKind::Sweep2D,document::FeatureKind::Sweep3D}) {
             const bool planar=kind==document::FeatureKind::Sweep2D;const std::string prefix=planar?"sweep2d":"sweep3d";

@@ -1,4 +1,5 @@
 #include <zima/workspace/construction_reference_operations.hpp>
+#include <zima/workspace/sweep_point_operations.hpp>
 #include "construction_parameters.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/document/placement_json.hpp>
@@ -230,12 +231,17 @@ void Host::register_construction_commands() {
             const auto before=source(workspace_,args);const auto object=args.at("construction").get<std::string>();writable_body(before,find(before,object));
             document::ConstructionReference reference;reference.owner_id=ref.at("owner");reference.semantic_key=ref.at("key");reference.instance_path=ref.value("instance_path",std::string{});
             reference.offset=args.value("offset_mm",0.0);reference.flip=args.value("flip",false);
-            const bool changed=workspace::set_construction_reference(workspace_,before.id,object,args.at("index").get<std::size_t>(),std::move(reference),args.value("derive_orientation",true));
+            const bool embedded=before.part&&!before.part->find_construction(object);
+            const auto index=args.at("index").get<std::size_t>();const auto derive=args.value("derive_orientation",true);
+            const bool changed=embedded
+                ? workspace::set_sweep_point_reference(workspace_,kernel_,before.id,object,index,std::move(reference),derive)
+                : workspace::set_construction_reference(workspace_,before.id,object,index,std::move(reference),derive);
             if(changed)change_=Change{ChangeKind::Model,before.id};const auto after=source(workspace_,args);Json result;
             visit(after,[&](const Item& item){if(item.object->id!=object)return true;result=details(after,item,500);return false;});
-            result["changed"]=changed;result["body_calculated"]=false;return Result::success(std::move(result));
+            result["changed"]=changed;result["body_calculated"]=embedded&&changed;return Result::success(std::move(result));
         }catch(const QueryError& error){return Result::failure(error.code,tr(error.what()));}
          catch(const workspace::PlacementEditError& error){return Result::failure(error.code,tr(error.what()));}
+         catch(const workspace::SweepOperationError& error){return Result::failure(error.code,tr(error.what()));}
          catch(const std::exception& error){return Result::failure("construction_rejected",tr(error.what()));}
     });
     dispatcher_.add({"construction.delete",tr("Delete an independent construction using its document's shared removal transaction."),
@@ -298,9 +304,8 @@ void Host::register_construction_commands() {
                         auto geometry = workspace::placement_edit_geometry(workspace_, document, value.id);
                         static_cast<void>(document::resolve_construction(value, geometry));
                         document::PartDocument carrier; carrier.constructions.push_back(value);
-                        // Only the frame is needed here. New points have not received their
-                        // coordinates yet, so the temporary list is not a valid route.
-                        carrier.constructions.back().curve_points = {value.curve_points[i]};
+                        // Keep earlier child frames needed by constrained coordinates.
+                        // The native mesh exposes datums even for an unfinished route.
                         return carrier.construction_reference_geometry_for(value.curve_points[i].id, std::move(geometry));
                     });
                     const bool changed = create || value != *existing;

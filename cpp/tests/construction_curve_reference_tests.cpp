@@ -62,6 +62,11 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory,bool assembly_mo
     near(object(frames[1].id).origin.x,5);near(object(frames[2].id).origin.x,9);near(object(frames[3].id).origin.x,2);
     run("placement.set",{{"object",frames[0].id},{"values",{{"reference_offset:0",4}}}});
     near(object(frames[1].id).origin.x,7);near(object(frames[2].id).origin.x,11);near(object(frames[3].id).origin.x,4);
+    auto entries=Json::array();for(const auto& child:object(framed).curve_points)entries.push_back({{"construction",child.id}});
+    entries[1]["values"]={{"x",99}};const auto before_batch=all();const auto batch_revision=revision();
+    const auto batch=host.execute({{"command","construction.set"},{"arguments",{{"construction",framed},{"points",entries}}}});
+    require(!batch.ok&&batch.code=="parameter_not_editable"&&all()==before_batch&&revision()==batch_revision&&!host.change(),
+        "Curve point-list edit ignored an earlier child's plane");
     reject(request(frames[0].id,0,frames[0].container_origin.id,"origin:plane:xy"),"reference_not_available");
     reject(request(frames[0].id,0,frames[2].container_origin.id,"origin:axis:y"),"reference_not_available");
     run("save");const auto loaded=assembly_mode?assembly::AssemblyDocument::load(file).constructions:document::PartDocument::load(file).constructions;
