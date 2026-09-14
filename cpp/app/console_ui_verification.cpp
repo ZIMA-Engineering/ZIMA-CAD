@@ -1616,6 +1616,33 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
             json_run("close",{{"discard",true}});flush();
         }
         {
+            const auto name=stem+"-section-reference";run(QString::fromStdString("new part "+name));run("box.create 10 20 30");
+            const auto section=json_run("section.create",{{"path_mm",{{-50,0},{50,0}}},{"plane","XY"},{"show_cut",true}}).data;
+            const auto id=section.at("object").get<std::string>(),owner=section.at("document").get<std::string>()+":origin";
+            const commands::Json request={{"object",id},{"index",0},{"reference",{{"owner",owner},{"key","origin:plane:yz"}}},{"offset_mm",2}};
+            json_run("section.reference.set",request);flush();
+            const auto get=[&](){return json_run("section.get",{{"object",id}}).data;};
+            const auto edit=[&](){
+                QTreeWidgetItem* item=nullptr;
+                for(QTreeWidgetItemIterator it(model_tree);*it;++it)
+                    if((*it)->data(0,Qt::UserRole).toString().toStdString()==id&&(*it)->data(0,Qt::UserRole+3)=="document-section"){item=*it;break;}
+                check(item,"Referenced Section is missing from Tree");
+                window.show_tree_item_properties(item);flush();
+                auto* dialog=window.findChild<QDialog*>("sectionProperties");
+                check(dialog&&dialog->isVisible(),"Referenced Section Properties did not open");return dialog;
+            };
+            auto* dialog=edit();auto* table=dialog->findChild<QTableWidget*>("sweepPlacementReferences");
+            check(table,"Section placement reference table is missing");auto* offset=qobject_cast<QDoubleSpinBox*>(table->cellWidget(0,2));
+            check(offset&&offset->isEnabled()&&offset->value()==2,"Section Properties lost the CLI reference offset");
+            check(window.execute_console_command(QString::fromStdString(commands::Json({{"command","section.reference.set"},{"arguments",request}}).dump())).code=="editing_in_progress","Section reference command interrupted Properties");
+            offset->setValue(3);dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();check(get().at("placement").at("x")==2,"Section reference Cancel changed native placement");
+            dialog=edit();table=dialog->findChild<QTableWidget*>("sweepPlacementReferences");qobject_cast<QDoubleSpinBox*>(table->cellWidget(0,2))->setValue(3);dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+            check(get().at("placement").at("x")==3,"Section GUI OK did not share reference placement");run("undo");check(get().at("placement").at("x")==2,"Section reference GUI Undo failed");run("redo");run("save");
+            std::vector<kernel::BodyResult> cache;const auto saved=document::PartDocument::load(directory/(name+".prtz"),&cache);
+            check(saved.sections.front().id==id&&saved.sections.front().placement.x==3&&saved.sections.front().placement.references.front().owner_id==owner&&!cache.empty()&&std::abs(cache.back().volume-6000)<1e-6,"Section GUI edit lost reference identity or changed the body");
+            json_run("close",{{"discard",true}});flush();
+        }
+        {
             const auto name=stem+"-model-dimension";
             run(QString::fromStdString("new part "+name));
             const auto id=json_run("box.create",{{"length_mm","10"},{"width_mm","20"},{"height_mm","30"}}).data.at("container").get<std::string>();

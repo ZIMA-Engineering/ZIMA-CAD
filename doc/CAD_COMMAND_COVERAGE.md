@@ -1693,3 +1693,35 @@ Katalog má **275 příkazů**, sada **149 testů**. Poslední úplná regrese j
 Následují reference umístění řezů, další chybějící adaptéry umístění a
 souborové operace. Původní plochy vnějšího závitu již přijímají existující
 `shaft_thread.create/set`; nový duplicitní vstup pro ně není potřeba.
+
+
+## Původní reference umístění řezů (2026-09-14)
+
+`section.reference.set` přiřazuje původní geometrii do pozičních polí a FRONT/TOP
+řezu Partu nebo Assembly. Používá již schválené společné přiřazení a existující
+transakci Vlastností řezu; řešení umístění nemění. Zachovává původní identity,
+zamčenou vzdálenost, přesnou cestu vnořeného výskytu, nativní uložení a Undo/Redo.
+Podrobnosti: [SECTION_REFERENCE_COMMANDS.md](SECTION_REFERENCE_COMMANDS.md).
+
+Modelový test měří průřez 600 mm² a zachovaný objem kvádru 6000 mm³. Ověřuje
+výměnu reference mezi dvěma výskyty stejné podsestavy: řez se přesune z X = 3
+na X = 28 mm, zdrojová geometrie zůstává sdílená. Výběr původní plochy přípravku
+vychází z polohy analytické roviny; směr její parametrické osy sám nerozlišuje
+kladnou a zápornou stranu kvádru.
+
+Samostatné CLI i skutečné Vlastnosti otevřené z položky stromu ověřují společná
+data, Cancel/OK, Undo/Redo a opětovné načtení uloženého Partu. Neplatný vstup,
+aktivní editor, vlastní či chybějící reference a duplicitní přiřazení nezmění
+model. Změna řezu nevyvolává OCCT ani přepočet zdrojových těles.
+
+Obě aplikace a všechny testovací cíle jsou sestavené. Cílená sada prošla
+**10/10 za 128,91 s** (`build/section-reference-tests.log`): geometrický kontrakt
+řezu, překlady, samostatný proces CLI, příkazy skici/vlastností/reference řezu,
+základní příkazy řezu, katalog, GUI konzole a GUI řezů. Katalog obsahuje
+**276 příkazů**, sada **150 testů**. Tato etapa má cílené ověření; poslední úplná
+regrese zůstává **148/148** (`build/drill-reference-full-tests.log`).
+
+Pokračuje audit zbývajících adaptérů umístění a souborových operací. Samostatně
+je rozpracovaná oprava posouvání zobrazených kót umístění fialovými úchopy;
+nepřidává se změna hodnoty parametru tažením. Oprava společné tvorby roviny
+kót čeká na výslovný souhlas podle ochrany umístění v AGENTS.md.

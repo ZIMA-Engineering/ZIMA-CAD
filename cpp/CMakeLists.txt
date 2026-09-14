@@ -171,6 +171,7 @@ add_library(zima_workspace modules/workspace/src/workspace.cpp
     modules/workspace/src/measurement_edits.cpp
     modules/workspace/src/measurement_operations.cpp
     modules/workspace/src/section_operations.cpp
+    modules/workspace/src/section_reference_operations.cpp
     modules/workspace/src/appearance_operations.cpp
     modules/workspace/src/hole_operations.cpp
     modules/workspace/src/opening_operations.cpp
@@ -867,6 +868,10 @@ if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_cpp_measurement_command_tests COMMAND zima_cpp_measurement_command_tests)
     set_tests_properties(zima_cpp_measurement_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
 
+    add_executable(zima_cpp_section_reference_command_tests tests/section_reference_command_tests.cpp)
+    target_link_libraries(zima_cpp_section_reference_command_tests PRIVATE zima_command_host)
+    add_test(NAME zima_cpp_section_reference_command_tests COMMAND zima_cpp_section_reference_command_tests)
+    set_tests_properties(zima_cpp_section_reference_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     add_executable(zima_cpp_section_command_tests tests/section_command_tests.cpp)
     target_link_libraries(zima_cpp_section_command_tests PRIVATE zima_command_host)
     add_test(NAME zima_cpp_section_command_tests COMMAND zima_cpp_section_command_tests)

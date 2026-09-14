@@ -1,3 +1,4 @@
+#include <zima/workspace/section_reference_operations.hpp>
 #include <zima/command_host/host.hpp>
 #include "section_component_input.hpp"
 #include <zima/workspace/drawing_sources.hpp>
@@ -110,6 +111,26 @@ Json component(const document::SectionDefinition& section,const std::string& key
 }
 void Host::register_section_commands() {
     using Type=commands::ArgumentType;
+    dispatcher_.add({"section.reference.set",tr("Assign an original reference to Section placement through shared Properties."),
+        {{"object",true},{"index",true,Type::Integer},{"reference",true,Type::Object},{"offset_mm",false,Type::Number},
+         {"flip",false,Type::Boolean},{"derive_orientation",false,Type::Boolean},{"document",false}},true},[this](const Json& args) {
+        const auto checked=target(args);if(!checked.ok)return checked;
+        if(interaction().template_document)return Result::failure("unsupported_document",tr("Section operations require an open Part or Assembly."));
+        try {
+            const auto invalid=[](){throw EditError("invalid_arguments","Specify owner, key and an optional instance_path for the placement reference.");};
+            const auto& row=args.at("reference");
+            for(const auto& [key,value]:row.items())if((key!="owner"&&key!="key"&&key!="instance_path")||!value.is_string())invalid();
+            if(!row.contains("owner")||!row.contains("key")||args.at("index")<0||args.at("index")>4)invalid();
+            document::ConstructionReference reference;reference.owner_id=row.at("owner");reference.semantic_key=row.at("key");
+            reference.instance_path=row.value("instance_path",std::string{});reference.offset=args.value("offset_mm",0.);reference.flip=args.value("flip",false);
+            const auto id=workspace_.active_document_id(),object=args.at("object").get<std::string>();
+            const bool changed=workspace::set_section_placement_reference(workspace_,id,object,args.at("index").get<std::size_t>(),std::move(reference),args.value("derive_orientation",true));
+            const auto current=source(workspace_,{{"document",id}});auto result=details(find(current,{{"object",object}}));
+            result["document"]=id;result["revision"]=current.revision;result["changed"]=changed;result["body_calculated"]=false;
+            if(changed)change_=Change{ChangeKind::Model,id,true};return Result::success(std::move(result));
+        }catch(const EditError& error){return Result::failure(error.code,tr(error.what()));}
+         catch(const std::exception& error){return Result::failure("section_edit_rejected",tr(error.what()));}
+    });
     for(const bool create:{true,false}) {
         std::vector<commands::Argument> args{{"name",false},{"plane",false},{"reversed",false,Type::Boolean},
             {"show_plane",false,Type::Boolean},{"show_cut",false,Type::Boolean},{"placement",false,Type::Object},

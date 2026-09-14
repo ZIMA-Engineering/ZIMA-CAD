@@ -711,6 +711,18 @@ int main(int argc,char** argv){
             const auto* stored=kernel::find_dimension_layout(saved.dimension_layouts,{box_id,"parameter:length",{}});
             require(stored&&document::dimension_layout_json(*stored)==layout&&*saved.find_container(box_id)==*new_box.find_container(box_id)&&!cache.empty()&&std::abs(cache.back().volume-6000)<1e-6,"Standalone dimension save changed the model or lost native layout");
         }
+        {
+            const auto create=command({{"command","section.create"},{"arguments",{{"path_mm",{{-50,0},{50,0}}},{"plane","XY"},{"show_cut",true}}}});
+            result=launch(executable,root,common+QStringList{"--command","new part cli-section-reference","--command","box.create 10 20 30","--command",create,"--command","save"});
+            require(result.exit_code==0,"Standalone CLI could not create a Section reference fixture");
+            const auto fixture=document::PartDocument::load(project/"cli-section-reference.prtz");const auto id=fixture.sections.front().id;
+            const auto set=command({{"command","section.reference.set"},{"arguments",{{"object",id},{"index",0},{"reference",{{"owner",fixture.document_id+":origin"},{"key","origin:plane:yz"}}},{"offset_mm",2}}}});
+            const auto get=command({{"command","section.get"},{"arguments",{{"object",id}}}});
+            result=launch(executable,root,common+QStringList{"--command","open cli-section-reference.prtz","--command",set,"--command","undo","--command","redo","--command","save","--command",get});
+            require(result.exit_code==0&&result.results().back().at("data").at("placement").at("x")==2,"Standalone Section reference or Undo/Redo failed");
+            std::vector<kernel::BodyResult> cache;const auto saved=document::PartDocument::load(project/"cli-section-reference.prtz",&cache);
+            require(saved.sections.front().id==id&&saved.sections.front().sketch.id==fixture.sections.front().sketch.id&&saved.sections.front().placement.references.front().owner_id==fixture.document_id+":origin"&&!cache.empty()&&std::abs(cache.back().volume-6000)<1e-6,"Standalone Section reference save lost original identity or changed the body");
+        }
         const auto batch="open commanded-box.prtz\nbox.set "+box_id+" 15\nbox.get "+box_id+"\nundo\nbox.get "+box_id+"\nredo\nsave\n";
         result=launch(executable,root,common+QStringList{"--stdin"},QByteArray::fromStdString(batch));
         const auto edits=result.results();
