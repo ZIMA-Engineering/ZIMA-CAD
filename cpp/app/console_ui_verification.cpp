@@ -1,3 +1,4 @@
+#include <zima/document/dimension_layout_json.hpp>
 #include <zima/drawing/drawing_template.hpp>
 #include <zima/sketcher/text_geometry.hpp>
 #include "primitive_properties_dialog.hpp"
@@ -1612,6 +1613,50 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
             std::vector<kernel::BodyResult> cache;const auto saved=document::PartDocument::load(directory/(name+".prtz"),&cache);const auto* feature=saved.find_container(id);check(feature,"GUI save lost the opening");
             const auto r=hole?5.:feature->thread.profile_diameter/2;
             check(feature->placement.x==7&&feature->placement.references.front().owner_id==owner&&!cache.empty()&&std::abs(cache.back().volume-(64000-std::acos(-1.0)*r*r*10))<1e-5,"GUI reference edit lost native opening geometry");
+            json_run("close",{{"discard",true}});flush();
+        }
+        {
+            const auto name=stem+"-model-dimension";
+            run(QString::fromStdString("new part "+name));
+            const auto id=json_run("box.create",{{"length_mm","10"},{"width_mm","20"},{"height_mm","30"}}).data.at("container").get<std::string>();
+            const commands::Json ref={{"owner",id},{"key","parameter:length"}};
+            const auto get=[&](){return json_run("dimension.layout.get",{{"reference",ref}}).data;};
+            auto layout=get().at("layout");kernel::DimensionTextStyle style;style.prefix="CLI ";style.suffix=" mm";style.decimals=4;
+            layout["text_style"]=document::dimension_text_style_json(style);layout["text_along"]=4;
+            json_run("dimension.layout.set",{{"reference",ref},{"layout",layout}});flush();
+            const auto edit=[&]() {
+                window.show_parameter_dimensions(id,{});flush();
+                for(std::size_t i=0;i<10000;++i) {
+                    viewer::ViewerCandidate candidate;candidate.kind=viewer::CandidateKind::Dimension;candidate.geometry_index=i;
+                    const auto source=view->dimension_source(candidate);if(!source)break;
+                    if(source->reference.owner_id!=id||source->reference.semantic_key!="parameter:length")continue;
+                    candidate.owner_id=id;candidate.semantic_key=source->reference.semantic_key;candidate.instance_path=source->reference.instance_path;
+                    window.show_dimension_layout_properties(candidate);flush();
+                    auto* dialog=window.findChild<QDialog*>("dimensionPropertiesDialog");check(dialog&&dialog->isVisible(),"Model dimension Properties did not open");return dialog;
+                }
+                throw std::runtime_error("Model dimension source was not offered by View");
+            };
+            auto* dialog=edit();auto* prefix=dialog->findChild<QLineEdit*>("sketchDimensionPrefix");
+            check(prefix&&prefix->text()=="CLI ","Model dimension Properties lost CLI text style");
+            check(window.execute_console_command(QString::fromStdString(commands::Json({{"command","dimension.layout.set"},{"arguments",{{"reference",ref},{"reset",true}}}}).dump())).code=="editing_in_progress","Dimension command interrupted its Properties");
+            prefix->setText("GUI ");dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();check(get().at("layout")==layout,"Dimension Cancel changed native layout");
+            dialog=edit();dialog->findChild<QLineEdit*>("sketchDimensionPrefix")->setText("GUI ");dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+            check(get().at("layout").at("text_style").at("prefix")=="GUI ","Dimension GUI OK did not share command data");
+            run("undo");check(get().at("layout")==layout,"Dimension GUI Undo lost the CLI layout");run("redo");run("save");
+            std::vector<kernel::BodyResult> cache;const auto saved=document::PartDocument::load(directory/(name+".prtz"),&cache);
+            const auto* stored=kernel::find_dimension_layout(saved.dimension_layouts,{id,"parameter:length",{}});
+            check(stored&&stored->text_style&&stored->text_style->prefix=="GUI "&&saved.find_container(id)->box.length==10&&!cache.empty()&&std::abs(cache.back().volume-6000)<1e-6,"GUI dimension save changed geometry or lost the text override");
+            const auto point=json_run("construction.create",{{"kind","point"},{"name","Dimension point"},{"values",{{"x",7},{"y",3},{"z",4}}}}).data.at("construction").get<std::string>();
+            window.show_parameter_dimensions(point,{});flush();std::size_t checked=0;
+            for(std::size_t i=0;i<10000;++i) {
+                viewer::ViewerCandidate candidate;candidate.kind=viewer::CandidateKind::Dimension;candidate.geometry_index=i;
+                const auto source=view->dimension_source(candidate);if(!source)break;if(source->reference.owner_id!=point)continue;
+                const commands::Json point_ref={{"owner",point},{"key",source->reference.semantic_key},{"instance_path",source->reference.instance_path}};
+                json_run("dimension.layout.get",{{"reference",point_ref}});
+                window.commit_dimension_layout(source->reference,document::dimension_layout_from_json(layout));flush();
+                check(json_run("dimension.layout.get",{{"reference",point_ref}}).data.at("layout")==layout,"Point View layout did not reach native command data");++checked;
+            }
+            check(checked>=3,"Point dimension identity audit did not inspect visible coordinates");
             json_run("close",{{"discard",true}});flush();
         }
         for(const bool title:{false,true}) {

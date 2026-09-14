@@ -1,4 +1,5 @@
 #include "workspace_internal.hpp"
+#include <zima/workspace/model_dimension_layout_operations.hpp>
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -14,14 +15,9 @@ void AssemblyWorkspaceWindow::commit_dimension_layout(const zima::kernel::EdgeRe
         return;
     }
     const auto id=workspace_.active_document_id();
-    if(auto* part=workspace_.open_part(id)) {
-        auto next=part->session.document();zima::kernel::store_dimension_layout(next.dimension_layouts,reference,layout);
-        part->session.commit(std::move(next),part->session.calculated_boundaries());
-    } else if(auto* assembly=workspace_.open_assembly(id)) {
-        auto next=assembly->session.document();zima::kernel::store_dimension_layout(next.dimension_layouts,reference,layout);
-        assembly->session.commit(std::move(next));
+    if(workspace::set_model_dimension_layout(workspace_,id,reference,std::move(layout))) {
+        preserve_view_on_refresh_=true;refresh_scene();refresh_tabs();
     }
-    preserve_view_on_refresh_=true;refresh_scene();refresh_tabs();
 }
 void AssemblyWorkspaceWindow::show_dimension_layout_properties(const zima::viewer::ViewerCandidate& candidate) {
     if(properties_dialog_)return;
@@ -36,7 +32,7 @@ void AssemblyWorkspaceWindow::show_dimension_layout_properties(const zima::viewe
             show_sketch_dimension_properties(sketch.id,dimension_id);return;
         }
     }
-    zima::kernel::DimensionLayout initial{0,8.0,0,0};
+    auto initial=workspace::default_model_dimension_layout();
     const auto id=workspace_.active_document_id();
     const std::vector<zima::kernel::DimensionLayoutEntry>* entries=nullptr;
     if(const auto* part=workspace_.open_part(id))entries=&part->session.document().dimension_layouts;

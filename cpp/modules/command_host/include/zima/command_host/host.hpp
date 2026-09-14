@@ -91,6 +91,7 @@ private:
     void register_history_commands();
     void register_reference_commands();
     void register_construction_commands();
+    void register_model_dimension_layout_commands();
     void register_placement_commands();
     void register_sketch_commands();
     void register_sketch_curve_commands();

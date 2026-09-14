@@ -99,6 +99,10 @@ void placement_parameters(std::vector<DimensionParameter>& out,
 }
 } // namespace
 
+void append_placement_dimension_parameters(std::vector<DimensionParameter>& out,
+    const std::string& owner,const std::string& name,const std::vector<ConstructionReference>& references) {
+    placement_parameters(out,owner,name,references);
+}
 void append_dimension_parameters(std::vector<DimensionParameter>& out,
                                  const ConstructionObject& object) {
     placement_parameters(out, object.id, object.name, object.references,

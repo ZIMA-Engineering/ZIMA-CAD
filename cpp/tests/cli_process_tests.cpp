@@ -1,3 +1,4 @@
+#include <zima/document/dimension_layout_json.hpp>
 #include <zima/drawing/drawing_template.hpp>
 #include <zima/sketcher/text_geometry.hpp>
 #include "derived_copy_query_test_support.hpp"
@@ -696,6 +697,20 @@ int main(int argc,char** argv){
         result=launch(executable,root,common+QStringList{"--command","open commanded-box.prtz","--command",command({{"command","reference.get"},{"arguments",original_face}})});
         require(result.exit_code==0 && result.results().back().at("data").at("surface").at("kind")=="plane" &&
             result.results().back().at("data").at("triangle_count")==2,"CLI lost persisted analytic face details");
+        {
+            const Json ref={{"owner",box_id},{"key","parameter:length"}};
+            const auto get=command({{"command","dimension.layout.get"},{"arguments",{{"reference",ref}}}});
+            result=launch(executable,root,common+QStringList{"--command","open commanded-box.prtz","--command",get});
+            require(result.exit_code==0&&result.results().back().at("data").at("has_override")==false,"Standalone CLI could not read a native model dimension");
+            auto layout=result.results().back().at("data").at("layout");layout["text_along"]=6;layout["arrows_reversed"]=true;
+            kernel::DimensionTextStyle style;style.prefix="Kontrola ";style.suffix=" mm";style.decimals=4;layout["text_style"]=document::dimension_text_style_json(style);
+            const auto set=command({{"command","dimension.layout.set"},{"arguments",{{"reference",ref},{"layout",layout}}}});
+            result=launch(executable,root,common+QStringList{"--command","open commanded-box.prtz","--command",set,"--command","undo","--command","redo","--command","save","--command",get});
+            require(result.exit_code==0&&result.results().back().at("data").at("layout")==layout,"Standalone dimension edit lost complete appearance through Undo/Redo");
+            std::vector<kernel::BodyResult> cache;const auto saved=document::PartDocument::load(project/"commanded-box.prtz",&cache);
+            const auto* stored=kernel::find_dimension_layout(saved.dimension_layouts,{box_id,"parameter:length",{}});
+            require(stored&&document::dimension_layout_json(*stored)==layout&&*saved.find_container(box_id)==*new_box.find_container(box_id)&&!cache.empty()&&std::abs(cache.back().volume-6000)<1e-6,"Standalone dimension save changed the model or lost native layout");
+        }
         const auto batch="open commanded-box.prtz\nbox.set "+box_id+" 15\nbox.get "+box_id+"\nundo\nbox.get "+box_id+"\nredo\nsave\n";
         result=launch(executable,root,common+QStringList{"--stdin"},QByteArray::fromStdString(batch));
         const auto edits=result.results();

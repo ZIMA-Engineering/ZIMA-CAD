@@ -32,6 +32,10 @@ private:
     std::uint64_t next_{1};
 };
 
+struct ConstructionReference;
+// Shared metadata enumeration; does not assign, resolve or modify placement.
+void append_placement_dimension_parameters(std::vector<DimensionParameter>&,
+    const std::string& owner,const std::string& name,const std::vector<ConstructionReference>&);
 struct HistoryContainer;
 struct ConstructionObject;
 void append_dimension_parameters(std::vector<DimensionParameter>& result,
