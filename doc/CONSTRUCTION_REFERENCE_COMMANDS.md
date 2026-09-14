@@ -1,7 +1,7 @@
 # Původní reference konstrukčního kontejneru přes CLI
 
 `construction.reference.set` přiřadí původní referenci existujícímu nezávislému
-bodu, ose, rovině nebo celému kontejneru 3D křivky. Používá schválený společný
+bodu, ose, rovině, celému kontejneru 3D křivky nebo jejímu vlastnímu bodu. Používá schválený společný
 helper pozičních polí a FRONT/TOP a stejnou transakci `commit_construction`
 jako OK konstrukčních Vlastností. Tělesa se při tomto příkazu nepřepočítávají.
 
@@ -48,9 +48,21 @@ Jedna změna je jeden krok Undo. Bezezměnové přiřazení nepřidá historii;
 a navíc obsahují `changed`. Změny jsou uložené v současném `.prtz` / `.asmz`;
 formát ani přípony se nemění.
 
-Příkaz je nyní určen pro nezávislé kořenové kontejnery. Reference bodů uvnitř
-3D křivky, vložených drah, umístění ostatních prvků a řezů navazují dalšími
-etapami. Odstranění reference není součástí tohoto příkazu.
+Bod uvnitř samostatné 3D křivky se zadává svým vlastním ID, získaným z
+`construction.get`. Souřadnice jsou místní vůči rodičovské křivce; vrácené
+`coordinate_owner` je její ID. Rodičovský rám, bod, osa nebo rovina dřívějšího
+bodu jsou přípustné zdroje. Výsledná hrana celé křivky, vlastní bod/rám ani
+pozdější bod přípustné nejsou. Také reference na předcházející geometrii
+Partu a přesné výskyty v Assembly zůstávají dostupné.
+
+Při řešení se staré rámy vlastních bodů nejprve odstraní z pracovních
+podkladů. Po vyřešení každého bodu se zveřejní celý jeho aktuální místní
+rám (bod, osy a roviny) pro následující body. Stejný postup používá vložená
+dráha Sweep3D. Chybějící zdroj ponechá poslední uloženou polohu a nastaví
+neplatnost reference; nepoužije se starý rám pozdějšího bodu.
+
+Příkazové přiřazení referencí bodům vložené dráhy a odebrání referencí
+navazují dalšími etapami. Formát souborů se v této změně nemění.
 
 ## Ověření (2026-09-14)
 
@@ -62,3 +74,25 @@ Související integrace prošla **11/11 za 106,48 s**, včetně skutečného CLI
 procesu a GUI Vlastností s Cancel/OK, Undo/Redo a uložením. Kontroluje se
 zachování vypočtených těles a jejich otisků. Obě aplikace a všechny cíle
 jsou sestavené.
+
+
+## Body křivek a oprava aktuálních rámů (2026-09-14)
+
+Původní chybu reprodukoval test změny odsazení prvního bodu z 2 na 4 mm:
+navázaný čtvrtý bod nesprávně zůstával na 2 mm. Opravený resolver předává
+čerstvý úplný rám každého vyřešeného bodu dalším bodům. Ověření zahrnuje
+řetězy přes bod, osy a roviny, natočení rodiče a dítěte, natočené těleso,
+odmítnutí vlastních/dopředných zdrojů a zachování poslední polohy při
+chybějící referenci. Pro vložený Sweep ověřuje skutečný objem válcového
+tažení 4π√909 mm³, nativní uložení, načtení a opakované vyřešení.
+
+GUI test upravuje dítě uvnitř dialogu křivky: Cancel vrací původní stav,
+OK dítěte potvrzuje pouze návrh rodiče a až OK rodiče mění dokument.
+Undo/Redo a uložení zachovávají místní souřadnice i původní identity.
+Test opakovaných výskytů zahrnuje také dítě natočené křivky ve vnořené sestavě.
+
+Obě aplikace a všechny testovací cíle jsou sestavené ve Windows Release.
+Úplná regrese prošla **155/155 za 630,24 s**, včetně CLI procesu, GUI
+konzole a hlavního pracovního okna. Katalog zůstává na **288 příkazech**;
+rozšiřuje se působnost existujícího přiřazení. Logy:
+`build/curve-reference-final-build.log` a `build/curve-reference-full-tests.log`.

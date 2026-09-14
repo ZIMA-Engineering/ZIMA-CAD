@@ -35,8 +35,8 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Válec, koule, kužel, jehlan, klín | Hotovo | Společné create/get/set, zámky, přesnost, GUI/CLI a 59/59 regresí |
 | Historie Partu | Hotovo | Společný přesun, ověření závislostí, potlačení, odstranění a kurzor; včetně historie těles a Booleanů |
 | Tělesa a Boolean | Modelové operace a reference hotovy | Tvorba, čtení, aktivace, název/viditelnost, kurzory, Boolean, pořadí a mazání; `body.reference.set` a společný vstup `placement.reference.set`; zbývá odstranění reference |
-| Umístění a původní reference | Číselná editace, reference Body/konstrukcí/primitiv, otvorů, řezů a profilů Partu/Assembly | `placement.get/set`, `value_lock.list/set`; `placement.reference.set` pro Body, kořenové konstrukce, šest primitiv a profily Partu, `body.reference.set`, `construction.reference.set`; `hole/opening.reference.set`, `section.reference.set`, `extrusion/revolution.reference.set` také pro profilové odečty Assembly a `sweep2d/sweep3d/helical.reference.set`, importované prvky přes `import.reference.set`; zbývají vložené dráhy a odebrání reference; komponenty používají `component.set` |
-| Konstrukční geometrie | Tvorba, vlastnosti a reference kořenů hotovy | `construction.list/get/create/set/delete`, `construction.reference.set`; body křivek, tečny, zaoblení a seznamy; přiřazení referencí bodům je připravené na `codex/curve-reference-pending` a čeká na schválenou opravu starých zdrojových poloh; vložené dráhy následují |
+| Umístění a původní reference | Číselná editace, reference Body/konstrukcí/primitiv, otvorů, řezů a profilů Partu/Assembly | `placement.get/set`, `value_lock.list/set`; `placement.reference.set` pro Body, konstrukce včetně bodů samostatných křivek, šest primitiv a profily Partu, `body.reference.set`, `construction.reference.set`; `hole/opening.reference.set`, `section.reference.set`, `extrusion/revolution.reference.set` také pro profilové odečty Assembly a `sweep2d/sweep3d/helical.reference.set`, importované prvky přes `import.reference.set`; zbývají vložené dráhy a odebrání reference; komponenty používají `component.set` |
+| Konstrukční geometrie | Tvorba, vlastnosti a reference kořenů i bodů samostatných křivek hotovy | `construction.list/get/create/set/delete`, `construction.reference.set`; body křivek, tečny, zaoblení a seznamy; přiřazení referencí bodům a schválená oprava starých zdrojových rámů jsou implementované; příkazové přiřazení referencí bodům vložených drah následuje |
 | Skicář: geometrie | Základ hotov | 21 příkazů: samostatné a vložené skici, body, úsečky, kružnice, oblouky, elipsy, B-spline, obdélníky, mnohoúhelníky, posun a pomocná geometrie; text create/get/set s nativním písmem a spline get/set hotovy; DXF do vložených profilů hotov; zbývá kontrola dalších variant podle GUI |
 | Skicář: vazby a operace | Vazby/kóty/solver/offset/trim/mirror hotovy | Offset create/get/set/free, úplný podklad a zachování intervalů, trim podle průsečíků, mirror, orientovaný obdélník, tečny a zaoblení rohu; všech 15 druhů vazeb, odstranění a solver; 16 druhů kót včetně vlastností, popisků a mazání; uvolnění externích referencí hotovo |
 | Externí reference skici | Lokální i kontextová tvorba, obnova a odpojení | Přesná projekce, trim, společné potvrzení Partu a závislostí, vlastněné profily, Part/Assembly Undo/Redo a souhrny zavřených nativních vlastníků při explicitní regeneraci |
@@ -1911,3 +1911,21 @@ Detaily a logy: [UNICODE_NATIVE_FILE_COMMANDS.md](UNICODE_NATIVE_FILE_COMMANDS.m
 
 Tím není uzavřená celá příkazová vrstva: zůstávají reference bodů a vložených
 drah, odebrání referencí a dokončení kontroly dalších GUI variant.
+
+
+## Reference bodů 3D křivek (2026-09-14)
+
+`construction.reference.set` a `placement.reference.set` podporují body
+samostatných 3D křivek v Partu i Assembly. Referencí může být původní
+geometrie, rodičovský rám nebo bod/osa/rovina dřívějšího bodu. Místní
+souřadnice a přesná cesta výskytu zůstávají zachované. Schválená oprava
+zastaralých rámů je společná také pro body vloženého Sweep3D.
+
+Úplná regrese prošla **155/155 za 630,24 s**; obě aplikace a všechny testy
+jsou sestavené. Katalog má **288 příkazů**. Podrobnosti:
+[CONSTRUCTION_REFERENCE_COMMANDS.md](CONSTRUCTION_REFERENCE_COMMANDS.md).
+
+Zbývá příkazové přiřazení referencí bodům vložených drah, odebrání pozičních
+a orientačních referencí a závěrečná kontrola zbývajících GUI variant.
+Odebrání má připravené testy; automatická kontrola zápis extrakce zatím
+odmítla a vyžádala si přesnější formulaci souhlasu uživatele.

@@ -4,18 +4,22 @@
 using namespace assembly_profile_test;
 namespace {
 std::string path(const std::string& id){assembly::InstancePath result;result.occurrence_ids={id};return result.encoded();}
-void verify(const kernel::OcctKernel& kernel,const fs::path& directory,bool nested) {
-    Fixture f(kernel,directory,nested?"nested-construction-refs":"flat-construction-refs");
+void verify(const kernel::OcctKernel& kernel,const fs::path& directory,bool nested,bool child_mode) {
+    const std::string name=std::string(nested?"nested":"flat")+(child_mode?"-curve-refs":"-construction-refs");
+    Fixture f(kernel,directory,name);
     std::string first=f.first,second=f.second,owner=f.owner;
     if(nested) {
-        f.run("save");f.run("new",{{"type","assembly"},{"name","construction-refs-top"}});owner=f.live.active_document_id();
+        f.run("save");f.run("new",{{"type","assembly"},{"name",name+"-top"}});owner=f.live.active_document_id();
         first=f.run("component.insert",{{"source",f.owner}}).at("occurrence");second=f.run("component.insert",{{"source",f.owner}}).at("occurrence");
     }
     f.run("component.set",{{"instance_path",path(second)},{"placement",{{"x_mm",30}}}});
     const auto doc=[&]() -> const assembly::AssemblyDocument& {return f.live.open_assembly(owner)->session.document();};
     const auto original_part=f.live.open_part(f.source)->session.revision();
     const auto first_geometry=f.doc().find_occurrence(f.first)->calculated_source,second_geometry=f.doc().find_occurrence(f.second)->calculated_source;
-    const auto point=f.run("construction.create",{{"kind","point"},{"name","Occurrence reference"}}).at("construction").get<std::string>();
+    const auto created=child_mode?f.run("construction.create",{{"kind","curve3d"},{"name","Occurrence curve"},{"values",{{"x",20},{"rotation_z",90}}},
+        {"points",Json::array({{{"values",{{"x",0}}}},{{"values",{{"x",10}}}},{{"values",{{"x",10},{"y",10}}}}})}})
+        :f.run("construction.create",{{"kind","point"},{"name","Occurrence reference"}});
+    const auto point=child_mode?created.at("children")[1].get<std::string>():created.at("construction").get<std::string>();
     const auto scene=doc().build_scene();const auto& geometry=scene.original_references;
     std::string source_path,other_path,key;double plane_x{},normal_x{};
     for(std::size_t i=0;i<geometry.triangle_references.size();++i) {
@@ -37,10 +41,11 @@ void verify(const kernel::OcctKernel& kernel,const fs::path& directory,bool nest
     const auto set=[&](const std::string& occurrence){return f.run("construction.reference.set",{{"construction",point},{"index",0},
         {"reference",{{"owner",f.box},{"key",key},{"instance_path",occurrence}}},{"offset_mm",2},{"derive_orientation",false}});};
     const auto get=[&]() -> const document::ConstructionObject& {return *doc().find_construction(point);};
-    set(source_path);near(get().origin.x,plane_x+normal_x*2);require(get().references.front().instance_path==source_path,"The reference lost its selected occurrence");
-    set(other_path);near(get().origin.x,plane_x-30+normal_x*2);require(get().references.front().instance_path==other_path,"Reference replacement used the first matching source ID");
-    f.run("undo");near(get().origin.x,plane_x+normal_x*2);require(get().references.front().instance_path==source_path,"Undo lost occurrence identity");
-    f.run("redo");near(get().origin.x,plane_x-30+normal_x*2);
+    const auto world_x=[&](){return child_mode?20-get().origin.y:get().origin.x;};
+    set(source_path);near(world_x(),plane_x+normal_x*2);require(get().references.front().instance_path==source_path,"The reference lost its selected occurrence");
+    set(other_path);near(world_x(),plane_x-30+normal_x*2);require(get().references.front().instance_path==other_path,"Reference replacement used the first matching source ID");
+    f.run("undo");near(world_x(),plane_x+normal_x*2);require(get().references.front().instance_path==source_path,"Undo lost occurrence identity");
+    f.run("redo");near(world_x(),plane_x-30+normal_x*2);
     const auto before=doc().constructions;const auto revision=f.live.open_assembly(owner)->session.revision();
     const auto invalid=f.host.execute({{"command","construction.reference.set"},{"arguments",{{"construction",point},{"index",0},{"reference",{{"owner",f.box},{"key",key},{"instance_path",path("missing")}}}}}});
     require(!invalid.ok&&invalid.code=="reference_not_found"&&doc().constructions==before&&f.live.open_assembly(owner)->session.revision()==revision&&!f.host.change(),"Unknown occurrence mutated the construction");
@@ -49,4 +54,4 @@ void verify(const kernel::OcctKernel& kernel,const fs::path& directory,bool nest
     require(loaded.find_construction(point)&&loaded.find_construction(point)->references.front().instance_path==other_path,"Native Assembly lost the full occurrence path");near(loaded.find_construction(point)->origin.x,get().origin.x);
 }
 }
-int main(){try{const auto root=fs::canonical(fs::temp_directory_path()),directory=root/("zima-construction-occurrences-"+document::PartDocument::create_default().document_id);require(fs::create_directory(directory),"Cannot create fixture directory");kernel::OcctKernel kernel;verify(kernel,directory,false);verify(kernel,directory,true);require(directory.parent_path()==root,"Invalid cleanup root");fs::remove_all(directory);std::cout<<"Construction references preserve repeated and nested occurrences without source calculation\n";return 0;}catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}}
+int main(){try{const auto root=fs::canonical(fs::temp_directory_path()),directory=root/("zima-construction-occurrences-"+document::PartDocument::create_default().document_id);require(fs::create_directory(directory),"Cannot create fixture directory");kernel::OcctKernel kernel;for(bool nested:{false,true})for(bool child_mode:{false,true})verify(kernel,directory,nested,child_mode);require(directory.parent_path()==root,"Invalid cleanup root");fs::remove_all(directory);std::cout<<"Construction references preserve repeated and nested occurrences without source calculation\n";return 0;}catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}}

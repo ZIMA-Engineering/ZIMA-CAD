@@ -5490,6 +5490,53 @@ void PartDocument::resolve_constructions(
         target.points.insert(target.points.end(), source.points.begin(), source.points.end());
         target.axes.insert(target.axes.end(), source.axes.begin(), source.axes.end());
     };
+    const auto resolve_curve_children = [&](ConstructionObject& curve,
+            zima::kernel::ViewerReferenceGeometry geometry) {
+        // The editing packet includes every child's previous frame. None is
+        // an input to this calculation until that point has been resolved.
+        // Preserve references to other occurrences of the same source object.
+        std::unordered_set<std::string> child_owners;
+        for (const auto& point : curve.curve_points) {
+            child_owners.insert(point.id);
+            child_owners.insert(point.entity_id);
+            child_owners.insert(point.container_origin.id);
+        }
+        child_owners.erase(std::string{});
+        const auto stale = [&](const auto& reference) {
+            return reference.instance_path.empty() &&
+                child_owners.contains(reference.owner_id);
+        };
+        std::erase_if(geometry.points, [&](const auto& value) { return stale(value.reference); });
+        std::erase_if(geometry.axes, [&](const auto& value) { return stale(value.reference); });
+        std::erase_if(geometry.edges, [&](const auto& value) { return stale(value.reference); });
+        std::size_t kept = 0;
+        for (std::size_t index = 0; index < geometry.triangle_references.size(); ++index) {
+            if (stale(geometry.triangle_references[index])) continue;
+            if (kept != index) {
+                geometry.triangle_references[kept] = std::move(geometry.triangle_references[index]);
+                for (std::size_t corner = 0; corner < 3; ++corner)
+                    geometry.triangles[3 * kept + corner] = geometry.triangles[3 * index + corner];
+            }
+            ++kept;
+        }
+        geometry.triangle_references.resize(kept);
+        geometry.triangles.resize(3 * kept);
+
+        bool valid = true;
+        for (auto& point : curve.curve_points) {
+            static_cast<void>(resolve_construction(point, geometry));
+            valid = valid && point.reference_valid;
+            // Publish the complete freshly calculated local datum frame,
+            // including its point, axes and planes, for following children.
+            // A missing source retains the point's last valid stored frame.
+            auto local_point = point;
+            local_point.parent_construction_id.clear();
+            PartDocument carrier;
+            carrier.constructions.push_back(std::move(local_point));
+            append(geometry, carrier.construction_viewer_mesh(point.id).original_references);
+        }
+        return valid;
+    };
     zima::kernel::ViewerMesh existing_reference_mesh;
     existing_reference_mesh.vertices = source_geometry.vertices;
     existing_reference_mesh.edges = source_geometry.edges;
@@ -5503,17 +5550,8 @@ void PartDocument::resolve_constructions(
             !object.curve_points.empty()) {
             auto local_geometry = construction_reference_geometry_for(
                 object.curve_points.front().id, source_geometry);
-            bool children_valid = true;
-            for (auto& point : object.curve_points) {
-                // Child Point placement is solved in the owning Curve's
-                // coordinate system. Reference identities stay unchanged;
-                // only their numerical geometry is expressed locally.
-                static_cast<void>(resolve_construction(point, local_geometry));
-                children_valid = children_valid && point.reference_valid;
-                local_geometry.points.push_back({
-                    point.origin,
-                    {point.container_origin.id, "point", {}}, point.name});
-            }
+            const bool children_valid =
+                resolve_curve_children(object, std::move(local_geometry));
             object.reference_valid = object.reference_valid && children_valid;
         }
         // Even a datum with a newly missing reference keeps publishing its
@@ -5609,13 +5647,8 @@ void PartDocument::resolve_constructions(
             carrier_path.curve_points.empty()
                 ? carrier_path.id : carrier_path.curve_points.front().id,
             source_geometry);
-        bool children_valid = true;
-        for (auto& point : carrier_path.curve_points) {
-            static_cast<void>(resolve_construction(point, local_geometry));
-            children_valid = children_valid && point.reference_valid;
-            local_geometry.points.push_back({point.origin,
-                {point.container_origin.id, "point", {}}, point.name});
-        }
+        const bool children_valid =
+            resolve_curve_children(carrier_path, std::move(local_geometry));
         container.sweep3d.path.curve_points =
             std::move(carrier_path.curve_points);
         container.sweep3d.path.reference_valid = children_valid;

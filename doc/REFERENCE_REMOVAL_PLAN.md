@@ -1,8 +1,12 @@
-# Odebrání reference společně pro GUI a CLI – návrh k odsouhlasení
+# Odebrání reference společně pro GUI a CLI – schválený postup
 
-Stav 2026-09-14: pouze rozbor a návrh, chráněný kód nebyl změněn.
-Před implementací je nutný konkrétní souhlas podle oddílu
-Container placement protection v [AGENTS.md](../AGENTS.md).
+Uživatel 2026-09-14 výslovně povolil oba předložené zásahy: opravu starých
+rámů navázaných bodů 3D křivky i níže popsané sdílení odebrání referencí
+mezi GUI a CLI. Souhlas pokrývá ochranu společného umístění podle
+[AGENTS.md](../AGENTS.md). Automatická kontrola následně označila formulaci „povoluji zásah“ za
+nedostatečně konkrétní pro odebrání a odmítla i zápis opakovaný po ověření
+historie rozhovoru. Uživatel dostal doplňující výslovnou otázku. Extrakce
+odebrání zatím není zapsaná; připravené testy nejsou označené za ověřené.
 
 ## Vstup, prostředky, výstup
 
@@ -70,5 +74,5 @@ potvrzení modelové transakce.
 - Původní zdroj reference chybí; odstranění této reference nesmí samo
   selhat jen proto, že zdroj nelze načíst.
 
-Samostatně zůstává dříve předložená oprava zastaralých poloh navázaných
-bodů 3D křivky. Tento návrh ji neslučuje ani automaticky neschvaluje.
+Oprava navázaných bodů je oddělená etapa s vlastním ověřením:
+[CONSTRUCTION_REFERENCE_COMMANDS.md](CONSTRUCTION_REFERENCE_COMMANDS.md).

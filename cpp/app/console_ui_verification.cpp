@@ -1902,10 +1902,14 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
             run("undo");check(get().at("sketch")==sketch&&json_run("assembly.cut.list",commands::Json::object()).data.at("total")==2,"GUI cut removal Undo lost ownership");
             json_run("close",{{"discard",true}});flush();
         }
-        {
-            run(QString::fromStdString("new part "+stem+"-construction-reference"));run("box.create 10 10 10");
-            const auto made=json_run("construction.create",{{"kind","plane"},{"name","Reference plane"},{"base_plane","xy"}}).data;
-            const auto id=made.at("construction").get<std::string>(),owner=made.at("document").get<std::string>()+":origin";
+        for(const bool child_mode:{false,true}) {
+            const auto name=stem+(child_mode?"-curve-point-reference":"-construction-reference");
+            run(QString::fromStdString("new part "+name));run("box.create 10 10 10");
+            const auto made=child_mode?json_run("construction.create",{{"kind","curve3d"},{"name","Framed curve"},{"values",{{"x",20},{"z",2},{"rotation_z",90}}},
+                {"points",commands::Json::array({{{"values",{{"x",0}}}},{{"values",{{"x",10}}}},{{"values",{{"x",10},{"y",10}}}}})}}).data
+                :json_run("construction.create",{{"kind","plane"},{"name","Reference plane"},{"base_plane","xy"}}).data;
+            const auto id=child_mode?made.at("children")[1].get<std::string>():made.at("construction").get<std::string>(),owner=made.at("document").get<std::string>()+":origin";
+            const double local_z=child_mode?2:0;
             const commands::Json request={{"construction",id},{"index",0},{"reference",{{"owner",owner},{"key","origin:plane:xy"}}},{"offset_mm",7}};
             json_run("construction.reference.set",request);flush();
             const auto get=[&](){return json_run("construction.get",{{"construction",id}}).data;};
@@ -1913,14 +1917,21 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
                 check(item,"Referenced construction is missing from Tree");window.show_tree_item_properties(item);flush();
                 for(auto* dialog:window.findChildren<QDialog*>())if(dialog->isVisible()&&dialog->findChild<QTableWidget*>("constructionReferenceTable"))return dialog;
                 throw std::runtime_error("Referenced construction Properties did not open");};
+            const auto finish_parent=[&](QDialogButtonBox::StandardButton action){if(!child_mode)return;
+                for(auto* dialog:window.findChildren<QDialog*>())if(dialog->isVisible()&&dialog->findChild<QTableWidget*>("constructionReferenceTable")) {
+                    dialog->findChild<QDialogButtonBox*>()->button(action)->click();flush();return;
+                }
+                throw std::runtime_error("Curve parent Properties did not resume after its point");};
             auto* properties=edit();auto* table=properties->findChild<QTableWidget*>("constructionReferenceTable");auto* offset=qobject_cast<QDoubleSpinBox*>(table->cellWidget(0,2));
             check(offset&&offset->isEnabled()&&offset->value()==7,"GUI did not consume CLI reference offset");
             check(window.execute_console_command(QString::fromStdString(commands::Json({{"command","construction.reference.set"},{"arguments",request}}).dump())).code=="editing_in_progress","Reference command interrupted Properties");
-            offset->setValue(13);properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();check(get().at("origin_mm")[2]==7,"Reference Cancel changed construction");
+            offset->setValue(13);properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();finish_parent(QDialogButtonBox::Cancel);check(std::abs(get().at("origin_mm")[2].get<double>()-(7-local_z))<1e-7,"Reference Cancel changed construction");
             properties=edit();table=properties->findChild<QTableWidget*>("constructionReferenceTable");qobject_cast<QDoubleSpinBox*>(table->cellWidget(0,2))->setValue(13);properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
-            check(get().at("origin_mm")[2]==13,"Reference GUI OK did not share placement data");run("undo");check(get().at("origin_mm")[2]==7,"Reference GUI edit Undo failed");run("redo");run("save");
-            std::vector<kernel::BodyResult> cache;const auto saved=document::PartDocument::load(directory/(stem+"-construction-reference.prtz"),&cache);
-            check(saved.find_construction(id)&&saved.find_construction(id)->references.front().owner_id==owner&&saved.find_construction(id)->origin.z==13&&!cache.empty()&&std::abs(cache.back().volume-1000)<1e-6,"Reference native save lost position, source or body");
+            if(child_mode)check(std::abs(get().at("origin_mm")[2].get<double>()-5)<1e-7,"Point OK committed before the parent Curve");
+            finish_parent(QDialogButtonBox::Ok);
+            if(std::abs(get().at("origin_mm")[2].get<double>()-(13-local_z))>=1e-7)throw std::runtime_error("Reference GUI OK mismatch, child="+std::to_string(child_mode)+" data="+get().dump());run("undo");check(std::abs(get().at("origin_mm")[2].get<double>()-(7-local_z))<1e-7,"Reference GUI edit Undo failed");run("redo");run("save");
+            std::vector<kernel::BodyResult> cache;const auto saved=document::PartDocument::load(directory/(name+".prtz"),&cache);
+            check(saved.find_construction(id)&&saved.find_construction(id)->references.front().owner_id==owner&&std::abs(saved.find_construction(id)->origin.z-(13-local_z))<1e-7&&!cache.empty()&&std::abs(cache.back().volume-1000)<1e-6,"Reference native save lost position, source or body");
             json_run("close",{{"discard",true}});flush();
         }
         {

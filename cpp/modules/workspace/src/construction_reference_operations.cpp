@@ -24,8 +24,12 @@ bool set_construction_reference(Workspace& live,const std::string& id,const std:
     const auto* part=live.open_part(id);const auto* assembly=live.open_assembly(id);
     if(!part&&!assembly)reject("unsupported_document","Construction operations require an open Part or Assembly.");
     const auto& roots=part?part->session.document().constructions:assembly->session.document().constructions;
-    const auto found=std::ranges::find(roots,object_id,&Object::id);
-    if(found==roots.end())reject("construction_not_found","This command requires an independent construction container.");
+    const auto root=std::ranges::find_if(roots,[&](const auto& candidate) {
+        return candidate.id==object_id||std::ranges::any_of(candidate.curve_points,[&](const auto& point){return point.id==object_id;});
+    });
+    if(root==roots.end())reject("construction_not_found","This command requires an independent construction container or its curve point.");
+    const auto child=std::ranges::find(root->curve_points,object_id,&Object::id);
+    const auto* found=root->id==object_id?&*root:&*child;
     auto value=*found;
     if(part) {
         if(!reference.instance_path.empty())reject("invalid_reference","A Part construction requires a local original reference.");
@@ -35,13 +39,18 @@ bool set_construction_reference(Workspace& live,const std::string& id,const std:
         }
     }
     if(reference.instance_path.empty()) {
-        for(auto it=found;it!=roots.end();++it)if(owns(*it,reference.owner_id))
+        // A child may use the owning Curve's frame and already defined points,
+        // but never its resulting edge or a later/self point. Those depend on it.
+        const bool earlier_point=child!=root->curve_points.end()&&std::any_of(root->curve_points.begin(),child,
+            [&](const auto& point){return reference.owner_id==point.container_origin.id&&(reference.semantic_key=="point"||reference.semantic_key.starts_with("origin:"));});
+        const bool parent_origin=child!=root->curve_points.end()&&reference.owner_id==root->container_origin.id&&reference.semantic_key.starts_with("origin:");
+        for(auto it=root;it!=roots.end();++it)if(owns(*it,reference.owner_id)&&!(it==root&&(earlier_point||parent_origin)))
             reject("reference_not_available","A construction cannot reference itself or a later construction.");
         if(part) {
             const auto& doc=part->session.document();
             if(doc.find_container(reference.owner_id)) {
                 const auto source=std::ranges::find_if(doc.history_order,[&](const auto& entry){return entry.id==reference.owner_id;});
-                const auto target=std::ranges::find_if(doc.history_order,[&](const auto& entry){return entry.id==object_id;});
+                const auto target=std::ranges::find_if(doc.history_order,[&](const auto& entry){return entry.id==root->id;});
                 if(source==doc.history_order.end()||target==doc.history_order.end()||source>=target)
                     reject("reference_not_available","A construction reference must precede it in model history.");
             }

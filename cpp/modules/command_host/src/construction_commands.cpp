@@ -217,7 +217,7 @@ void Host::register_construction_commands() {
                 return Result::success(std::move(result));
             } catch (const QueryError& error) { return Result::failure(error.code, tr(error.what())); }
         });
-    dispatcher_.add({"construction.reference.set",tr("Assign an original reference to an independent construction using shared Properties rules."),
+    dispatcher_.add({"construction.reference.set",tr("Assign an original reference to a construction or curve point using shared Properties rules."),
         {{"construction",true},{"index",true,commands::ArgumentType::Integer},{"reference",true,commands::ArgumentType::Object},
          {"offset_mm",false,commands::ArgumentType::Number},{"flip",false,commands::ArgumentType::Boolean},{"derive_orientation",false,commands::ArgumentType::Boolean},{"document",false}},true},[this](const Json& args) {
         const auto checked=target(args);if(!checked.ok)return checked;

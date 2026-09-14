@@ -241,6 +241,21 @@ int main(int argc,char** argv){
             const auto values=assembly_mode?assembly::AssemblyDocument::load(project/(name+suffix)).constructions:document::PartDocument::load(project/(name+suffix)).constructions;
             const auto found=std::ranges::find(values,object,&document::ConstructionObject::id);require(found!=values.end()&&found->origin.z==8&&found->references.front().owner_id==document+":origin"&&found->references.front().offset==8,"CLI native save lost reference owner or calculated position");
         }
+        for(const bool assembly_mode:{false,true}) {
+            const std::string type=assembly_mode?"assembly":"part",name="curve-reference-"+type,suffix=assembly_mode?".asmz":".prtz";
+            result=launch(executable,root,common+QStringList{"--command",command({{"command","new"},{"arguments",{{"type",type},{"name",name}}}}),
+                "--command",command({{"command","construction.create"},{"arguments",{{"kind","curve3d"},{"name","Framed curve"},{"values",{{"x",20},{"rotation_z",90}}},
+                    {"points",Json::array({{{"values",{{"x",0}}}},{{"values",{{"x",10}}}},{{"values",{{"x",10},{"y",10}}}}})}}}}),"--command","save"});
+            require(result.exit_code==0,"Cannot prepare CLI curve reference fixture");
+            const auto made=result.results()[1].at("data");const auto curve=made.at("construction").get<std::string>(),point=made.at("children")[1].get<std::string>(),document=made.at("document").get<std::string>();
+            result=launch(executable,root,common+QStringList{"--command",command({{"command","open"},{"arguments",{{"path",name+suffix}}}}),
+                "--command",command({{"command","construction.reference.set"},{"arguments",{{"construction",point},{"index",0},{"reference",{{"owner",document+":origin"},{"key","origin:plane:yz"}}},{"offset_mm",6},{"derive_orientation",false}}}}),
+                "--command",command({{"command","placement.set"},{"arguments",{{"object",point},{"values",{{"reference_offset:0",8}}}}}}),"--command","undo","--command","redo","--command","save"});
+            require(result.exit_code==0&&result.results()[1].at("data").at("coordinate_owner")==curve,"CLI curve reference or Undo/Redo failed");
+            const auto values=assembly_mode?assembly::AssemblyDocument::load(project/(name+suffix)).constructions:document::PartDocument::load(project/(name+suffix)).constructions;
+            const auto found=std::ranges::find(values,curve,&document::ConstructionObject::id);require(found!=values.end(),"CLI save lost curve identity");const auto& child=found->curve_points[1];
+            require(child.id==point&&child.references.front().owner_id==document+":origin"&&std::abs(child.origin.x-10)<1e-7&&std::abs(child.origin.y-12)<1e-7,"CLI native save lost child reference or local coordinates");
+        }
         {
             result=launch(executable,root,common+QStringList{"--command","new part primitive-reference","--command","box.create 10 10 10","--command","save"});
             require(result.exit_code==0,"Cannot prepare CLI primitive reference fixture");const auto made=result.results()[1].at("data");const auto object=made.at("container").get<std::string>(),document=made.at("document").get<std::string>();
