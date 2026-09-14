@@ -286,3 +286,9 @@ bodů nadřazené křivky; vložená dráha přes vlastnící tažení.
 Příkaz má společné Undo/Redo a nativní uložení. Katalog má 210 příkazů.
 Přesný rozsah, chyby, výpočetní chování a ověřené testy:
 [CONSTRUCTION_REMOVAL.md](CONSTRUCTION_REMOVAL.md).
+
+## Původní reference nezávislé konstrukce
+
+`construction.reference.set` sdílí přiřazení pozičních/orientačních polí
+s Vlastnostmi a potvrzuje stejnou konstrukční transakci. Podrobnosti,
+identifikátory, zámky a rozsah: [CONSTRUCTION_REFERENCE_COMMANDS.md](CONSTRUCTION_REFERENCE_COMMANDS.md).

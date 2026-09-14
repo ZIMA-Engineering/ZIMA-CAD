@@ -124,6 +124,20 @@ int main(int argc,char** argv){
             require(saved.drawing_template->images.front().id==image&&saved.drawing_template->images.front().width==30&&saved.drawing_template->images.front().height==15&&
                 saved.drawing_template->repeat_regions.front().id==region&&saved.drawing_template->repeat_regions.front().direction=="right"&&saved.drawing_template->repeat_regions.front().value_locks.contains("step"),"CLI object save lost geometry, identity or locks");
         }
+        for(const bool assembly_mode:{false,true}) {
+            const std::string type=assembly_mode?"assembly":"part",name="construction-reference-"+type,suffix=assembly_mode?".asmz":".prtz";
+            auto arguments=common+QStringList{"--command",command({{"command","new"},{"arguments",{{"type",type},{"name",name}}}})};
+            if(!assembly_mode)arguments+=QStringList{"--command","box.create 10 10 10"};
+            arguments+=QStringList{"--command",command({{"command","construction.create"},{"arguments",{{"kind","plane"},{"name","Referenced plane"},{"base_plane","xy"}}}}),"--command","save"};
+            result=launch(executable,root,arguments);require(result.exit_code==0,"Cannot prepare CLI construction reference fixture");
+            const auto made=result.results()[assembly_mode?1:2].at("data");const auto object=made.at("construction").get<std::string>(),document=made.at("document").get<std::string>();
+            result=launch(executable,root,common+QStringList{"--command",command({{"command","open"},{"arguments",{{"path",name+suffix}}}}),
+                "--command",command({{"command","construction.reference.set"},{"arguments",{{"construction",object},{"index",0},{"reference",{{"owner",document+":origin"},{"key","origin:plane:xy"}}},{"offset_mm",6}}}}),
+                "--command",command({{"command","placement.set"},{"arguments",{{"object",object},{"values",{{"reference_offset:0",8}}}}}}),"--command","undo","--command","redo","--command","save"});
+            require(result.exit_code==0&&result.results()[1].at("data").at("body_calculated")==false,"CLI construction reference or Undo/Redo failed");
+            const auto values=assembly_mode?assembly::AssemblyDocument::load(project/(name+suffix)).constructions:document::PartDocument::load(project/(name+suffix)).constructions;
+            const auto found=std::ranges::find(values,object,&document::ConstructionObject::id);require(found!=values.end()&&found->origin.z==8&&found->references.front().owner_id==document+":origin"&&found->references.front().offset==8,"CLI native save lost reference owner or calculated position");
+        }
         const auto shell_path=project/"shell-cli.prtz";
         auto shell_fixture=document::PartDocument::create_default();auto shell_box=document::PartDocument::create_box_container();shell_box.box={10,10,10};
         shell_fixture.insert_history_entry(document::PartHistoryKind::Feature,shell_box.id);shell_fixture.history.push_back(shell_box);

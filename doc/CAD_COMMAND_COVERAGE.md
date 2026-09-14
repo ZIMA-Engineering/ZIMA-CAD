@@ -1506,3 +1506,21 @@ Sestaveny obě aplikace a všechny testovací cíle. Katalog má **261 příkaz�
 sada **141 testů**. Poslední úplný běh **140/140** patří bezprostředně
 předchozí etapě; nynější rozsah má uvedenou související regresi.
 Formáty a startovací Part/Assembly šablony se nemění. Push je odložený.
+
+## Reference samostatných konstrukcí (2026-09-14)
+
+`construction.reference.set` zpřístupňuje poziční a FRONT/TOP pole pro
+bod, osu, rovinu a kořenovou 3D křivku v Partu i sestavě. Používá schválené
+společné přiřazení a existující potvrzení konstrukce; chrání pořadí historie
+a přesnou cestu výskytu. Výpočet tělesa se nevolá. Podrobnosti:
+[CONSTRUCTION_REFERENCE_COMMANDS.md](CONSTRUCTION_REFERENCE_COMMANDS.md).
+
+Modelová regrese prošla **1/1 za 0,15 s**, související integrace
+**11/11 za 106,48 s** a reference opakovaných/vnořených výskytů navíc
+**1/1 za 0,26 s**. Integrace zahrnuje skutečné CLI, GUI Vlastnosti,
+překlady a původní konstrukce/umístění. Sestaveny obě aplikace a všechny
+testovací cíle. Katalog má **262 příkazů**, sada **143 testů**; poslední
+úplný běh zůstává **140/140** z etapy životního cyklu šablon.
+Formáty se nemění; push zůstává odložený. Pokračují reference bodů křivky,
+vložených drah, ostatních prvků a řezů. Přesun společného odebrání reference
+čeká na samostatný souhlas uživatele.

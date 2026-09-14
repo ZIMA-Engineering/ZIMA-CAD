@@ -1,3 +1,4 @@
+#include <zima/workspace/construction_reference_operations.hpp>
 #include "construction_parameters.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/document/placement_json.hpp>
@@ -216,6 +217,27 @@ void Host::register_construction_commands() {
                 return Result::success(std::move(result));
             } catch (const QueryError& error) { return Result::failure(error.code, tr(error.what())); }
         });
+    dispatcher_.add({"construction.reference.set",tr("Assign an original reference to an independent construction using shared Properties rules."),
+        {{"construction",true},{"index",true,commands::ArgumentType::Integer},{"reference",true,commands::ArgumentType::Object},
+         {"offset_mm",false,commands::ArgumentType::Number},{"flip",false,commands::ArgumentType::Boolean},{"derive_orientation",false,commands::ArgumentType::Boolean},{"document",false}},true},[this](const Json& args) {
+        const auto checked=target(args);if(!checked.ok)return checked;
+        if(interaction().template_document)return Result::failure("unsupported_document",tr("Construction operations require an open Part or Assembly."));
+        try {
+            const auto& ref=args.at("reference");
+            const auto invalid=[](){throw QueryError("invalid_arguments","Specify owner, key and an optional instance_path for the construction reference.");};
+            for(const auto& [key,item]:ref.items())if((key!="owner"&&key!="key"&&key!="instance_path")||!item.is_string())invalid();
+            if(!ref.contains("owner")||!ref.contains("key")||args.at("index")<0||args.at("index")>4)invalid();
+            const auto before=source(workspace_,args);const auto object=args.at("construction").get<std::string>();writable_body(before,find(before,object));
+            document::ConstructionReference reference;reference.owner_id=ref.at("owner");reference.semantic_key=ref.at("key");reference.instance_path=ref.value("instance_path",std::string{});
+            reference.offset=args.value("offset_mm",0.0);reference.flip=args.value("flip",false);
+            const bool changed=workspace::set_construction_reference(workspace_,before.id,object,args.at("index").get<std::size_t>(),std::move(reference),args.value("derive_orientation",true));
+            if(changed)change_=Change{ChangeKind::Model,before.id};const auto after=source(workspace_,args);Json result;
+            visit(after,[&](const Item& item){if(item.object->id!=object)return true;result=details(after,item,500);return false;});
+            result["changed"]=changed;result["body_calculated"]=false;return Result::success(std::move(result));
+        }catch(const QueryError& error){return Result::failure(error.code,tr(error.what()));}
+         catch(const workspace::PlacementEditError& error){return Result::failure(error.code,tr(error.what()));}
+         catch(const std::exception& error){return Result::failure("construction_rejected",tr(error.what()));}
+    });
     dispatcher_.add({"construction.delete",tr("Delete an independent construction using its document's shared removal transaction."),
         {{"construction",true},{"document",false}},true},[this](const Json& args) {
         const auto check=target(args);if(!check.ok)return check;
