@@ -382,7 +382,7 @@ if(WIN32 AND TARGET Qt6::QJpegPlugin)
     endforeach()
 endif()
 target_include_directories(zima-cad-drawing-harness PRIVATE app)
-target_link_libraries(zima-cad-drawing-harness PRIVATE zima_viewer zima_drawing_render)
+target_link_libraries(zima-cad-drawing-harness PRIVATE zima_viewer zima_drawing_render zima_command_host)
 target_link_libraries(zima-cad-drawing-harness PRIVATE
     zima_workspace zima_drawing zima_document_core zima_assembly zima_ui
     Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Svg)

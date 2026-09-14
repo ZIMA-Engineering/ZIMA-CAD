@@ -46,9 +46,9 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Zaoblení, zkosení, skořepina | Hotovo | `shell.faces/create/get/set`, `fillet.create/get/set`, `chamfer.create/get/set`; `edge_treatment.edges/route/remove`: skutečný vstup, společná tečná trasa a odebrání člena/trasy/posledního prvku podle stromového kontraktu |
 | Zrcadlo a pole | Hotovo pro Part a bezprostřední komponenty Assembly | `derived_copy.sources`, `mirror.create/get/set`, `pattern.create/get/set`: společné zdroje a potvrzení GUI/CLI, roviny/osy, lineární i kruhové režimy, umístění, zámky, neuložené zdroje a Undo/Redo; vnořená aktivace patří do řádku Sestavy |
 | Sestavy | Dotazy, vložení, otevření zdrojů, vlastnosti, odstranění a přesná aktivace hotovy | `component.set`: název, viditelnost, potlačení, uzemnění, umístění a všechny čtyři druhy vložených vazeb s mezemi/zámky; `component.remove` sdílí kontrolu závislostí a atomické mazání s GUI; `component.activate/deactivate` sdílejí přesný zdrojový kontext s GUI; souhrny referencí jsou společné pro Assembly Undo a explicitní regeneraci; profilové odečty mají create/get/set/list i mazání, potlačení a pořadí přes společné operace; schválená oprava pořadí řetězce vazeb je hotová a ověřená |
-| Výkresy | Listy, šablony, historie, tvorba/vlastnosti/dotazy/mazání pohledů, regenerace, modelové anotace, Show/Erase a měřené kóty (dotazy, tvorba, editace, řetězec, mazání), razítko, zdrojové parametry BOM, styly šraf, PDF, DXF a PNG/JPEG listu/výřezu hotovy | Vlastnosti místního rozložení modelových kót; snímek interaktivního View přes `export.view` hotov |
+| Výkresy | Listy, šablony, historie, tvorba/vlastnosti/dotazy/mazání pohledů, regenerace, modelové anotace, Show/Erase a měřené kóty (dotazy, tvorba, editace, řetězec, mazání), razítko, zdrojové parametry BOM, styly šraf, PDF, DXF a PNG/JPEG listu/výřezu hotovy | `drawing.annotation.get/set` pro místní rozložení modelových kót a `export.view` hotovy; zbývá příkazové umístění popisků pohledů a označení řezu |
 | Editor šablon | Životní cyklus, skica, obrázky a oblasti kusovníku hotovy | `template.new/open/get/save/sketch.edit`, rámečky i razítka, nativní text a Undo/Redo; `template.image/region.list/get/create/set/remove`, zámky a společné GUI transakce |
-| Vzhled | Společné operace GUI/CLI hotovy | `appearance.get/set/reset/faces/palette`: styly Partu a jednotlivých výskytů, skupiny ploch, dědění zdroje, reset, historie a nativní uložení; bez výpočtu těles |
+| Vzhled | Barvy a styly geometrie hotovy; 3D kóty zbývají | `appearance.get/set/reset/faces/palette`: styly Partu a jednotlivých výskytů, skupiny ploch, dědění zdroje, reset, historie a nativní uložení; bez výpočtu těles; vlastní textový styl a rozložení neskicových kót Partu/Assembly dosud potvrzuje jen `dimension_display.cpp` |
 | Řezy | Čtení, tvorba, vlastnosti, aktivace a odstranění | `section.list/get/components/create/set/activate/delete`: úplná otevřená čára, vlastní skica, společné OK vlastností, číselné umístění, přesné výskyty a šrafování; `section.sketch.edit` upravuje celou skicu v jedné transakci; zbývá vstup referencí umístění |
 | Měření | Společné GUI/CLI operace | `measurement.list/get/evaluate/create/set/delete`; původní reference a uložené výsledky |
 | Parametry, relace a materiál | Společné tabulky a transakce hotovy | Parametry, jednotky, přesnost, relace, materiál včetně přímého načtení knihovny a uložené varianty; řízení rozměrů relacemi a generování variant nejsou dosud zavedené ani v GUI |
@@ -1585,3 +1585,34 @@ poslední úplný běh před těmito etapami zůstává 144/144.
 Audit výkresů upřesnil chybějící rozsah: lokální rozložení a textový styl
 modelové kóty podle současných Vlastností. Následuje společná datová operace
 pro GUI a příkazy; zdrojový Part se při této úpravě nemění.
+
+## Místní vlastnosti modelových kót ve výkresu (2026-09-14)
+
+`drawing.annotation.get/set` čtou a upravují uloženou anotaci podle pohledu
+a úplné identity zdroje/výskytu. Vlastnosti GUI a příkaz používají společné
+`set_drawing_annotation_layout`: mění pouze místní rozložení a jeho projekci,
+zachovávají skutečnou hodnotu, původní rozměr a stav chybějícího zdroje.
+Podrobnosti: [DRAWING_ANNOTATION_LAYOUT_COMMANDS.md](DRAWING_ANNOTATION_LAYOUT_COMMANDS.md).
+
+Ověřeny modelové, procesní a skutečné GUI cesty. Kontroly zahrnují lineární,
+úhlové, poloměrové a průměrové kóty, přesné souřadnice textu/oblouku,
+změnu zdroje, nativní uložení, Cancel/OK, Undo/Redo, neplatné vstupy
+a bezezměnové požadavky. Procesní a modelový běh prošel **2/2 za 29,11 s**;
+závěrečný modelový a GUI běh **2/2 za 1,90 s**. Obě aplikace i všechny
+cíle jsou sestavené. Katalog má **268 příkazů**, sada **146 testů**.
+
+Audit zároveň konkretizoval další existující GUI operace bez příkazu:
+- místní pozice popisků pohledů a označení řezů;
+- textové vlastnosti a rozložení neskicových 3D kót Partu/Assembly;
+- přejmenování nativních souborů, odstranění aktuálního souboru a správa
+  číslovaných archivních verzí dokumentu/pracovního adresáře.
+Přejmenování nyní obsahuje zastaralý předpoklad, že Part nemůže mít externí
+závislost; při převodu musí testy zahrnout i dnešní Part reference a selhání
+zápisu. Jde o další práci, nikoli o již dokončené příkazy.
+
+Úplná Windows Release regrese prošla **146/146 za 587,41 s**,
+`build/annotation-layout-full-tests.log`. Po doplnění výslovné validace
+správně orientované kamery testovacího přípravku prošla závěrečná sada
+**3/3 za 27,52 s** (model, samostatné CLI, skutečné GUI),
+`build/annotation-layout-verified-tests.log`. Produkční kód se mezi těmito
+běhy nezměnil; obě aplikace a všechny cíle jsou sestavené.

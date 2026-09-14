@@ -1,6 +1,39 @@
 #include <zima/workspace/drawing_annotation_operations.hpp>
 #include <algorithm>
 namespace zima::workspace {
+const drawing::ModelAnnotation& drawing_annotation(const drawing::DrawingDocument& document,
+    const std::string& view_id,const drawing::ModelAnnotationReference& reference) {
+    const auto* view=document.find_view(view_id);
+    if(!view)throw DrawingOperationError("view_not_found","The drawing view does not exist.");
+    const drawing::ModelAnnotation* found=nullptr;
+    for(const auto& item:view->model_annotations)if(item.source==reference) {
+        if(found)throw DrawingOperationError("ambiguous_reference","The drawing annotation reference is ambiguous.");
+        found=&item;
+    }
+    if(!found)throw DrawingOperationError("annotation_not_found","The drawing annotation does not exist.");
+    return *found;
+}
+bool set_drawing_annotation_layout(drawing::DrawingDocument& document,const std::string& view_id,
+    const drawing::ModelAnnotationReference& reference,const kernel::DimensionLayout& layout) {
+    const auto& original=drawing_annotation(document,view_id,reference);
+    if(original.kind!=drawing::ModelAnnotationKind::Dimension||!original.model_dimension)
+        throw DrawingOperationError("unsupported_annotation","The annotation has no stored model dimension presentation.");
+    try {kernel::validate_dimension_layout(layout);}
+    catch(const std::invalid_argument&) {throw DrawingOperationError("invalid_arguments","Invalid model annotation layout.");}
+    if(layout.text_style) {
+        const auto& style=*layout.text_style;
+        if(style.decimals<0||style.decimals>12||(style.tolerance_mode!=""&&style.tolerance_mode!="symmetric"&&
+            style.tolerance_mode!="single_deviation"&&style.tolerance_mode!="deviations"))
+            throw DrawingOperationError("invalid_arguments","Invalid model annotation layout.");
+    }
+    if(layout==original.view_layout.value_or(original.model_layout)&&original.paper_handles.empty())return false;
+    auto value=original;value.view_layout=layout;value.paper_handles.clear();
+    auto* view=document.find_view(view_id);
+    value=drawing::project_model_annotation(*view,std::move(value));
+    const auto target=std::ranges::find(view->model_annotations,reference,&drawing::ModelAnnotation::source);
+    *target=std::move(value);
+    return true;
+}
 bool set_drawing_annotation_visibility(drawing::DrawingDocument& document,const std::vector<AnnotationVisibility>& values) {
     std::set<std::pair<std::string,drawing::ModelAnnotationReference>> seen;
     std::vector<std::pair<drawing::ModelAnnotation*,bool>> changes;

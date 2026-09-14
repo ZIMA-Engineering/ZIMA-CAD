@@ -2,6 +2,9 @@
 #include <zima/workspace/drawing_annotation_operations.hpp>
 #include <zima/document/file_path.hpp>
 #include <iostream>
+#include "drawing_annotation_layout_test_support.hpp"
+#include <zima/document/dimension_layout_json.hpp>
+#include <limits>
 using namespace zima;using commands::Json;namespace fs=std::filesystem;
 namespace {
 void require(bool value,const char* message){if(!value)throw std::runtime_error(message);}
@@ -49,5 +52,68 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     try{workspace::set_drawing_annotation_visibility(draft,{{first.id,a.source,false},{second.id,missing.source,false}});throw std::logic_error("Unresolved batch accepted");}catch(const workspace::DrawingOperationError&){}
     require(draft.find_view(first.id)->model_annotations[0].visible==visibility,"Shared GUI batch partially changed the draft");
 }
+void verify_layouts(const kernel::OcctKernel& kernel,fs::path directory) {
+    workspace::Workspace live;const auto doc=annotation_layout_test::fixture();const auto view=doc.sheets.front().views.front();
+    const auto source=view.model_annotations.front().source;const auto file=directory/"annotation-layout.drwz";
+    live.add_drawing(doc,file);live.activate(doc.document_id);live.display_top_level(doc.document_id);
+    bool editing=false;command_host::Options options;options.interaction=[&]{command_host::Interaction value;value.editing=editing;return value;};
+    command_host::Host host(live,kernel,directory,options);auto* state=live.open_drawing(doc.document_id);
+    const auto args=Json{{"view",view.id},{"reference",ref(source)}};
+    const auto get=[&]{return run(host,"drawing.annotation.get",args).data;};
+    const auto original=get();require(original.at("editable")==true&&original.at("value")==10&&original.at("view_layout").is_null(),"Stored annotation query is wrong");
+    auto empty=args;empty["style"]=Json::object();const auto empty_revision=state->revision();
+    require(run(host,"drawing.annotation.set",empty).data.at("changed")==false&&state->revision()==empty_revision&&get().at("view_layout").is_null(),"Empty style patch pinned the model defaults");
+    auto set=args;set["layout"]={{"text_along",3},{"text_outward",4},{"arrows_reversed",true},{"line_offset",2}};
+    set["style"]={{"prefix","REF "},{"decimals",4},{"tolerance_mode","symmetric"},{"symmetric_tolerance","0.02"}};
+    const auto revision=state->revision();const auto applied=run(host,"drawing.annotation.set",set).data;
+    require(applied.at("changed")==true&&state->revision()==revision+1&&applied.at("value")==10&&applied.at("text").get<std::string>().find("REF ")==0,"Style changed the measurement or failed to project");
+    const auto changed=workspace::drawing_annotation(state->document(),view.id,source);
+    require(changed.model_dimension==view.model_annotations[0].model_dimension&&changed.model_layout==view.model_annotations[0].model_layout&&changed.source==source,"Local edit changed source data");
+    require(changed.text_anchor==drawing::Point2{8,10}&&changed.curves!=view.model_annotations[0].curves,"Layout did not move projected geometry");
+    require(state->document().find_view(view.id)->model_annotations[1]==view.model_annotations[1]&&state->document().sheets.front().views[1].model_annotations==doc.sheets.front().views[1].model_annotations,"Layout leaked to another occurrence or view");
+    const auto after=state->document();run(host,"undo");require(get().at("view_layout").is_null(),"Annotation layout Undo failed");run(host,"redo");require(annotation_layout_test::snapshot(state->document())==annotation_layout_test::snapshot(after),"Annotation layout Redo failed");
+    const auto same=state->revision(),generation=state->data_generation();require(run(host,"drawing.annotation.set",set).data.at("changed")==false&&state->revision()==same&&state->data_generation()==generation,"No-op annotation edit created history");
+    const auto reject=[&](Json request,const char* code){const auto snapshot=state->document();const auto before=state->revision();const auto r=host.execute({{"command","drawing.annotation.set"},{"arguments",request}});
+        if(r.ok||r.code!=code)throw std::runtime_error(std::string("Expected ")+code+", got "+r.code+": "+r.message);
+        require(state->revision()==before&&annotation_layout_test::snapshot(state->document())==annotation_layout_test::snapshot(snapshot)&&!host.change(),"Invalid annotation partially committed");};
+    auto bad=set;bad["layout"]["plane_quarter_turns"]=4;reject(bad,"invalid_arguments");
+    bad=set;bad["layout"]["envelope_offset"]=-1;reject(bad,"invalid_arguments");
+    bad=set;bad["style"]["decimals"]=2.5;reject(bad,"invalid_arguments");
+    bad=set;bad["style"]["tolerance_mode"]="bogus";reject(bad,"invalid_arguments");
+    bad=set;bad["layout"]["value"]=20;reject(bad,"invalid_arguments");
+    bad=set;bad["reference"]["instance_path"]="missing";reject(bad,"annotation_not_found");
+    bad=set;bad["view"]="missing";reject(bad,"view_not_found");
+    bad=set;bad["document"]="stale";reject(bad,"document_changed");
+    bad=set;bad["reference"]=ref(view.model_annotations[3].source);reject(bad,"unsupported_annotation");
+    editing=true;reject(set,"editing_in_progress");editing=false;
+    bad=set;bad["reference"]=ref(view.model_annotations[2].source);run(host,"drawing.annotation.set",bad);
+    require(workspace::drawing_annotation(state->document(),view.id,view.model_annotations[2].source).unresolved,"Editing cached appearance healed a missing source");
+    run(host,"save");const auto loaded=drawing::DrawingDocument::load(file);require(annotation_layout_test::snapshot(loaded)==annotation_layout_test::snapshot(state->document())&&live.size()==1,"Native layout persistence changed data or opened missing source");
+    auto next=state->document();drawing::ModelAnnotationSource packet;packet.document_id=source.document_id;packet.instance_path=source.instance_path;
+    auto updated=*view.model_annotations[0].model_dimension;updated.value=12;updated.witness_second.x=12;updated.line_second.x=12;packet.dimensions={updated};
+    auto* refreshed=next.find_view(view.id);drawing::refresh_model_annotations(*refreshed,std::span(&packet,1));
+    const auto& renewed=workspace::drawing_annotation(next,view.id,source);
+    require(renewed.value==12&&!renewed.unresolved&&renewed.view_layout==changed.view_layout&&renewed.text.find("12")!=std::string::npos,"Source refresh discarded local layout or froze measurement");
+    const auto invalid_before=annotation_layout_test::snapshot(next);auto invalid=renewed.view_layout.value();invalid.text_along=std::numeric_limits<double>::infinity();
+    try{workspace::set_drawing_annotation_layout(next,view.id,source,invalid);throw std::logic_error("Infinite layout accepted");}catch(const workspace::DrawingOperationError&){}
+    require(annotation_layout_test::snapshot(next)==invalid_before,"Shared GUI operation changed data before validation");
+    auto* ambiguous=next.find_view(view.id);ambiguous->model_annotations.push_back(renewed);const auto duplicate_before=annotation_layout_test::snapshot(next);
+    try{workspace::set_drawing_annotation_layout(next,view.id,source,{});throw std::logic_error("Ambiguous annotation accepted");}catch(const workspace::DrawingOperationError& error){require(std::string(error.code)=="ambiguous_reference","Wrong duplicate error");}
+    require(annotation_layout_test::snapshot(next)==duplicate_before,"Ambiguous annotation changed data");
+    for(const auto kind:{kernel::ViewerDimensionKind::Angular,kernel::ViewerDimensionKind::Radius,kernel::ViewerDimensionKind::Diameter}) {
+        auto variant=doc;auto& target_view=variant.sheets.front().views.front();auto& item=target_view.model_annotations.front();auto& dimension=*item.model_dimension;
+        dimension.kind=kind;dimension.witness_second={5,0,0};dimension.line_first={5,0,0};dimension.line_second={0,5,0};dimension.sweep_degrees=90;
+        dimension.value=kind==kernel::ViewerDimensionKind::Angular?90:kind==kernel::ViewerDimensionKind::Radius?5:10;
+        dimension.unit_suffix=kind==kernel::ViewerDimensionKind::Angular?"°":"mm";
+        item=drawing::project_model_annotation(target_view,item);const auto original_dimension=item.model_dimension;state->commit(std::move(variant));
+        auto request=args;request["layout"]={{"line_offset",2},{"text_along",2},{"text_outward",3},{"radius_rotation_degrees",45},{"arrows_reversed",true}};
+        const auto result=run(host,"drawing.annotation.set",request).data;const auto& output=workspace::drawing_annotation(state->document(),view.id,source);
+        require(output.model_dimension==original_dimension&&output.value==original_dimension->value&&result.at("dimension_kind")!="linear","Annotation edit changed radial/angular measurement or kind");
+        if(kind==kernel::ViewerDimensionKind::Angular)require(output.curves[0].size()==31&&std::abs(output.curves[0].front().x-7)<1e-9&&std::abs(output.curves[0].front().y)<1e-9,"Angular layout did not extend radius by 2 mm");
+        else {const auto end=output.curves[1].back();require(std::abs(end.x-5/std::sqrt(2.0))<1e-9&&std::abs(end.y-5/std::sqrt(2.0))<1e-9,"Radial layout did not rotate its 5 mm radius by 45 degrees");}
+    }
+
 }
-int main(){try{kernel::OcctKernel kernel;const auto root=fs::canonical(fs::temp_directory_path());const auto dir=root/("zima-annotations-"+document::PartDocument::create_default().document_id);fs::create_directory(dir);verify(kernel,dir);require(dir.parent_path()==root,"Unsafe cleanup");fs::remove_all(dir);std::cout<<"Drawing annotation queries, exact occurrences, atomic Show/Erase, Undo and persistence passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
+
+}
+int main(){try{kernel::OcctKernel kernel;const auto root=fs::canonical(fs::temp_directory_path());const auto dir=root/("zima-annotations-"+document::PartDocument::create_default().document_id);fs::create_directory(dir);verify(kernel,dir);verify_layouts(kernel,dir);require(dir.parent_path()==root,"Unsafe cleanup");fs::remove_all(dir);std::cout<<"Drawing annotation queries, exact occurrences, atomic Show/Erase, Undo and persistence passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

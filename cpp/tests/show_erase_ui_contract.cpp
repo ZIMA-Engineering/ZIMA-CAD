@@ -1,4 +1,9 @@
 #include <QTabBar>
+#include <QContextMenuEvent>
+#include <QMenu>
+#include <QLineEdit>
+#include <zima/command_host/host.hpp>
+#include "drawing_annotation_layout_test_support.hpp"
 #include <QBuffer>
 #include <zima/viewer/dimension_text_layer.hpp>
 #include <QTableWidget>
@@ -365,6 +370,41 @@ int verify_show_erase_ui() {
     require(found->value == dim->value && state.sheets[0].views[1].model_annotations.front().view_layout==std::nullopt,
             "Drawing appearance changed measurement or another view");
     const auto handles = found->paper_handles;
+    {
+        // A console edit and actual context-menu Properties share the same local layout.
+        const auto initial=workspace.open_drawing(drawing.document_id)->document();
+        kernel::OcctKernel kernel;auto directory=std::filesystem::current_path();command_host::Host host(workspace,kernel,directory);
+        const auto reference=commands::Json{{"source_document",dim->source.document_id},{"owner",dim->source.owner_id},{"key",dim->source.semantic_id},{"instance_path",dim->source.instance_path}};
+        const auto args=commands::Json{{"view",view.id},{"reference",reference}};
+        const auto run=[&](const char* command,commands::Json arguments=commands::Json::object()) {
+            const auto result=host.execute({{"command",command},{"arguments",std::move(arguments)}});
+            if(!result.ok)throw std::runtime_error(result.code+": "+result.message);return result.data;
+        };
+        auto edit=args;edit["style"]={{"prefix","CLI "}};run("drawing.annotation.set",edit);
+        window.edit_workspace_document(drawing.document_id);flush();
+        const auto open_properties=[&]() {
+            const auto handle=window.model_annotation_handle_for_test(dim->source,0,view.id);require(handle.has_value(),"Edited annotation has no handle");
+            // RMB at the exact grip cycles presentation; Properties is on the text away from the grip.
+            const auto text_point=*handle+QPointF(12,0);
+            mouse(canvas,QEvent::MouseMove,text_point,Qt::NoButton,Qt::NoButton);click(canvas,text_point);
+            QContextMenuEvent event(QContextMenuEvent::Mouse,text_point.toPoint(),canvas->mapToGlobal(text_point.toPoint()));QApplication::sendEvent(canvas,&event);flush();
+            auto* action=window.findChild<QAction*>("dimensionLayoutPropertiesAction");require(action,"Model dimension context Properties unavailable");action->trigger();
+            for(auto* menu:window.findChildren<QMenu*>())if(menu->isVisible())menu->close();flush();
+            auto* dialog=window.findChild<QDialog*>("dimensionPropertiesDialog");require(dialog&&dialog->isVisible(),"Model dimension Properties did not open");return dialog;
+        };
+        auto* properties=open_properties();auto* prefix=properties->findChild<QLineEdit*>("sketchDimensionPrefix");
+        require(prefix&&prefix->text()=="CLI ","GUI ignored command annotation style");prefix->setText("Pending ");
+        properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
+        require(run("drawing.annotation.get",args).at("style").at("prefix")=="CLI ","Properties Cancel committed annotation style");
+        properties=open_properties();properties->findChild<QLineEdit*>("sketchDimensionPrefix")->setText("GUI ");
+        properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+        const auto gui=run("drawing.annotation.get",args);require(gui.at("style").at("prefix")=="GUI "&&gui.at("value")==dim->value,"Shared Properties changed value or failed to commit style");
+        run("undo");require(run("drawing.annotation.get",args).at("style").at("prefix")=="CLI ","GUI style Undo did not restore CLI style");
+        run("redo");require(run("drawing.annotation.get",args).at("style").at("prefix")=="GUI ","GUI style Redo failed");
+        run("undo");run("undo");window.edit_workspace_document(drawing.document_id);flush();
+        require(annotation_layout_test::snapshot(workspace.open_drawing(drawing.document_id)->document())==annotation_layout_test::snapshot(initial),"GUI and CLI style transactions did not restore original drawing");
+    }
+
     QTemporaryDir dir;
     const auto jpg=dir.filePath("current-view.jpg");
     QByteArray expected_jpeg;QBuffer expected_buffer(&expected_jpeg);expected_buffer.open(QIODevice::WriteOnly);

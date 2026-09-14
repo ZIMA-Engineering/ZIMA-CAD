@@ -1596,12 +1596,9 @@ void DrawingWindow::edit_model_dimension(const std::string& view_id,const std::s
     const auto item=std::ranges::find_if(view->model_annotations,[&](const auto& a){return model_annotation_key(a.source)==key;});
     if(item==view->model_annotations.end()||!item->model_dimension)return;
     auto* owner=qobject_cast<QMainWindow*>(window());
-    auto* dialog=new DimensionPropertiesDialog(*item->model_dimension,item->view_layout.value_or(item->model_layout),[this,view_id,key](auto layout){
-        auto* view=document_.find_view(view_id);if(!view)throw std::runtime_error("Drawing view no longer exists");
-        auto item=std::ranges::find_if(view->model_annotations,[&](const auto& a){return model_annotation_key(a.source)==key;});
-        if(item==view->model_annotations.end())throw std::runtime_error("Dimension no longer exists");
-        item->view_layout=layout;item->paper_handles.clear();*item=drawing::project_model_annotation(*view,std::move(*item));
-        sync_workspace_document();canvas_->update();
+    auto* dialog=new DimensionPropertiesDialog(*item->model_dimension,item->view_layout.value_or(item->model_layout),[this,view_id,reference=item->source](auto layout){
+        if(workspace::set_drawing_annotation_layout(document_,view_id,reference,layout))sync_workspace_document();
+        canvas_->update();
     },owner?owner:this);
     view_dialog_=dialog;dialog->setAttribute(Qt::WA_DeleteOnClose);
     connect(dialog,&QDialog::finished,this,[this]{view_dialog_=nullptr;if(properties_handler_)properties_handler_(nullptr);update_action_states();});

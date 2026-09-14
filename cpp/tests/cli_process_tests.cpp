@@ -7,6 +7,7 @@
 #include "owned_reference_test_support.hpp"
 #include "construction_query_test_support.hpp"
 #include "dxf_export_test_support.hpp"
+#include "drawing_annotation_layout_test_support.hpp"
 #include "dxf_spline_import_test_support.hpp"
 #include "stl_export_test_support.hpp"
 #include <zima/command_host/host.hpp>
@@ -169,6 +170,17 @@ int main(int argc,char** argv){
             require(result.exit_code==0,"CLI profile reference or Undo/Redo failed");std::vector<kernel::BodyResult> cache;const auto saved=document::PartDocument::load(project/path,&cache);const auto* found=saved.find_container(object);
             require(found&&found->placement.z==8&&found->placement.references.front().owner_id==document+":origin"&&!cache.empty()&&std::abs(cache.back().volume-(extrusion?30:36*std::acos(-1.0)))<1e-6,"CLI profile reference lost native geometry or owner");
             require(std::ranges::find(saved.sketches,sketch,&sketcher::Sketch::id)->owner_container_id==object,"CLI profile reference lost owned Sketch");
+        }
+        {
+            const auto doc=annotation_layout_test::fixture();doc.save(project/"annotation-layout-cli.drwz");
+            const auto& view=doc.sheets.front().views.front();const auto& source=view.model_annotations.front().source;
+            Json args={{"view",view.id},{"reference",{{"source_document",source.document_id},{"owner",source.owner_id},{"key",source.semantic_id},{"instance_path",source.instance_path}}}};
+            auto edit=args;edit["layout"]={{"text_along",9},{"line_offset",3}};edit["style"]={{"prefix","CLI "},{"decimals",5}};
+            result=launch(executable,root,common+QStringList{"--command","open annotation-layout-cli.drwz","--command",command({{"command","drawing.annotation.get"},{"arguments",args}}),
+                "--command",command({{"command","drawing.annotation.set"},{"arguments",edit}}),"--command","undo","--command","redo","--command","save"});
+            require(result.exit_code==0,"CLI annotation layout transaction failed");const auto loaded=drawing::DrawingDocument::load(project/"annotation-layout-cli.drwz");
+            const auto& item=loaded.find_view(view.id)->model_annotations.front();
+            require(item.view_layout&&item.view_layout->text_along==9&&item.view_layout->text_style->prefix=="CLI "&&item.value==10&&item.model_dimension==view.model_annotations.front().model_dimension,"CLI annotation layout lost native style or changed source");
         }
         const auto shell_path=project/"shell-cli.prtz";
         auto shell_fixture=document::PartDocument::create_default();auto shell_box=document::PartDocument::create_box_container();shell_box.box={10,10,10};

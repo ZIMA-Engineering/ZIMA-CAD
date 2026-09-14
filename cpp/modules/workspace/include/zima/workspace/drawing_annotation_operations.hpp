@@ -18,4 +18,11 @@ struct ShowEraseRequest {
 // geometry, layouts and unrelated occurrences remain unchanged.
 bool set_drawing_annotation_visibility(drawing::DrawingDocument&,const std::vector<AnnotationVisibility>&);
 bool show_erase_drawing_annotations(drawing::DrawingDocument&,const std::vector<ShowEraseRequest>&);
+// Exact stored occurrence; no source document loading or body calculation.
+const drawing::ModelAnnotation& drawing_annotation(const drawing::DrawingDocument&,
+    const std::string& view,const drawing::ModelAnnotationReference&);
+// Shared Properties commit: validate/project a private annotation before replacing it.
+bool set_drawing_annotation_layout(drawing::DrawingDocument&,const std::string& view,
+    const drawing::ModelAnnotationReference&,const kernel::DimensionLayout&);
+
 }

@@ -1,10 +1,11 @@
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/drawing_annotation_operations.hpp>
 #include <algorithm>
+#include <zima/document/dimension_layout_json.hpp>
 namespace zima::command_host {
 namespace {
 using Reference=drawing::ModelAnnotationReference;
-void invalid(){throw workspace::DrawingOperationError("invalid_arguments","Invalid Show/Erase arguments.");}
+void invalid(){throw workspace::DrawingOperationError("invalid_arguments","Invalid drawing annotation arguments.");}
 void keys(const Json& value,const std::set<std::string>& allowed) {
     if(!value.is_object())invalid();for(const auto& [key,item]:value.items())if(!allowed.contains(key))invalid();
 }
@@ -36,9 +37,70 @@ workspace::ShowEraseRequest request(const Json& value) {
     for(const auto& item:value["selected"])if(!result.selected.insert(reference(item)).second)invalid();
     return result;
 }
+Json annotation_details(const drawing::ModelAnnotation& item) {
+    Json result={{"reference",reference_json(item.source)},{"kind",item.kind==drawing::ModelAnnotationKind::Dimension?"dimension":item.kind==drawing::ModelAnnotationKind::Axis?"axis":"construction"},
+        {"visible",item.visible},{"unresolved",item.unresolved},{"text",item.text},{"value",item.value},{"curve_count",item.curves.size()},
+        {"model_layout",document::dimension_layout_json(item.model_layout)},
+        {"view_layout",item.view_layout?document::dimension_layout_json(*item.view_layout):Json(nullptr)}};
+    const auto layout=item.view_layout.value_or(item.model_layout);
+    result["layout"]=document::dimension_layout_json(layout);
+    result["style"]=item.model_dimension?document::dimension_text_style_json(layout.text_style.value_or(kernel::dimension_text_style(*item.model_dimension))):Json(nullptr);
+    result["editable"]=item.kind==drawing::ModelAnnotationKind::Dimension&&item.model_dimension.has_value();
+    result["dimension_kind"]=item.model_dimension?Json(item.dimension_kind==kernel::ViewerDimensionKind::Angular?"angular":
+        item.dimension_kind==kernel::ViewerDimensionKind::Radius?"radius":item.dimension_kind==kernel::ViewerDimensionKind::Diameter?"diameter":"linear"):Json(nullptr);
+    return result;
+}
+kernel::DimensionLayout patched_annotation_layout(const drawing::ModelAnnotation& item,const Json& args) {
+    const auto initial=item.view_layout.value_or(item.model_layout);auto layout=document::dimension_layout_json(initial);
+    if(args.contains("layout"))for(const auto& [key,value]:args.at("layout").items()) {
+        if(!layout.contains(key)||key=="text_style")invalid();
+        if(key=="arrows_reversed"||key=="radius_center_line_hidden"){if(!value.is_boolean())invalid();}
+        else if(key=="plane_quarter_turns"){if(!value.is_number_integer()||value<0||value>3)invalid();}
+        else if(!(key=="envelope_offset"&&value.is_null())&&(!value.is_number()||!std::isfinite(value.get<double>())))invalid();
+        layout[key]=value;
+    }
+    if(args.contains("style")&&!args.at("style").empty()) {
+        if(!item.model_dimension)throw workspace::DrawingOperationError("unsupported_annotation","The annotation has no stored model dimension presentation.");
+        auto style=document::dimension_text_style_json(initial.text_style.value_or(kernel::dimension_text_style(*item.model_dimension)));
+        for(const auto& [key,value]:args.at("style").items()) {
+            if(!style.contains(key)||(key=="decimals"?!value.is_number_integer():!value.is_string()))invalid();
+            if(key=="decimals"&&(value<0||value>12))invalid();style[key]=value;
+        }
+        layout["text_style"]=std::move(style);
+    }
+    try{return document::dimension_layout_from_json(layout);}
+    catch(const std::invalid_argument&){throw workspace::DrawingOperationError("invalid_arguments","Invalid model annotation layout.");}
+}
+
 }
 void Host::register_drawing_annotation_commands() {
     using Type=commands::ArgumentType;
+    for(const bool edit:{false,true}) {
+        std::vector<commands::Argument> parameters={{"view",true},{"reference",true,Type::Object},{"document",false}};
+        if(edit){parameters.push_back({"layout",false,Type::Object});parameters.push_back({"style",false,Type::Object});}
+        dispatcher_.add({edit?"drawing.annotation.set":"drawing.annotation.get",
+            edit?tr("Edit the local presentation of a stored model dimension through shared Drawing Properties."):
+                 tr("Read an exact model annotation and its local presentation without loading sources."),parameters,edit},[this,edit](const Json& args) {
+            if(edit){const auto checked=target(args);if(!checked.ok)return checked;}
+            const auto id=args.value("document",workspace_.active_document_id());auto* state=workspace_.open_drawing(id);
+            if(!state)return Result::failure("unsupported_document",tr("Drawing commands require an open Drawing."));
+            try {
+                const auto view=args.at("view").get<std::string>();const auto source=reference(args.at("reference"));
+                bool changed=false;
+                if(edit) {
+                    if(!args.contains("layout")&&!args.contains("style"))invalid();
+                    auto next=state->document();
+                    const auto layout=patched_annotation_layout(workspace::drawing_annotation(next,view,source),args);
+                    changed=workspace::set_drawing_annotation_layout(next,view,source,layout);
+                    if(changed){state->commit(std::move(next));change_=Change{ChangeKind::Model,id};}
+                }
+                auto result=annotation_details(workspace::drawing_annotation(state->document(),view,source));
+                result["document"]=id;result["view"]=view;result["revision"]=state->revision();if(edit)result["changed"]=changed;
+                return Result::success(std::move(result));
+            }catch(const workspace::DrawingOperationError& error){return Result::failure(error.code,tr(error.what()));}
+             catch(const std::exception& error){return Result::failure("drawing_failed",tr(error.what()));}
+        });
+    }
     dispatcher_.add({"drawing.annotation.list",tr("List stored model annotations and Show/Erase candidates without source loading."),{{"view",false},{"kind",false},{"mode",false},{"limit",false,Type::Integer},{"document",false}},false},[this](const Json& args){
         const auto id=args.value("document",workspace_.active_document_id());const auto* state=workspace_.open_drawing(id);
         if(!state)return Result::failure("unsupported_document",tr("Drawing commands require an open Drawing."));
