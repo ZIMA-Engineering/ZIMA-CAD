@@ -63,6 +63,15 @@ bool commit_body_boolean_edit(Workspace& workspace,const kernel::OcctKernel& ker
     auto graph=edit.pending;graph.update_boolean(std::move(value));graph.activate({});
     return calculate_and_commit(state,kernel,std::move(graph),false);
 }
+bool set_part_body_visibility(Workspace& workspace,const std::string& id,const std::string& body_id,bool visible) {
+    auto& state=part(workspace,id);
+    const auto* body=state.session.document().body_history.find(body_id);
+    if(!body)throw BodyOperationError("body_not_found","The requested Body does not exist.");
+    if(body->visible==visible)return false;
+    auto next=state.session.document();auto value=*body;value.visible=visible;
+    next.body_history.update_body(std::move(value));
+    state.session.commit(std::move(next),state.session.calculated_boundaries());return true;
+}
 bool activate_part_body(Workspace& workspace,const std::string& id,const std::string& body_id) {
     auto& state=part(workspace,id);
     if(state.session.document().body_history.active_body_id()==body_id)return false;
@@ -72,8 +81,9 @@ bool activate_part_body(Workspace& workspace,const std::string& id,const std::st
 bool set_body_history_cursor(Workspace& workspace,const std::string& id,std::size_t index,const std::string& body_id) {
     auto& state=part(workspace,id);auto next=state.session.document();
     if(body_id.empty()) {
-        if(next.body_history.insertion_cursor()==index)return false;
+        if(next.body_history.insertion_cursor()==index && next.body_history.active_body_id().empty())return false;
         next.body_history.set_insertion_cursor(index);
+        next.body_history.activate({});
     } else {
         const auto* body=next.body_history.find(body_id);
         if(!body)throw BodyOperationError("body_not_found","The requested Body does not exist.");

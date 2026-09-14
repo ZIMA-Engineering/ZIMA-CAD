@@ -2094,6 +2094,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                 if(dimensions)dimensions->setObjectName("editBodyDimensionsAction");
                 auto* source_properties=body&&body->derived_copy ? menu.addAction(tr("Vlastnosti zdroje")) : nullptr;
                 auto* visibility=body ? menu.addAction(body->visible?tr("Skrýt"):tr("Zobrazit")) : nullptr;
+                if(visibility)visibility->setObjectName("bodyVisibilityAction");
                 QAction* activate = step_kind == "part-body" && !(body&&body->derived_copy) ? menu.addAction(tr("Aktivní")) : nullptr;
                 if (activate) activate->setObjectName("activateBodyAction");
                 auto* remove=part->session.document().body_history.active_body_id().empty()?menu.addAction(tr("Smazat")):nullptr;
@@ -2102,27 +2103,28 @@ void AssemblyWorkspaceWindow::create_layout() {
                 document->setObjectName("activatePartAction");
                 menu.addSeparator();
                 auto* before = menu.addAction(tr("Vložit před"));
+                before->setObjectName("bodyInsertBeforeAction");
                 auto* after = menu.addAction(tr("Vložit za"));
+                after->setObjectName("bodyInsertAfterAction");
                 const auto selected = menu.exec(tree_->viewport()->mapToGlobal(position));
                 if(remove&&selected==remove)delete_part_object(id,QStringLiteral("part-body"));
                 else if (selected == edit) show_tree_item_properties(item);
                 else if(dimensions&&selected==dimensions)show_parameter_dimensions(id);
                 else if(visibility&&selected==visibility) {
-                    auto* current=workspace_.open_part(workspace_.active_document_id());auto next=current->session.document();auto value=*next.body_history.find(id);
-                    value.visible=!value.visible;next.body_history.update_body(value);current->session.commit(std::move(next),current->session.calculated_boundaries());
+                    const auto* current=workspace_.open_part(workspace_.active_document_id());
+                    static_cast<void>(zima::workspace::set_part_body_visibility(workspace_,workspace_.active_document_id(),
+                        id,!current->session.document().body_history.find(id)->visible));
                     preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();
                 }
                 else if (source_properties && selected == source_properties) show_derived_source_properties(id);
                 else if (activate && selected == activate) activate_body(id);
                 else if (selected == document) activate_body({});
                 else if (selected == before || selected == after) {
-                    auto* active = workspace_.open_part(workspace_.active_document_id());
-                    auto next = active->session.document();
-                    const auto& order = next.body_history.order();
+                    const auto* active = workspace_.open_part(workspace_.active_document_id());
+                    const auto& order = active->session.document().body_history.order();
                     const auto position = static_cast<std::size_t>(std::distance(order.begin(), std::ranges::find(order, id)));
-                    next.body_history.set_insertion_cursor(position + (selected == after ? 1 : 0));
-                    next.body_history.activate({});
-                    active->session.commit(std::move(next), active->session.calculated_boundaries());
+                    static_cast<void>(zima::workspace::set_body_history_cursor(workspace_,workspace_.active_document_id(),
+                        position + (selected == after ? 1 : 0)));
                     preserve_view_on_refresh_ = true; refresh_tabs(); refresh_scene();
                 }
                 return;

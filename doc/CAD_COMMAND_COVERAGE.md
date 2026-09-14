@@ -2064,3 +2064,30 @@ otevře dokument, vybere uložený pohled a zkontroluje skutečnou kameru.
 Dále zbývá sdílené potvrzení viditelnosti a kurzoru těles a kontrola
 zbývajících inline hodnot a publikování náhledů tažených myší.
 CLI zatím není označeno za dokončené.
+
+
+## Viditelnost těles a hlavní kurzor (2026-09-15)
+
+Samostatné `body.set visible` nyní sdílí čistou datovou operaci se
+Skrýt/Zobrazit v GUI. Neprochází přípravou Vlastností ani výpočtem těles.
+`body.cursor` bez ID tělesa atomicky nastaví hlavní kurzor a ukončí
+aktivaci tělesa, i když samotný index zůstává stejný. Kontextové
+Vložit před/Vložit za i značka ve stromu používají stejnou operaci.
+
+Modelové ověření pokrývá zachování vypočtené geometrie, referencí,
+Undo/Redo, no-op, neplatný index bez částečné deaktivace a přesné
+vlastnictví Partu aktivovaného v Assembly. GUI test porovná celý
+nativní soubor z reálného menu/kurzoru s CLI.
+
+Obě aplikace i všechny testy jsou sestavené; související regrese prošla
+**10/10 za 231,89 s**. Katalog zůstává na **296 příkazech**, CTest na
+**161 testech**. Formát ani startovní šablony se v této etapě nemění.
+Podrobnosti: [BODY_COMMANDS.md](BODY_COMMANDS.md).
+
+Další audit produkčních zápisů našel tři skupiny přímých inline úprav
+v `workspace/dimension_edit.cpp`: katalogový rozměr závitu otvoru,
+offset komponentové vazby a rádius bodu 3D křivky / Sweep cesty.
+Mají existující společné operace, ale inline potvrzení je dosud
+nepoužívá. Dále je třeba uzavřít kontrolu publikování přechodných
+náhledů tažených myší a rozpracovaných profilů. CLI zatím není
+označeno za dokončené.

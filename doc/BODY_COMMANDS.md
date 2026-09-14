@@ -34,7 +34,7 @@ nepřepočítávají. Nativní formáty a start šablony se nemění.
 | `body.create` | `name`, volitelné `visible active document` | Nové těleso na počátku Partu, standardně viditelné a aktivní |
 | `body.set` | `body`, volitelné `name visible active document` | Patch názvu, viditelnosti nebo aktivace; alespoň jedna vlastnost |
 | `body.activate` | volitelné `body document` | Aktivuje těleso; bez ID tělesa jeho aktivaci ukončí |
-| `body.cursor` | `index`, volitelné `body document` | Bez body mění kurzor pořadí těles, s body kurzor uvnitř aktivní větve |
+| `body.cursor` | `index`, volitelné `body document` | Bez body ukončí aktivaci tělesa a nastaví hlavní kurzor; s body mění kurzor aktivní větve |
 | `body.boolean.get` | `boolean`, volitelné `document` | Vlastnosti operace a ID jejích vstupních výsledků |
 | `body.boolean.create` | `operation target tool`, volitelné `name document` | Výpočet ze dvou různých dostupných předcházejících výsledků |
 | `body.boolean.set` | `boolean`, volitelné `operation target tool name document` | Změna zadaných vlastností a výpočet |
@@ -52,8 +52,8 @@ argumentů používejte JSON, například:
 
 Každá úspěšná změna vrací `changed`; dotazy model neaktivují ani nepočítají.
 `placement` v dotazu je uložený datový model: délky v mm, rotace ve stupních a
-reference se stabilním vlastníkem a sémantickým klíčem. Přímé příkazové úpravy
-umístění, pořadí/mazání větví a odvozené kopie jsou další samostatné etapy.
+reference se stabilním vlastníkem a sémantickým klíčem. Umístění,
+pořadí, mazání větví a odvozené kopie se obsluhují samostatnými příkazy.
 `body.set` nepřijímá libovolný JSON grafu nebo nevalidovanou serializaci dokumentu.
 
 ## Ověření
@@ -126,3 +126,39 @@ celou iteraci a zohlednit, že nativní kvádr je vystředěný. Produkční zdr
 ploch se neměnily. Finální sestavení obou aplikací i všech testovacích
 programů následovala úplná regrese **135/135 za 551,56 s**, bez chyby
 (`build/body-reference-full-build.log`, `build/body-reference-full-tests.log`).
+
+
+## Sdílená viditelnost a hlavní kurzor (2026-09-15)
+
+`body.set` s jedinou upravovanou vlastností `visible` používá stejnou
+operaci `set_part_body_visibility` jako Skrýt/Zobrazit v kontextovém menu
+tělesa. Mění pouze příznak viditelnosti. Nepřipravuje graf pro Vlastnosti,
+nepočítá tělesa ani vazby a zachovává původní umístění i vypočtené výsledky.
+Vytvoření tělesa a úplné Vlastnosti dále používají stávající výpočet.
+
+`body.cursor` bez `body` nastaví hlavní kurzor a v jedné transakci ukončí
+aktivaci tělesa. Platí to i tehdy, když je hlavní kurzor již na zadaném
+indexu. Se zadaným `body` mění pouze kurzor uvnitř dané aktivní větve.
+Neplatný index se odmítne před ukončením aktivace nebo jinou změnou dat.
+Při již odpovídajícím indexu i aktivaci nevzniká krok Undo.
+
+Kontextové Vložit před / Vložit za a značka kurzoru ve stromu sdílejí
+`set_body_history_cursor` s CLI. Příkazové změny samotné viditelnosti
+a kurzoru vracejí `body_calculated=false`. Undo/Redo i nativní uložení
+používají běžnou session. Formát ani šablony se v této etapě nemění.
+
+Modelový test kontroluje zachování geometrie, fingerprintů, ostatních
+vlastností těles a původních referencí, jeden krok Undo, no-op, chybný
+index a vlastnictví Partu aktivovaného v sestavě. GUI test vyvolává
+skutečné kontextové menu i callback značky kurzoru a porovnává celé
+uložené soubory s ekvivalentním CLI příkazem.
+
+První modelový průchod prošel **1/1 za 0,32 s**. Obě aplikace a všechny
+testovací programy jsou sestavené; související regrese prošla
+**10/10 za 231,89 s**. Zahrnuje historii, vícetělesový Part, původní
+reference těles, historii Assembly odečtů, command host, konzoli a
+úplný průchod pracovním oknem.
+
+Protokoly: `build/body-display-model-tests.log`,
+`build/body-display-verified-build.log` a
+`build/body-display-verified-tests.log`.

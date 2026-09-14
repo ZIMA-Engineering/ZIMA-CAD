@@ -44,6 +44,57 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     require(!state->session.document().body_history.find(tool)->visible,"Visibility not persisted");
     run(host,"undo");require(state->session.document().body_history.find(tool)->name=="Tool","Body edit did not participate in shared Undo");
     run(host,"redo");run(host,"body.set",{{"body",tool},{"visible",true}});
+    {
+        const auto original=state->session.document().body_history;
+        const auto calculated=state->session.calculated_boundaries();
+        const auto unchanged_geometry=[&]{
+            const auto& current=state->session.calculated_boundaries();
+            require(current.size()==calculated.size(),"Body display metadata changed history boundaries");
+            for(std::size_t i=0;i<current.size();++i)
+                require(current[i].kernel_shape==calculated[i].kernel_shape &&
+                    current[i].source_fingerprint==calculated[i].source_fingerprint && current[i].volume==calculated[i].volume,
+                    "Body visibility or cursor changed calculated geometry");
+        };
+        const auto revision=state->session.revision();
+        const auto hidden=run(host,"body.set",{{"body",first},{"visible",false}}).data;
+        auto expected=original;auto hidden_body=*expected.find(first);hidden_body.visible=false;expected.update_body(hidden_body);
+        require(hidden.at("changed")==true && hidden.at("body_calculated")==false &&
+            state->session.revision()==revision+1 && state->session.document().body_history==expected,
+            "Visibility did not change only the requested Body in one metadata transaction");
+        unchanged_geometry();
+        const auto same_revision=state->session.revision(),same_generation=state->session.data_generation();
+        require(run(host,"body.set",{{"body",first},{"visible",false}}).data.at("changed")==false &&
+            state->session.revision()==same_revision && state->session.data_generation()==same_generation && !host.change(),
+            "No-op visibility created an Undo entry");
+        require(!host.execute({{"command","body.set"},{"arguments",{{"body","missing"},{"visible",false}}}}).ok &&
+            state->session.revision()==same_revision,"Invalid visibility target changed state");
+        run(host,"save");std::vector<kernel::BodyResult> reopened;
+        const auto saved=document::PartDocument::load(directory/"bodies.prtz",&reopened);
+        require(saved.body_history==expected && !reopened.empty() && reopened.back().volume==calculated.back().volume,
+            "Native save lost visibility, placement or calculated geometry");
+        run(host,"undo");require(state->session.document().body_history==original,"Visibility Undo changed more than visibility");
+        run(host,"redo");require(state->session.document().body_history==expected,"Visibility Redo failed");
+        run(host,"body.set",{{"body",first},{"visible",true}});
+        const auto cursor=original.insertion_cursor();
+        const auto cursor_revision=state->session.revision();
+        const auto global=run(host,"body.cursor",{{"index",cursor}}).data;
+        auto global_expected=original;global_expected.activate({});
+        require(global.at("changed")==true && global.at("body_calculated")==false &&
+            state->session.revision()==cursor_revision+1 && state->session.document().body_history==global_expected,
+            "A global cursor at the same index did not atomically end Body activation");
+        unchanged_geometry();
+        run(host,"undo");require(state->session.document().body_history==original,"Global cursor Undo lost the active Body");
+        run(host,"redo");
+        const auto no_op_revision=state->session.revision();
+        require(run(host,"body.cursor",{{"index",cursor}}).data.at("changed")==false &&
+            state->session.revision()==no_op_revision && !host.change(),"Unchanged global cursor created an Undo entry");
+        run(host,"body.activate",{{"body",tool}});
+        const auto failed_revision=state->session.revision();const auto failed_graph=state->session.document().body_history;
+        require(!host.execute({{"command","body.cursor"},{"arguments",{{"index",original.order().size()+1}}}}).ok &&
+            state->session.revision()==failed_revision && state->session.document().body_history==failed_graph,
+            "An invalid global cursor deactivated the Body before validation");
+        unchanged_geometry();
+    }
     const auto original_graph=state->session.document().body_history;
     const auto cut=run(host,"body.boolean.create",{{"operation","subtract"},{"target",first},{"tool",tool}}).data.at("boolean").get<std::string>();
     volume(*state,936);require(state->session.document().body_history.active_body_id().empty(),"Boolean did not finish Body editing");
@@ -95,6 +146,16 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     run(host,"new",{{"type","assembly"},{"name","other"}});
     require(run(host,"body.list",{{"document",id}}).data.at("document")==id && live.active_document_id()!=id,"Read inactive Body graph switched documents");
     require(host.execute_text("body.create forbidden").code=="unsupported_document","Body created in Assembly");
+    const auto owner=live.active_document_id();
+    const std::string occurrence=run(host,"component.insert",{{"source",id}}).data.at("occurrence");
+    const auto owner_revision=live.open_assembly(owner)->session.revision();
+    const auto path=assembly::InstancePath{}.child(occurrence).encoded();
+    run(host,"component.activate",{{"instance_path",path}});interaction.active_occurrence=path;
+    run(host,"body.set",{{"body",first},{"visible",false}});
+    require(live.active_document_id()==id && live.displayed_document_id()==owner &&
+        live.active_occurrence_path()==path && live.open_assembly(owner)->session.revision()==owner_revision,
+        "Body visibility changed the parent Assembly or exact active occurrence");
+
 }
 }
 int main() {

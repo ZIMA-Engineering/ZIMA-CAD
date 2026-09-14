@@ -92,6 +92,12 @@ void Host::register_body_commands() {
     add({"body.set",tr("Change Body name, visibility or activation."),
         {{"body",true},{"name",false},{"visible",false,commands::ArgumentType::Boolean},{"active",false,commands::ArgumentType::Boolean},{"document",false}},true},[this](const Json& args) {
         auto& state=part(workspace_,args);
+        if(args.contains("visible") && !args.contains("name") && !args.contains("active")) {
+            const auto body=args.at("body").get<std::string>();
+            const auto changed=workspace::set_part_body_visibility(workspace_,state.session.document().document_id,
+                body,args.at("visible").get<bool>());
+            auto result=body_data(state,body);result["changed"]=changed;result["body_calculated"]=false;return result;
+        }
         const auto edit=workspace::prepare_body_edit(state.session.document(),args["body"].get<std::string>());
         if(!args.contains("name") && !args.contains("visible") && !args.contains("active"))
             throw workspace::BodyOperationError("invalid_arguments","Specify at least one Body property.");
@@ -125,7 +131,7 @@ void Host::register_body_commands() {
             throw workspace::BodyOperationError("invalid_arguments","The history index must be a nonnegative integer.");
         const auto changed=workspace::set_body_history_cursor(workspace_,state.session.document().document_id,
             args["index"].get<std::size_t>(),args.value("body",std::string{}));
-        auto result=graph_data(state);result["changed"]=changed;return result;
+        auto result=graph_data(state);result["changed"]=changed;result["body_calculated"]=false;return result;
     });
     add({"body.boolean.get",tr("Read a Body Boolean and its two source results."),{{"boolean",true},{"document",false}},false},[this](const Json& args) {
         return boolean_data(part(workspace_,args),args["boolean"].get<std::string>());

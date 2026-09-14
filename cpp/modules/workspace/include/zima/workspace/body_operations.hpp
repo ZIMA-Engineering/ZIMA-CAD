@@ -26,6 +26,8 @@ struct BodyGraphEdit {
 [[nodiscard]] bool commit_body_boolean_edit(Workspace&,const kernel::OcctKernel&,
     const BodyGraphEdit&,document::BodyBoolean);
 // Pure document transactions: reuse already calculated boundaries, never OCCT.
+[[nodiscard]] bool set_part_body_visibility(Workspace&,const std::string& document_id,
+    const std::string& body_id,bool visible);
 [[nodiscard]] bool activate_part_body(Workspace&,const std::string& document_id,
     const std::string& body_id);
 [[nodiscard]] bool set_body_history_cursor(Workspace&,const std::string& document_id,

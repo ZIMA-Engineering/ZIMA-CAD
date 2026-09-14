@@ -764,6 +764,74 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
             json_run("close",{{"discard",true}});flush();
             if(in_assembly)json_run("close",{{"document",source},{"discard",true}});
         }
+        {
+            const auto name=stem+"-body-display";
+            json_run("new",{{"type","part"},{"name",name}});
+            json_run("box.create",{{"length_mm","10"},{"width_mm","10"},{"height_mm","10"}});
+            const auto first=run("body.list").data.at("active_body").get<std::string>();
+            const auto tool=json_run("body.create",{{"name","Tool"}}).data.at("body").get<std::string>();
+            json_run("box.create",{{"length_mm","4"},{"width_mm","4"},{"height_mm","4"}});run("save");flush();
+            const auto path=directory/(name+".prtz");
+            const auto bytes=[&] {
+                QFile file(QString::fromStdString(document::path_to_utf8(path)));
+                check(file.open(QIODevice::ReadOnly),"Cannot read Body display parity fixture");return file.readAll();
+            };
+            const auto menu_action=[&](const std::string& body,const char* action_name) {
+                QTreeWidgetItem* row=nullptr;
+                for(QTreeWidgetItemIterator it(model_tree);*it;++it)
+                    if((*it)->data(0,Qt::UserRole).toString().toStdString()==body &&
+                       (*it)->data(0,Qt::UserRole+3).toString()=="part-body"){row=*it;break;}
+                check(row,"Body context row missing");
+                for(auto* parent=row->parent();parent;parent=parent->parent())model_tree->expandItem(parent);
+                model_tree->clearSelection();model_tree->setCurrentItem(row);row->setSelected(true);
+                model_tree->scrollToItem(row);flush();
+                bool invoked=false;QTimer timeout;timeout.setSingleShot(true);
+                QObject::connect(&timeout,&QTimer::timeout,[&]{if(auto* menu=qobject_cast<QMenu*>(QApplication::activePopupWidget()))menu->close();});
+                timeout.start(8000);
+                QTimer::singleShot(0,&window,[&]{
+                    auto* menu=qobject_cast<QMenu*>(QApplication::activePopupWidget());if(!menu)return;
+                    for(auto* action:menu->actions())if(action->objectName()==action_name) {
+                        invoked=true;menu->setActiveAction(action);
+                        QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(menu,&enter);return;
+                    }
+                    menu->close();
+                });
+                const auto position=model_tree->visualItemRect(row).center();
+                check(model_tree->itemAt(position)==row,"Body menu row is outside the visible Tree");
+                model_tree->customContextMenuRequested(position);timeout.stop();flush();
+                check(invoked,"Body context action missing");
+            };
+            for(const bool visible:{false,true}) {
+                menu_action(first,"bodyVisibilityAction");
+                check(json_run("body.get",{{"body",first}}).data.at("visible")==visible,"Body context visibility toggle failed");
+                run("save");const auto gui=bytes();
+                run("undo");
+                check(json_run("body.set",{{"body",first},{"visible",visible}}).data.at("body_calculated")==false,
+                    "CLI Body visibility used calculation");
+                run("save");check(bytes()==gui,"GUI and CLI Body visibility native files differ");
+            }
+            for(const bool after:{true,false}) {
+                json_run("body.activate",{{"body",tool}});
+                menu_action(after?tool:first,after?"bodyInsertAfterAction":"bodyInsertBeforeAction");
+                const auto index=after?2:0;const auto gui_state=run("body.list").data;
+                check(gui_state.at("active_body")=="" && gui_state.at("insertion_cursor")==index,
+                    "Body context cursor did not return to the global history");
+                run("save");const auto gui=bytes();
+                run("undo");
+                const auto cli=json_run("body.cursor",{{"index",index}}).data;
+                check(cli.at("active_body")=="" && cli.at("body_calculated")==false,"CLI global cursor retained Body activation or calculated geometry");
+                run("save");check(bytes()==gui,"GUI and CLI global Body cursor native files differ");
+            }
+            json_run("body.activate",{{"body",tool}});
+            auto* tree=dynamic_cast<HistoryTreeWidget*>(model_tree);
+            check(tree && tree->body_cursor_moved,"Body Tree cursor adapter missing");
+            tree->body_cursor_moved(QString{},0);flush();
+            check(run("body.list").data.at("active_body")=="","Tree cursor at an unchanged index retained Body activation");
+            run("save");const auto marker=bytes();run("undo");
+            json_run("body.cursor",{{"index",0}});run("save");
+            check(bytes()==marker,"Tree marker and CLI global Body cursor differ");
+            json_run("close",{{"discard",true}});flush();
+        }
         for (const bool in_assembly : {false,true}) {
             const auto verify_properties = [&](auto native) {
             using Native=std::decay_t<decltype(native)>;
