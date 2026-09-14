@@ -2,9 +2,11 @@
 
 `placement.reference.set` používá společný vstup pro Body, samostatné
 konstrukční kontejnery a šest primitiv: Box, Cylinder, Sphere, Cone,
-Pyramid a Wedge. Body a konstrukce deleguje na jejich již existující
+Pyramid a Wedge, a profily Extrusion/Revolution v Partu. Body a konstrukce deleguje na jejich již existující
 operace; primitivum potvrzuje přes `commit_primitive`, stejně jako OK
-jeho Vlastností. Nový příkaz nemění společný řešič ani dialogy.
+jeho Vlastností. Profily používají `commit_profile` a společně potvrzují
+vlastní skicu; podrobnosti jsou v [PROFILE_REFERENCE_COMMANDS.md](PROFILE_REFERENCE_COMMANDS.md).
+Nový příkaz nemění společný řešič ani dialogy.
 
 ```json
 {"command":"placement.reference.set","arguments":{"object":"ID_KONTEJNERU","index":0,"reference":{"owner":"ID_DOKUMENTU:origin","key":"origin:plane:xy"},"offset_mm":7}}
@@ -44,7 +46,7 @@ Výsledek má stejný tvar jako `placement.get`, doplněný o `changed`.
 Formáty ani startovací Part/Assembly šablony se nemění. Stav reference
 i vypočtená data zůstávají v nativním souboru.
 
-Jiné modelové prvky a řezy dosud tento nový vstup nepoužívají. Reference
+Ostatní modelové prvky, profilové odečty Assembly a řezy dosud tento nový vstup nepoužívají. Reference
 bodů křivky jsou připravené na samostatné místní větvi
 `codex/curve-reference-pending` s reprodukcí chyby staré polohy. Její
 oprava společného řešení referencí a přesun společného odebrání reference

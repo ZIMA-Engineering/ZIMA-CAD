@@ -1550,6 +1550,33 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
             check(saved.find_container(id)&&saved.find_container(id)->placement.references.front().owner_id==owner&&saved.find_container(id)->placement.z==13&&!cache.empty()&&std::abs(cache.back().volume-1000)<1e-6,"Reference native save lost position, source or body");
             json_run("close",{{"discard",true}});flush();
         }
+        for(const bool extrusion:{true,false}) {
+            const std::string prefix=extrusion?"extrusion":"revolution",name=stem+"-"+prefix+"-reference";
+            run(QString::fromStdString("new part "+name));
+            const auto sketch=json_run("sketch.create",{{"name","Profile"},{"plane","XY"}}).data.at("sketch").get<std::string>();
+            const auto line=[&](double x1,double y1,double x2,double y2){return json_run("sketch.segment.create",{{"sketch",sketch},{"first",{x1,y1}},{"second",{x2,y2}},{"snap_mm",0.000001}}).data.at("geometry").get<std::string>();};
+            line(2,1,4,1);line(4,1,4,4);line(4,4,2,4);line(2,4,2,1);
+            if(!extrusion){const auto axis=line(0,0,0,5);json_run("sketch.segment.centerline",{{"sketch",sketch},{"segment",axis},{"centerline",true}});}
+            commands::Json create={{"sketch",sketch}};if(extrusion)create["length_forward_mm"]=5;
+            const auto made=json_run((prefix+".create").c_str(),create).data;
+            const auto id=made.at("container").get<std::string>(),owner=made.at("document").get<std::string>()+":origin";
+            const commands::Json request={{"container",id},{"index",0},{"reference",{{"owner",owner},{"key","origin:plane:xy"}}},{"offset_mm",7}};
+            json_run((prefix+".reference.set").c_str(),request);flush();
+            const auto get=[&](){return json_run("placement.get",{{"object",id}}).data.at("placement");};
+            const auto edit=[&](){QTreeWidgetItem* item=nullptr;for(QTreeWidgetItemIterator it(model_tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==id){item=*it;break;}
+                check(item,"Referenced construction is missing from Tree");window.show_tree_item_properties(item);flush();
+                for(auto* dialog:window.findChildren<QDialog*>())if(dialog->isVisible()&&dialog->findChild<QTableWidget*>("primitiveReferenceTable"))return dialog;
+                throw std::runtime_error("Referenced construction Properties did not open");};
+            auto* properties=edit();auto* table=properties->findChild<QTableWidget*>("primitiveReferenceTable");auto* offset=qobject_cast<QDoubleSpinBox*>(table->cellWidget(0,2));
+            check(offset&&offset->isEnabled()&&offset->value()==7,"GUI did not consume CLI reference offset");
+            check(window.execute_console_command(QString::fromStdString(commands::Json({{"command",prefix+".reference.set"},{"arguments",request}}).dump())).code=="editing_in_progress","Reference command interrupted Properties");
+            offset->setValue(13);properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();check(get().at("z")==7,"Reference Cancel changed construction");
+            properties=edit();table=properties->findChild<QTableWidget*>("primitiveReferenceTable");qobject_cast<QDoubleSpinBox*>(table->cellWidget(0,2))->setValue(13);properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+            check(get().at("z")==13,"Reference GUI OK did not share placement data");run("undo");check(get().at("z")==7,"Reference GUI edit Undo failed");run("redo");run("save");
+            std::vector<kernel::BodyResult> cache;const auto saved=document::PartDocument::load(directory/(name+".prtz"),&cache);
+            check(saved.find_container(id)&&saved.find_container(id)->placement.references.front().owner_id==owner&&saved.find_container(id)->placement.z==13&&!cache.empty()&&std::abs(cache.back().volume-(extrusion?30:36*std::acos(-1.0)))<1e-6,"Reference native save lost position, source or body");
+            json_run("close",{{"discard",true}});flush();
+        }
         for(const bool title:{false,true}) {
             const std::string name=stem+(title?"-template-title":"-template-frame"),suffix=title?".tblz":".frmz";
             const auto created=json_run("template.new",{{"kind",title?"title_block":"drawing_format"},{"name",name}}).data;flush();

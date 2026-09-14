@@ -148,6 +148,26 @@ int main(int argc,char** argv){
             std::vector<kernel::BodyResult> cache;const auto saved=document::PartDocument::load(project/"primitive-reference.prtz",&cache);const auto* found=saved.find_container(object);
             require(found&&found->placement.z==8&&found->placement.references.front().owner_id==document+":origin"&&!cache.empty()&&std::abs(cache.back().volume-1000)<1e-6,"CLI native save lost primitive source, placement or geometry");
         }
+        for(bool extrusion:{true,false}) {
+            const std::string prefix=extrusion?"extrusion":"revolution",name=prefix+"-reference-cli",path=name+".prtz";
+            result=launch(executable,root,common+QStringList{"--command",command({{"command","new"},{"arguments",{{"type","part"},{"name",name}}}}),
+                "--command",command({{"command","sketch.create"},{"arguments",{{"name","Profile"},{"plane","XY"}}}}),"--command","save"});
+            require(result.exit_code==0,"Cannot create CLI profile Sketch");const auto sketch=result.results()[1].at("data").at("sketch").get<std::string>();
+            auto arguments=common+QStringList{"--command",command({{"command","open"},{"arguments",{{"path",path}}}})};
+            const auto line=[&](int x1,int y1,int x2,int y2){arguments+=QStringList{"--command",command({{"command","sketch.segment.create"},{"arguments",{{"sketch",sketch},{"first",{x1,y1}},{"second",{x2,y2}},{"snap_mm",0.000001}}}})};};
+            line(2,1,4,1);line(4,1,4,4);line(4,4,2,4);line(2,4,2,1);if(!extrusion)line(0,0,0,5);arguments+=QStringList{"--command","save"};
+            result=launch(executable,root,arguments);require(result.exit_code==0,"Cannot create CLI profile curves");
+            arguments=common+QStringList{"--command",command({{"command","open"},{"arguments",{{"path",path}}}})};
+            if(!extrusion)arguments+=QStringList{"--command",command({{"command","sketch.segment.centerline"},{"arguments",{{"sketch",sketch},{"segment",result.results()[5].at("data").at("geometry")},{"centerline",true}}}})};
+            Json create={{"sketch",sketch}};if(extrusion)create["length_forward_mm"]=5;
+            arguments+=QStringList{"--command",command({{"command",prefix+".create"},{"arguments",create}}),"--command","save"};
+            result=launch(executable,root,arguments);require(result.exit_code==0,"Cannot calculate CLI profile fixture");const auto made=result.results()[extrusion?1:2].at("data");const auto object=made.at("container").get<std::string>(),document=made.at("document").get<std::string>();
+            result=launch(executable,root,common+QStringList{"--command",command({{"command","open"},{"arguments",{{"path",path}}}}),
+                "--command",command({{"command",prefix+".reference.set"},{"arguments",{{"container",object},{"index",0},{"reference",{{"owner",document+":origin"},{"key","origin:plane:xy"}}},{"offset_mm",8}}}}),"--command","undo","--command","redo","--command","save"});
+            require(result.exit_code==0,"CLI profile reference or Undo/Redo failed");std::vector<kernel::BodyResult> cache;const auto saved=document::PartDocument::load(project/path,&cache);const auto* found=saved.find_container(object);
+            require(found&&found->placement.z==8&&found->placement.references.front().owner_id==document+":origin"&&!cache.empty()&&std::abs(cache.back().volume-(extrusion?30:36*std::acos(-1.0)))<1e-6,"CLI profile reference lost native geometry or owner");
+            require(std::ranges::find(saved.sketches,sketch,&sketcher::Sketch::id)->owner_container_id==object,"CLI profile reference lost owned Sketch");
+        }
         const auto shell_path=project/"shell-cli.prtz";
         auto shell_fixture=document::PartDocument::create_default();auto shell_box=document::PartDocument::create_box_container();shell_box.box={10,10,10};
         shell_fixture.insert_history_entry(document::PartHistoryKind::Feature,shell_box.id);shell_fixture.history.push_back(shell_box);
