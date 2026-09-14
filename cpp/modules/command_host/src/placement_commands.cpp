@@ -1,4 +1,7 @@
 #include <zima/command_host/host.hpp>
+#include <zima/workspace/drill_reference_operations.hpp>
+#include <zima/workspace/hole_operations.hpp>
+#include <zima/workspace/opening_operations.hpp>
 #include <zima/workspace/placement_edit.hpp>
 #include <zima/document/placement_json.hpp>
 #include <zima/workspace/primitive_reference_operations.hpp>
@@ -18,9 +21,12 @@ Json data(const workspace::Workspace& live, const std::string& id, const std::st
 }
 }
 void Host::register_placement_commands() {
-    dispatcher_.add({"placement.reference.set",tr("Assign an original reference to a Body, construction, primitive or Part profile placement."),
-        {{"object",true},{"index",true,commands::ArgumentType::Integer},{"reference",true,commands::ArgumentType::Object},
-         {"offset_mm",false,commands::ArgumentType::Number},{"flip",false,commands::ArgumentType::Boolean},{"derive_orientation",false,commands::ArgumentType::Boolean},{"document",false}},true},[this](const Json& args) {
+    for(const std::string prefix:{"placement","hole","opening"}) {
+    const auto object_key=prefix=="placement"?"object":"container";
+    dispatcher_.add({prefix+".reference.set",prefix=="placement"?tr("Assign an original reference through the supported shared placement and feature transactions."):
+        tr("Assign an original reference to a Hole or Opening through its shared Properties transaction."),
+        {{object_key,true},{"index",true,commands::ArgumentType::Integer},{"reference",true,commands::ArgumentType::Object},
+         {"offset_mm",false,commands::ArgumentType::Number},{"flip",false,commands::ArgumentType::Boolean},{"derive_orientation",false,commands::ArgumentType::Boolean},{"document",false}},true},[this,prefix,object_key](const Json& args) {
         const auto checked=target(args);if(!checked.ok)return checked;
         if(interaction().template_document)return Result::failure("unsupported_document",tr("Placement operations require an open Part or Assembly."));
         try {
@@ -28,7 +34,16 @@ void Host::register_placement_commands() {
             const auto invalid=[](){throw workspace::PlacementEditError("invalid_arguments","Specify owner, key and an optional instance_path for the placement reference.");};
             for(const auto& [key,item]:ref.items())if((key!="owner"&&key!="key"&&key!="instance_path")||!item.is_string())invalid();
             if(!ref.contains("owner")||!ref.contains("key")||args.at("index")<0||args.at("index")>4)invalid();
-            const auto id=workspace_.active_document_id(),object=args.at("object").get<std::string>();const auto info=workspace::read_placement(workspace_,id,object);
+            const auto id=workspace_.active_document_id(),object=args.at(object_key).get<std::string>();
+            if(prefix!="placement") {
+                const auto* state=workspace_.open_part(id);
+                if(!state)throw workspace::PlacementEditError("unsupported_document","Hole and Opening references require an open Part.");
+                const auto* feature=state->session.document().find_container(object);
+                if(!feature)throw workspace::PlacementEditError("container_not_found","The requested container does not exist.");
+                if(feature->feature_kind!=(prefix=="hole"?document::FeatureKind::Hole:document::FeatureKind::Thread))
+                    throw workspace::PlacementEditError("wrong_feature","The reference command does not match the Hole or Opening type.");
+            }
+            const auto info=workspace::read_placement(workspace_,id,object);
             document::ConstructionReference source;source.owner_id=ref.at("owner");source.semantic_key=ref.at("key");source.instance_path=ref.value("instance_path",std::string{});
             source.offset=args.value("offset_mm",0.0);source.flip=args.value("flip",false);
             const auto index=args.at("index").get<std::size_t>();const auto derive=args.value("derive_orientation",true);bool changed{};
@@ -38,16 +53,22 @@ void Host::register_placement_commands() {
                 const auto kind=workspace_.open_part(id)->session.document().find_container(object)->feature_kind;
                 if(kind==document::FeatureKind::Extrusion||kind==document::FeatureKind::Revolution)
                     changed=workspace::set_part_profile_reference(workspace_,kernel_,id,object,index,std::move(source),derive);
+                else if(kind==document::FeatureKind::Hole||kind==document::FeatureKind::Thread)
+                    changed=workspace::set_drill_placement_reference(workspace_,kernel_,id,object,index,std::move(source),derive);
                 else changed=workspace::set_primitive_reference(workspace_,kernel_,id,object,index,std::move(source),derive);
             }
             auto result=data(workspace_,id,object);result["changed"]=changed;
+            if(prefix!="placement"){result["container"]=object;result["body_calculated"]=changed;}
             if(changed)change_=Change{ChangeKind::Model,id};return Result::success(std::move(result));
         }catch(const workspace::PlacementEditError& error){return Result::failure(error.code,tr(error.what()));}
+         catch(const workspace::HoleOperationError& error){return Result::failure(error.code,tr(error.what()));}
+         catch(const workspace::OpeningOperationError& error){return Result::failure(error.code,tr(error.what()));}
          catch(const workspace::BodyOperationError& error){return Result::failure(error.code,tr(error.what()));}
          catch(const workspace::ProfileOperationError& error){return Result::failure(error.code,tr(error.what()));}
          catch(const workspace::PrimitiveOperationError& error){return Result::failure(error.code,tr(error.what()));}
          catch(const std::exception& error){return Result::failure("placement_rejected",tr(error.what()));}
     });
+    }
     dispatcher_.add({"placement.get", tr("Read stored Body, feature or construction placement without calculation."),
         {{"object", true}, {"document", false}}, false}, [this](const Json& args) {
         try { return Result::success(data(workspace_, args.value("document", workspace_.active_document_id()), args.at("object").get<std::string>())); }

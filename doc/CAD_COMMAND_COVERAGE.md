@@ -1637,3 +1637,30 @@ Katalog má **270 příkazů**, sada **147 testů**. Poslední úplná regrese
 zůstává před touto etapou **146/146**; tato etapa má cílené modelové,
 procesní i GUI ověření. Zbývají mimo jiné reference dalších typů funkcí,
 neskicové 3D kóty a souborové operace popsané výše.
+
+
+## Reference Hole a Opening (2026-09-14)
+
+`hole.reference.set`, `opening.reference.set` a obecné
+`placement.reference.set` nyní přiřazují původní reference také nativním
+otvorům. Používají dříve schválené přiřazení a stávající společné potvrzení
+Hole/Opening; algoritmus umístění, směry FRONT a normalizace se nemění.
+Podrobnosti: [DRILL_REFERENCE_COMMANDS.md](DRILL_REFERENCE_COMMANDS.md).
+
+Ověřeny Hole, hladký Opening a metrický, Whitworthův i trubkový závit.
+Test měří skutečný posun stěn o 4 mm, odebraný objem, zachování závitové
+plochy a identit profilů. Zahrnuje chybné a vlastní reference, chybné typy,
+aktivní editor, bezezměnové požadavky, Undo/Redo a nativní uložení.
+Procesní CLI i skutečné GUI Vlastnosti prošly. Testovací přípravek používá
+správné protilehlé vstupní strany podle existujících směrů Hole a Opening.
+
+Cílená sada prošla **10/10 za 118,17 s** (`build/drill-reference-tests.log`).
+Následná úplná Windows Release regrese prošla **148/148 za 585,37 s**
+(`build/drill-reference-full-tests.log`), včetně poslední etapy výkresových
+popisků. Obě aplikace a všechny testovací cíle jsou sestavené.
+Katalog obsahuje **272 příkazů**, sada **148 testů**.
+
+Další práce zahrnuje vlastnosti neskicových 3D kót, zbývající referenční
+adaptéry (Sweep, import, řezy a Assembly profily) a souborové operace.
+Samostatné změny společného řešení bodů Curve3D a odstraňování referencí
+zůstávají pod svými dosud nevyřízenými žádostmi o souhlas.

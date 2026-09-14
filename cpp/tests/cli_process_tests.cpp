@@ -191,6 +191,21 @@ int main(int argc,char** argv){
             require(result.exit_code==0,"CLI label transaction failed");const auto loaded=drawing::DrawingDocument::load(project/"labels-cli.drwz");const auto* saved=loaded.find_view(view.id);
             require(saved&&saved->caption_position==drawing::Point2{14,9}&&saved->section_label_position==drawing::Point2{-2,6}&&saved->section_marker_offsets.at(marker)==std::array<double,2>{5,-2}&&saved->projected_edges.front().points==view.projected_edges.front().points,"CLI labels lost native data or projected source geometry");
         }
+        for(const bool hole:{true,false}) {
+            const std::string prefix=hole?"hole":"opening",name=prefix+"-reference-cli";
+            Json create={{"bore_length_mm",10},{"placement",{{"z",-20}}}};
+            if(hole)create["diameter_mm"]=10;else {create["type"]="metric";create["designation"]="M10";create["thread_length_mm"]=5;create["chamfer_enabled"]=false;create["drill_point_enabled"]=false;}
+            result=launch(executable,root,common+QStringList{"--command",QString::fromStdString("new part "+name),"--command","box.create 40 40 40",
+                "--command",command({{"command",prefix+".create"},{"arguments",create}}),"--command","save"});require(result.exit_code==0,"CLI drill reference fixture failed");
+            const auto original=document::PartDocument::load(project/(name+".prtz"));const auto target=original.history.back().id,owner=original.document_id+":origin";
+            Json reference={{"container",target},{"index",0},{"reference",{{"owner",owner},{"key","origin:plane:xy"}}},{"offset_mm",hole?-20:20}};
+            auto lateral=reference;lateral["index"]=1;lateral["reference"]["key"]="origin:plane:yz";lateral["offset_mm"]=3;
+            result=launch(executable,root,common+QStringList{"--command",QString::fromStdString("open "+name+".prtz"),"--command",command({{"command",prefix+".reference.set"},{"arguments",reference}}),
+                "--command",command({{"command",prefix+".reference.set"},{"arguments",lateral}}),"--command","undo","--command","redo","--command","save"});require(result.exit_code==0,"CLI drill reference transaction failed");
+            std::vector<kernel::BodyResult> cache;const auto saved=document::PartDocument::load(project/(name+".prtz"),&cache);const auto* f=saved.find_container(target);
+            require(f,"CLI saved document lost the drill feature");const auto r=hole?5.:f->thread.profile_diameter/2;
+            require(f->placement.x==3&&f->placement.z==(hole?-20:20)&&f->placement.references.front().owner_id==owner&&f->hole.sketch_id==original.history.back().hole.sketch_id&&!cache.empty()&&std::abs(cache.back().volume-(64000-std::acos(-1.0)*r*r*10))<1e-5,"CLI drill reference lost native geometry or profile identity");
+        }
         const auto shell_path=project/"shell-cli.prtz";
         auto shell_fixture=document::PartDocument::create_default();auto shell_box=document::PartDocument::create_box_container();shell_box.box={10,10,10};
         shell_fixture.insert_history_entry(document::PartHistoryKind::Feature,shell_box.id);shell_fixture.history.push_back(shell_box);

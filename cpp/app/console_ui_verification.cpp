@@ -1589,6 +1589,31 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
             check(saved.find_container(id)&&saved.find_container(id)->placement.references.front().owner_id==owner&&saved.find_container(id)->placement.z==13&&!cache.empty()&&std::abs(cache.back().volume-(extrusion?30:36*std::acos(-1.0)))<1e-6,"Reference native save lost position, source or body");
             json_run("close",{{"discard",true}});flush();
         }
+        for(const bool hole:{true,false}) {
+            const std::string prefix=hole?"hole":"opening",name=stem+"-"+prefix+"-reference";
+            run(QString::fromStdString("new part "+name));run("box.create 40 40 40");
+            commands::Json create={{"bore_length_mm",10},{"placement",{{"z",-20}}}};
+            if(hole)create["diameter_mm"]=10;else {create["type"]="metric";create["designation"]="M10";create["thread_length_mm"]=5;create["chamfer_enabled"]=false;create["drill_point_enabled"]=false;}
+            const auto made=json_run((prefix+".create").c_str(),create).data;const auto id=made.at("container").get<std::string>(),owner=made.at("document").get<std::string>()+":origin";
+            commands::Json request={{"container",id},{"index",0},{"reference",{{"owner",owner},{"key","origin:plane:xy"}}},{"offset_mm",hole?-20:20}};
+            json_run((prefix+".reference.set").c_str(),request);request["index"]=1;request["reference"]["key"]="origin:plane:yz";request["offset_mm"]=3;
+            json_run((prefix+".reference.set").c_str(),request);flush();
+            const auto get=[&](){return json_run("placement.get",{{"object",id}}).data.at("placement");};
+            const auto edit=[&](){QTreeWidgetItem* item=nullptr;for(QTreeWidgetItemIterator it(model_tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==id){item=*it;break;}
+                check(item,"Referenced opening is missing from Tree");window.show_tree_item_properties(item);flush();
+                for(auto* dialog:window.findChildren<QDialog*>())if(dialog->isVisible()&&dialog->findChild<QTableWidget*>("primitiveReferenceTable"))return dialog;
+                throw std::runtime_error("Referenced opening Properties did not open");};
+            auto* properties=edit();auto* table=properties->findChild<QTableWidget*>("primitiveReferenceTable");auto* offset=qobject_cast<QDoubleSpinBox*>(table->cellWidget(1,2));
+            check(offset&&offset->isEnabled()&&offset->value()==3,"Opening GUI did not consume CLI lateral reference");
+            check(window.execute_console_command(QString::fromStdString(commands::Json({{"command",prefix+".reference.set"},{"arguments",request}}).dump())).code=="editing_in_progress","Opening reference command interrupted Properties");
+            offset->setValue(7);properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();check(get().at("x")==3,"Opening reference Cancel changed model");
+            properties=edit();table=properties->findChild<QTableWidget*>("primitiveReferenceTable");qobject_cast<QDoubleSpinBox*>(table->cellWidget(1,2))->setValue(7);properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+            check(get().at("x")==7,"Opening reference GUI OK did not share placement data");run("undo");check(get().at("x")==3,"Opening reference GUI Undo failed");run("redo");run("save");
+            std::vector<kernel::BodyResult> cache;const auto saved=document::PartDocument::load(directory/(name+".prtz"),&cache);const auto* feature=saved.find_container(id);check(feature,"GUI save lost the opening");
+            const auto r=hole?5.:feature->thread.profile_diameter/2;
+            check(feature->placement.x==7&&feature->placement.references.front().owner_id==owner&&!cache.empty()&&std::abs(cache.back().volume-(64000-std::acos(-1.0)*r*r*10))<1e-5,"GUI reference edit lost native opening geometry");
+            json_run("close",{{"discard",true}});flush();
+        }
         for(const bool title:{false,true}) {
             const std::string name=stem+(title?"-template-title":"-template-frame"),suffix=title?".tblz":".frmz";
             const auto created=json_run("template.new",{{"kind",title?"title_block":"drawing_format"},{"name",name}}).data;flush();
