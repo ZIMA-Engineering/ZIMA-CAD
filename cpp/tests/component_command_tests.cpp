@@ -55,8 +55,13 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     placement.target_reference.instance_path=target.child(leaf);referenced.find_occurrence(other)->placement_references={placement,placement};
     referenced.dependencies.push_back({"dependency",other,sub1,assembly::ComponentDependencyKind::DerivedCopyReference});
     referenced.dependencies.push_back({"self",sub1,sub1,assembly::ComponentDependencyKind::PlacementReference});
-    auto sketch=sketcher::Sketch::create_default();sketcher::SketchExternalReference ref;ref.id="external";ref.context_assembly_document_id=owner;ref.source_instance_path=target.child(leaf).encoded();sketch.external_references={ref,ref};const auto sketch_id=sketch.id;referenced.sketches.push_back(sketch);
-    auto unrelated=sketcher::Sketch::create_default();ref.context_assembly_document_id="other-assembly";unrelated.external_references={ref};referenced.sketches.push_back(unrelated);
+    auto sketch=sketcher::Sketch::create_default();sketcher::SketchExternalReference ref;
+    ref.id="external";ref.kind=sketcher::ExternalReferenceKind::Point;
+    ref.source_document_id=source;ref.source_owner_id=source+":origin";
+    ref.source_semantic_key="origin:point";ref.cached_points={{{0,0}}};
+    ref.source_instance_path=target.child(leaf).encoded();
+    sketch.external_references={ref};const auto sketch_id=sketch.id;referenced.insert_sketch(sketch);
+    auto unrelated=sketcher::Sketch::create_default();ref.context_assembly_document_id="other-assembly";ref.context_instance_path=path2;unrelated.external_references={ref};referenced.insert_sketch(unrelated);
     live.open_assembly(owner)->session.commit(std::move(referenced));
     const auto dependency_revision=live.open_assembly(owner)->session.revision(),dependency_generation=live.open_assembly(owner)->session.data_generation();
     const auto dependencies=run(host,"component.dependencies",{{"instance_path",target.encoded()}}).data;

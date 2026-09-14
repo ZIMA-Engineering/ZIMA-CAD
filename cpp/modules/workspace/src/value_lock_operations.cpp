@@ -95,6 +95,7 @@ template<class Document> auto fields(Document& doc,const std::string& owner) {
     for(auto& object:doc.constructions)construction(construction,object);
     if constexpr(requires{doc.history;})for(auto& object:doc.history)feature(object);
     if constexpr(requires{doc.cuts;})for(auto& cut:doc.cuts)feature(cut.definition);
+    if constexpr(requires{doc.sketch_containers;})for(auto& container:doc.sketch_containers)feature(container);
     if constexpr(requires{doc.components;})for(auto& component:doc.components)
         if(component.occurrence_id==owner) {
             if(component.derived_copy) {

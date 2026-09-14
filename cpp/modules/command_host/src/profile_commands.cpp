@@ -24,17 +24,6 @@ const Feature& profile(const workspace::Workspace& live, const std::string& docu
     if (value->feature_kind != kind) throw Error("wrong_feature", "The requested profile type does not match the container.");
     return *value;
 }
-Feature assembly_profile(const assembly::AssemblyDocument& doc, const std::string& sketch_id, Kind kind) {
-    const auto sketch = std::ranges::find(doc.sketches, sketch_id, &sketcher::Sketch::id);
-    if (sketch == doc.sketches.end()) throw Error("sketch_not_found", "The requested Sketch does not exist.");
-    if (!sketch->owner_container_id.empty()) throw Error("profile_owned", "The Sketch already belongs to another container.");
-    auto value = kind == Kind::Extrusion ? document::PartDocument::create_extrusion_container(sketch_id)
-                                        : document::PartDocument::create_revolution_container(sketch_id);
-    value.combine_mode = document::CombineMode::Subtract;
-    if (kind == Kind::Extrusion) value.extrusion.profile_plane_offset = sketch->plane_offset;
-    else value.revolution.profile_plane_offset = sketch->plane_offset;
-    return value;
-}
 const char* extent(document::ProfileExtentMode mode) {
     return mode == document::ProfileExtentMode::OneSide ? "one_side" : mode == document::ProfileExtentMode::TwoSides ? "two_sides" : "symmetric";
 }
@@ -245,7 +234,7 @@ void Host::register_profile_commands() {
                         auto* assembly=workspace_.open_assembly(id);
                         if((!state&&!assembly)||interaction().template_document)throw Error("unsupported_document","Profile operations require an open Part or Assembly.");
                         auto value=create?(state?workspace::profile_from_sketch(state->session.document(),args.at("sketch").get<std::string>(),kind)
-                                                :assembly_profile(assembly->session.document(),args.at("sketch").get<std::string>(),kind))
+                                                :workspace::profile_from_sketch(assembly->session.document(),args.at("sketch").get<std::string>(),kind))
                                          :profile(workspace_,id,args.at("container").get<std::string>(),kind);
                         if(state) {
                             const auto* body=state->session.document().body_owner_for_object(value.id);
@@ -264,7 +253,7 @@ void Host::register_profile_commands() {
                             else for(const auto& item:assembly->session.document().components)
                                 if(!item.suppressed&&!item.derived_copy&&item.source_kind==zima::assembly::ComponentSourceKind::Part)selected.push_back(item.occurrence_id);
                             workspace::commit_assembly_profile(workspace_,kernel_,id,std::move(value),std::move(selected),
-                                create?workspace::ProfileEditMode::Create:workspace::ProfileEditMode::Replace);
+                                create?workspace::ProfileEditMode::TransformSketch:workspace::ProfileEditMode::Replace);
                         } else workspace::commit_profile(workspace_,kernel_,id,std::move(value),create?workspace::ProfileEditMode::TransformSketch:workspace::ProfileEditMode::Replace);
                         change_=Change{ChangeKind::Model,id};auto result=details(workspace_,id,profile(workspace_,id,container,kind));result["changed"]=true;return Result::success(std::move(result));
                     } catch(const Error& e){return Result::failure(e.code,tr(e.what()));}

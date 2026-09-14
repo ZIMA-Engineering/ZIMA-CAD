@@ -1,3 +1,4 @@
+#include <zima/workspace/assembly_scene.hpp>
 #include "workspace_internal.hpp"
 
 namespace zima::app {
@@ -1937,15 +1938,37 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         } else {
             mesh = source.build_scene();
         }
+        if (active) for (const auto& sketch : source.sketches) {
+            const auto* owner = source.find_sketch_container(sketch.owner_container_id);
+            if (!owner || owner->suppressed || sketch.suppressed || sketch.id == active_sketch_id_ ||
+                sketch.id == sketch_properties_preview_id_ ||
+                (property_owned_sketch_draft_ && property_owned_sketch_draft_->id == sketch.id)) continue;
+            auto wire = sketch.viewer_mesh();
+            keep_only_inactive_sketch_profile(wire, owner->id);
+            append_mesh(mesh, std::move(wire));
+        }
+        if (active && !visible_local_origin_ids_.empty()) {
+            zima::document::PartDocument carrier;
+            carrier.history = source.sketch_containers; carrier.sketches = source.sketches;
+            append_mesh(mesh, local_container_context_mesh(carrier, visible_local_origin_ids_,
+                viewer_->reference_visible(zima::viewer::ReferenceVisibility::Axes),
+                viewer_->reference_visible(zima::viewer::ReferenceVisibility::Planes)));
+        }
         if (primitive_origin_preview_mesh_ && active) {
             append_mesh(mesh, *primitive_origin_preview_mesh_);
+        }
+        if (active && !active_sketch_id_.empty()) {
+            if (const auto* sketch = active_sketch()) {
+                const auto* shown = sketch_trim_active_ && sketch_trim_preview_ ? &*sketch_trim_preview_ : sketch;
+                append_mesh(mesh, sketch_viewer_mesh(*shown));
+            }
         }
         return mesh;
     };
     const auto* active_part =
         workspace_.open_part(workspace_.active_document_id());
-    const bool active_top_assembly_sketch =
-        workspace_.active_document_id() == document.document_id &&
+    const bool active_assembly_sketch =
+        workspace_.open_assembly(workspace_.active_document_id()) != nullptr &&
         !active_sketch_id_.empty();
     const auto active_part_occurrence = active_part == nullptr
         ? std::optional<std::string>{}
@@ -1975,6 +1998,14 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                 return workspace_.occurrence_point_to_scene(
                     top_assembly_id, occurrence_path, body_frame.point(point));
             });
+    }
+    if (active_assembly_sketch && workspace_.active_document_id() != document.document_id &&
+        !workspace_.active_occurrence_path().empty()) {
+        const auto top_id = document.document_id;
+        const auto path = zima::assembly::InstancePath::decode(workspace_.active_occurrence_path());
+        viewer_->set_transient_point_transform([this, top_id, path](const auto& point) {
+            return workspace_.occurrence_point_to_scene(top_id, path, point);
+        });
     }
     const zima::sketcher::Sketch* editing_sketch = nullptr;
     if (!active_sketch_id_.empty()) {
@@ -2010,9 +2041,9 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         sketch_bspline_active_;
     viewer_->set_selection_contract(active_sketch_id_.empty() && !selection_action_->isChecked()
         ? std::vector<zima::viewer::CandidateKind>{}
-        : (active_part != nullptr || active_top_assembly_sketch) && sketch_trim_active_
+        : (active_part != nullptr || active_assembly_sketch) && sketch_trim_active_
             ? std::vector{zima::viewer::CandidateKind::SketchTrimPiece}
-        : (active_part != nullptr || active_top_assembly_sketch) &&
+        : (active_part != nullptr || active_assembly_sketch) &&
                 sketch_external_reference_active_
             ? sketch_external_profile_active_
                 ? std::vector{zima::viewer::CandidateKind::Edge}
@@ -2033,7 +2064,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                 pending_primitive_reference_index_
             ? placement_reference_candidate_kinds()
         : (active_part != nullptr && !active_sketch_id_.empty()) ||
-                active_top_assembly_sketch
+                active_assembly_sketch
             ? std::vector{zima::viewer::CandidateKind::SketchSegment,
                           zima::viewer::CandidateKind::SketchPoint,
                           zima::viewer::CandidateKind::Dimension,
@@ -2055,9 +2086,12 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                                        zima::viewer::CandidateKind::Occurrence};
             }
         }());
-    if (active_top_assembly_sketch && sketch_external_reference_active_) {
+    if (active_assembly_sketch && sketch_external_reference_active_) {
         const auto top_assembly_id = document.document_id;
         viewer_->set_candidate_filter([this, top_assembly_id](const auto& candidate) {
+            const auto& prefix = workspace_.active_occurrence_path();
+            if (!prefix.empty() && (!candidate.instance_path.starts_with(prefix) ||
+                candidate.instance_path == prefix)) return false;
             if (candidate.geometry !=
                     zima::viewer::CandidateGeometry::OriginalReference ||
                 candidate.instance_path.empty()) return false;
@@ -2110,7 +2144,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
             }
         }
         auto display=active_assembly_display(rollback_document);
-        if(active_top_assembly_sketch) {
+        if(active_assembly_sketch) {
             if(const auto* sketch=active_sketch()) append_mesh(display,sketch_viewer_mesh(*sketch));
         }
         viewer_->set_mesh(std::move(display), fit_assembly_view);
@@ -2155,10 +2189,11 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         if (active_assembly != nullptr &&
             active_assembly->session.document().document_id != document.document_id &&
             !workspace_.active_occurrence_path().empty()) {
-            viewer_->set_mesh(workspace_.build_scene_with_assembly_override(
+            const auto display = active_assembly_display(active_assembly->session.document());
+            viewer_->set_mesh(workspace::build_scene_with_assembly_override(workspace_,
                 document.document_id,
                 zima::assembly::InstancePath::decode(workspace_.active_occurrence_path()),
-                active_assembly->session.document()), fit_assembly_view);
+                active_assembly->session.document(), &display), fit_assembly_view);
         } else if (active_part_occurrence && !active_part_occurrence->empty()) {
             zima::kernel::BodyResult live_source;
             live_source.mesh = sketch_input_mesh(active_part->session);
@@ -2213,14 +2248,6 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         } else {
             auto display = active_assembly_display(document);
             if(section_dialog_&&sweep_profile_sketch_draft_)append_mesh(display,sketch_viewer_mesh(*sweep_profile_sketch_draft_));
-            if (active_top_assembly_sketch) {
-                for (const auto& sketch : document.sketches) {
-                    if (sketch.id != active_sketch_id_) continue;
-                    const auto* shown = sketch_trim_active_ && sketch_trim_preview_
-                        ? &*sketch_trim_preview_ : &sketch;
-                    append_mesh(display, sketch_viewer_mesh(*shown));
-                }
-            }
             viewer_->set_mesh(std::move(display), fit_assembly_view);
         }
     }

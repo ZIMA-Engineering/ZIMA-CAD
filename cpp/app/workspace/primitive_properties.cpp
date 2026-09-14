@@ -84,7 +84,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                     assembly->session.document().sketches.end(),
                     [&](const auto& sketch) {
                         return sketch.id == selected_sketch_id_ &&
-                            sketch.owner_container_id.empty();
+                            assembly->session.document().find_sketch_container(sketch.owner_container_id) != nullptr;
                     });
                 if (selected != assembly->session.document().sketches.end()) {
                     property_owned_sketch_draft_ = *selected;
@@ -203,6 +203,9 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 });
         }
     }
+    if (assembly_cut && !edit_mode && !resuming_assembly_profile && property_owned_sketch_draft_ &&
+        assembly->session.document().find_sketch_container(property_owned_sketch_draft_->owner_container_id))
+        initial = workspace::profile_from_sketch(assembly->session.document(), source_sketch_id, feature_kind);
     if (property_owned_sketch_draft_) {
         property_owned_sketch_draft_->owner_container_id = initial.id;
         // The transient owned Sketch and its profile feature must share one
@@ -316,11 +319,14 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             }
             if (assembly_cut) {
                 const auto committed_cut_id = committed.id;
+                const auto* state = workspace_.open_assembly(owner_id);
+                const auto mode = edit_mode ? workspace::ProfileEditMode::Replace
+                    : state && state->session.document().find_sketch_container(committed.id)
+                        ? workspace::ProfileEditMode::TransformSketch : workspace::ProfileEditMode::Create;
                 try {
                     zima::workspace::commit_assembly_profile(workspace_, kernel_, owner_id,
                         std::move(committed), std::move(target_occurrences),
-                        edit_mode ? zima::workspace::ProfileEditMode::Replace
-                                  : zima::workspace::ProfileEditMode::Create,
+                        mode,
                         property_owned_sketch_draft_);
                 } catch (const std::exception& error) {
                     throw std::runtime_error(tr(error.what()).toStdString());

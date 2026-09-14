@@ -19,7 +19,7 @@ void extrusion(const kernel::OcctKernel& kernel,const fs::path& directory) {
     require(f.doc().sketches.front().owner_container_id==cut,"Cut did not acquire its own Sketch");
     require(f.live.open_part(f.source)->session.revision()==source_revision,"Assembly cut changed source Part history");
     near(f.live.open_part(f.source)->session.calculated_boundaries().back().volume,1000);
-    f.run("undo");require(f.doc().cuts.empty()&&f.doc().sketches.front().owner_container_id.empty(),"Undo lost standalone profile");near(f.volume(f.first),1000);
+    f.run("undo");require(f.doc().cuts.empty()&&f.doc().find_sketch_container(f.doc().sketches.front().owner_container_id)!=nullptr,"Undo lost standalone profile");near(f.volume(f.first),1000);
     f.run("redo");near(f.volume(f.first),976);
     const auto generation=f.state().session.data_generation();
     require(f.run("assembly.cut.list").at("items").front().at("targets")==Json::array({f.first}),"Cut query lost target identity");

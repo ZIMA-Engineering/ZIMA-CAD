@@ -110,6 +110,13 @@ PlacementReferenceRemovalResult remove_placement_reference(Workspace& live,
             commit_sweep(live, kernel, id, std::move(value), SweepEditMode::Replace);
             return {true, true};
         }
+    } else if (const auto* container = assembly->session.document().find_sketch_container(object)) {
+        auto placement = container->placement;
+        if (!remove_row(placement.references, index)) return {};
+        const auto& sketches = assembly->session.document().sketches;
+        const auto sketch = std::ranges::find(sketches, object, &sketcher::Sketch::owner_container_id);
+        if (sketch == sketches.end()) reject("sketch_not_found", "The requested Sketch does not exist.");
+        return {commit_sketch_properties(live, kernel, id, *sketch, std::move(placement)), false};
     } else if (const auto* cut = assembly->session.document().find_cut(object)) {
         if (cut->definition.feature_kind != Kind::Extrusion && cut->definition.feature_kind != Kind::Revolution)
             reject("placement_not_found", "The object has no supported placement in this document.");

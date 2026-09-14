@@ -232,11 +232,19 @@ public:
     std::vector<zima::kernel::DimensionLayoutEntry> dimension_layouts;
     std::vector<PartOccurrence> components;
     std::vector<zima::sketcher::Sketch> sketches;
+    // Placement owners of standalone Sketches. Cut profiles belong to cuts.
+    std::vector<zima::document::HistoryContainer> sketch_containers;
     std::vector<AssemblyCut> cuts;
     std::vector<zima::document::ConstructionObject> constructions;
     std::vector<ComponentDependency> dependencies;
 
     [[nodiscard]] static AssemblyDocument create_default();
+    [[nodiscard]] zima::document::HistoryContainer* find_sketch_container(const std::string&);
+    [[nodiscard]] const zima::document::HistoryContainer* find_sketch_container(const std::string&) const;
+    void insert_sketch(zima::sketcher::Sketch,
+        std::optional<zima::document::HistoryContainer> = {});
+    void validate_sketch_containers() const;
+
     [[nodiscard]] static PartOccurrence create_part_occurrence(
         std::string name,
         std::string source_document_id,

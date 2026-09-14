@@ -20,7 +20,16 @@ inline void normalize_sketch_front_references(
             reference.semantic_key == front_semantic;
     };
     for (auto& reference : references) {
-        if (reference.orientation_only) continue;
+        if (reference.orientation_only) {
+            // Replacing row 0 can temporarily allocate its new automatic
+            // orientation in the free TOP slot. The Sketch work plane owns
+            // FRONT; its retained twin must follow that same role.
+            if (same_source(reference)) {
+                reference.orientation_drives_rotation = true;
+                reference.orientation_role = "front";
+            }
+            continue;
+        }
         if (&reference == &*first_position_plane) {
             reference.orientation_drives_rotation = true;
             reference.orientation_role = "front";

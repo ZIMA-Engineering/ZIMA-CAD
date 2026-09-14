@@ -1,4 +1,5 @@
 #include <zima/workspace/sketch_properties.hpp>
+#include <zima/workspace/history_operations.hpp>
 #include <zima/workspace/sketch_operations.hpp>
 #include <zima/workspace/part_transactions.hpp>
 #include <zima/document/feature_sketches.hpp>
@@ -111,10 +112,31 @@ void insert_new_sketch(document::PartDocument& document,sketcher::Sketch sketch,
     document.history.push_back(std::move(container));document.sketches.push_back(std::move(sketch));
 }
 void insert_new_sketch(assembly::AssemblyDocument& document,sketcher::Sketch sketch) {
-    if(!sketch.owner_container_id.empty())throw SketchOperationError("invalid_sketch_owner","A standalone Assembly Sketch cannot own a cut container.");
-    if(std::ranges::any_of(document.sketches,[&](const auto& existing){return existing.id==sketch.id;}))
-        throw SketchOperationError("duplicate_sketch","The Sketch identity already exists.");
-    sketch.validate();document.sketches.push_back(std::move(sketch));
+    document.insert_sketch(std::move(sketch));
+}
+void delete_document_sketch(Workspace& live,const kernel::OcctKernel& kernel,
+    const std::string& id,const std::string& sketch_id) {
+    const auto sketch=document_sketch(live,id,sketch_id);
+    if(const auto* part=live.open_part(id)) {
+        const auto* owner=part->session.document().find_container(sketch.owner_container_id);
+        if(!owner||owner->feature_kind!=document::FeatureKind::Sketch)
+            throw SketchOperationError("profile_owned","Delete the owning feature instead of its internal Sketch.");
+        delete_part_history(live,id,kernel,owner->id);return;
+    }
+    auto* assembly=live.open_assembly(id);
+    if(!assembly)throw SketchOperationError("unsupported_document","Sketch operations require an open Part or Assembly.");
+    const auto* owner=assembly->session.document().find_sketch_container(sketch.owner_container_id);
+    if(!owner)throw SketchOperationError("profile_owned","Delete the owning feature instead of its internal Sketch.");
+    const std::set<std::string> removed{sketch.id,owner->id,owner->feature_id,owner->container_origin.id};
+    auto next=assembly->session.document();
+    std::erase_if(next.sketch_containers,[&](const auto& value){return value.id==sketch.owner_container_id;});
+    std::erase_if(next.sketches,[&](const auto& value){return value.id==sketch_id;});
+    for(auto& other:next.sketches)for(auto& ref:other.external_references)
+        if(removed.contains(ref.source_owner_id)&&ref.source_instance_path.empty()&&
+            (ref.source_document_id.empty()||ref.source_document_id==id))ref.broken=true;
+    next.resolve_constructions();
+    next.validate_sketch_containers();
+    assembly->session.commit(std::move(next));
 }
 std::string create_document_sketch(Workspace& live,const kernel::OcctKernel& kernel,const std::string& id,std::string name,sketcher::SketchPlane plane) {
     if(name.empty() || name.size()>1024)throw SketchOperationError("invalid_name","A Sketch name must contain 1 to 1024 UTF-8 bytes.");
@@ -127,8 +149,9 @@ std::string create_document_sketch(Workspace& live,const kernel::OcctKernel& ker
         return sketch_id;
     }
     if(auto* assembly=live.open_assembly(id)) {
-        auto next=assembly->session.document();insert_new_sketch(next,std::move(sketch));next.resolve_constructions();
-        assembly->session.commit(std::move(next));return sketch_id;
+        auto container=document::PartDocument::create_sketch_container();sketch.owner_container_id=container.id;
+        static_cast<void>(commit_sketch_properties(live,kernel,id,std::move(sketch),container.placement,container));
+        return sketch_id;
     }
     throw SketchOperationError("unsupported_document","Sketch operations require an open Part or Assembly.");
 }

@@ -35,6 +35,7 @@ void visit_document_sketches(const assembly::AssemblyDocument&,
 // here; callers use their existing factory or property dialog values.
 void insert_new_sketch(document::PartDocument&,sketcher::Sketch,document::HistoryContainer);
 void insert_new_sketch(assembly::AssemblyDocument&,sketcher::Sketch);
+void delete_document_sketch(Workspace&,const kernel::OcctKernel&,const std::string& document,const std::string& sketch);
 [[nodiscard]] std::string create_document_sketch(Workspace&,const kernel::OcctKernel&,const std::string& document,
     std::string name,sketcher::SketchPlane plane);
 }

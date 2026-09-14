@@ -83,6 +83,13 @@ void Host::register_placement_commands() {
             const auto index=args.at("index").get<std::size_t>();const auto derive=args.value("derive_orientation",true);bool changed{};
             if(info.kind=="body")changed=workspace::set_body_placement_reference(workspace_,kernel_,id,object,index,std::move(source),derive);
             else if(info.kind=="construction")changed=workspace::set_construction_reference(workspace_,id,object,index,std::move(source),derive);
+            else if(info.kind=="sketch") {
+                const auto& sketches=workspace_.open_assembly(id)->session.document().sketches;
+                const auto sketch=std::ranges::find(sketches,object,&sketcher::Sketch::owner_container_id);
+                if(sketch==sketches.end())throw workspace::SketchOperationError("sketch_not_found","The requested Sketch does not exist.");
+                changed=workspace::set_sketch_reference(workspace_,kernel_,id,sketch->id,index,std::move(source));
+            }
+            else if(info.kind=="cut")changed=workspace::set_profile_reference(workspace_,kernel_,id,object,index,std::move(source),derive);
             else {
                 const auto kind=workspace_.open_part(id)->session.document().find_container(object)->feature_kind;
                 if(kind==document::FeatureKind::Sketch) {

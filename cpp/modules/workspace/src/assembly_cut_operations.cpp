@@ -16,6 +16,7 @@ document::PartDocument reference_carrier(const assembly::AssemblyDocument& sourc
     document::PartDocument result;
     result.constructions = source.constructions;
     result.sketches = source.sketches;
+    result.history = source.sketch_containers;
     for (const auto& cut : source.cuts) result.history.push_back(cut.definition);
     return result;
 }

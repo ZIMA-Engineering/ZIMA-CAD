@@ -356,7 +356,7 @@ bool SketchPropertiesDialog::submit() {
         commit_(std::move(result), std::move(resolved_placement),
             enter_sketch_after_commit_);
     } catch (const std::exception& failure) {
-        error_->setText(QString::fromUtf8(failure.what()));
+        error_->setText(tr(failure.what()));
         return false;
     }
     return true;

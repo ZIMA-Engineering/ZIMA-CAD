@@ -3,8 +3,14 @@
 Konzole GUI a samostatný `zima-cad-cli` sdílejí transakci geometrie skici
 v `workspace/sketch_operations`. GUI používá stejnou operaci při kreslení,
 editaci a v pracovních kopiích vložených profilů. Nová skica v Partu má vlastní
-kontejner Sketch a patří do aktivního tělesa; běžná skica sestavy je samostatná.
+kontejner Sketch a patří do aktivního tělesa; samostatná skica sestavy má
+rovněž vlastní kontejner umístění uložený přímo v `.asmz`.
 Tvorba z GUI i CLI používá stejné vložení nativního kontejneru.
+
+`sketch.delete` smaže samostatnou skicu včetně jejího kontejneru.
+Skicu vlastněnou profilem nelze vyjmout z jejího prvku; odstraní se celý
+vlastník. Operace má společné potvrzení s GUI a jeden krok Undo/Redo.
+Vlastnosti a reference: [SKETCH_PROPERTIES_COMMANDS.md](SKETCH_PROPERTIES_COMMANDS.md).
 
 ## Souřadnice, cíle a výsledky
 

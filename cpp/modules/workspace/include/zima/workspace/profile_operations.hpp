@@ -19,6 +19,8 @@ void normalize_owned_profile_front_references(std::vector<document::Construction
 [[nodiscard]] std::string revolution_axis_segment_id(const sketcher::Sketch&, const std::string& configured_id = {});
 [[nodiscard]] document::HistoryContainer profile_from_sketch(const document::PartDocument&,
     const std::string& sketch_id, document::FeatureKind);
+[[nodiscard]] document::HistoryContainer profile_from_sketch(const assembly::AssemblyDocument&,
+    const std::string& sketch_id, document::FeatureKind);
 // Read one original target in an existing container or Body frame. Selection
 // uses this query; commit additionally validates source order and ownership.
 [[nodiscard]] document::ExtrusionParameters::EndTarget resolve_profile_end_target(

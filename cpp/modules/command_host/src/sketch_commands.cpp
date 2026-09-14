@@ -1,4 +1,5 @@
 #include <zima/workspace/sketch_properties.hpp>
+#include <zima/workspace/value_lock_operations.hpp>
 #include <zima/workspace/placement_edit.hpp>
 #include <zima/document/placement_json.hpp>
 #include "sketch_command_support.hpp"
@@ -88,6 +89,16 @@ void Host::register_sketch_commands() {
         const auto id=workspace::create_document_sketch(workspace_,kernel_,doc,args["name"].get<std::string>(),plane=="XY"?sketcher::SketchPlane::XY:plane=="XZ"?sketcher::SketchPlane::XZ:sketcher::SketchPlane::YZ);
         change_=Change{ChangeKind::Model,doc,true};auto result=metadata(workspace::document_sketch(workspace_,doc,id));result["document"]=doc;result["changed"]=true;return result;
     });
+    query({"sketch.delete",tr("Delete a standalone Sketch and its owning container."),
+        {{"sketch",true},{"document",false}},true},[this](const Json& args) {
+        const auto check=target(args);
+        if(!check.ok)throw workspace::SketchOperationError("document_changed","Sketch creation requires the active document.");
+        if(interaction().template_document)throw workspace::SketchOperationError("unsupported_document","Sketch commands require an ordinary Part or Assembly.");
+        const auto id=workspace_.active_document_id(),sketch=args.at("sketch").get<std::string>();
+        workspace::delete_document_sketch(workspace_,kernel_,id,sketch);
+        change_=Change{ChangeKind::Model,id,true};
+        return Json{{"document",id},{"sketch",sketch},{"changed",true},{"body_calculated",workspace_.open_part(id)!=nullptr}};
+    });
     const auto properties=[this](const Json& args,bool reference) {
         const auto check=target(args);
         if(!check.ok)throw workspace::SketchOperationError("document_changed","Sketch creation requires the active document.");
@@ -102,9 +113,12 @@ void Host::register_sketch_commands() {
             if(!data.contains("owner")||!data.contains("key"))invalid("Specify owner, key and an optional instance_path for the placement reference.");
             document::ConstructionReference source;source.owner_id=data.at("owner");source.semantic_key=data.at("key");
             source.instance_path=data.value("instance_path",std::string{});source.offset=args.value("offset_mm",0.0);source.flip=args.value("flip",false);
-            changed=workspace::set_part_sketch_reference(workspace_,kernel_,id,sketch_id,integer(args,"index",0,0,4),std::move(source));
+            changed=workspace::set_sketch_reference(workspace_,kernel_,id,sketch_id,integer(args,"index",0,0,4),std::move(source));
         } else {
             auto placement=workspace::read_placement(workspace_,id,sketch.owner_container_id).placement;
+            if(workspace::value_locked(workspace_,id,sketch.owner_container_id,"profile_offset").value_or(false))
+                placement.value_locks.insert("profile_offset");
+            else placement.value_locks.erase("profile_offset");
             if(args.contains("name"))sketch.name=args.at("name").get<std::string>();
             if(args.contains("plane")){
                 const auto plane=args.at("plane").get<std::string>();
@@ -126,11 +140,12 @@ void Host::register_sketch_commands() {
             if(args.contains("back"))placement.orientation_back=args.at("back").get<bool>();
             if(args.contains("quarter_turns"))placement.orientation_quarter_turns=static_cast<int>(integer(args,"quarter_turns",0,0,3));
             sketch.plane_reference_owner_id.clear();
-            changed=workspace::commit_part_sketch_properties(workspace_,kernel_,id,std::move(sketch),std::move(placement));
+            changed=workspace::commit_sketch_properties(workspace_,kernel_,id,std::move(sketch),std::move(placement));
         }
         if(changed)change_=Change{ChangeKind::Model,id,true};
         auto result=metadata(workspace::document_sketch(workspace_,id,sketch_id));
-        result["document"]=id;result["changed"]=changed;result["body_calculated"]=changed&&workspace_.open_part(id);
+        result["document"]=id;result["changed"]=changed;result["body_calculated"]=changed&&(workspace_.open_part(id) ||
+            workspace_.open_assembly(id)->session.document().find_cut(workspace::document_sketch(workspace_,id,args.at("sketch").get<std::string>()).owner_container_id));
         return result;
     };
     query({"sketch.set",tr("Edit Sketch name, base plane, offset and placement through the shared Properties transaction."),

@@ -1,9 +1,9 @@
 # Vlastnosti skici přes GUI a CLI
 
-První etapa doplňuje Vlastnosti skici v Partu. GUI i příkazy potvrzují
-celou skicu a její umístění společnou funkcí `commit_part_sketch_properties`.
-Následuje schválené doplnění trvalého kontejneru samostatné Assembly skici
-podle [návrhu](SKETCH_PROPERTIES_CLI_PLAN.md).
+GUI i příkazy potvrzují celou skicu a její umístění společnou funkcí
+`commit_sketch_properties` pro Part i Assembly. Samostatná skica sestavy
+má vlastní trvalý kontejner v `.asmz`; její změna nepočítá komponentové vazby
+ani odečty. Podrobnosti: [Vlastnosti skic sestavy](ASSEMBLY_SKETCH_PROPERTIES.md).
 
 ## Příkazy
 
@@ -60,4 +60,5 @@ Sestavení obou aplikací a všech testů prošlo. Závěrečná související r
 **12/12 za 244,41 s**: profilové rámy GUI, dialogové kontrakty, překlady,
 samostatný proces CLI, skici, odebírání referencí, vlastněné profilové skici,
 profilové operace/reference, nové Vlastnosti skici, katalog příkazů a konzole
-GUI. Katalog má 291 příkazů a CTest 158 testů.
+GUI. Tato Part etapa měla 291 příkazů a 158 testů; aktuální navazující
+ověření Assembly je v [samostatném přehledu](ASSEMBLY_SKETCH_PROPERTIES.md).

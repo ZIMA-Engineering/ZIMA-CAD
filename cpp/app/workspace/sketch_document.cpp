@@ -1,3 +1,4 @@
+#include <zima/workspace/assembly_scene.hpp>
 #include "workspace_internal.hpp"
 #include <zima/workspace/sketch_operations.hpp>
 
@@ -151,6 +152,12 @@ void AssemblyWorkspaceWindow::align_active_sketch_view(bool fit_view) {
             workspace_.displayed_document_id(),
             zima::assembly::InstancePath::decode(*occurrence), screen_x);
     }
+    if (assembly != nullptr && workspace_.active_document_id() != workspace_.displayed_document_id() &&
+        !workspace_.active_occurrence_path().empty()) {
+        const auto path = zima::assembly::InstancePath::decode(workspace_.active_occurrence_path());
+        direction = workspace_.occurrence_direction_to_scene(workspace_.displayed_document_id(), path, direction);
+        screen_x = workspace_.occurrence_direction_to_scene(workspace_.displayed_document_id(), path, screen_x);
+    }
     const double frame_roll = camera_roll_for_direction(
         direction, screen_x, 0.0);
     viewer_->set_view_direction(direction, static_cast<float>(
@@ -257,6 +264,12 @@ void AssemblyWorkspaceWindow::show_sketch_drag_preview(const zima::sketcher::Ske
     } else if (assembly_sketch_drag_document_) {
         display = assembly_sketch_drag_document_->build_scene();
         append_mesh(display, sketch.viewer_mesh());
+        if (workspace_.active_document_id() != workspace_.displayed_document_id() &&
+            !workspace_.active_occurrence_path().empty()) {
+            display = workspace::build_scene_with_assembly_override(workspace_, workspace_.displayed_document_id(),
+                zima::assembly::InstancePath::decode(workspace_.active_occurrence_path()),
+                *assembly_sketch_drag_document_, &display);
+        }
     }
     viewer_->set_mesh(std::move(display), false);
 }
@@ -544,6 +557,8 @@ void AssemblyWorkspaceWindow::finish_active_sketch() {
             } else if (const auto* cut =
                            assembly->session.document().find_cut(return_container_id)) {
                 return_feature_kind = cut->definition.feature_kind;
+            } else if (assembly->session.document().find_sketch_container(return_container_id)) {
+                return_feature_kind = zima::document::FeatureKind::Sketch;
             }
         }
     }

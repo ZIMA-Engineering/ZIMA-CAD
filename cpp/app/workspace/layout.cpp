@@ -893,7 +893,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                          role == QStringLiteral("assembly-construction") ||
                          role == QStringLiteral("part-sketch") ||
                          role == QStringLiteral("assembly-sketch") ||
-                         role == QStringLiteral("assembly-cut"))) {
+                         role == QStringLiteral("assembly-cut") || role == QStringLiteral("assembly-sketch-container"))) {
                         return item;
                     }
                     ++iterator;
@@ -1806,6 +1806,17 @@ void AssemblyWorkspaceWindow::create_layout() {
                     !selected_sketch_point_id_.empty());
                 return;
             }
+            if (item->data(0, Qt::UserRole + 3).toString() == "assembly-sketch-container") {
+                const auto id = item->data(0, Qt::UserRole).toString().toStdString();
+                const auto* assembly = workspace_.open_assembly(workspace_.active_document_id());
+                if (!assembly) return;
+                const auto& sketches = assembly->session.document().sketches;
+                const auto sketch = std::ranges::find(sketches, id, &zima::sketcher::Sketch::owner_container_id);
+                if (sketch == sketches.end()) return;
+                selected_sketch_id_ = sketch->id;
+                viewer_->confirm_container(id);
+                return;
+            }
             if (item->data(0, Qt::UserRole + 3).toString() == "part-sketch" ||
                 item->data(0, Qt::UserRole + 3).toString() == "assembly-sketch") {
                 selected_sketch_id_ =
@@ -2129,7 +2140,8 @@ void AssemblyWorkspaceWindow::create_layout() {
                     else if (tree_kind == QStringLiteral("part-construction") ||
                              tree_kind == QStringLiteral("assembly-construction") ||
                              tree_kind == QStringLiteral("assembly-cut") ||
-                             tree_kind == QStringLiteral("assembly-sketch"))
+                             tree_kind == QStringLiteral("assembly-sketch") ||
+                             tree_kind == QStringLiteral("assembly-sketch-container"))
                         delete_kind = tree_kind;
                     else if (tree_kind == QStringLiteral("part-sketch"))
                         delete_kind = QStringLiteral("sketch");
@@ -2416,6 +2428,13 @@ void AssemblyWorkspaceWindow::create_layout() {
                 } else if (selected == remove) {
                     delete_tree_selection();
                 }
+            } else if (item->data(0, Qt::UserRole + 3).toString() == "assembly-sketch-container") {
+                QMenu menu(this);
+                auto* properties = menu.addAction(tr("Vlastnosti…"));
+                auto* remove = menu.addAction(tr("Odstranit"));
+                const auto* selected = menu.exec(tree_->viewport()->mapToGlobal(position));
+                if (selected == properties) show_tree_item_properties(item);
+                else if (selected == remove) delete_tree_selection();
             } else if (item->data(0, Qt::UserRole + 3).toString() == "part-sketch" ||
                        item->data(0, Qt::UserRole + 3).toString() == "assembly-sketch") {
                 const auto id = item->data(0, Qt::UserRole).toString().toStdString();

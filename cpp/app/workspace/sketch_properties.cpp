@@ -19,7 +19,7 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
     if (!sketch_id.empty() && !edit_mode) return;
     auto initial = edit_mode ? *found : zima::sketcher::Sketch::create_default();
     std::optional<zima::document::HistoryContainer> new_sketch_container;
-    if (!edit_mode && part != nullptr) {
+    if (!edit_mode) {
         new_sketch_container = zima::document::PartDocument::create_sketch_container();
         initial.owner_container_id = new_sketch_container->id;
     }
@@ -31,15 +31,17 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
                 return container.id == initial.owner_container_id;
             });
         if (owner_container != history.end()) {
-            initial_placement = owner_container->placement;
+            initial_placement = workspace::sketch_properties_placement(*owner_container);
         }
     } else if (assembly != nullptr) {
         if (const auto* cut = assembly->session.document().find_cut(
                 initial.owner_container_id)) {
-            initial_placement = cut->definition.placement;
+            initial_placement = workspace::sketch_properties_placement(cut->definition);
+        } else if (const auto* container = assembly->session.document().find_sketch_container(initial.owner_container_id)) {
+            initial_placement = container->placement;
         } else if (pending_profile_feature_ &&
                    pending_profile_feature_->id == initial.owner_container_id) {
-            initial_placement = pending_profile_feature_->placement;
+            initial_placement = workspace::sketch_properties_placement(*pending_profile_feature_);
         }
     }
     if (!edit_mode && new_sketch_container) {
@@ -60,75 +62,16 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
             zima::sketcher::Sketch committed,
             zima::document::Placement committed_placement,
             bool enter_sketch) {
+            const auto selected_id = committed.id;
+            static_cast<void>(workspace::commit_sketch_properties(workspace_, kernel_, owner_id,
+                std::move(committed), std::move(committed_placement), new_sketch_container));
             if (enter_sketch) {
-                active_sketch_id_ = committed.id;
+                active_sketch_id_ = selected_id;
                 clear_selected_sketch_geometry();
                 tree_->clearSelection();
                 viewer_->clear_selection();
             }
-            selected_sketch_id_ = committed.id;
-            const auto update = [&](auto& next) {
-                if (edit_mode) {
-                    const auto target = std::find_if(next.sketches.begin(), next.sketches.end(),
-                        [&](const auto& sketch) { return sketch.id == committed.id; });
-                    if (target == next.sketches.end()) {
-                        throw std::runtime_error("Sketch no longer exists");
-                    }
-                    *target = committed;
-                    if constexpr (requires { next.history; }) {
-                        const auto owner = std::find_if(
-                            next.history.begin(), next.history.end(),
-                            [&](const auto& container) {
-                                return container.id == committed.owner_container_id;
-                            });
-                        if (owner == next.history.end()) {
-                            throw std::runtime_error(
-                                "Sketch owning container no longer exists");
-                        }
-                        owner->placement = committed_placement;
-                    } else if constexpr (requires { next.cuts; }) {
-                        if (auto* cut = next.find_cut(
-                                committed.owner_container_id)) {
-                            cut->definition.placement = committed_placement;
-                        } else if (pending_profile_feature_ &&
-                                   pending_profile_feature_->id ==
-                                       committed.owner_container_id) {
-                            pending_profile_feature_->placement =
-                                committed_placement;
-                        }
-                    }
-                } else {
-                    if constexpr (requires { next.history; }) {
-                        if (committed.owner_container_id.empty() ||
-                            !new_sketch_container ||
-                            committed.owner_container_id != new_sketch_container->id) {
-                            throw std::runtime_error("Sketch has no owning container");
-                        }
-                        auto container = *new_sketch_container;
-                        container.placement = committed_placement;
-                        workspace::insert_new_sketch(next,committed,std::move(container));
-                    } else {
-                        if (!committed.owner_container_id.empty()) {
-                            throw std::runtime_error(
-                                "Standalone Assembly Sketch cannot own a cut container");
-                        }
-                        workspace::insert_new_sketch(next,committed);
-                    }
-                }
-            };
-            if (auto* target_part = workspace_.open_part(owner_id)) {
-                static_cast<void>(workspace::commit_part_sketch_properties(workspace_,kernel_,owner_id,
-                    std::move(committed),std::move(committed_placement),new_sketch_container));
-                return;
-            }
-            auto* target_assembly = workspace_.open_assembly(owner_id);
-            if (target_assembly == nullptr) {
-                throw std::runtime_error("Sketch owner is no longer open");
-            }
-            auto next = target_assembly->session.document();
-            update(next);
-            next.resolve_constructions();
-            target_assembly->session.commit(std::move(next));
+            selected_sketch_id_ = selected_id;
         }, this);
     {
         zima::kernel::ViewerReferenceGeometry reference_geometry;
@@ -425,6 +368,10 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
         tree_edit_sketch_container_ = new_sketch_container;
         if (!tree_edit_sketch_container_ && part) {
             if (const auto* owner = part->session.document().find_container(dialog->pending_value().first.owner_container_id))
+                tree_edit_sketch_container_ = *owner;
+        }
+        if (!tree_edit_sketch_container_ && assembly) {
+            if (const auto* owner = assembly->session.document().find_sketch_container(dialog->pending_value().first.owner_container_id))
                 tree_edit_sketch_container_ = *owner;
         }
     }

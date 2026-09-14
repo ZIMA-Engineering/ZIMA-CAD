@@ -37,7 +37,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Tělesa a Boolean | Modelové operace a reference hotovy | Tvorba, čtení, aktivace, název/viditelnost, kurzory, Boolean, pořadí a mazání; `body.reference.set`, společný vstup `placement.reference.set` a odebrání přes `placement.reference.remove` |
 | Umístění a původní reference | Číselná editace, reference Body/konstrukcí/primitiv, otvorů, řezů a profilů Partu/Assembly | `placement.get/set`, `value_lock.list/set`; `placement.reference.set` pro Body, konstrukce včetně bodů samostatných křivek, šest primitiv a profily Partu, `body.reference.set`, `construction.reference.set`; `hole/opening.reference.set`, `section.reference.set`, `extrusion/revolution.reference.set` také pro profilové odečty Assembly a `sweep2d/sweep3d/helical.reference.set`, importované prvky přes `import.reference.set`; odebrání referencí přes `placement.reference.remove` je implementované; přiřazení referencí bodům vložených drah přes `construction.reference.set` je implementované; komponenty používají `component.set` |
 | Konstrukční geometrie | Tvorba, vlastnosti a reference kořenů i bodů samostatných křivek hotovy | `construction.list/get/create/set/delete`, `construction.reference.set`; body křivek, tečny, zaoblení a seznamy; přiřazení referencí bodům a schválená oprava starých zdrojových rámů jsou implementované; příkazové přiřazení referencí bodům vložených drah potvrzuje celé tažení |
-| Skicář: geometrie | Základ hotov | 21 příkazů: samostatné a vložené skici, body, úsečky, kružnice, oblouky, elipsy, B-spline, obdélníky, mnohoúhelníky, posun a pomocná geometrie; text create/get/set s nativním písmem a spline get/set hotovy; DXF do vložených profilů hotov; zbývá kontrola dalších variant podle GUI |
+| Skicář: geometrie | Geometrie a Vlastnosti Part/Assembly hotovy | 21 příkazů: samostatné a vložené skici, body, úsečky, kružnice, oblouky, elipsy, B-spline, obdélníky, mnohoúhelníky, posun a pomocná geometrie; text create/get/set s nativním písmem a spline get/set hotovy; DXF do vložených profilů hotov; zbývá kontrola dalších variant podle GUI |
 | Skicář: vazby a operace | Vazby/kóty/solver/offset/trim/mirror hotovy | Offset create/get/set/free, úplný podklad a zachování intervalů, trim podle průsečíků, mirror, orientovaný obdélník, tečny a zaoblení rohu; všech 15 druhů vazeb, odstranění a solver; 16 druhů kót včetně vlastností, popisků a mazání; uvolnění externích referencí hotovo |
 | Externí reference skici | Lokální i kontextová tvorba, obnova a odpojení | Přesná projekce, trim, společné potvrzení Partu a závislostí, vlastněné profily, Part/Assembly Undo/Redo a souhrny zavřených nativních vlastníků při explicitní regeneraci |
 | Vytažení a rotace | Profily Partu a profilové odečty Assembly implementovány | `extrusion/revolution.create/get/set`, `assembly.cut.list`, vlastněná skica, Thin, směry, původní koncové reference a konkrétní výskyty; společné OK; `assembly.cut.remove/suppress/move/can_move` sdílejí historii s GUI; `extrusion/revolution.sketch.edit` potvrzují dávku úprav vlastní skici s jedním přepočtem a Undo; `extrusion/revolution.reference.set` přidělují reference umístění v Partu i Assembly, včetně přesných cest vnořených výskytů |
@@ -1980,3 +1980,35 @@ Obě aplikace a všechny testy jsou sestavené; související regrese prošla
 Zbývá schválený trvalý kontejner Assembly skic, návaznost jejich převodu
 na odečty a společné smazání; viz [návrh](SKETCH_PROPERTIES_CLI_PLAN.md).
 CLI se zatím neoznačuje za dokončené.
+
+
+## Vlastnosti a vlastnictví skic v Assembly (2026-09-14)
+
+Samostatná skica Assembly má trvalý kontejner umístění. `sketch.set`,
+`sketch.reference.set` a obecné příkazy umístění sdílejí potvrzení s GUI.
+`sketch.delete` odstraňuje skicu i její kontejner. Převod na protažení
+nebo rotaci zachová kontejner/Origin, reference a zámky a provede výhradně
+odečet z bezprostředních Part výskytů.
+
+Skici se správně zobrazují a editují také v aktivní podsestavě:
+strom, místní souřadnice, přesný výběr bodů, náhled tažení a návrat do
+Vlastností zachovávají top-level kontext a vlastnictví dokumentu.
+Kontrola smazání komponenty zahrnuje i externí reference skici přímo
+v Assembly. Nativní formát je INI 18 / JSON 27 a šablona je aktualizovaná.
+
+Podrobnosti a výsledky: [ASSEMBLY_SKETCH_PROPERTIES.md](ASSEMBLY_SKETCH_PROPERTIES.md).
+Katalog obsahuje **292 příkazů**, CTest **159 testů**.
+Obě aplikace i testovací programy jsou sestavené; úplná regrese prošla
+**159/159 za 647,73 s**. Po posledním doplnění překladů navíc znovu
+prošlo sestavení a **2/2** testy překladů a konzole za **122,21 s**.
+
+Navazující audit našel nepřevedené GUI potvrzení pořadí komponent,
+konstrukčních objektů a samostatných skic Assembly. Odečty již mají
+společné `assembly.cut.move/can_move`. Další krok sjednotí zbývající
+pořadí a ověří závislosti, odmítnutí přesunu mezi různými seznamy,
+Undo/Redo a absenci nevyžádané regenerace. Dále chybí příkazová správa
+pojmenovaných uložených pohledů Partu/Assembly. U jejich současného GUI
+uložení je potřeba ověřit celý stav kamery při novém otevření.
+Zbývá také sjednotit přímé potvrzení viditelnosti a kurzoru těles a
+dokončit audit inline hodnot a náhledů tažených myší.
+CLI zatím není označeno za dokončené.

@@ -1,3 +1,4 @@
+#include <zima/workspace/assembly_scene.hpp>
 #include <zima/workspace/appearance_operations.hpp>
 #include <zima/workspace/part_transactions.hpp>
 #include <zima/workspace/workspace.hpp>
@@ -803,10 +804,12 @@ zima::kernel::ViewerMesh Workspace::build_scene_with_part_override(
     return scene;
 }
 
-zima::kernel::ViewerMesh Workspace::build_scene_with_assembly_override(
+zima::kernel::ViewerMesh build_scene_with_assembly_override(
+    const Workspace& live,
     const std::string& top_assembly_document_id,
     const zima::assembly::InstancePath& instance_path,
-    const zima::assembly::AssemblyDocument& calculated_source) const {
+    const zima::assembly::AssemblyDocument& calculated_source,
+    const zima::kernel::ViewerMesh* display) {
     if (instance_path.occurrence_ids.empty()) {
         throw std::invalid_argument("Assembly override requires an exact instance path");
     }
@@ -829,7 +832,7 @@ zima::kernel::ViewerMesh Workspace::build_scene_with_assembly_override(
             }
             nested = calculated_source;
         } else {
-            const auto* source = open_assembly(occurrence->source_document_id);
+            const auto* source = live.open_assembly(occurrence->source_document_id);
             if (source == nullptr) {
                 throw std::invalid_argument(
                     "Nested Assembly override requires its open owner chain");
@@ -837,18 +840,25 @@ zima::kernel::ViewerMesh Workspace::build_scene_with_assembly_override(
             nested = self(self, source->session.document(), depth + 1);
         }
         zima::kernel::BodyResult snapshot;
-        snapshot.mesh = nested.build_scene();
+        snapshot.mesh = display && depth + 1 == instance_path.occurrence_ids.size()
+            ? *display : nested.build_scene();
         for (const auto& child : nested.components)
             snapshot.body_outputs.emplace(child.occurrence_id, child.calculated_source);
         occurrence->calculated_source = std::move(snapshot);
         occurrence->nested_snapshot = nested.occurrence_snapshot();
         return result;
     };
-    const auto* top = open_assembly(top_assembly_document_id);
+    const auto* top = live.open_assembly(top_assembly_document_id);
     if (top == nullptr) {
         throw std::invalid_argument("Assembly override target must be open");
     }
     return rebuild(rebuild, top->session.document(), 0).build_scene();
+}
+
+zima::kernel::ViewerMesh Workspace::build_scene_with_assembly_override(
+    const std::string& top, const zima::assembly::InstancePath& path,
+    const zima::assembly::AssemblyDocument& source) const {
+    return workspace::build_scene_with_assembly_override(*this, top, path, source);
 }
 
 std::string Workspace::insert_open_part(

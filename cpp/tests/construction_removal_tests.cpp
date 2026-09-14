@@ -63,7 +63,7 @@ void assembly_removal(const fs::path& dir) {
         }else if(scenario==2) {
             auto section=document::create_section();section.placement.references={ref};next.sections={section};
         }else if(scenario==3) {
-            auto sketch=sketcher::Sketch::create_default();sketch.plane_reference_owner_id=route.container_origin.id;next.sketches={sketch};
+            auto sketch=sketcher::Sketch::create_default();sketch.plane_reference_owner_id=route.container_origin.id;next.insert_sketch(sketch);
         }else if(scenario==4) {
             assembly::AssemblyCut cut;cut.definition=document::PartDocument::create_extrusion_container("owned-profile");
             cut.definition.placement.references={ref};next.cuts={cut};

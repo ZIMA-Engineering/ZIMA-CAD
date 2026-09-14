@@ -670,14 +670,22 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         run("save");const auto metadata_saved=document::PartDocument::load(directory/(stem+"-metadata.prtz"));
         check(metadata_saved.user_parameters.at("CLI_TEST")=="after GUI" && metadata_saved.document_units.at("Length")=="cm","GUI metadata did not persist");
         const auto json_run=[&](const char* command,commands::Json arguments) {return run(QString::fromStdString(commands::Json{{"command",command},{"arguments",std::move(arguments)}}.dump()));};
-        {
-            auto native=document::PartDocument::create_default();native.name=stem+"-sketch-properties";
+        for (const bool in_assembly : {false,true}) {
+            const auto verify_properties = [&](auto native) {
+            using Native=std::decay_t<decltype(native)>;
+            native.name=stem+(in_assembly?"-assembly-sketch-properties":"-sketch-properties");
+            const auto container_of=[&](const auto& doc,const std::string& owner) {
+                if constexpr(requires{doc.find_container(owner);})return doc.find_container(owner);
+                else return doc.find_sketch_container(owner);
+            };
             auto sketch=sketcher::Sketch::create_default();auto container=document::PartDocument::create_sketch_container();
             sketch.owner_container_id=container.id;sketch.name="Properties source";
             static_cast<void>(sketch.add_circle(0,0,3));
             const auto sid=sketch.id,owner=container.id,origin=native.document_id+":origin";
-            workspace::insert_new_sketch(native,sketch,container);native.resolve_constructions();
-            const auto path=directory/(native.name+".prtz");native.save(path);
+            if constexpr(requires{native.history;})workspace::insert_new_sketch(native,sketch,container);
+            else native.insert_sketch(sketch,container);
+            native.resolve_constructions();
+            const auto path=directory/(native.name+(in_assembly?".asmz":".prtz"));native.save(path);
             json_run("open",{{"path",document::path_to_utf8(path)}});flush();
             const auto get=[&]{return json_run("sketch.get",{{"sketch",sid}}).data;};
             const auto edit=[&](){
@@ -700,10 +708,10 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
                 dialog->findChild<QDialogButtonBox*>()->button(commit?QDialogButtonBox::Ok:QDialogButtonBox::Cancel)->click();flush();
                 check(get().at("plane_offset_mm")== (commit?6:0),"Sketch Properties violated OK/Cancel");
             }
-            run("save");const auto gui=document::PartDocument::load(path);
+            run("save");const auto gui=Native::load(path);
             run("undo");json_run("sketch.set",{{"sketch",sid},{"name","GUI properties"},{"plane","YZ"},{"plane_offset_mm",6},{"back",true},{"quarter_turns",1}});
-            run("save");const auto cli=document::PartDocument::load(path);
-            check(*gui.find_container(owner)==*cli.find_container(owner)&&gui.sketches.front().serialized()==cli.sketches.front().serialized(),
+            run("save");const auto cli=Native::load(path);
+            check(*container_of(gui,owner)==*container_of(cli,owner)&&gui.sketches.front().serialized()==cli.sketches.front().serialized(),
                 "GUI and CLI Sketch Properties differ");
             json_run("sketch.reference.set",{{"sketch",sid},{"index",0},{"reference",{{"owner",origin},{"key","origin:plane:xy"}}},{"offset_mm",4}});flush();
             for(const bool commit:{false,true}){
@@ -713,31 +721,34 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
                 value->setValue(7);
                 dialog->findChild<QDialogButtonBox*>()->button(commit?QDialogButtonBox::Ok:QDialogButtonBox::Cancel)->click();flush();
             }
-            run("save");const auto gui_reference=document::PartDocument::load(path);
+            run("save");const auto gui_reference=Native::load(path);
             run("undo");json_run("sketch.reference.set",{{"sketch",sid},{"index",0},{"reference",{{"owner",origin},{"key","origin:plane:xy"}}},{"offset_mm",7}});
-            run("save");const auto cli_reference=document::PartDocument::load(path);
-            if(*gui_reference.find_container(owner)!=*cli_reference.find_container(owner)||
+            run("save");const auto cli_reference=Native::load(path);
+            if(*container_of(gui_reference,owner)!=*container_of(cli_reference,owner)||
                 gui_reference.sketches.front().serialized()!=cli_reference.sketches.front().serialized()){
-                std::cerr<<"Sketch placement diff: "<<commands::Json::diff(commands::Json(gui_reference.find_container(owner)->placement),
-                    commands::Json(cli_reference.find_container(owner)->placement)).dump()<<"\nSketch data diff: "<<
+                std::cerr<<"Sketch placement diff: "<<commands::Json::diff(commands::Json(container_of(gui_reference,owner)->placement),
+                    commands::Json(container_of(cli_reference,owner)->placement)).dump()<<"\nSketch data diff: "<<
                     commands::Json::diff(commands::Json::parse(gui_reference.sketches.front().serialized()),
                         commands::Json::parse(cli_reference.sketches.front().serialized())).dump()<<'\n';
             }
-            check(*gui_reference.find_container(owner)==*cli_reference.find_container(owner)&&
+            check(*container_of(gui_reference,owner)==*container_of(cli_reference,owner)&&
                 gui_reference.sketches.front().serialized()==cli_reference.sketches.front().serialized(),"GUI and CLI referenced Sketch differ");
             run("undo");run("undo"); // Return to a Sketch without positional sources.
             auto* orientation_dialog=edit();
             document::ConstructionReference front;front.owner_id=origin;front.semantic_key="origin:plane:xy";front.supports_offset=true;
             check(orientation_dialog->set_reference(3,front,QString{}),"Sketch rejected independent FRONT");
             orientation_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
-            run("save");const auto gui_front=document::PartDocument::load(path);
-            check(std::ranges::any_of(gui_front.find_container(owner)->placement.references,[](const auto& ref){
+            run("save");const auto gui_front=Native::load(path);
+            check(std::ranges::any_of(container_of(gui_front,owner)->placement.references,[](const auto& ref){
                 return ref.orientation_only&&ref.orientation_role=="front";}),"Sketch Properties dropped its independent FRONT");
             run("undo");json_run("sketch.reference.set",{{"sketch",sid},{"index",3},{"reference",{{"owner",origin},{"key","origin:plane:xy"}}}});
-            run("save");const auto cli_front=document::PartDocument::load(path);
-            check(*gui_front.find_container(owner)==*cli_front.find_container(owner)&&
+            run("save");const auto cli_front=Native::load(path);
+            check(*container_of(gui_front,owner)==*container_of(cli_front,owner)&&
                 gui_front.sketches.front().serialized()==cli_front.sketches.front().serialized(),"GUI and CLI independent Sketch FRONT differ");
             json_run("close",{{"discard",true}});flush();
+            };
+            if(in_assembly)verify_properties(assembly::AssemblyDocument::create_default());
+            else verify_properties(document::PartDocument::create_default());
         }
         {
             const auto previous = run("context").data.at("active_document");

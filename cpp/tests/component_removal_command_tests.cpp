@@ -60,7 +60,10 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     next=original;next.add_dependency(assembly::AssemblyDocument::create_dependency(first,second,assembly::ComponentDependencyKind::ExternalSketchReference));
     live.open_assembly(owner)->session.commit(next);rejected(second,"component_in_use");run(host,"undo");
     next=original;auto sketch=sketcher::Sketch::create_default();sketcher::SketchExternalReference ref;
-    ref.id="external";ref.context_assembly_document_id=owner;ref.source_instance_path=path(second);sketch.external_references={ref};next.sketches.push_back(sketch);
+    ref.id="external";ref.kind=sketcher::ExternalReferenceKind::Point;
+    ref.source_document_id=source;ref.source_owner_id=source+":origin";
+    ref.source_semantic_key="origin:point";ref.cached_points={{{0,0}}};
+    ref.source_instance_path=path(second);sketch.external_references={ref};next.insert_sketch(sketch);
     live.open_assembly(owner)->session.commit(next);rejected(second,"component_in_use");run(host,"undo");
     next=original;next.find_occurrence(second)->source_document_id="unavailable";next.find_occurrence(second)->source_path=dir/"unavailable.prtz";
     live.open_assembly(owner)->session.commit(next);rejected(second);run(host,"undo");

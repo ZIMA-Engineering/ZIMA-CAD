@@ -1,4 +1,6 @@
 #include <zima/workspace/placement_edit.hpp>
+#include <zima/workspace/sketch_properties.hpp>
+#include <zima/workspace/profile_operations.hpp>
 #include <algorithm>
 #include <array>
 #include <charconv>
@@ -214,6 +216,10 @@ PlacementInfo read_placement(const Workspace& live, const std::string& id, const
         if (const auto* value = standalone_construction(doc.constructions, object))
             return construction_info(*value, id, body_id);
     } else if (const auto* assembly = live.open_assembly(id)) {
+        if(const auto* feature=assembly->session.document().find_sketch_container(object))
+            return {"sketch", "document", id, {}, feature->placement};
+        if(const auto* cut=assembly->session.document().find_cut(object))
+            return {"cut", "document", id, {}, cut->definition.placement};
         if (const auto* value = standalone_construction(assembly->session.document().constructions, object))
             return construction_info(*value, id, {});
     } else throw PlacementEditError("unsupported_document", "Placement operations require an open Part or Assembly.");
@@ -277,6 +283,21 @@ bool set_placement_values(Workspace& live, const kernel::OcctKernel& kernel,
     }
     auto* state = live.open_assembly(id);
     const auto& before = state->session.document();
+    if (info.kind == "sketch" || info.kind == "cut") {
+        auto placement = info.placement;
+        apply_values(placement, placement_edit_geometry(live, id, object), patch);
+        if (placement == info.placement) return false;
+        if (info.kind == "sketch") {
+            const auto sketch = std::ranges::find(before.sketches, object, &sketcher::Sketch::owner_container_id);
+            if (sketch == before.sketches.end())
+                throw SketchOperationError("sketch_not_found", "The requested Sketch does not exist.");
+            return commit_sketch_properties(live, kernel, id, *sketch, std::move(placement));
+        }
+        const auto* cut = before.find_cut(object);
+        auto value = cut->definition; value.placement = std::move(placement);
+        commit_assembly_profile(live, kernel, id, std::move(value), cut->target_occurrence_ids, ProfileEditMode::Replace);
+        return true;
+    }
     auto value = *standalone_construction(before.constructions, object);
     apply_values(value, placement_edit_geometry(live, id, object), patch);
     if (construction_placement(value) == info.placement) return false;

@@ -87,3 +87,12 @@ callback GUI. Při změně vlastnictví se přesune do společné operace,
 aby se při smazání nezanechal osiřelý kontejner a aby šel tentýž výsledek
 provést příkazem. Smazání skici patřící odečtu zůstane v operaci jejího
 vlastníka.
+
+
+## Realizace schváleného návrhu
+
+Datový kontejner Assembly skici, společné Vlastnosti, reference, zámky,
+smazání a převod na odečet jsou implementované. Přípony zůstaly stejné;
+formát Assembly je INI 18 / vnitřní JSON 27 a startovní Assembly je aktualizovaná.
+Podrobný výsledný kontrakt a ověření jsou v
+[ASSEMBLY_SKETCH_PROPERTIES.md](ASSEMBLY_SKETCH_PROPERTIES.md).

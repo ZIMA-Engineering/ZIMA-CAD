@@ -317,9 +317,10 @@ int main() {
         assembly.physical_parameters["MATERIAL_NAME"] = "Steel";
         assembly.family_table = R"({"columns":[],"instances":[]})";
         auto assembly_sketch = zima::sketcher::Sketch::create_default();
-        assembly.sketches.push_back(assembly_sketch);
         auto cut_definition = zima::document::PartDocument::create_extrusion_container(
             assembly_sketch.id);
+        assembly_sketch.owner_container_id = cut_definition.id;
+        assembly.sketches.push_back(assembly_sketch);
         cut_definition.combine_mode = zima::document::CombineMode::Subtract;
         cut_definition.extrusion.extent = zima::document::ExtrusionExtent::ThroughAll;
         assembly.cuts.push_back({cut_definition, {first_id, second_id}});
@@ -332,7 +333,7 @@ int main() {
         const std::string assembly_text(
             std::istreambuf_iterator<char>(assembly_file), {});
         require(assembly_text.find("[Document]\n") != std::string::npos &&
-                    assembly_text.find("format_version=17\n") != std::string::npos &&
+                    assembly_text.find("format_version=18\n") != std::string::npos &&
                     assembly_text.find("[DocumentUnits]\n") != std::string::npos &&
                     assembly_text.find("[DocumentPrecision]\n") != std::string::npos &&
                     assembly_text.find("[Material]\n") != std::string::npos &&
@@ -516,9 +517,10 @@ int main() {
                     repeated_top.find_occurrence(top_middle_b_id)->placement.x == 200.0,
                 "Parent Assembly took ownership of nested internal placement");
         auto cut_sketch = zima::sketcher::Sketch::create_default();
-        repeated_top.sketches.push_back(cut_sketch);
         auto repeated_cut =
             zima::document::PartDocument::create_extrusion_container(cut_sketch.id);
+        cut_sketch.owner_container_id = repeated_cut.id;
+        repeated_top.sketches.push_back(cut_sketch);
         repeated_cut.combine_mode = zima::document::CombineMode::Subtract;
         repeated_cut.extrusion.extent = zima::document::ExtrusionExtent::ThroughAll;
         repeated_top.cuts.push_back({

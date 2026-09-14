@@ -152,6 +152,11 @@ inline HistoryDependencies assembly_component_dependencies(const assembly::Assem
     HistoryDependencyCollector graph;
     for (const auto& component : document.components) graph.alias(component.occurrence_id,component.occurrence_id);
     for (const auto& object : document.constructions) graph.register_construction(object,object.id);
+    for(const auto& value:document.sketch_containers) {
+        graph.alias(value.id,value.id);graph.alias(value.feature_id,value.id);graph.origin(value.container_origin,value.id);
+    }
+    for(const auto& sketch:document.sketches)
+        if(document.find_sketch_container(sketch.owner_container_id))graph.alias(sketch.id,sketch.owner_container_id);
     const auto reference=[&](const std::string& consumer,const std::string& owner,const assembly::InstancePath& path) {
         graph.use(consumer,path.occurrence_ids.empty() ? owner : path.occurrence_ids.front());
     };
@@ -160,6 +165,8 @@ inline HistoryDependencies assembly_component_dependencies(const assembly::Assem
         for (const auto& point : object.curve_points) self(self,point,root);
     };
     for (const auto& object : document.constructions) construction(construction,object,object.id);
+    for(const auto& value:document.sketch_containers)
+        for(const auto& ref:value.placement.references)reference(value.id,ref.owner_id,assembly::InstancePath::decode(ref.instance_path));
     for (const auto& dependency : document.dependencies)
         graph.edges.emplace(dependency.prerequisite_occurrence_id,dependency.dependent_occurrence_id);
     for (const auto& component : document.components)

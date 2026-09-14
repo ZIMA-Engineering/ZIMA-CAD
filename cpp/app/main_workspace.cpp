@@ -4349,6 +4349,12 @@ int verify_nested_body_sketch_ui(QApplication& application, const std::filesyste
     fixture.add_part(part,calculated,part_path);
     auto sub=zima::assembly::AssemblyDocument::create_default();
     const auto sub_id=sub.document_id;
+    auto assembly_sketch=zima::sketcher::Sketch::create_default();
+    static_cast<void>(assembly_sketch.add_segment(0,0,20,0));
+    auto assembly_container=PartDocument::create_sketch_container();
+    assembly_container.placement={3,4,5};
+    assembly_sketch.owner_container_id=assembly_container.id;
+    sub.insert_sketch(assembly_sketch,assembly_container);sub.resolve_constructions();
     const auto sub_path=directory/"nested-body-sub.asmz";
     fixture.add_assembly(sub,sub_path);
     const auto inner=fixture.insert_open_part(sub_id,part.document_id,"Vnořený díl");
@@ -4374,6 +4380,7 @@ int verify_nested_body_sketch_ui(QApplication& application, const std::filesyste
             window.open_document_path(QString::fromStdString(top_path.string())) &&
             window.activate_occurrence_for_test(active_path),"Cannot activate nested multi-body Part")) return 1;
     flush();
+    if (!verify(activate_test_body(application,window,body_id), "Cannot activate nested Sketch Body")) return 1;
     auto* tree=window.findChild<QTreeWidget*>("documentTree");
     QTreeWidgetItem* row{};
     for (QTreeWidgetItemIterator i(tree);*i;++i)
@@ -4383,7 +4390,14 @@ int verify_nested_body_sketch_ui(QApplication& application, const std::filesyste
     window.show_tree_item_properties(row);flush();
     auto* open=window.findChild<QPushButton*>("sketchOpenButton");
     if (!verify(open && open->isVisible(),"Cannot edit nested Body Sketch")) return 1;
+    QPointer<QPushButton> open_guard=open;
     open->click();flush();
+    if(open_guard && open_guard->isVisible()) {
+        for(auto* dialog:window.findChildren<QDialog*>())if(dialog->isVisible())
+            for(auto* label:dialog->findChildren<QLabel*>())if(label->isVisible())
+                std::cerr<<"Sketch entry: "<<label->text().toStdString()<<"\n";
+        if(!verify(false,"Nested Sketch Properties did not confirm entry"))return 1;
+    }
     QEventLoop animation;QTimer::singleShot(950,&animation,&QEventLoop::quit);animation.exec();
     auto* view=dynamic_cast<zima::viewer::MeshView*>(window.findChild<QOpenGLWidget*>());
     const auto has_later=[&](const std::string& path) {
@@ -4457,7 +4471,58 @@ int verify_nested_body_sketch_ui(QApplication& application, const std::filesyste
     const auto canceled_trim=PartDocument::load(part_path);
     if (!verify(canceled_trim.sketches.front().serialized()==edited.sketches.front().serialized(),
             "Cancel committed the pending nested Sketch trim")) return 1;
-    std::cout << "Nested Body Sketch UI contracts passed\n";
+    window.findChild<QAction*>("finishSketchAction")->trigger();flush();
+    const auto close_returned_sketch_properties=[&] {
+        for(auto* dialog:window.findChildren<QDialog*>())if(dialog->isVisible() &&
+            dialog->findChild<QPushButton*>("sketchOpenButton")) {
+            dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();return true;
+        }
+        return false;
+    };
+    if(!verify(close_returned_sketch_properties(),"Finished Part Sketch did not return to Properties"))return 1;
+    const auto assembly_path=zima::assembly::InstancePath{{outer}}.encoded();
+    if(!verify(window.activate_occurrence_for_test(assembly_path),"Cannot activate the nested Assembly Sketch owner"))return 1;
+    flush();row=nullptr;
+    for(QTreeWidgetItemIterator i(tree);*i;++i)
+        if((*i)->data(0,Qt::UserRole).toString().toStdString()==assembly_container.id &&
+            (*i)->data(0,Qt::UserRole+3).toString()=="assembly-sketch-container") {row=*i;break;}
+    if(!verify(row,"Nested Assembly Sketch container is missing from the Tree"))return 1;
+    window.show_tree_item_properties(row);flush();
+    QPointer<QPushButton> assembly_open=window.findChild<QPushButton*>("sketchOpenButton");
+    if(!verify(assembly_open && assembly_open->isVisible(),"Cannot open nested Assembly Sketch Properties"))return 1;
+    assembly_open->click();flush();
+    if(!verify(!assembly_open || !assembly_open->isVisible(),"Nested Assembly Sketch Properties did not confirm entry"))return 1;
+    QTimer::singleShot(950,&animation,&QEventLoop::quit);animation.exec();
+    if(!verify(std::ranges::any_of(view->mesh().points,[&](const auto& point){
+        return point.reference.owner_id==assembly_sketch.id && point.reference.instance_path==assembly_path &&
+            std::hypot(std::hypot(point.position.x-23,point.position.y-45),point.position.z-4)<1e-6;
+    }),"Nested Assembly Sketch frame was not applied exactly once"))return 1;
+    picked.reset();
+    for(int y=20;y<view->height()-20 && !picked;y+=3)
+        for(int x=20;x<view->width()-20 && !picked;x+=3) {
+            const auto candidates=view->selection_candidates_at(QPointF(x,y));
+            if(!candidates.empty() && candidates.front().kind==zima::viewer::CandidateKind::SketchPoint &&
+                candidates.front().owner_id==assembly_sketch.id && candidates.front().instance_path==assembly_path &&
+                candidates.front().semantic_key=="point:"+assembly_sketch.points[1].id) picked=QPointF(x,y);
+        }
+    if(!verify(picked.has_value(),"Nested Assembly Sketch point is not offered in its exact occurrence"))return 1;
+    send(QEvent::MouseMove,*picked,Qt::NoButton,Qt::NoButton);
+    send(QEvent::MouseButtonPress,*picked,Qt::LeftButton,Qt::LeftButton);
+    send(QEvent::MouseMove,*picked+QPointF(18,12),Qt::NoButton,Qt::LeftButton);
+    if(!verify(has_later(passive_path),"Nested Assembly Sketch drag lost passive top-level context"))return 1;
+    send(QEvent::MouseButtonRelease,*picked+QPointF(18,12),Qt::LeftButton,Qt::NoButton);
+    window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+    const auto edited_assembly=zima::assembly::AssemblyDocument::load(sub_path);
+    const auto* assembly_moved=edited_assembly.sketches.front().find_point(assembly_sketch.points[1].id);
+    if(!verify(assembly_moved && std::hypot(assembly_moved->x-20,assembly_moved->y)>1e-4 &&
+        window.active_occurrence_path_for_test()==assembly_path && has_later(passive_path),
+        "Nested Assembly Sketch drag changed ownership or did not persist local coordinates"))return 1;
+    for(const auto& point:view->mesh().points)if(point.reference.owner_id==assembly_sketch.id)
+        if(!verify(point.reference.instance_path==assembly_path && std::abs(point.position.y-45)<1e-6,
+            "Nested Assembly Sketch drag escaped its local plane"))return 1;
+    window.findChild<QAction*>("finishSketchAction")->trigger();flush();
+    if(!verify(close_returned_sketch_properties(),"Finished Assembly Sketch did not return to Properties"))return 1;
+    std::cout << "Nested Body and Assembly Sketch UI contracts passed\n";
     return 0;
 }
 
@@ -7663,7 +7728,7 @@ int verify_startup_contract(
         const auto* root = tree->topLevelItem(0);
         for (int index = 0; index < root->childCount(); ++index) {
             if (root->child(index)->data(0, Qt::UserRole + 3).toString() ==
-                    QStringLiteral("assembly-sketch")) {
+                    QStringLiteral("assembly-sketch-container")) {
                 assembly_sketch_in_tree = true;
                 break;
             }
@@ -7717,7 +7782,7 @@ int verify_startup_contract(
         auto* root = tree->topLevelItem(0);
         for (int index = 0; index < root->childCount(); ++index) {
             if (root->child(index)->data(0, Qt::UserRole + 3).toString() ==
-                    QStringLiteral("assembly-sketch")) {
+                    QStringLiteral("assembly-sketch-container")) {
                 assembly_profile_sketch = root->child(index);
                 break;
             }

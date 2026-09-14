@@ -108,6 +108,7 @@ target_link_libraries(zima_document_core
 
 add_library(zima_assembly
     modules/assembly/src/assembly_document.cpp
+    modules/assembly/src/assembly_sketches.cpp
     modules/assembly/src/assembly_session.cpp modules/assembly/src/file_relocation.cpp)
 target_include_directories(zima_assembly PUBLIC modules/assembly/include)
 target_link_libraries(zima_assembly
@@ -966,6 +967,10 @@ if(ZIMA_BUILD_TESTS)
     target_link_libraries(zima_cpp_box_command_tests PRIVATE zima_command_host)
     add_test(NAME zima_cpp_box_command_tests COMMAND zima_cpp_box_command_tests)
     set_tests_properties(zima_cpp_box_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
+    add_executable(zima_cpp_assembly_sketch_properties_tests tests/assembly_sketch_properties_tests.cpp)
+    target_link_libraries(zima_cpp_assembly_sketch_properties_tests PRIVATE zima_command_host)
+    add_test(NAME zima_cpp_assembly_sketch_properties_tests COMMAND zima_cpp_assembly_sketch_properties_tests)
+    set_tests_properties(zima_cpp_assembly_sketch_properties_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     add_executable(zima_cpp_sketch_properties_command_tests tests/sketch_properties_command_tests.cpp)
     target_link_libraries(zima_cpp_sketch_properties_command_tests PRIVATE zima_command_host)
     add_test(NAME zima_cpp_sketch_properties_command_tests COMMAND zima_cpp_sketch_properties_command_tests)

@@ -52,7 +52,7 @@ struct Fixture {
         const auto before=doc();const auto revision=state().session.revision(),generation=state().session.data_generation();
         const auto result=host.execute({{"command",command},{"arguments",std::move(args)}});
         if(result.ok||result.code!=code)throw std::runtime_error(std::string(command)+" expected "+code+", got "+result.code+": "+result.message);
-        require(state().session.revision()==revision&&state().session.data_generation()==generation&&doc().cuts==before.cuts&&!host.change(),"Rejected cut changed history");
+        require(state().session.revision()==revision&&state().session.data_generation()==generation&&doc().cuts==before.cuts&&doc().sketch_containers==before.sketch_containers&&!host.change(),"Rejected cut changed history");
         require(doc().sketches.size()==before.sketches.size(),"Rejected cut added a Sketch");
         for(std::size_t i=0;i<before.sketches.size();++i)require(doc().sketches[i].serialized()==before.sketches[i].serialized(),"Rejected cut altered a Sketch");
         for(const auto& part:before.components)require(doc().find_occurrence(part.occurrence_id)->calculated_source.shares_with(part.calculated_source),"Rejected cut replaced component geometry");

@@ -4,6 +4,27 @@
 #include <set>
 
 namespace zima::workspace {
+document::HistoryContainer profile_from_sketch(const assembly::AssemblyDocument& doc,
+    const std::string& sketch_id, document::FeatureKind kind) {
+    if (kind != document::FeatureKind::Extrusion && kind != document::FeatureKind::Revolution)
+        throw ProfileOperationError("wrong_feature", "The requested profile type does not match the container.");
+    const auto sketch = std::ranges::find(doc.sketches, sketch_id, &sketcher::Sketch::id);
+    if (sketch == doc.sketches.end())
+        throw ProfileOperationError("sketch_not_found", "The requested Sketch does not exist.");
+    const auto* owner = doc.find_sketch_container(sketch->owner_container_id);
+    if (!owner) throw ProfileOperationError("profile_owned", "The Sketch already belongs to another container.");
+    auto value = kind == document::FeatureKind::Extrusion
+        ? document::PartDocument::create_extrusion_container(sketch_id)
+        : document::PartDocument::create_revolution_container(sketch_id);
+    value.id = owner->id; value.feature_parent_id = owner->id;
+    value.container_origin = owner->container_origin; value.placement = owner->placement;
+    value.suppressed = owner->suppressed;
+    value.combine_mode = document::CombineMode::Subtract;
+    if (value.placement.value_locks.erase("profile_offset")) value.value_locks.insert("profile_offset");
+    if (kind == document::FeatureKind::Extrusion) value.extrusion.profile_plane_offset = sketch->plane_offset;
+    else value.revolution.profile_plane_offset = sketch->plane_offset;
+    return value;
+}
 void commit_assembly_profile(Workspace& live, const kernel::OcctKernel& kernel,
     const std::string& id, document::HistoryContainer value,
     std::vector<std::string> targets, ProfileEditMode mode,
@@ -16,8 +37,15 @@ void commit_assembly_profile(Workspace& live, const kernel::OcctKernel& kernel,
     const auto& before = state->session.document();
     const auto* existing = before.find_cut(value.id);
     if (mode == ProfileEditMode::Create) {
-        if (existing || value.id.empty() || value.feature_id.empty())
+        if (existing || before.find_sketch_container(value.id) || value.id.empty() || value.feature_id.empty())
             throw ProfileOperationError("identity_changed", "A new container must have a new nonempty identity.");
+    } else if (mode == ProfileEditMode::TransformSketch) {
+        const auto* owner = before.find_sketch_container(value.id);
+        if (!owner || existing)
+            throw ProfileOperationError("container_not_found", "The requested container does not exist.");
+        if (value.feature_parent_id != value.id || value.container_origin != owner->container_origin ||
+            value.feature_id.empty() || value.feature_id == owner->feature_id)
+            throw ProfileOperationError("identity_changed", "Editing must preserve the container identity.");
     } else {
         if (mode != ProfileEditMode::Replace || !existing)
             throw ProfileOperationError("container_not_found", "The requested container does not exist.");
@@ -52,6 +80,8 @@ void commit_assembly_profile(Workspace& live, const kernel::OcctKernel& kernel,
     if (profile == sketches.end()) throw ProfileOperationError("sketch_not_found", "Internal profile Sketch no longer exists");
     if (!profile->owner_container_id.empty() && profile->owner_container_id != value.id)
         throw ProfileOperationError("profile_owned", "The Sketch already belongs to another container.");
+    if (mode == ProfileEditMode::TransformSketch && profile->owner_container_id != value.id)
+        throw ProfileOperationError("profile_owned", "The Sketch already belongs to another container.");
     profile->validate();
     if (!extrusion) value.revolution.axis_segment_id = revolution_axis_segment_id(*profile, value.revolution.axis_segment_id);
     profile->owner_container_id = value.id;
@@ -78,9 +108,12 @@ void commit_assembly_profile(Workspace& live, const kernel::OcctKernel& kernel,
         if (value.extrusion.extent_mode == document::ProfileExtentMode::TwoSides)
             prepare(value.extrusion.end_condition_reverse, value.extrusion.end_targets_reverse);
     }
+    if (mode == ProfileEditMode::TransformSketch)
+        std::erase_if(next.sketch_containers, [&](const auto& container) { return container.id == value.id; });
     assembly::AssemblyCut cut{std::move(value), std::move(targets)};
     if (existing) *next.find_cut(cut.definition.id) = std::move(cut);
     else next.cuts.push_back(std::move(cut));
+    next.validate_sketch_containers();
     calculate_resolved_assembly_cuts(kernel, next);
     state->session.commit(std::move(next));
 }

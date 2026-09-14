@@ -144,7 +144,7 @@ AssemblyWorkspaceWindow::active_part_local_ray(
     auto local_direction = direction;
     const auto* part = workspace_.open_part(workspace_.active_document_id());
     const auto* assembly = workspace_.open_assembly(workspace_.displayed_document_id());
-    if (!part) return {origin, direction};
+    if (!part) return active_assembly_local_ray(origin, direction);
     if (assembly) {
         const auto occurrence = resolve_active_occurrence(part->session.document().document_id);
         if (!occurrence || occurrence->empty()) return {origin, direction};

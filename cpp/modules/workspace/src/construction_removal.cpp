@@ -33,6 +33,8 @@ void require_unused(const Workspace& live,const assembly::AssemblyDocument& doc,
     for(const auto& component:doc.components)for(const auto& row:component.placement_references)
         used=used||(row.target_reference.instance_path.occurrence_ids.empty()&&owner(row.target_reference.owner_id))||
             (row.component_reference.instance_path.occurrence_ids.empty()&&owner(row.component_reference.owner_id));
+    for(const auto& container:doc.sketch_containers)
+        used=used||std::ranges::any_of(container.placement.references,local);
     for(const auto& cut:doc.cuts) {
         HistoryDependencyCollector references;references.feature(cut.definition);
         for(const auto& [consumer,path,id,key]:references.references)used=used||(path.empty()&&owner(id));

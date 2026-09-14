@@ -1,4 +1,5 @@
 #include <zima/workspace/assembly_cut_operations.hpp>
+#include <zima/workspace/sketch_operations.hpp>
 #include "workspace_internal.hpp"
 #include <zima/workspace/construction_removal.hpp>
 
@@ -71,8 +72,7 @@ bool AssemblyWorkspaceWindow::tree_item_reorder_enabled(QTreeWidgetItem* item) c
                 assembly->session.document().find_occurrence(id);
         if (kind=="assembly-cut") return assembly->session.document().find_cut(id)!=nullptr;
         if (kind=="assembly-construction") return assembly->session.document().find_construction(id)!=nullptr;
-        if (kind=="assembly-sketch") return std::ranges::any_of(assembly->session.document().sketches,
-            [&](const auto& sketch){return sketch.id==id && sketch.owner_container_id.empty();});
+        if (kind=="assembly-sketch-container") return assembly->session.document().find_sketch_container(id)!=nullptr;
     }
     return false;
 }
@@ -119,11 +119,11 @@ bool AssemblyWorkspaceWindow::reorder_tree_item(QTreeWidgetItem* item,const QStr
         dependencies=assembly_component_dependencies(original);
     } else {
         document::PartDocument carrier;
-        carrier.constructions=original.constructions;carrier.sketches=original.sketches;
+        carrier.constructions=original.constructions;carrier.sketches=original.sketches;carrier.history=original.sketch_containers;
         for (const auto& cut : original.cuts) carrier.history.push_back(cut.definition);
         dependencies=part_history_dependencies(carrier);
         if (kind=="assembly-construction") for (const auto& object : original.constructions) order.push_back(object.id);
-        else for (const auto& sketch : original.sketches) if (sketch.owner_container_id.empty()) order.push_back(sketch.id);
+        else for (const auto& container : original.sketch_containers) order.push_back(container.id);
     }
     const auto reordered=reordered_history(order,id,before.toStdString());
     if (!history_order_preserves_dependencies(order,reordered,dependencies)) return false;
@@ -132,7 +132,7 @@ bool AssemblyWorkspaceWindow::reorder_tree_item(QTreeWidgetItem* item,const QStr
         auto next=original;
         if (components) sort_history_records(next.components,reordered,[](const auto& c){return c.occurrence_id;});
         else if (kind=="assembly-construction") sort_history_records(next.constructions,reordered,[](const auto& c){return c.id;});
-        else sort_history_records(next.sketches,reordered,[](const auto& c){return c.id;});
+        else sort_history_records(next.sketch_containers,reordered,[](const auto& c){return c.id;});
         assembly->session.commit(std::move(next));
         preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();
         state_->setText(tr("Pořadí změněno. Operaci lze vrátit přes Zpět."));
@@ -166,24 +166,15 @@ void AssemblyWorkspaceWindow::delete_part_object(
     try {
         if (kind == QStringLiteral("assembly-cut")) {
             workspace::remove_assembly_cut(workspace_,kernel_,workspace_.active_document_id(),object_id);
-        } else if (kind == QStringLiteral("assembly-sketch")) {
-            auto* assembly = workspace_.open_assembly(workspace_.active_document_id());
-            if (assembly == nullptr) return;
-            auto next = assembly->session.document();
-            if (std::any_of(next.cuts.begin(), next.cuts.end(), [&](const auto& cut) {
-                    const auto& definition = cut.definition;
-                    return (definition.feature_kind ==
-                                zima::document::FeatureKind::Extrusion &&
-                            definition.extrusion.sketch_id == object_id) ||
-                        (definition.feature_kind ==
-                                zima::document::FeatureKind::Revolution &&
-                            definition.revolution.sketch_id == object_id);
-                })) {
-                throw std::runtime_error("Assembly sketch is still used by a cut");
-            }
-            std::erase_if(next.sketches,
-                [&](const auto& sketch) { return sketch.id == object_id; });
-            assembly->session.commit(std::move(next));
+        } else if (kind == QStringLiteral("assembly-sketch") || kind == QStringLiteral("assembly-sketch-container")) {
+            const auto* assembly = workspace_.open_assembly(workspace_.active_document_id());
+            if (!assembly) return;
+            const auto& sketches = assembly->session.document().sketches;
+            const auto sketch = std::ranges::find_if(sketches, [&](const auto& value) {
+                return kind == QStringLiteral("assembly-sketch") ? value.id == object_id : value.owner_container_id == object_id;
+            });
+            if (sketch == sketches.end()) return;
+            workspace::delete_document_sketch(workspace_, kernel_, workspace_.active_document_id(), sketch->id);
         } else if (kind == QStringLiteral("assembly-construction")) {
             workspace::delete_construction(workspace_,kernel_,workspace_.active_document_id(),object_id);
         } else {

@@ -953,6 +953,7 @@ zima::kernel::ViewerMesh AssemblyDocument::construction_viewer_mesh(
     carrier.document_id = document_id;
     carrier.name = name;
     carrier.constructions = constructions;
+    carrier.history = sketch_containers;
     for(const auto& component:components)if(component.derived_copy&&component.visible) {
         document::ConstructionObject origin;
         origin.id=component.occurrence_id;origin.entity_id=origin.id+":entity";
@@ -962,7 +963,11 @@ zima::kernel::ViewerMesh AssemblyDocument::construction_viewer_mesh(
         origin.origin={p.x,p.y,p.z};origin.rotation={p.rotation_x,p.rotation_y,p.rotation_z};
         carrier.constructions.push_back(std::move(origin));
     }
-    return carrier.construction_viewer_mesh(editing_object_id);
+    auto result=carrier.construction_viewer_mesh(editing_object_id);
+    kernel::ViewerMesh sketch_origins;
+    sketch_origins.original_references=carrier.history_origin_reference_geometry_before({});
+    append_viewer_mesh(result,sketch_origins);
+    return result;
 }
 
 zima::kernel::ViewerMesh AssemblyDocument::origin_viewer_mesh() const {
@@ -982,10 +987,17 @@ void AssemblyDocument::resolve_constructions() {
     auto source_document = *this;
     source_document.constructions.clear();
     auto carrier = zima::document::PartDocument::create_default();
+    carrier.document_id = document_id;
     carrier.constructions = constructions;
-    carrier.resolve_constructions(
-        source_document.build_scene().original_references);
+    carrier.history = sketch_containers;
+    for(const auto& sketch:sketches)
+        if(find_sketch_container(sketch.owner_container_id))carrier.sketches.push_back(sketch);
+    carrier.resolve_constructions(source_document.build_scene().original_references);
     constructions = std::move(carrier.constructions);
+    sketch_containers = std::move(carrier.history);
+    for(auto& sketch:carrier.sketches)
+        *std::ranges::find(sketches,sketch.id,&sketcher::Sketch::id)=std::move(sketch);
+    // Cut profiles and component placements keep their last calculated state.
 }
 
 ComponentDependency AssemblyDocument::create_dependency(
@@ -1782,7 +1794,7 @@ zima::kernel::ViewerMesh AssemblyDocument::build_scene() const {
     }
     zima::kernel::ViewerMesh result = std::move(datums);
     append_viewer_mesh(result, scene);
-    zima::document::PartDocument frame_source;frame_source.constructions=constructions;frame_source.sketches=sketches;
+    zima::document::PartDocument frame_source;frame_source.constructions=constructions;frame_source.sketches=sketches;frame_source.history=sketch_containers;
     for(const auto& cut:cuts)frame_source.history.push_back(cut.definition);
     result.annotation_frames=zima::document::part_annotation_envelopes(frame_source,result);
     return result;
@@ -1806,7 +1818,7 @@ zima::kernel::ViewerMesh AssemblyDocument::build_scene_with_part_override(
 
 AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
     const auto ini = read_ini(path);
-    if (ini_value(ini, "Document", "format_version") != "17" ||
+    if (ini_value(ini, "Document", "format_version") != "18" ||
         ini_value(ini, "Document", "type") != "assembly") {
         throw std::runtime_error("Unsupported ZIMA-CAD Assembly document format");
     }
@@ -1822,7 +1834,7 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
     } catch (const nlohmann::json::exception&) {
         throw std::runtime_error("Assembly INI contains invalid Container data");
     }
-    if (root.value("format", "") != "zima-cad-cpp" ||
+    if (root.value("format", "") != "zima-cad-cpp" || root.at("format_version") != 27 ||
         root.value("type", "") != "assembly") {
         throw std::runtime_error("Invalid Assembly Container data");
     }
@@ -1870,6 +1882,16 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
     for (const auto& value : root.at("sketches")) {
         document.sketches.push_back(zima::sketcher::Sketch::from_serialized(
             value.get<std::string>()));
+    }
+    for(const auto& value:root.at("sketch_containers")) {
+        zima::document::HistoryContainer container;
+        container.feature_kind=zima::document::FeatureKind::Sketch;
+        value.at("id").get_to(container.id);value.at("feature_id").get_to(container.feature_id);
+        value.at("feature_parent_id").get_to(container.feature_parent_id);
+        value.at("name").get_to(container.name);value.at("suppressed").get_to(container.suppressed);
+        value.at("placement").get_to(container.placement);value.at("value_locks").get_to(container.value_locks);
+        container.container_origin=zima::document::create_container_origin(container.id);
+        document.sketch_containers.push_back(std::move(container));
     }
     for (const auto& value : root.at("cuts")) {
         AssemblyCut cut;
@@ -2006,6 +2028,7 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
         document.add_dependency(std::move(dependency));
     }
     static_cast<void>(document.build_scene());
+    document.validate_sketch_containers();
     document.synchronize_dimension_identifiers();
     return document;
 }
@@ -2013,6 +2036,7 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
 std::vector<zima::document::DimensionParameter> AssemblyDocument::dimension_parameters() const {
     zima::document::PartDocument owned;
     owned.sketches = sketches;
+    owned.history = sketch_containers;
     owned.constructions = constructions;
     for (const auto& cut : cuts) owned.history.push_back(cut.definition);
     auto result = owned.dimension_parameters();
@@ -2115,6 +2139,11 @@ void AssemblyDocument::save(const std::filesystem::path& path,
     nlohmann::json relations_json = nlohmann::json::array();
     for (const auto& relation : relations) relations_json.push_back(
         {{"target", relation.target}, {"expression", relation.expression}});
+    validate_sketch_containers();
+    nlohmann::json sketch_containers_json=nlohmann::json::array();
+    for(const auto& container:sketch_containers)sketch_containers_json.push_back({
+        {"id",container.id},{"feature_id",container.feature_id},{"feature_parent_id",container.feature_parent_id},
+        {"name",container.name},{"suppressed",container.suppressed},{"placement",container.placement},{"value_locks",container.value_locks}});
     nlohmann::json sketches_json = nlohmann::json::array();
     for (const auto& sketch : sketches) sketches_json.push_back(sketch.serialized());
     nlohmann::json cuts_json = nlohmann::json::array();
@@ -2142,7 +2171,7 @@ void AssemblyDocument::save(const std::filesystem::path& path,
         cuts_json.push_back(std::move(saved_cut));
     }
     nlohmann::json root = {
-        {"format", "zima-cad-cpp"}, {"format_version", 26},
+        {"format", "zima-cad-cpp"}, {"format_version", 27},
         {"type", "assembly"}, {"document_id", document_id}, {"name", name},
         {"user_parameters", user_parameters},
         {"user_parameter_order", user_parameter_order},
@@ -2160,6 +2189,7 @@ void AssemblyDocument::save(const std::filesystem::path& path,
         {"sections",nlohmann::json::parse(zima::document::serialize_sections(sections))},
         {"measurements",nlohmann::json::parse(zima::document::serialize_measurements(measurements))},
         {"sketches", std::move(sketches_json)},
+        {"sketch_containers",std::move(sketch_containers_json)},
         {"cuts", std::move(cuts_json)},
         {"constructions", std::move(constructions_json)},
         {"components", std::move(components_json)},
@@ -2171,7 +2201,7 @@ void AssemblyDocument::save(const std::filesystem::path& path,
     const auto saved_name = root.at("name").get<std::string>();
     IniSections ini;
     ini["Document"] = {
-        {"format_version", "17"},
+        {"format_version", "18"},
         {"type", "assembly"},
         {"document_id", saved_id},
         {"name", saved_name},

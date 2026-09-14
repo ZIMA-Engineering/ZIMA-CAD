@@ -97,7 +97,7 @@ int main() {
         occurrence.placement_references.front().offset=0;
         occurrence.placement_references.front().lower_limit=0;
         occurrence.placement_references.front().upper_limit=0;
-        assembly.components.push_back(occurrence);assembly.sketches.push_back(sketch_with_zero_dimension());
+        assembly.components.push_back(occurrence);assembly.insert_sketch(sketch_with_zero_dimension());
         zima::assembly::AssemblySession assembly_session(assembly);
         const auto mate=assembly_session.document().dimension_identifiers.identifier(assembly.document_id,"placement-reference:"+occurrence.occurrence_id+":0");
         require(!mate.empty(),"Zero Assembly mate has no identifier");

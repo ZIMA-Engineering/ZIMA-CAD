@@ -11,8 +11,15 @@ ComponentRemovalDependencies component_removal_dependencies(const assembly::Asse
         if(uses(row.component_reference.instance_path)||uses(row.target_reference.instance_path))result.placement_components.insert(component.occurrence_id);
     for(const auto& edge:doc.dependencies)
         if(edge.prerequisite_occurrence_id==occurrence&&edge.dependent_occurrence_id!=occurrence)result.dependency_components.insert(edge.dependent_occurrence_id);
+    for(const auto& container:doc.sketch_containers)for(const auto& reference:container.placement.references) {
+        if(reference.instance_path.empty()||!uses(assembly::InstancePath::decode(reference.instance_path)))continue;
+        for(const auto& sketch:doc.sketches)if(sketch.owner_container_id==container.id)result.sketches.insert(sketch.id);
+    }
     for(const auto& sketch:doc.sketches)for(const auto& reference:sketch.external_references) {
-        if(reference.context_assembly_document_id!=doc.document_id||reference.source_instance_path.empty())continue;
+        // Root Assembly references carry a local occurrence path without an
+        // in-context dependent Part. Both that form and explicit own context
+        // must prevent removing the referenced component.
+        if((!reference.context_assembly_document_id.empty()&&reference.context_assembly_document_id!=doc.document_id)||reference.source_instance_path.empty())continue;
         try{if(uses(assembly::InstancePath::decode(reference.source_instance_path)))result.sketches.insert(sketch.id);}
         catch(const std::invalid_argument&){/* Preserve the existing GUI removal policy for unreadable references. */}
     }

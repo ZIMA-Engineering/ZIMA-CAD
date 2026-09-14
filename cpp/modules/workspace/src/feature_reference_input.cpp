@@ -118,4 +118,18 @@ document::HistoryContainer prepare_assembly_profile_reference(Workspace& live,co
     return assign_feature_reference(value,geometry,index,std::move(source),derive_orientation);
 }
 
+document::HistoryContainer prepare_assembly_sketch_reference(Workspace& live,const std::string& id,
+    const std::string& container,std::size_t index,Ref source) {
+    if(index>4||source.owner_id.empty()||source.semantic_key.empty()||!std::isfinite(source.offset))
+        reject("invalid_arguments","Specify owner, key and an optional instance_path for the placement reference.");
+    const auto* state=live.open_assembly(id);
+    if(!state)reject("unsupported_document","Sketch operations require an open Part or Assembly.");
+    const auto* value=state->session.document().find_sketch_container(container);
+    if(!value)reject("container_not_found","The requested container does not exist.");
+    if(source.instance_path.empty()&&(source.owner_id==value->id||source.owner_id==value->feature_id||
+        source.owner_id==value->container_origin.id))
+        reject("reference_not_available","The original feature placement reference is unavailable.");
+    return assign_feature_reference(*value,placement_edit_geometry(live,id,container),index,std::move(source),index==0);
+}
+
 }

@@ -98,7 +98,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     run(host,"new",{{"type","assembly"},{"name","assembly-sketch"}});const auto assembly=live.active_document_id();
     for(const auto* plane:{"XY","XZ","YZ"}) {
         const auto result=run(host,"sketch.create",{{"name",plane},{"plane",plane}}).data;const auto id=result.at("sketch").get<std::string>();
-        require(result.at("owner")=="" && result.at("plane")==plane,"Standalone Assembly Sketch gained Part owner or changed plane");
+        require(live.open_assembly(assembly)->session.document().find_sketch_container(result.at("owner").get<std::string>()) && result.at("plane")==plane,"Standalone Assembly Sketch lost its placement owner or changed plane");
         run(host,"sketch.circle.create",{{"sketch",id},{"center",{0,0}},{"radius_mm",2}});
     }
     run(host,"save");const auto saved=assembly::AssemblyDocument::load(directory/"assembly-sketch.asmz");require(saved.sketches.size()==3 && saved.sketches.back().circles.size()==1,"Assembly Sketch save failed");

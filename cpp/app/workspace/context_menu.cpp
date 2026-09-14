@@ -58,7 +58,8 @@ void AssemblyWorkspaceWindow::show_tree_item_properties(QTreeWidgetItem* item) {
         kind == QStringLiteral("assembly-construction") ||
         kind == QStringLiteral("part-sketch") ||
         kind == QStringLiteral("assembly-sketch") ||
-        kind == QStringLiteral("assembly-cut")) {
+        kind == QStringLiteral("assembly-cut") ||
+        kind == QStringLiteral("assembly-sketch-container")) {
         construction_dimension_object_id_ = id;
         preserve_view_on_refresh_ = true;
         refresh_scene();
@@ -83,6 +84,12 @@ void AssemblyWorkspaceWindow::show_tree_item_properties(QTreeWidgetItem* item) {
             }
         } else if (container != nullptr) {
             show_primitive_properties(container->feature_kind, id);
+        }
+    } else if (kind == QStringLiteral("assembly-sketch-container")) {
+        if (const auto* assembly = workspace_.open_assembly(workspace_.active_document_id())) {
+            const auto& sketches = assembly->session.document().sketches;
+            const auto sketch = std::ranges::find(sketches, id, &zima::sketcher::Sketch::owner_container_id);
+            if (sketch != sketches.end()) show_sketch_properties(sketch->id);
         }
     } else if (kind == QStringLiteral("assembly-cut")) {
         const auto* assembly =

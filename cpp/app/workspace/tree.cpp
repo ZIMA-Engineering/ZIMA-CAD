@@ -433,7 +433,7 @@ void AssemblyWorkspaceWindow::add_pending_tree_item(QTreeWidgetItem* parent,
     row->setData(0, Qt::UserRole, QString::fromStdString(id));
     row->setData(0, Qt::UserRole + 1, QString::fromStdString(instance_path.encoded()));
     row->setData(0, Qt::UserRole + 3, feature
-        ? (assembly ? "assembly-cut" : "part-container")
+        ? (assembly ? (feature->feature_kind == zima::document::FeatureKind::Sketch ? "assembly-sketch-container" : "assembly-cut") : "part-container")
         : construction ? (assembly ? "assembly-construction" : "part-construction")
         : (assembly ? "assembly-sketch" : "part-sketch"));
     row->setData(0, Qt::UserRole + 12, true);
@@ -768,14 +768,19 @@ void AssemblyWorkspaceWindow::add_assembly_tree_children(
     const auto references=assembly_reference_index(assembly->session.document());
     if (assembly_document_id == workspace_.active_document_id()) {
         add_origin_tree_item(parent, assembly_document_id, true, parent_path);
-        for (const auto& sketch : assembly->session.document().sketches) {
-            if (!sketch.owner_container_id.empty()) continue;
-            auto* item = new QTreeWidgetItem(
-                parent, {QString::fromStdString(sketch.name)});
-            item->setData(0, Qt::UserRole, QString::fromStdString(sketch.id));
-            item->setData(0, Qt::UserRole + 3, "assembly-sketch");
-            tree_reference_state_.apply(item,assembly_document_id,sketch.id,sketch_reference_issue(sketch,assembly->session.document()));
-            item->setSelected(sketch.id == selected_sketch_id_);
+        for (const auto& container : assembly->session.document().sketch_containers) {
+            auto* item = new QTreeWidgetItem(parent, {QString::fromStdString(container.name)});
+            item->setData(0, Qt::UserRole, QString::fromStdString(container.id));
+            item->setData(0, Qt::UserRole + 1, QString::fromStdString(parent_path.encoded()));
+            item->setData(0, Qt::UserRole + 3, "assembly-sketch-container");
+            item->setIcon(0, resource_icon(feature_icon_name(container.feature_kind)));
+            const auto& sketches = assembly->session.document().sketches;
+            const auto sketch = std::ranges::find(sketches, container.id, &zima::sketcher::Sketch::owner_container_id);
+            add_history_container_tree_children(item, container, parent_path,
+                sketch == sketches.end() ? nullptr : &*sketch, true);
+            tree_reference_state_.apply(item, assembly_document_id, container.id,
+                feature_reference_issue(container, assembly->session.document(), references));
+            item->setExpanded(true);
         }
         for (std::size_t cut_index = 0;
              cut_index < assembly->session.document().cuts.size(); ++cut_index) {
@@ -786,6 +791,7 @@ void AssemblyWorkspaceWindow::add_assembly_tree_children(
                         ? tr(" [potlačeno]") : QString{})});
             item->setData(0, Qt::UserRole,
                 QString::fromStdString(cut.definition.id));
+            item->setData(0, Qt::UserRole + 1, QString::fromStdString(parent_path.encoded()));
             item->setData(0, Qt::UserRole + 3, "assembly-cut");
             item->setIcon(0, resource_icon(
                 feature_icon_name(cut.definition.feature_kind)));
@@ -897,28 +903,13 @@ void AssemblyWorkspaceWindow::add_snapshot_tree_children(
             item->setForeground(0, QBrush(QColor(125, 125, 125)));
         }
         if (component.source_kind != zima::assembly::ComponentSourceKind::Part) {
-            add_origin_tree_item(item, component.source_document_id, true, path);
             const auto* active_source = active_occurrence
                 ? workspace_.open_assembly(component.source_document_id) : nullptr;
             if (active_source != nullptr) {
-                for (const auto& object :
-                     active_source->session.document().constructions) {
-                    auto* construction_item = new QTreeWidgetItem(
-                        item, {QString::fromStdString(object.name)});
-                    construction_item->setData(0, Qt::UserRole,
-                        QString::fromStdString(object.id));
-                    construction_item->setData(0, Qt::UserRole + 1,
-                        QString::fromStdString(path.encoded()));
-                    construction_item->setData(
-                        0, Qt::UserRole + 3, "assembly-construction");
-                    tree_reference_state_.apply(construction_item,component.source_document_id,object.id,
-                        construction_reference_issue(object,assembly_reference_index(active_source->session.document())));
-                }
-                add_snapshot_tree_children(
-                    item, active_source->session.document().occurrence_snapshot(),
-                    component.source_document_id, path,
+                add_assembly_tree_children(item, component.source_document_id, path,
                     suppressed || !component.visible);
             } else {
+                add_origin_tree_item(item, component.source_document_id, true, path);
                 add_snapshot_tree_children(
                     item, component.children, component.source_document_id, path,
                     suppressed || !component.visible);

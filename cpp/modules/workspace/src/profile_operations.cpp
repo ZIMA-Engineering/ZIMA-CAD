@@ -124,6 +124,7 @@ document::HistoryContainer profile_from_sketch(const document::PartDocument& par
         : document::PartDocument::create_revolution_container(sketch_id);
     value.id = owner->id; value.feature_parent_id = owner->id; value.container_origin = owner->container_origin;
     value.placement = owner->placement; value.suppressed = owner->suppressed; value.combine_mode = owner->combine_mode;
+    if (value.placement.value_locks.erase("profile_offset")) value.value_locks.insert("profile_offset");
     if (kind == document::FeatureKind::Extrusion) value.extrusion.profile_plane_offset = sketch->plane_offset;
     else value.revolution.profile_plane_offset = sketch->plane_offset;
     return value;

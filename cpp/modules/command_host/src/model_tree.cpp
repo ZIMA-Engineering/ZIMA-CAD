@@ -109,7 +109,7 @@ struct Tree {
         origin(document::create_container_origin(id),id,id,{},1);
         for(const auto& item:value.constructions)construction(item,id,id,{},1);
         for(const auto& item:value.cuts)feature(item.definition,value.sketches,id,id,{},1);
-        for(const auto& item:value.sketches)if(item.owner_container_id.empty())sketch(item,id,id,{},1);
+        for(const auto& item:value.sketch_containers)feature(item,value.sketches,id,id,{},1);
         sections(value.sections,id,id,1);
         struct Item {const assembly::OccurrenceSnapshot* snapshot;const assembly::PartOccurrence* component;
             std::string parent,owner;assembly::InstancePath path;int depth;bool suppressed,visible;};

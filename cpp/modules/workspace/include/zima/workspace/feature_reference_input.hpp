@@ -15,4 +15,7 @@ void validate_part_feature_reference_source(const document::PartDocument&,
     const std::string& document,const std::string& container,std::size_t index,
     document::ConstructionReference,bool derive_orientation=true);
 
+[[nodiscard]] document::HistoryContainer prepare_assembly_sketch_reference(Workspace&,
+    const std::string& document,const std::string& container,std::size_t index,
+    document::ConstructionReference);
 }
