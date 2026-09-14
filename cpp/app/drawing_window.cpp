@@ -1,3 +1,4 @@
+#include <zima/workspace/drawing_label_operations.hpp>
 #include <zima/workspace/drawing_projection.hpp>
 #include <zima/workspace/drawing_view_operations.hpp>
 #include <zima/workspace/drawing_annotation_operations.hpp>
@@ -916,14 +917,14 @@ protected:
         }
         if(dragged_section_end_&&(event->buttons()&Qt::LeftButton)){
             const auto delta=event->position()-section_end_drag_start_;if(!section_end_moved_&&delta.manhattanLength()<QApplication::startDragDistance())return;
-            for(auto& view:sheet_->views)if(view.id==dragged_section_end_->key.view){const auto& end=*dragged_section_end_;view.section_marker_offsets[end.key.id][end.key.end]=std::max(end.minimum,end.offset+(delta.x()*end.direction.x-delta.y()*end.direction.y)/zoom);section_end_moved_=true;}update();return;
+            for(auto& view:sheet_->views)if(view.id==dragged_section_end_->key.view){const auto& end=*dragged_section_end_;workspace::set_drawing_section_end(view,end.key.id,end.key.end,end.offset+(delta.x()*end.direction.x-delta.y()*end.direction.y)/zoom,end.minimum);section_end_moved_=true;}update();return;
         }
         if(dragged_label_&&(event->buttons()&Qt::LeftButton)){
             const auto delta=event->position()-label_drag_start_;
             if(!label_moved_&&delta.manhattanLength()<QApplication::startDragDistance())return;
             for(auto& view:sheet_->views)if(view.id==dragged_label_->first){
-                auto& position=dragged_label_->second?view.section_label_position:view.caption_position;
-                position=zima::drawing::Point2{label_position_start_.x+delta.x()/zoom,label_position_start_.y-delta.y()/zoom};label_moved_=true;
+                workspace::set_drawing_label_position(view,dragged_label_->second?workspace::DrawingLabel::Section:workspace::DrawingLabel::Caption,
+                    drawing::Point2{label_position_start_.x+delta.x()/zoom,label_position_start_.y-delta.y()/zoom});label_moved_=true;
             }update();return;
         }
         if(!dragged_dimension_id_.empty()&&dimension_drag_initial_&&(event->buttons()&Qt::LeftButton)){

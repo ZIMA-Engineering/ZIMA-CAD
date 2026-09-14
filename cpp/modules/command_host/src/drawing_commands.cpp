@@ -1,3 +1,4 @@
+#include <zima/workspace/drawing_label_operations.hpp>
 #include <zima/workspace/drawing_view_operations.hpp>
 #include <zima/workspace/drawing_hatch_operations.hpp>
 #include "section_component_input.hpp"
@@ -44,6 +45,36 @@ Json hatch_json(const drawing::DrawingView& view,const document::SectionDefiniti
     }
     return {{"view",view.id},{"source_document",view.source_document_id},{"section",source.id},{"items",std::move(items)},
         {"total",components.size()},{"length_unit","mm"},{"angle_unit","degrees"},{"body_calculated",false}};
+}
+const drawing::DrawingSheet& label_sheet(const drawing::DrawingDocument& doc,const std::string& id) {
+    const drawing::DrawingSheet* found=nullptr;
+    for(const auto& sheet:doc.sheets)for(const auto& view:sheet.views)if(view.id==id) {
+        if(found)throw workspace::DrawingOperationError("ambiguous_reference","The drawing view reference is ambiguous.");found=&sheet;
+    }
+    if(!found)throw workspace::DrawingOperationError("view_not_found","The drawing view does not exist.");return *found;
+}
+std::vector<const drawing::DrawingView*> label_views(const drawing::DrawingSheet& sheet) {
+    std::vector<const drawing::DrawingView*> views;for(const auto& view:sheet.views)views.push_back(&view);return views;
+}
+Json label_position(const std::optional<drawing::Point2>& p){return p?Json::array({p->x,p->y}):Json(nullptr);}
+Json labels_json(const drawing::DrawingDocument& doc,const std::string& id) {
+    const auto& sheet=label_sheet(doc,id);const auto& view=*doc.find_view(id);const auto views=label_views(sheet);Json markers=Json::array();
+    for(const auto& marker:view.section_markers) {
+        workspace::drawing_section_marker(view,marker.id);
+        const auto layout=drawing::section_trace_layout(view,marker,views);const auto stored=view.section_marker_offsets.find(marker.id);
+        markers.push_back({{"section",marker.id},{"offsets_mm",stored==view.section_marker_offsets.end()?Json(nullptr):Json(stored->second)},
+            {"displayable",layout.has_value()},{"effective_offsets_mm",layout?Json(layout->end_offsets):Json(nullptr)},
+            {"minimum_offsets_mm",layout?Json(layout->minimum_offsets):Json(nullptr)}});
+    }
+    return {{"view",id},{"sheet",sheet.id},{"caption_position_mm",label_position(view.caption_position)},
+        {"section_label_position_mm",label_position(view.section_label_position)},{"show_caption",view.show_caption},{"show_section_label",view.show_section_label},
+        {"markers",std::move(markers)},{"length_unit","mm"},{"coordinates","view_origin_right_up"},{"body_calculated",false}};
+}
+void invalid_label_arguments(){throw workspace::DrawingOperationError("invalid_arguments","Invalid drawing label arguments.");}
+std::optional<drawing::Point2> parse_label_position(const Json& value) {
+    if(value.is_null())return {};if(!value.is_array()||value.size()!=2)invalid_label_arguments();
+    for(const auto& n:value)if(!n.is_number()||!std::isfinite(n.get<double>()))invalid_label_arguments();
+    return drawing::Point2{value[0].get<double>(),value[1].get<double>()};
 }
 void invalid_view_arguments(){throw workspace::DrawingOperationError("invalid_arguments","Invalid drawing view parameters.");}
 template<class Enum,std::size_t N> void enum_argument(const Json& args,const char* key,Enum& target,const std::array<const char*,N>& names) {
@@ -103,6 +134,42 @@ void Host::register_drawing_commands(){
              catch(const std::exception& e){return Result::failure("drawing_failed",tr(e.what()));}
         });
     };
+    dispatcher_.add({"drawing.view.labels.get",tr("Read stored view labels and Section trace end positions without loading sources."),
+        {{"view",true},{"document",false}},false},[this](const Json& args) {
+        const auto id=args.value("document",workspace_.active_document_id());const auto* state=workspace_.open_drawing(id);
+        if(!state)return Result::failure("unsupported_document",tr("Drawing commands require an open Drawing."));
+        try {auto result=labels_json(state->document(),args.at("view").get<std::string>());
+            result["document"]=id;result["revision"]=state->revision();return Result::success(std::move(result));
+        }catch(const workspace::DrawingOperationError& e){return Result::failure(e.code,tr(e.what()));}
+         catch(const std::exception& e){return Result::failure("drawing_failed",tr(e.what()));}
+    });
+    add({"drawing.view.labels.set",tr("Move view labels and Section trace ends in paper millimetres without projection."),
+        {{"view",true},{"values",true,Type::Object},{"document",false}},true},[](auto& doc,const Json& args,const auto&) {
+        const auto id=args.at("view").template get<std::string>();const auto& sheet=label_sheet(doc,id);auto& view=*doc.find_view(id);
+        const auto& values=args.at("values");
+        for(auto it=values.begin();it!=values.end();++it)if(it.key()!="caption_position_mm"&&it.key()!="section_label_position_mm"&&it.key()!="markers")invalid_label_arguments();
+        const auto caption=view.caption_position,section_label=view.section_label_position;const auto offsets=view.section_marker_offsets;
+        if(values.contains("caption_position_mm"))workspace::set_drawing_label_position(view,workspace::DrawingLabel::Caption,parse_label_position(values["caption_position_mm"]));
+        if(values.contains("section_label_position_mm"))workspace::set_drawing_label_position(view,workspace::DrawingLabel::Section,parse_label_position(values["section_label_position_mm"]));
+        if(values.contains("markers")) {
+            const auto& markers=values["markers"];if(!markers.is_array()||markers.size()>10000)invalid_label_arguments();std::set<std::string> seen;
+            const auto views=label_views(sheet);
+            for(const auto& row:markers) {
+                if(!row.is_object()||row.size()!=2||!row.contains("section")||!row["section"].is_string()||!row.contains("offsets_mm"))invalid_label_arguments();
+                const auto key=row["section"].template get<std::string>();if(!seen.insert(key).second)invalid_label_arguments();
+                const auto& marker=workspace::drawing_section_marker(view,key);const auto requested=parse_label_position(row["offsets_mm"]);
+                if(!requested){workspace::reset_drawing_section_ends(view,key);continue;}
+                // Both ends can share one segment. The second must respect the
+                // first end's new position, using the same paper layout as the GUI.
+                for(std::size_t end=0;end<2;++end) {
+                    const auto layout=drawing::section_trace_layout(view,marker,views);
+                    if(!layout)throw workspace::DrawingOperationError("trace_unavailable","The Section trace cannot be displayed in this view.");
+                    workspace::set_drawing_section_end(view,key,end,end?requested->y:requested->x,layout->minimum_offsets[end]);
+                }
+            }
+        }
+        auto result=labels_json(doc,id);result["changed"]=caption!=view.caption_position||section_label!=view.section_label_position||offsets!=view.section_marker_offsets;return result;
+    });
     dispatcher_.add({"drawing.view.hatch.get",tr("Read current source hatch styles and local drawing visibility."),
         {{"view",true},{"limit",false,Type::Integer},{"document",false}},false},[this](const Json& args) {
         const auto id=args.value("document",workspace_.active_document_id());const auto* state=workspace_.open_drawing(id);

@@ -7,6 +7,7 @@
 #include "owned_reference_test_support.hpp"
 #include "construction_query_test_support.hpp"
 #include "dxf_export_test_support.hpp"
+#include "drawing_label_test_support.hpp"
 #include "drawing_annotation_layout_test_support.hpp"
 #include "dxf_spline_import_test_support.hpp"
 #include "stl_export_test_support.hpp"
@@ -181,6 +182,14 @@ int main(int argc,char** argv){
             require(result.exit_code==0,"CLI annotation layout transaction failed");const auto loaded=drawing::DrawingDocument::load(project/"annotation-layout-cli.drwz");
             const auto& item=loaded.find_view(view.id)->model_annotations.front();
             require(item.view_layout&&item.view_layout->text_along==9&&item.view_layout->text_style->prefix=="CLI "&&item.value==10&&item.model_dimension==view.model_annotations.front().model_dimension,"CLI annotation layout lost native style or changed source");
+        }
+        {
+            const auto doc=drawing_label_test::fixture();doc.save(project/"labels-cli.drwz");const auto& view=doc.sheets.front().views.front();const auto marker=view.section_markers.front().id;
+            const Json args={{"view",view.id}};auto edit=args;edit["values"]={{"caption_position_mm",{14,9}},{"section_label_position_mm",{-2,6}},{"markers",Json::array({{{"section",marker},{"offsets_mm",{5,-2}}}})}};
+            result=launch(executable,root,common+QStringList{"--command","open labels-cli.drwz","--command",command({{"command","drawing.view.labels.get"},{"arguments",args}}),
+                "--command",command({{"command","drawing.view.labels.set"},{"arguments",edit}}),"--command","undo","--command","redo","--command","save"});
+            require(result.exit_code==0,"CLI label transaction failed");const auto loaded=drawing::DrawingDocument::load(project/"labels-cli.drwz");const auto* saved=loaded.find_view(view.id);
+            require(saved&&saved->caption_position==drawing::Point2{14,9}&&saved->section_label_position==drawing::Point2{-2,6}&&saved->section_marker_offsets.at(marker)==std::array<double,2>{5,-2}&&saved->projected_edges.front().points==view.projected_edges.front().points,"CLI labels lost native data or projected source geometry");
         }
         const auto shell_path=project/"shell-cli.prtz";
         auto shell_fixture=document::PartDocument::create_default();auto shell_box=document::PartDocument::create_box_container();shell_box.box={10,10,10};

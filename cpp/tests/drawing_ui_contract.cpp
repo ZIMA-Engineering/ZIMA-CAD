@@ -1,3 +1,4 @@
+#include <zima/command_host/host.hpp>
 #include <zima/drawing/measurement_dimension.hpp>
 #include "drawing_shading.hpp"
 #include <zima/kernel/occt_kernel.hpp>
@@ -131,6 +132,21 @@ int verify_drawing_ui() {
         require(state.sheets.front().views.front().caption_position.has_value(),"Caption drag was not saved");
         require(std::abs(window.view_label_center_for_test(original.id)->x()-caption->x()-60)<1e-6&&std::abs(window.view_label_center_for_test(original.id)->y()-caption->y()+25)<1e-6,"Caption does not follow the mouse");
         require(state.sheets.front().views.front().x==original.x&&state.sheets.front().views.front().y==original.y,"Caption drag moved the model");
+        {
+            zima::kernel::OcctKernel label_kernel;auto label_directory=std::filesystem::current_path();zima::command_host::Host host(workspace,label_kernel,label_directory);
+            const auto run=[&](const char* name,zima::commands::Json args=zima::commands::Json::object()) {
+                auto result=host.execute({{"command",name},{"arguments",std::move(args)}});if(!result.ok)throw std::runtime_error(std::string(name)+": "+result.code+": "+result.message);return result.data;
+            };
+            const auto moved_position=*state.sheets.front().views.front().caption_position;const auto moved_handle=*window.view_label_center_for_test(original.id);
+            const auto query=run("drawing.view.labels.get",{{"view",original.id}});
+            require(query.at("caption_position_mm")==zima::commands::Json::array({moved_position.x,moved_position.y}),"CLI query did not see the actual GUI label drag");
+            run("drawing.view.labels.set",{{"view",original.id},{"values",{{"caption_position_mm",nullptr}}}});window.edit_workspace_document(drawing.document_id);flush();
+            require(!state.sheets.front().views.front().caption_position&&QLineF(*window.view_label_center_for_test(original.id),*caption).length()<1e-6,"CLI automatic label reset did not restore its visible handle");
+            run("undo");window.edit_workspace_document(drawing.document_id);flush();
+            require(QLineF(*window.view_label_center_for_test(original.id),moved_handle).length()<1e-6,"CLI Undo did not restore the GUI label drag");
+            run("redo");window.edit_workspace_document(drawing.document_id);flush();require(!state.sheets.front().views.front().caption_position,"CLI label reset Redo failed");
+            run("undo");window.edit_workspace_document(drawing.document_id);flush();
+        }
         // The middle of this wire rectangle is far from all four edges.
         click(canvas,QPointF(3,3));
         require(!action("editDrawingViewAction")->isEnabled(),"Empty click did not clear the selection");
@@ -459,6 +475,21 @@ int verify_drawing_ui() {
             const auto point=window.annotation_handle_for_test(section.id);require(point.has_value(),"Side projected trace has no visible manipulation handle");
             mouse(canvas,QEvent::MouseButtonPress,*point,Qt::LeftButton,Qt::LeftButton);mouse(canvas,QEvent::MouseMove,*point+QPointF(0,20),Qt::NoButton,Qt::LeftButton);mouse(canvas,QEvent::MouseButtonRelease,*point+QPointF(0,20),Qt::LeftButton,Qt::NoButton);
             const auto moved=window.annotation_handle_for_test(section.id);require(moved&&std::abs(moved->y()-point->y()-20)<1e-6,"Side trace handle did not follow a vertical drag");
+            {
+                workspace.activate(fixture.document_id);workspace.display_top_level(fixture.document_id);
+                auto label_directory=std::filesystem::current_path();zima::command_host::Host host(workspace,kernel,label_directory);
+                const auto run=[&](const char* name,zima::commands::Json args=zima::commands::Json::object()) {
+                    auto result=host.execute({{"command",name},{"arguments",std::move(args)}});if(!result.ok)throw std::runtime_error(std::string(name)+": "+result.code+": "+result.message);return result.data;
+                };
+                const auto offsets=window.document_for_test().find_view(side.id)->section_marker_offsets.at(section.id);
+                require(run("drawing.view.labels.get",{{"view",side.id}}).at("markers")[0].at("offsets_mm")==zima::commands::Json(offsets),"CLI query lost the GUI Section drag");
+                run("drawing.view.labels.set",{{"view",side.id},{"values",{{"markers",zima::commands::Json::array({{{"section",section.id},{"offsets_mm",{offsets[0]+5,offsets[1]}}}})}}}});
+                window.edit_workspace_document(fixture.document_id);flush();const auto changed=window.annotation_handle_for_test(section.id);
+                require(changed&&std::abs(QLineF(*changed,*moved).length()-5*20/std::abs(offsets[0]))<1e-6,"CLI Section offset did not move the visible handle by five paper millimetres");
+                run("undo");window.edit_workspace_document(fixture.document_id);flush();require(QLineF(*window.annotation_handle_for_test(section.id),*moved).length()<1e-6,"CLI Section Undo lost the GUI drag");
+                run("redo");window.edit_workspace_document(fixture.document_id);flush();require(QLineF(*window.annotation_handle_for_test(section.id),*changed).length()<1e-6,"CLI Section Redo lost its handle");
+                run("undo");window.edit_workspace_document(fixture.document_id);flush();
+            }
             window.document_for_test().save(directory/"side-trace.drwz");window.export_pdf(directory/"side-trace.pdf");window.grab().save(QString::fromStdString((directory/"side-trace.png").string()));
             require(zima::drawing::DrawingDocument::load(directory/"side-trace.drwz").find_view(side.id)->section_marker_offsets.contains(section.id),"Side trace position did not persist");
         }

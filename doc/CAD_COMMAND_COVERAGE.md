@@ -1616,3 +1616,24 @@ správně orientované kamery testovacího přípravku prošla závěrečná sad
 **3/3 za 27,52 s** (model, samostatné CLI, skutečné GUI),
 `build/annotation-layout-verified-tests.log`. Produkční kód se mezi těmito
 běhy nezměnil; obě aplikace a všechny cíle jsou sestavené.
+
+
+## Polohy popisků a konců řezných čar (2026-09-14)
+
+`drawing.view.labels.get/set` doplňují polohu popisku pohledu, označení řezu
+a obou konců řezné čáry v milimetrech papíru. GUI i CLI používají společné
+operace nad uloženými daty. Příkaz může obnovit automatické polohy a potvrzuje
+celou změnu jedním Undo krokem. Neotevírá zdroj, nemění model ani neprovádí
+projekci. Podrobnosti: [DRAWING_LABEL_COMMANDS.md](DRAWING_LABEL_COMMANDS.md).
+
+Sestaveny obě aplikace a všechny testovací cíle. Prošly modelové testy nových
+příkazů, samostatný proces CLI, katalog a geometrický kontrakt řezů
+(`build/drawing-label-tests.log`). GUI přípravek bylo nutné při přepnutí
+výkresu také aktivovat pro příkazový hostitel; po opravě prošel skutečný GUI
+běh **1/1 za 2,35 s** (`build/drawing-label-gui-tests.log`). Ověřuje se i
+přesná poloha viditelného úchopu po úpravě příkazem a po Undo/Redo.
+
+Katalog má **270 příkazů**, sada **147 testů**. Poslední úplná regrese
+zůstává před touto etapou **146/146**; tato etapa má cílené modelové,
+procesní i GUI ověření. Zbývají mimo jiné reference dalších typů funkcí,
+neskicové 3D kóty a souborové operace popsané výše.
