@@ -1,4 +1,5 @@
 #include <zima/document/file_path.hpp>
+#include <zima/workspace/native_documents.hpp>
 #include <zima/interchange/dxf.hpp>
 #include "console_ui_verification.hpp"
 #include "sketch_offset_dialog.hpp"
@@ -79,6 +80,8 @@
 #include <QWidget>
 
 #include <iostream>
+#include <fstream>
+#include <iterator>
 #include <filesystem>
 #include <set>
 #include <tuple>
@@ -2108,54 +2111,158 @@ int verify_body_placement_offsets(QApplication& application, const std::filesyst
 }
 
 int verify_save_copy_ui(QApplication& application, const std::filesystem::path& parent_directory) {
+    namespace fs = std::filesystem;
     using zima::document::PartDocument;
-    QTemporaryDir temporary(QString::fromStdString((parent_directory/"save-copy-ui-XXXXXX").string()));
+    const auto qpath = [](const fs::path& path) {
+        return QString::fromStdString(zima::document::path_to_utf8(path));
+    };
+    const auto check = [](bool ok, const char* message) {
+        if (!ok) throw std::runtime_error(message);
+    };
+    QTemporaryDir temporary(qpath(parent_directory / "save-copy-ui-XXXXXX"));
     if (!verify(temporary.isValid(),"Cannot create isolated Save As fixture directory")) return 1;
-    const std::filesystem::path directory=temporary.path().toStdString();
-    auto part=PartDocument::create_default();
-    part.user_parameters["COPY_SOURCE"]=part.document_id;
-    part.history.push_back(PartDocument::create_box_container());
-    zima::kernel::OcctKernel kernel;
-    const auto boundaries=kernel.evaluate_history(part.kernel_operations());
-    const auto source=directory/"save-copy-source.prtz";
-    const auto target=directory/"save-copy-target.prtz";
-    part.save(source,boundaries);
-    auto drawing=zima::drawing::DrawingDocument::create_default();
-    drawing.source_document_id=part.document_id;drawing.source_path=source;
-    drawing.sheets.front().views.push_back(zima::drawing::DrawingDocument::create_view(
-        part.document_id,source,boundaries.back().mesh,zima::drawing::ViewOrientation::Front));
-    drawing.save(directory/"save-copy-source.drwz");
-    zima::app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));
-    window.resize(1100,850);window.show();
-    if (!verify(window.open_document_path(QString::fromStdString(source.string())),
-            "Cannot open Save As fixture")) return 1;
-    application.processEvents();
-    auto* tabs=window.findChild<QTabBar*>("documentTabs");
-    const auto tab_count=tabs->count();
-    const auto tab_label=tabs->tabText(tabs->currentIndex());
-    bool chose_file=false;
-    QTimer::singleShot(0,&window,[&] {
-        auto* dialog=window.findChild<QFileDialog*>();
-        if (!dialog) return;
-        dialog->selectFile(QString::fromStdString(target.string()));
-        chose_file=true;
-        QMetaObject::invokeMethod(dialog,"accept",Qt::DirectConnection);
-    });
-    window.findChild<QAction*>("saveDocumentAsAction")->trigger();
-    application.processEvents();
-    if (!verify(chose_file && std::filesystem::exists(target) &&
-            std::filesystem::exists(directory/"save-copy-target.drwz"),
-            "Save As action failed to publish model and Drawing copies")) return 1;
-    const auto copy=PartDocument::load(target);
-    const auto drawing_copy=zima::drawing::DrawingDocument::load(directory/"save-copy-target.drwz");
-    auto* tree=window.findChild<QTreeWidget*>("documentTree");
-    if (!verify(copy.document_id!=part.document_id && copy.user_parameters.at("COPY_SOURCE")==part.document_id &&
-            drawing_copy.source_document_id==copy.document_id &&
-            tree->topLevelItem(0)->data(0,Qt::UserRole).toString().toStdString()==part.document_id &&
-            tabs->count()==tab_count && tabs->tabText(tabs->currentIndex())==tab_label,
-            "Save As changed the original active document or detached its copied Drawing")) return 1;
-    std::cout << "Save Copy UI contracts passed\n";
-    return 0;
+    const auto directory = fs::u8path(temporary.path().toStdString()) / fs::u8path("Český projekt žluťoučký");
+    fs::create_directory(directory);
+    zima::app::AssemblyWorkspaceWindow window(qpath(directory));
+    const auto flush = [&] {
+        application.processEvents();
+        QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+        application.processEvents();
+    };
+    const auto run = [&](const char* command, const nlohmann::json& arguments = nlohmann::json::object()) {
+        const nlohmann::json request = {{"command",command},{"arguments",arguments}};
+        auto result = window.execute_console_command(QString::fromStdString(request.dump()));
+        if (!result.ok) throw std::runtime_error(result.code + ": " + result.message);
+        flush();
+        return result.data;
+    };
+    const auto choose = [&](const char* action_name, const fs::path& target, bool select_directory = false) {
+        bool chosen = false, failed = false;
+        QElapsedTimer elapsed; elapsed.start();
+        QTimer responder; responder.setInterval(10);
+        QObject::connect(&responder,&QTimer::timeout,[&] {
+            for (auto* widget : QApplication::allWidgets()) {
+                if (auto* message = qobject_cast<QMessageBox*>(widget); message && message->isVisible()) {
+                    failed = true;
+                    std::cerr << "Unicode file fixture: " << message->text().toStdString() << std::endl;
+                    message->done(QDialog::Rejected);
+                    return;
+                }
+                auto* dialog = qobject_cast<QFileDialog*>(widget);
+                if (!dialog || !dialog->isVisible()) continue;
+                if (chosen || elapsed.elapsed() > 5000) {
+                    failed = true; dialog->reject(); return;
+                }
+                if (select_directory) dialog->setDirectory(qpath(target));
+                else {
+                    dialog->setDirectory(qpath(target.parent_path()));
+                    const auto extension = qpath(target.extension());
+                    if (extension == ".jpg" || extension == ".dxf")
+                        for (const auto& filter : dialog->nameFilters())
+                            if (filter.contains("*" + extension)) { dialog->selectNameFilter(filter); break; }
+                }
+                dialog->selectFile(qpath(target));
+                chosen = true;
+                QMetaObject::invokeMethod(dialog,"accept",Qt::DirectConnection);
+                return;
+            }
+        });
+        auto* action = window.findChild<QAction*>(action_name);
+        check(action && action->isEnabled(),"Unicode file fixture action unavailable");
+        responder.start(); action->trigger(); responder.stop(); flush();
+        check(chosen && !failed,"Unicode file chooser did not complete without an error");
+    };
+    try {
+        window.resize(1100,850); window.show(); flush();
+        check(fs::equivalent(fs::u8path(run("context").at("working_directory").get<std::string>()),directory),
+            "Window constructor changed its Unicode working directory");
+
+        auto part = PartDocument::create_default();
+        part.user_parameters["COPY_SOURCE"] = part.document_id;
+        part.history.push_back(PartDocument::create_box_container());
+        zima::kernel::OcctKernel kernel;
+        const auto boundaries = kernel.evaluate_history(part.kernel_operations());
+        const auto source = directory / fs::u8path("zdroj-český.prtz");
+        const auto target = directory / fs::u8path("kopie-česká.prtz");
+        auto source_drawing = source; source_drawing.replace_extension(".drwz");
+        auto target_drawing = target; target_drawing.replace_extension(".drwz");
+        part.save(source,boundaries);
+        auto drawing = zima::drawing::DrawingDocument::create_default();
+        drawing.source_document_id = part.document_id; drawing.source_path = source;
+        drawing.sheets.front().views.push_back(zima::drawing::DrawingDocument::create_view(
+            part.document_id,source,boundaries.back().mesh,zima::drawing::ViewOrientation::Front));
+        drawing.save(source_drawing);
+        check(window.open_document_path(qpath(source)),"Cannot open Unicode Save As fixture");
+        flush();
+        auto* tabs = window.findChild<QTabBar*>("documentTabs");
+        const auto tab_count = tabs->count();
+        const auto tab_label = tabs->tabText(tabs->currentIndex());
+        choose("saveDocumentAsAction",target);
+        check(fs::exists(target) && fs::exists(target_drawing),"Save As did not publish Unicode model and Drawing copies");
+        const auto copy = PartDocument::load(target);
+        const auto drawing_copy = zima::drawing::DrawingDocument::load(target_drawing);
+        check(copy.document_id != part.document_id && copy.user_parameters.at("COPY_SOURCE") == part.document_id &&
+            drawing_copy.source_document_id == copy.document_id &&
+            run("context").at("active_document") == part.document_id &&
+            tabs->count() == tab_count && tabs->tabText(tabs->currentIndex()) == tab_label,
+            "Unicode Save As changed the source or detached its copied Drawing");
+
+        check(window.open_document_path(qpath(source_drawing)),"Cannot open Unicode Drawing fixture");
+        flush();
+        const auto jpg = directory / fs::u8path("výkres-pohled.jpg");
+        const auto dxf = directory / fs::u8path("výkres-obrys.dxf");
+        choose("saveDocumentAsAction",jpg);
+        choose("saveDocumentAsAction",dxf);
+        check(!QImage(qpath(jpg)).isNull() && fs::file_size(dxf) > 0 &&
+              run("context").at("active_document") == drawing.document_id,
+            "Drawing Save As export lost its Unicode path or changed the active document");
+        std::ifstream dxf_input(dxf, std::ios::binary);
+        const std::string dxf_text((std::istreambuf_iterator<char>(dxf_input)),{});
+        check(dxf_text.find("ENTITIES") != std::string::npos && dxf_text.find("EOF") != std::string::npos,
+            "Unicode Drawing DXF export did not contain a complete document");
+        const auto cli_jpg = directory / fs::u8path("příkaz-výkres.jpg");
+        run("export.image",{{"path",zima::document::path_to_utf8(cli_jpg)},{"sheet",drawing.sheets.front().id}});
+        check(!QImage(qpath(cli_jpg)).isNull(),"CLI Drawing export cannot read its Unicode source");
+
+        const auto selected_directory = directory / fs::u8path("výstupy nové");
+        fs::create_directory(selected_directory);
+        choose("workingDirectoryAction",selected_directory,true);
+        check(fs::equivalent(fs::u8path(run("context").at("working_directory").get<std::string>()),selected_directory),
+            "GUI and CLI disagree about the selected Unicode working directory");
+        for (const auto& [type,suffix] : std::array<std::pair<const char*,const char*>,3>{{
+                {"part",".prtz"},{"assembly",".asmz"},{"drawing",".drwz"}}}) {
+            const auto name = std::string("nový-žluťoučký-") + type;
+            window.findChild<QAction*>("newDocumentAction")->trigger(); flush();
+            auto* dialog = window.findChild<QDialog*>("newDocumentDialog");
+            check(dialog != nullptr,"New Document dialog missing in Unicode fixture");
+            dialog->findChild<QLineEdit*>("newDocumentFileName")->setText(QString::fromStdString(name));
+            for (auto* radio : dialog->findChildren<QRadioButton*>())
+                radio->setChecked(radio->property("documentType").toString() == type);
+            dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click(); flush();
+            const auto original_id = run("context").at("active_document").get<std::string>();
+            const auto original = selected_directory / fs::u8path(name + suffix);
+            window.findChild<QAction*>("saveDocumentAction")->trigger(); flush();
+            check(fs::exists(original) && zima::workspace::read_native_document(original).id() == original_id,
+                "GUI New/Save changed the Unicode filename or document identity");
+            const auto copied = selected_directory / fs::u8path(std::string("kopie-česká-") + type + suffix);
+            choose("saveDocumentAsAction",copied);
+            const auto copied_id = zima::workspace::read_native_document(copied).id();
+            check(copied_id != original_id && run("context").at("active_document") == original_id &&
+                  zima::workspace::read_native_document(original).id() == original_id,
+                "GUI Save As changed the original native document");
+            run("open",{{"path",zima::document::path_to_utf8(copied)}});
+            check(run("context").at("active_document") == copied_id,"CLI cannot open the GUI Unicode native copy");
+            run("close",{{"document",copied_id},{"discard",true}});
+            run("close",{{"document",original_id},{"discard",true}});
+        }
+        const auto remaining = run("documents");
+        for (const auto& row : remaining) run("close",{{"document",row.at("id")},{"discard",true}});
+        std::cout << "Save Copy and Unicode GUI/CLI native file contracts passed\n";
+        return 0;
+    } catch (const std::exception& error) {
+        std::cerr << "Save Copy UI contract failed: " << error.what() << std::endl;
+        return 1;
+    }
 }
 
 int verify_body_activation(QApplication& application, const std::filesystem::path& directory) {

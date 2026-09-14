@@ -127,10 +127,10 @@ QString AssemblyWorkspaceWindow::create_document(
                     : document_type == "drawing_format" ? QStringLiteral(".frmz") : QString{};
     if (suffix.isEmpty()) return tr("Tento typ dokumentu zatím není podporován.");
     const std::filesystem::path path = working_directory_ /
-        (name + suffix.toStdString());
+        std::filesystem::u8path(name + suffix.toStdString());
     if (std::filesystem::exists(path) || workspace_.document_id_for_path(path)) {
         return tr("Soubor %1 již existuje nebo je otevřený.").arg(
-            QString::fromStdString(path.filename().string()));
+            QString::fromStdString(zima::document::path_to_utf8(path.filename())));
     }
     std::string id;
     try {
@@ -221,7 +221,7 @@ void AssemblyWorkspaceWindow::new_drawing() {
 void AssemblyWorkspaceWindow::open_document() {
     const QString path = open_file(this,
         application_settings_.text("file.open_document", tr("Otevřít dokument")),
-        QString::fromStdString(working_directory_.string()),
+        QString::fromStdString(zima::document::path_to_utf8(working_directory_)),
         application_settings_.text("file.filter.document",
             tr("Dokumenty ZIMA-CAD (*.prtz *.asmz *.drwz *.frmz *.tblz)")),
         application_settings_.translations);
@@ -233,7 +233,7 @@ bool AssemblyWorkspaceWindow::open_document_path(const QString& path) {
     if(section_dialog_)return false;
     const std::filesystem::path opened_path = std::filesystem::u8path(path.toStdString());
     begin_status_operation(tr("Otevírám %1…").arg(
-        QString::fromStdString(opened_path.filename().string())));
+        QString::fromStdString(zima::document::path_to_utf8(opened_path.filename()))));
     try {
         std::string id;
         if (const auto already_open = workspace_.document_id_for_path(opened_path)) {
@@ -275,7 +275,7 @@ bool AssemblyWorkspaceWindow::open_document_path(const QString& path) {
     update_status_operation(tr("Připravuji strom a View…"));
     finish_document_switch(true);
     finish_status_operation(tr("Otevřeno: %1").arg(
-        QString::fromStdString(opened_path.filename().string())));
+        QString::fromStdString(zima::document::path_to_utf8(opened_path.filename()))));
     return true;
 }
 
@@ -443,7 +443,7 @@ void AssemblyWorkspaceWindow::navigate_document_kind() {
         if (!source_path.empty() && source_path.is_relative()) source_path = drawing_directory / source_path;
         if (workspace_.find(source_document_id) == nullptr) {
             if (source_path.empty() ||
-                !open_document_path(QString::fromStdString(source_path.string()))) {
+                !open_document_path(QString::fromStdString(zima::document::path_to_utf8(source_path)))) {
                 state_->setText(tr("Zdrojový dokument výkresu nelze otevřít."));
                 return;
             }
@@ -481,7 +481,7 @@ void AssemblyWorkspaceWindow::navigate_document_kind() {
     }
     if (std::filesystem::is_regular_file(drawing_path)) {
         static_cast<void>(open_document_path(
-            QString::fromStdString(drawing_path.string())));
+            QString::fromStdString(zima::document::path_to_utf8(drawing_path))));
         return;
     }
     auto drawing = zima::drawing::DrawingDocument::create_default();

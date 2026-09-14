@@ -1894,3 +1894,20 @@ a celý test pracovního okna bez ručního zásahu za **105,84 s**.
 Nové přejmenování včetně odmítnutí neplatné závislosti prošlo za **1,63 s**.
 Nejde o nový úplný běh všech 154 testů. Přesné výsledky, původní chyby
 a logy jsou uvedené v [NATIVE_FILE_RENAME.md](NATIVE_FILE_RENAME.md).
+
+
+## Unicode cesty v souborových adaptérech GUI (2026-09-14)
+
+Dokončená kontrola souborových variant odhalila nesoulad mezi UTF-8 v CLI
+a systémovým kódováním úzkých cest v několika adaptérech GUI Windows.
+Nový dokument, Uložit jako, pracovní adresář, otevření a JPG/DXF výkresu
+nyní používají stejný převod nativních cest. Skutečné kopie všech tří typů
+z GUI následně otevře CLI; vlastní výkres kopie zůstává správně navázaný.
+
+Cílený scénář prošel **1/1 za 4,21 s**, závěrečná regrese **5/5 za 258,44 s**
+včetně skutečného procesu CLI, GUI konzole a celého pracovního okna.
+Katalog stále obsahuje **288 příkazů**, registrováno je **154 testů**.
+Detaily a logy: [UNICODE_NATIVE_FILE_COMMANDS.md](UNICODE_NATIVE_FILE_COMMANDS.md).
+
+Tím není uzavřená celá příkazová vrstva: zůstávají reference bodů a vložených
+drah, odebrání referencí a dokončení kontroly dalších GUI variant.

@@ -295,3 +295,13 @@ Načítání nativních dokumentů bylo po novém podnětu uživatele prověřen
 samostatně. [NATIVE_DOCUMENT_OPEN_AUDIT.md](NATIVE_DOCUMENT_OPEN_AUDIT.md)
 popisuje současné použití uložené geometrie a opakované kontroly, které
 mohou načítání prodlužovat. Načítací kontrakt se v etapě přejmenování nemění.
+
+
+## Unicode názvy a adresáře v GUI (2026-09-14)
+
+Souborové adaptéry GUI používají UTF-8 převod stejně jako CLI při vytváření,
+otevírání a kopírování nativních dokumentů i při volbě pracovního adresáře.
+Kopie Partu s vlastním výkresem zachovává návaznost; test následně otevírá
+v CLI kopie všech tří typů vytvořené z GUI. Ověřené jsou také JPG/DXF výkresu.
+Podrobnosti a výsledky **5/5 regresí**:
+[UNICODE_NATIVE_FILE_COMMANDS.md](UNICODE_NATIVE_FILE_COMMANDS.md).

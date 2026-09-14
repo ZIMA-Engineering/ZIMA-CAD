@@ -299,8 +299,8 @@ void AssemblyWorkspaceWindow::save_active_document_as() {
     }
     filter += tr(";;JPEG – aktuální pohled (*.jpg *.jpeg)");
     if(workspace_.open_drawing(document_id)) filter += tr(";;DXF – aktuální list (*.dxf)");
-    const QString initial = QString::fromStdString((working_directory_ /
-        fallback_name.toStdString()).string());
+    const QString initial = QString::fromStdString(zima::document::path_to_utf8(working_directory_ /
+        std::filesystem::u8path(fallback_name.toStdString())));
     QString selected = save_file(this, caption, initial, filter, suffix,
                                  application_settings_.translations);
     if (selected.isEmpty()) return;
@@ -308,8 +308,8 @@ void AssemblyWorkspaceWindow::save_active_document_as() {
     if(export_extension=="jpg" || export_extension=="jpeg" ||
        (export_extension=="dxf" && workspace_.open_drawing(document_id))) {
         try {
-            if(export_extension=="dxf") drawing_workspace_->export_dxf(selected.toStdString());
-            else if(workspace_.open_drawing(document_id)) drawing_workspace_->export_jpg(selected.toStdString());
+            if(export_extension=="dxf") drawing_workspace_->export_dxf(std::filesystem::u8path(selected.toStdString()));
+            else if(workspace_.open_drawing(document_id)) drawing_workspace_->export_jpg(std::filesystem::u8path(selected.toStdString()));
             else {
                 const auto image=viewer_->grabFramebuffer();
                 QSaveFile output(selected);
@@ -324,11 +324,11 @@ void AssemblyWorkspaceWindow::save_active_document_as() {
         return;
     }
     const QString dotted_suffix = QStringLiteral(".") + suffix;
-    std::filesystem::path target = selected.toStdString();
-    if (QString::fromStdString(target.extension().string()).compare(
+    std::filesystem::path target = std::filesystem::u8path(selected.toStdString());
+    if (QString::fromStdString(zima::document::path_to_utf8(target.extension())).compare(
             dotted_suffix, Qt::CaseInsensitive) != 0) {
         target.replace_extension(dotted_suffix.toStdString());
-        selected = QString::fromStdString(target.string());
+        selected = QString::fromStdString(zima::document::path_to_utf8(target));
     }
     if (const auto owner = workspace_.document_id_for_path(target);
         owner && *owner != document_id) {
@@ -347,7 +347,7 @@ void AssemblyWorkspaceWindow::save_active_document_as() {
             });
         if (!target.parent_path().empty()) working_directory_ = target.parent_path();
         finish_status_operation(tr("Uložena kopie: %1 (%2 souborů)").arg(
-            QString::fromStdString(target.filename().string())).arg(files.size()));
+            QString::fromStdString(zima::document::path_to_utf8(target.filename()))).arg(files.size()));
     } catch (const std::exception& error) {
         finish_status_operation(tr("Vytvoření kopie selhalo"), false);
         QMessageBox::critical(this, tr("Uložení kopie se nezdařilo"), error.what());
@@ -358,10 +358,10 @@ void AssemblyWorkspaceWindow::set_working_directory() {
     const QString selected = choose_directory(
         this, application_settings_.text("file.set_working_directory",
             tr("Nastavit pracovní adresář")),
-        QString::fromStdString(working_directory_.string()),
+        QString::fromStdString(zima::document::path_to_utf8(working_directory_)),
         application_settings_.translations);
     if (selected.isEmpty()) return;
-    const std::filesystem::path target = selected.toStdString();
+    const std::filesystem::path target = std::filesystem::u8path(selected.toStdString());
     if (!std::filesystem::is_directory(target)) {
         QMessageBox::warning(this, tr("Neplatný adresář"),
             tr("Vybraná cesta není existující adresář."));

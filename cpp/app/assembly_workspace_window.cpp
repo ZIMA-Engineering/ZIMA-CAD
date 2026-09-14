@@ -9,7 +9,7 @@ AssemblyWorkspaceWindow::AssemblyWorkspaceWindow(const QString& working_director
         !working_directory.trimmed().isEmpty();
     if (has_explicit_working_directory) {
         working_directory_ =
-            QFileInfo(working_directory).absoluteFilePath().toStdString();
+            std::filesystem::u8path(QFileInfo(working_directory).absoluteFilePath().toStdString());
     }
     application_settings_ = ApplicationSettings::load(
         has_explicit_working_directory ? working_directory : QString{});
@@ -17,7 +17,7 @@ AssemblyWorkspaceWindow::AssemblyWorkspaceWindow(const QString& working_director
         const QString configured =
             application_settings_.resolved_paths.value("WorkingDirectory");
         if (!configured.trimmed().isEmpty() && QFileInfo(configured).isDir()) {
-            working_directory_ = QFileInfo(configured).absoluteFilePath().toStdString();
+            working_directory_ = std::filesystem::u8path(QFileInfo(configured).absoluteFilePath().toStdString());
         }
     }
     apply_application_translations(*qApp, application_settings_);
