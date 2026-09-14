@@ -94,6 +94,8 @@ int main(int argc,char** argv){
             config.setValue("Application/Language","en");config.setValue("Units/Length","cm");config.sync();
         }
         const auto common=QStringList{"--working-directory",qpath(project),"--config",qpath(base)};
+        result=launch(executable,root,common+QStringList{"--command","new part headless-view","--command","export.view no-view.png"});
+        require(result.exit_code!=0&&result.results().back().at("code")=="view_unavailable"&&!fs::exists(project/"no-view.png"),"CLI fabricated a model View or wrote a false capture");
         for(const bool title:{false,true}) {
             const std::string kind=title?"title_block":"drawing_format",name=title?"CLI razítko":"CLI rámeček",suffix=title?".tblz":".frmz";
             const auto operations=Json::array({{{"command","sketch.segment.create"},{"arguments",{{"first",{0,0}},{"second",{-20,0}}}}},

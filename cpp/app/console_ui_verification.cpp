@@ -119,6 +119,18 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         const auto typing=run("context").data;
         check(typing.at("pointer").at("inside_view")==false && typing.at("hover").is_null(),"Stale View hover leaked into console context");
         check(run("documents").data==before,"Read commands changed document state");
+        const auto expected_view=view->grabFramebuffer();const auto camera_before=view->camera_state();
+        for(const auto* suffix:{"png","jpg"}) {
+            const auto image_path=directory/(stem+"-view."+suffix);
+            const auto request=commands::Json{{"command","export.view"},{"arguments",{{"path",image_path.generic_string()}}}};
+            const auto captured=run(QString::fromStdString(request.dump())).data;
+            const QImage image(QString::fromStdString(image_path.string()));
+            check(!image.isNull()&&image.size()==expected_view.size()&&captured.at("width_px")==image.width()&&captured.at("height_px")==image.height(),"View export has wrong dimensions or codec");
+            if(std::string(suffix)=="png")check(image.convertToFormat(QImage::Format_ARGB32)==expected_view.convertToFormat(QImage::Format_ARGB32),"View PNG did not preserve framebuffer pixels");
+            check(captured.at("document")==id&&captured.at("displayed_document")==id&&captured.at("model_changed")==false,"View capture context is wrong");
+            check(window.execute_console_command(QString::fromStdString(request.dump())).code=="file_exists","View export overwrote without permission");
+        }
+        check(run("documents").data==before&&view->camera_state()==camera_before,"View export changed geometry, history or camera");
         run("save");
         const auto path=directory/(stem+".prtz");
         auto loaded=document::PartDocument::load(path);check(loaded.history.size()==1,"Console did not save the GUI feature");

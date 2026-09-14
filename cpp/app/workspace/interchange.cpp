@@ -2,6 +2,7 @@
 #include <zima/workspace/import_operations.hpp>
 #include <zima/workspace/assembly_import_operations.hpp>
 #include <zima/workspace/export_operations.hpp>
+#include <zima/drawing_render/image_export.hpp>
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -157,12 +158,14 @@ void AssemblyWorkspaceWindow::export_file() {
         update_status_operation(tr("Snímám framebuffer View…"));
         const auto image = viewer_->grabFramebuffer();
         update_status_operation(tr("Zapisuji obrazový soubor…"), -1, 0);
-        const bool saved = !image.isNull() && run_background_task(
-            [image, target = path] { return image.save(target); });
-        if (!saved) {
-            finish_status_operation(tr("Export obrázku selhal"), false);
-            QMessageBox::warning(this, tr("Export obrázku selhal"),
-                tr("Aktuální 3D pohled se nepodařilo uložit."));
+        try {
+            // Same atomic encoder as export.view; the file dialog confirmed overwrite.
+            run_background_task([image,target=std::filesystem::u8path(path.toStdString())] {
+                return drawing_render::write_image(image,target,true);
+            });
+        } catch(const std::exception& error) {
+            finish_status_operation(tr("Export obrázku selhal"),false);
+            QMessageBox::warning(this,tr("Export obrázku selhal"),tr(error.what()));
             return;
         }
         finish_status_operation(

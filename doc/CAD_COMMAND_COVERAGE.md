@@ -46,13 +46,13 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Zaoblení, zkosení, skořepina | Hotovo | `shell.faces/create/get/set`, `fillet.create/get/set`, `chamfer.create/get/set`; `edge_treatment.edges/route/remove`: skutečný vstup, společná tečná trasa a odebrání člena/trasy/posledního prvku podle stromového kontraktu |
 | Zrcadlo a pole | Hotovo pro Part a bezprostřední komponenty Assembly | `derived_copy.sources`, `mirror.create/get/set`, `pattern.create/get/set`: společné zdroje a potvrzení GUI/CLI, roviny/osy, lineární i kruhové režimy, umístění, zámky, neuložené zdroje a Undo/Redo; vnořená aktivace patří do řádku Sestavy |
 | Sestavy | Dotazy, vložení, otevření zdrojů, vlastnosti, odstranění a přesná aktivace hotovy | `component.set`: název, viditelnost, potlačení, uzemnění, umístění a všechny čtyři druhy vložených vazeb s mezemi/zámky; `component.remove` sdílí kontrolu závislostí a atomické mazání s GUI; `component.activate/deactivate` sdílejí přesný zdrojový kontext s GUI; souhrny referencí jsou společné pro Assembly Undo a explicitní regeneraci; profilové odečty mají create/get/set/list i mazání, potlačení a pořadí přes společné operace; schválená oprava pořadí řetězce vazeb je hotová a ověřená |
-| Výkresy | Listy, šablony, historie, tvorba/vlastnosti/dotazy/mazání pohledů, regenerace, modelové anotace, Show/Erase a měřené kóty (dotazy, tvorba, editace, řetězec, mazání), razítko, zdrojové parametry BOM, styly šraf, PDF, DXF a PNG/JPEG listu/výřezu hotovy | Další anotace a příkazový snímek interaktivního View |
+| Výkresy | Listy, šablony, historie, tvorba/vlastnosti/dotazy/mazání pohledů, regenerace, modelové anotace, Show/Erase a měřené kóty (dotazy, tvorba, editace, řetězec, mazání), razítko, zdrojové parametry BOM, styly šraf, PDF, DXF a PNG/JPEG listu/výřezu hotovy | Vlastnosti místního rozložení modelových kót; snímek interaktivního View přes `export.view` hotov |
 | Editor šablon | Životní cyklus, skica, obrázky a oblasti kusovníku hotovy | `template.new/open/get/save/sketch.edit`, rámečky i razítka, nativní text a Undo/Redo; `template.image/region.list/get/create/set/remove`, zámky a společné GUI transakce |
 | Vzhled | Společné operace GUI/CLI hotovy | `appearance.get/set/reset/faces/palette`: styly Partu a jednotlivých výskytů, skupiny ploch, dědění zdroje, reset, historie a nativní uložení; bez výpočtu těles |
 | Řezy | Čtení, tvorba, vlastnosti, aktivace a odstranění | `section.list/get/components/create/set/activate/delete`: úplná otevřená čára, vlastní skica, společné OK vlastností, číselné umístění, přesné výskyty a šrafování; `section.sketch.edit` upravuje celou skicu v jedné transakci; zbývá vstup referencí umístění |
 | Měření | Společné GUI/CLI operace | `measurement.list/get/evaluate/create/set/delete`; původní reference a uložené výsledky |
 | Parametry, relace a materiál | Společné tabulky a transakce hotovy | Parametry, jednotky, přesnost, relace, materiál včetně přímého načtení knihovny a uložené varianty; řízení rozměrů relacemi a generování variant nejsou dosud zavedené ani v GUI |
-| Import a export | Import Partu/Assembly STEP/IGES/DXF a základní exporty hotovy | Společný STEP včetně vnořených sestav, STL Part/vnořená Assembly, DXF úsečky/osy/body/kružnice/oblouky/elipsy/spline/trimy/offsety i textové obrysy a rohová zaoblení; DXF do vložených profilů hotov; přesný import neupnutých/periodických spline hotov; zbývá snímek interaktivního View |
+| Import a export | Import Partu/Assembly STEP/IGES/DXF a základní exporty hotovy | Společný STEP včetně vnořených sestav, STL Part/vnořená Assembly, DXF úsečky/osy/body/kružnice/oblouky/elipsy/spline/trimy/offsety i textové obrysy a rohová zaoblení; DXF do vložených profilů hotov; přesný import neupnutých/periodických spline hotov; `export.view` snímá aktuální 3D pohled přes GUI adaptér; dávkový hostitel bez View vrací `view_unavailable` |
 
 Každá další etapa aktualizuje tabulku a uvádí ověřené testy. Neobcházíme
 chybějící operaci nevalidovanou změnou serializovaného dokumentu ani voláním
@@ -1566,3 +1566,22 @@ CLI procesu, obou GUI Vlastností, Undo/Redo, překladů a nativního uložení.
 Log: `build/profile-reference-integration-tests.log`. Katalog má **265 příkazů**,
 sada **145 testů**; poslední úplný běh před touto etapou zůstává 144/144.
 Reference profilových odečtů Assembly, ostatních prvků a řezů pokračují.
+
+## Snímek interaktivního View (2026-09-14)
+
+`export.view` ukládá aktuální 3D framebuffer do PNG/JPEG a používá společný
+atomický zapisovač s GUI exportem. Nedotýká se geometrie, kamery ani Undo/Redo;
+vrací aktivní i zobrazený dokument a rozlišení obrázku. Samostatné CLI bez View
+vrátí `view_unavailable`. [VIEW_EXPORT_COMMAND.md](VIEW_EXPORT_COMMAND.md)
+popisuje argumenty, omezení i testy.
+
+Všech šest dotčených testů je ověřeno: integrační běh potvrdil GUI framebuffer,
+CLI proces, hostitele, ostatní exporty a překlady. Po opravě typů vstupu
+nového přípravku prošel i modelový test **1/1 za 0,56 s**, včetně aktivovaného
+Partu v sestavě, pixelů PNG, UTF-8, oddělení vláken a atomického zápisu.
+Obě aplikace a všechny cíle jsou sestavené. Katalog **266**, sada **146**;
+poslední úplný běh před těmito etapami zůstává 144/144.
+
+Audit výkresů upřesnil chybějící rozsah: lokální rozložení a textový styl
+modelové kóty podle současných Vlastností. Následuje společná datová operace
+pro GUI a příkazy; zdrojový Part se při této úpravě nemění.

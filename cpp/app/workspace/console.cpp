@@ -152,6 +152,7 @@ void AssemblyWorkspaceWindow::create_command_console() {
         begin_status_operation(text);update_status_operation(text,-1,0);
     };
     options.fit=[this]{viewer_->fit_all();};
+    options.capture_view=[this]{return viewer_&&viewer_->isVisible()?viewer_->grabFramebuffer():QImage{};};
     command_host_=std::make_unique<command_host::Host>(workspace_,kernel_,working_directory_,std::move(options));
     console_dock_=new QDockWidget(tr("Konzole CADu"),this);
     console_dock_->setObjectName("commandConsoleDock");

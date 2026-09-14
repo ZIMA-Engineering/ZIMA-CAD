@@ -5,6 +5,8 @@
 #include <functional>
 #include <optional>
 
+class QImage;
+
 namespace zima::command_host {
 using commands::Json;
 using commands::Result;
@@ -32,6 +34,8 @@ struct Options {
     std::function<void(std::function<void()>)> run_io;
     std::function<void(Activity,const std::filesystem::path&)> progress;
     std::function<void()> fit;
+    // Capture on the View owner thread; the immutable image may be encoded by run_io.
+    std::function<QImage()> capture_view;
 };
 [[nodiscard]] Json documents(const workspace::Workspace& workspace);
 [[nodiscard]] Json model_tree(const workspace::Workspace& workspace,

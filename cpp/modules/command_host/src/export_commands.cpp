@@ -9,6 +9,33 @@
 
 namespace zima::command_host {
 void Host::register_export_commands() {
+    dispatcher_.add({"export.view",tr("Save the current interactive 3D View to PNG or JPEG without regeneration."),
+        {{"path",true},{"quality",false,commands::ArgumentType::Integer},{"overwrite",false,commands::ArgumentType::Boolean},{"document",false}},true},[this](const Json& args) {
+        const auto checked=target(args);if(!checked.ok)return checked;
+        const auto id=workspace_.active_document_id(),displayed=workspace_.displayed_document_id();
+        if(interaction().template_document||(!workspace_.open_part(displayed)&&!workspace_.open_assembly(displayed)))
+            return Result::failure("unsupported_document",tr("View image export requires a displayed Part or Assembly."));
+        if(!options_.capture_view)return Result::failure("view_unavailable",tr("This host has no model View."));
+        try {
+            const auto quality=args.value("quality",95.0);
+            if(quality<0||quality>100)return Result::failure("invalid_arguments",tr("Invalid image export settings."));
+            auto path=std::filesystem::u8path(args.at("path").get<std::string>());
+            if(path.is_relative())path=directory_/path;path=std::filesystem::absolute(path).lexically_normal();
+            const auto format=interchange::format_from_path(path);
+            if(format!=interchange::Format::Png&&format!=interchange::Format::Jpeg)
+                return Result::failure("unsupported_format",tr("Image export requires a PNG or JPEG destination."));
+            const auto camera=interaction().camera;
+            const auto image=options_.capture_view();
+            if(image.isNull())return Result::failure("view_unavailable",tr("The current model View could not be captured."));
+            if(options_.progress)options_.progress(Activity::Export,path);
+            std::uint64_t bytes{};
+            io([&,image]{bytes=drawing_render::write_image(image,path,args.value("overwrite",false),static_cast<int>(quality));});
+            return Result::success({{"document",id},{"displayed_document",displayed},{"path",document::path_to_utf8(path)},
+                {"bytes",bytes},{"width_px",image.width()},{"height_px",image.height()},{"camera",camera},{"model_changed",false}});
+        }catch(const workspace::ExportOperationError& error){return Result::failure(error.code,tr(error.what()));}
+         catch(const std::exception& error){return Result::failure("export_failed",tr(error.what()));}
+    });
+
     dispatcher_.add({"export.image",tr("Export a Drawing sheet or paper crop to PNG or JPEG without regeneration."),
         {{"path",true},{"sheet",true},{"dpi",false,commands::ArgumentType::Number},{"crop_mm",false,commands::ArgumentType::Array},
          {"quality",false,commands::ArgumentType::Integer},{"overwrite",false,commands::ArgumentType::Boolean},{"document",false}},true},[this](const Json& args) {
