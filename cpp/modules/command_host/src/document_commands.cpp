@@ -1,6 +1,7 @@
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/document_operations.hpp>
 #include <zima/workspace/archive_operations.hpp>
+#include <zima/workspace/file_removal_operations.hpp>
 #include <limits>
 
 namespace zima::command_host {
@@ -95,6 +96,37 @@ void Host::register_document_commands() {
             });
         }
     }
+    dispatcher_.add({"delete_file", tr("Delete the saved file of an open document; optionally include archives."),
+        {{"document", false}, {"archives", false, Type::Boolean}, {"discard", false, Type::Boolean}}, true},
+        [this](const Json& args) {
+            const auto id = args.value("document", workspace_.active_document_id());
+            if (id.empty()) return Result::failure("no_document", tr("Není otevřený dokument."));
+            if (interaction().template_document)
+                return Result::failure("unsupported_document", tr("Tento příkaz není dostupný při úpravě šablony."));
+            try {
+                const auto plan = workspace::prepare_document_file_removal(
+                    workspace_, id, args.value("archives", false), args.value("discard", false));
+                const auto removed = workspace::remove_document_file(workspace_, plan);
+                Json paths = Json::array();
+                for (const auto& path : removed.removed) paths.push_back(path_text(path));
+                Json data{{"document", id}, {"path", path_text(plan.path())},
+                    {"closed", !removed.closed_document.empty()}, {"changed", !removed.removed.empty()},
+                    {"removed_paths", std::move(paths)}, {"removed_bytes", removed.removed_bytes}};
+                if (!removed.closed_document.empty()) change_ = Change{ChangeKind::Close, workspace_.displayed_document_id()};
+                else if (!removed.removed.empty()) change_ = Change{ChangeKind::Files, {}};
+                if (!removed.ok()) {
+                    data["failed_path"] = path_text(removed.failed_path);
+                    auto result = Result::failure(removed.code, tr(removed.message.c_str()) + "\n" +
+                        path_text(removed.failed_path) + "\n" + tr("Files removed before the failure:") + " " +
+                        std::to_string(removed.removed.size()));
+                    result.data = std::move(data); return result;
+                }
+                return Result::success(std::move(data));
+            } catch (const workspace::FileRemovalError& error) { return Result::failure(error.code, tr(error.what())); }
+              catch (const workspace::ArchiveError& error) { return Result::failure(error.code, tr(error.what())); }
+              catch (const std::filesystem::filesystem_error& error) { return Result::failure("file_io_error", tr(error.what())); }
+              catch (const std::exception& error) { return Result::failure("file_rejected", tr(error.what())); }
+        });
     dispatcher_.add({"pwd",tr("Zobrazit pracovní adresář."),{},false},[this](const Json&) {
         return Result::success({{"path",path_text(directory_)}});
     });

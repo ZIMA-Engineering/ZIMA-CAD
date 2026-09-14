@@ -257,3 +257,14 @@ Výpis a mazání starších číslovaných záloh nyní sdílí GUI i CLI. Čty
 skutečnými soubory bez změny otevřeného modelu. Nejde o modelové Undo ani
 o nové povinné vedlejší úložiště. Formát nativních dokumentů a start šablony
 se nemění. Kontrakt, chyby a ověření: [ARCHIVE_COMMANDS.md](ARCHIVE_COMMANDS.md).
+
+
+## Odstranění uloženého dokumentu (2026-09-14)
+
+`file_removal_operations` sdílí obě akce mazání aktuálního souboru z menu
+s příkazem `delete_file`. Po smazání zavře dokument bez opětovného ukládání.
+Zamčený aktuální soubor ponechá dokument i archivy; selhání pozdějšího archivu
+vrátí přesný částečný výsledek a promítne už provedené zavření také do GUI.
+Příprava kontroluje identitu otevření, generaci dat, historii a snímek souborů.
+Formáty, start šablony ani pravidla výpočtu geometrie se nemění.
+Kontrakt a výsledky testů: [FILE_REMOVAL_COMMANDS.md](FILE_REMOVAL_COMMANDS.md).

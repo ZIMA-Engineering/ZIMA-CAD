@@ -715,6 +715,7 @@ private:
     void finish_status_operation(const QString& message, bool success = true);
     void rename_document_file();
     void delete_current_document_file();
+    void delete_document_file(bool include_archives);
     void delete_all_file_versions();
     void delete_old_file_versions();
     void delete_old_file_versions_keep_latest();

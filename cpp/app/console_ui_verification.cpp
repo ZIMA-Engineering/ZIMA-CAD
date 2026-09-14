@@ -731,6 +731,88 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
             json_run("activate", {{"document",previous}});
             json_run("cd", {{"path",previous_directory}});
         }
+
+        {
+            const auto previous = run("context").data.at("active_document");
+            const auto previous_directory = run("pwd").data.at("path");
+            const auto removal_directory = directory / (stem + "-file-removal");
+            std::filesystem::create_directory(removal_directory);
+            json_run("cd", {{"path",document::path_to_utf8(removal_directory)}});
+            const auto menu = [&](const char* name, bool accept, bool dirty = false) {
+                auto* action = window.findChild<QAction*>(name);
+                check(action && action->isEnabled(), "File removal menu action missing or disabled");
+                int confirmations = 0;
+                bool unexpected = false, discard_explained = false;
+                QTimer responder; responder.setInterval(5);
+                QObject::connect(&responder, &QTimer::timeout, [&] {
+                    for (auto* widget : QApplication::topLevelWidgets()) {
+                        auto* message = qobject_cast<QMessageBox*>(widget);
+                        if (!message || !message->isVisible()) continue;
+                        auto* button = message->button(accept ? QMessageBox::Yes : QMessageBox::No);
+                        discard_explained = message->text().contains(window.tr("Unsaved changes in this document will also be discarded."));
+                        if (!button) { unexpected = true; message->reject(); }
+                        else { ++confirmations; button->click(); }
+                        break;
+                    }
+                });
+                responder.start(); action->trigger(); responder.stop(); flush();
+                check(confirmations == 1 && !unexpected && discard_explained == dirty,
+                    "File removal lacked its single confirmation/discard explanation or asked Save after deletion");
+            };
+            for (const auto& kind : {"part","assembly","drawing"}) {
+                const std::string type = kind;
+                const auto name = document::path_to_utf8(std::filesystem::path(u8"mazaný díl ")) + type;
+                const auto file = removal_directory / std::filesystem::u8path(name + (type == "part" ? ".prtz" : type == "assembly" ? ".asmz" : ".drwz"));
+                auto archive = file; archive += ".1";
+                json_run("new", {{"type",type},{"name",name}}); run("save"); run("save"); flush();
+                const auto id = run("context").data.at("active_document");
+                const auto state_before = run("documents").data;
+                const auto action = type == "assembly" ? "deleteAllVersionsAction" : "deleteCurrentFileAction";
+                menu(action, false);
+                check(std::filesystem::exists(file) && std::filesystem::exists(archive) &&
+                    run("documents").data == state_before, "File deletion confirmation No changed document/files");
+                menu(action, true);
+                bool still_open = false;
+                for (const auto& doc : run("documents").data) if (doc.at("id") == id) still_open = true;
+                check(!still_open && !std::filesystem::exists(file) &&
+                    std::filesystem::exists(archive) == (type != "assembly"),
+                    "GUI deletion failed to close exact native document or removed wrong archives");
+            }
+            const auto dirty_name = stem + "-dirty-removal";
+            const auto dirty_file = removal_directory / (dirty_name + ".prtz");
+            json_run("new", {{"type","part"},{"name",dirty_name}}); run("save"); run("box.create 10 20 30"); flush();
+            const auto dirty_state = run("documents").data;
+            const auto rejected = window.execute_console_command("delete_file");
+            check(!rejected.ok && rejected.code == "unsaved_changes" && std::filesystem::exists(dirty_file) &&
+                run("documents").data == dirty_state, "Console deleted a dirty document without discard");
+            menu("deleteCurrentFileAction", false, true);
+            check(std::filesystem::exists(dirty_file) && run("documents").data == dirty_state,
+                "GUI discard rejection lost pending model edits");
+            menu("deleteCurrentFileAction", true, true);
+            check(!std::filesystem::exists(dirty_file), "GUI accepted discard did not delete file");
+
+            const auto guarded_name = stem + "-guarded-removal";
+            const auto guarded_file = removal_directory / (guarded_name + ".prtz");
+            json_run("new", {{"type","part"},{"name",guarded_name}}); run("save"); flush();
+            auto* action = window.findChild<QAction*>("boxAction"); check(action && action->isEnabled(), "Box action missing");
+            action->trigger(); flush();
+            QPointer<QDialog> properties;
+            for (auto* candidate : window.findChildren<QDialog*>())
+                if (dynamic_cast<PrimitivePropertiesDialog*>(candidate) && candidate->isVisible()) { properties = candidate; break; }
+            check(properties, "Box Properties did not open for file deletion guard");
+            const auto blocked = window.execute_console_command("delete_file");
+            check(!blocked.ok && blocked.code == "editing_in_progress" && std::filesystem::exists(guarded_file),
+                "Console file deletion interrupted Properties");
+            window.findChild<QAction*>("deleteCurrentFileAction")->trigger(); flush();
+            check(properties && properties->isVisible() && std::filesystem::exists(guarded_file) &&
+                !QApplication::activeModalWidget(), "GUI file deletion interrupted Properties");
+            properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click(); flush();
+            const auto deleted = json_run("delete_file", {{"archives",true}});
+            check(deleted.data.at("closed") == true && !std::filesystem::exists(guarded_file),
+                "Console file deletion did not update GUI after Properties closed");
+            json_run("activate", {{"document",previous}});
+            json_run("cd", {{"path",previous_directory}}); flush();
+        }
         {
             const auto previous=run("context").data.at("active_document");
             for (const bool iges : {false,true}) {

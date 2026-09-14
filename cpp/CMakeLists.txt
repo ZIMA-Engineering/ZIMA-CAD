@@ -129,6 +129,7 @@ add_library(zima_workspace modules/workspace/src/workspace.cpp
     modules/workspace/src/document_copy.cpp
     modules/workspace/src/document_operations.cpp
     modules/workspace/src/archive_operations.cpp
+    modules/workspace/src/file_removal_operations.cpp
     modules/workspace/src/body_operations.cpp
     modules/workspace/src/body_reference_operations.cpp modules/workspace/src/construction_reference_operations.cpp
     modules/workspace/src/history_operations.cpp
@@ -571,6 +572,10 @@ if(ZIMA_BUILD_TESTS)
     add_executable(zima_cpp_document_session_transaction_tests tests/document_session_transaction_tests.cpp)
     target_link_libraries(zima_cpp_document_session_transaction_tests PRIVATE zima_document_core zima_kernel_occt)
     add_test(NAME zima_cpp_document_session_transaction_tests COMMAND zima_cpp_document_session_transaction_tests)
+
+    add_executable(zima_cpp_file_removal_command_tests tests/file_removal_command_tests.cpp)
+    target_link_libraries(zima_cpp_file_removal_command_tests PRIVATE zima_command_host)
+    add_test(NAME zima_cpp_file_removal_command_tests COMMAND zima_cpp_file_removal_command_tests)
 
     add_executable(zima_cpp_archive_command_tests tests/archive_command_tests.cpp)
     target_link_libraries(zima_cpp_archive_command_tests PRIVATE zima_command_host)

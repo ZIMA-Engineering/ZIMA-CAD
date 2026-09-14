@@ -29,7 +29,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Proces CLI, UTF-8, skripty, stdin, config | Hotovo | Rozšiřovat testy nových příkazů |
 | Katalog, kontext, datový strom | Hotovo pro současné příkazy | Doplňovat popisy a dotazy podle domén |
 | Typované argumenty | Hotovo | Řetězce, čísla, celá čísla, boolean, objekty a pole; validace před mutací |
-| New/Open/Save, Save As, aktivace/zavření, pracovní adresář | Hotovo | Výpis a úklid číslovaných archivů jsou společné s GUI; zbývá přejmenování a odstranění aktuálních souborů |
+| New/Open/Save, Save As, aktivace/zavření, pracovní adresář | Hotovo | Archivy i odstranění aktuálního souboru přes `delete_file` jsou společné s GUI; zbývá přejmenování |
 | Regenerate, Undo/Redo | Společné pro Part/Assembly/Drawing | Doplňovat regrese dalších editačních operací |
 | Kvádr | Hotovo | Společná tvorba, čtení a rozměrový patch; včetně zámků a přesnosti |
 | Válec, koule, kužel, jehlan, klín | Hotovo | Společné create/get/set, zámky, přesnost, GUI/CLI a 59/59 regresí |
@@ -1831,3 +1831,23 @@ konzole. Ověřené sestavení a výsledky:
 `build/archive-final-build.log` a `build/archive-final-tests.log`.
 Test skutečně zamčeného souboru Windows ověřuje chybu sdílení, přesné
 odstraněné cesty v JSON a počet odstraněných záloh v textovém hlášení.
+
+
+## Odstranění aktuálního souboru (2026-09-14)
+
+`delete_file` cílí na otevřený Part/Assembly/Drawing, volitelně zahrne archivy
+a vyžaduje výslovné zahození neuložených změn. GUI i CLI sdílejí přípravu,
+kontrolu zastaralého snímku, fyzické smazání, zavření a přesné hlášení
+částečné chyby. GUI po smazání již nevyvolává Uložit, které mohlo právě
+odstraněný soubor znovu vytvořit. Detaily:
+[FILE_REMOVAL_COMMANDS.md](FILE_REMOVAL_COMMANDS.md).
+
+Katalog má **287 příkazů**, registrováno je **152 testů**.
+Nedokončené zůstává přejmenování s přesměrováním závislostí, reference
+bodů/vložených drah, odstranění referencí a závěrečný audit variant GUI.
+
+Obě aplikace a všechny testovací cíle jsou sestavené ve Windows Release.
+Závěrečná cílená sada prošla **7/7 za 150,02 s**: nové mazání souborů,
+archivy, dokumentové ukládání a historie, skutečný proces CLI, katalog
+příkazů, překlady a GUI konzole. Logy: `build/file-removal-final-build.log`
+a `build/file-removal-targeted-tests.log`.

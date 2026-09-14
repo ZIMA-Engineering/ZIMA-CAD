@@ -105,6 +105,39 @@ int main(int argc,char** argv){
             require(invalid.exit_code != 0 && invalid.results().front().at("code") == "invalid_arguments" &&
                 fs::exists(base), "Invalid archive process command succeeded or deleted current file");
         }
+
+        {
+            const auto removal_directory = root / fs::path(u8"mazání dílů");
+            fs::create_directory(removal_directory);
+            for (const auto& kind : {"part", "assembly", "drawing"}) {
+                const std::string type = kind;
+                const auto filename = fs::path(type + (type == "part" ? ".prtz" : type == "assembly" ? ".asmz" : ".drwz"));
+                const auto file = removal_directory / filename;
+                auto archive = file; archive += ".1";
+                const auto process = launch(executable, removal_directory, {"--command", QString::fromStdString("new " + type + " " + type),
+                    "--command", "save", "--command", "save",
+                    "--command", command({{"command","delete_file"},{"arguments",{{"archives",true}}}}),
+                    "--command", "documents"});
+                const auto records = process.results();
+                require(process.exit_code == 0 && records.size() == 5 && records[3].at("ok") == true &&
+                    records[3].at("data").at("closed") == true && records[3].at("data").at("removed_paths").size() == 2 &&
+                    records[4].at("data").empty() && !fs::exists(file) && !fs::exists(archive),
+                    "Native file deletion process failed or retained the closed document");
+            }
+            for (const bool discard : {false,true}) {
+                const std::string name = discard ? "discard" : "keep";
+                const auto file = removal_directory / (name + ".prtz");
+                const auto process = launch(executable, removal_directory,
+                    {"--command",QString::fromStdString("new part " + name), "--command","save",
+                     "--command","box.create 10 20 30",
+                     "--command",command({{"command","delete_file"},{"arguments",{{"discard",discard}}}})});
+                const auto records = process.results();
+                require(records.size() == 4 &&
+                    (discard ? process.exit_code == 0 && records.back().at("data").at("closed") == true && !fs::exists(file)
+                             : process.exit_code != 0 && records.back().at("code") == "unsaved_changes" && fs::exists(file)),
+                    "File deletion process did not respect explicit discard");
+            }
+        }
         auto result=launch(executable,root,{"--help"});require(result.exit_code==0&&result.output.contains("--stdin")&&result.diagnostics.isEmpty(),"CLI help failed");
         result=launch(executable,root,{"--command","documents"});require(result.exit_code==0&&result.results().size()==1&&result.results().front().at("data").empty(),"Empty workspace/default config discovery failed");
         result=launch(executable,root,{"--command","thread.catalog metric M10"});
