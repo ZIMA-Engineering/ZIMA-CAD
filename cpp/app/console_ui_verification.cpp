@@ -751,6 +751,59 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
             else verify_properties(document::PartDocument::create_default());
         }
         {
+            json_run("new",{{"type","part"},{"name",stem+"-history-source"}});
+            json_run("box.create",{{"length_mm","10"},{"width_mm","10"},{"height_mm","10"}});
+            run("save");const auto source=run("context").data.at("active_document");
+            json_run("new",{{"type","assembly"},{"name",stem+"-history-owner"}});
+            const auto first=json_run("component.insert",{{"source",source}}).data.at("occurrence").get<std::string>();
+            const auto second=json_run("component.insert",{{"source",source}}).data.at("occurrence").get<std::string>();
+            const auto point1=json_run("construction.create",{{"kind","point"},{"name","First point"}}).data.at("construction").get<std::string>();
+            const auto point2=json_run("construction.create",{{"kind","point"},{"name","Second point"}}).data.at("construction").get<std::string>();
+            json_run("sketch.create",{{"name","First Sketch"}});
+            json_run("sketch.create",{{"name","Second Sketch"}});
+            run("save");flush();
+            const auto path=directory/(stem+"-history-owner.asmz");
+            const auto original=assembly::AssemblyDocument::load(path);
+            const auto sketch1=original.sketch_containers[0].id,sketch2=original.sketch_containers[1].id;
+            auto* tree=dynamic_cast<HistoryTreeWidget*>(window.findChild<QTreeWidget*>("documentTree"));
+            check(tree && tree->reorder_requested && tree->reorder_enabled,"History Tree reorder adapter is missing");
+            const auto row=[&](const std::string& id) {
+                for(QTreeWidgetItemIterator it(tree);*it;++it)
+                    if((*it)->data(0,Qt::UserRole).toString().toStdString()==id && tree->reorder_enabled(*it))return *it;
+                throw std::runtime_error("Reorderable Assembly history row is missing: "+id);
+            };
+            const auto bytes=[&] {
+                QFile file(QString::fromStdString(document::path_to_utf8(path)));
+                check(file.open(QIODevice::ReadOnly),"Cannot read native history parity fixture");return file.readAll();
+            };
+            for(const auto& [moved,before]:std::vector<std::pair<std::string,std::string>>{
+                {second,first},{point2,point1},{sketch2,sketch1}}) {
+                const auto initial=run("history.list").data;
+                check(tree->reorder_requested(row(moved),QString::fromStdString(before),false) &&
+                    run("history.list").data==initial,"GUI reorder query changed history");
+                check(tree->reorder_requested(row(moved),QString::fromStdString(before),true),"GUI reorder was rejected");
+                flush();run("save");const auto gui=bytes();
+                run("undo");
+                check(json_run("history.move",{{"object",moved},{"before",before}}).data.at("body_calculated")==false,
+                    "CLI metadata reorder calculated geometry");
+                run("save");check(gui==bytes(),"GUI and CLI history moves produced different native Assembly files");
+            }
+            json_run("history.move",{{"object",point1},{"before",point2}});
+            json_run("construction.reference.set",{{"construction",point2},{"index",0},
+                {"reference",{{"owner",original.find_construction(point1)->container_origin.id},{"key","point"}}}});
+            const auto before_rejection=run("history.list").data;
+            check(!tree->reorder_requested(row(point2),QString::fromStdString(point1),false) &&
+                !tree->reorder_requested(row(point2),QString::fromStdString(point1),true) &&
+                run("history.list").data==before_rejection,"GUI reordered a point before its reference");
+            const auto rejected=window.execute_console_command(QString::fromStdString(commands::Json{
+                {"command","history.move"},{"arguments",{{"object",point2},{"before",point1}}}}.dump()));
+            check(!rejected.ok && rejected.code=="history_dependency" &&
+                run("history.list").data==before_rejection,"GUI and CLI dependency rejection differ");
+            check(!tree->reorder_requested(row(point2),QString::fromStdString(first),true),
+                "GUI moved an object into another Assembly list");
+            json_run("close",{{"discard",true}});json_run("close",{{"discard",true}});flush();
+        }
+        {
             const auto previous = run("context").data.at("active_document");
             const auto previous_directory = run("pwd").data.at("path");
             const auto archive_directory = directory / std::filesystem::path(stem + "-archives");

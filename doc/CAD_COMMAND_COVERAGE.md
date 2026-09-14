@@ -2012,3 +2012,28 @@ uložení je potřeba ověřit celý stav kamery při novém otevření.
 Zbývá také sjednotit přímé potvrzení viditelnosti a kurzoru těles a
 dokončit audit inline hodnot a náhledů tažených myší.
 CLI zatím není označeno za dokončené.
+
+
+## Pořadí historie Assembly (2026-09-15)
+
+Stávající `history.list`, `history.can_move` a `history.move` nyní podporují
+také Assembly. Komponenty, konstrukce a kontejnery skic se přesouvají ve
+vlastních seznamech společnou transakcí GUI/CLI bez přepočtu těles nebo
+komponentových vazeb. Nepřímé reference přes jiné seznamy jsou součástí
+kontroly. Přesun odečtů deleguje jejich existující výslovný výpočet.
+
+GUI test porovnává celé uložené `.asmz` po skutečném callbacku stromu a
+po stejném CLI příkazu. Modelové testy ověřují všechny seznamy, reference,
+Undo/Redo, nativní data, vnořenou aktivaci a zachování vypočteného objemu.
+
+Podrobnosti: [ASSEMBLY_HISTORY_COMMANDS.md](ASSEMBLY_HISTORY_COMMANDS.md).
+Katalog zůstává na **292 příkazech**, CTest má **160 testů**.
+Obě aplikace i všechny testovací programy jsou sestavené; širší regrese
+prošla **13/13 za 257,92 s**, včetně GUI konzole a úplného průchodu aplikací.
+
+Další potvrzený zbytek je správa pojmenovaných uložených pohledů.
+Audit ověřil, že současný GUI zápis uchovává posun a zoom, ale nezapisuje
+natočení kamery; po novém otevření se proto původní natočení neobnoví.
+Při sjednocení GUI/CLI je nutné uložit a ověřit celý stav kamery.
+Dále zbývá sjednotit přímé potvrzení viditelnosti a kurzoru těles a
+dokončit kontrolu inline hodnot a náhledů tažených myší.

@@ -1,3 +1,4 @@
+#include <zima/workspace/assembly_history_operations.hpp>
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/history_operations.hpp>
 #include <limits>
@@ -8,6 +9,27 @@ workspace::PartState& part(workspace::Workspace& live,const Json& args) {
     auto* state=live.open_part(args.value("document",live.active_document_id()));
     if(!state)throw workspace::HistoryOperationError("unsupported_document","History operations require an open Part.");
     return *state;
+}
+Json assembly_history_data(const workspace::AssemblyState& state) {
+    const auto& document=state.session.document();
+    Json rows=Json::array();
+    Json orders={{"components",Json::array()},{"constructions",Json::array()},
+        {"sketches",Json::array()},{"cuts",Json::array()}};
+    const auto append=[&](const char* group,const char* kind,const std::string& id,
+        const std::string& name,bool suppressed) {
+        orders[group].push_back(id);
+        rows.push_back({{"object",id},{"kind",kind},{"name",name},{"suppressed",suppressed}});
+    };
+    for(const auto& value:document.components)
+        append("components","component",value.occurrence_id,value.name,value.suppressed);
+    for(const auto& value:document.constructions)
+        append("constructions","construction",value.id,value.name,value.suppressed);
+    for(const auto& value:document.sketch_containers)
+        append("sketches","sketch",value.id,value.name,value.suppressed);
+    for(const auto& value:document.cuts)
+        append("cuts","cut",value.definition.id,value.definition.name,value.definition.suppressed);
+    return {{"document",document.document_id},{"type","assembly"},{"items",std::move(rows)},
+        {"orders",std::move(orders)},{"revision",state.session.revision()}};
 }
 Json history_data(const workspace::PartState& state) {
     const auto& document=state.session.document();Json rows=Json::array();
@@ -37,8 +59,8 @@ void Host::register_history_commands() {
             try {
                 auto result=operation(args);
                 if(changes && result.value("changed",false)) {
-                    change_=Change{ChangeKind::Model,workspace_.active_document_id(),true};
-                    if(!result.at("calculation_errors").empty())
+                    change_=Change{ChangeKind::Model,workspace_.active_document_id(),result.value("body_calculated",true)};
+                    if(result.contains("calculation_errors")&&!result.at("calculation_errors").empty())
                         return Result{false,"calculation_errors",tr("History changed; some dependent features could not be calculated."),std::move(result)};
                 }
                 return Result::success(std::move(result));
@@ -46,7 +68,9 @@ void Host::register_history_commands() {
               catch(const std::exception& error) {return Result::failure("history_rejected",tr(error.what()));}
         });
     };
-    add({"history.list",tr("Read Part history, ownership, suppression and calculation errors."),{{"document",false}},false},[this](const Json& args) {
+    add({"history.list",tr("Read Part history or the separate Assembly history lists without calculation."),{{"document",false}},false},[this](const Json& args) {
+        if(const auto* state=workspace_.open_assembly(args.value("document",workspace_.active_document_id())))
+            return assembly_history_data(*state);
         return history_data(part(workspace_,args));
     });
     add({"history.suppress",tr("Set suppression of a history object and calculate the Part."),
@@ -62,6 +86,17 @@ void Host::register_history_commands() {
     for(bool commit:{false,true}) {
         add({commit?"history.move":"history.can_move",commit?tr("Move an object before another in the same history; omit before for the end."):
             tr("Check history order and dependencies without calculating geometry."),{{"object",true},{"before",false},{"document",false}},commit},[this,commit](const Json& args) {
+            const auto id=args.value("document",workspace_.active_document_id());
+            if(auto* state=workspace_.open_assembly(id)) {
+                const auto object=args.at("object").get<std::string>();
+                const bool cut=state->session.document().find_cut(object)!=nullptr;
+                const bool changed=workspace::move_assembly_history(workspace_,id,kernel_,object,
+                    args.value("before",std::string{}),commit);
+                if(!commit)return Json{{"allowed",true},{"would_change",changed},{"document",id},
+                    {"revision",state->session.revision()},{"body_calculated",false}};
+                auto data=assembly_history_data(*state);data["changed"]=changed;
+                data["body_calculated"]=cut&&changed;return data;
+            }
             const auto document_id=part(workspace_,args).session.document().document_id;
             const bool changed=workspace::move_part_history(workspace_,document_id,kernel_,args["object"].get<std::string>(),args.value("before",std::string{}),commit);
             if(!commit)return Json{{"allowed",true},{"would_change",changed},{"document",document_id},{"revision",workspace_.open_part(document_id)->session.revision()}};

@@ -1,3 +1,4 @@
+#include <zima/workspace/assembly_history_operations.hpp>
 #include <zima/workspace/assembly_cut_operations.hpp>
 #include <zima/workspace/sketch_operations.hpp>
 #include "workspace_internal.hpp"
@@ -97,48 +98,16 @@ bool AssemblyWorkspaceWindow::reorder_tree_item(QTreeWidgetItem* item,const QStr
     if (!tree_item_reorder_enabled(item)) return false;
     const auto id=item->data(0,Qt::UserRole).toString().toStdString();
     if (workspace_.open_part(workspace_.active_document_id())) return reorder_part_history(id,before.toStdString(),commit);
-    auto* assembly=workspace_.open_assembly(workspace_.active_document_id());
-    if (!assembly) return false;
-    const auto kind=item->data(0,Qt::UserRole+3).toString();
-    if (kind=="assembly-cut") {
-        try {
-            const bool changed=workspace::move_assembly_cut(workspace_,kernel_,workspace_.active_document_id(),id,before.toStdString(),commit);
-            if (commit && changed) {preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();}
-            return true;
-        } catch (const std::exception& error) {
-            if (commit) state_->setText(tr(error.what()));
-            return false;
-        }
-    }
-    const auto& original=assembly->session.document();
-    const bool components=kind=="part-occurrence" || kind=="assembly-occurrence";
-    std::vector<std::string> order;
-    HistoryDependencies dependencies;
-    if (components) {
-        for (const auto& component : original.components) order.push_back(component.occurrence_id);
-        dependencies=assembly_component_dependencies(original);
-    } else {
-        document::PartDocument carrier;
-        carrier.constructions=original.constructions;carrier.sketches=original.sketches;carrier.history=original.sketch_containers;
-        for (const auto& cut : original.cuts) carrier.history.push_back(cut.definition);
-        dependencies=part_history_dependencies(carrier);
-        if (kind=="assembly-construction") for (const auto& object : original.constructions) order.push_back(object.id);
-        else for (const auto& container : original.sketch_containers) order.push_back(container.id);
-    }
-    const auto reordered=reordered_history(order,id,before.toStdString());
-    if (!history_order_preserves_dependencies(order,reordered,dependencies)) return false;
-    if (!commit || reordered==order) return true;
     try {
-        auto next=original;
-        if (components) sort_history_records(next.components,reordered,[](const auto& c){return c.occurrence_id;});
-        else if (kind=="assembly-construction") sort_history_records(next.constructions,reordered,[](const auto& c){return c.id;});
-        else sort_history_records(next.sketch_containers,reordered,[](const auto& c){return c.id;});
-        assembly->session.commit(std::move(next));
-        preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();
-        state_->setText(tr("Pořadí změněno. Operaci lze vrátit přes Zpět."));
+        const bool changed=workspace::move_assembly_history(workspace_,workspace_.active_document_id(),
+            kernel_,id,before.toStdString(),commit);
+        if (commit && changed) {
+            preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();
+            state_->setText(tr("Pořadí změněno. Operaci lze vrátit přes Zpět."));
+        }
         return true;
     } catch (const std::exception& error) {
-        state_->setText(tr("Pořadí nebylo změněno: %1").arg(tr(error.what())));
+        if (commit) state_->setText(tr("Pořadí nebylo změněno: %1").arg(tr(error.what())));
         return false;
     }
 }
