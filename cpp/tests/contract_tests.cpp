@@ -2236,10 +2236,10 @@ int main() {
                     referenced_point_dimensions[2].label_prefix.empty() &&
                     std::abs(referenced_point_dimensions[2].plane_normal.x) <
                         1.0e-9 &&
-                    std::abs(referenced_point_dimensions[2].plane_normal.y) <
+                    std::abs(referenced_point_dimensions[2].plane_normal.z) <
                         1.0e-9 &&
                     std::abs(std::abs(
-                        referenced_point_dimensions[2].plane_normal.z) - 1.0) <
+                        referenced_point_dimensions[2].plane_normal.y) - 1.0) <
                         1.0e-9 &&
                     std::abs(referenced_point_dimensions[0].witness_second.y -
                         referenced_point_dimensions[0].witness_first.y) < 1.0e-9 &&
@@ -2303,11 +2303,11 @@ int main() {
                     absolute_dimensions[1].label_prefix.empty() &&
                     absolute_dimensions[2].label_prefix.empty() &&
                     absolute_dimensions[0].plane_normal ==
-                        zima::kernel::Vec3{1.0, 0.0, 0.0} &&
+                        zima::kernel::Vec3{0.0, 0.0, -1.0} &&
                     absolute_dimensions[1].plane_normal ==
-                        zima::kernel::Vec3{0.0, 1.0, 0.0} &&
+                        zima::kernel::Vec3{0.0, 0.0, -1.0} &&
                     absolute_dimensions[2].plane_normal ==
-                        zima::kernel::Vec3{0.0, 0.0, 1.0} &&
+                        zima::kernel::Vec3{0.0, 1.0, 0.0} &&
                     std::abs(absolute_dimensions[2].line_first.y -
                         absolute_dimensions[2].witness_first.y) < 1.0e-9 &&
                     std::abs(absolute_dimensions[2].line_second.y -

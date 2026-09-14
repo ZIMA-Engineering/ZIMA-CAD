@@ -4281,10 +4281,17 @@ std::vector<zima::kernel::ViewerDimension> construction_point_dimensions(
              witness_second.z + line_offset.z},
             value, {object.id, std::move(semantic), {}}, {},
             "mm", std::move(participants)});
-        // Linear dimensions keep their modeling direction explicitly.  In
-        // particular, a zero coordinate has coincident witness points and
-        // cannot recover X/Y/Z from its geometry (or from presentation text).
-        result.back().plane_normal = dimension_direction;
+        // The presentation plane contains the measured span and the witness
+        // offset. A measurement axis is not a plane normal: using it here
+        // collapses the purple-grip drag basis. Preserve the witness side for
+        // negative values as well; a zero span only needs a stable plane.
+        auto span = zima::kernel::Vec3{
+            witness_second.x - witness_first.x,
+            witness_second.y - witness_first.y,
+            witness_second.z - witness_first.z};
+        if (placement_vec_is_zero(span)) span = dimension_direction;
+        result.back().plane_normal = placement_vec_normalized(
+            placement_vec_cross(span, line_offset));
     };
 
     if (!state.constrained_axes[0]) {

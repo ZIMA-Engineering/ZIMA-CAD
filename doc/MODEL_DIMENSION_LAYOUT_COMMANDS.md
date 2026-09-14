@@ -63,3 +63,24 @@ historii, chybné vstupy, Body, opakované výskyty a opětovné otevření obou
 nativních formátů. Procesní test používá samostatný CLI program. GUI test
 otevírá skutečné Vlastnosti kóty, kontroluje přenos stylu z příkazu,
 Cancel, OK, Undo/Redo a nativní uložení.
+
+## Oprava fialových úchopů umístění (2026-09-14)
+
+Kóty souřadnic a referenčních odsazení nyní předávají vieweru skutečnou
+normálu roviny kóty, kolmou na směr měření i odsazení vynášecích čar.
+Dříve pole obsahovalo samotný směr měření; součin použitý pro základnu
+posunu byl nulový a fialovým úchopem nešlo popisek posunout. Znaménko
+normály vychází ze skutečného rozpětí, aby záporná odsazení nepřeklápěla
+vynášecí čáry na opačnou stranu.
+
+Regrese kontroluje všechny tři úchopy, X/Y/Z i kladná a záporná odsazení.
+Skutečné události stisk/pohyb/uvolnění posunou popisek, nemění číselnou
+hodnotu ani geometrii a potvrzují vzhled právě jednou po uvolnění.
+Prošly modelové i `dimension_layout_contract_tests`.
+
+Tato oprava pokrývá přímou editaci popisků ve View. Při otevřených
+Vlastnostech kontejneru zůstává přesun zatím blokovaný. Navazující práce
+musí držet vzhled v rozpracované transakci společně s parametry: OK má
+uložit obojí jedním Undo krokem, Zrušit nesmí zanechat změnu dokumentu.
+Pouhé povolení úchopů nad současným okamžitým zápisem by tento kontrakt
+porušilo; transakční rozšíření dosud není implementované.

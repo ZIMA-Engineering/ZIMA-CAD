@@ -47,6 +47,48 @@ int main(int argc, char **argv) {
     QApplication app(argc, argv);
     try {
         {
+            QWidget owner;owner.resize(900,700);
+            viewer::MeshView view(&owner);view.setGeometry(0,0,900,700);
+            owner.show();view.show();flush();
+            for(double sign:{1.,-1.}) {
+                document::Placement placement;placement.x=sign*7;placement.y=sign*3;placement.z=sign*4;
+                const auto dimensions=document::container_placement_dimensions("placement-grip",placement,{});
+                require(dimensions.size()==3,"Placement grip fixture lost its coordinate dimensions");
+                for(const auto& source:dimensions) {
+                    const auto span=kernel::dimension_sub(source.witness_second,source.witness_first);
+                    const auto offset=kernel::dimension_sub(source.line_first,source.witness_first);
+                    near(kernel::dimension_dot(source.plane_normal,span),0);
+                    near(kernel::dimension_dot(source.plane_normal,offset),0);
+                    near(kernel::dimension_dot(source.plane_normal,source.plane_normal),1);
+                    kernel::DimensionLayout layout;layout.text_along=4;layout.text_outward=2;
+                    const auto moved=kernel::layout_dimension(source,{},layout);
+                    require(moved.label_position.has_value(),"Placement dimension ignores requested purple-grip text movement");
+                    require(moved.witness_first==source.witness_first&&moved.witness_second==source.witness_second&&moved.value==source.value,"Moving placement text changed the measured geometry");
+                    require(moved.line_first==source.line_first&&moved.line_second==source.line_second,"Placement text movement reversed the witness side");
+                    kernel::DimensionLayout saved;int commits=0;
+                    view.set_dimension_layout_resolver([&](const auto&)->std::optional<kernel::DimensionLayout>{return saved;});
+                    view.set_dimension_layout_commit([&](const auto& ref,auto value){require(ref==source.reference,"Placement grip changed identity");saved=value;++commits;});
+                    kernel::ViewerMesh mesh;mesh.vertices={source.witness_first,source.witness_second,source.line_first,source.line_second};mesh.dimensions={source};
+                    view.set_mesh(mesh);view.set_view_direction(source.plane_normal);
+                    for(auto* animation:view.findChildren<QVariantAnimation*>())animation->setCurrentTime(animation->duration());
+                    view.fit_all();flush();
+                    for(int grip=0;grip<3;++grip) {
+                        view.confirm_reference(source.reference.owner_id,source.reference.semantic_key,{},viewer::CandidateKind::Dimension);
+                        const auto selected=view.confirmed_candidate();require(selected.has_value(),"Placement dimension cannot be selected");
+                        const auto before=view.dimension_handle_position(*selected,grip);require(before.has_value(),"Placement purple grip is missing");
+                        const auto count=commits;
+                        mouse(&view,QEvent::MouseButtonPress,*before,Qt::LeftButton,Qt::LeftButton);
+                        mouse(&view,QEvent::MouseMove,*before+QPointF(35,-30),Qt::NoButton,Qt::LeftButton);
+                        const auto after=view.dimension_handle_position(*selected,grip);
+                        require(after&&QLineF(*before,*after).length()>10,"Placement purple grip did not move on screen");
+                        require(commits==count,"Placement drag committed before release");
+                        mouse(&view,QEvent::MouseButtonRelease,*before+QPointF(35,-30),Qt::LeftButton,Qt::NoButton);
+                        require(commits==count+1&&view.dimension_source(*selected)==source,"Placement drag changed geometry or did not persist");
+                    }
+                }
+            }
+        }
+        {
             kernel::ViewerDimension d;
             d.witness_second = {20, 0, 0};
             d.line_first = {0, 8, 0};
