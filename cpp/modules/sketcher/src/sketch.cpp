@@ -10428,6 +10428,18 @@ SolveResult Sketch::solve_impl(
                         const double sign = (slider->x-foot_x)*ux+(slider->y-foot_y)*uy < 0 ? -1.0 : 1.0;
                         const double target_x = foot_x+sign*offset*ux;
                         const double target_y = foot_y+sign*offset*uy;
+                        // The circle-line intersection is not a free sliding
+                        // solution if it separates a shared coordinate. Let
+                        // move_directional_pair move the constrained groups
+                        // instead (including transitive horizontal/vertical links).
+                        if ((std::abs(target_x-(*center)[0]) > tolerance &&
+                             directional_translation_closure(slider_id,
+                                 DimensionKind::DistanceX).contains(center_id)) ||
+                            (std::abs(target_y-(*center)[1]) > tolerance &&
+                             directional_translation_closure(slider_id,
+                                 DimensionKind::DistanceY).contains(center_id))) {
+                            continue;
+                        }
                         maximum_residual = std::max(maximum_residual,
                             std::hypot(slider->x-target_x,slider->y-target_y));
                         slider->x=target_x;slider->y=target_y;

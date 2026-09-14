@@ -24,6 +24,96 @@ void require(bool condition, const char* message) {
 int main() {
     try {
         using zima::sketcher::DimensionKind;
+        {
+            // An axis-supported rectangle must resize in either direction.
+            // Sliding one endpoint must respect its horizontal/vertical group.
+            using zima::sketcher::ConstraintKind;
+            for (double sx : {-1., 1.}) for (double sy : {-1., 1.}) {
+                for (bool reversed : {false, true}) for (bool transitive : {false, true}) {
+                    auto rectangle = zima::sketcher::Sketch::create_default();
+                    const auto a = rectangle.add_point(0., 0.);
+                    const auto b = rectangle.add_point(0., sy * 20.);
+                    const auto c = rectangle.add_point(sx * 30., sy * 20.);
+                    const auto d = rectangle.add_point(sx * 30., 0.);
+                    for (const auto& pair : {std::pair{a, b}, {b, c}, {c, d}, {d, a}}) {
+                        rectangle.segments.push_back(
+                            zima::sketcher::Sketch::create_segment(pair.first, pair.second));
+                    }
+                    static_cast<void>(rectangle.add_point_reference_constraint(a, "sketch_origin"));
+                    static_cast<void>(rectangle.add_point_on_line_constraint(b, "sketch_axis:y"));
+                    static_cast<void>(rectangle.add_point_on_line_constraint(d, "sketch_axis:x"));
+                    const auto constrain = [&](const std::string& id, ConstraintKind kind,
+                                               const std::string& first, const std::string& second) {
+                        rectangle.constraints.push_back({id, kind, first, second});
+                    };
+                    if (transitive) {
+                        const auto top = rectangle.add_point(sx * 15., sy * 20.);
+                        const auto side = rectangle.add_point(sx * 30., sy * 10.);
+                        constrain("top-first", ConstraintKind::Horizontal, b, top);
+                        constrain("top-second", ConstraintKind::Horizontal, top, c);
+                        constrain("side-first", ConstraintKind::Vertical, c, side);
+                        constrain("side-second", ConstraintKind::Vertical, side, d);
+                    } else {
+                        constrain("top", ConstraintKind::Horizontal, b, c);
+                        constrain("side", ConstraintKind::Vertical, c, d);
+                    }
+                    const auto width = rectangle.create_point_dimension(
+                        reversed ? c : b, reversed ? b : c, DimensionKind::Distance);
+                    const auto height = rectangle.create_point_dimension(
+                        reversed ? d : c, reversed ? c : d, DimensionKind::Distance);
+                    rectangle.apply_dimension(width);
+                    rectangle.apply_dimension(height);
+                    const auto constraints = rectangle.constraints;
+                    for (const auto& size : {std::pair{40., 20.}, {40., 35.},
+                                            {12., 35.}, {12., 8.}, {30., 20.}}) {
+                        require(rectangle.set_dimension_value(width.id, size.first),
+                            "Axis-supported rectangle rejected a feasible width edit");
+                        require(rectangle.set_dimension_value(height.id, size.second),
+                            "Axis-supported rectangle rejected a feasible height edit");
+                        const auto solved = rectangle.solve();
+                        require(solved.status != zima::sketcher::SolveStatus::Conflicting &&
+                                solved.status != zima::sketcher::SolveStatus::Invalid &&
+                                solved.maximum_residual < 1e-7,
+                            "Resized rectangle violated its constraints");
+                        const auto* corner = rectangle.find_point(c);
+                        const auto* origin = rectangle.find_point(a);
+                        require(std::abs(corner->x - sx * size.first) < 1e-7 &&
+                                std::abs(corner->y - sy * size.second) < 1e-7 &&
+                                std::hypot(origin->x, origin->y) < 1e-7 &&
+                                rectangle.constraints == constraints,
+                            "Rectangle resize changed its orientation, anchor or constraints");
+                    }
+                    rectangle = zima::sketcher::Sketch::from_serialized(rectangle.serialized());
+                    require(rectangle.set_dimension_value(width.id, 50.),
+                        "Persisted rectangle rejected an increasing dimension");
+                    rectangle.find_point(c)->fixed = true;
+                    const auto before = rectangle.serialized();
+                    require(!rectangle.set_dimension_value(width.id, 60.) &&
+                            rectangle.serialized() == before,
+                        "A genuinely blocked rectangle resize was not rejected atomically");
+                }
+            }
+        }
+        {
+            // Without a horizontal relation, the initially aligned pair really
+            // can grow by sliding around a fixed centre on its supporting line.
+            auto sliding=zima::sketcher::Sketch::create_default();
+            const auto centre=sliding.add_point(3.,0.);
+            const auto slider=sliding.add_point(0.,0.);
+            sliding.find_point(centre)->fixed=true;
+            static_cast<void>(sliding.add_point_on_line_constraint(slider,"sketch_axis:y"));
+            const auto distance=sliding.create_point_dimension(centre,slider,DimensionKind::Distance);
+            sliding.apply_dimension(distance);
+            for(double value:{5.,4.,6.}) {
+                require(sliding.set_dimension_value(distance.id,value),
+                    "A free line slider rejected a feasible distance edit");
+                const auto* point=sliding.find_point(slider);
+                require(std::abs(point->x)<1e-7&&
+                        std::abs(point->y-std::sqrt(value*value-9.))<1e-7&&
+                        sliding.solve().maximum_residual<1e-7,
+                    "A free line slider lost its supporting line or distance branch");
+            }
+        }
         if(const auto* fixture=std::getenv("ZIMA_VERIFY_LOCKED_DRAG_SKETCH")) {
             std::ifstream input(fixture);const std::string data{std::istreambuf_iterator<char>(input),{}};
             auto sketch=zima::sketcher::Sketch::from_serialized(data);

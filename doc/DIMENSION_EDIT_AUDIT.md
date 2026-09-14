@@ -1,5 +1,42 @@
 # Audit editace kót (2026-09-10)
 
+## Doplnění 2026-09-14: zvětšení kót obdélníku opřeného o osy
+
+V `part02.prtz` šly kóty vnitřní skici posledního Protažení zmenšit,
+ale zvětšení se odmítalo jako konflikt. Stejná chyba se projevila přes
+CLI i při editaci ve View; nešlo o horní mez rozměru ani o výpočet tělesa.
+
+Zkratka řešiče pro bod na přímce hledala průsečík přímky s kružnicí
+požadované vzdálenosti. Při zvětšení posunula bod po ose a porušila jeho
+vodorovnou nebo svislou vazbu k druhému bodu. Následující iterace jej vrátila,
+a řešení tak oscilovalo. Při zmenšení takový průsečík neexistoval a řešič
+správně použil pohyb celé skupiny bodů se společnou souřadnicí.
+
+Průsečíková zkratka nyní odmítne kandidáta, který rozdělí společnou souřadnici
+spojenou vodorovnými/svislými vazbami, včetně tranzitivních vazeb. Použije se
+stávající řešení pohybu příslušných skupin. Skutečně volný bod nadále může
+klouzat po své přímce; skutečně nemožná změna se odmítne bez zápisu.
+
+Ověření:
+
+- Regrese před opravou selhala při prvním zvětšení šířky. Po opravě prošly
+  všechny čtyři kvadranty, obě pořadí bodů, přímé i tranzitivní vazby,
+  opakované zvětšení/zmenšení, načtení uložené skici a atomické odmítnutí
+  změny zablokované pevným bodem. Samostatný případ chrání volný posuv
+  po přímce bez vodorovné/svislé vazby.
+- Na pracovní kopii `part02.prtz` prošly obě kóty na 20, 32, 40 a 50 mm
+  přes `sketch.dimension.set`, vždy i s explicitní regenerací tělesa.
+  Testy nepřepisují původní uživatelský soubor.
+- `ZIMA_VERIFY_PROFILE_DIMENSION_FILE` umožňuje stejný GUI test spustit na
+  uloženém Partu: změna přes picker a dvojklik ve View, uložení, Zpět,
+  otevřené Vlastnosti, přechod do vlastněné skici a transakce OK/Zrušit.
+  Na kopii `part02.prtz` prošel; prošla také běžná matice
+  `ZIMA_VERIFY_PROPERTY_SKETCH_ONLY` pro Part a Assembly.
+- Prošly `sketcher_contract_tests`, `sketch_dimension_command_tests`,
+  `profile_sketch_command_tests`, `contract_tests` a
+  `dimension_layout_contract_tests`. GUI zkoušky ověřují události a data;
+  offscreen běh nenahrazuje obrazovou kontrolu OpenGL vykreslení.
+
 ## Doplnění 2026-09-11: odsazení od počátku tělesa a rovina kóty
 
 Na uživatelském modelu se změna kóty 16 mm po Enteru vracela. View nabízelo

@@ -3974,7 +3974,9 @@ int verify_assembly_owned_profiles(QApplication& application,const std::filesyst
 
 int verify_property_sketch_dimensions(QApplication& application, const std::filesystem::path& directory) {
     using namespace zima::document;
+    const auto fixture=qEnvironmentVariable("ZIMA_VERIFY_PROFILE_DIMENSION_FILE");
     for (const auto kind : {FeatureKind::Sketch, FeatureKind::Extrusion, FeatureKind::Revolution}) {
+        if(!fixture.isEmpty()&&kind!=FeatureKind::Extrusion)continue;
         std::cout << "Checking property dimensions for feature " << static_cast<int>(kind) << std::endl;
         auto document=PartDocument::create_default();
         auto sketch=zima::sketcher::Sketch::create_default();
@@ -3989,10 +3991,26 @@ int verify_property_sketch_dimensions(QApplication& application, const std::file
             sketch.segments.back().centerline=true;
         }
         document.history={feature};document.sketches={sketch};
-    BodyHistoryGraph graph;const auto body_id=graph.create_body("Test body");graph.insert({PartHistoryKind::Feature,feature.id});
+    BodyHistoryGraph graph;auto body_id=graph.create_body("Test body");graph.insert({PartHistoryKind::Feature,feature.id});
     document.set_body_history(graph);document.resolve_constructions();
         zima::kernel::OcctKernel kernel;
-        const auto calculated=kernel.evaluate_history(document.kernel_operations());
+        auto calculated=kernel.evaluate_history(document.kernel_operations());
+        if(!fixture.isEmpty()) {
+            document=PartDocument::load(std::filesystem::path(fixture.toStdWString()),&calculated);
+            const auto found=std::find_if(document.history.rbegin(),document.history.rend(),[](const auto& item){return item.feature_kind==FeatureKind::Extrusion;});
+            if(!verify(found!=document.history.rend(),"Saved fixture has no Extrusion"))return 1;
+            feature=*found;
+            const auto profile=std::ranges::find(document.sketches,feature.extrusion.sketch_id,&zima::sketcher::Sketch::id);
+            if(!verify(profile!=document.sketches.end()&&!profile->dimensions.empty(),"Saved Extrusion has no dimensioned Sketch"))return 1;
+            sketch=*profile;
+            const auto* body=document.body_owner_for_object(feature.id);
+            if(!verify(body!=nullptr,"Saved Extrusion has no owning Body"))return 1;
+            body_id=body->scope.id;
+        }
+        const auto initial_value=sketch.dimensions.front().value;
+        const double first_edit=fixture.isEmpty()?3.:std::ceil(initial_value)+1.;
+        const double accepted_value=fixture.isEmpty()?4.:std::ceil(initial_value)+9.;
+        const double sketch_edit=fixture.isEmpty()?5.:std::ceil(initial_value)+19.;
         const auto path=directory/("properties-sketch-"+std::to_string(static_cast<int>(kind))+".prtz");
         document.save(path,calculated);
         zima::app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));
@@ -4021,21 +4039,24 @@ int verify_property_sketch_dimensions(QApplication& application, const std::file
         dimension.owner_id=sketch.id;dimension.semantic_key="dimension:"+sketch.dimensions.front().id;
         const auto edit=[&](double value) {
             const auto locate=[&] {
-                for(std::size_t i=0;i<view->mesh().dimensions.size();++i) {
-                    const auto& ref=view->mesh().dimensions[i].reference;
-                    if(ref.owner_id==dimension.owner_id && ref.semantic_key==dimension.semantic_key) {
-                        dimension.geometry_index=i;return true;
-                    }
+                dimension.geometry_index=0;
+                while(const auto source=view->dimension_source(dimension)) {
+                    const auto& ref=source->reference;
+                    if(ref.owner_id==dimension.owner_id && ref.semantic_key==dimension.semantic_key)return true;
+                    ++dimension.geometry_index;
                 }
                 return false;
             };
             // A short MMB ends an armed placement-reference entry without
             // confirming the properties. Then exercise the real common picker.
-            const QPointF middle(10,10);
-            for(const auto type:{QEvent::MouseButtonPress,QEvent::MouseButtonRelease}) {
-                QMouseEvent event(type,middle,QPointF(view->mapToGlobal(middle.toPoint())),Qt::MiddleButton,
-                    type==QEvent::MouseButtonPress?Qt::MiddleButton:Qt::NoButton,Qt::NoModifier);
-                QApplication::sendEvent(view,&event);flush();
+            if(std::ranges::any_of(window.findChildren<QDialog*>(),
+                    [](const auto* dialog){return dialog->isVisible();})) {
+                const QPointF middle(10,10);
+                for(const auto type:{QEvent::MouseButtonPress,QEvent::MouseButtonRelease}) {
+                    QMouseEvent event(type,middle,QPointF(view->mapToGlobal(middle.toPoint())),Qt::MiddleButton,
+                        type==QEvent::MouseButtonPress?Qt::MiddleButton:Qt::NoButton,Qt::NoModifier);
+                    QApplication::sendEvent(view,&event);flush();
+                }
             }
             if(!verify(locate(),"Owned Sketch dimension absent from Properties mesh"))return false;
             const auto label=view->candidate_dimension_label_position(dimension);
@@ -4067,7 +4088,7 @@ int verify_property_sketch_dimensions(QApplication& application, const std::file
             flush();
             auto* field=view->findChild<QLineEdit*>("inlineDimensionValueEdit");
             if(!verify(field,"Properties Sketch dimension did not open editor"))return false;
-            field->setText(QString::number(value));QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);
+            field->setText(QString::number(value,'g',17));QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);
             QApplication::sendEvent(field,&enter);flush();
             static_cast<void>(locate());
             const auto shown=view->candidate_dimension_value(dimension);
@@ -4078,33 +4099,56 @@ int verify_property_sketch_dimensions(QApplication& application, const std::file
             return verify(shown && std::abs(*shown-value)<1e-6,
                 "Property dimension edit did not refresh the pending Sketch value");
         };
+        const auto stored_value=[&](const PartDocument& saved) {
+            const auto profile=std::ranges::find(saved.sketches,sketch.id,&zima::sketcher::Sketch::id);
+            if(profile==saved.sketches.end())throw std::runtime_error("Saved profile Sketch disappeared");
+            const auto value=std::ranges::find(profile->dimensions,sketch.dimensions.front().id,
+                &zima::sketcher::SketchDimension::id);
+            if(value==profile->dimensions.end())throw std::runtime_error("Saved profile dimension disappeared");
+            return value->value;
+        };
+        if(kind!=FeatureKind::Sketch) {
+            // The same parameter inspection used after a feature double-click;
+            // edit its dimension through real hover, RMB and LMB events.
+            window.show_parameter_dimensions(feature.id);flush();
+            if(!edit(accepted_value))return 1;
+            window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+            if(!verify(std::abs(stored_value(PartDocument::load(path))-accepted_value)<1e-6,
+                "View-only profile dimension did not commit an increasing value"))return 1;
+            auto* undo=window.findChild<QAction*>("undoAction");
+            if(!verify(undo&&undo->isEnabled(),"View-only dimension edit has no Undo"))return 1;
+            undo->trigger();flush();
+            window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+            if(!verify(std::abs(stored_value(PartDocument::load(path))-initial_value)<1e-6,
+                "View-only dimension Undo did not restore the exact original value"))return 1;
+        }
         for(bool accept:{false,true}) {
             auto* dialog=open();
             if(!verify(dialog,"Cannot open profile Properties"))return 1;
-            if(!edit(3) || !edit(4))return 1;
+            if(!edit(first_edit) || !edit(accepted_value))return 1;
             window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
-            if(!verify(std::abs(PartDocument::load(path).sketches.front().circles.front().radius-2)<1e-6,
+            if(!verify(std::abs(stored_value(PartDocument::load(path))-initial_value)<1e-6,
                 "Inline property dimension committed before OK"))return 1;
             if(accept && kind!=FeatureKind::Sketch) {
                 auto* button=dialog->findChild<QPushButton*>("primitiveOwnSketchButton");
                 if(!verify(button,"Profile has no Sketch button"))return 1;
                 button->click();flush();
-                if(!edit(5))return 1;
+                if(!edit(sketch_edit))return 1;
                 window.findChild<QAction*>("finishSketchAction")->trigger();flush();
                 dialog=nullptr;
                 for(auto* current:window.findChildren<QDialog*>())
                     if(current->isVisible())dialog=current;
                 if(!verify(dialog,"Owned Sketch did not return to its Properties"))return 1;
-                if(!edit(4))return 1;
+                if(!edit(accepted_value))return 1;
             }
             dialog->findChild<QDialogButtonBox*>()->button(accept?QDialogButtonBox::Ok:QDialogButtonBox::Cancel)->click();flush();
             window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
             const auto result=PartDocument::load(path);
-            if(!verify(std::abs(result.sketches.front().circles.front().radius-(accept?4:2))<1e-6,
+            if(!verify(std::abs(stored_value(result)-(accept?accepted_value:initial_value))<1e-6,
                 "Property Sketch dimension violated OK/Cancel persistence"))return 1;
         }
     }
-    if(verify_assembly_owned_profiles(application,directory)!=0)return 1;
+    if(fixture.isEmpty()&&verify_assembly_owned_profiles(application,directory)!=0)return 1;
     std::cout << "Property Sketch dimension transactions passed\n";
     return 0;
 }
@@ -4905,6 +4949,7 @@ int verify_startup_contract(
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_CONSOLE_ONLY")) return zima::app::verify_command_console(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_PROFILE_OFFSET_PLANE_ONLY")) return verify_profile_offset_dimension_plane(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_BODY_REFERENCE_DIMENSION_ONLY")) return verify_body_reference_dimension_edit(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_PROFILE_DIMENSION_FILE")) return verify_property_sketch_dimensions(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_DIMENSION_EDITS_ONLY")) return verify_inline_primitive_dimensions(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_PROFILE_FRAMES_ONLY")) return verify_owned_profile_frames(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_MEASUREMENT_INSPECTOR_ONLY")) return zima::app::verify_measurement_inspector(application,window,test_directory);
