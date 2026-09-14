@@ -29,7 +29,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Proces CLI, UTF-8, skripty, stdin, config | Hotovo | Rozšiřovat testy nových příkazů |
 | Katalog, kontext, datový strom | Hotovo pro současné příkazy | Doplňovat popisy a dotazy podle domén |
 | Typované argumenty | Hotovo | Řetězce, čísla, celá čísla, boolean, objekty a pole; validace před mutací |
-| New/Open/Save, Save As, aktivace/zavření, pracovní adresář | Hotovo | Přejmenování souborů a správa archivů jsou další samostatné operace |
+| New/Open/Save, Save As, aktivace/zavření, pracovní adresář | Hotovo | Výpis a úklid číslovaných archivů jsou společné s GUI; zbývá přejmenování a odstranění aktuálních souborů |
 | Regenerate, Undo/Redo | Společné pro Part/Assembly/Drawing | Doplňovat regrese dalších editačních operací |
 | Kvádr | Hotovo | Společná tvorba, čtení a rozměrový patch; včetně zámků a přesnosti |
 | Válec, koule, kužel, jehlan, klín | Hotovo | Společné create/get/set, zámky, přesnost, GUI/CLI a 59/59 regresí |
@@ -1802,3 +1802,32 @@ modelových, procesních CLI, překladových a skutečných GUI testů.
 Logy: `build/import-feature-full-build.log` a
 `build/import-feature-full-tests.log`. GUI ověřuje skutečný přírůstek X
 1 mm po změně offsetu 3 → 4 mm i totožný výsledek uloženého Partu.
+
+
+## Archivní verze dokumentů (2026-09-14)
+
+Čtyři příkazy `file.archives.list/prune` a `directory.archives.list/prune`
+používají společné rozpoznání, řazení a odstranění záloh s GUI. Zachovávají
+aktuální soubory a zadaný počet nejnovějších záloh každého dokumentu.
+Nativní ukládání používá tentýž číselný kontrakt a zachovává Unicode cesty.
+Podrobnosti: [ARCHIVE_COMMANDS.md](ARCHIVE_COMMANDS.md).
+
+Katalog má **286 příkazů**, sada **151 testů**. Přejmenování dokumentů,
+odstranění aktuálních souborů, reference vložených drah a odstranění referencí
+jsou stále nedokončené části CLI. Poslední úplná ověřená regrese před touto
+etapou je **150/150 za 647,59 s** (`build/import-feature-full-tests.log`).
+
+
+Závěrečné ověření Windows Release: obě aplikace a všechny testovací cíle
+jsou sestavené. Úplný běh ověřil **150/151 za 591,33 s**
+(`build/archive-full-tests.log`); nový GUI přípravek chybně předával
+nepodporovaný argument `path` příkazu `save`. Přípravek nyní nastaví pracovní
+adresář, vytvoří dokument a používá běžné `save`.
+
+Po opravě přípravku a dokončení viditelného hlášení částečné chyby konzole
+prošla závěrečná sada **7/7 za 164,31 s**: archivní operace, nativní dokumenty,
+ukládání a historie dokumentů, skutečný proces CLI, katalog, překlady a GUI
+konzole. Ověřené sestavení a výsledky:
+`build/archive-final-build.log` a `build/archive-final-tests.log`.
+Test skutečně zamčeného souboru Windows ověřuje chybu sdílení, přesné
+odstraněné cesty v JSON a počet odstraněných záloh v textovém hlášení.

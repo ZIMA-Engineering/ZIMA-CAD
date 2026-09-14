@@ -1,5 +1,8 @@
 #include "workspace_internal.hpp"
 #include <zima/workspace/document_operations.hpp>
+#include <zima/workspace/archive_operations.hpp>
+#include <zima/document/file_path.hpp>
+#include <zima/document/versioned_file.hpp>
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -380,65 +383,8 @@ AssemblyWorkspaceWindow::active_document_file_path() const {
 
 std::vector<std::filesystem::path> AssemblyWorkspaceWindow::document_archive_paths(
     const std::filesystem::path& file_path) {
-    std::vector<std::pair<int, std::filesystem::path>> archives;
-    const auto target = std::filesystem::absolute(file_path).lexically_normal();
-    const auto parent = target.parent_path();
-    if (std::filesystem::is_directory(parent)) {
-        const std::string prefix = target.filename().string() + ".";
-        for (const auto& entry : std::filesystem::directory_iterator(parent)) {
-            if (!entry.is_regular_file()) continue;
-            const std::string name = entry.path().filename().string();
-            if (name.rfind(prefix, 0) != 0) continue;
-            const std::string suffix = name.substr(prefix.size());
-            if (suffix.empty() || !std::all_of(suffix.begin(), suffix.end(),
-                    [](unsigned char ch) { return std::isdigit(ch) != 0; })) continue;
-            archives.emplace_back(std::stoi(suffix), entry.path());
-        }
-    }
-    std::sort(archives.begin(), archives.end(),
-        [](const auto& lhs, const auto& rhs) { return lhs.first < rhs.first; });
-    std::vector<std::filesystem::path> result;
-    result.reserve(archives.size());
-    for (auto& [version, path] : archives) result.push_back(std::move(path));
-    return result;
-}
-
-std::map<std::filesystem::path, std::vector<std::filesystem::path>>
-AssemblyWorkspaceWindow::working_directory_archive_groups(
-    const std::filesystem::path& directory) {
-    std::map<std::filesystem::path, std::vector<std::pair<int, std::filesystem::path>>>
-        groups;
-    if (!std::filesystem::is_directory(directory)) return {};
-    static const std::array<std::string, 5> document_extensions = {
-        ".prtz", ".asmz", ".drwz", ".frmz", ".tblz"};
-    for (const auto& entry : std::filesystem::directory_iterator(directory)) {
-        if (!entry.is_regular_file()) continue;
-        const auto& path = entry.path();
-        const std::string numeric_suffix = path.extension().string().empty() ? "" :
-            path.extension().string().substr(1);
-        if (numeric_suffix.empty() || !std::all_of(numeric_suffix.begin(),
-                numeric_suffix.end(),
-                [](unsigned char ch) { return std::isdigit(ch) != 0; })) continue;
-        const auto document_path = path.stem().empty() ? path :
-            path.parent_path() / path.stem();
-        const auto document_extension = document_path.extension().string();
-        std::string lowered = document_extension;
-        std::transform(lowered.begin(), lowered.end(), lowered.begin(),
-            [](unsigned char ch) { return std::tolower(ch); });
-        if (std::find(document_extensions.begin(), document_extensions.end(), lowered) ==
-                document_extensions.end()) continue;
-        groups[document_path].emplace_back(std::stoi(numeric_suffix), path);
-    }
-    std::map<std::filesystem::path, std::vector<std::filesystem::path>> result;
-    for (auto& [document_path, archives] : groups) {
-        std::sort(archives.begin(), archives.end(),
-            [](const auto& lhs, const auto& rhs) { return lhs.first < rhs.first; });
-        std::vector<std::filesystem::path> paths;
-        paths.reserve(archives.size());
-        for (auto& [version, path] : archives) paths.push_back(std::move(path));
-        result.emplace(document_path, std::move(paths));
-    }
-    return result;
+    // Menu availability only needs names, not sizes/timestamps for a delete snapshot.
+    return document::archive_paths(std::filesystem::absolute(file_path).lexically_normal());
 }
 
 void AssemblyWorkspaceWindow::refresh_delete_file_actions() {
@@ -469,15 +415,6 @@ QString format_file_size(std::uintmax_t size) {
     return QStringLiteral("%1 GB").arg(QString::number(value, 'f', 1));
 }
 
-std::uintmax_t paths_total_size(const std::vector<std::filesystem::path>& paths) {
-    std::uintmax_t total = 0;
-    for (const auto& path : paths) {
-        std::error_code error;
-        const auto size = std::filesystem::file_size(path, error);
-        if (!error) total += size;
-    }
-    return total;
-}
 }  // namespace
 
 void AssemblyWorkspaceWindow::rename_document_file() {
@@ -748,65 +685,10 @@ void AssemblyWorkspaceWindow::delete_current_document_file() {
 }
 
 void AssemblyWorkspaceWindow::delete_old_file_versions_keep_latest() {
-    const auto target = active_document_file_path();
-    if (!target.has_value()) return;
-    const auto archives = document_archive_paths(*target);
-    if (archives.size() < 2) {
-        QMessageBox::information(this, tr("Staré verze kromě nejnovější"),
-            tr("Žádné starší verze souboru %1 nebyly nalezeny.")
-                .arg(QString::fromStdString(target->filename().string())));
-        return;
-    }
-    const std::vector<std::filesystem::path> to_delete(
-        archives.begin(), archives.end() - 1);
-    const auto answer = QMessageBox::question(
-        this, tr("Staré verze kromě nejnovější"),
-        tr("Odstranit %1 starších verzí souboru %2?")
-            .arg(to_delete.size())
-            .arg(QString::fromStdString(target->filename().string())),
-        QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
-    if (answer != QMessageBox::Yes) return;
-    for (const auto& path : to_delete) {
-        std::error_code error;
-        std::filesystem::remove(path, error);
-        if (error) {
-            QMessageBox::critical(this, tr("Odstranění selhalo"),
-                QString::fromStdString(error.message()));
-            return;
-        }
-    }
-    refresh_delete_file_actions();
-    state_->setText(tr("Odstraněno %1 starších verzí.").arg(to_delete.size()));
+    prune_file_archives(false, 1);
 }
-
 void AssemblyWorkspaceWindow::delete_old_file_versions() {
-    const auto target = active_document_file_path();
-    if (!target.has_value()) return;
-    const auto archives = document_archive_paths(*target);
-    if (archives.empty()) {
-        QMessageBox::information(this, tr("Staré verze"),
-            tr("Žádné starší verze souboru %1 nebyly nalezeny.")
-                .arg(QString::fromStdString(target->filename().string())));
-        return;
-    }
-    const auto answer = QMessageBox::question(
-        this, tr("Staré verze"),
-        tr("Odstranit %1 starších verzí souboru %2?")
-            .arg(archives.size())
-            .arg(QString::fromStdString(target->filename().string())),
-        QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
-    if (answer != QMessageBox::Yes) return;
-    for (const auto& path : archives) {
-        std::error_code error;
-        std::filesystem::remove(path, error);
-        if (error) {
-            QMessageBox::critical(this, tr("Odstranění selhalo"),
-                QString::fromStdString(error.message()));
-            return;
-        }
-    }
-    refresh_delete_file_actions();
-    state_->setText(tr("Odstraněno %1 starších verzí.").arg(archives.size()));
+    prune_file_archives(false, 0);
 }
 
 void AssemblyWorkspaceWindow::delete_all_file_versions() {
@@ -840,73 +722,53 @@ void AssemblyWorkspaceWindow::delete_all_file_versions() {
 }
 
 void AssemblyWorkspaceWindow::delete_working_directory_old_versions() {
-    const auto directory = std::filesystem::absolute(working_directory_).lexically_normal();
-    const auto groups = working_directory_archive_groups(directory);
-    std::vector<std::filesystem::path> paths;
-    for (const auto& [document_path, archives] : groups) {
-        for (const auto& path : archives) paths.push_back(path);
-    }
-    if (paths.empty()) {
-        QMessageBox::information(this, tr("Pracovní adresář"),
-            tr("V pracovním adresáři %1 nebyly nalezeny žádné starší verze.")
-                .arg(QString::fromStdString(directory.string())));
-        return;
-    }
-    const QString size_text = format_file_size(paths_total_size(paths));
-    const auto answer = QMessageBox::warning(
-        this, tr("Pracovní adresář"),
-        tr("Odstranit %1 souborů starších verzí (%2) z pracovního adresáře %3?")
-            .arg(paths.size()).arg(size_text)
-            .arg(QString::fromStdString(directory.string())),
-        QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
-    if (answer != QMessageBox::Yes) return;
-    for (const auto& path : paths) {
-        std::error_code error;
-        std::filesystem::remove(path, error);
-        if (error) {
-            QMessageBox::critical(this, tr("Odstranění selhalo"),
-                QString::fromStdString(error.message()));
-            return;
-        }
-    }
-    refresh_delete_file_actions();
-    state_->setText(tr("Odstraněno %1 souborů starších verzí.").arg(paths.size()));
+    prune_file_archives(true, 0);
 }
-
 void AssemblyWorkspaceWindow::delete_working_directory_old_versions_keep_latest() {
-    const auto directory = std::filesystem::absolute(working_directory_).lexically_normal();
-    const auto groups = working_directory_archive_groups(directory);
-    std::vector<std::filesystem::path> paths;
-    for (const auto& [document_path, archives] : groups) {
-        if (archives.size() < 2) continue;
-        paths.insert(paths.end(), archives.begin(), archives.end() - 1);
-    }
-    if (paths.empty()) {
-        QMessageBox::information(this, tr("Pracovní adresář"),
-            tr("V pracovním adresáři %1 nebyly nalezeny žádné starší verze.")
-                .arg(QString::fromStdString(directory.string())));
-        return;
-    }
-    const QString size_text = format_file_size(paths_total_size(paths));
-    const auto answer = QMessageBox::warning(
-        this, tr("Pracovní adresář"),
-        tr("Odstranit %1 souborů starších verzí (%2) z pracovního adresáře %3? "
-           "Nejnovější verze každého dokumentu zůstane zachována.")
-            .arg(paths.size()).arg(size_text)
-            .arg(QString::fromStdString(directory.string())),
-        QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
-    if (answer != QMessageBox::Yes) return;
-    for (const auto& path : paths) {
-        std::error_code error;
-        std::filesystem::remove(path, error);
-        if (error) {
-            QMessageBox::critical(this, tr("Odstranění selhalo"),
-                QString::fromStdString(error.message()));
+    prune_file_archives(true, 1);
+}
+void AssemblyWorkspaceWindow::prune_file_archives(bool whole_directory, std::size_t keep) {
+    const auto target = whole_directory
+        ? std::optional<std::filesystem::path>(std::filesystem::absolute(working_directory_).lexically_normal())
+        : active_document_file_path();
+    if (!target) return;
+    const auto text_path = [](const std::filesystem::path& path) {
+        return QString::fromStdString(document::path_to_utf8(path));
+    };
+    const QString title = whole_directory ? tr("Pracovní adresář")
+        : keep ? tr("Staré verze kromě nejnovější") : tr("Staré verze");
+    try {
+        const auto groups = whole_directory ? workspace::directory_archives(*target)
+            : workspace::ArchiveGroups{{*target, workspace::document_archives(*target)}};
+        const auto files = workspace::archives_to_remove(groups, keep);
+        if (files.empty()) {
+            QMessageBox::information(this, title, whole_directory
+                ? tr("V pracovním adresáři %1 nebyly nalezeny žádné starší verze.").arg(text_path(*target))
+                : tr("Žádné starší verze souboru %1 nebyly nalezeny.").arg(text_path(target->filename())));
             return;
         }
+        std::uintmax_t bytes = 0;
+        for (const auto& file : files) bytes += file.size;
+        const auto message = whole_directory
+            ? (keep ? tr("Odstranit %1 souborů starších verzí (%2) z pracovního adresáře %3? "
+                         "Nejnovější verze každého dokumentu zůstane zachována.")
+                    : tr("Odstranit %1 souborů starších verzí (%2) z pracovního adresáře %3?"))
+                .arg(files.size()).arg(format_file_size(bytes)).arg(text_path(*target))
+            : tr("Odstranit %1 starších verzí souboru %2?").arg(files.size()).arg(text_path(target->filename()));
+        const auto answer = whole_directory
+            ? QMessageBox::warning(this, title, message, QMessageBox::Yes | QMessageBox::No, QMessageBox::No)
+            : QMessageBox::question(this, title, message, QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+        if (answer != QMessageBox::Yes) return;
+        const auto result = workspace::remove_archives(files);
+        refresh_delete_file_actions();
+        state_->setText(tr("Odstraněno %1 souborů starších verzí.").arg(result.removed.size()));
+        if (!result.ok())
+            QMessageBox::critical(this, tr("Odstranění selhalo"),
+                tr(result.message.c_str()) + QStringLiteral("\n") + text_path(result.failed_path) +
+                QStringLiteral("\n") + state_->text());
+    } catch (const std::exception& error) {
+        QMessageBox::critical(this, tr("Odstranění selhalo"), tr(error.what()));
     }
-    refresh_delete_file_actions();
-    state_->setText(tr("Odstraněno %1 souborů starších verzí.").arg(paths.size()));
 }
 
 void AssemblyWorkspaceWindow::open_new_window() {

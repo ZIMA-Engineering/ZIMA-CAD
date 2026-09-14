@@ -666,6 +666,72 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         check(metadata_saved.user_parameters.at("CLI_TEST")=="after GUI" && metadata_saved.document_units.at("Length")=="cm","GUI metadata did not persist");
         const auto json_run=[&](const char* command,commands::Json arguments) {return run(QString::fromStdString(commands::Json{{"command",command},{"arguments",std::move(arguments)}}.dump()));};
         {
+            const auto previous = run("context").data.at("active_document");
+            const auto previous_directory = run("pwd").data.at("path");
+            const auto archive_directory = directory / std::filesystem::path(stem + "-archives");
+            std::filesystem::create_directory(archive_directory);
+            const auto archive_part = archive_directory / std::filesystem::path(u8"díl s archivem.prtz");
+            const auto path_text = [](const auto& path) { return document::path_to_utf8(path); };
+            const auto fixture = [&](const std::filesystem::path& path) {
+                QFile file(QString::fromStdString(path_text(path)));
+                check(file.open(QIODevice::WriteOnly) && file.write("archive") == 7, "GUI archive fixture write failed");
+            };
+            json_run("cd", {{"path",path_text(archive_directory)}});
+            json_run("new", {{"type","part"},{"name",path_text(archive_part.stem())}});
+            run("save"); run("save"); run("save");
+            auto tenth = archive_part; tenth += ".10"; fixture(tenth);
+            fixture(archive_directory / "other.asmz.2"); fixture(archive_directory / "other.asmz.10");
+            const auto archive_id = run("context").data.at("active_document");
+            json_run("activate", {{"document",archive_id}}); flush();
+            const auto confirmed_documents = run("documents").data;
+            const auto listed = [&] {
+                return json_run("file.archives.list", {{"path",path_text(archive_part)}}).data.at("count").get<std::size_t>();
+            };
+            check(listed() == 3, "GUI saved file archive count is wrong");
+            const auto click_action = [&](const char* name, bool accept) {
+                auto* action = window.findChild<QAction*>(name);
+                check(action && action->isEnabled(), "Archive menu action missing or disabled");
+                bool answered = false, unexpected = false;
+                QTimer responder;
+                responder.setInterval(5);
+                QObject::connect(&responder, &QTimer::timeout, [&] {
+                    for (auto* widget : QApplication::topLevelWidgets()) {
+                        auto* box = qobject_cast<QMessageBox*>(widget);
+                        if (!box || !box->isVisible()) continue;
+                        auto* button = box->button(accept ? QMessageBox::Yes : QMessageBox::No);
+                        if (!button) { unexpected = true; box->reject(); }
+                        else { answered = true; button->click(); }
+                        break;
+                    }
+                });
+                responder.start(); action->trigger(); responder.stop(); flush();
+                check(answered && !unexpected, "Archive menu did not complete its expected confirmation");
+            };
+            click_action("deleteOldVersionsKeepLatestAction", false);
+            check(listed() == 3, "Archive confirmation No deleted files");
+            click_action("deleteOldVersionsKeepLatestAction", true);
+            check(listed() == 1 && std::filesystem::exists(tenth), "File menu did not retain numeric latest archive");
+            click_action("deleteOldVersionsAction", true);
+            check(listed() == 0 && std::filesystem::exists(archive_part), "File menu deleted current document");
+            fixture(tenth);
+            auto older = archive_part; older += ".2"; fixture(older);
+            json_run("activate", {{"document",archive_id}}); flush();
+            click_action("deleteWorkingDirectoryKeepLatestAction", true);
+            check(json_run("directory.archives.list", {{"path",path_text(archive_directory)}}).data.at("count") == 2 &&
+                std::filesystem::exists(tenth) && std::filesystem::exists(archive_directory / "other.asmz.10"),
+                "Directory menu did not keep one latest archive per document");
+            click_action("deleteWorkingDirectoryOldVersionsAction", true);
+            check(json_run("directory.archives.list", {{"path",path_text(archive_directory)}}).data.at("count") == 0 &&
+                run("documents").data == confirmed_documents, "Archive menus changed current document state");
+            fixture(tenth); json_run("activate", {{"document",archive_id}}); flush();
+            json_run("file.archives.prune", {{"path",path_text(archive_part)},{"keep",0}}); flush();
+            check(!window.findChild<QAction*>("deleteOldVersionsAction")->isEnabled() &&
+                run("documents").data == confirmed_documents, "CLI archive deletion did not refresh menu or changed document");
+            run("close");
+            json_run("activate", {{"document",previous}});
+            json_run("cd", {{"path",previous_directory}});
+        }
+        {
             const auto previous=run("context").data.at("active_document");
             for (const bool iges : {false,true}) {
                 const auto name=stem+(iges?"-iges-properties":"-step-properties");

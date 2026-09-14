@@ -248,3 +248,12 @@ všech pět lokalizací. GUI i CLI jsou přeložené z opraveného stavu
 (`build/document-lifecycle-verified-build.log`). Kontroly ověřují objem kopie,
 nové identity, skutečné nativní soubory, Unicode cesty, ochranu změn, poslední
 otevřenou záložku a přepnutí dokumentu bez nové generace vypočtené geometrie.
+
+
+## Archivní soubory (2026-09-14)
+
+Výpis a mazání starších číslovaných záloh nyní sdílí GUI i CLI. Čtyři příkazy
+`file.archives.list/prune` a `directory.archives.list/prune` pracují se
+skutečnými soubory bez změny otevřeného modelu. Nejde o modelové Undo ani
+o nové povinné vedlejší úložiště. Formát nativních dokumentů a start šablony
+se nemění. Kontrakt, chyby a ověření: [ARCHIVE_COMMANDS.md](ARCHIVE_COMMANDS.md).

@@ -78,7 +78,7 @@ void AssemblyWorkspaceWindow::apply_console_change(const command_host::Change& c
         if(change.kind==Kind::Metadata){refresh_tabs();if(viewer_)viewer_->update();return;}
     }
     if(change.kind==Kind::Directory) {refresh_delete_file_actions();return;}
-    if(change.kind==Kind::Copy) {refresh_delete_file_actions();return;}
+    if(change.kind==Kind::Copy || change.kind==Kind::Files) {refresh_delete_file_actions();return;}
     if(change.kind==Kind::Open||change.kind==Kind::New||change.kind==Kind::Activate||change.kind==Kind::Occurrence||change.kind==Kind::Close){
         if(change.kind!=Kind::Open){
             if(workspace_.open_part(workspace_.active_document_id()))active_application_=ApplicationMode::Modeling;

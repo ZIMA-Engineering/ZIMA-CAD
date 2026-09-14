@@ -724,8 +724,7 @@ private:
     [[nodiscard]] std::optional<std::filesystem::path> active_document_file_path() const;
     [[nodiscard]] static std::vector<std::filesystem::path> document_archive_paths(
         const std::filesystem::path& file_path);
-    [[nodiscard]] static std::map<std::filesystem::path, std::vector<std::filesystem::path>>
-        working_directory_archive_groups(const std::filesystem::path& directory);
+    void prune_file_archives(bool whole_directory, std::size_t keep);
     void set_working_directory();
     void open_new_window();
     void show_global_settings();

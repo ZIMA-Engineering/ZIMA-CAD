@@ -73,6 +73,38 @@ int main(int argc,char** argv){
         const auto repository=fs::current_path();
         QTemporaryDir temporary;require(temporary.isValid(),"No temporary test directory");
         const auto root=path(temporary.path());const auto project=root/fs::path(u8"projekt žluťoučký");fs::create_directory(project);
+        {
+            const auto archive_dir = root / fs::path(u8"archivy žluťoučké");
+            fs::create_directory(archive_dir);
+            const auto base = archive_dir / fs::path(u8"díl s mezerou.prtz");
+            write(base, "current");
+            auto older = base; older += ".2"; write(older, "old");
+            auto latest = base; latest += ".10"; write(latest, "new");
+            write(archive_dir / "other.asmz.1", "assembly");
+            const auto name = document::path_to_utf8(base.filename());
+            QByteArray input;
+            for (const auto& request : std::vector<Json>{
+                    {{"command","file.archives.list"},{"arguments",{{"path",name}}}},
+                    {{"command","directory.archives.list"}},
+                    {{"command","file.archives.prune"},{"arguments",{{"path",name},{"keep",1}}}},
+                    {{"command","directory.archives.prune"},{"arguments",{{"keep",0}}}},
+                    {{"command","file.archives.list"},{"arguments",{{"path",name}}}}})
+                input += QByteArray::fromStdString(request.dump()) + '\n';
+            const auto process = launch(executable, archive_dir, {"--stdin"}, input);
+            const auto records = process.results();
+            require(process.exit_code == 0 && records.size() == 5, "Archive CLI process failed");
+            for (const auto& record : records) require(record.at("ok").get<bool>(), "Archive process returned an error");
+            require(records[0].at("data").at("groups")[0].at("archives")[0].at("version") == "2" &&
+                records[1].at("data").at("count") == 3 &&
+                records[2].at("data").at("removed_paths").size() == 1 &&
+                records[3].at("data").at("removed_paths").size() == 2 &&
+                records[4].at("data").at("count") == 0 && fs::exists(base) &&
+                !fs::exists(older) && !fs::exists(latest), "Archive process order, retention or file effects failed");
+            const auto invalid = launch(executable, archive_dir, {"--command", command({
+                {"command","file.archives.prune"},{"arguments",{{"path",name},{"keep",-1}}}})});
+            require(invalid.exit_code != 0 && invalid.results().front().at("code") == "invalid_arguments" &&
+                fs::exists(base), "Invalid archive process command succeeded or deleted current file");
+        }
         auto result=launch(executable,root,{"--help"});require(result.exit_code==0&&result.output.contains("--stdin")&&result.diagnostics.isEmpty(),"CLI help failed");
         result=launch(executable,root,{"--command","documents"});require(result.exit_code==0&&result.results().size()==1&&result.results().front().at("data").empty(),"Empty workspace/default config discovery failed");
         result=launch(executable,root,{"--command","thread.catalog metric M10"});
