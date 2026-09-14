@@ -1,6 +1,7 @@
 #include "workspace_internal.hpp"
 #include <zima/workspace/template_operations.hpp>
 #include <zima/workspace/document_operations.hpp>
+#include <zima/document/file_path.hpp>
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -305,7 +306,7 @@ void AssemblyWorkspaceWindow::refresh_tabs() {
             if constexpr(std::is_same_v<State,zima::workspace::DrawingState>) {
                 const QString label = document.path.empty()
                     ? QString::fromStdString(document.document().name)
-                    : QString::fromStdString(document.path.filename().string());
+                    : QString::fromStdString(zima::document::path_to_utf8(document.path.filename()));
                 const int index=tabs_->addTab(resource_icon("drawing"),
                     label);
                 tabs_->setTabData(index,QString::fromStdString(document.document().document_id));
@@ -317,7 +318,7 @@ void AssemblyWorkspaceWindow::refresh_tabs() {
                 const auto& model = document.session.document();
                 const QString label = document.path.empty()
                     ? QString::fromStdString(model.name)
-                    : QString::fromStdString(document.path.filename().string());
+                    : QString::fromStdString(zima::document::path_to_utf8(document.path.filename()));
                 const int index = tabs_->addTab(
                     resource_icon([&]() -> QString {
                         if constexpr(std::is_same_v<State,zima::workspace::PartState>) {

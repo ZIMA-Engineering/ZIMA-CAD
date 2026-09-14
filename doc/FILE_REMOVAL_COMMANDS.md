@@ -36,6 +36,8 @@ Při zahrnutí archivů pořídí i jejich seznam s velikostmi a časy.
 GUI akce „Odstranit aktuální soubor“ a „Aktuální soubor a všechny verze“
 používají stejnou operaci. Mají jedno potvrzení Ano/Ne, výchozí Ne.
 U neuložených změn otázka výslovně uvádí i jejich zahození. Ne nic nemění.
+Společná ochrana souborových akcí odmítne mazání také během otevřených
+vlastností materiálu nebo jiného editačního okna, nejen kontejneru.
 
 Po potvrzení se na vlákně vlastnícím Workspace znovu ověří dokument a
 soubory. Změněný dokument, jiné otevření stejného ID, jiná cesta nebo

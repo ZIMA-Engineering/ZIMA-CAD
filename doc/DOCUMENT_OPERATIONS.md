@@ -278,3 +278,20 @@ otevřená data umí změnit v jedné odložené dávce bez kopií geometrie.
 `PreparedNativeDocument` nově ověřuje vlastnictví výkresu, přesměruje uložené
 cesty a uloží vlastní snímek. Souborová transakce a GUI/CLI napojení
 následují. Ověření a návrh: [NATIVE_FILE_RENAME.md](NATIVE_FILE_RENAME.md).
+
+
+## Dokončení přejmenování (2026-09-14)
+
+`rename_file` a GUI nyní používají `FileRenameJob`: soukromé uložené snímky,
+kontrolu aktuálnosti vstupů, zveřejnění souborů a teprve potom přesměrování
+živých metadat. Přejmenování neukládá neuloženou práci a nemaže Undo/Redo.
+Odkazy se aktualizují podle původních ID v otevřených i zavřených dokumentech;
+automatický výkres se ověřuje podle skutečného vlastnictví.
+GUI Uložit a taby zachovávají české znaky po přejmenování všech tří typů.
+Podrobnosti, omezený rozsah hledání a chybová obnova:
+[NATIVE_FILE_RENAME.md](NATIVE_FILE_RENAME.md).
+
+Načítání nativních dokumentů bylo po novém podnětu uživatele prověřeno
+samostatně. [NATIVE_DOCUMENT_OPEN_AUDIT.md](NATIVE_DOCUMENT_OPEN_AUDIT.md)
+popisuje současné použití uložené geometrie a opakované kontroly, které
+mohou načítání prodlužovat. Načítací kontrakt se v etapě přejmenování nemění.

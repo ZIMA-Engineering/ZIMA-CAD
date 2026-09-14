@@ -2,6 +2,7 @@
 #include <zima/workspace/document_operations.hpp>
 #include <zima/workspace/archive_operations.hpp>
 #include <zima/workspace/file_removal_operations.hpp>
+#include <zima/workspace/file_rename_operations.hpp>
 #include <zima/command_host/host.hpp>
 #include <zima/document/file_path.hpp>
 #include <zima/document/versioned_file.hpp>
@@ -139,18 +140,18 @@ void AssemblyWorkspaceWindow::finish_status_operation(
 void AssemblyWorkspaceWindow::save_active_assembly() {
     auto* assembly = workspace_.open_assembly(workspace_.active_document_id());
     if (assembly == nullptr) return;
-    QString path = QString::fromStdString(assembly->path.string());
+    QString path = QString::fromStdString(zima::document::path_to_utf8(assembly->path));
     if (path.isEmpty()) path = save_file(
         this, application_settings_.text("file.save_assembly", tr("Uložit sestavu ZIMA-CAD")),
-        QString::fromStdString((working_directory_ / "assembly.asmz").string()),
+        QString::fromStdString(zima::document::path_to_utf8(working_directory_ / "assembly.asmz")),
         application_settings_.text("file.filter.assembly",
             tr("Sestava ZIMA-CAD (*.asmz)")), "asmz",
         application_settings_.translations);
     if (path.isEmpty()) return;
     if (!path.endsWith(".asmz", Qt::CaseInsensitive)) {
-        auto normalized = std::filesystem::path(path.toStdString());
+        auto normalized = std::filesystem::u8path(path.toStdString());
         normalized.replace_extension(".asmz");
-        path = QString::fromStdString(normalized.string());
+        path = QString::fromStdString(zima::document::path_to_utf8(normalized));
     }
     begin_status_operation(tr("Ukládám sestavu %1…").arg(
         QFileInfo(path).fileName()));
@@ -158,7 +159,7 @@ void AssemblyWorkspaceWindow::save_active_assembly() {
         update_status_operation(
             tr("Zapisuji komponenty, vazby a uloženou geometrii…"), -1, 0);
         const auto id = assembly->session.document().document_id;
-        auto job = workspace::prepare_document_save(workspace_, id, path.toStdString());
+        auto job = workspace::prepare_document_save(workspace_, id, std::filesystem::u8path(path.toStdString()));
         const auto saved = run_background_task([job = std::move(job)] { return job.write(); });
         if (!workspace::complete_document_save(workspace_, saved))
             throw std::runtime_error(tr("Uložený dokument byl mezitím zavřen nebo změnil cestu.").toStdString());
@@ -178,18 +179,18 @@ void AssemblyWorkspaceWindow::save_active_assembly() {
 void AssemblyWorkspaceWindow::save_active_document() {
     if(template_sketch()){save_template_document(false);return;}
     if(auto* drawing=workspace_.open_drawing(workspace_.active_document_id())) {
-        QString path=QString::fromStdString(drawing->path.string());
+        QString path=QString::fromStdString(zima::document::path_to_utf8(drawing->path));
         if(path.isEmpty()) path=save_file(
             this, application_settings_.text("file.save_drawing", tr("Uložit výkres")),
-            QString::fromStdString((working_directory_ / "drawing.drwz").string()),
+            QString::fromStdString(zima::document::path_to_utf8(working_directory_ / "drawing.drwz")),
             application_settings_.text("file.filter.drawing",
                 tr("Výkres ZIMA-CAD (*.drwz)")), "drwz",
             application_settings_.translations);
         if(path.isEmpty()) return;
         if(!path.endsWith(".drwz", Qt::CaseInsensitive)) {
-            auto normalized = std::filesystem::path(path.toStdString());
+            auto normalized = std::filesystem::u8path(path.toStdString());
             normalized.replace_extension(".drwz");
-            path = QString::fromStdString(normalized.string());
+            path = QString::fromStdString(zima::document::path_to_utf8(normalized));
         }
         begin_status_operation(tr("Ukládám výkres %1…").arg(
             QFileInfo(path).fileName()));
@@ -197,7 +198,7 @@ void AssemblyWorkspaceWindow::save_active_document() {
             update_status_operation(
                 tr("Zapisuji listy, pohledy a popisové pole…"), -1, 0);
             const auto id = drawing->document().document_id;
-            auto job = workspace::prepare_document_save(workspace_, id, path.toStdString());
+            auto job = workspace::prepare_document_save(workspace_, id, std::filesystem::u8path(path.toStdString()));
             const auto saved = run_background_task([job = std::move(job)] { return job.write(); });
             if (!workspace::complete_document_save(workspace_, saved))
                 throw std::runtime_error(tr("Uložený dokument byl mezitím zavřen nebo změnil cestu.").toStdString());
@@ -221,18 +222,18 @@ void AssemblyWorkspaceWindow::save_active_document() {
     }
     auto* part = workspace_.open_part(workspace_.active_document_id());
     if (part == nullptr) return;
-    QString path = QString::fromStdString(part->path.string());
+    QString path = QString::fromStdString(zima::document::path_to_utf8(part->path));
     if (path.isEmpty()) path = save_file(
         this, application_settings_.text("file.save_part", tr("Uložit díl ZIMA-CAD")),
-        QString::fromStdString((working_directory_ / "part.prtz").string()),
+        QString::fromStdString(zima::document::path_to_utf8(working_directory_ / "part.prtz")),
         application_settings_.text("file.filter.part",
             tr("Díl ZIMA-CAD (*.prtz)")), "prtz",
         application_settings_.translations);
     if (path.isEmpty()) return;
     if (!path.endsWith(".prtz", Qt::CaseInsensitive)) {
-        auto normalized = std::filesystem::path(path.toStdString());
+        auto normalized = std::filesystem::u8path(path.toStdString());
         normalized.replace_extension(".prtz");
-        path = QString::fromStdString(normalized.string());
+        path = QString::fromStdString(zima::document::path_to_utf8(normalized));
     }
     begin_status_operation(tr("Ukládám Part %1…").arg(
         QFileInfo(path).fileName()));
@@ -240,7 +241,7 @@ void AssemblyWorkspaceWindow::save_active_document() {
         update_status_operation(
             tr("Připravuji neměnný snímek dokumentu…"));
         const auto id = part->session.document().document_id;
-        auto job = workspace::prepare_document_save(workspace_, id, path.toStdString());
+        auto job = workspace::prepare_document_save(workspace_, id, std::filesystem::u8path(path.toStdString()));
         update_status_operation(
             tr("Zapisuji parametry, B-Rep a data pro View…"), -1, 0);
         const auto saved = run_background_task([job = std::move(job)] { return job.write(); });
@@ -419,244 +420,63 @@ QString format_file_size(std::uintmax_t size) {
 
 }  // namespace
 
+bool AssemblyWorkspaceWindow::native_file_operation_ready(QDialog* own_dialog) {
+    QDialog* other = nullptr;
+    for (auto* dialog : findChildren<QDialog*>())
+        if (dialog != own_dialog && dialog->isVisible()) { other = dialog; break; }
+    const auto* modal = QApplication::activeModalWidget();
+    const bool editing = other || (modal && modal != own_dialog) || properties_dialog_ ||
+        !active_sketch_id_.empty() || template_sketch() ||
+        (tree_ && tree_->property("commandSelectionActive").toBool());
+    if (!editing) return true;
+    state_->setText(tr("Nejprve dokončete nebo zrušte otevřené vlastnosti."));
+    if (other) other->raise();
+    else if (properties_dialog_) properties_dialog_->raise();
+    return false;
+}
+
 void AssemblyWorkspaceWindow::rename_document_file() {
+    if (rename_document_dialog_) { rename_document_dialog_->raise(); return; }
+    if (!native_file_operation_ready()) return;
     const auto target = active_document_file_path();
-    if (!target.has_value()) return;
-    if (rename_document_dialog_ != nullptr) {
-        rename_document_dialog_->raise();
-        rename_document_dialog_->activateWindow();
-        return;
-    }
-    const std::filesystem::path old_path = std::filesystem::absolute(*target).lexically_normal();
-    auto* dialog = new RenameDocumentDialog(
-        QString::fromStdString(old_path.filename().string()),
-        [this, old_path](QString new_name) -> QString {
-            std::filesystem::path candidate(new_name.toStdString());
-            candidate = candidate.filename();
-            if (candidate.empty())
-                return tr("Zadejte platný název souboru.");
-            std::string requested_extension = candidate.extension().string();
-            std::string current_extension = old_path.extension().string();
-            std::transform(requested_extension.begin(), requested_extension.end(),
-                requested_extension.begin(),
-                [](unsigned char ch) { return std::tolower(ch); });
-            std::string current_extension_lower = current_extension;
-            std::transform(current_extension_lower.begin(), current_extension_lower.end(),
-                current_extension_lower.begin(),
-                [](unsigned char ch) { return std::tolower(ch); });
-            if (requested_extension != current_extension_lower) {
-                candidate = candidate.stem();
-                candidate += current_extension;
-            }
-            const std::filesystem::path new_path = old_path.parent_path() / candidate;
-            if (new_path == old_path) return QString();
-            if (std::filesystem::exists(new_path)) {
-                return tr("Soubor %1 již existuje.")
-                    .arg(QString::fromStdString(new_path.filename().string()));
-            }
-            const bool is_source_document =
-                old_path.extension() == ".prtz" || old_path.extension() == ".asmz";
-            const std::filesystem::path old_drawing_path = is_source_document
-                ? std::filesystem::path(old_path).replace_extension(".drwz")
-                : std::filesystem::path{};
-            const std::filesystem::path new_drawing_path = is_source_document
-                ? std::filesystem::path(new_path).replace_extension(".drwz")
-                : std::filesystem::path{};
-            const bool rename_companion_drawing = is_source_document &&
-                std::filesystem::is_regular_file(old_drawing_path);
-            if (rename_companion_drawing && std::filesystem::exists(new_drawing_path)) {
-                return tr("Soubor %1 již existuje.")
-                    .arg(QString::fromStdString(new_drawing_path.filename().string()));
-            }
-
-            // Rewrite in-memory Assembly component references and Drawing
-            // source references that point at the file being renamed, both
-            // for currently open documents and for documents saved on disk
-            // in the same directory or the working directory.
-            std::unordered_set<std::string> updated_ids;
-            const auto rewrite_open_assembly_paths = [&](zima::workspace::AssemblyState& state) {
-                bool changed = false;
-                auto document = state.session.document();
-                for (auto& component : document.components) {
-                    if (std::filesystem::absolute(component.source_path).lexically_normal() ==
-                            old_path) {
-                        component.source_path = new_path;
-                        changed = true;
-                    }
-                }
-                if (changed) state.session.replace(std::move(document));
-                return changed;
-            };
-            for (auto& state : workspace_.documents()) {
-                if (auto* assembly = std::get_if<zima::workspace::AssemblyState>(&state)) {
-                    if (rewrite_open_assembly_paths(*assembly)) {
-                        updated_ids.insert(assembly->session.document().document_id);
-                    }
-                } else if (auto* drawing = std::get_if<zima::workspace::DrawingState>(&state)) {
-                    auto updated=drawing->document();
-                    bool changed=false;
-                    if (updated.source_document_id ==
-                            workspace_.active_document_id() ||
-                        (!updated.source_path.empty() &&
-                         std::filesystem::absolute(updated.source_path)
-                                 .lexically_normal() == old_path)) {
-                        updated.source_path = new_path; changed=true;
-                        updated.source_name =
-                            new_path.stem().string();
-                    }
-                    for (auto& sheet : updated.sheets) {
-                        for (auto& view : sheet.views) {
-                            if (!view.source_path.empty() &&
-                                std::filesystem::absolute(view.source_path).lexically_normal() ==
-                                    old_path) {
-                                view.source_path = new_path; changed=true;
-                                updated_ids.insert(updated.document_id);
-                            }
-                        }
-                    }
-                    if(changed) {
-                        updated_ids.insert(updated.document_id);
-                        drawing->commit(std::move(updated));
-                    }
-                }
-            }
-
-            // Also rewrite Assembly/Drawing documents saved on disk but not
-            // currently open, matching Python's _rename_document_file_to
-            // (which loads every candidate document in the file's directory
-            // and the working directory, rewrites any reference to the
-            // renamed file, and re-saves it). Only Assembly (.asmz) and
-            // Drawing (.drwz) documents can hold such references; Part
-            // (.prtz) documents cannot reference other documents.
-            std::unordered_set<std::string> open_document_paths;
-            for (auto& state : workspace_.documents()) {
-                if (auto* part = std::get_if<zima::workspace::PartState>(&state)) {
-                    open_document_paths.insert(
-                        std::filesystem::absolute(part->path).lexically_normal().string());
-                } else if (auto* assembly = std::get_if<zima::workspace::AssemblyState>(&state)) {
-                    open_document_paths.insert(
-                        std::filesystem::absolute(assembly->path).lexically_normal().string());
-                } else if (auto* drawing = std::get_if<zima::workspace::DrawingState>(&state)) {
-                    open_document_paths.insert(
-                        std::filesystem::absolute(drawing->path).lexically_normal().string());
-                }
-            }
-            std::unordered_set<std::string> scanned_paths;
-            const auto scan_directory_for_references = [&](const std::filesystem::path& directory) {
-                if (!std::filesystem::is_directory(directory)) return;
-                for (const auto& entry : std::filesystem::directory_iterator(directory)) {
-                    if (!entry.is_regular_file()) continue;
-                    const auto candidate =
-                        std::filesystem::absolute(entry.path()).lexically_normal();
-                    const std::string extension_lower = [&] {
-                        std::string ext = candidate.extension().string();
-                        std::transform(ext.begin(), ext.end(), ext.begin(),
-                            [](unsigned char ch) { return std::tolower(ch); });
-                        return ext;
-                    }();
-                    if (extension_lower != ".asmz" && extension_lower != ".drwz") continue;
-                    const std::string key = candidate.string();
-                    if (open_document_paths.count(key) != 0) continue;
-                    if (!scanned_paths.insert(key).second) continue;
-                    if (extension_lower == ".asmz") {
-                        zima::assembly::AssemblyDocument document;
-                        try {
-                            document = zima::assembly::AssemblyDocument::load(candidate);
-                        } catch (const std::exception&) {
-                            continue;
-                        }
-                        bool changed = false;
-                        for (auto& component : document.components) {
-                            if (std::filesystem::absolute(component.source_path)
-                                    .lexically_normal() == old_path) {
-                                component.source_path = new_path;
-                                changed = true;
-                            }
-                        }
-                        if (changed) {
-                            try {
-                                document.save(candidate);
-                            } catch (const std::exception&) {
-                            }
-                        }
-                    } else {
-                        zima::drawing::DrawingDocument document;
-                        try {
-                            document = zima::drawing::DrawingDocument::load(candidate);
-                        } catch (const std::exception&) {
-                            continue;
-                        }
-                        bool changed = false;
-                        for (auto& sheet : document.sheets) {
-                            for (auto& view : sheet.views) {
-                                if (!view.source_path.empty() &&
-                                    std::filesystem::absolute(view.source_path)
-                                            .lexically_normal() == old_path) {
-                                    view.source_path = new_path;
-                                    changed = true;
-                                }
-                            }
-                        }
-                        if (changed) {
-                            try {
-                                document.save(candidate);
-                            } catch (const std::exception&) {
-                            }
-                        }
-                    }
-                }
-            };
-            scan_directory_for_references(old_path.parent_path());
-            if (!working_directory_.empty() &&
-                std::filesystem::is_directory(working_directory_)) {
-                scan_directory_for_references(working_directory_);
-                for (const auto& entry :
-                        std::filesystem::recursive_directory_iterator(working_directory_)) {
-                    if (entry.is_directory()) {
-                        scan_directory_for_references(entry.path());
-                    }
-                }
-            }
-
+    if (!target) return;
+    const auto id = workspace_.active_document_id();
+    const auto old_path = std::filesystem::absolute(*target).lexically_normal();
+    const auto text_path = [](const auto& path) { return QString::fromStdString(document::path_to_utf8(path)); };
+    auto* dialog = new RenameDocumentDialog(text_path(old_path.filename()),
+        [this, id, old_path, text_path](QString name) -> QString {
+            if (!native_file_operation_ready(rename_document_dialog_))
+                return tr("Nejprve dokončete nebo zrušte otevřené vlastnosti.");
+            const auto* current = workspace_.find(id);
+            if (!current || std::visit([](const auto& state) {
+                    return std::filesystem::absolute(state.path).lexically_normal();
+                }, *current) != old_path)
+                return tr("Open documents changed before native file rename.");
+            bool started = false;
             try {
-                std::filesystem::rename(old_path, new_path);
-                if (rename_companion_drawing) {
-                    std::filesystem::rename(old_drawing_path, new_drawing_path);
+                auto job = workspace::prepare_document_file_rename(workspace_, id, name.toStdString(), working_directory_);
+                const auto progress = tr("Přejmenovávám %1…").arg(text_path(old_path.filename()));
+                begin_status_operation(progress); update_status_operation(progress, -1, 0); started = true;
+                run_background_task([&job] { job.stage(); });
+                const auto result = job.commit(workspace_);
+                if (!result.ok()) {
+                    auto message = tr(result.message.c_str()) + QStringLiteral("\n") + text_path(result.failed_path);
+                    if (!result.recovery_paths.empty()) {
+                        message += QStringLiteral("\n") + tr("Original files could not all be restored. Recovery data:");
+                        for (const auto& path : result.recovery_paths) message += QStringLiteral("\n") + text_path(path);
+                    }
+                    if (result.changed) apply_console_change({command_host::ChangeKind::Files, id});
+                    finish_status_operation(message, false);
+                    return message;
                 }
+                if (result.changed) apply_console_change({command_host::ChangeKind::Rename, id});
+                finish_status_operation(tr("Soubor přejmenován na %1").arg(text_path(result.to.filename())), true);
+                return {};
             } catch (const std::exception& error) {
-                return QString::fromStdString(error.what());
+                const auto message = tr(error.what());
+                if (started) finish_status_operation(message, false);
+                return message;
             }
-
-            for (auto& state : workspace_.documents()) {
-                if (auto* part = std::get_if<zima::workspace::PartState>(&state)) {
-                    if (std::filesystem::absolute(part->path).lexically_normal() == old_path) {
-                        part->path = new_path;
-                        auto renamed = part->session.document();
-                        renamed.name = new_path.stem().string();
-                        part->session.replace(std::move(renamed));
-                    }
-                } else if (auto* assembly = std::get_if<zima::workspace::AssemblyState>(&state)) {
-                    if (std::filesystem::absolute(assembly->path).lexically_normal() == old_path) {
-                        assembly->path = new_path;
-                        auto renamed = assembly->session.document();
-                        renamed.name = new_path.stem().string();
-                        assembly->session.replace(std::move(renamed));
-                    }
-                    if (rename_companion_drawing) continue;
-                } else if (auto* drawing = std::get_if<zima::workspace::DrawingState>(&state)) {
-                    if (std::filesystem::absolute(drawing->path).lexically_normal() == old_path)
-                        drawing->path = new_path;
-                    else if (rename_companion_drawing &&
-                             std::filesystem::absolute(drawing->path).lexically_normal() ==
-                                 std::filesystem::absolute(old_drawing_path).lexically_normal())
-                        drawing->path = new_drawing_path;
-                }
-            }
-            refresh_tabs();
-            refresh_scene();
-            state_->setText(tr("Soubor přejmenován na %1")
-                .arg(QString::fromStdString(new_path.filename().string())));
-            return QString();
         }, application_settings_, this);
     rename_document_dialog_ = dialog;
     connect(dialog, &QObject::destroyed, this, [this, dialog] {
@@ -680,11 +500,7 @@ void AssemblyWorkspaceWindow::delete_all_file_versions() {
     delete_document_file(true);
 }
 void AssemblyWorkspaceWindow::delete_document_file(bool include_archives) {
-    if (properties_dialog_ || (section_dialog_ && !active_sketch_id_.empty()) || template_sketch()) {
-        state_->setText(tr("Nejprve dokončete nebo zrušte otevřené vlastnosti."));
-        if (properties_dialog_) properties_dialog_->raise();
-        return;
-    }
+    if (!native_file_operation_ready()) return;
     const auto id = workspace_.active_document_id();
     if (id.empty()) return;
     const auto title = include_archives ? tr("Aktuální soubor a všechny verze") : tr("Odstranit aktuální soubor");

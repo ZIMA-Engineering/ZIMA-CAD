@@ -2,6 +2,7 @@
 #include <zima/workspace/document_operations.hpp>
 #include <zima/workspace/archive_operations.hpp>
 #include <zima/workspace/file_removal_operations.hpp>
+#include <zima/workspace/file_rename_operations.hpp>
 #include <limits>
 
 namespace zima::command_host {
@@ -96,6 +97,40 @@ void Host::register_document_commands() {
             });
         }
     }
+    dispatcher_.add({"rename_file", tr("Rename an open native document and update its file references."),
+        {{"name", true}, {"document", false}}, true}, [this](const Json& args) {
+            const auto id = args.value("document", workspace_.active_document_id());
+            if (id.empty()) return Result::failure("no_document", tr("Není otevřený dokument."));
+            if (interaction().template_document)
+                return Result::failure("unsupported_document", tr("Tento příkaz není dostupný při úpravě šablony."));
+            try {
+                auto job = workspace::prepare_document_file_rename(workspace_, id, args.at("name").get<std::string>(), directory_);
+                if (options_.progress) options_.progress(Activity::Rename, std::filesystem::u8path(args.at("name").get<std::string>()));
+                io([&job] { job.stage(); });
+                const auto renamed = job.commit(workspace_);
+                Json updated = Json::array(), recovery = Json::array();
+                for (const auto& path : renamed.updated_files) updated.push_back(path_text(path));
+                for (const auto& path : renamed.recovery_paths) recovery.push_back(path_text(path));
+                Json data{{"document", id}, {"from", path_text(renamed.from)}, {"path", path_text(renamed.to)},
+                    {"changed", renamed.changed}, {"updated_paths", std::move(updated)}, {"recovery_paths", std::move(recovery)}};
+                if (!renamed.ok()) {
+                    data["failed_path"] = path_text(renamed.failed_path);
+                    auto message = tr(renamed.message.c_str()) + "\n" + path_text(renamed.failed_path);
+                    if (!renamed.recovery_paths.empty()) {
+                        message += "\n" + tr("Original files could not all be restored. Recovery data:");
+                        for (const auto& path : renamed.recovery_paths) message += "\n" + path_text(path);
+                    }
+                    if (renamed.changed) change_ = Change{ChangeKind::Files, id};
+                    auto result = Result::failure(renamed.code, std::move(message)); result.data = std::move(data); return result;
+                }
+                if (renamed.changed) change_ = Change{ChangeKind::Rename, id};
+                auto result = Result::success(std::move(data));
+                result.message = tr(renamed.changed ? "Native file renamed." : "The file already has this name.");
+                return result;
+            } catch (const workspace::FileRenameError& error) { return Result::failure(error.code, tr(error.what())); }
+              catch (const std::filesystem::filesystem_error& error) { return Result::failure("file_io_error", error.what()); }
+              catch (const std::exception& error) { return Result::failure("rename_rejected", tr(error.what())); }
+        });
     dispatcher_.add({"delete_file", tr("Delete the saved file of an open document; optionally include archives."),
         {{"document", false}, {"archives", false, Type::Boolean}, {"discard", false, Type::Boolean}}, true},
         [this](const Json& args) {

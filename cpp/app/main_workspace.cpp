@@ -1,3 +1,4 @@
+#include <zima/document/file_path.hpp>
 #include <zima/interchange/dxf.hpp>
 #include "console_ui_verification.hpp"
 #include "sketch_offset_dialog.hpp"
@@ -45,6 +46,7 @@
 #include <QDir>
 #include <QEvent>
 #include <QEventLoop>
+#include <QElapsedTimer>
 #include <QFileInfo>
 #include <QFile>
 #include <QTemporaryDir>
@@ -5003,8 +5005,9 @@ int verify_drawing_workspace(QApplication& application, zima::app::AssemblyWorks
 
 int verify_startup_contract(
     QApplication& application, zima::app::AssemblyWorkspaceWindow& window,
-    const std::filesystem::path& test_directory,
+    const std::filesystem::path& initial_test_directory,
     const QString& part_capture_path = {}, const QString& drawing_capture_path = {}) {
+    auto test_directory = initial_test_directory;
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_CONSOLE_ONLY")) return zima::app::verify_command_console(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_PROFILE_OFFSET_PLANE_ONLY")) return verify_profile_offset_dimension_plane(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_BODY_REFERENCE_DIMENSION_ONLY")) return verify_body_reference_dimension_edit(application,test_directory);
@@ -5136,6 +5139,64 @@ int verify_startup_contract(
         return verify_shaft_thread_command(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_HISTORY_DRAG_ONLY"))
         return verify_history_tree_drag(application,test_directory);
+    // Keep unexpected test prompts bounded even when a platform does not
+    // report its visible message box through activeModalWidget().
+    bool unexpected_prompt = false;
+    QPointer<QDialog> watched_prompt;
+    QElapsedTimer prompt_age;
+    QTimer prompt_watchdog;
+    QObject::connect(&prompt_watchdog, &QTimer::timeout, [&] {
+        QDialog* prompt = nullptr;
+        for (auto* widget : QApplication::allWidgets()) {
+            auto* dialog = qobject_cast<QDialog*>(widget);
+            if (dialog && dialog->isVisible() &&
+                    (qobject_cast<QMessageBox*>(dialog) ||
+                     qobject_cast<QFileDialog*>(dialog))) {
+                prompt = dialog;
+                break;
+            }
+        }
+        if (!prompt) { watched_prompt.clear(); return; }
+        if (watched_prompt != prompt) {
+            watched_prompt = prompt;
+            prompt_age.start();
+            return;
+        }
+        if (prompt_age.elapsed() < 10000) return;
+        unexpected_prompt = true;
+        std::cerr << "Unexpected startup test prompt: "
+                  << prompt->windowTitle().toStdString();
+        if (auto* box = qobject_cast<QMessageBox*>(prompt))
+            std::cerr << " -- " << box->text().toStdString();
+        std::cerr << std::endl;
+        prompt->done(QDialog::Rejected);
+        watched_prompt.clear();
+    });
+    prompt_watchdog.start(100);
+
+    const auto close_fixture_window = [&](zima::app::AssemblyWorkspaceWindow& fixture) {
+        const auto documents = fixture.execute_console_command("documents");
+        if (!verify(documents.ok, "Cannot list fixture documents for cleanup")) return false;
+        for (const auto& row : documents.data) {
+            const nlohmann::json command = {{"command","close"},
+                {"arguments",{{"document",row.at("id")},{"discard",true}}}};
+            const auto result = fixture.execute_console_command(QString::fromStdString(command.dump()));
+            if (!result.ok) std::cerr << result.message << std::endl;
+            if (!verify(result.ok, "Cannot discard owned fixture document")) return false;
+        }
+        fixture.close();
+        application.processEvents();
+        return true;
+    };
+
+    // File dependency operations must inspect this run's fixtures, not stale
+    // or intentionally invalid native files left by unrelated earlier runs.
+    test_directory /= "startup-" + QUuid::createUuid().toString(QUuid::Id128).toStdString();
+    std::filesystem::create_directories(test_directory);
+    const auto directory_change = window.execute_console_command(QString::fromStdString(
+        nlohmann::json{{"command","cd"},{"arguments",{{"path",zima::document::path_to_utf8(test_directory)}}}}.dump()));
+    if (!verify(directory_change.ok, "Cannot select isolated startup fixture directory")) return 1;
+    std::cout << "Startup fixtures: " << zima::document::path_to_utf8(test_directory) << std::endl;
     if (verify_component_references(application, test_directory) != 0) return 1;
     if (verify_save_copy_ui(application, test_directory) != 0) return 1;
     if (verify_body_placement_offsets(application, test_directory) != 0) return 1;
@@ -8386,6 +8447,15 @@ int verify_startup_contract(
         }
         bom_source_action->trigger();
         application.processEvents();
+        QDialog* inserted_component_dialog = nullptr;
+        for (auto* pending : window.findChildren<QDialog*>())
+            if (pending->isVisible() && pending->findChild<QLineEdit*>("componentName"))
+                inserted_component_dialog = pending;
+        if (!verify(inserted_component_dialog != nullptr,
+                    "BOM component insertion must open its placement Properties")) return 1;
+        inserted_component_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        application.processEvents();
         tabs->setCurrentIndex(drawing_tab_index);
         application.processEvents();
         auto* regenerate_view = window.findChild<QAction*>("regenerateDrawingViewAction");
@@ -8489,11 +8559,36 @@ int verify_startup_contract(
             std::filesystem::copy_options::overwrite_existing);
         std::filesystem::copy_file(saved_drawing_path, archive_two,
             std::filesystem::copy_options::overwrite_existing);
-        // Re-trigger any refresh path that recomputes action enablement
-        // (closing and reopening is the simplest reliable trigger already
-        // exercised above).
-        close->trigger();
-        application.processEvents();
+        // The BOM/template checks changed the live Drawing after its last
+        // save. This fixture deliberately reopens the saved version.
+        const auto trigger_with_response = [&](QAction* action, QMessageBox::StandardButton response) {
+            bool answered = false, unexpected = false;
+            QTimer responder;
+            responder.setInterval(10);
+            QObject::connect(&responder, &QTimer::timeout, [&] {
+                for (auto* widget : QApplication::allWidgets()) {
+                    auto* box = qobject_cast<QMessageBox*>(widget);
+                    if (!box || !box->isVisible()) continue;
+                    if (auto* button = box->button(response)) {
+                        answered = true;
+                        button->click();
+                    } else {
+                        unexpected = true;
+                        std::cerr << "Unexpected file fixture confirmation: "
+                                  << box->text().toStdString() << std::endl;
+                        box->done(QDialog::Rejected);
+                    }
+                    break;
+                }
+            });
+            responder.start();
+            action->trigger();
+            responder.stop();
+            application.processEvents();
+            return verify(answered && !unexpected,
+                "File fixture action did not complete its expected confirmation");
+        };
+        if (!trigger_with_response(close, QMessageBox::Discard)) return 1;
         const bool reopened_for_versions = window.open_document_path(
             QString::fromStdString(saved_drawing_path.string()));
         application.processEvents();
@@ -8505,17 +8600,7 @@ int verify_startup_contract(
 
         // "Staré verze kromě nejnovější" must remove only the older archive
         // and keep the newest one (archive_two).
-        QTimer::singleShot(0, &window, [] {
-            if (auto* box = qobject_cast<QMessageBox*>(
-                    QApplication::activeModalWidget())) {
-                if (auto* yes_button = box->button(QMessageBox::Yes)) {
-                    yes_button->click();
-                } else {
-                    box->accept();
-                }
-            }
-        });
-        delete_old_versions_keep_latest->trigger();
+        if (!trigger_with_response(delete_old_versions_keep_latest, QMessageBox::Yes)) return 1;
         application.processEvents();
         if (!verify(!std::filesystem::exists(archive_one) &&
                         std::filesystem::exists(archive_two),
@@ -8525,17 +8610,7 @@ int verify_startup_contract(
 
         // "Staré verze" must remove every remaining archive but keep the
         // primary saved Drawing file itself.
-        QTimer::singleShot(0, &window, [] {
-            if (auto* box = qobject_cast<QMessageBox*>(
-                    QApplication::activeModalWidget())) {
-                if (auto* yes_button = box->button(QMessageBox::Yes)) {
-                    yes_button->click();
-                } else {
-                    box->accept();
-                }
-            }
-        });
-        delete_old_versions->trigger();
+        if (!trigger_with_response(delete_old_versions, QMessageBox::Yes)) return 1;
         application.processEvents();
         if (!verify(!std::filesystem::exists(archive_two) &&
                         std::filesystem::exists(saved_drawing_path),
@@ -8552,6 +8627,13 @@ int verify_startup_contract(
         auto* rename_dialog = window.findChild<QDialog*>("renameDocumentDialog");
         if (!verify(rename_dialog != nullptr,
                     "rename must open the shared in-application dialog")) {
+            std::cerr << "Rename status: " << workspace_state->text().toStdString()
+                      << ", selection command=" << tree->property("commandSelectionActive").toBool() << '\n';
+            for (auto* pending : window.findChildren<QDialog*>())
+                if (pending->isVisible())
+                    std::cerr << "Pending dialog: " << pending->objectName().toStdString()
+                              << " (" << pending->windowTitle().toStdString() << ")\n";
+            std::cerr << "Interaction: " << window.execute_console_command("context").data.dump() << '\n';
             return 1;
         }
         auto* rename_field = rename_dialog->findChild<QLineEdit*>("renameDocumentName");
@@ -8563,25 +8645,25 @@ int verify_startup_contract(
         if (!verify(!std::filesystem::exists(saved_drawing_path) &&
                         std::filesystem::exists(renamed_path),
                     "rename must move the document file on disk")) {
+            if (auto* error = window.findChild<QLabel*>("renameDocumentError"))
+                std::cerr << "Rename error: " << error->text().toStdString() << '\n';
             return 1;
         }
 
-        // The rename must also rewrite references in documents saved on
-        // disk but not currently open, matching Python's
-        // _rename_document_file_to (which scans the file's directory and
-        // the working directory for other documents referencing the
-        // renamed path). Build a throwaway closed Assembly fixture whose
-        // component references the Drawing's current (already-renamed-once)
-        // path (an artificial but sufficient stand-in, since AssemblyDocument
-        // components reference any source_path uniformly) and confirm the
-        // rename rewrote it even though it was never opened in the workspace.
+        // Renaming a Drawing must leave an unrelated closed Assembly's
+        // real Part reference unchanged. Actual Part dependency rewriting is
+        // covered by the console GUI contract with persisted source identities.
         const auto closed_reference_assembly_path = saved_drawing_path.parent_path() /
             (QStringLiteral("REFERENCE-STARTUP-") + identity).toStdString().append(".asmz");
+        auto unrelated_part_path = closed_reference_assembly_path;
+        unrelated_part_path.replace_extension(".prtz");
         {
+            auto reference_part = zima::document::PartDocument::create_default();
+            reference_part.save(unrelated_part_path);
             auto reference_document = zima::assembly::AssemblyDocument::create_default();
             reference_document.components.push_back(
                 zima::assembly::AssemblyDocument::create_part_occurrence(
-                    "closed-reference", "unused-source-id", renamed_path, {}));
+                    "closed-reference", reference_part.document_id, unrelated_part_path, {}));
             reference_document.save(closed_reference_assembly_path);
         }
         const auto renamed_again_path = renamed_path.parent_path() /
@@ -8598,26 +8680,26 @@ int verify_startup_contract(
         second_rename_dialog->findChild<QDialogButtonBox*>()
             ->button(QDialogButtonBox::Ok)->click();
         application.processEvents();
-        bool closed_reference_rewritten = false;
+        bool unrelated_reference_preserved = false;
         try {
             const auto reloaded_reference_document =
                 zima::assembly::AssemblyDocument::load(closed_reference_assembly_path);
             for (const auto& component : reloaded_reference_document.components) {
                 if (std::filesystem::absolute(component.source_path).lexically_normal() ==
-                        std::filesystem::absolute(renamed_again_path).lexically_normal()) {
-                    closed_reference_rewritten = true;
+                        std::filesystem::absolute(unrelated_part_path).lexically_normal()) {
+                    unrelated_reference_preserved = true;
                     break;
                 }
             }
         } catch (const std::exception&) {
         }
         if (!verify(std::filesystem::exists(renamed_again_path) &&
-                        closed_reference_rewritten,
-                    "rename must rewrite references in Assembly documents saved on disk "
-                    "but not currently open")) {
+                        unrelated_reference_preserved,
+                    "Drawing rename must preserve unrelated closed Assembly Part references")) {
             return 1;
         }
         std::filesystem::remove(closed_reference_assembly_path);
+        std::filesystem::remove(unrelated_part_path);
 
         // Working-directory wide deletion: create archives for both the
         // renamed Drawing and an unrelated saved Part, then verify
@@ -8643,17 +8725,7 @@ int verify_startup_contract(
             std::filesystem::copy_file(part_saved_path, part_archive_two,
                 std::filesystem::copy_options::overwrite_existing);
         }
-        QTimer::singleShot(0, &window, [] {
-            if (auto* box = qobject_cast<QMessageBox*>(
-                    QApplication::activeModalWidget())) {
-                if (auto* yes_button = box->button(QMessageBox::Yes)) {
-                    yes_button->click();
-                } else {
-                    box->accept();
-                }
-            }
-        });
-        delete_working_directory_keep_latest->trigger();
+        if (!trigger_with_response(delete_working_directory_keep_latest, QMessageBox::Yes)) return 1;
         application.processEvents();
         const bool working_directory_keep_latest_ok =
             !std::filesystem::exists(renamed_archive_one) &&
@@ -8753,7 +8825,7 @@ int verify_startup_contract(
         if (!verify(restored && restored->edge_treatment.routes.size()==1 &&
                 restored->edge_treatment.routes.front()==std::vector<zima::kernel::EdgeReference>{vertical[1]},
                 "Edited treatment route did not survive save/reload")) return 1;
-        route_window.close();application.processEvents();
+        if (!close_fixture_window(route_window)) return 1;application.processEvents();
     }
 
     if (verify_history_tree_drag(application,test_directory)!=0) return 1;
@@ -8813,7 +8885,7 @@ int verify_startup_contract(
         QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();
         if(!verify(find_row()&&!find_row()->data(0,zima::app::missing_reference_role).toBool(),
                 "A genuinely repaired reference retained the red Tree row"))return 1;
-        reference_window.close();application.processEvents();
+        if (!close_fixture_window(reference_window)) return 1;application.processEvents();
     }
 
     // Exercise the real 3D parameter display, including opening Properties
@@ -9138,7 +9210,7 @@ int verify_startup_contract(
         view->clear_selection();
         if (!verify(view->confirmed_component_edge_indices().empty(),
                 "Clearing selection retained opening component highlights")) return 1;
-        opening_window.close();
+        if (!close_fixture_window(opening_window)) return 1;
     }
 
     about->trigger();
@@ -9153,7 +9225,7 @@ int verify_startup_contract(
     }
     about_buttons->button(QDialogButtonBox::Ok)->click();
     application.processEvents();
-    return 0;
+    return verify(!unexpected_prompt, "Startup test required an unexpected dialog response") ? 0 : 1;
 }
 
 }  // namespace

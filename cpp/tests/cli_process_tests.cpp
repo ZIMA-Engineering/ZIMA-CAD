@@ -138,6 +138,38 @@ int main(int argc,char** argv){
                     "File deletion process did not respect explicit discard");
             }
         }
+
+        {
+            const auto rename_directory = root / fs::path(u8"přejmenování");
+            fs::create_directory(rename_directory);
+            for (const auto& kind : {"part","assembly","drawing"}) {
+                const std::string type = kind, suffix = type == "part" ? ".prtz" : type == "assembly" ? ".asmz" : ".drwz";
+                const auto old_name = document::path_to_utf8(fs::path(u8"původní ")) + type;
+                const auto new_name = document::path_to_utf8(fs::path(u8"nový ")) + type + suffix;
+                const auto original = rename_directory / fs::u8path(old_name + suffix);
+                const auto target = rename_directory / fs::u8path(new_name);
+                auto archive = original; archive += ".1";
+                const auto process = launch(executable, rename_directory, {
+                    "--command",command({{"command","new"},{"arguments",{{"type",type},{"name",old_name}}}}),
+                    "--command","save", "--command","save", "--command","context",
+                    "--command",command({{"command","rename_file"},{"arguments",{{"name",new_name}}}}),
+                    "--command","documents"});
+                const auto records = process.results();
+                require(process.exit_code == 0 && records.size() == 6 &&
+                    records[4].at("data").at("document") == records[3].at("data").at("active_document") &&
+                    records[4].at("data").at("changed") == true &&
+                    records[5].at("data")[0].at("path") == document::path_to_utf8(target) &&
+                    !fs::exists(original) && fs::exists(target) && fs::exists(archive),
+                    "Native rename CLI process lost its document, archive or Unicode path");
+            }
+            const auto dirty = launch(executable, rename_directory, {"--command","new part dirty",
+                "--command","save", "--command","box.create 10 20 30",
+                "--command","rename_file renamed-dirty.prtz", "--command","documents"});
+            const auto records = dirty.results();
+            require(dirty.exit_code == 0 && records.size() == 5 && records.back().at("data")[0].at("dirty") == true &&
+                document::PartDocument::load(rename_directory / "renamed-dirty.prtz").history.empty(),
+                "Rename process silently saved or discarded a pending feature");
+        }
         auto result=launch(executable,root,{"--help"});require(result.exit_code==0&&result.output.contains("--stdin")&&result.diagnostics.isEmpty(),"CLI help failed");
         result=launch(executable,root,{"--command","documents"});require(result.exit_code==0&&result.results().size()==1&&result.results().front().at("data").empty(),"Empty workspace/default config discovery failed");
         result=launch(executable,root,{"--command","thread.catalog metric M10"});

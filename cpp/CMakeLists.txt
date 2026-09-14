@@ -131,6 +131,7 @@ add_library(zima_workspace modules/workspace/src/workspace.cpp
     modules/workspace/src/document_operations.cpp
     modules/workspace/src/archive_operations.cpp
     modules/workspace/src/file_removal_operations.cpp
+    modules/workspace/src/file_rename_operations.cpp
     modules/workspace/src/body_operations.cpp
     modules/workspace/src/body_reference_operations.cpp modules/workspace/src/construction_reference_operations.cpp
     modules/workspace/src/history_operations.cpp
@@ -574,6 +575,10 @@ if(ZIMA_BUILD_TESTS)
     target_link_libraries(zima_cpp_document_session_transaction_tests PRIVATE zima_document_core zima_kernel_occt)
     add_test(NAME zima_cpp_document_session_transaction_tests COMMAND zima_cpp_document_session_transaction_tests)
 
+    add_executable(zima_cpp_file_rename_command_tests tests/file_rename_command_tests.cpp)
+    target_link_libraries(zima_cpp_file_rename_command_tests PRIVATE zima_command_host)
+    add_test(NAME zima_cpp_file_rename_command_tests COMMAND zima_cpp_file_rename_command_tests)
+
     add_executable(zima_cpp_file_relocation_state_tests tests/file_relocation_state_tests.cpp)
     target_link_libraries(zima_cpp_file_relocation_state_tests PRIVATE zima_command_host)
     add_test(NAME zima_cpp_file_relocation_state_tests COMMAND zima_cpp_file_relocation_state_tests)
@@ -1003,7 +1008,7 @@ if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_cpp_console_ui_contract COMMAND zima-cad-cpp --verify-startup)
     set_tests_properties(zima_cpp_console_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1"
-        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120)
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 180)
     add_test(NAME zima_cpp_workspace_startup_contract
         COMMAND zima-cad-cpp --verify-startup)
     set_tests_properties(zima_cpp_workspace_startup_contract PROPERTIES

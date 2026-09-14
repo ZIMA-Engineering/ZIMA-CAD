@@ -1,3 +1,5 @@
+#include <QTabBar>
+#include <QLabel>
 #include <zima/document/dimension_layout_json.hpp>
 #include <zima/drawing/drawing_template.hpp>
 #include <zima/sketcher/text_geometry.hpp>
@@ -810,6 +812,139 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
             const auto deleted = json_run("delete_file", {{"archives",true}});
             check(deleted.data.at("closed") == true && !std::filesystem::exists(guarded_file),
                 "Console file deletion did not update GUI after Properties closed");
+            json_run("activate", {{"document",previous}});
+            json_run("cd", {{"path",previous_directory}}); flush();
+        }
+
+        {
+            const auto previous = run("context").data.at("active_document");
+            const auto previous_directory = run("pwd").data.at("path");
+            const auto rename_directory = directory / (stem + "-native-rename");
+            std::filesystem::create_directories(rename_directory / "nested");
+            const auto original = rename_directory / std::filesystem::path(u8"původní.prtz");
+            const auto renamed = rename_directory / std::filesystem::path(u8"nový název.prtz");
+            const auto final_path = rename_directory / std::filesystem::path(u8"název z CLI.prtz");
+            auto companion = original; companion.replace_extension(".drwz");
+            auto renamed_companion = renamed; renamed_companion.replace_extension(".drwz");
+            auto final_companion = final_path; final_companion.replace_extension(".drwz");
+            const auto path_text = [](const auto& path) { return document::path_to_utf8(path); };
+            json_run("cd", {{"path",path_text(rename_directory)}});
+            json_run("new", {{"type","part"},{"name",path_text(original.stem())}});
+            run("box.create 10 20 30"); run("save"); run("save"); flush();
+            std::vector<kernel::BodyResult> saved_body;
+            const auto saved = document::PartDocument::load(original, &saved_body);
+            check(!saved_body.empty(), "No calculated Part for GUI rename");
+            auto drawing = drawing::DrawingDocument::create_default();
+            drawing.source_document_id = saved.document_id; drawing.source_path = original; drawing.source_name = saved.name;
+            drawing.sheets.front().views.push_back(drawing::DrawingDocument::create_view(saved.document_id, original, saved_body.back().mesh));
+            drawing::BomRow row; row.item_number = 1; row.source_document_id = saved.document_id;
+            row.source_path = original; row.file_stem = path_text(original.stem());
+            drawing.sheets.front().bom_rows.push_back(row); drawing.save(companion);
+            auto group = assembly::AssemblyDocument::create_default();
+            group.components.push_back(assembly::AssemblyDocument::create_part_occurrence("actual Part", saved.document_id, original, saved_body.back()));
+            const auto closed_assembly = rename_directory / "nested" / "closed.asmz"; group.save(closed_assembly);
+            json_run("open", {{"path",path_text(companion)}});
+            json_run("activate", {{"document",saved.document_id}});
+            json_run("box.set", {{"container",saved.history.front().id},{"length_mm","20"}});
+            flush();
+            const auto span_x = [&] {
+                const auto& vertices = view->mesh().vertices;
+                check(!vertices.empty(), "GUI rename lost visible Part geometry");
+                const auto [low,high] = std::ranges::minmax_element(vertices, {}, &kernel::Vec3::x);
+                return high->x - low->x;
+            };
+            const auto before_width = span_x();
+            const auto camera = view->camera_state();
+            const auto docs_before = run("documents").data;
+            auto* rename_action = window.findChild<QAction*>("renameDocumentAction");
+            check(rename_action && rename_action->isEnabled(), "Rename action missing or disabled");
+            const auto open_rename = [&] {
+                rename_action->trigger(); flush();
+                QPointer<QDialog> dialog = window.findChild<QDialog*>("renameDocumentDialog");
+                check(dialog && dialog->isVisible() && (dialog->windowFlags() & Qt::WindowType_Mask) == Qt::SubWindow,
+                    "Rename did not use its shared in-application properties dialog");
+                return dialog;
+            };
+            auto dialog = open_rename();
+            const auto blocked = window.execute_console_command("rename_file blocked.prtz");
+            check(!blocked.ok && blocked.code == "editing_in_progress", "CLI rename interrupted its open GUI dialog");
+            dialog->findChild<QLineEdit*>("renameDocumentName")->setText("../forbidden.prtz");
+            dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click(); flush();
+            check(dialog && dialog->isVisible() && dialog->findChild<QLabel*>("renameDocumentError")->isVisible() &&
+                run("documents").data == docs_before && std::filesystem::exists(original),
+                "Invalid GUI filename closed the dialog or changed its document");
+            dialog->findChild<QLineEdit*>("renameDocumentName")->setText(QString::fromStdString(path_text(renamed.stem())));
+            dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click(); flush();
+            check(std::filesystem::exists(original) && !std::filesystem::exists(renamed) && run("documents").data == docs_before,
+                "Rename Cancel committed pending file metadata");
+            dialog = open_rename();
+            dialog->findChild<QLineEdit*>("renameDocumentName")->setText(QString::fromStdString(path_text(renamed.stem())));
+            dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click(); flush();
+            check((!dialog || !dialog->isVisible()) && !std::filesystem::exists(original) && std::filesystem::exists(renamed) &&
+                !std::filesystem::exists(companion) && std::filesystem::exists(renamed_companion) &&
+                std::abs(span_x() - before_width) < 1e-8 && view->camera_state() == camera,
+                "GUI rename failed or changed live geometry/camera");
+            const auto renamed_group = assembly::AssemblyDocument::load(closed_assembly);
+            check(renamed_group.components.front().source_document_id == saved.document_id &&
+                renamed_group.components.front().source_path == renamed &&
+                renamed_group.components.front().occurrence_id == group.components.front().occurrence_id,
+                "GUI rename missed a real closed Assembly reference or changed occurrence identity");
+            std::vector<kernel::BodyResult> disk_body;
+            const auto renamed_part = document::PartDocument::load(renamed, &disk_body);
+            check(renamed_part.document_id == saved.document_id && !disk_body.empty() &&
+                std::abs(disk_body.back().volume - saved_body.back().volume) < 1e-8,
+                "GUI rename saved the pending Part geometry");
+            run("undo"); flush(); check(span_x() < before_width - 1, "Rename cleared Part Undo");
+            run("redo"); flush(); check(std::abs(span_x() - before_width) < 1e-8, "Rename cleared Part Redo");
+            window.findChild<QAction*>("saveDocumentAction")->trigger(); flush();
+            std::vector<kernel::BodyResult> gui_saved_body;
+            const auto gui_saved = document::PartDocument::load(renamed, &gui_saved_body);
+            check(gui_saved.document_id == saved.document_id && !gui_saved_body.empty() &&
+                std::abs(gui_saved_body.back().volume - 2 * saved_body.back().volume) < 1e-8,
+                "GUI Save after Unicode rename missed the file or live geometry");
+            const auto result = json_run("rename_file", {{"name",path_text(final_path.filename())}}); flush();
+            check(result.data.at("changed") == true && result.data.at("document") == saved.document_id &&
+                !std::filesystem::exists(renamed) && std::filesystem::exists(final_path) &&
+                std::filesystem::exists(final_companion) &&
+                assembly::AssemblyDocument::load(closed_assembly).components.front().source_path == final_path,
+                "Console rename did not update real files and dependencies after GUI rename");
+            auto* document_tabs = window.findChild<QTabBar*>("documentTabs");
+            bool part_tab = false, drawing_tab = false;
+            check(document_tabs, "Document tabs missing");
+            for (int i = 0; i < document_tabs->count(); ++i) {
+                const auto id = document_tabs->tabData(i).toString().toStdString();
+                if (id == saved.document_id)
+                    part_tab = document_tabs->tabText(i) == QString::fromStdString(path_text(final_path.filename()));
+                if (id == drawing.document_id)
+                    drawing_tab = document_tabs->tabText(i) == QString::fromStdString(path_text(final_companion.filename()));
+            }
+            check(part_tab && drawing_tab, "Rename did not refresh Part and companion Drawing tabs");
+            auto* material_action = window.findChild<QAction*>("materialAction"); check(material_action, "Material action missing");
+            material_action->trigger(); flush();
+            auto* material_dialog = window.findChild<QDialog*>("materialDialog"); check(material_dialog, "Material dialog missing");
+            rename_action->trigger();
+            window.findChild<QAction*>("deleteCurrentFileAction")->trigger(); flush();
+            check(!window.findChild<QDialog*>("renameDocumentDialog") && !QApplication::activeModalWidget() &&
+                material_dialog->isVisible() && std::filesystem::exists(final_path),
+                "File menu interrupted pending Material properties");
+            material_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click(); flush();
+            json_run("activate", {{"document",drawing.document_id}}); flush();
+            window.findChild<QAction*>("saveDocumentAction")->trigger(); flush();
+            auto companion_archive = final_companion; companion_archive += ".1";
+            check(drawing::DrawingDocument::load(final_companion).source_path == final_path &&
+                std::filesystem::exists(companion_archive),
+                "GUI Drawing Save after Unicode rename used a different native path");
+            json_run("open", {{"path",path_text(closed_assembly)}}); flush();
+            json_run("rename_file", {{"name",path_text(std::filesystem::path(u8"přejmenovaná sestava.asmz"))}}); flush();
+            const auto assembly_path = closed_assembly.parent_path() / std::filesystem::path(u8"přejmenovaná sestava.asmz");
+            window.findChild<QAction*>("saveDocumentAction")->trigger(); flush();
+            auto assembly_archive = assembly_path; assembly_archive += ".1";
+            check(assembly::AssemblyDocument::load(assembly_path).components.front().source_path == final_path &&
+                std::filesystem::exists(assembly_archive),
+                "GUI Assembly Save after Unicode rename used a different native path");
+            json_run("close", {{"document",group.document_id},{"discard",true}});
+            json_run("close", {{"document",drawing.document_id},{"discard",true}});
+            json_run("close", {{"document",saved.document_id},{"discard",true}});
             json_run("activate", {{"document",previous}});
             json_run("cd", {{"path",previous_directory}}); flush();
         }

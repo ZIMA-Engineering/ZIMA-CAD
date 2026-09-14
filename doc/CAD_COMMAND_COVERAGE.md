@@ -29,7 +29,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Proces CLI, UTF-8, skripty, stdin, config | Hotovo | Rozšiřovat testy nových příkazů |
 | Katalog, kontext, datový strom | Hotovo pro současné příkazy | Doplňovat popisy a dotazy podle domén |
 | Typované argumenty | Hotovo | Řetězce, čísla, celá čísla, boolean, objekty a pole; validace před mutací |
-| New/Open/Save, Save As, aktivace/zavření, pracovní adresář | Hotovo | Archivy i odstranění aktuálního souboru přes `delete_file` jsou společné s GUI; zbývá přejmenování |
+| New/Open/Save, Save As, aktivace/zavření, pracovní adresář | Hotovo | Archivy, `delete_file` i `rename_file` sdílejí datovou a souborovou operaci s GUI |
 | Regenerate, Undo/Redo | Společné pro Part/Assembly/Drawing | Doplňovat regrese dalších editačních operací |
 | Kvádr | Hotovo | Společná tvorba, čtení a rozměrový patch; včetně zámků a přesnosti |
 | Válec, koule, kužel, jehlan, klín | Hotovo | Společné create/get/set, zámky, přesnost, GUI/CLI a 59/59 regresí |
@@ -1866,3 +1866,31 @@ Příkaz přejmenování a jeho GUI integrace zatím nejsou dokončené.
 Přípravná část prošla **4/4 cílených regresí za 0,85 s**
 (`build/file-relocation-batch-tests.log`); žádná nová GUI cesta v této etapě
 ještě není zapojená.
+
+
+## Přejmenování nativních dokumentů (2026-09-14)
+
+`rename_file` a GUI používají společnou souborovou transakci. Aktualizuje
+skutečné odkazy otevřených i zavřených Assembly/Drawing v určeném rozsahu,
+včetně vlastního výkresu, zdrojů pohledů a kusovníku. Zachovává ID,
+neuloženou práci, celou historii a vypočtenou geometrii. Selhání zápisu
+obnovuje originály a případná neúplná obnova zachovává data k zotavení.
+Detaily: [NATIVE_FILE_RENAME.md](NATIVE_FILE_RENAME.md).
+
+Katalog má **288 příkazů**, registrováno je **154 testů**.
+Zbývají reference bodů/vložených drah, odstranění referencí a závěrečný
+audit variant GUI. Chráněná oprava řešení navázaných bodů stále vyžaduje
+konkrétní souhlas uživatele; přejmenování do tohoto solveru nezasahuje.
+
+Po podnětu uživatele je samostatně zapsaný
+[audit načítání posledního vypočteného stavu](NATIVE_DOCUMENT_OPEN_AUDIT.md).
+Rozlišuje načtení dat od regenerace a identifikuje opakované kontroly historie.
+Zrychlení načítání v této etapě implementované ani změřené není.
+
+
+Ověření této etapy pokrylo všech **13 dotčených testů** v několika bězích.
+Po opravách testovacích přípravků prošla GUI konzole za **116,32 s**
+a celý test pracovního okna bez ručního zásahu za **105,84 s**.
+Nové přejmenování včetně odmítnutí neplatné závislosti prošlo za **1,63 s**.
+Nejde o nový úplný běh všech 154 testů. Přesné výsledky, původní chyby
+a logy jsou uvedené v [NATIVE_FILE_RENAME.md](NATIVE_FILE_RENAME.md).

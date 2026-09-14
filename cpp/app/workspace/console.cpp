@@ -57,7 +57,9 @@ Result AssemblyWorkspaceWindow::execute_console_command(const QString& text) {
         if(result.ok)if(const auto& change=command_host_->change()){
             const auto* state=workspace_.find(change->document_id);
             const auto name=std::visit([](const auto& value){return file_name(value.path);},*state);
-            if(change->kind==command_host::ChangeKind::Copy)
+            if(change->kind==command_host::ChangeKind::Rename)
+                message=tr("Soubor přejmenován na %1").arg(name);
+            else if(change->kind==command_host::ChangeKind::Copy)
                 message=tr("Kopie uložena: %1").arg(QString::fromStdString(result.data.at("paths").at(0).get<std::string>()));
             else message=(change->kind==command_host::ChangeKind::Open?tr("Otevřeno: %1")
                 :workspace_.open_assembly(change->document_id)?tr("Sestava uložena: %1")
@@ -71,6 +73,7 @@ Result AssemblyWorkspaceWindow::execute_console_command(const QString& text) {
 void AssemblyWorkspaceWindow::apply_console_change(const command_host::Change& change){
     using Kind=command_host::ChangeKind;
     if(change.clear_selection && viewer_)viewer_->clear_selection();
+    if(change.kind==Kind::Rename){preserve_view_on_refresh_=true;refresh_scene();refresh_tabs();return;}
     if(change.kind==Kind::Appearance){update_viewer_body_colors();refresh_tabs();return;}
     if(change.kind==Kind::Metadata || change.kind==Kind::Model) {
         if(const auto* part=workspace_.open_part(change.document_id))setProperty("zimaDocumentDecimalPlaces",document_decimal_places(part->session.document()));
@@ -144,7 +147,8 @@ void AssemblyWorkspaceWindow::create_command_console() {
     options.progress=[this](command_host::Activity activity,const std::filesystem::path& path){
         console_status_operation_=true;
         const auto name=file_name(path);
-        const auto text=activity==command_host::Activity::Read?tr("Otevírám %1…").arg(name)
+        const auto text=activity==command_host::Activity::Rename?tr("Přejmenovávám %1…").arg(name)
+            :activity==command_host::Activity::Read?tr("Otevírám %1…").arg(name)
             : activity==command_host::Activity::Export?tr("Exportuji %1…").arg(name)
             : workspace_.open_assembly(workspace_.active_document_id())?tr("Ukládám sestavu %1…").arg(name)
             : workspace_.open_drawing(workspace_.active_document_id())?tr("Ukládám výkres %1…").arg(name)

@@ -713,6 +713,7 @@ private:
     void update_status_operation(
         const QString& message, int value = -1, int maximum = -1);
     void finish_status_operation(const QString& message, bool success = true);
+    bool native_file_operation_ready(QDialog* own_dialog = nullptr);
     void rename_document_file();
     void delete_current_document_file();
     void delete_document_file(bool include_archives);
