@@ -1966,3 +1966,17 @@ základní rovinu při vytvoření; existující příkazy geometrie ani
 `placement.set` tuto celou datovou operaci nenahrazují. Nejprve se doplní
 tato společná transakce a její GUI/CLI regrese. Pak bude dokončen audit
 dalších kontextových variant. CLI zatím není označeno za úplné.
+
+## Vlastnosti skici v Partu (2026-09-14)
+
+`sketch.set` a `sketch.reference.set` nyní sdílejí potvrzení s dialogem
+Vlastností skici. Funguje i obecné přiřazení/odebrání reference samostatného
+kontejneru. Dialog při OK zachová řádky FRONT/TOP. Před výpočtem se připraví
+nový pracovní rám, u vlastněného profilu i jeho odsazení.
+Podrobnosti a parametry: [SKETCH_PROPERTIES_COMMANDS.md](SKETCH_PROPERTIES_COMMANDS.md).
+
+Obě aplikace a všechny testy jsou sestavené; související regrese prošla
+**12/12 za 244,41 s**, katalog **291 příkazů**, CTest **158 testů**.
+Zbývá schválený trvalý kontejner Assembly skic, návaznost jejich převodu
+na odečty a společné smazání; viz [návrh](SKETCH_PROPERTIES_CLI_PLAN.md).
+CLI se zatím neoznačuje za dokončené.

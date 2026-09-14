@@ -1,3 +1,6 @@
+#include <zima/workspace/sketch_properties.hpp>
+#include <zima/workspace/placement_edit.hpp>
+#include <zima/document/placement_json.hpp>
 #include "sketch_command_support.hpp"
 #include <zima/workspace/document_dependencies.hpp>
 #include <algorithm>
@@ -44,6 +47,7 @@ void Host::register_sketch_commands() {
         dispatcher_.add(std::move(command),[this,operation=std::move(operation)](const Json& args) {
             try {return Result::success(operation(args));}
             catch(const workspace::SketchOperationError& error){return Result::failure(error.code,tr(error.what()));}
+            catch(const workspace::PlacementEditError& error){return Result::failure(error.code,tr(error.what()));}
             catch(const std::exception& error){return Result::failure("sketch_rejected",tr(error.what()));}
         });
     };
@@ -84,6 +88,59 @@ void Host::register_sketch_commands() {
         const auto id=workspace::create_document_sketch(workspace_,kernel_,doc,args["name"].get<std::string>(),plane=="XY"?sketcher::SketchPlane::XY:plane=="XZ"?sketcher::SketchPlane::XZ:sketcher::SketchPlane::YZ);
         change_=Change{ChangeKind::Model,doc,true};auto result=metadata(workspace::document_sketch(workspace_,doc,id));result["document"]=doc;result["changed"]=true;return result;
     });
+    const auto properties=[this](const Json& args,bool reference) {
+        const auto check=target(args);
+        if(!check.ok)throw workspace::SketchOperationError("document_changed","Sketch creation requires the active document.");
+        if(interaction().template_document)throw workspace::SketchOperationError("unsupported_document","Sketch commands require an ordinary Part or Assembly.");
+        const auto id=workspace_.active_document_id(),sketch_id=args.at("sketch").get<std::string>();
+        auto sketch=workspace::document_sketch(workspace_,id,sketch_id);
+        bool changed;
+        if(reference) {
+            const auto& data=args.at("reference");
+            for(const auto& [key,value]:data.items())if((key!="owner"&&key!="key"&&key!="instance_path")||!value.is_string())
+                invalid("Specify owner, key and an optional instance_path for the placement reference.");
+            if(!data.contains("owner")||!data.contains("key"))invalid("Specify owner, key and an optional instance_path for the placement reference.");
+            document::ConstructionReference source;source.owner_id=data.at("owner");source.semantic_key=data.at("key");
+            source.instance_path=data.value("instance_path",std::string{});source.offset=args.value("offset_mm",0.0);source.flip=args.value("flip",false);
+            changed=workspace::set_part_sketch_reference(workspace_,kernel_,id,sketch_id,integer(args,"index",0,0,4),std::move(source));
+        } else {
+            auto placement=workspace::read_placement(workspace_,id,sketch.owner_container_id).placement;
+            if(args.contains("name"))sketch.name=args.at("name").get<std::string>();
+            if(args.contains("plane")){
+                const auto plane=args.at("plane").get<std::string>();
+                if(plane!="XY"&&plane!="XZ"&&plane!="YZ")invalid("Sketch plane must be XY, XZ or YZ.");
+                sketch.plane=plane=="XY"?sketcher::SketchPlane::XY:plane=="XZ"?sketcher::SketchPlane::XZ:sketcher::SketchPlane::YZ;
+            }
+            if(args.contains("plane_offset_mm")){
+                if(placement.value_locks.contains("profile_offset")&&sketch.plane_offset!=number(args.at("plane_offset_mm")))
+                    throw workspace::PlacementEditError("parameter_not_editable","The placement parameter is unknown, constrained or locked.");
+                sketch.plane_offset=number(args.at("plane_offset_mm"));
+            }
+            if(args.contains("placement")){
+                if(args.at("placement").empty())invalid("Specify at least one placement parameter.");
+                const auto geometry=workspace::placement_edit_geometry(workspace_,id,sketch.owner_container_id);
+                for(const auto& [key,value]:args.at("placement").items())
+                    if(!workspace::assign_placement_dimension(placement,geometry,key,number(value)))
+                        throw workspace::PlacementEditError("parameter_not_editable","The placement parameter is unknown, constrained or locked.");
+            }
+            if(args.contains("back"))placement.orientation_back=args.at("back").get<bool>();
+            if(args.contains("quarter_turns"))placement.orientation_quarter_turns=static_cast<int>(integer(args,"quarter_turns",0,0,3));
+            sketch.plane_reference_owner_id.clear();
+            changed=workspace::commit_part_sketch_properties(workspace_,kernel_,id,std::move(sketch),std::move(placement));
+        }
+        if(changed)change_=Change{ChangeKind::Model,id,true};
+        auto result=metadata(workspace::document_sketch(workspace_,id,sketch_id));
+        result["document"]=id;result["changed"]=changed;result["body_calculated"]=changed&&workspace_.open_part(id);
+        return result;
+    };
+    query({"sketch.set",tr("Edit Sketch name, base plane, offset and placement through the shared Properties transaction."),
+        {{"sketch",true},{"name",false},{"plane",false},{"plane_offset_mm",false,Type::Number},{"placement",false,Type::Object},
+         {"back",false,Type::Boolean},{"quarter_turns",false,Type::Integer},{"document",false}},true},
+        [properties](const Json& args){return properties(args,false);});
+    query({"sketch.reference.set",tr("Assign an original reference using the Sketch work-plane rules."),
+        {{"sketch",true},{"index",true,Type::Integer},{"reference",true,Type::Object},{"offset_mm",false,Type::Number},
+         {"flip",false,Type::Boolean},{"document",false}},true},
+        [properties](const Json& args){return properties(args,true);});
     add_sketch_command({"sketch.point.create",tr("Add a native point in Sketch coordinates (mm)."),{{"position",true,Type::Array},{"construction",false,Type::Boolean},{"snap_mm",false,Type::Number}}},[](Sketch& s,const Json& a) {
         const auto p=point(a,"position");return Json{{"point",s.add_point(p[0],p[1],snap(a),a.value("construction",false))}};
     });

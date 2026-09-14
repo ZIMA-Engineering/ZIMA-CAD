@@ -1,3 +1,4 @@
+#include <zima/workspace/sketch_properties.hpp>
 #include <zima/workspace/sketch_operations.hpp>
 #include <zima/workspace/part_transactions.hpp>
 #include <zima/document/feature_sketches.hpp>
@@ -121,10 +122,9 @@ std::string create_document_sketch(Workspace& live,const kernel::OcctKernel& ker
     const auto sketch_id=sketch.id;
     if(auto* part=live.open_part(id)) {
         auto container=document::PartDocument::create_sketch_container();container.name=sketch.name;sketch.owner_container_id=container.id;
-        auto next=part->session.document();insert_new_sketch(next,std::move(sketch),std::move(container));
-        PartCalculationPolicy policy;policy.reject_errors=true;
-        auto calculated=calculate_part_with_resolved_references(kernel,next,&part->session.calculated_boundaries(),policy);
-        commit_part_document(live,id,std::move(next),std::move(calculated));return sketch_id;
+        const auto placement=container.placement;
+        static_cast<void>(commit_part_sketch_properties(live,kernel,id,std::move(sketch),placement,container));
+        return sketch_id;
     }
     if(auto* assembly=live.open_assembly(id)) {
         auto next=assembly->session.document();insert_new_sketch(next,std::move(sketch));next.resolve_constructions();

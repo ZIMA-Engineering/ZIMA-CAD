@@ -1,3 +1,4 @@
+#include <zima/workspace/sketch_properties.hpp>
 #include <zima/workspace/placement_reference_removal.hpp>
 #include <zima/document/placement_reference_assignment.hpp>
 #include <zima/workspace/body_operations.hpp>
@@ -46,13 +47,19 @@ void writable(const document::PartDocument& part, const std::string& object) {
     }
 }
 bool supported(Kind kind) {
-    return primitive_definition(kind) || kind == Kind::Extrusion || kind == Kind::Revolution ||
+    return kind == Kind::Sketch || primitive_definition(kind) || kind == Kind::Extrusion || kind == Kind::Revolution ||
         kind == Kind::Hole || kind == Kind::Thread || kind == Kind::Sweep2D || kind == Kind::Sweep3D ||
         kind == Kind::HelicalSweep || kind == Kind::ImportedStep;
 }
 bool commit_feature(Workspace& live, const kernel::OcctKernel& kernel,
     const std::string& id, document::HistoryContainer value) {
     const auto kind = value.feature_kind;
+    if (kind == Kind::Sketch) {
+        const auto& sketches=live.open_part(id)->session.document().sketches;
+        const auto sketch=std::ranges::find(sketches,value.id,&sketcher::Sketch::owner_container_id);
+        if(sketch==sketches.end())reject("sketch_not_found","The requested Sketch does not exist.");
+        return commit_part_sketch_properties(live,kernel,id,*sketch,std::move(value.placement));
+    }
     if (primitive_definition(kind)) return commit_primitive(live, kernel, id, std::move(value), PrimitiveEditMode::Replace);
     if (kind == Kind::Extrusion || kind == Kind::Revolution) {
         normalize_owned_profile_front_references(value.placement.references);

@@ -69,6 +69,10 @@
 
 ## Assembly editing ownership
 
+- Assembly Extrusion and Revolution always subtract material from selected
+  immediate Part occurrences. Creation, editing and conversion of a standalone
+  Sketch must never add material. GUI and CLI enforce this same rule.
+
 - Every component is positioned only by its immediate owning Assembly. A
   parent Assembly treats an inserted subassembly as one component and must not
   directly own mates that position the subassembly's internal components.

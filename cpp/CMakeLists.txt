@@ -162,6 +162,7 @@ add_library(zima_workspace modules/workspace/src/workspace.cpp
     modules/workspace/src/drawing_view_operations.cpp
     modules/workspace/src/drawing_projection.cpp
     modules/workspace/src/drawing_hatch_operations.cpp
+    modules/workspace/src/sketch_properties.cpp
     modules/workspace/src/sketch_operations.cpp
     modules/workspace/src/sketch_reference_operations.cpp
     modules/workspace/src/native_documents.cpp
@@ -965,6 +966,10 @@ if(ZIMA_BUILD_TESTS)
     target_link_libraries(zima_cpp_box_command_tests PRIVATE zima_command_host)
     add_test(NAME zima_cpp_box_command_tests COMMAND zima_cpp_box_command_tests)
     set_tests_properties(zima_cpp_box_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
+    add_executable(zima_cpp_sketch_properties_command_tests tests/sketch_properties_command_tests.cpp)
+    target_link_libraries(zima_cpp_sketch_properties_command_tests PRIVATE zima_command_host)
+    add_test(NAME zima_cpp_sketch_properties_command_tests COMMAND zima_cpp_sketch_properties_command_tests)
+    set_tests_properties(zima_cpp_sketch_properties_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     add_executable(zima_cpp_sweep_point_reference_tests tests/sweep_point_reference_tests.cpp)
     target_link_libraries(zima_cpp_sweep_point_reference_tests PRIVATE zima_command_host)
     add_test(NAME zima_cpp_sweep_point_reference_tests COMMAND zima_cpp_sweep_point_reference_tests)

@@ -1,3 +1,5 @@
+#include <algorithm>
+#include <zima/workspace/sketch_properties.hpp>
 #include <zima/workspace/placement_reference_removal.hpp>
 #include <zima/workspace/section_operations.hpp>
 #include <zima/workspace/imported_feature_operations.hpp>
@@ -83,7 +85,13 @@ void Host::register_placement_commands() {
             else if(info.kind=="construction")changed=workspace::set_construction_reference(workspace_,id,object,index,std::move(source),derive);
             else {
                 const auto kind=workspace_.open_part(id)->session.document().find_container(object)->feature_kind;
-                if(kind==document::FeatureKind::Extrusion||kind==document::FeatureKind::Revolution)
+                if(kind==document::FeatureKind::Sketch) {
+                    const auto& sketches=workspace_.open_part(id)->session.document().sketches;
+                    const auto sketch=std::ranges::find(sketches,object,&sketcher::Sketch::owner_container_id);
+                    if(sketch==sketches.end())throw workspace::SketchOperationError("sketch_not_found","The requested Sketch does not exist.");
+                    changed=workspace::set_part_sketch_reference(workspace_,kernel_,id,sketch->id,index,std::move(source));
+                }
+                else if(kind==document::FeatureKind::Extrusion||kind==document::FeatureKind::Revolution)
                     changed=workspace::set_profile_reference(workspace_,kernel_,id,object,index,std::move(source),derive);
                 else if(kind==document::FeatureKind::Hole||kind==document::FeatureKind::Thread)
                     changed=workspace::set_drill_placement_reference(workspace_,kernel_,id,object,index,std::move(source),derive);
@@ -96,7 +104,8 @@ void Host::register_placement_commands() {
             auto result=data(workspace_,id,object);result["changed"]=changed;
             if(prefix!="placement"){result["container"]=object;result["body_calculated"]=changed;}
             if(changed)change_=Change{ChangeKind::Model,id};return Result::success(std::move(result));
-        }catch(const workspace::PlacementEditError& error){return Result::failure(error.code,tr(error.what()));}
+        }catch(const workspace::SketchOperationError& error){return Result::failure(error.code,tr(error.what()));}
+         catch(const workspace::PlacementEditError& error){return Result::failure(error.code,tr(error.what()));}
          catch(const workspace::HoleOperationError& error){return Result::failure(error.code,tr(error.what()));}
          catch(const workspace::OpeningOperationError& error){return Result::failure(error.code,tr(error.what()));}
          catch(const workspace::BodyOperationError& error){return Result::failure(error.code,tr(error.what()));}

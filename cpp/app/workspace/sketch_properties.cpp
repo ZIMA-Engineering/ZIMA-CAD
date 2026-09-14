@@ -1,5 +1,6 @@
 #include "workspace_internal.hpp"
 #include <zima/workspace/sketch_operations.hpp>
+#include <zima/workspace/sketch_properties.hpp>
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -116,20 +117,8 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
                 }
             };
             if (auto* target_part = workspace_.open_part(owner_id)) {
-                auto next = target_part->session.document();
-                update(next);
-                const auto& previous = target_part->session.calculated_boundaries();
-                // A Sketch owned by an Extrusion/Revolution is part of that
-                // feature's calculation input.  Merely resolving its new
-                // frame while retaining the old calculated boundaries makes
-                // the visible body snap back to the former placement as soon
-                // as the properties preview closes.  OK is the explicit body
-                // calculation boundary, so converge placement references and
-                // recalculate the owning feature (and its downstream history)
-                // in the same transaction.
-                auto calculated = calculate_part_with_resolved_references(
-                    next, &previous);
-                workspace::commit_part_document(workspace_,target_part->session.document().document_id,std::move(next), std::move(calculated));
+                static_cast<void>(workspace::commit_part_sketch_properties(workspace_,kernel_,owner_id,
+                    std::move(committed),std::move(committed_placement),new_sketch_container));
                 return;
             }
             auto* target_assembly = workspace_.open_assembly(owner_id);

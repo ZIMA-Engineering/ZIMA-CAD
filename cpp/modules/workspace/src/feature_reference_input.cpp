@@ -1,3 +1,4 @@
+#include <zima/document/sketch_placement.hpp>
 #include <zima/workspace/feature_reference_input.hpp>
 #include <zima/workspace/history_policy.hpp>
 #include <zima/document/placement_reference_assignment.hpp>
@@ -58,6 +59,7 @@ document::HistoryContainer assign_feature_reference(document::HistoryContainer v
     if(assigned.error!=Error::None)reject("invalid_arguments","The placement reference slot is unavailable.");
     value.placement.references=combined(position,orientation);
     for(auto& ref:value.placement.references)ref.measured_offset.reset();
+    if(value.feature_kind==document::FeatureKind::Sketch)document::normalize_sketch_front_references(value.placement.references);
     if(!document::resolve_placement(value.placement,geometry))reject("invalid_reference","The proposed feature placement references cannot be resolved.");
     return value;
 }
