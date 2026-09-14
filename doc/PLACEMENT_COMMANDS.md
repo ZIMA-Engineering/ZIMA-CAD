@@ -162,3 +162,9 @@ Logy: `build/placement-reference-assignment-tests.log`,
 
 Tato etapa připravuje společnou datovou cestu; samostatný příkaz zadávání
 referencí ještě nepřidává. Nativní formát se nemění.
+
+## Přiřazení reference
+
+`placement.reference.set` doplňuje společný vstup pro Body, samostatné
+konstrukce a primitiva. Přesný rozsah, pravidla zdrojů a příklady:
+[PLACEMENT_REFERENCE_COMMANDS.md](PLACEMENT_REFERENCE_COMMANDS.md).

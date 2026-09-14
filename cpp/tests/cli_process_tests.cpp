@@ -138,6 +138,16 @@ int main(int argc,char** argv){
             const auto values=assembly_mode?assembly::AssemblyDocument::load(project/(name+suffix)).constructions:document::PartDocument::load(project/(name+suffix)).constructions;
             const auto found=std::ranges::find(values,object,&document::ConstructionObject::id);require(found!=values.end()&&found->origin.z==8&&found->references.front().owner_id==document+":origin"&&found->references.front().offset==8,"CLI native save lost reference owner or calculated position");
         }
+        {
+            result=launch(executable,root,common+QStringList{"--command","new part primitive-reference","--command","box.create 10 10 10","--command","save"});
+            require(result.exit_code==0,"Cannot prepare CLI primitive reference fixture");const auto made=result.results()[1].at("data");const auto object=made.at("container").get<std::string>(),document=made.at("document").get<std::string>();
+            result=launch(executable,root,common+QStringList{"--command","open primitive-reference.prtz",
+                "--command",command({{"command","placement.reference.set"},{"arguments",{{"object",object},{"index",0},{"reference",{{"owner",document+":origin"},{"key","origin:plane:xy"}}},{"offset_mm",6}}}}),
+                "--command",command({{"command","placement.set"},{"arguments",{{"object",object},{"values",{{"reference_offset:0",8}}}}}}),"--command","undo","--command","redo","--command","save"});
+            require(result.exit_code==0&&result.results()[1].at("data").at("placement").at("z")==6,"CLI primitive reference or Undo/Redo failed");
+            std::vector<kernel::BodyResult> cache;const auto saved=document::PartDocument::load(project/"primitive-reference.prtz",&cache);const auto* found=saved.find_container(object);
+            require(found&&found->placement.z==8&&found->placement.references.front().owner_id==document+":origin"&&!cache.empty()&&std::abs(cache.back().volume-1000)<1e-6,"CLI native save lost primitive source, placement or geometry");
+        }
         const auto shell_path=project/"shell-cli.prtz";
         auto shell_fixture=document::PartDocument::create_default();auto shell_box=document::PartDocument::create_box_container();shell_box.box={10,10,10};
         shell_fixture.insert_history_entry(document::PartHistoryKind::Feature,shell_box.id);shell_fixture.history.push_back(shell_box);

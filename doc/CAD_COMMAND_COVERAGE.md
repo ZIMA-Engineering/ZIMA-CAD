@@ -34,9 +34,9 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Kvádr | Hotovo | Společná tvorba, čtení a rozměrový patch; včetně zámků a přesnosti |
 | Válec, koule, kužel, jehlan, klín | Hotovo | Společné create/get/set, zámky, přesnost, GUI/CLI a 59/59 regresí |
 | Historie Partu | Hotovo | Společný přesun, ověření závislostí, potlačení, odstranění a kurzor; včetně historie těles a Booleanů |
-| Tělesa a Boolean | Základ hotov | Tvorba, čtení, aktivace, název/viditelnost, kurzory a Boolean create/get/set; pořadí/mazání řeší historie; odvozené kopie pokrývá řádek Zrcadlo a pole; zbývá zadání referencí umístění |
-| Umístění a původní reference | Původní reference a číselná editace umístění hotovy | `placement.get/set`: tělesa a prvky Partu, konstrukce Partu/Assembly a jejich body; `value_lock.list/set` sdílejí číselné zámky s GUI; `body.reference.set` přiřazuje původní zdroje tělesům; zbývá odstranění a zadávání referencí dalších objektů, vložené dráhy; umístění komponent řeší `component.set` |
-| Konstrukční geometrie | Částečně hotovo | `construction.list/get/create/set/delete`: dotazy, tvorba a mazání kořenových bodů/os/rovin/3D křivek, vlastnosti, umístění, úplné seznamy bodů, tečny a zaoblení; dotazy zahrnují vložené 3D dráhy; jejich editaci potvrzuje příkaz tažení; zbývá zadání referencí |
+| Tělesa a Boolean | Modelové operace a reference hotovy | Tvorba, čtení, aktivace, název/viditelnost, kurzory, Boolean, pořadí a mazání; `body.reference.set` a společný vstup `placement.reference.set`; zbývá odstranění reference |
+| Umístění a původní reference | Číselná editace, reference Body/konstrukcí/primitiv | `placement.get/set`, `value_lock.list/set`; `placement.reference.set` pro Body, kořenové konstrukce a šest primitiv, `body.reference.set`, `construction.reference.set`; zbývají další modelové prvky, řezy, vložené dráhy a odebrání reference; komponenty používají `component.set` |
+| Konstrukční geometrie | Tvorba, vlastnosti a reference kořenů hotovy | `construction.list/get/create/set/delete`, `construction.reference.set`; body křivek, tečny, zaoblení a seznamy; přiřazení referencí bodům je připravené na `codex/curve-reference-pending` a čeká na schválenou opravu starých zdrojových poloh; vložené dráhy následují |
 | Skicář: geometrie | Základ hotov | 21 příkazů: samostatné a vložené skici, body, úsečky, kružnice, oblouky, elipsy, B-spline, obdélníky, mnohoúhelníky, posun a pomocná geometrie; text create/get/set s nativním písmem a spline get/set hotovy; DXF do vložených profilů hotov; zbývá kontrola dalších variant podle GUI |
 | Skicář: vazby a operace | Vazby/kóty/solver/offset/trim/mirror hotovy | Offset create/get/set/free, úplný podklad a zachování intervalů, trim podle průsečíků, mirror, orientovaný obdélník, tečny a zaoblení rohu; všech 15 druhů vazeb, odstranění a solver; 16 druhů kót včetně vlastností, popisků a mazání; uvolnění externích referencí hotovo |
 | Externí reference skici | Lokální i kontextová tvorba, obnova a odpojení | Přesná projekce, trim, společné potvrzení Partu a závislostí, vlastněné profily, Part/Assembly Undo/Redo a souhrny zavřených nativních vlastníků při explicitní regeneraci |
@@ -1524,3 +1524,30 @@ testovací cíle. Katalog má **262 příkazů**, sada **143 testů**; poslední
 Formáty se nemění; push zůstává odložený. Pokračují reference bodů křivky,
 vložených drah, ostatních prvků a řezů. Přesun společného odebrání reference
 čeká na samostatný souhlas uživatele.
+
+## Reference umístění primitiv a společný vstup (2026-09-14)
+
+`placement.reference.set` sjednocuje vstup pro Body, kořenové konstrukce
+a šest primitiv. Nový adaptér primitiva používá původní uloženou geometrii,
+kontrolu vlastníka/pořadí historie a stávající `commit_primitive`. Opakování
+zdroje zachovává jeho orientační roli; jinak by se při druhém přiřazení
+jedné roviny chybně spojily paralelní FRONT a TOP. Společný řešič ani GUI
+se nemění. Podrobnosti: [PLACEMENT_REFERENCE_COMMANDS.md](PLACEMENT_REFERENCE_COMMANDS.md).
+
+Související integrace prošla **11/11 za 109,47 s**, včetně všech šesti
+primitiv, původní plochy v jiném posunutém Body, změny zdrojového Body,
+Undo/Redo, nativního uložení, skutečného CLI, GUI Vlastností a překladů.
+Katalog má **263 příkazů**, sada **144 testů**. Obě aplikace a všechny
+testovací programy jsou sestavené. Nativní formáty se nemění.
+
+Reference bodů křivky jsou odložené na místní větvi
+`codex/curve-reference-pending` (2673c7b). Test na této větvi prokazuje
+chybu: po posunu zdroje z 2 na 4 mm navázaný bod použije stará 2 mm.
+Oprava společného řešení referencí čeká na výslovný souhlas podle AGENTS.md.
+GUI test této větve po potvrzení bodu i jeho rodičovské křivky prošel
+**1/1 za 79,76 s**. Nedokončená větev není sloučená do main.
+Push zůstává odložený podle posledního pokynu uživatele.
+
+Úplná Windows Release regrese prošla **144/144 za 574,23 s**, včetně
+všech GUI, modelových, procesních, výkresových a skicových testů.
+Záznam: `build/primitive-reference-full-tests.log`.

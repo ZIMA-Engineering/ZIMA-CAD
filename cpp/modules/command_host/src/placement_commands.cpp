@@ -1,6 +1,9 @@
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/placement_edit.hpp>
 #include <zima/document/placement_json.hpp>
+#include <zima/workspace/primitive_reference_operations.hpp>
+#include <zima/workspace/body_reference_operations.hpp>
+#include <zima/workspace/construction_reference_operations.hpp>
 
 namespace zima::command_host {
 namespace {
@@ -14,6 +17,30 @@ Json data(const workspace::Workspace& live, const std::string& id, const std::st
 }
 }
 void Host::register_placement_commands() {
+    dispatcher_.add({"placement.reference.set",tr("Assign an original reference to a Body, construction or primitive placement."),
+        {{"object",true},{"index",true,commands::ArgumentType::Integer},{"reference",true,commands::ArgumentType::Object},
+         {"offset_mm",false,commands::ArgumentType::Number},{"flip",false,commands::ArgumentType::Boolean},{"derive_orientation",false,commands::ArgumentType::Boolean},{"document",false}},true},[this](const Json& args) {
+        const auto checked=target(args);if(!checked.ok)return checked;
+        if(interaction().template_document)return Result::failure("unsupported_document",tr("Placement operations require an open Part or Assembly."));
+        try {
+            const auto& ref=args.at("reference");
+            const auto invalid=[](){throw workspace::PlacementEditError("invalid_arguments","Specify owner, key and an optional instance_path for the placement reference.");};
+            for(const auto& [key,item]:ref.items())if((key!="owner"&&key!="key"&&key!="instance_path")||!item.is_string())invalid();
+            if(!ref.contains("owner")||!ref.contains("key")||args.at("index")<0||args.at("index")>4)invalid();
+            const auto id=workspace_.active_document_id(),object=args.at("object").get<std::string>();const auto info=workspace::read_placement(workspace_,id,object);
+            document::ConstructionReference source;source.owner_id=ref.at("owner");source.semantic_key=ref.at("key");source.instance_path=ref.value("instance_path",std::string{});
+            source.offset=args.value("offset_mm",0.0);source.flip=args.value("flip",false);
+            const auto index=args.at("index").get<std::size_t>();const auto derive=args.value("derive_orientation",true);bool changed{};
+            if(info.kind=="body")changed=workspace::set_body_placement_reference(workspace_,kernel_,id,object,index,std::move(source),derive);
+            else if(info.kind=="construction")changed=workspace::set_construction_reference(workspace_,id,object,index,std::move(source),derive);
+            else changed=workspace::set_primitive_reference(workspace_,kernel_,id,object,index,std::move(source),derive);
+            auto result=data(workspace_,id,object);result["changed"]=changed;
+            if(changed)change_=Change{ChangeKind::Model,id};return Result::success(std::move(result));
+        }catch(const workspace::PlacementEditError& error){return Result::failure(error.code,tr(error.what()));}
+         catch(const workspace::BodyOperationError& error){return Result::failure(error.code,tr(error.what()));}
+         catch(const workspace::PrimitiveOperationError& error){return Result::failure(error.code,tr(error.what()));}
+         catch(const std::exception& error){return Result::failure("placement_rejected",tr(error.what()));}
+    });
     dispatcher_.add({"placement.get", tr("Read stored Body, feature or construction placement without calculation."),
         {{"object", true}, {"document", false}}, false}, [this](const Json& args) {
         try { return Result::success(data(workspace_, args.value("document", workspace_.active_document_id()), args.at("object").get<std::string>())); }
