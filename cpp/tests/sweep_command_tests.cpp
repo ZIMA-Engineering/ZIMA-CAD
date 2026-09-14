@@ -47,6 +47,62 @@ struct Fixture {
             "Rejected Sweep command changed the document, history or calculated geometry");
     }
 };
+void verify_sweep_references(const kernel::OcctKernel& kernel,const fs::path& directory,document::FeatureKind kind) {
+    const bool helical=kind==document::FeatureKind::HelicalSweep;
+    const std::string prefix=helical?"helical":kind==document::FeatureKind::Sweep2D?"sweep2d":"sweep3d";
+    const auto command=prefix+".reference.set",name=prefix+"-references";
+    Fixture f(kernel,directory);f.run("new",{{"type","part"},{"name",name}});
+    const auto definition=test_support::sweep_fixture(kind);const auto id=definition.id;
+    const auto owner=f.live.active_document_id();
+    workspace::commit_sweep(f.live,kernel,owner,definition,workspace::SweepEditMode::Create);
+    const double volume=helical?std::numbers::pi*.25*std::hypot(4*std::numbers::pi*10,10):80*std::numbers::pi;
+    const auto extent=[&] {
+        const auto& vertices=f.state().session.calculated_boundaries().back().mesh.vertices;
+        require(!vertices.empty(),"Sweep reference has no calculated mesh");
+        const auto bounds=std::ranges::minmax_element(vertices,{},&kernel::Vec3::x);
+        return std::pair{bounds.min->x,bounds.max->x};
+    };
+    const auto before_query=f.run(prefix+".get",{{"container",id}});
+    Json request={{"container",id},{"index",0},{"reference",{{"owner",owner+":origin"},{"key","origin:plane:yz"}}},{"offset_mm",0}};
+    require(f.run(command,request).at("changed")==true,"Sweep reference was not committed");
+    const auto at_zero=extent();
+    request["offset_mm"]=3;f.run(command,request);
+    const auto shifted=extent();near(shifted.first-at_zero.first,3);near(shifted.second-at_zero.second,3);
+    near(f.volume(),volume,helical?1e-3:1e-8);
+    const auto assigned=*f.state().session.document().find_container(id);
+    const auto after_query=f.run(prefix+".get",{{"container",id}});
+    for(const auto* key:helical?std::vector<const char*>{"sketches","circle","start_point","guide_start_point"}:
+            std::vector<const char*>{"profiles",kind==document::FeatureKind::Sweep2D?"path_sketch":"path"})
+        require(after_query.at(key)==before_query.at(key),"Sweep reference replaced an original path or profile identity");
+    require(assigned.id==definition.id&&assigned.feature_id==definition.feature_id&&
+        assigned.container_origin==definition.container_origin,"Reference input replaced the Sweep identity");
+    const auto revision=f.state().session.revision();const auto* cache=f.state().session.calculated_boundaries().data();
+    require(f.run(command,request).at("changed")==false&&f.state().session.revision()==revision&&
+        f.state().session.calculated_boundaries().data()==cache&&!f.host.change(),"Repeated Sweep reference calculated or added history");
+    f.run("undo");near(extent().first,at_zero.first);
+    f.run("redo");require(*f.state().session.document().find_container(id)==assigned,"Sweep reference Redo lost its owned data");
+    auto bad=request;bad["reference"]["owner"]="missing";f.reject(command,bad,"reference_not_available");
+    bad=request;bad["reference"]={{"owner",definition.container_origin.id},{"key","origin:point"}};
+    f.reject(command,bad,"reference_not_available");
+    bad=request;bad["reference"]["instance_path"]="not-local";f.reject(command,bad,"invalid_arguments");
+    bad=request;bad["index"]=1;f.reject(command,bad,"duplicate_reference");
+    bad=request;bad["index"]=4294967296LL;f.reject(command,bad,"invalid_arguments");
+    f.reject(helical?"sweep2d.reference.set":"helical.reference.set",request,"wrong_feature");
+    f.interaction.editing=true;f.reject(command,request,"editing_in_progress");f.interaction={};
+    auto generic=request;generic.erase("container");generic["object"]=id;generic["offset_mm"]=5;
+    require(f.run("placement.reference.set",generic).at("placement").at("x")==5,"Generic Sweep reference returned incorrect placement");
+    near(extent().first-shifted.first,2);f.run("undo");near(extent().first,shifted.first);
+    auto locked=assigned;locked.placement.references.front().offset_locked=true;
+    workspace::commit_sweep(f.live,kernel,owner,locked,workspace::SweepEditMode::Replace);
+    request["offset_mm"]=99;f.run(command,request);near(extent().first,shifted.first);
+    require(f.state().session.document().find_container(id)->placement.references.front().offset_locked,"Sweep reference removed its distance lock");
+    f.run("save");std::vector<kernel::BodyResult> saved_cache;
+    const auto saved=document::PartDocument::load(directory/(name+".prtz"),&saved_cache);
+    require(saved.history==f.state().session.document().history&&!saved_cache.empty(),"Native Sweep lost original references or owned profiles");
+    near(saved_cache.back().volume,volume,helical?1e-3:1e-8);
+    const auto body=saved.body_history.active_body_id();f.run("body.create",{{"name","Inactive reference test"}});
+    f.reject(command,request,"inactive_body");f.run("body.activate",{{"body",body}});
+}
 void verify_sweep_commands(const kernel::OcctKernel& kernel, const fs::path& directory, document::FeatureKind kind) {
     const bool helical = kind == document::FeatureKind::HelicalSweep;
     const std::string prefix = helical ? "helical" : kind == document::FeatureKind::Sweep2D ? "sweep2d" : "sweep3d";
@@ -683,6 +739,7 @@ int main() {
         require(fs::create_directory(directory), "Cannot create fixture directory");
         kernel::OcctKernel kernel;
         for (const auto kind : {document::FeatureKind::Sweep2D, document::FeatureKind::Sweep3D, document::FeatureKind::HelicalSweep}) verify_sweep_commands(kernel, directory, kind);
+        for(const auto kind:{document::FeatureKind::Sweep2D,document::FeatureKind::Sweep3D,document::FeatureKind::HelicalSweep})verify_sweep_references(kernel,directory,kind);
         verify_creation(kernel, directory);
         verify_creation_profiles(kernel, directory);
         verify_planar_creation(kernel, directory);

@@ -1,3 +1,4 @@
+#include <zima/workspace/feature_reference_input.hpp>
 #include <zima/workspace/part_transactions.hpp>
 #include <zima/workspace/sweep_operations.hpp>
 #include <zima/document/feature_sketches.hpp>
@@ -281,5 +282,19 @@ void commit_sweep(Workspace& live, const kernel::OcctKernel& kernel, const std::
     next.resolve_constructions(references);
     auto calculated = calculate_part_with_resolved_references(kernel, next, &previous, policy);
     commit_part_document(live,id,std::move(next), std::move(calculated));
+}
+bool set_sweep_placement_reference(Workspace& live,const kernel::OcctKernel& kernel,
+    const std::string& id,const std::string& container,std::size_t index,
+    document::ConstructionReference source,bool derive_orientation) {
+    const auto* state=live.open_part(id);
+    if(!state)throw SweepOperationError("unsupported_document","Sweep operations require an open Part.");
+    const auto* existing=state->session.document().find_container(container);
+    if(!existing)throw SweepOperationError("container_not_found","The requested container does not exist.");
+    if(existing->feature_kind!=Kind::Sweep2D&&existing->feature_kind!=Kind::Sweep3D&&existing->feature_kind!=Kind::HelicalSweep)
+        throw SweepOperationError("wrong_feature","This container is not the requested Sweep type.");
+    auto value=prepare_part_feature_reference(live,id,container,index,std::move(source),derive_orientation);
+    if(value==*existing)return false;
+    commit_sweep(live,kernel,id,std::move(value),SweepEditMode::Replace);
+    return true;
 }
 } // namespace zima::workspace

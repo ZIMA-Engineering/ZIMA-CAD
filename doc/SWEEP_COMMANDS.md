@@ -431,3 +431,11 @@ následné OK/Cancel. Snímek `helical-offset-properties.png` zachycuje rozší�
 Vlastnosti. Produkční kód se po úspěšném běhu 15/15 neměnil; přibyla tato
 cílená GUI regrese. Poslední sestavení aplikace:
 `build/helical-create-sketcher-build.log`.
+
+
+## Reference umístění (2026-09-14)
+
+`sweep2d.reference.set`, `sweep3d.reference.set`, `helical.reference.set` a obecné
+`placement.reference.set` přiřazují původní reference existujícímu tažení přes
+společné potvrzení GUI/CLI. Úplný popis argumentů, vlastnictví a testů je v
+[SWEEP_REFERENCE_COMMANDS.md](SWEEP_REFERENCE_COMMANDS.md).

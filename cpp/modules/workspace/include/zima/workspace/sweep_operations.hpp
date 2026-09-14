@@ -34,4 +34,8 @@ struct HelicalSources {
 // The supplied definition owns its embedded Sketches and path Point identities.
 void commit_sweep(Workspace&, const kernel::OcctKernel&, const std::string& document_id,
     document::HistoryContainer, SweepEditMode);
+// Reuse the original-reference assignment and the normal Sweep OK transaction.
+[[nodiscard]] bool set_sweep_placement_reference(Workspace&,const kernel::OcctKernel&,
+    const std::string& document_id,const std::string& container,std::size_t index,
+    document::ConstructionReference,bool derive_orientation=true);
 } // namespace zima::workspace

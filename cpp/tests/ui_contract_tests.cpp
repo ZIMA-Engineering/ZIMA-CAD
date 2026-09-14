@@ -3468,6 +3468,51 @@ int main(int argc, char* argv[]) {
         require(committed_sweep.sweep3d.path.curve_rounding_enabled&&committed_sweep.sweep3d.profiles.size()==1&&committed_sweep.sweep3d.profiles[0].id==identity,
             "Sweep did not commit station profile and radii");
 
+        // CLI-created placement belongs to the Sweep; its owned path can
+        // independently retain an Absolute definition with no root references.
+        for (const std::size_t count : {0u, 1u, 3u}) {
+            auto placed = committed_sweep;
+            placed.sweep3d.path.definition =
+                zima::document::ConstructionDefinition::Absolute;
+            placed.placement.references.clear();
+            const char* keys[] = {"origin:plane:yz", "origin:plane:xz", "origin:plane:xy"};
+            for (std::size_t index = 0; index < count; ++index)
+                placed.placement.references.push_back(
+                    {{}, "part-origin", keys[index], 3.0 + index, true});
+            const auto before = placed;
+            for (const bool accept : {false, true}) {
+                bool committed = false;
+                auto* dialog = new zima::app::ConstructionPropertiesDialog(
+                    placed, true, true, [&](auto value) {
+                        committed = true; placed = std::move(value);
+                    }, &parent);
+                dialog->show(); application.processEvents();
+                auto pending = dialog->pending_sweep_value();
+                require(pending.placement.references == before.placement.references,
+                    "Sweep dialog discarded CLI placement references on opening");
+                if (count) {
+                    auto* rows = dialog->findChild<QTableWidget*>("constructionReferenceTable");
+                    auto* offset = qobject_cast<QDoubleSpinBox*>(rows->cellWidget(0, 2));
+                    require(offset && offset->value() == 3, "Sweep reference offset is missing");
+                    offset->setValue(4);
+                    pending = dialog->pending_sweep_value();
+                    require(pending.placement.references.size() == count &&
+                            pending.placement.references.front().offset == 4,
+                        "Sweep pending placement discarded an edited reference");
+                }
+                require(pending.sweep3d.path.references.empty() &&
+                        pending.sweep3d.path.definition == before.sweep3d.path.definition &&
+                        pending.sweep3d.path.id == before.sweep3d.path.id &&
+                        pending.sweep3d.path.curve_points == before.sweep3d.path.curve_points,
+                    "Sweep placement leaked into or changed its local owned path");
+                dialog->buttons()->button(accept ? QDialogButtonBox::Ok : QDialogButtonBox::Cancel)->click();
+                require(committed == accept, "Sweep placement OK/Cancel lost its transaction");
+                require(placed.placement.references.size() == count &&
+                        (!count || placed.placement.references.front().offset == (accept ? 4 : 3)),
+                    "Sweep confirmation discarded placement references");
+            }
+        }
+
         auto extrusion_initial =
             zima::document::PartDocument::create_extrusion_container("sketch-profile");
         int extrusion_commits = 0;

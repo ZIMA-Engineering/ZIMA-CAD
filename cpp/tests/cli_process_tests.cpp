@@ -1305,6 +1305,18 @@ int main(int argc,char** argv){
             require(reopened.history.front().id==feature.id&&reopened.history.front().name=="Tažení žluťoučké"&&!cache.empty(),"Sweep CLI lost native ownership or body cache");
             const double pi=std::acos(-1.0),expected=helical?pi*.25*std::hypot(2*pi*10,10):(kind==document::FeatureKind::Sweep3D?60:40)*pi;
             require(std::abs(cache.back().volume-expected)<(helical?expected*.001:1e-5),"Standalone CLI Sweep saved incorrect volume");
+            const auto reference=command({{"command",prefix+".reference.set"},{"arguments",{{"container",feature.id},{"index",0},
+                {"reference",{{"owner",native.document_id+":origin"},{"key","origin:plane:yz"}}},{"offset_mm",3}}}});
+            const auto placement=command({{"command","placement.get"},{"arguments",{{"object",feature.id}}}});
+            result=launch(executable,root,common+QStringList{"--command",QString::fromStdString("open "+file),
+                "--command",reference,"--command","undo","--command","redo","--command","save","--command",placement});
+            require(result.exit_code==0&&result.results().back().at("data").at("placement").at("x")==3,
+                "Standalone Sweep reference or Undo/Redo failed");
+            cache.clear();const auto referenced=document::PartDocument::load(project/file,&cache);
+            require(referenced.history.front().id==feature.id&&referenced.history.front().placement.references.front().owner_id==native.document_id+":origin"&&
+                referenced.history.front().placement.x==3&&!cache.empty()&&
+                std::abs(cache.back().volume-expected)<(helical?expected*.001:1e-5),
+                "Standalone Sweep reference lost native identity, placement or geometry");
         }
         for(const auto kind:{document::FeatureKind::Sweep2D,document::FeatureKind::Sweep3D}) {
             const bool planar=kind==document::FeatureKind::Sweep2D;const std::string prefix=planar?"sweep2d":"sweep3d";

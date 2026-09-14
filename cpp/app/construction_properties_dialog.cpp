@@ -104,6 +104,9 @@ zima::document::ConstructionObject sweep_dialog_path(
     path.orientation_quarter_turns =
         container.placement.orientation_quarter_turns;
     path.references = container.placement.references;
+    // This editor presents the Sweep's placement, not its local owned path.
+    // The path's Absolute definition must not discard the container references.
+    path.definition = zima::document::ConstructionDefinition::PointReference;
     std::erase_if(path.value_locks,[](const auto& key){return key.starts_with("placement:");});
     for(const auto& key:container.placement.value_locks)path.value_locks.insert("placement:"+key);
     return path;
@@ -853,6 +856,7 @@ ConstructionPropertiesDialog::pending_sweep_value() const {
     container.placement.references = dialog_path.references;
     auto stored_path = std::move(dialog_path);
     stored_path.name = initial_sweep_->sweep3d.path.name;
+    stored_path.definition = initial_sweep_->sweep3d.path.definition;
     zima::document::PartDocument::set_sweep3d_owned_path(container, std::move(stored_path));
     container.sweep3d.profiles = sweep_profiles_;
     container.sweep3d.result_type = sweep_result_type_->currentIndex()==1 ?

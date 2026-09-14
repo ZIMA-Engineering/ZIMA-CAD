@@ -28,6 +28,7 @@
 #include <QLineEdit>
 #include <QPlainTextEdit>
 #include <QDialog>
+#include <QPointer>
 #include <QDialogButtonBox>
 #include <QPushButton>
 #include <QKeyEvent>
@@ -1185,6 +1186,40 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
                     std::abs(path_sketch.resolved_origin.z-7)<1e-8&&!cache.empty()&&std::abs(cache.back().volume-380*pi/3)<1e-4,
                     "GUI Properties did not preserve the assigned path plane and offset");
             }
+            run("save");std::vector<kernel::BodyResult> reference_cache;
+            static_cast<void>(document::PartDocument::load(path,&reference_cache));
+            check(!reference_cache.empty(),"Sweep reference fixture has no calculated body");
+            const auto reference_volume=reference_cache.back().volume;
+            const auto owner=get().at("document").get<std::string>();
+            const commands::Json reference={{"container",feature.id},{"index",0},
+                {"reference",{{"owner",owner+":origin"},{"key","origin:plane:yz"}}},{"offset_mm",3}};
+            json_run((prefix+".reference.set").c_str(),reference);flush();
+            const auto placed_x=[&]{return json_run("placement.get",{{"object",feature.id}}).data.at("placement").at("x").get<double>();};
+            for(bool accept:{false,true}) {
+                QPointer<QDialog> properties=edit();
+                auto* rows=properties->findChild<QTableWidget*>(kind==document::FeatureKind::Sweep3D?"constructionReferenceTable":"sweepPlacementReferences");
+                auto* offset=rows?qobject_cast<QDoubleSpinBox*>(rows->cellWidget(0,2)):nullptr;
+                check(offset&&offset->isEnabled()&&std::abs(offset->value()-3)<1e-7,"Sweep Properties did not consume the CLI reference offset");
+                const auto blocked=window.execute_console_command(QString::fromStdString(
+                    commands::Json{{"command",prefix+".reference.set"},{"arguments",reference}}.dump()));
+                check(!blocked.ok&&blocked.code=="editing_in_progress","Sweep reference command interrupted Properties");
+                offset->setValue(4);check(std::abs(placed_x()-3)<1e-7,"Pending Sweep reference escaped into the document");
+                properties->findChild<QDialogButtonBox*>()->button(accept?QDialogButtonBox::Ok:QDialogButtonBox::Cancel)->click();flush();
+                check(!properties || !properties->isVisible(),"Sweep reference Properties did not close after OK/Cancel");
+                const auto actual_x=placed_x();
+                if(std::abs(actual_x-(accept?4:3))>=1e-7)
+                    throw std::runtime_error(prefix+" reference "+(accept?"OK":"Cancel")+" expected X="+
+                        std::to_string(accept?4:3)+", got "+std::to_string(actual_x));
+
+            }
+            run("undo");check(std::abs(placed_x()-3)<1e-7,"Sweep reference GUI Undo failed");run("redo");run("save");
+            reference_cache.clear();const auto reference_saved=document::PartDocument::load(path,&reference_cache);
+            check(reference_saved.find_container(feature.id)&&reference_saved.find_container(feature.id)->placement.x==4&&
+                !reference_saved.find_container(feature.id)->placement.references.empty()&&
+                reference_saved.find_container(feature.id)->placement.references.front().owner_id==owner+":origin"&&
+                reference_saved.find_container(feature.id)->placement.references.front().offset==4&&
+                !reference_cache.empty()&&std::abs(reference_cache.back().volume-reference_volume)<std::max(1e-5,reference_volume*.001),
+                "Sweep reference GUI lost native placement or changed its volume");
             json_run("close",{{"discard",true}});run(QString::fromStdString(activate.dump()));flush();
         }
         {

@@ -1,3 +1,4 @@
+#include <zima/workspace/sweep_operations.hpp>
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/drill_reference_operations.hpp>
 #include <zima/workspace/hole_operations.hpp>
@@ -55,6 +56,8 @@ void Host::register_placement_commands() {
                     changed=workspace::set_profile_reference(workspace_,kernel_,id,object,index,std::move(source),derive);
                 else if(kind==document::FeatureKind::Hole||kind==document::FeatureKind::Thread)
                     changed=workspace::set_drill_placement_reference(workspace_,kernel_,id,object,index,std::move(source),derive);
+                else if(kind==document::FeatureKind::Sweep2D||kind==document::FeatureKind::Sweep3D||kind==document::FeatureKind::HelicalSweep)
+                    changed=workspace::set_sweep_placement_reference(workspace_,kernel_,id,object,index,std::move(source),derive);
                 else changed=workspace::set_primitive_reference(workspace_,kernel_,id,object,index,std::move(source),derive);
             }
             auto result=data(workspace_,id,object);result["changed"]=changed;
@@ -65,6 +68,7 @@ void Host::register_placement_commands() {
          catch(const workspace::OpeningOperationError& error){return Result::failure(error.code,tr(error.what()));}
          catch(const workspace::BodyOperationError& error){return Result::failure(error.code,tr(error.what()));}
          catch(const workspace::ProfileOperationError& error){return Result::failure(error.code,tr(error.what()));}
+         catch(const workspace::SweepOperationError& error){return Result::failure(error.code,tr(error.what()));}
          catch(const workspace::PrimitiveOperationError& error){return Result::failure(error.code,tr(error.what()));}
          catch(const std::exception& error){return Result::failure("placement_rejected",tr(error.what()));}
     });

@@ -2,11 +2,14 @@
 
 `placement.reference.set` používá společný vstup pro Body, samostatné
 konstrukční kontejnery a šest primitiv: Box, Cylinder, Sphere, Cone,
-Pyramid a Wedge, a profily Extrusion/Revolution v Partu. Body a konstrukce deleguje na jejich již existující
-operace; primitivum potvrzuje přes `commit_primitive`, stejně jako OK
-jeho Vlastností. Profily používají `commit_profile` a společně potvrzují
-vlastní skicu; podrobnosti jsou v [PROFILE_REFERENCE_COMMANDS.md](PROFILE_REFERENCE_COMMANDS.md).
-Nový příkaz nemění společný řešič ani dialogy.
+Pyramid a Wedge, profily Extrusion/Revolution, Hole/Opening a všechny tři druhy
+tažení v Partu. Body a konstrukce deleguje na jejich existující operace;
+modelové prvky používají stejnou transakci jako GUI OK. Profily společně
+potvrzují vlastní skicu. Podrobnosti:
+[PROFILE_REFERENCE_COMMANDS.md](PROFILE_REFERENCE_COMMANDS.md),
+[DRILL_REFERENCE_COMMANDS.md](DRILL_REFERENCE_COMMANDS.md),
+[SWEEP_REFERENCE_COMMANDS.md](SWEEP_REFERENCE_COMMANDS.md).
+Příkaz nemění společný řešič ani dialogy.
 
 ```json
 {"command":"placement.reference.set","arguments":{"object":"ID_KONTEJNERU","index":0,"reference":{"owner":"ID_DOKUMENTU:origin","key":"origin:plane:xy"},"offset_mm":7}}
@@ -46,13 +49,15 @@ Výsledek má stejný tvar jako `placement.get`, doplněný o `changed`.
 Formáty ani startovací Part/Assembly šablony se nemění. Stav reference
 i vypočtená data zůstávají v nativním souboru.
 
-Ostatní modelové prvky, profilové odečty Assembly a řezy dosud tento nový vstup nepoužívají. Reference
-bodů křivky jsou připravené na samostatné místní větvi
+Profilové odečty Assembly používají vlastní `extrusion/revolution.reference.set`
+a řezy `section.reference.set`; obecný vstup je zatím nepřebírá. Další adaptéry,
+zejména pro importovanou geometrii, zbývají. Reference bodů křivky jsou
+připravené na samostatné místní větvi
 `codex/curve-reference-pending` s reprodukcí chyby staré polohy. Její
 oprava společného řešení referencí a přesun společného odebrání reference
 čekají na samostatné výslovné souhlasy uživatele.
 
-## Ověření
+## Původní ověření etapy primitiv
 
 Integrace 11/11 za 109,47 s zahrnuje všech šest primitiv, zámky,
 bezezměnové opakování, zamítnuté vstupy, původní plochu ve vedlejším

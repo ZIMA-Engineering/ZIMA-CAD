@@ -300,6 +300,28 @@ void Host::register_sweep_commands() {
         });
     for (const auto kind : {Kind::Sweep2D, Kind::Sweep3D, Kind::HelicalSweep}) {
         const std::string prefix = kind == Kind::Sweep2D ? "sweep2d" : kind == Kind::Sweep3D ? "sweep3d" : "helical";
+        dispatcher_.add({prefix+".reference.set",tr("Assign an original reference through the supported shared placement and feature transactions."),
+            {{"container",true},{"index",true,Type::Integer},{"reference",true,Type::Object},{"offset_mm",false,Type::Number},
+             {"flip",false,Type::Boolean},{"derive_orientation",false,Type::Boolean},{"document",false}},true},[this,kind](const Json& args) {
+            const auto checked=target(args);if(!checked.ok)return checked;
+            try {
+                if(interaction().template_document)throw Error("unsupported_document","Sweep operations require an open Part.");
+                const auto& ref=args.at("reference");
+                const auto invalid=[](){throw Error("invalid_arguments","Specify owner, key and an optional instance_path for the placement reference.");};
+                for(const auto& [key,item]:ref.items())if((key!="owner"&&key!="key"&&key!="instance_path")||!item.is_string())invalid();
+                if(!ref.contains("owner")||!ref.contains("key")||args.at("index")<0||args.at("index")>4)invalid();
+                const auto id=workspace_.active_document_id(),container=args.at("container").get<std::string>();
+                static_cast<void>(sweep(workspace_.open_part(id),container,kind));
+                document::ConstructionReference source;source.owner_id=ref.at("owner");source.semantic_key=ref.at("key");
+                source.instance_path=ref.value("instance_path",std::string{});source.offset=args.value("offset_mm",0.0);source.flip=args.value("flip",false);
+                const bool changed=workspace::set_sweep_placement_reference(workspace_,kernel_,id,container,
+                    args.at("index").get<std::size_t>(),std::move(source),args.value("derive_orientation",true));
+                const auto* state=workspace_.open_part(id);auto result=sweep_details(*state,sweep(state,container,kind));result["changed"]=changed;
+                if(changed)change_=Change{ChangeKind::Model,id};return Result::success(std::move(result));
+            }catch(const Error& error){return Result::failure(error.code,tr(error.what()));}
+             catch(const workspace::PlacementEditError& error){return Result::failure(error.code,tr(error.what()));}
+             catch(const std::exception& error){return Result::failure("sweep_rejected",tr(error.what()));}
+        });
         dispatcher_.add({prefix + ".get", tr("Read Sweep parameters and owned profile identities without calculation."),
             {{"container", true}, {"document", false}}, false}, [this, kind](const Json& args) {
             try {
