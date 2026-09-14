@@ -102,6 +102,7 @@ private:
     void register_sketch_spline_commands();
     void register_import_commands();
     void register_export_commands();
+    void register_named_view_commands();
     void register_metadata_commands();
     void register_engineering_metadata_commands();
     void register_component_commands();

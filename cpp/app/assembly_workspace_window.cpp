@@ -48,6 +48,7 @@ AssemblyWorkspaceWindow::~AssemblyWorkspaceWindow() {
     // A nested Point can restore its hidden parent during its destroyed
     // callback. Retire that outer transaction while members are still alive.
     if (outer_dialog) delete outer_dialog.data();
+    delete orientation_dialog_;
     delete rename_document_dialog_;
 }
 

@@ -90,6 +90,7 @@ add_library(zima_document_core
     modules/document_core/src/section.cpp
     modules/document_core/src/measurement_record.cpp
     modules/document_core/src/relations.cpp
+    modules/document_core/src/named_views.cpp
     modules/document_core/src/metadata.cpp
     modules/document_core/src/engineering_metadata.cpp
     modules/document_core/src/material_library.cpp
@@ -146,6 +147,7 @@ add_library(zima_workspace modules/workspace/src/workspace.cpp
     modules/workspace/src/import_operations.cpp
     modules/workspace/src/imported_feature_operations.cpp
     modules/workspace/src/assembly_import_operations.cpp
+    modules/workspace/src/named_view_operations.cpp
     modules/workspace/src/metadata_operations.cpp
     modules/workspace/src/engineering_metadata_operations.cpp
     modules/workspace/src/component_properties.cpp
@@ -243,6 +245,7 @@ add_library(zima_command_host
     modules/command_host/src/sketch_spline_commands.cpp
     modules/command_host/src/import_commands.cpp
     modules/command_host/src/export_commands.cpp
+    modules/command_host/src/named_view_commands.cpp
     modules/command_host/src/metadata_commands.cpp
     modules/command_host/src/engineering_metadata_commands.cpp
     modules/command_host/src/component_property_commands.cpp
@@ -724,6 +727,11 @@ if(ZIMA_BUILD_TESTS)
     target_link_libraries(zima_cpp_engineering_metadata_command_tests PRIVATE zima_command_host)
     add_test(NAME zima_cpp_engineering_metadata_command_tests COMMAND zima_cpp_engineering_metadata_command_tests)
     set_tests_properties(zima_cpp_engineering_metadata_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
+
+    add_executable(zima_cpp_named_view_command_tests tests/named_view_command_tests.cpp)
+    target_link_libraries(zima_cpp_named_view_command_tests PRIVATE zima_command_host)
+    add_test(NAME zima_cpp_named_view_command_tests COMMAND zima_cpp_named_view_command_tests)
+    set_tests_properties(zima_cpp_named_view_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
 
     add_executable(zima_cpp_metadata_command_tests tests/metadata_command_tests.cpp)
     target_link_libraries(zima_cpp_metadata_command_tests PRIVATE zima_command_host)

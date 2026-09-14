@@ -111,6 +111,7 @@ private:
     QListWidget* view_list_{};
     std::vector<OrientationSavedView> custom_views_;
     QLineEdit* name_edit_{};
+    QLabel* error_{};
     ReferenceRequestCallback reference_request_;
     RowsChangedCallback rows_changed_;
     ViewRequestedCallback view_requested_;

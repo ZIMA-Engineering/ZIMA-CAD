@@ -1,4 +1,5 @@
 #include "workspace_internal.hpp"
+#include <zima/workspace/named_view_operations.hpp>
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -37,35 +38,14 @@ void AssemblyWorkspaceWindow::show_orientation_dialog() {
     if (viewer_ == nullptr || properties_dialog_ != nullptr ||
         orientation_dialog_ != nullptr) return;
     const auto document_id = workspace_.active_document_id();
-    std::string named_views_json = "[]";
-    if (const auto* part = workspace_.open_part(document_id)) {
-        named_views_json = part->session.document().named_views;
-    } else if (const auto* assembly = workspace_.open_assembly(document_id)) {
-        named_views_json = assembly->session.document().named_views;
-    } else {
-        return;
-    }
+    if (!workspace_.open_part(document_id) && !workspace_.open_assembly(document_id)) return;
     std::vector<zima::app::OrientationSavedView> custom_views;
     try {
-        const auto parsed = nlohmann::json::parse(named_views_json);
-        if (parsed.is_array()) {
-            for (const auto& entry : parsed) {
-                if (!entry.is_object() || !entry.contains("name")) continue;
-                zima::app::OrientationSavedView view;
-                view.name = QString::fromStdString(
-                    entry.value("name", std::string()));
-                const auto zoom = static_cast<float>(entry.value("zoom", 1.0));
-                const std::array<float, 8> state{
-                    1.0F, 0.0F, 0.0F, 0.0F, zoom,
-                    static_cast<float>(entry.value("pan_x", 0.0)),
-                    static_cast<float>(entry.value("pan_y", 0.0)),
-                    static_cast<float>(entry.value("reference_scale", zoom))};
-                view.camera_state = state;
-                custom_views.push_back(std::move(view));
-            }
-        }
-    } catch (const nlohmann::json::exception&) {
-        custom_views.clear();
+        for (const auto& saved : zima::workspace::named_views(workspace_, document_id))
+            custom_views.push_back({QString::fromStdString(saved.name), {}, saved.camera});
+    } catch (const std::exception& error) {
+        state_->setText(tr(error.what()));
+        return;
     }
     auto* dialog = new zima::app::OrientationDialog(std::move(custom_views), this);
     orientation_dialog_ = dialog;
@@ -175,62 +155,17 @@ void AssemblyWorkspaceWindow::show_orientation_dialog() {
             }
             viewer_->animate_camera_state(view.camera_state);
         });
-    const auto persist_named_views =
-        [this, document_id](const nlohmann::json& merged) {
-        if (auto* part = workspace_.open_part(document_id)) {
-            auto next = part->session.document();
-            next.named_views = merged.dump();
-            part->session.commit(std::move(next), part->session.calculated_boundaries());
-        } else if (auto* assembly = workspace_.open_assembly(document_id)) {
-            auto next = assembly->session.document();
-            next.named_views = merged.dump();
-            assembly->session.commit(std::move(next));
-        }
-    };
-    const auto load_named_views = [this, document_id]() -> nlohmann::json {
-        std::string source = "[]";
-        if (const auto* part = workspace_.open_part(document_id)) {
-            source = part->session.document().named_views;
-        } else if (const auto* assembly = workspace_.open_assembly(document_id)) {
-            source = assembly->session.document().named_views;
-        }
-        try {
-            auto parsed = nlohmann::json::parse(source);
-            if (parsed.is_array()) return parsed;
-        } catch (const nlohmann::json::exception&) {
-        }
-        return nlohmann::json::array();
-    };
     dialog->set_save_view_callback(
-        [this, dialog, load_named_views, persist_named_views](const QString& name) {
+        [this, dialog, document_id](const QString& name) {
         if (viewer_ == nullptr) return;
-        zima::app::OrientationSavedView view;
-        view.name = name;
-        view.camera_state = viewer_->camera_state();
-        dialog->append_saved_view(view);
-        auto existing = load_named_views();
-        nlohmann::json merged = nlohmann::json::array();
-        for (const auto& entry : existing) {
-            if (entry.is_object() &&
-                entry.value("name", std::string()) != name.toStdString())
-                merged.push_back(entry);
-        }
-        merged.push_back({{"name", name.toStdString()},
-            {"pan_x", view.camera_state[5]}, {"pan_y", view.camera_state[6]},
-            {"zoom", view.camera_state[4]},
-            {"reference_scale", view.camera_state[7]}});
-        persist_named_views(merged);
+        zima::document::NamedView view{name.toStdString(), viewer_->camera_state()};
+        zima::document::normalize_named_view(view);
+        zima::workspace::set_named_view(workspace_, document_id, view);
+        dialog->append_saved_view({name, {}, view.camera});
     });
     dialog->set_delete_view_callback(
-        [this, load_named_views, persist_named_views](const QString& name) {
-        auto existing = load_named_views();
-        nlohmann::json merged = nlohmann::json::array();
-        for (const auto& entry : existing) {
-            if (entry.is_object() &&
-                entry.value("name", std::string()) != name.toStdString())
-                merged.push_back(entry);
-        }
-        persist_named_views(merged);
+        [this, document_id](const QString& name) {
+        zima::workspace::delete_named_view(workspace_, document_id, name.toStdString());
     });
     connect(dialog, &QObject::destroyed, this, [this] {
         orientation_dialog_ = nullptr;

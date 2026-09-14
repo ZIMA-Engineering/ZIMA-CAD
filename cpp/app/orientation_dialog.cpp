@@ -138,6 +138,12 @@ OrientationDialog::OrientationDialog(
         [this] { handle_delete_clicked(); });
     name_row->addWidget(delete_button);
     content_layout()->addLayout(name_row);
+    error_ = new QLabel(this);
+    error_->setObjectName("orientationViewError");
+    error_->setWordWrap(true);
+    error_->setStyleSheet("color: #e05050;");
+    error_->hide();
+    content_layout()->addWidget(error_);
 
     activate_row(0);
 }
@@ -340,8 +346,14 @@ void OrientationDialog::handle_view_item(QListWidgetItem* item) {
 void OrientationDialog::handle_save_clicked() {
     const auto name = name_edit_->text().trimmed();
     if (name.isEmpty()) return;
-    if (save_view_) save_view_(name);
-    name_edit_->clear();
+    try {
+        if (save_view_) save_view_(name);
+        name_edit_->clear();
+        error_->hide();
+    } catch (const std::exception& error) {
+        error_->setText(tr(error.what()));
+        error_->show();
+    }
 }
 
 void OrientationDialog::handle_delete_clicked() {
@@ -351,8 +363,15 @@ void OrientationDialog::handle_delete_clicked() {
     if (row < 0 || static_cast<std::size_t>(row) >= custom_views_.size()) return;
     auto& view = custom_views_[static_cast<std::size_t>(row)];
     if (!view.is_custom()) return;
-    if (delete_view_) delete_view_(view.name);
-    remove_saved_view(view.name);
+    try {
+        const auto name = view.name;
+        if (delete_view_) delete_view_(name);
+        remove_saved_view(name);
+        error_->hide();
+    } catch (const std::exception& error) {
+        error_->setText(tr(error.what()));
+        error_->show();
+    }
 }
 
 void OrientationDialog::append_saved_view(OrientationSavedView view) {

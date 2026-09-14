@@ -2037,3 +2037,30 @@ natočení kamery; po novém otevření se proto původní natočení neobnoví.
 Při sjednocení GUI/CLI je nutné uložit a ověřit celý stav kamery.
 Dále zbývá sjednotit přímé potvrzení viditelnosti a kurzoru těles a
 dokončit kontrolu inline hodnot a náhledů tažených myší.
+
+
+## Pojmenované pohledy Partu a Assembly (2026-09-15)
+
+Čtyři příkazy `view.named.list/get/set/delete` sdílejí správu
+uložené kamery s dialogem Pohledy. Nativní záznam nyní obsahuje
+kvaternion natočení, zoom, posun a referenční měřítko. Assembly jej
+skutečně zapisuje do `.asmz`; po novém otevření obou typů dokumentů
+se obnoví celý pohled. Zápisy jsou metadata bez výpočtu geometrie
+nebo řešení vazeb. Neplatná data, no-op a Undo/Redo mají společný
+kontrakt a přesné vlastnictví aktivního dokumentu.
+
+Part používá INI **20** / interní JSON **44**, Assembly INI **19** /
+JSON **28**. Startovní šablony a sdílené testovací soubory jsou
+aktualizované. Dialog hlásí chybu bez ztráty rozepsaných dat nebo
+položky a bezpečně zaniká i při zavření celého pracovního okna.
+
+Podrobnosti: [NAMED_VIEW_COMMANDS.md](NAMED_VIEW_COMMANDS.md).
+Katalog obsahuje **296 příkazů**, CTest **161 testů**.
+Cílené modelové a GUI ověření prošlo **2/2 za 129,39 s** a úplná
+regrese **161/161 za 659,35 s**. Obě aplikace a všechny testovací
+programy jsou sestavené. GUI test porovnává celé soubory z GUI a CLI a znovu
+otevře dokument, vybere uložený pohled a zkontroluje skutečnou kameru.
+
+Dále zbývá sdílené potvrzení viditelnosti a kurzoru těles a kontrola
+zbývajících inline hodnot a publikování náhledů tažených myší.
+CLI zatím není označeno za dokončené.

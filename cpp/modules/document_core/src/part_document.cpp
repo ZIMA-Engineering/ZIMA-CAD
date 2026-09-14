@@ -1,3 +1,4 @@
+#include <zima/document/named_views.hpp>
 #include <zima/document/profile_serialization.hpp>
 #include <zima/document/cache_storage.hpp>
 #include <zima/document/dimension_layout_json.hpp>
@@ -523,12 +524,12 @@ void add_json_parameters(
 
 nlohmann::json read_part_ini(const std::filesystem::path& path) {
     const auto ini = read_ini(path);
-    if (ini_value(ini, "Document", "format_version") != "19") {
+    if (ini_value(ini, "Document", "format_version") != "20") {
         throw std::runtime_error("Unsupported ZIMA-CAD Part document format");
     }
     nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 43},
+        {"format_version", 44},
         {"document_id", ini_required(ini, "Document", "document_id")},
         {"type", ini_value(ini, "Document", "type", "part")},
         {"name", ini_value(ini, "Document", "name", "Nový díl")},
@@ -680,7 +681,7 @@ void write_part_ini(
     const nlohmann::json& root, const std::filesystem::path& path) {
     IniSections ini;
     ini["Document"] = {
-        {"format_version", "19"},
+        {"format_version", "20"},
         {"type", "part"},
         {"document_id", root.at("document_id").get<std::string>()},
         {"name", root.at("name").get<std::string>()},
@@ -9419,6 +9420,7 @@ PartDocument PartDocument::load(
     document.material_parameter_descriptions = root.at("material_parameter_descriptions").get<decltype(document.material_parameter_descriptions)>();
     document.family_table = root.at("family_table").get<std::string>();
     document.named_views = root.value("named_views", std::string("[]"));
+    static_cast<void>(zima::document::parse_named_views(document.named_views));
     document.sections = parse_sections(root.value("sections",nlohmann::json::array()).dump());
     document.measurements = parse_measurements(root.value("measurements",nlohmann::json::array()).dump());
     document.dimension_layouts=zima::document::dimension_layouts_from_json(root.value("dimension_layouts",nlohmann::json::array()));
@@ -10992,9 +10994,10 @@ void PartDocument::save(
             constructions.size()) {
         throw std::runtime_error("Part history order does not cover every container");
     }
+    static_cast<void>(zima::document::parse_named_views(named_views));
     nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 43},
+        {"format_version", 44},
         {"document_id", document_id},
         {"type", "part"},
         {"name", name},

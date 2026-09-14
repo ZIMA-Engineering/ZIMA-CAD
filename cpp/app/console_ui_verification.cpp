@@ -1,3 +1,5 @@
+#include "orientation_dialog.hpp"
+#include <zima/document/named_views.hpp>
 #include <zima/document/placement_json.hpp>
 #include "sketch_properties_dialog.hpp"
 #include <zima/workspace/sketch_operations.hpp>
@@ -670,6 +672,98 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         run("save");const auto metadata_saved=document::PartDocument::load(directory/(stem+"-metadata.prtz"));
         check(metadata_saved.user_parameters.at("CLI_TEST")=="after GUI" && metadata_saved.document_units.at("Length")=="cm","GUI metadata did not persist");
         const auto json_run=[&](const char* command,commands::Json arguments) {return run(QString::fromStdString(commands::Json{{"command",command},{"arguments",std::move(arguments)}}.dump()));};
+
+        for(const bool in_assembly:{false,true}) {
+            const auto name=stem+(in_assembly?"-named-assembly":"-named-part");
+            json_run("new",{{"type","part"},{"name",name+"-source"}});
+            json_run("box.create",{{"length_mm","10"},{"width_mm","20"},{"height_mm","30"}});
+            run("save");const auto source=run("context").data.at("active_document");
+            if(in_assembly) {
+                json_run("new",{{"type","assembly"},{"name",name}});
+                json_run("component.insert",{{"source",source}});
+            }
+            const auto path=directory/((in_assembly?name:name+"-source")+(in_assembly?".asmz":".prtz"));
+            const auto edit_views=[&] {
+                auto* action=window.findChild<QAction*>("normalViewAction");
+                check(action && action->isEnabled(),"Named-view action missing");action->trigger();flush();
+                for(auto* candidate:window.findChildren<QDialog*>())
+                    if(candidate->isVisible())if(auto* dialog=dynamic_cast<OrientationDialog*>(candidate))return dialog;
+                throw std::runtime_error("Orientation dialog did not open");
+            };
+            const auto same_camera=[&](const std::array<float,8>& expected) {
+                const auto actual=view->camera_state();double dot=0;
+                for(std::size_t i=0;i<4;++i)dot+=double(expected[i])*actual[i];
+                if(std::abs(std::abs(dot)-1)>1e-6)return false;
+                for(std::size_t i=4;i<8;++i)if(std::abs(expected[i]-actual[i])>1e-5)return false;
+                return true;
+            };
+            const auto bytes=[&]{
+                QFile file(QString::fromStdString(document::path_to_utf8(path)));
+                check(file.open(QIODevice::ReadOnly),"Cannot read named-view parity fixture");return file.readAll();
+            };
+            const auto original_camera=view->camera_state();
+            auto* dialog=edit_views();
+            view->set_camera_state({0.5F,0.5F,0.5F,0.5F,2.75F,-23.5F,51.25F,6.5F});
+            const auto captured=view->camera_state();
+            auto* name_edit=dialog->findChild<QLineEdit*>("orientationViewName");
+            auto* save=dialog->findChild<QPushButton*>("orientationSaveViewButton");
+            auto* list=dialog->findChild<QListWidget*>("orientationViewList");
+            auto* error=dialog->findChild<QLabel*>("orientationViewError");
+            check(name_edit && save && list && error,"Named-view controls missing");
+            name_edit->setText(QString(1025,QChar('x')));save->click();flush();
+            check(name_edit->text().size()==1025 && error->isVisible() && list->count()==7 &&
+                json_run("view.named.list",commands::Json::object()).data.at("views").empty(),"Failed view save changed data or cleared the input");
+            name_edit->setText(QString::fromUtf8("Čtvrtotáčka"));save->click();flush();
+            check(name_edit->text().isEmpty() && !error->isVisible() && list->count()==8,"GUI view save failed");
+            const auto saved=json_run("view.named.get",{{"name","Čtvrtotáčka"}}).data.at("view");
+            check(document::parse_named_views(commands::Json::array({saved}).dump()).front().camera==captured,
+                "GUI view save lost part of the camera snapshot");
+            const auto revision=json_run("view.named.list",commands::Json::object()).data.at("revision");
+            name_edit->setText(QString::fromUtf8("Čtvrtotáčka"));save->click();flush();
+            check(json_run("view.named.list",commands::Json::object()).data.at("revision")==revision && list->count()==8,
+                "Repeated GUI view save created an Undo entry or duplicate");
+            dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
+            check(same_camera(original_camera),"Cancel did not restore the camera preceding the dialog");
+            run("save");const auto gui_bytes=bytes();
+            run("undo");auto camera=saved;camera.erase("name");
+            json_run("view.named.set",{{"name","Čtvrtotáčka"},{"camera",camera}});run("save");
+            check(bytes()==gui_bytes,"GUI and CLI named-view native files differ");
+            json_run("close",{{"discard",true}});
+            json_run("open",{{"path",document::path_to_utf8(path)}});flush();
+            view->set_camera_state({1,0,0,0,1,0,0,1});
+            dialog=edit_views();list=dialog->findChild<QListWidget*>("orientationViewList");
+            check(list && list->count()==8,"Reopened document lost the named view");
+            list->itemActivated(list->item(7));
+            QElapsedTimer animation;animation.start();
+            while(!same_camera(captured) && animation.elapsed()<1500){QThread::msleep(10);flush();}
+            check(same_camera(captured),"Reopened named view did not restore rotation, zoom, pan and reference scale");
+            dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+            check(same_camera(captured),"Confirming the named view changed its camera");
+            // Failed persistence must not optimistically remove a displayed row.
+            dialog=edit_views();list=dialog->findChild<QListWidget*>("orientationViewList");list->setCurrentRow(7);
+            dialog->set_delete_view_callback([](const QString&){throw std::out_of_range("Named view not found.");});
+            dialog->findChild<QPushButton*>("orientationDeleteViewButton")->click();flush();
+            check(list->count()==8 && dialog->findChild<QLabel*>("orientationViewError")->isVisible(),
+                "Failed named-view deletion removed the row");
+            dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
+            dialog=edit_views();dialog->findChild<QListWidget*>("orientationViewList")->setCurrentRow(7);
+            dialog->findChild<QPushButton*>("orientationDeleteViewButton")->click();flush();
+            check(dialog->findChild<QListWidget*>("orientationViewList")->count()==7,"GUI view deletion failed");
+            dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+            run("save");
+            const auto persisted=in_assembly?assembly::AssemblyDocument::load(path).named_views:document::PartDocument::load(path).named_views;
+            check(document::parse_named_views(persisted).empty(),"Native file retained a deleted named view");
+            // An open orientation dialog must be retired before its window's members.
+            {
+                auto closing=std::make_unique<AssemblyWorkspaceWindow>(QString::fromStdString(document::path_to_utf8(directory)));
+                check(closing->open_document_path(QString::fromStdString(document::path_to_utf8(path))),"Cannot open camera teardown fixture");
+                closing->findChild<QAction*>("normalViewAction")->trigger();
+                check(closing->findChild<QListWidget*>("orientationViewList"),"Camera teardown dialog missing");
+                closing.reset();flush();
+            }
+            json_run("close",{{"discard",true}});flush();
+            if(in_assembly)json_run("close",{{"document",source},{"discard",true}});
+        }
         for (const bool in_assembly : {false,true}) {
             const auto verify_properties = [&](auto native) {
             using Native=std::decay_t<decltype(native)>;

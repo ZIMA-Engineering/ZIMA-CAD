@@ -1,3 +1,4 @@
+#include <zima/document/named_views.hpp>
 #include <zima/document/profile_serialization.hpp>
 #include <zima/document/cache_storage.hpp>
 #include <zima/document/object_annotation_frames.hpp>
@@ -1818,7 +1819,7 @@ zima::kernel::ViewerMesh AssemblyDocument::build_scene_with_part_override(
 
 AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
     const auto ini = read_ini(path);
-    if (ini_value(ini, "Document", "format_version") != "18" ||
+    if (ini_value(ini, "Document", "format_version") != "19" ||
         ini_value(ini, "Document", "type") != "assembly") {
         throw std::runtime_error("Unsupported ZIMA-CAD Assembly document format");
     }
@@ -1834,7 +1835,7 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
     } catch (const nlohmann::json::exception&) {
         throw std::runtime_error("Assembly INI contains invalid Container data");
     }
-    if (root.value("format", "") != "zima-cad-cpp" || root.at("format_version") != 27 ||
+    if (root.value("format", "") != "zima-cad-cpp" || root.at("format_version") != 28 ||
         root.value("type", "") != "assembly") {
         throw std::runtime_error("Invalid Assembly Container data");
     }
@@ -1875,6 +1876,7 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
     document.material_parameter_descriptions = root.at("material_parameter_descriptions").get<decltype(document.material_parameter_descriptions)>();
     document.family_table = root.at("family_table").get<std::string>();
     document.named_views = root.value("named_views", std::string("[]"));
+    static_cast<void>(zima::document::parse_named_views(document.named_views));
     document.sections=zima::document::parse_sections(root.value("sections",nlohmann::json::array()).dump());
     document.measurements=zima::document::parse_measurements(root.value("measurements",nlohmann::json::array()).dump());
     document.dimension_layouts=zima::document::dimension_layouts_from_json(root.value("dimension_layouts",nlohmann::json::array()));
@@ -2170,8 +2172,9 @@ void AssemblyDocument::save(const std::filesystem::path& path,
         zima::document::save_profile_parameters(feature, saved_cut);
         cuts_json.push_back(std::move(saved_cut));
     }
+    static_cast<void>(zima::document::parse_named_views(named_views));
     nlohmann::json root = {
-        {"format", "zima-cad-cpp"}, {"format_version", 27},
+        {"format", "zima-cad-cpp"}, {"format_version", 28},
         {"type", "assembly"}, {"document_id", document_id}, {"name", name},
         {"user_parameters", user_parameters},
         {"user_parameter_order", user_parameter_order},
@@ -2186,6 +2189,7 @@ void AssemblyDocument::save(const std::filesystem::path& path,
         {"physical_parameter_units", physical_parameter_units},
         {"material_parameter_descriptions", material_parameter_descriptions},
         {"family_table", family_table},
+        {"named_views", named_views},
         {"sections",nlohmann::json::parse(zima::document::serialize_sections(sections))},
         {"measurements",nlohmann::json::parse(zima::document::serialize_measurements(measurements))},
         {"sketches", std::move(sketches_json)},
@@ -2201,7 +2205,7 @@ void AssemblyDocument::save(const std::filesystem::path& path,
     const auto saved_name = root.at("name").get<std::string>();
     IniSections ini;
     ini["Document"] = {
-        {"format_version", "18"},
+        {"format_version", "19"},
         {"type", "assembly"},
         {"document_id", saved_id},
         {"name", saved_name},

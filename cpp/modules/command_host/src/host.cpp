@@ -96,6 +96,7 @@ void Host::register_commands(){
     register_sketch_spline_commands();
     register_import_commands();
     register_export_commands();
+    register_named_view_commands();
     register_metadata_commands();
     register_engineering_metadata_commands();
     register_component_commands();
