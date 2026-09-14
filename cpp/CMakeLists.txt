@@ -138,6 +138,7 @@ add_library(zima_workspace modules/workspace/src/workspace.cpp
     modules/workspace/src/document_dependencies.cpp
     modules/workspace/src/export_operations.cpp
     modules/workspace/src/import_operations.cpp
+    modules/workspace/src/imported_feature_operations.cpp
     modules/workspace/src/assembly_import_operations.cpp
     modules/workspace/src/metadata_operations.cpp
     modules/workspace/src/engineering_metadata_operations.cpp

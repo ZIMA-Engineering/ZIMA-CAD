@@ -35,7 +35,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Válec, koule, kužel, jehlan, klín | Hotovo | Společné create/get/set, zámky, přesnost, GUI/CLI a 59/59 regresí |
 | Historie Partu | Hotovo | Společný přesun, ověření závislostí, potlačení, odstranění a kurzor; včetně historie těles a Booleanů |
 | Tělesa a Boolean | Modelové operace a reference hotovy | Tvorba, čtení, aktivace, název/viditelnost, kurzory, Boolean, pořadí a mazání; `body.reference.set` a společný vstup `placement.reference.set`; zbývá odstranění reference |
-| Umístění a původní reference | Číselná editace, reference Body/konstrukcí/primitiv, otvorů, řezů a profilů Partu/Assembly | `placement.get/set`, `value_lock.list/set`; `placement.reference.set` pro Body, kořenové konstrukce, šest primitiv a profily Partu, `body.reference.set`, `construction.reference.set`; `hole/opening.reference.set`, `section.reference.set`, `extrusion/revolution.reference.set` také pro profilové odečty Assembly a `sweep2d/sweep3d/helical.reference.set`; zbývají další modelové prvky, vložené dráhy a odebrání reference; komponenty používají `component.set` |
+| Umístění a původní reference | Číselná editace, reference Body/konstrukcí/primitiv, otvorů, řezů a profilů Partu/Assembly | `placement.get/set`, `value_lock.list/set`; `placement.reference.set` pro Body, kořenové konstrukce, šest primitiv a profily Partu, `body.reference.set`, `construction.reference.set`; `hole/opening.reference.set`, `section.reference.set`, `extrusion/revolution.reference.set` také pro profilové odečty Assembly a `sweep2d/sweep3d/helical.reference.set`, importované prvky přes `import.reference.set`; zbývají vložené dráhy a odebrání reference; komponenty používají `component.set` |
 | Konstrukční geometrie | Tvorba, vlastnosti a reference kořenů hotovy | `construction.list/get/create/set/delete`, `construction.reference.set`; body křivek, tečny, zaoblení a seznamy; přiřazení referencí bodům je připravené na `codex/curve-reference-pending` a čeká na schválenou opravu starých zdrojových poloh; vložené dráhy následují |
 | Skicář: geometrie | Základ hotov | 21 příkazů: samostatné a vložené skici, body, úsečky, kružnice, oblouky, elipsy, B-spline, obdélníky, mnohoúhelníky, posun a pomocná geometrie; text create/get/set s nativním písmem a spline get/set hotovy; DXF do vložených profilů hotov; zbývá kontrola dalších variant podle GUI |
 | Skicář: vazby a operace | Vazby/kóty/solver/offset/trim/mirror hotovy | Offset create/get/set/free, úplný podklad a zachování intervalů, trim podle průsečíků, mirror, orientovaný obdélník, tečny a zaoblení rohu; všech 15 druhů vazeb, odstranění a solver; 16 druhů kót včetně vlastností, popisků a mazání; uvolnění externích referencí hotovo |
@@ -52,7 +52,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Řezy | Čtení, tvorba, vlastnosti, aktivace a odstranění | `section.list/get/components/create/set/activate/delete`: úplná otevřená čára, vlastní skica, společné OK vlastností, číselné umístění, přesné výskyty a šrafování; `section.sketch.edit` upravuje celou skicu v jedné transakci; `section.reference.set` přiřazuje původní reference umístění Partu i Assembly |
 | Měření | Společné GUI/CLI operace | `measurement.list/get/evaluate/create/set/delete`; původní reference a uložené výsledky |
 | Parametry, relace a materiál | Společné tabulky a transakce hotovy | Parametry, jednotky, přesnost, relace, materiál včetně přímého načtení knihovny a uložené varianty; řízení rozměrů relacemi a generování variant nejsou dosud zavedené ani v GUI |
-| Import a export | Import Partu/Assembly STEP/IGES/DXF a základní exporty hotovy | Společný STEP včetně vnořených sestav, STL Part/vnořená Assembly, DXF úsečky/osy/body/kružnice/oblouky/elipsy/spline/trimy/offsety i textové obrysy a rohová zaoblení; DXF do vložených profilů hotov; přesný import neupnutých/periodických spline hotov; `export.view` snímá aktuální 3D pohled přes GUI adaptér; dávkový hostitel bez View vrací `view_unavailable` |
+| Import a export | Import Partu/Assembly STEP/IGES/DXF, vlastnosti importovaných prvků a základní exporty hotovy | Společný STEP včetně vnořených sestav, STL Part/vnořená Assembly, DXF úsečky/osy/body/kružnice/oblouky/elipsy/spline/trimy/offsety i textové obrysy a rohová zaoblení; DXF do vložených profilů hotov; přesný import neupnutých/periodických spline hotov; `export.view` snímá aktuální 3D pohled přes GUI adaptér; dávkový hostitel bez View vrací `view_unavailable` |
 
 Každá další etapa aktualizuje tabulku a uvádí ověřené testy. Neobcházíme
 chybějící operaci nevalidovanou změnou serializovaného dokumentu ani voláním
@@ -1775,3 +1775,30 @@ dráhy. Před opravou adaptéru test zachytil ztrátu reference při GUI OK;
 po opravě změna 3 → 4 mm projde včetně uložení a Undo/Redo.
 Úplná sada nebyla v této etapě opakována; poslední úplný výsledek je
 150/150 v build/assembly-profile-reference-full-tests.log.
+
+
+## Vlastnosti importovaných prvků (2026-09-14)
+
+import.get/set/reference.set zpřístupňují uložené vlastnosti STEP/IGES prvku,
+název, operaci, číselné umístění a původní reference. Sdílené potvrzení
+importovaného prvku nahradilo poslední obecnou větev GUI potvrzení.
+Obecný placement.reference.set používá tentýž adaptér. Katalog má
+**282 příkazů**, testovací sada stále **150 testů**.
+Podrobnosti: [IMPORTED_FEATURE_COMMANDS.md](IMPORTED_FEATURE_COMMANDS.md).
+
+Následuje práce s referencemi vložených drah, odebrání referencí a další
+souborové operace. Tato etapa neznamená úplné dokončení CLI.
+
+
+Geometrická regrese této etapy navíc odhalila chybějící přenos posunu
+a natočení importovaného kontejneru do StepRequest. Oprava předává již
+vyřešené hodnoty a zahrnuje je do identity výpočtu; společný řešič se nemění.
+Ověření zahrnuje skutečnou geometrii, původní topologii i odečet.
+
+
+Závěrečné ověření Windows Release: obě aplikace a všechny testovací cíle
+jsou sestavené. Úplná regrese prošla **150/150 za 647,59 s**, včetně
+modelových, procesních CLI, překladových a skutečných GUI testů.
+Logy: `build/import-feature-full-build.log` a
+`build/import-feature-full-tests.log`. GUI ověřuje skutečný přírůstek X
+1 mm po změně offsetu 3 → 4 mm i totožný výsledek uloženého Partu.

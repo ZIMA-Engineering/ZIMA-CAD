@@ -1,3 +1,4 @@
+#include <zima/workspace/imported_feature_operations.hpp>
 #include <zima/workspace/hole_operations.hpp>
 #include "workspace_internal.hpp"
 #include <zima/workspace/primitive_operations.hpp>
@@ -392,41 +393,12 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 } catch (const std::exception& error) { throw std::runtime_error(tr(error.what()).toStdString()); }
                 return;
             }
-            auto* target_part = workspace_.open_part(owner_id);
-            if (target_part == nullptr) throw std::runtime_error("Part is no longer open");
-            auto next = target_part->session.document();
-            if (property_owned_sketch_draft_) {
-                const auto found = std::ranges::find(next.sketches, property_owned_sketch_draft_->id,
-                    &zima::sketcher::Sketch::id);
-                if (found == next.sketches.end()) next.sketches.push_back(*property_owned_sketch_draft_);
-                else *found = *property_owned_sketch_draft_;
+            try {
+                static_cast<void>(zima::workspace::commit_imported_feature(
+                    workspace_, kernel_, owner_id, std::move(committed)));
+            } catch (const std::exception& error) {
+                throw std::runtime_error(tr(error.what()).toStdString());
             }
-            if (edit_mode) {
-                auto* target = next.find_container(committed.id);
-                if (target == nullptr) throw std::runtime_error("Container no longer exists");
-                if (*target == committed) return;
-                *target = std::move(committed);
-            } else {
-                next.insert_history_entry(
-                    zima::document::PartHistoryKind::Feature, committed.id);
-                next.history.push_back(std::move(committed));
-            }
-            // Universal container placement: resolve any HistoryContainer
-            // placement references against the geometry that existed before
-            // this edit, exactly like ConstructionObject editing does, before
-            // the kernel evaluates the (possibly placement-dependent) history.
-            const auto& calculated_before =
-                target_part->session.calculated_boundaries();
-            auto reference_geometry =
-                construction_reference_source_geometry(calculated_before);
-            append_reference_geometry(reference_geometry,
-                next.origin_viewer_mesh().original_references);
-            append_reference_geometry(reference_geometry,
-                next.construction_viewer_mesh().original_references);
-            next.resolve_constructions(reference_geometry);
-            auto calculated = calculate_part(next, &calculated_before);
-            static_cast<void>(refresh_sketch_external_references(next, calculated));
-            workspace::commit_part_document(workspace_,target_part->session.document().document_id,std::move(next), std::move(calculated));
         }, this, std::move(assembly_targets), std::move(selected_targets),
         assembly_cut);
     primitive_parameter_owner_id_ = initial.id;

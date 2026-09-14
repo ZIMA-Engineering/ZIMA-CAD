@@ -68,3 +68,11 @@ a zachovaný objem. Katalog obsahuje 263 příkazů, sada 144 testů.
 Úplná Windows Release regrese prošla **144/144 za 574,23 s**, včetně
 všech GUI, modelových, procesních, výkresových a skicových testů.
 Záznam: `build/primitive-reference-full-tests.log`.
+
+
+## Importovaná tělesa
+
+placement.reference.set podporuje také existující STEP/IGES prvek Partu
+přes stejnou operaci jako import.reference.set. Zdrojová geometrie a její
+identity zůstávají nativně uložené a neměnné; umístění vlastní kontejner.
+Podrobnosti: [IMPORTED_FEATURE_COMMANDS.md](IMPORTED_FEATURE_COMMANDS.md).

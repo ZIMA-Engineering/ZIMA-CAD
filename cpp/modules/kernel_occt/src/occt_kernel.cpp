@@ -2905,6 +2905,22 @@ PrimitiveData make_step_data(
     if (result.shape.IsNull() || !BRepCheck_Analyzer(result.shape).IsValid()) {
         throw std::runtime_error("STEP did not produce a valid shape");
     }
+    bool placed = false;
+    for (const double value : {request.translation.x, request.translation.y, request.translation.z,
+            request.rotation_degrees.x, request.rotation_degrees.y, request.rotation_degrees.z}) {
+        if (!std::isfinite(value)) throw std::invalid_argument("Placement value must be finite.");
+        placed = placed || value != 0;
+    }
+    if (placed) {
+        // Recover source identities before positioning the runtime operand.
+        // Moving the matching topology retains those exact owners and keys;
+        // the frozen B-Rep and its archive locators are never rewritten.
+        const TopLoc_Location location(primitive_transform(request.translation, request.rotation_degrees));
+        result.shape.Move(location);
+        for (auto& face : result.faces) face.shape.Move(location);
+        for (auto& edge : result.edges) edge.shape.Move(location);
+        for (auto& vertex : result.vertices) vertex.shape.Move(location);
+    }
     return result;
 }
 

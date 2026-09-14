@@ -1,3 +1,6 @@
+#include <set>
+#include <zima/workspace/imported_feature_operations.hpp>
+#include <algorithm>
 #include "dxf_export_test_support.hpp"
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/import_operations.hpp>
@@ -22,6 +25,150 @@ commands::Result run(command_host::Host& host,const char* name,Json args=Json::o
 auto snapshot(const document::PartDocument& doc) {
     std::vector<std::string> sketches;for(const auto& sketch:doc.sketches)sketches.push_back(sketch.serialized());
     return std::tuple{doc.document_id,doc.name,doc.history,doc.body_history,doc.history_order,doc.history_cursor,sketches};
+}
+void verify_imported_properties(command_host::Host& host, workspace::Workspace& live,
+    const kernel::OcctKernel& kernel, const fs::path& directory, const std::string& container) {
+    const auto id = live.active_document_id();
+    auto& state = *live.open_part(id);
+    const auto original = workspace::imported_feature(live, id, container);
+    const auto volume = state.session.calculated_boundaries().back().volume;
+    const auto reference_ids = [&] {
+        std::set<std::string> ids;
+        const auto& refs = state.session.calculated_boundaries().back().mesh.original_references;
+        for(const auto& ref:refs.triangle_references) ids.insert(ref.owner_id+"/"+ref.semantic_key);
+        for(const auto& edge:refs.edges) ids.insert(edge.reference.owner_id+"/"+edge.reference.semantic_key);
+        for(const auto& point:refs.points) ids.insert(point.reference.owner_id+"/"+point.reference.semantic_key);
+        return ids;
+    };
+    const auto original_ids = reference_ids();
+    const auto spans = [&] {
+        const auto& vertices=state.session.calculated_boundaries().back().mesh.vertices;
+        const auto x=std::ranges::minmax_element(vertices,{},&kernel::Vec3::x);
+        const auto y=std::ranges::minmax_element(vertices,{},&kernel::Vec3::y);
+        const auto z=std::ranges::min_element(vertices,{},&kernel::Vec3::z);
+        return kernel::Vec3{x.max->x-x.min->x,y.max->y-y.min->y,z->z};
+    };
+    const auto original_spans=spans();
+    const auto get = [&] { return run(host, "import.get", {{"container", container}}).data; };
+    const auto minimum_x = [&] {
+        const auto& vertices = state.session.calculated_boundaries().back().mesh.vertices;
+        require(!vertices.empty(), "Imported property edit lost the display geometry");
+        return std::ranges::min_element(vertices, {}, &kernel::Vec3::x)->x;
+    };
+    const auto reject = [&](const char* command, Json args, const char* code) {
+        const auto before = snapshot(state.session.document());
+        const auto revision = state.session.revision();
+        const auto* cache = state.session.calculated_boundaries().data();
+        const auto result = host.execute({{"command", command}, {"arguments", std::move(args)}});
+        if (result.ok || result.code != code) throw std::runtime_error(std::string(command) + " expected " + code + ", got " + result.code + ": " + result.message);
+        require(snapshot(state.session.document()) == before && state.session.revision() == revision &&
+                state.session.calculated_boundaries().data() == cache && !host.change(),
+            "Rejected imported property edit changed history or cache");
+    };
+    const auto* cache = state.session.calculated_boundaries().data();
+    const auto revision = state.session.revision();
+    const auto queried = get();
+    require(queried.at("source") == original.imported_step.source_path &&
+            queried.at("topology_count") == original.imported_step.topology.size() &&
+            queried.at("stored_brep_bytes") == original.imported_step.frozen_brep->size() &&
+            state.session.revision() == revision && state.session.calculated_boundaries().data() == cache,
+        "Imported property query calculated or lost persisted source data");
+    Json patch = {{"container", container}, {"name", "Upravené importované těleso"}, {"placement", {{"z", 12}, {"rotation_z", 90}}}};
+    require(run(host, "import.set", patch).data.at("changed") == true && get().at("placement").at("z") == 12,
+        "Imported property patch did not move the feature");
+    const auto rotated_spans=spans();
+    require(std::abs(rotated_spans.x-original_spans.y)<1e-7 &&
+            std::abs(rotated_spans.y-original_spans.x)<1e-7 &&
+            std::abs(rotated_spans.z-original_spans.z-12)<1e-7 && reference_ids()==original_ids,
+        "Imported translation/rotation did not transform geometry with its original identities");
+    require(workspace::imported_feature(live, id, container).imported_step == original.imported_step &&
+            std::abs(state.session.calculated_boundaries().back().volume - volume) < 1e-5,
+        "Imported property edit changed native geometry or its scale");
+    const auto edited = snapshot(state.session.document());
+    const auto unchanged_revision = state.session.revision();
+    require(run(host, "import.set", patch).data.at("changed") == false &&
+            state.session.revision() == unchanged_revision && !host.change(), "No-op import edit added history");
+    run(host, "undo"); require(workspace::imported_feature(live, id, container) == original, "Import properties Undo failed");
+    run(host, "redo"); require(snapshot(state.session.document()) == edited, "Import properties Redo failed");
+    reject("import.set", {{"container", container}, {"name", "   "}}, "invalid_arguments");
+    reject("import.set", {{"container", container}}, "invalid_arguments");
+    reject("import.set", {{"container", container}, {"combine", "union"}}, "invalid_arguments");
+    reject("import.set", {{"container", container}, {"combine", "subtract"}}, "missing_input");
+    reject("import.set", {{"container", container}, {"placement", {{"z", "12"}}}}, "invalid_arguments");
+    reject("import.set", {{"container", container}, {"placement", {{"radius", 5}}}}, "parameter_not_editable");
+    reject("import.set", {{"container", container}, {"source", "elsewhere.step"}}, "invalid_arguments");
+    reject("import.get", {{"container", "absent"}}, "container_not_found");
+    Json reference = {{"container", container}, {"index", 0},
+        {"reference", {{"owner", id + ":origin"}, {"key", "origin:plane:yz"}}}, {"offset_mm", 0}};
+    run(host, "import.reference.set", reference);
+    const auto zero = minimum_x();
+    reference["offset_mm"] = 7; run(host, "import.reference.set", reference);
+    require(std::abs(minimum_x()-zero-7)<1e-7 && reference_ids()==original_ids, "Imported reference did not move geometry with its original identities");
+    require(run(host, "import.reference.set", reference).data.at("changed") == false && !host.change(),
+        "Repeated imported reference added an Undo entry");
+    run(host, "import.set", {{"container", container}, {"placement", {{"reference_offset:0", 9}}}});
+    require(std::abs(minimum_x() - zero - 9) < 1e-7, "Imported reference offset patch failed");
+    run(host, "undo"); require(std::abs(minimum_x() - zero - 7) < 1e-7, "Reference offset Undo failed");
+    reject("import.set", {{"container", container}, {"placement", {{"x", 100}}}}, "parameter_not_editable");
+    auto generic = reference; generic.erase("container"); generic["object"] = container; generic["offset_mm"] = 11;
+    require(run(host, "placement.reference.set", generic).data.at("placement").at("x") == 11,
+        "Generic imported reference dispatch failed");
+    run(host, "undo");
+    auto bad = reference; bad["index"] = 1; reject("import.reference.set", bad, "duplicate_reference");
+    bad = reference; bad["index"] = 4294967296LL; reject("import.reference.set", bad, "invalid_arguments");
+    bad = reference; bad["reference"]["instance_path"] = "not-local"; reject("import.reference.set", bad, "invalid_arguments");
+    bad = reference; bad["reference"]["owner"] = original.container_origin.id;
+    reject("import.reference.set", bad, "reference_not_available");
+    auto locked = workspace::imported_feature(live, id, container);
+    locked.placement.references.front().offset_locked = true;
+    static_cast<void>(workspace::commit_imported_feature(live, kernel, id, locked));
+    reference["offset_mm"] = 99; run(host, "import.reference.set", reference);
+    require(std::abs(minimum_x() - zero - 7) < 1e-7, "Import assignment discarded a locked reference distance");
+    reject("import.set", {{"container", container}, {"placement", {{"reference_offset:0", 9}}}}, "parameter_not_editable");
+    auto altered_source = workspace::imported_feature(live, id, container);
+    altered_source.imported_step.source_path += ".changed";
+    bool immutable = false;
+    try { static_cast<void>(workspace::commit_imported_feature(live, kernel, id, altered_source)); }
+    catch (const workspace::ImportOperationError& error) { immutable = std::string(error.code) == "immutable_source"; }
+    require(immutable && workspace::imported_feature(live, id, container).imported_step == original.imported_step,
+        "Property commit replaced the imported source payload");
+    run(host, "save");
+    std::vector<kernel::BodyResult> saved_cache;
+    const auto saved = document::PartDocument::load(state.path, &saved_cache);
+    require(saved.find_container(container)->imported_step == original.imported_step &&
+            saved.find_container(container)->placement.references.front().offset_locked &&
+            !saved_cache.empty() && std::abs(saved_cache.back().volume - volume) < 1e-5,
+        "Native imported properties lost geometry, topology or placement");
+    const auto body = saved.body_history.active_body_id();
+    run(host, "body.create", {{"name", "Other"}});
+    reject("import.set", patch, "inactive_body");
+    reject("import.reference.set", reference, "inactive_body");
+    run(host, "body.activate", {{"body", body}});
+    // A 200 mm cube contains either fixture even with different source origins.
+    // Move it before the imported feature in the same Body, then test the
+    // actual Boolean result independently of the imported object's placement.
+    static_cast<void>(workspace::commit_imported_feature(live, kernel, id, original));
+    const auto base = run(host, "box.create",
+        {{"length_mm", "200"}, {"width_mm", "200"}, {"height_mm", "200"}}).data.at("container");
+    run(host, "placement.set", {{"object", base}, {"values", {{"x", -50}, {"y", -50}, {"z", -50}}}});
+    run(host, "history.move", {{"object", base}, {"before", container}});
+    require(std::abs(state.session.calculated_boundaries().back().volume - (8000000 + volume)) < 1e-4,
+        "Imported add did not preserve the compound volume");
+    require(run(host, "import.set", {{"container", container}, {"combine", "subtract"}}).data.at("combine") == "subtract" &&
+            std::abs(state.session.calculated_boundaries().back().volume - (8000000 - volume)) < 1e-4,
+        "Imported subtract property did not remove the independent source volume");
+    run(host, "undo"); require(std::abs(state.session.calculated_boundaries().back().volume - (8000000 + volume)) < 1e-4,
+        "Imported Boolean Undo failed");
+    run(host, "redo"); run(host, "save"); saved_cache.clear();
+    const auto boolean_saved = document::PartDocument::load(state.path, &saved_cache);
+    require(boolean_saved.find_container(container)->combine_mode == document::CombineMode::Subtract &&
+            boolean_saved.find_container(container)->imported_step == original.imported_step &&
+            !saved_cache.empty() && std::abs(saved_cache.back().volume - (8000000 - volume)) < 1e-4,
+        "Native imported Boolean lost its operation or original source");
+    kernel::OcctKernel cold_kernel;
+    const auto cold = cold_kernel.evaluate_history(boolean_saved.kernel_operations());
+    require(!cold.empty() && std::abs(cold.back().volume - (8000000 - volume)) < 1e-4,
+        "Reopened imported Boolean cannot regenerate without the interchange source");
 }
 void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     workspace::Workspace live;command_host::Options options;
@@ -49,8 +196,11 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     reject("import.step",{{"path","kvádr.step"},{"mesh_deflection_mm",0}});reject("import.step",{{"path","kvádr.step"},{"mesh_deflection_mm",-1}});reject("import.step",{{"path","kvádr.igs"}});reject("import.step",{{"path","missing.step"}});
     run(host,"save");fs::remove(dir/fs::path(u8"kvádr.step"));run(host,"regenerate");require(part->session.document().find_container(imported_id)->imported_step.topology==topology && std::abs(part->session.calculated_boundaries().back().volume-6000)<1e-5,"Native STEP lost independent regeneration");
     std::vector<kernel::BodyResult> loaded_body;const auto loaded=document::PartDocument::load(dir/"imported-step.prtz",&loaded_body);require(loaded.find_container(imported_id)->imported_step.topology==topology && std::abs(loaded_body.back().volume-6000)<1e-5,"Saved STEP import lost geometry");
+    verify_imported_properties(host,live,kernel,dir,imported_id);
     run(host,"new",{{"type","part"},{"name","imported-iges"}});const auto iges=run(host,"import.iges",{{"path","kvádr.igs"},{"mesh_deflection_mm",1.5}}).data;
     part=live.open_part(live.active_document_id());require(iges.at("bodies").size()==1 && std::abs(part->session.calculated_boundaries().back().volume-6000)<1e-5 && part->session.document().find_container(iges.at("containers")[0].get<std::string>())->imported_step.mesh_deflection==1.5,"IGES command changed geometry or mesh choice");
+    fs::remove(dir/fs::path(u8"kvádr.igs"));
+    verify_imported_properties(host,live,kernel,dir,iges.at("containers")[0].get<std::string>());
     run(host,"new",{{"type","part"},{"name","imported-dxf"}});const auto dxf_doc=live.active_document_id();
     run(host,"box.create",{{"length_mm","3"},{"width_mm","4"},{"height_mm","5"}});part=live.open_part(dxf_doc);const auto cache=part->session.calculated_boundaries().back().kernel_shape;
     const auto dxf=run(host,"import.dxf",{{"path",document::path_to_utf8(dxf_path)},{"unitless_scale_mm",25.4}}).data;

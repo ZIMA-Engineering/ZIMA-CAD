@@ -611,6 +611,10 @@ struct StepRequest {
         bool operator==(const TopologyIdentity&) const = default;
     };
     std::vector<TopologyIdentity> topology;
+    // Already resolved feature placement in the owning Body's coordinates.
+    // The immutable source B-Rep and its identity locators stay unplaced.
+    Vec3 translation{};
+    Vec3 rotation_degrees{};
 };
 
 struct Sweep3DRequest {
@@ -1463,6 +1467,9 @@ struct PlacedBody {
                 for (const unsigned char value : primitive.source_path) byte(value);
                 u64(primitive.component_path.size());
                 for (const unsigned char value : primitive.component_path) byte(value);
+                for (const double value : {primitive.translation.x, primitive.translation.y, primitive.translation.z,
+                        primitive.rotation_degrees.x, primitive.rotation_degrees.y, primitive.rotation_degrees.z})
+                    u64(std::bit_cast<std::uint64_t>(value));
             } else if constexpr (std::is_same_v<Request, ThreadSurfaceRequest>) {
                 if (primitive.shaft_face) {
                     byte(255); // Standalone external thread reference contract.

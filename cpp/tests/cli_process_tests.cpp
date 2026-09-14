@@ -854,6 +854,29 @@ int main(int argc,char** argv){
         require(result.exit_code==0 && result.results()[1].at("data").at("bodies").size()==1,"CLI IGES import failed");
         std::vector<kernel::BodyResult> iges_bodies;static_cast<void>(document::PartDocument::load(project/"cli-iges.prtz",&iges_bodies));
         require(!iges_bodies.empty() && std::abs(iges_bodies.back().volume-1000)<1e-4,"CLI IGES changed native scale");
+        for (const std::string native_name : {"cli-step.prtz", "cli-iges.prtz"}) {
+            std::vector<kernel::BodyResult> before_cache;
+            const auto before = document::PartDocument::load(project/native_name, &before_cache);
+            const auto& imported = before.history.back();
+            const auto feature_get = command({{"command","import.get"},{"arguments",{{"container",imported.id}}}});
+            const auto feature_set = command({{"command","import.set"},{"arguments",{{"container",imported.id},
+                {"name","Upravený import"},{"placement",{{"z",12}}}}}});
+            const auto feature_reference = command({{"command","import.reference.set"},{"arguments",{{"container",imported.id},
+                {"index",0},{"reference",{{"owner",before.document_id+":origin"},{"key","origin:plane:yz"}}},{"offset_mm",7}}}});
+            result=launch(executable,root,common+QStringList{"--command",QString::fromStdString("open "+native_name),
+                "--command",feature_get,"--command",feature_set,"--command",feature_reference,
+                "--command","undo","--command","redo","--command","save","--command",feature_get});
+            if(result.exit_code!=0)std::cerr<<result.output.toStdString()<<result.diagnostics.toStdString();
+            require(result.exit_code==0&&result.results().back().at("data").at("placement").at("x")==7,
+                "Real CLI imported feature properties or reference assignment failed");
+            std::vector<kernel::BodyResult> after_cache;
+            const auto after=document::PartDocument::load(project/native_name,&after_cache);
+            require(after.find_container(imported.id)->imported_step==imported.imported_step&&
+                after.find_container(imported.id)->name=="Upravený import"&&
+                after.find_container(imported.id)->placement.references.front().offset==7&&
+                !after_cache.empty()&&std::abs(after_cache.back().volume-before_cache.back().volume)<1e-4,
+                "CLI imported properties changed native geometry or lost their placement");
+        }
         const Json metadata_entries=Json::array({{{"key","NUMBER"},{"values",{{"","CLI-001"}}}},{{"key","NAME"},{"values",{{"cs","Český díl"},{"en","Part"}}}}});
         const auto metadata_set=command({{"command","document.parameters.set"},{"arguments",{{"parameters",metadata_entries}}}});
         const auto settings_set=command({{"command","document.settings.set"},{"arguments",{{"units",{{"Length","m"}}},{"precision",{{"mesh_deflection",2},{"decimal_places",6}}}}}});

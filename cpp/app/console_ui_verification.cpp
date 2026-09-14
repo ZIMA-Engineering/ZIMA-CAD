@@ -665,6 +665,69 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         run("save");const auto metadata_saved=document::PartDocument::load(directory/(stem+"-metadata.prtz"));
         check(metadata_saved.user_parameters.at("CLI_TEST")=="after GUI" && metadata_saved.document_units.at("Length")=="cm","GUI metadata did not persist");
         const auto json_run=[&](const char* command,commands::Json arguments) {return run(QString::fromStdString(commands::Json{{"command",command},{"arguments",std::move(arguments)}}.dump()));};
+        {
+            const auto previous=run("context").data.at("active_document");
+            for (const bool iges : {false,true}) {
+                const auto name=stem+(iges?"-iges-properties":"-step-properties");
+                json_run("new",{{"type","part"},{"name",name}});
+                const auto imported=json_run(iges?"import.iges":"import.step",
+                    {{"path",document::path_to_utf8(iges?std::filesystem::absolute("cpp/tests/fixtures/import/cube-10mm.igs"):exported_model)}}).data;
+                const auto container=imported.at("containers").front().get<std::string>();
+                const auto owner=imported.at("document").get<std::string>();
+                const auto get=[&]{return json_run("import.get",{{"container",container}}).data;};
+                json_run("import.set",{{"container",container},{"name","Import z konzole"}});
+                const commands::Json reference={{"container",container},{"index",0},
+                    {"reference",{{"owner",owner+":origin"},{"key","origin:plane:yz"}}},{"offset_mm",3}};
+                json_run("import.reference.set",reference);flush();run("save");
+                const auto file=directory/(name+".prtz");std::vector<kernel::BodyResult> before_cache;
+                const auto before=document::PartDocument::load(file,&before_cache);
+                check(!before_cache.empty(),"Imported GUI fixture has no calculated body");
+                const auto minimum_x=[&](const kernel::ViewerMesh& mesh) {
+                    check(!mesh.vertices.empty(),"Imported GUI mesh is empty");
+                    return std::ranges::min_element(mesh.vertices,{},&kernel::Vec3::x)->x;
+                };
+                const auto view_before=minimum_x(view->mesh());
+                const auto edit=[&]() {
+                    QTreeWidgetItem* item=nullptr;
+                    {
+                        for(QTreeWidgetItemIterator it(model_tree);*it;++it)
+                            if((*it)->data(0,Qt::UserRole).toString().toStdString()==container&&
+                               (*it)->data(0,Qt::UserRole+3).toString()=="part-container") {item=*it;break;}
+                    }
+                    check(item,"Imported CLI feature is missing from the tree");
+                    window.show_tree_item_properties(item);flush();
+                    for(auto* widget:window.findChildren<QDialog*>())
+                        if(auto* dialog=dynamic_cast<PrimitivePropertiesDialog*>(widget);dialog&&dialog->isVisible())
+                            return QPointer<PrimitivePropertiesDialog>(dialog);
+                    throw std::runtime_error("Imported Properties did not open");
+                };
+                for(const bool accept:{false,true}) {
+                    auto dialog=edit();
+                    auto* rows=dialog->findChild<QTableWidget*>("primitiveReferenceTable");
+                    auto* offset=rows?qobject_cast<QDoubleSpinBox*>(rows->cellWidget(0,2)):nullptr;
+                    check(offset&&offset->isEnabled()&&offset->value()==3,"Imported Properties lost the CLI reference");
+                    offset->setValue(4);
+                    check(get().at("placement").at("x")==3,"Imported preview committed before OK");
+                    const auto blocked=window.execute_console_command(QString::fromStdString(
+                        commands::Json{{"command","import.set"},{"arguments",{{"container",container},{"name","Blocked"}}}}.dump()));
+                    check(!blocked.ok&&blocked.code=="editing_in_progress","Import property command interrupted GUI editing");
+                    dialog->findChild<QDialogButtonBox*>()->button(accept?QDialogButtonBox::Ok:QDialogButtonBox::Cancel)->click();flush();
+                    check(!dialog||!dialog->isVisible(),"Imported Properties did not close");
+                    check(get().at("placement").at("x")==(accept?4:3),"Imported Properties OK/Cancel lost its offset");
+                }
+                run("undo");check(get().at("placement").at("x")==3,"Imported GUI Undo failed");
+                run("redo");flush();check(std::abs(minimum_x(view->mesh())-view_before-1)<1e-6,"Imported View geometry did not follow the GUI offset");
+                run("save");std::vector<kernel::BodyResult> after_cache;
+                const auto after=document::PartDocument::load(file,&after_cache);
+                check(after.find_container(container)->imported_step==before.find_container(container)->imported_step&&
+                    after.find_container(container)->placement.references.front().offset==4&&!after_cache.empty()&&
+                    std::abs(after_cache.back().volume-before_cache.back().volume)<1e-4&&
+                    std::abs(minimum_x(after_cache.back().mesh)-minimum_x(before_cache.back().mesh)-1)<1e-6,
+                    "Imported GUI properties changed native source geometry or lost their placement");
+                json_run("close",{{"discard",true}});
+            }
+            json_run("activate",{{"document",previous}});flush();
+        }
         const auto aluminum=commands::Json::array({{{"key","MATERIAL_NAME"},{"value","Hliník"}},{{"key","MASS_DENSITY"},{"value","2700"},{"unit","kg/m^3"}}});
         json_run("document.material.set",{{"properties",aluminum}});
         auto* material_action=window.findChild<QAction*>("materialAction");check(material_action,"Material action missing");material_action->trigger();flush();

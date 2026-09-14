@@ -1,3 +1,7 @@
+#include <zima/workspace/imported_feature_operations.hpp>
+#include <zima/workspace/placement_edit.hpp>
+#include <zima/document/placement_json.hpp>
+#include <cmath>
 #include "sketch_command_support.hpp"
 #include <zima/workspace/import_operations.hpp>
 #include <zima/workspace/assembly_import_operations.hpp>
@@ -5,8 +9,96 @@
 #include <zima/interchange/interchange.hpp>
 
 namespace zima::command_host {
+namespace {
+Json imported_details(const workspace::Workspace& live, const std::string& id, const std::string& container) {
+    const auto& value = workspace::imported_feature(live, id, container);
+    const auto* state = live.open_part(id);
+    const auto frame = workspace::read_placement(live, id, container);
+    const auto& source = value.imported_step;
+    return {{"document", id}, {"container", value.id}, {"feature", value.feature_id},
+        {"name", value.name}, {"body", frame.body}, {"combine", value.combine_mode == document::CombineMode::Add ? "add" : "subtract"},
+        {"source", source.source_path}, {"component_path", source.component_path},
+        {"mesh_deflection_mm", source.mesh_deflection ? Json(*source.mesh_deflection) : Json(nullptr)},
+        {"stored_brep_bytes", source.frozen_brep ? source.frozen_brep->size() : 0},
+        {"topology_count", source.topology.size()}, {"placement", value.placement},
+        {"coordinate_system", frame.coordinate_system}, {"coordinate_owner", frame.coordinate_owner},
+        {"length_unit", "mm"}, {"angle_unit", "degrees"}, {"reference_valid", value.placement.reference_valid},
+        {"revision", state->session.revision()}};
+}
+}
 void Host::register_import_commands() {
     using Type=commands::ArgumentType;
+    dispatcher_.add({"import.get", tr("Read stored imported-feature properties without calculation."),
+        {{"container", true}, {"document", false}}, false}, [this](const Json& args) {
+        try {
+            return Result::success(imported_details(workspace_, args.value("document", workspace_.active_document_id()),
+                args.at("container").get<std::string>()));
+        } catch (const workspace::ImportOperationError& error) { return Result::failure(error.code, tr(error.what())); }
+    });
+    dispatcher_.add({"import.set", tr("Edit an imported feature through its shared Properties transaction."),
+        {{"container", true}, {"name", false}, {"combine", false}, {"placement", false, Type::Object}, {"document", false}}, true},
+        [this](const Json& args) {
+        const auto checked = target(args); if (!checked.ok) return checked;
+        try {
+            if (interaction().template_document)
+                throw workspace::ImportOperationError("unsupported_document", "Imported feature properties require an open Part.");
+            const auto id = workspace_.active_document_id(), container = args.at("container").get<std::string>();
+            auto value = workspace::imported_feature(workspace_, id, container);
+            if (!args.contains("name") && !args.contains("combine") && !args.contains("placement"))
+                throw workspace::ImportOperationError("invalid_arguments", "Specify at least one property to change.");
+            if (args.contains("name")) value.name = args.at("name").get<std::string>();
+            if (args.contains("combine")) {
+                const auto combine = args.at("combine").get<std::string>();
+                if (combine != "add" && combine != "subtract")
+                    throw workspace::ImportOperationError("invalid_arguments", "Choose add or subtract.");
+                value.combine_mode = combine == "add" ? document::CombineMode::Add : document::CombineMode::Subtract;
+            }
+            if (args.contains("placement")) {
+                const auto& patch = args.at("placement");
+                if (patch.empty()) throw workspace::ImportOperationError("invalid_arguments", "Specify at least one placement parameter.");
+                const auto geometry = workspace::placement_edit_geometry(workspace_, id, container);
+                for (const auto& [key, number] : patch.items()) {
+                    if (!number.is_number() || !std::isfinite(number.get<double>()))
+                        throw workspace::ImportOperationError("invalid_arguments", "Placement value must be finite.");
+                    if (!workspace::assign_placement_dimension(value.placement, geometry, key, number.get<double>()))
+                        throw workspace::ImportOperationError("parameter_not_editable", "The placement parameter is unknown, constrained or locked.");
+                }
+            }
+            const bool changed = workspace::commit_imported_feature(workspace_, kernel_, id, std::move(value));
+            auto result = imported_details(workspace_, id, container); result["changed"] = changed;
+            if (changed) change_ = Change{ChangeKind::Model, id};
+            return Result::success(std::move(result));
+        } catch (const workspace::ImportOperationError& error) { return Result::failure(error.code, tr(error.what())); }
+          catch (const workspace::PlacementEditError& error) { return Result::failure(error.code, tr(error.what())); }
+          catch (const std::exception& error) { return Result::failure("import_rejected", tr(error.what())); }
+    });
+    dispatcher_.add({"import.reference.set", tr("Assign an original reference through the supported shared placement and feature transactions."),
+        {{"container", true}, {"index", true, Type::Integer}, {"reference", true, Type::Object},
+         {"offset_mm", false, Type::Number}, {"flip", false, Type::Boolean}, {"derive_orientation", false, Type::Boolean}, {"document", false}}, true},
+        [this](const Json& args) {
+        const auto checked = target(args); if (!checked.ok) return checked;
+        try {
+            if (interaction().template_document)
+                throw workspace::ImportOperationError("unsupported_document", "Imported feature properties require an open Part.");
+            const auto& ref = args.at("reference");
+            const auto invalid = [] { throw workspace::ImportOperationError("invalid_arguments", "Specify owner, key and an optional instance_path for the placement reference."); };
+            for (const auto& [key, value] : ref.items())
+                if ((key != "owner" && key != "key" && key != "instance_path") || !value.is_string()) invalid();
+            if (!ref.contains("owner") || !ref.contains("key") || args.at("index") < 0 || args.at("index") > 4) invalid();
+            const auto id = workspace_.active_document_id(), container = args.at("container").get<std::string>();
+            document::ConstructionReference source;
+            source.owner_id = ref.at("owner"); source.semantic_key = ref.at("key");
+            source.instance_path = ref.value("instance_path", std::string{});
+            source.offset = args.value("offset_mm", 0.0); source.flip = args.value("flip", false);
+            const bool changed = workspace::set_imported_feature_reference(workspace_, kernel_, id, container,
+                args.at("index").get<std::size_t>(), std::move(source), args.value("derive_orientation", true));
+            auto result = imported_details(workspace_, id, container); result["changed"] = changed;
+            if (changed) change_ = Change{ChangeKind::Model, id};
+            return Result::success(std::move(result));
+        } catch (const workspace::ImportOperationError& error) { return Result::failure(error.code, tr(error.what())); }
+          catch (const workspace::PlacementEditError& error) { return Result::failure(error.code, tr(error.what())); }
+          catch (const std::exception& error) { return Result::failure("import_rejected", tr(error.what())); }
+    });
     for (const auto format : {interchange::Format::Step, interchange::Format::Iges, interchange::Format::Dxf}) {
         const bool dxf=format==interchange::Format::Dxf;
         std::vector<commands::Argument> args={{"path",true}};

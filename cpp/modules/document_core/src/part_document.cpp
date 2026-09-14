@@ -8751,6 +8751,8 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                 container.imported_step.component_path,
                 container.imported_step.frozen_brep,
                 {}, container.id, container.imported_step.topology};
+            step.translation = translation;
+            step.rotation_degrees = rotation;
             primitive = std::move(step);
         } else if (container.feature_kind == FeatureKind::Fillet) {
             require_default_sketch_feature_placement(container.placement);
@@ -9879,8 +9881,7 @@ PartDocument PartDocument::load(
                             !topology_ids.emplace(
                                 static_cast<int>(identity.kind),
                                 identity.semantic_key).second;
-                    }) ||
-                container.combine_mode != CombineMode::Add) {
+                    })) {
                 throw std::runtime_error("Invalid imported STEP parameters");
             }
         } else if (container.feature_kind == FeatureKind::Shell) {
@@ -10422,8 +10423,7 @@ void PartDocument::save(
         } else if (container.feature_kind == FeatureKind::ImportedStep) {
             if (container.imported_step.source_path.empty() ||
                 !container.imported_step.frozen_brep ||
-                container.imported_step.frozen_brep->empty() ||
-                container.combine_mode != CombineMode::Add) {
+                container.imported_step.frozen_brep->empty()) {
                 throw std::runtime_error("Invalid imported STEP parameters");
             }
         } else if (container.feature_kind == FeatureKind::Shell) {

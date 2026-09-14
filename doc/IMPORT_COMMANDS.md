@@ -293,3 +293,11 @@ Nezávislý ezdxf 1.4.4 vytvořil 24 různých křivek a porovnal jejich návrat
 přes CLI/nativní Part/DXF v 402 vzorcích na křivku. Největší odchylka byla
 1,168e-14 mm; audit exportu našel 0 chyb a 0 oprav.
 Výsledek: `build/dxf-spline-ezdxf-validation.json`.
+
+
+## Editace již importovaného prvku
+
+import.get, import.set a import.reference.set pracují s existujícím
+STEP/IGES prvkem bez původního souboru. Vlastnosti a reference umístění
+potvrzují stejnou operací jako GUI. Podrobnosti a limity uvádí
+[IMPORTED_FEATURE_COMMANDS.md](IMPORTED_FEATURE_COMMANDS.md).
