@@ -38,6 +38,12 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory,bool extrusion) 
     reject(extrusion?"revolution.reference.set":"extrusion.reference.set",request(0,source_entity,"plane"),"wrong_feature");
     reject(prefix+".reference.set",request(9,source_entity,"plane"),"invalid_arguments");reject(prefix+".reference.set",request(0,source_entity,"missing"),"reference_not_found");
     interaction.editing=true;reject(prefix+".reference.set",request(0,source_entity,"plane"),"editing_in_progress");interaction={};
+    const auto bound=feature();const auto bound_sketch=owned().serialized();
+    require(run("placement.reference.remove",{{"object",target},{"index",0}}).at("body_calculated")==true,"Profile removal did not use its body transaction");
+    require(feature().placement.references.empty(),"Profile removal retained paired orientation");near(volume(),expected);
+    const auto freed=feature();const auto freed_sketch=owned().serialized();run("undo");
+    require(feature()==bound&&owned().serialized()==bound_sketch,"Profile reference removal Undo lost owned geometry");run("redo");
+    require(feature()==freed&&owned().serialized()==freed_sketch,"Profile reference removal Redo changed identities");
     run("save");std::vector<kernel::BodyResult> saved_cache;const auto saved=document::PartDocument::load(directory/(prefix+"-reference.prtz"),&saved_cache);
     require(saved.find_container(target)&&*saved.find_container(target)==feature(),"Native profile definition changed on reopen");
     require(std::ranges::find(saved.sketches,sketch,&sketcher::Sketch::id)->serialized()==owned().serialized(),"Native save lost owned profile data");near(saved_cache.back().volume,expected);

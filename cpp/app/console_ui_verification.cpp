@@ -1932,6 +1932,27 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
             if(std::abs(get().at("origin_mm")[2].get<double>()-(13-local_z))>=1e-7)throw std::runtime_error("Reference GUI OK mismatch, child="+std::to_string(child_mode)+" data="+get().dump());run("undo");check(std::abs(get().at("origin_mm")[2].get<double>()-(7-local_z))<1e-7,"Reference GUI edit Undo failed");run("redo");run("save");
             std::vector<kernel::BodyResult> cache;const auto saved=document::PartDocument::load(directory/(name+".prtz"),&cache);
             check(saved.find_construction(id)&&saved.find_construction(id)->references.front().owner_id==owner&&std::abs(saved.find_construction(id)->origin.z-(13-local_z))<1e-7&&!cache.empty()&&std::abs(cache.back().volume-1000)<1e-6,"Reference native save lost position, source or body");
+            const auto remove_in_gui=[&](QDialog* dialog) {
+                auto* rows=dialog->findChild<QTableWidget*>("constructionReferenceTable");
+                auto* cell=rows?rows->cellWidget(0,0):nullptr;auto* button=cell?cell->findChild<QPushButton*>():nullptr;
+                check(button,"Construction reference remove button missing");button->click();flush();
+            };
+            const commands::Json removal={{"object",id},{"index",0}};
+            const auto before_removal=*saved.find_construction(id);
+            properties=edit();
+            check(window.execute_console_command(QString::fromStdString(commands::Json({{"command","placement.reference.remove"},{"arguments",removal}}).dump())).code=="editing_in_progress","Reference removal interrupted Properties");
+            remove_in_gui(properties);check(get().at("reference_count")==before_removal.references.size(),"Removing a draft reference committed before OK");
+            properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();finish_parent(QDialogButtonBox::Cancel);
+            check(get().at("reference_count")==before_removal.references.size(),"Cancel retained a removed reference");
+            properties=edit();remove_in_gui(properties);properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+            if(child_mode)check(get().at("reference_count")==before_removal.references.size(),"Child removal committed before parent OK");
+            finish_parent(QDialogButtonBox::Ok);check(get().at("reference_count")==0,"GUI removal retained paired orientation");run("save");
+            const auto gui_removed=*document::PartDocument::load(directory/(name+".prtz")).find_construction(id);
+            run("undo");check(get().at("reference_count")==before_removal.references.size(),"GUI reference removal Undo failed");run("redo");check(get().at("reference_count")==0,"GUI reference removal Redo failed");
+            run("undo");json_run("placement.reference.remove",removal);run("save");
+            const auto cli_removed=*document::PartDocument::load(directory/(name+".prtz")).find_construction(id);
+            check(cli_removed==gui_removed,"GUI and CLI construction removal produced different native data");
+
             json_run("close",{{"discard",true}});flush();
         }
         {
@@ -1953,6 +1974,22 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
             check(get().at("z")==13,"Reference GUI OK did not share placement data");run("undo");check(get().at("z")==7,"Reference GUI edit Undo failed");run("redo");run("save");
             std::vector<kernel::BodyResult> cache;const auto saved=document::PartDocument::load(directory/(stem+"-primitive-reference.prtz"),&cache);
             check(saved.find_container(id)&&saved.find_container(id)->placement.references.front().owner_id==owner&&saved.find_container(id)->placement.z==13&&!cache.empty()&&std::abs(cache.back().volume-1000)<1e-6,"Reference native save lost position, source or body");
+            const auto remove_in_gui=[&](QDialog* dialog) {
+                auto* rows=dialog->findChild<QTableWidget*>("primitiveReferenceTable");
+                auto* cell=rows?rows->cellWidget(0,0):nullptr;auto* button=cell?cell->findChild<QPushButton*>():nullptr;
+                check(button,"Primitive reference remove button missing");button->click();flush();
+            };
+            const auto count=get().at("references").size();properties=edit();remove_in_gui(properties);
+            properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
+            check(get().at("references").size()==count,"Primitive removal Cancel changed the model");
+            properties=edit();remove_in_gui(properties);properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();run("save");
+            const auto gui_removed=*document::PartDocument::load(directory/(stem+"-primitive-reference.prtz")).find_container(id);
+            check(gui_removed.placement.references.empty(),"GUI primitive removal retained a paired source");
+            run("undo");check(get().at("references").size()==count,"Primitive removal Undo failed");run("redo");check(get().at("references").empty(),"Primitive removal Redo failed");
+            run("undo");json_run("placement.reference.remove",{{"object",id},{"index",0}});run("save");
+            const auto cli_removed=*document::PartDocument::load(directory/(stem+"-primitive-reference.prtz")).find_container(id);
+            check(cli_removed==gui_removed,"GUI and CLI primitive removal produced different native data");
+
             json_run("close",{{"discard",true}});flush();
         }
         for(const bool extrusion:{true,false}) {

@@ -62,6 +62,10 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory,const std::strin
     auto wrong=first;wrong["reference"]["instance_path"]="foreign";fail(prefix+".reference.set",wrong,"invalid_arguments");
     wrong=first;wrong["reference"]["extra"]=true;fail(prefix+".reference.set",wrong,"invalid_arguments");
     interaction.editing=true;fail(prefix+".reference.set",first,"editing_in_progress");interaction={};
+    const auto bound=feature();
+    require(run("placement.reference.remove",{{"object",target},{"index",1}}).at("body_calculated")==true,"Hole/Opening removal did not calculate through Properties");
+    require(std::ranges::none_of(feature().placement.references,[&](const auto& ref){return ref.semantic_key=="origin:plane:yz";}),"Hole/Opening removal retained a paired source");near(volume(),expected);
+    const auto freed=feature();run("undo");require(feature()==bound,"Hole/Opening removal Undo lost profile identity");run("redo");require(feature()==freed,"Hole/Opening removal Redo changed profile identity");
     run("save");std::vector<kernel::BodyResult> saved_cache;const auto saved=document::PartDocument::load(directory/(kind+"-reference.prtz"),&saved_cache);
     require(saved.find_container(target)&&*saved.find_container(target)==feature(),"Native save changed Hole/Opening placement or source identities");near(saved_cache.back().volume,expected);
 }

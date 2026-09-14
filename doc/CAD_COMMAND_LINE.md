@@ -396,3 +396,11 @@ ani nepřepíná dokument. Rozsah a stav doplňování příkazů uvádí
 `section.delete` odstraní uloženou definici s podporou Undo. Oba příkazy
 používají stejné datové operace jako nabídka stromu a zachovávají vypočtená
 tělesa. Podrobnosti: [SECTION_COMMANDS.md](SECTION_COMMANDS.md).
+
+
+`placement.reference.remove OBJECT_ID INDEX` odstraní poziční referenci
+(index 0–2) nebo orientaci FRONT/TOP (3–4). Používá stejnou datovou operaci
+jako křížek ve vlastnostech a potvrzení odpovídajícího objektu. Funguje také
+pro chybějící zdroj a má jeden krok Undo/Redo. Prázdný řádek je beze změny.
+Podporované objekty, párování orientace, indexy po uložení a příklady JSON:
+[PLACEMENT_REFERENCE_REMOVAL.md](PLACEMENT_REFERENCE_REMOVAL.md).

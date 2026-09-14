@@ -139,6 +139,17 @@ void verify_imported_properties(command_host::Host& host, workspace::Workspace& 
             saved.find_container(container)->placement.references.front().offset_locked &&
             !saved_cache.empty() && std::abs(saved_cache.back().volume - volume) < 1e-5,
         "Native imported properties lost geometry, topology or placement");
+    const auto bound = workspace::imported_feature(live, id, container);
+    require(run(host, "placement.reference.remove", {{"object", container}, {"index", 0}}).data.at("body_calculated") == true,
+        "Imported removal bypassed its Properties transaction");
+    require(workspace::imported_feature(live, id, container).placement.references.empty() &&
+        workspace::imported_feature(live, id, container).imported_step == original.imported_step,
+        "Imported removal changed geometry identity or retained its paired reference");
+    require(std::abs(state.session.calculated_boundaries().back().volume-volume)<1e-5,"Imported removal changed solid volume");
+    const auto freed = workspace::imported_feature(live, id, container); run(host, "undo");
+    require(workspace::imported_feature(live, id, container)==bound,"Imported removal Undo lost its source");run(host, "redo");
+    require(workspace::imported_feature(live, id, container)==freed,"Imported removal Redo changed source payload");run(host, "save");
+    require(document::PartDocument::load(state.path).find_container(container)->placement.references.empty(),"Native import restored removed reference");
     const auto body = saved.body_history.active_body_id();
     run(host, "body.create", {{"name", "Other"}});
     reject("import.set", patch, "inactive_body");

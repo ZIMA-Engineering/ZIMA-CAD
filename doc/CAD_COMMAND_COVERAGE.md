@@ -34,8 +34,8 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Kvádr | Hotovo | Společná tvorba, čtení a rozměrový patch; včetně zámků a přesnosti |
 | Válec, koule, kužel, jehlan, klín | Hotovo | Společné create/get/set, zámky, přesnost, GUI/CLI a 59/59 regresí |
 | Historie Partu | Hotovo | Společný přesun, ověření závislostí, potlačení, odstranění a kurzor; včetně historie těles a Booleanů |
-| Tělesa a Boolean | Modelové operace a reference hotovy | Tvorba, čtení, aktivace, název/viditelnost, kurzory, Boolean, pořadí a mazání; `body.reference.set` a společný vstup `placement.reference.set`; zbývá odstranění reference |
-| Umístění a původní reference | Číselná editace, reference Body/konstrukcí/primitiv, otvorů, řezů a profilů Partu/Assembly | `placement.get/set`, `value_lock.list/set`; `placement.reference.set` pro Body, konstrukce včetně bodů samostatných křivek, šest primitiv a profily Partu, `body.reference.set`, `construction.reference.set`; `hole/opening.reference.set`, `section.reference.set`, `extrusion/revolution.reference.set` také pro profilové odečty Assembly a `sweep2d/sweep3d/helical.reference.set`, importované prvky přes `import.reference.set`; zbývají vložené dráhy a odebrání reference; komponenty používají `component.set` |
+| Tělesa a Boolean | Modelové operace a reference hotovy | Tvorba, čtení, aktivace, název/viditelnost, kurzory, Boolean, pořadí a mazání; `body.reference.set`, společný vstup `placement.reference.set` a odebrání přes `placement.reference.remove` |
+| Umístění a původní reference | Číselná editace, reference Body/konstrukcí/primitiv, otvorů, řezů a profilů Partu/Assembly | `placement.get/set`, `value_lock.list/set`; `placement.reference.set` pro Body, konstrukce včetně bodů samostatných křivek, šest primitiv a profily Partu, `body.reference.set`, `construction.reference.set`; `hole/opening.reference.set`, `section.reference.set`, `extrusion/revolution.reference.set` také pro profilové odečty Assembly a `sweep2d/sweep3d/helical.reference.set`, importované prvky přes `import.reference.set`; odebrání referencí přes `placement.reference.remove` je implementované; zbývá přiřazení referencí bodům vložených drah; komponenty používají `component.set` |
 | Konstrukční geometrie | Tvorba, vlastnosti a reference kořenů i bodů samostatných křivek hotovy | `construction.list/get/create/set/delete`, `construction.reference.set`; body křivek, tečny, zaoblení a seznamy; přiřazení referencí bodům a schválená oprava starých zdrojových rámů jsou implementované; příkazové přiřazení referencí bodům vložených drah následuje |
 | Skicář: geometrie | Základ hotov | 21 příkazů: samostatné a vložené skici, body, úsečky, kružnice, oblouky, elipsy, B-spline, obdélníky, mnohoúhelníky, posun a pomocná geometrie; text create/get/set s nativním písmem a spline get/set hotovy; DXF do vložených profilů hotov; zbývá kontrola dalších variant podle GUI |
 | Skicář: vazby a operace | Vazby/kóty/solver/offset/trim/mirror hotovy | Offset create/get/set/free, úplný podklad a zachování intervalů, trim podle průsečíků, mirror, orientovaný obdélník, tečny a zaoblení rohu; všech 15 druhů vazeb, odstranění a solver; 16 druhů kót včetně vlastností, popisků a mazání; uvolnění externích referencí hotovo |
@@ -1929,3 +1929,20 @@ Zbývá příkazové přiřazení referencí bodům vložených drah, odebrání
 a orientačních referencí a závěrečná kontrola zbývajících GUI variant.
 Odebrání má připravené testy; automatická kontrola zápis extrakce zatím
 odmítla a vyžádala si přesnější formulaci souhlasu uživatele.
+
+## Odebrání referencí umístění (2026-09-14)
+
+Po výslovném schválení konkrétní extrakce uživatelem používají GUI a
+`placement.reference.remove` společné pravidlo pozičních i orientačních
+řádků. Příkaz podporuje konstrukce, tělesa, primitiva, profily, tažení
+včetně bodů vložené dráhy, otvory, importy, řezy a profilové odečty Assembly.
+Zachovává doménové potvrzení, Undo/Redo, nativní identity a zámky.
+Odebrání chybějícího zdroje nevyžaduje jeho dohledání.
+
+Úplná regrese prošla **156/156 za 662,55 s**; obě aplikace i všechny
+testy jsou sestavené. Katalog obsahuje **289 příkazů**.
+GUI a CLI mají ověřenou shodu uložené definice po odebrání.
+Detaily a logy: [PLACEMENT_REFERENCE_REMOVAL.md](PLACEMENT_REFERENCE_REMOVAL.md).
+
+Zbývá přiřazení referencí bodům vložených drah Sweep3D a závěrečný audit
+variant GUI a příkazů. Výše popsaný blok schválení odebrání je vyřešený.

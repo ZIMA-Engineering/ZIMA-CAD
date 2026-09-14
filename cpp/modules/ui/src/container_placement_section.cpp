@@ -723,54 +723,35 @@ void ContainerPlacementSection::notify_changed() {
 }
 
 void ContainerPlacementSection::remove_reference(std::size_t index) {
-    if (index >= references_.size()) return;
-    highlighted_reference_rows_.erase(index);
-    const auto removed = references_[index];
-    // Empty the row in place instead of erase()-ing it: shifting every
-    // later row up by one silently changes their meaning. Row order is
-    // semantically significant -- 1st position reference = origin, 2nd =
-    // direction, 3rd = plane-completing point (the "2 points define an
-    // axis"/"3 points define a plane" history-order shortcut). Deleting
-    // row 0 used to silently promote the old row 1 (a "direction" pick)
-    // into row 0 (an "origin" pick) without the user ever choosing that.
-    // It also desynchronised whatever row a bulk "Počátek" re-fill assumed
-    // was empty, since the emptied slot no longer matched its own index.
-    references_[index] = zima::document::ConstructionReference{};
-    empty_reference_locks_[index]=false;
-    if (index < reference_labels_.size()) reference_labels_[index].clear();
-    const auto matching_orientation = std::find_if(orientation_references_.begin(),
-        orientation_references_.end(), [&](const auto& reference) {
-            return reference.owner_id == removed.owner_id &&
-                reference.semantic_key == removed.semantic_key &&
-                reference.instance_path == removed.instance_path;
-        });
-    if (with_orientation_ && matching_orientation != orientation_references_.end()) {
-        const auto orientation_index = static_cast<std::size_t>(std::distance(
-            orientation_references_.begin(), matching_orientation));
-        orientation_references_.erase(matching_orientation);
-        if (orientation_index < orientation_labels_.size())
-            orientation_labels_.erase(orientation_labels_.begin() +
-                static_cast<std::ptrdiff_t>(orientation_index));
-        for (std::size_t role = 0; role < orientation_references_.size(); ++role)
-            orientation_references_[role].orientation_role =
-                role == 0 ? "front" : "top";
+    const auto removed = zima::document::remove_placement_reference(
+        {references_, orientation_references_, empty_reference_locks_}, with_orientation_, index);
+    if (!removed.changed) return;
+    if (index < 3) {
+        highlighted_reference_rows_.erase(index);
+        if (index < reference_labels_.size()) reference_labels_[index].clear();
+        if (reference_labels_.size() > references_.size()) reference_labels_.resize(references_.size());
+        if (removed.paired_orientation) {
+            const auto slot = *removed.paired_orientation;
+            if (slot < orientation_labels_.size())
+                orientation_labels_.erase(orientation_labels_.begin() + static_cast<std::ptrdiff_t>(slot));
+            // Inspection follows the surviving source when TOP becomes FRONT.
+            std::set<std::size_t> retained;
+            for (const auto row : highlighted_orientation_rows_)
+                if (row != slot) retained.insert(row > slot ? row - 1 : row);
+            highlighted_orientation_rows_ = std::move(retained);
+            refresh_orientation_table();
+        }
+        refresh_reference_table();
+    } else {
+        const auto slot = index - 3;
+        highlighted_orientation_rows_.erase(slot);
+        if (slot < orientation_labels_.size()) orientation_labels_[slot].clear();
         refresh_orientation_table();
     }
-    // Trailing empty rows carry no information -- drop them so the table
-    // still shows only genuinely populated rows plus the usual single
-    // trailing "pick next" placeholder, matching refresh_reference_table()'s
-    // existing size-based visibility rule.
-    while (!references_.empty() && references_.back().owner_id.empty() &&
-           references_.back().semantic_key.empty()) {
-        references_.pop_back();
-        if (!reference_labels_.empty()) reference_labels_.pop_back();
-    }
-    refresh_reference_table();
     notify_changed();
-    // Removing a populated row is itself an explicit request to replace
-    // that reference. notify_changed() may rebuild the shared View and thus
-    // clears its command filter; arm the same row afterwards so hover works
-    // immediately for the replacement pick.
+    if (highlights_changed_) highlights_changed_();
+    // The preview callback can rebuild the View and clear its picking filter.
+    // Arm the removed row afterwards, so the next pick replaces that source.
     if (reference_request_) reference_request_(index);
 }
 
@@ -941,13 +922,7 @@ void ContainerPlacementSection::refresh_orientation_table() {
         auto* indicator = zima::ui::build_reference_row_indicator(
             populated
                 ? std::function<void()>([this, index] {
-                      highlighted_orientation_rows_.erase(index);
-                      orientation_references_[index] = {};
-                      if (index < orientation_labels_.size())
-                          orientation_labels_[index].clear();
-                      refresh_orientation_table();
-                      notify_changed();
-                      if (reference_request_) reference_request_(index + 3);
+                      remove_reference(index + 3);
                   })
                 : std::function<void()>({}));
         orientation_indicators_[index] = indicator;

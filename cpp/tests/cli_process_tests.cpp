@@ -240,6 +240,13 @@ int main(int argc,char** argv){
             require(result.exit_code==0&&result.results()[1].at("data").at("body_calculated")==false,"CLI construction reference or Undo/Redo failed");
             const auto values=assembly_mode?assembly::AssemblyDocument::load(project/(name+suffix)).constructions:document::PartDocument::load(project/(name+suffix)).constructions;
             const auto found=std::ranges::find(values,object,&document::ConstructionObject::id);require(found!=values.end()&&found->origin.z==8&&found->references.front().owner_id==document+":origin"&&found->references.front().offset==8,"CLI native save lost reference owner or calculated position");
+            result=launch(executable,root,common+QStringList{"--command",command({{"command","open"},{"arguments",{{"path",name+suffix}}}}),
+                "--command",command({{"command","placement.reference.remove"},{"arguments",{{"object",object},{"index",0}}}}),
+                "--command","undo","--command","redo","--command","save"});
+            require(result.exit_code==0&&result.results()[1].at("data").at("changed")==true&&result.results()[1].at("data").at("body_calculated")==false,"CLI process could not remove the original reference");
+            const auto removed=assembly_mode?*assembly::AssemblyDocument::load(project/(name+suffix)).find_construction(object):*document::PartDocument::load(project/(name+suffix)).find_construction(object);
+            require(removed.references.empty()&&removed.origin.z==8,"CLI save did not persist removal at its last position");
+
         }
         for(const bool assembly_mode:{false,true}) {
             const std::string type=assembly_mode?"assembly":"part",name="curve-reference-"+type,suffix=assembly_mode?".asmz":".prtz";

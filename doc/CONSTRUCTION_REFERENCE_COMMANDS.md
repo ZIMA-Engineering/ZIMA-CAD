@@ -61,8 +61,10 @@ rám (bod, osy a roviny) pro následující body. Stejný postup používá vlo�
 dráha Sweep3D. Chybějící zdroj ponechá poslední uloženou polohu a nastaví
 neplatnost reference; nepoužije se starý rám pozdějšího bodu.
 
-Příkazové přiřazení referencí bodům vložené dráhy a odebrání referencí
-navazují dalšími etapami. Formát souborů se v této změně nemění.
+Příkazové přiřazení referencí bodům vložené dráhy navazuje další etapou.
+Odebrání existujících referencí pokrývá
+[placement.reference.remove](PLACEMENT_REFERENCE_REMOVAL.md), včetně bodů
+samostatných i vložených drah. Formát souborů se nemění.
 
 ## Ověření (2026-09-14)
 

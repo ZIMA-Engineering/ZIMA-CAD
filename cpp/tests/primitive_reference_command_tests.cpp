@@ -42,6 +42,10 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory,const workspace:
     interaction.editing=true;reject(request(target,0,source_plane,"plane"),"editing_in_progress");interaction={};
     // The same facade consumes the existing construction transaction.
     set(request(later,0,source_point,"point"));const auto datum=*state().session.document().find_construction(later);near(datum.origin.x,12);near(datum.origin.z,3);
+    const auto bound=feature();
+    require(run("placement.reference.remove",{{"object",target},{"index",0}}).at("body_calculated")==true,"Primitive removal did not calculate through Properties");
+    require(feature().placement.references.empty(),"Primitive removal retained its paired orientation");near(state().session.calculated_boundaries().back().volume,volume);
+    const auto freed=feature();run("undo");require(feature()==bound,"Primitive reference removal Undo failed");run("redo");require(feature()==freed,"Primitive reference removal Redo failed");
     run("save");std::vector<kernel::BodyResult> cache;const auto saved=document::PartDocument::load(file,&cache);
     require(saved.find_container(target)&&*saved.find_container(target)==feature(),"Native Part changed primitive identity or reference definition");near(cache.back().volume,volume);
     const auto operations=saved.kernel_operations();require(cache.back().source_fingerprint==kernel::history_fingerprint(operations,operations.size()),"Native save used stale body calculation");

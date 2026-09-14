@@ -1,3 +1,5 @@
+#include <zima/workspace/placement_reference_removal.hpp>
+#include <zima/workspace/section_operations.hpp>
 #include <zima/workspace/imported_feature_operations.hpp>
 #include <zima/workspace/sweep_operations.hpp>
 #include <zima/command_host/host.hpp>
@@ -23,6 +25,34 @@ Json data(const workspace::Workspace& live, const std::string& id, const std::st
 }
 }
 void Host::register_placement_commands() {
+    dispatcher_.add({"placement.reference.remove", tr("Remove a placement reference using the shared Properties rules and domain transaction."),
+        {{"object", true}, {"index", true, commands::ArgumentType::Integer}, {"document", false}}, true},
+        [this](const Json& args) {
+        const auto checked = target(args); if (!checked.ok) return checked;
+        if (interaction().template_document)
+            return Result::failure("unsupported_document", tr("Placement operations require an open Part or Assembly."));
+        try {
+            if (args.at("index") < 0 || args.at("index") > 4)
+                throw workspace::PlacementEditError("invalid_arguments", "The placement reference slot is unavailable.");
+            const auto id = workspace_.active_document_id(), object = args.at("object").get<std::string>();
+            const auto index = args.at("index").get<std::size_t>();
+            const auto result = workspace::remove_placement_reference(workspace_, kernel_, id, object, index);
+            const auto revision = workspace_.open_part(id) ? workspace_.open_part(id)->session.revision()
+                : workspace_.open_assembly(id)->session.revision();
+            if (result.changed) change_ = Change{ChangeKind::Model, id};
+            return Result::success({{"document", id}, {"object", object}, {"index", index},
+                {"changed", result.changed}, {"body_calculated", result.body_calculated}, {"revision", revision}});
+        } catch (const workspace::PlacementEditError& error) { return Result::failure(error.code, tr(error.what())); }
+          catch (const workspace::BodyOperationError& error) { return Result::failure(error.code, tr(error.what())); }
+          catch (const workspace::ProfileOperationError& error) { return Result::failure(error.code, tr(error.what())); }
+          catch (const workspace::PrimitiveOperationError& error) { return Result::failure(error.code, tr(error.what())); }
+          catch (const workspace::HoleOperationError& error) { return Result::failure(error.code, tr(error.what())); }
+          catch (const workspace::OpeningOperationError& error) { return Result::failure(error.code, tr(error.what())); }
+          catch (const workspace::SweepOperationError& error) { return Result::failure(error.code, tr(error.what())); }
+          catch (const workspace::ImportOperationError& error) { return Result::failure(error.code, tr(error.what())); }
+          catch (const workspace::SectionOperationError& error) { return Result::failure(error.code, tr(error.what())); }
+          catch (const std::exception& error) { return Result::failure("placement_rejected", tr(error.what())); }
+    });
     for(const std::string prefix:{"placement","hole","opening"}) {
     const auto object_key=prefix=="placement"?"object":"container";
     dispatcher_.add({prefix+".reference.set",prefix=="placement"?tr("Assign an original reference through the supported shared placement and feature transactions."):

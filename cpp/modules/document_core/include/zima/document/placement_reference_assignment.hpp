@@ -60,4 +60,46 @@ struct PlacementReferenceAssignment {
     }
     return result;
 }
+
+struct PlacementReferenceRemoval {
+    PlacementReferenceError error{PlacementReferenceError::None};
+    bool changed{};
+    std::optional<std::size_t> paired_orientation;
+};
+// Keep holes in pending positional rows. Persistent callers compact their
+// combined references only when committing, just like the Properties dialog.
+[[nodiscard]] inline PlacementReferenceRemoval remove_placement_reference(
+    PlacementReferenceRows rows, bool with_orientation, std::size_t index) {
+    const auto empty = [](const auto& ref) {
+        return ref.owner_id.empty() && ref.semantic_key.empty();
+    };
+    if (index >= 3) {
+        const auto slot = index - 3;
+        if (!with_orientation || slot >= 2)
+            return {PlacementReferenceError::InvalidSlot, false, {}};
+        if (slot >= rows.orientation.size() || empty(rows.orientation[slot])) return {};
+        rows.orientation[slot] = {};
+        return {PlacementReferenceError::None, true, {}};
+    }
+    if (index >= rows.position.size() || empty(rows.position[index])) return {};
+    const auto removed = rows.position[index];
+    rows.position[index] = {};
+    rows.empty_position_locks[index] = false;
+    PlacementReferenceRemoval result{PlacementReferenceError::None, true, {}};
+    if (with_orientation) {
+        const auto paired = std::find_if(rows.orientation.begin(), rows.orientation.end(),
+            [&](const auto& ref) {
+                return ref.owner_id == removed.owner_id && ref.semantic_key == removed.semantic_key &&
+                    ref.instance_path == removed.instance_path;
+            });
+        if (paired != rows.orientation.end()) {
+            result.paired_orientation = static_cast<std::size_t>(paired - rows.orientation.begin());
+            rows.orientation.erase(paired);
+            for (std::size_t slot = 0; slot < rows.orientation.size(); ++slot)
+                rows.orientation[slot].orientation_role = slot == 0 ? "front" : "top";
+        }
+    }
+    while (!rows.position.empty() && empty(rows.position.back())) rows.position.pop_back();
+    return result;
+}
 }

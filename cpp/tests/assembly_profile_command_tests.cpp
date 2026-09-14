@@ -150,6 +150,11 @@ void references(const kernel::OcctKernel& kernel,const fs::path& directory,bool 
     require(f.live.open_part(f.source)->session.revision()==source_revision&&
         f.live.open_part(f.source)->session.calculated_boundaries().data()==source_cache,
         "Assembly reference recalculated or edited its source Part");
+    const auto bound=f.doc().find_cut(cut)->definition;const auto cut_volume=f.volume(f.first);
+    require(f.run("placement.reference.remove",{{"object",cut},{"index",0}}).at("body_calculated")==true,"Assembly profile removal did not calculate its cutter");
+    require(f.doc().find_cut(cut)->definition.placement.references.empty(),"Assembly profile retained removed source");near(f.volume(f.first),cut_volume);near(f.volume(f.second),1000);
+    const auto freed=f.doc().find_cut(cut)->definition;f.run("undo");require(f.doc().find_cut(cut)->definition==bound,"Assembly removal Undo lost the exact original reference");f.run("redo");require(f.doc().find_cut(cut)->definition==freed,"Assembly removal Redo lost owned profile");
+    require(f.live.open_part(f.source)->session.revision()==source_revision&&f.live.open_part(f.source)->session.calculated_boundaries().data()==source_cache,"Assembly removal modified its source Part");
     f.run("save");const auto saved=assembly::AssemblyDocument::load(directory/(name+".asmz"));
     require(saved.find_cut(cut)->definition==f.doc().find_cut(cut)->definition&&
         saved.find_cut(cut)->target_occurrence_ids==std::vector<std::string>{f.first}&&

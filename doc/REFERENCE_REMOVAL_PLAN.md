@@ -1,12 +1,10 @@
 # Odebrání reference společně pro GUI a CLI – schválený postup
 
-Uživatel 2026-09-14 výslovně povolil oba předložené zásahy: opravu starých
-rámů navázaných bodů 3D křivky i níže popsané sdílení odebrání referencí
-mezi GUI a CLI. Souhlas pokrývá ochranu společného umístění podle
-[AGENTS.md](../AGENTS.md). Automatická kontrola následně označila formulaci „povoluji zásah“ za
-nedostatečně konkrétní pro odebrání a odmítla i zápis opakovaný po ověření
-historie rozhovoru. Uživatel dostal doplňující výslovnou otázku. Extrakce
-odebrání zatím není zapsaná; připravené testy nejsou označené za ověřené.
+Uživatel 2026-09-14 výslovně odpověděl „ano“ na konkrétní otázku k přesunu
+odebrání pozičních a orientačních referencí do společné funkce GUI/CLI,
+včetně všech dialogů, řádků, zámků, zvýraznění a následného výběru.
+Automatická kontrola následně zápis povolila. Schválená implementace a
+ověření jsou popsané v [PLACEMENT_REFERENCE_REMOVAL.md](PLACEMENT_REFERENCE_REMOVAL.md).
 
 ## Vstup, prostředky, výstup
 

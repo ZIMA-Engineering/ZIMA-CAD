@@ -56,6 +56,11 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     auto locked=live.open_part(part_id)->session.document();locked.sections.front().placement.references.front().offset_locked=true;
     live.open_part(part_id)->session.commit(std::move(locked),live.open_part(part_id)->session.calculated_boundaries());
     request["offset_mm"]=99;run("section.reference.set",request);near(current().placement.x,3);require(current().placement.references.front().offset_locked,"Reference replacement unlocked the measured distance");
+    const auto section_before_removal=document::serialize_sections(live.open_part(part_id)->session.document().sections);
+    require(run("placement.reference.remove",{{"object",section},{"index",0}}).at("body_calculated")==false,"Section removal recalculated a body");
+    require(current().placement.references.empty(),"Section removal retained its paired orientation");near(area(document::calculate_section(live.authoritative_viewer_mesh(part_id),current())),600);
+    require(live.open_part(part_id)->session.calculated_boundaries().back().kernel_shape==cache.kernel_shape,"Section removal changed stored solid geometry");
+    run("undo");require(document::serialize_sections(live.open_part(part_id)->session.document().sections)==section_before_removal,"Section removal Undo lost its sources");run("redo");
     run("save");std::vector<kernel::BodyResult> reopened_cache;const auto saved=document::PartDocument::load(dir/"section-reference-source.prtz",&reopened_cache);
     require(document::serialize_sections(saved.sections)==document::serialize_sections(live.open_part(part_id)->session.document().sections)&&!reopened_cache.empty(),"Part save lost Section references or body");near(reopened_cache.back().volume,6000);
     // Choose an existing original face by its analytic plane location, never by a kernel index.
@@ -76,6 +81,13 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     require(second_cut.placement.references.front().instance_path==second_path&&live.open_assembly(top)->session.document().find_occurrence(first)->calculated_source.shares_with(source_packet),"Section reference lost exact occurrence or replaced source geometry");
     run("undo");near(live.open_assembly(top)->session.document().sections.front().placement.x,3);run("redo");run("save");
     const auto reopened=assembly::AssemblyDocument::load(dir/"section-reference-top.asmz");near(reopened.sections.front().placement.x,28);require(reopened.sections.front().placement.references.front().instance_path==second_path,"Assembly save merged repeated Section reference occurrences");
+    const auto nested_bound=document::serialize_sections(live.open_assembly(top)->session.document().sections);
+    require(run("placement.reference.remove",{{"object",assembly_section},{"index",0}}).at("body_calculated")==false,"Assembly Section removal regenerated bodies");
+    require(live.open_assembly(top)->session.document().sections.front().placement.references.empty(),"Assembly Section retained removed occurrence");
+    near(area(document::calculate_section(live.authoritative_viewer_mesh(top),live.open_assembly(top)->session.document().sections.front())),600);
+    require(live.open_assembly(top)->session.document().find_occurrence(first)->calculated_source.shares_with(source_packet),"Assembly Section removal replaced source geometry");
+    run("undo");require(document::serialize_sections(live.open_assembly(top)->session.document().sections)==nested_bound,"Assembly Section removal Undo lost exact occurrence");run("redo");run("save");
+    require(assembly::AssemblyDocument::load(dir/"section-reference-top.asmz").sections.front().placement.references.empty(),"Native Assembly Section restored removed source");
     run("component.activate",{{"instance_path",first_path}});
     const auto denied=host.execute({{"command","section.reference.set"},{"arguments",request}});require(!denied.ok&&denied.code=="unsupported_context","A hidden source Part was edited through top-level Section controls");
 }
