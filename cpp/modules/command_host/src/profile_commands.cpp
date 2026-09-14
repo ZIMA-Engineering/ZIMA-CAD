@@ -173,11 +173,11 @@ void Host::register_profile_commands() {
             try{const auto id=args.value("document",workspace_.active_document_id());const auto& value=profile(workspace_,id,args.at("container").get<std::string>(),kind);return Result::success(details(workspace_,id,value));}
             catch(const Error& e){return Result::failure(e.code,tr(e.what()));}
         });
-        dispatcher_.add({prefix+".reference.set",tr("Assign an original reference to a Part profile through its shared Properties transaction."),
+        dispatcher_.add({prefix+".reference.set",tr("Assign an original reference through the supported shared placement and feature transactions."),
             {{"container",true},{"index",true,Type::Integer},{"reference",true,Type::Object},{"offset_mm",false,Type::Number},
              {"flip",false,Type::Boolean},{"derive_orientation",false,Type::Boolean},{"document",false}},true},[this,kind](const Json& args) {
             const auto checked=target(args);if(!checked.ok)return checked;
-            if(interaction().template_document)return Result::failure("unsupported_document",tr("Profile operations require an open Part."));
+            if(interaction().template_document)return Result::failure("unsupported_document",tr("Profile operations require an open Part or Assembly."));
             try {
                 const auto& ref=args.at("reference");
                 const auto invalid=[](){throw Error("invalid_arguments","Specify owner, key and an optional instance_path for the placement reference.");};
@@ -186,7 +186,7 @@ void Host::register_profile_commands() {
                 const auto id=workspace_.active_document_id(),container=args.at("container").get<std::string>();static_cast<void>(profile(workspace_,id,container,kind));
                 document::ConstructionReference source;source.owner_id=ref.at("owner");source.semantic_key=ref.at("key");source.instance_path=ref.value("instance_path",std::string{});
                 source.offset=args.value("offset_mm",0.0);source.flip=args.value("flip",false);
-                const auto changed=workspace::set_part_profile_reference(workspace_,kernel_,id,container,args.at("index").get<std::size_t>(),std::move(source),args.value("derive_orientation",true));
+                const auto changed=workspace::set_profile_reference(workspace_,kernel_,id,container,args.at("index").get<std::size_t>(),std::move(source),args.value("derive_orientation",true));
                 if(changed)change_=Change{ChangeKind::Model,id};auto result=details(workspace_,id,profile(workspace_,id,container,kind));result["changed"]=changed;return Result::success(std::move(result));
             }catch(const Error& error){return Result::failure(error.code,tr(error.what()));}
              catch(const workspace::PlacementEditError& error){return Result::failure(error.code,tr(error.what()));}

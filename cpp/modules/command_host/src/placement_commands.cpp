@@ -52,7 +52,7 @@ void Host::register_placement_commands() {
             else {
                 const auto kind=workspace_.open_part(id)->session.document().find_container(object)->feature_kind;
                 if(kind==document::FeatureKind::Extrusion||kind==document::FeatureKind::Revolution)
-                    changed=workspace::set_part_profile_reference(workspace_,kernel_,id,object,index,std::move(source),derive);
+                    changed=workspace::set_profile_reference(workspace_,kernel_,id,object,index,std::move(source),derive);
                 else if(kind==document::FeatureKind::Hole||kind==document::FeatureKind::Thread)
                     changed=workspace::set_drill_placement_reference(workspace_,kernel_,id,object,index,std::move(source),derive);
                 else changed=workspace::set_primitive_reference(workspace_,kernel_,id,object,index,std::move(source),derive);

@@ -30,29 +30,15 @@ void check_source(const document::PartDocument& doc,const std::string& target,co
     if(source==doc.history_order.end()||destination==doc.history_order.end()||source>=destination)
         reject("reference_not_available","A feature reference must precede it in model history.");
 }
-}
-document::HistoryContainer prepare_part_feature_reference(Workspace& live,const std::string& id,
-    const std::string& container,std::size_t index,Ref source,bool derive_orientation) {
-    if(index>4||source.owner_id.empty()||source.semantic_key.empty()||!source.instance_path.empty()||!std::isfinite(source.offset))
-        reject("invalid_arguments","A feature reference requires a local source, a slot from 0 to 4 and a finite offset.");
-    const auto* state=live.open_part(id);if(!state)reject("unsupported_document","Profile operations require an open Part.");
-    const auto& before=state->session.document();const auto* existing=before.find_container(container);
-    if(!existing)reject("container_not_found","The requested container does not exist.");
-    if(const auto* body=before.body_owner_for_object(container)) {
-        if(body->derived_copy)reject("read_only_body","A derived Body cannot be edited directly.");
-        if(body->scope.id!=before.body_history.active_body_id())reject("inactive_body","Activate the owning Body before editing its placement.");
-    }
-    check_source(before,container,source);
-    auto geometry=part_construction_dimension_geometry(before,state->session.calculated_boundaries());
-    append_reference_geometry(geometry,before.history_origin_reference_geometry_before(container));
-    geometry=before.construction_reference_geometry_for(container,std::move(geometry));
-    const auto matches=[&](const auto& item){return item.reference.owner_id==source.owner_id&&item.reference.semantic_key==source.semantic_key&&item.reference.instance_path.empty();};
+document::HistoryContainer assign_feature_reference(document::HistoryContainer value,
+    const kernel::ViewerReferenceGeometry& geometry,std::size_t index,Ref source,bool derive_orientation) {
+    const auto matches=[&](const auto& item){return item.reference.owner_id==source.owner_id&&item.reference.semantic_key==source.semantic_key&&item.reference.instance_path==source.instance_path;};
     const bool point=std::ranges::any_of(geometry.points,matches),axis=std::ranges::any_of(geometry.axes,matches),edge=std::ranges::any_of(geometry.edges,matches);
-    const bool face=std::ranges::any_of(geometry.triangle_references,[&](const auto& ref){return ref.owner_id==source.owner_id&&ref.semantic_key==source.semantic_key&&ref.instance_path.empty();});
+    const bool face=std::ranges::any_of(geometry.triangle_references,[&](const auto& ref){return ref.owner_id==source.owner_id&&ref.semantic_key==source.semantic_key&&ref.instance_path==source.instance_path;});
     if(!point&&!axis&&!edge&&!face)reject("reference_not_found","The original feature placement reference is unavailable.");
     if((index>=3||!face)&&source.offset!=0)reject("parameter_not_editable","The placement parameter is unknown, constrained or locked.");
     source.supports_offset=face;source.orientation_only=false;source.orientation_role="none";source.orientation_drives_rotation=false;source.measured_offset.reset();
-    auto value=*existing;std::vector<Ref> position,orientation(2);std::array<bool,3> empty_locks{};
+    std::vector<Ref> position,orientation(2);std::array<bool,3> empty_locks{};
     for(const auto& ref:value.placement.references) {
         if(ref.orientation_only&&ref.orientation_role!="direction") {
             const bool second=ref.orientation_role=="top"||ref.orientation_role=="bottom"||ref.orientation_role=="left"||ref.orientation_role=="right";
@@ -92,4 +78,42 @@ document::HistoryContainer prepare_part_feature_reference(Workspace& live,const 
     if(!document::resolve_placement(value.placement,geometry))reject("invalid_reference","The proposed feature placement references cannot be resolved.");
     return value;
 }
+}
+document::HistoryContainer prepare_part_feature_reference(Workspace& live,const std::string& id,
+    const std::string& container,std::size_t index,Ref source,bool derive_orientation) {
+    if(index>4||source.owner_id.empty()||source.semantic_key.empty()||!source.instance_path.empty()||!std::isfinite(source.offset))
+        reject("invalid_arguments","A feature reference requires a local source, a slot from 0 to 4 and a finite offset.");
+    const auto* state=live.open_part(id);if(!state)reject("unsupported_document","Profile operations require an open Part.");
+    const auto& before=state->session.document();const auto* existing=before.find_container(container);
+    if(!existing)reject("container_not_found","The requested container does not exist.");
+    if(const auto* body=before.body_owner_for_object(container)) {
+        if(body->derived_copy)reject("read_only_body","A derived Body cannot be edited directly.");
+        if(body->scope.id!=before.body_history.active_body_id())reject("inactive_body","Activate the owning Body before editing its placement.");
+    }
+    check_source(before,container,source);
+    auto geometry=part_construction_dimension_geometry(before,state->session.calculated_boundaries());
+    append_reference_geometry(geometry,before.history_origin_reference_geometry_before(container));
+    geometry=before.construction_reference_geometry_for(container,std::move(geometry));
+    return assign_feature_reference(*existing,geometry,index,std::move(source),derive_orientation);
+}
+document::HistoryContainer prepare_assembly_profile_reference(Workspace& live,const std::string& id,
+    const std::string& container,std::size_t index,Ref source,bool derive_orientation) {
+    if(index>4||source.owner_id.empty()||source.semantic_key.empty()||!std::isfinite(source.offset))
+        reject("invalid_arguments","Specify owner, key and an optional instance_path for the placement reference.");
+    const auto* state=live.open_assembly(id);
+    if(!state)reject("unsupported_document","Cut operations require an open Assembly.");
+    const auto* cut=state->session.document().find_cut(container);
+    if(!cut)reject("container_not_found","The requested container does not exist.");
+    const auto& value=cut->definition;
+    const auto& sketch=value.feature_kind==document::FeatureKind::Extrusion
+        ? value.extrusion.sketch_id:value.revolution.sketch_id;
+    if(source.instance_path.empty()&&(source.owner_id==value.id||source.owner_id==value.feature_id||
+        source.owner_id==value.container_origin.id||source.owner_id==sketch))
+        reject("reference_not_available","The original feature placement reference is unavailable.");
+    // Persisted original geometry in this Assembly's frame, retaining the
+    // complete path of each source occurrence. This query does not calculate.
+    const auto geometry=placement_edit_geometry(live,id,container);
+    return assign_feature_reference(value,geometry,index,std::move(source),derive_orientation);
+}
+
 }

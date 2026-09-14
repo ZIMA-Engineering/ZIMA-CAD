@@ -3953,6 +3953,65 @@ int verify_assembly_owned_profiles(QApplication& application,const std::filesyst
         const auto saved=assembly::AssemblyDocument::load(path);
         if(!verify(saved.cuts.size()==1&&saved.sketches.size()==1&&saved.sketches.front().circles.size()==1&&saved.sketches.front().id==sketch_owner,
             "Saved Assembly profile is missing or has changed identity"))return 1;
+        const std::string prefix=revolve?"revolution":"extrusion",cut_id=saved.cuts.front().definition.id;
+        const auto command=[&](const std::string& name,commands::Json args=commands::Json::object()) {
+            const auto result=window.execute_console_command(QString::fromStdString(
+                commands::Json({{"command",name},{"arguments",std::move(args)}}).dump()));
+            if(!result.ok)throw std::runtime_error(name+": "+result.code+": "+result.message);
+            flush();return result.data;
+        };
+        const commands::Json reference={{"container",cut_id},{"index",0},
+            {"reference",{{"owner",saved.document_id+":origin"},{"key","origin:plane:xy"}}},{"offset_mm",1}};
+        command(prefix+".reference.set",reference);
+        const auto position=[&] {
+            command("save");
+            const auto stored=assembly::AssemblyDocument::load(path);
+            const auto* cut=stored.find_cut(cut_id);
+            if(!cut)throw std::runtime_error("Saved Assembly profile disappeared after GUI edit");
+            return cut->definition.placement.z;
+        };
+        const auto open_references=[&]() {
+            auto* tree=window.findChild<QTreeWidget*>("documentTree");
+            QTreeWidgetItem* item{};
+            // End the iterator before Properties rebuilds the rollback tree.
+            { for(QTreeWidgetItemIterator it(tree);*it;++it)
+                if((*it)->data(0,Qt::UserRole+3)=="assembly-cut"&&(*it)->data(0,Qt::UserRole).toString().toStdString()==cut_id) {
+                    item=*it;break;
+                }
+            }
+            if(!item)return static_cast<app::PrimitivePropertiesDialog*>(nullptr);
+            window.show_tree_item_properties(item);flush();return dialog();
+        };
+        for(bool accept:{false,true}) {
+            std::cout<<"Assembly "<<prefix<<" reference Properties "<<(accept?"OK":"Cancel")<<" opening"<<std::endl;
+            auto* properties=open_references();
+            if(!verify(properties,"Referenced Assembly profile Properties did not open"))return 1;
+            std::cout<<"Assembly reference Properties opened"<<std::endl;
+            auto* table=properties->findChild<QTableWidget*>("primitiveReferenceTable");
+            auto* offset=table?qobject_cast<QDoubleSpinBox*>(table->cellWidget(0,2)):nullptr;
+            if(!verify(offset&&offset->isEnabled()&&std::abs(offset->value()-1)<1e-6,
+                "Assembly Properties did not receive the CLI reference offset"))return 1;
+            std::cout<<"Assembly reference offset verified; rejecting command"<<std::endl;
+            const auto blocked=window.execute_console_command(QString::fromStdString(
+                commands::Json({{"command",prefix+".reference.set"},{"arguments",reference}}).dump()));
+            std::cout<<"Assembly reference rejected command returned"<<std::endl;
+            if(!verify(!blocked.ok&&blocked.code=="editing_in_progress","Reference command interrupted Assembly Properties"))return 1;
+            // Reacquire the field after exercising the console adapter.
+            table=properties->findChild<QTableWidget*>("primitiveReferenceTable");
+            offset=table?qobject_cast<QDoubleSpinBox*>(table->cellWidget(0,2)):nullptr;
+            if(!verify(offset&&offset->isEnabled(),"Assembly reference field disappeared after rejected command"))return 1;
+            std::cout<<"Assembly "<<prefix<<" reference changing offset"<<std::endl;
+            offset->setValue(2);
+            std::cout<<"Assembly "<<prefix<<" reference confirming"<<std::endl;
+            properties->buttons()->button(accept?QDialogButtonBox::Ok:QDialogButtonBox::Cancel)->click();flush();
+            std::cout<<"Assembly "<<prefix<<" reference saving result"<<std::endl;
+            if(!verify(std::abs(position()-(accept?2:1))<1e-6,"Assembly reference violated GUI OK/Cancel"))return 1;
+        }
+        command("undo");if(!verify(std::abs(position()-1)<1e-6,"Assembly reference GUI Undo failed"))return 1;
+        command("redo");command("save");
+        const auto referenced=assembly::AssemblyDocument::load(path);
+        if(!verify(referenced.find_cut(cut_id)->definition.placement.z==2&&referenced.sketches.front().id==sketch_owner,
+            "Assembly reference GUI lost native placement or profile identity"))return 1;
         auto* tree=window.findChild<QTreeWidget*>("documentTree");QTreeWidgetItem* item{};
         {for(QTreeWidgetItemIterator i(tree);*i;++i)if((*i)->data(0,Qt::UserRole+3)=="assembly-cut"){item=*i;break;}}
         if(!verify(item!=nullptr,"Saved Assembly cut is missing from Tree"))return 1;

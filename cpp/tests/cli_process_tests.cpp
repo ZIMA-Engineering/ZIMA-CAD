@@ -1,3 +1,4 @@
+#include "assembly_profile_test_support.hpp"
 #include <zima/document/dimension_layout_json.hpp>
 #include <zima/drawing/drawing_template.hpp>
 #include <zima/sketcher/text_geometry.hpp>
@@ -722,6 +723,33 @@ int main(int argc,char** argv){
             require(result.exit_code==0&&result.results().back().at("data").at("placement").at("x")==2,"Standalone Section reference or Undo/Redo failed");
             std::vector<kernel::BodyResult> cache;const auto saved=document::PartDocument::load(project/"cli-section-reference.prtz",&cache);
             require(saved.sections.front().id==id&&saved.sections.front().sketch.id==fixture.sections.front().sketch.id&&saved.sections.front().placement.references.front().owner_id==fixture.document_id+":origin"&&!cache.empty()&&std::abs(cache.back().volume-6000)<1e-6,"Standalone Section reference save lost original identity or changed the body");
+        }
+        for(bool extrusion:{true,false}) {
+            kernel::OcctKernel kernel;
+            const std::string prefix=extrusion?"extrusion":"revolution",name="cli-assembly-"+prefix+"-reference";
+            assembly_profile_test::Fixture fixture(kernel,project,name);
+            const auto sketch=extrusion?fixture.rectangle(-1,-1.5,2,3):fixture.rectangle(1,0,1,2);
+            Json create={{"sketch",sketch},{"targets",{fixture.first}}};
+            if(extrusion)create["length_forward_mm"]=4;
+            else {
+                const auto axis=fixture.line(sketch,0,0,0,4);
+                fixture.run("sketch.segment.centerline",{{"sketch",sketch},{"segment",axis},{"centerline",true}});
+            }
+            const std::string cut=fixture.run((prefix+".create").c_str(),create).at("container");fixture.run("save");
+            const auto set=command({{"command",prefix+".reference.set"},{"arguments",{{"container",cut},{"index",0},
+                {"reference",{{"owner",fixture.owner+":origin"},{"key","origin:plane:xy"}}},{"offset_mm",1}}}});
+            const auto get=command({{"command",prefix+".get"},{"arguments",{{"container",cut}}}});
+            result=launch(executable,root,common+QStringList{"--command",QString::fromStdString("open "+name+".asmz"),
+                "--command",set,"--command","undo","--command","redo","--command","save","--command",get});
+            require(result.exit_code==0&&result.results().back().at("data").at("reference_valid")==true&&
+                result.results().back().at("data").at("sketch")==sketch,
+                "Standalone Assembly profile reference or Undo/Redo failed");
+            const auto saved=assembly::AssemblyDocument::load(project/(name+".asmz"));
+            require(saved.find_cut(cut)->definition.placement.z==1&&saved.sketches.front().id==sketch&&
+                saved.sketches.front().owner_container_id==cut&&saved.find_cut(cut)->target_occurrence_ids==std::vector<std::string>{fixture.first}&&
+                std::abs(saved.find_occurrence(fixture.first)->calculated_source->volume-(1000-(extrusion?24:6*std::acos(-1.0))))<1e-5&&
+                std::abs(saved.find_occurrence(fixture.second)->calculated_source->volume-1000)<1e-6,
+                "Standalone Assembly reference lost native identity or changed the wrong body");
         }
         const auto batch="open commanded-box.prtz\nbox.set "+box_id+" 15\nbox.get "+box_id+"\nundo\nbox.get "+box_id+"\nredo\nsave\n";
         result=launch(executable,root,common+QStringList{"--stdin"},QByteArray::fromStdString(batch));

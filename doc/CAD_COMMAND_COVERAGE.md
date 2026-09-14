@@ -35,12 +35,12 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Válec, koule, kužel, jehlan, klín | Hotovo | Společné create/get/set, zámky, přesnost, GUI/CLI a 59/59 regresí |
 | Historie Partu | Hotovo | Společný přesun, ověření závislostí, potlačení, odstranění a kurzor; včetně historie těles a Booleanů |
 | Tělesa a Boolean | Modelové operace a reference hotovy | Tvorba, čtení, aktivace, název/viditelnost, kurzory, Boolean, pořadí a mazání; `body.reference.set` a společný vstup `placement.reference.set`; zbývá odstranění reference |
-| Umístění a původní reference | Číselná editace, reference Body/konstrukcí/primitiv a profilů Partu | `placement.get/set`, `value_lock.list/set`; `placement.reference.set` pro Body, kořenové konstrukce, šest primitiv a profily Partu, `body.reference.set`, `construction.reference.set`; zbývají další modelové prvky, řezy, vložené dráhy a odebrání reference; komponenty používají `component.set` |
+| Umístění a původní reference | Číselná editace, reference Body/konstrukcí/primitiv, otvorů, řezů a profilů Partu/Assembly | `placement.get/set`, `value_lock.list/set`; `placement.reference.set` pro Body, kořenové konstrukce, šest primitiv a profily Partu, `body.reference.set`, `construction.reference.set`; `hole/opening.reference.set`, `section.reference.set`, `extrusion/revolution.reference.set` také pro profilové odečty Assembly; zbývají další modelové prvky, vložené dráhy a odebrání reference; komponenty používají `component.set` |
 | Konstrukční geometrie | Tvorba, vlastnosti a reference kořenů hotovy | `construction.list/get/create/set/delete`, `construction.reference.set`; body křivek, tečny, zaoblení a seznamy; přiřazení referencí bodům je připravené na `codex/curve-reference-pending` a čeká na schválenou opravu starých zdrojových poloh; vložené dráhy následují |
 | Skicář: geometrie | Základ hotov | 21 příkazů: samostatné a vložené skici, body, úsečky, kružnice, oblouky, elipsy, B-spline, obdélníky, mnohoúhelníky, posun a pomocná geometrie; text create/get/set s nativním písmem a spline get/set hotovy; DXF do vložených profilů hotov; zbývá kontrola dalších variant podle GUI |
 | Skicář: vazby a operace | Vazby/kóty/solver/offset/trim/mirror hotovy | Offset create/get/set/free, úplný podklad a zachování intervalů, trim podle průsečíků, mirror, orientovaný obdélník, tečny a zaoblení rohu; všech 15 druhů vazeb, odstranění a solver; 16 druhů kót včetně vlastností, popisků a mazání; uvolnění externích referencí hotovo |
 | Externí reference skici | Lokální i kontextová tvorba, obnova a odpojení | Přesná projekce, trim, společné potvrzení Partu a závislostí, vlastněné profily, Part/Assembly Undo/Redo a souhrny zavřených nativních vlastníků při explicitní regeneraci |
-| Vytažení a rotace | Profily Partu a profilové odečty Assembly implementovány | `extrusion/revolution.create/get/set`, `assembly.cut.list`, vlastněná skica, Thin, směry, původní koncové reference a konkrétní výskyty; společné OK; `assembly.cut.remove/suppress/move/can_move` sdílejí historii s GUI; `extrusion/revolution.sketch.edit` potvrzují dávku úprav vlastní skici s jedním přepočtem a Undo; `extrusion/revolution.reference.set` přidělují reference umístění v Partu |
+| Vytažení a rotace | Profily Partu a profilové odečty Assembly implementovány | `extrusion/revolution.create/get/set`, `assembly.cut.list`, vlastněná skica, Thin, směry, původní koncové reference a konkrétní výskyty; společné OK; `assembly.cut.remove/suppress/move/can_move` sdílejí historii s GUI; `extrusion/revolution.sketch.edit` potvrzují dávku úprav vlastní skici s jedním přepočtem a Undo; `extrusion/revolution.reference.set` přidělují reference umístění v Partu i Assembly, včetně přesných cest vnořených výskytů |
 | Tažení | Tvorba a geometrické vlastnosti hotovy | `sweep2d/sweep3d/helical.create/get/set`, společné GUI potvrzení, celá 3D dráha, stanice a úplná správa profilů/párování, reference roviny 2D dráhy a odsazení základní skici H-tažení; generické rozšíření umístění patří do řádku Umístění |
 | Otvory a závity | Katalog, současný Otvor a vnější závit částečně hotovy | `thread.catalog`, `opening.create/get/set`: hladký/závitový otvor, rozměry, sražení, špička, směr a průchozí otvor; `shaft_thread.create/get/set` včetně původních referencí; `hole.reference.set` a `opening.reference.set` pro původní reference umístění; `hole.create/get/set`: nativní Hole s vlastními profily, rozměry a závitovým drátem; `opening.create/set` přijímají nezávislé původní cíle `bore_targets/thread_targets`; `hole.create/set` přijímají původní `bore_targets`; `opening/hole.components` a `opening/hole.component.remove` sdílejí volitelné části se stromem; `drill_point.create/get/set` pokrývají samostatnou vrtací špičku |
 | Zaoblení, zkosení, skořepina | Hotovo | `shell.faces/create/get/set`, `fillet.create/get/set`, `chamfer.create/get/set`; `edge_treatment.edges/route/remove`: skutečný vstup, společná tečná trasa a odebrání člena/trasy/posledního prvku podle stromového kontraktu |
@@ -49,7 +49,7 @@ výběr ani kameru; k takové interakci používá explicitní reference a param
 | Výkresy | Listy, šablony, historie, tvorba/vlastnosti/dotazy/mazání pohledů, regenerace, modelové anotace, Show/Erase a měřené kóty (dotazy, tvorba, editace, řetězec, mazání), razítko, zdrojové parametry BOM, styly šraf, PDF, DXF a PNG/JPEG listu/výřezu hotovy | `drawing.annotation.get/set` pro místní rozložení modelových kót, `export.view` a `drawing.view.labels.get/set` pro popisky pohledů, označení a konce řezů hotovy |
 | Editor šablon | Životní cyklus, skica, obrázky a oblasti kusovníku hotovy | `template.new/open/get/save/sketch.edit`, rámečky i razítka, nativní text a Undo/Redo; `template.image/region.list/get/create/set/remove`, zámky a společné GUI transakce |
 | Vzhled | Barvy, styly geometrie a vlastnosti 3D kót implementovány | `appearance.get/set/reset/faces/palette`: styly Partu a jednotlivých výskytů, skupiny ploch, dědění zdroje, reset, historie a nativní uložení; bez výpočtu těles; `dimension.layout.list/get/set` pro původní identity, úplný textový styl, rozložení a reset Part/Assembly; společné potvrzení s GUI |
-| Řezy | Čtení, tvorba, vlastnosti, aktivace a odstranění | `section.list/get/components/create/set/activate/delete`: úplná otevřená čára, vlastní skica, společné OK vlastností, číselné umístění, přesné výskyty a šrafování; `section.sketch.edit` upravuje celou skicu v jedné transakci; zbývá vstup referencí umístění |
+| Řezy | Čtení, tvorba, vlastnosti, aktivace a odstranění | `section.list/get/components/create/set/activate/delete`: úplná otevřená čára, vlastní skica, společné OK vlastností, číselné umístění, přesné výskyty a šrafování; `section.sketch.edit` upravuje celou skicu v jedné transakci; `section.reference.set` přiřazuje původní reference umístění Partu i Assembly |
 | Měření | Společné GUI/CLI operace | `measurement.list/get/evaluate/create/set/delete`; původní reference a uložené výsledky |
 | Parametry, relace a materiál | Společné tabulky a transakce hotovy | Parametry, jednotky, přesnost, relace, materiál včetně přímého načtení knihovny a uložené varianty; řízení rozměrů relacemi a generování variant nejsou dosud zavedené ani v GUI |
 | Import a export | Import Partu/Assembly STEP/IGES/DXF a základní exporty hotovy | Společný STEP včetně vnořených sestav, STL Part/vnořená Assembly, DXF úsečky/osy/body/kružnice/oblouky/elipsy/spline/trimy/offsety i textové obrysy a rohová zaoblení; DXF do vložených profilů hotov; přesný import neupnutých/periodických spline hotov; `export.view` snímá aktuální 3D pohled přes GUI adaptér; dávkový hostitel bez View vrací `view_unavailable` |
@@ -1721,7 +1721,31 @@ základní příkazy řezu, katalog, GUI konzole a GUI řezů. Katalog obsahuje
 **276 příkazů**, sada **150 testů**. Tato etapa má cílené ověření; poslední úplná
 regrese zůstává **148/148** (`build/drill-reference-full-tests.log`).
 
-Pokračuje audit zbývajících adaptérů umístění a souborových operací. Samostatně
-je rozpracovaná oprava posouvání zobrazených kót umístění fialovými úchopy;
-nepřidává se změna hodnoty parametru tažením. Oprava společné tvorby roviny
-kót čeká na výslovný souhlas podle ochrany umístění v AGENTS.md.
+Pokračuje audit zbývajících adaptérů umístění a souborových operací. Následně
+schválená oprava roviny zobrazených kót umístění je dokončená, ověřená a pushnutá
+v `a2ae66a`; tažení úchopu mění pouze rozložení kóty. Podpora tažení těchto
+úchopů při současně otevřených Vlastnostech zůstává samostatnou nedokončenou
+prací. Oprava zvětšování kót skic z `part02.prtz` je pushnutá v `6897d1d`.
+
+
+## Reference umístění profilových odečtů Assembly (2026-09-14)
+
+`extrusion.reference.set` a `revolution.reference.set` nyní používají také
+stávající transakci profilových odečtů sestavy. Sdílená příprava s Partem
+zachovává rozdělení polohy a FRONT/TOP, měření zamčené vzdálenosti, vlastní
+skicu a přesné cesty výskytů. Přesun přípravy byl výslovně schválen uživatelem;
+společný řešič ani kontrakt umístění se nemění. Zdrojový Part zůstává vlastníkem
+své geometrie. Podrobnosti: [PROFILE_REFERENCE_COMMANDS.md](PROFILE_REFERENCE_COMMANDS.md).
+
+Rozšířeny stávající modelové, procesní a GUI testy; katalog má stále
+**276 příkazů**, sada **150 testů**. Další rozsah zahrnuje zbývající adaptéry
+umístění (zejména tažení/import), práci s referencemi vložených drah a souborové
+operace. Celé CLI tímto ještě není dokončené.
+
+Obě aplikace a všechny testovací cíle jsou sestavené. Úplná Windows Release
+regrese prošla **150/150 za 682,52 s**, včetně samostatného procesu CLI,
+překladů, GUI konzole a souhrnného GUI běhu:
+`build/assembly-profile-reference-full-tests.log`. Samostatná GUI kontrola
+Part/Assembly profilů prošla rovněž (`build/assembly-profile-reference-gui-tests.log`).
+Nový GUI test ukončuje iteraci stromu před otevřením Vlastností, protože jejich
+rollback strom přestaví; živý iterátor zde způsoboval chybu samotného testu.

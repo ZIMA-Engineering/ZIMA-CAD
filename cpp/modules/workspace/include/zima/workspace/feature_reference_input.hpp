@@ -6,4 +6,10 @@ namespace zima::workspace {
 [[nodiscard]] document::HistoryContainer prepare_part_feature_reference(Workspace&,
     const std::string& document,const std::string& container,std::size_t index,
     document::ConstructionReference,bool derive_orientation=true);
+// Assembly cutters may refer to local construction or an exact Part occurrence.
+// The prepared value is committed by the existing Assembly profile operation.
+[[nodiscard]] document::HistoryContainer prepare_assembly_profile_reference(Workspace&,
+    const std::string& document,const std::string& container,std::size_t index,
+    document::ConstructionReference,bool derive_orientation=true);
+
 }

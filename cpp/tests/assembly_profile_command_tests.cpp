@@ -73,6 +73,89 @@ void extrusion(const kernel::OcctKernel& kernel,const fs::path& directory) {
     require(locked_saved.find_cut(cut)->definition.value_locks==locked.value_locks&&locked_saved.find_cut(cut)->definition.placement.value_locks==locked.placement.value_locks,"Assembly format lost profile or placement locks");
 
 }
+void references(const kernel::OcctKernel& kernel,const fs::path& directory,bool extrusion) {
+    const std::string prefix=extrusion?"extrusion":"revolution",name="assembly-"+prefix+"-references";
+    Fixture f(kernel,directory,name);
+    const auto second_path=assembly::InstancePath{}.child(f.second).encoded();
+    const auto first_path=assembly::InstancePath{}.child(f.first).encoded();
+    f.run("component.set",{{"instance_path",second_path},{"placement",{{"z_mm",2}}}});
+    const auto sketch=extrusion?f.rectangle(-1,-1.5,2,3):f.rectangle(1,0,1,2);
+    Json create={{"sketch",sketch},{"targets",{f.first}}};
+    if(extrusion)create["length_forward_mm"]=4;
+    else {
+        const auto axis=f.line(sketch,0,0,0,4);
+        f.run("sketch.segment.centerline",{{"sketch",sketch},{"segment",axis},{"centerline",true}});
+    }
+    const std::string cut=f.run((prefix+".create").c_str(),create).at("container");
+    const auto command=prefix+".reference.set";
+    const auto source_revision=f.live.open_part(f.source)->session.revision();
+    const auto* source_cache=f.live.open_part(f.source)->session.calculated_boundaries().data();
+    const auto initial=*f.doc().find_cut(cut);
+    Json request={{"container",cut},{"index",0},{"reference",{{"owner",f.owner+":origin"},{"key","origin:plane:xy"}}},{"offset_mm",1}};
+    require(f.run(command.c_str(),request).at("changed")==true,"Assembly profile reference did not report its commit");
+    near(f.doc().find_cut(cut)->definition.placement.z,1);
+    near(f.volume(f.first),1000-(extrusion?24:6*std::numbers::pi));near(f.volume(f.second),1000);
+    const auto assigned=*f.doc().find_cut(cut);
+    const auto revision=f.state().session.revision(),generation=f.state().session.data_generation();
+    require(f.run(command.c_str(),request).at("changed")==false&&f.state().session.revision()==revision&&
+        f.state().session.data_generation()==generation&&!f.host.change(),"Repeated Assembly profile reference calculated or added history");
+    f.run("undo");require(f.doc().find_cut(cut)->definition==initial.definition,"Assembly reference Undo changed its input");
+    f.run("redo");require(f.doc().find_cut(cut)->definition==assigned.definition,"Assembly reference Redo changed native identities");
+    const auto geometry=f.doc().build_scene().original_references;
+    const auto face=std::ranges::find_if(geometry.triangle_references,[&](const auto& ref){return ref.instance_path==first_path&&ref.surface&&
+        ref.surface->kind==kernel::SurfaceGeometry::Kind::Plane&&ref.surface->origin.z>4.99&&std::abs(ref.surface->axis.z)>.99;});
+    require(face!=geometry.triangle_references.end(),"Assembly reference fixture has no original top face");
+    request["reference"]={{"owner",face->owner_id},{"key",face->semantic_key},{"instance_path",first_path}};request["offset_mm"]=-4;
+    // Position and FRONT/TOP have independent ownership. Auto-filling TOP
+    // from a plane parallel to the retained FRONT is an actual conflict.
+    f.reject(command.c_str(),request,"invalid_reference");
+    f.run("undo"); // Return to the original cutter with empty reference rows.
+    request["derive_orientation"]=false;
+    f.run(command.c_str(),request);near(f.doc().find_cut(cut)->definition.placement.z,1);
+    request["reference"]["instance_path"]=second_path;
+    f.run(command.c_str(),request);near(f.doc().find_cut(cut)->definition.placement.z,3);
+    near(f.volume(f.first),1000-(extrusion?12:6*std::numbers::pi));near(f.volume(f.second),1000);
+    require(f.doc().find_cut(cut)->definition.placement.references.front().instance_path==second_path,
+        "Assembly profile reference merged repeated Part occurrences");
+    auto bad=request;bad["reference"]["instance_path"]="missing";f.reject(command.c_str(),bad,"reference_not_found");
+    bad=request;bad["reference"]={{"owner",sketch},{"key","sketch_origin"}};f.reject(command.c_str(),bad,"reference_not_available");
+    bad=request;bad["index"]=1;f.reject(command.c_str(),bad,"duplicate_reference");
+    bad=request;bad["index"]=4294967296LL;f.reject(command.c_str(),bad,"invalid_arguments");
+    f.reject(extrusion?"revolution.reference.set":"extrusion.reference.set",request,"wrong_feature");
+    f.interaction.editing=true;f.reject(command.c_str(),request,"editing_in_progress");f.interaction={};
+    // The same leaf ID beneath two instances of a subassembly is not one
+    // reference. Both path levels must participate in lookup and persistence.
+    f.run("new",{{"type","assembly"},{"name",name+"-nested"}});
+    const auto nested=f.live.active_document_id();
+    const std::string leaf=f.run("component.insert",{{"source",f.source}}).at("occurrence");f.run("save");
+    f.run("activate",{{"document",f.owner}});
+    const std::string parent1=f.run("component.insert",{{"source",nested}}).at("occurrence");
+    const std::string parent2=f.run("component.insert",{{"source",nested}}).at("occurrence");
+    f.run("component.set",{{"instance_path",assembly::InstancePath{}.child(parent2).encoded()},{"placement",{{"z_mm",2}}}});
+    request["reference"]["instance_path"]=assembly::InstancePath{}.child(parent1).child(leaf).encoded();
+    f.run(command.c_str(),request);near(f.doc().find_cut(cut)->definition.placement.z,1);
+    near(f.volume(f.first),1000-(extrusion?24:6*std::numbers::pi));
+    const auto nested_path=assembly::InstancePath{}.child(parent2).child(leaf).encoded();
+    request["reference"]["instance_path"]=nested_path;
+    f.run(command.c_str(),request);near(f.doc().find_cut(cut)->definition.placement.z,3);
+    near(f.volume(f.first),1000-(extrusion?12:6*std::numbers::pi));near(f.volume(f.second),1000);
+    require(f.doc().find_cut(cut)->definition.placement.references.front().instance_path==nested_path,
+        "Assembly reference lost a parent occurrence from its path");
+    bad=request;bad["reference"]["instance_path"]=assembly::InstancePath{}.child(leaf).encoded();
+    f.reject(command.c_str(),bad,"reference_not_found");
+    auto locked=f.doc().find_cut(cut)->definition;locked.placement.references.front().offset_locked=true;
+    workspace::commit_assembly_profile(f.live,kernel,f.owner,locked,{f.first},workspace::ProfileEditMode::Replace);
+    request["offset_mm"]=99;f.run(command.c_str(),request);near(f.doc().find_cut(cut)->definition.placement.z,3);
+    require(f.doc().find_cut(cut)->definition.placement.references.front().offset_locked,"Reference input removed the locked offset");
+    require(f.live.open_part(f.source)->session.revision()==source_revision&&
+        f.live.open_part(f.source)->session.calculated_boundaries().data()==source_cache,
+        "Assembly reference recalculated or edited its source Part");
+    f.run("save");const auto saved=assembly::AssemblyDocument::load(directory/(name+".asmz"));
+    require(saved.find_cut(cut)->definition==f.doc().find_cut(cut)->definition&&
+        saved.find_cut(cut)->target_occurrence_ids==std::vector<std::string>{f.first}&&
+        saved.sketches.front().id==sketch&&saved.sketches.front().owner_container_id==cut,
+        "Native Assembly lost its reference, target or owned profile identity");
+}
 void revolution(const kernel::OcctKernel& kernel,const fs::path& directory) {
     Fixture f(kernel,directory,"assembly-revolution");const auto sketch=f.rectangle(1,0,1,4);
     f.reject("revolution.create",{{"sketch",sketch}},"profile_rejected");
@@ -88,7 +171,7 @@ void revolution(const kernel::OcctKernel& kernel,const fs::path& directory) {
 }
 int main(){try{
     const auto root=fs::canonical(fs::temp_directory_path());const auto directory=root/("zima-assembly-profile-"+document::PartDocument::create_default().document_id);
-    require(fs::create_directory(directory),"Cannot create fixture directory");kernel::OcctKernel kernel;extrusion(kernel,directory);revolution(kernel,directory);
+    require(fs::create_directory(directory),"Cannot create fixture directory");kernel::OcctKernel kernel;extrusion(kernel,directory);revolution(kernel,directory);references(kernel,directory,true);references(kernel,directory,false);
     require(directory.parent_path()==root,"Unexpected cleanup path");fs::remove_all(directory);
     std::cout<<"Assembly profiles: exact cuts, source ownership, shared draft edits, original end targets, native files and history passed\n";return 0;
 }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}}

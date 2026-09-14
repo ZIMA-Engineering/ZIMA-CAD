@@ -34,8 +34,9 @@ struct Fixture {
         o.interaction=[this]{return interaction;};return o;
     }
     Json run(const char* command, Json args=Json::object()) {
+        const auto input=args.dump();
         auto result=host.execute({{"command",command},{"arguments",std::move(args)}});
-        if(!result.ok)throw std::runtime_error(std::string(command)+": "+result.code+": "+result.message);return result.data;
+        if(!result.ok)throw std::runtime_error(std::string(command)+" "+input+": "+result.code+": "+result.message);return result.data;
     }
     workspace::AssemblyState& state(){return *live.open_assembly(owner);}
     const assembly::AssemblyDocument& doc(){return state().session.document();}
