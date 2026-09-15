@@ -112,7 +112,13 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
             painter.save();painter.setPen(selected?QColor("#00D1FF"):hovered?QColor("#FF9300"):pen_color(text.pen));
             QFont font(QString::fromStdString(text.font));font.setPixelSize(1000);painter.setFont(font);
             const QFontMetricsF metrics(font);
-            const auto ink=metrics.tightBoundingRect(value);const auto anchor=screen(text.position);
+            const auto lines=value.split('\n',Qt::KeepEmptyParts);
+            QRectF ink;const double spacing=metrics.lineSpacing();
+            for(qsizetype i=0;i<lines.size();++i) {
+                auto bounds=metrics.tightBoundingRect(lines[i].isEmpty()?QStringLiteral(" "):lines[i]);
+                bounds.translate(0,i*spacing);ink=ink.isNull()?bounds:ink.united(bounds);
+            }
+            const auto anchor=screen(text.position);
             const double scale=text.height/std::max(1.0,metrics.capHeight());
             const double angle=text.angle*3.141592653589793/180.0,flip=text.flipped?-1:1;
             const QPointF x=screen({text.position.x+flip*std::cos(angle)*scale,text.position.y+flip*std::sin(angle)*scale})-anchor;
@@ -122,10 +128,19 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
             auto alignment=QString::fromStdString(text.alignment).toLower();
             const double dx=alignment=="center"?-ink.center().x():alignment=="right"?-ink.right():-ink.left();
             const double dy=text.vertical_alignment=="top"?-ink.top():text.vertical_alignment=="middle"||text.vertical_alignment=="center"?-ink.center().y():text.vertical_alignment=="baseline"?0:-ink.bottom();
-            painter.drawText(QPointF(dx,dy),value);painter.restore();
+            for(qsizetype i=0;i<lines.size();++i) {
+                const auto bounds=metrics.tightBoundingRect(lines[i]);
+                const double line_dx=alignment=="center"?-bounds.center().x():alignment=="right"?-bounds.right():-bounds.left();
+                painter.drawText(QPointF(line_dx,dy+i*spacing),lines[i]);
+            }
+            painter.restore();
             if(!printing&&!text.field_id.empty()) {
                 const auto polygon=transform.map(QPolygonF(ink.translated(dx,dy).adjusted(-60,-60,60,60)));
                 field_regions_.push_back({text.field_id,polygon});
+                if(text.field_id.starts_with("text:")&&selected) {
+                    draw_handle(anchor,true);
+                    field_regions_.push_back({text.field_id,QPolygonF(QRectF(anchor-QPointF(7,7),QSizeF(14,14)))});
+                }
                 // Fixed title-block fields remain ordinary text selection.
             }
         };
@@ -325,6 +340,10 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
             [printing](QPainter& text_painter,const QPainterPath& mask){
                 text_painter.fillPath(mask,printing?QColor(Qt::white):QColor(Qt::black));
             });
+        for(const auto& text:sheet_->texts)if(printing||!text_preview_||text_preview_->id!=text.id) {
+            auto presentation=text.presentation;presentation.field_id="text:"+text.id;draw_text(presentation);
+        }
+        if(!printing&&text_preview_) {auto text=text_preview_->presentation;text.field_id="text:"+text_preview_->id;draw_text(text);}
         if(!printing&&!preview_)for(const auto& handle:annotation_handles_){
             const bool selected=(selected_annotation_&&selected_annotation_->kind==handle.key.kind&&selected_annotation_->view==handle.key.view&&selected_annotation_->id==handle.key.id)||(dimension_preview&&handle.key.kind==AnnotationKind::Dimension&&dimension_preview->id==handle.key.id),hovered=hovered_annotation_&&*hovered_annotation_==handle.key;
             const bool movable=handle.key.kind==AnnotationKind::Caption||handle.key.kind==AnnotationKind::SectionLabel||handle.key.kind==AnnotationKind::SectionEnd||handle.key.kind==AnnotationKind::Dimension||

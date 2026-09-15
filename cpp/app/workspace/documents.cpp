@@ -1,3 +1,4 @@
+#include <zima/workspace/family_operations.hpp>
 #include "workspace_internal.hpp"
 #include <zima/workspace/template_operations.hpp>
 #include <zima/workspace/document_operations.hpp>
@@ -172,7 +173,7 @@ void AssemblyWorkspaceWindow::close_document(int tab_index) {
     const auto* state = workspace_.find(id);
     if (state == nullptr) return;
     bool discard=false;
-    const bool dirty=workspace::document_needs_save(workspace_,id);
+    const bool dirty=workspace::family_owner(workspace_,id)==id && workspace::document_needs_save(workspace_,id);
     if (dirty) {
         const auto answer = QMessageBox::warning(
             this, tr("Neuložené změny"),
@@ -316,7 +317,7 @@ void AssemblyWorkspaceWindow::refresh_tabs() {
                 }
             } else {
                 const auto& model = document.session.document();
-                const QString label = document.path.empty()
+                const QString label = document.path.empty()||!model.family.parent_id.empty()
                     ? QString::fromStdString(model.name)
                     : QString::fromStdString(zima::document::path_to_utf8(document.path.filename()));
                 const int index = tabs_->addTab(
@@ -327,7 +328,7 @@ void AssemblyWorkspaceWindow::refresh_tabs() {
                             return "part";
                         } else return "assembly";
                     }()),
-                    label + (document.session.is_dirty() ? QStringLiteral(" *") : QString{}));
+                    label + (workspace::document_needs_save(workspace_,model.document_id) ? QStringLiteral(" *") : QString{}));
                 tabs_->setTabData(index, QString::fromStdString(model.document_id));
                 if (model.document_id == workspace_.displayed_document_id()) {
                     displayed_index = index;

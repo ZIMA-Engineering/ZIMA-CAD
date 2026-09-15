@@ -101,13 +101,14 @@ std::vector<std::filesystem::path> Workspace::save_copy(
         }});
     },*source);
 
-    if (!std::holds_alternative<DrawingState>(*source)) {
+    const bool family_member=std::visit([](const auto& value){if constexpr(requires{value.session;})return !value.session.document().family.parent_id.empty();else return false;},*source);
+    if (!std::holds_alternative<DrawingState>(*source)&&!family_member) {
         std::vector<DrawingState> drawings;
         std::set<fs::path> open_paths;
         std::set<std::string> seen_ids;
         const auto belongs=[&](const zima::drawing::DrawingDocument& drawing) {
             if (drawing.source_document_id==document_id ||
-                (!source_path.empty() && normalized(drawing.source_path)==source_path)) return true;
+                (drawing.source_document_id.empty() && !source_path.empty() && normalized(drawing.source_path)==source_path)) return true;
             if (!drawing.source_document_id.empty()) return false;
             for (const auto& sheet:drawing.sheets) for (const auto& view:sheet.views)
                 if (view.source_document_id==document_id) return true;
@@ -160,7 +161,7 @@ std::vector<std::filesystem::path> Workspace::save_copy(
             for (auto& sheet:drawing.sheets) {
                 for(auto& row:sheet.bom_rows)
                     if(row.source_document_id==document_id ||
-                        (!source_path.empty() && normalized(row.source_path)==source_path)) {
+                        (row.source_document_id.empty() && !source_path.empty() && normalized(row.source_path)==source_path)) {
                         row.source_document_id=new_id;row.source_path=target;
                         row.file_stem=zima::document::path_to_utf8(target.stem());
                     }
@@ -174,7 +175,7 @@ std::vector<std::filesystem::path> Workspace::save_copy(
                 for(auto& point:measuring.points)rebind_origin(point.source);
                 view.measurement_geometry=zima::drawing::share_measurement_geometry(std::move(measuring));
                 if (view.source_document_id==document_id ||
-                    (!source_path.empty() && normalized(view.source_path)==source_path)) {
+                    (view.source_document_id.empty() && !source_path.empty() && normalized(view.source_path)==source_path)) {
                     view.source_document_id=new_id;
                     view.source_path=target;
                     for (auto& edge:view.projected_edges) rebind_origin(edge.source);

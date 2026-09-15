@@ -715,8 +715,17 @@ moves its children; an individual child stays on its projection ray.
 A sheet-scale view follows later sheet scale changes; a custom-scale view stays
 independent. Tab changes display the stored projection. **Regenerate** explicitly
 loads current source data and updates the view. The **Variant** control offers the generic and its open Family Table instances.
-Save an instance before selecting it: the Drawing stores its exact native identity
-and path. Changing the variant reprojects the Drawing in one Undo transaction.
+Save the owning family before selecting an instance: the Drawing stores its stable
+row identity and the common parent file path. Renaming the instance preserves this
+link. Changing the variant reprojects the Drawing in one Undo transaction. An empty
+Drawing offers open Part/Assembly instances before Insert View.
+
+### Text
+
+**Text**, below Dimension, creates multiline sheet text using the shared text
+properties window. Click the sheet for its position and confirm with OK. Select
+and drag existing text, double-click to edit, or press Delete to remove it.
+Native saving and PDF/DXF exports preserve text. See [Drawing text](DRAWING_TEXT.md).
 
 ### Dimensions and Show/Erase
 

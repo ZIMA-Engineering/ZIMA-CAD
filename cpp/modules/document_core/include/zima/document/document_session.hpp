@@ -4,6 +4,7 @@
 #include <zima/document/file_relocation.hpp>
 
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <memory>
 #include <vector>
@@ -51,6 +52,9 @@ public:
     [[nodiscard]] zima::kernel::ViewerMesh body_context_mesh(const BodyHistoryGraph* context = nullptr) const;
     [[nodiscard]] std::optional<BooleanEditInputs> boolean_edit_inputs(const std::string& id) const;
 
+    // Workspace-owned transaction routing; copied sessions deliberately omit it.
+    std::function<bool(PartDocument&, std::vector<zima::kernel::BodyResult>&)> commit_interceptor;
+    void update_family_evaluated(FamilyDocument);
     void replace(
         PartDocument document,
         std::vector<zima::kernel::BodyResult> calculated_boundaries = {});

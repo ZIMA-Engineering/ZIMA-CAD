@@ -305,6 +305,8 @@ void DocumentSession::replace(
 void DocumentSession::commit(
     PartDocument document,
     std::vector<zima::kernel::BodyResult> calculated_boundaries) {
+    const auto intercept=commit_interceptor;
+    if(intercept&&intercept(document,calculated_boundaries))return;
     static_assert(std::is_nothrow_move_assignable_v<PartDocument>);
     refresh_physical_relations(document, physical_values(document,calculated_boundaries));
     retain_shaft_reference_geometry(document,calculated_boundaries);
@@ -355,6 +357,10 @@ bool DocumentSession::redo() { return step(redo_,undo_); }
 
 void DocumentSession::activate_body(const std::string& id) {
     current_->document.body_history.activate(id);
+}
+
+void DocumentSession::update_family_evaluated(FamilyDocument value) {
+    current_->document.family=std::move(value);current_->calculated_state_dirty=true;++data_generation_;
 }
 
 void DocumentSession::mark_saved() {

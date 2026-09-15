@@ -1838,7 +1838,10 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
     } catch (const nlohmann::json::exception&) {
         throw std::runtime_error("Assembly INI contains invalid Container data");
     }
-    if (root.value("format", "") != "zima-cad-cpp" || root.at("format_version") != 32 ||
+    return from_serialized(root);
+}
+AssemblyDocument AssemblyDocument::from_serialized(const nlohmann::json& root) {
+    if (root.value("format", "") != "zima-cad-cpp" || root.at("format_version") != 33 ||
         root.value("type", "") != "assembly") {
         throw std::runtime_error("Invalid Assembly Container data");
     }
@@ -1877,6 +1880,7 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
     document.physical_parameters = root.at("physical_parameters").get<decltype(document.physical_parameters)>();
     document.physical_parameter_units = root.at("physical_parameter_units").get<decltype(document.physical_parameter_units)>();
     document.material_parameter_descriptions = root.at("material_parameter_descriptions").get<decltype(document.material_parameter_descriptions)>();
+    document.family=zima::document::family_document_from_json(root.at("family"));
     document.family_table = root.at("family_table").get<std::string>();
     document.named_views = root.value("named_views", std::string("[]"));
     static_cast<void>(zima::document::parse_named_views(document.named_views));
@@ -2066,7 +2070,7 @@ void AssemblyDocument::synchronize_dimension_identifiers() {
     dimension_identifiers.synchronize(dimension_parameters());
 }
 
-void AssemblyDocument::save(const std::filesystem::path& path,
+nlohmann::json AssemblyDocument::serialized(
     const zima::document::DocumentCopyIdentity& copy) const {
     nlohmann::json source_geometries=nlohmann::json::object();
     std::map<const zima::kernel::BodyResult*,std::string> geometry_ids;
@@ -2177,7 +2181,7 @@ void AssemblyDocument::save(const std::filesystem::path& path,
     }
     static_cast<void>(zima::document::parse_named_views(named_views));
     nlohmann::json root = {
-        {"format", "zima-cad-cpp"}, {"format_version", 32},
+        {"format", "zima-cad-cpp"}, {"format_version", 33},
         {"type", "assembly"}, {"document_id", document_id}, {"name", name},
         {"user_parameters", user_parameters},
         {"user_parameter_order", user_parameter_order},
@@ -2191,6 +2195,7 @@ void AssemblyDocument::save(const std::filesystem::path& path,
         {"physical_parameters", physical_parameters},
         {"physical_parameter_units", physical_parameter_units},
         {"material_parameter_descriptions", material_parameter_descriptions},
+        {"family", zima::document::family_document_json(family)},
         {"family_table", family_table},
         {"named_views", named_views},
         {"sections",nlohmann::json::parse(zima::document::serialize_sections(sections))},
@@ -2204,6 +2209,12 @@ void AssemblyDocument::save(const std::filesystem::path& path,
         {"dependencies", std::move(dependencies_json)},
     };
     zima::document::apply_document_copy_identity(root, copy);
+    return root;
+}
+void AssemblyDocument::save(const std::filesystem::path& path,
+    const zima::document::DocumentCopyIdentity& copy) const {
+    if(!family.parent_id.empty()&&copy.document_id.empty())throw std::invalid_argument("Save the owning family document instead of an instance.");
+    const auto root=serialized(copy);
     const auto saved_id = root.at("document_id").get<std::string>();
     const auto saved_name = root.at("name").get<std::string>();
     IniSections ini;

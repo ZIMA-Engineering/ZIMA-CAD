@@ -1,3 +1,4 @@
+#include <zima/workspace/family_operations.hpp>
 #include <zima/workspace/drawing_title_operations.hpp>
 #include <zima/workspace/drawing_operations.hpp>
 #include <zima/workspace/metadata_operations.hpp>
@@ -50,7 +51,7 @@ DrawingTitleEdit prepare_drawing_title_edit(const drawing::DrawingDocument& doc,
     edit.source_document=sheet->views.empty()?doc.source_document_id:sheet->views.front().source_document_id;
     edit.source_path=sheet->views.empty()?doc.source_path:sheet->views.front().source_path;
     if(!edit.source_path.empty()&&edit.source_path.is_relative()&&!path.empty())edit.source_path=path.parent_path()/edit.source_path;
-    if(live&&!live->find(edit.source_document)&&!edit.source_path.empty())if(const auto open=live->document_id_for_path(edit.source_path))edit.source_document=*open;
+    if(edit.source_document.empty()&&live&&!live->find(edit.source_document)&&!edit.source_path.empty())if(const auto open=live->document_id_for_path(edit.source_path))edit.source_document=*open;
     if(!bom_row.empty()) {
         if(std::ranges::none_of(sheet->bom_rows,[&](const auto& row){return row.designation==bom_row;}))throw DrawingOperationError("bom_row_not_found","The stored BOM row does not exist.");
         const auto current=build_bom_rows_for_source(edit.source_document,edit.source_path,live);
@@ -66,8 +67,8 @@ DrawingTitleEdit prepare_drawing_title_edit(const drawing::DrawingDocument& doc,
     };
     if(live&&live->open_part(edit.source_document))collect(live->open_part(edit.source_document)->session.document());
     else if(live&&live->open_assembly(edit.source_document))collect(live->open_assembly(edit.source_document)->session.document());
-    else if(extension(edit.source_path)==".prtz")collect(document::PartDocument::load(edit.source_path));
-    else if(extension(edit.source_path)==".asmz")collect(assembly::AssemblyDocument::load(edit.source_path));
+    else if(extension(edit.source_path)==".prtz"){std::vector<kernel::BodyResult> cache;collect(read_family_part(live,edit.source_path,edit.source_document,cache));}
+    else if(extension(edit.source_path)==".asmz")collect(read_family_assembly(live,edit.source_path,edit.source_document));
     edit.fields=sheet->title_block_fields;
     const auto add_parameters=[&](const std::string& expression) {
         for(const auto& token:drawing::title_block_tokens(expression)) {
@@ -129,11 +130,16 @@ DrawingTitleChange edit_drawing_title(drawing::DrawingDocument& doc,Workspace* l
         }
         document::normalize_user_parameters(data);
         if(!live->open_part(current.source_document)&&!live->open_assembly(current.source_document)) {
+            const auto root=current.source_document.substr(0,current.source_document.find(":family:"));
+            if(root!=current.source_document&&!live->find(root)) {
+                if(extension(current.source_path)==".prtz") {std::vector<kernel::BodyResult> cache;auto base=document::PartDocument::load(current.source_path,&cache);live->add_part(std::move(base),std::move(cache),current.source_path);}
+                else if(extension(current.source_path)==".asmz")live->add_assembly(assembly::AssemblyDocument::load(current.source_path),current.source_path);
+            }
             if(extension(current.source_path)==".prtz") {
-                std::vector<kernel::BodyResult> boundaries;auto model=document::PartDocument::load(current.source_path,&boundaries);
+                std::vector<kernel::BodyResult> boundaries;auto model=read_family_part(live,current.source_path,current.source_document,boundaries);
                 if(model.document_id!=current.source_document||model_parameters(model)!=parameters(current.context))stale();live->add_part(std::move(model),std::move(boundaries),current.source_path);
             } else if(extension(current.source_path)==".asmz") {
-                auto model=assembly::AssemblyDocument::load(current.source_path);if(model.document_id!=current.source_document||model_parameters(model)!=parameters(current.context))stale();live->add_assembly(std::move(model),current.source_path);
+                auto model=read_family_assembly(live,current.source_path,current.source_document);if(model.document_id!=current.source_document||model_parameters(model)!=parameters(current.context))stale();live->add_assembly(std::move(model),current.source_path);
             } else throw DrawingOperationError("source_unavailable","The source model is unavailable.");
         }
         result.source_changed=set_user_parameters(*live,current.source_document,std::move(data));result.changed=result.changed||result.source_changed;

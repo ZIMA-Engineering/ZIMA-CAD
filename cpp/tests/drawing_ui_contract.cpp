@@ -1,3 +1,8 @@
+#include <QPlainTextEdit>
+#include <QKeyEvent>
+#include <QToolBar>
+#include <fstream>
+#include <zima/workspace/document_operations.hpp>
 #include <zima/command_host/host.hpp>
 #include <zima/drawing/measurement_dimension.hpp>
 #include "drawing_shading.hpp"
@@ -74,7 +79,7 @@ int verify_drawing_ui() {
         const auto& state=window.document_for_test();
         const auto count=[&]{return state.sheets.front().views.size();};
         auto* variants=window.findChild<QComboBox*>("drawingSourceVariant");
-        require(variants && variants->count()==1 && variants->currentText()=="source.prtz","Source variant placeholder is not the source filename");
+        require(variants && variants->count()==1 && variants->currentText()=="Drawing source","Source variant does not show the model name");
         const QPointF center=canvas->rect().center();
         action("insertDrawingViewAction")->trigger(); flush();
         require(!dialog() && count()==0,"Insert View opened a dialog or persisted before placement");
@@ -615,6 +620,30 @@ int verify_drawing_ui() {
             window.document_for_test().save(directory/"empty-text.drwz");window.export_pdf(directory/"empty-text.pdf");
             require(zima::drawing::DrawingDocument::load(directory/"empty-text.drwz").sheets.front().title_block_fields.front().value.empty(),"Empty text did not persist as empty");
             window.grab().save(QString::fromStdString((directory/"empty-text.png").string()));
+        }
+        {
+            auto fixture=zima::drawing::DrawingDocument::create_default();workspace.add_drawing(fixture);window.edit_workspace_document(fixture.document_id);flush();
+            auto* toolbar=window.findChild<QToolBar*>("drawingToolbar");require(toolbar->actions().indexOf(action("drawingTextAction"))==toolbar->actions().indexOf(action("drawingDimensionAction"))+1,"Text is not below Dimension");
+            const auto text_dialog=[&](){for(auto* d:window.findChildren<QDialog*>("drawingTextProperties"))if(d->isVisible())return d;return static_cast<QDialog*>(nullptr);};
+            const auto position=canvas->rect().center();
+            action("drawingTextAction")->trigger();flush();auto* props=text_dialog();require(props&&(props->windowFlags()&Qt::WindowType_Mask)==Qt::SubWindow,"Text does not use shared internal properties");
+            auto* editor=props->findChild<QPlainTextEdit*>("sketchTextValue");require(editor&&editor->height()>=220,"Multiline editor is too small");editor->setPlainText("Hydraulic manifold\nDeburr all ports");click(canvas,position);
+            require(window.document_for_test().sheets.front().texts.empty(),"Text preview committed before OK");props->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();require(window.document_for_test().sheets.front().texts.empty(),"Text Cancel persisted text");
+            action("drawingTextAction")->trigger();flush();props=text_dialog();props->findChild<QPlainTextEdit*>("sketchTextValue")->setPlainText("Hydraulic manifold\nDeburr all ports");click(canvas,position);
+            mouse(canvas,QEvent::MouseButtonPress,position,Qt::MiddleButton,Qt::MiddleButton);mouse(canvas,QEvent::MouseButtonRelease,position,Qt::MiddleButton,Qt::NoButton);require(text_dialog(),"Short middle click committed text");
+            mouse(canvas,QEvent::MouseButtonDblClick,position,Qt::MiddleButton,Qt::MiddleButton);mouse(canvas,QEvent::MouseButtonRelease,position,Qt::MiddleButton,Qt::NoButton);flush();
+            require(!text_dialog()&&window.document_for_test().sheets.front().texts.size()==1,"Middle double-click did not commit text");
+            auto text=window.document_for_test().sheets.front().texts.front();auto center=window.title_field_center_for_test("text:"+text.id);require(center.has_value(),"Multiline text has no common hit region");
+            click(canvas,*center);mouse(canvas,QEvent::MouseMove,QPointF(10,10),Qt::NoButton,Qt::NoButton);
+            mouse(canvas,QEvent::MouseButtonPress,*center,Qt::LeftButton,Qt::LeftButton);mouse(canvas,QEvent::MouseMove,*center+QPointF(35,20),Qt::NoButton,Qt::LeftButton);mouse(canvas,QEvent::MouseButtonRelease,*center+QPointF(35,20),Qt::LeftButton,Qt::NoButton);
+            const auto moved=window.document_for_test().sheets.front().texts.front();require(moved.presentation.position.x<text.presentation.position.x&&moved.presentation.position.y<text.presentation.position.y,"Text drag did not follow the cursor");
+            require(zima::workspace::step_document_history(workspace,fixture.document_id,zima::workspace::HistoryDirection::Undo),"Text drag has no Undo");window.edit_workspace_document(fixture.document_id);flush();require(window.document_for_test().sheets.front().texts.front().presentation.position.x==text.presentation.position.x,"Text drag Undo did not restore position");
+            center=window.title_field_center_for_test("text:"+text.id);click(canvas,*center);mouse(canvas,QEvent::MouseButtonDblClick,*center,Qt::LeftButton,Qt::LeftButton);flush();props=text_dialog();require(props,"Double-click did not edit text");props->findChild<QPlainTextEdit*>("sketchTextValue")->setPlainText("Hydraulic manifold\nDeburr all ports\nClean before assembly");props->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+            window.document_for_test().save(directory/"multiline-text.drwz");window.export_pdf(directory/"multiline-text.pdf");window.export_dxf(directory/"multiline-text.dxf");window.export_jpg(directory/"multiline-text.jpg");
+            const auto reopened=zima::drawing::DrawingDocument::load(directory/"multiline-text.drwz");require(reopened.sheets.front().texts.front().presentation.text=="Hydraulic manifold\nDeburr all ports\nClean before assembly","Multiline text did not round-trip");
+            std::ifstream file(directory/"multiline-text.dxf");const std::string dxf((std::istreambuf_iterator<char>(file)),{});require(dxf.find("Hydraulic manifold")!=std::string::npos&&dxf.find("Deburr all ports")!=std::string::npos&&dxf.find("Clean before assembly")!=std::string::npos,"DXF lost real text lines");
+            window.grab().save(QString::fromStdString((directory/"multiline-text.png").string()));
+            center=window.title_field_center_for_test("text:"+text.id);click(canvas,*center);QKeyEvent key(QEvent::KeyPress,Qt::Key_Delete,Qt::NoModifier);QApplication::sendEvent(canvas,&key);flush();require(window.document_for_test().sheets.front().texts.empty(),"Selected text cannot be deleted");
         }
         require(modal_error.isEmpty(),modal_error.toUtf8().constData());
         std::cout<<"Drawing placement, rectangular selection, projection, Cancel, MMB, persistence and global paths passed\n";

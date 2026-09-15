@@ -46,8 +46,10 @@ explicitly regenerated; current source sharing is documented in
 [ASSEMBLY_GEOMETRY_SHARING.md](ASSEMBLY_GEOMETRY_SHARING.md).
 
 Family Table stores original model references and dimension/presence overrides.
-`document.family.set` commits metadata without calculating geometry;
-`document.family.open` explicitly generates a separate Part or Assembly.
+`document.family.set` commits the shared table and updates evaluated variants;
+`document.family.open` explicitly opens a linked Part or Assembly row. Name-only
+changes reuse calculated geometry. Ordinary Save persists the family in one file;
+Save As creates an independent copy.
 See [Family Table](FAMILY_TABLE.md) for the current schema, GUI workflow, scope,
 instance refresh rules and Drawing support.
 

@@ -193,8 +193,7 @@ add_library(zima_document_core
 target_include_directories(zima_document_core PUBLIC
     modules/document_core/include)
 target_link_libraries(zima_document_core
-    PUBLIC zima_kernel_api zima_sketcher
-    PRIVATE nlohmann_json::nlohmann_json)
+    PUBLIC zima_kernel_api zima_sketcher nlohmann_json::nlohmann_json)
 
 add_library(zima_assembly
     modules/assembly/src/assembly_document.cpp
@@ -478,7 +477,7 @@ if(UNIX AND NOT APPLE)
 endif()
 
 add_executable(zima-cad-drawing-harness
-    app/main_drawing.cpp app/drawing_window.cpp app/show_erase_dialog.cpp app/file_dialog.cpp app/application_settings.cpp
+    app/main_drawing.cpp app/drawing_window.cpp app/sketch_text_properties_dialog.cpp app/show_erase_dialog.cpp app/file_dialog.cpp app/application_settings.cpp
     tests/drawing_ui_contract.cpp tests/show_erase_ui_contract.cpp tests/measurement_dimension_ui_contract.cpp
     app/resource_icon.cpp app/zima_resources.qrc)
 if(WIN32 AND TARGET Qt6::QJpegPlugin)

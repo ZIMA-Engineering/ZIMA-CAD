@@ -219,6 +219,7 @@ struct TemplateText {
     std::string font{"osifont"};
     std::string field_id; // Transient drawing hit identity, assigned by title_block_layout.
 };
+struct DrawingText { std::string id; TemplateText presentation; };
 struct TitleBlockField {
     std::string id; std::string expression; std::string value;
     Point2 position; double height{2.5}; bool editable{};
@@ -254,6 +255,7 @@ struct DrawingSheet {
     double red_line_mm{0.7};
     std::vector<DrawingView> views;
     std::vector<DrawingDimension> dimensions;
+    std::vector<DrawingText> texts;
     std::vector<TemplateLine> frame_lines;
     std::vector<TemplateText> frame_texts;
     std::vector<TemplateLine> title_block_lines;

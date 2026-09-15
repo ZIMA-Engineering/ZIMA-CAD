@@ -2,6 +2,7 @@
 #include <zima/workspace/appearance_operations.hpp>
 #include <zima/workspace/part_transactions.hpp>
 #include <zima/workspace/workspace.hpp>
+#include <zima/workspace/family_operations.hpp>
 #include <zima/workspace/reference_sources.hpp>
 #include <zima/workspace/document_dependencies.hpp>
 #include <zima/workspace/sketch_operations.hpp>
@@ -265,7 +266,10 @@ std::size_t Workspace::size() const { return documents_.size(); }
 DocumentState* Workspace::find(const std::string& document_id) {
     const auto found = std::find_if(documents_.begin(), documents_.end(),
         [&](const DocumentState& state) { return id_of(state) == document_id; });
-    return found == documents_.end() ? nullptr : &*found;
+    if(found==documents_.end())return nullptr;
+    if(auto* part=std::get_if<PartState>(&*found))part->session.commit_interceptor=[this,id=document_id](auto& next,auto& calculated){return commit_family_part(*this,id,next,calculated);};
+    else if(auto* assembly=std::get_if<AssemblyState>(&*found))assembly->session.commit_interceptor=[this,id=document_id](auto& next){return commit_family_assembly(*this,id,next);};
+    return &*found;
 }
 
 const DocumentState* Workspace::find(const std::string& document_id) const {

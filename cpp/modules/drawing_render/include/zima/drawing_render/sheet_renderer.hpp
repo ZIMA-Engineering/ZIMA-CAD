@@ -41,6 +41,7 @@ protected:
     std::string selected_field_,hovered_field_;
     std::vector<std::pair<std::string,QPolygonF>> field_regions_;
     std::optional<zima::drawing::DrawingView> preview_;
+    std::optional<drawing::DrawingText> text_preview_;
     std::optional<zima::drawing::TitleBlockContext> title_block_context_;
     const drawing::DrawingSheet* sheet_{};
     virtual const drawing::DrawingDimension* pending_dimension() const {return nullptr;}

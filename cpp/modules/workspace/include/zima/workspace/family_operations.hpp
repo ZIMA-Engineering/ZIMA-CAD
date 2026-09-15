@@ -12,12 +12,24 @@ struct FamilyReference {
 // Persisted model data only. No geometry calculation or activation.
 std::vector<FamilyReference> family_references(const Workspace&, const std::string& document);
 void validate_family_references(const Workspace&, const std::string&, const document::FamilyTable&);
-// Explicit generation creates a fully independent native model in a new tab.
-// Its stable document identity belongs to the generic's persisted instance row.
-// An unchanged open instance is reused. Changed source data regenerates an
-// unmodified generated tab; independent edits are never overwritten.
+// Explicit calculation opens a linked view of a row in the owning native file.
 std::string open_family_instance(Workspace&, const kernel::OcctKernel&,
     const std::string& generic, const std::string& instance_name);
+std::string family_owner(const Workspace&, const std::string&);
+bool commit_family_part(Workspace&, const std::string&, document::PartDocument&,
+    std::vector<kernel::BodyResult>&);
+bool commit_family_assembly(Workspace&, const std::string&, assembly::AssemblyDocument&);
+// Republish persisted evaluation packets after Undo/Redo; never calculates.
+void restore_family_tabs(Workspace&, const std::string& generic);
+// Load a saved row packet from its parent's single native file; no OCCT.
+document::PartDocument family_part_source(document::PartDocument,
+    std::vector<kernel::BodyResult>&, const std::string& expected);
+assembly::AssemblyDocument family_assembly_source(assembly::AssemblyDocument,
+    const std::string& expected);
+document::PartDocument read_family_part(const Workspace*,const std::filesystem::path&,
+    const std::string&,std::vector<kernel::BodyResult>&);
+assembly::AssemblyDocument read_family_assembly(const Workspace*,const std::filesystem::path&,
+    const std::string&);
 // Explicit Drawing variant change; project the draft and commit only on success.
 void select_family_drawing_source(drawing::DrawingDocument&, const Workspace&,
     const std::string& source, const std::filesystem::path& drawing_path);

@@ -134,7 +134,7 @@ void AssemblyWorkspaceWindow::edit_relations() {
 
 void AssemblyWorkspaceWindow::edit_family_table() {
     if (properties_dialog_ != nullptr) { properties_dialog_->raise(); return; }
-    const auto id = workspace_.active_document_id(); DocumentToolData data; QString name;
+    const auto id = workspace::family_owner(workspace_,workspace_.active_document_id()); DocumentToolData data; QString name;
     if (const auto* part = workspace_.open_part(id)) { const auto& d = part->session.document(); name = QString::fromStdString(d.name); data.family_table = d.family_table; }
     else if (const auto* assembly = workspace_.open_assembly(id)) { const auto& d = assembly->session.document(); name = QString::fromStdString(d.name); data.family_table = d.family_table; }
     else return;

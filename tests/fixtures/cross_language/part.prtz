@@ -1,9 +1,10 @@
 [Document]
+family={"parent":"","row":"","evaluated":{}}
 body_history = {"bodies":[],"booleans":[],"order":[],"active":"","cursor":0}
 dimension_identifiers = {"next":1,"entries":[]}
 document_id=part-fixture-001
 type=part
-format_version=24
+format_version=25
 name=Fixture Part
 
 [DocumentUnits]

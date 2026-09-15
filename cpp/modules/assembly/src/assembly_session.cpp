@@ -58,6 +58,7 @@ void AssemblySession::replace(AssemblyDocument document) {
     saved_dimension_allocations_=allocations;++data_generation_;
 }
 void AssemblySession::commit(AssemblyDocument document) {
+    const auto intercept=commit_interceptor;if(intercept&&intercept(document))return;
     zima::document::refresh_physical_relations(document,physical_values(document));
     document.dimension_identifiers.retain(current_->document.dimension_identifiers);
     document.synchronize_dimension_identifiers();
@@ -89,6 +90,9 @@ bool AssemblySession::step(States& from,States& to) {
 }
 bool AssemblySession::undo(){return step(undo_,redo_);}
 bool AssemblySession::redo(){return step(redo_,undo_);}
+void AssemblySession::update_family_evaluated(zima::document::FamilyDocument value) {
+    current_->document.family=std::move(value);current_->dependency_state_dirty=true;++data_generation_;
+}
 void AssemblySession::mark_saved(){
     saved_revision_=current_->revision;saved_dimension_allocations_=current_->document.dimension_identifiers.allocation_count();
     current_->dependency_state_dirty=false;

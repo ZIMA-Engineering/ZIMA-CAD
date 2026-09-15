@@ -4,6 +4,7 @@
 #include <zima/workspace/profile_operations.hpp>
 #include <zima/workspace/drawing_view_operations.hpp>
 #include <zima/document/feature_sketches.hpp>
+#include <zima/document/document_copy_json.hpp>
 #include <zima/document/file_path.hpp>
 #include <zima/document/physical_properties.hpp>
 #include <zima/kernel/dimension_layout.hpp>
@@ -139,12 +140,8 @@ template<class Doc> void apply(Doc& doc,const document::FamilyTable& table,const
     doc.name=row.name;doc.family_table=document::serialize_family_table({});
     doc.user_parameters["name"]=row.name;doc.user_parameter_values["name"][""]=row.name;
 }
-struct TemporaryNativeCopy {
-    std::filesystem::path directory=std::filesystem::temp_directory_path()/document::PartDocument::create_default().document_id;
-    TemporaryNativeCopy(){std::filesystem::create_directory(directory);}
-    ~TemporaryNativeCopy(){std::error_code error;std::filesystem::remove_all(directory,error);}
-};
 }
+
 std::vector<FamilyReference> family_references(const Workspace& live,const std::string& id) {
     std::vector<FamilyReference> out;
     if(const auto* state=live.open_part(id)) {
@@ -177,60 +174,268 @@ void validate_family_references(const Workspace& live,const std::string& id,cons
             if(const auto* body=state->session.document().body_history.owner(child.owner_id);body&&body->scope.id==b.owner_id)
                 throw std::invalid_argument("Choose either Body presence or its feature presence, not both.");
 }
-std::string open_family_instance(Workspace& live,const kernel::OcctKernel& kernel,const std::string& id,const std::string& name) {
+namespace {
+struct FamilyTransaction {
+    Workspace& live;
+    explicit FamilyTransaction(Workspace& value):live(value){live.family_transaction_active=true;}
+    ~FamilyTransaction(){live.family_transaction_active=false;}
+};
+template<class Doc> std::vector<FamilyReference> catalog(const Doc& doc) {
+    Workspace draft;
+    if constexpr(std::is_same_v<Doc,document::PartDocument>)draft.add_part(doc);
+    else draft.add_assembly(doc);
+    return family_references(draft,doc.document_id);
+}
+template<class Doc> Doc reidentify(Doc doc,const std::string& id) {
+    doc.family={};
+    auto packet=doc.serialized();
+    document::remap_document_identity(packet,doc.document_id,id);
+    return Doc::from_serialized(packet);
+}
+template<class Doc> Doc member(const Doc& base,const document::FamilyTable& table,const document::FamilyInstance& row) {
+    auto next=reidentify(base,base.document_id+":family:"+row.id);
+    apply(next,table,row);next.family.parent_id=base.document_id;next.family.row_id=row.id;
+    return next;
+}
+template<class Doc> Doc merge_member(const Doc& base,const Doc& before,Doc next) {
+    const auto nested=document::parse_family_table(next.family_table);
+    if(!nested.columns.empty()||!nested.instances.empty())throw std::invalid_argument("An instance cannot own a nested Family Table. Edit the parent table instead.");
+    auto table=document::parse_family_table(base.family_table);
+    auto row=std::ranges::find(table.instances,before.family.row_id,&document::FamilyInstance::id);
+    if(row==table.instances.end())throw std::invalid_argument("Family instance no longer exists.");
+    const auto old_values=catalog(before),new_values=catalog(next),base_values=catalog(base);
+    std::vector<std::string> removed;
+    for(const auto& [name,binding]:table.bindings) {
+        const auto old=std::ranges::find_if(old_values,[&](const auto& r){return r.binding==binding;});
+        const auto value=std::ranges::find_if(new_values,[&](const auto& r){return r.binding==binding;});
+        const auto generic=std::ranges::find_if(base_values,[&](const auto& r){return r.binding==binding;});
+        if(value==new_values.end()){removed.push_back(name);continue;}
+        if(old!=old_values.end()&&old->value!=value->value)row->values[name]=value->value;
+        // Remove row-specific overrides before publishing the shared definition.
+        if(generic==base_values.end())continue;
+        if(binding.kind=="dimension") {
+            if(value->value!=generic->value && !assign_dimension(next,binding,std::stod(generic->value)))
+                throw std::invalid_argument("Cannot restore the generic family dimension.");
+        } else if constexpr(std::is_same_v<Doc,document::PartDocument>) {
+            if(binding.kind=="body") {
+                const auto* body=base.body_history.find(binding.owner_id);
+                if(body)for(const auto& entry:body->entries)
+                    if(auto* f=next.find_container(entry.id))if(const auto* original=base.find_container(entry.id))f->suppressed=original->suppressed;
+            } else if(auto* f=next.find_container(binding.owner_id))f->suppressed=base.find_container(binding.owner_id)->suppressed;
+        } else presence(next,binding,generic->value=="yes");
+    }
+    for(const auto& name:removed) {
+        std::erase(table.columns,name);table.bindings.erase(name);
+        for(auto& instance:table.instances)instance.values.erase(name);
+    }
+    if(next.name!=before.name)row->name=next.name;
+    else if(next.user_parameters.contains("name")&&before.user_parameters.contains("name")&&next.user_parameters.at("name")!=before.user_parameters.at("name"))row->name=next.user_parameters.at("name");
+    document::validate_family_table(table,base.name);
+    next=reidentify(std::move(next),base.document_id);
+    next.name=base.name;next.user_parameters["name"]=base.user_parameters.contains("name")?base.user_parameters.at("name"):base.name;
+    next.user_parameter_values["name"]=base.user_parameter_values.contains("name")?base.user_parameter_values.at("name"):std::map<std::string,std::string>{};
+    next.family_table=document::serialize_family_table(table);
+    next.family=base.family;
+    return next;
+}
+std::vector<kernel::BodyResult> evaluated_part(document::PartDocument& next,
+    const std::vector<kernel::BodyResult>& previous,const kernel::OcctKernel& kernel) {
+    const auto operations=next.kernel_operations(false,true);
+    bool exact=previous.size()==operations.size();
+    for(std::size_t i=0;exact&&i<previous.size();++i)exact=previous[i].source_fingerprint==kernel::history_fingerprint(operations,i+1);
+    if(exact)return previous;
+    auto calculated=calculate_part_with_resolved_references(kernel,next,&previous,{true});
+    const auto resolved=next.kernel_operations(false,true);
+    exact=calculated.size()==resolved.size();
+    for(std::size_t i=0;exact&&i<calculated.size();++i)exact=calculated[i].source_fingerprint==kernel::history_fingerprint(resolved,i+1);
+    if(!exact)calculated=calculate_part(kernel,next,&calculated,{true});
+    return calculated;
+}
+std::set<std::string> evaluated_rows(const document::FamilyDocument& family) {
+    std::set<std::string> result;for(const auto& [row,packet]:family.evaluated)result.insert(row);return result;
+}
+bool same_assembly_calculation(const assembly::AssemblyDocument& a,const assembly::AssemblyDocument& b) {
+    if(a.cuts!=b.cuts||a.components.size()!=b.components.size())return false;
+    for(std::size_t i=0;i<a.components.size();++i) {
+        const auto& x=a.components[i];const auto& y=b.components[i];
+        if(x.occurrence_id!=y.occurrence_id||x.source_document_id!=y.source_document_id||
+            x.placement!=y.placement||x.suppressed!=y.suppressed||x.derived_copy!=y.derived_copy||
+            x.calculated_source->source_fingerprint!=y.calculated_source->source_fingerprint)return false;
+    }
+    return true;
+}
+void evaluate_assembly(assembly::AssemblyDocument& next,const assembly::AssemblyDocument* before,
+    const kernel::OcctKernel& kernel) {
+    if(before&&same_assembly_calculation(next,*before))return;
+    next.resolve_constructions();
+    if(!next.cuts.empty()||std::ranges::any_of(next.components,[](const auto& c){return c.derived_copy.has_value();}))
+        calculate_resolved_assembly_cuts(kernel,next);
+}
+}
+std::string family_owner(const Workspace& live,const std::string& id) {
+    if(const auto* part=live.open_part(id))return part->session.document().family.parent_id.empty()?id:part->session.document().family.parent_id;
+    if(const auto* assembly=live.open_assembly(id))return assembly->session.document().family.parent_id.empty()?id:assembly->session.document().family.parent_id;
+    return id;
+}
+bool commit_family_part(Workspace& live,const std::string& id,document::PartDocument& candidate,
+    std::vector<kernel::BodyResult>& calculated) {
+    if(live.family_transaction_active)return false;
+    const auto owner=family_owner(live,id);
+    const auto* source=std::as_const(live).open_part(id);const auto* parent=std::as_const(live).open_part(owner);
+    if(!parent)throw std::invalid_argument("The owning family document is not open.");
+    if(owner==id&&parent->session.document().family.evaluated.empty())return false;
+    FamilyTransaction transaction(live);
+    auto base=owner==id?candidate:merge_member(parent->session.document(),source->session.document(),candidate);
+    const auto table=document::parse_family_table(base.family_table);document::validate_family_table(table,base.name);
+    for(const auto& state:live.documents())std::visit([&](const auto& value){
+        if constexpr(requires{value.session;}) {
+            const auto& doc=value.session.document();
+            if(doc.family.parent_id==owner&&std::ranges::none_of(table.instances,[&](const auto& row){return row.id==doc.family.row_id;}))
+                throw std::invalid_argument("Close the instance tab before deleting its Family Table row.");
+        }
+    },state);
+    const kernel::OcctKernel kernel;
+    auto base_calculated=evaluated_part(base,owner==id?calculated:parent->session.calculated_boundaries(),kernel);
+    auto rows=evaluated_rows(parent->session.document().family);if(owner!=id)rows.insert(source->session.document().family.row_id);
+    base.family={};
+    std::map<std::string,document::DocumentSession> members;
+    for(const auto& row:table.instances)if(rows.contains(row.id)) {
+        auto next=member(base,table,row);std::vector<kernel::BodyResult> previous;
+        if(const auto* existing=std::as_const(live).open_part(next.document_id))previous=existing->session.calculated_boundaries();
+        else if(const auto old=parent->session.document().family.evaluated.find(row.id);old!=parent->session.document().family.evaluated.end())
+            static_cast<void>(document::PartDocument::from_serialized(*old->second,&previous));
+        auto result=evaluated_part(next,previous,kernel);
+        document::DocumentSession session(std::move(next),std::move(result));
+        base.family.evaluated[row.id]=std::make_shared<const nlohmann::json>(session.document().serialized(session.calculated_boundaries()));
+        members.emplace(session.document().document_id,std::move(session));
+    }
+    auto prepared=parent->session;prepared.commit(std::move(base),std::move(base_calculated));
+    // All validation, calculation and allocation precedes publication.
+    live.open_part(owner)->session=std::move(prepared);
+    for(auto& [member_id,session]:members)if(auto* existing=live.open_part(member_id))existing->session=std::move(session);
+    return true;
+}
+bool commit_family_assembly(Workspace& live,const std::string& id,assembly::AssemblyDocument& candidate) {
+    if(live.family_transaction_active)return false;
+    const auto owner=family_owner(live,id);
+    const auto* source=std::as_const(live).open_assembly(id);const auto* parent=std::as_const(live).open_assembly(owner);
+    if(!parent)throw std::invalid_argument("The owning family document is not open.");
+    if(owner==id&&parent->session.document().family.evaluated.empty())return false;
+    FamilyTransaction transaction(live);
+    auto base=owner==id?candidate:merge_member(parent->session.document(),source->session.document(),candidate);
+    const auto table=document::parse_family_table(base.family_table);document::validate_family_table(table,base.name);
+    for(const auto& state:live.documents())std::visit([&](const auto& value){
+        if constexpr(requires{value.session;}) {
+            const auto& doc=value.session.document();
+            if(doc.family.parent_id==owner&&std::ranges::none_of(table.instances,[&](const auto& row){return row.id==doc.family.row_id;}))
+                throw std::invalid_argument("Close the instance tab before deleting its Family Table row.");
+        }
+    },state);
+    const kernel::OcctKernel kernel;
+    if(owner!=id)evaluate_assembly(base,&parent->session.document(),kernel);
+    auto rows=evaluated_rows(parent->session.document().family);if(owner!=id)rows.insert(source->session.document().family.row_id);
+    base.family={};std::map<std::string,assembly::AssemblySession> members;
+    for(const auto& row:table.instances)if(rows.contains(row.id)) {
+        auto next=member(base,table,row);const auto* existing=std::as_const(live).open_assembly(next.document_id);
+        std::optional<assembly::AssemblyDocument> previous;
+        if(!existing)if(const auto old=parent->session.document().family.evaluated.find(row.id);old!=parent->session.document().family.evaluated.end())previous=assembly::AssemblyDocument::from_serialized(*old->second);
+        evaluate_assembly(next,existing?&existing->session.document():previous?&*previous:nullptr,kernel);
+        assembly::AssemblySession session(std::move(next));
+        base.family.evaluated[row.id]=std::make_shared<const nlohmann::json>(session.document().serialized());
+        members.emplace(session.document().document_id,std::move(session));
+    }
+    auto prepared=parent->session;prepared.commit(std::move(base));
+    live.open_assembly(owner)->session=std::move(prepared);
+    for(auto& [member_id,session]:members)if(auto* existing=live.open_assembly(member_id))existing->session=std::move(session);
+    return true;
+}
+document::PartDocument family_part_source(document::PartDocument base,std::vector<kernel::BodyResult>& calculated,const std::string& expected) {
+    if(expected.empty()||expected==base.document_id)return base;
+    for(const auto& [id,packet]:base.family.evaluated)if(packet->at("document_id")==expected)
+        return document::PartDocument::from_serialized(*packet,&calculated);
+    throw DrawingOperationError("source_identity","The source file does not contain the requested model or evaluated family instance.");
+}
+assembly::AssemblyDocument family_assembly_source(assembly::AssemblyDocument base,const std::string& expected) {
+    if(expected.empty()||expected==base.document_id)return base;
+    for(const auto& [id,packet]:base.family.evaluated)if(packet->at("document_id")==expected)
+        return assembly::AssemblyDocument::from_serialized(*packet);
+    throw DrawingOperationError("source_identity","The source file does not contain the requested model or evaluated family instance.");
+}
+void restore_family_tabs(Workspace& live,const std::string& owner) {
+    FamilyTransaction transaction(live);
+    std::vector<std::string> close;
+    for(auto& state:live.documents())std::visit([&](auto& value) {
+        if constexpr(requires{value.session;}) {
+            const auto& doc=value.session.document();if(doc.family.parent_id!=owner)return;
+            const auto id=doc.document_id;
+            if constexpr(std::is_same_v<std::decay_t<decltype(value)>,PartState>) {
+                const auto* parent=std::as_const(live).open_part(owner);
+                if(!parent->session.document().family.evaluated.contains(doc.family.row_id)){close.push_back(id);return;}
+                std::vector<kernel::BodyResult> cache;
+                auto next=family_part_source(parent->session.document(),cache,id);
+                value.session=document::DocumentSession(std::move(next),std::move(cache));value.path=parent->path;
+            } else {
+                const auto* parent=std::as_const(live).open_assembly(owner);
+                if(!parent->session.document().family.evaluated.contains(doc.family.row_id)){close.push_back(id);return;}
+                value.session=assembly::AssemblySession(family_assembly_source(parent->session.document(),id));value.path=parent->path;
+            }
+        }
+    },state);
+    for(const auto& id:close)static_cast<void>(live.remove(id));
+}
+document::PartDocument read_family_part(const Workspace* live,const std::filesystem::path& path,
+    const std::string& expected,std::vector<kernel::BodyResult>& cache) {
+    if(live) {
+        const auto root=expected.substr(0,expected.find(":family:"));
+        if(const auto* source=live->open_part(root)){cache=source->session.calculated_boundaries();return family_part_source(source->session.document(),cache,expected);}
+    }
+    auto base=document::PartDocument::load(path,&cache);return family_part_source(std::move(base),cache,expected);
+}
+assembly::AssemblyDocument read_family_assembly(const Workspace* live,const std::filesystem::path& path,
+    const std::string& expected) {
+    if(live)if(const auto* source=live->open_assembly(expected.substr(0,expected.find(":family:"))))
+        return family_assembly_source(source->session.document(),expected);
+    return family_assembly_source(assembly::AssemblyDocument::load(path),expected);
+}
+std::string open_family_instance(Workspace& live,const kernel::OcctKernel& kernel,const std::string& requested,const std::string& name) {
+    const auto id=family_owner(live,requested);
     const auto table=family_table(live,id);validate_family_references(live,id,table);
     const auto row=std::ranges::find(table.instances,name,&document::FamilyInstance::name);
     if(row==table.instances.end()||row->id.empty())throw std::invalid_argument("Family instance no longer exists.");
     const auto instance_id=id+":family:"+row->id;
-    const auto generation=live.open_part(id)?live.open_part(id)->session.data_generation():live.open_assembly(id)->session.data_generation();
-    const auto reusable=[&](const auto* existing) {
-        if(!existing)return false;
-        if(existing->family_generation&&existing->family_generation->first==generation)return true;
-        if(!existing->family_generation||existing->family_generation->second!=existing->session.data_generation())
-            throw std::invalid_argument("The instance has its own edits. Close its tab before generating the updated family row.");
-        return false;
-    };
-    if(reusable(live.open_part(instance_id))||reusable(live.open_assembly(instance_id))) {
-        live.display_top_level(instance_id);live.activate(instance_id);return instance_id;
-    }
-    TemporaryNativeCopy temporary;
-    if(const auto* source=live.open_part(id)) {
-        const auto file=temporary.directory/"instance.prtz";
-        // The existing native copy codec remaps only document-owned identity and
-        // rebases external paths. This file is disposable staging, never required storage.
-        source->session.document().save(file,{}, {instance_id,source->path,file});
-        auto next=document::PartDocument::load(file);apply(next,table,*row);
-        auto boundaries=calculate_part_with_resolved_references(kernel,next,nullptr,{true});
-        // Reference resolution can normalize signed zero without changing C++
-        // value equality. Persist a cache for the exact final parameter bytes.
-        const auto operations=next.kernel_operations(false,true);
-        bool exact=boundaries.size()==operations.size();
-        for(std::size_t i=0;exact&&i<boundaries.size();++i)exact=boundaries[i].source_fingerprint==kernel::history_fingerprint(operations,i+1);
-        if(!exact)boundaries=calculate_part(kernel,next,&boundaries,{true});
-        document::refresh_physical_relations(next,document::physical_values(next,boundaries));
-        if(auto* existing=live.open_part(instance_id))existing->session.commit(std::move(next),std::move(boundaries));
-        else live.add_part(std::move(next),std::move(boundaries));
-        auto* generated=live.open_part(instance_id);generated->family_generation={{generation,generated->session.data_generation()}};
-    } else if(const auto* source=live.open_assembly(id)) {
-        const auto file=temporary.directory/"instance.asmz";
-        source->session.document().save(file,{instance_id,source->path,file});
-        auto next=assembly::AssemblyDocument::load(file);apply(next,table,*row);
-        next.resolve_constructions();calculate_resolved_assembly_cuts(kernel,next);
-        if(auto* existing=live.open_assembly(instance_id))existing->session.commit(std::move(next));
-        else live.add_assembly(std::move(next));
-        auto* generated=live.open_assembly(instance_id);generated->family_generation={{generation,generated->session.data_generation()}};
+    if(live.find(instance_id)){live.display_top_level(instance_id);live.activate(instance_id);return instance_id;}
+    FamilyTransaction transaction(live);
+    if(auto* source=live.open_part(id)) {
+        auto family=source->session.document().family;const auto path=source->path;
+        document::PartDocument next;std::vector<kernel::BodyResult> cache;
+        if(const auto found=family.evaluated.find(row->id);found!=family.evaluated.end())next=document::PartDocument::from_serialized(*found->second,&cache);
+        else {
+            next=member(source->session.document(),table,*row);cache=evaluated_part(next,{},kernel);
+            document::DocumentSession prepared(next,cache);next=prepared.document();
+            family.evaluated[row->id]=std::make_shared<const nlohmann::json>(next.serialized(cache));
+            source->session.update_family_evaluated(std::move(family));
+        }
+        live.add_part(std::move(next),std::move(cache),path);
+    } else if(auto* source=live.open_assembly(id)) {
+        auto family=source->session.document().family;const auto path=source->path;assembly::AssemblyDocument next;
+        if(const auto found=family.evaluated.find(row->id);found!=family.evaluated.end())next=assembly::AssemblyDocument::from_serialized(*found->second);
+        else {
+            next=member(source->session.document(),table,*row);evaluate_assembly(next,nullptr,kernel);
+            family.evaluated[row->id]=std::make_shared<const nlohmann::json>(next.serialized());source->session.update_family_evaluated(std::move(family));
+        }
+        live.add_assembly(std::move(next),path);
     } else throw std::invalid_argument("Family Table requires a Part or Assembly.");
     live.display_top_level(instance_id);live.activate(instance_id);return instance_id;
 }
 void select_family_drawing_source(drawing::DrawingDocument& drawing,const Workspace& live,
     const std::string& source,const std::filesystem::path& drawing_path) {
     const auto generic=drawing.source_document_id.substr(0,drawing.source_document_id.find(":family:"));
-    if(source!=generic&&!source.starts_with(generic+":family:"))throw std::invalid_argument("The model does not belong to this Drawing family.");
+    if(!generic.empty()&&source!=generic&&!source.starts_with(generic+":family:"))throw std::invalid_argument("The model does not belong to this Drawing family.");
     std::filesystem::path path;std::string name;
     if(const auto* part=live.open_part(source)){path=part->path;name=part->session.document().name;}
     else if(const auto* assembly=live.open_assembly(source)){path=assembly->path;name=assembly->session.document().name;}
     else throw std::invalid_argument("Open the family instance before selecting it in the Drawing.");
-    if(path.empty()||!std::filesystem::is_regular_file(path))throw std::invalid_argument("Save the family instance before using it as a Drawing source.");
+    if(path.empty()||!std::filesystem::is_regular_file(path))throw std::invalid_argument("Save the owning family document before using it as a Drawing source.");
     auto next=drawing;const auto old=next.source_document_id;
     next.source_document_id=source;next.source_path=path;next.source_name=name;
     for(auto& sheet:next.sheets)for(auto& view:sheet.views)if(view.source_document_id==old){view.source_document_id=source;view.source_path=path;}

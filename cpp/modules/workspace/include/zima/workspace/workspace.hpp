@@ -23,17 +23,13 @@ struct PartState {
     mutable std::uint64_t source_generation{};
     // Runtime identity distinguishes closing/reopening the same native document.
     std::shared_ptr<const int> runtime_identity=std::make_shared<const int>(0);
-    // Optional receipt for a generated Family Table tab: generic generation and
-    // instance generation at its last explicit calculation. Native variants are
-    // complete independent documents; this receipt is only an overwrite guard.
-    std::optional<std::pair<std::uint64_t,std::uint64_t>> family_generation;
+
 };
 
 struct AssemblyState {
     zima::assembly::AssemblySession session;
     std::filesystem::path path;
     std::shared_ptr<const int> runtime_identity=std::make_shared<const int>(0);
-    std::optional<std::pair<std::uint64_t,std::uint64_t>> family_generation;
 };
 
 class DrawingState {
@@ -89,6 +85,8 @@ struct OccurrenceAddress {
 
 class Workspace {
 public:
+    // Internal recursion guard for an explicitly committed family transaction.
+    bool family_transaction_active{};
     void add_part(
         zima::document::PartDocument document,
         std::vector<zima::kernel::BodyResult> calculated_boundaries = {},

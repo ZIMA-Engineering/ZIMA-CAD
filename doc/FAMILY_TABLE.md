@@ -36,24 +36,49 @@ uses a private draft and validates the resulting history before inserting or
 updating that tab. Invalid dimensions, unsolved Sketches and unavailable required
 references leave the generic geometry and existing variant unchanged.
 
-## Models and drawings
+## Linked models, saving and drawings
 
-An instance is a complete native Part or Assembly with its own document identity,
-original feature identities and calculated geometry. Use ordinary **Save** to
-choose its `.prtz` or `.asmz` path. The instance can regenerate after reopening
-without the generic document. Create its Drawing with the ordinary Drawing action,
-or select its saved native document as a Drawing source. A Drawing stores the
-exact instance document identity and ordinary native source path. The Drawing
-**Variant** selector lists the generic and its open instances. Save the target
-instance before choosing it; selection reprojects all views of that source in one
-Drawing transaction while preserving unrelated view sources.
+Each instance is a linked view of one row in its parent Part or Assembly. Its
+stable identity is the parent document ID plus the row ID. Renaming a row changes
+its display name, never its identity. An instance cannot own another family;
+opening Family Table from an instance edits the parent's table and opens siblings.
 
-Opening an unchanged row reuses its tab. After generic/table edits, opening the
-row explicitly recalculates an unmodified generated tab. If that tab has its own
-edits, generation refuses to overwrite them; save/close it first. A separately
-reopened native instance is an independent model, not a live link that changes on
-tab switching. The temporary native copy used for identity/path rebasing is
-discarded after generation and is never required to reopen the instance.
+- Editing a dimension or presence controlled by a column changes that instance's
+  row. The generic baseline and other rows retain their values.
+- Editing a parameter outside the columns, adding/removing a feature, or changing
+  common model data updates the parent and every evaluated variant. Missing bound
+  references removed from an instance are also removed from the table.
+- Undo/Redo from any member operates on the same parent history and restores open
+  variants together. Calculations and validation finish before publication.
+- Ordinary **Save** from a member saves the entire family into the parent's one
+  `.prtz` or `.asmz` file. Closing an instance closes its tab; unsaved changes
+  remain owned by the parent. Closing the parent also closes its instance tabs.
+- **Save As** from an instance writes a new, independent native document containing
+  that variant's current model and geometry. It creates exactly one model file,
+  without copying companion Drawings. The original family remains linked.
+  A copy of the generic retains its table definitions with a fresh identity;
+  its derived variants are calculated when explicitly opened.
+
+The parent file contains shared history, the table and evaluated native packets
+for opened variants. No instance sidecar files are required. Unopened rows inherit
+future shared edits when calculated. Opening an already evaluated row, switching
+tabs and reading a saved Drawing source use persisted calculated data. Name-only
+changes reuse geometry. Changing numeric or presence values is an explicit model
+transaction that recalculates affected evaluated variants. Close an instance tab
+before deleting its table row.
+
+In an empty Drawing, **Variant** offers open Parts and Assemblies, including their
+instances, before **Insert View**. Once a source is assigned, it offers that generic
+and its open variants. Save the owning family first. The Drawing stores the stable
+instance identity and the common parent file path. Choosing another row reprojects
+related views in one Drawing Undo transaction, preserving unrelated view sources.
+
+A renamed instance remains the same Drawing source. Open-source metadata is
+authoritative; otherwise the Drawing reads the evaluated instance from its parent
+file. Names and title-block values refresh on opening/displaying the Drawing;
+closed Drawing files are not rewritten. Geometry changes still require explicit
+Drawing **Regenerate**. Moving the parent file uses the existing file relocation
+workflow; renaming a row does not move any file.
 
 ## Supported numeric references
 
@@ -68,7 +93,7 @@ first implementation. Shared container placement contracts are unchanged.
 
 ## Native data and commands
 
-Part INI version **24** (internal payload 48) and Assembly payload **32** carry
+Part INI version **25** (internal payload 49) and Assembly payload **33** carry
 the current Family Table schema. Both tracked start templates and native fixtures
 are updated. All definitions remain inside `.prtz` / `.asmz`; no sidecar is needed.
 
@@ -104,18 +129,20 @@ native regeneration, Drawing source persistence, CLI access, missing references
 and atomic calculation failure. The GUI regression exercises real View picking,
 dimension double-click, reference states, middle-click and opening a row in a tab.
 
-### Acceptance on 2026-09-15
+### Verification commands
 
-Windows development GUI/CLI builds passed. All six relevant contracts passed:
-native document format, engineering metadata commands, Family Table model
-generation, shared UI behavior, translation catalogs and the Family GUI scenario.
-The latter also saves the generated geometry, binds whole-Body presence through
-Tree, switches a Drawing to its family instance and undoes that source change.
-The dialog capture was visually inspected for width and readable references.
+Run `zima_cpp_family_table_tests` for row versus shared edits, shared Undo/Redo,
+one-file persistence, independent Save As, stable rename/closed Drawing resolution,
+Part and Assembly variants, CLI and atomic rejection. The GUI scenario is
+`zima_cpp_workspace_startup_contract` with `ZIMA_VERIFY_FAMILY_ONLY=1`; it drives
+actual View/Tree picking, reference inspection, middle-click confirmation,
+Save/Save As and Drawing source selection. Generated test artifacts are not release
+inputs. Release acceptance is recorded in the current release notes.
 
-Run the GUI scenario through `zima_cpp_workspace_startup_contract` with
-`ZIMA_VERIFY_FAMILY_ONLY=1`. Local logs: `build/family-tests.log` (native format),
-`build/family-final-tests.log` (model/UI/translations), and
-`build/family-gui-final-tests.log` (complete GUI workflow). The local capture is
-`Projects/test/family-table-ui.png`. These generated test artifacts are not release
-inputs. This development revision has not been packaged or published as a release.
+Acceptance logs (2026-09-15): `build/family-text-all-build.log`,
+`build/family-text-accept-tests.log` (initial broad run),
+`build/family-text-source-errors-tests.log` (source identity corrections),
+`build/family-command-host-tests.log` (catalog/Save As commands), and
+`build/family-linked-assembly-gui-tests.log` (Part and Assembly Drawing sources).
+All selected contracts ultimately passed. The multiline Drawing capture was
+visually inspected and its PDF text was independently extracted.

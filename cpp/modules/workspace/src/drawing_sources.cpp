@@ -1,3 +1,4 @@
+#include <zima/workspace/family_operations.hpp>
 #include <zima/workspace/drawing_sources.hpp>
 #include <zima/workspace/drawing_operations.hpp>
 #include <algorithm>
@@ -28,18 +29,21 @@ std::vector<zima::document::SectionDefinition> source_sections(
     if(workspace){if(const auto* p=workspace->open_part(id))return sections_for_part(p->session.document());
         if(const auto* a=workspace->open_assembly(id))return sections_for_assembly(a->session.document());}
     if(workspace&&!path.empty())if(const auto open=workspace->document_id_for_path(path)){
-        if(!id.empty()&&*open!=id)throw DrawingOperationError("source_identity","Source model identity changed");
+        if(!id.empty()&&*open!=id) {
+            if(workspace->open_part(*open)){std::vector<kernel::BodyResult> cache;return sections_for_part(read_family_part(workspace,path,id,cache));}
+            if(workspace->open_assembly(*open))return sections_for_assembly(read_family_assembly(workspace,path,id));
+        }
         if(const auto* p=workspace->open_part(*open))return sections_for_part(p->session.document());
         if(const auto* a=workspace->open_assembly(*open))return sections_for_assembly(a->session.document());
     }
     auto extension=path.extension().string();std::ranges::transform(extension,extension.begin(),[](unsigned char c){return static_cast<char>(std::tolower(c));});
     if(extension==".prtz") {
-        const auto model=zima::document::PartDocument::load(path);
+        std::vector<kernel::BodyResult> cache;const auto model=read_family_part(workspace,path,id,cache);
         if(!id.empty()&&model.document_id!=id)throw DrawingOperationError("source_identity","Source model identity changed");
         return sections_for_part(model);
     }
     if(extension==".asmz") {
-        const auto model=zima::assembly::AssemblyDocument::load(path);
+        const auto model=read_family_assembly(workspace,path,id);
         if(!id.empty()&&model.document_id!=id)throw DrawingOperationError("source_identity","Source model identity changed");
         return sections_for_assembly(model);
     }
@@ -62,7 +66,7 @@ std::vector<zima::drawing::BomRow> build_bom_rows_for_source(
     if (workspace != nullptr) if (const auto* open = workspace->open_assembly(source_id))
         assembly = &open->session.document();
     if (assembly == nullptr && !source_path.empty() && source_extension(source_path) == ".asmz") {
-        loaded = zima::assembly::AssemblyDocument::load(source_path); assembly = &*loaded;
+        loaded = read_family_assembly(workspace,source_path,source_id); assembly = &*loaded;
     }
     const auto append=[&](const std::string& id,std::filesystem::path path,const std::string& name) {
         if(!path.empty()&&path.is_relative()&&!source_path.empty())path=source_path.parent_path()/path;
@@ -93,18 +97,18 @@ zima::drawing::TitleBlockContext build_title_block_context_for_source(
     const Workspace* workspace) {
     zima::drawing::TitleBlockContext context;
     context.file_stem = zima::document::path_to_utf8(source_path.stem());
-    if(workspace && !workspace->find(source_id))if(const auto id=workspace->document_id_for_path(source_path))
+    if(source_id.empty() && workspace && !workspace->find(source_id))if(const auto id=workspace->document_id_for_path(source_path))
         return build_title_block_context_for_source(*id,source_path,workspace);
     const zima::document::PartDocument* part{};
     std::optional<zima::document::PartDocument> loaded_part;
     if (workspace != nullptr) if (const auto* open = workspace->open_part(source_id))
         part = &open->session.document();
     if (part == nullptr && !source_path.empty() && source_extension(source_path) == ".prtz") {
-        try { loaded_part = zima::document::PartDocument::load(source_path); part = &*loaded_part; }
+        try { std::vector<kernel::BodyResult> cache;loaded_part = read_family_part(workspace,source_path,source_id,cache); part = &*loaded_part; }
         catch (const std::exception&) { part = nullptr; }
     }
     const auto use_parameters=[&](const auto& document) {
-        if(context.file_stem.empty())context.file_stem=document.name;
+        if(context.file_stem.empty()||!document.family.parent_id.empty())context.file_stem=document.name;
         context.mass_unit = document.document_units.at("Mass");
         context.parameters = document.user_parameters;
         context.parameter_values = document.user_parameter_values;
@@ -120,7 +124,7 @@ zima::drawing::TitleBlockContext build_title_block_context_for_source(
     else if(workspace && workspace->open_assembly(source_id))
         use_parameters(workspace->open_assembly(source_id)->session.document());
     else if(!source_path.empty() && source_extension(source_path)==".asmz") {
-        const auto assembly=zima::assembly::AssemblyDocument::load(source_path);use_parameters(assembly);
+        const auto assembly=read_family_assembly(workspace,source_path,source_id);use_parameters(assembly);
     }
     return context;
 }

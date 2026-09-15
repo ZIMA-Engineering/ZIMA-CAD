@@ -2,17 +2,15 @@
 
 ## Current application
 
-Development build `2026091507` implements reference-bound Family Table variants.
-The wider internal dialog uses the shared green input/azure inspection controls.
-Select an original solid or Body for Yes/No presence, or double-click a Part
-feature and select a dimension for its stable `dN` column. Assembly columns can
-control immediate component presence. Double-click a row name to calculate and
-open its independent native instance. Saved instances are available in the
-Drawing Variant selector, with source switching in one Undo transaction.
-See [Family Table](doc/FAMILY_TABLE.md) for supported dimensions, persistence,
-instance refresh rules and acceptance evidence. Part INI version 24 (payload 48)
-and Assembly payload 32 store the typed table; tracked templates are updated.
-Stable Windows remains `2026091505`; no `2026091507` package has been published.
+Development build `2026091508` implements linked Family Table ownership and
+multiline Drawing Text. Ordinary Save stores all family data in one parent native
+file; Save As from an instance creates an independent copy. Row-controlled edits
+update that row, other edits update shared history and all evaluated variants.
+Undo/Redo belongs to the parent. Stable instance IDs survive renaming and Drawing
+references resolve the row from the common parent file. Nested families are
+rejected. See [Family Table](doc/FAMILY_TABLE.md) and [Drawing text](doc/DRAWING_TEXT.md).
+Part INI 25 / payload 49, Assembly payload 33 and Drawing INI 16 / payload 8 are
+current. Windows package validation/publication is the next completion step.
 
 Development build `2026091506` repairs Mirror/Pattern source selection by editing
 scope: own solid features in an active Body, Bodies and solids at Part level,

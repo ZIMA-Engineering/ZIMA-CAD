@@ -1,3 +1,5 @@
+#include <zima/workspace/document_operations.hpp>
+#include <zima/workspace/family_operations.hpp>
 #include <zima/workspace/assembly_scene.hpp>
 #include <zima/document/holes.hpp>
 #include "workspace_internal.hpp"
@@ -1912,8 +1914,8 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         sketch_fix_point_action_->setEnabled(!selected_sketch_point_id_.empty());
         finish_sketch_action_->setEnabled(!active_sketch_id_.empty());
         regenerate_part_action_->setEnabled(true);
-        undo_action_->setEnabled(part->session.can_undo());
-        redo_action_->setEnabled(part->session.can_redo());
+        undo_action_->setEnabled(workspace::can_step_document_history(workspace_,workspace_.active_document_id(),workspace::HistoryDirection::Undo));
+        redo_action_->setEnabled(workspace::can_step_document_history(workspace_,workspace_.active_document_id(),workspace::HistoryDirection::Redo));
         configure_sketch_box_selection(!active_sketch_id_.empty());
         update_application_actions();
         rebuild_application_toolbar();
@@ -2390,15 +2392,15 @@ void AssemblyWorkspaceWindow::refresh_scene() {
     finish_sketch_action_->setEnabled(has_active_part_sketch);
     regenerate_part_action_->setEnabled(active_part != nullptr);
     if (active_part != nullptr) {
-        undo_action_->setEnabled(active_part->session.can_undo());
-        redo_action_->setEnabled(active_part->session.can_redo());
+        undo_action_->setEnabled(workspace::can_step_document_history(workspace_,workspace_.active_document_id(),workspace::HistoryDirection::Undo));
+        redo_action_->setEnabled(workspace::can_step_document_history(workspace_,workspace_.active_document_id(),workspace::HistoryDirection::Redo));
     } else {
         const auto* active_assembly =
             workspace_.open_assembly(workspace_.active_document_id());
         undo_action_->setEnabled(active_assembly != nullptr &&
-                                 active_assembly->session.can_undo());
+                                 workspace::can_step_document_history(workspace_,workspace_.active_document_id(),workspace::HistoryDirection::Undo));
         redo_action_->setEnabled(active_assembly != nullptr &&
-                                 active_assembly->session.can_redo());
+                                 workspace::can_step_document_history(workspace_,workspace_.active_document_id(),workspace::HistoryDirection::Redo));
     }
     update_application_actions();
     rebuild_application_toolbar();

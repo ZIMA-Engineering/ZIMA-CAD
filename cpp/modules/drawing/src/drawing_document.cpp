@@ -479,7 +479,7 @@ void DrawingDocument::save(const std::filesystem::path& path,
     if (document_id.empty() || name.empty() || sheets.empty()) {
         throw std::runtime_error("Drawing identity, name and sheets are required");
     }
-    nlohmann::json root{{"format", "zima-cad-drawing"}, {"version", 7},
+    nlohmann::json root{{"format", "zima-cad-drawing"}, {"version", 8},
                         {"document_id", document_id}, {"name", name},
                         {"source_document_id", source_document_id},
                         {"source_path", zima::document::path_to_utf8(source_path)},
@@ -518,6 +518,11 @@ void DrawingDocument::save(const std::filesystem::path& path,
                 {"vertical_alignment",text.vertical_alignment},{"angle",text.angle},{"flipped",text.flipped},{"font",text.font}});
             return result;
         };
+        serialized["texts"]=nlohmann::json::array();
+        for(const auto& text:sheet.texts) {
+            if(text.id.empty()||!ids.insert(text.id).second||text.presentation.text.empty()||!std::isfinite(text.presentation.height)||text.presentation.height<=0)throw std::runtime_error("Invalid Drawing text");
+            auto item=text_json(std::vector{text.presentation}).front();item["id"]=text.id;serialized["texts"].push_back(std::move(item));
+        }
         serialized["frame_lines"]=line_json(sheet.frame_lines);
         serialized["frame_texts"]=text_json(sheet.frame_texts);
         serialized["title_block_lines"]=line_json(sheet.title_block_lines);
@@ -619,7 +624,7 @@ void DrawingDocument::save(const std::filesystem::path& path,
     // C++ drawing model has no Python entity fields, so its complete payload
     // lives in the ordinary param.* namespace.
     stream << "[Document]\n"
-           << "format_version=15\n"
+           << "format_version=16\n"
            << "type=drawing\n"
            << "document_id=" << root.at("document_id").get<std::string>() << "\n"
            << "name=" << root.at("name").get<std::string>() << "\n"
@@ -633,7 +638,7 @@ DrawingDocument DrawingDocument::load(const std::filesystem::path& path) {
     const auto document_section = ini.find("Document");
     if (document_section == ini.end() ||
         document_section->second.find("format_version") == document_section->second.end() ||
-        document_section->second.at("format_version") != "15" ||
+        document_section->second.at("format_version") != "16" ||
         document_section->second.find("type") == document_section->second.end() ||
         document_section->second.at("type") != "drawing")
         throw std::runtime_error("Unsupported Drawing document format");
@@ -647,7 +652,7 @@ DrawingDocument DrawingDocument::load(const std::filesystem::path& path) {
         throw std::runtime_error(
             std::string("Invalid C++ Drawing payload: ") + error.what());
     }
-    if (root.value("format", "") != "zima-cad-drawing" || root.value("version", 0) != 7)
+    if (root.value("format", "") != "zima-cad-drawing" || root.value("version", 0) != 8)
         throw std::runtime_error("Unsupported C++ Drawing payload");
     std::map<std::string,std::shared_ptr<const MeasurementGeometry>> measurement_sources;
     for(const auto& [id,geometry]:root.at("measurement_sources").items()) {
@@ -687,6 +692,7 @@ DrawingDocument DrawingDocument::load(const std::filesystem::path& path) {
                 item.at("height"),static_cast<DrawingPen>(item.at("pen").get<int>()),
                 item.at("alignment"),item.value("vertical_alignment","bottom"),item.value("angle",0.0),item.value("flipped",true),item.value("font","osifont")}); return result;
         };
+        for(const auto& item:serialized.at("texts"))sheet.texts.push_back({item.at("id").get<std::string>(),parse_texts(nlohmann::json::array({item})).front()});
         sheet.frame_lines=parse_lines(serialized.at("frame_lines"));
         sheet.frame_texts=parse_texts(serialized.at("frame_texts"));
         sheet.title_block_lines=parse_lines(serialized.at("title_block_lines"));

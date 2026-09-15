@@ -26,7 +26,7 @@ public:
     SketchTextPropertiesDialog(
         zima::sketcher::SketchText initial,
         std::optional<std::array<double, 2>> anchor,
-        PreviewCallback preview, CommitCallback commit, QWidget* parent, bool y_up = false);
+        PreviewCallback preview, CommitCallback commit, QWidget* parent, bool y_up = false, bool drawing_text = false);
 
     void set_anchor(double x, double y);
 
@@ -52,6 +52,7 @@ private:
     QCheckBox* flipped_{};
     QLabel* error_{};
     bool y_up_{};
+    bool drawing_text_{};
 };
 
 }  // namespace zima::app

@@ -91,6 +91,7 @@ private:
     QAction* delete_view_action_{};
     QAction* selection_action_{};
     QAction* linear_dimension_action_{};
+    QAction* text_action_{};
     QAction* show_erase_action_{};
 
     void create_actions();
@@ -116,6 +117,7 @@ private:
     void delete_selected_view();
     void start_selection();
     void start_linear_dimension();
+    void show_text_properties(const std::string& id = {});
     void show_dimension_properties(const std::string&,int);
     void show_erase();
     void edit_model_dimension(const std::string&,const std::string&);

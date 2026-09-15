@@ -525,15 +525,16 @@ void add_json_parameters(
 
 nlohmann::json read_part_ini(const std::filesystem::path& path) {
     const auto ini = read_ini(path);
-    if (ini_value(ini, "Document", "format_version") != "24") {
+    if (ini_value(ini, "Document", "format_version") != "25") {
         throw std::runtime_error("Unsupported ZIMA-CAD Part document format");
     }
     nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 48},
+        {"format_version", 49},
         {"document_id", ini_required(ini, "Document", "document_id")},
         {"type", ini_value(ini, "Document", "type", "part")},
         {"name", ini_value(ini, "Document", "name", "Nový díl")},
+        {"family", nlohmann::json::parse(ini_required(ini,"Document","family"))},
         {"family_table", ini_value(ini, "Document", "family_table",
             "{\"bindings\":{},\"columns\":[],\"instances\":[]}")},
         {"named_views", ini_value(ini, "Document", "named_views", "[]")},
@@ -682,10 +683,11 @@ void write_part_ini(
     const nlohmann::json& root, const std::filesystem::path& path) {
     IniSections ini;
     ini["Document"] = {
-        {"format_version", "24"},
+        {"format_version", "25"},
         {"type", "part"},
         {"document_id", root.at("document_id").get<std::string>()},
         {"name", root.at("name").get<std::string>()},
+        {"family", root.at("family").dump()},
         {"family_table", root.at("family_table").get<std::string>()},
         {"named_views", root.value("named_views", std::string("[]"))},
         {"sections", root.value("sections",nlohmann::json::array()).dump()},
@@ -9421,7 +9423,10 @@ std::string serialize_construction_objects(
 PartDocument PartDocument::load(
     const std::filesystem::path& path,
     std::vector<zima::kernel::BodyResult>* calculated_boundaries) {
-    const nlohmann::json root = read_part_ini(path);
+    return from_serialized(read_part_ini(path),calculated_boundaries);
+}
+PartDocument PartDocument::from_serialized(const nlohmann::json& root,
+    std::vector<zima::kernel::BodyResult>* calculated_boundaries) {
     PartDocument document;
     document.document_id = root.at("document_id").get<std::string>();
     document.name = root.at("name").get<std::string>();
@@ -9443,6 +9448,7 @@ PartDocument PartDocument::load(
     document.physical_parameters = root.at("physical_parameters").get<decltype(document.physical_parameters)>();
     document.physical_parameter_units = root.at("physical_parameter_units").get<decltype(document.physical_parameter_units)>();
     document.material_parameter_descriptions = root.at("material_parameter_descriptions").get<decltype(document.material_parameter_descriptions)>();
+    document.family=family_document_from_json(root.at("family"));
     document.family_table = root.at("family_table").get<std::string>();
     document.named_views = root.value("named_views", std::string("[]"));
     static_cast<void>(zima::document::parse_named_views(document.named_views));
@@ -10247,8 +10253,7 @@ PartDocument PartDocument::load(
     return document;
 }
 
-void PartDocument::save(
-    const std::filesystem::path& path,
+nlohmann::json PartDocument::serialized(
     const std::vector<zima::kernel::BodyResult>& calculated_boundaries,
     const zima::document::DocumentCopyIdentity& copy) const {
     nlohmann::json serialized_history = nlohmann::json::array();
@@ -11035,7 +11040,7 @@ void PartDocument::save(
     static_cast<void>(zima::document::parse_named_views(named_views));
     nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 48},
+        {"format_version", 49},
         {"document_id", document_id},
         {"type", "part"},
         {"name", name},
@@ -11052,6 +11057,7 @@ void PartDocument::save(
         {"physical_parameters", physical_parameters},
         {"physical_parameter_units", physical_parameter_units},
         {"material_parameter_descriptions", material_parameter_descriptions},
+        {"family", family_document_json(family)},
         {"family_table", family_table},
         {"named_views", named_views},
         {"sections", nlohmann::json::parse(serialize_sections(sections))},
@@ -11067,7 +11073,12 @@ void PartDocument::save(
         {"calculated_boundaries", std::move(serialized_boundaries)},
     };
     apply_document_copy_identity(root, copy);
-    write_part_ini(root, path);
+    return root;
+}
+void PartDocument::save(const std::filesystem::path& path,
+    const std::vector<zima::kernel::BodyResult>& calculated, const DocumentCopyIdentity& copy) const {
+    if(!family.parent_id.empty()&&copy.document_id.empty())throw std::invalid_argument("Save the owning family document instead of an instance.");
+    write_part_ini(serialized(calculated,copy),path);
 }
 
 }  // namespace zima::document

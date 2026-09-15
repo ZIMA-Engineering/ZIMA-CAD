@@ -1,3 +1,4 @@
+#include <zima/workspace/document_operations.hpp>
 #include <zima_build_info.hpp>
 #include "installationclient.h"
 #include "updateservice.h"
@@ -325,16 +326,21 @@ int verify_family_table(QApplication& application,zima::app::AssemblyWorkspaceWi
     if(!verify(documents.ok&&documents.data.dump().find("Long")!=std::string::npos&&!window.findChild<QDialog*>("familyTableDialog"),"Family instance did not open in a new tab"))return 1;
     const auto result_path=directory/std::filesystem::u8path("family-ui-result-"+part.document_id+".prtz");
     const auto copied=window.execute_console_command(QString::fromStdString(commands::Json{{"command","save_as"},{"arguments",{{"path",document::path_to_utf8(result_path)}}}}.dump()));
-    if(!copied.ok)std::cerr<<copied.json().dump()<<"\n";
-    if(!verify(copied.ok,"Family GUI instance could not be saved"))return 1;
-    std::vector<kernel::BodyResult> stored;const auto result=document::PartDocument::load(result_path,&stored);
+    if(!verify(copied.ok&&window.findChild<QAction*>("saveDocumentAsAction")->isEnabled(),"Family instance Save As did not create an independent copy"))return 1;
+    if(!verify(document::PartDocument::load(result_path).family.parent_id.empty(),"Save As retained family ownership"))return 1;
+    const auto saved=window.execute_console_command("save");
+    if(!saved.ok)std::cerr<<saved.json().dump()<<"\n";
+    if(!verify(saved.ok,"Family instance did not save its parent"))return 1;
+    std::string member_id;for(const auto& item:documents.data)if(item.value("active",false))member_id=item.at("id").get<std::string>();
+    std::vector<kernel::BodyResult> stored;auto result=document::PartDocument::load(path,&stored);result=workspace::family_part_source(std::move(result),stored,member_id);
     if(!verify(result.find_container(box.id)->box.length==20&&std::abs(stored.back().volume-480)<1e-8,"Family GUI generated wrong dimensions or geometry"))return 1;
     workspace::Workspace drawing_models;drawing_models.add_part(part,cache,path);
     const auto stored_table=window.execute_console_command(QString::fromStdString(commands::Json{{"command","document.family.get"},{"arguments",{{"document",part.document_id}}}}.dump()));
     if(!verify(stored_table.ok,"Cannot read GUI-created Family Table"))return 1;
     static_cast<void>(workspace::set_family_table(drawing_models,part.document_id,document::parse_family_table(stored_table.data.at("table").dump())));
     const auto family_id=workspace::open_family_instance(drawing_models,kernel,part.document_id,"Long");
-    auto* family=drawing_models.open_part(family_id);family->path=directory/"family-drawing-source.prtz";family->session.document().save(family->path,family->session.calculated_boundaries());
+    const auto family_saved=workspace::prepare_document_save(drawing_models,family_id,path).write();
+    if(!verify(workspace::complete_document_save(drawing_models,family_saved),"Drawing family fixture did not save"))return 1;
     auto drawing=drawing::DrawingDocument::create_default();drawing.source_document_id=part.document_id;drawing.source_path=path;
     drawing.sheets.front().views.push_back(drawing::DrawingDocument::create_view(part.document_id,path,cache.back().mesh));
     drawing_models.add_drawing(drawing,directory/"family.drwz");
@@ -346,6 +352,23 @@ int verify_family_table(QApplication& application,zima::app::AssemblyWorkspaceWi
     if(!verify(drawing_window.document_for_test().source_document_id==family_id&&drawing_models.open_drawing(drawing.document_id)->can_undo(),"Drawing Variant selector did not commit the selected source"))return 1;
     drawing_models.open_drawing(drawing.document_id)->undo();
     if(!verify(drawing_models.open_drawing(drawing.document_id)->document().source_document_id==part.document_id,"Drawing family selection is not undoable"))return 1;
+    auto assembly_model=assembly::AssemblyDocument::create_default();const auto assembly_id=assembly_model.document_id;
+    const auto assembly_path=directory/"family-drawing-assembly.asmz";drawing_models.add_assembly(assembly_model,assembly_path);
+    const auto occurrence=drawing_models.insert_open_part(assembly_id,part.document_id,"Block");
+    document::FamilyTable assembly_table;assembly_table.columns={"Block"};assembly_table.bindings["Block"]={"component",occurrence,{}};
+    assembly_table.instances={{"Assembly variant",{{"Block","yes"}}}};static_cast<void>(workspace::set_family_table(drawing_models,assembly_id,assembly_table));
+    const auto assembly_variant=workspace::open_family_instance(drawing_models,kernel,assembly_id,"Assembly variant");
+    const auto assembly_saved=workspace::prepare_document_save(drawing_models,assembly_variant,assembly_path).write();static_cast<void>(workspace::complete_document_save(drawing_models,assembly_saved));
+    auto empty_drawing=drawing::DrawingDocument::create_default();drawing_models.add_drawing(empty_drawing);
+    drawing_window.edit_workspace_document(empty_drawing.document_id);drawing_window.resize(1200,900);drawing_window.show();flush();
+    variants=drawing_window.findChild<QComboBox*>("drawingSourceVariant");const int assembly_index=variants->findData(QString::fromStdString(assembly_variant));
+    if(!verify(assembly_index>=0,"Empty Drawing omitted the active Assembly instance"))return 1;
+    variants->setCurrentIndex(assembly_index);QMetaObject::invokeMethod(variants,"activated",Qt::DirectConnection,Q_ARG(int,assembly_index));flush();
+    drawing_window.findChild<QAction*>("insertDrawingViewAction")->trigger();flush();auto* canvas=drawing_window.findChild<QWidget*>("drawingCanvas");click(canvas,canvas->rect().center());
+    auto* view_properties=drawing_window.findChild<QDialog*>("drawingViewProperties");
+    if(!verify(view_properties,"Assembly variant could not insert a Drawing view"))return 1;
+    view_properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+    if(!verify(drawing_window.document_for_test().sheets.front().views.size()==1&&drawing_window.document_for_test().sheets.front().views.front().source_document_id==assembly_variant,"Inserted view lost its selected Assembly variant"))return 1;
     std::cout<<"Family Table common picker, double click dimensions, typed row, MMB, instance tab and native result passed\n";return 0;
 }
 

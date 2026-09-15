@@ -42,10 +42,12 @@ bool set_material_data(Workspace& live,const std::string& id,document::MaterialD
         doc.material_parameter_descriptions=std::move(values.descriptions);
     },[](const auto& a,const auto& b){return material(a)==material(b);});
 }
-document::FamilyTable family_table(const Workspace& live,const std::string& id) {
+document::FamilyTable family_table(const Workspace& live,const std::string& requested) {
+    const auto id=family_owner(live,requested);
     return metadata_detail::read(live,id,[](const auto& doc){return document::parse_family_table(doc.family_table);});
 }
-bool set_family_table(Workspace& live,const std::string& id,document::FamilyTable values) {
+bool set_family_table(Workspace& live,const std::string& requested,document::FamilyTable values) {
+    const auto id=family_owner(live,requested);
     const auto name=metadata_detail::read(live,id,[](const auto& doc){return doc.name;});
     document::validate_family_table(values,name);
     validate_family_references(live,id,values);

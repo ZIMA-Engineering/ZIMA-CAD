@@ -4,6 +4,7 @@
 #include <zima/document/file_relocation.hpp>
 
 #include <cstdint>
+#include <functional>
 #include <vector>
 #include <memory>
 
@@ -23,6 +24,8 @@ public:
     [[nodiscard]] bool is_dirty() const;
     [[nodiscard]] bool can_undo() const;
     [[nodiscard]] bool can_redo() const;
+    std::function<bool(AssemblyDocument&)> commit_interceptor;
+    void update_family_evaluated(zima::document::FamilyDocument);
     void replace(AssemblyDocument document);
     void commit(AssemblyDocument document);
     void update_dependency_snapshots(AssemblyDocument document);

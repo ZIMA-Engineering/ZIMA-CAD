@@ -16,13 +16,13 @@ namespace zima::app {
 SketchTextPropertiesDialog::SketchTextPropertiesDialog(
     zima::sketcher::SketchText initial,
     std::optional<std::array<double, 2>> anchor,
-    PreviewCallback preview, CommitCallback commit, QWidget* parent, bool y_up)
-    : PropertiesSubWindow(tr("Text skici"), parent),
+    PreviewCallback preview, CommitCallback commit, QWidget* parent, bool y_up, bool drawing_text)
+    : PropertiesSubWindow(tr(drawing_text ? "Text výkresu" : "Text skici"), parent),
       initial_(std::move(initial)), anchor_(anchor),
-      preview_(std::move(preview)), commit_(std::move(commit)), y_up_(y_up) {
+      preview_(std::move(preview)), commit_(std::move(commit)), y_up_(y_up), drawing_text_(drawing_text) {
     setAttribute(Qt::WA_DeleteOnClose, true);
     setProperty("dialogKind", QStringLiteral("sketchText"));
-    setObjectName("sketchTextProperties");
+    setObjectName(drawing_text ? "drawingTextProperties" : "sketchTextProperties");
     setMinimumWidth(420);
 
     auto* form = new QFormLayout;
@@ -37,7 +37,10 @@ SketchTextPropertiesDialog::SketchTextPropertiesDialog(
     mode_->addItem(tr("Běžný text"), false);
     mode_->addItem(tr("Geometrie pro modelování"), true);
     mode_->setCurrentIndex(initial_.modeling_geometry ? 1 : 0);
-    form->addRow(tr("Režim textu"), mode_);
+    if(drawing_text_) {
+        mode_->setCurrentIndex(0);mode_->hide();
+        value_->setFixedHeight(240);set_initial_size(QSize(760,700));setSizeGripEnabled(true);
+    } else form->addRow(tr("Režim textu"), mode_);
     connect(mode_, &QComboBox::currentIndexChanged,
             this, &SketchTextPropertiesDialog::update_preview);
 
@@ -140,7 +143,7 @@ void rebuild_sketch_text_contours(zima::sketcher::SketchText& text, bool y_up) {
 }
 
 zima::sketcher::SketchText SketchTextPropertiesDialog::build_text() const {
-    if (!anchor_) throw std::runtime_error("Nejprve určete polohu textu ve skice.");
+    if (!anchor_) throw std::runtime_error(drawing_text_ ? "Nejprve určete polohu textu na listu." : "Nejprve určete polohu textu ve skice.");
     const QString value = value_->toPlainText();
     if (value.isEmpty()) throw std::runtime_error("Text nesmí být prázdný.");
 
@@ -154,7 +157,7 @@ zima::sketcher::SketchText SketchTextPropertiesDialog::build_text() const {
     text.angle_degrees = angle_->value(); text.flipped = flipped_->isChecked() != y_up_;
     text.color = static_cast<zima::sketcher::SketchTextColor>(color_->currentData().toInt());
     text.font = font_->currentData().toString().toStdString();
-    rebuild_sketch_text_contours(text, y_up_);
+    if(!drawing_text_)rebuild_sketch_text_contours(text, y_up_);
     return text;
 }
 

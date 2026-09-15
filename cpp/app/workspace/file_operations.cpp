@@ -1,3 +1,4 @@
+#include <zima/workspace/family_operations.hpp>
 #include "workspace_internal.hpp"
 #include <zima_build_info.hpp>
 #include <zima/workspace/document_operations.hpp>

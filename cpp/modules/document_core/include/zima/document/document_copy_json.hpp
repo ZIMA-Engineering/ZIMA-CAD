@@ -53,6 +53,8 @@ inline void apply_document_copy_identity(nlohmann::json& root,
     if (id.empty()) return;
     const auto old_id=root.at("document_id").get<std::string>();
     if (id==old_id) throw std::invalid_argument("Kopie musí mít nové ID dokumentu.");
+    if(root.contains("family"))
+        root["family"]={{"parent",""},{"row",""},{"evaluated",nlohmann::json::object()}};
     remap_document_identity(root,old_id,id,{},copy.source_path.parent_path(),copy.target_path);
     root["name"]=path_to_utf8(copy.target_path.stem());
 }

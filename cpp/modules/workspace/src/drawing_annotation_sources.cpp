@@ -1,3 +1,4 @@
+#include <zima/workspace/family_operations.hpp>
 #include <zima/document/object_annotation_frames.hpp>
 #include <zima/workspace/drawing_sources.hpp>
 #include <algorithm>
@@ -230,13 +231,13 @@ drawing_annotation_sources(const Workspace *workspace,
       assembly_mesh(workspace->open_assembly(id)->session.document());
     else if (extension == ".prtz") {
       std::vector<kernel::BodyResult> boundaries;
-      auto part = document::PartDocument::load(path, &boundaries);
+      auto part = read_family_part(workspace,path,id,boundaries);
       Workspace source;
       source.add_part(std::move(part),std::move(boundaries),path);
       if(!source.open_part(id))throw std::runtime_error("Annotation source document identity mismatch");
       part_mesh(source.open_part(id)->session.document(),source.authoritative_viewer_mesh(id));
     } else if (extension == ".asmz")
-      assembly_mesh(assembly::AssemblyDocument::load(path));
+      assembly_mesh(read_family_assembly(workspace,path,id));
     else
       throw std::runtime_error("Zdroj anotací není dostupný: " + document::path_to_utf8(path));
     std::erase_if(mesh.dimensions,

@@ -1,4 +1,5 @@
 #pragma once
+#include <zima/document/family_document.hpp>
 #include <zima/document/measurement_record.hpp>
 #include <zima/kernel/dimension_layout.hpp>
 #include <zima/kernel/appearance.hpp>
@@ -225,6 +226,7 @@ public:
     std::map<std::string, std::string> physical_parameter_units;
     std::map<std::string, std::map<std::string, std::string>>
         material_parameter_descriptions;
+    zima::document::FamilyDocument family;
     std::string family_table{"{\"bindings\":{},\"columns\":[],\"instances\":[]}"};
     std::string named_views{"[]"};
     std::vector<zima::document::SectionDefinition> sections;
@@ -281,6 +283,8 @@ public:
         const std::string& occurrence_id,
         zima::kernel::BodySnapshot calculated_source) const;
     [[nodiscard]] static AssemblyDocument load(const std::filesystem::path& path);
+    [[nodiscard]] nlohmann::json serialized(const zima::document::DocumentCopyIdentity& copy = {}) const;
+    [[nodiscard]] static AssemblyDocument from_serialized(const nlohmann::json&);
     void save(const std::filesystem::path& path,
         const zima::document::DocumentCopyIdentity& copy = {}) const;
     [[nodiscard]] static ComponentDependency create_dependency(

@@ -1,4 +1,5 @@
 #pragma once
+#include <zima/document/family_document.hpp>
 #include <zima/document/measurement_record.hpp>
 #include <zima/kernel/dimension_layout.hpp>
 #include <zima/kernel/appearance.hpp>
@@ -623,6 +624,7 @@ public:
     std::map<std::string, std::string> physical_parameter_units;
     std::map<std::string, std::map<std::string, std::string>>
         material_parameter_descriptions;
+    zima::document::FamilyDocument family;
     std::string family_table{"{\"bindings\":{},\"columns\":[],\"instances\":[]}"};
     // JSON-encoded array of custom named camera views saved from the
     // "Pohled kolmo" orientation dialog, mirroring Python's
@@ -784,6 +786,8 @@ public:
     [[nodiscard]] static PartDocument load(
         const std::filesystem::path& path,
         std::vector<zima::kernel::BodyResult>* calculated_boundaries = nullptr);
+    [[nodiscard]] nlohmann::json serialized(const std::vector<zima::kernel::BodyResult>& calculated = {}, const DocumentCopyIdentity& copy = {}) const;
+    [[nodiscard]] static PartDocument from_serialized(const nlohmann::json&, std::vector<zima::kernel::BodyResult>* calculated = nullptr);
     void save(
         const std::filesystem::path& path,
         const std::vector<zima::kernel::BodyResult>& calculated_boundaries = {},

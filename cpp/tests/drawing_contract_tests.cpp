@@ -328,12 +328,12 @@ Data={"points":{"a":{"x":-10,"y":-5},"b":{"x":-20,"y":-5}},"geometry":{"line":{"
         require(static_cast<bool>(persisted), "Drawing contract file was not written");
         const std::string ini((std::istreambuf_iterator<char>(persisted)), {});
         require(ini.find("[Document]\n") != std::string::npos &&
-                    ini.find("format_version=15\n") != std::string::npos &&
+                    ini.find("format_version=16\n") != std::string::npos &&
                     ini.find("type=drawing\n") != std::string::npos &&
                     ini.find("param.cpp_drawing={") != std::string::npos &&
                     ini.find("[Containers]\n") != std::string::npos &&
                     ini.find("items=\n") != std::string::npos,
-                "Drawing persistence is not Python-compatible INI");
+                "Drawing persistence is not current native INI");
         const auto loaded = zima::drawing::DrawingDocument::load(path);
         persisted.close();
         std::filesystem::remove(path);
