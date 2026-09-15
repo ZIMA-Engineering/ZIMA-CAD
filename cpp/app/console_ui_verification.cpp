@@ -42,6 +42,7 @@
 #include <QMouseEvent>
 #include <QCursor>
 #include <QElapsedTimer>
+#include <QEventLoop>
 #include <QThread>
 #include <QTreeWidget>
 #include <QTreeWidgetItemIterator>
@@ -672,6 +673,66 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         run("save");const auto metadata_saved=document::PartDocument::load(directory/(stem+"-metadata.prtz"));
         check(metadata_saved.user_parameters.at("CLI_TEST")=="after GUI" && metadata_saved.document_units.at("Length")=="cm","GUI metadata did not persist");
         const auto json_run=[&](const char* command,commands::Json arguments) {return run(QString::fromStdString(commands::Json{{"command",command},{"arguments",std::move(arguments)}}.dump()));};
+
+        const auto saved_bytes=[&](const std::filesystem::path& file) {
+            run("save");
+            QFile input(QString::fromStdString(document::path_to_utf8(file)));
+            check(input.open(QIODevice::ReadOnly),"Cannot read inline-edit native document");
+            return input.readAll();
+        };
+        const auto inline_candidate=[&](const std::string& owner,const std::string& key) {
+            viewer::ViewerCandidate candidate;candidate.kind=viewer::CandidateKind::Dimension;
+            candidate.owner_id=owner;candidate.semantic_key=key;
+            for(std::size_t index=0;index<200;++index) {
+                candidate.geometry_index=index;
+                if(view->candidate_dimension_value(candidate)) {
+                    if(index<view->mesh().dimensions.size())
+                        candidate.instance_path=view->mesh().dimensions[index].reference.instance_path;
+                    return candidate;
+                }
+            }
+            std::string offered;
+            for(const auto& dimension:view->mesh().dimensions)
+                offered+=" "+dimension.reference.owner_id+"/"+dimension.reference.semantic_key;
+            throw std::runtime_error("Inline dimension missing: "+owner+"/"+key+"; offered:"+offered);
+        };
+        const auto inline_number=[&](const viewer::ViewerCandidate& candidate,double value) {
+            window.edit_dimension_inline(candidate);flush();
+            auto* edit=window.findChild<QLineEdit*>("inlineDimensionValueEdit");
+            check(edit&&edit->isVisible(),"Inline dimension editor missing");
+            edit->setText(QString::number(value,'g',12));
+            QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);
+            QApplication::sendEvent(edit,&enter);flush();
+        };
+        const auto verify_inline_radius=[&](const std::string& owner,const std::string& point,
+                                            const std::filesystem::path& file,double radius,bool sweep=false) {
+            const auto get=[&]{return json_run("construction.get",{{"construction",point}}).data;};
+            const auto before=get().at("radius_mm");
+            std::cout<<"Inline radius parity: "<<file.filename().string()<<", owner="<<owner<<", point="<<point<<std::endl;
+            const auto edit=[&](double value) {
+                window.show_parameter_dimensions(owner);flush();
+                inline_number(inline_candidate(point,"parameter:radius"),value);
+            };
+            edit(radius);check(get().at("radius_mm")==radius,"Inline radius did not commit");
+            const auto changed=get();
+            edit(radius);check(get()==changed,"Unchanged inline radius created a transaction");
+            edit(100000);check(get()==changed,"Invalid inline radius changed the document");
+            const auto gui=saved_bytes(file);
+            run("undo");check(get().at("radius_mm")==before,"Inline radius Undo failed");
+            if(sweep) {
+                const auto children=json_run("construction.get",{{"construction",changed.at("parent")}}).data.at("children");
+                auto points=commands::Json::array();
+                for(const auto& child:children) {
+                    commands::Json value={{"construction",child}};
+                    if(child==point)value["radius_mm"]=radius;
+                    points.push_back(std::move(value));
+                }
+                json_run("sweep3d.set",{{"container",owner},{"path",{{"points",points}}}});
+            } else json_run("construction.set",{{"construction",point},{"radius_mm",radius}});
+            check(saved_bytes(file)==gui,"Inline and CLI radius native files differ");
+            run("undo");check(get().at("radius_mm")==before,"CLI radius Undo failed");
+            window.finish_parameter_dimensions();flush();
+        };
 
         for(const bool in_assembly:{false,true}) {
             const auto name=stem+(in_assembly?"-named-assembly":"-named-part");
@@ -1374,6 +1435,45 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         check(component_dialog,"GUI insertion did not open original component properties");component_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
         check(run("component.list").data.at("total")==2 && json_run("component.get",{{"instance_path",console_occurrence.at("instance_path")}}).data.at("name")=="CLI component","GUI insertion did not share native command transaction");
         run("save");const auto saved_components=assembly::AssemblyDocument::load(directory/(stem+"-components.asmz"));check(saved_components.components.size()==2,"GUI component insertion did not persist");
+        {
+            const auto occurrence=console_occurrence.at("occurrence").get<std::string>();
+            const auto path=console_occurrence.at("instance_path").get<std::string>();
+            const auto get=[&]{return json_run("component.get",{{"instance_path",path}}).data;};
+            commands::Json row={{"kind","plane_coincident"},
+                {"component",{{"instance_path",path},{"owner",engineering_saved.document_id+":origin"},{"key","origin:plane:xy"}}},
+                {"target",{{"instance_path",""},{"owner",component_owner+":origin"},{"key","origin:plane:xy"}}},
+                {"offset",2},{"locked",false},{"lower_limit",0},{"upper_limit",10}};
+            const auto set=[&]{return json_run("component.set",{{"instance_path",path},{"grounded",false},
+                {"placement_references",commands::Json::array({row})}});};
+            set();flush();
+            const auto show=[&] {
+                view->confirm_occurrence(path);
+                const QPointF at(view->width()/2,view->height()/2);
+                QMouseEvent event(QEvent::MouseButtonDblClick,at,QPointF(view->mapToGlobal(at.toPoint())),
+                    Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+                QApplication::sendEvent(view,&event);flush();
+                return inline_candidate(component_owner,"placement-reference:"+occurrence+":0");
+            };
+            const auto offset=[&]{return get().at("placement_references")[0].at("offset").get<double>();};
+            inline_number(show(),5);check(offset()==5,"Inline component offset did not commit");
+            const auto changed=get();inline_number(show(),5);
+            check(get()==changed,"Unchanged inline component offset created a transaction");
+            inline_number(show(),11);check(get()==changed,"Out-of-bounds inline component offset committed");
+            const auto file=directory/(stem+"-components.asmz");
+            const auto gui=saved_bytes(file);
+            run("undo");check(offset()==2,"Inline component offset Undo failed");
+            row["offset"]=5;set();
+            check(saved_bytes(file)==gui,"Inline and CLI component offset native files differ");
+            run("undo");row["offset"]=2;row["locked"]=true;set();flush();
+            window.edit_dimension_inline(show());flush();
+            check(!window.findChild<QLineEdit*>("inlineDimensionValueEdit"),"Locked mate opened inline value editor");
+            const auto locked=get();row["offset"]=3;
+            const auto rejected=window.execute_console_command(QString::fromStdString(commands::Json{
+                {"command","component.set"},{"arguments",{{"instance_path",path},
+                    {"placement_references",commands::Json::array({row})}}}}.dump()));
+            check(!rejected.ok&&rejected.code=="value_locked"&&get()==locked,"CLI changed a locked mate");
+            run("undo");run("undo");window.finish_parameter_dimensions();run("save");flush();
+        }
         run(QString::fromStdString("new assembly "+stem+"-component-top"));json_run("component.insert",{{"source",component_owner}});
         check(json_run("component.list",{{"recursive",true}}).data.at("total")==3,"Console nested component query lost its hierarchy");
         const auto nested_rows=json_run("component.list",{{"recursive",true}}).data.at("items");std::string source_path;
@@ -1533,6 +1633,7 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         curve_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
         check(json_run("construction.get",{{"construction",curve_middle}}).data.at("radius_mm")==3,"GUI curve OK did not share model transaction");
         run("undo");check(json_run("construction.get",{{"construction",curve_middle}}).data.at("radius_mm")==2,"GUI curve Undo lost radius");
+        verify_inline_radius(curve_id,curve_middle,directory/(stem+"-construction-edit.prtz"),3);
         json_run("construction.set",{{"construction",curve_id},{"curve_type","interpolating_spline"}});flush();
         curve_dialog=edit_curve();check(curve_dialog->findChild<QComboBox*>("curve3DType")->currentData().toInt()==
             static_cast<int>(document::Curve3DType::InterpolatingSpline),"GUI did not consume CLI spline type");
@@ -1564,6 +1665,32 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         remove_tree_construction(assembly_axis);check(json_run("construction.list",commands::Json::object()).data.at("total")==0,"Assembly menu removal left its construction");
         run("undo");json_run("construction.delete",{{"construction",assembly_axis}});run("save");
         check(assembly::AssemblyDocument::load(directory/(stem+"-construction-delete.asmz")).constructions.empty(),"Shared GUI/CLI Assembly removal did not persist");
+        const auto assembly_curve=json_run("construction.create",{{"kind","curve3d"},{"name","Assembly rounded curve"},
+            {"curve_type","polyline"},{"rounding_enabled",true},{"points",commands::Json::array({
+                commands::Json{{"values",{{"x",0},{"y",0}}}},commands::Json{{"values",{{"x",10},{"y",0}}},{"radius_mm",2}},
+                commands::Json{{"values",{{"x",10},{"y",10}}}}})}}).data;
+        const auto assembly_curve_id=assembly_curve.at("construction").get<std::string>();
+        const auto assembly_point=assembly_curve.at("children")[1].get<std::string>();
+        const auto curve_file=directory/(stem+"-construction-delete.asmz");
+        verify_inline_radius(assembly_curve_id,assembly_point,curve_file,3);
+        const auto curve_assembly=run("context").data.at("active_document");
+        run("save");
+        json_run("new",{{"type","assembly"},{"name",stem+"-curve-context"}});
+        const auto curve_occurrence=json_run("component.insert",{{"source",curve_assembly}}).data.at("instance_path").get<std::string>();
+        json_run("component.insert",{{"source",curve_assembly}});
+        json_run("component.activate",{{"instance_path",curve_occurrence}});flush();
+        window.show_parameter_dimensions(assembly_curve_id);flush();
+        std::size_t offered_radius=0;
+        for(const auto& dimension:view->mesh().dimensions)
+            if(dimension.reference.owner_id==assembly_point&&dimension.reference.semantic_key=="parameter:radius") {
+                ++offered_radius;
+                check(dimension.reference.instance_path==curve_occurrence,"Radius offered on the wrong Assembly occurrence");
+            }
+        check(offered_radius==1,"Repeated Assembly offered duplicate or missing radius dimensions");
+        verify_inline_radius(assembly_curve_id,assembly_point,curve_file,3);
+        json_run("component.deactivate",commands::Json::object());
+        json_run("close",{{"discard",true}});
+        json_run("activate",{{"document",curve_assembly}});
         json_run("close",{{"discard",true}});run(QString::fromStdString(activate.dump()));flush();
         for(const std::string kind:{"extrusion","revolution"}) {
             run(QString::fromStdString("new part "+stem+"-"+kind));flush();
@@ -1770,6 +1897,15 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
             if(kind==document::FeatureKind::Sweep3D) {
                 const auto first=feature.sweep3d.path.curve_points.front().id;
                 const auto last=feature.sweep3d.path.curve_points.back().id;
+                json_run("sweep3d.set",{{"container",feature.id},{"path",{
+                    {"curve_type","polyline"},{"rounding_enabled",true},{"points",commands::Json::array({
+                        commands::Json{{"construction",first}},
+                        commands::Json{{"values",{{"x",15},{"z",10}}},{"radius_mm",5}},
+                        commands::Json{{"construction",last}}
+                    })}}}});
+                const auto rounded_path=json_run("construction.get",{{"construction",feature.sweep3d.path.id}}).data;
+                verify_inline_radius(feature.id,rounded_path.at("children")[1].get<std::string>(),path,6,true);
+                run("undo"); // Restore the straight path before the spline / point tests.
                 commands::Json path_patch={{"curve_type","interpolating_spline"},{"points",commands::Json::array({
                     commands::Json{{"construction",first}}, commands::Json{{"values",{{"z",15}}}},
                     commands::Json{{"construction",last},{"values",{{"z",30}}}}
@@ -1928,6 +2064,23 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
             const auto file=directory/(stem+"-opening.prtz");run("save");
             std::vector<kernel::BodyResult> calculated;static_cast<void>(document::PartDocument::load(file,&calculated));
             check(std::abs(calculated.back().volume-(64000-std::acos(-1.0)*bore*bore/4*20))<1e-5,"GUI-edited opening saved an incorrect volume");
+            const auto select_inline_size=[&] {
+                window.show_parameter_dimensions(opening_id);flush();
+                window.edit_dimension_inline(inline_candidate(opening_id,"parameter:thread_designation"));
+                QEventLoop wait;QTimer::singleShot(30,&wait,&QEventLoop::quit);wait.exec();
+                auto* sizes=window.findChild<QComboBox*>("inlineThreadSizeEdit");
+                check(sizes&&sizes->findText("M14")>=0,"Inline thread catalog missing");
+                const auto index=sizes->findText("M14");sizes->setCurrentIndex(index);
+                QMetaObject::invokeMethod(sizes,"activated",Q_ARG(int,index));sizes->hidePopup();flush();
+            };
+            select_inline_size();check(get().at("designation")=="M14","Inline thread size did not commit");
+            const auto inline_opening=get();select_inline_size();
+            check(get()==inline_opening,"Unchanged inline thread size created a transaction");
+            const auto inline_native=saved_bytes(file);
+            run("undo");check(get().at("designation")=="M12","Inline thread size Undo failed");
+            json_run("opening.set",{{"container",opening_id},{"designation","M14"}});
+            check(saved_bytes(file)==inline_native,"Inline and CLI thread catalog native files differ");
+            run("undo");window.finish_parameter_dimensions();flush();
             const auto targets=nlohmann::json::array({{{"owner",get().at("document").get<std::string>()+":origin"},
                 {"key","origin:plane:xy"},{"label","Origin XY"}}});
             json_run("opening.set",{{"container",opening_id},{"bore_end","up_to"},{"bore_targets",targets},

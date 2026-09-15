@@ -46,7 +46,13 @@ void AssemblyWorkspaceWindow::refresh_scene() {
     }
     setProperty("zimaDocumentDecimalPlaces",decimal_places);
     viewer_->set_dimension_decimal_places(decimal_places);
-    const auto construction_mesh = [this](const auto& document, double scene_size,
+    const auto append_curve_radii = [](zima::kernel::ViewerMesh& mesh,
+            const zima::document::ConstructionObject* object) {
+        if (!object || object->kind != zima::document::ConstructionKind::Curve3D) return;
+        const auto radii = zima::document::curve3d_radius_dimensions(*object);
+        mesh.dimensions.insert(mesh.dimensions.end(), radii.begin(), radii.end());
+    };
+    const auto construction_mesh = [this, &append_curve_radii](const auto& document, double scene_size,
             const zima::kernel::ViewerReferenceGeometry& reference_geometry) {
         auto mesh = construction_preview_mesh_.has_value()
             ? *construction_preview_mesh_
@@ -108,11 +114,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                     construction_dimension_object_id_;
         const auto* object = construction_properties_preview
             ? &*construction_parameter_preview_ : stored_object;
-        if (object && object->kind == zima::document::ConstructionKind::Curve3D &&
-            !construction_preview_mesh_) {
-            const auto radii = zima::document::curve3d_radius_dimensions(*object);
-            mesh.dimensions.insert(mesh.dimensions.end(), radii.begin(), radii.end());
-        }
+        if (!construction_preview_mesh_) append_curve_radii(mesh, object);
         const auto append_dimension = [&](const std::string& owner,
                 const char* key, const char* label,
                 zima::kernel::Vec3 witness_first,
@@ -1918,7 +1920,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
     // (e.g. Part-mode) toolbar while an Assembly tab is actually displayed.
     active_application_ = ApplicationMode::Assembly;
     const auto& document = assembly->session.document();
-    const auto active_assembly_display = [this](
+    const auto active_assembly_display = [this, &append_curve_radii](
             const zima::assembly::AssemblyDocument& original) {
         const auto& source=derived_copy_assembly_preview_&&derived_copy_assembly_preview_->document_id==original.document_id
             ? *derived_copy_assembly_preview_ : original;
@@ -1937,6 +1939,13 @@ void AssemblyWorkspaceWindow::refresh_scene() {
             mesh = displayed.build_scene();
         } else {
             mesh = source.build_scene();
+        }
+        if (active) {
+            const auto* inspected = construction_parameter_preview_ &&
+                construction_parameter_preview_->id == construction_dimension_object_id_
+                    ? &*construction_parameter_preview_
+                    : source.find_construction(construction_dimension_object_id_);
+            append_curve_radii(mesh, inspected);
         }
         if (active) for (const auto& sketch : source.sketches) {
             const auto* owner = source.find_sketch_container(sketch.owner_container_id);

@@ -1,4 +1,7 @@
 #include <zima/workspace/placement_edit.hpp>
+#include <zima/workspace/sweep_operations.hpp>
+#include <zima/workspace/opening_operations.hpp>
+#include <zima/workspace/component_properties.hpp>
 #include "workspace_internal.hpp"
 
 namespace zima::app {
@@ -94,28 +97,20 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
                     if (index<0 || static_cast<std::size_t>(index)>=catalog.size()) return;
                     auto* part=workspace_.open_part(document_id);
                     if (part == nullptr || workspace_.active_document_id()!=document_id) return;
-                    auto next=part->session.document();
-                    auto* opening=next.find_container(owner);
-                    if (opening == nullptr) return;
+                    const auto* existing=part->session.document().find_container(owner);
+                    if (existing == nullptr) return;
+                    auto opening=*existing;
                     const auto& size=catalog[index];
-                    auto& thread=opening->thread;
-                    thread.designation=size.designation.toStdString();
-                    thread.nominal_diameter=size.nominal_diameter;
-                    thread.pitch=size.pitch;
-                    if (!thread.custom_profile_diameter)
-                        thread.profile_diameter=size.internal_root_diameter;
-                    if (thread.end_condition_forward == zima::document::EndCondition::Length &&
-                        thread.length_end_condition == zima::document::EndCondition::Length)
-                        thread.bore_length=std::max(thread.bore_length,
-                            std::ceil((thread.length_forward+thread.runout_pitch_factor*thread.pitch)*1000.0)/1000.0);
                     try {
-                        const auto& previous=part->session.calculated_boundaries();
-                        auto calculated=calculate_part_with_resolved_references(next,&previous);
-                        part->session.commit(std::move(next),std::move(calculated));
+                        zima::document::select_opening_thread_size(opening,opening.thread.standard,
+                            {size.designation.toStdString(),size.nominal_diameter,size.pitch,
+                             size.internal_root_diameter,size.external_root_diameter,size.preferred});
+                        static_cast<void>(zima::workspace::commit_opening(workspace_,kernel_,document_id,
+                            std::move(opening),zima::workspace::OpeningEditMode::Replace));
                         refresh_tabs();
                         show_parameter_dimensions(owner,component);
                     } catch (const std::exception& error) {
-                        state_->setText(QString::fromUtf8(error.what()));
+                        state_->setText(tr(error.what()));
                     }
                 });
             connect(selector,&QObject::destroyed,this,
@@ -184,8 +179,8 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
                 if(!source)throw std::runtime_error("Sestava již není dostupná.");
                 const auto separator=candidate.semantic_key.rfind(':');
                 if(separator==std::string::npos||separator<=20)throw std::runtime_error("Neplatná reference kóty.");
-                auto next=source->session.document();
-                auto* occurrence=next.find_occurrence(candidate.semantic_key.substr(20,separator-20));
+                const auto occurrence_id=candidate.semantic_key.substr(20,separator-20);
+                const auto* occurrence=source->session.document().find_occurrence(occurrence_id);
                 const auto index=std::stoul(candidate.semantic_key.substr(separator+1));
                 if (component_placement_dialog_) {
                     if (component_placement_assembly_document_id_ != candidate.owner_id ||
@@ -206,13 +201,13 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
                 }
                 if(!occurrence||index>=occurrence->placement_references.size())
                     throw std::runtime_error("Reference kóty již neexistuje.");
-                auto& row=occurrence->placement_references[index];
+                const auto& row=occurrence->placement_references[index];
                 if(row.offset_locked)throw std::runtime_error("Hodnota je zamčená.");
                 if((row.lower_limit&&next_value<*row.lower_limit)||(row.upper_limit&&next_value>*row.upper_limit))
                     throw std::runtime_error("Hodnota je mimo povolené meze.");
-                row.offset=next_value;
-                next.calculate_placement_references();
-                source->session.commit(std::move(next));
+                const auto edit=zima::workspace::prepare_component_edit(workspace_,candidate.owner_id,occurrence_id);
+                auto value=edit.initial;value.references[index].offset=next_value;
+                static_cast<void>(zima::workspace::commit_component_properties(workspace_,edit,value));
                 guarded->hide();preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();guarded->deleteLater();return;
             }
             const auto edit_sketch=[&](zima::sketcher::Sketch& sketch){
@@ -312,34 +307,37 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
                             next_value < 0)
                             throw std::runtime_error("Tento radius nelze právě upravit.");
                         path.curve_points[i].curve_radius = next_value;
-                        static_cast<void>(zima::document::curve3d_route(path));
                         radius_owner = owner;
                         return true;
                     }
                     return false;
                 };
-                if (auto* source = workspace_.open_part(workspace_.active_document_id())) {
-                    auto next = source->session.document();
-                    for (auto& path : next.constructions)
-                        if (edit_path(path, path.id)) break;
+                const auto document_id=workspace_.active_document_id();
+                const auto edit_constructions=[&](const auto& constructions) {
+                    for (const auto& path : constructions) {
+                        auto value=path;
+                        if (!edit_path(value,value.id)) continue;
+                        if (value!=path)
+                            static_cast<void>(zima::workspace::commit_construction(workspace_,document_id,
+                                std::move(value),zima::workspace::ConstructionEditMode::Replace));
+                        break;
+                    }
+                };
+                if (const auto* source = workspace_.open_part(document_id)) {
+                    edit_constructions(source->session.document().constructions);
                     if (radius_owner.empty()) {
-                        for (auto& feature : next.history)
-                            if (feature.feature_kind == zima::document::FeatureKind::Sweep3D &&
-                                edit_path(feature.sweep3d.path, feature.id)) break;
+                        for (const auto& feature : source->session.document().history) {
+                            if (feature.feature_kind!=zima::document::FeatureKind::Sweep3D) continue;
+                            auto value=feature;
+                            if (!edit_path(value.sweep3d.path,value.id)) continue;
+                            if (value!=feature)
+                                static_cast<void>(zima::workspace::commit_sweep(workspace_,kernel_,document_id,
+                                    std::move(value),zima::workspace::SweepEditMode::Replace));
+                            break;
+                        }
                     }
-                    if (!radius_owner.empty()) {
-                        auto calculated = calculate_part_with_resolved_references(
-                            next, &source->session.calculated_boundaries());
-                        source->session.commit(std::move(next), std::move(calculated));
-                    }
-                } else if (auto* source = workspace_.open_assembly(workspace_.active_document_id())) {
-                    auto next = source->session.document();
-                    for (auto& path : next.constructions)
-                        if (edit_path(path, path.id)) break;
-                    if (!radius_owner.empty()) {
-                        next.resolve_constructions();
-                        source->session.commit(std::move(next));
-                    }
+                } else if (const auto* source = workspace_.open_assembly(document_id)) {
+                    edit_constructions(source->session.document().constructions);
                 }
                 if (!radius_owner.empty()) {
                     guarded->hide();
@@ -623,7 +621,7 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
             state_->setText(tr("Hodnota kóty byla změněna přímo ve view."));
             guarded->deleteLater();
         } catch (const std::exception& error) {
-            state_->setText(QString::fromUtf8(error.what()));
+            state_->setText(tr(error.what()));
             // The attempted edit is transactional. Explicitly restore the
             // unchanged scene and close the editor after a rejected solve or
             // calculation. A submitted value must never leave a stale input

@@ -6,6 +6,10 @@ QApplication ani hlavní okno. Pro společný PDF export používá QGuiApplicat
 v režimu `offscreen`, Qt Gui/Svg a příslušný platformní plugin. Každé spuštění má vlastní Workspace.
 Není připojením do již běžícího okna CADu.
 
+Aktuální pokrytí 296 příkazů a výsledky ověření popisuje
+[CAD_COMMAND_COVERAGE.md](CAD_COMMAND_COVERAGE.md); hranice GUI adaptéru
+shrnuje [CLI_GUI_AUDIT.md](CLI_GUI_AUDIT.md).
+
 ## Sestavení a první spuštění
 
 Windows sestavovací skript nyní sestavuje GUI i CLI:
