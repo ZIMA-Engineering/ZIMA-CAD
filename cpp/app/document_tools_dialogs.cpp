@@ -5,10 +5,15 @@
 #include <zima/document/relations.hpp>
 #include <zima/document/engineering_metadata.hpp>
 #include <zima/document/material_library.hpp>
+#include <zima/ui/reference_cell.hpp>
+#include <QMenu>
+#include <QToolButton>
+#include <QTimer>
 
 #include <QComboBox>
 #include <QCheckBox>
 #include <QDoubleSpinBox>
+#include <QDialogButtonBox>
 #include <QFormLayout>
 #include <QHeaderView>
 #include <QHBoxLayout>
@@ -30,27 +35,7 @@
 namespace zima::app {
 namespace {
 
-class ColumnNameDialog final : public zima::ui::PropertiesSubWindow {
-public:
-    ColumnNameDialog(std::function<bool(QString)> accepted,
-                     const ApplicationSettings& settings, QWidget* parent)
-        : PropertiesSubWindow(settings.text(
-              "dialog.family_table.add_column", "Přidat sloupec"), parent),
-          accepted_(std::move(accepted)) {
-        setObjectName("familyTableColumnDialog");
-        auto* form = new QFormLayout;
-        name_ = new QLineEdit(this);
-        name_->setObjectName("familyTableColumnName");
-        form->addRow(settings.text(
-            "dialog.family_table.column_name", "Název sloupce:"), name_);
-        content_layout()->addLayout(form);
-    }
-protected:
-    bool submit() override { return accepted_(name_->text().trimmed()); }
-private:
-    QLineEdit* name_{};
-    std::function<bool(QString)> accepted_;
-};
+
 
 class NoWheelComboBox final : public QComboBox {
 public:
@@ -373,81 +358,143 @@ FamilyTableDialog::FamilyTableDialog(
     : PropertiesSubWindow(settings.text("dialog.family_table.title", "Family Table"), parent),
       generic_name_(std::move(generic_name)), data_(std::move(data)),
       accepted_(std::move(accepted)), settings_(settings) {
-    setObjectName("familyTableDialog"); resize(760, 440);
-    nlohmann::json json;
-    try { json = nlohmann::json::parse(data_.family_table); }
-    catch (...) { json = {{"columns", nlohmann::json::array()}, {"instances", nlohmann::json::array()}}; }
-    const auto columns = json.value("columns", std::vector<std::string>{});
-    table_ = new QTableWidget(1, 1 + static_cast<int>(columns.size()), this);
-    table_->setObjectName("familyTableTable");
-    QStringList headers{settings.text("dialog.family_table.instance", "Instance")};
-    for (const auto& column : columns) headers.push_back(QString::fromStdString(column));
-    table_->setHorizontalHeaderLabels(headers); table_->setItem(0, 0, new QTableWidgetItem(generic_name_));
-    table_->item(0, 0)->setFlags(table_->item(0, 0)->flags() & ~Qt::ItemIsEditable);
-    for (int column = 1; column < table_->columnCount(); ++column) {
-        table_->setItem(0, column, new QTableWidgetItem); table_->item(0, column)->setFlags(Qt::ItemIsEnabled);
+    setObjectName("familyTableDialog");setMinimumSize(600,280);
+    set_initial_size(QSize(2280,440));setSizeGripEnabled(true);
+    const auto model=data_.family_table.empty()?zima::document::FamilyTable{}:zima::document::parse_family_table(data_.family_table);
+    table_=new QTableWidget(1,1,this);table_->setObjectName("familyTableTable");
+    // The shared reference delegate uses the established light reference text.
+    auto palette=table_->palette();palette.setColor(QPalette::Base,QColor("#20252b"));
+    palette.setColor(QPalette::Text,QColor("#e6edf3"));table_->setPalette(palette);
+    table_->setHorizontalHeaderItem(0,new QTableWidgetItem(settings.text("dialog.family_table.instance","Instance")));
+    table_->setColumnWidth(0,200);table_->setItem(0,0,new QTableWidgetItem(generic_name_));
+    table_->item(0,0)->setFlags(Qt::ItemIsEnabled);zima::ui::install_reference_cell_delegate(table_);
+    table_->setContextMenuPolicy(Qt::CustomContextMenu);
+    for(const auto& name:model.columns) {
+        const auto& binding=model.bindings.at(name);
+        columns_.push_back(zima::workspace::FamilyReference{binding,name,name,{}});
+        table_->setColumnCount(1+2*static_cast<int>(columns_.size()));
     }
-    for (const auto& instance : json.value("instances", nlohmann::json::array())) {
-        const int row = table_->rowCount(); table_->insertRow(row);
-        table_->setItem(row, 0, new QTableWidgetItem(QString::fromStdString(instance.value("name", ""))));
-        const auto values = instance.value("values", nlohmann::json::object());
-        for (int column = 1; column < table_->columnCount(); ++column) {
-            const auto key = table_->horizontalHeaderItem(column)->text().toStdString();
-            table_->setItem(row, column, new QTableWidgetItem(QString::fromStdString(values.value(key, ""))));
-        }
+    for(const auto& row:model.instances) {
+        add_instance();const int r=table_->rowCount()-1;table_->item(r,0)->setText(QString::fromStdString(row.name));
+        table_->item(r,0)->setData(Qt::UserRole,QString::fromStdString(row.id));
+        for(int i=0;i<static_cast<int>(model.columns.size());++i)if(auto found=row.values.find(model.columns[i]);found!=row.values.end())
+            table_->item(r,1+2*i)->setText(QString::fromStdString(found->second));
     }
+    content_layout()->addWidget(new QLabel(settings.text("dialog.family_table.hint",
+        "Click a base cell, then pick a solid in View. Double-click the solid to show its dimensions. Double-click an instance name to open it."),this));
     content_layout()->addWidget(table_);
-    auto* actions = new QHBoxLayout;
-    auto* add_column_button = new QPushButton(settings.text("dialog.family_table.add_column", "Přidat sloupec"));
-    auto* delete_column = new QPushButton(settings.text("dialog.family_table.delete_column", "Smazat sloupec"));
-    connect(add_column_button, &QPushButton::clicked, this, &FamilyTableDialog::add_column);
-    connect(delete_column, &QPushButton::clicked, this, [this] {
-        std::set<int, std::greater<>> columns;
-        for (const auto& index : table_->selectionModel()->selectedIndexes())
-            if (index.column() > 0) columns.insert(index.column());
-        for (const int column : columns) table_->removeColumn(column);
+    auto* actions=new QHBoxLayout;
+    auto* add=new QPushButton(settings.text("dialog.family_table.add_column","Add column"),this);add->setObjectName("familyAddColumn");
+    auto* remove=new QPushButton(settings.text("dialog.family_table.delete_column","Delete column"),this);remove->setObjectName("familyDeleteColumn");
+    connect(add,&QPushButton::clicked,this,&FamilyTableDialog::add_column);
+    connect(remove,&QPushButton::clicked,this,[this]{
+        const int i=active_column_>=0?active_column_:(table_->currentColumn()-1)/2;
+        if(i<0||i>=static_cast<int>(columns_.size())||(active_column_<0&&table_->currentColumn()<1))return;
+        end_entry();table_->removeColumn(1+2*i);table_->removeColumn(1+2*i);columns_.erase(columns_.begin()+i);
+        inspected_.clear();refresh_references();
     });
-    for (auto* button : {add_column_button, delete_column}) actions->addWidget(button);
-    actions->addStretch(); content_layout()->addLayout(actions);
+    actions->addWidget(add);actions->addWidget(remove);actions->addStretch();content_layout()->addLayout(actions);
+    connect(table_,&QTableWidget::cellClicked,this,[this](int row,int column){if(row==0&&column>0&&(column%2)==1)arm_column((column-1)/2);});
+    const auto open_row=[this](int row){
+        if(row<=0||!table_->item(row,0)||table_->item(row,0)->text().trimmed().isEmpty())return;
+        requested_instance_=table_->item(row,0)->text().trimmed().toStdString();buttons()->button(QDialogButtonBox::Ok)->click();
+    };
+    connect(table_,&QTableWidget::cellDoubleClicked,this,[open_row](int row,int column){if(column==0)open_row(row);});
+    connect(table_,&QWidget::customContextMenuRequested,this,[this,open_row](const QPoint& point){
+        const auto item=table_->itemAt(point);if(!item||item->row()<=0)return;
+        QMenu menu(this);auto* action=menu.addAction(settings_.text("dialog.family_table.open","Open instance"));
+        if(menu.exec(table_->viewport()->mapToGlobal(point))==action)open_row(item->row());
+    });
+    if(columns_.empty())add_column();else refresh_references();
     new TableEntryRows(table_,[this]{add_instance();},1);
 }
-
+void FamilyTableDialog::set_references(std::vector<zima::workspace::FamilyReference> references) {
+    references_=std::move(references);
+    for(auto& column:columns_)if(column) {
+        const auto match=std::ranges::find_if(references_,[&](const auto& r){return r.binding==column->binding;});
+        if(match!=references_.end()) {const auto saved_name=column->name;column=*match;column->name=saved_name;}
+    }
+    refresh_references();
+}
+void FamilyTableDialog::refresh_references() {
+    const QSignalBlocker blocker(table_);table_->clearSpans();
+    for(int i=0;i<static_cast<int>(columns_.size());++i) {
+        const int c=1+2*i;const auto& column=columns_[i];
+        table_->setColumnWidth(c,150);table_->setColumnWidth(c+1,30);
+        table_->setHorizontalHeaderItem(c,new QTableWidgetItem(column?QString::fromStdString(column->name):QStringLiteral("+")));
+        table_->setHorizontalHeaderItem(c+1,new QTableWidgetItem);
+        auto* ref=new zima::ui::ReferenceCellItem(column?QString::fromStdString(column->binding.kind=="dimension"?column->value:column->owner_name):settings_.text("dialog.family_table.pick","Pick a solid or dimension"));
+        if(column) {
+            ref->set_reference(QString::fromStdString(column->binding.owner_id+":"+column->binding.semantic_key));
+            ref->setToolTip(QString::fromStdString(column->owner_name+" / "+column->binding.semantic_key));
+            ref->set_missing(std::ranges::none_of(references_,[&](const auto& r){return r.binding==column->binding;}));
+        }
+        ref->set_active_input(active_column_==i);ref->set_inspected(inspected_.contains(i));table_->setItem(0,c,ref);
+        auto* eye=zima::ui::build_reference_inspection_button(column.has_value(),inspected_.contains(i),[this,i](bool checked){
+            if(checked)inspected_.insert(i);else inspected_.erase(i);refresh_references();if(entry_changed)entry_changed();
+        });
+        table_->setCellWidget(0,c+1,zima::ui::centered_cell_widget(eye));
+        for(int row=1;row<table_->rowCount();++row) {
+            if(!table_->item(row,c))table_->setItem(row,c,new QTableWidgetItem);
+            const auto value=table_->item(row,c)->text();
+            table_->setSpan(row,c,1,2);
+            if(column&&column->binding.kind!="dimension") {
+                auto* combo=new QComboBox(table_);combo->addItem(QString(),QString());
+                combo->addItem(settings_.text("dialog.family_table.yes","Yes"),"yes");combo->addItem(settings_.text("dialog.family_table.no","No"),"no");
+                combo->setToolTip(settings_.text("dialog.family_table.inherit","Empty = use the base value"));
+                combo->setCurrentIndex(std::max(0,combo->findData(value)));table_->setCellWidget(row,c,combo);
+                const QPersistentModelIndex index(table_->model()->index(row,c));
+                connect(combo,&QComboBox::currentIndexChanged,this,[this,combo,index]{if(index.isValid())table_->item(index.row(),index.column())->setText(combo->currentData().toString());});
+            } else table_->removeCellWidget(row,c);
+        }
+    }
+}
+void FamilyTableDialog::arm_column(int column) {
+    active_column_=column;refresh_references();if(entry_changed)entry_changed();
+}
+void FamilyTableDialog::choose_reference(const zima::workspace::FamilyReference& reference) {
+    if(active_column_<0||active_column_>=static_cast<int>(columns_.size()))return;
+    for(int i=0;i<static_cast<int>(columns_.size());++i)if(i!=active_column_&&columns_[i]&&columns_[i]->binding==reference.binding)return;
+    auto selected=reference;const auto original=selected.name;int suffix=2;
+    const auto used=[&](const std::string& name){for(int i=0;i<static_cast<int>(columns_.size());++i)if(i!=active_column_&&columns_[i]&&columns_[i]->name==name)return true;return false;};
+    while(used(selected.name))selected.name=original+" ("+std::to_string(suffix++)+")";
+    const int column=1+2*active_column_;
+    if(!columns_[active_column_]||columns_[active_column_]->binding!=reference.binding)
+        for(int row=1;row<table_->rowCount();++row)if(table_->item(row,column))table_->item(row,column)->setText({});
+    columns_[active_column_]=std::move(selected);refresh_references();if(entry_changed)entry_changed();
+}
+void FamilyTableDialog::end_entry(){active_column_=-1;inspected_.clear();refresh_references();if(entry_changed)entry_changed();}
+std::vector<zima::document::FamilyColumn> FamilyTableDialog::inspected_references() const {
+    std::vector<zima::document::FamilyColumn> result;for(const auto i:inspected_)if(columns_[i])result.push_back(columns_[i]->binding);return result;
+}
 void FamilyTableDialog::add_instance() {
     const int row=table_->rowCount();table_->insertRow(row);
-    for(int column=0;column<table_->columnCount();++column) table_->setItem(row,column,new QTableWidgetItem);
+    for(int column=0;column<table_->columnCount();++column)table_->setItem(row,column,new QTableWidgetItem);
+    refresh_references();
 }
-
 void FamilyTableDialog::add_column() {
-    if (findChild<QDialog*>("familyTableColumnDialog") != nullptr) return;
-    auto* dialog = new ColumnNameDialog([this](const QString& name) {
-        if (name.isEmpty()) return false;
-        for (int column = 1; column < table_->columnCount(); ++column) {
-            if (table_->horizontalHeaderItem(column)->text().trimmed() == name) return false;
-        }
-        const int column = table_->columnCount(); table_->insertColumn(column);
-        table_->setHorizontalHeaderItem(column, new QTableWidgetItem(name));
-        for (int row = 0; row < table_->rowCount(); ++row)
-            table_->setItem(row, column, new QTableWidgetItem);
-        return true;
-    }, settings_, this);
-    dialog->setAttribute(Qt::WA_DeleteOnClose);
-    dialog->show();
+    const int i=static_cast<int>(columns_.size());columns_.push_back(std::nullopt);table_->setColumnCount(1+2*static_cast<int>(columns_.size()));arm_column(i);
 }
-
-bool FamilyTableDialog::submit() {
-    zima::document::FamilyTable table;
-    for(int column=1;column<table_->columnCount();++column)table.columns.push_back(table_->horizontalHeaderItem(column)->text().trimmed().toStdString());
+zima::document::FamilyTable FamilyTableDialog::read_table() const {
+    zima::document::FamilyTable result;
+    for(const auto& column:columns_)if(column){result.columns.push_back(column->name);result.bindings[column->name]=column->binding;}
     for(int row=1;row<table_->rowCount();++row) {
         if(!table_row_has_text(table_,row))continue;
-        zima::document::FamilyInstance instance;
-        instance.name=table_->item(row,0)?table_->item(row,0)->text().trimmed().toStdString():"";
-        for(int column=1;column<table_->columnCount();++column)instance.values[table.columns[column-1]]=table_->item(row,column)?table_->item(row,column)->text().toStdString():"";
-        table.instances.push_back(std::move(instance));
+        zima::document::FamilyInstance instance;instance.name=table_->item(row,0)->text().trimmed().toStdString();
+        instance.id=table_->item(row,0)->data(Qt::UserRole).toString().toStdString();
+        for(int i=0;i<static_cast<int>(columns_.size());++i)if(columns_[i]) {
+            auto value=table_->item(row,1+2*i)->text().trimmed();
+            if(columns_[i]->binding.kind=="dimension")value.replace(',','.');
+            instance.values[columns_[i]->name]=value.toStdString();
+        }
+        result.instances.push_back(std::move(instance));
     }
-    try {
-        zima::document::validate_family_table(table,generic_name_.toStdString());
-        data_.family_table=zima::document::serialize_family_table(table);accepted_(data_);return true;
-    }catch(const std::exception& error){throw std::runtime_error(tr(error.what()).toStdString());}
+    zima::document::validate_family_table(result,generic_name_.toStdString());return result;
+}
+bool FamilyTableDialog::submit() {
+    data_.family_table=zima::document::serialize_family_table(read_table());accepted_(data_);
+    if(!requested_instance_.empty()&&open_instance)open_instance(requested_instance_);
+    return true;
 }
 
 MaterialDialog::MaterialDialog(DocumentToolData data, ToolDataAccepted accepted,

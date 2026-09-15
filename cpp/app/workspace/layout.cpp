@@ -113,6 +113,7 @@ void AssemblyWorkspaceWindow::create_layout() {
     viewer_->set_selection_contract({zima::viewer::CandidateKind::Dimension,
                                      zima::viewer::CandidateKind::Occurrence});
     viewer_->set_confirmation_callback([this](const auto& candidate) {
+        if(accept_family_reference(candidate))return;
         if(accept_measurement(candidate))return;
         if(section_confirmation(candidate))return;
         if (!properties_dialog_ && candidate.kind==zima::viewer::CandidateKind::Vertex &&
@@ -1310,6 +1311,7 @@ void AssemblyWorkspaceWindow::create_layout() {
         },
         [this] { end_sketch_trim_gesture(); });
     viewer_->set_short_middle_click_callback([this] {
+        if(auto* family=dynamic_cast<FamilyTableDialog*>(properties_dialog_)){family->end_entry();viewer_->clear_selection();return true;}
         if(sketch_offset_dialog_){sketch_offset_dialog_->end_entry();return true;}
         if(measurement_dialog_){measurement_dialog_->end_entry();return true;}
         if(auto* dialog=dynamic_cast<AppearanceDialog*>(properties_dialog_)){dialog->end_entry();viewer_->clear_selection();return true;}
@@ -1381,6 +1383,7 @@ void AssemblyWorkspaceWindow::create_layout() {
             return true;
         });
     viewer_->set_double_confirmation_callback([this](const auto& candidate) {
+        if(accept_family_reference(candidate,true))return;
         if(measurement_dialog_)return;
         if(candidate.kind==zima::viewer::CandidateKind::TemplateImage && candidate.owner_id==active_sketch_id_) {
             show_template_image_properties(candidate.semantic_key.substr(15));return;
@@ -1625,6 +1628,13 @@ void AssemblyWorkspaceWindow::create_layout() {
             if (item->parent() == nullptr && item->data(0, Qt::UserRole + 3).toString() != "part-result-body") {
                 if(!refreshing_scene_){assembly_dimension_path_.clear();update_assembly_dimension_visibility();}
                 viewer_->clear_selection(); return;
+            }
+            if(dynamic_cast<FamilyTableDialog*>(properties_dialog_)) {
+                zima::viewer::ViewerCandidate candidate;
+                candidate.owner_id=item->data(0,Qt::UserRole).toString().toStdString();
+                candidate.instance_path=item->data(0,Qt::UserRole+1).toString().toStdString();
+                candidate.kind=workspace_.open_part(workspace_.active_document_id())?zima::viewer::CandidateKind::Container:zima::viewer::CandidateKind::Occurrence;
+                if(accept_family_reference(candidate))return;
             }
             if(accept_derived_copy_tree_reference(item))return;
             if (auto* sweep=dynamic_cast<Sweep2DDialog*>(properties_dialog_);

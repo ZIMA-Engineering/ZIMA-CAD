@@ -664,6 +664,8 @@ private:
     void edit_material();
     void edit_relations();
     void edit_family_table();
+    void update_family_selection();
+    bool accept_family_reference(const zima::viewer::ViewerCandidate&, bool show_dimensions = false);
     void edit_file_settings();
     void regenerate_assembly();
     void start_edge_treatment(zima::document::FeatureKind kind);

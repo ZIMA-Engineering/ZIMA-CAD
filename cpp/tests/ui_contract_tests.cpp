@@ -4387,7 +4387,7 @@ int main(int argc, char* argv[]) {
 
         bool family_committed = false;
         zima::app::DocumentToolData family_data;
-        family_data.family_table = R"({"columns":["length"],"instances":[{"name":"LONG","values":{"length":"20"}}]})";
+        family_data.family_table = R"({"columns":["d1"],"bindings":{"d1":{"kind":"dimension","owner":"box","key":"parameter:length"}},"instances":[{"id":"long","name":"LONG","values":{"d1":"20"}}]})";
         auto* family_dialog = new zima::app::FamilyTableDialog(
             "GENERIC", family_data, [&](zima::app::DocumentToolData value) {
                 family_committed = value.family_table.find("LONG") != std::string::npos;

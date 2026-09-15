@@ -45,8 +45,9 @@ In **Parameters**, Enter commits the cell and starts editing the next row in the
 same column; it does not accept the window. Parameters, Relations, Material and
 Family Table instance lists offer one empty row with a green arrow. Filling it
 creates another empty row; a red cross deletes a filled entry. The empty offer is
-not saved. The Family Table base row remains protected; generated variants are
-not yet implemented.
+not saved. The Family Table base row selects original elements or dimensions. Instance rows
+override dimensions or presence; double-click an instance name to generate its
+own tab. See [Family Table](FAMILY_TABLE.md).
 
 3D Curve points, Sweep profiles, thread references and individual face colors use
 the same row controls. Removing a station's owned profile leaves its station in
@@ -81,8 +82,8 @@ conditional expression; functions include `abs`, `min`, `max`, `round`, `sqrt`,
 `sin`, `cos` and `tan`. System values include `model.volume`, `model.area`,
 `model.mass` and `material.density`. Imports, file access and other function calls
 are unavailable. Relations run top to bottom and may consume earlier results.
-Driving geometry dimensions and generating Family Table variants remain future
-work; see [engineering metadata](ENGINEERING_METADATA_COMMANDS.md).
+Relations driving geometry dimensions remain future work. Family Table already
+generates dimension/presence variants; see [Family Table](FAMILY_TABLE.md).
 
 Drawings do not own these relations. Their **Parameters** action edits the
 source Part or Assembly and refreshes relevant displayed parameter/title-block
@@ -713,8 +714,9 @@ moves its children; an individual child stays on its projection ray.
 
 A sheet-scale view follows later sheet scale changes; a custom-scale view stays
 independent. Tab changes display the stored projection. **Regenerate** explicitly
-loads current source data and updates the view. The **Variant** control currently
-has the source name only; generated Family Table selection is future work.
+loads current source data and updates the view. The **Variant** control offers the generic and its open Family Table instances.
+Save an instance before selecting it: the Drawing stores its exact native identity
+and path. Changing the variant reprojects the Drawing in one Undo transaction.
 
 ### Dimensions and Show/Erase
 

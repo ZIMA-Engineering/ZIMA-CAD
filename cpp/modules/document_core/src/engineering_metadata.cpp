@@ -51,29 +51,52 @@ void validate_material(const MaterialData& data) {
 }
 void validate_family_table(const FamilyTable& table,const std::string& generic_name) {
     if(table.columns.size()>512 || table.instances.size()>4096)throw std::invalid_argument("A family table supports at most 512 columns and 4096 instances.");
-    std::set<std::string> columns,names;
+    std::set<std::string> columns,names,ids;
     for(const auto& column:table.columns){nonempty(column);if(!columns.insert(column).second)throw std::invalid_argument("Family table columns must be unique.");}
+    if(table.bindings.size()!=table.columns.size())throw std::invalid_argument("Every family column needs a model reference.");
+    std::set<std::pair<std::string,std::string>> references;
+    for(const auto& [name,binding]:table.bindings) {
+        if(!columns.contains(name) || binding.owner_id.empty() ||
+            (binding.kind!="dimension" && binding.kind!="feature" && binding.kind!="body" && binding.kind!="component") ||
+            (binding.kind=="dimension")!=!binding.semantic_key.empty())
+            throw std::invalid_argument("Invalid family column reference.");
+        if(!references.emplace(binding.owner_id,binding.semantic_key).second)
+            throw std::invalid_argument("A family reference may only occur once.");
+    }
     for(const auto& instance:table.instances) {
+        if(!instance.id.empty()&&!ids.insert(instance.id).second)throw std::invalid_argument("Family instance identities must be unique.");
         nonempty(instance.name);
         if(instance.name==generic_name || !names.insert(instance.name).second)throw std::invalid_argument("Family instance names must be unique and different from the generic document name.");
-        for(const auto& [column,value]:instance.values){if(!columns.contains(column))throw std::invalid_argument("A family value refers to an unknown column.");text(value);}
+        for(const auto& [column,value]:instance.values){if(!columns.contains(column))throw std::invalid_argument("A family value refers to an unknown column.");text(value);
+            if(value.empty())continue;
+            if(table.bindings.at(column).kind=="dimension") {
+                double number{};auto [end,error]=std::from_chars(value.data(),value.data()+value.size(),number);
+                if(error!=std::errc{} || end!=value.data()+value.size() || !std::isfinite(number))throw std::invalid_argument("Family dimensions must be finite numbers.");
+            } else if(value!="yes" && value!="no")throw std::invalid_argument("Family presence must be yes or no.");
+        }
     }
 }
 FamilyTable parse_family_table(const std::string& text) {
     const auto data=nlohmann::json::parse(text);FamilyTable result;
     if(!data.is_object() || !data.contains("columns") || !data["columns"].is_array() || !data.contains("instances") || !data["instances"].is_array())
         throw std::invalid_argument("Invalid native family table structure.");
-    for(auto it=data.begin();it!=data.end();++it)if(it.key()!="columns" && it.key()!="instances")throw std::invalid_argument("Invalid native family table structure.");
+    for(auto it=data.begin();it!=data.end();++it)if(it.key()!="columns" && it.key()!="instances" && it.key()!="bindings")throw std::invalid_argument("Invalid native family table structure.");
     result.columns=data["columns"].get<std::vector<std::string>>();
+    if(!data.contains("bindings")||!data["bindings"].is_object())throw std::invalid_argument("Invalid family column reference.");
+    for(auto it=data.at("bindings").begin();it!=data.at("bindings").end();++it) {
+        const auto& b=it.value();if(!b.is_object()||b.size()!=3)throw std::invalid_argument("Invalid family column reference.");
+        result.bindings.emplace(it.key(),FamilyColumn{b.at("kind").get<std::string>(),b.at("owner").get<std::string>(),b.at("key").get<std::string>()});
+    }
     for(const auto& row:data["instances"]) {
-        if(!row.is_object() || !row.contains("name") || !row.contains("values") || row.size()!=2 || !row["values"].is_object())
+        if(!row.is_object() || !row.contains("name") || !row.contains("values") || row.size()!=3 || !row["values"].is_object())
             throw std::invalid_argument("Invalid native family instance structure.");
-        result.instances.push_back({row["name"].get<std::string>(),row["values"].get<std::map<std::string,std::string>>()});
+        result.instances.push_back({row["name"].get<std::string>(),row["values"].get<std::map<std::string,std::string>>(),row.at("id").get<std::string>()});
     }
     return result;
 }
 std::string serialize_family_table(const FamilyTable& table) {
-    nlohmann::json rows=nlohmann::json::array();for(const auto& instance:table.instances)rows.push_back({{"name",instance.name},{"values",instance.values}});
-    return nlohmann::json{{"columns",table.columns},{"instances",std::move(rows)}}.dump();
+    nlohmann::json rows=nlohmann::json::array();for(const auto& instance:table.instances)rows.push_back({{"name",instance.name},{"values",instance.values},{"id",instance.id}});
+    auto bindings=nlohmann::json::object();for(const auto& [name,b]:table.bindings)bindings[name]={{"kind",b.kind},{"owner",b.owner_id},{"key",b.semantic_key}};
+    return nlohmann::json{{"columns",table.columns},{"instances",std::move(rows)},{"bindings",std::move(bindings)}}.dump();
 }
 }

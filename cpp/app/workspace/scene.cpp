@@ -2430,6 +2430,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
     configure_sketch_box_selection(has_active_part_sketch);
     update_section_ui();
     update_measurement_ui();
+    update_family_selection();
 }
 
 } // namespace zima::app

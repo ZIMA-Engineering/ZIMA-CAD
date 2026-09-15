@@ -2,21 +2,32 @@
 
 ## Current application
 
+Development build `2026091507` implements reference-bound Family Table variants.
+The wider internal dialog uses the shared green input/azure inspection controls.
+Select an original solid or Body for Yes/No presence, or double-click a Part
+feature and select a dimension for its stable `dN` column. Assembly columns can
+control immediate component presence. Double-click a row name to calculate and
+open its independent native instance. Saved instances are available in the
+Drawing Variant selector, with source switching in one Undo transaction.
+See [Family Table](doc/FAMILY_TABLE.md) for supported dimensions, persistence,
+instance refresh rules and acceptance evidence. Part INI version 24 (payload 48)
+and Assembly payload 32 store the typed table; tracked templates are updated.
+Stable Windows remains `2026091505`; no `2026091507` package has been published.
+
 Development build `2026091506` repairs Mirror/Pattern source selection by editing
 scope: own solid features in an active Body, Bodies and solids at Part level,
 and immediate components in Assembly. Linear and circular Pattern use the same
 picker and persist the exact selected solid. Subtractive solids repeat their cuts
 in the source Body. See [Mirror and Pattern](doc/MIRROR_AND_PATTERN.md).
-Native Part INI version 23 and Assembly payload version 31 persist the inherited
-subtraction state; factory templates are updated. Windows stable remains
+That revision used Part INI version 23 and Assembly payload version 31 to persist
+the inherited subtraction state; the current versions are listed above. Windows stable remains
 `2026091505`; this development change is not a published release.
 
 Acceptance: GUI/CLI builds and all eight related contracts passed, including
 actual View picking, RMB cycling between a solid and its Body, circular/subtractive
 GUI commits, native reload and cold regeneration. See the verification section
-in [Mirror and Pattern](doc/MIRROR_AND_PATTERN.md). The next authorized task is
-Family Table: reference-bound dimension/presence columns, generated variants in
-document tabs and Drawing support. Sketcher offsets remain later in the queue.
+in [Mirror and Pattern](doc/MIRROR_AND_PATTERN.md). The subsequently authorized
+Family Table task is implemented above. Sketcher offsets remain later in the queue.
 
 Version `2026091505` adds **Settings > AI** and `codex` mode in the
 desktop CAD console. It uses the user's own ChatGPT account through the native

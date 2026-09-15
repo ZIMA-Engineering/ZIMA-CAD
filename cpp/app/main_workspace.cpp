@@ -12,6 +12,9 @@
 #include <nlohmann/json.hpp>
 #include <zima/document/viewer_packet_json.hpp>
 #include "derived_copy_dialog.hpp"
+#include "document_tools_dialogs.hpp"
+#include <zima/workspace/family_operations.hpp>
+#include <zima/workspace/engineering_metadata_operations.hpp>
 #include "component_properties_dialog.hpp"
 #include "shaft_thread_dialog.hpp"
 #include "body_properties_dialog.hpp"
@@ -270,6 +273,80 @@ int verify_history_tree_drag(QApplication& application,const std::filesystem::pa
     }
 
     return 0;
+}
+
+int verify_family_table(QApplication& application,zima::app::AssemblyWorkspaceWindow& window,const std::filesystem::path& directory) {
+    QTimer watchdog;watchdog.setInterval(12000);QObject::connect(&watchdog,&QTimer::timeout,&window,[&]{
+        for(auto* widget:QApplication::topLevelWidgets())if(auto* message=qobject_cast<QMessageBox*>(widget);message&&message->isVisible()){std::cerr<<"Family modal: "<<message->text().toStdString()<<"\n";message->reject();}
+    });watchdog.start();
+    using namespace zima;
+    auto part=document::PartDocument::create_default();part.name="Family base";
+    auto box=document::PartDocument::create_box_container();box.name="Block";box.box={8,6,4};
+    part.history={box};document::BodyHistoryGraph graph;const auto body=graph.create_body("Body");graph.insert({document::PartHistoryKind::Feature,box.id});graph.activate({});part.set_body_history(graph);part.synchronize_dimension_identifiers();
+    kernel::OcctKernel kernel;const auto cache=kernel.evaluate_history(part.kernel_operations());
+    const auto path=directory/"family-base.prtz";part.save(path,cache);
+    const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
+    window.resize(1800,1000);window.show();if(!verify(window.open_document_path(QString::fromStdString(path.string())),"Family fixture did not open"))return 1;flush();
+    auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>("modelWorkspace"));auto* action=window.findChild<QAction*>("familyTableAction");
+    view->fit_all();action->trigger();flush();auto* dialog=dynamic_cast<app::FamilyTableDialog*>(window.findChild<QDialog*>("familyTableDialog"));
+    if(!verify(dialog&&dialog->width()>1000&&dialog->windowFlags().testFlag(Qt::SubWindow),"Family dialog width or internal presentation is wrong"))return 1;
+    auto* table=dialog->findChild<QTableWidget*>("familyTableTable");
+    if(!verify(table&&dynamic_cast<ui::ReferenceCellItem*>(table->item(0,1))->is_active_input(),"Family base cell is not armed"))return 1;
+    const auto mouse=[&](QWidget* target,QEvent::Type type,QPointF p,Qt::MouseButton button){QMouseEvent e(type,p,p,QPointF(target->mapToGlobal(p.toPoint())),button,type==QEvent::MouseButtonPress?button:Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(target,&e);flush();};
+    const auto click=[&](QWidget* target,QPointF p){mouse(target,QEvent::MouseMove,p,Qt::NoButton);mouse(target,QEvent::MouseButtonPress,p,Qt::LeftButton);mouse(target,QEvent::MouseButtonRelease,p,Qt::LeftButton);};
+    std::optional<QPointF> hit;
+    for(int y=5;y<view->height()&&!hit;y+=8)for(int x=5;x<view->width();x+=8){const auto candidates=view->selection_candidates_at({double(x),double(y)});if(!candidates.empty()&&candidates[0].kind==viewer::CandidateKind::Container&&candidates[0].owner_id==box.id){hit=QPointF(x,y);break;}}
+    if(!verify(hit.has_value(),"Family original solid is absent from the common picker"))return 1;
+    click(view,*hit);if(!verify(table->horizontalHeaderItem(1)->text()=="Block","Family LMB did not bind solid name"))return 1;
+    mouse(view,QEvent::MouseButtonDblClick,*hit,Qt::LeftButton);mouse(view,QEvent::MouseButtonRelease,*hit,Qt::LeftButton);
+    viewer::ViewerCandidate dimension;dimension.kind=viewer::CandidateKind::Dimension;dimension.owner_id=box.id;dimension.semantic_key="parameter:length";
+    const auto position=view->candidate_dimension_label_position(dimension);
+    if(!verify(position.has_value(),"Family double click did not expose source dimensions"))return 1;
+    click(view,*position);
+    const auto name=part.dimension_identifiers.identifier(box.id,"parameter:length");
+    if(!verify(table->horizontalHeaderItem(1)->text().toStdString()==name,"Family dimension did not bind secondary identifier"))return 1;
+    table->item(1,0)->setText("Long");table->item(1,1)->setText("20");flush();
+    dialog->findChild<QPushButton*>("familyAddColumn")->click();flush();
+    auto* tree=window.findChild<QTreeWidget*>("documentTree");QTreeWidgetItem* body_row=nullptr;
+    for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==body&&(*it)->data(0,Qt::UserRole+3).toString()=="part-body")body_row=*it;
+    if(!verify(body_row!=nullptr,"Family Body source missing from Tree"))return 1;
+    tree->setCurrentItem(body_row);flush();
+    auto* presence=qobject_cast<QComboBox*>(table->cellWidget(1,3));
+    if(!verify(presence&&presence->findData("yes")>0&&presence->findData("no")>0,"Family Body column lacks Yes/No values"))return 1;
+    presence->setCurrentIndex(presence->findData("yes"));flush();
+    auto* eye=table->cellWidget(0,2)->findChild<QToolButton*>();eye->click();flush();
+    if(!verify(dynamic_cast<ui::ReferenceCellItem*>(table->item(0,1))->is_inspected(),"Family inspection lost its independent azure state"))return 1;
+    mouse(view,QEvent::MouseButtonPress,*position,Qt::MiddleButton);mouse(view,QEvent::MouseButtonRelease,*position,Qt::MiddleButton);
+    if(!verify(dialog->active_column()==-1&&!dynamic_cast<ui::ReferenceCellItem*>(table->item(0,1))->is_inspected(),"Family short MMB did not end reference entry"))return 1;
+    window.grab().save(QString::fromStdString((directory/"family-table-ui.png").string()));
+    const auto row_position=table->visualItemRect(table->item(1,0)).center();
+    click(table->viewport(),row_position);mouse(table->viewport(),QEvent::MouseButtonDblClick,row_position,Qt::LeftButton);flush();
+    const auto documents=window.execute_console_command("documents");
+    if(!verify(documents.ok&&documents.data.dump().find("Long")!=std::string::npos&&!window.findChild<QDialog*>("familyTableDialog"),"Family instance did not open in a new tab"))return 1;
+    const auto result_path=directory/std::filesystem::u8path("family-ui-result-"+part.document_id+".prtz");
+    const auto copied=window.execute_console_command(QString::fromStdString(commands::Json{{"command","save_as"},{"arguments",{{"path",document::path_to_utf8(result_path)}}}}.dump()));
+    if(!copied.ok)std::cerr<<copied.json().dump()<<"\n";
+    if(!verify(copied.ok,"Family GUI instance could not be saved"))return 1;
+    std::vector<kernel::BodyResult> stored;const auto result=document::PartDocument::load(result_path,&stored);
+    if(!verify(result.find_container(box.id)->box.length==20&&std::abs(stored.back().volume-480)<1e-8,"Family GUI generated wrong dimensions or geometry"))return 1;
+    workspace::Workspace drawing_models;drawing_models.add_part(part,cache,path);
+    const auto stored_table=window.execute_console_command(QString::fromStdString(commands::Json{{"command","document.family.get"},{"arguments",{{"document",part.document_id}}}}.dump()));
+    if(!verify(stored_table.ok,"Cannot read GUI-created Family Table"))return 1;
+    static_cast<void>(workspace::set_family_table(drawing_models,part.document_id,document::parse_family_table(stored_table.data.at("table").dump())));
+    const auto family_id=workspace::open_family_instance(drawing_models,kernel,part.document_id,"Long");
+    auto* family=drawing_models.open_part(family_id);family->path=directory/"family-drawing-source.prtz";family->session.document().save(family->path,family->session.calculated_boundaries());
+    auto drawing=drawing::DrawingDocument::create_default();drawing.source_document_id=part.document_id;drawing.source_path=path;
+    drawing.sheets.front().views.push_back(drawing::DrawingDocument::create_view(part.document_id,path,cache.back().mesh));
+    drawing_models.add_drawing(drawing,directory/"family.drwz");
+    app::DrawingWindow drawing_window(&drawing_models,false);drawing_window.edit_workspace_document(drawing.document_id);
+    auto* variants=drawing_window.findChild<QComboBox*>("drawingSourceVariant");
+    const int variant_index=variants?variants->findData(QString::fromStdString(family_id)):-1;
+    if(!verify(variant_index>=0,"Drawing Variant selector omitted the open family instance"))return 1;
+    variants->setCurrentIndex(variant_index);QMetaObject::invokeMethod(variants,"activated",Qt::DirectConnection,Q_ARG(int,variant_index));flush();
+    if(!verify(drawing_window.document_for_test().source_document_id==family_id&&drawing_models.open_drawing(drawing.document_id)->can_undo(),"Drawing Variant selector did not commit the selected source"))return 1;
+    drawing_models.open_drawing(drawing.document_id)->undo();
+    if(!verify(drawing_models.open_drawing(drawing.document_id)->document().source_document_id==part.document_id,"Drawing family selection is not undoable"))return 1;
+    std::cout<<"Family Table common picker, double click dimensions, typed row, MMB, instance tab and native result passed\n";return 0;
 }
 
 int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWorkspaceWindow& window,
@@ -5394,6 +5471,8 @@ int verify_startup_contract(
         return verify_body_history_ui(application, test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_PENDING_TREE_ONLY"))
         return verify_pending_container_tree(application, test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_FAMILY_ONLY"))
+        return verify_family_table(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_DERIVED_COPY_ONLY"))
         return verify_derived_copy_commands(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SWEEP2D_ONLY"))

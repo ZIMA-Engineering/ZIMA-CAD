@@ -1,5 +1,6 @@
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/engineering_metadata_operations.hpp>
+#include <zima/workspace/family_operations.hpp>
 #include "metadata_json.hpp"
 #include <zima/document/material_library.hpp>
 #include <zima/document/file_path.hpp>
@@ -68,6 +69,18 @@ void Host::register_engineering_metadata_commands() {
             if(row.contains("descriptions"))data.descriptions[key]=strings(row["descriptions"]);
         }
         const auto changed=workspace::set_material_data(workspace_,id,std::move(data));auto result=material_data(workspace::material_data(workspace_,id));result["changed"]=changed;return result;
+    });
+    add({"document.family.references",tr("List original model references available for Family Table."),{{"document",false}},false},[this](const auto& id,const Json&){
+        auto result=Json::array();for(const auto& r:workspace::family_references(workspace_,id))result.push_back({{"name",r.name},{"owner_name",r.owner_name},{"kind",r.binding.kind},{"owner",r.binding.owner_id},{"key",r.binding.semantic_key},{"value",r.value}});
+        return Json{{"references",std::move(result)}};
+    });
+    dispatcher_.add({"document.family.open",tr("Calculate a Family Table instance and open its document."),{{"instance",true},{"document",false}},true},[this](const Json& args){
+        const auto check=target(args);if(!check.ok)return check;
+        try {
+            const auto generic=args.value("document",workspace_.active_document_id());
+            const auto id=workspace::open_family_instance(workspace_,kernel_,generic,args.at("instance").get<std::string>());
+            change_=Change{ChangeKind::Activate,id};return Result::success({{"document",id},{"generic",generic}});
+        }catch(const std::exception& e){return Result::failure("family_failed",tr(e.what()));}
     });
     add({"document.family.get",tr("Read the stored family table without generating instances."),{{"document",false}},false},[this](const auto& id,const Json&){return Json{{"table",Json::parse(document::serialize_family_table(workspace::family_table(workspace_,id)))}};});
     add({"document.family.set",tr("Replace the stored family table without generating geometry."),{{"table",true,Type::Object},{"document",false}},true},[this](const auto& id,const Json& args){

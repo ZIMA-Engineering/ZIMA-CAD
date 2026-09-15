@@ -15,7 +15,9 @@ use persisted physical values without B-Rep calculation or parent-Assembly refre
 | `document.material.load` | `path`, `[document]` | Load/assign `.matz` |
 | `document.material.set` | `properties:Array`, `[document]` | Replace material data |
 | `document.family.get` | `[document]` | Persisted family table |
-| `document.family.set` | `table:Object`, `[document]` | Replace family table |
+| `document.family.set` | `table:Object`, `[document]` | Replace reference-bound family table |
+| `document.family.references` | `[document]` | Original owners, dimension identifiers and base values |
+| `document.family.open` | `instance`, `[document]` | Explicitly calculate/open the named variant |
 
 Optional `document` identifies an open document. At this original stage, mutations
 require the active standalone document and reject pending GUI dialogs or nested
@@ -25,7 +27,7 @@ Persist `.prtz`/`.asmz` explicitly with `save`.
 ```json
 {"command":"document.material.set","arguments":{"properties":[{"key":"MATERIAL_NAME","value":"Aluminum","descriptions":{"en":"Material name"}},{"key":"MASS_DENSITY","value":"2700","unit":"kg/m^3"}]}}
 {"command":"document.relations.set","arguments":{"relations":[{"target":"grams","expression":"model.mass * 1000"},{"target":"double_grams","expression":"grams * 2"}]}}
-{"command":"document.family.set","arguments":{"table":{"columns":["NUMBER","LENGTH"],"instances":[{"name":"Variant A","values":{"NUMBER":"ZE-100","LENGTH":"20"}}]}}}
+{"command":"document.family.references","arguments":{}}
 ```
 
 Relations evaluate in order using unrounded intermediate results. They support the
@@ -43,9 +45,11 @@ does not overwrite component densities. At this original stage source updates we
 explicitly regenerated; current source sharing is documented in
 [ASSEMBLY_GEOMETRY_SHARING.md](ASSEMBLY_GEOMETRY_SHARING.md).
 
-Family tables retain existing native GUI data. Column and instance names are unique;
-instances cannot use the base document name. Missing cells become empty text. Tables
-do not generate variant geometry; that calculation is not implemented in the current model.
+Family Table stores original model references and dimension/presence overrides.
+`document.family.set` commits metadata without calculating geometry;
+`document.family.open` explicitly generates a separate Part or Assembly.
+See [Family Table](FAMILY_TABLE.md) for the current schema, GUI workflow, scope,
+instance refresh rules and Drawing support.
 
 Validation uses a private copy. Division by zero, unknown names, invalid units,
 duplicates, or malformed structures preserve revision and data generation. The parser

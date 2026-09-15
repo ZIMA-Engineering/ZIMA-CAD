@@ -55,7 +55,8 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     invalid_material=material;invalid_material[1]["value"]=2700;rejected("document.material.set",{{"properties",invalid_material}});
     invalid_material=material;invalid_material[0]["value"]="line1\nline2";rejected("document.material.set",{{"properties",invalid_material}});
     invalid_material=material;invalid_material[0]["key"]="NAME=VALUE";rejected("document.material.set",{{"properties",invalid_material}});
-    Json family={{"columns",{"NUMBER","LENGTH"}},{"instances",Json::array({{{"name","Držák 10"},{"values",{{"NUMBER","ZE-10"},{"LENGTH","10"}}}},{{"name","Držák 20"},{"values",{{"LENGTH","20"}}}}})}};
+    const auto box_id=part->session.document().history.front().id;
+    Json family={{"columns",{"NUMBER","LENGTH"}},{"bindings",{{"NUMBER",{{"kind","feature"},{"owner",box_id},{"key",""}}},{"LENGTH",{{"kind","dimension"},{"owner",box_id},{"key","parameter:length"}}}}},{"instances",Json::array({{{"id",""},{"name","Držák 10"},{"values",{{"NUMBER","yes"},{"LENGTH","10"}}}},{{"id",""},{"name","Držák 20"},{"values",{{"LENGTH","20"}}}}})}};
     const auto empty_family=part->session.document().family_table;const auto changed_family=run(host,"document.family.set",{{"table",family}}).data.at("table");
     require(changed_family.at("instances")[1].at("values").at("NUMBER")=="","Missing family cells were not normalized");
     require(!run(host,"document.family.set",{{"table",family}}).data.at("changed").get<bool>(),"Family normalization created redundant Undo");
@@ -82,7 +83,10 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     const auto owner_revision=live.open_assembly(owner)->session.revision();
     run(host,"activate",{{"document",id}});material[1]["value"]="7800";run(host,"document.material.set",{{"properties",material}});
     require(live.open_assembly(owner)->session.revision()==owner_revision && std::abs(assembly::physical_values(live.open_assembly(owner)->session.document()).at("model.mass")-.0162)<1e-10,"Source material silently refreshed a parent Assembly");
-    run(host,"activate",{{"document",owner}});run(host,"document.material.set",{{"properties",material}});run(host,"document.family.set",{{"table",family}});
+    run(host,"activate",{{"document",owner}});run(host,"document.material.set",{{"properties",material}});
+    family["columns"]={"Part"};family["bindings"]={{"Part",{{"kind","component"},{"owner",live.open_assembly(owner)->session.document().components.front().occurrence_id},{"key",""}}}};
+    for(auto& row:family["instances"])row["values"]={{"Part","yes"}};
+    run(host,"document.family.set",{{"table",family}});
     run(host,"document.relations.set",{{"relations",Json::array({{{"target","grams"},{"expression","model.mass * 1000"}}})}});
     require(std::abs(std::stod(live.open_assembly(owner)->session.document().user_parameters.at("grams"))-16.2)<1e-8 && live.open_assembly(owner)->session.document().components.front().calculated_source.shares_with(snapshot),"Assembly material replaced component mass or recalculated the component snapshot");
     run(host,"save");const auto loaded=assembly::AssemblyDocument::load(dir/"engineering-assembly.asmz");require(loaded.relations.size()==1 && document::parse_family_table(loaded.family_table).instances.size()==2,"Assembly engineering metadata did not persist");

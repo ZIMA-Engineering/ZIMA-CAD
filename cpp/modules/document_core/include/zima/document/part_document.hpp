@@ -623,7 +623,7 @@ public:
     std::map<std::string, std::string> physical_parameter_units;
     std::map<std::string, std::map<std::string, std::string>>
         material_parameter_descriptions;
-    std::string family_table{"{\"columns\":[],\"instances\":[]}"};
+    std::string family_table{"{\"bindings\":{},\"columns\":[],\"instances\":[]}"};
     // JSON-encoded array of custom named camera views saved from the
     // "Pohled kolmo" orientation dialog, mirroring Python's
     // document.document_settings["named_views"].

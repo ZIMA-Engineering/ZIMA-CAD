@@ -1,3 +1,4 @@
+#include <zima/workspace/family_operations.hpp>
 #include <zima/workspace/drawing_label_operations.hpp>
 #include <zima/workspace/drawing_projection.hpp>
 #include <zima/workspace/drawing_view_operations.hpp>
@@ -1235,7 +1236,13 @@ void DrawingWindow::create_layout() {
     source_variant_->setObjectName("drawingSourceVariant");
     source_variant_->setMinimumContentsLength(14);
     source_variant_->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
-    source_variant_->setToolTip(tr("Zdrojový díl nebo sestava. Varianty z Family Table budou doplněny později."));
+    source_variant_->setToolTip(tr("Zdrojový díl nebo sestava a otevřené instance Family Table."));
+    connect(source_variant_,&QComboBox::activated,this,[this](int index){
+        if(!workspace_||view_dialog_)return;
+        const auto source=source_variant_->itemData(index).toString().toStdString();if(source==document_.source_document_id)return;
+        try{zima::workspace::select_family_drawing_source(document_,*workspace_,source,path_);refresh();}
+        catch(const std::exception& error){update_source_variant();set_status_message(tr(error.what()));}
+    });
     bottom->addWidget(new QLabel(tr("Varianta:"), central));
     bottom->addWidget(source_variant_);
     bottom->addWidget(sheets_, 1); bottom->addWidget(remove_sheet);
@@ -1715,6 +1722,17 @@ void DrawingWindow::update_source_variant() {
     }
     if (label.isEmpty()) label=tr("Bez zdroje");
     source_variant_->addItem(label,QString::fromStdString(document_.source_document_id));
+    if(workspace_) {
+        const auto generic=document_.source_document_id.substr(0,document_.source_document_id.find(":family:"));
+        for(const auto& state:workspace_->documents())std::visit([&](const auto& value){
+            if constexpr(requires{value.session;}) {
+                const auto& doc=value.session.document();
+                if(doc.document_id!=document_.source_document_id && (doc.document_id==generic||doc.document_id.starts_with(generic+":family:")))
+                    source_variant_->addItem(QString::fromStdString(doc.name),QString::fromStdString(doc.document_id));
+            }
+        },state);
+    }
+    source_variant_->setEnabled(!view_dialog_ && source_variant_->count()>1);
 }
 void DrawingWindow::refresh(bool changed) {
     update_source_variant();

@@ -12,11 +12,19 @@ struct MaterialData {
 struct FamilyInstance {
     std::string name;
     std::map<std::string,std::string> values;
+    std::string id;
     bool operator==(const FamilyInstance&) const = default;
+};
+struct FamilyColumn {
+    std::string kind; // dimension, feature, body or component
+    std::string owner_id;
+    std::string semantic_key;
+    bool operator==(const FamilyColumn&) const = default;
 };
 struct FamilyTable {
     std::vector<std::string> columns;
     std::vector<FamilyInstance> instances;
+    std::map<std::string,FamilyColumn> bindings;
     bool operator==(const FamilyTable&) const = default;
 };
 void validate_material(const MaterialData&);

@@ -1,5 +1,6 @@
 #include <zima/workspace/engineering_metadata_operations.hpp>
 #include <zima/document/precision.hpp>
+#include <zima/workspace/family_operations.hpp>
 #include <zima/document/metadata.hpp>
 #include "metadata_transaction.hpp"
 #include <algorithm>
@@ -47,6 +48,13 @@ document::FamilyTable family_table(const Workspace& live,const std::string& id) 
 bool set_family_table(Workspace& live,const std::string& id,document::FamilyTable values) {
     const auto name=metadata_detail::read(live,id,[](const auto& doc){return doc.name;});
     document::validate_family_table(values,name);
+    validate_family_references(live,id,values);
+    const auto previous=family_table(live,id);
+    for(auto& row:values.instances)if(row.id.empty()) {
+        const auto old=std::ranges::find(previous.instances,row.name,&document::FamilyInstance::name);
+        row.id=old==previous.instances.end()?document::PartDocument::create_default().document_id:old->id;
+    }
+
     for(auto& instance:values.instances)for(const auto& column:values.columns)instance.values.try_emplace(column,"");
     const auto serialized=document::serialize_family_table(values);
     return metadata_detail::write(live,id,[&](auto& doc){doc.family_table=serialized;},[](const auto& a,const auto& b){return a.family_table==b.family_table;});

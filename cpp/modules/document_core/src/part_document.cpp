@@ -525,17 +525,17 @@ void add_json_parameters(
 
 nlohmann::json read_part_ini(const std::filesystem::path& path) {
     const auto ini = read_ini(path);
-    if (ini_value(ini, "Document", "format_version") != "23") {
+    if (ini_value(ini, "Document", "format_version") != "24") {
         throw std::runtime_error("Unsupported ZIMA-CAD Part document format");
     }
     nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 47},
+        {"format_version", 48},
         {"document_id", ini_required(ini, "Document", "document_id")},
         {"type", ini_value(ini, "Document", "type", "part")},
         {"name", ini_value(ini, "Document", "name", "Nový díl")},
         {"family_table", ini_value(ini, "Document", "family_table",
-            "{\"columns\":[],\"instances\":[]}")},
+            "{\"bindings\":{},\"columns\":[],\"instances\":[]}")},
         {"named_views", ini_value(ini, "Document", "named_views", "[]")},
         {"sections", nlohmann::json::parse(ini_value(ini,"Document","sections","[]"))},
         {"measurements", nlohmann::json::parse(ini_value(ini,"Document","measurements","[]"))},
@@ -682,7 +682,7 @@ void write_part_ini(
     const nlohmann::json& root, const std::filesystem::path& path) {
     IniSections ini;
     ini["Document"] = {
-        {"format_version", "23"},
+        {"format_version", "24"},
         {"type", "part"},
         {"document_id", root.at("document_id").get<std::string>()},
         {"name", root.at("name").get<std::string>()},
@@ -11035,7 +11035,7 @@ void PartDocument::save(
     static_cast<void>(zima::document::parse_named_views(named_views));
     nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 47},
+        {"format_version", 48},
         {"document_id", document_id},
         {"type", "part"},
         {"name", name},

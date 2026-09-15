@@ -6,6 +6,7 @@
 #include <zima/document/metadata.hpp>
 #include <zima/document/dimension_identifiers.hpp>
 #include <zima/ui/properties_subwindow.hpp>
+#include <zima/workspace/family_operations.hpp>
 
 #include <functional>
 #include <map>
@@ -88,16 +89,31 @@ public:
     FamilyTableDialog(QString generic_name, DocumentToolData data,
                       ToolDataAccepted accepted,
                       const ApplicationSettings& settings, QWidget* parent);
+    void set_references(std::vector<zima::workspace::FamilyReference>);
+    void choose_reference(const zima::workspace::FamilyReference&);
+    void end_entry();
+    int active_column() const { return active_column_; }
+    std::vector<zima::document::FamilyColumn> inspected_references() const;
+    std::function<void()> entry_changed;
+    std::function<void(const std::string&)> open_instance;
 protected:
     bool submit() override;
 private:
     void add_instance();
     void add_column();
+    void refresh_references();
+    void arm_column(int);
+    zima::document::FamilyTable read_table() const;
     QTableWidget* table_{};
     QString generic_name_;
     DocumentToolData data_;
     ToolDataAccepted accepted_;
     ApplicationSettings settings_;
+    std::vector<zima::workspace::FamilyReference> references_;
+    std::vector<std::optional<zima::workspace::FamilyReference>> columns_;
+    std::set<int> inspected_;
+    int active_column_{-1};
+    std::string requested_instance_;
 };
 
 class MaterialDialog final : public zima::ui::PropertiesSubWindow {

@@ -239,6 +239,7 @@ add_library(zima_workspace modules/workspace/src/workspace.cpp
     modules/workspace/src/named_view_operations.cpp
     modules/workspace/src/metadata_operations.cpp
     modules/workspace/src/engineering_metadata_operations.cpp
+    modules/workspace/src/family_operations.cpp
     modules/workspace/src/component_properties.cpp
     modules/workspace/src/component_removal.cpp
     modules/workspace/src/component_operations.cpp
@@ -822,6 +823,10 @@ if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_cpp_material_library_tests COMMAND zima_cpp_material_library_tests)
     set_tests_properties(zima_cpp_material_library_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
 
+    add_executable(zima_cpp_family_table_tests tests/family_table_tests.cpp)
+    target_link_libraries(zima_cpp_family_table_tests PRIVATE zima_command_host)
+    add_test(NAME zima_cpp_family_table_tests COMMAND zima_cpp_family_table_tests)
+    set_tests_properties(zima_cpp_family_table_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     add_executable(zima_cpp_engineering_metadata_command_tests tests/engineering_metadata_command_tests.cpp)
     target_link_libraries(zima_cpp_engineering_metadata_command_tests PRIVATE zima_command_host)
     add_test(NAME zima_cpp_engineering_metadata_command_tests COMMAND zima_cpp_engineering_metadata_command_tests)

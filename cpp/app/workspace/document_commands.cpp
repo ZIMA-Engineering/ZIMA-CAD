@@ -142,10 +142,90 @@ void AssemblyWorkspaceWindow::edit_family_table() {
         static_cast<void>(zima::workspace::set_family_table(workspace_,id,zima::document::parse_family_table(values.family_table)));
         refresh_tabs();
     }, application_settings_, this);
-    dialog->setAttribute(Qt::WA_DeleteOnClose);
-    properties_dialog_ = dialog;
-    connect(dialog, &QObject::destroyed, this, [this, dialog] { if (properties_dialog_ == dialog) properties_dialog_ = nullptr; });
-    dialog->show();
+    dialog->set_references(workspace::family_references(workspace_,id));
+    dialog->setAttribute(Qt::WA_DeleteOnClose);properties_dialog_=dialog;
+    const auto previous_dimensions=construction_dimension_object_id_;
+    const auto previous_visibility=viewer_->reference_visible(viewer::ReferenceVisibility::Dimensions);
+    dialog->entry_changed=[this]{update_family_selection();};
+    dialog->open_instance=[this,id](const std::string& name){
+        // Finish the properties transaction before switching the displayed tab.
+        QTimer::singleShot(0,this,[this,id,name]{try {
+            static_cast<void>(workspace::open_family_instance(workspace_,kernel_,id,name));
+            refresh_tabs();refresh_scene();viewer_->fit_all();
+        }catch(const std::exception& e){QMessageBox::warning(this,tr("Family Table"),tr(e.what()));}});
+    };
+    tree_->setProperty("commandSelectionActive",true);
+    connect(dialog,&QDialog::finished,this,[this,dialog,previous_dimensions,previous_visibility]{
+        dialog->entry_changed={};properties_dialog_=nullptr;
+        construction_dimension_object_id_=previous_dimensions;
+        viewer_->set_reference_visibility(viewer::ReferenceVisibility::Dimensions,previous_visibility);
+        viewer_->set_original_container_selection(false);viewer_->set_candidate_priority({});viewer_->set_candidate_filter({});viewer_->set_selection_contract({});
+        viewer_->set_constraint_reference_highlights({},{});viewer_->clear_selection();
+        tree_->setProperty("commandSelectionActive",false);preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();
+    });
+    dialog->show();update_family_selection();
+}
+
+void AssemblyWorkspaceWindow::update_family_selection() {
+    auto* dialog=dynamic_cast<FamilyTableDialog*>(properties_dialog_);if(!dialog)return;
+    const auto references=workspace::family_references(workspace_,workspace_.active_document_id());
+    const auto prefix=workspace_.active_occurrence_path();const bool part=workspace_.open_part(workspace_.active_document_id());
+    viewer_->set_original_container_selection(part);
+    viewer_->set_selection_contract({viewer::CandidateKind::Dimension,viewer::CandidateKind::Container,viewer::CandidateKind::Occurrence});
+    viewer_->set_candidate_filter([dialog,references,prefix,part](const auto& candidate){
+        if(dialog->active_column()<0)return false;
+        auto owner=candidate.owner_id;
+        if(candidate.kind==viewer::CandidateKind::Occurrence) {
+            const auto parent=assembly::InstancePath::decode(prefix),path=assembly::InstancePath::decode(candidate.instance_path);
+            if(path.occurrence_ids.size()!=parent.occurrence_ids.size()+1 || !std::equal(parent.occurrence_ids.begin(),parent.occurrence_ids.end(),path.occurrence_ids.begin()))return false;
+            owner=path.occurrence_ids.back();
+        } else if(candidate.instance_path!=prefix)return false;
+        return std::ranges::any_of(references,[&](const auto& r){return r.binding.owner_id==owner &&
+            (candidate.kind==viewer::CandidateKind::Dimension ? r.binding.kind=="dimension"&&r.binding.semantic_key==candidate.semantic_key : r.binding.kind!="dimension");});
+    },false);
+    viewer_->set_candidate_priority([](const auto& c){return c.kind==viewer::CandidateKind::Dimension?0:1;});
+    viewer_->set_dimension_layout_editable(false);
+    std::set<viewer::EdgeKey> highlights;
+    const auto mesh=workspace_.authoritative_viewer_mesh(workspace_.active_document_id());
+    for(const auto& binding:dialog->inspected_references()) {
+        if(binding.kind=="dimension")highlights.insert({binding.owner_id,binding.semantic_key,prefix});
+        else if(binding.kind=="component") {
+            const auto path=assembly::InstancePath::decode(prefix).child(binding.owner_id).encoded();
+            for(const auto& edge:mesh.edges)if(edge.reference.instance_path==assembly::InstancePath{}.child(binding.owner_id).encoded())highlights.insert({edge.reference.owner_id,edge.reference.semantic_key,path});
+        } else for(const auto& edge:mesh.original_references.edges) {
+            bool match=edge.reference.owner_id==binding.owner_id;
+            if(binding.kind=="body")if(const auto* state=workspace_.open_part(workspace_.active_document_id()))
+                if(const auto* owner=state->session.document().body_history.owner(edge.reference.owner_id))match=owner->scope.id==binding.owner_id;
+            if(match)highlights.insert({edge.reference.owner_id,edge.reference.semantic_key,prefix});
+        }
+    }
+    viewer_->set_constraint_reference_highlights({},std::move(highlights));
+}
+bool AssemblyWorkspaceWindow::accept_family_reference(const viewer::ViewerCandidate& candidate,bool dimensions) {
+    auto* dialog=dynamic_cast<FamilyTableDialog*>(properties_dialog_);if(!dialog)return false;
+    if(dialog->active_column()<0)return true;
+    if(const auto filter=viewer_->candidate_filter();filter&&!filter(candidate))return true;
+    auto owner=candidate.owner_id;
+    if(candidate.kind==viewer::CandidateKind::Occurrence)owner=assembly::InstancePath::decode(candidate.instance_path).occurrence_ids.back();
+    if(dimensions&&candidate.kind==viewer::CandidateKind::Container) {
+        viewer_->set_reference_visibility(viewer::ReferenceVisibility::Dimensions,true);show_parameter_dimensions(owner);update_family_selection();return true;
+    }
+    const auto references=workspace::family_references(workspace_,workspace_.active_document_id());
+    for(const auto& r:references)if(r.binding.owner_id==owner &&
+        (candidate.kind==viewer::CandidateKind::Dimension?r.binding.kind=="dimension"&&r.binding.semantic_key==candidate.semantic_key:r.binding.kind!="dimension")) {
+        dialog->choose_reference(r);
+        {
+            const QSignalBlocker blocker(tree_);tree_->clearSelection();
+            for(QTreeWidgetItemIterator item(tree_);*item;++item)
+                if((*item)->data(0,Qt::UserRole).toString().toStdString()==owner &&
+                    (*item)->data(0,Qt::UserRole+1).toString().toStdString()==candidate.instance_path) {
+                    tree_->setCurrentItem(*item);break;
+                }
+        }
+        viewer_->confirm_reference(candidate.owner_id,candidate.semantic_key,candidate.instance_path,candidate.kind);
+        return true;
+    }
+    return true;
 }
 
 void AssemblyWorkspaceWindow::edit_file_settings() {

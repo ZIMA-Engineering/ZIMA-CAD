@@ -225,7 +225,7 @@ public:
     std::map<std::string, std::string> physical_parameter_units;
     std::map<std::string, std::map<std::string, std::string>>
         material_parameter_descriptions;
-    std::string family_table{"{\"columns\":[],\"instances\":[]}"};
+    std::string family_table{"{\"bindings\":{},\"columns\":[],\"instances\":[]}"};
     std::string named_views{"[]"};
     std::vector<zima::document::SectionDefinition> sections;
     std::vector<zima::kernel::SavedMeasurement> measurements;
