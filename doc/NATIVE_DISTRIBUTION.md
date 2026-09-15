@@ -188,7 +188,7 @@ switch selection after application exit and preserve all shared user data.
 - Build/verify the native Linux dependencies and launcher on the Linux host.
 - Platforms may publish independently. If combined, their commits must match;
   published archives are immutable and adding a platform later requires a new ID.
-- Signed Windows releases `2026091504` and `2026091505` are verified and public
+- Signed Windows releases `2026091504`, `2026091505` and `2026091508` are verified and public
   (see below). Future publication remains an explicit release action.
 - Run the updater's Linux execution and desktop acceptance on Linux.
 - Binary rollback does not promise backward compatibility of native documents.
@@ -197,6 +197,17 @@ See [binding requirements](DISTRIBUTION_CLEANUP_PLAN.md) and
 [Linux handoff](LINUX_RELEASE_HANDOFF.md).
 
 ## Windows verification on 2026-09-15
+
+### Signed Windows build 2026091508
+
+The latest stable Windows release includes linked Family Table editing, one-file
+family persistence, independent instance Save As, variant Drawing sources and
+multiline Drawing Text. It was built from clean committed source
+`05fccf205fd434dbeb6860db9d9c0596a580ebaf`; candidate and finalized signed archives
+passed the native smoke and archive gates. Production bootstrap trust and public
+update discovery from signed `2026091505` passed. Published asset hashes match
+local acceptance. Exact archive identity and evidence are recorded in
+[release 2026091508](releases/2026091508.md#signed-windows-acceptance).
 
 ### Signed Windows build 2026091505
 

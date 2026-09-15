@@ -232,3 +232,13 @@ archive in a disposable installation. Shared settings, the test project and the
 selected previous version were preserved. This public test did not activate or
 roll back the prepared update. Exact archive identity and logs:
 [signed build acceptance](NATIVE_DISTRIBUTION.md#signed-windows-build-2026091505).
+
+Windows release
+[2026091508](https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026091508)
+was published on 2026-09-15 at 18:00:05 UTC after both candidate and signed-archive
+checks passed. A fresh extraction passed production bootstrap trust. The updater
+in a disposable signed `2026091505` installation verified its public manifest and
+offered `2026091508` as installable; the new version reported `current`. This was
+public discovery verification, without activating or rolling back an update.
+The three published asset hashes matched local acceptance. See
+[release acceptance](releases/2026091508.md#signed-windows-acceptance).

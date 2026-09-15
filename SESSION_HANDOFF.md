@@ -10,7 +10,10 @@ Undo/Redo belongs to the parent. Stable instance IDs survive renaming and Drawin
 references resolve the row from the common parent file. Nested families are
 rejected. See [Family Table](doc/FAMILY_TABLE.md) and [Drawing text](doc/DRAWING_TEXT.md).
 Part INI 25 / payload 49, Assembly payload 33 and Drawing INI 16 / payload 8 are
-current. Windows package validation/publication is the next completion step.
+current. Signed Windows release `2026091508` is published, with candidate and
+final archive smoke checks passed. The production updater in signed `2026091505`
+verified the public manifest and offered the new version as installable. See
+[release acceptance](doc/releases/2026091508.md) for the exact commit, hash and logs.
 
 Development build `2026091506` repairs Mirror/Pattern source selection by editing
 scope: own solid features in an active Body, Bodies and solids at Part level,
@@ -18,8 +21,8 @@ and immediate components in Assembly. Linear and circular Pattern use the same
 picker and persist the exact selected solid. Subtractive solids repeat their cuts
 in the source Body. See [Mirror and Pattern](doc/MIRROR_AND_PATTERN.md).
 That revision used Part INI version 23 and Assembly payload version 31 to persist
-the inherited subtraction state; the current versions are listed above. Windows stable remains
-`2026091505`; this development change is not a published release.
+the inherited subtraction state; the current versions are listed above. These
+Pattern changes are included in Windows stable `2026091508`.
 
 Acceptance: GUI/CLI builds and all eight related contracts passed, including
 actual View picking, RMB cycling between a solid and its Body, circular/subtractive
