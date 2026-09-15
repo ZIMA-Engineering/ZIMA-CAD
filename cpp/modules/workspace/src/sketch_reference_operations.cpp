@@ -84,7 +84,8 @@ using Reference=sketcher::SketchExternalReference;
 using Key=std::tuple<Kind,std::string,std::string,std::string>;
 // Copy only selected original geometry, not a complete Part or Assembly mesh.
 kernel::ViewerReferenceGeometry collect(const Workspace& live,const std::string& doc,
-    const sketcher::Sketch& sketch,const std::vector<Reference>& wanted) {
+    const sketcher::Sketch& sketch,const std::vector<Reference>& wanted,
+    const std::string& draft_body_id = {}) {
     std::set<Key> keys;
     for(const auto& r:wanted)keys.emplace(r.kind,r.source_owner_id,r.source_semantic_key,r.source_instance_path);
     kernel::ViewerReferenceGeometry result;
@@ -100,13 +101,19 @@ kernel::ViewerReferenceGeometry collect(const Workspace& live,const std::string&
         }catch(const ReferenceQueryError& error){throw SketchOperationError(error.code,error.what());}
         return true;
     });
-    if(const auto* part=live.open_part(doc))return part->session.document().sketch_reference_geometry_for(sketch,std::move(result));
+    if(const auto* part=live.open_part(doc)) {
+        const auto& document=part->session.document();
+        if(!draft_body_id.empty() && !document.body_owner_for_object(sketch.owner_container_id))
+            return document.construction_reference_geometry_for(draft_body_id,std::move(result));
+        return document.sketch_reference_geometry_for(sketch,std::move(result));
+    }
     return result;
 }
 std::optional<std::string> source_document(const Workspace& live,const std::string& doc,
-    const sketcher::Sketch& sketch,const Reference& reference,const std::set<std::string>* allowed=nullptr) {
+    const sketcher::Sketch& sketch,const Reference& reference,const std::set<std::string>* allowed=nullptr,
+    const std::string& draft_body_id = {}) {
     if(const auto* part=live.open_part(doc)) {
-        if(!reference.source_instance_path.empty() || !(allowed?allowed->contains(reference.source_owner_id):sketch_external_reference_source_owners(part->session.document(),sketch.id).contains(reference.source_owner_id)))return std::nullopt;
+        if(!reference.source_instance_path.empty() || !(allowed?allowed->contains(reference.source_owner_id):sketch_external_reference_source_owners(part->session.document(),sketch.id,draft_body_id).contains(reference.source_owner_id)))return std::nullopt;
         return doc;
     }
     if(live.open_assembly(doc) && !reference.source_instance_path.empty()) {
@@ -118,7 +125,7 @@ std::optional<std::string> source_document(const Workspace& live,const std::stri
 }
 sketcher::SketchExternalReference prepare_sketch_external_reference(const Workspace& live,
     const std::string& doc,const sketcher::Sketch& sketch,Kind kind,const std::string& owner,
-    const std::string& key,const std::string& path) {
+    const std::string& key,const std::string& path,const std::string& draft_body_id) {
     auto reference=sketcher::Sketch::create_external_reference(kind);
     reference.source_owner_id=owner;reference.source_semantic_key=key;reference.source_instance_path=path;
     if(const auto* part=live.open_part(doc);part&&!path.empty()) {
@@ -128,7 +135,7 @@ sketcher::SketchExternalReference prepare_sketch_external_reference(const Worksp
         if(path==reference.context_instance_path) {
             // Picking the edited occurrence itself is the ordinary earlier
             // feature contract; no cross-document edge or scene path persists.
-            return prepare_sketch_external_reference(live,doc,sketch,kind,owner,key,{});
+            return prepare_sketch_external_reference(live,doc,sketch,kind,owner,key,{},draft_body_id);
         }
         const auto source=live.resolve_occurrence(reference.context_assembly_document_id,assembly::InstancePath::decode(path));
         if(!source||source->source_kind!=assembly::ComponentSourceKind::Part)
@@ -149,13 +156,15 @@ sketcher::SketchExternalReference prepare_sketch_external_reference(const Worksp
                     kind==Kind::Point?OriginalReferenceKind::Point:OriginalReferenceKind::Axis;
                 return candidate==requested&&candidate_owner==owner&&candidate_key==key&&candidate_path==path;
             });
-        geometry=part->session.document().sketch_reference_geometry_for(sketch,std::move(geometry));
+        geometry=!draft_body_id.empty() && !part->session.document().body_owner_for_object(sketch.owner_container_id)
+            ? part->session.document().construction_reference_geometry_for(draft_body_id,std::move(geometry))
+            : part->session.document().sketch_reference_geometry_for(sketch,std::move(geometry));
         populate_external_reference_cache(sketch,reference,geometry);return reference;
     }
-    const auto source=source_document(live,doc,sketch,reference);
+    const auto source=source_document(live,doc,sketch,reference,nullptr,draft_body_id);
     if(!source)throw SketchOperationError("invalid_reference_source","The reference must identify an earlier Part object or an exact Assembly occurrence.");
     reference.source_document_id=*source;
-    const auto geometry=collect(live,doc,sketch,{reference});
+    const auto geometry=collect(live,doc,sketch,{reference},draft_body_id);
     populate_external_reference_cache(sketch,reference,geometry);
     return reference;
 }

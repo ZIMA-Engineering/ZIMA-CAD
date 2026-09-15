@@ -16,6 +16,23 @@ starts with Regenerate, followed by the CAD console toggle using the terminal
 icon from ZIMA-CAD-Parts. GUI, console and CLI use shared model operations;
 [command coverage](doc/CAD_COMMAND_COVERAGE.md) records the current scope.
 
+The follow-up Holes Sketcher repair moves diameter below plane offset, retires
+the properties preview/offset handle while Sketcher is active, and restores
+brown axes with a black idle Sketch origin. New dialog-owned Sketches explicitly
+use their owning Body's insertion cursor and existing coordinate transform for
+external references and reference-to-outline projection. No shared placement
+solver, native format or factory template changes are involved. See
+[Holes interaction and verification](doc/HOLES.md).
+
+Windows Release validation for this repair passed: native Holes operations,
+Sketch reference commands (including draft boundaries and translated Body),
+Holes GUI mouse interaction, and the work-plane GUI contract. Captured new/edit
+Sketcher views confirm the normal axis/origin colors. Logs are under
+`build/holes-sketch-*.log`; captures are under `Projects/test/holes-*.png`.
+
+These changes are in the local development GUI/CLI build. The immutable
+`2026091503` portable candidate described below predates this repair.
+
 ## Distribution and Linux continuation
 
 Read [the binding distribution rules](doc/DISTRIBUTION_CLEANUP_PLAN.md) and

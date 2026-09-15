@@ -39,9 +39,11 @@ void append_reference_geometry(
     zima::kernel::ViewerReferenceGeometry& target,
     zima::kernel::ViewerReferenceGeometry source);
 
+// An optional explicit Body scopes a new, uncommitted Sketch to its insertion
+// cursor. Persisted Sketches always retain their own earlier-history boundary.
 std::set<std::string> sketch_external_reference_source_owners(
     const zima::document::PartDocument& document,
-    const std::string& sketch_id);
+    const std::string& sketch_id, const std::string& draft_body_id = {});
 
 zima::kernel::ViewerReferenceGeometry sketch_external_reference_source_geometry(
     const zima::document::PartDocument& document,

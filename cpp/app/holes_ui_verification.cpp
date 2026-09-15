@@ -12,6 +12,8 @@
 #include <QMenu>
 #include <QTimer>
 #include <QKeyEvent>
+#include <QEventLoop>
+#include <QLabel>
 #include <QPushButton>
 #include <QTreeWidget>
 #include <QTreeWidgetItemIterator>
@@ -35,7 +37,8 @@ int verify_holes_ui(QApplication& application, AssemblyWorkspaceWindow& window,
         window.showMaximized();flush();
         const auto name="holes-ui-"+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
         run("new",{{"type","part"},{"name",name}});
-        run("box.create",{{"length_mm","40"},{"width_mm","40"},{"height_mm","40"}});
+        const auto box=run("box.create",{{"length_mm","40"},{"width_mm","40"},{"height_mm","40"}})
+            .at("container").get<std::string>();
         const auto source=run("sketch.create",{{"name","Channels"},{"plane","XY"}});
         const auto sketch=source.at("sketch").get<std::string>(),owner=source.at("owner").get<std::string>();
         run("sketch.segment.create",{{"sketch",sketch},{"first",{-20,0}},{"second",{20,0}}});
@@ -74,7 +77,76 @@ int verify_holes_ui(QApplication& application, AssemblyWorkspaceWindow& window,
             check(result&&result->isVisible(),"Holes properties did not open");
             check(result->parentWidget()==&window&&(result->windowFlags()&Qt::WindowType_Mask)==Qt::SubWindow,"Holes must be an internal properties window");
             check(!result->buttons()->button(QDialogButtonBox::Apply),"Holes exposed Apply");
+            check(result->findChild<QDoubleSpinBox*>("holesDiameter")->mapTo(result,QPoint()).y() >
+                  result->findChild<QDoubleSpinBox*>("sketchPlaneOffset")->mapTo(result,QPoint()).y(),
+                  "Drilling diameter must follow the plane offset");
             return result;
+        };
+        const auto click=[&](const QPointF& position) {
+            const auto global=QPointF(view->mapToGlobal(position.toPoint()));
+            QMouseEvent move(QEvent::MouseMove,position,global,Qt::NoButton,Qt::NoButton,Qt::NoModifier);
+            QApplication::sendEvent(view,&move);
+            for(auto type:{QEvent::MouseButtonPress,QEvent::MouseButtonRelease}) {
+                QMouseEvent event(type,position,global,Qt::LeftButton,
+                    type==QEvent::MouseButtonPress?Qt::LeftButton:Qt::NoButton,Qt::NoModifier);
+                QApplication::sendEvent(view,&event);
+            }
+            flush();
+        };
+        const auto hit=[&](const auto& matches) -> QPointF {
+            for(int y=12;y<view->height()-12;y+=6) for(int x=12;x<view->width()-12;x+=6) {
+                const auto offered=view->selection_candidates_at(QPointF(x,y));
+                if(!offered.empty()&&matches(offered.front()))return QPointF(x,y);
+            }
+            throw std::runtime_error("Sketcher did not offer the requested common-picker candidate");
+        };
+        const auto exercise_sketch=[&](SketchPropertiesDialog* pending,const char* capture) {
+            const auto before=pending->pending_value().first;
+            pending->findChild<QPushButton*>("sketchOpenButton")->click();flush();
+            // Let the Sketch-normal camera animation finish before locating
+            // a candidate and clicking the same screen position.
+            QEventLoop alignment;QTimer::singleShot(950,&alignment,&QEventLoop::quit);alignment.exec();flush();
+            auto* segment=window.findChild<QAction*>("sketchSegmentAction");
+            auto* external=window.findChild<QAction*>("sketchExternalReferenceAction");
+            auto* profile=window.findChild<QAction*>("sketchExternalProfileAction");
+            auto* finish=window.findChild<QAction*>("finishSketchAction");
+            check(segment&&external&&profile&&finish&&external->isEnabled()&&profile->isEnabled(),
+                  "Owned Sketch reference tools unavailable");
+            segment->trigger();flush();
+            const auto origin=hit([&](const auto& value){return value.owner_id==before.id &&
+                value.semantic_key=="external_point:sketch_origin";});
+            check(window.grab().save(QString::fromStdString((directory/capture).string())),"Sketch screenshot failed");
+            click(origin);click(origin+QPointF(85,-55));
+            external->trigger();flush();
+            check(external->isChecked(),"External reference mode did not start");
+            const auto projectable=[&](const auto& value) {
+                if(value.owner_id!=box || value.kind!=viewer::CandidateKind::Edge ||
+                   value.geometry!=viewer::CandidateGeometry::OriginalReference)return false;
+                const auto edge=view->candidate_edge(value);
+                if(!edge || edge->points.size()<2)return false;
+                const auto a=before.local_point(edge->points.front()),b=before.local_point(edge->points.back());
+                return std::hypot(a[0]-b[0],a[1]-b[1])>1;
+            };
+            const auto source_hit=hit(projectable);
+            const auto source_key=view->selection_candidates_at(source_hit).front().semantic_key;
+            click(source_hit);
+            const auto reference_status=window.findChild<QLabel*>("workspaceState")->text();
+            profile->trigger();flush();
+            check(profile->isChecked(),"Reference to outline mode did not start");
+            click(hit([&](const auto& value){return projectable(value)&&value.semantic_key!=source_key;}));
+            const auto profile_status=window.findChild<QLabel*>("workspaceState")->text();
+            finish->trigger();flush();
+            check(dialog()==pending,"Sketcher did not return to its owning Holes dialog");
+            const auto after=pending->pending_value().first;
+            if(after.external_references.size()!=before.external_references.size()+2)
+                std::cerr<<"Reference click: "<<reference_status.toStdString()<<"; outline click: "<<profile_status.toStdString()<<'\n';
+            check(after.external_references.size()==before.external_references.size()+2,
+                  "Holes Sketch lost externally picked references");
+            check(after.segments.size()==before.segments.size()+2,
+                  "Holes Sketch lost the mouse-drawn segment or projected outline");
+            check(std::ranges::any_of(after.constraints,[](const auto& constraint){
+                return constraint.kind==sketcher::ConstraintKind::PointReference && constraint.second_point_id=="sketch_origin";
+            }),"Clicking the Sketch origin failed to anchor the segment");
         };
         select();action->trigger();flush();
         auto* pending=dialog();pending->findChild<QDoubleSpinBox*>("holesDiameter")->setValue(6);
@@ -101,6 +173,7 @@ int verify_holes_ui(QApplication& application, AssemblyWorkspaceWindow& window,
         const auto native=document::PartDocument::load(file,&cached);
         check(std::abs(cached.back().volume-(64000-std::numbers::pi*9*40))<1e-5,"GUI drilled the wrong geometry");
         edit();pending=dialog();
+        exercise_sketch(pending,"holes-edit-sketch.png");
         pending->findChild<QDoubleSpinBox*>("holesDiameter")->setValue(8);
         check(pending->mutate_sketch(sketch,[](auto& s){static_cast<void>(s.add_segment(0,-20,0,20));}),"Pending sketch mutation failed");
         check(window.grab().save(QString::fromStdString((directory/"holes-properties.png").string())),"Holes screenshot failed");
@@ -115,7 +188,7 @@ int verify_holes_ui(QApplication& application, AssemblyWorkspaceWindow& window,
         // New feature may enter Sketcher without inserting an empty history item.
         tree->clearSelection();tree->setCurrentItem(nullptr);action->trigger();flush();pending=dialog();
         const auto new_sketch=pending->pending_value().first.id;
-        pending->findChild<QPushButton*>("sketchOpenButton")->click();flush();finish->trigger();flush();pending=dialog();
+        exercise_sketch(pending,"holes-new-sketch.png");
         pending->mutate_sketch(new_sketch,[](auto& s){static_cast<void>(s.add_segment(-20,10,20,10));});
         pending->buttons()->button(QDialogButtonBox::Cancel)->click();flush();run("save");
         check(document::PartDocument::load(file).history.size()==native.history.size(),"New Holes Cancel inserted history");

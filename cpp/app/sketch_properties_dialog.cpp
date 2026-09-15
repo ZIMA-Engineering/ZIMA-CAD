@@ -142,7 +142,7 @@ void SketchPropertiesDialog::set_holes_mode(double diameter,
     field->setSuffix(" mm"); field->setValue(diameter);
     zima::ui::bind_numeric_value_lock(field, "diameter", locks, [] {});
     form->addRow(tr("Průměr otvorů"), field);
-    content_layout()->insertLayout(1, form);
+    content_layout()->insertLayout(content_layout()->indexOf(sketch_button_), form);
     connect(field, &QDoubleSpinBox::valueChanged, this,
         [changed=std::move(changed)](double value) { changed(value); });
     edit_pending_sketch_ = std::move(edit_sketch);

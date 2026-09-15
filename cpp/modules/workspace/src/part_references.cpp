@@ -25,7 +25,7 @@ void append_reference_geometry(
 
 std::set<std::string> sketch_external_reference_source_owners(
     const zima::document::PartDocument& document,
-    const std::string& sketch_id) {
+    const std::string& sketch_id, const std::string& draft_body_id) {
     std::size_t first_consumer = document.history.size();
     const auto sketch = std::ranges::find_if(document.sketches,
         [&](const auto& value) { return value.id == sketch_id; });
@@ -51,6 +51,12 @@ std::set<std::string> sketch_external_reference_source_owners(
         const auto consumer = first_consumer < document.history.size()
             ? document.history[first_consumer].id : sketch_id;
         const auto* target = document.body_history.owner(consumer);
+        // A new dialog-owned Sketch has no persistent history entry yet.
+        // Its caller supplies the owning Body explicitly; the insertion
+        // cursor provides the same preceding-source boundary as its commit.
+        const bool draft = !target && first_consumer == document.history.size() &&
+            !draft_body_id.empty();
+        if (draft) target = document.body_history.find(draft_body_id);
         const bool section=std::ranges::any_of(document.sections,[&](const auto& value){return value.sketch.id==sketch_id;});
         if (!target && !section) return owners;
         const auto add_construction = [&](const auto& self, const auto& object) -> void {
@@ -59,7 +65,10 @@ std::set<std::string> sketch_external_reference_source_owners(
             for (const auto& point : object.curve_points) self(self, point);
         };
         for (const auto& body : document.body_history.bodies()) {
-            for (const auto& entry : body.entries) {
+            for (std::size_t index = 0; index < body.entries.size(); ++index) {
+                if (draft && target && body.scope.id == target->scope.id &&
+                    index >= body.cursor) return owners;
+                const auto& entry = body.entries[index];
                 if (entry.id == consumer) return owners;
                 owners.insert(entry.id);
                 if (const auto* object = document.find_construction(entry.id))

@@ -11,13 +11,23 @@ diameter. Ends are flat; the feature adds no drill tip, thread, or extension.
   Its container, placement, and geometric identities remain unchanged.
 - With no Sketch selected, the tool opens a new definition. **SKETCH** opens
   the working Sketch; **Finish Sketch** returns to the same dialog.
-- Properties reuse the shared Sketch dialog with one added diameter field.
+- Properties reuse the shared Sketch dialog with one added diameter field,
+  below the work-plane offset and above **SKETCH**.
   Placement, references, and Origin interaction follow the same rules.
 - **OK** validates, calculates the subtraction, and commits one transaction.
   **Cancel** also discards the pending Sketch. A short MMB click does not
   confirm; an MMB double-click confirms even over View.
 - Editing shows the stored input before Holes. Opening Properties or entering
   Sketcher does not calculate a body. Closing restores the full history.
+- Sketcher retires the property preview and offset handle while editing. Its
+  axes use the normal brown plane color and its idle origin point is black;
+  ordinary hover/confirmation colors remain available. Segments can attach to
+  this origin through the common picker.
+- **External reference** and **Reference -> outline** accept earlier original
+  geometry in both new and existing Holes. A new draft uses its owning Body's
+  insertion cursor and coordinate frame before it has a persistent history
+  entry. Returning to Properties retains these pending edits; Cancel discards
+  them with the rest of the draft.
 
 Construction segments are not drilled. Non-construction circles, arcs,
 ellipses, splines, and text are unsupported input in this first version.
@@ -57,9 +67,18 @@ for automatic/manual base-plane selection.
 `zima_cpp_holes_command_tests` covers cylindrical volume, intersecting channels,
 construction geometry, a rotated Sketch, transactions, save/load, and regeneration.
 `zima_cpp_holes_ui_contract` checks the actual tool, dialog, Sketcher transition,
-Cancel, OK, MMB behavior, Undo, and saved geometry.
+mouse attachment to the origin, both external-reference tools in new/edit
+sessions, Cancel, OK, MMB behavior, Undo, and saved geometry.
+`zima_cpp_sketch_reference_command_tests` also checks a draft's insertion
+boundary and projection in a translated Body coordinate frame.
 
 Windows Release verification (2026-09-15): all tests passed after correcting
 truncated console `help` output (full run 162/163, followed by 2/2 console and
 expanded GUI tests). Creating Holes from scratch also checks removed volume
 and removal of the new history item through Undo.
+
+The 2026-09-15 Sketcher follow-up passed the expanded Holes GUI contract, native
+Holes and Sketch-reference command tests, and the work-plane GUI contract. The
+mouse test waits for camera alignment and selects edges with a nonzero planar
+projection; an edge perpendicular to the Sketch plane cannot become a line.
+New/edit screenshots were inspected for the normal brown axes and black origin.

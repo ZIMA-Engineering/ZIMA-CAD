@@ -646,6 +646,7 @@ private:
     void update_document_area_visibility();
     void regenerate_active_document();
     [[nodiscard]] const zima::sketcher::Sketch* active_sketch() const;
+    [[nodiscard]] std::string sketch_reference_draft_body_id() const;
     [[nodiscard]] const zima::document::BodyHistory* sketch_body(
         const zima::sketcher::Sketch& sketch) const;
     [[nodiscard]] zima::kernel::ViewerMesh place_sketch_mesh(

@@ -58,6 +58,44 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     require(!host.execute({{"command","sketch.reference.create"},{"arguments",bad}}).ok,"Missing source was guessed");
     const auto later=run(host,"box.create",{{"length_mm","2"},{"width_mm","2"},{"height_mm","2"}}).data.at("container");
     bad["owner"]=later;require(host.execute({{"command","sketch.reference.create"},{"arguments",bad}}).code=="invalid_reference_source","Forward dependency accepted");
+    // Dialog-owned drafts use the active Body insertion boundary without
+    // inserting a temporary feature or widening the stored Sketch contract.
+    {
+        const auto original=state->session.document();
+        const auto calculated=state->session.calculated_boundaries();
+        const auto body=original.body_history.active_body_id();
+        require(!body.empty(),"Reference fixture has no active Body");
+        auto draft=sketcher::Sketch::create_default();
+        draft.owner_container_id=document::PartDocument::create_sketch_container().id;
+        auto context=original;
+        context.body_history.set_history_cursor(body,1);
+        state->session.commit(context,calculated);
+        require(workspace::sketch_external_reference_source_owners(context,draft.id).empty(),
+                "Unknown Sketch identity acquired an implicit Body");
+        const auto allowed=workspace::sketch_external_reference_source_owners(context,draft.id,body);
+        require(allowed.contains(box)&&!allowed.contains(later.get<std::string>()),
+                "Draft references ignored the Body insertion cursor");
+        const auto prepared=workspace::prepare_sketch_external_reference(live,doc,draft,
+            sketcher::ExternalReferenceKind::Edge,box,edge.reference.semantic_key,{},body);
+        require(!prepared.broken&&prepared.cached_points.size()>=2,
+                "New Sketch could not project an earlier original edge");
+        draft.add_external_reference(prepared);
+        static_cast<void>(draft.add_external_profile_geometry(prepared.id));
+        require(draft.segments.size()==1 && state->session.document().history.size()==original.history.size(),
+                "Draft outline conversion changed committed history");
+        const auto shifted_body=context.body_history.create_body("Translated draft target");
+        auto shifted=*context.body_history.find(shifted_body);
+        shifted.scope.placement.x=17;shifted.scope.placement.y=-9;
+        context.body_history.update_body(shifted);
+        state->session.commit(context,calculated);
+        const auto local=workspace::prepare_sketch_external_reference(live,doc,draft,
+            sketcher::ExternalReferenceKind::Edge,box,edge.reference.semantic_key,{},shifted_body);
+        auto expected=prepared.cached_points;
+        for(auto& point:expected){point[0]-=17;point[1]+=9;}
+        require(local.cached_points==expected,
+                "Draft reference projection lost the translated Body coordinate frame");
+        state->session.commit(original,calculated);
+    }
     // An exact rational source deliberately has only two display sample points.
     auto cached=state->session.calculated_boundaries();kernel::ViewerEdge spline;
     spline.reference={box,"test-original-quarter-circle",{}};spline.points={{1,0,0},{0,1,0}};

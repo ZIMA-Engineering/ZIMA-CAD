@@ -6,10 +6,12 @@ namespace zima::workspace {
 // Shared by interactive reference picking and explicit command input.
 void populate_external_reference_cache(const sketcher::Sketch&,
     sketcher::SketchExternalReference&,const kernel::ViewerReferenceGeometry&);
+// Supply draft_body_id only for a dialog-owned Part Sketch. Projection uses
+// the existing Body coordinate transform; no placement or history is changed.
 [[nodiscard]] sketcher::SketchExternalReference prepare_sketch_external_reference(
     const Workspace&,const std::string& document,const sketcher::Sketch&,
     sketcher::ExternalReferenceKind,const std::string& owner,const std::string& key,
-    const std::string& instance_path);
+    const std::string& instance_path, const std::string& draft_body_id = {});
 // A contextual reference is editable only at its exact active source occurrence.
 void require_sketch_reference_context(const Workspace&,const std::string& document,
     const sketcher::SketchExternalReference&);

@@ -4263,7 +4263,7 @@ if (impl_->show_origins) {
                             ? QColor(0, 209, 255)
                         : point.reference.semantic_key ==
                                 "external_point:sketch_origin"
-                            ? QColor(173, 110, 46)
+                            ? QColor(0, 0, 0)
                         : point.reference.semantic_key.starts_with("point:")
                             ? point.construction
                                 ? QColor(77, 216, 17)

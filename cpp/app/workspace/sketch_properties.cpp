@@ -128,6 +128,8 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
                 set_local_origin_selection_mode(false); local_origin_selection_dialog_ = nullptr;
                 primitive_reference_dialog_ = nullptr;
                 viewer_->set_constraint_reference_highlights({}, {});
+                viewer_->set_feature_preview_owners({});
+                viewer_->set_extent_manipulator(std::nullopt);
                 primitive_origin_preview_mesh_.reset(); parameter_dimension_preview_.reset();
                 dialog->hide(); properties_dialog_ = nullptr;
                 active_sketch_id_ = prepared_sketch->id; selected_sketch_id_ = active_sketch_id_;

@@ -85,7 +85,7 @@ void AssemblyWorkspaceWindow::accept_sketch_external_reference(
             candidate.kind==zima::viewer::CandidateKind::Axis?zima::sketcher::ExternalReferenceKind::Axis:
             candidate.kind==zima::viewer::CandidateKind::Face?zima::sketcher::ExternalReferenceKind::Face:zima::sketcher::ExternalReferenceKind::Point;
         auto reference=workspace::prepare_sketch_external_reference(workspace_,owner,pending,kind,
-            candidate.owner_id,candidate.semantic_key,path);
+            candidate.owner_id,candidate.semantic_key,path,sketch_reference_draft_body_id());
         const auto reference_id=reference.id;pending.add_external_reference(std::move(reference));
         if(sketch_external_profile_active_)static_cast<void>(pending.add_external_profile_geometry(reference_id));
         // Drafts are local to the parent dialog. Only its final Part commit
@@ -202,6 +202,12 @@ const zima::sketcher::Sketch* AssemblyWorkspaceWindow::active_sketch() const {
     const auto found = std::find_if(sketches->begin(), sketches->end(),
         [&](const auto& sketch) { return sketch.id == active_sketch_id_; });
     return found == sketches->end() ? nullptr : &*found;
+}
+
+std::string AssemblyWorkspaceWindow::sketch_reference_draft_body_id() const {
+    if (sweep_profile_sketch_draft_ && sweep_profile_sketch_draft_->id == active_sketch_id_)
+        if (const auto* body = sketch_body(*sweep_profile_sketch_draft_)) return body->scope.id;
+    return {};
 }
 
 const zima::document::BodyHistory* AssemblyWorkspaceWindow::sketch_body(

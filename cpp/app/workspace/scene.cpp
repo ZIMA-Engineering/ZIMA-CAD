@@ -1299,7 +1299,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                               zima::viewer::CandidateKind::SketchExternalReference});
         if (sketch_external_reference_active_) {
             const auto source_owners = sketch_external_reference_source_owners(
-                document, active_sketch_id_);
+                document, active_sketch_id_, sketch_reference_draft_body_id());
             viewer_->set_candidate_filter(
                 [source_owners](const auto& candidate) {
                     const bool stable_geometry =
@@ -1750,7 +1750,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
             }
             if (sketch_external_reference_active_) {
                 const auto source_owners = sketch_external_reference_source_owners(
-                    document, active_sketch_id_);
+                    document, active_sketch_id_, sketch_reference_draft_body_id());
                 for (const auto& axis : display.original_references.axes) {
                     if (axis.reference.instance_path.empty() &&
                         source_owners.contains(axis.reference.owner_id)) {
@@ -2116,7 +2116,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
     } else if (active_part != nullptr && sketch_external_reference_active_ &&
         active_part_occurrence && !active_part_occurrence->empty()) {
         const auto allowed_local_owners = sketch_external_reference_source_owners(
-            active_part->session.document(), active_sketch_id_);
+            active_part->session.document(), active_sketch_id_, sketch_reference_draft_body_id());
         const auto active_document_id = active_part->session.document().document_id;
         const auto top_assembly_id = document.document_id;
         const auto dependent_path = *active_part_occurrence;
