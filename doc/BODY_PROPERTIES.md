@@ -138,7 +138,9 @@ copy above), shared UI, body properties, measurement commands and translations.
 Logs: `build/body-measurement-tests.log` and
 `build/body-measurement-translations.log`. GUI, CLI and the affected test targets
 build successfully in `build/body-measurement-build.log`.
-The additional workspace startup test is not passing: after updating obsolete
-settings-field and unsaved-tab expectations, it stops at Assembly insertion.
-See `build/body-measurement-startup-tests.log` and `SESSION_HANDOFF.md`.
-This does not constitute full startup-suite or portable-release acceptance.
+The additional workspace startup contract now passes in
+`build/startup-insertion-tests.log`. Its earlier Assembly insertion failure was
+caused by the fixture leaving Sketch Properties unconfirmed after returning from
+Sketcher. The fixture now confirms those Properties before inserting a component.
+No production insertion or Family Table change was needed. These checks do not
+constitute portable-release acceptance.

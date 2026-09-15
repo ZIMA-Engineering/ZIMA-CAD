@@ -88,8 +88,10 @@ workflow; renaming a row does not move any file.
 
 ## Assembly insertion and Replace
 
-Inserting a Part or Assembly with a Family Table opens an internal variant
-chooser. The first row is the native/generic model; the remaining rows use stable
+Inserting a Part or Assembly with at least one Family Table instance opens an
+internal variant chooser. An empty Family Table skips the chooser and inserts
+the native model directly, then opens component Properties. The first chooser
+row is the native/generic model; the remaining rows use stable
 Family Table identities. This applies both to open models and insertion from a
 native file. OK prepares the selected variant and continues to component
 Properties. Cancel leaves the Assembly unchanged. An unopened row is calculated
@@ -235,3 +237,11 @@ pass in the final log. Seventeen distinct selected contracts pass across these
 runs. Chooser, unresolved-component and Drawing Properties captures under
 `Projects/test/family-*.png` were visually inspected and remain disposable test
 artifacts. This verification does not publish a new portable release.
+
+The `2026091512` follow-up passes the complete workspace startup contract in
+`build/startup-insertion-tests.log`, including direct insertion of the native
+model with an empty Family Table. Its earlier failure came from the test leaving
+Assembly Sketch Properties unconfirmed, not from the variant chooser. The
+separate GUI family scenario (`ZIMA_VERIFY_FAMILY_ONLY=1`) also passes in
+`build/startup-family-insertion-tests.log`, covering variant insertion, native
+selection, Cancel and replacement. Production behavior is unchanged.

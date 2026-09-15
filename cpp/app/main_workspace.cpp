@@ -8075,6 +8075,23 @@ int verify_startup_contract(
     }
     finish_sketch->trigger();
     application.processEvents();
+    QDialog* returned_assembly_sketch_dialog{};
+    for (auto* candidate : window.findChildren<QDialog*>()) {
+        if (candidate->isVisible() &&
+            candidate->findChild<QLineEdit*>("sketchName") != nullptr) {
+            returned_assembly_sketch_dialog = candidate;
+            break;
+        }
+    }
+    auto* returned_assembly_sketch_buttons = returned_assembly_sketch_dialog == nullptr
+        ? nullptr : returned_assembly_sketch_dialog->findChild<QDialogButtonBox*>();
+    if (!verify(returned_assembly_sketch_buttons != nullptr,
+                "finishing Assembly Sketch must return to its pending Properties")) {
+        return 1;
+    }
+    returned_assembly_sketch_buttons->button(QDialogButtonBox::Ok)->click();
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    application.processEvents();
     bool assembly_sketch_in_tree = false;
     if (tree->topLevelItemCount() == 1) {
         const auto* root = tree->topLevelItem(0);

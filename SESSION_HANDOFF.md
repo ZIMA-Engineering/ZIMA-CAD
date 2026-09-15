@@ -23,12 +23,19 @@ GUI/CLI and affected test targets build successfully in
 `build/body-measurement-startup-build.log`. The source/Tree centroid captures
 listed in the feature document were visually inspected.
 
-The broader `zima_cpp_workspace_startup_contract` is **not passing**:
-`build/body-measurement-startup-tests.log` stops at
-"inserting the open Part must create an Assembly occurrence". This revision
-updates its obsolete Global Settings field-count and unsaved-tab expectations;
-the later Assembly insertion failure remains to investigate. Do not report the
-whole startup suite as passing or use it as release acceptance.
+The broader `zima_cpp_workspace_startup_contract` now **passes** in
+`build/startup-insertion-tests.log` (104.42 s). Its earlier insertion failure was
+a fixture sequencing error: finishing Assembly Sketch returns to its pending
+Properties, and the test tried to insert a component without first confirming
+that window. The fixture now checks for the returned Properties and clicks OK
+before insertion. The production insertion guard and Family Table behavior were
+correct and remain unchanged. An empty Family Table inserts the native model
+directly; at least one instance opens the variant chooser. The preceding fixes
+also updated obsolete Global Settings field-count and unsaved-tab expectations.
+Final GUI rebuild: `build/startup-insertion-build.log`. This follow-up changes
+verification and documentation only; development build remains `2026091512`.
+The separate Family Table GUI scenario also passes (4.64 s) in
+`build/startup-family-insertion-tests.log`, with `ZIMA_VERIFY_FAMILY_ONLY=1`.
 
 Development build `2026091511` added **Balloons** (Czech **Pozice**) to the
 right Drawing toolbar. Show all labels the first BOM level, including whole
