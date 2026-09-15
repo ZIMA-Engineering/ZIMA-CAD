@@ -17,10 +17,13 @@ class QComboBox;
 class QDoubleSpinBox;
 class QSpinBox;
 class QTableWidget;
+class QTabWidget;
+class QCheckBox;
 
 namespace zima::app {
 
 struct DocumentToolData {
+    std::optional<zima::document::SheetMetalDefaults> sheet_metal;
     std::map<std::string, std::string> units;
     std::map<std::string, std::string> precision;
     std::map<std::string, std::string> physical_parameters;
@@ -55,6 +58,7 @@ class FileSettingsDialog final : public zima::ui::PropertiesSubWindow {
 public:
     FileSettingsDialog(DocumentToolData data, ToolDataAccepted accepted,
                        const ApplicationSettings& settings, QWidget* parent);
+    void show_sheet_metal_page();
 protected:
     bool submit() override;
 private:
@@ -65,6 +69,10 @@ private:
     QDoubleSpinBox* angular_{};
     QDoubleSpinBox* mesh_{};
     QSpinBox* decimals_{};
+    QTabWidget* pages_{};
+    QCheckBox* thickness_enabled_{};
+    QDoubleSpinBox* thickness_{};
+    QDoubleSpinBox* k_factor_{};
 };
 
 class RelationsDialog final : public zima::ui::PropertiesSubWindow {

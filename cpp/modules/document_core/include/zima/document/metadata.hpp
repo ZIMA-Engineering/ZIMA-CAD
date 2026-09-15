@@ -1,8 +1,18 @@
 #pragma once
 #include <map>
+#include <optional>
 #include <string>
 #include <vector>
 namespace zima::document {
+class PartDocument;
+struct SheetMetalDefaults {
+    std::optional<double> thickness_mm;
+    double k_factor{0.5};
+    bool operator==(const SheetMetalDefaults&) const = default;
+};
+void validate_sheet_metal_defaults(const SheetMetalDefaults&);
+[[nodiscard]] SheetMetalDefaults sheet_metal_defaults(const PartDocument&);
+void set_sheet_metal_defaults(PartDocument&, const SheetMetalDefaults&);
 struct UserParameterData {
     std::map<std::string,std::string> flat;
     std::vector<std::string> order;
@@ -11,6 +21,7 @@ struct UserParameterData {
 };
 struct FileSettingsData {
     std::map<std::string,std::string> units,precision;
+    std::optional<SheetMetalDefaults> sheet_metal;
     bool operator==(const FileSettingsData&) const = default;
 };
 // Canonicalizes shared values for expression lookup; localized values remain

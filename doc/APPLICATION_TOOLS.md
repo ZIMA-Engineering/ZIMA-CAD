@@ -13,8 +13,10 @@ available tools; the displayed top-level Assembly remains unchanged.
 
 Application selection is disabled during feature editing and Sketcher sessions.
 Sketcher supplies its own tools. Drawing and Assembly retain their existing tool
-headings. Sheet Metal currently displays a disabled placeholder: sheet-metal
-modeling commands have not been implemented.
+headings. Sheet Metal offers Selection and **Sheet Metal Properties...**, a shortcut
+to the Part's File Settings > Sheet Metal page, followed by the modeling-command
+placeholder. See [Sheet Metal](SHEET_METAL.md) for implemented defaults and the
+agreed Bend design.
 
 ## Insert menu
 

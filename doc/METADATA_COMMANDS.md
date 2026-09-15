@@ -36,7 +36,13 @@ Relation editing belongs to a subsequent command stage.
 ```json
 {"command":"document.settings.get","arguments":{}}
 {"command":"document.settings.set","arguments":{"units":{"Length":"cm"},"precision":{"mesh_deflection":2,"decimal_places":6}}}
+{"command":"document.settings.set","arguments":{"sheet_metal":{"thickness_mm":2.5,"k_factor":0.42}}}
 ```
+
+Part settings also expose `sheet_metal`: optional `thickness_mm` (clear it with
+`null`) and `k_factor`. These defaults share the GUI's File Settings > Sheet Metal
+page and preserve existing calculated geometry. Assembly settings reject this
+Part-only field. See [Sheet Metal](SHEET_METAL.md) for storage and validation.
 
 `get` returns `units`, numerical `precision`, and `unit_choices`. Commands/dialogs
 share choices: Length mm/cm/m/in, Angle deg/rad, Mass kg/g/t/lb, Time s/min,

@@ -228,19 +228,23 @@ bool AssemblyWorkspaceWindow::accept_family_reference(const viewer::ViewerCandid
     return true;
 }
 
-void AssemblyWorkspaceWindow::edit_file_settings() {
-    if (properties_dialog_ != nullptr) { properties_dialog_->raise(); return; }
+void AssemblyWorkspaceWindow::edit_file_settings(bool sheet_metal) {
+    if (properties_dialog_ != nullptr) {
+        if(sheet_metal)if(auto* settings=dynamic_cast<FileSettingsDialog*>(properties_dialog_))settings->show_sheet_metal_page();
+        properties_dialog_->raise(); return;
+    }
     const auto id = workspace_.active_document_id(); DocumentToolData data;
-    if (const auto* part = workspace_.open_part(id)) { const auto& d = part->session.document(); data.units = d.document_units; data.precision = d.document_precision; }
+    if (const auto* part = workspace_.open_part(id)) { const auto& d = part->session.document(); data.units = d.document_units; data.precision = d.document_precision;data.sheet_metal=zima::document::sheet_metal_defaults(d); }
     else if (const auto* assembly = workspace_.open_assembly(id)) { const auto& d = assembly->session.document(); data.units = d.document_units; data.precision = d.document_precision; }
     else return;
     auto* dialog = new FileSettingsDialog(std::move(data), [this, id](DocumentToolData values) {
-        const auto change=zima::workspace::set_file_settings(workspace_,kernel_,id,{std::move(values.units),std::move(values.precision)});
+        const auto change=zima::workspace::set_file_settings(workspace_,kernel_,id,{std::move(values.units),std::move(values.precision),values.sheet_metal});
         if(change.calculated){preserve_view_on_refresh_=true;refresh_scene();}
         if (const auto* part=workspace_.open_part(id)) setProperty("zimaDocumentDecimalPlaces",document_decimal_places(part->session.document()));
         else if (const auto* assembly=workspace_.open_assembly(id)) setProperty("zimaDocumentDecimalPlaces",document_decimal_places(assembly->session.document()));
         refresh_tabs();
     }, application_settings_, this);
+    if(sheet_metal)dialog->show_sheet_metal_page();
     dialog->setAttribute(Qt::WA_DeleteOnClose);
     properties_dialog_ = dialog;
     connect(dialog, &QObject::destroyed, this, [this, dialog] { if (properties_dialog_ == dialog) properties_dialog_ = nullptr; });

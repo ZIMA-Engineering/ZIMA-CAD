@@ -21,7 +21,11 @@ document::UserParameterData user_parameters(const Workspace& live,const std::str
     return metadata_detail::read(live,id,[](const auto& doc){return parameters(doc);});
 }
 document::FileSettingsData file_settings(const Workspace& live,const std::string& id) {
-    return metadata_detail::read(live,id,[](const auto& doc){return document::FileSettingsData{doc.document_units,doc.document_precision};});
+    return metadata_detail::read(live,id,[](const auto& doc){
+        document::FileSettingsData result{doc.document_units,doc.document_precision};
+        if constexpr(std::is_same_v<std::decay_t<decltype(doc)>,document::PartDocument>)result.sheet_metal=document::sheet_metal_defaults(doc);
+        return result;
+    });
 }
 bool set_user_parameters(Workspace& live,const std::string& id,document::UserParameterData values) {
     document::normalize_user_parameters(values);
@@ -33,11 +37,14 @@ bool set_user_parameters(Workspace& live,const std::string& id,document::UserPar
 SettingsChange set_file_settings(Workspace& live,const kernel::OcctKernel& kernel,const std::string& id,document::FileSettingsData values) {
     document::validate_file_settings(values);
     const auto before=file_settings(live,id);
+    if(!values.sheet_metal)values.sheet_metal=before.sheet_metal;
+    if(values.sheet_metal&&!before.sheet_metal)throw std::invalid_argument("Sheet metal defaults belong to a Part document.");
     if(before==values)return {};
     const bool precision_changed=document::precision_value(before.precision,"linear_tolerance",.001)!=document::precision_value(values.precision,"linear_tolerance",.001) ||
         document::precision_value(before.precision,"mesh_deflection",.1)!=document::precision_value(values.precision,"mesh_deflection",.1);
     if(auto* part=live.open_part(id)) {
         auto next=part->session.document();next.document_units=std::move(values.units);next.document_precision=std::move(values.precision);
+        if(values.sheet_metal)document::set_sheet_metal_defaults(next,*values.sheet_metal);
         bool calculate=false;
         if(precision_changed) {
             const auto original=part->session.document().kernel_operations(false,true),requested=next.kernel_operations(false,true);
@@ -46,7 +53,7 @@ SettingsChange set_file_settings(Workspace& live,const kernel::OcctKernel& kerne
         auto calculated=part->session.calculated_boundaries();
         if(calculate)calculated=calculate_part_with_resolved_references(kernel,next,&calculated,PartCalculationPolicy{true});
         document::refresh_physical_relations(next,document::physical_values(next,calculated));
-        part->session.commit(std::move(next),std::move(calculated));return {true,calculate};
+        commit_part_document(live,id,std::move(next),std::move(calculated));return {true,calculate};
     }
     if(auto* assembly=live.open_assembly(id)) {
         auto next=assembly->session.document();next.document_units=std::move(values.units);next.document_precision=std::move(values.precision);

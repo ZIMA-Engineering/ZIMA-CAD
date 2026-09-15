@@ -80,6 +80,7 @@
 #include <QSurfaceFormat>
 #include <QStyleFactory>
 #include <QTabBar>
+#include <QTabWidget>
 #include <QTableWidget>
 #include <QTimer>
 #include <QToolBar>
@@ -3607,6 +3608,30 @@ int verify_application_tools_ui(QApplication& application,const std::filesystem:
         check(menu->actions().contains(extrusion)&&modeling->isChecked(),"Modeling Insert commands missing");
         auto* combo=selector();combo->setCurrentIndex(combo->findData(2));combo->activated(combo->currentIndex());flush();
         check(sheet->isChecked()&&selector()->currentData().toInt()==2&&!menu->actions().contains(extrusion),"Dropdown did not switch application and Insert commands");
+        auto* sheet_properties=window.findChild<QAction*>("sheetMetalPropertiesAction");auto* toolbar=window.findChild<QToolBar*>("toolsToolbar");
+        check(sheet_properties&&!sheet_properties->icon().isNull()&&toolbar->actions().contains(sheet_properties),"Sheet properties command missing");
+        auto* selection=window.findChild<QAction*>("viewSelectionAction");
+        check(selection&&toolbar->actions().indexOf(selection)<toolbar->actions().indexOf(sheet_properties),"Sheet properties must follow Selection");
+        const auto settings_dialog=[&]{return dynamic_cast<app::FileSettingsDialog*>(window.findChild<QDialog*>("fileSettingsDialog"));};
+        sheet_properties->trigger();flush();auto* file=settings_dialog();
+        check(file&&file->findChild<QTabWidget*>("fileSettingsPages")->currentIndex()==1,"Sheet shortcut did not open File Settings sheet page");
+        check(!file->findChild<QCheckBox*>("sheetMetalThicknessEnabled")->isChecked(),"Unset sheet thickness is enabled");
+        file->findChild<QCheckBox*>("sheetMetalThicknessEnabled")->setChecked(true);file->findChild<QDoubleSpinBox*>("sheetMetalThickness")->setValue(2.5);
+        file->findChild<QDoubleSpinBox*>("sheetMetalKFactor")->setValue(.42);
+        file->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
+        window.findChild<QAction*>("fileSettingsAction")->trigger();flush();file=settings_dialog();
+        check(file&&file->findChild<QTabWidget*>("fileSettingsPages")->currentIndex()==0&&!file->findChild<QCheckBox*>("sheetMetalThicknessEnabled")->isChecked(),"Cancel committed pending sheet settings");
+        sheet_properties->trigger();flush();check(file->findChild<QTabWidget*>("fileSettingsPages")->currentIndex()==1,"Shortcut did not reuse open File Settings");
+        file->findChild<QCheckBox*>("sheetMetalThicknessEnabled")->setChecked(true);file->findChild<QDoubleSpinBox*>("sheetMetalThickness")->setValue(2.5);file->findChild<QDoubleSpinBox*>("sheetMetalKFactor")->setValue(.42);
+        check(window.grab().save("build/sheet-metal-settings.png"),"Sheet properties screenshot failed");
+        auto* model_view=window.findChild<QOpenGLWidget*>();const QPointF click(50,50);
+        QMouseEvent middle(QEvent::MouseButtonDblClick,click,QPointF(model_view->mapToGlobal(click.toPoint())),Qt::MiddleButton,Qt::MiddleButton,Qt::NoModifier);
+        QApplication::sendEvent(model_view,&middle);flush();check(!settings_dialog(),"View middle-button double-click did not confirm sheet settings");
+        window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+        check(document::sheet_metal_defaults(document::PartDocument::load(path))==document::SheetMetalDefaults{2.5,.42},"Sheet properties did not persist to the native Part");
+        window.findChild<QAction*>("fileSettingsAction")->trigger();flush();file=settings_dialog();
+        check(file->findChild<QCheckBox*>("sheetMetalThicknessEnabled")->isChecked()&&file->findChild<QDoubleSpinBox*>("sheetMetalThickness")->value()==2.5&&file->findChild<QDoubleSpinBox*>("sheetMetalKFactor")->value()==.42,"File Settings disagrees with Sheet properties");
+        file->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
         window.findChild<QAction*>("regenerateDocumentAction")->trigger();flush();
         check(sheet->isChecked()&&selector()->currentData().toInt()==2,"Refresh lost Sheet Metal choice");
         check(window.open_document_path(QString::fromStdString(other_path.string())),"Other Part failed to open");flush();

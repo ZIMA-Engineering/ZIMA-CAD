@@ -24,6 +24,7 @@
 #include <QRegularExpression>
 #include <QSpinBox>
 #include <QTableWidget>
+#include <QTabWidget>
 #include <QVBoxLayout>
 #include <QWheelEvent>
 
@@ -223,8 +224,29 @@ FileSettingsDialog::FileSettingsDialog(
     form->addRow(settings.text("document.precision.angular_tolerance", "Úhlová tolerance"), angular_);
     form->addRow(settings.text("document.precision.mesh_deflection", "Odchylka triangulace"), mesh_);
     form->addRow(settings.text("document.precision.decimal_places", "Počet desetinných míst"), decimals_);
-    content_layout()->addLayout(form);
+    if(data_.sheet_metal) {
+        pages_=new QTabWidget(this);pages_->setObjectName("fileSettingsPages");
+        auto* general=new QWidget(pages_);general->setLayout(form);pages_->addTab(general,tr("Obecné"));
+        auto* sheet=new QWidget(pages_);sheet->setObjectName("sheetMetalSettingsPage");
+        auto* sheet_form=new QFormLayout(sheet);
+        auto* row=new QWidget(sheet);auto* layout=new QHBoxLayout(row);layout->setContentsMargins(0,0,0,0);
+        thickness_enabled_=new QCheckBox(tr("Zadaná"),row);thickness_enabled_->setObjectName("sheetMetalThicknessEnabled");
+        thickness_=new QDoubleSpinBox(row);thickness_->setObjectName("sheetMetalThickness");
+        thickness_->setDecimals(6);thickness_->setRange(.000001,1000000);thickness_->setSuffix(" mm");
+        thickness_->setValue(data_.sheet_metal->thickness_mm.value_or(1));
+        thickness_enabled_->setChecked(data_.sheet_metal->thickness_mm.has_value());thickness_->setEnabled(thickness_enabled_->isChecked());
+        connect(thickness_enabled_,&QCheckBox::toggled,thickness_,&QWidget::setEnabled);
+        layout->addWidget(thickness_enabled_);layout->addWidget(thickness_,1);
+        sheet_form->addRow(tr("Výchozí tloušťka materiálu"),row);
+        k_factor_=new QDoubleSpinBox(sheet);k_factor_->setObjectName("sheetMetalKFactor");
+        k_factor_->setDecimals(6);k_factor_->setRange(0,1);k_factor_->setSingleStep(.01);k_factor_->setValue(data_.sheet_metal->k_factor);
+        sheet_form->addRow(tr("Výchozí K faktor"),k_factor_);
+        auto* note=new QLabel(tr("Tloušťka může zůstat nezadaná. Výchozí hodnoty jsou uložené v tomto dílu."),sheet);note->setWordWrap(true);sheet_form->addRow(note);
+        pages_->addTab(sheet,tr("Plechy"));content_layout()->addWidget(pages_);
+    } else content_layout()->addLayout(form);
 }
+
+void FileSettingsDialog::show_sheet_metal_page() {if(pages_)pages_->setCurrentIndex(1);}
 
 bool FileSettingsDialog::submit() {
     for (const auto& [key, combo] : units_) data_.units[key] = combo->currentText().trimmed().toStdString();
@@ -233,7 +255,11 @@ bool FileSettingsDialog::submit() {
     data_.precision["mesh_deflection"] = QString::number(mesh_->value(), 'g', 15).toStdString();
     data_.precision["decimal_places"] = QString::number(decimals_->value()).toStdString();
     try {
-        zima::document::validate_file_settings({data_.units,data_.precision});
+        if(data_.sheet_metal) {
+            data_.sheet_metal->thickness_mm=thickness_enabled_->isChecked()?std::optional<double>(thickness_->value()):std::nullopt;
+            data_.sheet_metal->k_factor=k_factor_->value();
+        }
+        zima::document::validate_file_settings({data_.units,data_.precision,data_.sheet_metal});
         accepted_(data_);
     } catch(const std::exception& error) {
         throw std::runtime_error(tr(error.what()).toStdString());

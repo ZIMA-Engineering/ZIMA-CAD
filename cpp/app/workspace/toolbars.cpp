@@ -362,6 +362,18 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         add_green_separator();
         return;
     }
+    if(active_application_==ApplicationMode::SheetMetal) {
+        add_command(selection_action_);
+        if(workspace_.open_part(workspace_.active_document_id())) {
+            auto* properties=findChild<QAction*>("sheetMetalPropertiesAction");
+            if(!properties) {
+                properties=new QAction(resource_icon("settings"),tr("Vlastnosti plechu…"),this);
+                properties->setObjectName("sheetMetalPropertiesAction");
+                connect(properties,&QAction::triggered,this,[this]{edit_file_settings(true);});
+            }
+            properties->setEnabled(!properties_dialog_);add_command(properties,false);add_green_separator();
+        }
+    }
     auto* placeholder = new QAction(
         active_application_ == ApplicationMode::SheetMetal
             ? tr("Příkazy plechu – připravuje se")

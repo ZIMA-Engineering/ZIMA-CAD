@@ -100,6 +100,7 @@ Current modeling tools and interaction contracts:
 - [Save As: model and drawing copies](doc/DOCUMENT_COPY.md)
 - [Surface Extrusion and Revolution](doc/SURFACE_PROFILES.md)
 - [Application tools, Insert menu and document tabs](doc/APPLICATION_TOOLS.md)
+- [Sheet Metal defaults and planned Bend](doc/SHEET_METAL.md)
 - [3D Sweep: Loft, Thin, and trajectory references](doc/3D_CURVE_AND_SWEEP.md)
 - [Threaded openings](doc/THREADED_OPENING.md)
 - [External shaft threads](doc/SHAFT_THREAD.md)

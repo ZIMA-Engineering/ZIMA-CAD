@@ -36,6 +36,12 @@ void validate_material(const MaterialData& data) {
         const auto found=data.units.find(name);const auto unit=found==data.units.end()?std::string{}:found->second;
         const auto choices=material_unit_choices(name);
         if(std::ranges::find(choices,unit)==choices.end())throw std::invalid_argument("The material property unit is not supported.");
+        if(name=="SHEETMETAL_K_FACTOR" && !value.empty()) {
+            double factor{};const auto parsed=std::from_chars(value.data(),value.data()+value.size(),factor);
+            if(parsed.ec!=std::errc{}||parsed.ptr!=value.data()+value.size())
+                throw std::invalid_argument("K factor must be a number from 0 to 1.");
+            validate_sheet_metal_defaults({{},factor});
+        }
         if(name=="MASS_DENSITY" && !value.empty()) {
             double density{};const auto parsed=std::from_chars(value.data(),value.data()+value.size(),density);
             if(parsed.ec!=std::errc{} || parsed.ptr!=value.data()+value.size() || !std::isfinite(density) || density<=0)

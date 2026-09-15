@@ -182,6 +182,7 @@ add_library(zima_document_core
     modules/document_core/src/relations.cpp
     modules/document_core/src/named_views.cpp
     modules/document_core/src/metadata.cpp
+    modules/document_core/src/sheet_metal_defaults.cpp
     modules/document_core/src/engineering_metadata.cpp
     modules/document_core/src/material_library.cpp
     modules/document_core/src/thread_catalog.cpp

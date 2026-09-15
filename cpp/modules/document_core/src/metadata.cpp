@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cctype>
 #include <set>
+#include <charconv>
 namespace zima::document {
 namespace {
 void key(const std::string& value) {
@@ -39,6 +40,13 @@ void normalize_user_parameters(UserParameterData& data) {
         const auto found=data.values.find(name);
         if(found!=data.values.end())if(const auto shared=found->second.find("");shared!=found->second.end())data.flat[name]=shared->second;
     }
+    if(const auto thickness=data.flat.find("SHEETMETAL_THICKNESS");thickness!=data.flat.end()&&!thickness->second.empty()) {
+        double value{};const auto& text=thickness->second;
+        const auto parsed=std::from_chars(text.data(),text.data()+text.size(),value);
+        if(parsed.ec!=std::errc{}||parsed.ptr!=text.data()+text.size())
+            throw std::invalid_argument("Sheet thickness must be a positive number in millimeters or unset.");
+        validate_sheet_metal_defaults({value,0.5});
+    }
     std::erase_if(data.labels,[](const auto& entry){return entry.second.empty();});
     std::erase_if(data.values,[](const auto& entry){return entry.second.empty();});
 }
@@ -49,6 +57,7 @@ const std::map<std::string,std::vector<std::string>>& file_unit_choices() {
     return choices;
 }
 void validate_file_settings(const FileSettingsData& data) {
+    if(data.sheet_metal)validate_sheet_metal_defaults(*data.sheet_metal);
     for(const auto& [name,choices]:file_unit_choices()) {
         const auto unit=data.units.find(name);
         if(unit==data.units.end() || std::ranges::find(choices,unit->second)==choices.end())

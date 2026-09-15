@@ -677,7 +677,7 @@ private:
     void edit_family_table();
     void update_family_selection();
     bool accept_family_reference(const zima::viewer::ViewerCandidate&, bool show_dimensions = false);
-    void edit_file_settings();
+    void edit_file_settings(bool sheet_metal = false);
     void regenerate_assembly();
     void start_edge_treatment(zima::document::FeatureKind kind);
     [[nodiscard]] bool is_edge_treatment_feature(

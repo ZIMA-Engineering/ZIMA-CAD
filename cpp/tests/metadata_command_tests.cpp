@@ -52,6 +52,23 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     const auto recalculated=run(host,"document.settings.set",{{"precision",{{"mesh_deflection",2}}}}).data;
     require(recalculated.at("calculated")==true && std::abs(part->session.calculated_boundaries().back().volume-6000)<1e-7,"Geometric precision did not explicitly calculate a consistent result");
     require(!run(host,"document.settings.set",{{"units",{{"Length","cm"}}},{"precision",{{"mesh_deflection",2},{"decimal_places",6}}}}).data.at("changed").get<bool>(),"Unchanged settings created Undo");
+    const auto sheet_geometry=part->session.calculated_boundaries().back().kernel_shape;
+    const auto default_sheet=run(host,"document.settings.get").data.at("sheet_metal");
+    require(default_sheet.at("thickness_mm").is_null(),"New Part forces a sheet thickness");
+    reject("document.settings.set",{{"sheet_metal",{{"thickness_mm",0}}}});
+    reject("document.settings.set",{{"sheet_metal",{{"thickness_mm",-1}}}});
+    reject("document.settings.set",{{"sheet_metal",{{"k_factor",1.1}}}});
+    reject("document.settings.set",{{"sheet_metal",{{"k_factor","invalid"}}}});
+    const Json sheet{{"thickness_mm",2.5},{"k_factor",.42}};
+    const auto changed_sheet=run(host,"document.settings.set",{{"sheet_metal",sheet}}).data;
+    require(changed_sheet.at("sheet_metal")==sheet&&!changed_sheet.at("calculated").get<bool>()&&
+        part->session.calculated_boundaries().back().kernel_shape==sheet_geometry,"Sheet defaults changed geometry or failed to persist");
+    require(std::stod(part->session.document().physical_parameters.at("SHEETMETAL_K_FACTOR"))==.42,"Sheet settings created a separate material K factor");
+    require(!run(host,"document.settings.set",{{"sheet_metal",sheet}}).data.at("changed").get<bool>(),"Unchanged sheet defaults created Undo");
+    run(host,"document.settings.set",{{"sheet_metal",{{"thickness_mm",nullptr}}}});
+    require(run(host,"document.settings.get").data.at("sheet_metal").at("thickness_mm").is_null(),"Sheet thickness cannot be unset");
+    run(host,"undo");require(run(host,"document.settings.get").data.at("sheet_metal")==sheet,"Sheet defaults Undo failed");
+    run(host,"redo");require(run(host,"document.settings.get").data.at("sheet_metal").at("thickness_mm").is_null(),"Sheet defaults Redo failed");run(host,"undo");
     // A relation error must fail before even the generation counter changes.
     auto related=part->session.document();related.user_parameters["DIVISOR"]="1";related.user_parameter_values["DIVISOR"][""]="1";related.user_parameter_order.push_back("DIVISOR");
     related.relations.push_back({"VOLUME","model.volume / DIVISOR"});part->session.commit(std::move(related),part->session.calculated_boundaries());
@@ -59,7 +76,10 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     reject("document.parameters.set",{{"parameters",invalid_relation}});
     run(host,"save");const auto loaded=document::PartDocument::load(dir/"metadata-part.prtz");
     require(loaded.user_parameter_values==part->session.document().user_parameter_values && loaded.document_precision==part->session.document().document_precision,"Native save lost metadata");
+    require(document::sheet_metal_defaults(loaded)==document::SheetMetalDefaults{2.5,.42},"Native save lost sheet defaults");
     run(host,"new",{{"type","assembly"},{"name","metadata-assembly"}});const auto owner=live.active_document_id();static_cast<void>(live.insert_open_part(owner,id,"Part"));
+    require(!run(host,"document.settings.get").data.contains("sheet_metal"),"Assembly exposed Part sheet defaults");
+    require(!host.execute({{"command","document.settings.set"},{"arguments",{{"sheet_metal",sheet}}}}).ok,"Assembly accepted sheet defaults");
     auto parent=assembly::AssemblyDocument::create_default();const auto parent_id=parent.document_id;live.add_assembly(std::move(parent),dir/"metadata-parent.asmz");static_cast<void>(live.insert_open_assembly(parent_id,owner,"Assembly"));
     const auto parent_revision=live.open_assembly(parent_id)->session.revision();const auto snapshot=live.open_assembly(owner)->session.document().components.front().calculated_source;
     run(host,"document.parameters.set",{{"parameters",entries}});run(host,"document.settings.set",{{"units",{{"Length","m"}}},{"precision",{{"decimal_places",9}}}});

@@ -22,7 +22,9 @@ Json settings_data(const document::FileSettingsData& data) {
         if(key=="decimal_places")precision[key]=static_cast<int>(document::precision_value(data.precision,key,3));
         else precision[key]=document::precision_value(data.precision,key,0);
     }
-    return {{"units",data.units},{"precision",std::move(precision)},{"unit_choices",document::file_unit_choices()}};
+    Json result{{"units",data.units},{"precision",std::move(precision)},{"unit_choices",document::file_unit_choices()}};
+    if(data.sheet_metal)result["sheet_metal"]={{"thickness_mm",data.sheet_metal->thickness_mm?Json(*data.sheet_metal->thickness_mm):Json(nullptr)},{"k_factor",data.sheet_metal->k_factor}};
+    return result;
 }
 }
 void Host::register_metadata_commands() {
@@ -59,9 +61,22 @@ void Host::register_metadata_commands() {
         return Json{{"parameters",parameter_data(workspace::user_parameters(workspace_,id))},{"changed",changed}};
     });
     add({"document.settings.get",tr("Read document units, tolerances and display precision."),{{"document",false}},false},[this](const auto& id,const Json&){return settings_data(workspace::file_settings(workspace_,id));});
-    add({"document.settings.set",tr("Update document units and precision, calculating affected local geometry when required."),{{"units",false,Type::Object},{"precision",false,Type::Object},{"document",false}},true},[this](const auto& id,const Json& args){
-        if(!args.contains("units") && !args.contains("precision"))throw std::invalid_argument("Specify document units or precision to update.");
+    add({"document.settings.set",tr("Update document units and precision, calculating affected local geometry when required."),{{"units",false,Type::Object},{"precision",false,Type::Object},{"sheet_metal",false,Type::Object},{"document",false}},true},[this](const auto& id,const Json& args){
+        if(!args.contains("units") && !args.contains("precision")&&!args.contains("sheet_metal"))throw std::invalid_argument("Specify document units, precision or sheet metal defaults to update.");
         auto data=workspace::file_settings(workspace_,id);
+        if(args.contains("sheet_metal")) {
+            if(!data.sheet_metal)throw std::invalid_argument("Sheet metal defaults belong to a Part document.");
+            const auto& value=args["sheet_metal"];fields(value,{"thickness_mm","k_factor"});
+            if(value.contains("thickness_mm")) {
+                if(value["thickness_mm"].is_null())data.sheet_metal->thickness_mm.reset();
+                else if(value["thickness_mm"].is_number())data.sheet_metal->thickness_mm=value["thickness_mm"].get<double>();
+                else throw std::invalid_argument("Sheet thickness must be a positive number in millimeters or unset.");
+            }
+            if(value.contains("k_factor")) {
+                if(!value["k_factor"].is_number())throw std::invalid_argument("K factor must be a number from 0 to 1.");
+                data.sheet_metal->k_factor=value["k_factor"].get<double>();
+            }
+        }
         if(args.contains("units")) {
             fields(args["units"],{"Length","Angle","Mass","Time","Temperature","Stress"});
             for(const auto& [key,value]:strings(args["units"]))data.units[key]=value;
