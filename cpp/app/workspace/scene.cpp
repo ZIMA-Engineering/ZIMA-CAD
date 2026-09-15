@@ -1004,7 +1004,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         active_application_ = ApplicationMode::Drawing;
         insert_action_->setEnabled(false);
         regenerate_action_->setEnabled(false);
-        for (auto* action : {box_action_, cylinder_action_, thread_action_, shaft_thread_action_, drill_point_action_, sphere_action_, cone_action_,
+        for (auto* action : {box_action_, cylinder_action_, thread_action_, holes_action_, shaft_thread_action_, drill_point_action_, sphere_action_, cone_action_,
                              pyramid_action_, wedge_action_, construction_point_action_,
                              curve_3d_action_,
                              sweep_3d_action_, helical_sweep_action_, sweep2d_action_,
@@ -1807,6 +1807,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         box_action_->setEnabled(true);
         cylinder_action_->setEnabled(true);
     thread_action_->setEnabled(!document.history.empty());
+    holes_action_->setEnabled(!document.history.empty());
     shaft_thread_action_->setEnabled(!document.history.empty());
     drill_point_action_->setEnabled(!document.history.empty());
         sphere_action_->setEnabled(true);
@@ -2280,6 +2281,8 @@ void AssemblyWorkspaceWindow::refresh_scene() {
     cylinder_action_->setEnabled(active_part != nullptr);
     shaft_thread_action_->setEnabled(active_part != nullptr && !active_part->session.document().history.empty());
     thread_action_->setEnabled(active_part != nullptr &&
+        !active_part->session.document().history.empty());
+    holes_action_->setEnabled(active_part != nullptr &&
         !active_part->session.document().history.empty());
     drill_point_action_->setEnabled(active_part != nullptr &&
         !active_part->session.document().history.empty());

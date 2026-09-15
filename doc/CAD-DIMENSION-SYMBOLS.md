@@ -1,21 +1,21 @@
-# ZIMA-CAD – strojírenské kóty a geometrické symboly
+# ZIMA-CAD — engineering dimensions and geometric symbols
 
-Tento dokument slouží jako návrhový základ pro kóty ve Sketcheru, modelu
-a rozpracovaném Drawing modulu. Vychází z běžné praxe ISO 129, ISO GPS
-a ASME Y14.5.
+This document provides a design foundation for dimensions in Sketcher, the model
+and the developing Drawing module, based on common ISO 129, ISO GPS and ASME Y14.5
+practice.
 
-## Základní pravidlo
+## Fundamental rule
 
-Kóta nesmí být interně uložena jen jako výsledný text. Musí oddělovat:
+A dimension must not be stored merely as rendered text. Keep separate:
 
-- geometrickou hodnotu používanou solverem,
-- význam a typ kóty,
-- grafické symboly,
-- uživatelský text před a za hodnotou,
-- tolerance,
-- přesnost a způsob zobrazení.
+- geometric value used by the solver;
+- dimension meaning and type;
+- graphical symbols;
+- user prefix and suffix text;
+- tolerances;
+- precision and display mode.
 
-Příklad:
+Example:
 
 ```json
 {
@@ -28,117 +28,107 @@ Příklad:
 }
 ```
 
-Zobrazení:
+Display:
 
 ```text
 ⌀25H7
 ```
 
-Generované průměrové popisky používají znak **⌀ (U+2300)** shodný
-s výběrem ve Vlastnostech kóty. Společné formátování platí pro Sketcher,
-3D View, Drawing i exportované popisky. Jednotka mm navazuje přímo na číslo,
-například `⌀25,000mm`.
+Generated diameter labels use **⌀ (U+2300)**, matching Dimension Properties.
+Shared formatting applies to Sketcher, 3D View, Drawing and exported labels.
+The mm unit directly follows the number, for example `⌀25,000mm`.
 
-## Typy kót
+## Dimension types
 
-- lineární rozměr,
-- průměr,
-- poloměr,
-- sférický průměr,
-- sférický poloměr,
-- řízený poloměr,
-- délka oblouku,
-- tloušťka,
-- hloubka,
-- čtvercový průřez,
-- kuželovitost a sklon,
-- úkos,
-- závit,
-- roztečná kružnice,
-- počet opakování,
-- referenční a typický rozměr,
-- minimální a maximální hodnota,
-- tolerance.
+- Linear dimension
+- Diameter
+- Radius
+- Spherical diameter
+- Spherical radius
+- Controlled radius
+- Arc length
+- Thickness
+- Depth
+- Square section
+- Taper and slope
+- Chamfer
+- Thread
+- Pitch circle
+- Repetition count
+- Reference and typical dimensions
+- Minimum and maximum values
+- Tolerance
 
-## Značky před hodnotou
+## Symbols before the value
 
-| Zápis | Význam | Příklad |
-|---|---|---|
-| `⌀` | průměr | `⌀20` |
-| `R` | poloměr | `R5` |
-| `SR` | sférický poloměr | `SR50` |
-| `S⌀` | sférický průměr | `S⌀100` |
-| `CR` | řízený poloměr | `CR12` |
-| `□` | čtvercový průřez | `□30` |
-| `⌴` | válcové zahloubení | `⌀10⌴⌀18` |
-| `⌵` | kuželové zahloubení | `⌀6⌵90°` |
-| `↧` | hloubka | `↧15` |
-| `⌒` | délka oblouku | `⌒50` |
-| `t` | tloušťka | `t3` |
-| `M` | metrický závit | `M10` |
-| `G` | trubkový závit BSPP | `G1/2` |
-| `Rp` | vnitřní trubkový závit | `Rp1/2` |
-| `Rc` | kuželový vnitřní závit | `Rc1/2` |
-| `R` | kuželový vnější závit | `R1/2` |
-| `Tr` | trapézový závit | `Tr40×7` |
+| Notation | Meaning | Example |
+| --- | --- | --- |
+| `⌀` | Diameter | `⌀20` |
+| `R` | Radius | `R5` |
+| `SR` | Spherical radius | `SR50` |
+| `S⌀` | Spherical diameter | `S⌀100` |
+| `CR` | Controlled radius | `CR12` |
+| `□` | Square section | `□30` |
+| `⌴` | Counterbore | `⌀10⌴⌀18` |
+| `⌵` | Countersink | `⌀6⌵90°` |
+| `↧` | Depth | `↧15` |
+| `⌒` | Arc length | `⌒50` |
+| `t` | Thickness | `t3` |
+| `M` | Metric thread | `M10` |
+| `G` | BSPP pipe thread | `G1/2` |
+| `Rp` | Internal parallel pipe thread | `Rp1/2` |
+| `Rc` | Internal tapered pipe thread | `Rc1/2` |
+| `R` | External tapered pipe thread | `R1/2` |
+| `Tr` | Trapezoidal thread | `Tr40×7` |
 
-Další závitové zápisy zahrnují `UNC`, `UNF`, `ACME` a označení levého
-závitu `LH`.
+Further thread notation includes `UNC`, `UNF`, `ACME` and left-hand designation `LH`.
 
-## Značky a text za hodnotou
+## Symbols and text after the value
 
-| Zápis | Význam | Příklad |
-|---|---|---|
-| `±` | symetrická tolerance | `20±0,1` |
-| `MAX` | maximální hodnota | `R0,5MAX` |
-| `MIN` | minimální hodnota | `3MIN` |
-| `REF` | referenční rozměr | `35REF` |
-| `TYP` | typický rozměr | `R5TYP` |
-| `4X` | počet opakování | `4X⌀8` |
-| `6 PLCS` | počet míst | `⌀5 6 PLCS` |
-| `THRU` | skrz celý materiál | `⌀10THRU` |
-| `EQ SP` | rovnoměrné rozmístění | `8X EQ SP` |
-| `AF` | rozměr přes plochy | `17AF` |
+| Notation | Meaning | Example |
+| --- | --- | --- |
+| `±` | Symmetric tolerance | `20±0,1` |
+| `MAX` | Maximum value | `R0,5MAX` |
+| `MIN` | Minimum value | `3MIN` |
+| `REF` | Reference dimension | `35REF` |
+| `TYP` | Typical dimension | `R5TYP` |
+| `4X` | Repetition count | `4X⌀8` |
+| `6 PLCS` | Number of places | `⌀5 6 PLCS` |
+| `THRU` | Through all material | `⌀10THRU` |
+| `EQ SP` | Equally spaced | `8X EQ SP` |
+| `AF` | Across flats | `17AF` |
 
-Texty jako `TYP`, `REF`, `MAX`, `MIN`, `THRU` a `H7` zůstávají běžnými
-řetězci. Není nutné pro ně vytvářet grafické symboly.
+`TYP`, `REF`, `MAX`, `MIN`, `THRU`, and `H7` remain ordinary strings; they do not
+require graphical symbols.
 
-## Mezní úchylky
+## Limit deviations
 
-Editor kóty musí podporovat tři způsoby zápisu tolerance.
+The dimension editor must support three tolerance representations.
 
-### Symetrická tolerance
+### Symmetric tolerance
 
-Jedna hodnota se znakem `±` (U+00B1) se zobrazí v jednom řádku za
-jmenovitým rozměrem:
+One value with `±` (U+00B1) appears on the same line after nominal size:
 
 ```text
 20±0,010
 ```
 
-### Jedna mezní úchylka
+### Single deviation
 
-Za jmenovitým rozměrem lze zobrazit jednu úchylku s kladným nebo
-záporným znaménkem:
+One signed positive or negative deviation can follow nominal size:
 
 ```text
 20+0,020
 20−0,010
 ```
 
-Zadané znaménko je součástí údaje a aplikace je nesmí automaticky
-změnit.
+Its entered sign is part of the data and must not be changed automatically.
 
-### Horní a dolní mezní úchylka
+### Upper and lower deviations
 
-Nesymetrická tolerance se neukládá ani nezobrazuje jako jediný text
-oddělený lomítkem. Tvoří ji dvě samostatné hodnoty:
-
-- horní úchylka,
-- dolní úchylka.
-
-Ve výkresu se horní úchylka vykreslí nad dolní úchylkou napravo od
-jmenovité hodnoty. Obě úchylky mají menší písmo než jmenovitá hodnota:
+An asymmetric tolerance is neither stored nor displayed as slash-separated text.
+It comprises separate upper and lower deviations. The upper is drawn above the
+lower, to the right of the nominal value, both in smaller type:
 
 ```text
       +0,020
@@ -146,8 +136,7 @@ jmenovité hodnoty. Obě úchylky mají menší písmo než jmenovitá hodnota:
       −0,010
 ```
 
-Povolené jsou také případy, kdy jsou obě úchylky nezáporné nebo kdy je
-horní úchylka nulová:
+Both deviations may be nonnegative, or the upper deviation may be zero:
 
 ```text
       +0,100           +0,000
@@ -155,9 +144,8 @@ horní úchylka nulová:
       +0,000           −0,050
 ```
 
-Znaménko je součástí úchylky a musí se zobrazit i u nulové hodnoty.
-Interně proto nestačí uložit pouze absolutní číslo. Datový model musí
-zachovat znaménko a rozlišení horní/dolní úchylky, například:
+Sign must be preserved even for zero. An absolute number alone is insufficient;
+the model must retain sign and upper/lower role, for example:
 
 ```json
 {
@@ -167,17 +155,14 @@ zachovat znaménko a rozlišení horní/dolní úchylky, například:
 }
 ```
 
-Datový model rozlišuje režimy `symmetric`, `single_deviation`
-a `deviations`. Prázdný režim znamená kótu bez tolerance.
+Modes are `symmetric`, `single_deviation` and `deviations`; an empty mode means
+no tolerance. Display decimal separators follow document settings/localization;
+internal numeric representation may use a decimal point. Do not trim deviation
+precision automatically: trailing zeroes express prescribed precision.
 
-Desetinný oddělovač se při zobrazení řídí nastavením dokumentu nebo
-lokalizací. Interní numerická reprezentace může používat desetinnou
-tečku. Počet desetinných míst úchylek se nesmí automaticky ořezat,
-protože koncové nuly vyjadřují jejich předepsanou přesnost.
+## Chamfers, tapers and pitches
 
-## Úkosy, kuželovitost a rozteče
-
-Příklady:
+Examples:
 
 ```text
 2×45°
@@ -190,9 +175,9 @@ C2
 6X⌀8EQ SP
 ```
 
-## Závity
+## Threads
 
-Příklady:
+Examples:
 
 ```text
 M10×1,5
@@ -206,77 +191,50 @@ M8×1LH
 1"-5ACME
 ```
 
-## První sada grafických CAD symbolů
+## Initial graphical CAD symbols
 
-Tyto symboly mají být připravené jako vlastní vektorové značky. Unicode
-slouží pouze jako textový fallback:
+Prepare these as custom vector symbols; Unicode is a text fallback only:
 
-| Symbol | Unicode | Význam |
-|---|---|---|
-| `⌀` | U+2300 | průměr |
-| `□` | U+25A1 | čtverec |
-| `⌴` | U+2334 | válcové zahloubení |
-| `⌵` | U+2335 | kuželové zahloubení |
-| `↧` | U+21A7 | hloubka |
-| `⌒` | U+2312 | délka oblouku |
-| `∠` | U+2220 | úhel |
-| `°` | U+00B0 | stupně |
-| `±` | U+00B1 | plus/minus |
-| `×` | U+00D7 | násobení |
-| `≈` | U+2248 | přibližně |
+| Symbol | Unicode | Meaning |
+| --- | --- | --- |
+| `⌀` | U+2300 | Diameter |
+| `□` | U+25A1 | Square |
+| `⌴` | U+2334 | Counterbore |
+| `⌵` | U+2335 | Countersink |
+| `↧` | U+21A7 | Depth |
+| `⌒` | U+2312 | Arc length |
+| `∠` | U+2220 | Angle |
+| `°` | U+00B0 | Degrees |
+| `±` | U+00B1 | Plus/minus |
+| `×` | U+00D7 | Multiplication |
+| `≈` | U+2248 | Approximately |
 
-Znak `∅` (U+2205, prázdná množina) se nesmí používat jako náhrada
-strojírenské značky průměru `⌀`.
+Do not substitute `∅` (U+2205, empty set) for engineering diameter `⌀`.
+The first Dimension Properties editor offers this palette for prefix/suffix text,
+inserting the selected symbol at the cursor. It deliberately omits `∅`.
 
-První verze editoru vlastností kóty nabízí tuto sadu v symbolové paletě
-u textu před i za hodnotou. Vybraný symbol se vloží na aktuální pozici
-kurzoru. Znak `∅` paleta záměrně nenabízí.
+## GPS — geometric tolerances
 
-## GPS – geometrické tolerance
+Custom vector rendering is appropriate for straightness, flatness, circularity,
+cylindricity, line profile, surface profile, parallelism, perpendicularity,
+angularity, position, coaxiality, symmetry, circular runout and total runout.
+Unicode is unavailable or typographically unreliable for some GPS symbols.
 
-Pro GPS značky je vhodné vlastní vektorové kreslení:
+## Surface texture and welds
 
-- přímost,
-- rovinnost,
-- kruhovitost,
-- válcovitost,
-- profil čáry,
-- profil plochy,
-- rovnoběžnost,
-- kolmost,
-- sklon,
-- poloha,
-- souosost,
-- symetrie,
-- kruhové házení,
-- celkové házení.
+A separate vector library will also be needed for basic surface-texture symbols,
+surfaces requiring/prohibiting material removal, fillet/V/X/U/J welds, spot/seam
+welds, all-around welds and field welds. Welding support will follow the developing
+Drawing module's requirements and ISO 2553.
 
-Unicode reprezentace není u všech GPS značek dostupná ani typograficky
-spolehlivá.
+## ZIMA-CAD display rules
 
-## Povrch a svary
-
-Samostatná vektorová knihovna bude později potřeba také pro:
-
-- základní značku drsnosti,
-- povrch bez obrábění,
-- povrch s obráběním,
-- koutový, V, X, U a J svar,
-- bodový a švový svar,
-- svar po obvodu,
-- svar prováděný na montáži.
-
-Svary se budou řídit požadavky rozvíjeného Drawing modulu a ISO 2553.
-
-## Zobrazovací pravidla ZIMA-CAD
-
-- Pasivní kóta nezobrazuje jednotku délky.
-- Koncové nuly se v pasivní kótě skrývají.
-- Přesná numerická hodnota se ukáže při editaci.
-- Prefix, hodnota a suffix se skládají bez automatických mezer.
-- Text začíná za odkazovou čárou a roste zleva doprava.
-- Symboly musí mít opticky sjednocenou velikost, tloušťku a účaří.
-- Kritické geometrické značky se kreslí vektorem, nikoli pomocí náhodného
-  glyphu dostupného systémového fontu.
-- Jednotky zůstávají uložené v dokumentu a používají se pro výpočty
-  a převody, i když nejsou v pasivní kótě vypsané.
+- Passive dimensions omit length units.
+- Passive dimensions hide trailing zeroes.
+- Editing shows the exact numeric value.
+- Prefix, value and suffix concatenate without automatic spaces.
+- Text starts after the leader and grows left to right.
+- Symbols need visually consistent size, stroke and baseline.
+- Critical geometric symbols use vectors rather than arbitrary system-font glyphs.
+- Units remain saved and used for calculations/conversions even when passive
+  dimensions omit them.

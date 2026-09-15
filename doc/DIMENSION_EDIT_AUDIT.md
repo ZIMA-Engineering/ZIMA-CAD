@@ -1,131 +1,128 @@
-# Audit editace kót (2026-09-10)
+# Dimension editing audit (2026-09-10)
 
-## Doplnění 2026-09-14: zvětšení kót obdélníku opřeného o osy
+## Update 2026-09-14: enlarging an axis-constrained rectangle
 
-V `part02.prtz` šly kóty vnitřní skici posledního Protažení zmenšit,
-ale zvětšení se odmítalo jako konflikt. Stejná chyba se projevila přes
-CLI i při editaci ve View; nešlo o horní mez rozměru ani o výpočet tělesa.
+In `part02.prtz`, the final Extrusion's internal-sketch dimensions could be reduced,
+but enlarging them was rejected as a conflict. Both CLI and View editing exhibited
+the error. Neither an upper dimensional bound nor body calculation caused it.
 
-Zkratka řešiče pro bod na přímce hledala průsečík přímky s kružnicí
-požadované vzdálenosti. Při zvětšení posunula bod po ose a porušila jeho
-vodorovnou nebo svislou vazbu k druhému bodu. Následující iterace jej vrátila,
-a řešení tak oscilovalo. Při zmenšení takový průsečík neexistoval a řešič
-správně použil pohyb celé skupiny bodů se společnou souřadnicí.
+The point-on-line solver shortcut found the intersection between the line and a
+circle of the requested distance. Enlargement moved a point along the axis and
+broke its horizontal/vertical constraint to another point. The next iteration
+moved it back, causing oscillation. Reduction had no such intersection and correctly
+used movement of the complete group of points sharing a coordinate.
 
-Průsečíková zkratka nyní odmítne kandidáta, který rozdělí společnou souřadnici
-spojenou vodorovnými/svislými vazbami, včetně tranzitivních vazeb. Použije se
-stávající řešení pohybu příslušných skupin. Skutečně volný bod nadále může
-klouzat po své přímce; skutečně nemožná změna se odmítne bez zápisu.
+The intersection shortcut now rejects candidates that split a coordinate shared
+through horizontal/vertical constraints, including transitive constraints. Existing
+group-movement solving handles them. A truly free point can still slide along its
+line; genuinely impossible changes are rejected without a commit.
 
-Ověření:
+Verification:
 
-- Regrese před opravou selhala při prvním zvětšení šířky. Po opravě prošly
-  všechny čtyři kvadranty, obě pořadí bodů, přímé i tranzitivní vazby,
-  opakované zvětšení/zmenšení, načtení uložené skici a atomické odmítnutí
-  změny zablokované pevným bodem. Samostatný případ chrání volný posuv
-  po přímce bez vodorovné/svislé vazby.
-- Na pracovní kopii `part02.prtz` prošly obě kóty na 20, 32, 40 a 50 mm
-  přes `sketch.dimension.set`, vždy i s explicitní regenerací tělesa.
-  Testy nepřepisují původní uživatelský soubor.
-- `ZIMA_VERIFY_PROFILE_DIMENSION_FILE` umožňuje stejný GUI test spustit na
-  uloženém Partu: změna přes picker a dvojklik ve View, uložení, Zpět,
-  otevřené Vlastnosti, přechod do vlastněné skici a transakce OK/Zrušit.
-  Na kopii `part02.prtz` prošel; prošla také běžná matice
-  `ZIMA_VERIFY_PROPERTY_SKETCH_ONLY` pro Part a Assembly.
-- Prošly `sketcher_contract_tests`, `sketch_dimension_command_tests`,
-  `profile_sketch_command_tests`, `contract_tests` a
-  `dimension_layout_contract_tests`. GUI zkoušky ověřují události a data;
-  offscreen běh nenahrazuje obrazovou kontrolu OpenGL vykreslení.
+- Before the fix, regression failed on the first width enlargement. Afterward it
+  passed in all four quadrants, both point orders, direct/transitive constraints,
+  repeated enlargement/reduction, reopened sketches and atomic rejection of edits
+  blocked by a fixed point. A separate case protects free sliding along a line
+  without horizontal/vertical constraints.
+- On a working copy of `part02.prtz`, both dimensions accepted 20, 32, 40 and
+  50 mm through `sketch.dimension.set`, each followed by explicit body regeneration.
+  Tests do not overwrite the original user file.
+- `ZIMA_VERIFY_PROFILE_DIMENSION_FILE` runs the same GUI test on a saved Part:
+  picker and View double-click, save, Undo, open Properties, enter the owned
+  sketch, and OK/Cancel transactions. It passed on a copy of `part02.prtz`, as did
+  the normal `ZIMA_VERIFY_PROPERTY_SKETCH_ONLY` matrix for Part and Assembly.
+- `sketcher_contract_tests`, `sketch_dimension_command_tests`,
+  `profile_sketch_command_tests`, `contract_tests`, and
+  `dimension_layout_contract_tests` passed. GUI checks verify events and data;
+  offscreen execution does not replace visual inspection of OpenGL rendering.
 
-## Doplnění 2026-09-11: odsazení od počátku tělesa a rovina kóty
+## Update 2026-09-11: Body-Origin offset and dimension plane
 
-Na uživatelském modelu se změna kóty 16 mm po Enteru vracela. View nabízelo
-odvozenou souřadnici X, protože podklady kót neobsahovaly počátek tělesa.
-Editor přepsal X, ale uložená reference k rovině YZ stále požadovala odsazení
-16 mm; řešení umístění proto souřadnici správně obnovilo.
+A user's 16 mm edit reverted after Enter. The View offered derived X because
+dimension inputs lacked the Body Origin. Editing changed X, but the saved YZ-plane
+reference still required a 16 mm offset; placement solving correctly restored it.
 
-Zobrazení a přímá editace nyní používají uložené reference v souřadnicích
-vlastníka včetně počátků těles. Kóta adresuje odsazení příslušné reference.
-Zobrazené kóty umístění se převádějí do polohy vlastnícího tělesa. Sdílený
-výpočet umístění ani jeho pravidla se nemění.
+Display and direct editing now use saved references in owner coordinates,
+including Body Origins. The dimension addresses the corresponding reference offset.
+Displayed placement dimensions are transformed into the owning Body's position.
+Shared placement calculations and rules are unchanged.
 
-Kóta odsazení roviny profilu má vynášecí čáry podél lokální osy X profilu;
-měření probíhá podél jeho normály. Leží tak v rovině vlastního originu,
-nikoli v rovině odvozené od globálního diagonálního vektoru `{5,5,0}`.
-Tatáž kóta se nevkládá znovu přes vlastněnou skicu. U Rotace se již vyřešený
-směr profilu nepřevádí podruhé rotací kontejneru.
+Profile-plane offset dimensions have extension lines along the profile's local
+X axis and measure along its normal. They therefore lie in the local Origin plane,
+rather than a plane derived from global diagonal vector `{5,5,0}`. The owned
+sketch does not insert the same dimension again. Revolution no longer rotates an
+already resolved profile direction a second time through container rotation.
 
-Ověření tohoto doplnění:
+Verification of this update:
 
-- `ZIMA_VERIFY_BODY_REFERENCE_DIMENSION_ONLY=1`: editace 16 → 17 mm,
-  uložení/načtení a shoda otisku vypočteného tělesa; také posunuté a otočené
-  vlastnící těleso a prostorová poloha jeho kóty.
-- `ZIMA_VERIFY_PROFILE_OFFSET_PLANE_ONLY=1`: natočené profily XY/XZ/YZ,
-  zakončení na délku i Až k, směr měření a vynášecích čar, normála roviny
-  kóty a právě jeden výskyt odsazení. Kontrola zobrazení nevyžaduje výpočet
-  tělesa ani zvolený cíl rozpracovaného Až k.
-- Obě kontroly jsou součástí `ZIMA_VERIFY_DIMENSION_EDITS_ONLY=1`.
-  Prošla celá matice editace, Properties, Cancel, OK a persistence.
-- Na načteném uživatelském modelu prošla změna reference 16 → 17 mm
-  a geometrická kontrola roviny kóty odsazení profilu 20 mm.
+- `ZIMA_VERIFY_BODY_REFERENCE_DIMENSION_ONLY=1`: edit 16 → 17 mm, save/reopen and
+  compare the calculated-body fingerprint; also translate/rotate the owning Body
+  and check its dimension's spatial placement.
+- `ZIMA_VERIFY_PROFILE_OFFSET_PLANE_ONLY=1`: rotated XY/XZ/YZ profiles, length and
+  Up To termination, measurement/extension-line direction, dimension-plane normal
+  and exactly one offset instance. Display checks require neither body calculation
+  nor a selected target for pending Up To.
+- Both belong to `ZIMA_VERIFY_DIMENSION_EDITS_ONLY=1`. The complete editing,
+  Properties, Cancel, OK and persistence matrix passed.
+- The loaded user model passed reference editing 16 → 17 mm and geometric checking
+  of the 20 mm profile-offset dimension plane.
 
-Cílené běhy používaly `QT_QPA_PLATFORM=offscreen` a `--verify-startup`.
-Ověřují události editoru a geometrická data kót; offscreen zde neposkytuje
-OpenGL kontext, takže nejde o obrazovou kontrolu vykreslených pixelů.
+Targeted runs used `QT_QPA_PLATFORM=offscreen` and `--verify-startup`. They verify
+editor events and dimension geometry. This offscreen environment provides no
+OpenGL context, so they do not inspect rendered pixels.
 
-## Původní rozsah auditu
+## Original audit scope
 
-Vstup je změna číselné hodnoty existující kóty. Výstupem musí být odpovídající
-geometrie a uložený stav, případně odmítnutí změny bez zápisu. Samotné přepsání
-popisku nebo hlášení úspěchu není důkazem přepočtu.
+Input is a numeric change to an existing dimension. Output must be corresponding
+geometry and saved state, or rejection without a commit. Merely rewriting a label
+or reporting success does not prove recalculation.
 
-## Opravené cesty
+## Corrected paths
 
-- Přímá editace odsazení vnitřního profilu Vytažení/Rotace aktualizuje také
-  `Sketch::plane_offset`. Před výpočtem používá existující řešení polohy,
-  aby se do tělesa nepromítla stará poloha počátku skici.
-- Zpětný úhel oboustranné Rotace má obsluhu i při přímé editaci ve View.
-- Otvor má přímé obsluhy hloubky, průměru hladkého otvoru, délky závitu,
-  hloubky a úhlu sražení a úhlu vrtací špičky. Katalogový průměr závitu
-  zůstává měřenou hodnotou; označení závitu používá katalogový výběr.
-- Shell předává editovanou tloušťku do otevřených vlastností. Dialog bez
-  aktivní reference pro umístění se již neobchází přímým zápisem do dokumentu.
-  Cancel proto zahodí rozpracovanou změnu kóty.
+- Direct editing of an Extrusion/Revolution internal-profile offset also updates
+  `Sketch::plane_offset`. Existing placement solving runs before calculation to
+  prevent the old sketch-Origin position from reaching the body.
+- Two-sided Revolution's reverse angle supports direct View editing.
+- Hole has direct handlers for depth, plain-hole diameter, thread length, chamfer
+  depth/angle and drill-point angle. Catalog thread diameter remains measured;
+  thread designation uses catalog selection.
+- Shell sends edited thickness to open Properties. A dialog without an active
+  placement-reference field is no longer bypassed by a direct document write.
+  Cancel therefore discards the pending dimension change.
 
-## Regresní pokrytí
+## Regression coverage
 
-| Cesta | Ověření |
+| Path | Verification |
 | --- | --- |
-| Kvádry, válce, koule, kužely, jehlany, klíny; všechny nabízené rozměry | `zima_cpp_dimension_edits_ui_contract` |
-| Posun X/Y/Z, Shell, číselné kóty otvoru/závitu | Stejná matice: View → Properties → Cancel → Properties → OK → uložení/načtení |
-| Odsazení roviny profilu, reference počátku, zpětný úhel rotace | `zima_cpp_profile_frame_ui_contract`: dvojklik na skutečný popisek, Enter, kontrola polohy skici a mezí vypočteného tělesa |
-| Orientace profilu a otevření vlastností | XY/XZ/YZ, Front/Back a čtyři otočení, dostupnost nenulové kóty po opětovném otevření |
-| Kóty vnitřní skici | `ZIMA_VERIFY_PROPERTY_SKETCH_ONLY`: skutečný picker a dvojklik, opakované změny, přechod do Skicáře, OK/Cancel, Part i Assembly |
-| Zámky, numerické vstupy a další dialogy | `zima_cpp_ui_contract_tests`, `numeric_value_locks`, `numeric_fields`, `sketcher_contract_tests` |
-| Výkresové a měřené kóty, prezentace, sestavy | Existující kontraktní testy Drawing, Measurement, DimensionLayout, Viewer a Assembly |
+| Boxes, cylinders, spheres, cones, pyramids, wedges; all offered dimensions | `zima_cpp_dimension_edits_ui_contract` |
+| X/Y/Z translation, Shell, numeric hole/thread dimensions | Same matrix: View → Properties → Cancel → Properties → OK → save/reopen |
+| Profile-plane offset, Origin reference, reverse Revolution angle | `zima_cpp_profile_frame_ui_contract`: double-click the actual label, Enter, check sketch placement and calculated-body bounds |
+| Profile orientation and reopening Properties | XY/XZ/YZ, Front/Back and four rotations; nonzero dimension available after reopening |
+| Internal-sketch dimensions | `ZIMA_VERIFY_PROPERTY_SKETCH_ONLY`: actual picker and double-click, repeated changes, enter Sketcher, OK/Cancel, Part and Assembly |
+| Locks, numeric inputs and other dialogs | `zima_cpp_ui_contract_tests`, `numeric_value_locks`, `numeric_fields`, `sketcher_contract_tests` |
+| Drawing/measured dimensions, presentation, Assemblies | Existing Drawing, Measurement, DimensionLayout, Viewer and Assembly contract tests |
 
-Matice kontroluje vedle uložené hodnoty také shodu otisku vstupů uloženého
-výsledku s aktuálními operacemi dokumentu. Test profilů navíc nezávisle
-porovnává prostorové meze tělesa s výpočtem očekávaných vstupů.
+Besides saved values, the matrix compares the saved result's input fingerprint
+with current document operations. Profile tests independently compare spatial body
+bounds with calculations from expected inputs.
 
-Grafické testy spouštět postupně v jedné grafické relaci. Současně otevřená
-testovací okna si mohou přebírat fokus. Na Linuxu bez funkčního offscreen
-OpenGL je potřeba použít `-platform xcb`.
+Run graphical tests sequentially in one graphical session. Concurrent test windows
+can steal focus. On Linux without working offscreen OpenGL, use `-platform xcb`.
 
-Toto je konečná matice konkrétních interakčních cest, nikoli důkaz všech
-možných kombinací geometrie a vazeb. Zmizení přesné kóty 18 mm z uživatelského
-06.png není doloženo samotným obrázkem zavřených vlastností; pro tuto konkrétní
-kombinaci je potřeba uložený model. V testovacích modelech se kontroluje
-viditelnost nenulové reference v natočeném pohledu. Záměrné potlačení kóty,
-jejíž měřená čára se při pohledu přesně podél ní promítne do bodu, zůstává
-součástí obecné prezentace kót.
+This is a finite matrix of specific interaction paths, not proof of every geometry
+and constraint combination. The disappearance of the exact 18 mm dimension in the
+user's `06.png` cannot be established from a screenshot with Properties closed;
+that combination requires the saved model. Test models check nonzero-reference
+visibility in a rotated view. Intentional suppression when a dimension's measured
+line projects to a point when viewed exactly along it remains part of general
+dimension presentation.
 
-## Výsledek běhu
+## Run results
 
-- Matice 26 parametrů prošla: přímá editace, rozpracovaná změna bez zápisu,
-  Cancel, následná změna s OK a načtení uloženého výsledku.
-- Profilový test prošel včetně skutečného dvojkliku na popisek, odsazení,
-  reference počátku a zpětného úhlu oboustranné rotace.
-- Proběhl také širší startup test s transakcemi kót vnitřní skici v Partu
-  a Assembly a kontraktní sady modelu, výkresů, měření, vieweru a zámků.
-- Offscreen test vzhledu nedostal OpenGL kontext; opakování přes XCB prošlo.
+- The 26-parameter matrix passed: direct editing, pending changes without a commit,
+  Cancel, subsequent OK and reopening the saved result.
+- Profile tests passed actual label double-click, offset, Origin reference and
+  two-sided Revolution reverse angle.
+- The broader startup test also ran internal-sketch dimension transactions in
+  Part/Assembly, plus model, Drawing, Measurement, Viewer and lock contract suites.
+- The offscreen appearance test lacked an OpenGL context; its XCB rerun passed.

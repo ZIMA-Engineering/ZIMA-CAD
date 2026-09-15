@@ -1,87 +1,78 @@
-# Odstranění komponenty v CLI a GUI
+# Component removal in CLI and GUI
 
-`component.remove` odstraňuje konkrétní bezprostřední výskyt v aktivní
-Assembly. Používá stejnou funkci `workspace::remove_component` jako akce
-Odstranit v kontextovém menu. Katalog obsahuje **207 příkazů**.
+`component.remove` removes an exact immediate occurrence in the active Assembly.
+It shares `workspace::remove_component` with context-menu Delete. The catalog has
+**207 commands** at this stage.
 
 ```json
-{"command":"component.dependencies","arguments":{"instance_path":"PRESNA-CESTA"}}
-{"command":"component.remove","arguments":{"instance_path":"PRESNA-CESTA"}}
+{"command":"component.dependencies","arguments":{"instance_path":"EXACT-PATH"}}
+{"command":"component.remove","arguments":{"instance_path":"EXACT-PATH"}}
 ```
 
-Cesta pochází z `component.list/get`. Rodič tímto příkazem nemaže vnitřní
-díl vložené podsestavy. Volitelné `document` musí odpovídat aktivní sestavě.
-Během dialogu/skicáře se příkaz odmítne. Výsledek obsahuje `occurrence`,
-`instance_path`, `document`, `revision`, `removed:true`, `changed:true`.
-Neexistující výskyt je chyba, nikoli úspěšné odstranění.
+Use paths from `component.list/get`. Parents cannot remove internal Parts of inserted
+subassemblies. Optional `document` must match the active Assembly. Dialog/Sketcher
+editing rejects the command. Results contain `occurrence`, `instance_path`, `document`,
+`revision`, `removed:true`, and `changed:true`. Missing occurrences are errors, not
+successful deletions.
 
-## Zachovaná pravidla
+## Preserved rules
 
-Kontrola závislostí je stejná jako dosavadní GUI a `component.dependencies`.
-Mazání blokuje použití výskytu v řádku vazby komponenty, závislost jiného
-výskytu a externí reference sestavové skici. To zahrnuje i vlastní řádky
-umístění mazaného dílu: nejdříve se odstraní přes Vlastnosti nebo
-`component.set` s prázdným `placement_references`. Odvozená kopie blokuje
-svůj zdroj; kopii lze odstranit samostatně. Není zaveden přepínač obcházející
-závislosti ani kaskádové smazání navázaných objektů.
+Dependency checks match existing GUI and `component.dependencies`. Removal is blocked
+by mate-row use, another occurrence's dependency, or Assembly Sketch external references.
+This includes the removed component's own placement rows: remove them first through
+Properties or `component.set` with empty `placement_references`. Derived copies block
+source removal; copies can be removed independently. There is no bypass flag or
+cascading deletion of dependent objects.
 
-Zdrojové dokumenty, jejich soubory a další výskyty téhož Partu zůstávají.
-Odstranění má jediný krok Undo/Redo s původní stabilní identitou výskytu.
-GUI ponechává stávající potvrzovací otázku; explicitní CLI příkaz se
-provede přímo jako ostatní příkazové modelové operace.
+Source documents/files and other occurrences remain. Removal creates one Undo/Redo
+step preserving original stable occurrence identity. GUI retains confirmation;
+explicit CLI executes directly like other model commands.
 
-## Atomická příprava sestavy
+## Atomic Assembly preparation
 
-Původní GUI před mazáním běžného výskytu zveřejnilo regenerované zdroje
-v živé sestavě a teprve potom upravovalo a počítalo řezy. Nová společná
-transakce používá tutéž existující přípravu závislostí, ale její výsledek
-zůstává soukromým kandidátem až do úspěšného potvrzení celého odstranění.
-`Workspace::prepare_assembly_calculation` pouze zpřístupňuje dosavadní
-výpočet kandidáta; samotný solver, jeho pořadí ani reference se nemění.
-Stejnou přípravu nadále používá běžná regenerace.
+Previously, GUI published regenerated sources into the live Assembly before deleting
+an ordinary occurrence and updating/calculating sections. The shared transaction
+uses the same dependency preparation but retains a private candidate until the full
+removal succeeds. `Workspace::prepare_assembly_calculation` merely exposes existing
+candidate calculation; solver, order, and references are unchanged. Ordinary regeneration
+continues using the same preparation.
 
-Běžný výskyt se odstraňuje z aktuálních vstupních zdrojových dat, včetně
-neuloženého vypočítaného Partu. Zdrojový Part se neukládá ani nepřepočítává.
-Odstranění odvozené kopie zachovává dosavadní větev nad uloženou sestavou.
-Po odstranění výskytu se podle stávající politiky upraví cíle řezů,
-odeberou jím vlastněné závislosti, vyřeší umístění a spočtou řezy. Až poté
-vznikne jediný commit sestavy. Selhání přípravy, řezu nebo fyzikální relace
-nezanechá částečné polohy, zdrojové pakety, historii ani změněnou generaci.
+Ordinary occurrences are removed from current input source data, including unsaved
+calculated Parts, without saving/recalculating source Parts. Derived-copy removal
+retains the existing persisted-Assembly branch. After occurrence removal, existing
+policy updates section targets, removes owned dependencies, solves placement, and
+calculates sections, then commits once. Preparation, section, or physical-relation
+failure leaves no partial positions, source packets, history, or generation changes.
 
-Řezy převezmou čerstvé vstupy před řezáním. Jejich rollback data obsahují
-jen zbývající výskyty. Po odstranění posledního cíle zůstává definice řezu
-s prázdným seznamem cílů. Dosavadní politika ztráty cíle v poli
-`extrusion.target_face` pro `UpToPlane/UpToSurface` zůstává převodem na
-slepé zakončení a vyčištěním tohoto cíle; touto etapou se kontrakt
-zakončení otvorů ani obecné umístění kontejnerů nepředělávají.
+Sections receive fresh inputs before cutting; rollback inputs contain only remaining
+occurrences. Removing the last target retains the section definition with an empty
+target list. Existing `extrusion.target_face` loss policy for `UpToPlane/UpToSurface`
+converts to blind termination and clears that target. This stage does not redesign
+opening termination or general container placement.
 
-Veškerá data nadále používají existující `.asmz`, `.prtz` a jejich uložené
-reference. Formát a start šablony se nemění.
+Data stays in existing `.asmz`, `.prtz`, and persisted references. Formats and start
+templates are unchanged.
 
-Známá chyba pořadí řetězců sestavových vazeb a samostatně čekající souhlas
-s její opravou jsou popsány v [ASSEMBLY_MATE_ORDER_REVIEW.md](ASSEMBLY_MATE_ORDER_REVIEW.md).
-Odstranění tuto zamítnutou změnu solveru neprovádí ani neobchází.
+At this stage, mate-chain ordering and its separately pending approval were tracked
+in [ASSEMBLY_MATE_ORDER_REVIEW.md](ASSEMBLY_MATE_ORDER_REVIEW.md). Component removal
+did not perform or bypass that then-unapproved solver change.
 
-## Ověření
+## Verification
 
-První sestavení a oba cílené modelové testy prošly **2/2** (0,83 s),
-`build/component-removal-model-build.log` a
-`build/component-removal-model-tests.log`. Test vlastností byl přestavěn
-z commitované verze bez odložené reprodukce řetězce vazeb.
+Initial build and both focused model tests passed **2/2** (0.83 s):
+`build/component-removal-model-build.log`, `build/component-removal-model-tests.log`.
+Properties tests were rebuilt from the committed version without the deferred mate-chain reproduction.
 
-Test odstranění kontroluje přesné výskyty, všechny skupiny blokujících
-závislostí, aktivní editaci a vnořenou cestu, neuložený zdroj, zachovaný
-zdrojový soubor, Undo/Redo, odvozenou kopii a poslední cíl řezu. Objem
-3000 mm³ s odečtením obdélníkového průřezu 200 mm³ zůstává po odstranění
-jiného cíle správně 2800 mm³; rollback vstup je 3000 mm³ a je ověřen i
-nativní výsledek. Výslovně testuje selhání fyzikální relace po úspěšné
-přípravě nových zdrojů, které dříve mohlo částečně změnit živou sestavu.
+Removal tests check exact occurrences, every blocking dependency group, active editing,
+nested paths, unsaved sources, preserved source files, Undo/Redo, derived copies, and
+last section targets. A 3000 mm³ body with a 200 mm³ rectangular cut correctly retains
+2800 mm³ after another target is removed; rollback input is 3000 mm³ and native output
+is verified. Tests explicitly fail a physical relation after successful preparation
+of new sources, which previously could partially mutate the live Assembly.
 
-
-Oba programy a testovací programy jsou sestavené. Dotčená sada prošla
-**20/20** (192,48 s), `build/component-removal-all-build.log` a
-`build/component-removal-related-tests.log`. Zahrnuje skutečný CLI proces,
-konzoli, kontextové menu s potvrzením a Undo, celý startovací GUI kontrakt,
-zdrojové dokumenty, sestavy, importy, řezy, odvozené kopie a překlady.
-Sada nyní obsahuje 108 registrovaných testů; tato etapa cíleně spustila
-20 souvisejících, nikoli nový úplný běh všech 108.
+Both applications and test programs built. Related tests passed **20/20** (192.48 s):
+`build/component-removal-all-build.log`, `build/component-removal-related-tests.log`.
+Coverage includes actual CLI, console, context-menu confirmation/Undo, full startup
+GUI contract, source documents, Assemblies, imports, sections, derived copies, and
+translations. The suite now has 108 tests; this stage ran 20 related tests, not a new
+full run of all 108.

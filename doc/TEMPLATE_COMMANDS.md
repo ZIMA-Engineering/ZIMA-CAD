@@ -1,47 +1,45 @@
-# Editor šablon výkresu přes CLI
+# Drawing template editor through CLI
 
-`template.new/get/open/save/sketch.edit` obsluhují stejné rámečky `.frmz`
-a razítka `.tblz` jako GUI. Jde o stávající formáty editoru konfigurace;
-načtené rámečky, razítka a obrázky se nadále vkládají do nativního výkresu.
-Nevzniká nový formát ani povinný vedlejší soubor modelu.
+`template.new/get/open/save/sketch.edit` operate on the same `.frmz` drawing formats
+and `.tblz` title blocks as GUI. These are existing configuration-editor formats;
+loaded frames, title blocks, and images remain embedded in native drawings.
+No new format or required model sidecar is introduced.
 
 ```json
-{"command":"template.new","arguments":{"kind":"title_block","name":"Moje razítko"}}
+{"command":"template.new","arguments":{"kind":"title_block","name":"My title block"}}
 {"command":"template.sketch.edit","arguments":{"operations":[{"command":"sketch.segment.create","arguments":{"first":[0,0],"second":[-20,0]}},{"command":"sketch.text.create","arguments":{"value":"&name","position":[-5,3],"height_mm":2.5}}]}}
 {"command":"template.save"}
-{"command":"template.save","arguments":{"path":"Kopie.tblz","copy":true}}
-{"command":"template.open","arguments":{"path":"Moje razítko.tblz"}}
+{"command":"template.save","arguments":{"path":"Copy.tblz","copy":true}}
+{"command":"template.open","arguments":{"path":"My title block.tblz"}}
 {"command":"template.get"}
 ```
 
-Druhy jsou `drawing_format` a `title_block`. Tvorba nic nepočítá ani ihned
-nezapisuje. Otevření již otevřeného souboru zachová jeho neuložené změny.
-Uložení bez `path` použije současnou cestu. Nový cíl se existujícím souborem
-vyžaduje `overwrite: true`; otevřený cizí dokument nelze přepsat. `copy`
-nemění zdrojovou cestu ani stav uložení původního dokumentu. Výsledek ukládání
-obsahuje `paths` se zapsaným souborem. Cesty ke stejnému fyzickému souboru
-se nepovažují za dva samostatné dokumenty.
+Kinds are `drawing_format` and `title_block`. Creation neither calculates nor
+immediately writes files. Opening an already open file preserves unsaved changes.
+Saving without `path` uses the current path. An existing new destination requires
+`overwrite: true`; another open document cannot be overwritten. `copy` preserves
+the source path and original document's saved state. Save results contain `paths`
+with the written file. Paths to the same physical file do not create separate documents.
 
-Dávka obsahuje 1 až 1000 editačních příkazů skici bez argumentů `sketch`
-a `document`. Použije pracovní kopii a jediné potvrzení, nebo při chybě
-neprovede žádnou změnu. `operation_index` označuje neúspěšný příkaz od nuly.
-Externí modelové reference nejsou ve šabloně povolené. Text používá stejné
-nativní písmo a souřadnice jako editor; výchozí text je výkresový.
-`body_calculated` je vždy false. `changed: false` nepřidává historii.
-Obvyklé `undo`, `redo`, `close` a `activate` fungují i v klidové šabloně.
+A batch contains 1–1000 Sketch editing commands without `sketch` or `document`
+arguments. It uses a working copy and one commit, or makes no change on failure.
+`operation_index` identifies the failed command, starting at zero. External model
+references are forbidden in templates. Text uses the editor's native font and
+coordinates; the default text is drawing text. `body_calculated` is always false.
+`changed: false` adds no history. Ordinary `undo`, `redo`, `close`, and `activate`
+also work in an idle template editor.
 
-GUI dovolí tyto příkazy pouze v klidovém editoru šablony. Aktivní kreslení,
-tažení a dialog je odmítnou. Modelová operace jiného pracovního prostoru
-se tím nezpřístupňuje. Stejnou detekci aktivního skicového příkazu používá
-panel nástrojů i konzole.
+GUI permits these commands only while the template editor is idle. Active drawing,
+dragging, and dialogs reject them. This does not enable model operations belonging
+to other workspaces. Toolbar and console share active Sketch-command detection.
 
-Samostatné vlastnosti obrázků a oblastí kusovníku obsluhují příkazy popsané
-v [TEMPLATE_OBJECT_COMMANDS.md](TEMPLATE_OBJECT_COMMANDS.md). Existující metadata
-rámečku a razítka se při otevření a uložení zachovávají.
+Separate image and BOM-region properties are covered in
+[TEMPLATE_OBJECT_COMMANDS.md](TEMPLATE_OBJECT_COMMANDS.md). Existing frame and title
+block metadata survives opening and saving.
 
-Ověření: cílené modelové/GUI testy **2/2 za 75,55 s** a úplná regrese
-**140/140 za 563,84 s**, včetně skutečného CLI procesu, překladů a editoru
-šablon. Sestaveny obě aplikace a všechny testovací programy. Katalog obsahuje
-251 příkazů. Testovací záznam: `build/template-lifecycle-full-tests.log`.
-Samostatné obrázky a oblasti kusovníku následují; kompletní CLI tím ještě
-není uzavřené. Push zůstává odložený podle posledního pokynu uživatele.
+Verification: targeted model/GUI tests **2/2 in 75.55 s** and full regression
+**140/140 in 563.84 s**, including actual CLI process, translations, and template
+editor. Both applications and all test programs built. The catalog at this stage
+contains 251 commands. Log: `build/template-lifecycle-full-tests.log`.
+Separate images and BOM regions are next; this stage does not complete CLI coverage.
+Push remains deferred under the user's latest instruction at this stage.

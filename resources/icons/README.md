@@ -1,57 +1,55 @@
-# ZIMA-CAD Icons — základní sada
+# ZIMA-CAD icons: base set
 
-První sada čistých SVG ikon pro ZIMA-CAD.
+The first clean SVG icon set for ZIMA-CAD.
 
-## Styl
+## Style
 
-- viewport: `0 0 24 24`
-- hlavní kresba: `stroke="currentColor"`
-- tloušťka čáry: `1.75`
-- konce a spoje: `round`
-- pozadí: průhledné
-- zelený akcent: `#80AA1A`
-- bez gradientů, stínů a plastických efektů
+- Viewport: `0 0 24 24`
+- Main artwork: `stroke="currentColor"`
+- Stroke width: `1.75`
+- Line caps and joins: `round`
+- Transparent background
+- Green accent: `#80AA1A`
+- No gradients, shadows, or embossed effects
 
-Ikony používají `currentColor`, proto se automaticky přizpůsobí světlému a tmavému motivu aplikace.
+`currentColor` lets icons adapt automatically to light/dark application themes.
 
-### Doporučené barvy
+### Recommended colors
 
-- světlý motiv: `#1E1E1E`
-- tmavý motiv: `#F2F2F2`
-- aktivní/zvýrazněný stav: `#80AA1A`
-- zakázaný stav: `#909090`
+- Light theme: `#1E1E1E`
+- Dark theme: `#F2F2F2`
+- Active/highlighted: `#80AA1A`
+- Disabled: `#909090`
 
-## Obsah
+## Contents
 
-Referenční geometrie:
-`origin.svg`, `point.svg`, `axis.svg`, `plane.svg`
+Reference geometry: `origin.svg`, `point.svg`, `axis.svg`, `plane.svg`.
 
-Modelování:
-`sketch.svg`, `sketch-3d.svg`, `box.svg`, `pyramid.svg`, `wedge.svg`,
-`cylinder.svg`, `sphere.svg`, `protrusion.svg`, `revolve.svg`,
-`sweep.svg`, `fillet.svg`, `chamfer.svg`, `shell.svg`, `blend.svg`
+Modeling: `sketch.svg`, `sketch-3d.svg`, `box.svg`, `pyramid.svg`, `wedge.svg`,
+`cylinder.svg`, `sphere.svg`, `protrusion.svg`, `revolve.svg`, `sweep.svg`,
+`fillet.svg`, `chamfer.svg`, `shell.svg`, `blend.svg`.
 
-Dokumenty:
-`part.svg`, `assembly.svg`, `drawing.svg`, `drawing-format.svg`,
-`title-block.svg`
+Documents: `part.svg`, `assembly.svg`, `drawing.svg`, `drawing-format.svg`, `title-block.svg`.
 
-Dokumentové ikony používají jednu společnou významovou sadu v záložkách,
-stromech, dialogu Nový dokument a v Qt file-dialogu:
+Document icons share one semantic set across tabs, trees, New Document, and Qt file dialogs:
 
-- Part je modrá krychle se třemi odstíny ploch a kontrastním obrysem.
-- Assembly má všechny tři plochy vyplněné odstíny žluté.
-- Drawing používá list s pohledy a kótovací čárou.
-- Drawing Format používá list s vnitřním rámečkem.
-- Title Block používá tabulkové razítko.
+- Part: a blue cube with three face shades and a contrasting outline.
+- Assembly: all three cube faces filled with shades of yellow.
+- Drawing: a sheet with views and a dimension line.
+- Drawing Format: a sheet with an inner frame.
+- Title Block: a tabular title block.
 
-Základní GUI:
-`new.svg`, `open.svg`, `save.svg`, `undo.svg`, `redo.svg`,
-`delete.svg`, `view-fit.svg`, `measure.svg`, `settings.svg`
+Basic GUI: `new.svg`, `open.svg`, `save.svg`, `undo.svg`, `redo.svg`,
+`delete.svg`, `view-fit.svg`, `measure.svg`, `settings.svg`.
 
-Skicář používá mimo jiné `sketch-common-tangent.svg`: dvě křivky, jejich
-společnou tečnou úsečku a dva zelené body dotyku. Ikona označuje nástroj tvorby
-nové parametrické geometrie, nikoliv samotnou dodatečnou vazbu **Tečná**.
+Sketcher uses `sketch-common-tangent.svg`: two curves, their common tangent
+segment, and two green contact points. It represents creation of new parametric
+geometry, not the standalone Tangent constraint.
 
 ## Qt
 
-SVG lze barvit pomocí stylu nebo při renderování. Zelený významový akcent je součástí některých ikon a zůstává zachován.
+SVGs can be colored through styling or rendering. Some icons contain a semantic
+green accent that must remain intact.
+
+`terminal.svg` is reused from ZIMA-CAD-Parts (`gfx/navigation/terminal.svg`)
+for the CAD console toggle immediately after Regenerate in the View toolbar.

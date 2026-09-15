@@ -7,21 +7,18 @@ solid-model calculations. The active implementation lives in [`cpp/`](cpp/).
 
 The C++ build requires CMake 3.24+, a C++20 compiler, Qt 6.5+ (Core, Gui,
 Widgets, OpenGL, OpenGLWidgets and Svg), OpenCASCADE 7.9+, and nlohmann_json
-3.11+. The runtime preset below uses the repository runtime. When building
-against system packages, check their versions first; lowering the OCCT check
-does not establish support for OCCT 7.8.
+3.11+. On Windows, use the pinned vcpkg setup through the repository script:
 
-Existence checks on forward-declared dialog types use `QPointer::isNull()`.
-This avoids an incomplete-type compilation error in Qt versions whose
-implicit pointer conversion requires the complete dialog definition. The
-Measurement and Appearance command sources were checked with system Qt 6.8.2;
-this check does not certify a complete Debian build or an older OCCT kernel.
-
-```bash
-cmake --preset linux-runtime-debug -S cpp
-cmake --build build/cpp-debug --target zima-cad-cpp
-./zima-cad -w Projects
+```powershell
+./tools/build-windows.ps1 -Configuration Release
+./zima-cad.bat -w Projects
 ```
+
+Linux dependency setup is pending replacement of the removed Conda SDK. The
+`linux-runtime-*` presets still reference that absent directory and are not a
+ready-to-run recipe. Follow the [Linux handoff](doc/LINUX_RELEASE_HANDOFF.md)
+on Linux to select compatible native Qt/OCCT dependencies and verify the build.
+Do not lower dependency version checks to fit an older installed kernel.
 
 The root launchers `zima-cad` and `zima-cad.bat` start the C++ application.
 They prefer a Release build and fall back to the Debug build.
@@ -41,7 +38,8 @@ settings. The distribution contract is documented in
 
 ## Command line
 
-The `zima-cad-cli` executable runs the shared CAD commands without Qt or a GUI.
+The `zima-cad-cli` executable runs the shared CAD commands without a desktop window.
+It still uses Qt for graphics and export, including an offscreen platform.
 The Windows build script builds it alongside the desktop application:
 
 ```powershell
@@ -59,20 +57,17 @@ available for cylinder, sphere, cone, pyramid and wedge. Command dimensions are
 explicitly in mm.
 See [CLI usage and configuration](doc/CAD_COMMAND_LINE.md).
 
-## Frozen Python reference
+## Native application and runtime
 
-The former Python implementation is frozen in [`archive/python/`](archive/python/).
-It is retained only as a runnable behavioural and visual reference; new
-features and fixes belong exclusively to C++.
+The Python implementation was removed on 2026-09-15 at the user's request.
+Historical source remains in Git; it is not a supported application or release
+input. C++ is the only product implementation. Python may still be used as a
+developer tool, without becoming an application dependency.
 
-```bash
-./archive/python/run.sh -w Projects
-```
-
-Shared configuration, resources, project data and the bundled runtime remain
-at repository root and are supplied to the archived application by its
-launcher. Historical Python documentation is preserved as
-[`archive/python/README.md`](archive/python/README.md).
+The old Conda runtime was removed after Windows verification. The Linux
+development presets still require replacement of their obsolete dependency
+path; a fresh Linux build awaits that native SDK setup. See the
+[versioned distribution and cleanup plan](doc/DISTRIBUTION_CLEANUP_PLAN.md).
 
 ## Verification
 
@@ -81,26 +76,35 @@ cmake --build build/cpp-debug
 ctest --test-dir build/cpp-debug --output-on-failure
 ```
 
-Architecture and migration notes are in [`doc/`](doc/).
+See [native architecture](doc/CXX_ARCHITECTURE.md),
+[native behavior](doc/NATIVE_BEHAVIOR_CONTRACT.md) and
+[Linux release handoff](doc/LINUX_RELEASE_HANDOFF.md).
 
 Current modeling tools and interaction contracts:
 
-- [Uživatelský manuál](doc/UZIVATELSKY_MANUAL.md)
-- [Měření geometrie ve View a uložená měření](doc/MEASUREMENT.md)
-- [Import IGES a DXF do Partu a sestav](doc/IGES_DXF_IMPORT.md)
-- [Import a export STEP](doc/STEP_IMPORT_EXPORT.md)
-- [Multi-body Part and Boolean operations](doc/MULTIBODY_AND_BOOLEANS.md)
-- [Zrcadlo a Pole: linked body and component copies](doc/MIRROR_AND_PATTERN.md)
+- [User manual](doc/UZIVATELSKY_MANUAL.md)
+- [Holes from Sketch segments](doc/HOLES.md)
+- [Automatic/manual work planes](doc/WORK_PLANES.md)
+- [Assembly rotation arm](doc/ASSEMBLY_ROTATION_HANDLE.md)
+- [Shared GUI/CLI command coverage](doc/CAD_COMMAND_COVERAGE.md)
+- [View geometry measurement and persisted measurements](doc/MEASUREMENT.md)
+- [IGES/DXF import into Parts and Assemblies](doc/IGES_DXF_IMPORT.md)
+- [STEP import and export](doc/STEP_IMPORT_EXPORT.md)
+- [Multibody Part and Boolean operations](doc/MULTIBODY_AND_BOOLEANS.md)
+- [Mirror and Pattern: linked body and component copies](doc/MIRROR_AND_PATTERN.md)
 - [Save As: model and drawing copies](doc/DOCUMENT_COPY.md)
-- [3D tažení (3D Sweep): Loft, Thin and trajectory references](doc/3D_CURVE_AND_SWEEP.md)
+- [3D Sweep: Loft, Thin, and trajectory references](doc/3D_CURVE_AND_SWEEP.md)
 - [Threaded openings](doc/THREADED_OPENING.md)
 - [External shaft threads](doc/SHAFT_THREAD.md)
-- [H-tažení (Helix Sweep)](doc/HELICAL_SWEEP.md)
-- [2D tažení (2D Sweep): rovinná dráha, Loft a Thin](doc/SWEEP_2D.md)
+- [Helical Sweep](doc/HELICAL_SWEEP.md)
+- [2D Sweep: planar paths, Loft, and Thin](doc/SWEEP_2D.md)
 - [View and Tree highlighting](doc/MODELING_INTERACTION.md)
 - [History reordering](doc/HISTORY_TREE_REORDER.md)
 - [Sketch constraint activity](doc/SKETCH_CONSTRAINT_ACTIVITY.md)
-- [Drawing templates, embedded PNG/SVG logos and BOM regions](doc/DRAWINGS.md)
+- [Drawing templates, embedded PNG/SVG logos, and BOM regions](doc/DRAWINGS.md)
 - [Numeric value locks and one-shot reference capture](doc/NUMERIC_VALUE_LOCKS.md)
-- [Czech, English, German, French and Russian UI translations](doc/LOCALIZATION.md)
-- [Mass, material density, document units and Parameters](doc/PHYSICAL_PROPERTIES.md)
+- [Czech, English, German, French, and Russian UI translations](doc/LOCALIZATION.md)
+- [Mass, material density, document units, and Parameters](doc/PHYSICAL_PROPERTIES.md)
+
+All project documentation must be maintained in English. See the binding
+[documentation language rule](AGENTS.md#documentation-language-mandatory).

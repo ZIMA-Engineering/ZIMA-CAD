@@ -1,326 +1,319 @@
-# Show/Erase pro výkresy (2026-09-09)
-
-Stav: implementováno v C++ výkresovém prostředí.
-Ruční měřicí kótování zajišťuje samostatný příkaz Kóta; jeho vazby a společné
-vlastnosti popisuje [Kóty ve výkresu](DRAWING_DIMENSIONS_DESIGN.md).
-
-## Vstupy, prostředky a výstupy
-
-Vstupem je vybraný výkresový pohled a původní kóty, osy a pomocná geometrie
-jeho zdrojového dílu/sestavy. Prostředkem jsou uložené identity a referenční
-geometrie ZIMA, projekce kamery a společný výběr ve View. Otevření nástroje,
-hover ani změna filtru nesmí spouštět OCCT. Výstupem je výkresový seznam
-zobrazených položek a jejich prezentační polohy, uložený v `.drwz`.
-
-## První rozsah
-
-- Jeden vnitřní dialog Show/Erase s OK/Zrušit.
-- Přepnutí Show / Erase a filtry: původní kóty modelu, osy a pomocná geometrie.
-  Další typy značek lze doplnit stejným datovým a výběrovým kontraktem.
-- Režim výběru: vybrat položky k ponechání nebo vybrat položky k odebrání
-  z nabízeného náhledu. Show pracuje se skrytými kandidáty; Erase s viditelnými.
-- Náhled je dočasný. OK uloží změnu viditelnosti; Zrušit obnoví výchozí stav.
-- První verze nezapisuje rozměry zpět do modelu. Přímá editace zdrojových
-  rozměrů bude pozdější, odděleně ověřený krok s jasným vlastnictvím změny.
-
-## Identity a uložení
-
-Každá položka odkazuje na zdrojový dokument, vlastníka, stabilní ID kóty či
-geometrie a v sestavě na přesnou cestu výskytu. Výkres ukládá viditelnost a
-přesunutí zvlášť pro každý pohled. Kopie souřadnic bez zdrojové identity není
-náhradou vazby na model. Regenerate aktualizuje odkazy z aktuálních otevřených
-zdrojů; samotné přepnutí karty nespouští přepočet rodiče.
-
-Prezentace parametrických kót se ukládá v jejich prostorové bázi v modelových
-milimetrech; výkresové přestavení je nezávislé nastavení konkrétního pohledu.
-Změna umístění nemění hodnotu kóty ani vazby zdrojové skici. Zmizelý zdrojový
-objekt se označí jako nevyřešený; jiná geometrie ho nesmí tiše zastoupit.
-
-## Konstrukční geometrie a osy
-
-Konstrukční role je nezávislá na druhu křivky. Konečná úsečka zůstává
-konečná, oblouk si zachová svůj rozsah a kružnice nebo uzavřená křivka svůj
-tvar. Přepnutí na konstrukční geometrii zachovává identitu, body, kóty a vazby;
-čerchované zobrazení a vyloučení z profilu tělesa nemění definici křivky.
-Nekonečná osa/přímka zůstává samostatným druhem reference, ne vlastností
-všech konstrukčních úseček. Show/Erase má nabídnout konečnou konstrukční
-geometrii i osy; válcové osy zobrazí podle uloženého rozsahu válce.
-
-## Manipulační body a vodítka
-
-Hover zvýrazňuje entitu i manipulační bod, LMB potvrzuje společného kandidáta.
-Po potvrzení lze přesouvat text a ovládat kótu za body ve styku šipek
-s vynášecími čarami. Polohy jednotlivých bodů mají být zachovány po otevření,
-změně měřítka a regeneraci. Samotný pohled si ponechá obdélníkovou oblast.
-
-Ve vlastnostech pohledu jsou pracovní vodítka pro kóty: zapnutí/vypnutí,
-odstup první čáry od obálky a rozteč dalších čar v mm. Vodítka jsou šedá a
-čárkovaná jako nenápadné skryté hrany. Nejsou výkresovou geometrií a nepatří
-do tisku/PDF. Dohodnutý výchozí odstup první čáry i rozteč dalších čar jsou 8 mm.
-
-## Ověření před dokončením
-
-Přepnutí pomocné kružnice musí zachovat její ID, střed, poloměr, kóty a vazby;
-čerchované zobrazení nesmí zasahovat do solveru. Konstrukční role nadále
-znamená vyloučení z profilu tělesa. Pro Show/Erase ověřit nezávislou viditelnost
-ve dvou pohledech, opakované výskyty v sestavě, náhled/Cancel, ukládání poloh,
-změny zdroje při explicitní regeneraci a absenci pracovních vodítek v PDF.
-
-
-## Implementovaný základ (2026-09-09)
-
-`ModelAnnotation` ukládá zdrojový dokument, vlastníka, sémantické ID a přesný
-výskyt. Každý `DrawingView` má samostatný seznam v `.drwz`. Projektovaná geometrie
-je v jednotkách modelu. Parametrická kóta navíc ukládá původní prostorovou
-geometrii, rám, prezentaci modelu a volitelné místní přestavení pohledu.
-
-`refresh_model_annotations` přijímá výslovně dodané ZIMA pakety kót, os a pomocných
-křivek. Zachová viditelnost a polohy podle identity, chybějící položky označí jako
-nevyřešené a při chybě nemění výchozí stav. Nepřepočítává model ani nevolá OCCT.
-Opakované výskyty se nerozlišují názvem či pořadím. Konečné pomocné křivky se
-projektují se zachováním rozsahu; zdrojové body a konstrukční role se nemění.
-
-`ShowEraseSession` poskytuje kandidáty a kopii náhledu pro Show/Erase, filtry typů
-a výběr k ponechání/odebrání. Dokud volající náhled nepotvrdí, pohled zůstává
-nezměněný. Cizí či nenabízenou identitu odmítne.
-
-`zima_cpp_show_erase_contract_tests` ověřuje dva pohledy, opakované výskyty,
-pomocnou kružnici, náhled bez zápisu, zmizení a návrat zdroje, zachování papírových
-poloh při změně měřítka a regeneraci, atomické odmítnutí duplicit a `.drwz` roundtrip.
-Nástroj je dostupný v liště Výkres jako **Show / Erase…**. Dialog používá společné
-vnitřní okno vlastností, umístěné vpravo. Výběr ve View používá seznam anotací
-společný s hoverem a RMB cyklováním. Prázdné kliknutí ruší potvrzený výběr.
-
-## Použití
-
-1. Vyberte výkresový pohled. Pro načtení nových položek ze zdroje zvolte
-   **Regenerovat**; nově vložený pohled je načte při OK ve vlastnostech.
-2. Otevřete **Show / Erase…**. Show nabízí skryté položky, Erase viditelné.
-   Filtry rozlišují původní kóty skic, osy a konečnou pomocnou geometrii.
-   Sběr zahrnuje také kóty již uložené ve zdrojovém viewer paketu a uložené
-   osy těles (například osu válce); nezavádí nové ručně měřené kóty.
-3. Zvolte výběr k ponechání nebo odebrání. Kliknutí ve View i zaškrtnutí
-   v seznamu přepíná stejnou položku. Skryté nabízené položky jsou šedé,
-   zachované položky mají běžné zobrazení. Pravé tlačítko cykluje překryté nabídky.
-4. OK zapíše pouze viditelnost tohoto pohledu, Zrušit obnoví výchozí stav.
-   Prostřední dvojklik potvrzuje OK také nad plátnem; krátké MMB nepotvrzuje.
-5. Po uzavření nástroje lze kótu vybrat a táhnout její text nebo úchyt u šipky.
-   Lineární kóta při změně odstupu zachová směr; úhlová mění poloměr oblouku.
-   Hodnota a vazby zdrojové skici se nemění.
-
-Ve vlastnostech pohledu zapněte **Pracovní vodítka kót**. Promítají se z
-orientovaného kvádru vlastníka kóty. Geometrická obálka a pracovní odsazení
-jsou oddělené; posunutí kóty tedy nezvětšuje model. První odstup i rozteč jsou
-**8 mm na papíře**. Kóta rovnoběžná s papírovými vodítky se při tažení odstupu
-přichytává k blízké úrovni. U šikmé projekce se používá prostorová poloha kóty.
-Pracovní rámy nevstupují do tisku, PDF ani DXF.
-
-Osa při pohledu ve svém směru vytvoří křížek o rozpětí 6 mm s bodem ve středu.
-Každá díra má vlastní značku. Z boku se zachová uložená délka válce s přesahem
-2 mm na obou koncích a bodem uprostřed. Pomocná úsečka ani oblouk se
-neprodlužují na nekonečnou osu. Zobrazení pracuje s uloženou
-projekcí; samotné otevření nástroje, filtry ani přepnutí karty nepřepočítávají model.
-Explicitní regenerace používá otevřené zdroje, nebo uložené soubory, a rozlišuje
-každou úroveň vnořené sestavy i opakované výskyty stejného Partu. Zrcadlené
-a opakované komponenty používají uložené definice Mirror/Pattern a jejich přesné
-cesty výskytů; anotace se neponechávají na místě původní komponenty.
-
-`zima_cpp_show_erase_ui_contract` ověřuje skutečnou skicu, vnořenou otočenou
-sestavu, kliknutí ve View, OK/Zrušit, MMB, přesun textu, .drwz a shodu tiskového
-vykreslení při přepnutí vodítek. Sdílenou kreslicí cestu používá také PDF export.
-
-## Orientace kót a izolace pohledu
-
-Parametrické kóty zůstávají dostupné také v šikmém nebo bočním pohledu.
-Promítají se jejich prostorové měřicí body, ramena a uložená poloha textu;
-číselná hodnota se nepřepočítává z délky na papíře. Při změně kamery se
-projekce obnoví. Původní papírové úchyty z jiné orientace se nepoužijí.
-
-Po výběru kóty otevřete pravým tlačítkem **Vlastnosti kóty…**. Lze změnit
-rovinu kolem směru měření, stranu obálky, odsazení a posunutí textu.
-U úhlové kóty určují rovinu obě měřená ramena; volba roviny je proto vypnutá.
-Úhlová kóta zůstává u své měřicí osy/čepu a mění se poloměr oblouku.
-
-Výchozí prezentace pochází z Partu nebo Assembly. Výkres si změnu ukládá
-jako vlastní nastavení tohoto pohledu. Nemění zdrojový dokument ani jiný
-pohled. Regenerace převezme novou hodnotu a geometrii a ponechá místní
-nastavení prezentace. Vlastnosti používají společné vnitřní okno OK/Zrušit.
-
-Během příkazu se kandidáti omezují na upravovaný výkresový pohled. Kliknutí
-na tutéž zdrojovou kótu v jiném pohledu ji do výběru nepřidá. Regresní testy
-ověřují tuto izolaci, čelní/opačný/šikmý/boční pohled, otočenou podsestavu,
-uložení normály a shodné filtrování ve View i tiskové cestě PDF.
-
-Sběr anotací při převodu přes sestavu odděluje skutečné zdrojové položky od
-pomocných referencí převodní scény. Nevytváří duplicitní osy a zachovává také
-transformovanou polohu textu kóty. Test zahrnuje úplnou projekci těchto paketů,
-nikoli pouze souřadnice jednotlivých zdrojových položek.
-
-
-## Doplnění ovládání a exportů (2026-09-10)
-
-Show/Erase má vlastní ikonu oka s kótou. Funguje v obou pořadích: vybrat pohled
-→ Show/Erase nebo Show/Erase → kliknout na pohled. Okno se otevře ihned.
-Horní referenční pole zobrazuje cílový pohled; kliknutím se aktivuje zelený
-rámeček a následným výběrem jiného pohledu se cíl nahradí. Krátký prostřední
-klik ukončí zadávání reference, aniž smaže hodnotu nebo potvrdí dialog.
-Tlačítka SHOW a ERASE označují aktivní režim zeleně. OK zapisuje pouze aktuální
-pohled; rozpracovaný výběr předchozího pohledu se při změně cíle zahodí.
-Bez vybraného pohledu je OK neaktivní. Bez pohledů je nástroj nedostupný.
-
-Výkres Partu nabízí jeho původní kóty. Výkres Assembly přebírá osy z vložených
-Partů a kóty vlastněné sestavami, například úhel uložení. Skicové kóty vložených
-Partů se do sestavového výkresu nepřenášejí. Transformace respektuje přesný
-výskyt, vnoření, zrcadlení i pole; sběr neprovádí nový výpočet geometrie.
-
-Fialové úchyty po potvrzeném výběru označují přesouvatelné popisky pohledu/řezu
-a kóty. Pevné položky razítka, osy a pomocná geometrie si ponechávají běžné
-zvýraznění bez fialových úchytů. Bod ve středu osy je tisková značka, nikoli úchyt.
-
-**Obnovit pohled** vystředí papír a přizpůsobí jeho výšku View s okrajem 24 px.
-Při úzkém okně může šířka papíru přesahovat View.
-
-**Soubor → Uložit jako → DXF – aktuální list** uloží právě aktivní list
-v milimetrech, včetně formátu, razítka, textů, geometrie a viditelných anotací.
-Používá společnou tiskovou kreslicí cestu bez výběru, náhledů a pracovních vodítek.
-Text zůstává textem; křivky se převádějí na úsečky, výplně na HATCH/SOLID.
-Vložené obrázky a stínování jsou samostatné barevné výplně, takže DXF nepotřebuje
-vedlejší obrazové soubory. Export nemění dokument ani jeho cestu.
-
-**Soubor → Uložit jako → JPEG – aktuální pohled** uloží aktuální obsah View
-v Partu, Assembly i výkresu. Zachová výřez, natočení, zoom a aktuální zobrazení,
-včetně viditelného výběru. Rozlišení odpovídá framebufferu/plátnu; okolní panely
-aplikace se neukládají. Výkresový JPG zachovává pracovní vzhled obrazovky,
-zatímco DXF/PDF používá tiskové vykreslení. JPEG kvalita je 95.
-
-## Sdílený prostorový rám (2026-09-10)
-
-`ModelEnvelope` nese lokální počátek, tři osy a geometrické meze v této bázi.
-Orientace pochází z vyřešeného uložení objektu; nezávisí na kameře.
-Rámy se získávají z uloženého viewer/reference paketu, bez průchodu OCCT.
-Platí pro historii prvků, konstrukční objekty, skici a tělesa. Skica může mít
-nulovou tloušťku, bod nulový rozměr a osa pouze délku; rám nevyžaduje objem.
-Bez vypočtené geometrie existuje lokální báze, nikoli vymyšlené rozměry.
-
-Vypočtené snapshoty komponent uchovávají rámy a sestava transformuje jejich
-počátky a směry po přesných cestách výskytů. Rámy kopií se transformují spolu
-s Mirror/Pattern. Toto je datový základ pro hierarchii velkých sestav;
-nový prostorový index ani optimalizace vykreslování zde zavedeny nejsou.
-
-V Partu a Assembly zapíná **Zobrazení → Prostorový rám kót** pracovní kvádr
-vybraného objektu. Parametrické kóty se standardně odsazují o 8 modelových mm.
-Jejich kontextová nabídka obsahuje **Vlastnosti kóty…**. Fialový úchop textu
-mění jeho polohu, úchopy lineární kóty její odstup a úhlové kóty poloměr.
-Tažení zapisuje prezentaci při puštění tlačítka; Esc jej zruší. Měřicí reference,
-hodnota, vazby a geometrie modelu se nemění.
-
-Fialové úchopy ve výkresech patří přesouvatelným anotacím, včetně konců
-šipek řezu. Geometrie pevně svázaná s pohledem vlastní manipulační bod nedostává.
-
-Cílený test `zima_cpp_dimension_layout_contract_tests` kontroluje lokální
-rozměry otočeného kvádru, opakované výskyty, zrcadlení, oddělení měření od
-prezentace, uložení Part/Assembly a nezávislé nastavení výkresových pohledů.
-Dále ověřuje skutečné události tažení ve 3D, zrušení a společné vlastnosti.
-
-
-## Opravy rovin, úchopů a velikosti os (2026-09-10)
-
-Poloměr a průměr zachovávají skutečnou rovinu kružnice, včetně skic v otočeném
-Body a náhledu zaoblení. Přepínač kolmých projekčních rovin je určen lineárním
-kótám; radiální kótu nelze vyklopit z roviny její kružnice.
-
-Skicář používá stejné fialové úchopy jako Part/Assembly: na šipkách a uprostřed
-pomocné čáry pod textem. Úchopy se kreslí nad body geometrie, takže nezmizí při
-jejich souběhu. Vzhled se ukládá přímo se skicou. U vloženého návrhu profilu
-patří do stejného návrhu; v samostatně editované skice se uloží se změnami skici.
-Pozdější zrušení nově otevřených vlastností již uložené změny skici nevrací.
-Skica uchovává prezentaci také při serializaci a předává ji výkresu.
-
-Zobrazovací délka osy nezvětšuje existující geometrický kvádr jejího vlastníka.
-Pouze samostatný objekt osy bez geometrické obálky získá meze ze své délky.
-Výkresové osy používají skutečné promítnuté minimum a maximum vlastního
-pomocného kvádru, s přesahem 2 mm na každém konci na papíře. Rozsah se
-nezrcadlí kolem počátku: například kvádr od 0 do 40 mm při měřítku 1:1
-dává rozsah −2 až 42 mm, nikoli −42 až 42 mm. To platí i pro hlavní osy.
-Ve směru osy vzniká kříž přes tyto meze, mimo tento směr úsečka.
-
-
-### Volná poloha textu zkráceného rádiusu (2026-09-10)
-
-V režimu rádiusu bez čáry do středu začíná spojnice přímo na šipce měřeného
-oblouku a končí na pomocné čáře pod textem. Fialový úchop ve středu pomocné
-čáry lze plynule přetáhnout mezi oblouk a střed, přes střed za osu i ven za
-oblouk. Poloha textu nemění měřený bod šipky ani hodnotu rádiusu.
-V isometrii zůstávají text a jeho pomocná čára vodorovné.
-Toto vykreslení používají společně Sketcher, Part, Assembly a Drawing.
-
-
-Přepnutí zkráceného rádiusu zachovává rovinu kružnice a radiální směr šipky
-i spojnice. Případná složka uložené polohy textu kolmá na rovinu se odstraní.
-Tažení určuje podepsanou polohu podél promítnutého poloměru bez omezení
-na vnitřek nebo vnějšek; vodorovná pomocná čára v isometrii na něj navazuje.
-
-
-### Vrchní textová vrstva kót (2026-09-10)
-
-Hodnoty kót se vykreslují v samostatné vrstvě nad geometrií, osami,
-vynášecími čarami a šrafováním. Celou hodnotu včetně značky R/Ø a jednotky
-obklopuje krycí obdélník bez obrysu, s přesahem 0,5 mm na všech stranách
-ve výkresu. Na obrazovce přebírá barvu pozadí, při tisku/PDF barvu papíru.
-Ve 3D View je přesah přepočtený podle DPI obrazovky.
-
-Texty používají stabilní pořadí uložených kót; pozdější text a jeho maska
-překryjí dřívější. Výběrové fialové úchopy zůstávají nad textovou vrstvou.
-
-
-### Více pohledů, kříže otvorů a ovládání kót (2026-09-10)
-
-Krátký stisk prostředního tlačítka v Show / Erase ukončí výběr položek pro
-aktuální pohled a aktivuje políčko pro výběr dalšího pohledu. Rozpracovaná
-viditelnost zůstává v náhledu i po přechodu jinam. Kliknutím do políčka lze
-pohled změnit také přímo. Pokud je políčko právě aktivní, krátký stisk
-prostředního ukončí zadávání reference a vrátí výběr položek dosavadního pohledu.
-
-OK nebo dvojklik prostředním potvrdí všechny rozpracované pohledy najednou
-a zavře dialog. Zrušit zahodí změny všech pohledů. Přechod mezi pohledy,
-krátký stisk ani prostřední tažení neprovádějí mezilehlé uložení. Tlačítko
-Apply zde není. Stejný dvojklik nad výkresovým prostorem potvrzuje také
-vlastnosti pohledu a listu prostřednictvím společného `PropertiesSubWindow`.
-
-Kříž osy při pohledu do válce tvoří čtyři ramena po 90° a bod ve středu.
-Všechna ramena patří jedné referenci: výběr, SHOW i ERASE ovládají celý kříž.
-Dva otvory mají dva samostatné kříže. Osy kruhových profilů vytažení používají
-poloměr konkrétního profilu, nikoli příčný rozměr celého vytažení. Například
-otvor Ø10mm při měřítku 1:1 má od středu ke konci každého ramene 7mm:
-5mm poloměr a 2mm přesah na papíře. Obálka i směry sledují přesný výskyt
-v sestavě včetně zrcadlení a pole.
-
-Skicová osa přebírá obálku skutečných skicových křivek a bodů ještě před
-výběrem výkresových anotací; pracovní délka os skici 100mm ji nezvětšuje.
-Seznam rozlišuje osu skici, osu počátku a osu válce. Změněná zdrojová data os
-a rovin se do již uloženého výkresu načtou příkazem **Regenerovat**.
-
-Texty rozměrů používají zápis `10mm`, `R10mm`, `Ø10mm`. Explicitně zadaný
-vlastní text kóty se zachovává. Stejný formát používá View, výkres i export.
-
-Tažení používá společný převod obrazovky do roviny kóty. Pokud se rovina
-promítá hranově, zachová se možnost posuvu v jejím viditelném směru.
-Kóta se skryje až při zhroucení samotné měřicí čáry do bodu. Režim zkráceného
-rádiusu lze znovu uchopit a táhnout, i když byl předtím přepnut pravým tlačítkem.
-Výkresové úchopy mění pouze prezentaci daného pohledu; modelový rozměr zůstává.
-
-Regresní testy ověřují jednotlivá ramena obou otvorů, normály skici XZ,
-opakované tažení textu a šipkových úchopů, RMB cyklus, hromadné OK/Cancel
-přes dva pohledy a prostřední potvrzení vlastností listu i pohledu.
-Volitelný `ZIMA_TEST_ANNOTATION_PART` umožňuje při testu Show / Erase ověřit
-referenční díl se dvěma otvory Ø10mm v rovině XZ a jeho sousední `.drwz`;
-soubory se pouze čtou a interakce probíhá nad pracovní kopií dokumentu.
-
-
-## Společné vlastnosti a rádius (2026-09-10)
-
-Vlastnosti kóty nyní sdružují texty, tolerance a umístění.
-Výkresové přestavení zůstává lokální pro daný pohled.
-Stávající bod textu posouvá textovou polici; bod u rádiusové šipky otáčí
-prezentaci po kružnici v její rovině. Tři RMB režimy odpovídají náčrtu
-koty.bmp a používají stejnou implementaci jako skicář a 3D View.
+# Show/Erase for Drawings (2026-09-09)
+
+Status: implemented in the C++ Drawing workspace. Manual measurement dimensions
+use the separate Dimension command; its references and shared properties are
+covered by [Drawing dimensions](DRAWING_DIMENSIONS_DESIGN.md).
+
+## Inputs, means and outputs
+
+The input is a selected Drawing view and original dimensions, axes and auxiliary
+geometry from its source Part/Assembly. The means are persisted ZIMA identities
+and reference geometry, camera projection and common View selection. Opening
+the tool, hovering or changing a filter must not invoke OCCT. The output is a
+Drawing-owned list of visible items and presentation positions, saved in `.drwz`.
+
+## Initial scope
+
+- One internal Show/Erase dialog with OK/Cancel.
+- Show/Erase modes and filters for original model dimensions, axes and auxiliary
+  geometry. Additional annotation types can use the same data/selection contract.
+- Select items to keep or remove from the offered preview. Show offers hidden
+  candidates; Erase offers visible ones.
+- Preview is transient. OK saves visibility; Cancel restores the input state.
+- The first version does not write dimensions back to the model. Direct source
+  dimension editing requires a later, separately verified step with clear ownership.
+
+## Identity and persistence
+
+Each item references its source document, owner, stable dimension/geometry ID
+and exact occurrence path in an Assembly. Visibility and movement are stored
+separately per Drawing view. Coordinate copies cannot replace source identity.
+Regenerate refreshes references from current open sources; tab switching does
+not recalculate the parent.
+
+Parametric dimension presentation is stored in its spatial basis in model
+millimeters; Drawing overrides belong to one view. Moving presentation changes
+neither dimension values nor source Sketch constraints. A missing source is
+marked unresolved; other geometry must not silently replace it.
+
+## Construction geometry and axes
+
+Construction role is independent of curve type. A finite segment stays finite,
+an arc retains its range and a circle/closed curve retains its shape. Switching
+to construction preserves identity, points, dimensions and constraints;
+chain-line rendering and exclusion from a body profile do not redefine the
+curve. An infinite axis/line remains a separate reference kind, not a property
+of all construction segments. Show/Erase offers finite construction geometry
+and axes; cylindrical axes use the stored cylinder extent.
+
+## Handles and guides
+
+Hover highlights the entity and its handle; LMB confirms the common candidate.
+After confirmation, text and handles at arrow/extension-line junctions can move.
+Individual handle positions should survive reopening, scale changes and
+regeneration. The view itself retains a rectangular area.
+
+View Properties exposes dimension working guides: enabled state, first-line
+distance from the envelope and subsequent spacing in mm. Guides are subtle gray
+dashes like hidden edges. They are not Drawing geometry and do not print or
+export to PDF. Agreed defaults are 8 mm for both first distance and spacing.
+
+## Verification before completion
+
+Switching an auxiliary circle must preserve ID, center, radius, dimensions and
+constraints; chain-line display must not affect the solver. Construction still
+excludes a curve from the solid profile. Verify independent visibility in two
+views, repeated Assembly occurrences, preview/Cancel, position persistence,
+source changes on explicit regeneration and no working guides in PDF.
+
+## Implemented foundation (2026-09-09)
+
+`ModelAnnotation` stores source document, owner, semantic ID and exact occurrence.
+Each `DrawingView` owns a separate list in `.drwz`. Projected geometry uses model
+units. A parametric dimension also stores original spatial geometry, frame,
+model presentation and an optional local view override.
+
+`refresh_model_annotations` accepts explicitly supplied ZIMA packets of
+dimensions, axes and auxiliary curves. It preserves visibility/positions by
+identity, marks missing items unresolved and leaves the input unchanged on
+failure. It neither recalculates the model nor calls OCCT. Repeated occurrences
+are distinguished by identity, not names/order. Finite auxiliary curves retain
+their extent in projection; source points and construction role do not change.
+
+`ShowEraseSession` supplies candidates and a preview copy for Show/Erase, type
+filters and keep/remove selection. The view is unchanged until the caller
+commits the preview. Foreign or unoffered identities are rejected.
+
+`zima_cpp_show_erase_contract_tests` covers two views, repeated occurrences,
+an auxiliary circle, noncommitting preview, source disappearance/return,
+preserved paper positions after scale/regeneration, atomic duplicate rejection
+and `.drwz` round-trip. **Show / Erase…** is in the Drawing toolbar. Its dialog
+uses the shared internal Properties window positioned on the right. View
+selection shares the annotation list with hover and RMB cycling. Empty clicks
+clear confirmed selection.
+
+## Usage
+
+1. Select a Drawing view. Choose **Regenerate** to load new source items; a new
+   view loads them when Properties is confirmed with OK.
+2. Open **Show / Erase…**. Show offers hidden items, Erase visible ones. Filters
+   separate original Sketch dimensions, axes and finite auxiliary geometry.
+   Collection also includes dimensions in source viewer packets and stored body
+   axes (such as a cylinder axis); it creates no manually measured dimensions.
+3. Select items to keep or remove. View clicks and list checkboxes toggle the
+   same item. Offered hidden items are gray; retained items use normal display.
+   RMB cycles overlapping candidates.
+4. OK commits visibility; Cancel restores the initial state. MMB double-click
+   also invokes OK over the canvas; short MMB does not confirm. The initial
+   single-view scope was later extended to all pending views (see below).
+5. After closing the tool, select a dimension and drag its text or arrow handle.
+   A linear dimension retains its direction when offset changes; an angular
+   dimension changes arc radius. Source Sketch values/constraints do not change.
+
+Enable **Dimension working guides** in View Properties. Guides project from the
+dimension owner's oriented box. Geometric envelope and working offsets are
+separate: moving a dimension does not enlarge the model. First distance and
+spacing are **8 mm on paper**. Dimensions parallel to paper guides snap to a
+nearby level while dragging their offset. Oblique projections use the spatial
+dimension position. Working frames are excluded from print, PDF and DXF.
+
+The initial axial-view marker was a 6 mm cross with a center point; the later
+radius-based sizing rule below supersedes that fixed span. Each hole owns its
+marker. Side views retain the stored cylinder length with a 2 mm extension at
+each end and a midpoint. Auxiliary segments/arcs never become infinite axes.
+Rendering consumes stored projection; opening the tool, filtering and switching
+tabs do not recalculate. Explicit regeneration uses open sources or saved files
+and distinguishes every nested Assembly level and repeated Part occurrence.
+Mirrored/patterned components use persisted Mirror/Pattern definitions and
+exact paths; their annotations move with the derived occurrences.
+
+`zima_cpp_show_erase_ui_contract` covers a real Sketch, nested rotated Assembly,
+View clicks, OK/Cancel, MMB, text movement, `.drwz` and identical print rendering
+when guides toggle. PDF uses the same drawing path.
+
+## Dimension orientation and view isolation
+
+Parametric dimensions remain available in oblique/side views. Spatial measuring
+points, arms and stored text positions are projected; numerical values are not
+recomputed from paper lengths. Camera changes refresh projection. Paper handles
+from a different orientation are not reused.
+
+After selecting a dimension, RMB → **Dimension Properties…** edits its plane
+around the measurement direction, envelope side, offset and text movement. The
+two measured arms determine an angular dimension's plane, so its plane selector
+is disabled. It stays at the measuring axis/pivot and changes arc radius.
+
+Default presentation comes from the Part/Assembly. A Drawing saves changes as
+that view's own override, affecting neither source nor other views. Regeneration
+updates value/geometry and preserves local presentation. Properties uses the
+shared internal OK/Cancel window.
+
+During the command, candidates are restricted to the edited Drawing view.
+Clicking the same source dimension in another view cannot add it. Regressions
+cover this isolation, front/reverse/oblique/side views, rotated subassembly,
+normal persistence and identical filtering in View and PDF print rendering.
+
+Assembly annotation collection separates actual source items from auxiliary
+references in the conversion scene. It avoids duplicate axes and preserves
+transformed dimension text positions. Tests cover full packet projection, not
+only individual source coordinates.
+
+## Interaction and exports (2026-09-10)
+
+Show/Erase has an eye-and-dimension icon. Both orders work: select view →
+Show/Erase, or Show/Erase → select view. The window opens immediately. Its top
+reference field identifies the target view; clicking arms the green outline,
+and selecting another view replaces the target. Short MMB ends reference entry
+without deleting its value or confirming. SHOW/ERASE buttons mark the active
+mode green. Initially, changing targets discarded the previous view's pending
+selection and OK committed only the current view; the later multi-view update
+below supersedes that behavior. OK is disabled without a target; the tool is
+unavailable when no views exist.
+
+Part Drawings offer original Part dimensions. Assembly Drawings collect axes
+from inserted Parts and Assembly-owned dimensions, such as placement angle;
+inserted Parts' Sketch dimensions are not propagated. Transforms respect exact
+occurrence, nesting, Mirror and Pattern; collection performs no geometry calculation.
+
+After confirmed selection, purple handles mark movable view/section labels and
+dimensions. Fixed title-block items, axes and auxiliary geometry retain ordinary
+highlighting without purple handles. An axis center point is a printed mark,
+not a drag handle.
+
+**Fit View** centers the paper and fits its height with a 24 px margin. In a
+narrow window, paper width may extend beyond the View.
+
+**File → Save As → DXF – current sheet** saves the active sheet in mm, including
+format, title block, text, geometry and visible annotations. It uses shared
+print rendering without selection, previews or working guides. Text stays text;
+curves become segments, fills become HATCH/SOLID. Embedded images and shading
+become individual color fills, requiring no image sidecars. Export changes
+neither the document nor its path.
+
+**File → Save As → JPEG – current view** saves the current View in Part,
+Assembly and Drawing, retaining crop, orientation, zoom and visible state,
+including selection. Resolution matches framebuffer/canvas; surrounding panels
+are excluded. Drawing JPEG preserves the working screen appearance, while
+DXF/PDF uses print rendering. JPEG quality is 95.
+
+## Shared spatial frame (2026-09-10)
+
+`ModelEnvelope` carries a local origin, three axes and geometric bounds in that
+basis. Orientation follows solved object placement, independent of the camera.
+Frames come from persisted viewer/reference packets without OCCT traversal.
+They apply to history features, construction objects, Sketches and bodies.
+A Sketch may have zero thickness, a point zero size and an axis only length;
+a frame does not require volume. Without calculated geometry, a local basis
+exists but dimensions are not invented.
+
+Calculated component snapshots retain frames; the Assembly transforms origins
+and directions through exact occurrence paths. Copy frames follow Mirror/Pattern.
+This establishes data for large Assembly hierarchies; it introduces neither a
+new spatial index nor rendering optimization.
+
+In Part/Assembly, **View → Dimension spatial frame** shows the selected object's
+working box. Parametric dimensions default to an 8 model-mm offset. Their
+context menu includes **Dimension Properties…**. Purple text handles move text,
+linear handles change offset and angular handles change radius. Dragging saves
+presentation on release; Esc cancels. Measuring references, values, constraints
+and model geometry remain unchanged.
+
+Drawing purple handles belong to movable annotations, including section arrow
+ends. Geometry fixed to a view receives no independent handle.
+
+`zima_cpp_dimension_layout_contract_tests` checks local dimensions of a rotated
+box, repeated occurrences, mirroring, measurement/presentation separation,
+Part/Assembly persistence and independent Drawing view overrides. It also checks
+real 3D drag events, cancellation and shared Properties.
+
+## Plane, handle and axis-size fixes (2026-09-10)
+
+Radius/diameter retain the actual circle plane, including Sketches in a rotated
+Body and fillet previews. Perpendicular projection-plane switching applies to
+linear dimensions; radial dimensions cannot tilt out of their circle plane.
+
+Sketcher uses the same purple handles as Part/Assembly: at arrows and the middle
+of the text shelf. Handles draw above geometry points and remain visible when
+coincident. Presentation is stored directly in the Sketch. In an embedded
+profile draft it belongs to that draft; standalone Sketch editing saves it with
+Sketch changes. Canceling subsequently opened Properties does not undo already
+saved Sketch changes. Sketch serialization preserves presentation for Drawings.
+
+Axis display length does not enlarge its owner's existing geometric box. Only
+a standalone axis without a geometric envelope derives bounds from its length.
+Drawing axes use actual projected minima/maxima of their auxiliary box, extended
+2 mm on paper at each end. Extents are not reflected about the origin: 0–40 mm
+at 1:1 gives −2–42 mm, not −42–42 mm. This also applies to main axes. An axial
+view produces a cross spanning those bounds; other directions produce a segment.
+
+### Free shortened-radius text position (2026-09-10)
+
+In radius mode without a line to the center, the leader starts at the measured
+arc's arrow and ends at the text shelf. The purple shelf-center handle moves
+continuously between arc and center, through the center beyond the axis, or
+outside the arc. Text position changes neither arrow measurement point nor
+radius value. In isometric views, text/shelf remain horizontal. Sketcher, Part,
+Assembly and Drawing share this rendering.
+
+Switching shortened-radius mode preserves circle plane and radial direction of
+the arrow/leader. Any stored text component perpendicular to the plane is
+removed. Dragging gives a signed position along the projected radius without
+inside/outside restrictions; the horizontal isometric shelf attaches to it.
+
+### Top text layer for dimensions (2026-09-10)
+
+Dimension values draw in a separate layer above geometry, axes, extension lines
+and hatching. A borderless mask surrounds the entire value, including R/Ø and
+unit, with 0.5 mm padding on each side in Drawings. It uses background color on
+screen and paper color in print/PDF. 3D View converts padding using screen DPI.
+
+Text follows stable stored dimension order; later text/masks cover earlier ones.
+Purple selection handles remain above the text layer.
+
+### Multiple views, hole crosses and dimension interaction (2026-09-10)
+
+Short MMB in Show/Erase ends item selection for the current view and arms the
+next-view field. Pending visibility remains in preview when switching views.
+Clicking the field also changes the target directly. If the field is already
+armed, short MMB ends reference entry and restores item selection in that view.
+
+OK or MMB double-click commits all pending views together and closes. Cancel
+discards every view's changes. Switching views, short clicks and MMB dragging
+never commit intermediate changes. There is no Apply. The same double-click
+over the Drawing canvas confirms View/Sheet Properties through shared
+`PropertiesSubWindow` behavior.
+
+An axial cylinder marker has four arms 90° apart and a center point. All arms
+belong to one reference: selection, SHOW and ERASE affect the whole cross.
+Two holes have separate crosses. Circular Extrusion profile axes use the
+individual profile radius, not the full Extrusion width. For a Ø10mm hole at
+1:1, each arm extends 7mm from center: 5mm radius plus 2mm paper extension.
+Envelope/directions follow the exact Assembly occurrence, Mirror and Pattern.
+
+A Sketch axis inherits the actual Sketch curve/point envelope before Drawing
+annotation selection; its working 100mm display length does not enlarge it.
+The list distinguishes Sketch, Origin and cylinder axes. **Regenerate** loads
+changed source axis/plane data into an existing saved Drawing.
+
+Dimension text uses `10mm`, `R10mm`, `Ø10mm`. Explicit custom text is preserved.
+View, Drawing and export share this format.
+
+Dragging shares screen-to-dimension-plane conversion. For an edge-on plane,
+movement along its visible direction remains possible. A dimension hides only
+when its measuring line itself projects to a point. Shortened-radius handles
+remain draggable after switching mode with RMB. Drawing handles modify only
+that view's presentation; model dimensions remain unchanged.
+
+Regressions cover individual arms of two hole crosses, XZ Sketch normals,
+repeated text/arrow-handle dragging, RMB cycling, combined OK/Cancel across two
+views and MMB confirmation of Sheet/View Properties. Optional
+`ZIMA_TEST_ANNOTATION_PART` checks a reference Part with two Ø10mm holes in XZ
+and its neighboring `.drwz`; files are read only and interaction uses a working
+copy of the document.
+
+## Shared properties and radius (2026-09-10)
+
+Dimension Properties combines text, tolerances and placement. Drawing overrides
+remain view-local. The existing text point moves the shelf; the radius arrow
+point rotates presentation along the circle in its plane. Three RMB modes
+follow `koty.bmp` and share the Sketcher/3D View implementation.

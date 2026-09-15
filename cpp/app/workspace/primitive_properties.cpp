@@ -14,6 +14,12 @@ using namespace workspace_detail;
 void AssemblyWorkspaceWindow::show_primitive_properties(
     zima::document::FeatureKind feature_kind,
     const std::string& container_id) {
+    if (feature_kind == zima::document::FeatureKind::Holes) {
+        const auto* part = workspace_.open_part(workspace_.active_document_id());
+        const auto* feature = part ? part->session.document().find_container(container_id) : nullptr;
+        if (feature) show_sketch_properties(feature->holes.sketch_id, true);
+        return;
+    }
     if (feature_kind == zima::document::FeatureKind::ShaftThread) {
         show_shaft_thread_properties(container_id);return;
     }
@@ -407,6 +413,13 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             }
         }, this, std::move(assembly_targets), std::move(selected_targets),
         assembly_cut);
+    if (profile_feature && property_owned_sketch_draft_) {
+        dialog->set_profile_plane_selection(*property_owned_sketch_draft_, [this](auto plane, bool automatic) {
+            if (!property_owned_sketch_draft_) return;
+            property_owned_sketch_draft_->plane = plane;
+            property_owned_sketch_draft_->plane_auto = automatic;
+        });
+    }
     primitive_parameter_owner_id_ = initial.id;
     // Extrusion/Revolution OK always means validate + calculate. Their owned
     // Sketch is stored separately from the parameter object, so numeric
@@ -457,7 +470,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             preview.placement.references.end(), [](const auto& reference) {
                 return !reference.owner_id.empty();
             });
-        if (first_reference != preview.placement.references.end() &&
+        if (sketch->plane_auto && first_reference != preview.placement.references.end() &&
             first_reference->supports_offset) {
             sketch->plane = zima::sketcher::SketchPlane::XZ;
         }
@@ -1290,7 +1303,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                     [](const auto& reference) {
                         return !reference.owner_id.empty();
                     });
-                if (first_reference !=
+                if (draft_sketch.plane_auto && first_reference !=
                         pending_feature.placement.references.end() &&
                     first_reference->supports_offset) {
                     draft_sketch.plane = zima::sketcher::SketchPlane::XZ;

@@ -1,88 +1,78 @@
-# Příkazy samostatné vrtací špičky
+# Standalone drill-point commands
 
-`drill_point.create/get/set` ovládají současný nativní **DrillPoint**.
-Jedna operace odebere vrtací špičky z jednoho nebo více kruhových den otvorů;
-každé dno poskytne vlastní průměr, střed a směr do materiálu. Vrcholový úhel
-je společný. GUI Vlastnosti a CLI používají `commit_drill_point`.
+`drill_point.create/get/set` manages current native **DrillPoint**. One operation
+subtracts tips from one or more circular hole bottoms, each supplying its diameter,
+center, and direction into material. Included angle is shared. GUI Properties and
+CLI use `commit_drill_point`.
 
-## Příklad
+## Example
 
-Původní reference dna získáte z dat modelu (`reference.list/get`). Je nutné
-zadat konkrétní ID vlastníka a sémantický klíč; názvy položek stromu ani
-pořadí ploch nejsou identifikátory.
+Obtain original bottom references from `reference.list/get`, supplying exact owner
+ID and semantic key. Tree labels and face order are not identifiers.
 
 ```json
-{"command":"drill_point.create","arguments":{"faces":[{"owner":"ID-OTVORU","key":"KLIC-PUVODNIHO-DNA"}],"angle_degrees":118}}
-{"command":"drill_point.get","arguments":{"container":"ID-SPICKY"}}
-{"command":"drill_point.set","arguments":{"container":"ID-SPICKY","angle_degrees":120}}
-{"command":"drill_point.set","arguments":{"container":"ID-SPICKY","faces":[{"owner":"ID-JINEHO-OTVORU","key":"KLIC-PUVODNIHO-DNA"}]}}
+{"command":"drill_point.create","arguments":{"faces":[{"owner":"OPENING-ID","key":"ORIGINAL-BOTTOM-KEY"}],"angle_degrees":118}}
+{"command":"drill_point.get","arguments":{"container":"TIP-ID"}}
+{"command":"drill_point.set","arguments":{"container":"TIP-ID","angle_degrees":120}}
+{"command":"drill_point.set","arguments":{"container":"TIP-ID","faces":[{"owner":"OTHER-OPENING-ID","key":"ORIGINAL-BOTTOM-KEY"}]}}
 ```
 
-`create` vyžaduje neprázdné pole `faces`. `set` vyžaduje `container` a alespoň
-jeden měněný parametr. Volitelné `name` je neprázdný název; `document`
-identifikuje aktivní Part. `get` vrací ID dokumentu, kontejneru, prvku a
-tělesa, název, úhel, všechny reference, zámky a revizi, bez výpočtu geometrie.
+`create` requires nonempty `faces`; `set` requires `container` and at least one changed
+parameter. Optional `name` is nonempty; `document` identifies the active Part. `get`
+returns document/container/feature/body IDs, name, angle, references, locks, and revision
+without geometry calculation.
 
-`angle_degrees` je JSON číslo od 1 do 179 stupňů, výchozí 118. Reference
-obsahuje textové `owner` a `key`, volitelně prázdné `instance_path`. Příkaz
-přijímá lokální původní plochy před daným prvkem. Každé dno smí být v seznamu
-jen jednou, maximálně je podporováno 10000 referencí. Vstup neobsahuje
-náhradní analytickou geometrii.
+`angle_degrees` is a JSON number from 1 to 179, default 118. References have textual
+`owner`/`key` and optional empty `instance_path`. Only local original faces preceding
+the feature are accepted, each bottom once, at most 10000 references. Input includes
+no substitute analytic geometry.
 
-`faces` při editaci nahradí celý seznam: umožňuje přidávání, výměnu,
-přeuspořádání a odebírání den. Prázdný seznam u existujícího prvku zachová
-jeho identitu a vypne úběr, stejně jako odebrání všech den ve Vlastnostech.
-Vytvoření prázdného prvku se odmítá. Neplatná vybraná plocha nezanechá
-částečný úběr pouze na ostatních dnech; celé potvrzení se odmítne.
+Editing `faces` replaces the complete list, supporting addition, replacement, reordering,
+and removal. Empty lists on existing features preserve identity and disable removal,
+as clearing all bottoms in Properties does. Empty creation is rejected. Any invalid
+face rejects the whole commit rather than cutting only valid bottoms.
 
-Zámek vrcholového úhlu používá stejný klíč `angle` jako Vlastnosti. Odvozené
-těleso se přímo neupravuje; při editaci musí být aktivní těleso špičky.
-Úspěšná změna má jeden krok Undo, shodné nastavení nepřepočítává model.
-Náhledové změny v GUI se ukládají až po OK, Cancel je zahodí.
+Included-angle lock uses Properties key `angle`. Derived bodies are not directly
+editable; editing requires the tip's Body active. Success creates one Undo step;
+identical settings do not recalculate. GUI preview changes commit only on OK; Cancel discards them.
 
-## Identity vytvořené geometrie
+## Generated geometry identity
 
-Identita plochy/obvodové hrany vrtací špičky obsahuje jejího vlastníka,
-sémantickou roli a přesnou původní referenci dna. Nevychází z pořadí den
-ani z pořadí nalezených OCCT ploch. Odebrání prvního dna proto nepřejmenuje
-špičku druhého dna. Stejné pravidlo se používá u koncových ploch Sweep.
+Tip face/rim-edge identities contain owner, semantic role, and exact original bottom
+reference, never bottom order or OCCT enumeration. Removing the first bottom therefore
+does not rename the second tip. Sweep end faces use the same principle.
 
-Klíče mají tvar `drill-point:ROLE:from:DELKA:VLASTNIK:KLIC-DNA`.
-`DELKA` je délka ID vlastníka v bajtech; klíč dna může sám obsahovat
-oddělovače. Role je `side`, `base` nebo `base-circle`.
-`kernel::drill_point_source` obnoví rodičovskou referenci z uloženého klíče
-bez OCCT. Číselné klíče založené na pořadí se při novém výpočtu nevytvářejí.
+Keys are `drill-point:ROLE:from:LENGTH:OWNER:BOTTOM-KEY`. `LENGTH` is owner-ID byte
+length; bottom keys may contain separators. Roles are `side`, `base`, or `base-circle`.
+`kernel::drill_point_source` recovers parent references without OCCT. New calculations
+do not create order-based numerical keys.
 
-Struktura nativních dokumentů ani jejich přípony se nemění. Start šablony
-neobsahují vrtací špičky a nepotřebují převod geometrie. Regenerace při ztrátě
-zdrojů používá dosavadní pravidla; explicitní editace přijímá jen dostupná
-a platná dna. Samostatný Hole a další operace zůstávají v celkovém plánu CLI.
+Native structure/extensions remain unchanged. Start templates contain no drill tips
+and need no geometry conversion. Missing-source regeneration retains existing rules;
+explicit editing accepts only available valid bottoms. Standalone Hole and other
+operations remain in the broader CLI plan at this stage.
 
-## Ověření
+## Verification
 
-Modelový test používá dvě slepé díry různých průměrů. Úběr porovnává se
-součtem objemů kuželů a kontroluje body kuželových ploch, původ geometrie,
-změnu úhlu, pořadí/odebrání/vyprázdnění seznamu, zámky, atomické chyby,
-Undo/Redo a nativní uložení se studeným výpočtem. První běh prošel **1/1**
-(0,47 s), `build/drill-point-command-model-build.log` a
-`build/drill-point-command-model-tests.log`.
+Model tests use two blind holes of different diameters, comparing removed volume with
+summed cone volumes. They check cone-surface points, ancestry, angle changes, list
+reordering/removal/emptying, locks, atomic errors, Undo/Redo, and native save with fresh
+calculation. Initial run passed **1/1** (0.47 s):
+`build/drill-point-command-model-build.log`, `build/drill-point-command-model-tests.log`.
 
-Procesní a GUI testy přidávají skutečnou CLI tvorbu/editaci, čtení uloženého
-modelu, přechod do Vlastností, OK/Cancel a odebrání jednoho dna v dialogu.
+Process/GUI tests add actual CLI creation/editing, saved-model reading, Properties
+entry, OK/Cancel, and removal of one bottom in the dialog.
 
-Sestavení obou programů a související sada prošly **11/11** (88,78 s),
-`build/drill-point-command-full-build.log` a
-`build/drill-point-command-related-tests.log`. Zahrnují základní geometrii,
-3D tažení, stávající otvory/závity, GUI, překlady, zámky a skutečné CLI.
-Otisk výpočtu špičky nově zahrnuje verzi její topologické identity, aby
-explicitní výpočet nemohl převzít odvozenou cache s pořadovými klíči.
-Zobrazení uloženého modelu tím nevyvolává výpočet.
+Both programs built and related tests passed **11/11** (88.78 s):
+`build/drill-point-command-full-build.log`, `build/drill-point-command-related-tests.log`.
+Coverage includes base geometry, 3D Sweeps, existing holes/threads, GUI, translations,
+locks, and actual CLI. Calculation fingerprints now include topology-identity version
+so explicit calculation cannot adopt derived cache with order-based keys. Displaying
+saved models triggers no calculation.
 
-
-Závěrečné sestavení obou programů a úplná sada prošly **97/97** (458,94 s),
-`build/drill-point-command-final-build.log` a
-`build/drill-point-command-full-tests.log`, bez opakování testů. Dodatečný
-modelový scénář s dnem vytvořeným současným `opening.create` prošel **1/1**
-(0,53 s), `build/drill-point-opening-build.log` a
-`build/drill-point-opening-tests.log`. Kontroluje skutečný úběr a vazbu nové
-kuželové plochy na původní dno Otvoru. Po úplném běhu se změnil pouze test.
+Final build/full suite passed **97/97** (458.94 s) without reruns:
+`build/drill-point-command-final-build.log`, `build/drill-point-command-full-tests.log`.
+An additional model scenario using a bottom from current `opening.create` passed
+**1/1** (0.53 s): `build/drill-point-opening-build.log`, `build/drill-point-opening-tests.log`.
+It checks actual removal and the new cone's parent link to the original Opening
+bottom. Only tests changed after the full run.

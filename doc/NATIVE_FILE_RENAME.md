@@ -1,147 +1,135 @@
-# Přejmenování nativních souborů
+# Renaming native files
 
-## Příkaz a společné chování (2026-09-14)
+## Command and shared behavior (2026-09-14)
 
-`rename_file name [document]` přejmenuje uložený soubor otevřeného Partu,
-Assembly nebo Drawing. `document` je stabilní ID; výchozí je aktivní dokument.
-`name` je nový název souboru ve stejném adresáři. Chybějící přípona se doplní,
-změna nativního typu se odmítne. Příkazy zůstávají anglické, zprávy jsou
-přeložené do cs/en/de/fr/ru.
+`rename_file name [document]` renames the saved file of an open Part, Assembly, or
+Drawing. `document` is a stable ID, defaulting to the active document. `name` is the
+new filename in the same directory. A missing extension is appended; changing native
+type is rejected. Commands remain English; messages are localized in cs/en/de/fr/ru.
 
 ```json
-{"command":"rename_file","arguments":{"name":"nový název.prtz","document":"existing-document-id"}}
+{"command":"rename_file","arguments":{"name":"new name.prtz","document":"existing-document-id"}}
 ```
 
-GUI Přejmenovat používá stejnou `FileRenameJob` jako CLI a nadále jedno
-vnitřní okno PropertiesSubWindow s OK/Zrušit a společným potvrzením prostředním
-tlačítkem. Neplatný název se zobrazí v okně; Zrušit nic nezmění.
-Přejmenování ani mazání aktuálního souboru nesmí přerušit jiné otevřené
-editační okno, včetně vlastností materiálu, ani aktivní skicování či výběr.
+GUI Rename uses the same `FileRenameJob` as CLI and one internal PropertiesSubWindow
+with OK/Cancel and shared middle-button confirmation. Invalid names are reported
+inside the window; Cancel changes nothing. Renaming and current-file deletion must
+not interrupt other editing windows, including material Properties, active Sketcher,
+or selection.
 
-Úspěšný výsledek obsahuje `document`, `from`, `path`, `changed`,
-`updated_paths` a `recovery_paths`. Při chybě může obsahovat `failed_path`.
-Stejný název vrací úspěch s `changed=false`. Operace není modelovým Undo:
-následné Undo rozměru nesmí vrátit neexistující starou cestu.
+Successful results contain `document`, `from`, `path`, `changed`, `updated_paths`,
+and `recovery_paths`; errors may add `failed_path`. Identical names succeed with
+`changed=false`. This is not model Undo: later dimension Undo must not restore an
+obsolete nonexistent path.
 
-## Identity, neuložená práce a závislosti
+## Identities, unsaved work, and dependencies
 
-`document::FileRelocation` obsahuje stávající ID a původní/novou absolutní
-cestu. `FileRelocationEdits` připraví všechny nové řetězce a cesty předem.
-`apply` provede výměnu bez další alokace a jednou aktualizuje runtime generace.
+`document::FileRelocation` contains existing ID and old/new absolute paths.
+`FileRelocationEdits` prepares all replacement strings/paths in advance. `apply`
+swaps them without further allocation and updates runtime generations once.
 
-PartSession, AssemblySession a DrawingState zahrnou aktuální stav i celou
-historii Undo/Redo do společné krátkodobé dávky. Zachovají modelové revize,
-dirty stav, rozměrové identifikátory, ID výskytů, reference a vypočtené těleso.
-Platné sdílené zdrojové snímky Partu se kvůli přejmenování nevytvářejí znovu.
-Dávka vzniká až po pracovní I/O části na vlákně vlastnícím Workspace.
+PartSession, AssemblySession, and DrawingState include current state and all Undo/Redo
+history in a shared short-lived batch. They retain model revisions, dirty state,
+dimension IDs, occurrence IDs, references, and calculated bodies. Valid shared Part
+snapshots are not recreated merely for renaming. The batch is prepared after worker
+I/O on the Workspace-owning thread.
 
-- Part mění vlastní název. Externí skicové reference nesou ID dokumentů
-  a výskytů. Importní původ STEP/DXF se nepřepisuje jako nativní závislost.
-- Assembly mění zdrojové cesty bezprostředních komponent. Zachovává jejich
-  aliasy, výskyty, umístění, vazby a sdílená tělesa.
-- Drawing mění zdroj dokumentu, zdroje pohledů, zdroje kusovníku,
-  zdrojový název a `file_stem`. Ruční obsah a jiné modely zůstávají stejné.
+- Part updates its own name. External Sketch references carry document/occurrence IDs;
+  STEP/DXF import provenance is not rewritten as a native dependency.
+- Assembly updates immediate-component source paths, preserving aliases, occurrences,
+  placement, mates, and shared bodies.
+- Drawing updates document/view/BOM sources, source name, and `file_stem`. Manual
+  contents and other models remain unchanged.
 
-Reference se určují ID. Rozpor cesty a ID se odmítne; chybějící ID se
-nedohaduje z názvu. Relativní cesta patří k vlastnímu nativnímu dokumentu.
+References are resolved by ID. Path/ID conflicts are rejected; missing IDs are not
+guessed from names. Relative paths belong to their owning native document.
 
-Soukromé `PreparedNativeDocument` přepisují pouze uložené snímky.
-Přejmenování neukládá rozpracované parametry či geometrii otevřených dokumentů.
-Jejich metadata aktualizuje až po úspěchu celé souborové dávky.
+Private `PreparedNativeDocument` rewrites only saved snapshots. Renaming does not
+save pending parameters or geometry of open documents. Their metadata is updated
+only after the complete file batch succeeds.
 
-Výkres stejného základu názvu se automaticky přejmenuje pouze tehdy, pokud
-skutečně patří přejmenovávanému Partu nebo Assembly. U otevřeného výkresu
-rozhoduje jeho aktuální vlastník v paměti; samotná shoda názvu nestačí.
+A same-stem drawing is automatically renamed only if it actually belongs to the
+renamed Part/Assembly. An open drawing's current in-memory owner is authoritative;
+a matching filename alone is insufficient.
 
-Závislosti zahrnují aktuální soubory `.asmz` a `.drwz` v adresáři zdroje,
-v pracovním adresáři včetně podadresářů a otevřené uložené Assembly/Drawing
-mimo ně. Operace nehledá na celém disku; neznámé soubory mimo tento rozsah
-nelze automaticky přepsat. Číslované archivy se nepřejmenovávají.
-Symbolické souborové odkazy se do prohledávání nezařazují.
+Dependency scope includes current `.asmz`/`.drwz` files in the source directory,
+the working directory and subdirectories, and open saved Assembly/Drawing documents
+outside them. It does not search the entire disk or update unknown out-of-scope files.
+Numbered archives are not renamed. File symlinks are excluded from traversal.
 
-## Příprava, zveřejnění a chyby
+## Preparation, publication, and errors
 
-`prepare_document_file_rename` zachytí identity otevření, revize, generace,
-cesty a rozměrové alokace. `stage` může běžet na pracovním vlákně bez
-ukazatelů na živé dokumenty. Přečte uložené soubory, prověří identity,
-připraví potřebné přepsané nativní soubory a ověří jejich nové načtení.
-Originály zůstávají nedotčené.
+`prepare_document_file_rename` captures opening identities, revisions, generations,
+paths, and dimension allocations. `stage` may run on a worker without live-document
+pointers. It reads saved files, validates identities, prepares rewritten native files,
+and verifies reopening. Originals remain untouched.
 
-`commit` znovu kontroluje živé dokumenty, velikosti/časy vstupních souborů,
-množinu nalezených závislostí a dostupnost cílů. Nečitelný současný nativní
-dokument se nesmí tiše přeskočit. Konflikt identit přejmenovávaných dokumentů
-nebo konflikt až ve starším Undo stavu odmítne dávku před první změnou originálu.
+`commit` rechecks live documents, input sizes/times, discovered dependency sets, and
+destination availability. Unreadable current native documents cannot be silently
+skipped. Identity conflicts in renamed documents or older Undo states reject the
+batch before any original changes.
 
-Před zveřejněním se originály přesunou do vlastních dočasných záloh.
-Pak se připravené soubory přemístí na cílové cesty. Teprve při úplném úspěchu
-se vymění živá metadata, zachová kamera a aktualizují názvy tabů.
-GUI ukládání i titulky tabů používají UTF-8 také na Windows.
+Before publication, originals move to transaction-owned temporary backups. Prepared
+files then move to destinations. Only full success swaps live metadata, preserves
+camera, and updates tab titles. GUI saving and tab titles use UTF-8 on Windows too.
 
-Při chybě se již zveřejněné soubory a originály vracejí zpět. Pokud se
-vše podaří obnovit, výsledek nehlásí změnu. Když selže i obnova, operace
-vrátí `file_rename_recovery_required`, přesné zbývající cesty a adresáře
-s daty pro obnovu. Poslední zachované kopie se v takovém případě nemažou.
+On failure, published files and originals are restored. Complete recovery reports
+no change. If recovery also fails, return `file_rename_recovery_required` with exact
+remaining paths and recovery-data directories. Last preserved copies are not deleted.
 
-Běžné chyby mají stabilní kódy: `invalid_filename`,
-`document_type_mismatch`, `document_not_found`, `path_required`,
-`destination_exists`, `destination_open`, `stale_document`, `stale_file`,
-`duplicate_document_identity` a `file_io_error`. Další validační chyby
-se vracejí jako `rename_rejected`. Otevřené vlastnosti chrání
-`editing_in_progress` ještě před I/O.
+Stable error codes include `invalid_filename`, `document_type_mismatch`,
+`document_not_found`, `path_required`, `destination_exists`, `destination_open`,
+`stale_document`, `stale_file`, `duplicate_document_identity`, and `file_io_error`.
+Other validation failures return `rename_rejected`. Open Properties triggers
+`editing_in_progress` before I/O.
 
-Dočasné adresáře `.zima-rename-<ID>` patří jediné transakci a úklid
-ověřuje jejich rodiče i přesný název. Nejde o povinné úložiště pro otevření
-dokumentu. Vícesouborové zveřejnění není atomická transakce operačního systému
-proti pádu procesu či souběžnému zásahu cizí aplikace; při neúplné obnově
-musí zůstat výslovně dostupná data pro ruční zotavení.
-Na Windows je přejmenování pouze velikosti písmen odmítnuto jako obsazený cíl.
+Temporary `.zima-rename-<ID>` directories belong to one transaction; cleanup verifies
+parent and exact name. They are not required storage for reopening documents.
+Multi-file publication is not an OS-atomic transaction against process crashes or
+concurrent external changes; incomplete recovery must explicitly retain manual-recovery
+data. On Windows, case-only renaming is rejected as an occupied destination.
 
-Operace nevolá OCCT, neřeší vazby a nemění schéma nativních souborů.
-Start šablony zůstávají platné. Veškerá povinná data jsou stále v nativních
-`.prtz`, `.asmz` a `.drwz`.
+The operation invokes no OCCT or mate solving and changes no native schema. Start
+templates remain valid. Required data remains in native `.prtz`, `.asmz`, and `.drwz`.
 
-## Ověření
+## Verification
 
-`zima_cpp_file_relocation_state_tests` ověřuje datovou dávku pro všechny
-tři typy, relativní reference, skutečné vypočtené těleso, sdílení,
-historické konflikty a zachování neuložených parametrů.
+`zima_cpp_file_relocation_state_tests` checks batches for all three types, relative
+references, actual calculated bodies, sharing, historical conflicts, and unsaved
+parameter preservation.
 
-`zima_cpp_file_rename_command_tests` ověřuje fyzické přejmenování,
-skutečné zavřené/vnořené závislosti i otevřené dokumenty mimo pracovní
-adresář, výkres a kusovník, stejný název, Unicode, změnu vstupů během I/O,
-identity a zachování cache/Undo/Redo. Na Windows zamyká originál,
-pozdější závislost i připravený soubor a ověřuje obnovu původních bajtů.
+`zima_cpp_file_rename_command_tests` checks physical renaming, real closed/nested
+dependencies, open documents outside the working directory, drawings/BOMs, identical
+names, Unicode, input changes during I/O, identities, and cache/Undo/Redo preservation.
+On Windows it locks an original, later dependency, and staged file, verifying restoration
+of original bytes.
 
-Procesový CLI test používá skutečné `.prtz`, `.asmz` a `.drwz`.
-GUI ověřuje chybný název, Zrušit, potvrzení, následné příkazové přejmenování,
-skutečné zdrojové reference, modelovou historii, kameru, titulky tabů
-a Uložit po přejmenování všech tří typů s českými znaky.
+Actual CLI tests use `.prtz`, `.asmz`, and `.drwz`. GUI checks invalid names, Cancel,
+confirmation, later command renaming, actual source references, model history,
+camera, tab titles, and Save after renaming all three types with Czech characters.
 
-Závěrečné sestavení Windows Release prošlo pro obě aplikace a všechny
-testovací cíle. Ověřeno je všech **13 dotčených testů**, postupně v několika
-bězích; nejde o novou úplnou regresi všech 154 testů.
+Final Windows Release built both applications and all targets. All **13 affected
+tests** passed across several runs; this is not a new full regression of all 154 tests.
 
-- První cílený běh: **11/13 za 161,47 s**
-  (`build/native-file-rename-targeted-tests.log`). Prošly modelové, procesní
-  CLI, katalogové, překladové a souborové testy včetně obnovy při selhání.
-  Dvě chyby byly v GUI přípravcích: číselný argument místo výrazu a
-  nedokončené Vlastnosti vložení komponenty.
-- Po opravě vstupu prošel test GUI konzole za **116,32 s**
+- Initial targeted run: **11/13 in 161.47 s** (`build/native-file-rename-targeted-tests.log`).
+  Model, actual CLI, catalog, translation, and file/recovery tests passed. Two GUI
+  fixtures failed: a numerical argument instead of an expression, and unfinished
+  component-insertion Properties.
+- After correcting input, GUI console passed in **116.32 s**
   (`build/native-file-rename-ui-tests.log`).
-- Doplněná kontrola neplatné zavřené závislosti prošla v testu přejmenování
-  za **1,63 s** (`build/native-file-rename-isolated-tests.log`).
-- Konečný test pracovního okna prošel **1/1 za 105,84 s** bez zásahu člověka
+- Added invalid-closed-dependency checks passed in **1.63 s**
+  (`build/native-file-rename-isolated-tests.log`).
+- Final workspace-window test passed **1/1 in 105.84 s** unattended
   (`build/native-file-rename-unattended-tests.log`).
 
-Starší společný adresář GUI přípravků obsahoval i nepodporované dokumenty
-z jiných běhů. Test pracovního okna nyní používá vlastní podadresář.
-Očekávané otázky při zavírání a mazání obslouží opakovaný časovač podle
-viditelného okna. Nečekané potvrzení po 10 sekundách vypíše do logu,
-odmítne a označí běh za neúspěšný. Úklid pomocných oken výslovně zahazuje
-pouze jejich testovací dokumenty. Běžné potvrzení uživatelského ukládání
-se nemění. Běhy, které vyžadovaly ruční kliknutí, nejsou úspěšným ověřením.
+The older shared GUI fixture directory contained unsupported documents from other
+runs. Workspace testing now uses its own subdirectory. A recurring timer handles
+expected close/delete questions based on the visible window. Unexpected confirmation
+after 10 seconds is logged, rejected, and marks the run failed. Helper-window cleanup
+explicitly discards only test documents. Ordinary user-save confirmation is unchanged.
+Runs requiring manual clicks do not count as successful verification.
 
-V jednom meziběhu selhala dřívější GUI kontrola úhlové kóty při výběru dvou
-úseček. Konečný kompletní test pracovního okna touto kontrolou prošel;
-případná opakovaná nestabilita tohoto scénáře tím není samostatně vyloučena.
-Poslední sestavení: `build/native-file-rename-unattended-build.log`.
+One intermediate run failed an older angular-dimension GUI check selecting two
+segments. The final complete workspace-window test passed it; this does not separately
+rule out recurring instability of that scenario.
+Latest build: `build/native-file-rename-unattended-build.log`.

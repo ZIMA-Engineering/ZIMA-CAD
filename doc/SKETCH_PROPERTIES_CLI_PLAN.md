@@ -1,98 +1,92 @@
-# Doplnění Vlastností skici do společné příkazové vrstvy
+# Adding Sketch Properties to the shared command layer
 
-## Zjištění auditu
+## Audit findings
 
-GUI `SketchPropertiesDialog` mění název, výchozí rovinu XY/XZ/YZ,
-odsazení pracovní roviny, umístění a původní reference. Části jsou
-v `cpp/app/sketch_properties_dialog.cpp` a potvrzení v
+GUI `SketchPropertiesDialog` edits name, base XY/XZ/YZ plane, work-plane offset,
+placement, and original references. Its implementation is in
+`cpp/app/sketch_properties_dialog.cpp`, with commit handling in
 `cpp/app/workspace/sketch_properties.cpp`.
 
-CLI má tvorbu skici, úpravy geometrie a vlastnosti profilových prvků.
-Chybí odpovídající úplná operace Vlastností samostatné skici.
-Návrh doplní `sketch.set` a přiřazení/odebrání referencí; používá
-již existující transakce a sdílená pravidla, bez volání widgetů z CLI.
+At the time of this audit, CLI supports Sketch creation, geometry editing, and
+profile-feature properties, but lacks a complete standalone Sketch Properties
+operation. The proposal adds `sketch.set` and reference assignment/removal using
+existing transactions and shared rules, without calling widgets from CLI.
 
-## Part: existující datový model
+## Part: existing data model
 
-Samostatnou skici vlastní HistoryContainer druhu Sketch.
-Umístění již má trvalého vlastníka. Nové a editované hodnoty se potvrdí
-v jednom kroku se zachováním skici, geometrických identit a zámků.
-GUI a CLI budou používat společnou přípravu a potvrzení. Výsledek
-se ověří i následným vytažením, Undo/Redo a nativním souborem.
-Formát Partu se kvůli této části nemění.
+A standalone Sketch belongs to a Sketch HistoryContainer. Placement already has
+a persisted owner. New and edited values will be committed in one step while
+preserving the Sketch, geometry identities, and locks. GUI and CLI will share
+preparation and commit. Verification will include subsequent extrusion, Undo/Redo,
+and native files. This part requires no Part-format change.
 
-## Assembly: schválený návrh
+## Assembly: approved proposal
 
-Uživatel výslovně odpověděl **„Ano, schvaluji tuto změnu“** na otázku
-o trvalém kontejneru umístění samostatných skic v Assembly přímo do `.asmz`,
-zachování solveru, přesných cest výskytů, explicitní regenerace a
-aktualizaci startovní šablony. Toto schválení platí pro níže uvedenou změnu.
+The user explicitly approved storing standalone Assembly Sketch placement containers
+directly in `.asmz`, preserving the solver, exact occurrence paths, and explicit
+regeneration, and updating the start template. Approval covers the change below.
 
+At the time of the audit, the GUI callback stores `committed_placement` for Part
+and Assembly-owned cuts but discards it for standalone Assembly Sketches.
+`AssemblyDocument` stores Sketches without placement containers, and
+`resolve_constructions` solves only construction objects.
 
-Současný callback GUI uloží `committed_placement` pro Part a vlastní
-Assembly odečet, ale pro samostatnou Assembly skici jej zahodí.
-`AssemblyDocument` uchovává seznam skic, nikoli jejich kontejnery umístění.
-Jeho `resolve_constructions` řeší pouze konstrukční objekty.
+Proposed additions:
 
-Navrhované doplnění:
+- Give each standalone Assembly Sketch a persisted placement container using
+  existing Placement, stable IDs, and original-reference rules.
+- Store the container definition and references in `.asmz`, with no required
+  external or sidecar files.
+- Share GUI/CLI commit. Cancel discards pending edits; one committed change
+  produces one Undo/Redo step.
+- Preserve the exact occurrence path in component references. The Sketch must
+  not move components or drive subassembly internals.
+- Solve the local work frame with existing ZIMA solving, without OCCT. Standalone
+  Sketch edits must not solve component mates or Assembly cuts; those retain
+  explicit regeneration.
+- Update the Assembly start template in config and check start Part. Preserve
+  extensions and introduce no legacy migration.
 
-- Samostatná Assembly skica dostane vlastní trvalý kontejner umístění.
-  Použije existující Placement, stabilní ID a pravidla původních referencí.
-- Definice kontejneru a jeho reference budou součástí `.asmz`. Nebudou
-  vznikat žádné povinné externí či vedlejší soubory.
-- GUI i CLI použijí stejné potvrzení. Zrušení návrh zahodí; jedna
-  potvrzená změna bude jeden krok Undo/Redo.
-- Reference na komponentu zachová přesnou cestu výskytu. Skica nebude
-  měnit umístění komponenty ani řídit vnitřek podsestavy.
-- Místní pracovní rám se vyřeší existujícím řešením ZIMA, bez OCCT.
-  Samostatná editace skici nebude přepočítávat vazby komponent ani
-  Assembly odečty. Ty zůstanou na explicitní regeneraci.
-- Aktualizuje se odpovídající startovní šablona Assembly v configu
-  a ověří se také start Part. Přípony zůstanou stejné; legacy migrace se
-  nezavede.
+Explicit approval required by Container placement protection in AGENTS.md has
+been obtained. No further confirmation is needed for this proposal.
 
-Požadovaný výslovný souhlas podle Container placement protection v
-AGENTS.md je získaný. Nové potvrzení pro tento návrh není potřeba.
+## Verification before completion
 
-## Ověření před uzavřením
+Compare full native definitions from GUI and CLI; Cancel/OK changes; locks for
+zero and nonzero values; plane references and removal; correct plane and offset
+in translated/rotated bodies; invalid and forward sources without mutation;
+geometry after explicit regeneration; Assembly occurrences and ownership;
+saving and reopening.
 
-Shoda celých nativních definic z GUI a CLI; změny při Cancel/OK; zámky
-nulových i nenulových hodnot; rovinné reference a jejich odebrání;
-správná rovina a odsazení v posunutém/natočeném tělese; chybné a
-dopředné zdroje beze změny; geometrie po explicitní regeneraci;
-Assembly výskyty a vlastnictví; uložení a znovuotevření.
+## User clarification: Assembly operations
 
-## Upřesnění uživatele: operace sestavy
+Assembly Extrusion and Revolution always subtract from selected immediate Parts.
+This applies to GUI, CLI, and standalone Sketch conversion. Conversion preserves
+the placement container and references, but the resulting feature must use
+CombineMode::Subtract. A standalone Sketch creates no material.
 
-Protažení a rotace v Assembly jsou vždy pouze odečty z vybraných
-bezprostředních dílů. Platí to pro GUI, CLI i převod samostatné skici.
-Převod zachová kontejner umístění a jeho reference, ale výsledný prvek
-musí mít CombineMode::Subtract. Samostatná skica sama materiál nevytváří.
+## Assembly implementation dependencies
 
-## Vazby implementace Assembly
+Standalone containers will be stored in `sketch_containers`; each standalone
+Sketch references its container through existing `owner_container_id`. The
+container owns placement, Origin, and locks. Cut-owned Sketches remain direct
+children of their cuts. Native validation rejects missing or duplicate ownership;
+it does not create containers while loading old files.
 
-Samostatné kontejnery budou v seznamu `sketch_containers`; každá samostatná
-skica na svůj kontejner odkazuje pomocí stávajícího `owner_container_id`.
-Kontejner bude vlastníkem umístění, Originu a zámků. Skica vlastněná odečtem
-zůstane přímo jeho dítětem. Nativní validace odmítne chybějící nebo dvojité
-vlastnictví; nevytváří kontejner dodatečně při načítání starého souboru.
+The change affects GUI tree and `tree`, selection and Properties, native saving,
+dimension listings, references, and locks. Conversion to a cut preserves container
+and Origin identity. Sketch Properties changes do not recalculate Assembly
+components or their calculated bodies.
 
-Změna se promítne do stromu GUI i `tree`, výběru a Vlastností, nativního
-uložení, přehledu rozměrů, referencí a zámků. Převod samostatné skici na
-odečet zachová identitu kontejneru a Originu. Samotné sestavové komponenty
-ani jejich vypočtená tělesa se při změně vlastností skici nepřepočítají.
+The audit also found standalone Assembly Sketch deletion implemented as a direct
+GUI callback. The ownership change will move deletion into a shared operation,
+preventing orphan containers and allowing identical command behavior. Cut-owned
+Sketch deletion remains part of its owner's operation.
 
-Audit navíc našel, že smazání samostatné Assembly skici je dosud přímý
-callback GUI. Při změně vlastnictví se přesune do společné operace,
-aby se při smazání nezanechal osiřelý kontejner a aby šel tentýž výsledek
-provést příkazem. Smazání skici patřící odečtu zůstane v operaci jejího
-vlastníka.
+## Implementation of the approved proposal
 
-
-## Realizace schváleného návrhu
-
-Datový kontejner Assembly skici, společné Vlastnosti, reference, zámky,
-smazání a převod na odečet jsou implementované. Přípony zůstaly stejné;
-formát Assembly je INI 18 / vnitřní JSON 27 a startovní Assembly je aktualizovaná.
-Podrobný výsledný kontrakt a ověření jsou v
-[ASSEMBLY_SKETCH_PROPERTIES.md](ASSEMBLY_SKETCH_PROPERTIES.md).
+The Assembly Sketch data container, shared Properties, references, locks, deletion,
+and conversion to a cut are implemented. Extensions are unchanged; the Assembly
+format at this stage is INI 18 / internal JSON 27, and the Assembly start template
+is updated. See [ASSEMBLY_SKETCH_PROPERTIES.md](ASSEMBLY_SKETCH_PROPERTIES.md)
+for the resulting contract and verification.

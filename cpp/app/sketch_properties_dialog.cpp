@@ -1,3 +1,4 @@
+#include "work_plane_selection.hpp"
 #include <zima/document/sketch_placement.hpp>
 #include <zima/ui/numeric_value_lock.hpp>
 #include "sketch_button_style.hpp"
@@ -45,6 +46,7 @@ SketchPropertiesDialog::SketchPropertiesDialog(
     plane_->addItem("XZ", static_cast<int>(zima::sketcher::SketchPlane::XZ));
     plane_->addItem("YZ", static_cast<int>(zima::sketcher::SketchPlane::YZ));
     plane_->setCurrentIndex(plane_->findData(static_cast<int>(initial_.plane)));
+    install_automatic_work_plane(plane_, initial_.plane_auto);
     offset_ = new QDoubleSpinBox(this);
     offset_->setObjectName("sketchPlaneOffset");
     offset_->setRange(-1'000'000.0, 1'000'000.0);
@@ -119,11 +121,37 @@ SketchPropertiesDialog::SketchPropertiesDialog(
     connect(offset_, &QDoubleSpinBox::valueChanged, this,
         [this](double) { notify_preview(); });
     connect(sketch_button_, &QPushButton::clicked, this, [this] {
+        if (edit_pending_sketch_) { edit_pending_sketch_(); return; }
         enter_sketch_after_commit_ = true;
         if (submit()) accept();
         else enter_sketch_after_commit_ = false;
     });
     update_plane_fields_enabled();
+}
+
+void SketchPropertiesDialog::set_holes_mode(double diameter,
+    std::set<std::string>& locks, std::function<void(double)> changed, std::function<void()> edit_sketch) {
+    set_internal_title(tr("Vlastnosti otvorů"));
+    setObjectName("holesPropertiesDialog");
+    auto* form = new QFormLayout;
+    auto* field = new QDoubleSpinBox(this);
+    holes_diameter_ = field;
+    field->setObjectName("holesDiameter");
+    field->setDecimals(zima::ui::numeric_decimal_places(this, 3));
+    field->setRange(0.001, 1000000.0);
+    field->setSuffix(" mm"); field->setValue(diameter);
+    zima::ui::bind_numeric_value_lock(field, "diameter", locks, [] {});
+    form->addRow(tr("Průměr otvorů"), field);
+    content_layout()->insertLayout(1, form);
+    connect(field, &QDoubleSpinBox::valueChanged, this,
+        [changed=std::move(changed)](double value) { changed(value); });
+    edit_pending_sketch_ = std::move(edit_sketch);
+}
+
+void SketchPropertiesDialog::set_pending_sketch(zima::sketcher::Sketch sketch) {
+    if (sketch.id != initial_.id) throw std::invalid_argument("Sketch identity changed");
+    initial_ = std::move(sketch);
+    notify_preview();
 }
 
 void SketchPropertiesDialog::update_plane_fields_enabled() {
@@ -176,7 +204,8 @@ SketchPropertiesDialog::current_values() const {
     auto sketch = initial_;
     sketch.name = name_->text().trimmed().toStdString();
     sketch.plane = static_cast<zima::sketcher::SketchPlane>(
-        plane_->currentData().toInt());
+        selected_work_plane(plane_).toInt());
+    sketch.plane_auto = automatic_work_plane(plane_);
     sketch.plane_offset = offset_->value();
     sketch.plane_reference_owner_id.clear();
     auto placement = placement_->numeric_placement();
@@ -253,13 +282,8 @@ bool SketchPropertiesDialog::set_reference(std::size_t index,
         // XZ — not the default XY — is the actual sketch plane parallel to
         // the picked reference. This keeps placement, preview and the frame
         // later opened in Sketcher on one and the same plane.
-        const int xz_index = plane_->findData(
-            static_cast<int>(zima::sketcher::SketchPlane::XZ));
-        if (xz_index >= 0) {
-            plane_->setItemText(xz_index,
-                tr("Podle první reference — %1").arg(label));
-            plane_->setCurrentIndex(xz_index);
-        }
+        update_automatic_work_plane(plane_, static_cast<int>(zima::sketcher::SketchPlane::XZ), label);
+        notify_preview();
     }
     if (accepted) refresh_resolved_placement();
     return accepted;
@@ -317,6 +341,7 @@ bool SketchPropertiesDialog::set_inline_parameter_value(
         return true;
     };
     if (key == "profile_offset") return set_field(offset_);
+    if (key == "diameter") return set_field(holes_diameter_);
     constexpr std::string_view placement_prefix{"placement:"};
     if (!key.starts_with(placement_prefix)) return false;
     key.remove_prefix(placement_prefix.size());

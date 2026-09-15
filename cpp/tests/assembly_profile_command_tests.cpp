@@ -80,7 +80,9 @@ void references(const kernel::OcctKernel& kernel,const fs::path& directory,bool 
     const auto first_path=assembly::InstancePath{}.child(f.first).encoded();
     f.run("component.set",{{"instance_path",second_path},{"placement",{{"z_mm",2}}}});
     const auto sketch=extrusion?f.rectangle(-1,-1.5,2,3):f.rectangle(1,0,1,2);
-    Json create={{"sketch",sketch},{"targets",{f.first}}};
+    // This scenario follows reference planes; explicit XY in the generic
+    // rectangle fixture now deliberately means a persistent manual plane.
+    Json create={{"sketch",sketch},{"targets",{f.first}},{"profile_plane","AUTO"}};
     if(extrusion)create["length_forward_mm"]=4;
     else {
         const auto axis=f.line(sketch,0,0,0,4);
@@ -115,6 +117,14 @@ void references(const kernel::OcctKernel& kernel,const fs::path& directory,bool 
     request["reference"]["instance_path"]=second_path;
     f.run(command.c_str(),request);near(f.doc().find_cut(cut)->definition.placement.z,3);
     near(f.volume(f.first),1000-(extrusion?12:6*std::numbers::pi));near(f.volume(f.second),1000);
+    if (extrusion) {
+        f.run("extrusion.set",{{"container",cut},{"profile_plane","XY"}});
+        near(f.volume(f.first),976);
+        require(f.run("extrusion.get",{{"container",cut}}).at("profile_plane_auto")==false,
+            "Assembly cut did not retain its manual work plane");
+        f.run("extrusion.set",{{"container",cut},{"profile_plane","AUTO"}});
+        near(f.volume(f.first),988);
+    }
     require(f.doc().find_cut(cut)->definition.placement.references.front().instance_path==second_path,
         "Assembly profile reference merged repeated Part occurrences");
     auto bad=request;bad["reference"]["instance_path"]="missing";f.reject(command.c_str(),bad,"reference_not_found");

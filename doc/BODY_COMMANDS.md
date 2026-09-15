@@ -1,164 +1,139 @@
-# Tělesa a Boolean ve společné příkazové vrstvě
+# Bodies and Booleans in the shared command layer
 
-`cpp/modules/workspace/body_operations` obsahuje společné potvrzení vlastností
-těles a Booleanů, aktivaci tělesa a posun kurzoru. Stejné funkce volají existující
-okna vlastností, strom a konzole/CLI. Okna zůstávají interní s OK/Zrušit a
-stávajícím ovládáním referencí.
+`cpp/modules/workspace/body_operations` shares body/Boolean Properties commit,
+body activation, and cursor movement across existing dialogs, tree, console, and CLI.
+Dialogs remain internal with OK/Cancel and existing reference interaction.
 
-## Kontrakt operací
+## Operation contract
 
-`prepare_body_edit` a `prepare_body_boolean_edit` vytvářejí malý přechodný snímek
-grafu historie bez vypočtené geometrie. Nové objekty dostanou identitu před
-výpočtem. Těleso používá dosavadní `create_origin_bound_body`: tři polohové a
-dvě orientační reference k počátku Partu. Nezavádí se další řešení umístění.
+`prepare_body_edit` and `prepare_body_boolean_edit` create small transient history-graph
+snapshots without calculated geometry. New objects receive identity before calculation.
+Bodies use existing `create_origin_bound_body`: three position and two orientation
+references to Part Origin. No additional placement solver is introduced.
 
-Potvrzení porovná původní graf se současným, ověří identitu upravovaného objektu,
-spočítá pracovní kopii a teprve po úspěchu provede session commit. Zastaralý
-návrh nemůže přepsat novější úpravu jiného tělesa. Zrušení pracuje pouze s náhledem.
-Nezměněné hodnoty nevytvářejí položku Undo ani výpočet. Po změně vlastností tělesa
-zůstává zachován dosavadní závěrečný průchod pro přesné fingerprinty normalizovaných
-parametrů. Boolean používá dosavadní průchod s řešením referencí.
+Commit compares original/current graphs, validates edited-object identity, calculates
+a working copy, and commits the session only on success. Stale proposals cannot
+overwrite newer edits to other Bodies. Cancel affects only preview. Unchanged values
+create no Undo/calculation. Body Properties retains its final pass for exact normalized-
+parameter fingerprints; Boolean retains its reference-solving pass.
 
-Aktivace odstraní potvrzený výběr stejně jako aktivace ve stromu.
-Aktivace a kurzor jsou čisté dokumentové transakce bez OCCT; přebírají již
-vypočtené výsledky. Kurzor uvnitř větve lze posouvat jen v aktivním tělese.
-Uložení, Undo a Redo používají stávající session. Nadřazené sestavy se automaticky
-nepřepočítávají. Nativní formáty a start šablony se nemění.
+Activation clears confirmed selection as tree activation does. Activation/cursors
+are pure document transactions without OCCT, adopting calculated results. Branch
+cursors move only within the active Body. Save/Undo/Redo use existing sessions; parent
+Assemblies are not automatically recalculated. Formats/start templates are unchanged.
 
-## Příkazy
+## Commands
 
-| Příkaz | Argumenty pro textovou konzoli | Význam |
+| Command | Text arguments | Purpose |
 | --- | --- | --- |
-| `body.list` | volitelné `document` | Tělesa a Booleany v pořadí historie, aktivní těleso, kurzor a dostupné výsledky |
-| `body.get` | `body`, volitelné `document` | Uložené vlastnosti, původní reference, obsah větve a její kurzor |
-| `body.create` | `name`, volitelné `visible active document` | Nové těleso na počátku Partu, standardně viditelné a aktivní |
-| `body.set` | `body`, volitelné `name visible active document` | Patch názvu, viditelnosti nebo aktivace; alespoň jedna vlastnost |
-| `body.activate` | volitelné `body document` | Aktivuje těleso; bez ID tělesa jeho aktivaci ukončí |
-| `body.cursor` | `index`, volitelné `body document` | Bez body ukončí aktivaci tělesa a nastaví hlavní kurzor; s body mění kurzor aktivní větve |
-| `body.boolean.get` | `boolean`, volitelné `document` | Vlastnosti operace a ID jejích vstupních výsledků |
-| `body.boolean.create` | `operation target tool`, volitelné `name document` | Výpočet ze dvou různých dostupných předcházejících výsledků |
-| `body.boolean.set` | `boolean`, volitelné `operation target tool name document` | Změna zadaných vlastností a výpočet |
+| `body.list` | optional `document` | Bodies/Booleans in history order, active Body, cursor, available results |
+| `body.get` | `body`, optional `document` | Persisted properties, original references, branch contents/cursor |
+| `body.create` | `name`, optional `visible active document` | New Part-Origin Body, visible/active by default |
+| `body.set` | `body`, optional `name visible active document` | Patch at least one name/visibility/activation property |
+| `body.activate` | optional `body document` | Activate Body; omitted body ends activation |
+| `body.cursor` | `index`, optional `body document` | Without body, end activation and set main cursor; with body, move active branch cursor |
+| `body.boolean.get` | `boolean`, optional `document` | Operation properties and input-result IDs |
+| `body.boolean.create` | `operation target tool`, optional `name document` | Calculate from two distinct available preceding results |
+| `body.boolean.set` | `boolean`, optional `operation target tool name document` | Edit supplied properties and calculate |
 
-`operation` přijímá `add`, `subtract`, `intersect`. `index` je nezáporné celé
-číslo od nuly; `visible` a `active` jsou boolean. Ostatní argumenty jsou řetězce.
-ID vrací `body.list`, `body.get` nebo vytvoření objektu. Pro přeskočení volitelných
-argumentů používejte JSON, například:
-
-```json
-{"command":"body.set","arguments":{"body":"ID-TELESA","visible":false}}
-{"command":"body.cursor","arguments":{"index":0,"body":"ID-TELESA"}}
-{"command":"body.boolean.set","arguments":{"boolean":"ID-OPERACE","operation":"intersect"}}
-```
-
-Každá úspěšná změna vrací `changed`; dotazy model neaktivují ani nepočítají.
-`placement` v dotazu je uložený datový model: délky v mm, rotace ve stupních a
-reference se stabilním vlastníkem a sémantickým klíčem. Umístění,
-pořadí, mazání větví a odvozené kopie se obsluhují samostatnými příkazy.
-`body.set` nepřijímá libovolný JSON grafu nebo nevalidovanou serializaci dokumentu.
-
-## Ověření
-
-Modelový test bez Qt používá kvádry 10 × 10 × 10 a 4 × 4 × 4 mm. Očekávané
-objemy ověřuje nezávisle: rozdíl 936 mm³, průnik 64 mm³ a sjednocení 1000 mm³.
-Po posunu nástroje o 20 mm přes původní rovinnou referenci je sjednocení
-1064 mm³. Testuje také vlastnictví prvků, stabilní ID, kurzory a vložení do správné
-větve, neplatné vstupy, zastaralý návrh, Undo/Redo a skutečné uložení/načtení.
-
-Integrační test tvoří tělesa a Boolean z konzole, mění je skutečnými okny
-vlastností a kontroluje uložený objem. Procesový test provádí stejnou tvorbu
-samostatným CLI. Dosavadních šest cílených regresí prošlo (11,58 s,
-`build/body-commands-integration-tests.log`); samostatný modelový test také
-(0,26 s, `build/body-command-model-tests.log`).
-
-Kompletní Windows Release regrese: **60/60 prošlo**, 383,35 s,
-`build/body-commands-full-tests.log`. Po doplnění shodného zrušení potvrzeného
-výběru při aktivaci tělesa prošlo znovu **6/6** dotčených testů, 12,28 s,
-`build/body-commands-final-tests.log`. GUI i CLI byly přeloženy z konečného
-stavu (`build/body-commands-final-build.log`).
-
-
-## Přiřazení původní reference tělesu
-
-`body.reference.set` přiřadí jednomu poli existujícího tělesa původní referenci
-umístění. Tato etapa pokrývá tělesa Partu; modelovací prvky, konstrukce,
-řezy a odstranění reference zůstávají navazující prací.
+`operation` is `add`, `subtract`, or `intersect`. `index` is a zero-based nonnegative
+integer; `visible`/`active` are booleans; other arguments are strings. IDs come from
+list/get/creation. Use JSON to skip optional positional arguments:
 
 ```json
-{"command":"body.reference.set","arguments":{"body":"ID-TELESA","index":0,"reference":{"owner":"ID-ZDROJE","key":"PUVODNI-KLIC"},"offset_mm":2}}
+{"command":"body.set","arguments":{"body":"BODY-ID","visible":false}}
+{"command":"body.cursor","arguments":{"index":0,"body":"BODY-ID"}}
+{"command":"body.boolean.set","arguments":{"boolean":"OPERATION-ID","operation":"intersect"}}
 ```
 
-- `index`: 0–2 jsou poziční pole, 3 je FRONT, 4 TOP.
-- `reference`: povinné řetězce `owner` a `key`, volitelný `instance_path`.
-  V Partu je tato cesta místní, tedy prázdná. Jiné položky objektu se odmítnou.
-- `offset_mm`: vzdálenost od rovinného zdroje, výchozí 0. U zamčeného
-  pozičního pole se převezme naměřená současná vzdálenost a zámek zůstane.
-  U bodu, osy a orientačního pole se nenulové `offset_mm` odmítne.
-- `flip`: obrácení směru reference, výchozí false.
-- `derive_orientation`: stávající automatické doplnění orientačního pole
-  při výběru rovinné poziční reference, výchozí true.
-- `document`: volitelné ID otevřeného Partu podle společného cílení příkazů.
+Successful mutations return `changed`; queries neither activate nor calculate models.
+Query `placement` is persisted data: mm lengths, degree rotations, and references
+with stable owner/semantic key. Placement, ordering, branch deletion, and derived
+copies use separate commands. `body.set` accepts neither arbitrary graph JSON nor
+unvalidated document serialization.
 
-Zdrojem smí být počátek Partu nebo původní geometrie předchozího tělesa
-podle pořadí grafu. Stejné omezení používá okno vlastností tělesa. Vlastní
-geometrie, pozdější těleso, neznámý zdroj a cizí cesta instance se odmítnou.
-Odvozené těleso nelze přímo měnit. Zdroj se hledá výhradně v uložených
-původních datech a geometrii počátků; jeho druh nelze podvrhnout vstupem.
+## Verification
 
-Příkaz používá sdílené přiřazení referenčního pole a stávající
-`prepare_body_edit` / `commit_body_edit` jako Body Properties. Úspěšná změna
-explicitně přepočítá těleso a tvoří jednu transakci Undo. Aktivní těleso se
-zachová. Shodné zadání nevytvoří nový výpočet nebo krok historie. Chyba
-nezanechá částečnou změnu grafu ani geometrie. Výstup je `body.get` doplněné
-o `changed`; následné čtení `body.get` / `placement.get` nic nepřepočítává.
+Qt-free model tests use 10 mm and 4 mm cubes. Independent volumes: difference 936 mm³,
+intersection 64 mm³, union 1000 mm³. Moving the tool 20 mm through an original plane
+reference gives union 1064 mm³. Tests also cover feature ownership, stable IDs, cursors,
+correct-branch insertion, invalid inputs, stale proposals, Undo/Redo, and real save/load.
 
-Modelový test ověřil skutečný posun o 13 mm při zachování objemu 24 mm³,
-závislost na předchozím tělese, převzetí zamčené vzdálenosti, reakci na
-změnu zdroje, FRONT, chyby bez částečné změny, Undo/Redo a nativní Part.
-Původní test mylně zadal globální počet operací do dotazu na lokální hranici
-tělesa; po opravě testu na jednu operaci cílového tělesa prošel **1/1 za 0,17 s**
-(`build/body-reference-model-fixed-tests.log`). Po sestavení obou aplikací
-prošla integrace **10/10 za 105,00 s**, včetně CLI, obousměrného GUI,
-překladů, zámků a historie. Doplněná kontrola původní horní plochy kvádru
-(výsledná poloha Z=33 mm), bodu a odmítnutí neúčinného offsetu prošla
-**1/1 za 0,17 s** (`build/body-reference-topology-final-tests.log`).
-Při doplnění testu bylo nutné ponechat výsledek dotazu na plochy naživu po
-celou iteraci a zohlednit, že nativní kvádr je vystředěný. Produkční zdroje
-ploch se neměnily. Finální sestavení obou aplikací i všech testovacích
-programů následovala úplná regrese **135/135 za 551,56 s**, bez chyby
-(`build/body-reference-full-build.log`, `build/body-reference-full-tests.log`).
+Integration creates Bodies/Booleans through console, edits through actual Properties,
+and checks saved volume. Actual CLI performs the same creation. Six focused regressions
+passed (11.58 s, `build/body-commands-integration-tests.log`), plus model tests
+(0.26 s, `build/body-command-model-tests.log`).
 
+Full Windows Release passed **60/60 in 383.35 s**, `build/body-commands-full-tests.log`.
+After matching confirmed-selection clearing on activation, **6/6** affected tests
+passed again in 12.28 s, `build/body-commands-final-tests.log`. GUI/CLI built from final
+source (`build/body-commands-final-build.log`).
 
-## Sdílená viditelnost a hlavní kurzor (2026-09-15)
+## Assigning an original Body reference
 
-`body.set` s jedinou upravovanou vlastností `visible` používá stejnou
-operaci `set_part_body_visibility` jako Skrýt/Zobrazit v kontextovém menu
-tělesa. Mění pouze příznak viditelnosti. Nepřipravuje graf pro Vlastnosti,
-nepočítá tělesa ani vazby a zachovává původní umístění i vypočtené výsledky.
-Vytvoření tělesa a úplné Vlastnosti dále používají stávající výpočet.
+`body.reference.set` assigns an original placement reference to one field of an existing
+Part Body. At this stage, feature/construction/section references and removal were
+subsequent work.
 
-`body.cursor` bez `body` nastaví hlavní kurzor a v jedné transakci ukončí
-aktivaci tělesa. Platí to i tehdy, když je hlavní kurzor již na zadaném
-indexu. Se zadaným `body` mění pouze kurzor uvnitř dané aktivní větve.
-Neplatný index se odmítne před ukončením aktivace nebo jinou změnou dat.
-Při již odpovídajícím indexu i aktivaci nevzniká krok Undo.
+```json
+{"command":"body.reference.set","arguments":{"body":"BODY-ID","index":0,"reference":{"owner":"SOURCE-ID","key":"ORIGINAL-KEY"},"offset_mm":2}}
+```
 
-Kontextové Vložit před / Vložit za a značka kurzoru ve stromu sdílejí
-`set_body_history_cursor` s CLI. Příkazové změny samotné viditelnosti
-a kurzoru vracejí `body_calculated=false`. Undo/Redo i nativní uložení
-používají běžnou session. Formát ani šablony se v této etapě nemění.
+- `index`: position 0–2, FRONT 3, TOP 4.
+- `reference`: required strings `owner`/`key`, optional local empty `instance_path`.
+  Other fields are rejected.
+- `offset_mm`: plane distance, default 0. Locked position fields adopt measured current
+  distance and retain lock. Nonzero offsets for point/axis/orientation fields are rejected.
+- `flip`: reference-direction reversal, default false.
+- `derive_orientation`: existing automatic orientation assignment from position-plane
+  selection, default true.
+- `document`: optional open Part ID under shared targeting rules.
 
-Modelový test kontroluje zachování geometrie, fingerprintů, ostatních
-vlastností těles a původních referencí, jeden krok Undo, no-op, chybný
-index a vlastnictví Partu aktivovaného v sestavě. GUI test vyvolává
-skutečné kontextové menu i callback značky kurzoru a porovnává celé
-uložené soubory s ekvivalentním CLI příkazem.
+Sources may be Part Origin or original geometry of earlier Bodies in graph order,
+matching Body Properties. Own geometry, later Bodies, unknown sources, and foreign
+paths are rejected. Derived Bodies are not directly editable. Lookup uses persisted
+original data and Origin geometry; clients cannot spoof source kind.
 
-První modelový průchod prošel **1/1 za 0,32 s**. Obě aplikace a všechny
-testovací programy jsou sestavené; související regrese prošla
-**10/10 za 231,89 s**. Zahrnuje historii, vícetělesový Part, původní
-reference těles, historii Assembly odečtů, command host, konzoli a
-úplný průchod pracovním oknem.
+Shared field assignment and existing `prepare_body_edit` / `commit_body_edit` match
+Body Properties. Changes explicitly recalculate in one Undo transaction, preserving
+active Body. Identical assignment calculates nothing/adds no history. Errors leave
+no partial graph/geometry. Results match `body.get` plus `changed`; subsequent
+`body.get` / `placement.get` reads do not recalculate.
 
-Protokoly: `build/body-display-model-tests.log`,
-`build/body-display-verified-build.log` a
+Model tests verify actual 13 mm displacement with 24 mm³ volume, earlier-Body dependency,
+locked-distance adoption, source changes, FRONT, atomic errors, Undo/Redo, and native
+Part. The original fixture mistakenly used a global operation count for a local Body
+boundary; corrected to one target-Body operation, it passed **1/1 in 0.17 s**
+(`build/body-reference-model-fixed-tests.log`). After both apps built, integration
+passed **10/10 in 105.00 s**, including CLI, bidirectional GUI, translations, locks,
+and history. Added original top-face (Z=33 mm), point, and ineffective-offset rejection
+checks passed **1/1 in 0.17 s** (`build/body-reference-topology-final-tests.log`).
+The fixture also needed to retain face-query results throughout iteration and account
+for centered native boxes; production face sources did not change. Final apps/tests
+build and full regression passed **135/135 in 551.56 s**:
+`build/body-reference-full-build.log`, `build/body-reference-full-tests.log`.
+
+## Shared visibility and main cursor (2026-09-15)
+
+`body.set` with only `visible` uses `set_part_body_visibility`, shared with body-menu
+Hide/Show. It changes only visibility, without Properties graph preparation, body/mate
+calculation, or changes to placement/results. Creation/full Properties retain existing calculation.
+
+`body.cursor` without `body` sets main cursor and ends activation in one transaction,
+even if the cursor index already matches. With `body`, it changes only the active
+branch cursor. Invalid indexes fail before ending activation or changing data. Matching
+index and activation creates no Undo.
+
+Context Insert Before/After and the tree cursor marker share `set_body_history_cursor`
+with CLI. Visibility/cursor-only commands return `body_calculated=false`. Undo/Redo
+and saving use ordinary sessions; formats/templates are unchanged.
+
+Model tests check geometry, fingerprints, other Body properties, original references,
+one Undo, no-ops, invalid indexes, and activated-Part ownership inside Assembly. GUI
+invokes real context menus/cursor callbacks and compares full saved files with equivalent CLI.
+
+Initial model passed **1/1 in 0.32 s**. Both apps/all tests built; related regression
+passed **10/10 in 231.89 s**, covering history, multibody Part, Body original references,
+Assembly-cut history, host, console, and full workspace walkthrough.
+Logs: `build/body-display-model-tests.log`, `build/body-display-verified-build.log`,
 `build/body-display-verified-tests.log`.

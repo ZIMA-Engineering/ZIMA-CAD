@@ -1,63 +1,63 @@
-# Historie profilových odečtů sestavy
+# Assembly profile-cut history
 
-Navazuje na [PROFILE_COMMANDS.md](PROFILE_COMMANDS.md). Operace spravují pouze
-odečty přesné otevřené vlastnící Assembly. Zdrojové Party ani interní
-komponenty vložené podsestavy se těmito příkazy neupravují.
+This extends [PROFILE_COMMANDS.md](PROFILE_COMMANDS.md). Operations manage only
+cuts in the exact open owning Assembly. These commands do not modify source
+Parts or internal components of inserted subassemblies.
 
-## Příkazy
+## Commands
 
 ```json
-{"command":"assembly.cut.suppress","arguments":{"container":"ID-ODECTU","suppressed":true}}
-{"command":"assembly.cut.can_move","arguments":{"container":"DRUHY-ODECET","before":"PRVNI-ODECET"}}
-{"command":"assembly.cut.move","arguments":{"container":"DRUHY-ODECET","before":"PRVNI-ODECET"}}
-{"command":"assembly.cut.remove","arguments":{"container":"ID-ODECTU"}}
+{"command":"assembly.cut.suppress","arguments":{"container":"CUT-ID","suppressed":true}}
+{"command":"assembly.cut.can_move","arguments":{"container":"SECOND-CUT","before":"FIRST-CUT"}}
+{"command":"assembly.cut.move","arguments":{"container":"SECOND-CUT","before":"FIRST-CUT"}}
+{"command":"assembly.cut.remove","arguments":{"container":"CUT-ID"}}
 ```
 
-Každý příkaz přijímá volitelné `document` podle společného cílení dokumentů.
-`container` je stabilní identita odečtu, nikoli název nebo pozice ve stromu.
-`before` lze vynechat pro konec seznamu. Neznámý zdroj ani cíl přesunu se
-nepovažuje za úspěšný prázdný krok.
+Each command accepts optional `document` under shared document-targeting rules.
+`container` is the stable cut identity, not its name or tree position. Omit
+`before` to move to the end. Unknown source or destination IDs are rejected
+rather than treated as successful no-ops.
 
-- `suppress` nastaví potlačení nebo obnovení. Shodný stav vrací `changed=false`
-  bez výpočtu a bez nového Undo.
-- `move` přepočítá nové pořadí přes společnou transakci. Shodné pořadí je
-  beze změny. Přesun před zdroj dříve platné reference se odmítne; po výpočtu
-  se ověří i zachování původní referenční geometrie a uložených odkazů.
-- `can_move` pouze kontroluje identitu a závislosti pořadí. Vrací `allowed`
-  a `would_change` bez výpočtu těles. Nezaručuje úspěch budoucího výpočtu
-  změněného zdroje; ten se ověřuje až při skutečném přesunu.
-- `remove` odstraní odečet a skicu, kterou vlastní. Jiná skica může ponechat
-  svou poslední promítnutou křivku; místní reference na odstraněný zdroj je
-  označena jako porušená. Undo obnoví odečet, vlastněnou skicu i platný odkaz.
+- `suppress` suppresses or restores the cut. An identical state returns
+  `changed=false` without calculation or a new Undo entry.
+- `move` recalculates the new order through the shared transaction. Identical
+  order is a no-op. Moving before a previously valid reference source is rejected;
+  calculation also verifies preservation of original reference geometry and links.
+- `can_move` checks only identity and ordering dependencies. It returns `allowed`
+  and `would_change` without calculating bodies. It cannot guarantee successful
+  future calculation of a changed source; the actual move performs that check.
+- `remove` removes the cut and its owned Sketch. Another Sketch can retain its
+  last projected curve; its local reference to the removed source becomes broken.
+  Undo restores the cut, its owned Sketch, and the valid reference.
 
-Úspěšné změny vracejí `changed`, `document`, `container`, `revision` a `order`.
-Aktivní dialog brání konfliktní mutaci. Výpočet pracuje na připraveném dokumentu
-s aktuálními otevřenými zdroji; publikuje se až hotový výsledek jedním commitem
-historie. Chyba nezanechá částečné obnovení komponent. Nativní formát se v této
-etapě nemění.
+Successful changes return `changed`, `document`, `container`, `revision`, and
+`order`. An active dialog prevents conflicting mutation. Calculation uses a
+prepared document with current open sources and publishes only the completed
+result in one history commit. Failure leaves no partial component refresh.
+This stage does not change the native format.
 
-## Sdílení s GUI
+## Shared GUI operations
 
-Kontextová nabídka odečtu, volby výše/níže, tažení ve stromu a CLI používají
-`set_assembly_cut_suppressed`, `move_assembly_cut` a `remove_assembly_cut`.
-Původní oddělené výpočty v GUI byly odstraněny. Při odstranění už nevzniká
-osiřelá skica s neexistujícím vlastníkem. Přesun z nabídky nyní používá stejné
-kontroly závislostí jako přesun tažením.
+The cut context menu, Move Up/Down actions, tree dragging, and CLI share
+`set_assembly_cut_suppressed`, `move_assembly_cut`, and `remove_assembly_cut`.
+Separate GUI calculations were removed. Removal no longer leaves an orphan
+Sketch with a nonexistent owner. Menu moves use the same dependency checks as dragging.
 
-## Ověření
+## Verification
 
-Modelové testy **3/3 za 1,58 s** ověřily dvě nezávislé operace v jednom
-výskytu, objemy 970/994/1000 mm³, vstupní tělesa po změně pořadí, potlačení,
-prázdné kroky, závislosti, chybějící identity, zámek během editace, Undo/Redo
-a nativní uložení. Samostatný scénář ověřil zachování promítnuté křivky při
-odstranění zdroje včetně porušeného odkazu a jeho obnovení. Log:
-`build/assembly-cut-history-model-tests.log`.
+Model tests passed **3/3 in 1.58 s**, covering two independent operations in one
+occurrence, volumes of 970/994/1000 mm³, input bodies after reordering, suppression,
+no-ops, dependencies, missing IDs, the editing guard, Undo/Redo, and native saving.
+A separate scenario verified projected-curve preservation after source removal,
+including the broken reference and its restoration.
+Log: `build/assembly-cut-history-model-tests.log`.
 
-Po sestavení obou aplikací a všech testů prošla rozšířená integrace
-**9/9 za 115,96 s**. Ověřila skutečné GUI nabídky výše/níže, potlačení,
-obnovení a mazání včetně potvrzení, objemu a Undo, samostatný CLI proces,
-Part historii, profilové reference a překlady. Logy:
+After both applications and all tests built, extended integration passed
+**9/9 in 115.96 s**. It covered actual GUI Move Up/Down, suppression, restoration,
+and deletion with confirmation, volume and Undo checks, a separate CLI process,
+Part history, profile references, and translations. Logs:
 `build/assembly-cut-history-integration-build.log`,
-`build/assembly-cut-history-integration-tests.log`. Katalog má 240 příkazů,
-celková sada 137 testů. Poslední úplná regrese 136/136 patří předchozí
-etapě profilových odečtů; tato etapa má uvedenou cílenou regresi.
+`build/assembly-cut-history-integration-tests.log`.
+The catalog has 240 commands and the full suite 137 tests. The last full 136/136
+regression belongs to the preceding profile-cut stage; this stage has the targeted
+regression reported above.

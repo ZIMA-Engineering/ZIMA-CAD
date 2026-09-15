@@ -1,237 +1,212 @@
-# Měření ve View
+# Measurement in the View
 
-Nástroj **Měření** je na liště nad 3D pohledem Partu a sestavy a lze jej
-použít také v otevřeném Sketcheru. Měří aktuální vypočtenou geometrii;
-nevyvolává regeneraci modelu ani jeho závislostí.
+**Measurement** is on the toolbar above Part/Assembly 3D views and is also available
+inside Sketcher. It measures current calculated geometry without regenerating
+the model or dependencies.
 
-## Výběr a výsledky
+## Selection and results
 
-Okno obsahuje dvě reference nad sebou. První výběr rovnou vypíše vlastnosti
-entity a aktivuje druhé pole. Druhá reference je volitelná. Pod druhým polem
-se zobrazují vlastnosti druhé entity; pod oběma souhrny je společná nejkratší
-vzdálenost. Dvě tělesa tak mají každý vlastní objem, obsah a hmotnost.
+The window has two vertically arranged references. First selection immediately
+shows that entity's properties and arms the second field. The second reference is
+optional. Its properties appear below its field; shared shortest distance appears
+below both summaries. Two bodies therefore each have their own volume, area and mass.
 
-| Entita | Informace |
+| Entity | Information |
 | --- | --- |
-| Bod | Souřadnice X, Y, Z v zobrazeném prostoru |
-| Hrana nebo křivka | Délka |
-| Ohraničená plocha | Obsah |
-| Těleso nebo komponenta | Obsah povrchu, objem; hmotnost při známé hustotě |
-| Osa | Bod a směr nekonečné osy |
-| Konstrukční rovina | Bod a nekonečná rovina |
+| Point | X, Y, Z in displayed space |
+| Edge or curve | Length |
+| Bounded face | Area |
+| Body or component | Surface area, volume; mass if density is known |
+| Axis | Point and direction of the infinite axis |
+| Construction plane | Point and infinite plane |
 
-Se dvěma referencemi se navíc zobrazí nejkratší vzdálenost a spojnice jejích
-koncových bodů. Plocha se měří pouze v rámci svého obrysu. Osy a konstrukční
-roviny se pro vzdálenost chápou jako nekonečné. Překrývající se tělesa a bod
-uvnitř uzavřeného tělesa mají vzdálenost nula.
+Two references additionally show shortest distance and a line joining its endpoints.
+Faces are measured within their boundaries; axes/construction planes are infinite
+for distance calculations. Overlapping bodies and points inside closed bodies have
+zero distance.
 
-Při výběru platí společné pořadí kandidátů ve View; pravé tlačítko přepíná
-překryté kandidáty. Kliknutí do textu reference aktivuje její zadání či
-nahrazení (zelený rámeček). Oko nezávisle zapíná azurovou inspekci uložené
-reference. Křížek referenci odstraní.
+Selection uses common View candidate ordering; RMB cycles overlapping candidates.
+Clicking reference text arms entry/replacement (green outline). The eye independently
+toggles azure inspection of the stored reference; the cross removes it.
 
-- Krátké prostřední tlačítko ukončí zadávání a dočasné inspekční zvýraznění.
-  Reference a výsledek zůstanou v okně.
-- Prostřední tažení ovládá pohled.
-- Dvojklik prostředním, také nad View, provede OK a zavře okno.
-- **OK** ani **Zrušit** neukládají měření do historie.
-- **Uložit** uloží pojmenované měření do stromu zobrazeného dokumentu a zavře okno.
-  Rozbalí jeho nadřazené větve, označí nový záznam a posune strom k němu.
-  Položka je dostupná také při zobrazení stromu Sketcheru.
+- Short MMB ends entry and temporary inspection highlights, retaining references
+  and results in the window.
+- MMB drag navigates the View.
+- MMB double-click, including over the View, invokes OK and closes the window.
+- **OK** and **Cancel** do not save measurements to history.
+- **Save** stores a named measurement in the displayed document tree and closes.
+  It expands parent branches, selects the record and scrolls to it. The item also
+  appears in the Sketcher tree.
 
-## Přesnost a jednotky
+## Accuracy and units
 
-Délky hran a obsahy ploch, které jsou k dispozici z explicitního výpočtu
-tělesa, se uloží spolu s jeho geometrií. Inspector je čte bez dalšího volání
-OCCT. Objem a hmotnost celé komponenty využívají poslední vypočtené údaje
-jejího zdroje. Hmotnost se neodhaduje bez materiálové hustoty.
+Exact edge lengths/face areas available from explicit body calculation are saved
+with geometry and read without further OCCT calls. Whole-component volume/mass
+uses the source's last calculated data. Mass is not estimated without material density.
 
-Vzdálenosti ke zakřivené geometrii používají její polygonální zobrazení.
-Takové výsledky, stejně jako délky či obsahy bez dostupné přesné uložené
-hodnoty, jsou označeny **≈**. Přesnost těchto hodnot závisí na rozlišení
-zobrazené geometrie. Vzdálenosti mezi body, přímými hranami a rovnými
-polygonálními plochami se počítají přímo.
+Distances to curved geometry use its polygonal representation. These, and lengths/
+areas without saved exact values, are marked **≈**. Their accuracy depends on display
+resolution. Distances between points, straight edges and planar polygonal faces are
+calculated directly.
 
-Výstup používá délkové a hmotnostní jednotky dokumentu; obsah a objem
-používají druhou a třetí mocninu délkové jednotky. Desetinným oddělovačem
-je čárka. Po zaokrouhlení na nastavený počet míst se odstraní koncové nuly:
-například `12mm`, `240mm²` nebo `0,047kg`.
+Output uses document length/mass units, with squared/cubed length units for area/
+volume. Decimal separator is a comma. Rounding to configured precision removes
+trailing zeroes: `12mm`, `240mm²`, `0,047kg`, for example.
 
-## Uložené měření
+## Saved measurements
 
-Měření je informační položka, ne operace tělesa. V Partu se vloží k aktuálnímu
-místu historie tělesa, v sestavě do stromu sestavy. Nese název, stabilní
-reference včetně cesty instance a poslední uložené výsledky. V sestavovém
-kontextu se ukládá do zobrazené sestavy. Pro uložení nebo odstranění musí
-být zobrazený dokument také aktivní; během aktivace vnořeného dílu zůstává
-inspector dostupný pro čtení, jeho Uložit je vypnuté. Nesmí zapisovat do
-pasivní nadřazené sestavy za aktivní díl.
+A measurement is information, not a body operation. Part inserts it at the current
+Body-history position; Assembly inserts it in the Assembly tree. It stores a name,
+stable references including occurrence paths, and last-saved results. In Assembly
+context it belongs to the displayed Assembly. Saving/removal requires that document
+to be active too. With a nested Part active, inspection remains readable but Save
+is disabled; it cannot write to the passive parent Assembly on behalf of the Part.
 
-**Vlastnosti** znovu vyhodnotí reference nad aktuální geometrií. Chybějící
-reference se označí červeně a lze ji nahradit výběrem do téhož pole. Uložení
-je do opravy blokované. Zrušení opravy původní záznam zachová.
-Kontextové menu obsahuje také **Odstranit**. Uložení, změna i odstranění
-podporují dokumentové Undo/Redo.
+**Properties** reevaluates references against current geometry. Missing references
+are red and replaceable in the same field. Saving is blocked until repair; cancelling
+preserves the original record. Context menus also offer **Remove**. Creation,
+editing and removal support document Undo/Redo.
 
-Uložené hodnoty jsou snímkem posledního uložení měření; otevření vlastností
-je aktualizuje pro právě zobrazený vypočtený model. Změny zdrojového Partu
-se zobrazí i v jejích výskytech bez regenerace sestavy. Vazby a vlastní operace
-sestavy se přepočítávají pouze výslovným příkazem **Regenerovat**. Čtení
-měření tyto výpočty nespouští.
+Saved values snapshot the last measurement save. Opening Properties reevaluates the
+currently displayed calculated model. Source Part changes appear in occurrences
+without Assembly regeneration; mate solving and Assembly-owned operations run only
+on explicit **Regenerate**. Reading measurements does not trigger them.
 
-## Související ovládání kót
+## Related dimension controls
 
-Jeden klik na komponentu sestavy ji pouze označí azurově. Dvojklik zobrazí
-kóty jejího uložení. Kóta se vybírá samostatně nad hodnotou; dvojklik otevře
-úpravu její hodnoty, pravé tlačítko nabídne vlastnosti kóty. Zamknutí a meze
-hodnoty zůstávají účinné. Kliknutí do prázdna nebo ukončení zobrazení kót je skryje.
+A single component click confirms it in azure. Double-click shows its placement
+dimensions. Dimensions are independently selected over their values; double-click
+opens value editing, RMB offers Dimension Properties. Locks and value bounds remain
+effective. Empty clicks or ending dimension display hide them.
 
-Generované průměrové kóty ve Sketcheru, Partu, sestavě a Drawingu používají
-**⌀ (U+2300)** ze společného seznamu symbolů. Tato značka se přenáší také
-do výstupů používajících společné formátování kót.
+Generated diameter dimensions in Sketcher, Part, Assembly and Drawing use
+**⌀ (U+2300)** from the shared symbol list, including outputs using shared formatting.
 
-## Ověření
+## Verification
 
-- `zima_cpp_measurement_contract_tests`: analytické vzdálenosti, ohraničené
-  plochy, průniky, uzavřená tělesa, posunutý model, uložené přesné veličiny
-  válce, persistence Part/Assembly, Undo a značka průměru.
-- `zima_cpp_measurement_inspector_ui_contract`: skutečný společný picker,
-  informace o první a druhé entitě, prostřední tlačítka nad View, Uložit,
-  rozbalení a výběr uloženého záznamu ve stromu, opětovné otevření a oprava
-  chybějící reference. Dvě komponenty s rozdílnou hustotou ověřují oba souhrny
-  a analytickou vzdálenost. Přechod z uzavřených vlastností výkresové kóty
-  zpět do Partu ověřuje uvolnění dialogu a opětovné spuštění Měření bez pádu.
-- `zima_cpp_assembly_refresh_ui_contract`: výběr komponenty, dvojklik,
-  dostupnost kóty a její vlastní editor.
+- `zima_cpp_measurement_contract_tests`: analytical distances, bounded faces,
+  intersections, closed bodies, translated models, saved exact cylinder quantities,
+  Part/Assembly persistence, Undo and diameter symbol.
+- `zima_cpp_measurement_inspector_ui_contract`: real common picker, both entity
+  summaries, MMB actions over View, Save, tree expansion/selection, reopening and
+  missing-reference repair. Two components with different densities check both
+  summaries and analytical distance. Returning to Part after closing Drawing
+  Dimension Properties checks dialog release and restarting Measurement without
+  a crash.
+- `zima_cpp_assembly_refresh_ui_contract`: component selection, double-click,
+  dimension availability and its own editor.
 
+## Read-only CLI commands (2026-09-13)
 
-## Čtecí CLI příkazy (2026-09-13)
-
-- `measurement.list [offset] [limit] [document]` vypíše uložené informační
-  záznamy. Výchozí limit je 2000, povolený 1–10000; offset je nezáporný.
-- `measurement.get object [document]` vrátí původní reference a poslední
-  uložené hodnoty, včetně bodů nejkratší vzdálenosti. `saved_values: true`
-  výslovně označuje uložený snímek. Dotaz nic neaktualizuje ani neukládá.
-- `measurement.evaluate references [document]` nově vyhodnotí jednu nebo
-  dvě reference proti aktuálním vypočteným datům. Nevyžaduje otevřené GUI,
-  nevytváří historii, neukládá soubor a nevolá OCCT ani řešení vazeb.
+- `measurement.list [offset] [limit] [document]` lists saved records. Default limit
+  2000, range 1–10000; offset is nonnegative.
+- `measurement.get object [document]` returns original references and last-saved
+  values, including shortest-distance endpoints. `saved_values: true` explicitly
+  identifies the saved snapshot. It neither refreshes nor saves.
+- `measurement.evaluate references [document]` evaluates one or two references
+  against current calculated data without GUI, history, saving, OCCT or mate solving.
 
 ```json
 {"command":"measurement.evaluate","arguments":{"references":[{"kind":"plane","owner":"<part-id>:origin","key":"origin:plane:xy"},{"kind":"face","owner":"<original-feature-id>","key":"<original-face-key>"}]}}
 ```
 
-Typ reference je `point`, `curve`, `face`, `object`, `axis` nebo `plane`.
-Topologické reference potřebují původní `owner/key`; souřadnice či náhradní
-geometrie se nepřijímají. Celý objekt používá `kind: object`, jeho `owner`
-a prázdný klíč. Celá komponenta používá prázdného vlastníka a přesný
-`instance_path`. Vnořené reference rozlišuje celá kódovaná cesta výskytu,
-nikoli jméno nebo společné ID zdrojového Partu. Typ musí odpovídat geometrii:
-například zakřivenou plochu nelze vydávat za nekonečnou rovinu.
+Reference kinds: `point`, `curve`, `face`, `object`, `axis`, `plane`. Topological
+references require original `owner/key`; coordinates/substitute geometry are not
+accepted. Whole objects use `kind: object`, their `owner` and empty key. Whole
+components use empty owner and exact `instance_path`. Complete encoded paths
+identify nested occurrences, not names/shared source Part IDs. Kind must match
+geometry: curved faces cannot masquerade as infinite planes.
 
-Při chybějící geometrii vrátí vyhodnocení `missing_reference` a nulou
-číslovaný `reference_index`. Poslední uložený záznam zůstane čitelný.
-Dotazy lze směrovat na jiný otevřený dokument bez jeho aktivace a lze je
-používat i během otevřeného dialogu. Měření výkresu je samostatná oblast
-kót; tyto příkazy pracují s Partem nebo sestavou.
+Missing geometry returns `missing_reference` and zero-based `reference_index`.
+The last-saved record stays readable. Queries can target other open documents without
+activation and work during open dialogs. Drawing measurement is a separate dimension
+area; these commands target Part/Assembly.
 
-Strojový výstup používá vždy **mm, mm², mm³ a kg**, nezávisle na jednotkách
-formátovaných GUI. Objekt `units` je popisuje pro jednotlivé hodnoty.
-Každá délka, obsah, objem, hmotnost či vzdálenost obsahuje `value` a
-`approximate`. Chybějící hodnota je `null`, nikoli nula. Přesná uložená
-délka kruhové hrany zůstává přesná i při hrubém zobrazení; vzdálenosti
-k zakřivené síti závisejí na jejím rozlišení.
+Machine output always uses **mm, mm², mm³ and kg**, independently of GUI display
+units. `units` describes each quantity. Length, area, volume, mass and distance
+contain `value` and `approximate`. Unavailable values are `null`, never zero.
+Saved exact circular-edge length stays exact with coarse display; distances to
+curved meshes depend on resolution.
 
-Společný modul `zima_measurement` závisí pouze na `zima_kernel_api`, nikoli
-na Qt. Obsahuje původní geometrický algoritmus inspectoru, který sdílejí
-GUI i CLI. Viewer převádí jen kandidáta výběru na měřicí referenci.
-Workspace doplňuje dostupné autoritativní objemy, plochy a hmotnosti;
-GUI zachovává měření celého výskytu také při zobrazení řezu.
+Shared `zima_measurement` depends only on `zima_kernel_api`, not Qt, and contains
+the inspector's original geometry algorithm shared by GUI/CLI. Viewer only converts
+picker candidates to measurement references. Workspace supplies authoritative
+volumes, areas and masses. GUI retains whole-occurrence measurement in section views.
 
-První modelová sada prošla **2/2 za 0,35 s**: analytická geometrie,
-nejkratší vzdálenost, nezávislé objemy a jednotky, přesná kruhová délka,
-neplatné vstupy, nezměněná historie/cache, opakované vnořené výskyty,
-čtení neaktivního dokumentu a nativní uložení Partu i sestavy.
-Konečné integrační výsledky jsou uvedeny níže.
-Tato etapa zavádí tři čtecí příkazy; tvorba, změna a odstranění uložených
-záznamů přes CLI následují samostatnou transakcí sdílenou s GUI.
+Initial model suites passed **2/2 in 0.35 s**: analytical geometry, shortest distance,
+independent volumes/units, exact circular length, invalid input, unchanged history/
+cache, repeated nested occurrences, inactive-document reads and native Part/Assembly
+save. This first stage introduced three reads; record mutations followed below
+through a separate shared GUI transaction.
 
+Both applications and all tests built. Integration passed **5/6 in 87.48 s**; the
+only failure was an old catalog expectation of 226 instead of 229. After updating it,
+catalog/full startup including translations passed **2/2 in 96.19 s**. Additional
+valid-axis and exact-circular-length versus approximate-distance checks passed
+**1/1 in 0.25 s**. The circular-rim test uses the cylinder's axial plane, avoiding
+dependence on top/bottom rim order.
 
-Sestavily se obě aplikace a všechny testovací programy. Integrační sada
-prošla **5/6 za 87,48 s**; jediná chyba byla stará očekávaná velikost
-katalogu 226 místo 229. Po její aktualizaci prošly katalog a úplný start
-aplikace včetně překladů **2/2 za 96,19 s**. Dodatečná kontrola platné osy
-a rozdílu mezi přesnou kruhovou délkou a aproximovanou vzdáleností prošla
-**1/1 za 0,25 s**. Kontrola kruhového okraje používá osovou rovinu válce,
-aby nezávisela na pořadí jeho horního a dolního okraje.
+GUI regressions compare values and both shortest-distance points against console
+queries, including while the inspector is open, and read GUI-saved measurements.
+A separate CLI process runs with an intentionally invalid Qt platform name, proving
+no window initialization is required. Checks also preserve exact circular length
+and reject curved faces as planes or circles as straight axes. At this stage:
+**229 commands**, **128 tests**.
 
-GUI regrese porovnává skutečné hodnoty a oba body nejkratší vzdálenosti
-s dotazem konzole, také během otevřeného inspectoru. Čte i měření uložené
-GUI. Samostatný CLI proces běží s úmyslně neplatným názvem Qt platformy;
-nové příkazy tedy nevyžadují inicializaci okna. Byla ověřena i zachovaná
-přesná kruhová délka a odmítnutí zakřivené plochy jako roviny či kružnice
-jako přímé osy. Katalog má **229 příkazů**, celá sada **128 testů**.
-
-Logy: `build/measurement-query-integration-build.log`,
+Logs: `build/measurement-query-integration-build.log`,
 `build/measurement-query-integration-tests.log`,
 `build/measurement-query-catalog-startup-tests.log`,
 `build/measurement-query-precision-tests.log`.
 
+## Saving and editing through CLI (2026-09-13)
 
-## Ukládání a úpravy přes CLI (2026-09-13)
-
-- `measurement.create` přijímá `references` a volitelný `name`. Vytvoří
-  stabilní záznam; v Partu jej ukotví k aktuálnímu tělesu a místu historie.
-- `measurement.set` přijímá `object`, volitelný `name` a `references`.
-  Vynechané reference zůstanou zachované. Příkaz s pouhým `object`
-  výslovně obnoví poslední uložené hodnoty podle současné vypočtené geometrie.
-- `measurement.delete object` odstraní právě jeden uložený záznam.
+- `measurement.create` takes `references` and optional `name`, creating a stable
+  record anchored to the current Part Body/history position.
+- `measurement.set` takes `object`, optional `name` and `references`. Omitted
+  references remain. Supplying only `object` explicitly refreshes saved values from
+  current calculated geometry.
+- `measurement.delete object` removes exactly one record.
 
 ```json
-{"command":"measurement.create","arguments":{"name":"Kontrolní vzdálenost","references":[{"kind":"plane","owner":"<part-id>:origin","key":"origin:plane:xy"},{"kind":"face","owner":"<original-feature-id>","key":"<original-face-key>"}]}}
+{"command":"measurement.create","arguments":{"name":"Check distance","references":[{"kind":"plane","owner":"<part-id>:origin","key":"origin:plane:xy"},{"kind":"face","owner":"<original-feature-id>","key":"<original-face-key>"}]}}
 ```
 
-Všechny tři mutace používají stejnou transakci jako Uložit nebo Odstranit
-v GUI. Vstupem nejsou vypočtené hodnoty, náhradní souřadnice ani místo
-historie. Sdílená operace vyhodnotí původní reference v soukromém návrhu;
-teprve úplný platný výsledek potvrdí jedním krokem dokumentové historie.
-Zachovává původní identitu a ukotvení. Název ořízne o vnější bílé znaky,
-ověří jej a odmítne duplicitu. Ztráta reference či jiná chyba nepřepíše
-poslední uložené výsledky. Nezměněné uložení nepřidává Undo krok.
+All three share GUI Save/Remove transactions. Inputs cannot supply calculated
+values, substitute coordinates or history positions. The shared operation evaluates
+original references in a private draft and commits a fully valid result in one
+document-history step. Identity and anchoring are preserved. Names are trimmed,
+validated and checked for duplicates. Lost references/errors cannot overwrite
+last-saved results. Unchanged saving adds no Undo step.
 
-Příkazy pracují se zobrazeným aktivním Partem nebo sestavou. Při aktivaci
-vnořeného dílu musí uživatel nejprve aktivaci ukončit nebo otevřít zdroj
-samostatně. Tím zůstává jednoznačný vlastník a souřadný systém měření;
-inspekce celého zobrazeného modelu zůstává možná. Otevřený inspector je
-chráněn revizí, generací dat a runtime identitou dokumentu. Změna a následné
-Undo nebo zavření a opětovné otevření dokumentu nesmějí obnovit platnost
-starého editovacího návrhu.
+Commands target the displayed active Part/Assembly. When a nested Part is activated,
+end activation or open its source separately first, keeping measurement ownership
+and coordinates unambiguous. Whole-scene inspection remains available. Open inspector
+drafts are guarded by revision, data generation and runtime document identity.
+A change followed by Undo, or close/reopen, must not make an old draft valid again.
 
-Body, vazby ani umístění se při těchto mutacích nepřepočítávají. Ukládají
-se pouze existující nativní záznamy měření; přípony, formát a start šablony
-se nemění. Part i Assembly podporují Undo/Redo a nativní uložení/reopen.
+These mutations recalculate no bodies, mates or placement. They store existing
+native measurement records only; extensions, formats and start templates are unchanged.
+Part/Assembly support Undo/Redo and native save/reopen.
 
-Modelová sada po opravě dvou názvů testovacích vstupů prošla **3/3 za
-0,67 s**. Ověřuje vznik a změnu hodnot, smazání, no-op, atomické chyby,
-Undo/Redo, stárnutí návrhu při Undo a reopen, identitu a historii,
-oddělené výskyty, zachování B-Rep a sdílení zdrojových dat sestavy.
-Konečné integrační výsledky jsou uvedeny níže.
+After correcting two fixture names, model suites passed **3/3 in 0.67 s**: creation,
+changed values, deletion, no-op, atomic errors, Undo/Redo, drafts becoming stale on
+Undo/reopen, identity/history, distinct occurrences, preserved B-Rep and Assembly
+source-data sharing.
 
+Both applications and all tests built. Integration passed **8/8 in 223.07 s**:
+actual CLI process, complete inspector, command tests, catalog, GUI console and
+startup with translations. GUI checks CLI → Properties → Save, unchanged save,
+Delete/Undo and readable inspection without passive-Assembly writes.
 
-Úplné sestavení obou aplikací a testovacích programů prošlo. Integrační
-sada prošla **8/8 za 223,07 s**: skutečný CLI proces, celý inspector
-měření, všechny příkazové testy, katalog, GUI konzole a start s překlady.
-GUI test porovnává změnu CLI → Vlastnosti → Uložit, nezměněné uložení,
-Delete/Undo a dostupnou inspekci bez možnosti zápisu do pasivní sestavy.
+An extra whole-sketch/solid/plane regression initially failed **0/1 in 0.18 s**:
+the picker copied an auxiliary display category into the measurement reference.
+Whole-object identity consists of owner/occurrence with an empty subentity key.
+After normalization at the picker boundary, it passed **1/1 in 0.17 s**. Both apps
+rebuilt and final measurement suites passed **4/4 in 3.52 s**, including GUI and
+saving a real standalone-sketch measurement. Its distance uses finite geometry
+without inventing a volume.
 
-Dodatečná regrese pro celé skici/solidy/roviny nejprve selhala
-(**0/1 za 0,18 s**): picker přenášel do měřicí reference pomocnou kategorii
-zobrazení. Celý objekt má identitu vlastníka a výskytu; klíč podentity je
-prázdný. Po normalizaci na hranici pickeru regrese prošla **1/1 za 0,17 s**.
-Po novém sestavení obou aplikací prošla závěrečná měřicí sada **4/4 za
-3,52 s**, včetně GUI a uložení měření skutečné samostatné skici. Její
-vzdálenost se počítá z konečné geometrie a nevzniká fiktivní objem.
-
-Katalog má **232 příkazů**, celá sada **129 testů**. Logy:
+At this milestone: **232 commands**, **129 tests**. Logs:
 `build/measurement-edit-integration-build.log`,
 `build/measurement-edit-integration-tests.log`,
 `build/measurement-object-identity-baseline-tests.log`,

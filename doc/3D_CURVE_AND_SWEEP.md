@@ -1,218 +1,214 @@
-# 3D křivka a 3D tažení (3D Sweep)
+# 3D Curve and 3D Sweep
 
-3D křivka uchovává původní konstrukční body s trvalými ID. Čísla v tabulce
-jsou pořadí v dráze, nikoli identita pro reference.
+A 3D Curve retains original construction points with persistent IDs. Table numbers
+are path positions, not reference identities.
 
-U lomené čáry zapíná **Zaoblení rohů** sloupec **R [mm]**. Vypnutý sloupec
-zobrazuje nuly a nelze jej upravovat; uložené hodnoty se nemění. První a poslední
-bod otevřené dráhy nemají zaoblení. Rádius 0 zachovává ostrý roh. Kladný rádius
-vytvoří tečný kruhový oblouk v rovině sousedních úseček. Délka odříznutá z každé
-úsečky je `R * tan(úhel změny směru / 2)`. Překrytí sousedních zaoblení a obrat
-180° jsou neplatné. Přímé pokračování další oblouk nevytváří.
+For a polyline, **Round corners** enables the **R [mm]** column. When disabled,
+the column shows non-editable zeroes without changing saved values. Open-path
+endpoints have no rounding. Radius 0 retains a sharp corner. A positive radius
+creates a tangent circular arc in the plane of the adjacent segments. Each segment
+is trimmed by `R * tan(direction-change angle / 2)`. Overlapping adjacent rounds
+and 180° reversals are invalid. Straight continuation creates no extra arc.
 
-Sweep sestavuje tabulku profilů automaticky:
+Sweep builds its profile table automatically:
 
-- 1: začátek dráhy, kolmo na první úsečku.
-- N.1: konec předchozího úseku; kolmo na něj. Při zaoblení začátek oblouku.
-- N.2: začátek následujícího úseku; kolmo na něj. Při zaoblení konec oblouku.
-- Poslední N.2: konec dráhy, kolmo na poslední úsečku.
+- 1: path start, perpendicular to the first segment.
+- N.1: preceding segment end, perpendicular to that segment; arc start when rounded.
+- N.2: following segment start, perpendicular to that segment; arc end when rounded.
+- Final N.2: path end, perpendicular to the final segment.
 
-U interpolační spline používají výstupní stanice její tečnu. Vstupní stanice
-jsou neaktivní. Parametry zaoblení se uchovávají pro návrat na lomenou čáru.
+For an interpolating spline, outgoing stations use its tangent; incoming stations
+are inactive. Rounding parameters are retained for switching back to a polyline.
 
-**Sketch** vytvoří nebo otevře skicu stanice. Profil je uložen podle ID původního
-bodu a role vstup/výstup. Změna pořadí bodů nebo rádiusu nemění identitu skici.
-Neaktivní vstupní profil zůstává uložený, ale nevstupuje do výpočtu tělesa.
-Smazání původního bodu smaže jeho profily v téže nepotvrzené transakci.
-První stanice musí mít vlastní neprázdný profil. Další prázdné stanice
-přebírají poslední zadaný profil až do konce dráhy, včetně jeho pořadí bodů.
-Přechod k dalšímu zadanému profilu proběhne na úseku, který v něm končí.
+**Sketch** creates or opens a station sketch. Its profile is stored by original
+point ID and incoming/outgoing role. Reordering points or changing radius does not
+change sketch identity. Inactive incoming profiles remain saved but do not enter
+body calculation. Deleting a source point deletes its profiles in the same pending
+transaction. The first station requires its own nonempty profile. Later empty
+stations inherit the last supplied profile, including point order, through the
+path end. Transition to another supplied profile occurs on the segment ending there.
 
-Při vypnutém **Zaoblení rohů** má každá úsečka dvě vlastní stanice. Všechny
-skici jsou přístupné, včetně N.1. Mezi N.1 a N.2 nevzniká žádná spojovací
-geometrie. Každý úsek má kolmá čela a vypočítá se jako sweep se stejnými
-profily nebo loft s rozdílnými profily. Průniky úseků se sjednotí; nevytváří
-se šikmé společné čelo na půlící rovině rohu. Párování obvodů se kontroluje
-uvnitř každého úseku, nikoliv mezi dvěma oddělenými čely v rohu.
+With **Round corners** disabled, each segment has two independent stations. All
+sketches, including N.1, are accessible. No connecting geometry is generated
+between N.1 and N.2. Each segment has perpendicular caps and is calculated as a
+sweep for equal profiles or a loft for different profiles. Intersecting segments
+are united; there is no shared oblique cap on a corner-bisector plane. Perimeter
+matching is checked within each segment, not across separate corner caps.
 
-Se zapnutým zaoblením zůstává souvislé tažení přes oblouky. Nulový rádius
-v tomto režimu zachovává původní společný průřez ostrého rohu. Spline také
-zůstává souvislou dráhou. Obrysy musí být uzavřené a bez děr.
+Rounding retains a continuous sweep through arcs. In this mode, zero radius keeps
+the original shared sharp-corner section. Splines also form continuous paths.
+Contours must be closed and have no holes.
 
-Čela nezaoblených úseků mají názvy například **Úsek 1 → 2.1 — konec** a
-**Úsek 2.2 → 3.2 — začátek**. Identita používá ID obou původních bodů a roli
-začátek/konec; přečíslování bodů nemění existující reference. Úplné původní
-čelo se ukládá do referenčního paketu i tehdy, když jeho viditelný zbytek
-po sjednocení zanikne. U kruhových profilů paket uchovává původní střed,
-směr a poloměr pro Vrtací špičku. Oříznutá část čela odkazuje na tentýž konec.
+Unrounded segment caps are named, for example, **Segment 1 → 2.1 — end** and
+**Segment 2.2 → 3.2 — start**. Identity uses both original point IDs and the
+start/end role, so renumbering preserves references. The complete original cap is
+stored in the reference packet even if its visible remainder disappears after
+union. For circular profiles, the packet retains the original centre, direction
+and radius for Drill Point. Trimmed cap portions reference the same endpoint.
 
-Úpravy zůstávají návrhem až do OK společného dialogu. Cancel neukládá změny.
-Náhled dráhy a umístění skic používají ZIMA data a analytickou geometrii;
-OCCT se používá při explicitním výpočtu tělesa. Sdílené umísťování kontejnerů
-se nemění.
+Edits remain pending until the shared dialog's OK. Cancel saves nothing. Path
+preview and sketch placement use ZIMA data and analytical geometry; OCCT is used
+only for explicit body calculation. Shared container placement is unchanged.
 
-Samostatná 3D trajektorie EXP je odstraněna včetně editoru a serializace.
-Starý experimentální formát se nepřevádí.
+The standalone experimental 3D trajectory, its editor and serialization have been
+removed. The old experimental format is not migrated.
 
-Regrese: `zima_cpp_curve3d_sweep_contract_tests`, `zima_cpp_ui_contract_tests`
-a obecné `zima_cpp_contract_tests`.
+Regression suites: `zima_cpp_curve3d_sweep_contract_tests`,
+`zima_cpp_ui_contract_tests`, and general `zima_cpp_contract_tests`.
 
-## Oblouky a kóty radiusů ve View
+## Arcs and radius dimensions in the View
 
-Zaoblovací oblouky jsou součástí zobrazení celé dráhy, při editaci i po jejím
-potvrzení. Úseky a oblouky používají společné vykreslování a výběr. Dráha je
-viditelná také u výsledného 3D Sweepu.
+Rounding arcs are displayed as part of the complete path during editing and after
+confirmation. Segments and arcs share rendering and selection. The path is also
+visible on the resulting 3D Sweep.
 
-Kóty `R…` se zobrazují jen při otevřených vlastnostech nebo při běžném zobrazení
-parametrických kót dvojklikem na kontejner. Zavření vlastností a ukončení režimu
-kót prostředním tlačítkem je skryje. Samotné oblouky zůstávají viditelné.
-Střed, bod na oblouku a rovina kóty vycházejí ze stejné analytické dráhy;
-umístění respektuje uložený posun a natočení objektu. Změna radiusu ve
-vlastnostech mění náhled. Vypnuté zaoblení, nulový radius, přímý průchod bodem
-a spline kótu zaoblení nevytvářejí. Zobrazení nevolá OCCT.
+`R…` dimensions appear only while Properties are open or normal parametric
+dimensions are shown by double-clicking a container. Closing Properties or ending
+dimension mode with the middle button hides them; arcs remain visible. The centre,
+arc point and dimension plane come from the same analytical path and respect saved
+object translation and rotation. Editing radius updates the preview. Disabled
+rounding, zero radius, straight continuation and splines do not create rounding
+dimensions. Display never calls OCCT.
 
+### Empty 3D Sweep profiles
 
-### Prázdné profily 3D Sweepu
+The first path point needs a populated profile sketch. Subsequent points with no
+sketch or an empty sketch inherit the most recent populated profile along the
+path. A newly populated sketch becomes the source for later empty points.
+Inactive stations do not change the source. Inheritance is evaluated during
+calculation without independent sketch copies, so source edits propagate forward.
+The table shows the source in **Used profile**. An unfinished open contour is not
+empty and causes a calculation error.
 
-První bod dráhy musí mít vyplněnou skicu profilu. Následující body bez
-skici nebo s prázdnou skicou přebírají poslední vyplněný profil ve směru
-dráhy. Nová vyplněná skica se stane zdrojem pro další prázdné body.
-Neaktivní stanice zdroj nemění. Převzetí se vyhodnocuje při výpočtu,
-nevytváří nezávislé kopie skic; úprava zdroje se tedy projeví i dále.
-Tabulka uvádí zdroj ve sloupci „Použitý profil“. Rozkreslená neuzavřená
-kontura se nepovažuje za prázdnou a při výpočtu vyvolá chybu.
+## Matching profile perimeters
 
-## Párování obvodů profilů
+**Point order** follows the green **Sketch** button. The first point is stored by
+persistent ID in `Sweep3DProfile.correspondence_start_point_id`; subsequent points
+follow cyclically around the perimeter. Adjacent profiles connect 1 → 1, 2 → 2,
+etc. Different point counts are rejected. Inherited stations have no independent
+order: edit their source sketch.
 
-Za zeleným tlačítkem **Sketch** je **Pořadí bodů**. Volba prvního bodu je
-uložena jeho trvalým ID v `Sweep3DProfile.correspondence_start_point_id`.
-Další body následují cyklicky po obvodu. Mezi sousedními profily se spojuje
-1 → 1, 2 → 2 atd.; rozdílný počet bodů výpočet odmítne. Převzaté stanice
-nemají nezávislé pořadí, upravuje se jejich zdrojová skica.
+During Properties, the View shows all active profiles, including inherited ones.
+Opening a profile sketch hides preview outlines and correspondence markers so they
+do not overlap editable Sketcher geometry. The path remains as context. Finishing
+the sketch restores the preview; clearing a later station's outline restores
+inheritance from the preceding profile. The first correspondence point is labelled
+**1 – start**, the others by sequence number. Changing the start updates only the
+preview. Cancel restores it; Sweep Properties OK calculates and commits the change.
 
-View během vlastností zobrazuje všechny aktivní profily včetně převzatých.
-Při otevření profilové skici se náhledové obrysy a jejich párovací značky
-skryjí, aby se nepřekrývaly s editovatelnou geometrií Sketcheru. Dráha zůstává
-jako kontext. Dokončení skici náhled obnoví; vymazání jejího obrysu u další
-stanice obnoví převzetí předchozího profilu.
-První párovací bod má popisek **1 – začátek**, ostatní pořadové číslo.
-Změna začátku aktualizuje pouze náhled; Cancel ji vrátí a až OK vlastností
-Sweepu provede výpočet a změnu dokumentu.
+Circles without points use seam orientation transported along the path, preventing
+local sketch orientations from causing spontaneous twisting or narrowing. One
+point with a C constraint on the circle or K on its quadrant controls seam and
+rotation. C and K points can coexist in a profile; suppressed constraints do not
+count. Multiple points split a circle into exact arcs whose identities derive
+from the source circle and point pairs. Circle-to-rectangle transition therefore
+requires four circle points matching the four rectangle corners.
 
-Kružnice bez bodů používají podél dráhy přenášenou orientaci švu, aby rozdílná
-lokální orientace skic nezpůsobila samovolné zkroucení a zúžení. Jeden bod
-s vazbou C na kružnici nebo K na její kvadrant dovoluje řídit šev a pootočení.
-V jednom profilu lze body C a K kombinovat; potlačené vazby se nezapočítají.
-Více bodů rozdělí
-kružnici na přesné oblouky; jejich identity vycházejí ze zdrojové kružnice
-a dvojic bodů. Kružnice → obdélník proto vyžaduje čtyři body na kružnici
-odpovídající čtyřem rohům obdélníku.
-
-U neoznačených profilů OCCT ThruSections používá kontrolu kompatibility,
-u explicitního párování zachovává pořadí stanovené ZIMA daty. Podrobnosti API:
+For unmarked profiles, OCCT ThruSections checks compatibility. Explicit
+correspondence preserves the order specified by ZIMA data. API details:
 [OCCT ThruSections](https://occt3d.com/dev/doc/refman/html/class_b_rep_offset_a_p_i___thru_sections.html).
-Párovací data jsou součástí aktuálního Part formátu 14.
+Correspondence data was introduced in Part format 14.
 
-## Rozpracovaný kontejner ve stromu
+## Pending container in the tree
 
-Během vytváření kontejneru nahrazuje položku „Vložit zde“ jeho dočasná
-položka se zeleným písmem. Zobrazuje aktuální lokální počátek, dráhu, body
-a profily; zůstává dostupná i při otevřeném editoru bodu nebo skici.
-Stejná prezentace platí pro kontejnery v Partu i Assembly. Při editaci se
-aktualizuje existující položka a ukazatel vložení se dočasně skryje.
+During creation, a temporary green-text container replaces **Insert here**. It
+shows the current local Origin, path, points and profiles and remains available
+while a point editor or sketch is open. Part and Assembly containers use the same
+presentation. Editing updates the existing item and temporarily hides the insertion
+marker.
 
-Kliknutí na celý počátek nadřazeného kontejneru vyplní bodu jeho tři
-polohové reference stejně jako kliknutí na počátek dokumentu. Samostatný
-výběr jednotlivých rovin zůstává dostupný. Vlastní počátek ani vlastní
-podřízené prvky nejsou platnou referencí pro umístění jejich rodiče.
+Clicking a parent container's complete Origin fills all three point-placement
+references, as clicking the document Origin does. Selecting individual planes
+remains available. A container's own Origin and descendants are not valid
+references for positioning that container.
 
-Zobrazení stromu čte rozpracovaná ZIMA data; nevkládá je do uložené historie
-ani nevyvolává výpočet tělesa. OK potvrdí transakci, Cancel odstraní její
-náhled. Po zavření vlastností se obnoví běžné zobrazení „Vložit zde“.
+The tree reads pending ZIMA data without inserting it into saved history or
+calculating a body. OK commits the transaction; Cancel removes its preview.
+Closing Properties restores normal **Insert here** display.
 
-### Osová dráha hotového solidu
+### Centreline of the completed solid
 
-Solid publikuje čerchovanou osovou dráhu podle zdrojových křivek
-(`centerline:from:<source_id>`). Úsečky, zaoblení, spline i helix zachovávají
-tvar; aproximační části jedné zdrojové křivky mají společnou referenci.
-Pouze přímé části nabízejí také osovou referenci pro další prvky.
-Zobrazení respektuje přepínač Os, včetně stínovaného režimu. Geometrie se
-ukládá při výpočtu solidu; vykreslení a výběr nevolají OCCT. Dříve vypočtený
-model doplní osovou dráhu explicitním příkazem Regenerovat.
+The solid publishes a chain-dashed centreline based on source curves
+(`centerline:from:<source_id>`). Segments, rounds, splines and helices retain their
+shape; approximation pieces of one source curve share a reference. Only straight
+sections also offer an axis reference for later features. Display respects the
+Axes toggle, including shaded mode. Geometry is saved during solid calculation;
+rendering and picking do not call OCCT. Explicit Regenerate adds the centreline
+to a previously calculated model.
 
-Hotový solid zobrazuje trajektorii standardní hnědou čerchovanou osou,
-rovněž na zakřivených úsecích. Původní plná křivka nepřekrývá vypočítanou osu;
-při editaci zůstává dostupný náhled zdrojové dráhy. Viditelnost výsledných os
-řídí společný přepínač os, stejně jako u 2D Sweepu a Helical Sweepu.
+Completed solids show the trajectory as the standard brown chain-dashed axis,
+including curved sections. The original solid-line curve does not cover the
+calculated axis; editing still provides the source-path preview. The shared Axes
+toggle controls result axes, as for 2D Sweep and Helical Sweep.
 
-Počáteční a koncová plocha spojeného Sweep/Loftu (zaoblená i spline dráha)
-se při výpočtu publikují do uložené referenční geometrie. Identita vychází
-z role začátku/konce a zdrojového úseku dráhy; koncová tečna určuje rovinu.
-Tyto plochy lze použít k umístění dalšího kontejneru i po načtení dokumentu.
+Start/end faces of a connected Sweep/Loft (rounded or spline path) are published
+to saved reference geometry during calculation. Identity derives from the start/end
+role and source path segment; the endpoint tangent defines the plane. These faces
+can position later containers after reopening the document too.
 
-Kontrola referencí ve stromu rozpoznává vlastní rovinu vloženého profilu
-`sweep3d:profile:<id>` podle identity profilu a vlastnícího Sweep/Loftu.
-Nehledá ji mezi samostatnými konstrukčními rovinami. Tím se odstraňuje
-falešné červené označení po novém otevření dokumentu; skutečně chybějící
-roviny a rozbité externí reference profilové skici se nadále hlásí.
+Tree reference checks recognize an embedded profile's own plane
+`sweep3d:profile:<id>` by profile identity and owning Sweep/Loft, instead of looking
+among standalone construction planes. This removes false red warnings after
+reopening; actually missing planes and broken external profile-sketch references
+still report errors.
 
-## Thin — tloušťka 3D Sweepu
+## Thin — 3D Sweep thickness
 
-Vlastnosti 3D Sweepu používají stejný dialog pro vytvoření i editaci.
-Typ výsledku **Těleso / Thin** zpřístupňuje tloušťku a směr **Dovnitř**,
-**Ven** nebo **Symetricky**. Symetricky znamená polovinu celkové zadané
-tloušťky na každou stranu původního profilu. U otevřené kontury stranu určuje
-její orientace. V pořadí bodů lze zvolit kterýkoli koncový bod a tím obrátit
-párování otevřeného profilu. Tloušťka se měří v rovinách profilů; u proměnného Loftu to
-není záruka konstantní vzdálenosti kolmo k výsledné šikmé stěně.
+Creation and editing share one Properties dialog. Result type **Solid / Thin**
+enables thickness and **Inward**, **Outward**, or **Symmetric** direction. Symmetric
+places half the specified total thickness on each side of the original profile.
+For an open contour, orientation defines the side. Point order can select either
+endpoint to reverse open-profile correspondence. Thickness is measured in profile
+planes; a varying Loft does not guarantee constant distance normal to the resulting
+sloped wall.
 
-Každý uzavřený profil vytvoří vnější a vnitřní obrys; jejich tažením vznikne
-duté těleso s otevřenými konci. Otevřený profil vytvoří pás uzavřený na svých
-koncích. Jeden Loft nekombinuje otevřené a uzavřené profily. Počet navazujících
-hran a párování musí odpovídat; příliš velké odsazení nebo změna topologie
-odsazeného profilu se odmítne. Zdrojové skici se nemění.
+Each closed profile creates outer and inner contours; sweeping them produces a
+hollow body with open ends. An open profile creates a strip closed at its ends.
+One Loft cannot mix open and closed profiles. Corresponding edge counts and
+matching must agree. Excessive offsets or changes to offset-profile topology are
+rejected. Source sketches are unchanged.
 
-Náhled odsazených obrysů spotřebovává pouze data Sketcheru. Až OK nebo explicitní
-Regenerate volá OCCT. Cancel zahodí rozpracovanou změnu. Parametry
-`result_type`, `thickness` a `thin_mode` jsou povinnou součástí aktuálního
-uloženého Sweep/Loftu; tloušťka i strana vstupují do otisku výpočtu.
+Offset-contour preview uses Sketcher data only. OCCT runs on OK or explicit
+Regenerate. Cancel discards pending changes. `result_type`, `thickness` and
+`thin_mode` are required fields of the current saved Sweep/Loft; both thickness
+and side participate in the calculation fingerprint.
 
-Příkazy mají krátké české názvy **2D tažení**, **3D tažení** a
-**Šroubovicové tažení** (anglicky 2D Sweep, 3D Sweep a Helical Sweep).
-České nápovědy vysvětlují tažení a přechod mezi profily (Loft), případně
-šroubovicové tažení. Loft zůstává vlastností Sweepu.
+The exact localized Czech command labels are **2D tažení**, **3D tažení**, and
+**Šroubovicové tažení** (2D Sweep, 3D Sweep, Helical Sweep). Czech tooltips explain
+sweeping and profile transition (Loft), or helical sweeping. Loft remains a Sweep
+property.
 
-## 2D tažení — rovinná dráha, více profilů a Thin
+## 2D Sweep — planar path, multiple profiles and Thin
 
-2D Sweep začíná skicou jedné otevřené dráhy z počátku skici. Počáteční směr
-může být libovolný. První rovinná reference umístění kontejneru předvyplní
-samostatné pole před tlačítkem **Skica dráhy**. Uživatel může tuto referenci
-nahradit rovinou nebo rovinnou plochou původního objektu z View či stromu;
-umístění kontejneru se tím nemění. Pole používá společné zelené označení
-vstupu, azurovou inspekci a ukončení krátkým prostředním kliknutím.
+2D Sweep starts with a sketch containing one open path from the sketch Origin.
+Its initial direction is unrestricted. The container's first planar placement
+reference prepopulates a separate field before **Path sketch**. The user can
+replace it with a plane or planar face of an original object from the View/tree
+without changing container placement. The field uses shared green input ownership,
+azure inspection and short-middle-click termination.
 
-Konce křivek a skutečné body Sketcheru ležící na dráze nabízejí profilové
-skici. Středy oblouků a řídicí body neinterpolačních spline nejsou stanice.
-Každý úsek má začátek a konec; v ostrém rohu jsou příchozí a odchozí profily
-samostatné. Roviny profilů jsou kolmé k místní tečně. První profil musí být
-vyplněný, další prázdné stanice přebírají poslední vyplněný profil ve směru
-dráhy. Vyplnění další skici vytvoří Loft. Profily mají trvalá ID a jejich
-skici jsou samostatně dostupné ve stromu.
+Curve endpoints and actual Sketcher points on the path offer profile sketches.
+Arc centres and non-interpolating spline control points are not stations. Each
+segment has a start and end; incoming and outgoing profiles are separate at sharp
+corners. Profile planes are perpendicular to the local tangent. The first profile
+must be populated; later empty stations inherit the most recent populated profile
+along the path. Populating another sketch creates a Loft. Profiles have persistent
+IDs and individually accessible sketches in the tree.
 
-Párování obvodů, **Pořadí bodů**, značky ve View a vazby **C / K** používají
-stejnou implementaci jako 3D Sweep. Totéž platí pro **Thin**, tloušťku a směr
-**Dovnitř / Ven / Symetricky**, včetně otevřených kontur. U proměnného Loftu
-se tloušťka měří v profilových rovinách, nikoli kolmo k šikmé výsledné stěně.
-Režim Těleso dovoluje i uzavřené průřezy s otvory; například dvě soustředné
-kružnice vytvoří trubku bez Thin. Navazující profily musí mít stejný počet
-odpovídajících otvorů.
+Perimeter correspondence, **Point order**, View markers and **C / K** constraints
+share the 3D Sweep implementation. So do **Thin**, thickness and
+**Inward / Outward / Symmetric**, including open contours. In a varying Loft,
+thickness is measured in profile planes rather than normal to the resulting sloped
+wall. Solid mode also permits closed sections with holes: two concentric circles,
+for example, create a tube without Thin. Successive profiles need the same number
+of corresponding holes.
 
-Rovina dráhy, zdrojové body, skici a párování jsou uloženy v aktuálním Part
-formátu. Staré uspořádání dvou skic 2D Sweepu se nepřevádí. Úsečky a oblouky
-se počítají přesně, obecné rovinné křivky se adaptivně převedou podle
-výpočetní tolerance. Náhled a Sketcher nevolají OCCT; výpočet provádí OK nebo
-explicitní Regenerovat. Cancel zahodí celý návrh.
+The path plane, source points, sketches and correspondence are saved in the current
+Part format. The old two-sketch 2D Sweep structure is not migrated. Segments and
+arcs are calculated exactly; general planar curves are adaptively converted using
+the calculation tolerance. Preview and Sketcher do not call OCCT; OK or explicit
+Regenerate calculates. Cancel discards the complete pending feature.
 
-Regrese: `zima_cpp_sweep2d_contract_tests`, společné 3D/Helical a UI testy.
-Integrační ověření v aplikaci: `ZIMA_VERIFY_SWEEP2D_ONLY=1` s
+Regression suites: `zima_cpp_sweep2d_contract_tests`, shared 3D/Helical and UI tests.
+In-application integration check: `ZIMA_VERIFY_SWEEP2D_ONLY=1` with
 `zima-cad-cpp --verify-startup`.

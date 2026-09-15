@@ -1,137 +1,127 @@
-# Komponenty sestavy přes společné příkazy
+# Assembly components through shared commands
 
-První sada příkazů komponent poskytuje čtení uložené hierarchie a vložení
-otevřeného Partu či Assembly. GUI menu vložení používá stejnou operaci.
-Katalog nyní obsahuje 150 příkazů; příkazy komponent ještě nepokrývají editaci vazeb,
-umístění, odstranění komponent ani vložení do vnořeného aktivního kontextu.
+The initial component-command stage provides persisted-hierarchy queries and insertion
+of an open Part or Assembly. GUI insertion uses the same operation. At this stage
+the catalog has 150 commands; mate/placement editing, removal, and insertion into
+nested active contexts are subsequent stages documented separately.
 
-| Příkaz | Argumenty | Význam |
+| Command | Arguments | Purpose |
 | --- | --- | --- |
-| `component.list` | `[recursive:Boolean]`, `[limit:Integer]`, `[document]` | Uložené výskyty komponent, výchozí limit 2000 |
-| `component.get` | `instance_path`, `[document]` | Jeden přesný uložený výskyt |
-| `component.dependencies` | `instance_path`, `[document]` | Závislosti bránící odstranění přímé komponenty |
-| `component.open` | `instance_path`, `[document]` | Otevření zdroje přesného výskytu na samostatné kartě |
-| `component.insert` | `source`, `[name]`, `[document]` | Vložení otevřeného dokumentu do aktivní samostatné sestavy |
+| `component.list` | `[recursive:Boolean]`, `[limit:Integer]`, `[document]` | Persisted occurrences, default limit 2000 |
+| `component.get` | `instance_path`, `[document]` | One exact persisted occurrence |
+| `component.dependencies` | `instance_path`, `[document]` | Dependencies blocking immediate-component removal |
+| `component.open` | `instance_path`, `[document]` | Open the exact occurrence's source in its own tab |
+| `component.insert` | `source`, `[name]`, `[document]` | Insert an open document into the active standalone Assembly |
 
-`source` je ID otevřeného Partu nebo Assembly. `document` je ID vlastnící sestavy.
-Vložení vyžaduje, aby tato sestava byla aktivní na své samostatné kartě.
-Při aktivaci vnořeného Partu/Assembly se operace odmítne, takže nevloží komponentu
-omylem do zobrazeného rodiče. Vnořenou sestavu lze nyní upravit na její vlastní
-kartě; příkazová aktivace přesného vnořeného kontextu zůstává další etapou.
+`source` is an open Part/Assembly ID; `document` identifies the owning Assembly.
+Initial insertion requires that Assembly active in its own tab. An active nested
+Part/Assembly is rejected to prevent insertion into the displayed parent. At this
+stage nested Assemblies can be edited in their own tabs; exact nested activation
+is the next stage, now documented in [COMPONENT_ACTIVATION_COMMANDS.md](COMPONENT_ACTIVATION_COMMANDS.md).
 
 ```json
-{"command":"component.insert","arguments":{"source":"ID-OTEVRENEHO-DILU","name":"Šroub 1"}}
+{"command":"component.insert","arguments":{"source":"OPEN-PART-ID","name":"Bolt 1"}}
 {"command":"component.list","arguments":{"recursive":true,"limit":1000}}
 ```
 
-Výsledek vložení obsahuje nové `occurrence`, přesné `instance_path`,
-`source_document`, `document`, `revision`, `changed`. `instance_path` přebírejte
-z výsledku; sestavuje ji nativní `InstancePath`, není to název dílu ani pořadové
-číslo. Opakované vložení stejného zdroje má jiné ID a cestu výskytu. Part
-používá sdílený vypočtený snímek, bez opětovného výpočtu jeho tělesa.
-Vložení podsestavy zachovává existující nativní chování: na soukromém návrhu
-obnoví její řetězec dostupných závislostí a případné řezy. Necommitne tím změny
-do zdrojové podsestavy ani do rodičů cílového dokumentu.
+Insertion returns new `occurrence`, exact `instance_path`, `source_document`,
+`document`, `revision`, and `changed`. Use the returned path, constructed by native
+`InstancePath`; it is neither a Part name nor an index. Repeated insertion creates
+new occurrence IDs/paths. Part uses a shared calculated snapshot without recalculation.
+Subassembly insertion retains native behavior: refresh its available dependency chain
+and sections on a private proposal, without committing to the source subassembly
+or target document's parents.
 
-`component.list` bez `recursive` vrací přímé komponenty. Rekurzivní varianta
-vrací i vnořené výskyty a jejich přesné cesty. `total` udává celkový počet
-nalezených položek, `items` respektuje výstupní limit 1 až 10000.
-`component.get` vrací například `parent_path`, `owning_document`,
-`source_document`, `name`, `kind`, `direct`, `visible`, `effective_visible`,
-`suppressed`, `effective_suppressed`, `grounded`, `derived`, `placement` a počet
-potomků. Souřadnice umístění jsou v mm, úhly ve stupních, v lokálním rámci
-bezprostředního vlastníka.
+Without `recursive`, listing returns immediate components; recursive listing includes
+nested occurrences and exact paths. `total` counts all found entries; `items` respects
+a limit of 1–10000. `component.get` returns fields including `parent_path`,
+`owning_document`, `source_document`, `name`, `kind`, `direct`, `visible`,
+`effective_visible`, `suppressed`, `effective_suppressed`, `grounded`, `derived`,
+`placement`, and child count. Placement uses mm/degrees in the immediate owner's local frame.
 
-Přímý výskyt má navíc uloženou zdrojovou cestu, vazbové reference, zámky,
-uložený objem v mm³ a plochu v mm². Řádek vazby používá pro `offset` mm,
-u `plane_angle` stupně. Vnořený snímek neobsahuje celý původní dokument;
-neposkytuje proto údaje, které v něm uložené nejsou.
+Immediate occurrences additionally expose persisted source path, mate references,
+locks, saved volume in mm³, and area in mm². Mate `offset` uses mm, except `plane_angle`
+in degrees. Nested snapshots do not contain complete original documents and cannot
+return absent data.
 
-Dotazy čtou vypočtený/persistovaný snímek cílové sestavy. Nečtou novější otevřené
-zdroje, neotvírají soubory a nevolají OCCT. Fungují i po zavření zdrojů nebo
-odstranění jejich souborů. Změnu zdroje do existujícího výskytu přenáší výslovná
-regenerace sestavy. Skrytí či potlačení předka se promítne pouze do odpovídající
-větve výskytů, nikoli do ostatních výskytů stejného zdroje.
+At the initial stage, queries read the target Assembly's calculated/persisted snapshot,
+without reading newer open sources, opening files, or invoking OCCT. They work after
+sources close or their files disappear. Source updates originally reached existing
+occurrences through explicit Assembly regeneration; current source-display sharing
+is described in [ASSEMBLY_GEOMETRY_SHARING.md](ASSEMBLY_GEOMETRY_SHARING.md).
+Ancestor visibility/suppression affects only its occurrence branch, not other
+occurrences of the same source.
 
-Před vložením se ověřuje cyklus přes podsestavy a externí reference skic,
-včetně vložených profilů a řezů. Otevřené dokumenty mají přednost před soubory.
-Uzavřené závislosti se čtou podle uložených zdrojových cest a kontrolují se jejich
-ID; načtené pomocné dokumenty se neotevírají v uživatelském Workspace.
-Pokud chybí cesta externího zdroje, musí být tento zdroj před vložením otevřený,
-aby šlo jeho závislosti ověřit. Hloubka kontroly je omezena na 256 dokumentů;
-pomocné načtené dokumenty se po kontrole jednotlivé větve uvolní.
+Before insertion, cycle checks traverse subassemblies and external Sketch references,
+including embedded profiles/sections. Open documents take precedence over files.
+Closed dependencies use persisted source paths and validated IDs; helper documents
+do not open in the user Workspace. If an external source lacks a path, it must be
+open before insertion so dependencies can be checked. Traversal depth is limited
+to 256 documents; helper documents are released after each branch check.
 
-Úspěšné vložení má jediný krok Undo. Před commitem se na soukromém návrhu
-ověří také fyzikální relace. Chyba nesmí změnit revizi, generaci dat ani seznam
-otevřených dokumentů. Název je jednořádkový, bez okolních mezer, 1 až 256 bajtů.
-Uložení je výslovné příkazem `save`.
+Successful insertion creates one Undo step. Physical relations are validated on the
+private proposal before commit. Failure must preserve revision, data generation,
+and open-document list. Names are single-line, trimmed, and 1–256 bytes. Saving is
+explicit through `save`.
 
-## Ověření
+## Verification
 
-Modelová sada ověřuje opakované výskyty a sdílení snímku, hierarchii a viditelnost,
-Undo/Redo, nativní uložení, dotazy bez zdrojových souborů, izolaci rodičů,
-cyklus přes uzavřenou podsestavu i externí referenci a dělení nulou při vložení.
-Workspace a importní regrese prošly společně **3/3** (1,39 s).
-Skutečné CLI procesy uloží a znovu načtou sestavu opakovaných dílů; GUI test
-použije původní menu vložení a jeho vlastnosti. Integrační sada prošla **4/4**
-(17,30 s), `build/component-integration-tests.log`.
+Model tests cover repeated occurrences and snapshot sharing, hierarchy/visibility,
+Undo/Redo, native saving, queries without source files, parent isolation, cycles through
+closed subassemblies/external references, and division by zero during insertion.
+Workspace/import regressions passed **3/3** (1.39 s). Actual CLI saves/reopens repeated-Part
+Assemblies; GUI uses original insertion menu/Properties. Integration passed **4/4**
+(17.30 s), `build/component-integration-tests.log`.
+Full Windows Release passed **77/77** (402.70 s), `build/component-full-tests.log`.
 
-Celá Windows Release sada prošla **77/77** (402,70 s),
-`build/component-full-tests.log`.
+## Opening a source
 
-## Otevření zdroje
+`component.open` accepts an exact path from `component.list/get`, defaulting to the
+displayed Assembly as owner. It opens only the selected source, not intermediate
+Assemblies. Derived copies resolve to their original source. Results contain
+`document`, `path`, redirected `source_instance_path`, and `opened` (newly loaded).
+The source activates in its own tab.
 
-`component.open` přijímá přesnou cestu z `component.list/get`; výchozím
-vlastníkem je zobrazená sestava. Otevře pouze vybraný zdroj, nikoli všechny
-mezilehlé sestavy. U odvozené kopie dohledá její původní zdroj. Výsledek
-obsahuje `document`, `path`, přesměrovanou `source_instance_path` a `opened`
-(příznak nově načteného dokumentu). Zdroj se aktivuje na samostatné kartě.
+Already open sources retain current unsaved state without rereading files. Closed
+sources are validated by ID and document kind; a different Part at the same path is
+rejected. Owner changes, closing/reopening, or context switches during reading invalidate
+the result. Reading uses persisted data without source/parent regeneration. GUI Open
+shares the operation; initial CLI retained the nested-edit guard described above.
 
-Již otevřený zdroj se používá v současném stavu bez čtení souboru, takže
-nezmizí neuložené změny. U uzavřeného zdroje se kontroluje ID i druh dokumentu;
-soubor jiného dílu pod stejnou cestou se odmítne. Změna vlastnící sestavy, její
-zavření a opětovné otevření nebo přepnutí kontextu během čtení výsledek zneplatní.
-Čtení používá uložená data bez regenerace zdroje i rodičů. GUI kontextová akce
-Otevřít sdílí stejnou operaci; CLI zatím zachovává obecnou ochranu aktivního
-vnořeného editačního kontextu uvedenou výše.
+Source-opening regressions passed **5/5** (27.35 s),
+`build/component-source-integration-tests.log`: actual CLI and nested-Part GUI menu,
+unsaved-source preservation, wrong file identity, copy redirection, and Workspace
+changes during reading.
 
-Regrese otevírání zdrojů prošly **5/5** (27,35 s),
-`build/component-source-integration-tests.log`. Zahrnují skutečné CLI a GUI
-menu vnořeného dílu, zachování změn otevřeného zdroje, chybnou identitu souboru,
-přesměrování kopie a změny Workspace během čtení.
+## Dependencies before removal
 
-## Závislosti před odstraněním
+`component.dependencies` accepts an immediate component `instance_path` in its owning
+Assembly. For nested Parts, query that owner through `document` with a local path;
+parents cannot assume ownership of internal Parts. Source names/IDs are not occurrence identity.
 
-`component.dependencies` přijímá `instance_path` bezprostřední komponenty
-vlastnící sestavy. Pro vnořený díl dotazujte jeho vlastnící sestavu přes
-`document` a cestu relativní k ní; nadřazená sestava nesmí převzít vlastnictví
-vnitřního dílu. Zdrojové jméno ani ID dílu nejsou identitou jeho výskytu.
+Results contain `blocked` and three lists of stable IDs:
 
-Výsledek obsahuje `blocked` a tři seznamy stabilních ID:
+- `placement_components`: components whose persisted mate rows use the occurrence
+  on either side.
+- `dependent_components`: other components with persisted dependencies on it.
+- `sketches`: owning-Assembly Sketches with external references to it.
 
-- `placement_components`: komponenty, jejichž uložené řádky vazeb používají
-  dotazovaný výskyt na některé straně;
-- `dependent_components`: jiné komponenty s uloženou závislostí na výskytu;
-- `sketches`: skici vlastnící sestavy s externí referencí na tento výskyt.
-
-Odkaz na vnitřní geometrii podsestavy se počítá jako použití této podsestavy.
-Opakovaná použití se ve výsledku neopakují; jiný výskyt stejného zdroje své
-závislosti nesdílí. Kontrola používá totožnou funkci jako dosavadní GUI mazání.
-`blocked: false` znamená absenci těchto překážek; není to příkaz k odstranění
-ani záruka úspěchu následného výpočtu řezů. Dosavadní mazání, řešení vazeb a
-přepočet řezů se tímto krokem nemění. Dotaz neotevírá soubory, nevolá OCCT,
-nepřepočítává vazby a nemění historii.
+Referencing subassembly internals counts as using that subassembly. Results deduplicate
+uses; repeated source occurrences do not share dependencies. Checks use the existing
+GUI deletion function. `blocked: false` means these obstacles are absent, not an
+instruction to delete or a guarantee of subsequent section calculation. Existing
+deletion, mate solving, and section calculation remain unchanged. Queries open no
+files, invoke no OCCT, solve no mates, and change no history.
 
 ```json
-{"command":"component.dependencies","arguments":{"document":"VLASTNICI_SESTAVA","instance_path":"CESTA_Z_COMPONENT_LIST"}}
+{"command":"component.dependencies","arguments":{"document":"OWNING-ASSEMBLY","instance_path":"PATH-FROM-COMPONENT-LIST"}}
 ```
 
-Ověřeno **4/4** modelových, procesových, katalogových a překladových testů
-(7,76 s), `build/component-dependencies-tests.log`, a **2/2** testů konzole
-hlavního GUI a aktualizace sestavy (18,48 s),
-`build/component-dependencies-gui-tests.log`. Pokryté jsou tři druhy překážek,
-přesné opakované výskyty, duplicity, vlastnící dokument, odmítnutí vnořené
-cesty a chybějícího výskytu, zachování revize a dotazy bez zdrojových souborů.
-GUI bylo kvůli běžícímu uživatelskému CADu ověřeno pomocí samostatně slinkované
-kopie `build/cpp-windows-release/zima-cad-component-validation.exe` ze stejných
-aktuálních CMake objektů a knihoven. Běžný spouštěcí soubor se nepřepisoval.
+Verification: **4/4** model/process/catalog/translation tests (7.76 s),
+`build/component-dependencies-tests.log`, and **2/2** GUI-console/Assembly-update tests
+(18.48 s), `build/component-dependencies-gui-tests.log`. Coverage includes all three
+obstacle kinds, exact repeated occurrences, duplicates, owning document, rejected
+nested/missing paths, unchanged revisions, and queries without source files.
+Because the user's CAD was running, GUI validation used separately linked
+`build/cpp-windows-release/zima-cad-component-validation.exe` from the same current
+CMake objects/libraries. The ordinary executable was not overwritten.

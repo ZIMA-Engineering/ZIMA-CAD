@@ -262,6 +262,18 @@ int main(int argc, char **argv) {
             require(viewer::dimension_presentation(d,edge_on_plane,10).valid,"Visible length hidden by edge-on plane");
         }
         kernel::ModelEnvelope bounds;
+        {
+            kernel::ViewerDimension handle;
+            handle.rotation_handle=true;handle.kind=kernel::ViewerDimensionKind::Angular;
+            handle.witness_first={12,18,0};handle.line_second={42,58,0};
+            for(double zoom:{0.1,1.0,20.0}) {
+                const auto project=[&](kernel::Vec3 p){return QPointF(p.x*zoom,p.y*zoom);};
+                const auto layout=viewer::dimension_presentation(handle,project,40);
+                require(layout.valid && layout.curves.size()==1 && layout.arrows.empty(),"Hinge control is not one radial arm");
+                near(QLineF(layout.curves.front().front(),layout.handles[0]).length(),70);
+                near(QLineF(layout.curves.front().front(),project(handle.witness_first)).length(),0);
+            }
+        }
         bounds.include({0, 0, 0});
         bounds.include({20, 10, 5});
         kernel::ViewerDimension source;

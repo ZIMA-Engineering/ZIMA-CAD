@@ -6,152 +6,174 @@ mechanical engineers.
 The roadmap describes the intended development direction. Its order may change
 as the document model, geometric kernel integration and user workflows evolve.
 
-After the remaining foundational Python functionality is completed and its
-contracts are stabilized, development is intended to enter a feature freeze
-and migrate ZIMA-CAD incrementally to a modular C++/Qt implementation. OCCT
-will remain a separately built, dynamically linked solid-modeling kernel behind
-a narrow adapter. The approved direction, module boundaries and migration gates
-are documented in [Future C++ migration](doc/CXX_MIGRATION.md).
+The application is now native C++/Qt. The obsolete Python implementation and
+runtime were removed on 2026-09-15. See [native architecture](doc/CXX_ARCHITECTURE.md)
+for module boundaries and [distribution rules](doc/DISTRIBUTION_CLEANUP_PLAN.md)
+for the agreed packaging direction. Dated entries below preserve planning context;
+newer completion notes and focused contracts supersede their earlier status.
 
-## STEP: tělesa a struktura sestav (2026-09-09)
+## Agreed command console and Codex integration (2026-09-09)
 
-Novější dohoda upřednostňuje STEP před odsazením ve skicáři. Import do Partu
-vytváří samostatná tělesa; import do sestavy zdrojové Party/podsestavy se
-sdílenými opakovanými definicemi. Export zachovává produktovou strukturu,
-polohy a fyzické rozměry. Podrobnosti a ověření:
-[Import a export STEP](doc/STEP_IMPORT_EXPORT.md).
+The shared console and CLI coverage for supported CAD operations are complete
+as of 2026-09-15; see [command coverage](doc/CAD_COMMAND_COVERAGE.md). AI integration
+remains a separate stage. The original agreement below preserves its intended
+interaction and architecture; it does not restart the completed console work.
 
-## Dokončené opravy skic a výkresů (2026-09-09)
+- A Qt console spans the full application width at the bottom, including the
+  area beneath the Tree and side panels; drag to resize or collapse to one line.
+- Identical CAD commands and behavior on Windows and Linux, with command history,
+  completion, and readable results/errors.
+- Unix-style progress on one continuously updated line: operation text, a text
+  progress bar and percentage for measurable progress, otherwise an activity indicator.
+- A shared command layer for GUI, console, scripts/macros, and AI. Gradually expose
+  all supported CAD operations without duplicating their logic. Preserve active
+  document/occurrence, ownership, units, stable references, explicit regeneration,
+  and shared reversible transactions.
+- An optional system-terminal mode (such as Bash on Linux or PowerShell on Windows);
+  the CAD console must not depend on a particular shell.
+- Subsequently verify and connect Codex through App Server: sign-in, conversation,
+  and incremental results inside the application. Give AI access to model state,
+  current selection, parameters, and operation results so it can both perform and
+  verify modeling through the same CAD commands. Sign-in alone does not provide this capability.
 
-Doplněny orientované záporné úhly sestavy a jejich kóty, Otevřít zdroj
-komponenty na vlastní kartě a zachování skic sestavového Vytažení/Rotace.
-Řez používá společný výběr počátků; neaktivní řez zobrazuje volitelně obrys
-průřezu se šrafováním nad celým tělesem. Ztracené reference zůstávají
-viditelně označené do opravy. Prázdné View a první skica používají přibližné
-měřítko monitoru 1:1. Solver zachovává posun po ose při editaci rozteče.
+Order: shared command layer and console with initial commands, gradual operation
+coverage, then AI integration. The comprehensive Undo/Redo audit remains a separate
+later task under the existing agreement.
+Technical reference: [Codex App Server](https://learn.chatgpt.com/docs/app-server).
 
-Kóty vlastních skic lze měnit přímo v otevřených vlastnostech Skici,
-Vytažení, Rotace a tažení. Rozpracované změny zachovává návrat ze skicáře;
-OK je potvrdí a Zrušit zahodí. Ořez používá okamžitý společný náhled ve všech
-hostitelích skicáře a přenáší tečnost i vazby zachovaných bodů. Solver řeší
-změnu poloměru oblouku s tečnou úsečkou připojenou k dalšímu oblouku.
-Podrobnosti: [Sketcher](doc/SKETCHER.md).
+## STEP: bodies and Assembly structure (2026-09-09)
 
-Výkresové pohledy zachovávají vlastní orientaci při výběru řezu. Označení
-řezů, jejich stopy a manipulační body mají společná pravidla zobrazení;
-parametry šrafování jsou sdílené se zdrojovým modelem. Hodnoty razítka a
-kusovníku používají parametry příslušného dílu či sestavy a jejich pořadí.
-Podrobnosti: [výkresy](doc/DRAWINGS.md) a [řezy](doc/SECTIONS.md).
-Spuštění Windows aplikace přes přímého zástupce neotevírá konzoli.
+A newer agreement prioritizes STEP before Sketcher offsets. Part import creates
+separate bodies; Assembly import creates source Parts/subassemblies with shared
+repeated definitions. Export preserves product structure, placements, and physical
+size. Details and verification: [STEP import/export](doc/STEP_IMPORT_EXPORT.md).
 
-## Další návrh pro Drawing: Show/Erase (2026-09-09)
+## Completed Sketch and Drawing fixes (2026-09-09)
 
-Připravit filtr původních kót, os a pomocné geometrie zdrojového modelu.
-Viditelnost a přesunuté polohy ukládat odděleně pro každý pohled. První verze
-bez změn rozměrů modelu, ruční kótování jako samostatný krok. Manipulační body
-kót doplnit u textu a konců šipek. Pracovní vodítka budou šedá a čárkovaná,
-s nastavitelným prvním odsazením a roztečí, bez tisku do PDF.
-Podrobnosti a hranice: [návrh Show/Erase](doc/DRAWING_SHOW_ERASE.md).
-Tento odstavec je návrh další práce, nikoli tvrzení o hotové implementaci.
+Added signed negative Assembly angles and their dimensions, opening a component's
+source in its own tab, and Sketch retention for Assembly Extrusion/Revolution.
+Sections use shared Origin selection; inactive sections can display their contour
+and hatching over the complete body. Lost references remain visibly marked until
+repaired. Empty View and the first Sketch use approximate monitor 1:1 scale.
+The solver preserves axial translation when editing pitch.
 
-## Řezy přes umístěný kontejner a Sketcher (2026-09-09)
+Owned-Sketch dimensions can be edited directly in open Sketch, Extrusion,
+Revolution, and Sweep Properties. Returning from Sketcher preserves pending edits;
+OK commits them and Cancel discards them. Trim uses immediate shared preview in
+all Sketcher hosts and transfers tangency and retained-point constraints. The solver
+handles an arc-radius change with a tangent segment connected to another arc.
+Details: [Sketcher](doc/SKETCHER.md).
 
-Skupina Řezy je hned za počátkem dokumentu a obsahuje nesmazatelný stav
-Bez řezu. A–A, B–B… mají společné umístění kontejneru, vlastní rovinu
-XY/XZ/YZ a plnou editaci otevřené čáry nebo lomené čáry ve Sketcheru.
-Aktivace řezu ořízne View, výkres používá stejnou uloženou definici.
-Zachováno je šrafování, volba strany i samostatné režimy komponent.
-Viz [Řezy](doc/SECTIONS.md).
+Drawing views retain their own orientation when selecting a section. Section labels,
+traces, and grips share display rules; hatch parameters are shared with the source
+model. Title-block and BOM values use the relevant Part/Assembly parameters and
+their order. Details: [Drawings](doc/DRAWINGS.md) and [Sections](doc/SECTIONS.md).
+Launching Windows through a direct shortcut opens no console.
 
-## Výkresové pohledy a PDF (2026-09-08)
+## Next Drawing proposal: Show/Erase (2026-09-09)
 
-Výkresové pohledy doplňují obrysové křivky z uložené tessellace a rozdělují
-částečně zakryté hrany. Skryté hrany mají čárkovaný nebo šedý režim,
-stínování funguje s hranami i bez nich a používá lokální hloubkové zakrytí.
-List uchovává fyzické tloušťky čar; export všech listů do PDF zachovává
-měřítko, čárkování i tloušťky. Viz [Výkresy](doc/DRAWINGS.md).
+Prepare a filter for original dimensions, axes, and auxiliary source-model geometry.
+Persist visibility and moved positions separately per view. The first version does
+not change model dimensions; manual dimensioning is a separate step. Add dimension
+grips at text and arrow ends. Working guides are gray dashed lines with configurable
+first offset and spacing, excluded from PDF printing.
+Details and boundaries: [Show/Erase proposal](doc/DRAWING_SHOW_ERASE.md).
+This is a future-work proposal, not a claim of completed implementation.
 
-## Text, razítka a hmotnost (2026-09-08)
+## Sections through placed containers and Sketcher (2026-09-09)
 
-Doplněny režimy běžného a modelovacího textu, editace původních textových
-identit razítka a zápis položek výkresu do Parameters dílu či sestavy.
-Ruština je pátý jazyk rozhraní i výchozích parametrických popisků.
-Hmotnost používá hustotu materiálu, jednotky dokumentu a explicitně
-aktualizované snímky komponent; chybějící údaje se nevydávají za nulu.
-Viz [výkresy](doc/DRAWINGS.md), [Sketcher](doc/SKETCHER.md),
-[překlady](doc/LOCALIZATION.md) a [fyzikální veličiny](doc/PHYSICAL_PROPERTIES.md).
+The Sections group immediately follows the document Origin and contains the
+non-removable No Section state. A-A, B-B, etc. share container placement, own an
+XY/XZ/YZ plane, and support full editing of an open line or polyline in Sketcher.
+Activating a section clips View; Drawing uses the same persisted definition.
+Hatching, side selection, and separate component modes remain supported.
+See [Sections](doc/SECTIONS.md).
 
-## Dohodnutý další postup pro Part (2026-09-06)
+## Drawing views and PDF (2026-09-08)
 
-Při příštím návratu k vývoji uživateli stručně připomenout tento plán.
-Jde o pořadí další práce, nikoli o pokyn všechny funkce ihned implementovat.
-Novější pokyny uživatele mají přednost.
+Drawing views add silhouette curves from persisted tessellation and split partially
+occluded edges. Hidden edges support dashed or gray presentation; shading works
+with and without edges and uses local depth occlusion. Sheets store physical line
+widths; multi-sheet PDF export preserves scale, dashes, and widths.
+See [Drawings](doc/DRAWINGS.md).
 
-1. **Odsazení ve skicáři dovnitř i ven**, se zadanou vzdáleností; především
-   od hran importovaného STEP promítnutých do skici.
-2. **Dokončit a stabilizovat všechny druhy vytažení**: tvorbu, editaci,
-   přepočet, návazné reference a odmítnutí neplatných vstupů bez poškození modelu.
-3. **Mirror pro Part**: zrcadlení geometrie podle roviny jako editovatelná
-   operace v historii.
-4. **Pattern pro Part**: lineární a kruhové pole, počet, rozteč nebo úhel.
-5. **Obarvování jednotlivých ploch a GUI nástroj**: výběr, nastavení barvy
-   a uložení s dílem.
-6. **Section pro Part i Assembly** se společným principem ovládání,
-   především pro výkresovou dokumentaci: definice řezu, směr pohledu,
-   šrafování a určení řezaných komponent sestavy.
-7. **Uložit jako zrcadlený díl**: po spuštění vybrat rovinnou plochu Partu
-   jako rovinu zrcadlení a zvolit závislou či nezávislou geometrii.
-   Výsledkem je nový Part. Závislá varianta uchovává zdrojovou referenci
-   a změny přebírá při explicitním Regenerate; nezávislá je bez této vazby.
-8. **Kompletně prověřit a doplnit Undo/Redo až poté**, co budou domluvené
-   funkce alespoň rámcově dokončené. Průběžně zachovat možnost vratných
-   transakcí, ale nyní nezačínat samostatný plošný audit Undo/Redo.
+## Text, title blocks, and mass (2026-09-08)
 
-Tím je zatím vymezen rozsah obecného modeláře Part. Další velké funkce
-nepřidávat bez nové dohody. Vícetělesový Part a booleovské operace byly
-2026-09-07 dopracovány jako dohodnutý architektonický směr:
-[vlastní historie těles a operace mezi větvemi](doc/MULTIBODY_AND_BOOLEANS.md).
-Vícetělesový model je nyní zapojený do Part UI, skicáře i referencí mezi
-souřadnými systémy, včetně editace Partu uvnitř vnořené Assembly. Boolean je
-samostatný krok stromu (Sjednocení / Rozdíl / Průnik); tělesa nemají vlastnost
-přičíst nebo odečíst. Ověřené opravy zahrnují odsazení od počátku tělesa,
-osy a koncové reference Sweep/Loftu a tečné kontakty ve skicáři.
-[Uložit jako](doc/DOCUMENT_COPY.md) vytváří kopii modelu a navázaných výkresů,
-původní dokument zůstává otevřený.
-Pattern celých těles, Boolean v Assembly a přesun těles mezi Party jsou
-budoucí rozšíření. Pro Boolean v Assembly je dohodnuto (2026-09-08):
-komponenta spotřebovaná jako nástroj operace, například druhý díl v A − B,
-nezůstává samostatnou položkou BOM ani příspěvkem hmotnosti. Tato role musí
-být explicitní a uložená u operace; samotné skrytí komponenty ji nenahrazuje.
-Potlačení nebo odstranění operace musí původní účast nástroje obnovit. Diskuse o nich nemění pořadí výše uvedených úloh;
-nejbližší plánovanou prací zůstává odsazení ve skicáři, zejména od STEP hran.
-Spolehlivost STEP importu/exportu zůstává také oblastí kontroly pokrytí.
+Added ordinary/modeling text modes, editing original title-block text identities,
+and writing drawing fields to Part/Assembly Parameters. Russian is the fifth UI
+and default parametric-label language. Mass uses material density, document units,
+and explicitly refreshed component snapshots; missing data is not reported as zero.
+See [Drawings](doc/DRAWINGS.md), [Sketcher](doc/SKETCHER.md),
+[Localization](doc/LOCALIZATION.md), and [Physical properties](doc/PHYSICAL_PROPERTIES.md).
 
-### Doplnění: fialové úchopy kót (2026-09-06)
+## Agreed next steps for Part (2026-09-06)
 
-Domluvený budoucí aktivní prvek pro vybranou kótu: **fialový bod u hrotu
-šipky pouze na měnitelném místě**. Pevná nebo vazbami zablokovaná strana
-úchop nemá. Pokud jsou měnitelné obě strany, mohou se zobrazit oba úchopy.
-Dostupnost musí vycházet z vazeb a možností solveru, nikoli jen z typu kóty.
+Briefly remind the user of this plan when development next resumes. This is a work
+order, not authorization to implement every feature immediately. Newer user
+instructions take precedence.
 
-- Tažení fialového úchopu mění hodnotu kóty a odpovídající geometrii;
-  tažení popisku dál mění pouze umístění kóty.
-- U délkové kóty je úchop u šipky, nikoli na začátku vynášecí čáry.
-  Pohyb se promítá do směru měřeného rozměru. Tažená strana je preferovaná
-  pohyblivá strana, ostatní vazby zůstávají respektované.
-- U poloměrové kóty je úchop u šipky na obvodu a mění poloměr radiálně.
-- U průměrové kóty jsou možná místa u obou šipek na obvodu, opět pouze
-  tam, kde lze rozměr měnit. Tažení mění průměr celé kružnice, nikoli
-  nezávisle jednu polovinu. Střed má zůstat zachován, dovolují-li to vazby.
-- Stejné pravidlo má pokrývat i další typy kót; konkrétní vedení úchopu
-  úhlové kóty je ještě potřeba dopracovat.
-- Neplatné řešení nesmí poškodit model. Přesný vztah tohoto ovládání
-  k zamčeným a referenčním kótám je nutné vyjasnit při návrhu implementace;
-  samotná tato dohoda nezavádí automatické odemykání.
+1. **Inward/outward Sketcher offsets** with a specified distance, especially
+   from imported STEP edges projected into a Sketch.
+2. **Complete and stabilize every Extrusion mode**: creation, editing, calculation,
+   downstream references, and rejection of invalid input without damaging the model.
+3. **Part Mirror**: mirror geometry about a plane as an editable history operation.
+4. **Part Pattern**: linear/circular patterns with count, spacing, or angle.
+5. **Individual face colors and GUI tool**: selection, color assignment, and Part persistence.
+6. **Part and Assembly Sections** with shared interaction, primarily for drawings:
+   definition, view direction, hatching, and selected sectioned components.
+7. **Save as mirrored Part**: select a planar Part face as the mirror plane and
+   choose dependent or independent geometry. The result is a new Part. A dependent
+   copy stores its source reference and updates on explicit Regenerate; an
+   independent copy has no such link.
+8. **Comprehensive Undo/Redo verification and completion only afterward**, once
+   agreed features are broadly implemented. Preserve reversible transactions
+   throughout, but do not start a separate comprehensive Undo/Redo audit now.
 
-Jde o zapsaný požadavek, ne o již implementovanou funkci. Konkrétní zařazení
-do pořadí vývoje zatím nebylo určeno; plošný audit Undo/Redo zůstává až
-po dokončení domluvených funkcí.
+This currently defines the scope of the general Part modeler. Add no other major
+features without a new agreement. Multibody Part and Boolean operations were
+completed as the agreed architectural direction on 2026-09-07:
+[Body-owned histories and operations between branches](doc/MULTIBODY_AND_BOOLEANS.md).
+The multibody model is connected to Part UI, Sketcher, and cross-coordinate-system
+references, including editing a Part inside a nested Assembly. Boolean is a separate
+Tree step (Union / Difference / Intersection); bodies do not have add/subtract
+properties. Verified fixes include Body-Origin offsets, Sweep/Loft axes and end
+references, and tangent contacts in Sketcher. [Save As](doc/DOCUMENT_COPY.md) copies
+the model and linked drawings while leaving the original open.
+
+Whole-body patterns, Assembly Booleans, and moving bodies between Parts are future
+extensions. The Assembly Boolean agreement (2026-09-08) says that a component consumed
+as an operation tool, such as B in A - B, must not remain a separate BOM item or mass
+contribution. This role must be explicit and persisted on the operation; hiding the
+component is not a substitute. Suppressing/removing the operation must restore the
+tool's original participation. These discussions do not change the work order above:
+Sketcher offsets, especially from STEP edges, remain next. STEP import/export
+reliability also remains a coverage-review area.
+
+### Addition: purple dimension grips (2026-09-06)
+
+Agreed future control for a selected dimension: a **purple point at an arrow tip
+only where editing is possible**. Fixed or constraint-blocked sides have no grip.
+If both sides can move, both grips may appear. Availability must follow constraints
+and solver capabilities, not only dimension type.
+
+- Dragging a purple grip changes the dimension value and corresponding geometry;
+  dragging the label continues to change annotation placement only.
+- A linear dimension's grip is at the arrow, not the extension-line start. Motion
+  projects along the measured direction. The dragged side is the preferred moving
+  side, while other constraints remain respected.
+- A radius grip lies at the rim arrow and changes the radius radially.
+- Diameter grips may appear at both rim arrows, only where editing is possible.
+  Dragging changes the entire circle's diameter, not one half independently.
+  Preserve the center when constraints permit.
+- Apply the same rule to other dimension types; the precise angular-grip path
+  still needs design work.
+- Invalid solutions must not damage the model. Clarify the interaction with
+  locked/reference dimensions during implementation design; this agreement does
+  not introduce automatic unlocking.
+
+This records a requirement, not an implemented feature. Its exact development
+priority is not yet assigned; the comprehensive Undo/Redo audit remains after
+completion of the agreed features.
 
 ## 1. Core and Parametric Container Model
 
@@ -495,3 +517,20 @@ Further sweep scope:
     title-block Repeat Region, Item Number and Quantity fields
   - sheet-metal flat-pattern drawings
   - DXF export and production verification of the implemented PDF export
+
+
+## Next-work clarification (2026-09-15)
+
+First finish **Holes** for drilled hydraulic channels: owned-Sketch segments
+specify cylinder axes and lengths, with one common diameter and subtraction only.
+Then complete existing **Sketcher offsets** for native curves and curves from
+external references, not just direct STEP import. AI integration follows the
+agreed modeling features; the comprehensive Undo/Redo audit order is unchanged.
+
+### Approved work-plane unification (2026-09-15)
+
+Sketch, Holes, Protrusion, Revolve, and construction Plane use an automatic base
+plane from the first planar reference and persist manual XY/XZ/YZ selection.
+Offset follows the selected plane; regeneration does not overwrite manual choice.
+The user approved this scoped change to the shared placement rule. Completing
+offsets for native and externally referenced curves remains the next modeling task.

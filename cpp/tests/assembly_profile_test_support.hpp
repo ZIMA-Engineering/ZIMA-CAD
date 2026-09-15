@@ -4,14 +4,15 @@
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
+#include <source_location>
 namespace assembly_profile_test {
 using namespace zima;
 using commands::Json;
 namespace fs = std::filesystem;
 inline void require(bool ok, const char* message) { if (!ok) throw std::runtime_error(message); }
-inline void near(double actual, double expected) {
+inline void near(double actual, double expected, const std::source_location where = std::source_location::current()) {
     if (!std::isfinite(actual) || std::abs(actual - expected) > 1e-5)
-        throw std::runtime_error("Expected " + std::to_string(expected) + ", got " + std::to_string(actual));
+        throw std::runtime_error("Expected " + std::to_string(expected) + ", got " + std::to_string(actual) + " at line " + std::to_string(where.line()));
 }
 struct Fixture {
     workspace::Workspace live;

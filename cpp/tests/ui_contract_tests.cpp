@@ -2690,7 +2690,8 @@ int main(int argc, char* argv[]) {
         auto* base_plane = plane_dialog->findChild<QComboBox*>(
             "constructionBasePlane");
         require(base_plane != nullptr &&
-                    base_plane->currentData() == QStringLiteral("xz") &&
+                    base_plane->currentData() == QStringLiteral("auto") &&
+                    base_plane->currentData(Qt::UserRole + 1) == QStringLiteral("xz") &&
                     base_plane->currentText().contains(QStringLiteral("Zdrojová rovina")),
                 "First planar reference did not become the Plane offset base");
         auto* first_position_item = plane_reference_table->item(0, 1);
@@ -4063,7 +4064,8 @@ int main(int argc, char* argv[]) {
                 "Sketch Properties rejected its first planar reference");
         auto* sketch_plane = sketch_dialog->findChild<QComboBox*>("sketchPlane");
         require(sketch_plane != nullptr &&
-                    sketch_plane->currentData().toInt() == static_cast<int>(
+                    sketch_plane->currentData() == QStringLiteral("auto") &&
+                    sketch_plane->currentData(Qt::UserRole + 1).toInt() == static_cast<int>(
                         zima::sketcher::SketchPlane::XZ) &&
                     sketch_plane->currentText().contains(QStringLiteral("První rovina")),
                 "First planar reference did not become the Sketch work plane");

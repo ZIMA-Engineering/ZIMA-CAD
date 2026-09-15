@@ -1,50 +1,47 @@
-# Přiřazení referencí Hole a Opening
+# Assigning Hole and Opening references
 
-`hole.reference.set` a `opening.reference.set` přiřazují původní referenci
-umístění existujícího otvoru. Stejné typy nově přijímá také
-`placement.reference.set` s argumentem `object` namísto `container`.
+`hole.reference.set` and `opening.reference.set` assign an original placement
+reference to an existing hole. `placement.reference.set` also accepts these types
+using `object` instead of `container`.
 
 ```json
 {"command":"hole.reference.set","arguments":{"container":"HOLE_ID","index":0,"reference":{"owner":"PART_ID:origin","key":"origin:plane:xy"},"offset_mm":-20}}
 ```
 
-Argumenty odpovídají ostatním příkazům přiřazení:
+Arguments follow the other reference-assignment commands:
 
-- `container`: existující Hole, respektive Opening v aktivním Partu;
-- `index`: poziční řádky 0–2, FRONT/TOP 3–4;
-- `reference`: původní `owner`, `key`, volitelně prázdný `instance_path`;
-- `offset_mm`: podepsaná vzdálenost od rovinné reference, výchozí 0;
-- `flip`: otočení reference, výchozí `false`;
-- `derive_orientation`: běžné automatické doplnění orientace, výchozí `true`;
-- `document`: volitelná kontrola aktivního dokumentu.
+- `container`: an existing Hole or Opening in the active Part;
+- `index`: positional rows 0-2, FRONT/TOP rows 3-4;
+- `reference`: original `owner`, `key`, and optional empty `instance_path`;
+- `offset_mm`: signed distance from a planar reference, default 0;
+- `flip`: reference reversal, default `false`;
+- `derive_orientation`: ordinary automatic orientation completion, default `true`;
+- `document`: optional active-document guard.
 
-Zdroj musí předcházet funkci v historii nebo být dostupným počátkem.
-Vlastní profil otvoru, jeho vlastní výsledek, pozdější objekt, neexistující
-geometrie a cizí výskyt se odmítají. Aktivní Body musí být zapisovatelný.
-Běžná ochrana otevřených editorů platí i pro tyto příkazy.
+The source must precede the feature in history or be an available Origin. The hole's
+own profile/result, later objects, missing geometry, and foreign occurrences are
+rejected. The active Body must be writable. Normal open-editor guards apply.
 
-Příkaz používá stávající `prepare_part_feature_reference` a schválené
-`assign_placement_reference`; společné řešení umístění se nemění. Potvrzení
-provádí původní `commit_hole` / `commit_opening`, shodně s OK ve Vlastnostech.
-Proběhne explicitní výpočet tělesa a jedno potvrzení historie. Neúspěch
-zachová dokument i vypočtená data. Stejný požadavek nevytváří historii
-ani nové těleso. Vlastněné kružnice, skici, sražení a vrtací hrot si zachovají
-původní identitu; u Opening se zachová i závitová plocha.
+The command reuses `prepare_part_feature_reference` and approved
+`assign_placement_reference`; shared placement solving is unchanged. Existing
+`commit_hole` / `commit_opening` performs the same commit as Properties OK:
+explicit body calculation and one history transaction. Failure preserves document
+and calculated data. Identical requests create neither history nor a new body.
+Owned circles, Sketches, chamfers, and drill tips retain identity; Opening also
+retains its thread surface.
 
-První rovinná reference je FRONT. Směr vrtání se řídí konkrétní existující
-funkcí: referencovaný Hole používá lokální +Y, Opening lokální −Y.
-Test s FRONT=XY proto vrtá blok od z=−20 u Hole a od z=+20 u Opening.
-Při výběru reference je třeba zvolit vstupní stranu a případné otočení podle
-náhledu stejně jako v GUI. Příkaz tyto orientační konvence nepřepisuje.
+The first planar reference is FRONT. Drilling direction follows each existing
+feature: referenced Hole uses local +Y, Opening local -Y. With FRONT=XY, the test
+drills a block from z=-20 for Hole and z=+20 for Opening. Choose entry side and
+any reversal from the preview, as in the GUI. Commands do not override these conventions.
 
-Odpověď obsahuje dokument, kontejner, souřadnicový systém, aktuální uložené
-umístění s referencemi, revizi, `changed` a `body_calculated`.
-Další rozměry otvoru vracejí existující `hole.get` a `opening.get`.
-Data se ukládají do stávajícího `.prtz`; formát ani šablony se nemění.
+The response includes document, container, coordinate system, current persisted
+placement/references, revision, `changed`, and `body_calculated`. Existing `hole.get`
+and `opening.get` return other dimensions. Data uses existing `.prtz`; format and
+templates are unchanged.
 
-Regresní test počítá očekávaný odebraný objem válce a ověřuje skutečné
-souřadnice stěn při posunu otvoru o 4 mm. Zahrnuje Hole, hladký Opening,
-metrický, Whitworthův a trubkový závit, odmítnuté reference, bezezměnové
-požadavky, Undo/Redo a nativní uložení. Procesní test používá skutečný CLI
-program. GUI test otevírá stejné Vlastnosti a kontroluje referenční řádek,
-Cancel, OK, Undo/Redo a uložený objem.
+Regression checks analytical removed cylinder volume and actual wall coordinates
+after a 4 mm hole translation. It covers Hole, plain Opening, metric, Whitworth,
+and pipe threads, rejected references, no-op requests, Undo/Redo, and native saving.
+The process test uses the actual CLI. The GUI test opens the same Properties and
+checks the reference row, Cancel, OK, Undo/Redo, and persisted volume.

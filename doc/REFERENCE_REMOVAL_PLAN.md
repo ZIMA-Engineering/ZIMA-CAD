@@ -1,76 +1,69 @@
-# Odebrání reference společně pro GUI a CLI – schválený postup
+# Shared GUI/CLI reference removal: approved plan
 
-Uživatel 2026-09-14 výslovně odpověděl „ano“ na konkrétní otázku k přesunu
-odebrání pozičních a orientačních referencí do společné funkce GUI/CLI,
-včetně všech dialogů, řádků, zámků, zvýraznění a následného výběru.
-Automatická kontrola následně zápis povolila. Schválená implementace a
-ověření jsou popsané v [PLACEMENT_REFERENCE_REMOVAL.md](PLACEMENT_REFERENCE_REMOVAL.md).
+On 2026-09-14 the user explicitly approved moving position/orientation reference
+removal into a shared GUI/CLI function, including all dialogs, rows, locks,
+highlights, and subsequent selection. Automatic review then permitted writing.
+The approved implementation and verification are documented in
+[PLACEMENT_REFERENCE_REMOVAL.md](PLACEMENT_REFERENCE_REMOVAL.md).
 
-## Vstup, prostředky, výstup
+## Inputs, means, outputs
 
-Vstup: otevřený dokument, stabilní ID upravovaného objektu a index řádku
-stejně jako u `placement.reference.set` (0–2 pozice, 3–4 orientace).
+Inputs: open document, stable edited-object ID, and row index as in
+`placement.reference.set` (0–2 position, 3–4 orientation).
 
-Prostředky: existující `PlacementReferenceRows`, společné modelové transakce
-a dnešní obsluha odebrání v `ContainerPlacementSection`.
+Means: existing `PlacementReferenceRows`, shared model transactions, and current
+removal handling in `ContainerPlacementSection`.
 
-Výstup: odstraněná konkrétní reference při zachování zbývajících dat,
-s totožným modelovým výsledkem po potvrzení GUI i příkazu. Zrušení dialogu
-nebo odmítnutí neplatné transakce ponechá původní dokument.
+Outputs: the specified reference removed with remaining data preserved and identical
+model results after GUI or command commit. Dialog cancellation or invalid-transaction
+rejection preserves the original document.
 
-## Ověřené současné chování
+## Verified existing behavior
 
-V `cpp/modules/ui/src/container_placement_section.cpp`:
+In `cpp/modules/ui/src/container_placement_section.cpp`:
 
-- `remove_reference` vyprázdní poziční řádek na místě; zbývající řádky
-  rozpracovaného dialogu neposouvá. Uvolní zámek prázdného řádku.
-- Pokud stejný původní objekt, geometrický klíč a cesta výskytu jsou také
-  v orientačním seznamu, odstraní tuto orientační položku. Zbylé orientační
-  položky přeznačí jako FRONT/TOP. To je dnešní chování při odstranění pozice.
-- Přímé odstranění orientačního řádku ve `refresh_orientation_table`
-  pouze vyprázdní tento řádek; jiný orientační řádek neposouvá.
-- Poziční koncové prázdné řádky se odstraní. Vnitřní prázdné řádky zůstávají
-  dočasným stavem dialogu.
-- `combined_references/populated_references` při předání do modelu prázdné
-  položky filtrují. Návrh nemění tento existující způsob ukládání.
-- GUI po změně obnoví tabulky, vyvolá společný náhled a následně znovu
-  aktivuje výběr v odstraněném řádku. Pořadí je podstatné, protože aktualizace
-  View může předchozí filtr výběru zrušit.
+- `remove_reference` empties a position row in place without shifting later pending
+  dialog rows, and releases the empty row's lock.
+- If the orientation list contains the same original owner, geometric key, and
+  occurrence path, remove that orientation and relabel remaining entries FRONT/TOP.
+  This is existing position-removal behavior.
+- Direct orientation removal in `refresh_orientation_table` only empties that row;
+  it does not shift another orientation row.
+- Trailing empty position rows are removed; internal gaps remain temporary dialog state.
+- `combined_references/populated_references` filters empty entries on transfer to
+  the model. The proposal preserves this persistence contract.
+- GUI refreshes tables, invokes shared preview, then reactivates selection in the
+  removed row. Order matters because View refresh can clear the previous selection filter.
 
-## Navržená změna
+## Proposed change
 
-Vyjmout pouze datovou změnu seznamů a zámku do společné funkce vedle
-`assign_placement_reference`. Její výsledek vrátí, zda se data změnila
-a zda byla odstraněna navázaná orientační položka. GUI podle výsledku upraví
-své popisky a zvýraznění; vlastní tabulky, obnovení výběru a náhled zůstanou
-v GUI.
+Extract only list/lock data mutation into a shared function beside
+`assign_placement_reference`. Return whether data changed and whether a paired
+orientation was removed. GUI updates labels/highlights accordingly; tables,
+selection restoration, and preview remain in GUI.
 
-Nad stejnou funkcí doplnit `placement.reference.remove`. Existující doménové
-transakce zkontrolují vlastnictví, připraví navrženou hodnotu a potvrdí ji
-jedním krokem historie. Odstranění musí fungovat i pro chybějící zdroj;
-nesmí vyžadovat opětovné dohledání geometrie reference, která se právě maže.
-Ostatní reference a výsledný model musí projít obvyklou validací.
+Add `placement.reference.remove` over the same function. Existing domain transactions
+validate ownership, prepare the proposed value, and commit one history step. Removal
+must work for missing sources without resolving the geometry being deleted.
+Remaining references and the resulting model still require normal validation.
 
-Rozsah zahrnuje uživatele společné sekce: tělesa, konstrukce, primitiva,
-profily, tažení, otvory, řezy a importované prvky. Vložené komponenty Assembly
-mají vlastní správu vazeb a tento přesun ji nenahrazuje.
+Scope includes shared-section users: bodies, constructions, primitives, profiles,
+Sweeps, holes, sections, and imported features. Inserted Assembly components retain
+their separate mate management.
 
-Není navržená změna řešiče, formátu, geometrických identit, uchovávání revizí
-ani reakce na přepnutí tabu. Výpočet tělesa patří do existujícího výslovného
-potvrzení modelové transakce.
+No changes are proposed to solving, formats, geometry identities, revision storage,
+or tab-switch behavior. Body calculation stays in existing explicit model-transaction commit.
 
-## Ověření před uzavřením
+## Verification before completion
 
-- První/prostřední/poslední poziční řádek, obě orientace, neexistující index,
-  již prázdný řádek a zámek odstraněného i neodstraněného řádku.
-- Navázaná orientace se musí párovat také podle přesné cesty výskytu.
-- Stejná rozpracovaná data v GUI a modelové funkci; zachované následné
-  zadávání reference po obnově View.
-- GUI Cancel, OK, Undo/Redo a uložení/opětovné otevření.
-- Skutečná geometrie alespoň primitiva, tělesa a konstrukce před i po změně;
-  odmítnutý vstup bez částečné mutace.
-- Původní zdroj reference chybí; odstranění této reference nesmí samo
-  selhat jen proto, že zdroj nelze načíst.
+- First/middle/last position row, both orientations, invalid indexes, already empty
+  rows, and locks of removed and retained rows.
+- Paired orientation must match the exact occurrence path too.
+- Identical pending data in GUI and model function; reference entry resumes after View refresh.
+- GUI Cancel, OK, Undo/Redo, saving, and reopening.
+- Actual geometry before/after changes for at least a primitive, body, and construction;
+  rejected input without partial mutation.
+- Missing original reference source: removal must not fail merely because it cannot load.
 
-Oprava navázaných bodů je oddělená etapa s vlastním ověřením:
+Linked-point repair is a separate stage with its own verification:
 [CONSTRUCTION_REFERENCE_COMMANDS.md](CONSTRUCTION_REFERENCE_COMMANDS.md).

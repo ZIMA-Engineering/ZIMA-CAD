@@ -415,6 +415,7 @@ bool AssemblyWorkspaceWindow::begin_placement_reference_drag(
     if (candidate.kind != zima::viewer::CandidateKind::Dimension ||
         !candidate.semantic_key.starts_with("placement-reference:") ||
         candidate.owner_id != workspace_.active_document_id() ||
+        candidate.instance_path != workspace_.active_occurrence_path() ||
         properties_dialog_ != nullptr) return false;
     auto* assembly = workspace_.open_assembly(candidate.owner_id);
     if (assembly == nullptr) return false;
@@ -434,7 +435,7 @@ bool AssemblyWorkspaceWindow::begin_placement_reference_drag(
     if (occurrence == nullptr ||
         row_index >= occurrence->placement_references.size()) return false;
     const auto& row = occurrence->placement_references[row_index];
-    if(row.offset_locked)return false;
+    if(row.offset_locked || occurrence->grounded || occurrence->suppressed)return false;
     if (row.mate_type != zima::assembly::MateKind::PlaneCoincident &&
         row.mate_type != zima::assembly::MateKind::PlaneAngle) return false;
     zima::kernel::Vec3 reference_point;
@@ -459,6 +460,24 @@ bool AssemblyWorkspaceWindow::begin_placement_reference_drag(
         placement_reference_drag_plane_normal_=assembly->session.document().placement_reference_angle_axis(row);
         if(candidate.geometry_index<viewer_->mesh().dimensions.size())
             placement_reference_drag_plane_normal_=viewer_->mesh().dimensions[candidate.geometry_index].plane_normal;
+        if (const auto shown = viewer_->dimension_source(candidate); shown && shown->rotation_handle) {
+            // Use the owning Assembly frame, not the displayed top-level
+            // occurrence transform. The radial arm is perpendicular to the
+            // reference plane's normal, so it also supplies the zero-angle ray.
+            const auto local_scene = assembly->session.document().build_scene();
+            for (const auto& dimension : local_scene.dimensions) {
+                if (dimension.reference.owner_id != candidate.owner_id ||
+                    dimension.reference.semantic_key != candidate.semantic_key ||
+                    !dimension.reference.instance_path.empty()) continue;
+                placement_reference_drag_axis_point_ = dimension.witness_first;
+                placement_reference_drag_axis_direction_ = {
+                    dimension.line_first.x - dimension.witness_first.x,
+                    dimension.line_first.y - dimension.witness_first.y,
+                    dimension.line_first.z - dimension.witness_first.z};
+                placement_reference_drag_plane_normal_ = dimension.plane_normal;
+                break;
+            }
+        }
     }
     placement_reference_drag_changed_ = false;
     state_->setText(placement_reference_drag_angular_

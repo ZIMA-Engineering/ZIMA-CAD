@@ -1,492 +1,475 @@
-# Příkazy skicáře
+# Sketcher commands
 
-Konzole GUI a samostatný `zima-cad-cli` sdílejí transakci geometrie skici
-v `workspace/sketch_operations`. GUI používá stejnou operaci při kreslení,
-editaci a v pracovních kopiích vložených profilů. Nová skica v Partu má vlastní
-kontejner Sketch a patří do aktivního tělesa; samostatná skica sestavy má
-rovněž vlastní kontejner umístění uložený přímo v `.asmz`.
-Tvorba z GUI i CLI používá stejné vložení nativního kontejneru.
+The GUI console and standalone `zima-cad-cli` share Sketch geometry transactions
+in `workspace/sketch_operations`. GUI drawing, editing and embedded profile
+drafts use the same operation. A new Part Sketch owns a Sketch container in
+the active body; a standalone Assembly Sketch also owns a placement container
+stored directly in `.asmz`. GUI and CLI share native container insertion.
 
-`sketch.delete` smaže samostatnou skicu včetně jejího kontejneru.
-Skicu vlastněnou profilem nelze vyjmout z jejího prvku; odstraní se celý
-vlastník. Operace má společné potvrzení s GUI a jeden krok Undo/Redo.
-Vlastnosti a reference: [SKETCH_PROPERTIES_COMMANDS.md](SKETCH_PROPERTIES_COMMANDS.md).
+`sketch.delete` deletes a standalone Sketch and its container. A profile-owned
+Sketch cannot be extracted from its feature; delete the entire owner. The
+operation shares GUI commit and one Undo/Redo step. Properties and references:
+[SKETCH_PROPERTIES_COMMANDS.md](SKETCH_PROPERTIES_COMMANDS.md).
 
-## Souřadnice, cíle a výsledky
+## Coordinates, targets and results
 
-Geometrické příkazy přijímají povinné `sketch` se stabilním ID skici. Volitelné
-`document` při změně musí odpovídat aktivnímu dokumentu. Čtení může mířit do
-jiného otevřeného dokumentu bez jeho aktivace. Body se zadávají jako JSON pole
-`[x, y]` v lokálních souřadnicích skici a v **milimetrech**, bez ohledu na
-zobrazovací jednotky dokumentu. `snap_mm` je kladná tolerance sloučení bodů,
-výchozí `0.000001`. Nevytváří se identita z pořadí vykreslovaných segmentů.
+Geometry commands require `sketch`, the stable Sketch ID. For mutations,
+optional `document` must match the active document. Queries may address another
+open document without activating it. Points are JSON `[x, y]` arrays in Sketch
+local coordinates, always **millimeters**, regardless of display units.
+`snap_mm` is a positive point-merging tolerance, default `0.000001`.
+Displayed segment order never defines identity.
 
-Úhly uložených kruhových/eliptických křivek jsou v radiánech; úhlové kóty a
-výslovné pole textu `angle_degrees` jsou ve stupních. `sketch.get` tyto konvence
-uvádí zvlášť. Vytvořená kružnice zůstává kružnicí, B-spline zůstává přesnou
-nativní spline; jejich vykreslení není zdrojem geometrie příkazů.
+Stored circular/elliptic curve angles use radians; angular dimensions and text's
+explicit `angle_degrees` use degrees. `sketch.get` reports these conventions
+separately. A circle remains a circle and a B-spline remains an exact native
+spline; display geometry is not the command's geometry source.
 
-Změna vrací `document`, `sketch`, `revision`, `changed`, případně `point` nebo
-`geometry` s vytvořenými ID. Seznam nových křivek vrací obdélník a mnohoúhelník.
-Neplatný vstup se odmítá před publikací změny; stejná hodnota a nulový posun
-nevytvářejí další krok historie. `undo` a `redo` používají historii dokumentu.
+Mutations return `document`, `sketch`, `revision`, `changed` and, where applicable,
+`point` or `geometry` with created IDs. Rectangle/polygon creation returns a
+list of new curves. Invalid inputs are rejected before publication; identical
+values and zero translations create no extra history entry. `undo`/`redo`
+use document history.
 
-## Dostupné operace
+## Available operations
 
-| Příkaz | Argumenty kromě cílové skici a dokumentu |
+| Command | Arguments beyond target Sketch/document |
 | --- | --- |
-| `sketch.list` | `offset=0`, `limit=100` (nejvýše 1000); seznam metadat |
-| `sketch.get` | metadata a počty prvků |
-| `sketch.entities` | `offset=0`, `limit=500` (nejvýše 5000); ID a druhy prvků |
-| `sketch.entity.get` | `entity`; jeden uložený bod, křivka, text, reference, vazba nebo kóta |
-| `sketch.create` | `name`, `plane=XY` (`XY`, `XZ`, `YZ`); bez vstupního `sketch` |
-| `sketch.point.create` | `position`, volitelně `construction=false`, `snap_mm` |
-| `sketch.point.move` | `point`, `position`; respektuje vazby a pevné body |
-| `sketch.point.fixed` | `point`, `fixed` typu boolean |
-| `sketch.point.delete` | `point`; běžná pravidla odstranění závislé geometrie |
-| `sketch.segment.create` | `first`, `second`, volitelně `construction`, `snap_mm` |
-| `sketch.segment.centerline` | `segment`, `centerline` typu boolean |
-| `sketch.circle.create` | `center`, `radius_mm`, volitelně `construction`, `snap_mm` |
-| `sketch.arc.create` | `center`, `start`, `end`, volitelně `clockwise`, `construction`, `snap_mm` |
-| `sketch.ellipse.create` | `center`, `major`, `minor` (konce poloos), volitelně `construction`, `snap_mm` |
-| `sketch.elliptical_arc.create` | navíc `start`, `end`, volitelně `reversed` |
+| `sketch.list` | `offset=0`, `limit=100` (maximum 1000); metadata list |
+| `sketch.get` | Metadata and entity counts |
+| `sketch.entities` | `offset=0`, `limit=500` (maximum 5000); IDs and kinds |
+| `sketch.entity.get` | `entity`; one stored point, curve, text, reference, constraint or dimension |
+| `sketch.create` | `name`, `plane=XY` (`XY`, `XZ`, `YZ`); no input `sketch` |
+| `sketch.point.create` | `position`, optional `construction=false`, `snap_mm` |
+| `sketch.point.move` | `point`, `position`; respects constraints and fixed points |
+| `sketch.point.fixed` | `point`, boolean `fixed` |
+| `sketch.point.delete` | `point`; normal dependent-geometry deletion rules |
+| `sketch.segment.create` | `first`, `second`, optional `construction`, `snap_mm` |
+| `sketch.segment.centerline` | `segment`, boolean `centerline` |
+| `sketch.circle.create` | `center`, `radius_mm`, optional `construction`, `snap_mm` |
+| `sketch.arc.create` | `center`, `start`, `end`, optional `clockwise`, `construction`, `snap_mm` |
+| `sketch.ellipse.create` | `center`, `major`, `minor` (semiaxis endpoints), optional `construction`, `snap_mm` |
+| `sketch.elliptical_arc.create` | Additionally `start`, `end`, optional `reversed` |
 | `sketch.bspline.create` | `points`, `degree=3`, `closed=false`, `interpolating=false`, `construction=false`, `snap_mm` |
-| `sketch.rectangle.create` | `first`, `second` (protilehlé rohy), `snap_mm`; zachovává nativní vazby obdélníku |
+| `sketch.rectangle.create` | `first`, `second` (opposite corners), `snap_mm`; preserves native rectangle constraints |
 | `sketch.polygon.create` | `center`, `rim`, `sides` (3–1024), `snap_mm` |
-| `sketch.geometry.construction` | `geometry`, `construction` typu boolean |
-| `sketch.geometry.delete` | `geometry`; běžná pravidla skicáře |
-| `sketch.translate` | `delta`, pole ID `points` a/nebo `geometry`; společný solver posunu |
+| `sketch.geometry.construction` | `geometry`, boolean `construction` |
+| `sketch.geometry.delete` | `geometry`; normal Sketcher rules |
+| `sketch.translate` | `delta`, ID arrays `points` and/or `geometry`; shared translation solver |
 
-Příkazy s poli se nejpohodlněji zadávají JSON objektem. Například po získání
-skutečného ID z `sketch.create`:
+JSON objects are convenient for array arguments. After obtaining an actual ID
+from `sketch.create`:
 
 ```json
-{"command":"sketch.bspline.create","arguments":{"sketch":"ID_Z_VYSLEDKU","points":[[0,0],[3,8],[7,-3],[10,0]],"degree":3}}
+{"command":"sketch.bspline.create","arguments":{"sketch":"ID_FROM_RESULT","points":[[0,0],[3,8],[7,-3],[10,0]],"degree":3}}
 ```
 
-B-spline dovoluje 2–4096 vstupních bodů a stupeň 1–25; konkrétní kombinaci
-ověří nativní skicář. `sketch.entity.get` vrací uložená pole pouze pro čtení.
-Nepřijímá zpětný nevalidovaný patch. Odpověď nad 64 KiB odmítne jako
-`result_too_large`; seznamy jsou stránkované. Dotaz na seznam používá zapůjčené
-skici, nehromadí kopie jejich geometrie. Vložené profily se čtou z uložené
-ZIMA definice, bez OCCT.
+B-splines allow 2–4096 input points and degree 1–25; the native Sketcher validates
+the combination. `sketch.entity.get` returns read-only stored fields and accepts
+no unvalidated patch. Responses above 64 KiB fail with `result_too_large`;
+lists are paginated. List queries borrow Sketches instead of accumulating
+geometry copies. Embedded profiles are read from persisted ZIMA definitions,
+without OCCT.
 
-## Výpočet a editace
+## Calculation and editing
 
-Změny křivek aktualizují jejich vzájemné závislosti a ověří skicu, ale **nespouští
-výpočet tělesa**. Odpověď proto uvádí `body_calculated=false`. Poslední vypočtené
-těleso zůstává zachováno do výslovného `regenerate`, stejně jako při kreslení
-myší. Samotné vytvoření nového kontejneru skici používá běžný výpočetní postup
-potvrzení vlastností. Nic nemění na chráněném společném řešení umístění.
+Curve changes update dependencies and validate the Sketch but **do not calculate
+the body**. Responses report `body_calculated=false`. The last calculated body
+remains until explicit `regenerate`, as during mouse drawing. Creating a Sketch
+container uses normal Properties confirmation/calculation. The protected shared
+placement solver is unchanged.
 
-Lze upravit i již uložený vložený profil Sweep/Loft, Helical, Hole nebo Thread
-podle přesného ID skici. Vlastnictví nadále určuje jeho kontejner. Skici řezu
-lze číst; jejich změny vyžadují samostatnou transakci vlastního řezu a běžný
-příkaz je odmítne jako `unsupported_sketch`. Příkazy zatím neovládají skici
-výkresové šablony. Změna skici v neaktivním či odvozeném tělese se odmítá.
+A saved embedded Sweep/Loft, Helical, Hole or Thread profile may be edited by its
+exact Sketch ID; its container still determines ownership. Section Sketches are
+readable, but mutations require the Section's own transaction; ordinary commands
+reject them as `unsupported_sketch`. Drawing template Sketches are not controlled
+by these commands. Mutations in inactive/derived bodies are rejected.
 
-Otevřená rozpracovaná editace v GUI, včetně aktivního skicáře, zůstává chráněná
-před dalšími mutacemi z konzole. Dotazy jsou povolené. Vlastní kreslení myší
-používá společnou transakci přímo; nepřepisuje se neukončený návrh příkazem.
+Pending GUI edits, including active Sketcher, remain protected against console
+mutations. Queries are allowed. Mouse drawing invokes the shared transaction
+directly rather than overwriting unfinished drafts with commands.
 
-## Ověření
+## Verification
 
-Nové modelové testy ověřují přesné křivky, souřadnice, posun jednoho středu
-kružnice, pevné body, neplatné vstupy, historii, no-op, původní cache tělesa,
-vlastnictví aktivního tělesa, vložený profil a nativní uložení Partu i Assembly.
-Procesový test skutečně vytvoří, uloží, otevře a doplní B-spline přes samostatné
-CLI. GUI test vytváří skicu přes dialog i konzoli; existující testy kreslení,
-úchytů a offsetu procházejí společnou mutací aktivní skici.
+Model tests cover exact curves, coordinates, moving one circle center, fixed
+points, invalid input, history, no-op, original body cache, active body ownership,
+embedded profiles and native Part/Assembly persistence. A real CLI process
+creates, saves, reopens and extends a B-spline. GUI tests create Sketches through
+both dialog and console; existing drawing, handle and offset tests exercise
+the shared active-Sketch mutation.
 
-Kompletní Windows Release sada prošla **63/63** (388,03 s), včetně všech
-modelových, GUI, procesových, referenčních a spline regresí. Log:
-`build/sketch-full-tests.log`. Vizuálně byl zkontrolován také snímek konzole.
-Katalog nyní obsahuje **72 příkazů**.
+The complete Windows Release suite passed **63/63** (388.03 s), including model,
+GUI, process, reference and spline regressions: `build/sketch-full-tests.log`.
+The console screenshot was visually checked. Catalog at this stage: **72 commands**.
 
-## Offsety, ořezávání a další křivky
+## Offsets, trimming and additional curves
 
-Druhá etapa přidává příkazy nad stejnými metodami skicáře, které používají
-kreslicí nástroje a vlastnosti offsetu. Všechny mění jen skicu, mají společnou
-transakci Undo/Redo a přijímají `sketch`, případně `document` jako výše.
+The second stage adds commands over the same Sketcher methods used by drawing
+tools and Offset Properties. All change only the Sketch, share an Undo/Redo
+transaction and accept `sketch` and optional `document` as above.
 
-| Příkaz | Argumenty a výsledek |
+| Command | Arguments and result |
 | --- | --- |
-| `sketch.offset.create` | `source`, kladné `distance_mm`, `flipped=false`; vrací ID křivky i společné operace |
-| `sketch.offset.get` | `geometry`; zdroj, vzdálenost, směr, tolerance, viditelný interval, kotvy průsečíků, `broken` |
-| `sketch.offset.set` | `geometry`; volitelně `source`, `distance_mm`, `flipped`; upraví celou operaci včetně jejích oříznutých částí |
-| `sketch.offset.free` | `geometry`; odpojí offset, zachová jeho aktuální křivku a ID |
-| `sketch.curve.get` | `geometry`, `limit=4096` (1–100000); úplná podkladová spline a viditelný interval |
-| `sketch.curve.retain` | `geometry`, `intervals` jako pole `[start,end]`; ponechá zadané úseky, zachová původní podklad |
-| `sketch.trim.pieces` | volitelné `geometry`, `include_axes=true`, `offset=0`, `limit=500` (1–5000); aktuální části mezi průsečíky |
-| `sketch.trim` | `pieces`, `include_axes=true`, `snap_mm=0.0000001`; odstraní přesně určené aktuální části |
-| `sketch.mirror` | `entities` (pole ID), `axis`, `snap_mm`; vrací nová ID bodů a křivek |
-| `sketch.oriented_rectangle.create` | `first`, `guide`, `axis`, `snap_mm`; obdélník podle osy symetrie |
-| `sketch.tangent_arc.create` | `start_point`, `end`, `tangent`, volitelné `reverse`, `construction`, `snap_mm` |
-| `sketch.common_tangent.create` | `first`, `second` (křivky), `first_hint`, `second_hint` (body určující požadovanou větev tečny) |
-| `sketch.corner_fillet.create` | `first`, `second` (úsečky), `radius_mm`, `snap_mm`; nativní nedestruktivní zaoblení rohu |
+| `sketch.offset.create` | `source`, positive `distance_mm`, `flipped=false`; returns curve and shared operation IDs |
+| `sketch.offset.get` | `geometry`; source, distance, direction, tolerance, visible interval, intersection anchors, `broken` |
+| `sketch.offset.set` | `geometry`; optional `source`, `distance_mm`, `flipped`; edits the entire operation including trimmed pieces |
+| `sketch.offset.free` | `geometry`; detaches offset, retaining current curve and ID |
+| `sketch.curve.get` | `geometry`, `limit=4096` (1–100000); complete support spline and visible interval |
+| `sketch.curve.retain` | `geometry`, `intervals` as `[start,end]` arrays; retains intervals and original support |
+| `sketch.trim.pieces` | Optional `geometry`, `include_axes=true`, `offset=0`, `limit=500` (1–5000); current pieces between intersections |
+| `sketch.trim` | `pieces`, `include_axes=true`, `snap_mm=0.0000001`; removes exact current pieces |
+| `sketch.mirror` | `entities` (ID array), `axis`, `snap_mm`; returns new point/curve IDs |
+| `sketch.oriented_rectangle.create` | `first`, `guide`, `axis`, `snap_mm`; rectangle oriented by symmetry axis |
+| `sketch.tangent_arc.create` | `start_point`, `end`, `tangent`, optional `reverse`, `construction`, `snap_mm` |
+| `sketch.common_tangent.create` | `first`, `second` (curves), `first_hint`, `second_hint` (points selecting the tangent branch) |
+| `sketch.corner_fillet.create` | `first`, `second` (segments), `radius_mm`, `snap_mm`; native nondestructive corner fillet |
 
-Offset vzniká z **naší křivky skici**. Externí referenci nelze vydávat za nativní
-zdroj. Oříznutí zdroje zachová celou původní podkladovou geometrii; existující
-offset se tím nezkrátí. Nový offset vytvořený až z oříznutého zdroje převezme
-jeho aktuální interval. Části jednoho oříznutého offsetu sdílejí `operation`;
-změna jeho vzdálenosti, směru nebo zdroje aktualizuje všechny tyto části.
-Cyklické závislosti se odmítají. Uvolnění zachová geometrii i návazné intervaly
-podle společných pravidel skicáře.
+An offset derives from **our native Sketch curve**. An external reference cannot
+masquerade as a native source. Trimming the source retains its complete support
+geometry and does not shorten an existing offset. An offset created after
+source trimming inherits the current interval. Pieces of a trimmed offset
+share `operation`; distance/direction/source edits update all pieces. Cycles
+are rejected. Freeing preserves geometry and dependent intervals under shared
+Sketcher rules.
 
-`sketch.curve.retain` přijímá 1–1024 nepřekrývajících se intervalů. Parametry
-0 až 1 označují právě viditelnou křivku. Pořadí intervalů se zachovává, takže
-lze zachovat i úseky přes šev uzavřené křivky, například `[[0.75,1],[0,0.25]]`.
-První ponechaná část má původní ID, ostatní dostanou nová. Interval `[0,1]`
-je no-op. Úplný podklad je dostupný přes `sketch.curve.get`; `start/end` v jeho
-výsledku jsou rozsah viditelné části v tomto úplném podkladu.
+`sketch.curve.retain` accepts 1–1024 nonoverlapping intervals. Parameters 0–1
+refer to the currently visible curve. Input order is retained, allowing pieces
+across a closed seam, e.g. `[[0.75,1],[0,0.25]]`. The first retained piece keeps
+the original ID; others receive new IDs. `[0,1]` is a no-op. `sketch.curve.get`
+returns full support; its `start/end` delimit the visible range in that support.
 
-U dotazu na křivku se `limit` vztahuje na součet počtů pólů, vah a uzlů spline.
-Příliš velký podklad se nezkrátí na neplatnou spline: odpověď uvede
-`geometry_omitted_by_limit=true`, stupeň a počty, ale `support` vynechá.
-Počítá se pouze matematika křivek skici, nikdy těleso OCCT.
+For curve queries, `limit` applies to the combined count of poles, weights and
+knots. Oversized support is never truncated into an invalid spline: the result
+reports `geometry_omitted_by_limit=true`, degree and counts but omits `support`.
+Only Sketch curve mathematics runs, never OCCT body calculation.
 
-Pro trim nejprve načtěte `sketch.trim.pieces` a předejte z každého vybraného
-řádku pouze `geometry`, `start` a `end`:
+For trim, first query `sketch.trim.pieces`, then pass only `geometry`, `start`
+and `end` from each selected row:
 
 ```json
 {"command":"sketch.trim","arguments":{"sketch":"SKETCH_ID","include_axes":false,"pieces":[{"geometry":"CURVE_ID","start":0,"end":0.5}]}}
 ```
 
-Před odstraněním se části znovu ověří proti aktuálním průsečíkům. Pokud
-požadovaný interval již neexistuje, přijde `stale_geometry` bez změny dokumentu.
-Příkaz nepřijímá pořadové číslo části ani libovolné vzorkované body. Limit je
-2048 částí na požadavek; opakování stejné části se odmítne. Dotaz vrací také
-krajní body pro orientaci. `include_axes` musí odpovídat zamýšlenému rozdělení.
+Before deletion, pieces are revalidated against current intersections. A missing
+requested interval returns `stale_geometry` without changing the document.
+Sequential piece indices and arbitrary sampled points are not accepted. Maximum
+2048 pieces per request; duplicate pieces are rejected. The query also returns
+endpoints for orientation. `include_axes` must match the intended subdivision.
 
-Kotvy konců oříznutých křivek sledují menší změny průsečíku. Pokud průsečík
-zmizí nebo přejde na jinou větev, zachová se nativní stav opravy (`broken`),
-nevymýšlí se jiná reference. Příkaz `offset.get` tento stav výslovně vrací.
+Trimmed-curve endpoint anchors follow small intersection changes. If an
+intersection disappears or switches branch, native repair state (`broken`) is
+retained instead of inventing another reference. `offset.get` exposes this state.
 
-Zrcadlení přijímá rovněž stabilní základní osy `sketch_axis:x` a
-`sketch_axis:y`. Zaoblení rohu vrací identitu uloženého záznamu zaoblení;
-nevrací dočasná ID vyhodnocených tečných bodů. Původní úsečky zůstávají
-zachované. Volání pro stejný pár úseček také upraví existující poloměr.
+Mirror also accepts stable base axes `sketch_axis:x` and `sketch_axis:y`.
+Corner Fillet returns its stored record identity, not transient evaluated
+tangency-point IDs. Original segments remain. Repeating the same segment pair
+also edits the existing radius.
 
-Integrační sada prošla **9/9** (27,80 s),
-`build/sketch-curve-integration-tests.log`; odpovídající GUI i CLI jsou
-přeložené v `build/sketch-curve-integration-build.log`. Modelové testy měří
-odchylku spline offsetu v 1025 bodech (méně než 0,00001 mm), přesnost trimu,
-navazující průsečíky, stale odmítnutí, větve tečen, symetrii a nativní
-uložení. Předchozí kompletní etapa prošla **63/63**. Katalog má nyní
-**85 příkazů**.
+Integration passed **9/9** (27.80 s), `build/sketch-curve-integration-tests.log`;
+matching GUI/CLI build: `build/sketch-curve-integration-build.log`. Model tests
+measure spline-offset error at 1025 points (below 0.00001 mm), trim accuracy,
+intersection tracking, stale rejection, tangent branches, symmetry and native
+save. Previous full stage: **63/63**. Catalog at this stage: **85 commands**.
 
-## Vazby a solver skici
+## Constraints and Sketch solver
 
-`sketch.constraint.create` přijímá `kind` a výslovně uspořádaná pole ID
-`points` a `geometry`. Nepotřebné pole vynechte nebo předejte prázdné.
-Výsledek běžné vazby obsahuje `constraint`; shodnost bodů vrací přeživší
-`point`, protože jde o sloučení topologie, nikoli další rovnici.
+`sketch.constraint.create` accepts `kind` and explicitly ordered ID arrays
+`points` and `geometry`. Omit unused arrays or pass empty arrays. Ordinary
+constraints return `constraint`; point coincidence returns surviving `point`
+because it merges topology rather than adding an equation.
 
-| `kind` | `points` v pořadí | `geometry` v pořadí |
+| `kind` | Ordered `points` | Ordered `geometry` |
 | --- | --- | --- |
-| `horizontal`, `vertical` | dva body | prázdné; alternativně žádné body a jedna úsečka |
-| `coincident` | přeživší, pohlcený bod | prázdné |
-| `point_reference` | nativní bod, referenční bod | prázdné |
-| `parallel`, `perpendicular`, `equal_length` | prázdné | referenční, řízená úsečka |
-| `equal_radius`, `concentric` | prázdné | referenční, řízená kruhová geometrie |
-| `point_on_circle` | bod | křivka podporovaná nativní vazbou |
-| `point_on_line` | bod | úsečka nebo osa |
-| `midpoint` | bod | úsečka |
-| `midpoint_on_line` | prázdné | úsečka, přímková reference pro její střed |
-| `symmetric` | zdrojový, zrcadlený bod | osa |
-| `tangent` | volitelný bod dotyku | dvě křivky |
+| `horizontal`, `vertical` | Two points | Empty; alternatively no points and one segment |
+| `coincident` | Surviving, consumed point | Empty |
+| `point_reference` | Native point, reference point | Empty |
+| `parallel`, `perpendicular`, `equal_length` | Empty | Reference, driven segment |
+| `equal_radius`, `concentric` | Empty | Reference, driven circular geometry |
+| `point_on_circle` | Point | Curve supported by the native constraint |
+| `point_on_line` | Point | Segment or axis |
+| `midpoint` | Point | Segment |
+| `midpoint_on_line` | Empty | Segment, line reference for its midpoint |
+| `symmetric` | Source, mirrored point | Axis |
+| `tangent` | Optional contact point | Two curves |
 
-Například ukotvení existujícího nativního bodu na počátek skici:
+For example, anchor an existing native point to the Sketch origin:
 
 ```json
 {"command":"sketch.constraint.create","arguments":{"sketch":"SKETCH_ID","kind":"point_reference","points":["POINT_ID","sketch_origin"]}}
 ```
 
-`sketch.get` nyní vrací i stabilní jména základního počátku a os:
-`sketch_origin`, `sketch_axis:x`, `sketch_axis:y`. Pro jiné reference se použijí
-jejich skutečná uložená ID. Pořadí vstupů nenahrazujeme odhadem z jejich polohy.
-U tečnosti nativní solver kontroluje platný kontakt a doménu křivek. Kontakt
-konce úsečky s kružnicí lze nejprve zajistit vazbou `point_on_circle` a potom
-na stejném bodě vytvořit tečnost. Pouhá číselná shoda polohy nevytváří vztah.
+`sketch.get` exposes stable base origin/axes: `sketch_origin`, `sketch_axis:x`,
+`sketch_axis:y`. Other references use actual stored IDs. Input order is never
+inferred from position. For tangency, the native solver validates contact and
+curve domains. A segment endpoint may first receive `point_on_circle`, then
+tangency at the same point. Numerical coincidence alone creates no relationship.
 
-`coincident` přepojí závislosti na přeživší bod a pohlcený bod odstraní. Nelze
-jím vyrobit neplatnou či zkolabovanou závislou geometrii. `undo` obnoví původní
-body i jejich vztahy. Číselné vyhodnocení konfliktní nebo neplatné vazby se
-nepublikuje. Nativní hlášení nadbytečnosti se vrací jako `redundant_constraint`.
+`coincident` rewires dependencies to the surviving point and removes the other.
+It cannot produce invalid/collapsed dependent geometry. Undo restores original
+points/relationships. Conflicting/invalid constraint solutions are not
+published; native redundancy returns `redundant_constraint`.
 
-`sketch.constraint.delete` přijímá `constraint`, odstraní vazbu a ověří zbývající
-rovnice. Geometrická poloha může zůstat stejná, ale změní se počet volností.
+`sketch.constraint.delete` takes `constraint`, removes it and verifies remaining
+equations. Geometry may stay in place while degrees of freedom change.
 
-`sketch.solve` výslovně vyřeší geometrii skici a uloží její případnou změnu.
-Nespouští výpočet tělesa. `sketch.solve_status` provede stejné vyhodnocení na
-dočasné kopii a skutečný dokument, jeho revizi ani cache nezmění. Oba příkazy
-přijímají `iterations=100` (1–10000) a vracejí `status`,
-`remaining_degrees_of_freedom`, `maximum_residual`. Stav `under_constrained`
-je platný výsledek; `conflicting` a `invalid` jsou u mutujícího příkazu chyba
-`constraint_conflict` bez commitu. Dotaz může tyto stavy vrátit jako informaci.
-Výchozí obecný zákaz přepsání rozpracované GUI editace platí i pro `solve`.
+`sketch.solve` explicitly solves and commits any Sketch geometry change without
+body calculation. `sketch.solve_status` evaluates a temporary copy, preserving
+document, revision and cache. Both accept `iterations=100` (1–10000) and return
+`status`, `remaining_degrees_of_freedom`, `maximum_residual`.
+`under_constrained` is valid; mutating `solve` rejects `conflicting`/`invalid`
+as `constraint_conflict` without commit. Queries may report those states.
+The general protection against overwriting pending GUI editing also applies.
 
-Integrační sada prošla **7/7** (11,69 s),
-`build/sketch-relation-integration-tests.log`; GUI i CLI byly přeloženy
-z téhož zdroje. Test ověřuje všech patnáct druhů vztahů a obě formy H/V,
-nezávislé geometrické rovnice, volnosti, sloučení topologie, odmítnutí chybných
-vstupů, Undo a nativní uložení. Katalog má nyní **89 příkazů**.
+Integration passed **7/7** (11.69 s), `build/sketch-relation-integration-tests.log`;
+GUI/CLI built from the same source. Coverage includes all fifteen relationships,
+both H/V forms, independent geometry equations, freedoms, topology merging,
+invalid input, Undo and native save. Catalog at this stage: **89 commands**.
 
+## Dimensions and their properties
 
-## Kóty a jejich vlastnosti
+`sketch.dimension.create/get/set/delete` take `sketch` and optional `document`.
+Create takes `kind` and ordered `points`/`geometry`; get/set/delete use returned
+stable `dimension`. They share native Sketcher factories/solver, numeric
+validation with Dimension Properties and the document transaction. Container
+placement rules remain unchanged.
 
-`sketch.dimension.create/get/set/delete` přijímají `sketch` a volitelné
-`document`. Create přijímá `kind`, uspořádané `points` a `geometry`;
-get/set/delete používají vrácené stabilní `dimension`. Používají nativní
-factory a solver skicáře, stejnou validaci čísel jako dialog Vlastnosti kóty
-a společnou transakci dokumentu. Nemění pravidla umístění kontejnerů.
-
-| `kind` | Reference v pořadí |
+| `kind` | Ordered references |
 | --- | --- |
-| `distance`, `distance_x`, `distance_y` | jedna úsečka v `geometry`, nebo dva body v `points` |
-| `distance_x`, `distance_y` k ose | jeden bod a opačná základní osa: X kóta k `sketch_axis:y`, Y kóta k `sketch_axis:x` |
-| `point_line` | jeden bod a jedna přímka/osa |
-| `symmetric` | jeden nebo dva body a osa |
-| `line_distance` | referenční a řízená rovnoběžná přímka |
-| `radius`, `diameter` | jedna kružnice, oblouk nebo záznam zaoblení rohu |
-| `angle` | jedna úsečka |
-| `three_point_angle` | první bod, vrchol, druhý bod |
-| `angle_between` | dvě přímky; nebo čtyři body dvou přímek; nebo dva body a referenční přímka |
-| `symmetric_angle`, `symmetric_line_distance` | osa a jedna nebo dvě přímky |
-| `ellipse_major`, `ellipse_minor`, `ellipse_rotation` | jedna elipsa |
+| `distance`, `distance_x`, `distance_y` | One segment in `geometry`, or two `points` |
+| `distance_x`, `distance_y` to an axis | One point and opposite base axis: X to `sketch_axis:y`, Y to `sketch_axis:x` |
+| `point_line` | One point and one line/axis |
+| `symmetric` | One or two points and an axis |
+| `line_distance` | Reference and driven parallel lines |
+| `radius`, `diameter` | One circle, arc or corner-fillet record |
+| `angle` | One segment |
+| `three_point_angle` | First point, vertex, second point |
+| `angle_between` | Two lines; four points defining two lines; or two points and a reference line |
+| `symmetric_angle`, `symmetric_line_distance` | Axis and one or two lines |
+| `ellipse_major`, `ellipse_minor`, `ellipse_rotation` | One ellipse |
 
-Délkové hodnoty jsou v **mm**, úhlové ve **stupních**. Výsledek uvádí `unit`.
-Zadání reference nepředpokládá její výběr myší. Nativní solver ověřuje vhodnost,
-řešitelnost i případné zdvojení řídicího rozměru.
+Lengths use **mm**, angles **degrees**; results report `unit`. References do not
+require mouse selection. The native solver checks suitability, solvability and
+duplicate driving dimensions.
 
-Create i set přijímají nepovinné vlastnosti:
+Create/set accept optional properties:
 
-- `value`, `driving`, `locked`: zámek chrání geometrii proti tažení. Záměrná
-  číselná změna přes vlastnosti je možná i při zamčené kótě, stejně jako v GUI.
-  Referenční kóta (`driving=false`) zachová naměřenou hodnotu, ignoruje změnu
-  `value` a nemůže zůstat zamčená.
-- `position=[x,y]`: původní poloha popisku ve skice; `solution_side` je -1/1,
-  `angle_sector` je -1/0/1 podle nativního řešení.
-- `limits={lower,upper}`: číselné meze; `null` konkrétní mez odstraní.
-- `text`: řetězce `prefix`, `suffix`, `text_override`, `tolerance_mode`,
+- `value`, `driving`, `locked`: locks protect geometry from dragging. Intentional
+  numeric Properties changes remain possible while locked, as in GUI. Reference
+  dimensions (`driving=false`) retain measured value, ignore `value` edits and
+  cannot remain locked.
+- `position=[x,y]`: original Sketch label position; `solution_side` is -1/1,
+  `angle_sector` is -1/0/1 according to the native solution.
+- `limits={lower,upper}`: numeric limits; `null` removes an individual limit.
+- `text`: strings `prefix`, `suffix`, `text_override`, `tolerance_mode`,
   `symmetric_tolerance`, `single_tolerance`, `upper_tolerance`, `lower_tolerance`.
-  Každé pole má nejvýše 2048 bajtů. Režimy tolerance jsou prázdný řetězec,
-  `symmetric`, `single_deviation`, `deviations`.
-- `layout`: `plane_quarter_turns` 0–3, nezáporný `envelope_offset` nebo null,
-  `text_along`, `text_outward`, `line_offset`, `radius_rotation_degrees`,
-  přepínače `arrows_reversed`, `radius_center_line_hidden`. Úhlová kóta má
-  rovinu danou měřenými rameny a nepovoluje nenulové `plane_quarter_turns`.
+  Each field is limited to 2048 bytes. Modes: empty string, `symmetric`,
+  `single_deviation`, `deviations`.
+- `layout`: `plane_quarter_turns` 0–3, nonnegative `envelope_offset` or null,
+  `text_along`, `text_outward`, `line_offset`, `radius_rotation_degrees`, boolean
+  `arrows_reversed`, `radius_center_line_hidden`. Angular planes are determined
+  by measured arms and forbid nonzero `plane_quarter_turns`.
 
-Neznámá pole se odmítají. Hodnota, text a rozmístění popisku se potvrzují
-atomicky jedním Undo; odmítnutá hodnota neuloží ani platnou část popisku.
-Samotná změna popisku nemění geometrii. Prázdná či totožná editace nevytváří
-novou revizi. `get` vrací zvlášť `document_layout` a `sketch_layout`, protože
-jde o dvě existující uložené vrstvy. Příkazové vlastnosti ukládají dokumentovou
-vrstvu stejně jako GUI vlastnosti kóty mimo aktivní skicář.
+Unknown fields are rejected. Value, text and layout commit atomically as one
+Undo; a rejected value cannot save the valid part of a label. Label-only
+changes do not affect geometry. Empty/identical edits create no revision.
+`get` returns `document_layout` and `sketch_layout` separately because these are
+two existing persistent layers. Command Properties saves the document layer,
+as GUI Dimension Properties does outside active Sketcher.
 
 ```json
 {"command":"sketch.dimension.create","arguments":{"sketch":"SKETCH_ID","kind":"radius","geometry":["CIRCLE_ID"],"value":12,"locked":true,"layout":{"text_along":3}}}
 ```
 
-Těleso zůstává při změně skici v posledním vypočteném stavu. Teprve explicitní
-`regenerate` zpracuje upravený profil. Regrese ověřuje změnu délky profilu
-10 × 5 mm vytaženého 2 mm: původní objem 100 mm³ zůstane až do Regenerate,
-poté je při délce 20 mm objem 200 mm³. Nativní soubory ani šablony nepotřebují
-změnu formátu. Katalog nyní obsahuje **93 příkazů**.
+The body retains its last calculated state until explicit `regenerate` processes
+the edited profile. Regression: a 10 × 5 mm profile extruded 2 mm retains its
+100 mm³ volume until regeneration; with length changed to 20 mm it then becomes
+200 mm³. Native files/templates require no format change. Catalog: **93 commands**.
 
+All 16 dimension kinds use native factories/solver and GUI numeric validation.
+The complete Windows Release suite passed **66/66** (395.03 s),
+`build/sketch-dimension-full-tests.log`. After adding angular-plane rejection
+and native Assembly dimension persistence, the final suite passed **6/6**
+(15.83 s), `build/sketch-dimension-final-tests.log`; matching GUI/CLI build:
+`build/sketch-dimension-final-build.log`. Tests also cover combined value/label
+Undo, numeric locks, reference measurements, invalid input, retained body and
+explicit regeneration. External references and STEP curve projection were next.
 
-Etapa kót přidala `sketch.dimension.create/get/set/delete`, celkem **93 příkazů**.
-Všech 16 druhů používá nativní factory a solver, hodnoty sdílejí validaci s GUI.
-Celá Windows Release sada prošla **66/66** (395,03 s),
-`build/sketch-dimension-full-tests.log`. Po doplnění odmítnutí otočené roviny
-úhlové kóty a testu nativního uložení kót sestavy prošla závěrečná sada **6/6**
-(15,83 s), `build/sketch-dimension-final-tests.log`; odpovídající sestavení
-GUI i CLI je v `build/sketch-dimension-final-build.log`. Testy ověřují také
-společné Undo hodnoty a popisku, číselný zámek, referenční měření, neplatné
-vstupy, zachování posledního tělesa a jeho výslovný Regenerate. Další etapa:
-externí reference a projekce křivek ze STEP.
+## External references and projected profiles
 
+Four commands consume original reference data persisted during body calculation.
+Projection is shared with GUI external-reference selection and calls no OCCT.
+Sketch, reference and optional profile curve change in one transaction.
+`sketch` and optional `document` have their usual meaning.
 
-## Externí reference a promítnuté profily
-
-Čtyři příkazy používají původní referenční data uložená při výpočtu tělesa.
-Projekce je společná s GUI výběrem externí reference a nevolá OCCT. Skica,
-reference a případná profilová křivka se mění jednou transakcí. Parametry
-`sketch` a volitelné `document` mají stejný význam jako u ostatních příkazů.
-
-| Příkaz | Argumenty a výsledek |
+| Command | Arguments and result |
 | --- | --- |
-| `sketch.reference.create` | `kind` (`edge`, `point`, `axis`, `face`), `owner`, `key`, volitelné `instance_path`, `profile=false`; vrací `reference`, `source_document` a při profilu také `geometry` |
-| `sketch.reference.project` | `reference`; přidá naši profilovou křivku a vrátí její `geometry` |
-| `sketch.reference.delete` | `reference`; odstraní vazbu na externí zdroj, zachová naši profilovou křivku i její ID |
-| `sketch.reference.refresh` | výslovně aktualizuje reference této skici; vrací `broken_references` a počet referencí |
+| `sketch.reference.create` | `kind` (`edge`, `point`, `axis`, `face`), `owner`, `key`, optional `instance_path`, `profile=false`; returns `reference`, `source_document` and profile `geometry` where applicable |
+| `sketch.reference.project` | `reference`; adds our profile curve and returns `geometry` |
+| `sketch.reference.delete` | `reference`; removes external linkage, preserving our profile curve and its ID |
+| `sketch.reference.refresh` | Explicitly refreshes this Sketch's references; returns `broken_references` and count |
 
-Zdrojové identity získáte přes `reference.list/get`; uložené reference ve
-skice najdete přes `sketch.entities` a načtete pomocí `sketch.entity.get`.
-`owner`, `key` a `instance_path` tvoří přesný původní zdroj. Zobrazená výsledná
-hrana tělesa ani pořadové číslo hrany nejsou náhradou této identity.
+Get source identities from `reference.list/get`; find stored Sketch references
+with `sketch.entities` and inspect them with `sketch.entity.get`. `owner`, `key`
+and `instance_path` identify the exact original source. A displayed result-body
+edge or sequential edge index cannot substitute for that identity.
 
 ```json
 {"command":"sketch.reference.create","arguments":{"sketch":"SKETCH_ID","kind":"edge","owner":"SOURCE_OWNER_ID","key":"PERSISTED_EDGE_KEY","profile":true}}
 ```
 
-V Partu musí zdroj předcházet cílové skice podle existujícího pořadí těles
-a kontejnerů; dopředná závislost se odmítá. Ověření vlastníka používá společný
-seznam vložených profilů, tedy i profily Helical/Sweep3D/Hole/Thread. Reference
-se převádí stávající transformací do souřadnic vlastnícího tělesa a skici.
-V kořenové skice Assembly je povinná přesná cesta zdrojového výskytu. Cestu
-nevyvozujeme ze jména dílu a nespojujeme ji lomítky; předejte ji beze změny
-z dotazu na reference. Tentýž Part lze referencovat ve více různých výskytech.
+In a Part, sources must precede the target Sketch in existing body/container
+order; forward dependencies are rejected. Ownership validation uses the shared
+embedded-profile list, including Helical/Sweep3D/Hole/Thread. Existing transforms
+convert references into owning-body/Sketch coordinates. An Assembly root Sketch
+requires the exact source occurrence path. Never infer it from a Part name or
+join it with slashes; pass the reference query's path unchanged. Different
+occurrences of the same Part can be referenced separately.
 
-Kořenová skica sestavy nemá vlastní cestu aktivovaného Partu. Společná
-validace nyní tento případ rozlišuje od Partu upravovaného v kontextu sestavy;
-ten nadále vyžaduje obě cesty a ID vlastnící sestavy. Oprava odstraňuje stejné
-chybné odmítnutí i v GUI. Nativní pole ani přípony souborů se nemění.
+An Assembly root Sketch has no activated-Part path of its own. Shared validation
+distinguishes this from a Part edited in Assembly context, which still requires
+both paths and the owning Assembly ID. The correction also removes the same
+erroneous GUI rejection. Native fields/extensions are unchanged.
 
-Aktivní Part v sestavě podporuje také přímé `sketch.reference.create` pro
-všechny čtyři druhy zdroje. `instance_path` je úplná cesta od zobrazené hlavní
-Assembly. Vlastní výskyt používá lokální pravidlo dřívějšího zdroje; jiný
-výskyt stejného zdrojového Partu nesmí vytvořit vlastní závislost. Souhrn
-závislostí společné Assembly se potvrdí spolu s Partem, včetně Part Undo/Redo.
-`sketch.reference.delete` zachová nativní křivku a souhrnnou závislost odstraní
-teprve po ověření, že ji nepoužívají další Party ve větvi. Totéž platí pro
-vlastněné rozpracované profily v GUI, kde se vše uloží až po OK jejich prvku.
-Podrobnosti a hranice: [CONTEXT_REFERENCE_TRANSACTIONS.md](CONTEXT_REFERENCE_TRANSACTIONS.md).
+An active Part in an Assembly also supports direct `sketch.reference.create`
+for all four source kinds. `instance_path` is the full path from the displayed
+top Assembly. The same occurrence uses the local earlier-source rule; another
+occurrence of the same source Part cannot create self-dependency. The common
+Assembly dependency summary commits with the Part, including Part Undo/Redo.
+`sketch.reference.delete` preserves the native curve and removes the summary
+dependency only after checking other Parts in the branch. GUI owned-profile
+drafts follow the same rule, committing only on feature OK. Details:
+[CONTEXT_REFERENCE_TRANSACTIONS.md](CONTEXT_REFERENCE_TRANSACTIONS.md).
 
-Pro příkazovou projekci se ze zapůjčených referenčních dat zkopíruje pouze
-vybraná hrana/bod/osa nebo trojúhelníky vybrané plochy. Celá sestava se kvůli
-jedné hraně nekopíruje. Přesné uzly, váhy a póly spline se promítnou přímo;
-hrubé zobrazovací body nenahradí její přesný matematický podklad. Rovinná
-plocha může poskytnout průsečnou přímku; ostatní průseky používají existující
-projekci uložených dat plochy. Nejednoznačný zdroj se odmítá.
+Command projection copies only the selected edge/point/axis or selected face's
+triangles from borrowed reference data, not an entire Assembly for one edge.
+Exact spline knots, weights and poles project directly; coarse display points
+never replace mathematical support. A planar face can supply an intersection
+line; other intersections use the existing projection of stored face data.
+Ambiguous sources are rejected.
 
-`profile=true` platí pouze pro hranu. První projekce vytvoří naši křivku
-napojenou na referenci; druhá projekce stejného zdroje se odmítne bez změny.
-Takto získanou křivku lze ořezávat a offsetovat již zavedenými příkazy. Při
-odpojení reference zůstává poslední geometrie i identita křivky zachovaná.
-Závislé vazby přímo na odstraněnou referenci zpracuje nativní mazání skicáře.
+`profile=true` applies only to an edge. First projection creates our curve linked
+to the reference; repeating the same source projection is rejected without
+change. The curve supports existing trim/offset commands. Detaching preserves
+last geometry and curve identity. Native Sketcher deletion handles constraints
+directly dependent on the removed reference.
 
-`refresh` čte poslední vypočtený stav daného dokumentu. Nestahuje novější
-otevřený Part do nadřazené sestavy a nepřepočítává tělesa. Pro načtení změn
-celého řetězce závislostí slouží výslovný `regenerate`. Chybějící původní zdroj
-se označí jako `broken`; poslední platná profilová křivka zůstane zachovaná.
-Menší posun přesné spline aktualizuje její podklad a ponechá ořezaný interval
-i návazný offset. Konflikt solveru odmítne celou transakci.
+`refresh` reads the document's last calculated state and does not calculate
+bodies. Explicit `regenerate` refreshes the dependency chain. Missing original
+sources become `broken` while retaining the last valid profile curve. Small
+exact-spline movement updates support while retaining trimmed intervals and
+dependent offsets. Solver conflict rejects the complete transaction. The
+original stage did not pull newer open Part data into its parent Assembly;
+current source-sharing rules are in
+[ASSEMBLY_GEOMETRY_SHARING.md](ASSEMBLY_GEOMETRY_SHARING.md).
 
-Příkazové editování Partu aktivovaného uvnitř sestavy zůstává další etapou
-obecného kontraktu aktivního výskytu. Obecná ochrana rozpracované GUI editace
-a aktivovaného výskytu zůstává účinná. Zvláštní `reference.refresh/delete`
-navíc nepřepisují uložené kontextové závislosti Partu mimo jejich vlastnící
-sestavu. Katalog nyní obsahuje **97 příkazů**.
+The initial external-reference stage left general command editing of activated
+Parts for the later active-occurrence contract; the context support above was
+added subsequently. Pending GUI editing/active-occurrence guards remain.
+Special `reference.refresh/delete` also protect stored Part context dependencies
+outside their owning Assembly. Catalog at the initial stage: **97 commands**.
 
+The four-reference-command stage passed the complete Windows Release suite
+**67/67** (389.69 s), `build/sketch-reference-full-tests.log`. After limiting
+history traversal and adding a Helical profile, final coverage passed **6/6**
+(18.92 s), `build/sketch-reference-final-tests.log`; matching GUI/CLI build:
+`build/sketch-reference-final-build.log`. Coverage: original edges/points/axes/
+faces, invalid/duplicate sources, forward dependencies, rational spline with
+only two display points (circle residual below 1e-12 mm²), trimmed support and
+offset after 0.01 mm movement (error below 1e-8 mm), geometry retained after
+source loss/detachment, native files, two nested occurrences without loading
+source files and real CLI/GUI paths. Text and remaining Sketcher edits came
+next, then modeling domains from the coverage table.
 
-Etapa externích referencí přidala čtyři příkazy, celkem **97**. Celá Windows
-Release sada prošla **67/67** (389,69 s), `build/sketch-reference-full-tests.log`.
-Po omezení průchodů historií a doplnění profilu Helical prošla závěrečná sada
-**6/6** (18,92 s), `build/sketch-reference-final-tests.log`; finální GUI i CLI
-odpovídají `build/sketch-reference-final-build.log`. Testy zahrnují původní
-hrany, body, osy a plochy, chybné/dvojí zdroje, dopředné závislosti, racionální
-spline se dvěma zobrazovacími body (odchylka kružnice pod 1e-12 mm²), ořezaný
-podklad a offset po posunu o 0,01 mm (odchylka pod 1e-8 mm), zachování geometrie
-při zmizení/odpojení zdroje, nativní soubory, dvě vnořené occurrence bez načtení
-zdrojových souborů a skutečné CLI/GUI cesty. Následuje text a zbývající editační
-operace skicáře, poté modelovací prvky podle tabulky pokrytí.
+## Sketch text without GUI dependencies
 
-
-## Text skici bez GUI závislostí
-
-`sketch.text.create` vyžaduje `value` a `position=[x,y]`, `sketch.text.set`
-vyžaduje stabilní `text`. Oba přijímají `sketch` a volitelné `document`,
-`height_mm` (výchozí 10), `angle_degrees` (0), `flipped` (false),
-`modeling_geometry` (true), `horizontal` (`left/center/right`),
-`vertical` (`bottom/middle/top`) a `color` (`green/white/yellow/red`).
-Vynechaná vlastnost při set zůstává beze změny. `sketch.text.get` vrací tyto
-vlastnosti, počet obrysů/bodů a skutečné meze `bounds_mm`, aniž by znovu tvořil
-znaky. Mazání používá obecné `sketch.geometry.delete` s ID textu.
+`sketch.text.create` requires `value` and `position=[x,y]`; `sketch.text.set`
+requires stable `text`. Both take `sketch`, optional `document`, `height_mm`
+(default 10), `angle_degrees` (0), `flipped` (false), `modeling_geometry` (true),
+`horizontal` (`left/center/right`), `vertical` (`bottom/middle/top`) and `color`
+(`green/white/yellow/red`). Omitted set fields retain their values.
+`sketch.text.get` returns properties, contour/point counts and actual `bounds_mm`
+without reshaping characters. Delete with `sketch.geometry.delete` and the text ID.
 
 ```json
 {"command":"sketch.text.create","arguments":{"sketch":"SKETCH_ID","value":"Řez Ø10","position":[20,30],"height_mm":3,"modeling_geometry":false}}
 ```
 
-GUI dialog i příkazovka nyní používají jednu modelovou tvorbu obrysů.
-Přibalený OSIFONT se při sestavení vloží přímo do modelové knihovny; není
-zapotřebí systémově nainstalované písmo ani spuštěný Qt proces. FreeType
-čte vektorové obrysy, HarfBuzz zpracovává Unicode, kerning a skládání znaků.
-Nativní text může být modelovou geometrií nebo pouhou anotací. Název písma
-zůstává `osifont`, stejně jako u dosavadního dialogu.
+GUI and CLI use one model-level contour generator. Bundled OSIFONT is embedded
+in the model library at build time; no system font or running Qt process is
+required. FreeType reads vector outlines, HarfBuzz handles Unicode, kerning and
+character composition. Native text can be modeling geometry or annotation.
+Font name remains `osifont`, as in the existing dialog.
 
-Výška je jmenovitá výška verzálek písma. Skutečný inkoust některých znaků
-je mírně nižší nebo vyšší: například OSIFONT má cap height 1515 jednotek,
-ale obrys H je vysoký 1510. Zarovnání používá skutečné meze obrysů; řádkování
-používá metriky fontu. Oba směry osy Y a zrcadlení v šablonách zachovávají
-stávající GUI kontrakt. Test porovnává rozměry s původní cestou Qt.
+Height is nominal font cap height. Actual glyph ink may be slightly lower or
+higher: OSIFONT cap height is 1515 units, H outline height 1510. Alignment uses
+actual outline bounds; line spacing uses font metrics. Both Y directions and
+template mirroring preserve the GUI contract. Tests compare dimensions against
+the former Qt path.
 
-Křivky písma se převádějí na uložené polygonové obrysy s odchylkou nejvýše
-menší z hodnot **0,01 mm a 0,1 % jmenovité výšky**. Kontrola používá vzdálenost
-řídicích bodů Bézierovy křivky od úsečky. Tím se zabrání stovkám zbytečně
-krátkých stěn při vytažení běžného drobného textu. Text má nejvýše 4096
-Unicode code pointů; nepodporovaný znak, neplatné UTF-8, prázdný obrys nebo
-překročení výpočetního limitu odmítne celou změnu. Tabulátor odpovídá čtyřem
-mezerám. Nativní soubor uchovává vlastní obrysy; otevírání je nepřetváří.
+Font curves become persisted polygon contours with deviation no greater than
+the smaller of **0.01 mm and 0.1% of nominal height**. The check uses Bézier
+control-point distance from the segment, avoiding hundreds of unnecessarily
+short faces when extruding small text. Maximum 4096 Unicode code points;
+unsupported characters, invalid UTF-8, empty outlines and computational-limit
+failures reject the whole change. Tabs equal four spaces. Native files retain
+outlines; opening does not recreate them.
 
-Převod textu na modelový profil nově sjednocuje orientaci vstupních smyček.
-Jádro pak obrátí smyčku otvoru právě jednou. Tím se opravuje neplatný profil
-znaků s otvory; vykreslované obrysy i jejich vlastní orientace zůstávají
-zachované. Numerický test ověřuje objem vytažené číslice proti ploše jejího
-inkoustu a současně kontroluje, že se otvor nezaplní.
+Text-to-model-profile conversion normalizes input loop orientation; the kernel
+then reverses a hole loop exactly once. This fixes invalid profiles for glyphs
+with holes while retaining displayed outlines and their own orientation. A
+numeric test compares an extruded digit's volume to its ink area and verifies
+that the hole remains empty.
 
-Příkazy mění jen skicu a její historii; přepočet tělesa zůstává výslovný.
-No-op nezmění revizi ani cache a Undo vrací přesné uložené obrysy.
-Katalog nyní obsahuje **100 příkazů**.
+Commands change only Sketch/history; body calculation remains explicit. No-op
+preserves revision/cache; Undo restores exact stored contours. Catalog: **100 commands**.
 
+## Parametric B-spline properties
 
-## Parametrické vlastnosti B-spline
+`sketch.bspline.get` takes `sketch`, `geometry`, optional `document` and `limit`
+(1–4096, default 256). It returns degree, closure, interpolation, construction,
+`exact`, `read_only`, point count, stable point IDs, mm coordinates, knots and
+weights. Above the limit, geometry arrays are omitted and
+`geometry_omitted_by_limit` is set. It calculates neither body nor curve.
 
-`sketch.bspline.get` přijímá `sketch`, `geometry`, volitelně `document` a
-`limit` (1–4096, výchozí 256). Vrací stupeň, uzavření, interpolační režim,
-pomocnou geometrii, `exact`, `read_only`, počet bodů a jejich stabilní ID,
-souřadnice v mm, uzly a váhy. Při překročení limitu vynechá geometrická pole
-a nastaví `geometry_omitted_by_limit`. Dotaz nepočítá těleso ani křivku.
+`sketch.bspline.set` takes `sketch`, `geometry`, optional `degree`, `closed`,
+`points`. `points` replaces all `[x,y]` values in existing order without changing
+control-point count; maximum 4096. Integer degree is 1–25 and less than point
+count. Editing preserves curve/point IDs, knots, weights and interpolation;
+it neither recreates nor converts the curve. Exact splines allow free-pole
+movement but retain degree/closure. External-reference, trimmed and offset
+splines remain source-driven.
 
-`sketch.bspline.set` přijímá `sketch`, `geometry` a volitelně `degree`,
-`closed`, `points`. `points` je úplný seznam `[x,y]` v dosavadním pořadí;
-počet řídicích bodů se při editaci nemění a maximum příkazu je 4096. Stupeň
-je celé číslo 1–25 a musí být menší než počet bodů. Změna neobnovuje ani
-nepřevádí křivku: zachovává její ID, ID bodů, uzly, váhy a interpolační režim.
-Přesná spline dovoluje změnit volné póly, ale zachovává stupeň i uzavření.
-Spline odvozená z externí reference, ořezu nebo offsetu je řízena svým zdrojem.
-
-Vlastnosti v GUI a příkaz používají `Sketch::edit_bspline_properties`.
-Zadané souřadnice jsou po dobu výpočtu skici pevné cíle solveru; uložené
-příznaky pevných bodů zůstanou zachovány. Konflikt s existující vazbou,
-přesun pevného nebo zdrojem řízeného bodu a neplatná geometrie odmítnou celou
-změnu. Současná změna více bodů je jedna transakce a jeden krok Undo.
-Navazující offsety se aktualizují, výpočet tělesa se provede až výslovným
-Regenerate. Beze změny parametrů nevzniká revize.
+GUI Properties and commands share `Sketch::edit_bspline_properties`. Supplied
+coordinates are fixed solver targets during calculation; persisted fixed-point
+flags remain unchanged. Conflicting constraints, movement of fixed/source-driven
+points and invalid geometry reject the whole change. Multiple point edits form
+one transaction/Undo. Dependent offsets update; body calculation waits for
+explicit Regenerate. Unchanged parameters create no revision.
 
 ```json
 {"command":"sketch.bspline.set","arguments":{"sketch":"SKETCH_ID","geometry":"SPLINE_ID","points":[[0,0],[3,10],[7,2],[10,0]]}}
 ```
 
-Katalog po této etapě obsahuje **102 příkazů**. Zbývající modelovací domény
-jsou nadále uvedeny v přehledu pokrytí.
+Catalog after this stage: **102 commands**. Remaining modeling domains are listed
+in the coverage overview.
 
+An owned Section Sketch is readable through these queries. Only
+`section.sketch.edit` commits its mutations: the batch uses the same native
+mutation commands without nested `sketch/document` arguments and validates the
+whole section path at the end. Contract/examples:
+[SECTION_COMMANDS.md](SECTION_COMMANDS.md).
 
-Vlastní skicu řezu lze číst uvedenými dotazy. Její mutace potvrzuje jedině
-`section.sketch.edit`: dávka používá stejné nativní mutační příkazy bez
-vnitřních argumentů `sketch/document` a na konci ověří celou řezovou čáru.
-Podrobný kontrakt a příklady jsou v [SECTION_COMMANDS.md](SECTION_COMMANDS.md).
+## Part Sketch properties (2026-09-14)
 
-## Vlastnosti skici v Partu (2026-09-14)
+`sketch.set` and `sketch.reference.set` share Sketch Properties commit. Generic
+reference assignment/removal also works for standalone containers. Dialog OK
+preserves FRONT/TOP rows. A new working frame is prepared before calculation,
+including offset for an owned profile. Parameters:
+[SKETCH_PROPERTIES_COMMANDS.md](SKETCH_PROPERTIES_COMMANDS.md).
 
-`sketch.set` a `sketch.reference.set` nyní sdílejí potvrzení s dialogem
-Vlastností skici. Funguje i obecné přiřazení/odebrání reference samostatného
-kontejneru. Dialog při OK zachová řádky FRONT/TOP. Před výpočtem se připraví
-nový pracovní rám, u vlastněného profilu i jeho odsazení.
-Podrobnosti a parametry: [SKETCH_PROPERTIES_COMMANDS.md](SKETCH_PROPERTIES_COMMANDS.md).
-
-Obě aplikace a všechny testy jsou sestavené; související regrese prošla
-**12/12 za 244,41 s**, katalog **291 příkazů**, CTest **158 testů**.
-Zbývá schválený trvalý kontejner Assembly skic, návaznost jejich převodu
-na odečty a společné smazání; viz [návrh](SKETCH_PROPERTIES_CLI_PLAN.md).
-CLI se zatím neoznačuje za dokončené.
+Both applications and all tests built; related regressions passed **12/12 in
+244.41 s**, catalog **291 commands**, CTest **158 tests**. At that stage, the
+approved persistent Assembly Sketch container, conversion to cuts and shared
+deletion remained in the [plan](SKETCH_PROPERTIES_CLI_PLAN.md); later completed
+behavior is described at the start of this document. CLI completion is assessed
+in the current coverage overview, not inferred from this historical count.

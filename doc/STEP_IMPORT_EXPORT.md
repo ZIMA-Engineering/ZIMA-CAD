@@ -1,91 +1,92 @@
-# Import a export STEP
+# STEP import and export
 
-Další podporované importy: [IGES a DXF do Partu a sestav](IGES_DXF_IMPORT.md).
+Other supported imports: [IGES and DXF into Parts and Assemblies](IGES_DXF_IMPORT.md).
 
-Převod spline hran do skici: [přesná geometrie a oddělená reference](SKETCH_EXACT_PROJECTION.md).
+Projecting spline edges into sketches: [exact geometry and separate references](SKETCH_EXACT_PROJECTION.md).
 
-## Nastavení před importem STEP / IGES
+## Settings before STEP / IGES import
 
-Po výběru souboru se v Partu i sestavě otevře společné interní okno
-Nastavení importu. Ukazuje název, velikost a formát souboru; u STEP také
-schéma, pokud je dostupné v úvodní hlavičce. Získání těchto informací
-nepřevádí geometrii a čte nanejvýš prvních 64 KiB souboru.
+After file selection, Part and Assembly open the shared internal Import Settings
+window. It shows the file name, size and format, and the STEP schema when available
+in the initial header. Reading this information does not convert geometry and reads
+at most the first 64 KiB of the file.
 
-Jemnost zobrazení (odchylka v mm) se předvyplní z odpovídající startovací
-šablony nastavené v configu, nikoli z případně změněné přesnosti otevřeného
-dokumentu. Aktuální šablony používají 0,1 mm. Lze zvolit 1 mm i vyšší
-hodnotu. Menší hodnota znamená jemnější síť; přesná geometrie a rozměry
-se nezmění. Počet trojúhelníků omezuje také úhlové kritérium OCCT.
+Display accuracy (deflection in mm) defaults to the corresponding start template
+selected in config, rather than the potentially modified accuracy of the open
+document. Current templates use 0.1 mm. Values of 1 mm or greater are allowed.
+Smaller values produce a finer mesh without changing exact geometry or dimensions.
+The OCCT angular criterion also limits the triangle count.
 
-OK spustí import se zvolenou hodnotou, Cancel nezahájí výpočet ani zápis
-souborů. Volba se uloží do importovaných kontejnerů v nativním Partu a
-platí i při regeneraci. Nemění config, přesnost cílového dokumentu ani
-předchozí importy. U STEP sestavy ji dostanou všechny nově importované
-Party. DXF používá svůj dosavadní importní postup.
+OK starts import with the selected value. Cancel performs no calculation or file
+writes. The value is stored in imported containers in the native Part and also
+applies during regeneration. It changes neither config, target-document accuracy,
+nor previous imports. All newly imported Parts in a STEP Assembly receive the
+value. DXF retains its existing import workflow.
 
-### Kontrolní měření jemnosti
+### Display-accuracy sanity check
 
-Na válci Ø200 × 200 mm importovaném ze STEP vytvořila odchylka 0,1 mm
-396 zobrazovacích trojúhelníků, 1 mm 124 a 5 mm 100. Výpočet přesného
-objemu se nezměnil. Jde o kontrolu vlivu nastavení na jednoduchý model,
-nikoli měření doby importu velké sestavy.
+For a STEP cylinder Ø200 × 200 mm, deflections of 0.1, 1 and 5 mm produced 396,
+124 and 100 display triangles respectively. The exact calculated volume did not
+change. This checks the setting on a simple model; it is not a large-Assembly
+import timing measurement.
 
-## Import do Partu
+## Import into a Part
 
-**Soubor → Importovat → STEP** vloží každý koncový díl / výskyt ze STEP do
-samostatného **Tělesa**. Uvnitř tělesa je běžný kontejner importovaného STEP.
-Opakovaný výskyt vytvoří další těleso ve své poloze. Existující tělesa Partu
-zůstanou zachována; import je automaticky neslučuje Booleanem.
+**File → Import → STEP** places each leaf Part / occurrence from STEP into a
+separate **Body**, containing a normal imported-STEP container. Repeated occurrences
+create additional Bodies at their positions. Existing Part Bodies remain intact;
+import does not automatically Boolean-unite them.
 
-Polohy se převedou z celé zdrojové hierarchie do souřadnic Partu. Zůstanou
-zachovány názvy a fyzické rozměry; například rozměr 1 inch se převede na
-25,4 mm. Interní geometrie ZIMA-CAD používá milimetry. Přesnost zobrazovací
-sítě vychází z nastavení cílového dokumentu.
+Positions from the complete source hierarchy are converted into Part coordinates.
+Names and physical dimensions are preserved: for example, 1 inch becomes 25.4 mm.
+ZIMA-CAD uses millimetres internally. Display tessellation uses the import accuracy
+selected above, with the corresponding template providing its default.
 
-Kontejner ukládá zmrazený B-Rep a zdrojové identity topologie. Uložení,
-znovunačtení a regenerace proto nepotřebují původní STEP soubor.
+The container stores frozen B-Rep and source topology identities. Saving, reopening
+and regenerating therefore do not require the original STEP file.
 
-## Import do sestavy
+## Import into an Assembly
 
-Vznikne jedna vložená STEP sestava. Zachová vlastní hierarchii podsestav,
-jednotlivé díly a jejich místní polohy. Každý unikátní zdrojový díl má jeden
-soubor `.prtz`, každý unikátní zdroj podsestavy jeden `.asmz`. Opakované
-výskyty odkazují na společný zdroj. Každý importovaný Part obsahuje těleso
-s kontejnerem STEP.
+Import creates one inserted STEP Assembly, preserving its subassembly hierarchy,
+individual Parts and local placements. Each unique source Part has one `.prtz`
+file and each unique subassembly source one `.asmz` file. Repeated occurrences
+share their source. Each imported Part contains a Body with a STEP container.
 
-Soubory vzniknou v novém podadresáři `<název STEP>_zima` vedle cílové sestavy,
-u dosud neuložené sestavy v pracovním adresáři. Další import použije nový
-adresář s číselným příponovým označením a nepřepíše předchozí import.
-Soubor bez původní hierarchie vytvoří plochou sestavu. Samostatný STEP Part
-se také vloží přes kořenovou STEP sestavu.
+Files are created in a new `<STEP name>_zima` subdirectory beside the target
+Assembly, or in the working directory for an unsaved Assembly. Subsequent imports
+use a new numbered directory without overwriting previous imports. Files without
+an original hierarchy produce a flat Assembly. A standalone STEP Part is also
+inserted through a root STEP Assembly.
 
-Jeden zdrojový STEP produkt zůstává jedním Partem i tehdy, když obsahuje
-solid a samostatné plochy (například pomocné plochy závitu šroubu).
-Geometrické položky jednoho produktu nevytvářejí falešnou podsestavu.
-Skutečné podsestavy se rozlišují podle produktových vazeb v původním STEP,
-nikoli podle počtu těles nebo ploch. Toto seskupení platí také pro import do Partu.
-Změna se projeví při novém importu; již uložené sestavy automaticky nepřestavuje.
+One source STEP product remains one Part even when it contains both a solid and
+separate surfaces, such as auxiliary screw-thread surfaces. Geometric items within
+one product do not create an artificial subassembly. Real subassemblies are
+identified by product relationships in the original STEP, not by the number of
+solids or surfaces. This grouping also applies to Part import. It takes effect on
+new imports; previously saved Assemblies are not automatically rebuilt.
 
 ## Export
 
-**Soubor → Exportovat → STEP** používá aktuální vypočtený stav dokumentu.
-Part exportuje viditelná výsledná tělesa samostatně. Tělesa spotřebovaná
-Booleanem se neexportují podruhé. Sestava zachová podsestavy, díly, opakované
-definice, názvy a polohy. Skryté a potlačené komponenty se vynechají.
-Export zapisuje milimetrové jednotky a nijak nemění model ani jeho historii.
+**File → Export → STEP** uses the document's current calculated state. A Part
+exports visible result Bodies separately. Bodies consumed by Booleans are not
+exported again. An Assembly preserves subassemblies, Parts, repeated definitions,
+names and placements. Hidden and suppressed components are omitted. Export writes
+millimetre units and changes neither the model nor its history.
 
-Geometrie vnořených komponent je součástí uloženého snímku sestavy. Export
-nepřebírá samovolně změny z jiných otevřených dokumentů. Aktualizaci závislostí
-si uživatel vyžádá příkazem **Regenerovat** na sestavě. Pokud uložený dokument
-potřebné geometrické snímky neobsahuje, export na nutnost regenerace upozorní.
+The initial implementation used saved Assembly geometry snapshots and required
+Assembly **Regenerate** to refresh source changes. Current source-display ownership
+is defined in [Assembly geometry sharing](ASSEMBLY_GEOMETRY_SHARING.md): source Parts
+own their current calculated geometry, while Assembly mate solving and owned
+operations still require explicit regeneration. A document missing geometry required
+for export reports the need to regenerate.
 
-Změny STEP nepřidávají podporu vnořených sestav do exportu STL. Import barev
-ploch zůstává samostatným navazujícím úkolem.
+The STEP changes do not add nested-Assembly support to STL export. Importing face
+colours remains a separate follow-up task.
 
-## Ověření
+## Verification
 
-Regresní test `zima_cpp_step_model_contract_tests` provádí skutečný zápis a
-čtení STEP přes OCCT. Kontroluje dva druhy dílů, opakovanou podsestavu,
-rotace kolem všech tří os, globální rozsahy geometrie, objemy, samostatná
-tělesa při opakovaném importu, uložení/znovunačtení sestavy, STEP v palcích
-a regeneraci Partu po odstranění původního STEP souboru.
+`zima_cpp_step_model_contract_tests` performs real STEP writes and reads through
+OCCT. It checks two Part types, a repeated subassembly, rotations around all three
+axes, global geometry bounds, volumes, separate Bodies on repeated import,
+Assembly save/reopen, inch-based STEP, and Part regeneration after deleting the
+original STEP file.

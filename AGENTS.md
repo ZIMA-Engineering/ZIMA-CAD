@@ -1,5 +1,19 @@
 # ZIMA-CAD development rules
 
+## Documentation language (mandatory)
+
+- All project documentation must be written and maintained in English only.
+- This applies to new and existing documentation, READMEs, manuals, roadmaps,
+  design notes, development handoffs, and documentation added with code changes.
+- Translate non-English documentation when updating it; do not introduce or
+  maintain parallel Czech documentation. Preserve technical meaning, status,
+  examples, identifiers, file paths, and working links.
+- Literal localized UI strings, Unicode test data, proper names, and third-party
+  legal notices may retain their original spelling where exact text is required;
+  explanatory prose around them must be English.
+- This is a binding user requirement agreed on 2026-09-15. It does not change
+  the language of conversations with the user or the application's localization.
+
 ## Property and parameter dialogs
 
 - Every newly created property, feature-parameter, or editing dialog must use
@@ -117,18 +131,26 @@
 
 - Before changing or publishing a Windows runtime or portable build, read and
   follow `doc/WINDOWS_RUNTIME_AND_BUILD.md`.
-- Windows numerical runtimes must use the OpenBLAS Conda provider and contain
-  `openblas.dll`, `libblas.dll`, and `libcblas.dll`. A package is not accepted
-  merely because `conda-pack` completed; the packaged runtime smoke test and
-  archive validator must pass.
-- Use the repository Windows packaging scripts. Do not use PowerShell
+- C++ is the only product implementation. Do not restore the removed Python
+  application or package its Conda environment as the product runtime.
+- Each release must carry its own native Qt/OCCT dependencies, plugins and
+  resources. Resolve the actual dependency closure for the selected platform;
+  do not require OpenBLAS merely because the former Python runtime used it.
+- Use repository-owned packaging and validation scripts. Do not use PowerShell
   `Compress-Archive` or `Expand-Archive` for the runtime/build tree, and do not
-  bypass the enforced archive-member length budgets.
-- Do not run `conda-unpack` on a runtime before creating a distributable ZIP.
-  It runs once from `zima-cad.bat` after extraction at the final destination.
+  bypass archive path, collision or member-length checks.
 - Build release ZIPs from committed Git data in a short staging directory.
   Never allow untracked working files into a release and never replace a
-  known-good archive until OpenBLAS, path, CRC, SHA-256 and smoke checks pass.
+  known-good archive until dependency, path, CRC, SHA-256 and smoke checks pass.
+- The versioned distribution requirements in `doc/DISTRIBUTION_CLEANUP_PLAN.md`
+  are binding. Use build IDs `YYYYMMDDNN`, product-specific tags/archive names,
+  independent native dependencies/resources per version, complete source and
+  portable user data outside version directories. Follow its validation gates.
+- Linux completion belongs on the Linux host. Read `doc/LINUX_RELEASE_HANDOFF.md`
+  before continuing it. The obsolete runtime tree has been removed after
+  Windows verification; establish and verify fresh native Linux dependencies.
+- Do not claim an updater, signed release pipeline or portable layout is
+  implemented before it has been verified.
 
 ## OCCT boundary
 
@@ -454,7 +476,7 @@ When verifying the result, do not.
 ## Next-session development reminder
 
 When the user next resumes ZIMA-CAD development, read the section
-**Dohodnutý další postup pro Part (2026-09-06)** in `ROADMAP.md` and briefly
+**Agreed next steps for Part (2026-09-06)** in `ROADMAP.md` and briefly
 remind them of the agreed next task: Sketcher offsets, especially from STEP
 geometry. Preserve the listed order; the comprehensive Undo/Redo audit comes
 only after the agreed modeling features are broadly implemented. This is a

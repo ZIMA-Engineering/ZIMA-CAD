@@ -1,205 +1,179 @@
-# ZIMA-CAD – nezávazné architektonické náměty
+# ZIMA-CAD — nonbinding architecture ideas
 
-> Tento dokument je pracovní poznámka z neformální diskuse. Nejde o schválenou
-> specifikaci ani závazný plán implementace.
+> Working notes from an informal discussion. This is neither an approved
+> specification nor a binding implementation plan.
 
-Aktualizace 2026-09-07: konkrétní dohodnutý směr pro vícetělesový Part,
-výsledky větví a booleovské operace je veden samostatně v
-[MULTIBODY_AND_BOOLEANS.md](MULTIBODY_AND_BOOLEANS.md). Jde stále o návrh
-před implementací; starší náměty níže jej nenahrazují.
+Update 2026-09-07: the specific agreed direction for multibody Parts, branch results
+and Booleans is documented separately in
+[MULTIBODY_AND_BOOLEANS.md](MULTIBODY_AND_BOOLEANS.md). At that date it was still a
+pre-implementation proposal. Earlier ideas below do not supersede it; consult that
+document for subsequent status.
 
-## Jednotný kontejnerový model
+## Unified container model
 
-- Základní abstrakcí ZIMA-CADu je kontejner.
-- Kontejner má stabilní ID, název, parametry, vlastnosti, data a podřízené kontejnery.
-- Skica, geometrická operace, solid, díl, sestava i výkres mohou využívat společný
-  kontejnerový mechanismus; liší se obsahem dat a povolenými operacemi.
-- Kontejnery se mohou vnořovat.
-- Výsledná geometrie může vznikat skládáním a odečítáním výstupů kontejnerů.
-- Společný mechanismus může později obsloužit kopírování, historii, verzování,
-  vlastnosti a reference.
+- The fundamental ZIMA-CAD abstraction is a container.
+- A container has a stable ID, name, parameters, properties, data and child containers.
+- Sketches, geometric operations, solids, Parts, Assemblies and Drawings can share
+  container mechanisms, differing in data content and permitted operations.
+- Containers can nest.
+- Result geometry can combine and subtract container outputs.
+- Shared mechanisms could later handle copying, history, versioning, Properties
+  and references.
 
-## Souřadný systém kontejneru
+## Container coordinate system
 
-Každý prostorový kontejner může mít vlastní:
+Each spatial container can have its own Origin, X/Y/Z axes, XY/YZ/XZ planes and
+transform relative to its parent. Child geometry is evaluated in local coordinates.
 
-- počátek,
-- osy X, Y a Z,
-- roviny XY, YZ a XZ,
-- transformaci vůči nadřazenému kontejneru.
+### 3D Curve container
 
-Podřízená geometrie se vyhodnocuje v lokálním souřadném systému kontejneru.
+A separate spatial Sketcher is not proposed. The parent **3D Curve** contains
+ordinary Point containers. Each retains its own Origin, X/Y/Z position, stable ID
+and standard placement references. Tree order is also curve-point order;
+**Insert here** determines where the next point is inserted.
 
-### Kontejner 3D křivky
+The first version connects evaluated point Origins with a spatial polyline.
+Later spline interpolation may be another mode of the same container, not an
+incompatible second point representation. Persisted points and order are the
+source of truth for viewer and subsequent Sweep. OCCT creates edges/wires from
+them only during explicit calculation.
 
-3D křivka se nebude řešit samostatným prostorovým Sketcherem. Nadřazený
-kontejner **3D křivka** obsahuje běžné kontejnery bodů. Každý bod si zachovává
-vlastní Počátek, polohu X/Y/Z, stabilní ID a standardní polohové reference.
-Pořadí bodových kontejnerů ve stromu je současně pořadím bodů křivky; příkaz
-**Vložit zde** proto určuje místo vložení dalšího bodu.
+## Interpreting OpenCascade faces
 
-První varianta pouze spojuje vyhodnocené počátky bodů prostorovou lomenou.
-Pozdější interpolace spline smí být jiným režimem stejného kontejneru, nikoliv
-druhou neslučitelnou reprezentací bodů. Persistované body a jejich pořadí jsou
-zdrojem pravdy pro viewer i následný Sweep; OCCT z nich vytváří edge/wire jen
-při explicitním výpočtu.
+OpenCascade distinguishes:
 
-## Interpretace ploch OpenCascade
+- `TopoDS_Face`: a current bounded topological face;
+- `Geom_Surface`: its underlying mathematical surface;
+- `Wire` and `Edge`: face boundaries;
+- `TopLoc_Location`: placement;
+- `TopAbs_Orientation`: orientation.
 
-OpenCascade rozlišuje zejména:
+An OpenCascade face is not automatically a stable persistent ZIMA-CAD container.
+Parameter changes and Booleans can create new topology and different
+`TopoDS_Face` instances.
 
-- `TopoDS_Face` – aktuální ohraničenou topologickou plochu,
-- `Geom_Surface` – podkladový matematický povrch,
-- `Wire` a `Edge` – hranice plochy,
-- `TopLoc_Location` – umístění,
-- `TopAbs_Orientation` – orientaci.
+### Reference implications
 
-Plocha OpenCascade není automaticky stabilní trvalý kontejner ZIMA-CADu. Po změně
-parametrů nebo booleovské operaci může vzniknout nová topologie a jiné instance
-`TopoDS_Face`.
+- Never use order such as `Face1`, `Face2` or `faces[4]` as persistent identity.
+- Separate temporary OCC topology from persistent ZIMA-CAD references.
+- References should identify the source container, source operation and face meaning.
+- Semantic examples: `StartFace`, `EndFace`, `LateralFace`, `GeneratedFromEdge`,
+  or box roles `x_min`, `x_max`, `y_min`, `y_max`, `z_min`, `z_max`.
+- When a reference face disappears during recalculation, the dependent container
+  should retain its last valid transform and mark the reference invalid.
 
-### Důsledky pro reference
+## Future face analyzer
 
-- Nepoužívat pořadí typu `Face1`, `Face2` nebo `faces[4]` jako trvalou identitu.
-- Oddělit dočasnou OCC topologii od trvalé reference ZIMA-CADu.
-- Trvalá reference by měla popisovat zdrojový kontejner, zdrojovou operaci a význam
-  plochy.
-- Příklady významu: `StartFace`, `EndFace`, `LateralFace`,
-  `GeneratedFromEdge` nebo u boxu `x_min`, `x_max`, `y_min`, `y_max`, `z_min`,
-  `z_max`.
-- Pokud referenční plocha při přepočtu zmizí, závislý kontejner má zachovat poslední
-  platnou transformaci a reference se má označit jako neplatná.
+An analytical layer for a current `TopoDS_Face` could determine surface type,
+placement/orientation, UV bounds, approximate centre, normal, area and edge count.
+Relevant tools include `TopExp_Explorer`, `BRepAdaptor_Surface`,
+`BRepTools.UVBounds`, `BRepGProp.SurfaceProperties`, and `GeomAbs_SurfaceType`.
+Analysis describes the current result only; it does not itself provide stable naming.
 
-## Budoucí analyzátor ploch
+## Surface results and solid trimming
 
-Pro aktuální `TopoDS_Face` může být užitečná analytická vrstva, která zjistí:
+Protrusion and Revolve must separate result type `solid/surface`, Boolean
+combination `add/subtract/none`, and cut orientation `flip`. **Add** and
+**Subtract** are mutually exclusive; clicking the active button again can turn
+both off, producing a standalone surface without Fuse or Cut.
 
-- typ povrchu,
-- umístění a orientaci,
-- UV rozsah,
-- přibližný střed,
-- normálu,
-- obsah,
-- počet hran.
+Surface trimming of a solid must explicitly choose the retained/removed half-space.
+Properties should expose **FLIP** and the viewer an oriented arrow. Flip reverses
+the arrow and persisted side selection, not the sign of length, angle or offset.
+The original proposal listed Apply, OK or regeneration as calculation triggers.
+Current binding dialog rules supersede Apply: only OK and Cancel are exposed,
+with explicit Regenerate remaining a separate calculation action.
 
-Vhodné OpenCascade nástroje:
+## Sketch, Drawing and interchange formats
 
-- `TopExp_Explorer`,
-- `BRepAdaptor_Surface`,
-- `BRepTools.UVBounds`,
-- `BRepGProp.SurfaceProperties`,
-- `GeomAbs_SurfaceType`.
+- Sketch can be a shared 2D geometry layer for modeling and Drawings.
+- DXF can import/export 2D Sketch geometry.
+- Drawing is a separate `.drwz` document; its initial foundation contains multiple
+  sheets, paper formats, a source-model reference and projected views.
+- It can later contain borders, title blocks, sections, dimensions, notes, tables
+  and Sketches too.
+- The goal is one general 2D editor used in several contexts, rather than unrelated
+  editors.
 
-Analýza popisuje pouze právě existující výsledek. Sama o sobě není stabilním
-pojmenováním plochy.
+## Topics for later decisions
 
-## Plošný výsledek a ořezání solidu
+- Container dependency recalculation and graph.
+- Stable references between containers.
+- Container history, Undo/Redo and versioning.
+- General topology naming beyond simple parametric shapes.
+- Exact boundaries between container, feature and result body/solid.
 
-Protrusion a Revolve musí oddělovat tři různé údaje: druh výsledku
-`solid/surface`, booleovskou kombinaci `add/subtract/none` a orientaci řezu
-`flip`. Tlačítka **Přičíst** a **Odečíst** jsou vzájemně výlučná, ale opětovným
-kliknutím na aktivní tlačítko lze vypnout obě. Tento stav vytváří samostatnou
-plochu a nespouští Fuse ani Cut.
+## Assembly prototype at the time of discussion
 
-Při ořezání solidu plochou musí být vždy explicitně určena ponechaná nebo
-odebíraná polovina prostoru. Vlastnosti zobrazí tlačítko **FLIP** a viewer
-orientovanou šipku. Flip obrací směr šipky a persistovaný výběr strany; nesmí
-být implementován změnou znaménka délky, úhlu nebo odsazení. OCCT provede řez
-jen při **Použít**, **OK** nebo regeneraci.
+- Assembly uses a separate `.asmz` document but shares metadata, units, accuracy
+  and user parameters with Part.
+- An inserted Part is an occurrence referencing a source `.prtz` by relative path.
+  Its transform belongs to the Assembly and must not modify the source Part.
+- The occurrence tree shows the source Part tree. Activating a Part in Assembly
+  context makes its children behave as in Part; active/passive differences mainly
+  concern the View and modeling-tool availability.
+- Placement uses up to three reference pairs: offset plane mates, datum/generated
+  axis coaxiality, angle mates and Flip. Type choices follow geometry and remaining
+  freedoms; the stable solver selects the position nearest the current transform.
+- Mates appear as clickable 3D dimensions. Value mates are directly editable;
+  zero/coaxial mates remain placement-state indicators.
+- Central `TopologyRegistry` provides stable `FaceRef`, `EdgeRef`, `VertexRef` for
+  Box/Wedge, Extrusion and Revolve. External sketches and supported history
+  operations use these instead of temporary indices. Supported propagation through
+  addition/subtraction preserves ancestry and distinguishes missing/ambiguous
+  results; general Booleans and further operation types still required expansion
+  at this stage.
+- Assembly Protrusion/Revolve subtract only. They can target all or selected
+  occurrences but must not modify source `.prtz` files.
 
-## Sketch, Drawing a výměnné formáty
+## Drawing foundation at the time of discussion
 
-- Sketch může být společnou 2D geometrickou vrstvou pro modelování i výkresy.
-- DXF může sloužit jako import/export 2D geometrie Sketch.
-- Drawing je samostatný dokument `.drwz`; jeho rozpracovaný základ obsahuje
-  více listů, formát papíru, vazbu na zdrojový model a promítnuté pohledy.
-- Později může být kontejnerem obsahujícím také rámeček, razítko, řezy,
-  kóty, poznámky, tabulky a Sketch.
-- Cílem je jeden obecný 2D editor používaný v různých kontextech, nikoli několik
-  nesouvisejících editorů.
+- One `.drwz` contains multiple sheets, each with its own A4–A0 format.
+- A4 is portrait; other supported formats are landscape.
+- Sheet coordinates are real millimetres, with Origin at bottom right, positive X
+  leftward and positive Y upward, preserving title-block placement on format change.
+- The workspace is black without paper fill; a white rectangle marks the sheet.
+- Drawing stores relative source Part/Assembly path and ID. View geometry derives
+  at runtime from actual native-renderer topology; obsolete saved 2D projected-line
+  caches were intentionally unsupported by this prototype.
+- Views can be selected, moved and deleted. Derived views retain parent linkage
+  and can be created in eight 45-degree directions under European/American projection.
+- Each view has its own display mode. Line modes share edge/silhouette classification
+  with the 3D model; shaded modes use model colours, smoothed normals and a software
+  Z-buffer.
+- A view can show an independently movable name/scale label.
+- The first associative linear Drawing dimension was implemented; full ISO dimensions,
+  tolerances, item numbers, labels and technical symbols remained to be completed.
+- `.frmz` and `.tblz` are editable as Sketch documents. The `.tblz` renderer reads
+  persisted `[Sketch]` directly, without inferring insertion from geometry bounds
+  or applying hidden offsets. Sketch `(0, 0)` equals Drawing `(0, 0)`.
+- Title-block text preserves anchor, both alignments, rotation, flipping, font,
+  colour and height. CAD height means font cap height, not a particular string's
+  ink bounds.
+- Parametric fields are semantic text entities with tokens; the renderer does not
+  draw a hard-coded table over the Sketch.
+- Title-block BOM Repeat Region, including Item Number and Quantity, worked;
+  sections, details and further production Drawing features remained.
 
-## Témata k pozdějšímu rozhodnutí
+## Parameters and relations
 
-- Přepočet závislostí kontejnerů a dependency graph.
-- Stabilní reference mezi kontejnery.
-- Historie, undo/redo a verzování kontejnerů.
-- Obecné topologické pojmenování mimo jednoduché parametrické tvary.
-- Přesná hranice mezi kontejnerem, feature a výsledným body/solidem.
-
-## Aktuální prototyp sestav
-
-- Sestava používá samostatný dokument `.asmz`, ale sdílí metadata, jednotky,
-  přesnost a uživatelské parametry s dokumentem Part.
-- Vložený díl je instance odkazující relativní cestou na zdrojový `.prtz`.
-  Transformace instance patří sestavě a nesmí měnit zdrojový díl.
-- Strom instance zobrazuje strom zdrojového dílu. Po aktivaci dílu v kontextu
-  sestavy se jeho podsložky chovají jako v Partu; rozdíl aktivní/neaktivní
-  instance je především ve view a dostupnosti modelovacích nástrojů.
-- Ustavení používá až tři dvojice referencí. Podporuje rovinné vazby s offsetem,
-  souosost datumových a generovaných os, úhlové vazby a Flip. Nabídka typu se
-  omezuje podle geometrie a zbývajících stupňů volnosti; stabilní solver vybírá
-  polohu nejbližší současné transformaci.
-- Vazby se ve 3D view zobrazují jako klikací kóty. Hodnotové vazby lze editovat
-  přímo ve view, nulové a souosé vazby zůstávají viditelné jako stav ustavení.
-- Centrální `TopologyRegistry` poskytuje stabilní `FaceRef`, `EdgeRef` a
-  `VertexRef` pro Box/Wedge, Extrusion a Revolve. Externí skici i podporované
-  operace historie používají tyto identity místo dočasných indexů. Podporovaná
-  propagace přes přidání a odečtení zachovává původ a rozlišuje chybějící a
-  nejednoznačný výsledek; zbývá ji rozšířit na obecné booleovské kombinace a
-  další typy operací.
-- Protrusion a Revolve v sestavě jsou pouze odečítací operace. Mohou působit na
-  všechny nebo jen vybrané instance, ale nesmějí měnit původní `.prtz`.
-
-## Aktuální základ výkresů
-
-- Jeden `.drwz` obsahuje více listů. Každý list má vlastní formát A4–A0.
-- A4 je vždy na výšku, ostatní podporované formáty vždy na šířku.
-- List je geometrie ve skutečných milimetrech. Počátek je vpravo dole, kladné X
-  směřuje doleva a kladné Y nahoru, aby změna formátu zachovala polohu razítka.
-- Pracovní prostor má černé pozadí bez výplně papíru; hranici listu představuje
-  bílý obdélník.
-- Výkres ukládá relativní cestu a ID zdrojového dílu nebo sestavy. Geometrie
-  pohledů se za běhu odvozuje ze skutečné topologie nativního rendereru;
-  zastaralá uložená 2D cache promítnutých čar se záměrně nepodporuje.
-- Pohledy jsou vybíratelné, přesouvatelné a odstranitelné. Odvozené pohledy
-  zachovávají vazbu na rodiče a lze je vytvářet v osmi směrech po 45 stupních
-  podle evropské nebo americké projekční metody.
-- Každý pohled má vlastní režim zobrazení. Čárové režimy používají společnou
-  klasifikaci hran a siluet s 3D modelem; stínované režimy přebírají barvy a
-  vyhlazené normály modelu a používají softwarový Z-buffer.
-- Pohled může zobrazit samostatně přesouvatelný popisek s názvem a měřítkem.
-- Je implementovaný první asociativní lineární rozměr ve výkresu. Zbývá
-  dokončit ISO kóty, tolerance, pozice, popisky a technické symboly.
-- `.frmz` a `.tblz` lze upravovat jako Sketch dokumenty. Renderer razítka
-  `.tblz` čte přímo persistovaný `[Sketch]`; neodvozuje vložení z hranic
-  geometrie a nepoužívá skrytý posun. Sketch `(0, 0)` je výkresové `(0, 0)`.
-- Text razítka zachovává kotevní bod, obě zarovnání, otočení, převrácení,
-  font, barvu a výšku. CAD výška je kapitálková výška fontu, nikoliv výška
-  inkoustové stopy konkrétního řetězce.
-- Parametrická pole jsou sémantické textové entity s tokeny; renderer přes
-  Sketch nedokresluje žádnou pevně naprogramovanou tabulku.
-- BOM Repeat Region v razítku včetně Item Number a Quantity je funkční.
-  Zbývají řezy, detaily a další produkční výkresové funkce.
-
-## Parametry a relace
-
-- Uživatelský parametr je vždy materializovaná hodnota použitelná beze znalosti
-  jejího původu ve featurech, sestavě, rodinné tabulce, razítku a výkresu.
-- Výchozí stabilní klíče jsou anglické identifikátory. Lokalizovaný název
-  parametru mapuje klíč i jazyk hodnoty, například `Název -> name + cs` a
-  `Name -> name + en`; sdílená hodnota jazykovou větev nahrazuje.
-- Relace patří pouze modelovému dokumentu Part nebo Assembly. Ukládá dvojici
-  `target + expression`; vyhodnocený výsledek zapisuje do běžného
-  `user_parameters[target]` a jazykově sdílené hodnoty parametru.
-- Výraz se parsuje přes Python AST, ale vyhodnocuje se vlastním allow-list
-  interpretem. Soubor modelu proto nemůže importovat moduly, přistupovat k
-  souborům ani volat aplikační Python.
-- První systémový kontext poskytuje `model.volume`, `model.area`, `model.mass`
-  a `material.density`. Objem a plocha vycházejí z výsledného OCCT shape;
-  hustota se normalizuje na `kg/mm^3` a hmotnost se ukládá v kilogramech.
-- Drawing relace nevlastní. Dialog Parametry otevřený z Drawingu pracuje se
-  zdrojovým Partem nebo Assembly a po uložení obnoví výkresovou geometrii i
-  razítko.
-- Nový Part se klonuje z nakonfigurovaného `start_part.prtz`, přičemž dostane
-  nové ID dokumentu a cílový název. Tím zůstávají výchozí relace součástí
-  běžného souborového modelu a nejsou natvrdo zapsané v aplikačním kódu.
+- A user parameter is always a materialized value usable without knowing its origin
+  in features, Assemblies, family tables, title blocks and Drawings.
+- Stable default keys are English identifiers. Localized parameter names map both
+  key and value language, for example literal UI mappings `Název -> name + cs`
+  and `Name -> name + en`; a shared value replaces a language-specific branch.
+- Relations belong only to Part/Assembly model documents. They store
+  `target + expression`, writing evaluated results to normal
+  `user_parameters[target]` and the parameter's language-shared value.
+- In the Python prototype, expressions were parsed through Python AST and evaluated
+  by a custom allow-list interpreter. Model files could not import modules, access
+  files or call application Python. This describes the prototype, not a requirement
+  to reintroduce Python into the native implementation.
+- Initial system context exposed `model.volume`, `model.area`, `model.mass` and
+  `material.density`. Volume/area came from the result OCCT shape; density was
+  normalized to `kg/mm^3` and mass stored in kilograms.
+- Drawing owns no relations. Its Parameters dialog edits the source Part/Assembly
+  and refreshes Drawing geometry and title block after committing.
+- New Parts clone configured `start_part.prtz`, assigning a new document ID and
+  target name. Default relations thus remain in normal model files, not hard-coded
+  application logic.

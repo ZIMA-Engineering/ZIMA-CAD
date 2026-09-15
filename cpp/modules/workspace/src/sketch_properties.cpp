@@ -35,7 +35,7 @@ bool commit_part_sketch_properties(Workspace& live,const kernel::OcctKernel& ker
         if(existing->owner_container_id!=sketch.owner_container_id||!owner||new_container)
             reject("invalid_sketch_owner","Sketch owning container no longer exists");
         if(owner->feature_kind!=document::FeatureKind::Sketch&&owner->feature_kind!=document::FeatureKind::Extrusion&&
-            owner->feature_kind!=document::FeatureKind::Revolution)
+            owner->feature_kind!=document::FeatureKind::Revolution&&owner->feature_kind!=document::FeatureKind::Holes)
             reject("unsupported_sketch","Edit this Sketch through its owning section operation.");
     }
     const auto* body=create?before.body_history.find(before.body_history.active_body_id())
@@ -86,7 +86,7 @@ bool set_part_sketch_reference(Workspace& live,const kernel::OcctKernel& kernel,
     auto sketch=document_sketch(live,id,sketch_id);
     auto feature=prepare_part_feature_reference(live,id,sketch.owner_container_id,index,std::move(source),index==0);
     document::normalize_sketch_front_references(feature.placement.references);
-    if(index==0&&std::ranges::any_of(feature.placement.references,[](const auto& ref){return !ref.orientation_only&&ref.supports_offset;}))
+    if(sketch.plane_auto&&index==0&&std::ranges::any_of(feature.placement.references,[](const auto& ref){return !ref.orientation_only&&ref.supports_offset;}))
         sketch.plane=sketcher::SketchPlane::XZ;
     sketch.plane_reference_owner_id.clear();
     return commit_part_sketch_properties(live,kernel,id,std::move(sketch),sketch_properties_placement(feature));
@@ -156,7 +156,7 @@ bool set_sketch_reference(Workspace& live,const kernel::OcctKernel& kernel,const
     auto feature=assembly->session.document().find_cut(sketch.owner_container_id)
         ?prepare_assembly_profile_reference(live,id,sketch.owner_container_id,index,std::move(source),index==0)
         :prepare_assembly_sketch_reference(live,id,sketch.owner_container_id,index,std::move(source));
-    if(index==0&&std::ranges::any_of(feature.placement.references,[](const auto& ref){return !ref.orientation_only&&ref.supports_offset;}))
+    if(sketch.plane_auto&&index==0&&std::ranges::any_of(feature.placement.references,[](const auto& ref){return !ref.orientation_only&&ref.supports_offset;}))
         sketch.plane=sketcher::SketchPlane::XZ;
     sketch.plane_reference_owner_id.clear();
     return commit_sketch_properties(live,kernel,id,std::move(sketch),sketch_properties_placement(feature));

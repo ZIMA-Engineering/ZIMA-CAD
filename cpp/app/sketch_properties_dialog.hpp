@@ -58,6 +58,9 @@ public:
     bool mutate_sketch(const std::string& id,
         const std::function<void(zima::sketcher::Sketch&)>& mutation);
     [[nodiscard]] auto pending_value() const { return current_values(); }
+    void set_holes_mode(double diameter, std::set<std::string>& locks, std::function<void(double)> changed,
+        std::function<void()> edit_sketch);
+    void set_pending_sketch(zima::sketcher::Sketch sketch);
     [[nodiscard]] std::vector<zima::document::ConstructionReference>
         highlighted_reference_entries() const;
     [[nodiscard]] std::vector<zima::document::ConstructionReference>
@@ -97,6 +100,7 @@ private:
     QLineEdit* name_{};
     QComboBox* plane_{};
     QDoubleSpinBox* offset_{};
+    QDoubleSpinBox* holes_diameter_{};
     QComboBox* plane_reference_{};
     QPushButton* sketch_button_{};
     QLabel* error_{};
@@ -104,6 +108,7 @@ private:
     zima::kernel::ViewerReferenceGeometry reference_geometry_;
     PreviewCallback preview_;
     bool enter_sketch_after_commit_{};
+    std::function<void()> edit_pending_sketch_;
 
     void update_plane_fields_enabled();
     void refresh_resolved_placement();

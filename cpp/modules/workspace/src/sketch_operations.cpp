@@ -138,9 +138,9 @@ void delete_document_sketch(Workspace& live,const kernel::OcctKernel& kernel,
     next.validate_sketch_containers();
     assembly->session.commit(std::move(next));
 }
-std::string create_document_sketch(Workspace& live,const kernel::OcctKernel& kernel,const std::string& id,std::string name,sketcher::SketchPlane plane) {
+std::string create_document_sketch(Workspace& live,const kernel::OcctKernel& kernel,const std::string& id,std::string name,sketcher::SketchPlane plane,bool plane_auto) {
     if(name.empty() || name.size()>1024)throw SketchOperationError("invalid_name","A Sketch name must contain 1 to 1024 UTF-8 bytes.");
-    auto sketch=sketcher::Sketch::create_default();sketch.name=std::move(name);sketch.plane=plane;sketch.refresh_default_frame();
+    auto sketch=sketcher::Sketch::create_default();sketch.name=std::move(name);sketch.plane=plane;sketch.plane_auto=plane_auto;sketch.refresh_default_frame();
     const auto sketch_id=sketch.id;
     if(auto* part=live.open_part(id)) {
         auto container=document::PartDocument::create_sketch_container();container.name=sketch.name;sketch.owner_container_id=container.id;

@@ -1,71 +1,64 @@
-# Otevření posledního vypočteného stavu
+# Opening the last calculated state
 
-## Zadání a rozsah kontroly (2026-09-14)
+## Request and audit scope (2026-09-14)
 
-Uživatel navrhuje při otevření zobrazit poslední uložený vypočtený stav
-a historii znovu vyhodnocovat až příkazem Regenerovat. Toto je audit aktuálního
-kódu a návrh dalšího měření; neoznamuje hotovou optimalizaci načítání.
+The user proposes displaying the last saved calculated state on opening and reevaluating
+history only through Regenerate. This is an audit and measurement proposal, not an
+announcement of completed loading optimization.
 
-Vstupem je nativní dokument včetně parametrů, historie, původních referencí
-a vypočtených dat. Výstupem má být rychle dostupný model pro View i editaci.
-Prostředkem jsou již existující uložené výsledky a sdílené zdrojové snímky.
-Čtení stromu jako dat není totéž jako nové provedení jeho modelových operací.
+Inputs are native documents with parameters, history, original references, and
+calculated data. Required output is a model quickly available for View and editing.
+Means are existing persisted results and shared source snapshots. Reading tree data
+is not the same as executing its model operations again.
 
-## Ověřené cesty
+## Verified paths
 
-- Host `open` v `cpp/modules/command_host/src/host.cpp` používá
-  `read_native_document` a `insert_native_document`. Nevolá `evaluate_history`
-  ani regeneraci. Přidání do Workspace převezme načtené výsledky.
-- `PartDocument::load` v `cpp/modules/document_core/src/part_document.cpp`
-  přesto sestaví `kernel_operations(false, true)` pro celou historii,
-  obnoví všechny uložené hranice a validuje jejich otisky. Příprava operací
-  mimo jiné zpracovává zdrojové profily. Nejde o nové vytváření těles v OCCT.
-- Pro každou hranici se volá `history_fingerprint(operations, index + 1)`.
-  Implementace v `cpp/modules/kernel_api/include/zima/kernel/geometry_kernel.hpp`
-  pokaždé znovu prochází celý příslušný prefix. Pro n operací se tak zpracuje
-  nejméně n(n + 1)/2 položek; 1000 operací znamená 500 500 návštěv.
-  Skutečná cena závisí na velikosti parametrů jednotlivých operací.
-  Jde o nezávislou kontrolu počtu průchodů, nikoli naměřený čas.
-- Obnova `original_references_mode=append` kopíruje dosavadní referenční
-  geometrii a připojí přírůstek u každé hranice. Následuje validace referencí
-  uložených hranic. Také tato práce může růst s délkou historie.
-- `AssemblyDocument::load` obnoví uložené zdrojové snímky, konkrétní výskyty,
-  polohy a vlastní operace. Na konci sestaví `build_scene()` pouze pro
-  validaci a výsledek zahodí. Tato scéna využívá vypočtená data, nevytváří
-  nová tělesa v OCCT.
-- Session při vytvoření obnoví fyzikální odvozené hodnoty a synchronizují
-  rozměrové identifikátory. Nejde o úplnou regeneraci geometrie.
-- GUI `refresh_scene` volá `Workspace::refresh_source_geometry`.
-  Otevřený zdrojový Part je autoritativní; zavřené zdroje se načítají
-  z nativních souborů a opakovaná čtení omezuje cache. Vnořené sestavy se
-  procházejí kvůli aktuálním zdrojům a připravují scénu pro zobrazení.
-  Vlastní odečty a odvozené kopie sestavy zachovávají vypočtený výsledek
-  do výslovné regenerace.
+- Host `open` in `cpp/modules/command_host/src/host.cpp` uses `read_native_document`
+  and `insert_native_document`, without `evaluate_history` or regeneration. Workspace
+  insertion adopts loaded results.
+- `PartDocument::load` in `cpp/modules/document_core/src/part_document.cpp` still
+  constructs `kernel_operations(false, true)` for the whole history, restores all
+  persisted boundaries, and validates fingerprints. Operation preparation processes
+  source profiles among other work; it does not create new OCCT bodies.
+- Every boundary calls `history_fingerprint(operations, index + 1)`. Its implementation
+  in `cpp/modules/kernel_api/include/zima/kernel/geometry_kernel.hpp` traverses the
+  whole prefix again each time. For n operations this visits at least n(n + 1)/2
+  items: 500,500 for 1000 operations. Actual cost depends on parameter sizes. This
+  independently checks traversal counts, not measured duration.
+- Restoring `original_references_mode=append` copies accumulated reference geometry
+  and appends each boundary's increment, followed by persisted-boundary reference
+  validation. This work may also grow with history length.
+- `AssemblyDocument::load` restores persisted source snapshots, exact occurrences,
+  placements, and owned operations. It finally builds and discards `build_scene()`
+  for validation. This uses calculated data without creating new OCCT bodies.
+- Session creation restores derived physical values and synchronizes dimension IDs;
+  this is not full geometry regeneration.
+- GUI `refresh_scene` calls `Workspace::refresh_source_geometry`. Open source Parts
+  are authoritative; closed sources load from native files with cached repeated reads.
+  Nested Assemblies are traversed for current sources and display preparation.
+  Assembly-owned cuts and derived copies retain calculated results until explicit regeneration.
 
-## Doporučený postup
+## Recommended approach
 
-Nejdříve odděleně změřit rozbalení a dekódování souboru, obnovu hranic,
-přípravu operací a jejich otisků, validaci dat, aktualizaci zdrojů sestavy
-a přípravu View/pickeru. Ze statického auditu nelze určit jejich podíl
-na konkrétním pomalém souboru.
+First separately measure unpacking/decoding, boundary restoration, operation and
+fingerprint preparation, validation, Assembly source refresh, and View/picker preparation.
+Static inspection cannot determine their shares for a particular slow file.
 
-Cílem je jedna cesta: otevření přečte strukturu a poslední vypočtený stav,
-starší mezivýsledky připraví podle potřeby editace. Výpočet těles, vazeb
-a vlastních operací sestavy náleží explicitní regeneraci nebo potvrzení
-modelové změny. Potřebné mezivýsledky a původní reference se nemají
-zahodit; editace staršího prvku je musí stále umět použít.
+The target is one path: opening reads structure and last calculated state, preparing
+older intermediate results as editing needs them. Body calculation, mates, and
+Assembly-owned operations belong to explicit regeneration or model-change commit.
+Required intermediate results and original references must remain available for
+editing older features.
 
-Kontrola struktury, identity a bezpečnosti načtených dat musí zůstat
-zachovaná. Nákladné kontroly lze přeorganizovat tak, aby neopakovaly stejné
-průchody; poškozený soubor se nesmí přijmout jen kvůli rychlosti.
-Změna způsobu ukládání otisků či indexu mezivýsledků by vyžadovala odpovídající
-aktuální schéma a aktualizaci start šablon v config.
+Preserve structural, identity, and loaded-data safety checks. Expensive checks may
+be reorganized to avoid repeated traversal; corrupt files must not be accepted for
+speed. Changes to fingerprint persistence or intermediate-result indexing require
+corresponding current schemas and updated config start templates.
 
-Assembly nesmí držet starou revizi Partu proti současným pravidlům:
-aktuální vypočtený stav zdrojového Partu se musí projevit bez regenerace
-Assembly. Výpočet vazeb a vlastních odečtů Assembly zůstane výslovný.
-Zastaralý či chybějící výsledek má být rozpoznatelný; případný poslední
-platný náhled nesmí předstírat aktuální vypočtený výsledek.
+Assembly must not pin historical Part revisions against current rules: current
+calculated source-Part data must appear without Assembly regeneration. Assembly
+mate/cut calculation remains explicit. Stale or missing results must be identifiable;
+a retained last-valid preview must not masquerade as a current calculated result.
 
-Všechna povinná data nadále patří do `.prtz`, `.asmz` a `.drwz`.
-Nevzniká povinné externí úložiště cache ani historických revizí.
+All required data stays in `.prtz`, `.asmz`, and `.drwz`, with no required external
+cache or historical-revision storage.

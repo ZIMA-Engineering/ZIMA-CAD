@@ -1,34 +1,32 @@
-# Šrafování výkresových řezů v GUI a CLI
+# Drawing section hatching in GUI and CLI
 
-## Příkazy
+## Commands
 
-`drawing.view.hatch.get` vyžaduje `view`, volitelně `document` a `limit`
-(1–10000, výchozí 2000). Vrací aktuální nastavení řezu v jeho zdrojovém
-Partu nebo Assembly a nezávislou viditelnost šraf v požadovaném pohledu.
-Zdroj čte z otevřeného dokumentu, případně z nativního souboru relativně
-k cestě výkresu. Nepromítá geometrii, neotevírá dokument ani nemění historii.
-Pro čistě uložený stav pohledu bez dostupného zdroje slouží
-`drawing.view.get`.
+`drawing.view.hatch.get` requires `view`, with optional `document` and `limit`
+(1–10000, default 2000). It returns current section settings from the source Part
+or Assembly and independent hatch visibility in the requested view. It reads the
+source from an open document or its native file relative to the Drawing path.
+It does not project geometry, open a document or change history. Use
+`drawing.view.get` for saved view state alone when the source is unavailable.
 
-Výsledek obsahuje `source_document`, `section`, `items`, `total`, jednotky
-mm a stupně. Každá položka uvádí přesný klíč `component`, název,
-`available`, režim pohledu `mode`, nezávislý `source_mode`,
-`hidden_in_view`, `custom_hatch` a účinné parametry `hatch`.
-V Partu je klíčem ID tělesa, v Assembly úplná cesta konkrétního výskytu.
-Dva výskyty stejného šroubu jsou dvě samostatné položky. Dříve uložené
-nedostupné komponenty jsou rozpoznatelné pomocí `available: false`.
+The result includes `source_document`, `section`, `items`, `total`, and units mm
+and degrees. Each item reports its exact `component` key, name, `available`, view
+`mode`, independent `source_mode`, `hidden_in_view`, `custom_hatch`, and effective
+`hatch` parameters. The key is a Body ID in a Part and a complete occurrence path
+in an Assembly. Two occurrences of the same screw are separate items. Previously
+saved unavailable components are identifiable by `available: false`.
 
-`drawing.view.hatch.set` vyžaduje `view` a neprázdné pole `components`,
-volitelně `document`. Upravuje jen uvedené položky. Jedna komponenta může
-být v dávce právě jednou; celá dávka má nejvýše 10000 položek.
+`drawing.view.hatch.set` requires `view` and a nonempty `components` array, with
+optional `document`. It edits only listed items. Each component may occur once
+per batch; batches contain at most 10000 items.
 
 ```json
 {
   "command": "drawing.view.hatch.set",
   "arguments": {
-    "view": "<ID pohledu>",
+    "view": "<view ID>",
     "components": [{
-      "component": "<ID tělesa nebo přesná cesta výskytu>",
+      "component": "<Body ID or exact occurrence path>",
       "mode": "cut_only",
       "hatch": {
         "pattern": "cross",
@@ -41,79 +39,76 @@ být v dávce právě jednou; celá dávka má nejvýše 10000 položek.
 }
 ```
 
-## Vlastnictví parametrů
+## Parameter ownership
 
-Režim tabulky vlastností a příkazu má stejný význam:
+The Properties table and command use identical mode semantics:
 
-| `mode` | Výkresový pohled | Zdrojový řez |
+| `mode` | Drawing view | Source section |
 | --- | --- | --- |
-| `cut_hatch` | Řez se šrafováním | Zachová nezávislou 3D viditelnost; přepne případné `uncut` na řez |
-| `cut_only` | Řez bez šraf pouze v tomto pohledu | Zachová nezávislou 3D viditelnost; přepne případné `uncut` na řez |
-| `uncut` | Komponenta bez řezu | Změní zdrojový režim komponenty na `uncut` |
+| `cut_hatch` | Section with hatching | Preserves independent 3D visibility; changes `uncut` to cut if needed |
+| `cut_only` | Section without hatching in this view only | Preserves independent 3D visibility; changes `uncut` to cut if needed |
+| `uncut` | Component without sectioning | Sets the source component mode to `uncut` |
 
-Styl patří komponentě zdrojového řezu. Jeho změna se promítne do všech
-pohledů téhož řezu v upravovaném výkresu; každému zůstane vlastní skrytí
-šraf. Ostatní otevřené výkresy obnoví vypočtené projekce při explicitní
-regeneraci. Samotné přepnutí tabu neprovádí projekci ani výpočet tělesa.
+Style belongs to the source section's component. Changing it updates all views of
+that section in the edited Drawing, preserving each view's own hidden hatches.
+Other open Drawings refresh calculated projections on explicit regeneration.
+Switching tabs performs neither projection nor body calculation.
 
-`hatch` obsahuje libovolnou neprázdnou podmnožinu parametrů. Vzor je
-`parallel`, `cross` nebo `dashed`, rozteč 0,1–100 mm na papíře. Úhel
-ve stupních a posun v mm musí být konečná čísla. Číselné hodnoty JSON
-se ukládají bez zaokrouhlení na počet desetinných míst ovládacího prvku.
-Uvedení `hatch` zapne vlastní styl. `custom_hatch: false` obnoví děděný
-styl včetně střídání směru sousedních komponent; nemůže být spojeno
-s novými hodnotami `hatch` v téže položce.
+`hatch` accepts any nonempty subset of parameters. Pattern is `parallel`, `cross`
+or `dashed`; paper spacing is 0.1–100 mm. Angle in degrees and offset in mm must
+be finite. JSON numbers are stored without rounding to the control's display
+precision. Supplying `hatch` enables custom style. `custom_hatch: false` restores
+inherited style, including alternating adjacent-component directions, and cannot
+be combined with new `hatch` values in the same item.
 
-## Potvrzení, historie a soubory
+## Confirmation, history and files
 
-GUI a CLI používají `workspace::set_drawing_section_components` a
-`prepare_section_component_commit`. Parser komponent je společný
-s příkazy `section.create/set`.
+GUI and CLI use `workspace::set_drawing_section_components` and
+`prepare_section_component_commit`. The component parser is shared with
+`section.create/set`.
 
-Nejprve se ověří celá dávka a soukromý návrh výkresu včetně všech dotčených
-projekcí. Teprve po jejich úspěchu se zapíše zdroj a výkres. Neplatná
-komponenta, chybná rozteč nebo chyba navazujícího pohledu tak nezanechá
-částečně uloženou úpravu. Shodné nastavení je no-op bez nové historie.
-Změnu hlásí `changed`; `source_changed` odlišuje změnu zdroje od pouhého
-místního skrytí. `body_calculated` je vždy `false`.
+The complete batch and a private Drawing draft, including all affected projections,
+are validated first. Source and Drawing are committed only after success. Invalid
+components, incorrect spacing or a dependent-view failure leave no partial edit.
+Identical settings are a no-op without new history. `changed` reports a change;
+`source_changed` distinguishes source edits from local hiding. `body_calculated`
+is always `false`.
 
-Zavřený zdroj se otevře až při potvrzení skutečné změny zdrojových
-parametrů. Zachová se aktivní výkres. Zdroj je označený jako změněný,
-nikdy se automaticky neukládá na disk. Při místním skrytí šraf se
-zdrojové okno neotevře. ID zdroje musí souhlasit i tehdy, když na stejné
-cestě leží jiný soubor nebo je otevřen jiný dokument.
+A closed source is opened only when committing an actual source-parameter change.
+The Drawing remains active. The source is marked modified, never automatically
+saved to disk. Local hatch hiding does not open a source window. Source ID must
+match even if another file occupies its path or another document is open.
 
-Výkres a zdroj mají nadále **samostatné historie Undo/Redo**. Undo výkresu
-obnoví jeho uložené projekce a místní viditelnost; změnu zdrojového stylu
-vrací Undo ve zdroji. Při změně stylu je třeba uložit oba dokumenty.
-Není zavedená nová společná historie více dokumentů.
+Drawing and source retain **separate Undo/Redo histories**. Drawing Undo restores
+saved projections and local visibility; source Undo restores source style. Save
+both documents after changing style. There is no new shared multi-document history.
 
-Připravený zápis odmítne mezitím změněný zdroj, včetně Undo na stejnou
-revizi a zavření/znovuotevření téhož dokumentu. Nekopíruje starý model
-zpět přes nové změny. Tělesa, původní reference, skica řezu a sdílené
-zdrojové geometrie zůstávají zachované. Nepoužívá OCCT.
+Prepared commits reject a source changed in the meantime, including Undo to the
+same revision and closing/reopening the same document. They never overwrite new
+edits with an old model. Bodies, original references, section sketch and shared
+source geometry are preserved. OCCT is not used.
 
-Veškeré nastavení zůstává v existujících `.prtz`, `.asmz` a `.drwz`.
-Formát ani šablony se tímto krokem nemění.
+All settings remain in existing `.prtz`, `.asmz` and `.drwz` files. This step
+changes neither formats nor templates.
 
-## Ověření
+## Verification
 
-`drawing_hatch_command_tests` pokrývá čtení, místní skrytí, přesné styly,
-dědění, režim `uncut`, neplatné dávky, pozdní chybu projekce, Undo/Redo,
-neaktuální editaci, nativní soubory, otevření zavřeného Partu/Assembly,
-identitu zdroje a vnořené opakované výskyty. Kontroluje také zachování
-vypočteného tělesa a sdílení zdrojové geometrie. `cli_process_tests`
-spouští skutečnou příkazovku bez inicializace GUI. `section_ui_verification`
-ověřuje obousměrně GUI → CLI → stejné GUI vlastnosti a zachování Cancel.
+`drawing_hatch_command_tests` covers reads, local hiding, exact styles, inheritance,
+`uncut`, invalid batches, late projection failure, Undo/Redo, stale edits, native
+files, opening closed Parts/Assemblies, source identity and nested repeated
+occurrences. It also checks calculated-body preservation and source-geometry
+sharing. `cli_process_tests` runs the real command line without GUI initialization.
+`section_ui_verification` checks GUI → CLI → the same GUI Properties in both
+directions and preserves Cancel.
 
-První testovací model neměl vytvořený BodyHistory vlastník a jeho čtení
-způsobilo pád testu; po opravě sestavení testovacího modelu prošla nová
-modelová sada 1/1 za 0,32 s. První integrace 7/8 za 37,07 s odhalila chybný předpoklad GUI testu
-o dvoumístném zobrazení. Po oddělení kontroly zobrazení od uložené
-přesnosti a obnovení výběru po konzolové mutaci prošly GUI a překlady
-2/2 za 16,82 s. Následná **úplná sada prošla 130/130 za 542,95 s**.
-Obě aplikace a všechny testy se sestavily. Logy:
+The first test fixture lacked a BodyHistory owner and crashed on read. After
+fixing fixture construction, the new model suite passed 1/1 in 0.32 s. Initial
+integration passed 7/8 in 37.07 s and exposed an incorrect GUI-test assumption
+about two-decimal display. After separating display checks from stored precision
+and restoring selection after console mutation, GUI and translations passed
+2/2 in 16.82 s. The subsequent **full suite passed 130/130 in 542.95 s**.
+Both applications and all tests built. Logs:
 `build/drawing-hatch-full-build.log`, `build/drawing-hatch-final-build.log`,
 `build/drawing-hatch-model-tests.log`, `build/drawing-hatch-integration-tests.log`,
 `build/drawing-hatch-gui-tests.log`, `build/drawing-hatch-full-tests.log`.
-Katalog má 234 příkazů.
+The catalog contained 234 commands at this milestone.

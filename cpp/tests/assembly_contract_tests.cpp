@@ -333,7 +333,7 @@ int main() {
         const std::string assembly_text(
             std::istreambuf_iterator<char>(assembly_file), {});
         require(assembly_text.find("[Document]\n") != std::string::npos &&
-                    assembly_text.find("format_version=19\n") != std::string::npos &&
+                    assembly_text.find("format_version=21\n") != std::string::npos &&
                     assembly_text.find("[DocumentUnits]\n") != std::string::npos &&
                     assembly_text.find("[DocumentPrecision]\n") != std::string::npos &&
                     assembly_text.find("[Material]\n") != std::string::npos &&
@@ -1327,10 +1327,25 @@ int main() {
         for(double angle:{0.0,15.0,-15.0,45.0,-45.0,90.0,-90.0,135.0,-135.0,180.0,-180.0,0.0}) {
             moving_hinge.placement_references[2].offset=angle;
             hinge.calculate_placement_references();check_hinge(hinge,angle);
+            const auto scene=hinge.build_scene();
+            const auto handle=std::ranges::find_if(scene.dimensions,[](const auto& d){return d.rotation_handle;});
+            require(handle!=scene.dimensions.end(),"Hinge angle has no radial control (including zero angle)");
+            const auto axis=hinge.resolve_axis(moving_hinge.placement_references[0].target_reference).axis;
+            require(std::hypot(std::hypot(handle->witness_first.x-axis.point.x,handle->witness_first.y-axis.point.y),handle->witness_first.z-axis.point.z)<1e-8,
+                "Rotation control is not anchored on the hinge axis");
+            const zima::kernel::Vec3 ray{handle->line_first.x-handle->witness_first.x,handle->line_first.y-handle->witness_first.y,handle->line_first.z-handle->witness_first.z};
+            const auto normal=handle->plane_normal;
+            const zima::kernel::Vec3 eye{handle->line_second.x+normal.x*10,handle->line_second.y+normal.y*10,handle->line_second.z+normal.z*10};
+            const auto measured=zima::assembly::AssemblyDocument::project_angular_drag_value(handle->witness_first,ray,normal,eye,{-normal.x,-normal.y,-normal.z});
+            require(std::abs(std::remainder(measured-angle,360.0))<1e-7,"Radial handle edits a different angle from its displayed endpoint");
             const auto stable=moving_hinge.placement;hinge.calculate_placement_references();
             require(moving_hinge.placement==stable,"Repeated hinge calculation drifted its solved pose");
         }
         for(double angle:{30.,-30.}) {
+            auto locked_hinge=hinge;
+            locked_hinge.components.back().placement_references[2].offset_locked=true;
+            require(std::ranges::none_of(locked_hinge.build_scene().dimensions,[](const auto& d){return d.rotation_handle;}),
+                "Locked angle still exposes a rotation control");
             moving_hinge.placement_references[2].offset=angle;hinge.calculate_placement_references();
             require(std::abs(hinge.measure_placement_reference(moving_hinge.placement_references[2]).value()-angle)<1e-7,"Hinge angle lost its signed reference orientation");
         }

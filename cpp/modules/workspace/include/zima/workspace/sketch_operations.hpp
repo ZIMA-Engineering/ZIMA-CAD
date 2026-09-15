@@ -37,5 +37,5 @@ void insert_new_sketch(document::PartDocument&,sketcher::Sketch,document::Histor
 void insert_new_sketch(assembly::AssemblyDocument&,sketcher::Sketch);
 void delete_document_sketch(Workspace&,const kernel::OcctKernel&,const std::string& document,const std::string& sketch);
 [[nodiscard]] std::string create_document_sketch(Workspace&,const kernel::OcctKernel&,const std::string& document,
-    std::string name,sketcher::SketchPlane plane);
+    std::string name,sketcher::SketchPlane plane,bool plane_auto=true);
 }

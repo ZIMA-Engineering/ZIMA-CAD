@@ -1,206 +1,190 @@
-# Řezy dílu, sestavy a výkresu
+# Part, Assembly and Drawing sections
 
-## Vytvoření a úprava
+## Creation and editing
 
-Příkaz **Řezy…** nad View otevře vlastnosti řezu pro Part nebo Assembly
-na vlastní kartě. Používá stejný panel **Umístění kontejneru** jako ostatní
-kontejnery: souřadnice, orientaci, reference a jejich odsazení. Společný
-výpočet umístění se nemění. Referencemi jsou uložené původní objekty modelu.
+**Sections…** above the View opens Section Properties for a Part/Assembly in its
+own tab. It uses the shared **Container Placement** panel: coordinates, orientation,
+references and offsets. Shared placement calculation is unchanged. References are
+saved original model objects.
 
-1. Nastavte umístění kontejneru řezu. Počátek dokumentu je při zadávání
-   viditelný. Kliknutí na celý Počátek ve stromu vyplní tři polohové roviny;
-   tlačítkem **Počátek** lze zpřístupnit také počátky těles a kontejnerů.
-2. Vyberte jeho vlastní skicovou rovinu **XY, XZ nebo YZ**.
-3. Tlačítkem **Skica…** otevřete běžný Sketcher. Nakreslete jednu otevřenou
-   úsečku nebo souvislou lomenou čáru. Lze používat vazby, kóty i tažení bodů.
-4. **Dokončit skicu** vrátí rozpracovanou skicu do vlastností řezu.
-   **Zrušit skicu řezu** zahodí pouze právě probíhající úpravu skici.
-5. Nastavte stranu řezu, viditelnost řezné plochy a případně režimy komponent.
-   **OK** uloží celý řez jako jednu vratnou transakci.
+1. Set section-container placement. The document Origin is visible during entry.
+   Clicking the complete tree Origin fills three placement planes; **Origin** also
+   makes Body/container Origins available.
+2. Choose its local sketch plane **XY, XZ or YZ**.
+3. **Sketch…** opens normal Sketcher. Draw one open segment or connected polyline,
+   using constraints, dimensions and point dragging as needed.
+4. **Finish sketch** returns the pending sketch to Section Properties.
+   **Cancel section sketch** discards only the current sketch-edit session.
+5. Set cut side, section-plane visibility and component modes. **OK** saves the
+   whole section in one reversible transaction.
 
-Čára se na obou koncích prodlužuje do nekonečna; řezná plocha prochází
-kolmo ke skicové rovině celým modelem. U lomené čáry vzniká odpovídající
-zalomená plocha. Výchozí ponechaná strana je vlevo při průchodu od prvního
-nakresleného segmentu. **Obrátit stranu řezu** ponechá druhou část.
-Uzavřené, rozvětvené nebo nesouvislé profily a křížení čáry či prodloužení
-jejích konců nejsou přípustné. Řezná geometrie je tvořena přímými úsečkami.
+The line extends infinitely at both ends. The cutting surface runs perpendicular
+to the sketch plane through the whole model; a polyline produces a corresponding
+bent surface. Default retained side is left when traversing from the first drawn
+segment. **Reverse cut side** keeps the other portion. Closed, branched or disconnected
+profiles and crossings of the line or extended ends are invalid. Section geometry
+consists of straight segments.
 
-Skupina **Řezy** je hned za počátkem dokumentu. První položka **Bez řezu**
-obnovuje celý model. Skupinu ani tuto výchozí položku nelze odstranit.
-Následují A–A, B–B…; jejich jména lze upravit. Kontextové menu nabízí
-**Aktivní**, vlastnosti, úpravu skici a odstranění konkrétního řezu.
-Řezy jsou mimo historii tvorby těles, přestože jsou ve stromu nahoře.
+The **Sections** group immediately follows the document Origin. Its first item,
+**No section**, restores the full model. Neither group nor default item is removable.
+A–A, B–B, etc. follow and can be renamed. Context menus offer **Active**, Properties,
+Sketch editing and removal. Despite appearing near the tree top, sections are outside
+body-creation history.
 
-Vytvoření i pozdější editace používají jeden vnitřní dialog se společnými
-**OK / Zrušit**. Náhled a změny ve Sketcheru zůstávají dočasné až do OK
-vlastností řezu. Zrušit vlastnosti zahodí i již dokončené úpravy skici.
-Undo/Redo během skicování pracuje pouze s rozpracovanou skicou.
-Dvojklik prostředním tlačítkem nad View potvrzuje otevřené vlastnosti;
-krátký klik ani navigační tažení nepotvrzují.
+Creation/editing share one internal **OK / Cancel** dialog. Preview and Sketcher
+changes stay transient until Section Properties OK. Cancelling Properties also
+discards already finished sketch edits. Sketching Undo/Redo affects only the pending
+sketch. MMB double-click over View confirms Properties; short click/navigation drag
+does not.
 
-## Zobrazení a sestavy
+## Display and Assemblies
 
-Výchozí aktivní stav dokumentu je **Bez řezu**. Strom nemá zaškrtávací políčka;
-Otevření neaktivního řezu ponechá celé těleso a zobrazí skicu s kótami.
-**Zobrazit rovinu řezu** vykreslí skutečný průřez s obrysem a nastaveným
-šrafováním v řezné ploše, aniž by ořízl těleso. **Aktivní** v menu
-A–A nebo **Aktivní řez** ve vlastnostech zapne skutečně oříznuté zobrazení;
-v jednom dokumentu je současně aktivní nejvýše jeden takový řez. Při
-modelovacích vlastnostech a editaci běžné skici se používá úplná geometrie.
+Default document state is **No section**. The tree has no checkboxes. Opening an
+inactive section leaves the whole body visible and shows its sketch/dimensions.
+**Show section plane** draws the actual cross-section outline and configured hatching
+on the cutting surface without clipping the body. **Active** on A–A or **Active
+section** in Properties enables clipped display. At most one is active per document.
+Modeling Properties and ordinary sketch editing use full geometry.
 
-Reference umístění se obnovují při explicitní regeneraci zdrojového dokumentu.
-Chybějící referenci lze opravit ve vlastnostech; neplatný řez se nevypočítá.
-Kontrola stromu používá uložené reference a podporuje i rozpracovaný díl bez
-vypočteného tělesa; samotné zobrazení stromu výpočet nespouští.
-Samotné přepnutí karty nevyvolává nový výpočet nadřazené sestavy.
+Placement references refresh on explicit source-document regeneration. Missing
+references can be repaired in Properties; invalid sections are not calculated.
+Tree checks use saved references and support pending Parts without calculated bodies.
+Drawing the tree does not calculate; tab switching does not recalculate parent
+Assemblies.
 
-Řez je nastavení prezentace. Nemění výsledná tělesa, jejich objem, hmotnost,
-zdrojové soubory komponent ani množství v kusovníku.
+Sections are presentation settings. They change neither result bodies, volume, mass,
+component source files nor BOM quantities.
 
-Seznam komponent rozlišuje **Řezat + šrafovat**, **Řezat bez šraf** a **Neřezat**.
-Part používá identity těles, Assembly úplné cesty jednotlivých výskytů,
-včetně opakovaných dílů ve vnořených sestavách. Výběr dílu ve View označí
-odpovídající řádek. Hromadné označení řádků umožňuje společnou změnu režimu,
-úhlu, rozteče, posunutí a typu šraf. Přímá úprava nastaví styl příslušného
-tělesa; samostatné zaškrtávání vlastního stylu není potřeba. **Obrátit** otočí šrafy o 90°.
-Při označení více řádků otočí každý z jeho aktuálního úhlu, takže zůstane
-zachováno jejich střídání. Tabulka končí hned za posledním řádkem.
+Component modes are **Cut + hatch**, **Cut without hatch**, **Uncut**. Part uses
+Body identities; Assembly uses complete occurrence paths, including repeated Parts
+in nested Assemblies. Selecting a Part in View selects its table row. Multi-row
+selection supports common mode, angle, spacing, offset and pattern edits. Direct
+editing sets that Body's style without a separate custom-style checkbox. **Flip**
+rotates hatching 90°; on multiple rows it rotates each from its own current angle,
+preserving alternation. The table ends immediately after its last row.
 
-## Výkres a tisk
+## Drawing and printing
 
-Ve **Vlastnostech pohledu → Řez** vyberte uložený řez zdrojového dokumentu.
-Orientaci vždy určuje výkresový pohled. Výběr, změna sklonu, obrácení ani
-vypnutí řezu nemění kameru. Výkres automaticky volí ponechanou stranu podle
-orientace pohledu při prvním výběru, otočení i regeneraci. U lomeného řezu
-rozhoduje převládající promítnutá plocha řezu, nikoli délka čáry mimo těleso.
-Automatické určení strany nemá samostatný přepínač. Změna kamery nemění
-stranu zobrazení zdrojového řezu v Partu nebo Assembly.
-Řezné plochy se zobrazí a vyšrafují tam, kde jsou v této orientaci viditelné. Plocha viděná
-přesně z boku nemá promítnutou plochu pro šrafování. Základní i izometrické
-pohledy používají stejné pravidlo. Lomený řez se promítá ve své skutečné
-prostorové poloze; jednotlivé úseky se automaticky nerozvíjejí do jedné roviny.
-Šrafování se ovládá pouze v tabulce těles/komponent: úhel, rozteč, posunutí,
-typ (rovnoběžné, křížové, čárkované) a **Obrátit**. Tyto parametry patří
-zdrojovému řezu v Partu či Assembly. Výkres je načítá z modelu a po **OK**
-zapíše změny do jeho otevřeného dokumentu; samostatné přepsání stylu pohledem
-neexistuje. **Zrušit** nemění model ani výkres. Zdrojový model poté uložte
-běžným příkazem Uložit. Režim Neřezat také patří definici modelového řezu.
-Změna tabulky nepočítá solid a neregeneruje nadřazené sestavy.
+Select a saved source section under **View Properties → Section**. Drawing view
+orientation always controls the camera. Selecting, tilting, reversing or disabling
+a section does not change it. Drawing automatically selects the retained side from
+view orientation at initial selection, rotation and regeneration. For bent sections,
+the dominant projected cut area decides, not line length outside the body. There
+is no separate automatic-side toggle. Camera changes do not alter source-section
+side in Part/Assembly.
 
-**Řezat bez šraf** ve výkresu vypne pouze šrafy konkrétního tělesa v daném
-pohledu. Řezná plocha, hrany a nastavení 3D zobrazení zůstávají zachovány.
-Part/Assembly používá stejný styl i pro zelené šrafy na skutečné 3D řezné
-ploše; jeho tabulka nezávisle ovládá viditelnost šraf ve 3D. Rozteč a posunutí
-ve výkresu jsou mm na papíře bez ohledu na měřítko; ve 3D představují mm modelu.
-Sousední komponenty bez vlastního stylu střídají úhel o 90°.
+Cut surfaces appear and hatch where visible in that orientation. Exactly edge-on
+surfaces have no projected area to hatch. Base and isometric views share the rule.
+Bent sections project in their actual spatial positions; segments are not
+automatically unfolded into one plane.
 
-Uložená projekce obsahuje poslední vypočtený stav zdrojového řezu.
-Po pozdější změně modelu jej výkres převezme explicitní **Regenerací**;
-staré lokální přepsání stylu jej již nemůže přebít.
+Hatching is controlled only in the Body/component table: angle, spacing, offset,
+pattern (parallel, cross, dashed) and **Flip**. These belong to the source Part/
+Assembly section. Drawing reads them from the model and **OK** commits changes to
+its open document; there is no independent view style override. **Cancel** changes
+neither model nor Drawing. Save the source model normally afterward. Uncut also
+belongs to the model-section definition. Table changes calculate no solid and do
+not regenerate parent Assemblies.
 
-Pokud list obsahuje běžný pohled stejného zdroje, řez se k prvnímu takovému
-pohledu připojí čárou se směrovými šipkami a označením. Šrafy respektují dutiny
-a zakrytí dalšími díly. Směrové šipky propojené trasy sledují skutečnou stranu
-příslušného řezového pohledu včetně náhledu a PDF. V režimu stínování bez hran
-lze šrafy ponechat zapnuté.
+Drawing **Cut without hatch** hides only that Body's hatches in that view, preserving
+cut faces, edges and 3D settings. Part/Assembly uses the same style for green hatching
+on actual 3D cut surfaces, with independent 3D visibility. Drawing spacing/offset
+are paper mm regardless of scale; 3D uses model mm. Adjacent components without
+custom styles alternate angle by 90°.
 
-Pracovní šrafy jsou zelené. PDF je exportuje vektorově černým tenkým perem
-(výchozí **0,25 mm**). Trasa řezu používá žluté tenké čerchované pero **0,25 mm**,
-koncové a zlomové úseky, šipky a označení bílé pero **0,5 mm**. Náhled tlouštěk nemění fyzické tiskové tloušťky. Export zachovává
-uloženou projekci a nevolá OCCT.
+Saved projections contain the source section's last calculated state. Later model
+changes reach Drawing through explicit **Regenerate**; old local style overrides
+cannot supersede them.
 
-**Regenerovat** ve výkresu znovu načte definici řezu i vypočtenou geometrii
-zdroje. Otevřené dokumenty poskytují aktuální neuložený stav. Smazaný zdrojový
-řez vyvolá chybu a výkres se nepřepíše částečným výsledkem; ve vlastnostech
-je nutné zvolit jiný řez nebo Bez řezu.
+If a sheet has a normal view of the same source, the section initially connects to
+the first such view with a path, arrows and designation. Hatching respects cavities
+and occlusion by other Parts. Linked-path arrows follow the section view's actual
+side in preview and PDF. Hatching can remain on in shaded-without-edges mode.
 
-## Výpočet a ověření
+Working hatches are green. PDF exports them as black vector strokes, default
+**0.25 mm**. Section paths use yellow thin chain-dashed **0.25 mm** strokes; end/bend
+segments, arrows and designations use white **0.5 mm** strokes. Lineweight preview
+does not change physical print widths. Export retains saved projection without OCCT.
 
-Vstupy jsou uložená skica, umístění jejího kontejneru, vypočtená zobrazovací síť
-modelu a režimy jednotlivých komponent. Výstupem je oříznutá síť, uzavřené
-plochy řezu, projekce hran a šrafy v papírových jednotkách. Ořez a šrafování
-používají deterministický výpočet nad uloženou triangulací; zakřivené plochy
-proto mají přesnost zobrazovací tessellace, nikoli nového analytického B-Rep.
-Řez nevolá OCCT a nevytváří nové trvalé reference ploch či hran modelu.
+Drawing **Regenerate** rereads section definitions and calculated source geometry.
+Open documents supply current unsaved state. A deleted source section causes an
+error without partially replacing Drawing results; select another section or No
+section in Properties.
 
-Kontrolní testy ověřují plochu řezu kvádru 100 mm², dutého profilu 84 mm²,
-L řez kvádru s objemem 250/750 mm³ a odsazený řez dutého profilu s plochou
-108 mm² a objemem 420 mm³,
-obrácení ponechané strany, tečný řez bez falešné plochy, přesné vynechání
-opakovaného výskytu a konstantní rozteč šraf při změně měřítka i šikmé projekci.
-GUI test pokrývá umístění a vlastní skicovou rovinu, běžný Sketcher,
-tažení bodů s lokálním Undo/Redo, oba stupně zrušení úprav, prostřední tlačítko, opětovnou
-editaci, strom, uložení do Part/Assembly a výkres s PDF.
+## Calculation and verification
 
-Název pohledu a označení řezu (například A–A) mají samostatné volby
-**Zobrazit název pohledu** a **Zobrazit označení řezu**. Výchozí poloha je nad
-obrysem pohledu, při současném zobrazení ve dvou řádcích. Každý popisek lze
-samostatně přesunout tažením levým tlačítkem za jeho manipulační bod. Polohy se ukládají v mm na
-papíře vůči pohledu, zachovají se po otevření i regeneraci a používají se v PDF.
-Přesunutí pohledu přesune i jeho popisky; samotné tažení popisku nemění model.
+Inputs: saved sketch, container placement, calculated display mesh and component
+modes. Outputs: clipped mesh, closed cut faces, projected edges and paper-unit
+hatching. Deterministic clipping/hatching uses saved triangulation, so curved surfaces
+have display-tessellation accuracy rather than a new analytical B-Rep. Sections
+call no OCCT and create no persistent model-face/edge references.
 
-**Orientace** vybírá pevný základní pohled. Vedle ní jsou čtvrtotáčky
-**Doleva / Doprava / Nahoru / Dolů 90°**, které otáčejí aktuální kameru,
-i izometrickou. Odvozené projekční pohledy automaticky přebírají skutečnou
-kameru rodiče a způsob promítání listu. Vlastní kamera se ukládá s výkresem.
-Orientaci odvozeného pohledu řídí kamera rodiče. Řez nemá vliv na kameru
-ani jednoho pohledu. Explicitní regenerace vyhodnocuje vazby od rodiče
-k potomkům i tehdy, když jsou pohledy v souboru uložené v opačném pořadí.
-Přepnutí dokumentu samo výkresové projekce nepřepočítává.
+Checks cover a box section area 100 mm², hollow-profile area 84 mm², an L-sectioned
+box with volume 250/750 mm³, an offset hollow-profile section with area 108 mm² and
+volume 420 mm³, reversed retained side, tangent cuts without false faces, exact
+omission of repeated occurrences, and constant hatch spacing across scale/oblique
+projection. GUI tests cover placement/local sketch plane, normal Sketcher, point
+dragging with local Undo/Redo, both cancellation levels, MMB, reopening, tree,
+Part/Assembly persistence, Drawing and PDF.
 
-Ve vlastnostech každého pohledu je tabulka **Zobrazit trasy řezů**. Zaškrtněte
-řezy, jejichž průběh má být na tomto pohledu vidět. Výběr je nezávislý na
-zobrazení samotného řezu i jeho označení A–A. Nový řez nabídne svou trasu
-na prvním zdrojovém pohledu automaticky; další skrývání řídí tato tabulka.
-Stopa rovinného řezu se zobrazí i v bočním projekčním pohledu, kde se samotná
-čára jeho skici promítá do bodu. V takovém směru se promítá celá řezná rovina
-podél jejího nekonečného vysunutí, se stejnými šipkami, manipulačními body,
-odstupy od obrysu a tiskovými tloušťkami jako v dolním či horním pohledu.
+View name and section designation (A–A, for example) have independent **Show view
+name** and **Show section designation** settings. Defaults are above the outline,
+on two lines when both shown. Drag each label independently by its LMB handle.
+Positions are paper mm relative to the view, saved across reopen/regeneration and
+used in PDF. Moving a view moves labels; label dragging does not change the model.
 
-Trasa používá tenkou čerchovanou čáru přes rozsah pohledu. Konce a významné
-zlomy mají krátké silné úseky, konce plné šipky a jednotlivá písmena (A, A).
-Délky značek a velikost písma jsou na papíře nezávislé na měřítku modelu.
-Písmena A i označení A–A jsou ve View bílá, vysoká **5 mm**; běžný název
-pohledu je zelený. Na bílém papíře/PDF se text tiskne černě. Silné a tenké
-čáry používají nastavení listu, výchozí **0,5 / 0,25 mm**. Explicitní regenerace
-obnoví polohu i směr šipek z aktuálního zdrojového řezu.
+**Orientation** chooses a fixed standard view. Adjacent **Left / Right / Up / Down
+90°** quarter-turns rotate the current camera, including isometric. Derived projected
+views inherit the actual parent camera and sheet projection method. Custom cameras
+are saved. The parent controls derived orientation; sections affect neither camera.
+Explicit regeneration evaluates parent-before-child even when file order is reversed.
+Document switching alone does not recalculate Drawing projections.
 
-Písmeno u šipky zůstává na vnější straně příslušného konce. S otočením trasy
-mění polohu, ale text je vždy vodorovný a vzpřímený. Umístění zohledňuje
-odstup od obrysu modelu, tras, šipek a již umístěných písmen. Při kolizi
-se písmeno posune dál na stejnou stranu. Silné úseky ve zlomech mají délku
-nejvýše 3 mm na každé větvi a končí nejpozději u sousedního zlomu.
+Every View Properties dialog has **Show section paths**. Check which paths appear
+on that view, independently of section clipping and A–A designation. New sections
+automatically offer their path on the first source view; this table controls later
+hiding. A planar section trace also appears in side views where its sketch line
+projects to a point. There the whole infinitely extruded cutting plane projects,
+with the same arrows, handles, outline clearance and print widths as top/bottom views.
 
-## Manipulační body ve výkresech
+The path is thin chain-dashed across view bounds. Ends/significant bends have short
+thick segments; ends have filled arrows and individual letters (A, A). Marker lengths
+and font sizes are scale-independent paper sizes. A letters and A–A are white,
+**5 mm** high in View; normal view names are green. Text prints black on white
+paper/PDF. Thick/thin widths follow sheet settings, default **0.5 / 0.25 mm**.
+Explicit regeneration updates arrow position/direction from current source sections.
 
-Název pohledu, označení řezu, kóta a konce trasy řezu mají manipulační bod.
-Hover zvýrazní entitu i bod oranžově; kliknutí vybarví entitu azurově a
-manipulační bod fialově. Bod je jednoduchá plná tečka stejné velikosti jako
-běžné body ve View (poloměr 4,5 logického pixelu). Text
-nebo kótu přesouvejte tažením za bod, nikoli za libovolné místo jejich textu.
-Pohled se nadále ovládá přes obdélníkovou oblast. Před potvrzením RMB cykluje
-společným seznamem nabízených anotací; po potvrzení otevře kontextové menu.
+Each arrow letter stays outside its endpoint. Path rotation changes its position,
+but text stays horizontal/upright. Placement respects clearance from model outlines,
+paths, arrows and previously placed letters. Collisions move it farther on the same
+side. Thick bend segments are at most 3 mm on each branch and stop before the next bend.
 
-Bod konce řezu je ve styku šipky s čarou. Posouvá koncovou značku podél
-trasy; průběh řezu se upravuje ve zdrojové skice. Polohy značek se ukládají
-v mm na papíře a omezují se tak, aby nepřekročily sousední zlom. Písmeno
-se přemístí spolu se značkou a zachová vodorovné, čitelné zobrazení.
-Čerchovaná trasa je ve View žlutá (0,25 mm); silné části a označení bílé
-(0,5 mm). Manipulační body jsou pouze pracovní pomůcka a netisknou se.
+## Drawing handles
 
-Úsečky, kružnice, oblouky, elipsy, eliptické oblouky a B-spline ve Sketcheru
-lze přes kontextové menu převést na pomocnou geometrii. Všechny tyto křivky
-se pak zobrazují čerchovaně a nevstupují do profilu tělesa; zachovají si
-původní rozsah, body, kóty i vazby.
+View names, section designations, dimensions and section-path ends have handles.
+Hover highlights entity/point orange; confirmation makes the entity azure and point
+purple. Handles are filled dots like normal View points, radius 4.5 logical pixels.
+Drag text/dimensions by handles, not arbitrary text positions. Views retain rectangular-
+region interaction. Before confirmation, RMB cycles the common annotation candidate
+list; afterward it opens context menus.
 
-## Ovládání okna a stromu řezů
+A section-end handle sits at the arrow/line junction and moves the end marker along
+the path; edit source sketches to change the actual cut. Marker positions are paper
+mm, constrained not to pass adjacent bends. Letters move with markers and stay
+horizontal/readable. View paths are yellow (0.25 mm); thick portions/designations
+white (0.5 mm). Handles are working aids and never print.
 
-Příkaz **Nový řez…** nabízí pouze kontextové menu hlavní složky **Řezy**.
-**Bez řezu** nabízí aktivaci; jednotlivé řezy nabízejí aktivaci, vlastnosti,
-úpravu skici a odstranění. Větší okno vlastností využívá až 1040 pixelů
-výšky, s omezením na prostor hlavního okna. Tlačítko **Skica…** používá
-společný zelený styl ostatních vstupů do skicáře.
+Sketcher segments, circles, arcs, ellipses, elliptical arcs and B-splines can become
+construction geometry through context menus. They display chain-dashed and do not
+enter body profiles, retaining original extent, points, dimensions and constraints.
 
-Šipky řezů používají stejný štíhlý tvar jako kótovací šipky ve Sketcheru.
-Poměr poloviční šířky základny k délce je společný (přibližně 0,1763);
-velikost šipky na papíře se s měřítkem modelu nemění.
+## Section window and tree controls
+
+**New section…** appears only on the main **Sections** folder context menu.
+**No section** offers activation; individual sections offer activation, Properties,
+Sketch editing and removal. The larger Properties window uses up to 1040 pixels
+height, bounded by the main window. **Sketch…** uses the shared green Sketcher-entry
+style.
+
+Section arrows share Sketcher dimension arrows' slender shape. Half-base-width to
+length ratio is shared (about 0.1763); paper arrow size is independent of model scale.

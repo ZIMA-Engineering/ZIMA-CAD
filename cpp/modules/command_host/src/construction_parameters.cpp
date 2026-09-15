@@ -57,9 +57,10 @@ void apply_construction_properties(Object& value, const Json& args, const kernel
     }
     if (field("base_plane", document::ConstructionKind::Plane)) {
         const auto plane = args.at("base_plane").get<std::string>();
-        if (plane != "xy" && plane != "xz" && plane != "yz")
-            throw ConstructionParameterError("invalid_arguments", "Construction plane must be xy, xz or yz.");
-        value.base_plane = plane == "xy" ? document::LocalDatumPlane::XY
+        if (plane != "auto" && plane != "xy" && plane != "xz" && plane != "yz")
+            throw ConstructionParameterError("invalid_arguments", "Construction plane must be auto, xy, xz or yz.");
+        value.base_plane_auto = plane == "auto";
+        if (!value.base_plane_auto) value.base_plane = plane == "xy" ? document::LocalDatumPlane::XY
             : plane == "xz" ? document::LocalDatumPlane::XZ : document::LocalDatumPlane::YZ;
     }
     if (field("curve_type", document::ConstructionKind::Curve3D)) {

@@ -273,6 +273,9 @@ struct ViewerDimension {
     bool arrows_reversed{};
     bool radius_center_line_hidden{};
     std::optional<DimensionTextStyle> source_text_style;
+    // Derived Assembly hinge control; edits the same persisted angle value.
+    // Presentation only, with a screen-sized radial arm and endpoint grip.
+    bool rotation_handle{};
     bool operator==(const ViewerDimension&)const=default;
 };
 

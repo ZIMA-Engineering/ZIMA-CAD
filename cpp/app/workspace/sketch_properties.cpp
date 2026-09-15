@@ -1,16 +1,18 @@
 #include "workspace_internal.hpp"
 #include <zima/workspace/sketch_operations.hpp>
 #include <zima/workspace/sketch_properties.hpp>
+#include <zima/workspace/holes_operations.hpp>
 
 namespace zima::app {
 using namespace workspace_detail;
 
 
-void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_id) {
+void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_id, bool holes_mode) {
     if (properties_dialog_ != nullptr) return;
     auto* part = workspace_.open_part(workspace_.active_document_id());
     auto* assembly = workspace_.open_assembly(workspace_.active_document_id());
     if (part == nullptr && assembly == nullptr) return;
+    if (holes_mode && !part) return;
     const auto& sketches = part != nullptr
         ? part->session.document().sketches : assembly->session.document().sketches;
     const auto found = std::find_if(sketches.begin(), sketches.end(),
@@ -23,6 +25,36 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
         new_sketch_container = zima::document::PartDocument::create_sketch_container();
         initial.owner_container_id = new_sketch_container->id;
     }
+    std::shared_ptr<zima::document::HistoryContainer> holes_feature;
+    if (part) {
+        const auto* owner = part->session.document().find_container(initial.owner_container_id);
+        holes_mode = holes_mode || (owner && owner->feature_kind == zima::document::FeatureKind::Holes);
+        if (holes_mode) {
+            if (owner && owner->feature_kind != zima::document::FeatureKind::Sketch &&
+                owner->feature_kind != zima::document::FeatureKind::Holes) return;
+            auto value = owner ? (owner->feature_kind == zima::document::FeatureKind::Holes ? *owner
+                : workspace::holes_from_sketch(part->session.document(), initial.id)) : *new_sketch_container;
+            if (!owner) {
+                value.feature_kind = zima::document::FeatureKind::Holes;
+                value.combine_mode = zima::document::CombineMode::Subtract;
+                value.name = "Otvory"; value.holes.sketch_id = initial.id;
+            }
+            initial.name = value.name;
+            holes_feature = std::make_shared<zima::document::HistoryContainer>(std::move(value));
+            const auto occurrence = resolve_active_occurrence(part->session.document().document_id);
+            if (!occurrence) {state_->setText(tr("Nejprve aktivujte přesný výskyt Partu."));return;}
+            properties_dialog_instance_path_ = *occurrence;
+            if (owner) {
+                const auto rollback = part->session.rollback_boundary(owner->id);
+                if (!rollback || !rollback->input_body) {
+                    state_->setText(tr("Otvory potřebují vypočtené vstupní těleso. Nejprve regenerujte Part."));return;
+                }
+                part_rollback_ = PartRollbackContext{part->session.document().document_id,
+                    *occurrence, rollback->history_index, rollback->input_body};
+            }
+        }
+    }
+    auto prepared_sketch = std::make_shared<zima::sketcher::Sketch>(initial);
     zima::document::Placement initial_placement;
     if (part != nullptr) {
         const auto& history = part->session.document().history;
@@ -58,13 +90,20 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
     const std::string owner_id = workspace_.active_document_id();
     auto* dialog = new SketchPropertiesDialog(
         initial, initial_placement, edit_mode, std::move(plane_options),
-        [this, owner_id, edit_mode, new_sketch_container](
+        [this, owner_id, edit_mode, new_sketch_container, holes_feature](
             zima::sketcher::Sketch committed,
             zima::document::Placement committed_placement,
             bool enter_sketch) {
             const auto selected_id = committed.id;
-            static_cast<void>(workspace::commit_sketch_properties(workspace_, kernel_, owner_id,
-                std::move(committed), std::move(committed_placement), new_sketch_container));
+            if (holes_feature) {
+                auto value = *holes_feature;
+                value.name = committed.name; value.placement = std::move(committed_placement);
+                static_cast<void>(workspace::commit_holes(workspace_, kernel_, owner_id,
+                    std::move(value), std::move(committed)));
+            } else {
+                static_cast<void>(workspace::commit_sketch_properties(workspace_, kernel_, owner_id,
+                    std::move(committed), std::move(committed_placement), new_sketch_container));
+            }
             if (enter_sketch) {
                 active_sketch_id_ = selected_id;
                 clear_selected_sketch_geometry();
@@ -73,6 +112,29 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
             }
             selected_sketch_id_ = selected_id;
         }, this);
+    if (holes_feature) {
+        dialog->set_holes_mode(holes_feature->holes.diameter, holes_feature->value_locks,
+            [holes_feature](double diameter) { holes_feature->holes.diameter = diameter; },
+            [this, dialog, prepared_sketch] {
+                sweep_profile_sketch_draft_ = *prepared_sketch;
+                embedded_sketch_finished_ = [this, dialog](auto sketch) {
+                    properties_dialog_ = dialog; primitive_reference_dialog_ = dialog;
+                    dialog->set_pending_sketch(std::move(sketch));
+                    dialog->show(); dialog->raise();
+                    preserve_view_on_refresh_ = true; refresh_scene();
+                };
+                pending_primitive_reference_index_.reset(); primitive_reference_auto_advance_ = false;
+                dialog->set_active_reference_index(std::nullopt); dialog->clear_reference_highlights();
+                set_local_origin_selection_mode(false); local_origin_selection_dialog_ = nullptr;
+                primitive_reference_dialog_ = nullptr;
+                viewer_->set_constraint_reference_highlights({}, {});
+                primitive_origin_preview_mesh_.reset(); parameter_dimension_preview_.reset();
+                dialog->hide(); properties_dialog_ = nullptr;
+                active_sketch_id_ = prepared_sketch->id; selected_sketch_id_ = active_sketch_id_;
+                clear_selected_sketch_geometry(); viewer_->clear_selection(); tree_->clearSelection();
+                preserve_view_on_refresh_ = true; refresh_scene(); align_active_sketch_view();
+            });
+    }
     {
         zima::kernel::ViewerReferenceGeometry reference_geometry;
         if (part != nullptr) {
@@ -136,7 +198,7 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
                     "profile_offset",
                     sketch_offset_drag->baseline_offset + delta));
             }, [] {});
-        dialog->set_preview_callback([this, sketch_offset_drag](
+        dialog->set_preview_callback([this, sketch_offset_drag, prepared_sketch](
                 const zima::sketcher::Sketch& sketch,
                 const zima::document::Placement& pending_placement) {
             auto placement = pending_placement;
@@ -262,6 +324,7 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
                     resolved_sketch.plane_offset,
                 geometric_placement.z + resolved_sketch.resolved_normal.z *
                     resolved_sketch.plane_offset};
+            *prepared_sketch = resolved_sketch;
             // The cyan rectangle represents the actual (possibly offset)
             // Sketch work plane.  Do not leave it in the generic container
             // placement frame: the complete built-in Origin triad has a
@@ -376,7 +439,12 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
         }
     }
 
-    connect(dialog, &QObject::destroyed, this, [this] {
+    connect(dialog, &QObject::destroyed, this, [this, holes_feature] {
+        if (holes_feature) {
+            part_rollback_.reset();
+            properties_dialog_instance_path_.clear();
+            sweep_profile_sketch_draft_.reset(); embedded_sketch_finished_ = {};
+        }
         properties_dialog_ = nullptr;
         primitive_reference_dialog_ = nullptr;
         primitive_parameter_owner_id_.clear();

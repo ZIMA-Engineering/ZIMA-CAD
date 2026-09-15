@@ -1659,8 +1659,8 @@ zima::kernel::ViewerMesh AssemblyDocument::build_scene() const {
         for (std::size_t index = 0; index < component.placement_references.size();
              ++index) {
             const auto& row = component.placement_references[index];
-            if (std::abs(row.offset) <=
-                visible_placement_dimension_epsilon) continue;
+            if (std::abs(row.offset) <= visible_placement_dimension_epsilon &&
+                row.mate_type != MateKind::PlaneAngle) continue;
             zima::kernel::ViewerDimension dimension;
             dimension.reference = {document_id,
                 "placement-reference:" + component.occurrence_id + ":" +
@@ -1753,10 +1753,13 @@ zima::kernel::ViewerMesh AssemblyDocument::build_scene() const {
                     dimension.witness_first = dimension.witness_second = center;
                     dimension.line_first = add(center, scaled(first_ray,30/length(first_ray)));
                     dimension.line_second = add(center, scaled(second_ray,30/length(second_ray)));
+                    dimension.rotation_handle = hinge && !component.grounded &&
+                        !component.suppressed && !row.offset_locked;
                 }
             } else {
                 continue;
             }
+            if (!dimension.rotation_handle && std::abs(row.offset) <= visible_placement_dimension_epsilon) continue;
             scene.dimensions.push_back(std::move(dimension));
         }
     }
@@ -1819,7 +1822,7 @@ zima::kernel::ViewerMesh AssemblyDocument::build_scene_with_part_override(
 
 AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
     const auto ini = read_ini(path);
-    if (ini_value(ini, "Document", "format_version") != "19" ||
+    if (ini_value(ini, "Document", "format_version") != "21" ||
         ini_value(ini, "Document", "type") != "assembly") {
         throw std::runtime_error("Unsupported ZIMA-CAD Assembly document format");
     }
@@ -1835,7 +1838,7 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
     } catch (const nlohmann::json::exception&) {
         throw std::runtime_error("Assembly INI contains invalid Container data");
     }
-    if (root.value("format", "") != "zima-cad-cpp" || root.at("format_version") != 28 ||
+    if (root.value("format", "") != "zima-cad-cpp" || root.at("format_version") != 30 ||
         root.value("type", "") != "assembly") {
         throw std::runtime_error("Invalid Assembly Container data");
     }
@@ -2174,7 +2177,7 @@ void AssemblyDocument::save(const std::filesystem::path& path,
     }
     static_cast<void>(zima::document::parse_named_views(named_views));
     nlohmann::json root = {
-        {"format", "zima-cad-cpp"}, {"format_version", 28},
+        {"format", "zima-cad-cpp"}, {"format_version", 30},
         {"type", "assembly"}, {"document_id", document_id}, {"name", name},
         {"user_parameters", user_parameters},
         {"user_parameter_order", user_parameter_order},
@@ -2205,7 +2208,7 @@ void AssemblyDocument::save(const std::filesystem::path& path,
     const auto saved_name = root.at("name").get<std::string>();
     IniSections ini;
     ini["Document"] = {
-        {"format_version", "19"},
+        {"format_version", "21"},
         {"type", "assembly"},
         {"document_id", saved_id},
         {"name", saved_name},

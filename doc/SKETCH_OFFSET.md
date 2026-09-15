@@ -1,97 +1,97 @@
-# Offset ve skicáři
+# Sketcher offset
 
-## Ovládání
+## Interaction
 
-Příkaz **Offset** je v pravé nabídce vedle Ořezu a Zrcadlení. Otevírá
-**Vlastnosti offsetu**: vlastní křivka skici, kladná vzdálenost a **Flip**.
-Lze použít předvýběr nebo pole aktivovat a vybrat křivku ve View.
-Fialový náhled a šipka od začátku křivky ukazují stranu odsazení. Šipka má
-minimální velikost na obrazovce, takže nezmizí při malém odsazení.
+**Offset** is in the right-hand menu beside Trim and Mirror. It opens **Offset
+Properties** with an owned Sketch curve, a positive distance, and **Flip**.
+Use preselection or activate the field and select a curve in the View. A purple
+preview and an arrow from the curve start indicate the offset side. The arrow
+has a minimum screen size so it remains visible for small offsets.
 
-Stejný dialog se otevírá dvojklikem na výslednou křivku nebo přes Vlastnosti
-ve View a stromu. OK vytvoří/upraví jednu revizi; Zrušit neukládá náhled.
-Sdílený PropertiesSubWindow zajišťuje také potvrzení dvojklikem MMB nad View.
-Krátké MMB ukončí zadávání reference a její dočasnou inspekci.
-Volba **Osvobodit** při OK odstraní vazbu a ponechá aktuální nativní geometrii.
+Double-clicking the resulting curve or choosing Properties in the View or tree
+opens the same dialog. OK creates/edits one revision; Cancel discards the preview.
+The shared PropertiesSubWindow also supports confirmation by MMB double-click
+over the View. A short MMB click ends reference input and temporary inspection.
+**Free** removes the dependency on OK while retaining current native geometry.
 
-## Vlastnictví a ořez
+## Ownership and trimming
 
-Offset odkazuje výhradně na vlastní křivku téže skici. Externí hranu je
-nejprve nutné promítnout do vlastní křivky. Tato křivka může mít externí
-návaznost; offset žádnou samostatnou externí referenci nevytváří.
+An offset references only an owned curve in the same Sketch. First project an
+external edge into an owned curve. That curve may have an external dependency;
+the offset creates no separate external reference.
 
-Podkladová křivka a ponechaný interval jsou oddělené. Ořez zdroje zachovává
-celý podklad i jeho identitu. Existující offset proto ořezem zdroje neztratí
-svůj tvar. Nový offset vytvořený z již ořezané křivky převezme její vybraný
-interval. Ořez offsetu mění ponechaný interval, nikoli jeho podporující tvar.
-Při rozdělení má každý viditelný zbytek vlastní stabilní ID. Zbytky jednoho
-offsetu sdílejí identitu operace a vzdálenost/Flip se upraví společně.
+The supporting curve and retained interval are separate. Trimming the source
+preserves the entire support and its identity, so an existing offset retains its
+shape. A new offset from an already trimmed curve adopts its selected interval.
+Trimming an offset changes the retained interval, not its supporting shape.
+After splitting, each visible remnant has its own stable ID. Remnants of one
+offset share the operation identity; distance and Flip are edited together.
 
-Průsečíkové konce uchovávají identitu protínající křivky a parametry stejné
-větve. Malé změny se sledují lokálním numerickým řešením. Ztracený průsečík
-nebo přesun mimo sledovanou větev zachová poslední tvar a označí návaznost
-jako neplatnou. Neplatné křivky jsou červené; výpočet profilu je odmítne.
+Intersection endpoints retain the intersecting curve identity and parameters of
+the same branch. Small changes are tracked by local numerical solving. Losing an
+intersection or moving outside the tracked branch retains the last shape and
+marks the dependency invalid. Invalid curves are red and rejected by profile calculation.
 
-Závislé výsledky nemají volně posuvný řídicí polygon. Body jsou v řešiči
-chráněné a ve View se nenabízejí vnitřní řídicí body. Osvobození ponechá
-pole bodů, uzlů, vah a aktuální identitu křivky. Navazující offsety se při
-osvobození ořezaného zdroje přeparametrizují, aby se znovu neořízly. Pokud
-využívají i skrytou část mimo osvobozovaný úsek, je nejprve nutné osvobodit
-je; příkaz takovou ztrátu podkladu odmítne.
+Dependent results have no freely movable control polygon. The solver protects
+their points, and internal control points are not offered in the View. Freeing
+retains points, knots, weights, and the current curve identity. Dependent offsets
+are reparameterized when a trimmed source is freed, preventing them from being
+trimmed again. If they also use a hidden portion outside the freed interval, free
+them first; the command rejects that loss of supporting geometry.
 
-## Geometrie
+## Geometry
 
-Vstupy jsou úsečky, kružnice, oblouky, elipsy, eliptické oblouky a B-spline
-včetně racionálních STEP projekcí, periodických a interpolačních spline.
-Výpočet pracuje v lokální rovině skici bez OCCT. OCCT se používá až při
-explicitním modelování tělesa a v nezávislých geometrických testech.
+Inputs include segments, circles, arcs, ellipses, elliptical arcs, and B-splines,
+including rational STEP projections, periodic splines, and interpolation splines.
+Calculation runs in the local Sketch plane without OCCT. OCCT is used only for
+explicit body modeling and independent geometric tests.
 
-Podklady používají racionální B-spline se zachovanými uzly a vahami.
-Ořez provádí přesné vložení uzlů a rozdělení. Úsečky a kruhové oblouky
-se odsadí přesně; ostatní pravidelné křivky používají adaptivní kubické
-úseky proti matematickému offsetu, s uloženou tolerancí 0,00001 mm.
-Tolerance je nezávislá na jemnosti trojúhelníků pro zobrazení importu.
-Výpočet odmítne neurčitou tečnu, lokální obrácení u hrotu a případy,
-kde kontrola aproximace nesplní toleranci.
+Supports use rational B-splines with preserved knots and weights. Trimming uses
+exact knot insertion and splitting. Segments and circular arcs have exact offsets;
+other regular curves use adaptive cubic segments against the mathematical offset,
+with a persisted tolerance of 0.00001 mm. This tolerance is independent of import
+display tessellation. Calculation rejects undefined tangents, local reversal at
+cusps, and approximations that fail the tolerance check.
 
-První příkaz pracuje s jednou křivkou. Automatické spojování řetězců,
-rohové spojnice a automatický výběr větví smyček nepřidává; spojnice
-se kreslí ručně. Velké změny průsečíků mohou vyžadovat opravu ořezu.
+The initial command operates on one curve. It does not automatically join chains,
+create corner connectors, or choose loop branches; draw connectors manually.
+Large intersection changes may require repairing the trim.
 
-## Ukládání
+## Persistence
 
-Sketch 33 ukládá `curve_supports`, `curve_trims` a `offsets`, včetně intervalů,
-průsečíkových vazeb a poslední vypočtené nativní geometrie. Vše zůstává
-uvnitř `.prtz`, `.asmz`, `.drwz`; žádné povinné doprovodné soubory.
-Aktuální verze: Part 19 / JSON 43, Assembly 16 / JSON 25,
-Drawing 15 / JSON 7. Šablony v config a testovací dokumenty se aktualizují
-společně. Běžné načítání nepřevádí staré formáty.
+Sketch 33 stores `curve_supports`, `curve_trims`, and `offsets`, including intervals,
+intersection dependencies, and the last calculated native geometry. Everything
+stays inside `.prtz`, `.asmz`, and `.drwz`, with no required companion files.
+Versions at this stage: Part 19 / JSON 43, Assembly 16 / JSON 25, Drawing 15 /
+JSON 7. Templates in config and test documents are updated together. Normal
+loading does not convert old formats.
 
-## Ověření
+## Verification
 
-Numerické testy pokrývají přesný ořez racionální spline, obě strany offsetu,
-periodickou křivku, změnu zdroje, zachování podkladu po ořezu, průsečíkový
-konec, ztrátu protínající křivky, ochranu bodů, osvobození a uložení/načtení.
-Kernelový test ověřuje návaznost po ořezu a změně STEP projekce a přesný
-objem vytaženého mezikruží z kružnice a jejího offsetu. Uzavřená přesná spline
-má vlastní uzavřenost, nezávislou na periodické parametrizaci. Kružnice zůstávají analytickými kružnicemi i při sestavení profilu; kontrola
-nezamění malé mezery 0,001/0,0001 mm za dotyk polygonů. Obrysy se třídí
-podle vzájemného vnoření, takže odsazení může být otvorem i vnějším obrysem.
+Numerical tests cover exact rational-spline trimming, both offset sides, periodic
+curves, source changes, support preservation after trimming, intersection endpoints,
+loss of the intersecting curve, point protection, freeing, and save/load. The kernel
+test checks dependencies after trimming and changing a STEP projection, and the
+exact volume of an extruded annulus from a circle and its offset. Exact closed
+splines have a closure property independent of periodic parameterization. Circles
+remain analytic during profile construction; checks do not mistake 0.001/0.0001 mm
+gaps for polygon contact. Contours are classified by nesting, so an offset can
+serve as a hole or an outer contour.
 
-Tento test odhalil nepřesnou integraci objemu v OCCT pro racionální vytaženou
-plochu. Pro B-spline/Bezier a plochy vytažení/rotace proto objem používá
-adaptivní Gaussovu–Kronrodovu integraci se zohledněním uzlových úseků.
-Geometrie se touto změnou nemění.
+This test exposed inaccurate OCCT volume integration for a rational extruded
+surface. Volume calculation therefore uses adaptive Gauss–Kronrod integration
+with knot-span awareness for B-spline/Bezier and extrusion/revolution surfaces.
+This changes no geometry.
 
-Audit prvních 100 spline hran souboru `63113_0H030_mg___773WF0593_01.stp`
-zkusil XY/XZ/YZ a odsazení ±0,1 mm. Z 600 případů bylo přijato 587.
-Na 1025 parametrických místech každého přijatého výsledku byla největší
-odchylka od nezávislé pozice a tečny OCCT 0,00000247619 mm.
-Odmítnuto: 9 hrotů, 2 singularity tečny a 2 nesplněné tolerance.
-Jde o bodové ověření tohoto vzorku, nikoli formální důkaz pro všechny křivky.
+An audit of the first 100 spline edges in `63113_0H030_mg___773WF0593_01.stp`
+tried XY/XZ/YZ and offsets of ±0.1 mm. Of 600 cases, 587 were accepted. At 1025
+parameter positions per accepted result, the largest deviation from independent
+OCCT position and tangent data was 0.00000247619 mm. Rejections: 9 cusps, 2 tangent
+singularities, and 2 tolerance failures. This is a sampled check, not a formal proof
+for every curve.
 
-Závěrečný Windows Release build dne 2026-09-11: všech 48 CTest testů
-prošlo (418,32 s). Integrační test hlavního okna ověřil výběr vlastní
-křivky, Flip, náhled, potvrzení MMB dvojklikem, opětovné otevření dvojklikem,
-změnu vzdálenosti, Cancel a uložení/načtení. Vzhled dialogu a fialové šipky
-byl zkontrolován také ze snímku skutečného View.
+The final Windows Release build on 2026-09-11 passed all 48 CTest tests (418.32 s).
+The main-window integration test checked owned-curve selection, Flip, preview,
+MMB double-click confirmation, reopening by double-click, distance editing, Cancel,
+and save/load. The dialog and purple arrow were also visually checked in a
+screenshot of the actual View.

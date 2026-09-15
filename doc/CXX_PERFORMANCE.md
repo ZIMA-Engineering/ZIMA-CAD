@@ -25,16 +25,14 @@ same machine and build configuration; compiler, OCCT, CPU, and thermal state
 substantially affect them. The fixture checks result sizes while running, so a
 regression in the measured operation fails independently of its duration.
 
-## Python parity measurement
+## Historical Python comparison
 
-Do not compare the archived Python `build_active_shape()` time directly with
-C++ `evaluate_history()`. The Python call returns only the final live OCCT
-shape, while the C++ call also materializes persisted ZIMA viewer packets for
-every history boundary. Run the matching Python fixture with:
-
-```bash
-runtime/linux/python/bin/python tools/benchmark-python-part.py
-```
+The Python application and its benchmark tool were removed on 2026-09-15.
+The following results are historical observations, not a current test gate.
+Their source can be recovered from Git history before that removal.
+Python `build_active_shape()` returned only the final live OCCT shape;
+C++ `evaluate_history()` also materialized persisted ZIMA viewer packets for
+every history boundary. These two timings measure different amounts of work.
 
 Representative Linux Release measurements for the same 24 overlapping boxes:
 

@@ -1,38 +1,39 @@
-# Otevírání dokumentů bez kopírování vypočtené geometrie
+# Opening documents without copying calculated geometry
 
-Ve Windows růst seznamu otevřených dokumentů kopíroval vypočtené hranice
-již otevřeného Partu i jeho historii. Samotná oprava historie Partu nestačila:
-společný `DocumentState` obsahuje také Assembly a Drawing a jejich přesun
-mohl vyvolat výjimku, takže vektor volil kopii všech dosavadních dokumentů.
+On Windows, growth of the open-document list copied calculated boundaries
+and history of already open Parts. Fixing Part history alone was insufficient:
+the shared `DocumentState` also contains Assembly and Drawing states whose
+potentially throwing moves caused the vector to copy all existing documents.
 
-AssemblySession a DrawingState nyní používají jednoznačně vlastněné aktuální
-a historické stavy stejně jako DocumentSession. Přesun všech tří typů je
-bezvýjimečný; výslovná kopie relace nebo Workspace nadále vytváří nezávislá
-editovatelná data a historii. Stávající sdílení neměnných B-Rep/BodySnapshot
-zůstává zachované. Nativní struktura dokumentů se nemění.
+AssemblySession and DrawingState now use uniquely owned current and historical
+states, like DocumentSession. All three types have non-throwing moves. Explicit
+session or Workspace copies still create independent editable data and history.
+Existing immutable B-Rep/BodySnapshot sharing remains intact. Native document
+structure is unchanged.
 
-Potvrzení, výměna Assembly a aktualizace jejích vypočtených závislostí dokončí
-validaci a přípravu dat před změnou živého stavu. Odmítnutí nezmění revizi,
-generaci, Undo/Redo, uložený stav ani geometrii. Čistá obnova zobrazení zdrojů
-zachovává současný dokument, historii a stav uložení a nespouští fyzikální
-relace, řešení vazeb ani výpočet těles.
+Assembly commit, replacement, and calculated-dependency updates finish validation
+and data preparation before changing live state. Rejection preserves revision,
+generation, Undo/Redo, save state, and geometry. A display-only source refresh
+preserves the current document, history, and save state without executing physical
+relations, mate solving, or body calculations.
 
-## Ověření
+## Verification
 
-`zima_cpp_workspace_publication_tests` otevírá 48 smíšených dokumentů a
-porovnává adresy vypočtených hranic Partu i jeho historie. Původní implementace
-selhala (0/1 za 0,11 s), protože při růstu seznamu geometrii překopírovala.
-Opravené chování se ověřuje bez časového benchmarku; překladač navíc kontroluje
-bezvýjimečný přesun celého `DocumentState`.
+`zima_cpp_workspace_publication_tests` opens 48 mixed documents and compares
+addresses of calculated Part boundaries and their history. The original
+implementation failed (0/1 in 0.11 s) because list growth copied geometry.
+The corrected behavior is verified without a timing benchmark; the compiler
+also checks that the entire `DocumentState` has a non-throwing move.
 
-Test zahrnuje 24 kroků historie Assembly a Drawing, kopii a přiřazení relací,
-nezávislost výslovné kopie Workspace, odmítnuté fyzikální relace a jednotky
-Assembly, neplatnou identitu Drawing a konflikt čísel rozměrů. Objem zdroje
-1000 mm³ se změní na 2000 mm³: zobrazovací aktualizace respektuje svůj dosavadní
-kontrakt, zatímco explicitní fyzikální aktualizace odmítne dělení nulou.
+The test covers 24 Assembly and Drawing history steps, session copy/assignment,
+independent explicit Workspace copies, rejected Assembly physical relations and
+units, invalid Drawing identity, and dimension-number conflicts. Source volume
+changes from 1000 to 2000 mm³: display refresh follows its existing contract,
+while an explicit physical update rejects division by zero.
 
-Cílená sada prošla **5/5 za 0,84 s**, včetně nativního uložení, identifikátorů
-rozměrů, vlastností komponent a příkazů výkresů. Po závěrečné kontrole zachování objektu aktuální Assembly při obnově jejího
-zobrazení prošlo celé sestavení obou aplikací a **117/117 testů za 501,22 s**.
-Protokoly: `build/workspace-publication-all-build.log` a
+The targeted suite passed **5/5 in 0.84 s**, including native persistence,
+dimension identifiers, component properties, and Drawing commands. After the
+final check that display refresh preserves the current Assembly object, both
+applications built and **117/117 tests passed in 501.22 s**. Logs:
+`build/workspace-publication-all-build.log` and
 `build/workspace-publication-full-tests.log`.

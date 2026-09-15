@@ -1,95 +1,86 @@
-# Příkazy vzhledu
+# Appearance commands
 
-`appearance.get/set/reset/faces/palette` používají společné datové operace
-s dialogem Barvy a vzhled. `set` a `reset` mění uložené styly a jednu položku
-historie; nevolají OCCT, solver vazeb ani regeneraci závislostí.
+`appearance.get/set/reset/faces/palette` shares data operations with Colors and
+Appearance. `set` and `reset` edit persisted styles in one history entry, without
+OCCT, mate solving, or dependency regeneration.
 
-## Rozsah
+## Scope
 
-Bez `instance_path` je cílem Part. Vynechané `body` znamená aktivní těleso;
-explicitní prázdné `body` označuje výchozí styl celého dokumentu. Čtení přijímá
-ID jiného tělesa, jeho změna vyžaduje aktivaci. U odvozené kopie se vzhled
-upravuje explicitním ID tělesa bez aktivace geometrie. Styl tělesa přebíjí základní
-styl a skupina ploch přebíjí styl tělesa.
+Without `instance_path`, the target is Part. Omitted `body` means active body;
+explicit empty `body` means the document default style. Reads may target another
+body ID; writing requires activation. Derived copies use explicit body IDs without
+activating their geometry. Body style overrides the base style; face groups override body style.
 
-V Assembly je nutné `instance_path` s právě jedním výskytem bezprostředně
-vlastněného Partu. Vnořený Part se upravuje po aktivaci jeho vlastnící
-Assembly. Plná zobrazovaná cesta GUI se převádí existujícím resolverem na
-stejného vlastníka. Přepsání se ukládá pouze na vybraný komponentový výskyt,
-nikoli na zdrojový Part nebo jiné instance. `body` zde může určit těleso
-zdrojového Partu uvnitř tohoto přepsání. Prázdný rozsah mění základní styl
-výskytu a ponechává jeho případné zvláštní styly těles a skupin.
+Assembly requires `instance_path` containing exactly one immediate Part occurrence.
+Edit nested Parts after activating their owning Assembly. The existing resolver maps
+full displayed GUI paths to the same owner. Overrides belong only to the selected
+occurrence, not the source Part or other instances. `body` may select a source-Part
+body within that override. Empty scope edits the occurrence's base style while retaining
+its special body/group styles.
 
-Otevřený zdrojový Part je autoritativní i pro zděděný vzhled. Jeho neuložená
-změna se čte přímo, bez regenerace. Pro zavřený zdroj se dotazy opírají o
-snímek uložený v komponentě; neotevírají soubory ani nové taby.
+Open source Parts are authoritative for inherited appearance too. Unsaved changes
+are read directly without regeneration. Closed-source queries use the component's
+persisted snapshot without opening files or tabs.
 
-## Argumenty
+## Arguments
 
 ```json
 {"command":"appearance.set","arguments":{"style":{"color":"#225FC2","roughness":0.12,"metallic":0.75}}}
 {"command":"appearance.faces","arguments":{"offset":0,"limit":100}}
-{"command":"appearance.set","arguments":{"groups":[{"id":"polished","name":"Leštěné plochy","style":{"roughness":0.04,"metallic":1},"faces":[{"owner":"<container-id>","key":"<persisted-result-key>"}]}]}}
+{"command":"appearance.set","arguments":{"groups":[{"id":"polished","name":"Polished faces","style":{"roughness":0.04,"metallic":1},"faces":[{"owner":"<container-id>","key":"<persisted-result-key>"}]}]}}
 {"command":"appearance.get","arguments":{}}
 {"command":"appearance.reset","arguments":{"instance_path":"<direct-occurrence-path>","inherit":true}}
 ```
 
-- `style` je patch: `color`, `roughness` a `metallic`. Barva je `#RRGGBB`
-  nebo Qt `#AARRGGBB`; drsnost je 0,04 až 1 a kovový charakter 0 až 1.
-  Neznámé položky a neplatná čísla se odmítnou.
-- `groups` nahrazuje skupiny pouze ve vybraném rozsahu tělesa. Ostatní
-  skupiny zůstanou stejné. Prázdný seznam je odstraní. Skupina má `id`,
-  `name`, `style`, `faces`. Bez ID vznikne nové stabilní ID. U existujícího
-  ID lze vynechat nezměněné vlastnosti; vynechaná skupina se odstraní.
-- `faces` obsahuje dvojice `owner` a `key` z `appearance.faces`. Jde o
-  identitu uložené výsledné plochy určenou výhradně pro vzhled. Kontext
-  konkrétního výskytu nese `instance_path` příkazu.
-- `reset` odstraní skupiny a styl ve vybraném rozsahu. `inherit:true`
-  u celého výskytu odstraní jeho přepsání a vrátí vzhled zdroje. Reset
-  jednotlivého tělesa ponechává ostatní styly výskytu.
-- `palette` vrací vestavěné styly se jménem, kategorií, ID a hodnotami.
-  Uživatelovu paletu v configu tento příkaz nemění.
-- `get` vrací výsledný styl daného rozsahu, jeho skupiny, revizi, vlastníka
-  a příznaky přepsání. Mutace navíc vracejí `changed`.
-- `faces` přijímá `offset >= 0` a `limit` od 1 do 10 000 (výchozí 2 000).
-  Vrací seřazený seznam unikátních dvojic a celkový počet.
+- `style` patches `color`, `roughness`, and `metallic`. Color is `#RRGGBB` or Qt
+  `#AARRGGBB`; roughness is 0.04–1 and metallic 0–1. Unknown fields/invalid numbers are rejected.
+- `groups` replaces groups only within selected body scope; other groups remain.
+  Empty arrays remove them. Each group has `id`, `name`, `style`, and `faces`.
+  Missing ID creates a stable ID. Existing IDs may omit unchanged properties;
+  omitted groups are removed.
+- `faces` contains `owner`/`key` pairs from `appearance.faces`: persisted result-face
+  identities used exclusively for appearance. Command `instance_path` carries occurrence context.
+- `reset` removes groups/style in selected scope. `inherit:true` for a whole occurrence
+  removes its override and restores source appearance. Resetting one body retains
+  other occurrence styles.
+- `palette` returns built-in styles with name, category, ID, and values; it does not
+  edit the user's config palette.
+- `get` returns effective scoped style, groups, revision, owner, and override flags.
+  Mutations add `changed`.
+- `faces` accepts `offset >= 0` and `limit` 1–10000, default 2000, returning sorted
+  unique pairs and total count.
 
-## Společné potvrzení a GUI
+## Shared commit and GUI
 
-`prepare_appearance_edit` připraví vlastníka a jeho původní nastavení.
-`commit_appearance` ověří revizi a identitu otevřeného dokumentu, rozsah,
-platnost stylů i nově přiřazené plochy. Zastaralý návrh se odmítne před
-změnou stavu. Dříve uložená chybějící plocha se zachová při nesouvisející
-úpravě stylu; novou neexistující plochu nelze přiřadit.
+`prepare_appearance_edit` captures owner and original settings. `commit_appearance`
+validates revision, open-document identity, scope, styles, and newly assigned faces.
+Stale proposals are rejected before mutation. Previously stored missing faces survive
+unrelated style edits; new nonexistent faces cannot be assigned.
 
-GUI náhled je přechodný. OK potvrzuje společnou operací, Cancel vrátí původní
-zobrazení. Změna barvy zachovává přesnou drsnost a kovový charakter, pokud
-se jejich posuvníky nezměnily. Konzole má samostatné oznámení změny vzhledu,
-aby obnovila styly View bez zbytečného sestavování celé scény.
+GUI preview is transient. OK uses shared commit; Cancel restores original display.
+Color edits preserve exact roughness/metallic values unless their sliders changed.
+Console emits a separate appearance-change notification to refresh View styles without
+unnecessarily rebuilding the scene.
 
-Soubor uživatelské palety se zapisuje jen po změně jejího obsahu. Vybraný
-styl a všechny skupiny jsou vždy úplně uloženy v `.prtz` nebo `.asmz`;
-paleta není nutná pro znovuotevření dokumentu. Formát ani start šablony se
-nemění. Všechny nové texty mají překlady v pěti jazykových souborech configu.
+The user palette file is written only when its contents change. Selected style and
+all groups are fully persisted in `.prtz`/`.asmz`; reopening requires no palette file.
+Formats/start templates are unchanged. All new text has five config-language translations.
 
-## Ověření
+## Verification
 
-Výchozí test selhal na chybějícím `appearance.faces` (0/1, 0,12 s).
-První modelová sada a katalog prošly 2/2 za 0,53 s. Regrese kontrolují
-šest původně vypočtených výsledných ploch kvádru, nezměněný objem, dotazy
-bez změny alokace cache, skupiny, atomické odmítnutí chyb, historii,
-oddělené instance a nativní uložení. Rozšíření doplňuje zastaralý návrh,
-neaktivní těleso, dědění neuloženého zdroje, skutečný CLI proces a GUI
-OK/Cancel se zachováním přesnosti.
+Baseline failed on missing `appearance.faces` (0/1, 0.12 s). Initial model/catalog
+tests passed 2/2 in 0.53 s. Regressions cover six calculated box result faces, unchanged
+volume, queries preserving cache allocations, groups, atomic rejection, history,
+separate instances, and native saving. Extensions add stale proposals, inactive bodies,
+unsaved-source inheritance, actual CLI, and GUI OK/Cancel with precision preservation.
 
-Samostatná regrese odhalila chybějící mapování vlastníků výsledných ploch
-zrcadleného tělesa (0/1). Mapování nyní zahrnuje i odvozená tělesa a používá
-se stejně při vykreslení, vložení zdroje i obnovení dat v Assembly. Kontrola
-následného obarvení původně chybně očekávala aktivní zdrojové těleso, přestože
-Mirror po vytvoření aktivaci ukončuje. Opravený test porovnává stav těsně před
-a po obarvení a samostatně ověřuje sdílení stejného snímku geometrie.
-Rozšířený modelový test prošel **1/1 za 0,20 s** včetně zavřeného zdrojového
-Partu. Log: `build/appearance-scope-tests.log`. Po úplném překladu obou aplikací a testovacích programů prošla **celá sada
-122/122 za 531,19 s**. Obsahuje modely, skutečný CLI proces, GUI konzoli
-(55,43 s), vizuální kontrakt vzhledu, sestavy, start aplikace a překlady.
-Log: `build/appearance-full-tests.log`. Katalog má **218 příkazů**.
+A separate regression exposed missing result-face owner mapping for mirrored bodies
+(0/1). Mapping now includes derived bodies and is shared by rendering, source insertion,
+and Assembly refresh. A later coloring assertion incorrectly expected the source
+Body active even though Mirror creation ends activation. The repaired test compares
+state immediately before/after coloring and separately verifies geometry-snapshot sharing.
+Extended model tests passed **1/1 in 0.20 s**, including closed source Part:
+`build/appearance-scope-tests.log`. After both applications and tests built, full
+**122/122 passed in 531.19 s**, including models, actual CLI, GUI console (55.43 s),
+appearance visual contract, Assemblies, startup, and translations.
+Log: `build/appearance-full-tests.log`. Catalog: **218 commands** at this stage.

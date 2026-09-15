@@ -707,7 +707,7 @@ void MeshView::set_mesh(zima::kernel::ViewerMesh mesh, bool fit_view) {
     impl_->layout_drag.reset();
     impl_->source_dimensions=mesh.dimensions;
     if(impl_->dimension_layout_resolver)for(auto& d:mesh.dimensions)
-        if(auto layout=impl_->dimension_layout_resolver(d.reference))d=kernel::layout_dimension(d,impl_->object_bounds.contains({d.reference.owner_id,d.reference.instance_path})&&impl_->object_bounds.at({d.reference.owner_id,d.reference.instance_path}).valid?impl_->object_bounds.at({d.reference.owner_id,d.reference.instance_path}):impl_->dimension_bounds,*layout);
+        if(!d.rotation_handle)if(auto layout=impl_->dimension_layout_resolver(d.reference))d=kernel::layout_dimension(d,impl_->object_bounds.contains({d.reference.owner_id,d.reference.instance_path})&&impl_->object_bounds.at({d.reference.owner_id,d.reference.instance_path}).valid?impl_->object_bounds.at({d.reference.owner_id,d.reference.instance_path}):impl_->dimension_bounds,*layout);
     impl_->mesh = std::move(mesh);
     impl_->surface_batches_dirty = true;
     impl_->reference_boundaries_dirty = true;
@@ -1022,7 +1022,9 @@ std::vector<ViewerCandidate> MeshView::selection_candidates_at(
         // geometry. Offer it only over its visible text; witness/leader/arc
         // strokes remain available to the geometry underneath and therefore
         // cannot steal hover from edges, faces or reference planes.
-        const bool hit = text_bounds.contains(position);
+        const bool hit = dimension.rotation_handle
+            ? QLineF(position, layout.handles[0]).length() <= hit_radius || text_bounds.contains(position)
+            : text_bounds.contains(position);
         if (!hit) continue;
         std::erase_if(candidates, [index](const auto& candidate) {
             return candidate.kind == CandidateKind::Dimension &&
@@ -3953,6 +3955,15 @@ if (impl_->show_origins) {
                         QString::fromStdString(kernel::dimension_unit_text(dimension.unit_suffix));
                 const auto layout=dimension_presentation(dimension,project,painter.fontMetrics().horizontalAdvance(text));
                 if(!layout.valid)continue;
+                if (dimension.rotation_handle) {
+                    const QColor purple("#D05CFF");
+                    painter.setPen(QPen(purple, 2.0));
+                    for (const auto& curve : layout.curves) painter.drawPolyline(curve);
+                    draw_circular_marker(painter, layout.handles[0], purple, 6.0);
+                    dimension_texts.push_back({text,layout.text_baseline,0,painter.font(),purple});
+                    painter.setBrush(Qt::NoBrush);
+                    continue;
+                }
                 for(const auto& curve:layout.curves)painter.drawPolyline(curve);
                 for(const auto& [tip,direction]:layout.arrows)painter.drawPolygon(annotation_arrow(tip,direction,10));
                 dimension_texts.push_back({text,layout.text_baseline,layout.text_angle,painter.font(),color});
@@ -4871,7 +4882,7 @@ void MeshView::mousePressEvent(QMouseEvent* event) {
     }
     if(event->button()==Qt::LeftButton&&impl_->dimension_layout_editable&&impl_->dimension_layout_commit&&impl_->confirmed_candidate&&impl_->confirmed_candidate->kind==CandidateKind::Dimension) {
         const auto candidate=*impl_->confirmed_candidate;
-        if(auto source=dimension_source(candidate))for(int handle=0;handle<3;++handle)if(auto point=dimension_handle_position(candidate,handle);point&&QLineF(*point,event->position()).length()<=5.5) {
+        if(auto source=dimension_source(candidate);source && !source->rotation_handle)for(int handle=0;handle<3;++handle)if(auto point=dimension_handle_position(candidate,handle);point&&QLineF(*point,event->position()).length()<=5.5) {
             const auto i=candidate.geometry_index;const auto shown=i<impl_->mesh.dimensions.size()?impl_->mesh.dimensions[i]:impl_->transient_dimensions[i-impl_->mesh.dimensions.size()];
             const auto key=kernel::ObjectEnvelopeKey{source->reference.owner_id,source->reference.instance_path};
             const auto bounds=impl_->object_bounds.contains(key)&&impl_->object_bounds.at(key).valid?impl_->object_bounds.at(key):impl_->dimension_bounds;

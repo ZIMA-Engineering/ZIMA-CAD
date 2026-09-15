@@ -1,81 +1,77 @@
-# Reference umístění profilů Partu a Assembly
+# Part and Assembly profile placement references
 
-`extrusion.reference.set` a `revolution.reference.set` přiřazují původní referenci
-existujícímu Vytažení nebo Rotaci v aktivním Partu i profilovému odečtu Assembly.
-Používají stejné `commit_profile` / `commit_assembly_profile` jako potvrzení
-Vlastností a zachovávají vlastní skicu i vybrané cílové komponenty.
+`extrusion.reference.set` and `revolution.reference.set` assign original references
+to existing Extrusion/Revolution features in the active Part and Assembly profile
+cuts. They use `commit_profile` / `commit_assembly_profile`, shared with Properties
+confirmation, preserving the owned Sketch and selected target components.
 
 ```json
-{"command":"extrusion.reference.set","arguments":{"container":"ID_VYSUNUTI","index":0,"reference":{"owner":"ID_PARTU:origin","key":"origin:plane:xy"},"offset_mm":7}}
-{"command":"revolution.reference.set","arguments":{"container":"ID_ROTACE","index":0,"reference":{"owner":"ID_SESTAVY:origin","key":"origin:plane:xy"},"offset_mm":1}}
-{"command":"extrusion.reference.set","arguments":{"container":"ID_ODECTU","index":0,"reference":{"owner":"ID_PUVODNIHO_PRVKU","key":"PUVODNI_KLIC_PLOCHY","instance_path":"PRESNA_CESTA_VYSKYTU"},"offset_mm":-4,"derive_orientation":false}}
+{"command":"extrusion.reference.set","arguments":{"container":"EXTRUSION-ID","index":0,"reference":{"owner":"PART-ID:origin","key":"origin:plane:xy"},"offset_mm":7}}
+{"command":"revolution.reference.set","arguments":{"container":"REVOLUTION-ID","index":0,"reference":{"owner":"ASSEMBLY-ID:origin","key":"origin:plane:xy"},"offset_mm":1}}
+{"command":"extrusion.reference.set","arguments":{"container":"CUT-ID","index":0,"reference":{"owner":"ORIGINAL-FEATURE-ID","key":"ORIGINAL-FACE-KEY","instance_path":"EXACT-OCCURRENCE-PATH"},"offset_mm":-4,"derive_orientation":false}}
 ```
 
-Argumenty odpovídají [společnému vstupu](PLACEMENT_REFERENCE_COMMANDS.md):
-`index` 0–2 pro polohu, 3 FRONT, 4 TOP; `reference` obsahuje `owner`, `key`
-a volitelnou `instance_path`. Part používá místní reference s prázdnou cestou.
-V Assembly je cesta prázdná pro vlastní Origin/konstrukci a úplná pro geometrii
-konkrétního vloženého výskytu, včetně všech úrovní podsestav. Cestu a klíč
-přebírá klient z původních referencí; nejde o jméno dílu ani číslo plochy OCCT.
+Arguments match the [shared entry](PLACEMENT_REFERENCE_COMMANDS.md): `index` 0–2
+for position, 3 FRONT, and 4 TOP; `reference` contains `owner`, `key`, and optional
+`instance_path`. Part uses local references with empty paths. Assembly uses empty
+paths for owned Origins/constructions and full paths for exact inserted geometry,
+including every subassembly level. Clients obtain paths and keys from original
+references, not Part names or OCCT face numbers.
 
-`offset_mm`, `flip`, `derive_orientation` a `document` jsou volitelné. Výsledek
-odpovídá příslušnému `.get`, navíc obsahuje `changed`. `.get` vrací parametry
-profilu, identitu vlastní skici a `reference_valid`; samostatné pole `placement`
-v tomto výsledku není. Obecné `placement.reference.set` s argumentem `object`
-namísto `container` obsluhuje profily Partu. Profilové odečty Assembly používají
-výše uvedené příkazy `extrusion.reference.set` / `revolution.reference.set`.
+`offset_mm`, `flip`, `derive_orientation`, and `document` are optional. Results
+match the corresponding `.get` plus `changed`. `.get` returns profile parameters,
+owned Sketch identity, and `reference_valid`, without a separate `placement` field.
+General `placement.reference.set`, with `object` instead of `container`, handles
+Part profiles. Assembly profile cuts use the two specific commands above.
 
-## Pravidla
+## Rules
 
-V Partu se přijímají původní uložené reference předcházející prvku v historii,
-Part Origin a dostupné Body Origins. Vlastní profilová skica, samotný prvek
-a pozdější objekty nejsou platným zdrojem. Neaktivní a odvozená tělesa chrání
-stávající pravidla. V Assembly se používá původní uložená geometrie v souřadné
-soustavě vlastní sestavy; vlastní profil a vlastní kontejner jsou vyloučené.
-Stejný zdrojový díl vložený opakovaně má samostatné reference podle úplné cesty.
+Part accepts persisted original references preceding the feature in history,
+Part Origin, and available Body Origins. The owned profile Sketch, feature itself,
+and later objects are invalid sources. Existing protections cover inactive/derived
+bodies. Assembly uses persisted original geometry in its own frame, excluding the
+owned profile and container. Repeated source Parts have distinct full-path references.
 
-Poziční pole a FRONT/TOP jsou nezávislá. Výchozí `derive_orientation:true`
-přidává orientaci podle stávajících pravidel do volného orientačního pole;
-náhrada poziční reference nemaže jiné orientační reference. Dvě rovnoběžné
-roviny zadané jako FRONT a TOP představují konflikt a jsou odmítnuty.
-`derive_orientation:false` ponechává oddělené zadání polohy a orientace.
-Náhrada zamčené reference zachová změřenou vzdálenost podle společného přiřazení.
+Position fields and FRONT/TOP are independent. Default `derive_orientation:true`
+adds orientation to a free orientation field under existing rules; replacing a
+position reference does not remove other orientations. Parallel planes assigned
+as FRONT and TOP conflict and are rejected. `derive_orientation:false` keeps
+position/orientation assignment separate. Replacing a locked reference preserves
+measured distance under shared assignment rules.
 
-Part a Assembly sdílejí přípravu reference: dohledání původní identity,
-rozdělení polí, určení směru, zámek a stávající přiřazení i řešení umístění.
-Tento přesun byl výslovně schválen uživatelem. Algoritmus řešiče a GUI kontrakt
-se nemění; profily používají stávající normalizaci FRONT a souřadného systému skici.
+Part and Assembly share reference preparation: original-identity lookup, field
+separation, direction, lock, and existing assignment/placement solving. The user
+explicitly approved this extraction. Solver algorithm and GUI contract are unchanged;
+profiles retain existing FRONT and Sketch-coordinate normalization.
 
-Potvrzení vypočítá těleso a uloží profil i skicu jako jednu transakci.
-Assembly počítá vlastní odečet; zdrojový Part neupravuje ani nepřepočítává.
-Stejné přiřazení nic nepřepočítává ani nepřidává Undo. Chybný požadavek nezanechá
-částečnou změnu. Aktivní GUI editor blokuje příkazovou mutaci až do OK/Cancel.
-Formáty `.prtz`/`.asmz` a startovací šablony se nemění.
+Commit calculates bodies and stores profile plus Sketch in one transaction. Assembly
+calculates only its own cut without editing or recalculating source Parts. Identical
+assignment neither calculates nor adds Undo. Invalid requests leave no partial change.
+An active GUI editor blocks command mutation until OK/Cancel. `.prtz`/`.asmz` formats
+and start templates are unchanged.
 
-## Ověření
+## Verification
 
-Testy Partu měří vysunutí obdélníku 2 × 3 mm o 5 mm (30 mm³) a úplnou rotaci
-obdélníku mezi poloměry 2 a 4 mm o výšce 3 mm (36π mm³). Změna offsetu
-posune skutečnou geometrii a zachová objem, identitu i křivky vlastní skici.
+Part tests measure a 2 × 3 mm rectangle extruded 5 mm (30 mm³) and a full revolution
+of a rectangle between radii 2 and 4 mm with height 3 mm (36π mm³). Offset changes
+move actual geometry while preserving volume, identity, and owned Sketch curves.
 
-Assembly testy měří odečet z kvádru 10 × 10 × 10 mm. Vytažení profilu
-2 × 3 mm o 4 mm odebere 24 mm³; po přesunu na okraj kvádru zbývá průnik
-12 mm³. Rotace mezi poloměry 1 a 2 mm o výšce 2 mm odebere 6π mm³.
-Ověřuje se i stejný díl ve dvou výskytech jedné podsestavy: změna celé cesty
-přesune odečet z Z = 1 na Z = 3 mm a netargetovaný díl zůstává nezměněný.
-Zdrojový Part zachová revizi i již vypočtená tělesa.
+Assembly tests subtract from a 10 × 10 × 10 mm box. A 2 × 3 mm profile extruded
+4 mm removes 24 mm³; moving it to the edge leaves 12 mm³ intersection. Revolution
+between radii 1 and 2 mm with height 2 mm removes 6π mm³. Tests include the same
+Part in two occurrences of one subassembly: changing the full path moves the cut
+from Z = 1 to Z = 3 mm, preserving untargeted geometry. Source Part revision and
+calculated bodies remain unchanged.
 
-Zahrnuty jsou zámky, no-op, konfliktní či vlastní reference, neúplná cesta,
-duplicitní pole, chybné typy, velké indexy, aktivní editor, Undo/Redo a nativní
-uložení. Samostatný proces CLI otevře sestavu, přiřadí referenci, provede
-Undo/Redo a uloží ji; test znovu načte skutečný `.asmz` a změří výsledný objem.
-GUI test otevírá skutečné Vlastnosti obou profilů a ověřuje offset, Cancel,
-OK, Undo/Redo a opětovný vstup do vlastní skici.
+Coverage includes locks, no-ops, conflicting/self references, incomplete paths,
+duplicate fields, wrong types, large indexes, active editing, Undo/Redo, and native
+saving. Actual CLI opens an Assembly, assigns references, performs Undo/Redo, and
+saves; the test reloads `.asmz` and measures volume. GUI opens both profile Properties
+dialogs and checks offset, Cancel, OK, Undo/Redo, and reentry into the owned Sketch.
 
-Obě aplikace a všechny testovací cíle jsou sestavené. Úplná Windows Release
-regrese prošla **150/150 za 682,52 s**, včetně samostatného procesu CLI,
-překladů, GUI konzole a souhrnného GUI běhu:
-`build/assembly-profile-reference-full-tests.log`. Samostatná GUI kontrola
-Part/Assembly profilů prošla rovněž (`build/assembly-profile-reference-gui-tests.log`).
-Nový GUI test ukončuje iteraci stromu před otevřením Vlastností, protože jejich
-rollback strom přestaví; živý iterátor zde způsoboval chybu samotného testu.
+Both applications and all targets built. Full Windows Release regression passed
+**150/150 in 682.52 s**, including actual CLI, translations, GUI console, and full
+GUI run: `build/assembly-profile-reference-full-tests.log`. Separate Part/Assembly
+profile GUI checks also passed (`build/assembly-profile-reference-gui-tests.log`).
+The new GUI test finishes tree iteration before opening Properties because rollback
+rebuilds the tree; retaining a live iterator had caused a test-fixture error.

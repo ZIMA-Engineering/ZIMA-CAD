@@ -1,49 +1,47 @@
-# Snímek aktuálního View
+# Capture the current View
 
-`export.view` uloží právě zobrazený interaktivní 3D pohled do PNG nebo JPEG.
-Používá aktuální kameru, viditelnost i vykreslené značky. Geometrii nepočítá,
-nezmění dokument ani Undo/Redo a neprovádí Fit.
+`export.view` saves the currently displayed interactive 3D view as PNG or JPEG,
+using its camera, visibility, and rendered markers. It does not calculate geometry,
+change the document or Undo/Redo, or run Fit.
 
 ```json
-{"command":"export.view","arguments":{"path":"pohled.png"}}
-{"command":"export.view","arguments":{"path":"pohled.jpg","quality":90,"overwrite":true}}
+{"command":"export.view","arguments":{"path":"view.png"}}
+{"command":"export.view","arguments":{"path":"view.jpg","quality":90,"overwrite":true}}
 ```
 
-- `path`: cesta s příponou `.png`, `.jpg` nebo `.jpeg`; relativní cesta se
-  vyhodnotí vůči pracovnímu adresáři. Cílový adresář musí existovat.
-- `quality`: celé číslo 0–100, výchozí 95; ovlivňuje JPEG. PNG je bezeztrátové.
-- `overwrite`: výchozí false. Existující soubor se přepíše pouze při true.
-- `document`: volitelná kontrola ID aktivního dokumentu.
+- `path`: a `.png`, `.jpg`, or `.jpeg` path, relative to the working directory
+  when not absolute. The destination directory must exist.
+- `quality`: integer 0–100, default 95; affects JPEG. PNG is lossless.
+- `overwrite`: default false. Existing files are overwritten only when true.
+- `document`: optional active-document ID check.
 
-Výstup obsahuje `document`, `displayed_document`, `path`, `bytes`,
-`width_px`, `height_px`, `camera` a `model_changed: false`. Rozměry odpovídají
-skutečnému framebufferu v pixelech; nepřidává se domyšlená tisková přesnost.
-Při aktivaci Partu v sestavě zůstává snímanou scénou celá zobrazená sestava.
-ID aktivního dílu a zobrazené sestavy jsou proto uvedena odděleně.
+Output contains `document`, `displayed_document`, `path`, `bytes`, `width_px`,
+`height_px`, `camera`, and `model_changed: false`. Dimensions match the actual
+framebuffer pixels; no assumed print resolution is added. Activating a Part in an
+Assembly still captures the complete displayed Assembly, so active Part and
+displayed Assembly IDs are reported separately.
 
-Hostitel bez 3D View (včetně samostatného dávkového CLI) vrátí
-`view_unavailable` a obrázek nevytvoří. Výkres používá vlastní `export.image`
-pro list či výřez; `export.view` neexportuje skryté 3D pozadí pod výkresem.
-Rozpracovanou GUI editaci chrání obvyklá blokace konzolových operací.
+A host without a 3D View, including standalone batch CLI, returns `view_unavailable`
+and creates no image. Drawings use `export.image` for sheets or crops;
+`export.view` does not export hidden 3D content behind a drawing. The usual console
+operation guard protects pending GUI edits.
 
-Snímek vzniká na vlákně View. Zápis pracuje s neměnnou kopií obrázku a smí
-proběhnout na pracovním vlákně. Stejný atomický zapisovač používá GUI export
-3D pohledu: nejdříve dokončí dočasný soubor, teprve potom zveřejní výsledek.
-Při chybě nebo nepovoleném přepisu původní soubor zůstává zachovaný.
-Nevznikají nové povinné soubory dokumentu ani změny nativních formátů.
+Capture runs on the View thread. Writing uses an immutable image copy and may run
+on a worker thread. GUI 3D-view export uses the same atomic writer: finish a temporary
+file before publishing the result. Errors and unauthorized overwrites preserve the
+original file. This introduces no required document files or native-format changes.
 
-## Testované smlouvy
+## Tested contracts
 
-Regrese kontrolují PNG po jednotlivých pixelech, čitelný JPEG, rozměry,
-UTF-8 cestu, přepis, chyby snímání/zápisu, oddělení vláken, přesný kontext
-aktivovaného výskytu a nedotčenou vypočtenou geometrii i historii.
-Samostatný CLI proces ověřuje chybu při chybějícím View. GUI test srovnává
-skutečný framebuffer s uloženým PNG a ověřuje, že se kamera nezměnila.
+Regressions check PNG pixels, readable JPEG, dimensions, UTF-8 paths, overwriting,
+capture/write errors, thread separation, exact activated-occurrence context, and
+unchanged calculated geometry and history. A separate CLI process checks the missing
+View error. GUI compares the real framebuffer with saved PNG and verifies unchanged camera.
 
-Ověřeno všech šest dotčených testů. První integrační běh potvrdil překlady,
-CLI proces, ostatní exporty, hostitele a skutečné GUI (82,15 s).
-Nový modelový přípravek nejdříve použil nesprávný typ rozměru a nekódovanou
-cestu výskytu; po opravě vstupů prošel samostatně **1/1 za 0,56 s**.
-Logy: `build/view-export-tests.log`, `build/view-export-model-tests.log`.
-Obě aplikace a všechny cíle jsou sestavené. Katalog má **266 příkazů**,
-sada **146 testů**. Úplný běh nové sady zatím neproběhl.
+All six affected tests were verified. The first integration run confirmed translations,
+CLI process, other exports, host, and actual GUI (82.15 s). The new model fixture
+initially used the wrong dimension type and an unencoded occurrence path; after
+correcting inputs it passed separately, **1/1 in 0.56 s**.
+Logs: `build/view-export-tests.log`, `build/view-export-model-tests.log`.
+Both applications and all targets built. At this stage the catalog has **266 commands**
+and the suite **146 tests**; the new full suite has not yet run.

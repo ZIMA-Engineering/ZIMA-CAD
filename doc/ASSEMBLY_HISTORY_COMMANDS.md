@@ -1,77 +1,75 @@
-# Pořadí historie sestavy přes GUI a CLI
+# Assembly history ordering through GUI and CLI
 
-Příkazy `history.list`, `history.can_move` a `history.move` podporují
-Part i Assembly. GUI strom potvrzuje přesun sestavových položek stejnou
-operací `workspace::move_assembly_history` jako příkazový hostitel.
+`history.list`, `history.can_move`, and `history.move` support Part and Assembly.
+The GUI tree commits Assembly item moves through the same
+`workspace::move_assembly_history` operation as the command host.
 
-## Seznamy a identity
+## Lists and identities
 
-Assembly uchovává čtyři oddělené seznamy:
+An Assembly maintains four separate lists:
 
-- `components`: bezprostřední výskyty Partů a podsestav;
-- `constructions`: samostatné konstrukční objekty;
-- `sketches`: kontejnery samostatných skic;
-- `cuts`: vlastní profilové odečty sestavy.
+- `components`: immediate Part and subassembly occurrences;
+- `constructions`: standalone construction objects;
+- `sketches`: standalone Sketch containers;
+- `cuts`: the Assembly's own profile cuts.
 
-`history.list` vrací `type: "assembly"`, položky `items` a objekt `orders`
-s uvedenými čtyřmi seznamy stabilních ID. `suppressed` v položce popisuje
-uložený příznak potlačení; účinný stav komponenty včetně závislostí je
-součástí příkazu `component.get`.
+`history.list` returns `type: "assembly"`, `items`, and an `orders` object with
+these four lists of stable IDs. An item's `suppressed` field is the persisted
+suppression flag; `component.get` provides effective component state including dependencies.
 
-Cílem přesunu je `object`. U skici jde o ID jejího kontejneru z `orders.sketches`,
-nikoli o ID vnitřní skici. U komponenty jde o její ID výskytu v bezprostředně
-vlastnící sestavě. ID vnitřního dílu podsestavy nelze použít k jeho přesunu
-z nadřazené sestavy.
+The move target is `object`. For a Sketch, use its container ID from
+`orders.sketches`, not the internal Sketch ID. For a component, use its occurrence
+ID in the immediate owning Assembly. A parent Assembly cannot move an internal
+Part of a subassembly by its ID.
 
-Volitelné `before` určuje následující položku stejného seznamu.
-Vynechání přesune objekt na konec. Přesun před sebe nebo ponechání poslední
-položky na konci nevyvolá změnu. Přesun mezi různými seznamy se odmítne.
+Optional `before` identifies the next item in the same list. Omitting it moves
+the object to the end. Moving before itself or leaving the last item at the end
+is a no-op. Moves between different lists are rejected.
 
-## Transakce a závislosti
+## Transactions and dependencies
 
-`history.can_move` pouze ověří pořadí, vlastnictví a reference; vrátí
-`allowed` a `would_change`. Nemění dokument ani vypočtená data.
+`history.can_move` only checks order, ownership, and references, returning
+`allowed` and `would_change`. It changes neither the document nor calculated data.
 
-Přesun komponent, konstrukcí a skic nepotřebuje OCCT, řešení vazeb
-komponent ani regeneraci odečtů. Zachová původní reference, vyřešené
-pracovní rámy a sdílené vypočtené výsledky. `history.move` při změně
-vytvoří jediný krok Undo/Redo a vrátí `body_calculated: false`.
+Moving components, constructions, or Sketches requires no OCCT, component mate
+solving, or cut regeneration. It preserves original references, resolved working
+frames, and shared calculated results. A changed `history.move` creates one
+Undo/Redo step and returns `body_calculated: false`.
 
-Kontrola zahrnuje i závislost procházející jiným seznamem, například
-skica → konstrukční rovina → další skica. Přesun nesmí porušit dosud správné pořadí
-zdroje a závislého objektu. Stávající pravidlo umožňující
-nezávislou opravu již porušených návazností zůstává zachované.
+Checks include dependencies passing through another list, such as
+Sketch → construction plane → another Sketch. A move must preserve valid
+source/dependent order. The existing rule allowing independent repair of
+already broken dependencies remains.
 
-Odečty používají existující `move_assembly_cut`, včetně jeho výslovného
-výpočtu a kontrol původních referencí. Při skutečné změně jejich pořadí
-se vrací `body_calculated: true`. Původní příkazy
-`assembly.cut.move/can_move` zůstávají dostupné.
+Cuts use the existing `move_assembly_cut`, including explicit calculation and
+original-reference checks. An actual cut reorder returns `body_calculated: true`.
+The original `assembly.cut.move/can_move` commands remain available.
 
-Volitelné `document` může při dotazu určit jiný otevřený dokument.
-Změna vyžaduje aktivní vlastnický dokument a respektuje otevřenou editaci
-GUI. Aktivace vnořené sestavy zachovává zobrazenou nadřazenou sestavu a
-přesnou cestu aktivního výskytu.
+For queries, optional `document` can target another open document. Mutation
+requires the active owning document and respects an open GUI editing session.
+Nested Assembly activation preserves the displayed parent Assembly and exact
+active occurrence path.
 
-## Ověření
+## Verification
 
-Modelový test ověřuje všechny seznamy, odmítnuté a prázdné změny, vazbu
-mezi komponentami, nepřímou závislost skic, Undo/Redo, nativní uložení a
-vnořenou aktivaci. Při přesunu datových položek kontroluje zachování
-sdílených výsledků a umístění všech komponent i revize zdrojového Partu.
+The model test covers all lists, rejected changes and no-ops, component mates,
+indirect Sketch dependencies, Undo/Redo, native saving, and nested activation.
+Data-item moves are checked for preservation of shared results, every component
+position, and the source Part revision.
 
-Nezávislá kontrola odečtů vychází z kvádru 10 × 10 × 10 mm. Dva oddělené
-odečty mají objemy 1 a 2 mm³; po změně pořadí zůstává 997 mm³ a druhý
-výskyt Partu má 1000 mm³.
+An independent cut check uses a 10 × 10 × 10 mm box. Two separate cuts remove
+1 and 2 mm³; after reordering, 997 mm³ remains and the other Part occurrence
+retains 1000 mm³.
 
-GUI test vyvolá skutečný callback stromu pro komponenty, konstrukce a
-skici. Porovná celé uložené `.asmz` s výsledkem stejného příkazu po Undo.
-Ověřuje také stejné odmítnutí pořadí porušujícího referenci.
+The GUI test invokes the actual tree callback for components, constructions,
+and Sketches. It compares the entire saved `.asmz` with the result of the same
+CLI command after Undo. It also verifies identical rejection of an order that
+would break a reference.
 
-Základní modelová regrese Part/Assembly prošla 2/2 za 0,79 s.
-Obě aplikace i všechny testovací programy jsou sestavené. Širší regrese
-prošla **13/13 za 257,92 s**: historie Part/Assembly, odečty, komponenty,
-reference, skici Assembly, katalog, samostatný proces CLI, překlady,
-GUI konzole a úplný průchod aplikací.
-Logy: `build/assembly-history-verified-build.log` a
+The baseline Part/Assembly model regression passed 2/2 in 0.79 s. Both
+applications and all test programs built. Broader regression passed **13/13 in
+257.92 s**: Part/Assembly history, cuts, components, references, Assembly Sketches,
+catalog, separate CLI process, translations, GUI console, and the full application
+walkthrough. Logs: `build/assembly-history-verified-build.log` and
 `build/assembly-history-verified-tests.log`.
-Katalog má 292 příkazů; CTest registruje 160 testů.
+The catalog has 292 commands; CTest registers 160 tests.

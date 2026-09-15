@@ -1,54 +1,51 @@
-# Přímé hodnoty kót a společné příkazy
+# Inline dimension values and shared commands
 
-Přímé potvrzení hodnoty ve View používá stejné modelové operace jako
-Vlastnosti a CLI. Názvy příkazů a JSON polí zůstávají anglické.
+Confirming a value directly in the View uses the same model operations as
+Properties and CLI. Command and JSON field names remain English.
 
-| Úprava ve View | Příkaz | Společná operace |
+| View edit | Command | Shared operation |
 | --- | --- | --- |
-| Katalogový rozměr závitu otvoru | `opening.set`, pole `designation` | `select_opening_thread_size` a `commit_opening` |
-| Offset komponentové vazby | `component.set`, pole `placement_references` | `prepare_component_edit` a `commit_component_properties` |
-| Rádius bodu samostatné 3D křivky Part/Assembly | `construction.set`, pole `radius_mm` | `commit_construction` |
-| Rádius bodu vložené dráhy Sweep 3D | `sweep3d.set`, pole `path.points` | `commit_sweep` |
+| Catalog thread size of an opening | `opening.set`, `designation` | `select_opening_thread_size` and `commit_opening` |
+| Component mate offset | `component.set`, `placement_references` | `prepare_component_edit` and `commit_component_properties` |
+| Point radius of a standalone Part/Assembly 3D curve | `construction.set`, `radius_mm` | `commit_construction` |
+| Point radius of an embedded Sweep 3D path | `sweep3d.set`, `path.points` | `commit_sweep` |
 
-Bod vložené dráhy se mění přes vlastnící Sweep, nikoli příkazem pro
-samostatnou konstrukci. Jeho ID a ID ostatních bodů se zachovají.
-Křivka je polyline se zapnutým zaoblením; příliš velký rádius se zamítne
-bez změny dokumentu. Hodnoty délky jsou v mm, úhlové offsety ve stupních.
+Edit embedded path points through the owning Sweep, not a standalone construction
+command. The point ID and other point IDs remain. The curve is a polyline with
+fillets enabled; excessive radius is rejected without mutation. Lengths are mm;
+angular offsets are degrees.
 
-Katalog zachová vlastní průměr profilu a společná pravidla délky otvoru
-včetně výběhu závitu. Komponentové vazby zachovají meze a zámek hodnoty,
-původní reference a vlastnictví bezprostřední sestavy. Shodná hodnota
-nepřidává krok Undo. Samostatná konstrukce nepřepočítává těleso;
-změna otvoru nebo vložené dráhy provede výslovný výpočet příslušné operace.
+Catalog selection preserves custom profile diameter and shared opening-length
+rules, including thread runout. Component mates retain limits, value locks,
+original references, and immediate-Assembly ownership. Identical values add no
+Undo step. Standalone constructions do not recalculate bodies; opening or embedded
+path edits explicitly calculate the corresponding operation.
 
-Je-li otevřené okno Vlastnosti, přímá editace nadále upravuje jeho návrh.
-O potvrzení rozhoduje jeho OK/Zrušit. Tento krok nezavádí nové manipulátory
-pro změnu hodnot tažením.
+If Properties is open, inline editing still changes its pending proposal. Its
+OK/Cancel controls commit. This stage introduces no new drag-based value manipulators.
 
-## Oprava zobrazení v Assembly
+## Assembly display repair
 
-Nová regrese odhalila, že samostatná 3D křivka v Assembly uchovávala
-rádius, ale inspekce křivky nepřidávala jeho kótu do View. Assembly nyní
-používá stejnou funkci `curve3d_radius_dimensions` jako Part. Kóta se
-odvodí z uložené křivky bez OCCT a přidá pouze pro aktivní dokument.
-Při zobrazení v nadřazené sestavě prochází běžným převodem scény výskytu.
+A new regression found that standalone Assembly 3D curves stored radius but curve
+inspection omitted its dimension from the View. Assembly now uses the same
+`curve3d_radius_dimensions` as Part. The dimension is derived from persisted curve
+data without OCCT and added only for the active document. When displayed inside
+a parent Assembly, it follows normal occurrence-scene transformation.
 
-## Ověření
+## Verification
 
-`console_ui_verification.cpp` potvrzuje skutečný číselný editor a
-rozbalovací katalog. Porovnává celé uložené `.prtz` / `.asmz` po GUI
-a po stejném CLI zásahu; ověřuje Undo, shodné hodnoty, neplatný rádius,
-meze offsetu a zámek. Dvakrát vložená stejná podsestava ověřuje, že
-se kóta nabízí právě jednou, na aktivním výskytu, a editace potvrzuje
-správný zdrojový dokument. Dosavadní testy pracovního okna dále pokrývají
-editaci s otevřenými Vlastnostmi, Cancel a opětovné zobrazení kót.
+`console_ui_verification.cpp` confirms the actual numerical editor and catalog
+dropdown. It compares full saved `.prtz` / `.asmz` definitions after GUI and equivalent
+CLI edits, checking Undo, identical values, invalid radius, offset limits, and locks.
+Two instances of the same subassembly verify that the dimension is offered exactly
+once on the active occurrence and editing commits the correct source document.
+Existing workspace-window tests also cover editing with Properties open, Cancel,
+and dimension redisplay.
 
-Formáty a startovní šablony se nemění. Katalog zůstává na 296 příkazech.
-Výsledky aktuální sady jsou uvedeny v
-[CAD_COMMAND_COVERAGE.md](CAD_COMMAND_COVERAGE.md).
+Formats and start templates are unchanged. The catalog remains at 296 commands
+at this stage. Current suite results: [CAD_COMMAND_COVERAGE.md](CAD_COMMAND_COVERAGE.md).
 
-Podrobné argumenty:
-[OPENING_COMMANDS.md](OPENING_COMMANDS.md),
+Detailed arguments: [OPENING_COMMANDS.md](OPENING_COMMANDS.md),
 [COMPONENT_PROPERTY_COMMANDS.md](COMPONENT_PROPERTY_COMMANDS.md),
 [CONSTRUCTION_COMMANDS.md](CONSTRUCTION_COMMANDS.md),
 [SWEEP_COMMANDS.md](SWEEP_COMMANDS.md).

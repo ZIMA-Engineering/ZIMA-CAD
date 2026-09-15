@@ -1,39 +1,39 @@
-# Návrhy ikon Part / Assembly
+# Part / Assembly icon proposals
 
-![Porovnání návrhů](PART_ASSEMBLY_ICON_PROPOSALS.png)
+![Proposal comparison](PART_ASSEMBLY_ICON_PROPOSALS.svg)
 
-## Doporučení
+The English SVG boards are the maintained proposal sources. Obsolete raster
+previews with superseded Czech captions were removed; Git retains them.
 
-Použít variantu A:
+## Recommendation
 
-- Part má jednu velkou, uzavřenou siluetu tělesa.
-- Assembly má dvě velká překrytá tělesa.
-- Rozdíl zůstává čitelný při 18 px, v tmavém i světlém motivu a také bez
-  spoléhání pouze na barvu.
-- Princip odpovídá informační logice reference Pro/E v `doc/01.png`, ale
-  kresba zachovává linkový styl a zelený akcent ZIMA-CAD.
+Use variant A:
 
-Samostatné prototypy doporučené varianty jsou `part-a.svg` a
-`assembly-a.svg`. Nejsou zatím zapojené do aplikace.
+- Part has one large closed body silhouette.
+- Assembly has two large overlapping bodies.
+- The distinction remains readable at 18 px in dark/light themes without relying only on color.
+- The concept follows the information hierarchy of the Pro/E reference in
+  `doc/01.png`, while retaining ZIMA-CAD's line style and green accent.
 
-## Barevná varianta
+Recommended standalone prototypes are `part-a.svg` and `assembly-a.svg`.
+They are not connected to the application yet.
 
-> Historická poznámka: zde popsaná prázdná ikona Partu byla později
-> nahrazena modře vyplněnou krychlí v `resources/icons/part.svg`. Tato složka
-> uchovává návrhové iterace, nikoliv aktuální závaznou sadu ikon.
+## Color variant
 
-Po druhém návrhovém kole vznikla jednodušší dvojice se shodnou siluetou:
+> Historical note: the empty Part icon described here was later replaced by
+> a blue-filled cube in `resources/icons/part.svg`. This directory preserves
+> design iterations, not the current authoritative icon set.
 
-- Part je prázdná obrysová krychle bez barevné výplně.
-- Assembly má všechny tři plochy vyplněné odstíny žluté. Proti Partu tak
-  nepůsobí jen jinou barvou, ale jako plná hmota proti převážně prázdnému
-  obrysu.
+The second design round produced a simpler pair sharing one silhouette:
 
-Tento směr odstraňuje drobné assembly kostky a je při 18 px velmi výrazný.
-Rozdíl nestojí jen na barvě: Part je prázdný obrys, zatímco Assembly je plná
-žlutá hmota. Tři žluté plochy mají rozdílný jas, aby zůstala čitelná i jejich
-prostorová orientace.
+- Part is an empty outlined cube without color fill.
+- Assembly has all three faces filled with shades of yellow, distinguishing
+  solid mass from a mostly empty outline rather than relying on color alone.
 
-![Barevný návrh](PART_ASSEMBLY_COLOR_PROPOSAL.png)
+This direction removes tiny Assembly cubes and is very distinct at 18 px.
+Part remains an empty outline; Assembly is a solid yellow mass. The three
+faces have different brightness so their spatial orientation remains readable.
 
-Samostatný prototyp je `assembly-color.svg`.
+![Color proposal](PART_ASSEMBLY_COLOR_PROPOSAL.svg)
+
+The standalone prototype is `assembly-color.svg`.

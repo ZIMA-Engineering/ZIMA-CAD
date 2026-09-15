@@ -84,6 +84,7 @@ add_library(zima_document_core
     modules/document_core/src/profile_serialization.cpp
     modules/document_core/src/part_document.cpp
     modules/document_core/src/hole_profiles.cpp
+    modules/document_core/src/holes.cpp
     modules/document_core/src/profile_targets.cpp
     modules/document_core/src/appearance.cpp
     modules/document_core/src/body_history.cpp
@@ -186,6 +187,7 @@ add_library(zima_workspace modules/workspace/src/workspace.cpp
     modules/workspace/src/appearance_operations.cpp
     modules/workspace/src/hole_operations.cpp
     modules/workspace/src/opening_operations.cpp
+    modules/workspace/src/holes_operations.cpp
     modules/workspace/src/opening_component_operations.cpp
     modules/workspace/src/template_operations.cpp modules/workspace/src/template_object_operations.cpp
     modules/workspace/src/opening_targets.cpp
@@ -220,6 +222,7 @@ add_library(zima_command_host
     modules/command_host/src/section_commands.cpp
     modules/command_host/src/appearance_commands.cpp
     modules/command_host/src/hole_commands.cpp
+    modules/command_host/src/holes_commands.cpp
     modules/command_host/src/opening_commands.cpp
     modules/command_host/src/drill_point_commands.cpp
     modules/command_host/src/shell_commands.cpp
@@ -316,7 +319,7 @@ include(app/workspace/sources.cmake)
 
 add_executable(zima-cad-cpp
     ${ZIMA_WORKSPACE_SOURCES}
-    app/command_console.cpp app/console_ui_verification.cpp
+    app/command_console.cpp app/console_ui_verification.cpp app/holes_ui_verification.cpp app/rotation_handle_ui_verification.cpp
     app/main_workspace.cpp app/appearance_dialog.cpp app/appearance_command.cpp app/section_command.cpp app/section_ui_verification.cpp app/assembly_workspace_window.cpp app/template_command.cpp app/numeric_value_lock_command.cpp app/shaft_thread_command.cpp app/derived_copy_command.cpp
     app/application_settings.cpp app/global_settings_dialog.cpp app/measurement_command.cpp app/measurement_ui_verification.cpp
     app/document_tools_dialogs.cpp
@@ -1045,6 +1048,18 @@ if(ZIMA_BUILD_TESTS)
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_DERIVED_COPY_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120)
     add_test(NAME zima_cpp_console_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_work_plane_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_rotation_handle_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_rotation_handle_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_ROTATION_HANDLE_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120)
+    set_tests_properties(zima_cpp_work_plane_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_WORK_PLANE_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120)
+    add_test(NAME zima_cpp_holes_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_holes_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_HOLES_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120)
     set_tests_properties(zima_cpp_console_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 180)
@@ -1109,6 +1124,17 @@ if(ZIMA_BUILD_TESTS)
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_OFFSET_ONLY=1"
         TIMEOUT 120)
     add_executable(zima_cpp_sketch_offset_geometry_tests tests/sketch_offset_geometry_tests.cpp)
+    add_executable(zima_cpp_work_plane_contract_tests tests/work_plane_contract_tests.cpp)
+    target_link_libraries(zima_cpp_work_plane_contract_tests PRIVATE zima_command_host)
+    target_compile_options(zima_cpp_work_plane_contract_tests PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
+    add_test(NAME zima_cpp_work_plane_contract_tests COMMAND zima_cpp_work_plane_contract_tests)
+    set_tests_properties(zima_cpp_work_plane_contract_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
+
+    add_executable(zima_cpp_holes_command_tests tests/holes_command_tests.cpp)
+    target_link_libraries(zima_cpp_holes_command_tests PRIVATE zima_command_host)
+    target_compile_options(zima_cpp_holes_command_tests PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
+    add_test(NAME zima_cpp_holes_command_tests COMMAND zima_cpp_holes_command_tests)
+    set_tests_properties(zima_cpp_holes_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     target_link_libraries(zima_cpp_sketch_offset_geometry_tests PRIVATE zima_sketcher)
     add_test(NAME zima_cpp_sketch_offset_geometry_tests COMMAND zima_cpp_sketch_offset_geometry_tests)
     add_executable(zima_cpp_exact_spline_contract_tests tests/exact_spline_contract_tests.cpp)

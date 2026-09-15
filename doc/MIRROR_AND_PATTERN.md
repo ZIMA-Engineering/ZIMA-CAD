@@ -1,56 +1,50 @@
-# Zrcadlo a Pole
+# Mirror and Pattern
 
-Oba příkazy vytvářejí odkazované kopie s vlastním počátkem a standardním
-umístěním kontejneru. Zdroj lze vybrat před spuštěním příkazu nebo následně
-zeleným polem Zdroj ve View či Tree.
+Both commands create referenced copies with their own Origin and standard container
+placement. Select a source before starting or through the green Source field in View/Tree.
 
-- **Zrcadlo** používá rovinu nebo rovinnou plochu. Tlačítka XY/YZ/XZ vyberou
-  rovinu vlastního počátku kontejneru.
-- **Pole – lineární** používá jednu až tři různé osy vlastního počátku.
-  Kliknutí na referenční pole směru nabídne pod kurzorem osy X/Y/Z kontejneru
-  Pole. Každý směr má kladnou rozteč a vlastní počet. Dva směry vytvoří mřížku,
-  tři směry prostorové pole. Křížek u reference odstraní příslušný směr.
-- Rozložení každého směru může být **Vpřed**, **Vzad**, **Oboustranně** nebo
-  **Symetricky**. Počet zahrnuje zdroj; u oboustranného rozložení pole **Vzad**
-  přidává nezávislý počet kopií za zdroj. Symetrický počet je lichý (3, 5, 7…)
-  a zdroj zůstává uprostřed. Například 3 × 2 × 2 znamená 12 výskytů celkem,
-  tedy zdroj a 11 kopií. Celkový limit je 1000 výskytů.
-- **Pole – kruhové** používá zvolenou osu, přímou hranu nebo kruhovou hranu.
-  Lze rozdělit celý kruh nebo zadat úhel mezi výskyty. Osa a její reference se
-  zachovají při přepnutí na lineární režim, ve kterém je ovládání kruhové osy skryté.
-  Nastavení lineárních směrů se rovněž zachová při přepnutí do kruhového režimu.
-- Počet Pole zahrnuje původní zdroj. Kontejner přidává zbývající kopie;
-  původní objekt zůstává samostatný.
+- **Mirror** uses a plane or planar face. XY/YZ/XZ buttons choose planes of its own Origin.
+- **Linear Pattern** uses one to three distinct own-Origin axes. Clicking a direction
+  reference offers Pattern X/Y/Z axes under the pointer. Each direction has positive
+  spacing and its own count. Two directions form a grid; three form a spatial pattern.
+  The reference cross removes that direction.
+- Each direction supports **Forward**, **Backward**, **Both Sides**, or **Symmetric**.
+  Count includes the source; Both Sides has an independent backward-copy count.
+  Symmetric count is odd (3, 5, 7…) with source centered. A 3 × 2 × 2 pattern means
+  12 occurrences total: source plus 11 copies. Maximum is 1000 occurrences.
+- **Circular Pattern** uses an axis, straight edge, or circular edge. Divide a full
+  circle or specify angle between occurrences. Axis/reference survives switching to
+  linear mode, where its control is hidden. Linear directions likewise survive
+  switching to circular mode.
+- Pattern counts include the source; its container adds remaining copies while the
+  original remains independent.
 
-V dílu je Zrcadlo i celé Pole samostatný výsledek typu těleso. Lze jej vybrat,
-skrýt a použít jako nástroj nebo cíl operace Boolean. Pole představuje jeden
-společný výsledek zahrnující jeho kopie. Geometrie kopií nemá vlastní
-editovatelnou historii; rozměry se mění ve zdroji.
+In Part, Mirror and the whole Pattern are independent Body results, selectable,
+hideable, and usable as Boolean tools/targets. Pattern is one combined result of its
+copies. Copy geometry has no independent editable history; edit dimensions at the source.
 
-Při spuštění z aktivního tělesa se Zrcadlo nebo Pole vkládá bezprostředně
-za toto těleso. Zdroj lze vybrat jen z výsledků před touto hranicí; pozdější
-tělesa zůstávají ve View potlačená a v Tree šedá již od otevření Vlastností,
-i před vyplněním zdroje. Cancel obnoví původní stav historie.
-V nabídce aktivního tělesa jsou Zrcadlo a Pole pod Vrtací špičkou, před
-zeleným oddělovačem a příkazem Kvádr.
+Starting from an active Body inserts Mirror/Pattern immediately after it. Sources
+must precede that boundary; later Bodies are suppressed in View and gray in Tree from
+Properties opening, even before choosing a source. Cancel restores original history.
+In the active-Body menu, Mirror/Pattern follows Drill Point and precedes the green
+separator and Box.
 
-V sestavě odkazuje kontejner na bezprostředně vlastněnou komponentu. Pole
-ukládá pro každou kopii vlastní cestu výskytu, včetně kopií podsestav.
-U lineárního pole je identita odvozena od celočíselné pozice na místních
-osách; zvýšení počtu v jiném směru nemění identitu existující kopie.
-Vlastnosti geometrie a aktivace kopie vedou na původní zdroj. Vlastnosti
-kontejneru v Tree umožňují změnit jeho umístění, zdroj a rovinu/parametry Pole.
-Při editaci zůstává okolní sestava pasivním kontextem a zobrazuje se vstupní
-geometrie. Storno zachová původní dokument; OK vypočítá a uloží změnu.
+In Assembly, containers reference immediate owned components. Each Pattern copy has
+its own occurrence path, including subassembly copies. Linear identity derives from
+integer local-axis position; increasing another direction's count preserves existing
+copy identities. Geometry Properties and activation resolve to the original source.
+Tree container Properties edits placement, source, and plane/Pattern parameters.
+Editing shows input geometry with surrounding Assembly passive; Cancel preserves
+the document, OK calculates/commits.
 
-Změny otevřených zdrojových dokumentů se do sestavy přenášejí příkazem
-Regenerovat. Přepnutí záložky nebo obnovení View geometrické kopie nepočítá.
-Cyklus přes zdroj, umístění nebo konstrukční reference je odmítnut.
+Explicit Regenerate updates derived-copy geometry from open sources. Tab switches/
+View refresh do not calculate copies. Source, placement, or construction-reference
+cycles are rejected. Current ordinary-source display sharing is documented in
+[ASSEMBLY_GEOMETRY_SHARING.md](ASSEMBLY_GEOMETRY_SHARING.md).
 
-Výpočet B-Rep provádí OCCT jen při explicitním výpočtu. Náhled, výběr,
-reference a vlastnosti využívají uložené ZIMA geometrické údaje. Identity
-odvozené topologie ukládají zdrojového vlastníka a jeho sémantický klíč;
-pořadí průchodu OCCT nikdy neurčuje identitu kopie.
+OCCT calculates B-Rep only explicitly. Preview, picking, references, and Properties
+use persisted ZIMA geometry. Derived topology identities store source owner and
+semantic key; OCCT traversal never defines copy identity.
 
-Ověření: `zima_cpp_derived_copy_contract_tests`; GUI scénář
-`ZIMA_VERIFY_DERIVED_COPY_ONLY=1` s testem `zima_cpp_workspace_startup_contract`.
+Verification: `zima_cpp_derived_copy_contract_tests`; GUI
+`ZIMA_VERIFY_DERIVED_COPY_ONLY=1` with `zima_cpp_workspace_startup_contract`.

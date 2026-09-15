@@ -1,12 +1,12 @@
-# Vlastnosti 3D kót přes CLI
+# 3D dimension properties through CLI
 
-Názvy příkazů, JSON parametrů a chybových kódů jsou anglické a nezávislé
-na jazyku aplikace. Překládají se popisy, nápověda a zprávy pro uživatele.
+Command, JSON parameter, and error-code names are English and independent of
+application language. Descriptions, help, and user-facing messages are localized.
 
-`dimension.layout.list`, `dimension.layout.get` a `dimension.layout.set`
-pracují s nativními kótami otevřeného Partu nebo Assembly. GUI Vlastnosti
-kóty i CLI potvrzují vzhled stejnou datovou operací. Aktivní editace skici
-používá své dosavadní příkazy a rozpracovanou transakci.
+`dimension.layout.list`, `dimension.layout.get`, and `dimension.layout.set` operate
+on native dimensions in open Parts/Assemblies. GUI Dimension Properties and CLI
+commit appearance through the same data operation. Active Sketch editing retains
+its existing commands and pending transaction.
 
 ```json
 {"command":"dimension.layout.list","arguments":{"owner":"BOX_ID"}}
@@ -14,73 +14,62 @@ používá své dosavadní příkazy a rozpracovanou transakci.
 {"command":"dimension.layout.set","arguments":{"reference":{"owner":"BOX_ID","key":"parameter:length"},"reset":true}}
 ```
 
-`list` nabízí identity parametrů, včetně nulových či právě nezobrazených
-kót. Přijímá volitelné `owner`, `document` a `limit` (1–10000, výchozí 2000).
-Vrací `items` a celkový počet odpovídajících položek `total`. Položky nejsou
-seznamem viditelné geometrie a příkaz kvůli nim nevytváří scénu.
+`list` offers parameter identities including zero or currently hidden dimensions.
+It accepts optional `owner`, `document`, and `limit` (1–10000, default 2000), returning
+`items` and matching `total`. Items are not a visible-geometry list; no scene is built.
 
-`get` vrací `reference`, jméno vlastníka, `has_override`, uložené `layout`
-nebo výchozí nastavení, revizi dokumentu a `body_calculated: false`.
-`text_style: null` znamená převzetí původního stylu kóty; samostatné CLI
-kvůli zjištění tohoto stylu nevytváří zobrazovanou kótu.
+`get` returns `reference`, owner name, `has_override`, persisted/default `layout`,
+document revision, and `body_calculated: false`. `text_style: null` inherits original
+dimension style; standalone CLI does not construct a displayed dimension to discover it.
 
-Při změně převezměte objekt `layout` z `get`, změňte požadované hodnoty
-a odešlete jej celý do `set`:
+For editing, copy the complete `layout` from `get`, change desired values, and send
+it to `set`:
 
 ```json
 {"command":"dimension.layout.set","arguments":{"reference":{"owner":"BOX_ID","key":"parameter:length"},"layout":{"plane_quarter_turns":0,"envelope_offset":8,"text_along":4,"text_outward":0,"radius_rotation_degrees":0,"arrows_reversed":false,"line_offset":0,"radius_center_line_hidden":false,"text_style":null}}}
 ```
 
-Délky jsou v modelových milimetrech, natočení poloměru ve stupních.
-`plane_quarter_turns` je celé číslo 0–3; `envelope_offset` je nezáporná
-vzdálenost nebo `null` pro volné umístění. Všechny číselné hodnoty musí být
-konečné. Vlastní `text_style` je úplný objekt s poli `prefix`, `suffix`,
+Lengths are model mm; radius rotation uses degrees. `plane_quarter_turns` is integer
+0–3; `envelope_offset` is nonnegative or `null` for free placement. All numbers must
+be finite. Custom `text_style` is a complete object with `prefix`, `suffix`,
 `text_override`, `decimals` (0–12), `tolerance_mode`, `symmetric_tolerance`,
-`single_tolerance`, `upper_tolerance`, `lower_tolerance`.
-Režim tolerance je prázdný řetězec, `symmetric`, `single_deviation` nebo
-`deviations`; textová pole mají nejvýše 2048 bajtů UTF-8.
+`single_tolerance`, `upper_tolerance`, and `lower_tolerance`. Tolerance mode is empty,
+`symmetric`, `single_deviation`, or `deviations`; text fields allow at most 2048 UTF-8 bytes.
 
-`reset: true` odstraní vlastní vzhled. Nesmí se kombinovat s `layout`.
-Stejná hodnota, prázdný reset ani nastavení nezměněného výchozího vzhledu
-nevytváří nový Undo krok. Změna vzhledu neovlivní hodnotu rozměru,
-umístění objektu, vypočtené těleso ani jeho původní reference. Je uložena
-jednou transakcí a podporuje Undo/Redo. Neprobíhá OCCT, načítání zdrojů,
-řešení vazeb ani regenerace.
+`reset: true` removes overrides and cannot accompany `layout`. Identical values,
+empty reset, and unchanged defaults create no Undo step. Appearance changes affect
+neither dimension value, object placement, calculated body, nor original references.
+One transaction supports Undo/Redo, without OCCT, source loading, mate solving, or regeneration.
 
-Zápis vyžaduje aktivní dokument, příslušný aktivní Body a zavřené editory.
-Vlastnosti kót samotného Body lze upravit i mimo jeho aktivaci, stejně jako
-v GUI. Nezadaný `instance_path` přebírá přesný aktivní výskyt; zadaný musí
-souhlasit. V aktivovaném dílu uvnitř sestavy se vzhled uloží do zdrojového
-dílu. Jeho opakované výskyty tak sdílejí vzhled; příkaz nemění vlastnosti
-ani umístění nadřazené sestavy. Dotaz na jiný otevřený dokument používá
-jeho místní prázdnou cestu.
+Writing requires the active document, appropriate active Body, and closed editors.
+Dimensions of the Body itself may be edited without activating it, matching GUI.
+Omitted `instance_path` adopts the exact active occurrence; supplied paths must match.
+In an activated Part inside Assembly, appearance is stored in the source Part and
+shared by repeated occurrences. Parent Assembly properties/placement are unchanged.
+Queries for another open document use its empty local path.
 
-Existující formát `dimension_layouts` uvnitř `.prtz` a `.asmz` zůstává
-stejný. Nepřibývají pomocné soubory ani změna šablon.
+Existing `dimension_layouts` in `.prtz`/`.asmz` remain unchanged, with no auxiliary
+files or template changes.
 
-Modelové testy kontrolují objem a skutečnou vypočtenou geometrii kvádru,
-historii, chybné vstupy, Body, opakované výskyty a opětovné otevření obou
-nativních formátů. Procesní test používá samostatný CLI program. GUI test
-otevírá skutečné Vlastnosti kóty, kontroluje přenos stylu z příkazu,
-Cancel, OK, Undo/Redo a nativní uložení.
+Model tests check actual calculated box geometry/volume, history, invalid inputs,
+Body, repeated occurrences, and reopening both native formats. Process tests use
+standalone CLI. GUI opens real Dimension Properties and checks command-style transfer,
+Cancel, OK, Undo/Redo, and native saving.
 
-## Oprava fialových úchopů umístění (2026-09-14)
+## Purple placement-handle repair (2026-09-14)
 
-Kóty souřadnic a referenčních odsazení nyní předávají vieweru skutečnou
-normálu roviny kóty, kolmou na směr měření i odsazení vynášecích čar.
-Dříve pole obsahovalo samotný směr měření; součin použitý pro základnu
-posunu byl nulový a fialovým úchopem nešlo popisek posunout. Znaménko
-normály vychází ze skutečného rozpětí, aby záporná odsazení nepřeklápěla
-vynášecí čáry na opačnou stranu.
+Coordinate/reference-offset dimensions now supply the actual dimension-plane normal,
+perpendicular to measurement and extension-line offset directions. Previously the
+field held the measurement direction itself, producing a zero cross product for
+translation and preventing purple-handle label movement. Normal sign follows actual
+span so negative offsets do not flip extension lines to the opposite side.
 
-Regrese kontroluje všechny tři úchopy, X/Y/Z i kladná a záporná odsazení.
-Skutečné události stisk/pohyb/uvolnění posunou popisek, nemění číselnou
-hodnotu ani geometrii a potvrzují vzhled právě jednou po uvolnění.
-Prošly modelové i `dimension_layout_contract_tests`.
+Regression covers all three handles, X/Y/Z, and positive/negative offsets. Actual
+press/move/release events move labels without changing values or geometry, committing
+appearance exactly once on release. Model and `dimension_layout_contract_tests` passed.
 
-Tato oprava pokrývá přímou editaci popisků ve View. Při otevřených
-Vlastnostech kontejneru zůstává přesun zatím blokovaný. Navazující práce
-musí držet vzhled v rozpracované transakci společně s parametry: OK má
-uložit obojí jedním Undo krokem, Zrušit nesmí zanechat změnu dokumentu.
-Pouhé povolení úchopů nad současným okamžitým zápisem by tento kontrakt
-porušilo; transakční rozšíření dosud není implementované.
+This repair covers direct View label editing. At this stage movement remains blocked
+with container Properties open. Follow-up work must retain appearance alongside
+parameters in the pending transaction: OK commits both in one Undo step, Cancel
+leaves no document change. Merely enabling handles over immediate writes would
+violate that contract; this transactional extension was not yet implemented at this stage.

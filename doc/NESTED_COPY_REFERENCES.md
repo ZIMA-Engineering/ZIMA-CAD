@@ -1,55 +1,53 @@
-# Původní reference vnořeného Zrcadla a Pole
+# Original references in nested Mirror and Pattern copies
 
-Nezávislý test odhalil nesoulad analytických ploch vnořených kopií.
-Zdrojová rovina souhlasila s vrcholy své triangulace na přibližně
-4,7 × 10⁻¹⁴ mm, ale po zrcadlení činila odchylka až **51,5766 mm**.
-U Pole se navíc odmítala uložená cesta přes virtuální výskyt.
+An independent test exposed inconsistent analytical surfaces in nested copies.
+The source plane matched its triangulation vertices within approximately
+4.7 x 10^-14 mm, but after mirroring the deviation reached **51.5766 mm**.
+Pattern also rejected a persisted path through a virtual occurrence.
 
-## Oprava souřadných rámců
+## Coordinate-frame correction
 
-Vzorky v sestavovém paketu již obsahují vnořená umístění, zatímco
-analytická plocha zůstává v souřadnicích svého původního výskytu.
-Výpočet Zrcadla/Pole transformuje celý paket jedním převodem.
-Před tímto výslovným výpočtem se proto pouze analytické údaje převedou
-do rámce paketu; vypočítaná kopie je vrátí do rámce své přesné uložené
-hierarchie. Používají se existující transformační funkce.
+Assembly-packet samples already contain nested placements, while an analytical
+surface remains in its original occurrence frame. Mirror/Pattern calculation
+transforms the whole packet at once. Before that explicit calculation, only
+analytical data is therefore converted into the packet frame; the calculated copy
+returns it to the frame of its exact persisted hierarchy. Existing transformation
+functions are reused.
 
-Vzorky, póly spline, topologické identity, řešení vazeb a hodnoty umístění
-se tímto dodatečným převodem nemění. Analytická data jednotlivé plochy
-jsou sdílená mezi jejími trojúhelníky. Zobrazený a původní paket mají
-samostatné sdílení, aby se nesmíchaly jejich údaje o straně materiálu.
-Chybějící přesná zdrojová cesta se odmítne.
+This additional conversion changes no samples, spline poles, topology identities,
+mate solving, or placement values. Triangles of each face share analytical data.
+Display and original-reference packets share separately so their material-side
+information is not mixed. A missing exact source path is rejected.
 
-Společné čtení uložených cest nyní přijímá i uzly Pole. Jejich virtuální
-výskyty vlastní obklopující skutečná Assembly. Vnitřní Part vložené
-podsestavy nadále vlastní tato zdrojová podsestava. Aktivace odvozeného
-výskytu přechází na jeho přesný původní zdroj a ponechá hlavní sestavu
-zobrazenou. Dotazy ani projekce nespouštějí výpočet kopie.
+Shared persisted-path reading now accepts Pattern nodes. Their virtual occurrences
+belong to the surrounding real Assembly. An internal Part of an inserted subassembly
+still belongs to that source subassembly. Activating a derived occurrence selects
+its exact original source while keeping the top-level Assembly displayed. Queries
+and projections do not calculate copies.
 
-Přípony, struktura nativních souborů a šablony se nemění. Dříve vypočtené
-kopie získají opravené analytické údaje při příštím výslovném přepočtu;
-čtení a přepnutí karty je automaticky nepřepočítávají. Katalog zůstává
-na **209 příkazech**.
+Extensions, native structure, and templates are unchanged. Previously calculated
+copies receive corrected analytical data at the next explicit recalculation;
+reads and tab switches do not recalculate automatically. The catalog remains at
+**209 commands**.
 
-## Ověření
+## Verification
 
-Původní reprodukce selhala **0/1** (0,15 s),
-`build/nested-copy-reference-baseline-tests.log`. Po opravě prošla první
-sada **3/3** (1,17 s), `build/nested-copy-reference-tests.log`; odchylka
-zrcadla i pole klesla přibližně na 2,5 × 10⁻¹⁴ mm.
+The original reproduction failed **0/1** (0.15 s),
+`build/nested-copy-reference-baseline-tests.log`. After correction, the first suite
+passed **3/3** (1.17 s), `build/nested-copy-reference-tests.log`; Mirror/Pattern
+deviation fell to approximately 2.5 x 10^-14 mm.
 
-Rozšířená regrese prošla **1/1** (1,07 s),
-`build/nested-copy-reference-expanded-tests.log`. Nezávisle ověřuje
-rovnice roviny a válce ve vrcholech jejich triangulace, jednotkovou osu,
-objem 10 × 12 × 14 + π × 3² × 18 mm³, meze zrcadla, dvojitého zrcadla
-a lineárního pole. Obsahuje dvě tělesa, složená prostorová natočení,
-všechny tři základní roviny zrcadlení, kruhové i lineární pole,
-zrcadlo pole a pole dalšího pole. Stejné kontroly probíhají po převedení
-referencí do jiného Partu a po nativním uložení a opětovném načtení.
+Expanded regression passed **1/1** (1.07 s),
+`build/nested-copy-reference-expanded-tests.log`. Independent checks cover plane
+and cylinder equations at triangulation vertices, a unit axis, volume
+10 x 12 x 14 + pi x 3^2 x 18 mm³, and Mirror, double-Mirror, and linear-Pattern
+bounds. Cases include two bodies, composed spatial rotations, all three principal
+mirror planes, circular/linear patterns, Mirror of Pattern, and Pattern of Pattern.
+The same checks run after transferring references into another Part and after native save/reload.
 
-Po doplnění vlastnictví a aktivace virtuálních uzlů, pěti překladů a
-sestavení všech programů prošla širší sada **21/21** (142,57 s),
-`build/nested-copy-reference-integration-tests.log`. Zahrnuje celé GUI,
-vlastnosti a tvorbu kopií, původní reference, kontextový refresh,
-Workspace, native/cache testy, zdrojové dokumenty, skutečný CLI proces
-a překlady. Sestavení: `build/nested-copy-reference-all-build.log`.
+After adding virtual-node ownership/activation, five translations, and building
+all programs, the wider suite passed **21/21** (142.57 s),
+`build/nested-copy-reference-integration-tests.log`. It covers full GUI, copy
+Properties/creation, original references, context refresh, Workspace, native/cache
+tests, source documents, actual CLI, and translations.
+Build log: `build/nested-copy-reference-all-build.log`.

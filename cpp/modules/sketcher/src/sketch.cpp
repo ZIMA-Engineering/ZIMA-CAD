@@ -13039,10 +13039,10 @@ std::string Sketch::serialized() const {
         value["locked"] = dimension.locked;
         dimension_values.push_back(std::move(value));
     }
-    nlohmann::json root{{"format", "zima-cad-cpp-sketch"}, {"version", 33},
+    nlohmann::json root{{"format", "zima-cad-cpp-sketch"}, {"version", 34},
         {"id", id}, {"owner_container_id", owner_container_id},
         {"name", name}, {"suppressed", suppressed},
-        {"plane", plane_name(plane)},
+        {"plane", plane_name(plane)}, {"plane_auto", plane_auto},
         {"plane_offset", plane_offset},
         {"plane_reference_owner_id", plane_reference_owner_id},
         {"resolved_origin", {resolved_origin.x, resolved_origin.y, resolved_origin.z}},
@@ -13093,7 +13093,7 @@ std::string Sketch::serialized() const {
 
 Sketch Sketch::from_serialized(const std::string& value) {
     const auto root = nlohmann::json::parse(value);
-    if (root.at("format") != "zima-cad-cpp-sketch" || root.at("version") != 33) {
+    if (root.at("format") != "zima-cad-cpp-sketch" || root.at("version") != 34) {
         throw std::runtime_error("Unsupported sketch format");
     }
     Sketch sketch;
@@ -13115,6 +13115,7 @@ Sketch Sketch::from_serialized(const std::string& value) {
     sketch.name = root.at("name").get<std::string>();
     sketch.suppressed = root.at("suppressed").get<bool>();
     sketch.plane = plane_from_name(root.at("plane").get<std::string>());
+    sketch.plane_auto = root.at("plane_auto").get<bool>();
     sketch.plane_offset = root.at("plane_offset").get<double>();
     sketch.plane_reference_owner_id =
         root.at("plane_reference_owner_id").get<std::string>();

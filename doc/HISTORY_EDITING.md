@@ -121,27 +121,27 @@ It performs no feature compilation or OCCT work. Missing operation or missing
 calculation returns no inputs; it never substitutes the final document solid.
 The Boolean step owns its result ID and leaves both source histories intact.
 
-### Roviny úhlových kót umístění
+### Placement angular-dimension planes
 
-Úhlové kóty sledují skutečné pořadí orientace `Rz * Ry * Rx`: rovina RX
-se otočí podle RY a RZ, rovina RY podle RZ a rovina RZ zůstává v nadřazeném
-rámci. Stejné pravidlo platí pro korekce uvnitř rámce po PŘEDNÍ/ZADNÍ
-a čtvrtotáčce. Například RY = 15° při RZ = −90° leží v pootočené rovině
-YZ, nikoli v pevné XZ. Umístění tělesa pak převede celou kótu do dokumentu.
-Jde o konstrukci zobrazované kóty; řešení polohy a orientace prvku se nemění.
+Angular dimensions follow the actual orientation order `Rz * Ry * Rx`: the RX
+plane rotates with RY and RZ, the RY plane with RZ, and the RZ plane remains in
+the parent frame. The same rule applies to corrections inside the frame after
+FRONT/BACK and quarter-turn orientation. For example, RY = 15° with RZ = −90°
+lies in a rotated YZ plane rather than fixed XZ. Body placement then transforms
+the whole dimension into document coordinates. This constructs the displayed
+dimension; feature position and orientation solving remain unchanged.
 
-### Mazání v tělesech a potvrzený výběr
+### Deletion within bodies and confirmed selection
 
-Odstranění prvku aktualizuje jeho záznam, vlastněné profilové skici,
-pořadí historie a kurzor příslušného tělesa v jedné dokumentové změně.
-Historie ostatních těles zůstává zachována. Reference jiných prvků na
-odstraněný zdroj se nemažou: zůstávají identifikovatelné a označené jako
-chybějící, aby je uživatel mohl nahradit. Chyba navazujícího výpočtu nesmí
-vrátit odstraněný prvek zpět ani zobrazovat původní výsledné těleso.
-Chybějící profil Vytažení/Rotace zachovává prázdnou potlačenou výpočetní
-hranici; definice prvku a ID profilu se zachovají i při uložení.
+Removing a feature updates its record, owned profile Sketches, history order,
+and the corresponding body's cursor in one document change. Other body histories
+are preserved. References from other features to the removed source are retained
+as identifiable missing references so the user can replace them. A subsequent
+calculation failure must neither restore the removed feature nor display the
+original result body. Missing Extrusion/Revolution profiles retain an empty,
+suppressed calculation boundary; feature definitions and profile IDs survive saving.
 
-Filtr výběru podle aktivního tělesa neznamená rozpracovaný referenční příkaz.
-Potvrzení ze stromu přetrvává při pohybu myši. Referenční příkazy nadále
-mohou přejít k dalšímu kandidátu; běžný výběr lze zrušit kliknutím do prázdna
-nebo prostředním dvojklikem ve View.
+Filtering selection by the active body does not imply a pending reference command.
+Tree confirmation persists during pointer movement. Reference commands may still
+advance to the next candidate; ordinary selection can be cleared by clicking empty
+space or middle-button double-clicking in the View.

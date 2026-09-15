@@ -233,6 +233,7 @@ private:
     QAction* box_action_{};
     QAction* cylinder_action_{};
     QAction* thread_action_{};
+    QAction* holes_action_{};
     QAction* drill_point_action_{};
     QAction* sphere_action_{};
     QAction* cone_action_{};
@@ -791,7 +792,7 @@ private:
     [[nodiscard]] bool accept_origin_reference_value(
         const QString& owner_id, const QString& instance_path,
         const QString& semantic_key);
-    void show_sketch_properties(const std::string& sketch_id = {});
+    void show_sketch_properties(const std::string& sketch_id = {}, bool holes_mode = false);
     void show_sweep_profile_sketch(
         ConstructionPropertiesDialog* sweep_dialog,
         std::size_t profile_index);

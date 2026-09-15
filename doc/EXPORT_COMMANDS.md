@@ -1,223 +1,195 @@
-# Export přes společnou příkazovou vrstvu
+# Export through the shared command layer
 
-Menu GUI a konzole/CLI sdílejí `workspace::export_file` pro model/skici
-a `drawing_render` pro PDF a DXF výkresů. Exportuje se poslední
-vypočtený stav otevřeného dokumentu. Operace sama nevyvolává Regenerate,
-nenačítá změněné zdrojové party a nevytváří modelovou změnu ani krok Undo.
+GUI menus and console/CLI share `workspace::export_file` for models/sketches and
+`drawing_render` for Drawing PDF/DXF. Export uses the open document's current
+calculated state without Regenerate, loading changed source Parts, model mutation
+or Undo steps. Source-geometry ownership is described in
+[ASSEMBLY_GEOMETRY_SHARING.md](ASSEMBLY_GEOMETRY_SHARING.md).
 
-## Příkazy
+## Commands
 
 - `export.step path [overwrite] [document]`
 - `export.stl path [overwrite] [document]`
 - `export.dxf path [sketch] [overwrite] [document] [sheet]`
 - `export.pdf path [overwrite] [document]`
-- `export.image` s JSON argumenty `path`, `sheet`, volitelně `dpi`, `crop_mm`,
-  `quality`, `overwrite`, `document`
+- `export.image` with JSON `path`, `sheet`, optional `dpi`, `crop_mm`, `quality`,
+  `overwrite`, `document`
 
-`document` volitelně ověřuje aktivní dokument. `overwrite` je boolean,
-výchozí `false`. Relativní cesta patří pracovnímu adresáři konzole.
-Přípona musí odpovídat příkazu; STEP přijímá `.step` i `.stp`.
-Adresář musí existovat. GUI používá potvrzení přepsání ze svého dialogu.
+Optional `document` verifies the active document. Boolean `overwrite` defaults to
+`false`. Relative paths use the console working directory. Extensions must match;
+STEP accepts `.step`/`.stp`. Parent directories must exist. GUI uses its file dialog's
+overwrite confirmation.
 
 ```json
-{"command":"export.step","arguments":{"path":"výsledky/sestava.step"}}
-{"command":"export.stl","arguments":{"path":"výsledky/díl.stl","overwrite":true}}
-{"command":"export.dxf","arguments":{"path":"výsledky/obrys.dxf","sketch":"SKETCH_ID"}}
+{"command":"export.step","arguments":{"path":"results/assembly.step"}}
+{"command":"export.stl","arguments":{"path":"results/part.stl","overwrite":true}}
+{"command":"export.dxf","arguments":{"path":"results/outline.dxf","sketch":"SKETCH_ID"}}
 ```
 
-Výsledek vrací `document`, absolutní UTF-8 `path`, `source_revision`,
-`bytes` a `model_changed:false`. Geometrie používá milimetry; DXF zapisuje
-`$INSUNITS=4`. STL nemá jednotkovou hlavičku, jeho souřadnice jsou v mm.
-Dosavadní STL síť se vytváří s odchylkou 0,1 mm a úhlovou mezí 0,5 rad.
-Zobrazení modelu ani jeho uložená síť se tím nemění.
+Results contain `document`, absolute UTF-8 `path`, `source_revision`, `bytes`,
+`model_changed:false`. Geometry uses mm; DXF writes `$INSUNITS=4`. STL has no unit
+header and uses mm coordinates. Existing STL tessellation uses 0.1 mm deflection
+and 0.5 rad angular limit, without changing model display or saved meshes.
 
-## Rozsah a omezení
+## Scope and limits
 
-STEP zachovává produktovou strukturu Partu i vnořených sestav. Čte již uložené
-výsledky konkrétních výskytů v otevřeném dokumentu; export tedy odpovídá
-poslední explicitní regeneraci. Změna zdrojového Partu v jiném tabu sama
-neaktualizuje export jeho nadřazené sestavy.
+STEP preserves Part and nested-Assembly product structure and consumes calculated
+occurrence results in the open document. The initial implementation required parent
+regeneration to obtain source changes. Current shared-source display follows
+[Assembly geometry sharing](ASSEMBLY_GEOMETRY_SHARING.md); Assembly-owned operations
+and mates still require explicit regeneration.
 
-STL podporuje Part i vnořené sestavy včetně opakovaných výskytů. Sestavu
-převede do jedné sítě; STL neuchovává jména ani produktovou hierarchii.
-DXF podporuje úsečky, osy, samostatné body, kružnice, kruhové a eliptické
-oblouky, elipsy i B-spline vybrané skici, včetně uložené geometrie offsetů
-a trimů. Skicu lze určit i ve vlastněném profilu. Rohová zaoblení se
-exportují jako přesné kruhové oblouky s tečně zkrácenými úsečkami.
-Text se exportuje jako uložené uzavřené obrysy v `LWPOLYLINE`; zachová
-vnitřní otvory, natočení a převrácení. Jde o geometrii písmen, nikoli
-editovatelnou entitu DXF TEXT. Neplatný tvar se odmítne před zápisem.
+STL supports Parts and nested/repeated Assembly occurrences, flattening them into
+one mesh without names/product hierarchy. Sketch DXF supports segments, axes,
+standalone points, circles, circular/elliptical arcs, ellipses and B-splines, including
+saved offsets/trims and owned profiles. Corner rounds export as exact circular arcs
+with tangent-trimmed segments. Text exports saved closed outlines as `LWPOLYLINE`,
+preserving holes, rotation and flipping. These are letter outlines, not editable
+DXF TEXT. Invalid shapes are rejected before writing.
 
-Výkres podporuje `export.pdf` pro všechny listy a `export.dxf` s povinným
-`sheet` pro jeden list. V tomto režimu se nepřijímá `sketch`; v modelovém
-režimu je naopak `sketch` povinný a `sheet` se nepřijímá. Staré pořadí
-pozičních argumentů exportu skici zůstává zachované. Pro výkres použijte
-pojmenované argumenty v JSON. Rozsah výkresového DXF se liší od skici:
-je to obraz uložených průmětů v milimetrech na papíře, s obrysy převedenými
-na úsečky. Podrobnosti: [DRAWING_COMMANDS.md](DRAWING_COMMANDS.md).
-PNG/JPEG listu nebo jeho výřezu poskytuje `export.image` s výslovným DPI.
-PNG/JPEG aktuálního interaktivního View zatím zůstávají adaptéry GUI;
-příkazový ekvivalent skutečného 3D snímku vyžaduje explicitně definovanou
-kameru. GUI výkresový JPEG sdílí s příkazem atomický obrazový kodér.
+Drawing `export.pdf` exports all sheets; `export.dxf` requires `sheet` for one sheet
+and rejects `sketch`. Model DXF instead requires `sketch` and rejects `sheet`.
+Existing positional sketch-export order is preserved; use named JSON arguments for
+Drawings. Drawing DXF represents saved paper-mm projections with outlines converted
+to segments, unlike exact sketch DXF. See [DRAWING_COMMANDS.md](DRAWING_COMMANDS.md).
+`export.image` provides PNG/JPEG sheets/crops at explicit DPI. At this stage,
+interactive-View PNG/JPEG remained GUI adapters pending explicit-camera commands;
+current View export is described in [VIEW_EXPORT_COMMAND.md](VIEW_EXPORT_COMMAND.md).
+GUI Drawing JPEG shares the atomic image encoder.
 
-## Zápis a chyby
+## Writing and errors
 
-Pracovní úloha vlastní snímek vstupních dat. Hotový soubor zapisuje do
-soukromého dočasného podadresáře vedle cíle a teprve po úspěchu jej zveřejní
-pod požadovaným názvem. Neúspěch zachová původní cílový soubor. Bez
-`overwrite` je odmítnuta i konkurenční tvorba cíle během exportu.
-Dočasné soubory se po úspěchu i chybě uklidí; nevzniká trvalý vedlejší formát.
+Workers own input snapshots and write completed output in private temporary
+subdirectories beside targets, publishing only after success. Failure preserves
+existing target files. Without `overwrite`, concurrent target creation during export
+is also rejected. Temporary files are cleaned after success/failure; no permanent
+sidecar format is introduced.
 
-STL používá streamové rozhraní OCCT a `filesystem::path`, protože jeho
-původní filename varianta v OCCT 8 otevírala úzký `std::ofstream` a ve Windows
-selhávala na českých názvech adresářů. STEP/STL/DXF mají regresi českých cest.
-Výpisy OCCT směřují ve skutečném CLI na stderr, JSON protokol zůstává na stdout.
+STL uses OCCT streams and `filesystem::path` because OCCT 8's filename overload
+opened a narrow `std::ofstream` and failed on Czech Windows directories. STEP/STL/DXF
+have Czech-path regressions. Real CLI routes OCCT messages to stderr, keeping JSON
+on stdout.
 
-## Ověření
+## Verification
 
-Modelové testy nezávisle kontrolují objem STEP po opětovném importu a objem
-uzavřeného STL integrací jeho binárních trojúhelníků: kvádr 10×20×30 mm
-má 6000 mm³. Ověřují původní i explicitně regenerovaný stav, vložené sestavy,
-DXF kružnice/oblouky, odmítnutí neúplné geometrie a konflikt cílového souboru.
-Procesové testy ověřují export po zavření a opětovném načtení Partu s neplatnou
-Qt platformou. GUI test spouští konzoli i skutečnou akci menu a dialog souboru.
+Model tests independently check STEP volume after reimport and closed-STL volume
+by integrating binary triangles: a 10×20×30 mm box is 6000 mm³. They check original
+and explicitly regenerated state, inserted Assemblies, DXF circles/arcs, incomplete
+geometry rejection and target conflicts. Process tests export after Part close/reopen
+with an invalid Qt platform. GUI uses console plus actual menu/file-dialog actions.
 
-Závěrečný úplný Windows Release běh: **72/72**, 397,87 s,
-`build/export-full-tests.log`. Přeložené GUI i CLI odpovídají tomuto stavu.
-Katalog této etapy má 108 příkazů.
+Final full Windows Release: **72/72**, 397.87 s, `build/export-full-tests.log`.
+GUI/CLI builds matched that state. Catalog at this milestone: 108 commands.
 
+## Nested-Assembly STL
 
-## STL vnořených sestav
+`export.stl` and GUI share a saved-component snapshot. Workers compose a transient
+body using existing `assembly::calculate_component_body`, without changing numeric
+placement or mate solving. Transforms compose from Part through all owners to the
+target Assembly. Repeated sources remain separate mesh copies. Hidden, suppressed
+and dependency-suppressed branches are omitted.
 
-Příkaz `export.stl` i exportní menu používají společný snímek uložených
-komponent. Pracovní úloha sestaví dočasné těleso existující operací
-`assembly::calculate_component_body`; číselné umístění ani řešení vazeb se
-nemění. Transformace se skládají od dílu přes všechny jeho vlastníky až
-k cílové sestavě. Opakované výskyty stejného zdroje zůstávají samostatnými
-kopiemi v síti. Skrytá, potlačená a závislostí potlačená větev se vynechá.
+If a component owns a completed cut/derived-copy body, that result is exported
+instead of its original uncut descendants. Otherwise saved child bodies are selected
+by occurrence ID. Missing visible geometry returns `calculation_required`; empty
+visible results return `empty_geometry`. Traversal uses the existing component depth
+limit 256.
 
-Pokud komponenta obsahuje vlastní hotové těleso po řezu nebo odvozené kopii,
-exportuje se toto těleso, nikoli její původní neodečtení potomci. Jinak se
-použijí uložená dětská tělesa podle ID výskytu. Chybějící viditelná geometrie
-vrací `calculation_required`; prázdný viditelný výsledek vrací `empty_geometry`.
-Hloubka průchodu má stejnou mez 256 jako existující skládání komponent.
+Export neither opens sources nor solves mates/recalculates history. Worker OCCT only
+composes calculated bodies and triangulates for export. Transient bodies are not
+saved to Assembly or history/shared snapshots. Cost depends on B-Rep complexity;
+0.1 mm deflection and 0.5 rad angular limit are unchanged.
 
-Export neotevírá zdroje, neřeší vazby ani nepřepočítává historii modelu.
-OCCT v pracovní úloze pouze skládá vypočtená tělesa a trianguluje export.
-Dočasné těleso se neukládá do Assembly a nemění její historii ani sdílené
-snímky. Výstup může být výpočetně náročný podle složitosti B-Rep; tato etapa
-nemění dosavadní exportní odchylku 0,1 mm a úhlovou mez 0,5 rad.
+Regression independently reads binary STL for two 10×20×30 mm boxes across three
+levels, rotated successively around X/Y/Z. It checks all 16 corners, 24 triangles,
+normal orientation and signed volume 12,000 mm³. Real CLI/GUI export the same geometry.
+Additional cases: hidden/suppressed sources lacking bodies, missing visible bodies,
+source closure during workers, a 3000 mm³ cut result and preserving valid output
+on failure.
 
-Regrese nezávisle čte binární STL a ověřuje dva kvádry 10×20×30 mm ve třech
-úrovních s otočením postupně kolem X, Y a Z. Kontroluje všech 16 rohů,
-24 trojúhelníků, orientaci normál a podepsaný objem 12 000 mm³. Stejnou
-geometrii ověřuje příkazový proces i skutečná exportní akce GUI. Další
-scénáře zahrnují skryté a potlačené zdroje bez tělesa, chybějící viditelné
-těleso, uzavření zdrojového dokumentu během pracovní úlohy, výsledný řez
-s objemem 3 000 mm³ a odmítnutí přepsání platného souboru při chybě.
+Integration **7/7** (27.02 s), `build/nested-stl-integration-tests.log`; original
+STEP Assembly regression **1/1** (1.31 s), `build/nested-stl-step-regression.log`.
+GUI used `build/cpp-windows-release/zima-cad-nested-stl-validation.exe` from current
+CMake objects while the user's CAD stayed running. Command count is unchanged;
+existing `export.stl` was extended.
 
-Integrační sada prošla **7/7** (27,02 s),
-`build/nested-stl-integration-tests.log`; samostatná regrese původního STEP
-sestavení prošla **1/1** (1,31 s), `build/nested-stl-step-regression.log`.
-GUI používá ověřovací EXE `build/cpp-windows-release/zima-cad-nested-stl-validation.exe`
-ze stejných aktuálních CMake objektů, protože běžný uživatelský CAD zůstává
-spuštěný. Katalog se nemění: rozšířil se existující `export.stl`.
+## Exact sketch curves in DXF
 
+`interchange::export_dxf` was separated from the parser into `dxf_export.cpp`.
+GUI/CLI share validation. Files declare `AC1015` and mm; numbers use 17 significant
+digits and a decimal point regardless of locale.
 
-## Přesné křivky skici v DXF
-
-Zapisovač `interchange::export_dxf` je oddělen od importního parseru do
-`dxf_export.cpp`. GUI a CLI používají jeho společnou validaci. Soubor uvádí
-verzi `AC1015` a mm; čísla zapisuje s 17 platnými číslicemi a desetinnou tečkou
-nezávisle na prostředí uživatele.
-
-Elipsy a eliptické oblouky jsou entity `ELLIPSE`. Zapisovač normalizuje delší
-osu a při jejím prohození posune parametrický interval; obrácený směr zachová
-normálou. Spline zapisuje jako `SPLINE` s řídicími body, uzly a případnými
-váhami. Rozložení polí vychází z dokumentace Autodesk
+Ellipses/arcs use `ELLIPSE`. The writer normalizes the major axis and shifts the
+parameter interval if axes swap; normals preserve reversed direction. `SPLINE`
+contains control points, knots and optional weights. Fields follow Autodesk
 [ELLIPSE](https://help.autodesk.com/cloudhelp/2025/DEU/AutoCAD-DXF/files/GUID-107CB04F-AD4D-4D2F-8EC9-AC90888063AB.htm)
-a [SPLINE](https://help.autodesk.com/cloudhelp/2016/ENU/AutoCAD-DXF/files/GUID-E1F884F8-AA90-4864-A215-3182D47A9C74.htm).
+and [SPLINE](https://help.autodesk.com/cloudhelp/2016/ENU/AutoCAD-DXF/files/GUID-E1F884F8-AA90-4864-A215-3182D47A9C74.htm).
 
-Běžná, interpolovaná i uzavřená periodická skicová spline používá existující
-nativní převod na přesnou B-spline. U přesné externě získané spline zůstávají
-její uzly a váhy. Nejde o vzorkovaný řetěz úseček a převod nevolá OCCT.
-Offsety a trimy exportují jejich současnou uloženou viditelnou křivku;
-nezapisuje se další kopie podpůrné geometrie ani vazba na zdroj. Export
-neobnovuje externí reference a nemění parametry nebo závislosti skici.
+Ordinary, interpolated and closed periodic Sketcher splines use existing exact native
+B-spline conversion. Exact externally sourced splines retain knots/weights. This
+neither samples segment chains nor calls OCCT. Offsets/trims export current saved
+visible curves without duplicate support geometry or source linkage. Export refreshes
+no external references and changes no sketch parameters/dependencies.
 
-Samostatné body jsou `POINT`; středy a řídicí body křivek se jako další
-entity nezapisují. Nekonečná osa je `XLINE`, konečná pomocná úsečka zůstává
-`LINE`. Pomocná geometrie používá vrstvu `CONSTRUCTION`, ostatní `PROFILE`.
-V této původní etapě se text a rohové zaoblení ještě odmítaly; nynější
-podpora je popsána níže. Navazující importní etapy přijímají `ELLIPSE`,
-ohraničenou `SPLINE`, `XLINE` i samostatné `POINT`.
-Podmínky zpětného importu popisuje [IMPORT_COMMANDS.md](IMPORT_COMMANDS.md).
+Standalone points use `POINT`; curve centres/control points are not extra entities.
+Infinite axes use `XLINE`; finite construction segments remain `LINE`. Construction
+geometry uses layer `CONSTRUCTION`, others `PROFILE`. This initial stage rejected
+text/corner rounds; later support is below. Subsequent import accepts `ELLIPSE`,
+bounded `SPLINE`, `XLINE` and standalone `POINT`; see
+[IMPORT_COMMANDS.md](IMPORT_COMMANDS.md).
 
-Test čte skutečné skupinové kódy a nezávisle kontroluje analytický tvar
-elipsy s prohozenými osami a opačně orientovaný oblouk, racionální kružnici,
-Bernsteinův polynom kubické křivky, interpolační body a periodické uzavření.
-Ořezaná kružnice používá svůj racionální parametr, který obecně není přímo
-úhlem. U offsetu se ověřují přesné konce oříznutého úseku a absence další
-kopie úplného podkladu. Stejnou sadu křivek exportuje skutečné CLI i konzole GUI.
+Tests read actual group codes and independently check swapped-axis ellipses,
+reverse-oriented arcs, rational circles, cubic Bernstein polynomials, interpolation
+points and periodic closure. Trimmed circles use rational parameters, generally
+not angles. Offset tests check exact trimmed endpoints and absence of duplicate
+full support curves. Real CLI and GUI console export the same curve set.
 
-Integrační sada prošla **8/8** (26,16 s),
-`build/dxf-curves-integration-tests.log`; původní výměnné kontrakty prošly
-**1/1** (0,09 s), `build/dxf-curves-interchange-tests.log`. Nezávislý parser
-**ezdxf 1.4.4** načetl 12 entit bez chyby nebo opravy a ověřil racionální
-kružnici, kubický polynom, interpolaci, uzavření a ořezaný offset. Největší
-odchylka kontrolovaných interpolačních bodů byla 1,12e-9 mm; ezdxf při
-vyhodnocování zaokrouhlil uložený uzel 0,3333333333333333 na 0,3333333333.
-Protokol: `build/dxf-curves-ezdxf-validation.json`. Parser je jen dočasná
-ověřovací závislost pod `build`, není součástí aplikace ani runtime.
+Integration **8/8** (26.16 s), `build/dxf-curves-integration-tests.log`; original
+interchange contracts **1/1** (0.09 s), `build/dxf-curves-interchange-tests.log`.
+Independent **ezdxf 1.4.4** read 12 entities with no errors/fixes and checked rational
+circles, cubic polynomials, interpolation, closure and trimmed offsets. Maximum
+interpolation-point deviation: 1.12e-9 mm; ezdxf rounded saved knot
+0.3333333333333333 to 0.3333333333 during evaluation.
+Log: `build/dxf-curves-ezdxf-validation.json`. The parser is a temporary validation
+dependency under `build`, not part of application/runtime.
 
-GUI bylo ověřeno samostatným EXE
-`build/cpp-windows-release/zima-cad-dxf-curves-validation.exe`; uživatelský
-běžící CAD zůstal spuštěný. Počet příkazů zůstává 152. Nativní formát ani
-startovací šablony se touto změnou nemění.
+GUI validation used `build/cpp-windows-release/zima-cad-dxf-curves-validation.exe`,
+leaving user CAD running. Catalog: 152 commands; native format/templates unchanged.
 
+## DXF text and corner rounds (2026-09-13)
 
-## DXF text a rohová zaoblení (2026-09-13)
+`export.dxf` and GUI share the extended interface. Corners materialize through
+`Sketch::evaluated_profile_sketch`, the same algorithm as display/body input.
+Original sketches, corner records/IDs and history remain unchanged. Suppressed
+corners stay sharp. Two corners on one segment retain independent tangent endpoints.
+Original corner vertices and text anchors are editing points, not extra POINT entities.
 
-`export.dxf` i GUI používají stejné rozšířené rozhraní. Rohy se materializují
-pomocí `Sketch::evaluated_profile_sketch`, tedy stejným algoritmem jako
-zobrazení a vstup tělesa. Původní skica, záznamy rohů, jejich ID a historie
-se nemění. Potlačený roh zůstane ostrý. Dva rohy na jedné úsečce zachovají
-své nezávislé tečné konce. Původní vrchol rohu a kotva textu jsou editační
-body; export z nich nevytváří samostatné entity POINT.
+Each saved text outline writes as a closed 2D polyline with original coordinates/
+orientation. No system font or new text approximation is generated. Model text uses
+PROFILE; annotation-only text CONSTRUCTION. Reimport creates ordinary outline
+segments. Subsequent standalone POINT support permits complete exports to roundtrip.
 
-Každý uložený obrys textu se zapíše jako uzavřená 2D polyline s původními
-souřadnicemi a orientací. Nevytváří se systémové písmo ani nová aproximace
-textu. Modelový text používá hladinu PROFILE, text určený jen k anotaci
-hladinu CONSTRUCTION. Při importu vzniknou běžné úsečky obrysu.
-Navazující bodová etapa importuje také samostatné POINT, takže je možné
-opětovně načíst celý export včetně samostatných bodů.
+Text validation and corner materialization finish before opening targets, even in
+the low-level writer. Invalid radius, missing outline or infinite coordinates preserve
+existing output. Shared worker transactions also protect against write errors.
+No OCCT, format change or template update is needed.
 
-Validace textu a materializace rohu doběhnou před otevřením cílového
-souboru i v nízkoúrovňovém zapisovači. Neplatný poloměr, chybějící obrys
-nebo nekonečná souřadnice zachovají již existující výstup. Společná
-pracovní exportní transakce nadále chrání soubor také při chybě zápisu.
-Není potřeba OCCT, změna formátu ani aktualizace nativních šablon.
+Tests check an R2 arc centred at (2,2), tangent-segment length sum 16 mm, R2/R3 corners
+on one segment, suppressed corners, text area 24−4 = 20 mm², native save, exact
+saved outlines of rotated/flipped Czech text and target protection. Initial roundtrip
+radius comparison used exact double equality; using 1e-8 mm tolerance made all
+three model/export/interchange tests pass **3/3 in 0.62 s**
+(`build/dxf-details-model-tests.log`).
 
-Testy kontrolují R2 oblouk se středem (2,2), součet délek tečných úseček
-16 mm, rohy R2/R3 na stejné úsečce, potlačený roh, textovou plochu
-24−4 = 20 mm², nativní uložení, přesné uložené obrysy otočeného a
-převráceného českého textu i ochranu cíle při chybě. První srovnání
-zpětně načteného poloměru používalo rovnost double; po použití geometrické
-tolerance 1e-8 mm prošly všechny tři modelové/exportní/výměnné testy
-**3/3 za 0,62 s** (`build/dxf-details-model-tests.log`).
+Independent **ezdxf 1.4.4** read 20 entities including 16 closed text outlines with
+no errors/fixes, checking radius, tangent lengths and analytical area. Saved radius
+1.9999999999999996 mm differs only by normal double rounding.
+Log: `build/dxf-details-ezdxf-validation.json`. Parser remains a temporary `build`
+validation dependency, not application code.
 
-Nezávislý parser **ezdxf 1.4.4** přečetl 20 entit včetně 16 uzavřených
-textových obrysů bez chyby nebo opravy. Ověřil poloměr, tečné délky i
-analytickou plochu. Zapsaný poloměr je 1,9999999999999996 mm, tedy chyba
-jen v rozsahu běžného zaokrouhlení double. Protokol:
-`build/dxf-details-ezdxf-validation.json`. Parser zůstává dočasnou
-ověřovací závislostí pod `build`, není součástí aplikace.
-
-Obě aplikace a všechny testovací programy se sestavily. Integrační
-sada prošla **9/9 za 80,73 s**, včetně skutečného CLI (24,24 s), celé
-GUI konzole (53,69 s), výměnných kontraktů, exportních příkazů, textu,
-vazeb, křivek a překladů. Logy: `build/dxf-details-full-build.log`,
-`build/dxf-details-integration-tests.log`. Katalog zůstává na 234
-příkazech, celá sada nyní obsahuje 131 testů. Plná sada 130/130 byla
-ověřena před tímto krokem; po změně zapisovače se opakovaly související
-testy. Další krok je import samostatných DXF bodů.
+Both apps/all tests built. Integration **9/9 in 80.73 s**, including real CLI
+(24.24 s), full GUI console (53.69 s), interchange, export commands, text, constraints,
+curves and translations. Logs: `build/dxf-details-full-build.log`,
+`build/dxf-details-integration-tests.log`. Catalog stayed at 234 commands; total
+suite became 131 tests. Full 130/130 preceded this step; affected tests were repeated
+after writer changes. Standalone DXF point import was the next step.

@@ -379,6 +379,7 @@ public:
     std::string name{"Skica"};
     bool suppressed{};
     SketchPlane plane{SketchPlane::XY};
+    bool plane_auto{true}; // First planar placement reference selects the work plane until overridden.
     double plane_offset{};
     // Persisted: when non-empty, this Sketch's frame is not one of the
     // three fixed `plane`/`plane_offset` planes above -- it instead follows

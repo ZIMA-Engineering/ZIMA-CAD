@@ -1,109 +1,101 @@
-# Relace, materiál a tabulka variant přes společné příkazy
+# Relations, material, and family tables through shared commands
 
-GUI konzole i samostatná CLI používají stejné operace jako potvrzení stávajících
-oken Relace, Materiál a Family Table. Podporován je otevřený Part a Assembly.
-Všechny změny mají jednu transakci Undo; shodné výsledné hodnoty žádnou.
-Čtení, výpočty relací a změny materiálu používají uložené fyzikální hodnoty,
-bez výpočtu B-Rep a bez obnovy rodičovských sestav.
+GUI console and standalone CLI share existing Relations, Material, and Family Table
+commit operations for open Parts/Assemblies. Changes create one Undo transaction;
+identical final values create none. Reads, relation evaluation, and material edits
+use persisted physical values without B-Rep calculation or parent-Assembly refresh.
 
-## Příkazy
+## Commands
 
-| Příkaz | Argumenty | Význam |
+| Command | Arguments | Purpose |
 | --- | --- | --- |
-| `document.relations.get` | `[document]` | Pořadí relací, uživatelské parametry, dostupné fyzikální hodnoty a přesnost |
-| `document.relations.set` | `relations:Array`, `[document]` | Úplná náhrada a vyhodnocení relací |
-| `document.material.get` | `[document]` | Vlastnosti, jednotky, jazykové popisy a nabídka jednotek |
-| `document.material.load` | `path`, `[document]` | Načtení a přiřazení souboru `.matz` |
-| `document.material.set` | `properties:Array`, `[document]` | Úplná náhrada materiálových dat |
-| `document.family.get` | `[document]` | Uložená tabulka variant |
-| `document.family.set` | `table:Object`, `[document]` | Úplná náhrada tabulky variant |
+| `document.relations.get` | `[document]` | Ordered relations, user parameters, available physical values, precision |
+| `document.relations.set` | `relations:Array`, `[document]` | Replace/evaluate all relations |
+| `document.material.get` | `[document]` | Properties, units, language descriptions, unit choices |
+| `document.material.load` | `path`, `[document]` | Load/assign `.matz` |
+| `document.material.set` | `properties:Array`, `[document]` | Replace material data |
+| `document.family.get` | `[document]` | Persisted family table |
+| `document.family.set` | `table:Object`, `[document]` | Replace family table |
 
-Volitelné `document` označuje ID otevřeného dokumentu. Změny musí cílit na aktivní
-samostatný dokument; během rozpracovaného GUI dialogu nebo vnořené aktivace se
-příkaz odmítne. Výsledek obsahuje `document`, `revision` a při změně `changed`.
-Uložení do `.prtz` nebo `.asmz` zůstává výslovné příkazem `save`.
+Optional `document` identifies an open document. At this original stage, mutations
+require the active standalone document and reject pending GUI dialogs or nested
+activation. Results contain `document`, `revision`, and mutation `changed`.
+Persist `.prtz`/`.asmz` explicitly with `save`.
 
 ```json
-{"command":"document.material.set","arguments":{"properties":[{"key":"MATERIAL_NAME","value":"Hliník","descriptions":{"cs":"Název materiálu"}},{"key":"MASS_DENSITY","value":"2700","unit":"kg/m^3"}]}}
+{"command":"document.material.set","arguments":{"properties":[{"key":"MATERIAL_NAME","value":"Aluminum","descriptions":{"en":"Material name"}},{"key":"MASS_DENSITY","value":"2700","unit":"kg/m^3"}]}}
 {"command":"document.relations.set","arguments":{"relations":[{"target":"grams","expression":"model.mass * 1000"},{"target":"double_grams","expression":"grams * 2"}]}}
-{"command":"document.family.set","arguments":{"table":{"columns":["NUMBER","LENGTH"],"instances":[{"name":"Varianta A","values":{"NUMBER":"ZE-100","LENGTH":"20"}}]}}}
+{"command":"document.family.set","arguments":{"table":{"columns":["NUMBER","LENGTH"],"instances":[{"name":"Variant A","values":{"NUMBER":"ZE-100","LENGTH":"20"}}]}}}
 ```
 
-Relace se vyhodnocují v pořadí a navazující výrazy používají nezaokrouhlený
-mezivýsledek. Podporují současný nativní jazyk aritmetiky a funkcí, nikoli Python
-nebo shell. Cíle jsou jedinečné identifikátory ASCII. Názvy dostupných hodnot
-jsou ve `model_values`; nedostupná hmotnost se nevymýšlí. Odstranění relace
-ponechá poslední hodnotu jejího cílového parametru. Prázdný seznam odebere všechny
-relace; otevření prázdného dialogu nevytvoří novou relaci samo.
-Relace zatím ovládají uživatelské parametry, ne rozměry modelovacích prvků.
+Relations evaluate in order using unrounded intermediate results. They support the
+current native arithmetic/function language, not Python or shell. Targets are unique
+ASCII identifiers. Available names appear in `model_values`; unavailable mass is not
+invented. Removing a relation retains its target parameter's last value. Empty lists
+remove all relations; opening an empty dialog creates none. Relations currently
+drive user parameters, not modeling-feature dimensions.
 
-Materiálový řádek obsahuje textové `key`, `value`, volitelné `unit` a mapu
-`descriptions` podle jazyka. Číselná hustota je konečná a kladná; podporuje
-`kg/mm^3`, `kg/m^3`, `g/cm^3`, `lb/in^3`. Další povolené jednotky určuje daná
-vlastnost stejně jako GUI. Hmotnost sestavy se stále počítá ze snímků jednotlivých
-komponent; přiřazení materiálu sestavě nepřepíše jejich hustoty. Aktualizaci změn
-zdrojového dílu do sestavy volí uživatel explicitní regenerací.
+Material rows have textual `key`, `value`, optional `unit`, and language-keyed
+`descriptions`. Numerical density must be finite/positive and supports `kg/mm^3`,
+`kg/m^3`, `g/cm^3`, and `lb/in^3`. Other unit choices depend on the property as in GUI.
+Assembly mass still derives from component snapshots; assigning Assembly material
+does not overwrite component densities. At this original stage source updates were
+explicitly regenerated; current source sharing is documented in
+[ASSEMBLY_GEOMETRY_SHARING.md](ASSEMBLY_GEOMETRY_SHARING.md).
 
-Tabulka variant uchovává stejné nativní údaje jako dosavadní GUI. Názvy sloupců
-a instancí musí být jedinečné; instance se nesmí jmenovat jako základní dokument.
-Chybějící buňka se doplní prázdným textem. Tabulka sama nevytváří geometrii
-variant; takový výpočet není v současném modelu zaveden.
+Family tables retain existing native GUI data. Column and instance names are unique;
+instances cannot use the base document name. Missing cells become empty text. Tables
+do not generate variant geometry; that calculation is not implemented in the current model.
 
-Validace proběhne nad soukromou kopií před změnou dokumentu. Dělení nulou,
-neznámé jméno, neplatná jednotka, duplicita nebo chybná struktura zachovají
-revizi i generaci dat. Parser omezuje rekurzi u závorek, unárních operátorů
-i mocnin, včetně volání mimo konzoli. Limity: 4096 relací, 16384 bajtů výrazu,
-256 aktivních vstupů do rekurzivních pravidel, 4096 materiálových vlastností,
-512 sloupců a 4096 variant. GUI při chybném OK ponechá rozpracované hodnoty
-v původním interním dialogu; Cancel je nezapíše.
+Validation uses a private copy. Division by zero, unknown names, invalid units,
+duplicates, or malformed structures preserve revision and data generation. The parser
+limits recursion through parentheses, unary operators, and powers, including callers
+outside the console. Limits: 4096 relations, 16384 expression bytes, 256 active recursive
+rule entries, 4096 material properties, 512 columns, and 4096 variants. Invalid GUI
+OK retains pending values in the same internal dialog; Cancel writes nothing.
 
-## Ověření
+## Verification
 
-Nezávislá kontrola: kvádr 10 × 20 × 30 mm při hustotě 2700 kg/m³ má 16,2 g.
-Modelové testy kontrolují navazující relace, zachování B-Rep, Undo/Redo,
-chyby bez částečné změny, dlouhé rekurzivní výrazy, jazykové popisy,
-normalizaci tabulky, uložení Part/Assembly a neobnovení rodičů.
-Procesové testy spouštějí CLI, ukládají a znovu otevírají nativní soubor.
-GUI test potvrzuje stejná data přes původní dialogy, včetně chybného OK a Cancel.
-Cílená sada prošla **5/5** (16,77 s), `build/engineering-metadata-tests.log`.
-Katalog obsahuje **118 příkazů**. Celá Windows Release sada prošla **75/75**
-(406,56 s), `build/engineering-metadata-full-tests.log`. Po doplnění validace
-jednořádkového zápisu prošla závěrečná modelová, CLI a GUI sada **6/6**
-(24,23 s), `build/engineering-metadata-final-tests.log`.
+Independent check: a 10 × 20 × 30 mm box at 2700 kg/m³ weighs 16.2 g. Model tests
+cover chained relations, B-Rep preservation, Undo/Redo, atomic errors, long recursive
+expressions, multilingual descriptions, table normalization, Part/Assembly saving,
+and no parent refresh. Actual CLI saves/reopens native files. GUI commits the same
+data through original dialogs, including invalid OK and Cancel. Focused tests passed
+**5/5** (16.77 s), `build/engineering-metadata-tests.log`. Catalog: **118 commands**.
+Full Windows Release passed **75/75** (406.56 s), `build/engineering-metadata-full-tests.log`.
+After single-line validation, final model/CLI/GUI tests passed **6/6** (24.23 s),
+`build/engineering-metadata-final-tests.log`.
 
-Texty parametrů, materiálových vlastností a jejich popisů jsou jednořádkové,
-bez okolních mezer či tabulátorů, aby se zachovaly v nativním INI zápisu.
-Klíče nesmí obsahovat `\\`, čárku, `=`, `[` nebo `]` ani začínat `#` či `;`.
-Víceřádkové hodnoty a rezervované oddělovače se odmítnou před transakcí.
-Hodnoty buněk tabulky variant jsou uvnitř JSON, proto toto omezení řádků nemají.
+Parameter/material values and descriptions are single-line without surrounding
+spaces/tabs for native INI persistence. Keys cannot contain backslashes, commas,
+`=`, `[`, or `]`, or begin with `#`/`;`. Multiline values/reserved separators fail
+before transactions. Family-table cells are JSON and have no such line restriction.
 
-## Materiálová knihovna
+## Material library
 
-`document.material.load` načte nativní `.matz` a potvrdí stejná materiálová data
-jako OK v dialogu. Relativní cesta vychází z pracovního adresáře CLI.
-Výsledek navíc vrací absolutní `source`. Dokument uchovává celý přiřazený materiál;
-původní soubor lze poté přesunout či odstranit. Výsledná hmotnost a fyzikální
-relace používají uložený objem, bez OCCT a obnovy rodičů.
+`document.material.load` reads native `.matz` and commits the same data as dialog OK.
+Relative paths use CLI working directory; results add absolute `source`. Documents
+store complete assigned material, so the original file may later move or disappear.
+Mass and physical relations use persisted volume without OCCT or parent refresh.
 
 ```json
-{"command":"document.material.load","arguments":{"path":"Ocel česká.matz"}}
+{"command":"document.material.load","arguments":{"path":"Steel.matz"}}
 ```
 
-Čteč je společný pro GUI i CLI a nepoužívá Qt. Podporuje současný UTF-8 INI
-formát se sekcemi `Material`, `Properties`, `PropertyUnits`,
-`ParameterDescriptions`, včetně CRLF a volitelného UTF-8 BOM. Hodnoty jsou
-prostý text; uvnitř hodnoty zůstává `=`, `;` i `#` doslova. Celý řádek začínající
-`;` nebo `#` je komentář. Jazykový popis má klíč například `MASS_DENSITY\cs`.
-Knihovna má nejvýše 16 MiB. Duplicitní klíče/sekce, neznámé sekce, poškozené
-UTF-8, chybějící název, nepovolené jednotky nebo neplatná hustota se odmítnou
-před změnou dokumentu či rozpracované tabulky GUI.
+GUI/CLI share a Qt-free reader for current UTF-8 INI sections `Material`, `Properties`,
+`PropertyUnits`, and `ParameterDescriptions`, accepting CRLF and optional BOM. Values
+are plain text; embedded `=`, `;`, and `#` remain literal. Lines starting with `;` or
+`#` are comments. A language-description key can be `MASS_DENSITY\cs`.
+Libraries are limited to 16 MiB. Duplicate keys/sections, unknown sections, invalid
+UTF-8, missing name, forbidden units, or invalid density fail before document or
+pending GUI-table changes.
 
-GUI tlačítko Načíst z knihovny mění pouze rozpracovaná data. OK je potvrdí,
-Cancel zahodí. Opětovné přiřazení shodných dat nevytvoří zbytečný krok Undo.
+GUI Load from Library edits only pending data; OK commits and Cancel discards.
+Reassigning identical data creates no unnecessary Undo step.
 
-Ověřeno všech **62** dodávaných materiálů, české cesty, popisy, UTF-8 BOM,
-literální texty a chybné soubory. Nezávislý příklad S235JR: objem 6000 mm³
-při hustotě 7,85·10⁻⁶ kg/mm³ dává 47,1 g. Procesový test uloží dokument,
-odstraní zdrojovou knihovnu a znovu jej otevře. GUI test provede skutečný výběr
-souboru a potvrzení i Cancel. Závěrečná sada prošla **6/6** (25,05 s),
-`build/material-library-integration-tests.log`. Katalog má **119 příkazů**.
+Verification covers all **62** supplied materials, Czech paths, descriptions, BOM,
+literal text, and invalid files. Independent S235JR check: 6000 mm³ at
+7.85·10⁻⁶ kg/mm³ gives 47.1 g. Actual CLI saves, deletes the source library, and
+reopens. GUI performs real file selection and confirmation/Cancel. Final tests
+passed **6/6** (25.05 s), `build/material-library-integration-tests.log`.
+Catalog: **119 commands** at this stage.

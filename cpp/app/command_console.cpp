@@ -68,7 +68,8 @@ void CommandConsole::submit() {
     output_->appendPlainText(QStringLiteral("> ")+text);
     const auto result=execute_(text);
     QString report;
-    if(result.ok && text==QStringLiteral("help") && result.data.is_array()) {
+    const bool catalog_help=result.ok && text==QStringLiteral("help") && result.data.is_array();
+    if(catalog_help) {
         QStringList lines;
         for(const auto& command:result.data) {
             QString usage=QString::fromStdString(command.at("name").get<std::string>());
@@ -82,7 +83,7 @@ void CommandConsole::submit() {
     } else if(result.ok)report=QString::fromStdString(result.data.dump(2, ' ', false, zima::commands::Json::error_handler_t::replace));
     else report=tr("Chyba [%1]: %2").arg(QString::fromStdString(result.code),QString::fromStdString(result.message));
     constexpr qsizetype limit=24000;
-    if(report.size()>limit)report=report.left(limit)+QStringLiteral("\n")+tr("… Výpis byl zkrácen.");
+    if(!catalog_help && report.size()>limit)report=report.left(limit)+QStringLiteral("\n")+tr("… Výpis byl zkrácen.");
     output_->appendPlainText(report);input_->setEnabled(true);focus_input();
 }
 } // namespace zima::app

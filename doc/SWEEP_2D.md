@@ -1,95 +1,82 @@
-# 2D tažení (2D Sweep)
+# 2D Sweep
 
-2D tažení je kontejner historie dílu s rovinnou dráhou a profilovými skicami
-v jejích stanicích. Podporuje Přičíst / Odečíst, přechod mezi různými profily
-(Loft) a výsledek Těleso / Thin. Vytvoření i editace používají jedno interní
-okno Vlastností. Rozpracované skici a parametry se uloží až při OK; Cancel
-obnoví původní historii. Editace zobrazuje skutečný vstup před kontejnerem.
+2D Sweep is a Part history container with a planar path and profile Sketches at
+stations. It supports Add/Subtract, transitions between profiles (Loft), and Solid/Thin
+results. Creation/editing use one internal Properties window. Pending Sketches and
+parameters commit only on OK; Cancel restores original history. Editing displays
+real input before the container.
 
-## Umístění a skica dráhy
+## Placement and path Sketch
 
-Kontejner používá společné umístění: poziční reference, FRONT/TOP, X/Y/Z,
-natočení, korekce a volbu počátku. První rovinná reference předvyplní
-samostatné zelené pole před tlačítkem **Skica dráhy**. Tuto rovinu lze změnit
-výběrem roviny nebo rovinné plochy původního objektu ve View či Tree, aniž
-se změní umístění kontejneru. Nezadávají se dvě povinné kolmé roviny pro
-průřez a dráhu; profilové roviny se odvozují od tečny dráhy.
+The container uses shared placement: position references, FRONT/TOP, X/Y/Z, rotations,
+corrections, and Origin selection. The first plane reference prepopulates the separate
+green field before **Path Sketch**. Change it by picking an original plane/planar face
+in View/Tree without changing container placement. Two mandatory perpendicular
+path/profile planes are not required; profile planes derive from path tangents.
 
-Pole roviny dráhy přijímá také XY, YZ a XZ vlastního počátku kontejneru.
-Jde o referenci vnitřní skici, která sleduje již určené umístění svého rodiče.
-Změna této roviny nemění polohu, natočení ani vazby kontejneru. Hlavní roviny
-dílu a roviny předchozích objektů zůstávají dostupné.
+Path-plane selection also accepts XY/YZ/XZ of the container's own Origin. This internal
+Sketch reference follows parent placement; changing it changes no container position,
+rotation, or references. Main Part planes and preceding-object planes remain available.
 
-Dráha je jedna otevřená souvislá rovinná křivka začínající v počátku skici.
-Počáteční směr může být libovolný. Používá úsečky, oblouky, eliptické oblouky
-a otevřené spline včetně vyhodnocených skicových zaoblení. Může měnit směr
-v rovině; nemusí postupovat podél jedné osy. Tažení končí ve skutečném
-koncovém bodě dráhy.
+The path is one open, continuous planar curve starting at Sketch Origin, with any
+initial direction. It accepts segments, arcs, elliptical arcs, and open splines,
+including evaluated Sketch fillets. It may change planar direction, not necessarily
+follow one axis. Sweep ends at the actual path endpoint.
 
-## Profilové skici a Loft
+## Profile Sketches and Loft
 
-Konce křivek a skutečné body Sketcheru ležící na dráze nabízejí profilové
-skici. Středy oblouků a řídicí body neinterpolačních spline nejsou stanice.
-Profily leží kolmo k místní tečně; v ostrém rohu jsou příchozí a odchozí
-stanice samostatné. Profilové skici mají trvalé identity a jsou dostupné
-ve stromu. Vstup do skici natočí kameru na její vyřešenou rovinu.
+Curve ends and actual Sketcher points on the path offer profile stations. Arc centers
+and noninterpolating-spline control points are not stations. Profiles are normal to
+local tangents; sharp corners have separate incoming/outgoing stations. Profile Sketches
+have stable identities and tree access; entering one aligns camera with its solved plane.
 
-První stanice musí mít vlastní profil. Další prázdná stanice přebírá
-poslední vyplněný profil ve směru dráhy. Vyplnění další skici umožňuje
-přechod mezi profily. **Pořadí bodů**, značky ve View a párovací body
-s vazbou **C / K** používají stejné ovládání jako
-[3D tažení](3D_CURVE_AND_SWEEP.md).
+The first station requires an owned profile. Later empty stations inherit the last
+populated profile along the path; populating another enables transitions. **Point Order**,
+View markers, and **C / K** matching-point constraints use the same controls as
+[3D Sweep](3D_CURVE_AND_SWEEP.md).
 
-Režim **Těleso** přijímá uzavřenou oblast včetně vnitřních otvorů. Například
-dvě soustředné kružnice v průřezu vytvoří trubku. Navazující profily musí
-mít odpovídající obvody, párovací body a stejný počet otvorů.
+**Solid** accepts closed regions with holes, such as concentric circles forming a
+tube. Subsequent profiles need corresponding boundaries/matching points and equal hole counts.
 
-## Thin — tloušťka
+## Thin: thickness
 
-**Thin** přijímá otevřenou nebo uzavřenou konturu, kladnou tloušťku a směr
-**Dovnitř / Ven / Symetricky**. Symetricky rozděluje celkovou tloušťku
-napůl na obě strany zdrojového profilu. U otevřené kontury stranu určuje
-její orientace. Uzavřený profil vytvoří dutý průřez, otevřený profil pás
-uzavřený na koncích kontury. Jeden Loft nekombinuje otevřené a uzavřené
-profily. Tloušťka se měří v profilových rovinách; u proměnného Loftu nemusí
-být konstantní kolmo k výsledné šikmé stěně.
+**Thin** accepts open/closed contours, positive thickness, and **Inward / Outward /
+Symmetric**. Symmetric divides total thickness equally around the source profile.
+Open-contour orientation determines side. Closed profiles create hollow sections;
+open ones create strips capped at contour ends. One Loft cannot mix open/closed
+profiles. Thickness is measured in profile planes; variable Loft may not maintain
+constant normal thickness at sloping result walls.
 
-Příliš velké odsazení, změna topologie nebo neplatný průřez se odmítne
-s vysvětlením. Rozpracovaný dialog zůstane dostupný k opravě a zdrojové
-skici se odsazením nepřepisují.
+Excessive offsets, topology changes, and invalid sections are rejected with explanation.
+The dialog stays open for correction; offsets never overwrite source Sketches.
 
-## Náhled, výpočet a reference
+## Preview, calculation, and references
 
-Skici a náhled se zobrazují z uložených dat ZIMA i při neúplné dráze;
-nevypočítávají těleso přes OCCT. Oko referenčního pole zapíná inspekci,
-kliknutí na text aktivuje zelený vstup. Krátký prostřední klik ukončí
-zadávání reference, prostřední dvojklik potvrzuje OK i nad View.
+Sketches/previews use persisted ZIMA data even for incomplete paths, without OCCT body
+calculation. Reference eyes toggle inspection; text clicks arm green input. Short MMB
+ends reference entry; MMB double-click confirms OK even over View.
 
-Až OK nebo explicitní **Regenerovat** vypočítá těleso. Rovina dráhy,
-zdrojové body, skici a párování se ukládají v aktuálním formátu dílu.
-Staré uspořádání dvou skic se nepřevádí. Úsečky a oblouky se počítají
-přesně, obecné rovinné křivky se adaptivně převedou podle lineární tolerance
-dokumentu. Odchylka triangulace řídí zobrazení; samostatný parametr přesnosti
-prvku není potřeba. Viz [Numerická přesnost](NUMERICAL_PRECISION.md).
+Only OK or explicit **Regenerate** calculates bodies. Path plane, source points,
+Sketches, and matching persist in current Part format. Old two-Sketch arrangements
+are not migrated. Segments/arcs calculate exactly; general planar curves adapt to
+document linear tolerance. Mesh deviation controls display; no feature-specific
+precision is needed. See [Numerical precision](NUMERICAL_PRECISION.md).
 
-Identity odvozených ploch, hran a bodů vycházejí ze zdrojových skic,
-profilových oblastí a významu výsledku. Pořadí průchodu OCCT ani vzorkování
-dráhy neurčuje trvalé reference.
+Derived face/edge/point identities come from source Sketches, profile regions, and
+result semantics, never OCCT traversal or path-sampling order.
 
-## Ověření
+## Verification
 
-`zima_cpp_sweep2d_contract_tests` a společné testy 3D tažení ověřují
-geometrii, více profilů, Thin, otvory, umístění a uložené reference.
-GUI scénář `ZIMA_VERIFY_SWEEP2D_ONLY=1` s `zima-cad-cpp --verify-startup`
-kontroluje vlastněné skici, natočení kamery, změnu roviny dráhy, ovládání
-Vlastností, OK/Cancel, uložení a opětovné načtení.
+`zima_cpp_sweep2d_contract_tests` and shared 3D Sweep tests cover geometry, multiple
+profiles, Thin, holes, placement, and persisted references. GUI
+`ZIMA_VERIFY_SWEEP2D_ONLY=1` with `zima-cad-cpp --verify-startup` checks owned Sketches,
+camera alignment, path-plane changes, Properties, OK/Cancel, save/reload.
 
-### Osová dráha hotového solidu
+### Calculated-solid centerline
 
-Solid publikuje čerchovanou osovou dráhu podle zdrojových křivek
-(`centerline:from:<source_id>`). Úsečky, zaoblení, spline i helix zachovávají
-tvar; aproximační části jedné zdrojové křivky mají společnou referenci.
-Pouze přímé části nabízejí také osovou referenci pro další prvky.
-Zobrazení respektuje přepínač Os, včetně stínovaného režimu. Geometrie se
-ukládá při výpočtu solidu; vykreslení a výběr nevolají OCCT. Dříve vypočtený
-model doplní osovou dráhu explicitním příkazem Regenerovat.
+The solid publishes a dash-dot centerline derived from source curves
+(`centerline:from:<source_id>`). Segments, fillets, splines, and helices retain shape;
+approximated portions of one source curve share a reference. Only straight portions
+also offer axis references. Display respects Axes visibility, including shaded mode.
+Geometry is persisted during solid calculation; rendering/picking invoke no OCCT.
+Older calculated models gain centerlines through explicit Regenerate.

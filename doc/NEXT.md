@@ -1,5 +1,9 @@
 # Next Work
 
+These accumulated design notes include historical stages. Check current focused
+contracts and [ROADMAP.md](../ROADMAP.md) before selecting work; newer explicit
+user instructions and completed native features supersede older pending items.
+
 ## Performance and Scaling
 
 - Keep performance work as a continuing project priority and test routinely on
@@ -591,10 +595,10 @@ Possible extensions beyond this implementation:
 - After the geometry and interaction rules are settled, evaluate replacing the
   current incremental solver with one unified equation/residual system.
 
-## Critical: Finish OCCT Viewer Removal
+## Native viewer boundary
 
-- Follow the staged inventory and acceptance criteria in
-  `doc/OCCT_VIEWER_CLEANUP.md`.
+- The Python viewer removal is complete and its old checklist is retired. Follow
+  [native architecture](CXX_ARCHITECTURE.md) and [viewer selection](VIEWER_SELECTION.md).
 - The hidden legacy viewer, unreachable AIS rebuild path and OCCT presentation
   imports have been removed.
 - Verify native selection and constraint previews across all reference types.

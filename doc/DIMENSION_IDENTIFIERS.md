@@ -1,45 +1,45 @@
-# Identifikace kót v dokumentu
+# Document-wide dimension identifiers
 
-Každá kóta dostává vedle stávajícího interního ID neměnné označení `d1`,
-`d2`, … Jedna číselná řada patří jednomu dokumentu Part, Assembly nebo Drawing.
-Výkres sdílí jednu řadu mezi všemi listy. Vložený díl si ponechává vlastní
-řadu; rozměry jeho umístění a vazeb patří do řady bezprostředně vlastnící sestavy.
+Every dimension receives an immutable `d1`, `d2`, ... designation alongside its
+existing internal ID. Each Part, Assembly, or Drawing owns one sequence. Drawings
+share it across all sheets. Inserted Parts retain their own sequences; placement
+and mate dimensions belong to the immediate owning Assembly's sequence.
 
-Číslo se přiděluje při potvrzení změny dokumentu. Hodnota nula, potlačení,
-neviditelnost ani neaktivní volitelný rozměr přidělení nebrání. Katalog zahrnuje
-kóty skic, rohové poloměry, rozměrové parametry funkcí, umístění, odsazení vazeb
-včetně zadaných mezí, body a poloměry 3D křivek, vložené skici Sweepů a výkresové
-kóty. Rozpoznání kóty nezávisí na její číselné hodnotě ani na kreslení ve View.
+Numbers are allocated when a document change is committed. Zero values,
+suppression, invisibility, and inactive optional dimensions do not prevent
+allocation. The catalog includes Sketch dimensions, corner radii, feature size
+parameters, placement, mate offsets and specified limits, 3D-curve points/radii,
+embedded Sweep Sketches, and Drawing dimensions. Recognition is independent of
+numeric value and View rendering.
 
-Změna hodnoty, názvu nebo pořadí objektu nemění jeho identifikátory.
-Přidělená čísla zůstávají rezervovaná i po smazání a přes Undo/Redo, včetně
-vytvoření nové větve historie. Cancel nezapisuje rozpracované kóty do registru.
+Changing an object's value, name, or order does not change its identifiers.
+Allocated numbers remain reserved after deletion and through Undo/Redo, including
+new history branches. Cancel does not register pending dimensions.
 
-## Datový kontrakt
+## Data contract
 
-`DimensionIdentifiers` je samostatný registr metadat dokumentu. Klíčem je
-existující dvojice vlastníka a sémantického klíče kóty. Registr uchovává přidělená
-čísla i následující volné číslo. Ukládá se spolu s dokumentem; duplicity čísel,
-prázdné identity a neplatná číselná řada se při načtení odmítají.
+`DimensionIdentifiers` is a separate document metadata registry keyed by the
+existing dimension owner/semantic-key pair. It stores allocated numbers and the
+next free number within the document. Loading rejects duplicate numbers, empty
+identities, and invalid sequences.
 
-Rozměrové parametry umístění jsou identifikovány svými stávajícími parametrovými
-sloty. Vazba Assembly používá stávající identitu
-`(assembly_id, placement-reference:occurrence_id:row_index)`; změna reference
-nebo hodnoty v tomto slotu zachovává jeho označení. Registr nezavádí druhý objekt
-vazby, neřeší umístění a nemění vlastnictví či výpočet vazeb.
+Placement size parameters retain their existing parameter slots. An Assembly
+mate uses `(assembly_id, placement-reference:occurrence_id:row_index)`; replacing
+the reference or value in that slot retains its designation. The registry creates
+no second mate object, solves no placement, and changes neither mate ownership
+nor calculation.
 
-Číslování nevytváří geometrii a nevolá OCCT. Katalog obsahuje pouze identity;
-čísla nejsou součástí identit topologie ani geometrického výpočtu.
+Numbering creates no geometry and calls no OCCT. The catalog contains identities
+only; its numbers are not topology identities or inputs to geometric calculation.
 
-## Rozhraní
+## Interface
 
-- Vlastnosti skicové kóty obsahují pole **Identifikace kóty** jen pro čtení.
-- Okno **Relace** obsahuje přehled označení, objektů a parametrů, včetně nulových
-  kót. Interní identita je dostupná v nápovědě buňky.
-- Přímý editor hodnoty ve View poskytuje označení v nápovědě.
-- Výběr výkresové kóty ukáže její označení ve stavovém řádku.
-- Vyhodnocování výrazů s `dN` zatím není implementováno.
+- Sketch dimension Properties has a read-only **Dimension identifier** field.
+- **Relations** lists designations, objects, and parameters, including zero
+  dimensions. Cell tooltips expose the internal identity.
+- The inline View value editor includes the designation in its tooltip.
+- Selecting a Drawing dimension shows its designation in the status bar.
+- Expression evaluation using `dN` is not implemented yet.
 
-Aktuální INI verze: Part 14, Assembly 12, Drawing 12. Starší formáty nemají
-kompatibilní načítací větev. Dodané šablony a testovací dokumenty používají
-aktuální schéma.
+INI versions at this stage: Part 14, Assembly 12, Drawing 12. Older formats have
+no compatibility loading branch. Supplied templates and test documents use this schema.

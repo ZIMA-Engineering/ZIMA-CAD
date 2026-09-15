@@ -1,3 +1,4 @@
+#include "work_plane_selection.hpp"
 #include <zima/ui/numeric_value_lock.hpp>
 #include "table_entry.hpp"
 #include "sketch_button_style.hpp"
@@ -297,9 +298,8 @@ ConstructionPropertiesDialog::ConstructionPropertiesDialog(
                 ? QStringLiteral("xz") : QStringLiteral("yz");
         base_plane_combo_->setCurrentIndex(
             base_plane_combo_->findData(base_plane_key));
-        base_plane_combo_->setToolTip(tr(
-            "Rovina XY, YZ nebo XZ lokálního počátku kontejneru, se kterou "
-            "bude výsledná rovina rovnoběžná."));
+        install_automatic_work_plane(base_plane_combo_, initial.base_plane_auto);
+
         offset_form->addRow(tr("Výchozí rovina"), base_plane_combo_);
         offset_form->addRow(tr("Odsazení roviny"), offset_);
         content_layout()->addLayout(offset_form);
@@ -909,12 +909,8 @@ bool ConstructionPropertiesDialog::set_reference(std::size_t index,
         // Name the choice after the real picked source so the UI does not
         // misleadingly look as though the offset still starts at an
         // unrelated default Container-Origin plane.
-        const int xz_index = base_plane_combo_->findData(QStringLiteral("xz"));
-        if (xz_index >= 0) {
-            base_plane_combo_->setItemText(xz_index,
-                tr("Podle první reference — %1").arg(label));
-            base_plane_combo_->setCurrentIndex(xz_index);
-        }
+        update_automatic_work_plane(base_plane_combo_, QStringLiteral("xz"), label);
+        notify_preview();
     }
     return true;
 }
@@ -1395,7 +1391,8 @@ zima::document::ConstructionObject ConstructionPropertiesDialog::current_value()
     }
     if (display_size_ != nullptr) value.display_size = display_size_->value();
     if (base_plane_combo_ != nullptr) {
-        const auto key = base_plane_combo_->currentData().toString();
+        const auto key = selected_work_plane(base_plane_combo_).toString();
+        value.base_plane_auto = automatic_work_plane(base_plane_combo_);
         value.base_plane = key == QStringLiteral("xy")
             ? zima::document::LocalDatumPlane::XY
             : key == QStringLiteral("xz")

@@ -1,383 +1,356 @@
-# Výkresy
-
-Tento dokument popisuje aktuální datový a uživatelský model výkresů ZIMA-CAD.
-Základní postup je také v
-[uživatelském manuálu](UZIVATELSKY_MANUAL.md#základní-práce-s-výkresem).
-
-## Dokument, listy a zdrojový model
-
-Výkres má příponu `.drwz` a odkazuje na jeden zdrojový díl `.prtz` nebo
-sestavu `.asmz`. Jeden dokument může obsahovat více listů. Každý list má
-samostatně uložený formát, rámeček, razítko, vložené pohledy, kóty a hodnoty
-polí náležející pouze listu.
-
-Tlačítko **VÝKRES** v záhlaví stromu zdrojového Dílu nebo Sestavy otevře jeho
-již existující výkres. Pokud ještě neexistuje, vytvoří nový soubor výkresu a
-otevře jej v novém tabu. Vazba na zdroj je uložená přímo ve výkresovém
-dokumentu už před vložením prvního pohledu. Opačné tlačítko **DÍL** nebo
-**SESTAVA** proto vždy přejde zpět na přesný zdrojový dokument. Přejmenování
-zdroje aktualizuje jeho cestu a název také v navázaném výkresu.
-
-Rámeček i razítko se při vložení zkopírují přímo do dat listu. Otevřený výkres
-proto není závislý na pozdější existenci souboru `.frmz` nebo `.tblz` v
-`config/formats`. Smazání, přejmenování nebo úprava knihovní šablony již
-vložené listy nezmění. List převezme jinou definici teprve při výslovné výměně
-rámečku nebo razítka.
-
-## Rámečky a razítka
-
-Soubory `.frmz` a `.tblz` se upravují ve skicáři. Editor šablony vždy zobrazí
-celý list; nepoužívá fyzické výchozí měřítko běžné modelové skici. Uložený
-počátek šablony se bez skryté kompenzace mapuje na počátek výkresu v pravém
-dolním rohu.
-
-Dodávaná razítka jsou:
-
-- `ZE-RAZITKO.tblz` pro české popisky a české lokalizované názvy parametrů;
-- `ZE-TITLE-BLOCK.tblz` pro anglické popisky a anglické lokalizované názvy.
-
-Text začínající `&` odkazuje na parametr. Interní klíče, například `name`,
-i lokalizované popisky (`&Název`, `&Name`, `&Наименование`) označují stejný
-parametr. **Vlastnosti listu → Jazyk razítka** určují jazyk čtené a zapisované
-hodnoty. Při vložení se převezme `Locale` šablony; sdílená hodnota má vždy
-přednost před jazykovou. Nevyplněná položka používá výchozí zástupný text pole.
-
-Příkaz **Hodnoty razítka…** i dvojklik na libovolnou hodnotu otevřou celou
-tabulku razítka, včetně parametrů v samostatných textech a oblasti kusovníku.
-Dvojklik zaměří editor kliknuté hodnoty; tentýž parametr se nenabízí podruhé
-jen kvůli jinému názvu odkazu. Modelové položky dodržují uložené pořadí
-v **Parameters** příslušného zdroje; ostatní údaje následují za nimi. Upravitelné pole se ve výkresu zvýrazní oranžově
-při hoveru a azurově po výběru. Načítání funguje i před vložením prvního
-pohledu, pokud má výkres přiřazený zdrojový model. Po vložení pohledů určuje
-zdroj razítka první pohled aktivního listu.
-
-**OK** zapisuje změněné hodnoty jednoduchých parametrických polí s `WriteBack`
-do Parameters zdrojového dílu nebo sestavy v jediné revizi zdroje. **Cancel**
-neprovede zápis. Otevřený model má přednost před souborem na disku. Dosud
-neotevřený zdroj se při potvrzení načte do workspace; změna zůstane neuložená
-stejně jako při běžné editaci Parameters a lze ji vrátit pomocí Undo zdroje.
-Výraz `&parametr` zůstává v razítku zachovaný, nevzniká lokální přepis jeho hodnoty.
-
-Samostatné texty `&parametr` mimo oblast kusovníku, které neměly vlastní
-sekci `Field`, se při vložení také zpřístupní jako parametrická pole.
-Položky `&drawing.*` a `&local.*` se ukládají pouze do listu.
-Systémové hodnoty, složené výrazy a parametry řízené vztahy jsou jen ke čtení.
-Jednotlivé zapisovatelné parametry složeného výrazu mají vlastní položky.
-Kliknutí do řádku kusovníku načte celou tabulku pro zdrojový díl či podsestavu
-vybraného řádku; OK zapisuje do tohoto zdroje. Umístění uvnitř fialového
-obdélníku nemění rozsah tabulky.
-
-Hmotnost řízená `model.mass` a její jednotka se řídí nastavením zdroje;
-[pravidla výpočtu a jeho hranice](PHYSICAL_PROPERTIES.md) popisují hustotu,
-jednotky, snímky komponent a explicitní Regenerate sestavy.
-
-## BOM Repeat Region v razítku
-
-Sestavový pohled při vložení nebo explicitní regeneraci načte komponenty
-zdrojové sestavy. Stejný zdroj se seskupí do jedné položky s odpovídajícím
-množstvím, odlišné zdroje vytvoří další řádky. Každý řádek načítá vlastní
-Parameters příslušného dílu či podsestavy. Potlačené komponenty se vynechávají;
-pouze skryté komponenty se stále započítávají. Počet řádků určuje počet
-položek BOM, fialový rámeček definuje opakovanou geometrii a rozteč.
-
-Oblast kusovníku se v editoru razítka označuje objektem **BOM Repeat Region**.
-Je zobrazena jako fialový drátový obdélník, nikoliv jako vyplněná plocha.
-Oblast má při výběru nejvyšší prioritu: přejetí nad kteroukoliv její hranou
-zvýrazní celý region včetně popisků. Geometrie pod regionem zůstává dostupná
-překliknutím kandidátů pravým tlačítkem.
-
-První dvojřádek obsahuje dvě zvláštní BOM funkce:
-
-- vlevo nahoře **Item Number** — pořadové číslo položky od 1;
-- vpravo nahoře **Quantity** — počet výskytů dílu v sestavě.
-
-Ostatní pole řádku jsou běžné parametry zdrojového dílu. Pro samostatný díl se
-zobrazí jeden řádek. Pro sestavu se označený region opakuje ve směru uloženém
-v regionu a vytvoří řádky kusovníku.
-
-## Vložené pohledy a aktualizace
-
-**Vložit pohled → kliknout na list → Vlastnosti pohledu** je společný postup
-pro všechny zdroje. První pohled je izometrický. Zdrojový otevřený model nebo
-soubor se vybírá přímo ve vlastnostech, společně s názvem, popiskem,
-orientací, stylem, měřítkem a polohou. Vytváření a editace používají stejný
-interní dialog. Změny jsou do OK jen náhled; Zrušit nevytvoří nový pohled ani
-nezmění existující. Prostřední dvojklik nad listem potvrdí OK.
-
-Výběr pohledu používá celou obdélníkovou oblast jeho projekce včetně prázdného
-vnitřku. Hover, kliknutí a kontextová nabídka používají stejnou oblast a
-pořadí překrývajících se pohledů. Rámeček je vidět jen při hoveru a výběru.
-Strom a View označují tentýž pohled; kliknutí mimo pohledy výběr zruší.
-
-Kontextový příkaz **Projekční pohled** připojí náhled ke kurzoru a přichytává
-směr po 45 stupních podle rodiče a metody promítání listu. Potomek ukládá ID
-rodiče, směr a kameru. Přesun rodiče přenese potomky, přesun potomka se drží
-projekčního paprsku. Název/popisek a volba vlastního či listového měřítka se
-ukládají do `.drwz`.
-
-Pohled uchovává odkaz na zdrojový model a poslední vypočtenou projekci.
-Otevření či přepnutí tabu nevyvolává výpočet OCCT ani automatickou obnovu
-závislostí. **Regenerovat** výslovně načte poslední vypočtený stav otevřeného
-zdroje, případně jeho uložený soubor, a z něj obnoví projekci a kóty.
-
-Roletka **Varianta** dole obsahuje zatím pouze jméno zdrojového souboru.
-Přepínání a výpočet variant Family Table jsou budoucí funkce. **Parametry**
-nad View nebo v kontextové nabídce názvu výkresu otevřou parametry zdrojového
-dílu/sestavy při zachování zobrazeného výkresu.
-
-Výběr formátu a razítka začíná v adresáři **Formats** z globální konfigurace,
-a to i po změně konfigurace za běhu aplikace.
-
-## Lineární kóta
-
-Aktuální výkresová kóta podporuje dvě rovnoběžné přímé hrany vloženého
-pohledu. Plochy a obecné křivky zatím nejsou platnou referencí.
-
-Postup:
-
-1. Zapněte **Kóta**. Kurzor zůstane běžnou šipkou.
-2. Přejeďte nad hranou vloženého pohledu. Použitelná hrana se zvýrazní
-   oranžově; pravé tlačítko přepíná překrývající se kandidáty a stavový řádek
-   oznamuje právě nabízený objekt.
-3. Levým tlačítkem potvrďte první a potom druhou hranu. Potvrzené reference
-   zůstanou azurové.
-4. Žlutý náhled ukazuje skutečnou modelovou vzdálenost. Pohybem kurzoru určete
-   polohu a krátkým kliknutím prostředního tlačítka ji potvrďte.
-5. Nástroj zůstane aktivní pro další kótu. Rychlý dvojklik prostředním
-   tlačítkem jej ukončí.
-
-Kóta ukládá stabilní topologické reference základních objektů, nikoliv pouze
-obrazové souřadnice nebo pořadí hran v aktuálním meshi. Po regeneraci modelu
-se reference znovu vyřeší a hodnota i poloha kóty se přepočítají. Pokud
-reference chybí nebo je nejednoznačná, nesmí se kóta tiše připojit k jiné
-hraně.
-
-Šipky používají společný ostrý tvar s polovičním úhlem 10°. Stejná geometrie
-se používá také u kót ve view, os počátku a směru BOM regionu.
-
-## Současná omezení
-
-Podporována je první asociativní lineární kóta mezi dvěma rovnoběžnými
-přímými hranami. Další typy ISO kót, rozvinuté řezy, detaily, tolerance, pozice,
-technické symboly a export DXF jsou další vývojové kroky. BOM v razítku
-už není v této skupině: Repeat Region, Item Number a Quantity jsou funkční.
-
-
-## Editace rámečků a razítek v C++ aplikaci
-
-Příkaz **Otevřít** přijímá `.frmz` a `.tblz` a otevře je přímo ve
-stávajícím skicáři v kartě dokumentu. **Nový** umí oba typy vytvořit.
-**Uložit** zapisuje původní typ souboru; **Uložit jako** vytváří samostatnou
-kopii. Před přepsáním se uchová číslovaná předchozí verze souboru.
-Geometrie se při otevření automaticky nerozmisťuje ani nevyrovnává.
-
-Původní knihovní šablony se převádějí včetně geometrie, kotev textu, vazeb,
-kót, barev per a vlastností parametrických polí. Záporné délkové kóty mezi
-body se převedou na kladnou velikost a opačné pořadí bodů, se stejnou rovnicí
-pro jejich polohu. Souřadnicové umístění vůči osám a počátku si znaménko
-ponechává. Uložená šablona používá SchemaVersion 4 a nativní C++ data skici.
-
-Ve skicáři razítka je příkaz **Oblast kusovníku**. Dvěma kliknutími se zadají
-rohy fialového obdélníku, poté se v jeho vlastnostech nastaví poloha, rozměry,
-směr a rozteč opakování. OK oblast uloží, Storno návrh zahodí. Stejné vlastnosti
-se otevírají dvojklikem na existující oblast nebo ze stromu; nabídka umožňuje
-oblast odstranit. Platí i potvrzení dvojklikem prostředního tlačítka nad View.
-
-Fialový obrys nemá výplň, je kreslený nad ostatní geometrií a při hoveru má
-nejvyšší prioritu. LMB vybírá celou oblast a synchronizuje strom. Před potvrzením
-lze RMB přepnout na další geometrii pod obrysem. Pomocný obdélník se do výkresu
-netiskne. Ve výkresu se opakují skutečné čáry, kružnice a texty uvnitř oblasti
-podle jejího směru a rozteče. Výrazy `&bom.item_number` a `&bom.quantity` dávají
-číslo položky a počet; ostatní modelové parametry patří zdrojovému dílu daného
-řádku. Pro samostatný díl vzniká jeden řádek. Výkres ukládá vlastní vloženou
-kopii šablony včetně oblasti BOM, takže pozdější editace knihovny jeho vzhled
-sama nezmění.
-
-### Obrázky v razítku (C++)
-
-Editor `.tblz` nabízí příkaz **Obrázek** s vlastní ikonou. Po výběru SVG, PNG,
-JPEG, BMP nebo WebP se otevřou společné vnitřní **Vlastnosti obrázku**.
-Umístění určuje bod kliknutý ve skice nebo souřadnice X/Y. Vodorovné
-zarovnání Vlevo / Na střed / Vpravo a svislé Dole / Uprostřed / Nahoře
-vztahují obdélník k tomuto bodu. Souřadnice mohou být záporné, rozměry jsou kladné.
-
-Šířka a výška jsou v milimetrech. Volba **Zachovat poměr stran** je při
-vložení zapnutá; změna kteréhokoli rozměru dopočítá druhý podle původního
-obrázku. Po vypnutí této volby lze rozměry nastavit samostatně. **Vybrat soubor…**
-umožní v témže dialogu vyměnit obsah. Náhled je dočasný: pouze OK změnu
-uloží, Zrušit obnoví původní stav. OK funguje také dvojklikem prostředního
-tlačítka nad View.
-
-Obrázek lze vybrat přes celou jeho obdélníkovou plochu nebo ve stromu.
-Dvojklik otevře stejné vlastnosti; kontextové menu nabízí Vlastnosti a
-Odstranit. Fialová oblast kusovníku se kreslí poslední a má vyšší prioritu
-výběru než obrázek. Obrázek uvnitř oblasti se opakuje spolu s jejím obsahem.
-
-Rastr se normalizuje na PNG, zachová průhlednost a uloží přímo do `.tblz`
-i do výkresu `.drwz`. Původní externí soubor není po vložení potřeba.
-Příkaz je dostupný pouze v razítku. Dekódované obrázky používají omezenou
-sdílenou paměťovou cache, takže pohyb kurzoru znovu nenačítá zdrojové soubory.
-
-SVG se ukládá jako původní vektorová data a v editoru i výkresu se vykresluje
-vektorově prostřednictvím Qt SVG. Zvětšení ani změna rozměrů jej nepřevádí
-na bitmapu. Poměr stran vychází z přesného `viewBox`; rastry používají
-původní rozlišení. Podpora obsahu SVG odpovídá rendereru Qt SVG; pro přenosné
-firemní logo je vhodné mít text převedený na křivky a případné další obrázky
-vložené přímo do SVG. Animace se v technickém výkresu nepřehrávají.
-
-### Vazby dodávaných razítek
-
-České a anglické razítko ponechává 14 unikátních řídicích rozměrů místo
-52 opakovaných kót. První 10mm odsazení od počátku řídí ostatní desetimilimetrové
-úseky vazbou stejná délka. Stejně jsou sjednoceny další opakované hodnoty.
-H/V vazby udržují zarovnání, počátek je navázaný na počátek skici.
-U vodorovných či svislých odsazení mezi diagonálně položenými body jsou
-použité pomocné projekční úsečky; porovnání délek tak neměří chybnou diagonálu.
-Původní souřadnice, texty a tisknutelná geometrie zůstávají zachované.
-Regresní test řešiče kontroluje reziduum i maximální pohyb všech bodů do 1e-6 mm.
-
-Pravoúhlé řetězce H/V a stejných délek v šabloně mají přesný lineární
-výpočet počátečního řešení; standardní řešič následně ověří všechny vazby.
-Zkouška změny hlavního odsazení z 10 na 12 mm ověřuje i změnu navázaných řádků.
-
-Zámek ve skicáři chrání hodnotu rozměru při tažení geometrie. Ve View jej
-lze přepnout přes **Zamknout rozměr / Odemknout rozměr**, také je dostupný
-ve vlastnostech rozměru. Zamčený řídicí rozměr se kreslí černě, nezamčený
-žlutě a měřený hnědě. Výběr a hover dál používají azurovou a oranžovou.
-Zámek nefixuje polohu popisku; číselnou hodnotu lze záměrně změnit ve vlastnostech.
-
-
-Číselná pole a rozměry ve View používají [společné zámky hodnot](NUMERIC_VALUE_LOCKS.md),
-včetně jednorázového převzetí současné hodnoty při zadávání reference.
-
-Vlastnosti obrázku, oblasti kusovníku, jejich příkazy, zarovnání a směry
-opakování mají české, anglické, německé, francouzské a ruské texty podle
-[jazyka aplikace](LOCALIZATION.md). Přepnutí jazyka nemění rozměry,
-zarovnání, tokeny kusovníku ani vlastní texty uložené v razítku.
-
-## Základní pohledy, skryté hrany a PDF
-
-Vlastnosti pohledu nabízejí přední, zadní, levý, pravý, horní, dolní a
-izometrický pohled. Odvozené projekční pohledy respektují první či třetí
-kvadrant listu. Zobrazení má čtyři režimy: pouze viditelné hrany, viditelné
-a skryté hrany, stínované s viditelnými hranami a stínované bez hran.
-Skryté hrany lze zobrazit čárkovaně nebo šedou plnou čarou.
-
-Projekce používá uložené křivky a trojúhelníky vypočteného tělesa. Rozděluje
-hrany v místech zakrytí a doplňuje obrysové křivky zakřivených ploch,
-například obě boční tvořící přímky válce. Parametrické švy periodických
-ploch se nezobrazují. Obrys odvozený z trojúhelníků není novou modelovou
-hranou a nelze na něj připojit kótu jako na stabilní topologickou referenci.
-Přesnost hladkých obrysů odpovídá uložené tessellaci zdroje.
-
-**Vlastnosti listu** nastavují tloušťky per v milimetrech. Dohodnuté výchozí
-mapování je **bílá 0,50 mm, červená 0,70 mm, žlutá a zelená 0,25 mm**.
-Viditelné hrany používají bílou tloušťku; skryté hrany (čárkované i šedé)
-a kóty používají slabou tloušťku 0,25 mm. Přepínač
-**Náhled tlouštěk** zapíná tyto tloušťky na obrazovce; výchozí režim **Tenké
-čáry** umožňuje kreslit bez zobrazení fyzických tlouštěk. Export používá
-skutečné tloušťky vždy, nezávisle na pracovním náhledu.
-Na černém pracovním pozadí se všechny skryté i viditelné tečné hrany kreslí
-tlumenou tmavě šedou (#666666), včetně čárkovaného režimu skrytých hran.
-PDF zachovává černé čárkované skryté hrany nebo zvolenou šedou souvislou
-variantu; tečné hrany se tisknou podle nastaveného pera a tloušťky.
-Čárkovaná skrytá hrana má na papíře čárku 3 mm a mezeru 1,5 mm nezávisle
-na měřítku modelu.
-
-**PDF…** na spodní liště nebo **Soubor → Export** v hlavním okně uloží
-všechny listy Drawing do jednoho PDF. Samostatné okno Drawing má také
-příkaz **Výkres → Uložit jako PDF…**. Každá stránka má skutečný formát svého
-listu včetně případné kombinace A4 a A3. Čáry a text se exportují vektorově. Stínovaná výplň používá hloubkově
-vyhodnocenou bitmapu při rozlišení exportu 720 dpi, nejvýše 16 milionů
-pixelů a 8192 pixelů na stranu pohledu; vložené obrázky zůstávají bitmapami. Výběrové
-rámečky, zvýraznění a rozpracované náhledy se netisknou. Běžná pera jsou na
-bílém papíře černá, volitelně šedé skryté hrany zůstávají šedé.
-
-Při tisku PDF zvolte **skutečnou velikost / 100 %**. Volba „přizpůsobit
-stránce“ v tiskovém programu mění měřítko i fyzické tloušťky. Export nevolá
-OCCT ani neregeneruje zdrojové modely; tiskne uložený stav pohledů. Změny
-zdrojové geometrie nejprve převezměte explicitním Regenerate pohledu.
-
-### Tečné hrany zaoblení
-
-Vlastnosti pohledu obsahují volbu **Tečné hrany: Silné čáry / Tenké čáry / Skrýt**.
-Ta zvýrazňuje hladké přechody mezi plochami, zejména v prostorových pohledech.
-Silné používají bílé pero (výchozí 0,5 mm), tenké používají tloušťku 0,25 mm.
-Volba se ukládá pro každý pohled a platí i pro PDF. Zakryté tečné hrany se nikdy
-nekreslí, ani při zapnutém zobrazení běžných skrytých hran. Vnější obrys zakřivené
-plochy zůstává zachován. Pracovní režim tenkých čar nemění tiskové tloušťky.
-
-Rozlišení tečných hran vychází z uložených směrů sousedních ploch; otevření
-vlastností nevolá OCCT. Chybějící údaje se nepovažují za důkaz tečnosti.
-U již uložených pohledů použijte Regenerovat k obnovení projekce a klasifikace hran.
-
-### Regenerace propojeného výkresu
-
-Příkaz **Regenerovat** obnovuje všechny pohledy na všech listech, i bez výběru
-pohledu. Otevřený díl je zdrojem v aktuálním neuloženém stavu; uzavřený díl se
-načte z uvedeného souboru. Smazání posledního tělesa vyprázdní také projekce.
-Aktualizují se i vazby kót a kusovník. Změna se použije až po úspěšném načtení
-všech zdrojů. Projekce v souboru výkresu jsou uložený stav pohledů, nikoli
-samostatný model; explicitní regenerace je nahradí podle propojeného zdroje.
-
-### Řezy a šrafování
-
-Vlastnosti pohledu nabízejí uložené řezy Partu nebo Assembly, šrafování
-s roztečí na papíře a nastavení jednotlivých komponent. Postup a hranice
-ovládání přes umístěný kontejner a Sketcher popisují [Řezy](SECTIONS.md).
-
-## Popisky, čtvrtotáčky a řezy
-
-Vlastnosti pohledu nabízejí kromě pevné orientace skutečné čtvrtotáčky aktuální
-kamery. Projekční pohledy přebírají otočenou kameru rodiče automaticky.
-Název pohledu a označení řezu mají samostatné přepínače a polohy; výchozí
-umístění je nad obrysem. Popisky a kóty se ovládají přes manipulační body.
-Podrobnosti značení, výběru tras, šrafování a tisku popisují [Řezy](SECTIONS.md).
-Nástroj [Show/Erase](DRAWING_SHOW_ERASE.md) zobrazuje a odebírá původní kóty, osy
-a pomocnou geometrii samostatně v každém pohledu. Podporuje přesouvání textů
-a úchytů a pracovní vodítka s výchozím odstupem i roztečí 8 mm.
-
-### Orientace pohledu nezávislá na řezu (2026-09-09)
-
-Kameru určuje Orientace nebo ruční čtvrtotáčky ve vlastnostech pohledu.
-Řez A–A pouze změní zobrazovanou geometrii; jeho šikmá skica nesmí natočit
-základní pohled ani jeho projekční potomky. Volba automatického pohledu
-kolmo k řezu byla odstraněna. Regenerace nejprve načte aktuální zdroje,
-potom obnoví projekce v pořadí rodič–potomci, včetně více úrovní a obou
-způsobů promítání. Pracuje s otevřenými zdroji bez nutnosti jejich uložení.
-Ponechaná strana řezu se automaticky přizpůsobí orientaci pohledu, takže
-při pohledu z opačné strany nezůstane řez zakrytý zadní částí tělesa.
-Strana se určuje automaticky bez dalšího přepínače; orientace zdrojového
-Partu/Assembly se nemění. Propojené směrové šipky sledují skutečně
-zobrazenou stranu. Přesně boční pohled nemá řeznou plochu pro šrafování.
-
-### Živé vlastnosti a manipulační body (2026-09-09)
-
-Při otevřených vlastnostech lze náhled pohledu posouvat levým tlačítkem za
-jeho obdélníkovou oblast. Pole X/Y se aktualizují průběžně. Pohyb respektuje
-zámky souřadnic a projekční vazbu odvozeného pohledu. Pouze OK uloží novou
-polohu a přesune navazující pohledy; Zrušit vrátí původní stav.
-
-Vybrané kóty a popisky jsou azurové, jejich manipulační body fialové.
-Body jsou jednoduché plné tečky stejné velikosti jako běžné body ve View.
-Při hoveru zůstává entita i bod oranžový. Manipulační body se netisknou.
-
-Prázdný text výkresové šablony nebo položky razítka ukazuje ve View pomlčku
-`-`, takže editovatelné pole lze vybrat a otevřít i bez hodnoty. Pomlčka je
-pouze editační značka; do hodnoty, Parameters ani PDF se nezapisuje.
-
-### Jednotné parametry šraf a editovatelné razítko
-
-Tabulka těles/komponent ovládá úhel, rozteč, posunutí a typ šraf. Hodnoty
-jsou uložené u řezu v modelu a OK je zapíše zpět; výkres si drží pouze vlastní
-viditelnost šraf po tělesech. Zrušit neprovede zápis. Podrobnosti včetně 3D
-zobrazení a uložení zdrojového dokumentu jsou v [Řezech](SECTIONS.md).
-
-Dvojklik na parametrický text funguje i v opakovaném řádku kusovníku a ve
-složeném textu. Například u čísla `soubor.&Verze` upravíte parametr Verze,
-aniž by se změnil název souboru. Polotovar, Název a Norma v řádku kusovníku
-patří konkrétnímu zdrojovému dílu nebo podsestavě. Změna nezasáhne jiné řádky
-ani parametry nadřazené sestavy; dva výskyty stejného zdroje sdílejí hodnoty
-a jejich počet se zachová. Vypočtené parametry (např. hmotnost řízená relací)
-a systémové údaje zůstávají pouze pro čtení. OK mění Parameters zdrojového
-dokumentu, Zrušit nikoli; úpravy se ukládají běžným uložením modelu.
+# Drawings
+
+This document describes the current ZIMA-CAD Drawing data and interaction model.
+Basic usage is also in the [user manual](UZIVATELSKY_MANUAL.md#basic-drawing-workflow).
+
+## Document, sheets and source model
+
+A `.drwz` Drawing references one source `.prtz` Part or `.asmz` Assembly and may
+contain multiple sheets. Each sheet stores its own format, frame, title block,
+views, dimensions and sheet-local field values.
+
+The **DRAWING** button in the source Part/Assembly tree header opens its existing
+Drawing, or creates a new Drawing file in another tab. Source linkage is stored
+before the first view exists. The reverse **PART**/**ASSEMBLY** button returns
+to that exact source. Source renaming updates its path/name in the linked Drawing.
+
+Frame/title-block definitions are copied into sheet data when inserted. The
+Drawing no longer requires those `.frmz`/`.tblz` files in `config/formats`.
+Deleting, renaming or editing a library template does not change existing sheets;
+a new definition is adopted only by explicit frame/title-block replacement.
+
+## Frames and title blocks
+
+`.frmz` and `.tblz` files are edited in Sketcher. The template editor always
+shows the full sheet, without ordinary model Sketch physical-scale startup.
+The stored template origin maps directly to the Drawing origin at the lower
+right, without hidden compensation.
+
+Supplied title blocks:
+
+- `ZE-RAZITKO.tblz`: Czech labels and localized parameter names.
+- `ZE-TITLE-BLOCK.tblz`: English labels and localized parameter names.
+
+Text starting with `&` references a parameter. Internal keys such as `name` and
+localized labels (`&Název`, `&Name`, `&Наименование`) identify the same parameter.
+**Sheet Properties → Title-block language** determines the language of read/
+written values. Insertion inherits template `Locale`; shared values take
+precedence over language-specific ones. Empty values use field placeholder text.
+
+**Title-block values…** or double-clicking any value opens the full table,
+including parameters in standalone text and the BOM region. Double-click focuses
+the clicked value; aliases do not duplicate a parameter. Model fields follow
+the source's saved **Parameters** order, then other data. Editable fields hover
+orange and confirm cyan. Values load before the first view if a source model
+is assigned; after views are inserted, the active sheet's first view determines
+the title-block source.
+
+**OK** writes changed simple parameter fields marked `WriteBack` into source
+Part/Assembly Parameters in one source revision. **Cancel** writes nothing.
+Open models take precedence over disk. An unopened source is loaded into the
+workspace on confirmation; changes remain unsaved like ordinary Parameters
+edits and can be undone in the source. The `&parameter` expression remains in
+the title block; no local value override replaces it.
+
+Standalone `&parameter` text outside the BOM without its own `Field` section
+also becomes a parameter field at insertion. `&drawing.*` and `&local.*` values
+belong only to the sheet. System values, compound expressions and relation-driven
+parameters are read-only; writable constituent parameters of a compound
+expression have separate entries. Clicking a BOM row opens the full table for
+that row's source Part/subassembly; OK writes to that source. Being inside the
+purple rectangle does not restrict the table's scope.
+
+Mass driven by `model.mass` and its unit follow source settings. See
+[physical properties](PHYSICAL_PROPERTIES.md) for density, units, component
+snapshots and explicit Assembly regeneration.
+
+## BOM Repeat Region in title blocks
+
+On insertion or explicit regeneration, an Assembly view loads source components.
+Repeated source documents group into one item with quantity; different sources
+create separate rows. Each row reads its Part/subassembly Parameters. Suppressed
+components are omitted; hidden components still count. BOM item count determines
+row count; the purple frame defines repeated geometry and spacing.
+
+The title-block editor identifies the area as a **BOM Repeat Region**. It is a
+purple wire rectangle with no fill and highest selection priority: hovering any
+edge highlights the whole region and labels. RMB cycling exposes geometry beneath.
+
+The first double row has two special functions:
+
+- Upper left: **Item Number**, sequential from 1.
+- Upper right: **Quantity**, number of component occurrences.
+
+Other fields are ordinary source parameters. A standalone Part produces one
+row; an Assembly repeats the region in its stored direction to form the BOM.
+
+## Inserted views and updates
+
+**Insert View → click sheet → View Properties** is shared by all sources. The
+first view is isometric. Properties selects an open source model or file, name,
+label, orientation, style, scale and position. Creation/editing share one internal
+dialog. Changes are preview-only until OK; Cancel neither creates nor edits a
+view. MMB double-click over the sheet confirms OK.
+
+View selection uses its full projected rectangle, including empty interior.
+Hover, click and context menu share that area and overlapping-view order. Its
+frame appears only on hover/selection. Tree and View select the same view;
+clicking outside views clears selection.
+
+**Projected View** in the context menu attaches a preview to the cursor and
+snaps direction every 45° according to parent and sheet projection method.
+Children store parent ID, direction and camera. Moving a parent moves children;
+child movement stays on the projection ray. Name/label and custom versus sheet
+scale are saved in `.drwz`.
+
+Views retain source linkage and last calculated projection. Opening/tab switching
+invokes neither OCCT nor automatic dependency refresh. **Regenerate** explicitly
+reads the open source's latest calculated state, or its saved file, and refreshes
+projection/dimensions.
+
+The bottom **Variant** selector currently shows only the source filename. Family
+Table variant selection/calculation is future work. **Parameters** above the
+View or in the Drawing-name context menu opens source Part/Assembly Parameters
+while retaining the displayed Drawing.
+
+Frame/title-block selection starts in global **Formats**, including after live
+configuration changes.
+
+## Linear dimension
+
+The initial associative dimension implementation supports two parallel straight
+edges of an inserted view. Faces/general curves are not references for this
+initial mode. Current expanded dimension coverage is documented in
+[DRAWING_DIMENSIONS_DESIGN.md](DRAWING_DIMENSIONS_DESIGN.md).
+
+1. Activate **Dimension**; the cursor remains an ordinary arrow.
+2. Hover an inserted-view edge. Valid edges turn orange; RMB cycles overlapping
+   candidates and the status bar identifies the offered object.
+3. LMB confirms first and second edges; confirmed references remain cyan.
+4. A yellow preview shows actual model distance. Move to position it and confirm
+   with short MMB.
+5. The tool remains active for another dimension; quick MMB double-click exits.
+
+Dimensions store stable topology references of original objects, not screen
+coordinates or current mesh edge order. Model regeneration resolves references
+and refreshes value/position. Missing or ambiguous references must not silently
+reattach to another edge.
+
+Arrows share a sharp shape with 10° half-angle, also used for View dimensions,
+Origin axes and BOM region direction.
+
+## Initial limitations and later coverage
+
+The first implementation covered one associative linear dimension between
+parallel straight edges. Further ISO dimension types, developed sections,
+details, tolerances, balloons, technical symbols and DXF export were listed as
+next steps. This is a historical scope statement; later dimension, section and
+export behavior is described in the linked current documents. BOM Repeat Region,
+Item Number and Quantity were already functional at that stage.
+
+
+## Editing frames and title blocks in C++
+
+**Open** accepts `.frmz`/`.tblz` directly in the existing Sketcher document tab;
+**New** creates either type. **Save** retains the file type; **Save As** creates
+a separate copy. A numbered previous file version is retained before overwrite.
+Opening never automatically rearranges or aligns geometry.
+
+During the original library conversion, geometry, text anchors, constraints,
+dimensions, pen colors and parameter fields were retained. Negative point-to-point
+length dimensions became positive magnitudes with reversed point order,
+preserving the positioning equation. Axis/origin coordinate placement retained
+its sign. Converted templates used SchemaVersion 4 with native C++ Sketch data.
+This records the conversion stage, not a requirement for legacy migration paths.
+
+**BOM Region** in title-block Sketcher takes two rectangle corners, then Properties
+sets position, dimensions, repeat direction and spacing. OK saves; Cancel discards.
+Double-click/tree opens the same Properties; the menu can remove the region.
+MMB double-click over the View also confirms.
+
+The unfilled purple outline draws above other geometry and has highest hover
+priority. LMB selects the whole region and synchronizes the tree. Before
+confirmation, RMB cycles underlying geometry. The helper rectangle is not
+printed. Actual lines, circles and text inside it repeat in the stored direction/
+spacing. `&bom.item_number` and `&bom.quantity` supply item number/count; other
+model parameters belong to the row's source. A Part produces one row. Drawings
+embed their own template/BOM copy, so later library edits do not change them.
+
+### Images in title blocks (C++)
+
+The `.tblz` editor offers **Image** with its own icon. Selecting SVG, PNG, JPEG,
+BMP or WebP opens shared internal **Image Properties**. Placement uses a clicked
+Sketch point or X/Y coordinates. Horizontal Left/Center/Right and vertical
+Bottom/Middle/Top align the rectangle to that point. Coordinates may be negative;
+dimensions must be positive.
+
+Width/height use mm. **Preserve aspect ratio** defaults on; changing either
+dimension calculates the other from the original image. Turn it off to set them
+independently. **Choose file…** replaces content in the same dialog. Preview is
+transient: OK saves, Cancel restores; MMB double-click over the View confirms OK.
+
+Select an image anywhere inside its rectangle or in the tree. Double-click opens
+the same Properties; context actions include Properties/Delete. Purple BOM regions
+draw last and have higher selection priority. An image inside a region repeats
+with its contents.
+
+Raster images normalize to PNG, retain transparency and embed in `.tblz`/`.drwz`;
+the external source is no longer required. The command is title-block-only.
+Decoded images use a bounded shared memory cache, so cursor movement does not
+reload source files.
+
+SVG remains original vector data and renders through Qt SVG in editor/Drawing.
+Scaling/resizing does not rasterize it. Aspect ratio comes from exact `viewBox`;
+raster images use original resolution. Supported SVG content follows Qt SVG.
+For a portable company logo, convert text to curves and embed other images in
+the SVG. Technical Drawings do not play animations.
+
+### Constraints in supplied title blocks
+
+Czech/English title blocks retain 14 unique driving dimensions instead of 52
+repeated ones. The first 10 mm origin offset drives other 10 mm spans through
+equal-length constraints; other repeated values are similarly shared. H/V
+constraints preserve alignment and the template origin is attached to Sketch
+origin. Horizontal/vertical offsets between diagonally located points use
+auxiliary projection segments, avoiding measurement of the wrong diagonal.
+Original coordinates, text and printable geometry remain. Solver regression
+checks residual and maximum point movement within 1e-6 mm.
+
+Orthogonal H/V/equal-length chains use an exact linear initial solution; the
+standard solver then validates all constraints. Changing the main offset from
+10 to 12 mm checks dependent rows too.
+
+Sketcher locks protect dimension values during geometry dragging. **Lock
+Dimension / Unlock Dimension** in the View and Dimension Properties toggle them.
+Locked driving dimensions are black, unlocked yellow, measured brown. Selection/
+hover remain cyan/orange. Locks do not fix labels; intentional numeric edits
+remain possible in Properties.
+
+Numeric fields/View dimensions use [shared value locks](NUMERIC_VALUE_LOCKS.md),
+including one-time capture of the current value during reference entry.
+
+Image/BOM Properties, commands, alignment and repeat directions have Czech,
+English, German, French and Russian labels according to
+[application language](LOCALIZATION.md). Language changes do not alter sizes,
+alignment, BOM tokens or custom title-block text.
+
+## Standard views, hidden edges and PDF
+
+View Properties offers front, rear, left, right, top, bottom and isometric views.
+Derived projected views follow the sheet's first/third-angle method. Four display
+modes: visible edges, visible plus hidden edges, shaded with visible edges, shaded
+without edges. Hidden edges may use dashes or solid gray lines.
+
+Projection uses stored curves/triangles of the calculated body. It splits edges
+at occlusion boundaries and adds curved-face silhouettes, such as a cylinder's
+two side generators. Periodic-face seams are hidden. Triangle-derived silhouettes
+are not new model edges and cannot become stable dimension references. Smooth
+silhouette accuracy follows source tessellation.
+
+**Sheet Properties** sets pen widths in mm. Agreed defaults: **white 0.50 mm,
+red 0.70 mm, yellow/green 0.25 mm**. Visible edges use white width; hidden edges
+(dashed/gray) and dimensions use 0.25 mm. **Lineweight preview** shows physical
+widths on screen; default **Thin lines** supports drafting without them. Export
+always uses actual widths independent of preview.
+
+On a black working background, hidden edges and visible tangent edges use muted
+dark gray (#666666), including dashed hidden mode. PDF retains black dashed
+hidden edges or the selected solid-gray variant; tangent edges print with their
+configured pen/width. Hidden dashes measure 3 mm with 1.5 mm gaps on paper,
+independent of model scale.
+
+**PDF…** on the bottom bar or **File → Export** saves all Drawing sheets to one
+PDF. The standalone Drawing window also offers **Drawing → Save as PDF…**.
+Pages retain actual sheet sizes, including mixed A4/A3. Lines/text are vector.
+Shaded fill uses a depth-evaluated bitmap at 720 dpi, capped at 16 million pixels
+and 8192 pixels per view side; embedded raster images remain bitmaps. Selection
+frames, highlights and pending previews do not print. Normal pens print black
+on white paper; optional gray hidden edges stay gray.
+
+Print PDF at **actual size / 100%**. Printer "fit to page" changes scale and
+physical widths. Export calls no OCCT and does not regenerate sources; it prints
+saved view state. Adopt source geometry changes with explicit View Regenerate first.
+
+### Fillet tangent edges
+
+View Properties offers **Tangent edges: Thick lines / Thin lines / Hide** to
+show smooth face transitions, especially in spatial views. Thick uses the white
+pen (default 0.5 mm); thin uses 0.25 mm. Settings are per-view and apply to PDF.
+Occluded tangent edges never draw, even with ordinary hidden edges enabled.
+Curved-face outer silhouettes remain. Working thin-line mode does not change
+print widths.
+
+Classification uses persisted adjacent-face directions; opening Properties calls
+no OCCT. Missing data is not evidence of tangency. Regenerate existing saved
+views to refresh projection/edge classification.
+
+### Regenerating a linked Drawing
+
+**Regenerate** refreshes every view on every sheet, even without view selection.
+Open Parts supply current unsaved state; closed Parts load from their file.
+Removing the last body clears projections too. Dimension references and BOM also
+refresh. Changes apply only after all sources load successfully. Persisted
+Drawing projections are view state, not a separate model; explicit regeneration
+replaces them from the linked source.
+
+### Sections and hatching
+
+View Properties offers saved Part/Assembly sections, hatch spacing on paper and
+per-component settings. See [Sections](SECTIONS.md) for the placed-container/
+Sketcher workflow and limitations.
+
+## Labels, quarter-turns and sections
+
+Besides fixed orientation, View Properties supports actual quarter-turns of the
+current camera. Projected children automatically inherit the rotated parent
+camera. View names and section labels have independent visibility/positions,
+defaulting above the outline. Labels/dimensions use handles. See
+[Sections](SECTIONS.md) for labels, paths, hatching and printing.
+[Show/Erase](DRAWING_SHOW_ERASE.md) shows/removes original dimensions, axes and
+auxiliary geometry per view, including text/handle movement and working guides
+with 8 mm default distance/spacing.
+
+### View orientation independent of section (2026-09-09)
+
+Orientation or manual quarter-turns determines the camera. Section A–A changes
+only displayed geometry; its oblique Sketch must not rotate the base view or
+projected children. Automatic section-normal view selection was removed.
+Regeneration loads current sources, then rebuilds projections parent-first,
+including multiple levels and both projection methods. Open sources need not
+be saved first.
+
+The retained section side adapts automatically to view orientation so looking
+from the reverse direction does not leave the section hidden behind the body.
+No additional side switch is required; source Part/Assembly orientation remains
+unchanged. Linked direction arrows follow the displayed side. An exactly side-on
+view has no cut face to hatch.
+
+### Live properties and handles (2026-09-09)
+
+With Properties open, LMB dragging the rectangular view area moves its preview.
+X/Y fields update continuously. Movement respects coordinate locks and derived
+projection linkage. Only OK saves position and moves dependent views; Cancel
+restores the original state.
+
+Selected dimensions/labels are cyan with purple handles: simple solid dots the
+same size as ordinary View points. On hover, entity/point remain orange. Handles
+never print.
+
+Empty template/title-block text displays `-` in the View so the editable field
+can still be selected/opened. This editing marker is not written to the value,
+Parameters or PDF.
+
+### Shared hatch parameters and editable title block
+
+The body/component table controls hatch angle, spacing, shift and type. Values
+belong to the model section and OK writes them back; the Drawing retains only
+per-body hatch visibility. Cancel writes nothing. [Sections](SECTIONS.md) covers
+3D presentation and source-document persistence.
+
+Double-clicking parameter text also works in repeated BOM rows and compound
+text. For example, `soubor.&Verze` edits parameter `Verze` without renaming the
+file. Stock, Name and Standard in a BOM row belong to that source Part/subassembly.
+Changes affect neither other rows nor parent Assembly parameters; repeated
+occurrences of the same source share values and retain quantity. Calculated
+parameters (e.g. relation-driven mass) and system data remain read-only. OK edits
+source Parameters, Cancel does not; normal model Save persists the edits.

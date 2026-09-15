@@ -1,246 +1,224 @@
-# Zrcadlo a Pole v příkazové vrstvě
+# Mirror and Pattern in the command layer
 
-Příkazová vrstva zpřístupňuje `derived_copy.sources`, `mirror.create/get/set`
-a `pattern.create/get/set`. GUI Vlastnosti používají stejné zdroje, načtení
-parametrů, přípravu a potvrzení jako CLI. Katalog má **205 příkazů**.
-Následující popis tvorby a změn je součástí právě ověřované etapy.
+The command layer exposes `derived_copy.sources`, `mirror.create/get/set` and
+`pattern.create/get/set`. GUI Properties share sources, parameter reading,
+preparation and commit with CLI. The catalog reached **205 commands** at this
+milestone. The creation/editing sections below record that implementation stage.
 
 ```json
 {"command":"derived_copy.sources","arguments":{}}
-{"command":"derived_copy.sources","arguments":{"object":"ID-EDITOVANE-KOPIE"}}
-{"command":"mirror.get","arguments":{"object":"ID-ZRCADLA"}}
-{"command":"pattern.get","arguments":{"object":"ID-POLE","document":"ID-OTEVRENEHO-DOKUMENTU"}}
+{"command":"derived_copy.sources","arguments":{"object":"EDITED-COPY-ID"}}
+{"command":"mirror.get","arguments":{"object":"MIRROR-ID"}}
+{"command":"pattern.get","arguments":{"object":"PATTERN-ID","document":"OPEN-DOCUMENT-ID"}}
 ```
 
-Všechny dotazy přijímají volitelné `document`. Čtou i jiný otevřený Part
-nebo Assembly bez aktivace, ukládání, změny historie či přepočtu. Nekopírují
-triangulaci ani B-Rep a nevolají OCCT, solver umístění nebo regeneraci kopií.
-Při otevřených Vlastnostech vracejí uložené hodnoty dokumentu; rozpracované
-hodnoty dialogu zůstávají pouze v dialogu.
+All queries accept optional `document`. They can read another open Part/Assembly
+without activation, saving, history changes or recalculation. They copy neither
+triangulation nor B-Rep and call no OCCT, placement solver or copy regeneration.
+With Properties open, queries return committed document values; pending values
+remain in the dialog.
 
-## Dostupné zdroje
+## Available sources
 
-`derived_copy.sources` vrací `document`, `object`, `boundary`, `revision`
-a `items`. Položka obsahuje `id`, `name`, `kind` (`body`, `boolean`,
-`component`), `visible` a lokální `instance_path` pro komponentu sestavy.
-Jméno není identita. Dvě vložení stejného zdrojového souboru jsou dva
-nezávislé výskyty.
+`derived_copy.sources` returns `document`, `object`, `boundary`, `revision` and
+`items`. Each item has `id`, `name`, `kind` (`body`, `boolean`, `component`),
+`visible` and local `instance_path` for Assembly components. Names are not identity;
+two insertions of the same file are independent occurrences.
 
-Bez `object` je v Partu hranice bezprostředně za aktivním Tělesem, případně
-u kořenového kurzoru, pokud žádné Těleso aktivní není. Při editaci je před
-zadanou kopií. Boolean spotřebuje svoje vstupní tělesa a nabídne vlastní
-výsledek. Zrcadlo ani Pole zdroj nespotřebují. Pořadí je pořadím historie.
+Without `object`, the Part boundary is immediately after the active Body, or at
+the root cursor if no Body is active. Editing uses the boundary before the specified
+copy. A Boolean consumes input Bodies and offers its own result. Mirror/Pattern
+do not consume sources. Ordering follows history.
 
-V Assembly se nabízejí jen vlastní bezprostřední komponenty před kopií;
-bez `object` jde o všechny komponenty. Potlačené se vynechají, pouze skryté
-zůstávají platnými zdroji. Vnitřní díl podsestavy se nestává komponentou
-vlastněnou vyšší sestavou. `boundary` je pozice v uloženém kořenovém seznamu
-včetně potlačených komponent; není to pořadí OCCT objektu.
+Assembly offers only its own immediate components before the copy, or all components
+without `object`. Suppressed components are omitted; hidden ones remain valid
+sources. Internal subassembly Parts do not become components owned by a higher
+Assembly. `boundary` is a position in the saved root list, including suppressed
+components, never OCCT object order.
 
-Výpis popisuje dostupnost podle historie a vlastnictví. Sám nevytváří
-chybějící výpočtová data a neslibuje, že prázdné těleso má geometrii.
-GUI k náhledu použije už existující vypočítaný výsledek. Odstraněna je
-nepoužívaná náhrada starého Partu bez historie Těles jedním fiktivním Tělesem.
+The query describes history/ownership availability. It does not create missing
+calculation data or imply that an empty Body has geometry. GUI preview uses existing
+calculated results. The unused fallback that replaced legacy Parts lacking Body
+history with one fictitious Body was removed.
 
-## Uložené vlastnosti
+## Saved properties
 
-`mirror.get` a `pattern.get` vracejí `object`, `name`, `kind`, `source`,
-`origin`, `visible`, `placement`, `reference`, `reference_valid`,
-`value_locks`, `document` a `revision`. U komponenty jde o skutečné
-`copy_placement`, nikoli běžnou polohu vloženého komponentu.
+`mirror.get` and `pattern.get` return `object`, `name`, `kind`, `source`, `origin`,
+`visible`, `placement`, `reference`, `reference_valid`, `value_locks`, `document`
+and `revision`. Component copies expose actual `copy_placement`, not normal inserted-
+component placement.
 
-`placement` zachovává existující datový kontrakt umístění, jeho zámky a
-reference. `reference` osy/roviny používá `owner`, `key`, `instance_path`,
-a `offset_mm`. Identita zdroje
-ani reference se neodvozuje z pořadí ploch, jména ve stromu nebo geometrické
-podobnosti. Zrcadlo navíc vrací poslední uloženou `resolved_plane` s `point`
-a `normal`. Neplatná reference zůstane neplatná i po pouhém dotazu.
+`placement` retains the existing contract, locks and references. Axis/plane
+`reference` contains `owner`, `key`, `instance_path` and `offset_mm`. Source and
+reference identity never derives from face order, tree names or geometric similarity.
+Mirror additionally returns last-saved `resolved_plane` with `point` and `normal`.
+Reading does not repair an invalid reference.
 
-Pole vrací objekt `pattern`: `mode` (`linear`/`circular`), uložené `count`,
-`full_circle`, `angle_degrees`, poslední `resolved_origin` a `resolved_axis`
-a všechny tři uložené řádky `linear`. Řádek obsahuje `axis` (`x/y/z`, nebo
-`null` pro nepoužitý směr), `spacing_mm`, `count`, `reverse_count`,
-`distribution` (`forward/reverse/both/symmetric`) a `resolved_direction`.
-Uchovají se i právě neaktivní řádky a nastavení druhého režimu.
+Pattern returns `pattern`: `mode` (`linear`/`circular`), saved `count`, `full_circle`,
+`angle_degrees`, last `resolved_origin`/`resolved_axis` and all three saved `linear`
+rows. Each row has `axis` (`x/y/z`, or `null` when unused), `spacing_mm`, `count`,
+`reverse_count`, `distribution` (`forward/reverse/both/symmetric`) and
+`resolved_direction`. Inactive rows and settings of the other mode are preserved.
 
-`instance_count` je počet kombinací vypočtený pouze z číselných parametrů;
-zahrnuje původní zdroj. Při nevyhodnotitelném počtu je `null`. Tento údaj
-není geometrická validace. Uložené `count` zůstává nastavením kruhového počtu i při lineárním režimu;
-počet lineárních kombinací určuje `instance_count`. Například testované
-lineární pole má 12 pozic, ale zachovává kruhové nastavení `count:4`. Při `full_circle:true` je skutečný kruhový krok 360° / `count`; uložené
-`angle_degrees` zachovává nastavení pro vlastní krok. Výsledné těleso Pole
-obsahuje pouze nové kopie, tedy
-`instance_count − 1` kopií zdroje. Všechny délky a body jsou v mm, úhly
-ve stupních; vektory jsou bezrozměrné.
+`instance_count` is the combination count calculated from numeric parameters alone,
+including the original source; it is `null` if unevaluable. It is not geometry
+validation. Saved `count` remains the circular count even in linear mode;
+`instance_count` gives linear combinations. The tested linear Pattern has 12
+positions while retaining circular `count:4`. With `full_circle:true`, actual
+circular step is 360° / `count`; saved `angle_degrees` retains the custom-step setting.
+The resulting Pattern Body contains new copies only: `instance_count − 1` source
+copies. Lengths/points are mm, angles degrees, vectors dimensionless.
 
-Neexistující nebo cizí objekt vrátí `object_not_found`, jiný typ objektu
-`wrong_feature`, nepodporovaný dokument `unsupported_document`. Zadaná
-hranice musí být skutečné Zrcadlo nebo Pole v daném dokumentu. Dotaz nikdy
-nedohledává nejednoznačný výskyt podle názvu.
+Missing/foreign objects return `object_not_found`, wrong feature types
+`wrong_feature`, unsupported documents `unsupported_document`. A supplied boundary
+must identify an actual Mirror/Pattern in that document. Queries never resolve
+ambiguous occurrences by name.
 
-Formát, přípony a start šablony se nemění. Potřebná data jsou již uložená
-uvnitř `.prtz` nebo `.asmz`.
+Formats, extensions and start templates are unchanged. Required data already lives
+inside `.prtz` or `.asmz`.
 
-## Ověření
+## Query verification
 
-První modelový běh prošel **1/1** (0,49 s),
-`build/derived-copy-query-model-build.log` a
-`build/derived-copy-query-model-tests.log`. Nezávisle ověřuje objem zdroje
-48 mm³, stejný objem zrcadla a 11 × 48 mm³ u pole s 12 pozicemi včetně
-zdroje. Kontroluje oboustranný/symetrický směr, neaktivní řádek, zámky,
-původní identity a nativní uložení.
+The first model run passed **1/1** (0.49 s),
+`build/derived-copy-query-model-build.log`,
+`build/derived-copy-query-model-tests.log`. It independently checks source volume
+48 mm³, equal Mirror volume and 11 × 48 mm³ for 12 Pattern positions including the
+source; both/symmetric directions, inactive rows, locks, original IDs and native save.
 
-Dále ověřuje hranice vytvoření/editace, Boolean zdroj a spotřebované
-vstupy, chybné typy a cizí ID, dvě vložení stejného dílu, skrytý versus
-potlačený výskyt a explicitně neaktualizovanou geometrii sestavy. Při
-čtení se nemění revize, aktivace, graf historie ani adresy vypočítaných
-výsledků/sdílených snapshotů. Testy skutečného CLI a GUI Vlastností jsou
-součástí navazujícího sestavení a ověření.
+It also checks creation/edit boundaries, Boolean sources/consumed inputs, wrong
+types/foreign IDs, repeated Part insertions, hidden versus suppressed occurrences
+and explicitly stale Assembly-derived geometry. Reads preserve revision, activation,
+history graph and addresses of calculated results/shared snapshots. Actual CLI and
+GUI Properties checks were included in the subsequent build.
 
-První související sada měla **8/9** úspěšných testů (80,94 s),
-`build/derived-copy-query-related-tests.log`. Nová GUI kontrola odhalila,
-že editace ze stromu předává pouze ID; parametr druhu platí jen při
-vytváření. Přidaná kontrola druhu byla z GUI odstraněna, takže při editaci
-opět rozhoduje uložený objekt. Příkazové `mirror.get` a `pattern.get`
-nadále explicitně kontrolují požadovaný druh. Dokumentace a modelový test
-navíc rozlišují uložený kruhový počet a celkový počet lineárních kombinací.
+The first related suite passed **8/9** (80.94 s),
+`build/derived-copy-query-related-tests.log`. New GUI coverage showed tree editing
+passes only ID; the kind parameter applies to creation. The added GUI kind check
+was removed, restoring saved-object-driven editing. `mirror.get`/`pattern.get`
+still explicitly validate requested kind. Documentation/model tests also distinguish
+saved circular count from total linear combinations.
 
-Po opravě jsou oba programy sestavené a celá dotčená sada prošla **9/9**
-(77,04 s), `build/derived-copy-query-final-build.log`,
-`build/derived-copy-query-final-tests.log`. GUI test je nyní trvale
-zaregistrovaný v CTest; ověřuje Zrcadlo a Pole v Partu i Assembly,
-znovuotevření stejných Vlastností, rollback/Cancel, směry mřížky, zdrojový
-výběr a potvrzení prostředním tlačítkem. Konzole navíc čte uložené hodnoty
-během rozpracované editace bez výměny rollback geometrie.
+After correction, both programs built and **9/9** affected tests passed (77.04 s),
+`build/derived-copy-query-final-build.log`,
+`build/derived-copy-query-final-tests.log`. Permanently registered GUI coverage checks
+Part/Assembly Mirror/Pattern, reopening the same Properties, rollback/Cancel, grid
+directions, source selection and middle-button confirmation. Console also reads
+committed values during pending edits without replacing rollback geometry.
 
-
-## Vytváření a změny
+## Creation and editing
 
 ```json
-{"command":"mirror.create","arguments":{"source":"ID-ZDROJE","local_plane":"yz","placement":{"x":-2}}}
-{"command":"mirror.set","arguments":{"object":"ID-ZRCADLA","reference":{"owner":"ID-PUVODNIHO-OBJEKTU","key":"KLIC-PLOCHY","instance_path":"","offset_mm":1}}}
-{"command":"pattern.create","arguments":{"source":"ID-ZDROJE","linear":[{"axis":"x","spacing_mm":30,"count":3,"distribution":"symmetric"},{"axis":"y","spacing_mm":20,"count":2,"reverse_count":2,"distribution":"both"}]}}
-{"command":"pattern.set","arguments":{"object":"ID-POLE","mode":"circular","count":6,"full_circle":true,"local_axis":"z"}}
+{"command":"mirror.create","arguments":{"source":"SOURCE-ID","local_plane":"yz","placement":{"x":-2}}}
+{"command":"mirror.set","arguments":{"object":"MIRROR-ID","reference":{"owner":"ORIGINAL-OBJECT-ID","key":"FACE-KEY","instance_path":"","offset_mm":1}}}
+{"command":"pattern.create","arguments":{"source":"SOURCE-ID","linear":[{"axis":"x","spacing_mm":30,"count":3,"distribution":"symmetric"},{"axis":"y","spacing_mm":20,"count":2,"reverse_count":2,"distribution":"both"}]}}
+{"command":"pattern.set","arguments":{"object":"PATTERN-ID","mode":"circular","count":6,"full_circle":true,"local_axis":"z"}}
 ```
 
-Tvorba vyžaduje `source`, editace `object` a alespoň jeden měněný parametr.
-Obě podporují `name`, `source`, `placement` a vlastní parametry uvedené níže.
-Změna smí cílit jen aktivní Part/Assembly s ukončeným dialogem a skicářem.
-Vnořenou aktivaci dosud omezuje společný guard příkazové vrstvy; její
-rozšíření zůstává v celkovém seznamu CLI. Nový příkaz si nevymýšlí zdroj
-podle názvu ani podle aktuálního hoveru.
+Creation requires `source`; editing requires `object` and at least one changed
+parameter. Both support `name`, `source`, `placement` and feature parameters below.
+Mutations target the active Part/Assembly after closing dialogs and Sketcher. The
+initial stage used a shared guard restricting nested activation; consult current
+[command coverage](CAD_COMMAND_COVERAGE.md) for subsequent activation support.
+Commands never infer sources from names or current hover.
 
-Zrcadlo potřebuje `local_plane` (`xy/xz/yz`) vlastního počátku nebo přesnou
-`reference`; nesmí být zadány současně. Výslovné `offset_mm` reference
-posouvá její rovinu po normále. Zdroj se odráží ve svých skutečných
-souřadnicích dokumentu, rovina patří umístění Zrcadla.
+Mirror needs either local-Origin `local_plane` (`xy/xz/yz`) or exact `reference`,
+never both. Explicit reference `offset_mm` moves its plane along the normal. Source
+reflection uses actual document coordinates; the plane belongs to Mirror placement.
 
-Pole je při vytvoření lineární. `linear` je úplný seznam jednoho až tří
-směrových řádků; každý vyžaduje `axis` (`x/y/z` nebo `null`). Ostatní pole
-řádku jsou volitelná a zachovají dosavadní hodnoty: `spacing_mm`, `count`,
-`reverse_count`, `distribution`. Vynechané řádky se deaktivují, ale jejich
-číselná nastavení zůstanou uložená. Osy se nesmějí opakovat. Tímto polem
-se nezadávají libovolné vektory: používají se osy vlastního počátku Pole.
+Pattern defaults to linear on creation. `linear` completely specifies one to three
+direction rows, each requiring `axis` (`x/y/z` or `null`). Optional `spacing_mm`,
+`count`, `reverse_count`, `distribution` retain existing row values when omitted.
+Omitted rows deactivate but keep numeric settings. Axes cannot repeat. Rows use
+the Pattern's local Origin axes, not arbitrary vectors.
 
-Rozteč je 0,001 až 1 000 000 mm, počet ve směru 2 až 1000. `forward`,
-`reverse` a `symmetric` počítají celkem včetně zdroje; symetrický počet
-musí být lichý. `both` má `count` vpřed včetně zdroje a `reverse_count`
-(1 až 999) dalších pozic vzad. Celkový součin nesmí přesáhnout 1000 pozic.
+Spacing range: 0.001–1,000,000 mm; directional count: 2–1000. `forward`, `reverse`
+and `symmetric` counts include the source; symmetric counts must be odd. `both`
+uses `count` forward including source plus `reverse_count` (1–999) additional
+backward positions. Total combinations cannot exceed 1000.
 
-Kruhový režim se volí `mode:"circular"`. Používá `count` (2 až 1000),
-`full_circle` a `angle_degrees` (−359,999 až 359,999°); vlastní krok musí
-rozlišovat výskyty v jedné otáčce. `local_axis` vybírá vlastní `x/y/z`,
-alternativní `reference` původní osu či přímou hranu. Nulové odsazení osy
-je přípustné; nenulové odsazení reference je vyhrazené rovině Zrcadla.
-Výchozí kruhová reference je vlastní osa Z.
+`mode:"circular"` uses `count` (2–1000), `full_circle` and `angle_degrees`
+(−359.999 to 359.999°). A custom step must distinguish occurrences within one turn.
+`local_axis` selects local `x/y/z`; alternatively `reference` selects an original
+axis or straight edge. Zero axis-reference offset is allowed; nonzero reference
+offset is reserved for Mirror planes. Default circular reference is local Z.
 
-Kruhová pole argumentů se zadávají pouze při kruhovém režimu, `linear`
-pouze při lineárním. `mode` lze změnit ve stejném příkazu. Přepnutí druhu
-Pole zachová neaktivní směry i kruhové nastavení. Druh Zrcadlo ↔ Pole
-se touto editací nemění.
+Circular arguments apply only in circular mode, `linear` only in linear mode;
+`mode` may change in the same command. Switching Pattern modes preserves inactive
+directions and circular settings. Editing cannot convert Mirror ↔ Pattern.
 
-`placement` je číselný patch stejného umístění jako ve Vlastnostech:
-`x/y/z`, `rotation_x/y/z` a `reference_offset:N`. Jednotky jsou mm/stupně.
-Existující pravidla zamčených a referencí řízených polí se nemění.
-Nové generické přidávání umísťovacích referencí patří do samostatné etapy.
+`placement` is a numeric patch of the same Properties placement: `x/y/z`,
+`rotation_x/y/z`, `reference_offset:N`, in mm/degrees. Locked/reference-driven field
+rules are unchanged. Generic addition of placement references was a separate stage.
 
-## Potvrzení, zámky a chyby
+## Commit, locks and errors
 
-Společný `prepare_derived_copy_edit` uchová revizi, hranici historie,
-původní parametry a původní viewer reference. Nevolá OCCT. OK/příkaz
-použije `commit_derived_copy`, současný solver umístění a současný výpočet
-odvozených těles/komponent. Nová geometrie se počítá výslovně při potvrzení.
-Cancel nic z pending hodnot neuloží. Změněný dokument odmítne starou
-přípravu přes `document_changed`.
+Shared `prepare_derived_copy_edit` retains revision, history boundary, original
+parameters and viewer references without OCCT. OK/commands use `commit_derived_copy`,
+the existing placement solver and derived Body/component calculation. New geometry
+is explicitly calculated at commit. Cancel saves no pending values. A changed
+document rejects stale preparation with `document_changed`.
 
-Změna má jeden krok Undo; přesně stejné nastavení je no-op bez nové
-revize a výpočtu. Zdroj musí být dostupný před operací. Vlastní, chybějící,
-cizí a pozdější zdroje se odmítají před změnou dokumentu. Chyba nového
-výsledku nebo jeho zdroje v Partu zabrání commitu. Samostatná chyba
-navazujícího prvku může stejně jako v historii zůstat v dokumentu;
-příkaz pak výslovně vrátí `calculation_errors` a `changed:true`.
+Changes create one Undo step. Identical settings are a no-op without revision or
+calculation. Sources must exist before the operation; self, missing, foreign and
+later sources are rejected before mutation. Part result/source errors prevent
+commit. A separate downstream-feature error can remain in history as before;
+commands explicitly return `calculation_errors` and `changed:true` in that case.
 
-Zámky kopie nyní používají `value_lock.list/set`: její vlastní umístění
-v `placement:*` a u Pole `pattern:angle`, `pattern:spacing:0/1/2`.
-Komponenta používá `copy_placement`, nikoli běžné umístění komponenty.
-Zámek úhlu brání také nepřímé změně úhlu přes počet plného kruhu. Zámek
-rozteče patří konkrétnímu řádku Vlastností, včetně dočasně neaktivního řádku.
-Odemykání uvnitř dialogu se potvrdí společně s hodnotami; konzole změnu
-během pending Vlastností odmítne.
+Copy locks use `value_lock.list/set`: local placement in `placement:*`, and Pattern
+`pattern:angle`, `pattern:spacing:0/1/2`. Components use `copy_placement`, not normal
+component placement. Angle locks also prevent indirect angle changes through
+full-circle count. Spacing locks belong to exact Properties rows, including inactive
+ones. Dialog unlocking commits with values; console rejects mutations during pending
+Properties.
 
-Editace komponentové kopie zachovává její vlastní viditelnost a barevné/
-vzhledové přepisy. Geometrie, materiál a zdrojové vlastnosti nadále přicházejí
-ze zdroje podle stávajícího výpočtu. Při vytvoření se zachová dosavadní
-převzetí vlastností ze zdrojové komponenty. Zdrojový Part se tím neupravuje.
+Editing a component copy preserves its visibility and colour/appearance overrides.
+Geometry, material and source properties still derive from the existing source
+calculation. Creation retains source-component property inheritance. Source Parts
+are not modified.
 
-## Průběžné ověření tvorby a editace
+## Creation/editing verification
 
-Po přesunu potvrzení prošly existující dotazové a skutečné GUI testy
-**2/2** (8,01 s), `build/derived-copy-shared-edit-build.log` a
+After extracting commit, existing query and actual GUI tests passed **2/2**
+(8.01 s), `build/derived-copy-shared-edit-build.log`,
 `build/derived-copy-shared-edit-tests.log`.
 
-Nový modelový test prošel **1/1** (0,81 s),
+New model tests passed **1/1** (0.81 s),
 `build/derived-copy-command-model-build.log`,
-`build/derived-copy-command-model-tests.log`. Ověřuje nezávislé objemy
-48 mm³ u zrcadla, 528 mm³ u pole 12 pozic, 912 mm³ u 20 pozic a 2000 mm³
-u sestavového pole tří pozic ze zdroje 1000 mm³. Porovnává ručně spočtené
-meze zrcadlení a směrové mřížky, původní rovinu, identity kopií při změně
-počtu, neaktivní režimy, zámky a nepřímý úhel, atomické chyby a překročení
-počtů, zdroj za hranicí, starou přípravu, Undo/Redo, studený nativní výpočet
-a zachování vlastního vzhledu komponenty.
+`build/derived-copy-command-model-tests.log`. Independent volumes: 48 mm³ Mirror,
+528 mm³ for 12 positions, 912 mm³ for 20, and 2000 mm³ for an Assembly Pattern of
+three positions from a 1000 mm³ source. Checks include manually calculated reflection/
+grid bounds, original plane, copy IDs across count changes, inactive modes, locks
+and indirect angle changes, atomic failures/count overflow, sources beyond the
+boundary, stale preparation, Undo/Redo, cold native calculation and retained
+component appearance.
 
-První úplný běh rozšířené sady prošel **105/105** (496,11 s),
-`build/derived-copy-command-all-build.log` a
-`build/derived-copy-command-full-tests.log`. Následuje dodatečné ověření
-aktuálního neuloženého zdroje v čistém CLI bez GUI obnovy scény.
+The first full expanded suite passed **105/105** (496.11 s),
+`build/derived-copy-command-all-build.log`,
+`build/derived-copy-command-full-tests.log`. Further checks then examined current
+unsaved sources in pure CLI without GUI scene refresh.
 
-Doplňující scénář neuloženého Partu odhalil stale zdroj čistého CLI:
-po zvětšení zdroje z 1000 na 2000 mm³ měla nově potvrzená kopie stále
-1000 mm³ (`build/derived-copy-unsaved-repro-tests.log`, 0/1). GUI tuto
-obnovu provádí v `refresh_scene`; příprava kopie Assembly proto nyní
-přebírá aktuální zdroje existujícím `Workspace::refresh_source_geometry`.
-Ten sdílí vypočítaná data a neřeší vazby ani nepočítá staré kopie/řezy.
-Datové dotazy tuto přípravu nevolají. Zdrojový Part se neukládá ani
-nemění a obnova zdroje nevytváří samostatný krok Undo.
+That scenario exposed stale CLI source data: enlarging source volume from 1000 to
+2000 mm³ still produced a newly committed 1000 mm³ copy
+(`build/derived-copy-unsaved-repro-tests.log`, 0/1). GUI refreshes in `refresh_scene`;
+Assembly-copy preparation now obtains current sources through existing
+`Workspace::refresh_source_geometry`. It shares calculated data without solving
+mates or recalculating old copies/cuts. Queries do not call this preparation.
+The source Part is neither saved nor modified; source refresh adds no separate Undo.
 
+After the fix, model tests passed **1/1** (0.75 s),
+`build/derived-copy-unsaved-fix-build.log`,
+`build/derived-copy-unsaved-fix-tests.log`. Final coverage added Undo to the old copy
+result while retaining current shared source data, Redo, source edits in a real CLI
+process and locked spacing in GUI Properties. Both programs built; **14/14** affected
+tests passed (85.98 s), `build/derived-copy-final-build.log`,
+`build/derived-copy-final-tests.log`. The full 105-test run preceded this final source-
+sharing fix. Formats/templates are unchanged.
 
-Po opravě aktuálního zdroje prošel modelový test **1/1** (0,75 s),
-`build/derived-copy-unsaved-fix-build.log` a
-`build/derived-copy-unsaved-fix-tests.log`. Závěrečný test přidal návrat
-kopie na starý výsledek pomocí Undo při zachování současných sdílených
-zdrojových dat, následné Redo, změnu zdroje ve skutečném CLI procesu
-a zamčenou rozteč v GUI Vlastnostech. Oba programy jsou sestavené;
-všech **14/14** dotčených testů prošlo (85,98 s),
-`build/derived-copy-final-build.log` a `build/derived-copy-final-tests.log`.
-Úplná sada 105 testů výše předcházela poslední opravě sdílení zdroje.
-Formát dokumentů ani šablony se touto etapou nemění.
+## Original references of nested copies
 
-
-## Původní reference vnořených kopií
-
-Analytické plochy Zrcadla/Pole respektují vnořená umístění a lze je číst
-přes přesné virtuální cesty Pole. Stejná pravidla platí při další kopii,
-kontextové projekci a nativním znovuotevření. Aktivace přechází na původní
-zdroj; virtuální uzel nevlastní umístění svých zdrojových dokumentů.
-Starší vypočtená data opraví výslovný přepočet kopie, nikoli pouhé čtení.
-Geometrický důkaz a regrese: [NESTED_COPY_REFERENCES.md](NESTED_COPY_REFERENCES.md).
+Mirror/Pattern analytical faces respect nested placements and are readable through
+exact virtual Pattern paths. Further copies, contextual projection and native
+reopening share these rules. Activation targets the original source; virtual nodes
+do not own source-document placement. Explicit copy recalculation repairs older
+calculated data, never a read. Geometry proof/regressions:
+[NESTED_COPY_REFERENCES.md](NESTED_COPY_REFERENCES.md).

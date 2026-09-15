@@ -84,9 +84,9 @@ void Host::register_sketch_commands() {
     query({"sketch.create",tr("Create a standalone Sketch using the standard container factory."),{{"name",true},{"plane",false},{"document",false}},true},[this](const Json& args) {
         const auto check=target(args);if(!check.ok)throw workspace::SketchOperationError("document_changed","Sketch creation requires the active document.");
         if(interaction().template_document)throw workspace::SketchOperationError("unsupported_document","Sketch commands require an ordinary Part or Assembly.");
-        const auto plane=args.value("plane",std::string{"XY"});if(plane!="XY"&&plane!="XZ"&&plane!="YZ")invalid("Sketch plane must be XY, XZ or YZ.");
+        const auto plane=args.value("plane",std::string{"AUTO"});if(plane!="AUTO"&&plane!="XY"&&plane!="XZ"&&plane!="YZ")invalid("Sketch plane must be AUTO, XY, XZ or YZ.");
         const auto doc=workspace_.active_document_id();
-        const auto id=workspace::create_document_sketch(workspace_,kernel_,doc,args["name"].get<std::string>(),plane=="XY"?sketcher::SketchPlane::XY:plane=="XZ"?sketcher::SketchPlane::XZ:sketcher::SketchPlane::YZ);
+        const auto id=workspace::create_document_sketch(workspace_,kernel_,doc,args["name"].get<std::string>(),plane=="YZ"?sketcher::SketchPlane::YZ:plane=="XZ"?sketcher::SketchPlane::XZ:sketcher::SketchPlane::XY,plane=="AUTO");
         change_=Change{ChangeKind::Model,doc,true};auto result=metadata(workspace::document_sketch(workspace_,doc,id));result["document"]=doc;result["changed"]=true;return result;
     });
     query({"sketch.delete",tr("Delete a standalone Sketch and its owning container."),
@@ -122,8 +122,9 @@ void Host::register_sketch_commands() {
             if(args.contains("name"))sketch.name=args.at("name").get<std::string>();
             if(args.contains("plane")){
                 const auto plane=args.at("plane").get<std::string>();
-                if(plane!="XY"&&plane!="XZ"&&plane!="YZ")invalid("Sketch plane must be XY, XZ or YZ.");
-                sketch.plane=plane=="XY"?sketcher::SketchPlane::XY:plane=="XZ"?sketcher::SketchPlane::XZ:sketcher::SketchPlane::YZ;
+                if(plane!="AUTO"&&plane!="XY"&&plane!="XZ"&&plane!="YZ")invalid("Sketch plane must be AUTO, XY, XZ or YZ.");
+                sketch.plane_auto = plane == "AUTO";
+                if (!sketch.plane_auto) sketch.plane=plane=="XY"?sketcher::SketchPlane::XY:plane=="XZ"?sketcher::SketchPlane::XZ:sketcher::SketchPlane::YZ;
             }
             if(args.contains("plane_offset_mm")){
                 if(placement.value_locks.contains("profile_offset")&&sketch.plane_offset!=number(args.at("plane_offset_mm")))

@@ -136,6 +136,7 @@ Json details(const Source& source, const Item& item, std::size_t limit) {
         result["direction"] = vec(value.direction);
     if (value.kind == document::ConstructionKind::Axis) result["direction_axis"] = value.direction_axis;
     if (value.kind == document::ConstructionKind::Plane) {
+        result["base_plane_auto"] = value.base_plane_auto;
         result["base_plane"] = value.base_plane == document::LocalDatumPlane::XY ? "xy"
             : value.base_plane == document::LocalDatumPlane::XZ ? "xz" : "yz";
         result["offset_mm"] = value.offset;

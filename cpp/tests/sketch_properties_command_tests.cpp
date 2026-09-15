@@ -70,6 +70,8 @@ void verify(kernel::OcctKernel& kernel,fs::path directory,bool rotated){
     const auto ref_owner=body?body->origin().id:id+":origin";
     const auto reference=[&](int index,const std::string& source,const char* key){return Json{{"sketch",sketch_id},{"index",index},{"reference",{{"owner",source},{"key",key}}}};};
     run(host,"sketch.reference.set",reference(0,ref_owner,"origin:plane:xy"));
+    require(current().plane==sketcher::SketchPlane::YZ&&!current().plane_auto,"First reference overwrote manual Sketch plane");
+    run(host,"sketch.set",{{"sketch",sketch_id},{"plane","AUTO"}});
     require(current().plane==sketcher::SketchPlane::XZ&&feature().placement.references.front().orientation_role=="front","First plane did not define Sketch frame");
     run(host,"placement.reference.set",{{"object",owner},{"index",1},{"reference",{{"owner",ref_owner},{"key","origin:plane:yz"}}}});
     run(host,"sketch.reference.set",reference(2,ref_owner,"origin:plane:xz"));

@@ -1,307 +1,292 @@
-# Dokumentové operace bez GUI
-
-## První oddělená etapa (2026-09-11)
-
-`cpp/modules/workspace/document_operations` obsahuje společné ukládání Partu,
-Assembly a Drawing a dokumentové Undo/Redo. Veřejné rozhraní je v
-`include/zima/workspace/document_operations.hpp`, implementace v
-`src/document_operations.cpp`. Nepoužívá Qt, okna, picker ani aplikační smyčku.
-GUI i konzole používají tutéž implementaci, původní kopie logiky byly odstraněny.
-
-Vstupem operace je Workspace, přesné ID dokumentu a cílová cesta, případně
-směr historie. Výstupem je uložený nativní dokument nebo změněný stav historie.
-Zobrazení, dialogy, lokalizované zprávy a stavový panel zůstávají v aplikaci.
-
-## Ukládání
-
-1. `prepare_document_save` na vlákně vlastnícím Workspace pořídí snímek
-   dokumentu a již vypočtených dat. Nic nezapisuje a nemění dirty stav.
-2. `DocumentSave::write` pracuje jen se snímkem. Může běžet na pracovním vlákně
-   nebo synchronně v programu bez GUI. Používá stávající nativní serializaci.
-   Až po úspěšném zápisu vrací `SavedDocument`.
-3. `complete_document_save` na vlákně Workspace dohledá dokument znovu podle
-   identity. Neuchovává ukazatel do vektoru otevřených dokumentů přes pracovní
-   úlohu. Teprve zde aktualizuje cestu a případně označí dokument za uložený.
-
-Revize parametrů sama nestačí: explicitní přepočet může změnit vypočtená data
-bez nové položky historie. Dokončení kontroluje revizi, generaci dat a počet
-přidělených rozměrových identifikátorů. Novější změny zůstávají dirty.
-AssemblySession proto stejně jako DocumentSession vystavuje runtime generaci
-svých dat; tato hodnota není součástí souborového formátu.
-
-Každý otevřený stav má runtime identitu odlišnou od trvalého ID dokumentu.
-Dokončení staré úlohy nesmí změnit dokument, který byl mezitím zavřen a znovu
-otevřen ze stejného souboru. Odmítne také mezitím změněnou cílovou cestu.
-Pracovní snímek není revize připnutá k sestavě a nevytváří žádný sidecar.
-
-Výkres nyní používá sledované potvrzení `DrawingState::commit`. Obsah je zvenčí
-přístupný pouze pro čtení; potvrzená změna zvýší runtime revizi. Uložení ji
-porovná s revizí snímku a novější úpravy ponechá dirty. Přepnutí tabu, listu,
-Cancel a obnova zobrazení nepředstavují potvrzení. Není nutná další kopie
-geometrie ani serializace pro kontrolu změn. Dokumentové Undo/Redo výkresu
-zůstává samostatnou chybějící operací.
-
-## Historie
-
-`can_step_document_history` a `step_document_history` používají existující
-Part/Assembly session. Part po úspěšném kroku synchronizuje závislosti externích
-skic stejně jako dříve. Operace nemění aktivní ani zobrazený dokument.
-
-V GUI zůstávají zákazy během editace, lokální historie řezu/skici, zrušení
-rozpracovaného segmentu a obnova pohledu. Tyto interakční kroky nemají patřit
-do dokumentového jádra. Není to plošný audit všech transakcí Undo/Redo.
-
-## Ověření a další hranice
-
-`zima_cpp_document_operations_tests` běží bez QApplication. Ověřuje:
-
-- skutečný zápis a opětovné načtení všech tří nativních typů;
-- identitu dokumentu, geometrii a reference Partu a komponent sestavy;
-- neměnný snímek zapisovaný na pracovním vlákně;
-- novější editace a vypočtená data během ukládání;
-- selhání zápisu bez změny cesty, revize a dirty stavu;
-- odmítnutí chybějícího dokumentu a prázdné cesty;
-- Undo/Redo Partu a Assembly, prázdnou historii a nepodporovaný typ;
-- změnu cesty, zavření a opětovné otevření během ukládání;
-- zachování aktivního a zobrazeného dokumentu.
-
-Integrační test konzole nadále ověřuje kombinaci GUI editace, konzolového
-uložení a Undo/Redo proti skutečnému souboru. Celá regresní sada se spouští
-přes `tools/build-windows.ps1 -Configuration Release -RunTests`.
-
-Otevírání a vytváření podle config šablon jsou popsány v další etapě níže.
-Regenerace je oddělena ve třetí etapě popsané níže. Společný hostitel příkazů
-bez GUI je nyní v `modules/command_host`; viz [CAD_CONSOLE.md](CAD_CONSOLE.md).
-Formát souborů se nemění; stávající přípony a config šablony zůstávají platné.
-
-## Výsledek ověření
-
-Windows Release: kompletní sada **52/52 prošla**, 374,17 s. Testovací program
-nových operací byl navíc spuštěn samostatně a jeho závislosti byly ověřeny přes
-`dumpbin /dependents`: neobsahuje Qt. Úplný protokol je v lokálním
-`build/document-operations-full-tests.log`.
-
-Po doplnění lokalizace chybové zprávy a přesného porovnání ID původních ploch
-byly znovu přeloženy dotčené cíle. Následně prošly `zima_cpp_ui_contract_tests`,
-`zima_cpp_document_operations_tests` a `zima_cpp_console_ui_contract` (3/3,
-12,27 s). Geometrický test porovnává vlastníka, sémantický klíč a cestu výskytu
-každé uložené původní plochy, ne pouze počet referencí.
-
-## Druhá etapa: otevření a nový dokument
-
-`native_documents.hpp/.cpp` v modulu workspace nyní poskytují:
-
-- `read_native_document`: čtení `.prtz`, `.asmz`, `.drwz` a uložené geometrie
-  do odděleného výsledku; může běžet na pracovním vlákně bez Qt;
-- `prepare_new_native_document`: nový dokument, nastavení jednotek a přípravu
-  ze start šablony; nevytváří soubor ani nemění otevřený Workspace;
-- `insert_native_document`: vložení na vlákně vlastnícím Workspace;
-- `part_from_template` a `assembly_from_template`: společné továrny také pro
-  import, který potřebuje nastavení a počáteční dokument ze stejné šablony.
-
-`NativeTemplateSettings` přenáší cesty ze settings a přeložené jméno prvního
-tělesa. Kopírování hodnot mezi Qt settings a těmito daty je malý aplikační
-adaptér. Samotné čtení šablony, kontrola jejího obsahu a vytvoření nových ID
-nepotřebují Qt. Config šablony se nezapisují ani nemění.
-
-Part i těleso mají novou identitu a těleso se váže na počátek nového Partu
-stávající funkcí `create_origin_bound_body`. Její implementace ani kontrakt
-umístění se nemění. Assembly rovněž dostává nové ID. Jednotky aplikace se
-přenášejí stejně jako dříve; přesnost a ostatní hodnoty zůstávají ze šablony.
-Výkres se nadále vytváří svým stávajícím výchozím konstruktorem.
-
-Při Open GUI nejprve kontroluje už otevřenou cestu. Vložení načteného výsledku
-kontrolu opakuje: pokud byl mezitím stejný soubor otevřen, převezme jeho ID a
-nepřepíše neuložené změny. Shodné trvalé ID pod jinou cestou se odmítá stejně
-jako dosud. New odmítá obsazenou cestu před přípravou i před vložením.
-
-Vložení nevyvolává explicitní přepnutí dokumentu. Zachovává základní chování
-Workspace, který první vložený dokument nastaví jako výchozí. Přepínání tabů,
-aktivaci nástrojů, vymazání dočasného výběru, první aktivní těleso a obnovu
-View stále zajišťuje GUI. Tím zůstává obsluha po Open/New stejná.
-
-Formáty `.tblz`/`.frmz` pro grafické šablony a obnova fontových kontur zůstávají
-v dosavadním editoru šablon. Nejsou dalšími nativními typy Part/Assembly/Drawing.
-Tato etapa nemění žádný uložený formát ani vyžadované soubory dokumentů.
-
-`zima_cpp_native_documents_tests` běží bez QApplication a ověřuje čtení všech
-tří typů, data pro View, přesné identity původních ploch, UTF-8 cestu, config
-šablony, nové identity včetně vazby tělesa na správný počátek, nastavení jednotek,
-kolize cest, obsazení cesty během přípravy, již otevřený změněný dokument,
-duplicitní ID, chybějící/poškozený soubor a odmítnutí staré přípony `.prt`.
-
-## Ověření druhé etapy
-
-Windows Release sestaven, **53/53 testů prošlo** (354,86 s), protokol
-`build/native-documents-full-tests.log`. Test nových nativních operací navíc
-prošel samostatně a kontrola `dumpbin /dependents` potvrdila nepřítomnost Qt DLL.
-Config šablony test porovnává před a po tvorbě bajt po bajtu.
-
-## Třetí etapa: výslovná regenerace a reference
-
-Uživatel 2026-09-11 výslovně povolil úpravu chráněného umístění kontejnerů.
-Schválený přesun je strukturální: výpočty a reference přecházejí z hlavního
-okna do modulu workspace. Řešič umístění, pořadí průchodů, limit
-`history.size() + 2`, konvergence i transakce zůstávají stejné.
-
-`model_calculation.hpp/.cpp` poskytují bez Qt:
-
-- `calculate_part`: výpočet se zachováním platné geometrie při chybě;
-- `calculate_part_with_resolved_references`: výpočet do ustálení umístění,
-  konstrukcí, externích skic a bodů vrtání, včetně polohy řezů;
-- `calculate_resolved_assembly_cuts`: výpočet sestavových odečtů s jejich
-  uloženými referencemi, skutečným vstupem pro rollback a odvozenými kopiemi;
-- `regenerate_part` a `regenerate_assembly`: výslovná regenerace konkrétního
-  otevřeného dokumentu včetně stávajících pravidel historie a závislostí.
-
-`part_references.cpp` obsahuje původní čisté pomocné funkce pro výběr vlastníků,
-obnovu externích referencí a skládání uložené referenční geometrie. GUI
-používá tytéž funkce přes deklarace v privátním workspace headeru. Žádná z
-nich nezískává identitu geometrie novým procházením OCCT topologie.
-
-`PartCalculationPolicy` je pouze kontext explicitního výpočtu: zda zamítnout
-chyby a ke kterému dokumentu/hraničnímu indexu patří editace. Při rollbacku
-se posuzuje chyba právě editovaného prvku; chyby pozdější historie zůstávají
-u svých vlastníků. GUI převádí svůj stav dialogu a rollbacku na tuto datovou
-strukturu. Nový modul nepotřebuje okno, viewer ani QApplication.
-
-Regenerace běží synchronně na vlákně vlastnícím Workspace. Nemění aktivní
-dokument ani zobrazenou sestavu. GUI nadále řídí rozpracovanou editaci,
-obnovu View, výběr a hlášení výsledku. Obnova Partu bez změny definice
-aktualizuje vypočtené hranice bez nového Undo kroku. Změněné umístění či
-reference se potvrzují stejnou transakcí jako před přesunem.
-
-Explicitní regenerace Assembly dál používá otevřené neuložené zdroje.
-Běžné zobrazení ani přepnutí tabu novou regeneraci nevyvolává. Stávající
-`Workspace::calculate_assembly_cuts` v obnově závislostí zůstává beze změny:
-pracuje s již uloženými definicemi odečtů. Přesunutá aplikační fáze navíc řeší
-reference sestavového odečtu a jeho vlastněnou skicu. Sloučení těchto dvou
-odlišných fází není součástí tohoto strukturálního přesunu.
-
-Přípony, serializace, config i start šablony zůstávají stejné. Nevznikají
-revizní adresáře ani povinné soubory mimo `.prtz`, `.asmz` a `.drwz`.
-
-Nezávislé porovnání proti předchozímu commitu ověřilo totožnost všech osmi
-přesunutých pomocných funkcí; u výpočtů a obou regeneračních transakcí
-ověřilo totožnost po nahrazení přístupů ke členům okna explicitními parametry.
-Lokální protokol: `build/model-calculation-extraction-audit.txt`.
-
-`zima_cpp_model_calculation_tests` běží bez Qt a kontroluje řetězec tří
-navázaných kontejnerů, navázaný řez, změnu zdrojového rozměru, zachování ID
-původních ploch, Undo/Redo, opakovaný nezměněný výpočet, chyby při editaci a
-regeneraci, neuložený Part v Assembly, identitu výskytu a sestavový odečet.
-Objem odečtu je ověřen nezávisle jako 2000 − 2 × 10 × 10 = 1800 mm³.
-
-## Ověření třetí etapy
-
-Finální Windows Release prošel **55/55 testy** (365,35 s), včetně kompletních
-GUI, konzolových, souborových, sestavových, skicářských a geometrických regresí.
-Protokol je v `build/model-calculation-final-tests.log`. První úplný běh
-zachytil jediný problém s kompaktností Vlastností osy; oprava rezervy tlačítka
-je popsána v [NUMERIC_VALUE_LOCKS.md](NUMERIC_VALUE_LOCKS.md). Následný úplný
-běh již neměl chybu. Kontrola `dumpbin /dependents` potvrdila, že nový test
-modelových výpočtů neobsahuje Qt DLL (`build/model-calculation-dependencies.txt`).
-
-
-## Čtvrtá etapa: společné provádění příkazů
-
-`modules/command_host` přímo propojuje katalog textových/JSON příkazů se zde
-popsanými operacemi. Main Window již neregistruje vlastní implementace příkazů.
-Poskytuje pouze nastavení, lokalizaci, stav interakce, pracovní I/O a akci Fit;
-po provedení obdrží popis změny pro obnovu zobrazení. Sdílená pomocná funkce
-`finish_document_switch` zachovává stejné vyčištění dočasného výběru a obnovu
-stromu/View při Open/New z GUI i konzole.
-
-Modelový strom a seznam dokumentů lze číst bez Qt, bez otevření zdrojových
-souborů závislostí a bez OCCT. Kontrakt, datová pole a hranice příkazového
-programu jsou v [CAD_CONSOLE.md](CAD_CONSOLE.md).
-
-## Životní cyklus dokumentů (2026-09-11)
-
-Společné `document_needs_save` a `close_document` chrání všechny tři nativní
-typy před zavřením neuložených úprav i dosud nezapsaného souboru. GUI ponechává
-volbu Uložit / Zahodit / Zrušit; konzole vrací `unsaved_changes`, dokud volající
-neuloží dokument nebo výslovně nepředá boolean `discard: true`.
-
-Host přidává `activate`, `close`, `pwd`, `cd` a `save_as`. Poslední příkaz
-používá existující `Workspace::save_copy` nad odděleným snímkem, stejně jako
-GUI. Výsledkem jsou nové identity a přesměrované navázané výkresy, nikoli
-změna identity původního dokumentu. Cíl musí mít správnou nativní příponu.
-Tabová aktivace a kopírování nevolají OCCT. Souborové formáty ani start šablony
-se nemění.
-
-Regrese s českým názvem adresáře odhalila systémové kódování Windows v cestách
-nativních odkazů. Serializace cest zdrojů výkresu, pohledu, kusovníku a komponenty
-sestavy nyní zapisuje UTF-8 a stejným způsobem je čte. Kopírování používá UTF-8
-rovněž pro přesměrování odkazů a název kopie; importní metadata Partu ukládají
-cestu ve stejném kódování. Nejde o nový formát nebo migrační větev.
-
-Kopie výkresu přesměruje i řádek kusovníku, který přímo odkazuje na kopírovaný
-model, na jeho nové ID a cestu. Ostatní komponenty nadále odkazují na své zdroje.
-
-Ověření: plný běh Windows Release **58/59** (376,32 s,
-`build/document-lifecycle-full-final.log`) odhalil právě chybějící přesměrování
-kusovníku. Po opravě prošlo **9/9 dotčených regresí** (16,71 s,
-`build/document-lifecycle-verified-tests.log`): společné operace, host bez Qt,
-skutečné procesy CLI, panel konzole, tři výkresové GUI kontrakty, Workspace a
-všech pět lokalizací. GUI i CLI jsou přeložené z opraveného stavu
-(`build/document-lifecycle-verified-build.log`). Kontroly ověřují objem kopie,
-nové identity, skutečné nativní soubory, Unicode cesty, ochranu změn, poslední
-otevřenou záložku a přepnutí dokumentu bez nové generace vypočtené geometrie.
-
-
-## Archivní soubory (2026-09-14)
-
-Výpis a mazání starších číslovaných záloh nyní sdílí GUI i CLI. Čtyři příkazy
-`file.archives.list/prune` a `directory.archives.list/prune` pracují se
-skutečnými soubory bez změny otevřeného modelu. Nejde o modelové Undo ani
-o nové povinné vedlejší úložiště. Formát nativních dokumentů a start šablony
-se nemění. Kontrakt, chyby a ověření: [ARCHIVE_COMMANDS.md](ARCHIVE_COMMANDS.md).
-
-
-## Odstranění uloženého dokumentu (2026-09-14)
-
-`file_removal_operations` sdílí obě akce mazání aktuálního souboru z menu
-s příkazem `delete_file`. Po smazání zavře dokument bez opětovného ukládání.
-Zamčený aktuální soubor ponechá dokument i archivy; selhání pozdějšího archivu
-vrátí přesný částečný výsledek a promítne už provedené zavření také do GUI.
-Příprava kontroluje identitu otevření, generaci dat, historii a snímek souborů.
-Formáty, start šablony ani pravidla výpočtu geometrie se nemění.
-Kontrakt a výsledky testů: [FILE_REMOVAL_COMMANDS.md](FILE_REMOVAL_COMMANDS.md).
-
-
-## Příprava přejmenování (2026-09-14)
-
-Datové přesměrování je společné pro otevřené session včetně Undo/Redo
-a soukromé načtené nativní snímky. Zachovává ID, vypočtené těleso a dirty stav;
-otevřená data umí změnit v jedné odložené dávce bez kopií geometrie.
-`PreparedNativeDocument` nově ověřuje vlastnictví výkresu, přesměruje uložené
-cesty a uloží vlastní snímek. Souborová transakce a GUI/CLI napojení
-následují. Ověření a návrh: [NATIVE_FILE_RENAME.md](NATIVE_FILE_RENAME.md).
-
-
-## Dokončení přejmenování (2026-09-14)
-
-`rename_file` a GUI nyní používají `FileRenameJob`: soukromé uložené snímky,
-kontrolu aktuálnosti vstupů, zveřejnění souborů a teprve potom přesměrování
-živých metadat. Přejmenování neukládá neuloženou práci a nemaže Undo/Redo.
-Odkazy se aktualizují podle původních ID v otevřených i zavřených dokumentech;
-automatický výkres se ověřuje podle skutečného vlastnictví.
-GUI Uložit a taby zachovávají české znaky po přejmenování všech tří typů.
-Podrobnosti, omezený rozsah hledání a chybová obnova:
+# Document operations without GUI
+
+## First extraction stage (2026-09-11)
+
+`cpp/modules/workspace/document_operations` contains shared Part, Assembly and
+Drawing saving and document Undo/Redo. Public interface:
+`include/zima/workspace/document_operations.hpp`; implementation:
+`src/document_operations.cpp`. It uses no Qt, windows, picker or application loop.
+GUI and console share this implementation; duplicate logic was removed.
+
+Inputs are a Workspace, exact document ID and target path or history direction.
+Output is a saved native document or changed history state. Display, dialogs,
+localized messages and status panels remain in the application.
+
+## Saving
+
+1. On the Workspace-owning thread, `prepare_document_save` snapshots the document
+   and already calculated data without writing or changing dirty state.
+2. `DocumentSave::write` uses only the snapshot, either on a worker thread or
+   synchronously without GUI. It uses existing native serialization and returns
+   `SavedDocument` only after successful writing.
+3. On the Workspace thread, `complete_document_save` looks up the document again
+   by identity. It never retains a pointer into the open-document vector across
+   the worker task. Only completion updates the path and possibly marks it saved.
+
+Parameter revision alone is insufficient: explicit recalculation can change
+calculated data without adding history. Completion checks revision, data generation
+and allocated dimension-identifier count. Newer changes remain dirty.
+`AssemblySession`, like `DocumentSession`, exposes a runtime data generation that
+is not part of the file format.
+
+Each open state has a runtime identity distinct from persistent document ID.
+An old task cannot modify a document closed and reopened from the same file, or
+one whose target path changed in the meantime. A worker snapshot is not an
+Assembly-pinned revision and creates no sidecar.
+
+Drawing uses tracked `DrawingState::commit`. Contents are externally read-only;
+a committed change increments runtime revision. Save compares it with the snapshot
+revision and leaves newer edits dirty. Tab/sheet switching, Cancel and display
+refresh are not commits. Change detection needs neither an extra geometry copy nor
+serialization. Document-level Drawing Undo/Redo was still missing at this stage;
+this is a historical extraction record, not the current feature-coverage list.
+
+## History
+
+`can_step_document_history` and `step_document_history` use existing Part/Assembly
+sessions. After a successful step, Part synchronizes external-sketch dependencies
+as before. Operations change neither active nor displayed document.
+
+GUI retains editing guards, section/sketch-local history, cancellation of a pending
+segment and View restoration. These interactions do not belong in the document
+core. This extraction is not a comprehensive Undo/Redo transaction audit.
+
+## Verification and further boundaries
+
+`zima_cpp_document_operations_tests` runs without QApplication and checks:
+
+- actual write/reopen of all three native types;
+- document identity, geometry and Part/Assembly-component references;
+- immutable snapshots written on worker threads;
+- newer edits and calculated data during saving;
+- failed writes preserving path, revision and dirty state;
+- rejection of missing documents and empty paths;
+- Part/Assembly Undo/Redo, empty history and unsupported types;
+- path changes and close/reopen during saving;
+- unchanged active and displayed documents.
+
+Console integration still checks GUI editing, console saving and Undo/Redo against
+real files. Full regression uses
+`tools/build-windows.ps1 -Configuration Release -RunTests`.
+
+Opening/template creation and regeneration are described in the next two stages.
+The Qt-free shared command host now lives in `modules/command_host`; see
+[CAD_CONSOLE.md](CAD_CONSOLE.md). File formats, extensions and config templates
+remain unchanged.
+
+## Verification results
+
+Windows Release: full suite **52/52 passed**, 374.17 s. The new operations test
+also ran independently; `dumpbin /dependents` confirmed no Qt dependency.
+Full local log: `build/document-operations-full-tests.log`.
+
+After localizing an error message and adding exact original-face ID comparisons,
+affected targets rebuilt. `zima_cpp_ui_contract_tests`,
+`zima_cpp_document_operations_tests` and `zima_cpp_console_ui_contract` passed
+3/3 in 12.27 s. Geometry tests compare owner, semantic key and occurrence path of
+every saved original face, not merely reference counts.
+
+## Second stage: Open and New Document
+
+Workspace `native_documents.hpp/.cpp` now provides:
+
+- `read_native_document`: reads `.prtz`, `.asmz`, `.drwz` and saved geometry into
+  a separate result; can run on a Qt-free worker thread;
+- `prepare_new_native_document`: prepares a new document, units and start-template
+  contents without creating a file or changing the open Workspace;
+- `insert_native_document`: inserts on the Workspace-owning thread;
+- `part_from_template` and `assembly_from_template`: shared factories also used
+  by import for the same template settings and initial document.
+
+`NativeTemplateSettings` carries settings paths and the translated first-Body name.
+A small application adapter copies values from Qt settings. Reading/validating
+templates and creating IDs needs no Qt. Config templates are not written or changed.
+
+Part and Body get new identities; the Body binds to the new Part Origin using
+existing `create_origin_bound_body`, with unchanged implementation and placement
+contract. Assembly also gets a new ID. Application units transfer as before;
+accuracy and other values come from the template. Drawing retains its existing
+default constructor.
+
+GUI Open first checks whether the path is already open. Insertion repeats the
+check: if that file opened in the meantime, reuse its ID without overwriting
+unsaved changes. An identical persistent ID under another path is rejected as
+before. New rejects occupied paths both before preparation and insertion.
+
+Insertion does not explicitly switch documents. Workspace still makes the first
+inserted document the default. GUI handles tabs, tools, temporary-selection cleanup,
+first active Body and View refresh, preserving post-Open/New interaction.
+
+Graphical `.tblz`/`.frmz` templates and font-outline restoration remain in their
+existing editor; they are not additional Part/Assembly/Drawing native types.
+This stage changes no saved formats or required document files.
+
+`zima_cpp_native_documents_tests` runs without QApplication and checks all three
+types, View data, exact original-face identities, UTF-8 paths, config templates,
+new IDs and correct Body-Origin binding, units, path collisions (including during
+preparation), already open modified documents, duplicate IDs, missing/damaged files
+and rejection of legacy `.prt`.
+
+## Second-stage verification
+
+Windows Release built; **53/53 tests passed** (354.86 s),
+`build/native-documents-full-tests.log`. Native operations also passed independently;
+`dumpbin /dependents` confirmed no Qt DLLs. Tests compare config templates byte for
+byte before and after creation.
+
+## Third stage: explicit regeneration and references
+
+On 2026-09-11 the user explicitly approved changing protected container-placement
+code for this structural move from the main window into workspace. Placement solver,
+pass order, `history.size() + 2` limit, convergence and transactions stayed unchanged.
+This records that specific approval, not general approval for later placement changes.
+
+Qt-free `model_calculation.hpp/.cpp` provides:
+
+- `calculate_part`: calculates while preserving valid geometry on failure;
+- `calculate_part_with_resolved_references`: calculates until placement,
+  constructions, external sketches and drilling points stabilize, including sections;
+- `calculate_resolved_assembly_cuts`: calculates Assembly cuts with saved references,
+  real rollback input and derived copies;
+- `regenerate_part` and `regenerate_assembly`: explicitly regenerate an exact open
+  document under existing history/dependency rules.
+
+`part_references.cpp` contains the original pure helpers for owner selection,
+external-reference refresh and saved-reference-geometry composition. GUI uses the
+same functions through private workspace declarations. None derives geometry
+identity by new OCCT topology traversal.
+
+`PartCalculationPolicy` carries explicit-calculation context only: whether to reject
+errors and which document/boundary is being edited. During rollback, the edited
+feature's errors are assessed; downstream errors stay with their owners. GUI
+converts dialog/rollback state into this structure. The module needs no window,
+viewer or QApplication.
+
+Regeneration runs synchronously on the Workspace-owning thread, without changing
+the active document or displayed Assembly. GUI retains pending editing, View
+refresh, selection and result reporting. Recalculating a Part without definition
+changes updates calculated boundaries without another Undo step. Changed placement
+or references commit through the same transaction as before extraction.
+
+Explicit Assembly regeneration still uses open unsaved sources. Ordinary display
+and tab switches do not trigger it. Existing
+`Workspace::calculate_assembly_cuts` in dependency refresh remains unchanged and
+uses saved cut definitions. The extracted application phase additionally solves
+Assembly-cut references and its owned sketch. Merging these distinct phases was
+outside the structural move.
+
+Extensions, serialization, config and start templates are unchanged. There are no
+revision directories or required files outside `.prtz`, `.asmz` and `.drwz`.
+
+Independent comparison with the previous commit confirmed all eight moved helpers
+were identical. Calculations and both regeneration transactions were identical
+after replacing window-member access with explicit parameters.
+Local audit: `build/model-calculation-extraction-audit.txt`.
+
+Qt-free `zima_cpp_model_calculation_tests` checks three linked containers, a linked
+section, source-dimension changes, original-face IDs, Undo/Redo, unchanged repeated
+calculation, editing/regeneration errors, an unsaved Part in an Assembly, occurrence
+identity and Assembly subtraction. Cut volume is independently checked as
+2000 − 2 × 10 × 10 = 1800 mm³.
+
+## Third-stage verification
+
+Final Windows Release passed **55/55 tests** (365.35 s), including GUI, console,
+file, Assembly, Sketcher and geometry regressions.
+Log: `build/model-calculation-final-tests.log`. The first full run found one Axis
+Properties compactness issue; the button-space fix is documented in
+[NUMERIC_VALUE_LOCKS.md](NUMERIC_VALUE_LOCKS.md). The next full run passed.
+`dumpbin /dependents` confirmed no Qt DLLs in the new calculation test
+(`build/model-calculation-dependencies.txt`).
+
+## Fourth stage: shared command execution
+
+`modules/command_host` connects the text/JSON command catalog directly to these
+operations. Main Window no longer registers its own command implementations. It
+supplies settings, localization, interaction state, worker I/O and Fit, then receives
+a change description for display refresh. Shared `finish_document_switch` preserves
+temporary-selection cleanup and tree/View refresh for GUI and console Open/New.
+
+The model tree and document list are readable without Qt, opening dependency source
+files or OCCT. Command-program contracts, fields and boundaries:
+[CAD_CONSOLE.md](CAD_CONSOLE.md).
+
+## Document lifecycle (2026-09-11)
+
+Shared `document_needs_save` and `close_document` protect all three native types
+against closing unsaved edits or never-written files. GUI retains Save / Discard /
+Cancel; console returns `unsaved_changes` until the caller saves or explicitly
+passes boolean `discard: true`.
+
+The host adds `activate`, `close`, `pwd`, `cd` and `save_as`. The last uses existing
+`Workspace::save_copy` on a separate snapshot, as GUI does. It creates new identities
+and redirects linked Drawings without changing original document identity. Targets
+must use the correct native extension. Tab activation and copying do not call OCCT.
+Formats and start templates are unchanged.
+
+A Czech-directory-name regression exposed Windows system encoding in native
+reference paths. Source paths for Drawings, views, BOMs and Assembly components
+now serialize and read as UTF-8. Copy redirection/names and Part import metadata
+use UTF-8 too. This is not a new format or migration branch.
+
+Copying a Drawing redirects a BOM row directly referencing the copied model to its
+new ID/path. Other components retain their sources.
+
+Windows Release full run **58/59** (376.32 s,
+`build/document-lifecycle-full-final.log`) exposed the missing BOM redirection.
+After correction, **9/9 affected regressions** passed (16.71 s,
+`build/document-lifecycle-verified-tests.log`): shared operations, Qt-free host,
+real CLI processes, console panel, three Drawing GUI contracts, Workspace and all
+five localizations. GUI/CLI built from the corrected state
+(`build/document-lifecycle-verified-build.log`). Checks cover copied volume, new
+IDs, actual native files, Unicode paths, unsaved-change protection, the last open
+tab, and document switching without a new calculated-geometry generation.
+
+## Archive files (2026-09-14)
+
+GUI and CLI share listing/deleting numbered backups. Four commands,
+`file.archives.list/prune` and `directory.archives.list/prune`, operate on real
+files without changing open models. They are neither model Undo nor new required
+sidecar storage. Native formats/templates are unchanged. Contract, errors and
+verification: [ARCHIVE_COMMANDS.md](ARCHIVE_COMMANDS.md).
+
+## Removing a saved document (2026-09-14)
+
+`file_removal_operations` shares both current-file deletion menu actions with
+`delete_file`. It closes the document after deletion without saving again. A locked
+current file preserves document and archives; failure on a later archive returns
+an exact partial result and reflects completed closure in GUI. Preparation checks
+open identity, data generation, history and file snapshots. Formats, start templates
+and geometry-calculation rules are unchanged. Contract/tests:
+[FILE_REMOVAL_COMMANDS.md](FILE_REMOVAL_COMMANDS.md).
+
+## Rename preparation (2026-09-14)
+
+Data redirection is shared by open sessions (including Undo/Redo) and private native
+snapshots. It preserves IDs, calculated bodies and dirty state, changing live data
+in one deferred batch without geometry copies. `PreparedNativeDocument` validates
+Drawing ownership, redirects saved paths and writes its own snapshot. File
+transactions and GUI/CLI wiring followed in the next step. Design/verification:
 [NATIVE_FILE_RENAME.md](NATIVE_FILE_RENAME.md).
 
-Načítání nativních dokumentů bylo po novém podnětu uživatele prověřeno
-samostatně. [NATIVE_DOCUMENT_OPEN_AUDIT.md](NATIVE_DOCUMENT_OPEN_AUDIT.md)
-popisuje současné použití uložené geometrie a opakované kontroly, které
-mohou načítání prodlužovat. Načítací kontrakt se v etapě přejmenování nemění.
+## Rename completion (2026-09-14)
 
+`rename_file` and GUI use `FileRenameJob`: private saved snapshots, input-freshness
+checks, file publication, then live-metadata redirection. Rename neither saves
+unsaved work nor clears Undo/Redo. Original IDs drive link updates in open/closed
+documents; automatic Drawings are checked for actual ownership. GUI Save and tabs
+preserve Czech characters after renaming all three types. Details, bounded search
+scope and error recovery: [NATIVE_FILE_RENAME.md](NATIVE_FILE_RENAME.md).
 
-## Unicode názvy a adresáře v GUI (2026-09-14)
+Native opening was separately audited after further user feedback.
+[NATIVE_DOCUMENT_OPEN_AUDIT.md](NATIVE_DOCUMENT_OPEN_AUDIT.md) describes saved-
+geometry use and repeated checks that can slow loading. Rename did not change the
+opening contract.
 
-Souborové adaptéry GUI používají UTF-8 převod stejně jako CLI při vytváření,
-otevírání a kopírování nativních dokumentů i při volbě pracovního adresáře.
-Kopie Partu s vlastním výkresem zachovává návaznost; test následně otevírá
-v CLI kopie všech tří typů vytvořené z GUI. Ověřené jsou také JPG/DXF výkresu.
-Podrobnosti a výsledky **5/5 regresí**:
+## Unicode names and directories in GUI (2026-09-14)
+
+GUI file adapters use UTF-8 like CLI when creating, opening and copying native
+documents and choosing working directories. Copying a Part with its Drawing
+preserves linkage. Tests then open GUI-created copies of all three types through
+CLI; Drawing JPG/DXF exports are also checked. Details and **5/5 regression results**:
 [UNICODE_NATIVE_FILE_COMMANDS.md](UNICODE_NATIVE_FILE_COMMANDS.md).

@@ -1,186 +1,180 @@
-# Kóty ve výkresu a společné vlastnosti (2026-09-10)
+# Drawing dimensions and shared Properties (2026-09-10)
 
-## Vstupy → prostředky → výstupy
+## Inputs → means → outputs
 
-Vstupem je uložená geometrie konkrétního výkresového pohledu, jeho kamera,
-typ kóty a reference jejích konců. Prostředkem je projekce referenčních
-křivek a bodů, společná prezentace kót a interní okno vlastností.
-Výstupem je asociativní měřicí kóta v rovině listu. Nemění parametry modelu.
-Výběr, náhled, tažení ani otevření vlastností nevyvolávají výpočet OCCT.
+Inputs are a specific Drawing view's saved geometry, camera, dimension type and
+endpoint references. Means are projection of reference curves/points, shared
+dimension presentation and the internal Properties window. Output is an associative
+measured dimension in the sheet plane, without changing model parameters.
+Selection, preview, dragging and opening Properties do not invoke OCCT calculation.
 
-## Jedny Vlastnosti kóty
+## One Dimension Properties dialog
 
-Původní samostatné Zobrazení kóty je sloučeno s vlastnostmi.
-Text před/za hodnotou, náhrada textu, tolerance a umístění mají společné
-ovládací části pro skicář, Part, Assembly a Drawing.
+The separate Dimension Display dialog has been merged into Properties. Prefix/
+suffix text, replacement text, tolerances and placement use shared controls across
+Sketcher, Part, Assembly and Drawing.
 
-Skicová kóta si zachovává jmenovitou hodnotu, řídicí/referenční stav
-a zamknutí rozměru. Hodnota a umístění se potvrzují v jedné transakci.
-U prezentace modelové kóty v Part/Assembly jsou texty a tolerance uloženy
-u jejího prezentačního nastavení; změnu parametru dále zajišťuje jeho
-hodnotový editor. Výkresová prezentace modelové kóty má vlastní přestavení,
-které nezasahuje do zdrojového modelu.
+Sketch dimensions retain nominal value, driving/reference state and value lock.
+Value and placement commit in one transaction. Part/Assembly model-dimension text
+and tolerances belong to presentation settings; the value editor still changes
+the model parameter. Drawing presentation of a model dimension has its own override
+without modifying the source model.
 
-Ruční výkresová kóta používá stejné textové a prezentační prvky,
-navíc má záložku Typ a vazby. Její měřená hodnota se pouze zobrazuje.
-Jednotka mm navazuje přímo na číslo. Všechny formuláře používají interní
-PropertiesSubWindow, OK/Zrušit a potvrzení dvojklikem MMB nad View.
-Krátké MMB pouze ukončí zadávání reference; tažení MMB nepotvrzuje dialog.
+Manual Drawing dimensions share text/presentation controls and add a Type and
+References tab. Measured values are read-only. The mm unit directly follows the
+number. All forms use internal `PropertiesSubWindow`, OK/Cancel and MMB double-
+click confirmation over the View. Short MMB ends reference entry only; MMB dragging
+does not confirm.
 
-## Příkaz Kóta
+## Dimension command
 
-Příkaz Kóta nahradil experimentální zadání dvou rovnoběžných hran.
-Otevře stejné okno při vytvoření i pozdější úpravě.
+Dimension replaces the experimental two-parallel-edge workflow. Creation and
+editing use the same window.
 
-1. Zvolte lineární, poloměrovou, průměrovou, řetězovou nebo úhlovou kótu.
-2. Kliknutím do referenčního pole aktivujte příslušný konec.
-3. Vyberte geometrii pohledu. U první vazby se určí pohled; další patří jemu.
-4. Po doplnění vazeb určete LMB umístění a potvrďte OK nebo dvojklikem MMB.
+1. Choose linear, radius, diameter, chain or angular dimension.
+2. Click a reference field to arm its endpoint.
+3. Select view geometry. The first reference determines the view; others belong to it.
+4. After supplying references, place with LMB and confirm with OK or MMB double-click.
 
-Vše až do OK zůstává náhledem. Zrušit zahodí nové kóty i rozpracované
-změny existující kóty. Kontextové menu potvrzené kóty nabízí její vlastnosti,
-odstranění a u lineární kóty také pokračování řetězce z kteréhokoli konce.
-Nad fialovým bodem se běžné kontextové menu neotevírá.
+Everything remains preview until OK. Cancel discards new dimensions and pending
+edits. A confirmed dimension's context menu offers Properties, removal and, for
+linear dimensions, chain continuation from either endpoint. The ordinary context
+menu does not open over purple handles.
 
-Klávesa **Delete** odstraní označenou ruční kótu. U kóty převzaté z modelu
-ji skryje pouze v daném pohledu (Erase); zdrojový parametr se zachová.
-Kliknutí na kótu předá výkresovému prostoru také klávesový fokus.
+**Delete** removes a selected manual dimension. For a model-derived dimension, it
+hides it only in that view (Erase), preserving the source parameter. Clicking a
+dimension also gives keyboard focus to the Drawing workspace.
 
-Jmenovité hodnoty kót ve Sketcheru, Partu, sestavě i Drawingu používají
-desetinnou čárku. Přesnost určuje maximální počet desetinných míst; po
-zaokrouhlení se koncové nuly nepíší. Při přesnosti 3 například `10mm`,
-`10,5mm`, `10,526mm` pro původní hodnotu 10,52584. Malá záporná hodnota
-zaokrouhlená na nulu se zobrazí jako `0`. Také číselné tolerance se vykreslí
-s čárkou; jejich zadané nuly zůstanou zachované. Ručně přepsaný celý text
-kóty se nemění.
+Nominal values in Sketcher, Part, Assembly and Drawing use a decimal comma.
+Precision sets the maximum decimal places; trailing zeroes are omitted after
+rounding. At precision 3: `10mm`, `10,5mm`, and `10,526mm` for original 10.52584.
+Small negative values rounded to zero display `0`. Numeric tolerances also use a
+comma but retain entered zeroes. Full manual text overrides are unchanged.
 
-## Napojení a výběr
+## Attachment and selection
 
-Každý konec má samostatně nastavitelný způsob napojení:
+Each endpoint independently selects an attachment mode:
 
-- Automaticky: přednost mají blízké konce a středy křivek, dále geometrie.
-- Bod: uložený bod nebo konec/střed navázané křivky.
-- Bod na křivce: uložená křivka a její parametr ve zdrojové geometrii.
-- Úsečka: při automatickém směru první úsečka určuje kolmici kótovací čáry.
-- Střed (C): střed kružnice, kruhového oblouku nebo zobrazené osy.
-- Tečna (T): dotyk ve směru měření; RMB dovolí zvolit druhou stranu.
-- Průsečík (I): dvě samostatně uložené reference a zvolená větev průsečíku.
+- Automatic: nearby curve endpoints/centres first, then geometry.
+- Point: saved point or endpoint/centre of an attached curve.
+- Point on curve: saved curve and parameter in source geometry.
+- Segment: with automatic direction, the first segment defines the dimension-line
+  perpendicular.
+- Centre (C): circle/arc centre or displayed-axis centre.
+- Tangent (T): contact in the measurement direction; RMB selects the other side.
+- Intersection (I): two saved references and the chosen intersection branch.
 
-U lineární kóty může mít kótovací čára směr podle vazeb, vodorovný, svislý nebo rovnoběžný
-s další uloženou úsečkou. Po prvním vstupu typu Úsečka lze připojit bod
-nebo rovnoběžnou úsečku; nerovnoběžná druhá úsečka není platný vstup.
-Průsečíky přímek mohou ležet i za konci vybraných úseček.
+Linear dimension lines can follow references, horizontal/vertical direction or a
+further saved segment. After a first Segment input, attach a point or parallel
+segment; a nonparallel second segment is invalid. Line intersections may lie
+beyond the selected segments' endpoints.
 
-Hover a potvrzení používají jeden uspořádaný seznam kandidátů.
-RMB před potvrzením mění pouze aktivního kandidáta. Zelený rámeček
-označuje jediné aktivní referenční pole; oči samostatně zapínají prohlížení
-již uložených referencí a azurové zvýraznění jejich geometrie.
-Změna kamery nepřesouvá uložený parametr bodu na jinou část zdrojové křivky.
+Hover and confirmation consume one ordered candidate list. Before confirmation,
+RMB only changes its active candidate. A green outline marks the sole armed field;
+eyes independently inspect saved references and highlight their exact geometry in
+azure. Camera changes do not move a saved point parameter along its source curve.
 
-Zobrazená osa patří do stejného seznamu referencí. Při pohledu do osy lze
-vybrat libovolné rameno křížku a navázat jeho skutečný střed; při bočním
-pohledu také přímku osy. Kreslení, nabídka a zvýraznění používají stejné
-čtyři větve nebo úsečku, včetně přesahu 2mm na papíře. Opakované výskyty
-dílu si zachovávají vlastní reference. Skrytá osa se nově nenabízí, ale její
-dříve uložená vazba zůstává platná. Chybějící osa vyvolá opravu reference.
-Pole Bod zachová skutečný typ vybrané vazby (vrchol, bod křivky či střed).
+Displayed axes belong to the same reference list. Viewed end-on, any arm of the
+cross can select its true centre; a side view also offers the axis line. Rendering,
+offering and highlighting use the same four branches or segment, including 2 mm
+paper overhang. Repeated Part occurrences keep separate references. Hidden axes
+are not newly offered, but existing attachments remain valid. Missing axes require
+reference repair. Point fields preserve the actual attachment type: vertex,
+curve point or centre.
 
-## Řetězec a oprava vazby
+## Chains and reference repair
 
-Běžnou lineární kótu lze rozšířit na řetězec z prvního i druhého konce.
-Původní úsek si zachovává identitu, vazby, směr, základnu a umístění.
-Každý další úsek měří sousední reference. V záložce Umístění lze zvolit úsek,
-jehož prezentační nastavení se upravuje.
+A normal linear dimension can extend into a chain from either endpoint. The
+original segment retains identity, references, direction, baseline and placement.
+Each new segment measures adjacent references. Placement lets the user choose
+which segment's presentation to edit.
 
-Ztracená reference je ve vlastnostech označena jako chybějící.
-Poslední platná prezentace udržuje kótu vybratelnou včetně poslední hodnoty.
-Podle dohody z 2026-09-12 se nepřidává otazník: neplatná kóta je červená,
-po opravě je znovu žlutá. Neplatnost zůstává červená také v exportu výkresu;
-platné exportované kóty používají obvyklou barvu kresby.
-Kliknutím na konkrétní referenci lze zadat náhradu; ostatní vazby a styl
-zůstávají zachované. Obnovení stejné geometrie znovu vyřeší původní vazbu.
+Properties mark lost references as missing. Last-valid presentation keeps the
+dimension selectable with its last value. As agreed 2026-09-12, there is no question
+mark: invalid dimensions are red and turn yellow after repair. Invalidity remains
+red in Drawing exports; valid exported dimensions use the normal drawing colour.
+Click a specific reference to replace it, retaining other attachments and style.
+Restoring the same geometry resolves the original attachment again.
 
-## Projekce a měření
+## Projection and measurement
 
-Lineární kóty měří průmět do aktuální roviny pohledu. Kontrolní příklad:
-úsečka 40mm skloněná o 60° od roviny má ve směru svého průmětu hodnotu 20mm.
-R/⌀ se zobrazují pouze při kruhovém průmětu. Natočení kružnice do elipsy je
-skryje, aniž by odstranilo vazby či umístění. Návrat do kolmého pohledu je
-obnoví. Otočení v rovině listu není důvodem ke skrytí.
+Linear dimensions measure projection into the current view plane. Sanity check:
+a 40 mm segment inclined 60° from the plane measures 20 mm along its projection.
+R/⌀ display only for circular projections. Tilting a circle into an ellipse hides
+them without deleting references or placement; returning to a normal view restores
+them. In-sheet rotation does not hide them.
 
-Měřicí geometrie se zachytí s projekcí pohledu z uložených zdrojových
-referencí. Kruhovost se ověřuje proti všem uloženým vzorkům křivky;
-samotná podobnost s kružnicí na obrazovce není podkladem pro R/⌀.
-Geometrie, reference včetně cesty výskytu, styl a polohy úseků se ukládají
-do aktuálního formátu Drawing. Staré experimentální ruční kóty se nepřevádějí.
+Measurement geometry is captured with view projection from saved source references.
+Circularity is checked against all saved curve samples; merely looking circular
+on screen is insufficient for R/⌀. Geometry, references including occurrence paths,
+style and segment placements are saved in the current Drawing format. Old
+experimental manual dimensions are not migrated.
 
-## Rádius podle náčrtu koty.bmp
+## Radius based on the koty.bmp sketch
 
-Společné vykreslování ve skicáři, Part, Assembly a Drawing používá tři režimy.
-Při držení fialového bodu LMB cykluje RMB postupně:
+Shared Sketcher/Part/Assembly/Drawing rendering has three modes. While holding a
+purple point with LMB, RMB cycles through:
 
-1. Čára od středu k oblouku a šipka zvenku.
-2. Zachovaná čára střed–oblouk a obrácená šipka.
-3. Zkrácená kóta bez povinné čáry do středu. Orientaci šipky určuje strana,
-   na kterou od jejího hrotu pokračuje pomocná čára.
+1. Centre-to-arc line with an outside arrow.
+2. Retained centre-to-arc line with reversed arrow.
+3. Shortened dimension without a mandatory centre line. Arrow orientation follows
+   the side on which the auxiliary line continues from its tip.
 
-Další RMB se vrací do prvního režimu. První dva režimy dovolují text za
-obloukem nebo za středem; třetí navíc mezi středem a obloukem.
-Pomocná čára navazuje přímo na vedení od šipky, text leží nad ní.
-V šikmém prostorovém průmětu zůstává textová police vodorovná a vedení
-od šipky zachovává promítnutý směr rádiusu.
+The next RMB returns to mode 1. The first two allow text beyond the arc or centre;
+the third also allows it between centre and arc. The auxiliary line directly
+continues the arrow leader, with text above it. In oblique spatial projection the
+text shelf remains horizontal and the arrow leader retains projected radius direction.
 
-Používají se dosavadní fialové body. Bod pod textem posouvá textovou polici
-podél rádiusu a nemění polohu šipky. Bod u šipky posouvá kótu po kružnici;
-uložený úhel otáčí její prezentaci v rovině rádiusu. Žádný z těchto bodů
-nemění měřený rozměr ani modelové vazby. Rovina se zachová také v šikmém
-nebo téměř hranovém pohledu. Textová vrstva nadále maskuje geometrii
-pod celým textem s okrajem 0,5mm ve výkresu.
+Existing purple handles are reused. The point beneath text moves its shelf along
+the radius without moving the arrow. The arrow point moves the dimension around
+the circle; its saved angle rotates presentation in the radius plane. Neither
+handle changes the measured value or model constraints. The plane is retained in
+oblique and nearly edge-on views. Text masking still covers geometry under the
+entire label with a 0.5 mm Drawing margin.
 
-## Ověření
+## Verification
 
-Výpočtový kontrakt kontroluje C/T, obě větve průsečíků, tečný dotyk,
-měření průmětu, oba konce řetězce, chybějící vazby, uložení/otevření
-a invariantní rádius při tažení. UI kontrakt používá skutečné události
-myši pro reference, náhled, Cancel, potvrzení MMB, textové tolerance
-a ovládání všech tří režimů rádiusu. Sdílený prezentační kontrakt vykresluje
-sedm stavů náčrtu do build/radius-seven-states-proof.png.
+Calculation contracts cover C/T, both intersection branches, tangent contact,
+projected measurement, both chain ends, missing references, save/reopen and
+invariant radius while dragging. UI contracts use real mouse events for references,
+preview, Cancel, MMB confirmation, text tolerances and all three radius modes.
+The shared presentation contract renders seven sketch states to
+`build/radius-seven-states-proof.png`.
 
-## Úhlová kóta dvou přímých hran (2026-09-12)
+## Angular dimension between two straight edges (2026-09-12)
 
-Typ **Úhlová** je součástí stejného příkazu Kóta a stejných vlastností.
-Přijímá dvě různé původní přímé reference konkrétního pohledu, včetně přesné
-cesty výskytu. Používá společný seznam kandidátů pro hover, LMB a RMB;
-nefiltruje druhou hranu na rovnoběžnost. Pro tento typ jsou volby jiného
-napojení, směru lineární čáry a rozšíření řetězce vypnuté.
+**Angular** belongs to the same Dimension command and Properties. It accepts two
+different original straight references from one view, including exact occurrence
+paths. Hover, LMB and RMB share the candidate list; the second edge is not filtered
+for parallelism. Other attachment modes, linear-line direction and chain extension
+are disabled for this type.
 
-Měří se úhel průmětů v rovině pohledu, nikoli skrytý prostorový úhel mezi
-hranami. Hodnota i tolerance jsou ve stupních. Umístění LMB určí sektor mezi
-přímkami (menší nebo doplňkový úhel) a vzdálenost oblouku od průsečíku.
-Volby ramen jsou uložené; změna geometrie sama nezvolí jiný sektor.
-Body u šipek mění poloměr oblouku a bod pod textem umístění textu, bez změny
-měřené hodnoty. Zachovávají se běžné OK/Zrušit, dvojklik MMB, editace přes
-vlastnosti, tolerance a obrácení šipek.
+It measures the angle of projections in the view plane, not the hidden spatial
+angle. Value and tolerances use degrees. LMB placement selects the sector (smaller
+or supplementary angle) and arc distance from the intersection. Arm choices are
+saved; geometry changes do not spontaneously choose another sector. Arrow handles
+change arc radius; the text handle changes text placement, without changing the
+measured value. Normal OK/Cancel, MMB double-click, Properties editing, tolerances
+and arrow reversal remain available.
 
-Po změně geometrie se při výslovné regeneraci pohledu použijí původní
-reference. Oříznutí nebo změna délky přímé hrany při zachování její identity
-neodpojí měření směru. Ztracená reference, záměna přímky za obecnou křivku
-nebo nulový průmět způsobí neplatný stav: zůstane poslední kresba a hodnota,
-červeně a vybratelná pro opravu. Shodná či blízká jiná hrana není náhradou
-bez výslovného vstupu uživatele. Po obnovení vazby se kóta přepočítá a zežloutne.
+After geometry changes, explicit view regeneration uses original references.
+Trimming/changing a straight edge's length without changing identity does not
+disconnect direction measurement. Lost references, replacement of a line with a
+general curve or zero projection cause invalid state: the last drawing/value
+remain red and selectable for repair. Another coincident/nearby edge cannot replace
+the reference without explicit user input. Repair recalculates and restores yellow.
 
-Při rovnoběžnosti zůstává typ úhlový s hodnotou 0° nebo 180°. Neprovádí se
-samovolný převod stupňů na milimetry. Místo neurčeného či příliš vzdáleného
-vrcholu se použijí místní odkazové čáry ke skutečným bodům obou referencí.
-Tento způsob se použije také u téměř rovnoběžných přímek s nepřiměřeně
-vzdáleným průsečíkem, takže kóta neopustí okolí modelu. Poslední způsob kresby
-je uložen spolu s poslední prezentací v `.drwz`; při následné ztrátě reference
-zůstane vybratelný i tento mezní stav. Otevření vlastností a výběr nepoužívají OCCT.
+Parallel references retain angular type and value 0° or 180°; degrees are never
+automatically converted to millimetres. Local leaders to actual reference points
+replace an undefined or excessively distant vertex. The same applies to nearly
+parallel lines with an impractically remote intersection, keeping the dimension
+near the model. The last drawing mode is saved with last presentation in `.drwz`,
+so this limiting case remains selectable after subsequent reference loss.
+Opening Properties and selection do not use OCCT.
 
-Ověřeno sestavením GUI i CLI, pěti cílenými testy a celou regresní sadou
-80/80 (2026-09-12). UI test používá skutečné události myši pro vytvoření,
-Cancel, dvojklik MMB, ztrátu reference a její opravu. Kontroluje žluté/červené
-pixely, poslední hodnotu bez otazníku, výběr neplatné kóty a uložení/otevření
-`.drwz`. Samostatně je ověřeno 60°/120°, oříznutí, 0°/180° i téměř
-rovnoběžné přímky; snímky platného, neplatného a opraveného stavu prošly
-vizuální kontrolou.
+Verified by GUI/CLI builds, five targeted tests and full regression 80/80
+(2026-09-12). UI tests use real mouse events for creation, Cancel, MMB double-click,
+reference loss and repair. They check yellow/red pixels, last value without a
+question mark, invalid-dimension selection and `.drwz` save/reopen. Independent
+checks cover 60°/120°, trimming, 0°/180° and nearly parallel lines. Screenshots of
+valid, invalid and repaired states passed visual inspection.

@@ -1,77 +1,71 @@
-# Původní reference umístění tažení přes CLI
+# Original Sweep placement references through CLI
 
-Příkazy `sweep2d.reference.set`, `sweep3d.reference.set` a `helical.reference.set`
-přiřazují původní reference existujícímu 2D, 3D nebo šroubovicovému tažení
-v aktivním Partu. Stejnou operaci zpřístupňuje `placement.reference.set`
-s argumentem `object` místo `container`.
+`sweep2d.reference.set`, `sweep3d.reference.set`, and `helical.reference.set` assign
+original references to existing 2D, 3D, and helical Sweeps in the active Part.
+`placement.reference.set` exposes the same operation with `object` instead of `container`.
 
 ```json
-{"command":"sweep2d.reference.set","arguments":{"container":"ID_TAZENI","index":0,"reference":{"owner":"ID_PARTU:origin","key":"origin:plane:yz"},"offset_mm":3}}
-{"command":"sweep3d.reference.set","arguments":{"container":"ID_TAZENI","index":0,"reference":{"owner":"ID_PARTU:origin","key":"origin:plane:yz"},"offset_mm":3}}
-{"command":"helical.reference.set","arguments":{"container":"ID_TAZENI","index":0,"reference":{"owner":"ID_PARTU:origin","key":"origin:plane:yz"},"offset_mm":3}}
-{"command":"placement.get","arguments":{"object":"ID_TAZENI"}}
+{"command":"sweep2d.reference.set","arguments":{"container":"SWEEP-ID","index":0,"reference":{"owner":"PART-ID:origin","key":"origin:plane:yz"},"offset_mm":3}}
+{"command":"sweep3d.reference.set","arguments":{"container":"SWEEP-ID","index":0,"reference":{"owner":"PART-ID:origin","key":"origin:plane:yz"},"offset_mm":3}}
+{"command":"helical.reference.set","arguments":{"container":"SWEEP-ID","index":0,"reference":{"owner":"PART-ID:origin","key":"origin:plane:yz"},"offset_mm":3}}
+{"command":"placement.get","arguments":{"object":"SWEEP-ID"}}
 ```
 
-## Kontrakt
+## Contract
 
-Argumenty odpovídají [společnému přiřazení](PLACEMENT_REFERENCE_COMMANDS.md):
-`index` 0–2 označuje poziční pole, 3 FRONT a 4 TOP; `reference` obsahuje
-`owner`, `key` a volitelnou prázdnou `instance_path`. `offset_mm`, `flip`,
-`derive_orientation` a ochranné `document` jsou volitelné. Názvy příkazů,
-argumentů a chyb zůstávají anglické; překládají se uživatelské zprávy.
+Arguments match [shared assignment](PLACEMENT_REFERENCE_COMMANDS.md): `index` 0–2
+identifies position fields, 3 FRONT, and 4 TOP. `reference` contains `owner`, `key`,
+and optional empty `instance_path`. `offset_mm`, `flip`, `derive_orientation`, and
+guard `document` are optional. Command, argument, and error names stay English;
+user-facing messages are localized.
 
-Tažení přijímá místní původní reference Partu: Part Origin, dostupné Body
-Origins a předcházející geometrii. Vlastní nebo pozdější zdroj, neplatná cesta,
-duplicitní reference a nepovolený index jsou odmítnuty. Neaktivní a odvozené
-Body chrání stejná pravidla jako ostatní prvky. FRONT/TOP zůstávají oddělené
-od pozičních polí. Zamčená vzdálenost se při přiřazení zachovává.
+Sweeps accept local original Part references: Part Origin, available Body Origins,
+and preceding geometry. Own/later sources, invalid paths, duplicate references,
+and invalid indexes are rejected. Inactive and derived Bodies use the same protections
+as other features. FRONT/TOP remain separate from position fields. Assignment
+preserves a locked distance.
 
-Adaptér používá existující `prepare_part_feature_reference` a `commit_sweep`
-s režimem Replace, který potvrzuje i GUI OK. Nevytváří další řešič umístění,
-nemění pravidla drah ani nepřebírá novou skicu. Identita kontejneru, dráhy,
-vlastních skic a profilových stanic zůstává zachovaná. Reference roviny 2D dráhy,
-odsazení základní skici šroubovice a reference jednotlivých bodů 3D dráhy
-zůstávají samostatnými vlastnostmi.
+The adapter uses existing `prepare_part_feature_reference` and `commit_sweep` in
+Replace mode, as does GUI OK. It adds no placement solver, changes no path rules,
+and adopts no new Sketch. Container, path, owned Sketch, and profile-station identities
+are preserved. The 2D path-plane reference, helical base-Sketch offset, and individual
+3D-path point references remain separate properties.
 
-Výsledek konkrétního příkazu odpovídá jeho `.get`, navíc obsahuje `changed`.
-Obecný vstup vrací data `placement.get`, včetně celého uloženého umístění.
-Stejné přiřazení vrátí `changed:false` bez výpočtu a Undo. Skutečná změna
-použije jeden výpočet a jednu transakci. Aktivní GUI editor blokuje mutaci;
-Cancel ponechává dokument beze změny a OK potvrzuje celý návrh.
+Specific command results match `.get` plus `changed`. The general entry returns
+`placement.get` data including full persisted placement. Identical assignment
+returns `changed:false` without calculation or Undo. Actual changes use one calculation
+and transaction. An active GUI editor blocks mutation; Cancel preserves the document
+and OK commits the full proposal.
 
-Ukládání nadále používá `.prtz`. Formát ani startovací šablony se nemění.
+Persistence remains in `.prtz`; formats and start templates are unchanged.
 
-## Ověření
+## Verification
 
-Modelové testy měří přesun obou krajních X souřadnic výsledného tělesa o 3 mm
-při umístění Body v počátku. Přímá tažení kruhu R = 2 mm po dráze 20 mm
-zachovávají objem 80π mm³. Šroubovice R = 10 mm, stoupání 5 mm, výška 10 mm
-a profil R = 0,5 mm se porovnává s objemem průřezu krát délka šroubovice.
-Zahrnuty jsou všechny tři konkrétní příkazy i obecný vstup, původní identity,
-no-op, zámek, chybné vstupy, aktivní editor, neaktivní Body, Undo/Redo a nativní
-uložení s vypočteným tělesem.
+Model tests measure a 3 mm shift in both extreme X coordinates of the result body
+with Body at the origin. Straight Sweeps of an R = 2 mm circle along 20 mm retain
+80π mm³ volume. A helix with R = 10 mm, pitch 5 mm, height 10 mm, and profile
+R = 0.5 mm is checked against cross-section area times helix length. Tests cover
+all three specific commands and the general entry, original identities, no-ops,
+locks, invalid inputs, active editing, inactive Body, Undo/Redo, and native saving
+with calculated bodies.
 
-Procesní test spouští skutečné CLI nad nativními dokumenty, přiřadí referenci,
-provede Undo/Redo, uloží Part a ověří polohu i objem. GUI test otevře Vlastnosti
-každého typu tažení, změní offset 3 → 4 mm a kontroluje Cancel/OK, čtení dosud
-nepotvrzeného modelu, blokování příkazu během editace, Undo/Redo a uložené těleso.
+The actual CLI process operates on native documents, assigns a reference, performs
+Undo/Redo, saves the Part, and checks position and volume. GUI opens each Sweep type's
+Properties, changes offset 3 → 4 mm, and checks Cancel/OK, reads of the uncommitted
+model, command rejection during editing, Undo/Redo, and saved bodies.
 
+GUI regression exposed and fixed lost position references during 3D Sweep editing:
+the adapter displayed container references but adopted Absolute mode from the local
+owned path. The editor now passes all container placement references and retains
+the original path definition on return. Shared solver and ContainerPlacementSection
+are unchanged. A separate dialog test checks 0, 1, and 3 position references, offset
+editing, confirmation/cancellation, and original local-path identities and points.
 
-GUI regrese odhalila a opravila ztrátu pozičních referencí při editaci 3D
-tažení: adaptér zobrazoval reference kontejneru, ale přebíral režim Absolute
-z lokální vlastněné dráhy. Editor nyní předává všechny reference umístění
-kontejneru; při návratu zachová původní definici dráhy. Samotný společný
-řešič ani ContainerPlacementSection se nemění. Samostatný test dialogu
-ověřuje 0, 1 a 3 poziční reference, změnu offsetu, potvrzení/zrušení i původní
-identity a body lokální dráhy.
-
-
-Závěrečné sestavení obou aplikací a všech testovacích cílů uspělo.
-Cílená Windows Release regrese prošla **9/9 za 228,05 s**:
-tři geometrické testy tažení, UI kontrakty, překlady, skutečný proces CLI,
-příkazy tažení, katalog a GUI konzole (build/sweep-reference-final-tests.log).
-Test dialogu navíc ověřuje zachování 0, 1 a 3 pozičních referencí a lokální
-dráhy. Před opravou adaptéru test zachytil ztrátu reference při GUI OK;
-po opravě změna 3 → 4 mm projde včetně uložení a Undo/Redo.
-Úplná sada nebyla v této etapě opakována; poslední úplný výsledek je
-150/150 v build/assembly-profile-reference-full-tests.log.
+Both applications and all test targets built successfully. Targeted Windows Release
+regression passed **9/9 in 228.05 s**: three geometric Sweep tests, UI contracts,
+translations, actual CLI process, Sweep commands, catalog, and GUI console
+(`build/sweep-reference-final-tests.log`). The dialog test additionally checks
+preservation of 0, 1, and 3 position references and the local path. Before the adapter
+repair it caught reference loss on GUI OK; afterward, 3 → 4 mm editing passed with
+saving and Undo/Redo. The full suite was not repeated at this stage; the last full
+result is 150/150 in `build/assembly-profile-reference-full-tests.log`.

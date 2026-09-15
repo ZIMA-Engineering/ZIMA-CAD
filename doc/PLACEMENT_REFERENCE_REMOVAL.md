@@ -1,89 +1,85 @@
-# Odebrání referencí umístění přes GUI a CLI
+# Removing placement references through GUI and CLI
 
-Příkaz `placement.reference.remove` používá stejnou datovou operaci řádků
-jako křížek ve společné sekci Umístění kontejneru. Změnu potvrzuje existující
-transakce daného objektu; nerozepisuje dokument obcházením jeho validace.
+`placement.reference.remove` uses the same row-data operation as the cross button
+in shared Container Placement. The object's existing transaction commits the change,
+without bypassing document validation.
 
 ```json
-{"command":"placement.reference.remove","arguments":{"object":"ID_OBJEKTU","index":0}}
+{"command":"placement.reference.remove","arguments":{"object":"OBJECT-ID","index":0}}
 ```
 
-`object` je stabilní ID objektu v aktivním dokumentu. Volitelný `document`
-chrání před změnou aktivního dokumentu. Indexy 0–2 znamenají poziční reference,
-3 FRONT a 4 TOP. Chybné indexy se odmítají, již prázdné pole je beze změny.
-Výsledek obsahuje `document`, `object`, `index`, `changed`,
-`body_calculated` a novou `revision`. Názvy příkazů zůstávají anglické;
-nápověda a chybová hlášení jsou lokalizované.
+`object` is a stable ID in the active document. Optional `document` guards against
+active-document changes. Indexes 0–2 are position references, 3 FRONT, and 4 TOP.
+Invalid indexes are rejected; an already empty field is a no-op. Results contain
+`document`, `object`, `index`, `changed`, `body_calculated`, and new `revision`.
+Command names remain English; help and errors are localized.
 
-## Podporované objekty
+## Supported objects
 
-| Objekt | ID předané příkazu | Potvrzení |
+| Object | Command ID | Commit |
 | --- | --- | --- |
-| Těleso Partu | ID tělesa | Body Properties a výpočet |
-| Bod, osa, rovina nebo samostatná 3D křivka v Partu/Assembly | ID konstrukce | Konstrukční vlastnosti, bez výpočtu těles |
-| Bod samostatné 3D křivky | Vlastní ID bodu | Konstrukční transakce, místní rám rodiče |
-| Kvádr a ostatní primitiva | ID kontejneru | Příslušné vlastnosti a výpočet |
-| Vytažení a rotace Partu | ID kontejneru | Profilová transakce včetně vlastní skici |
-| Profilový odečet Assembly | ID odečtu | Výpočet vlastního odečtu a zachování zdrojových Partů |
-| Sweep2D, Sweep3D a šroubové tažení | ID kontejneru | Společná transakce tažení |
-| Bod vložené dráhy Sweep3D | Vlastní ID bodu | Jedno potvrzení rodičovského tažení |
-| Hole a současný Otvor | ID kontejneru | Příslušná transakce otvoru |
-| Importované těleso | ID kontejneru | Vlastnosti importu, zachovaný uložený zdroj |
-| Řez Partu/Assembly | ID řezu | Sekční transakce bez výpočtu těles |
+| Part body | Body ID | Body Properties and calculation |
+| Point, axis, plane, or standalone 3D curve in Part/Assembly | Construction ID | Construction Properties, without body calculation |
+| Standalone 3D-curve point | Owned point ID | Construction transaction in the parent's local frame |
+| Box and other primitives | Container ID | Corresponding Properties and calculation |
+| Part Extrusion and Revolution | Container ID | Profile transaction including owned Sketch |
+| Assembly profile cut | Cut ID | Calculate the owned cut while preserving source Parts |
+| Sweep2D, Sweep3D, and helical Sweep | Container ID | Shared Sweep transaction |
+| Embedded Sweep3D path point | Owned point ID | One parent-Sweep commit |
+| Hole and current Opening | Container ID | Corresponding hole/opening transaction |
+| Imported body | Container ID | Import Properties with preserved persisted source |
+| Part/Assembly section | Section ID | Section transaction without body calculation |
 
-Vložené komponenty Assembly mají vlastní správu vazeb. U vložené dráhy
-se umístění celého tažení mění přes ID jeho kontejneru, nikoli přes ID
-kořene vlastněné dráhy. Vlastnictví, aktivní těleso a ochrana odvozených
-těles zůstávají součástí příslušných transakcí.
+Inserted Assembly components manage mates separately. For embedded paths, edit the
+whole Sweep's placement through its container ID, not the owned path root ID.
+Ownership, active-body checks, and derived-body protection remain in domain transactions.
 
-## Řádky a orientace
+## Rows and orientation
 
-V rozpracovaném GUI zůstane po smazání pozičního řádku mezera; následující
-řádky se nepřesunou. Zámek smazaného řádku se uvolní. Pokud stejnou geometrii
-obsahuje i orientační řádek, odstraní se tato spárovaná orientace. Párování
-zahrnuje vlastníka, geometrický klíč i celou cestu výskytu.
+Deleting a position row in pending GUI state leaves a gap without moving later
+rows. Its lock is released. If an orientation row references the same geometry,
+that paired orientation is removed too. Pairing includes owner, geometric key,
+and full occurrence path.
 
-Po odstranění spárované orientace se zbývající orientace přeznačí FRONT/TOP
-podle dosavadního pravidla GUI. Inspekční zvýraznění zůstává na stejné
-přeživší referenci. Přímé smazání FRONT nebo TOP jinou orientaci neposouvá
-ani nemaže odpovídající poziční referenci.
+After paired-orientation removal, remaining orientations are relabeled FRONT/TOP
+under the existing GUI rule. Inspection highlight stays on the same surviving
+reference. Direct FRONT/TOP removal neither shifts another orientation nor removes
+the corresponding position reference.
 
-Při potvrzení se prázdné poziční řádky filtrují stejně jako doposud.
-Index dalšího CLI příkazu tedy odpovídá aktuálním uloženým pozičním
-referencím. Nejde o zavedení trvalých prázdných slotů ani změnu formátu.
+On commit, empty position rows are filtered as before. A later CLI index therefore
+addresses current persisted position references. This introduces neither permanent
+empty slots nor a format change.
 
-## Transakce a chybějící zdroj
+## Transactions and missing sources
 
-Odebrání nevyžaduje dohledat geometrii právě odstraňovaného zdroje.
-Lze tak opravit neplatnou referenci. Zbývající reference a výsledek musí
-projít běžnou validací; neplatný návrh nemění dokument ani Undo historii.
+Removal does not require resolving the deleted source geometry, allowing broken
+references to be repaired. Remaining references and results must pass normal
+validation; invalid proposals change neither document nor Undo history.
 
-Jedna skutečná změna je jeden krok Undo/Redo. Prázdný řádek nepřidá krok
-historie. Rozpracované vlastnosti blokují současný zápis přes konzoli.
-GUI Cancel zahodí návrh; u bodu uvnitř křivky OK dítěte upraví pouze návrh
-rodiče a až OK rodiče potvrzuje dokument.
+One actual change is one Undo/Redo step. Empty rows add no history. Open Properties
+blocks concurrent console writes. GUI Cancel discards the proposal; for a curve-owned
+point, child OK updates only the parent's proposal and parent OK commits the document.
 
-Všechna data zůstávají v `.prtz`, `.asmz` a `.drwz` a jejich běžných
-nativních závislostech. Tato změna nemění formát ani startovní šablony.
+All data remains in `.prtz`, `.asmz`, `.drwz`, and their ordinary native dependencies.
+Formats and start templates are unchanged.
 
-## Ověření
+## Verification
 
-Cílená doménová sada prošla **8/8 za 8,64 s**. Zahrnuje šest primitiv,
-Part/Assembly konstrukce, těleso s měřeným posunem geometrie, všechna tažení,
-opravu chybějícího zdroje bodu vložené dráhy, Hole/varianty Otvoru, importy,
-profily Partu, profilové odečty Assembly a řezy obou dokumentů. Kontroluje
-skutečné objemy, plochy řezů, zachování zdrojových Partů, atomické chyby,
-Undo/Redo a nativní uložení. Log: `build/reference-removal-domain-tests.log`.
+Targeted domain tests passed **8/8 in 8.64 s**: six primitives, Part/Assembly
+constructions, a body with measured geometry displacement, all Sweeps, missing-source
+repair for an embedded path point, Hole/Opening variants, imports, Part profiles,
+Assembly profile cuts, and sections in both document types. Checks include actual
+volumes, section areas, source-Part preservation, atomic errors, Undo/Redo, and native
+saving. Log: `build/reference-removal-domain-tests.log`.
 
-Následující sada prošla **6/6 za 169,70 s**, včetně skutečného procesu CLI,
-katalogu, obecných GUI kontraktů, zámků na Windows a konzole s okny vlastností.
-GUI Cancel/OK, dvojí potvrzení bodu/rodiče a Undo/Redo jsou ověřené.
-Tentýž model uložený po odstranění z GUI a CLI má shodnou nativní definici
-konstrukce i primitiva. Log: `build/reference-removal-gui-tests.log`.
+Subsequent tests passed **6/6 in 169.70 s**, including actual CLI, catalog, general
+GUI contracts, Windows locks, and console with Properties windows. GUI Cancel/OK,
+child/parent confirmation, and Undo/Redo are verified. Equivalent GUI/CLI removal
+saves identical native construction and primitive definitions.
+Log: `build/reference-removal-gui-tests.log`.
 
-Po kontrole callbacků je doplněno předání změněného inspekčního zvýraznění
-do View po obnově náhledu a před opětovným zadáváním reference.
-Závěrečná úplná regrese prošla **156/156 za 662,55 s**, bez chyb.
-Obě aplikace a všechny testovací programy jsou sestavené.
-Logy: `build/reference-removal-final-build.log` a
-`build/reference-removal-full-tests.log`. Katalog obsahuje **289 příkazů**.
+Callback review added forwarding of changed inspection highlights to the View after
+preview refresh and before resuming reference entry. Final full regression passed
+**156/156 in 662.55 s**, without errors. Both applications and all test programs built.
+Logs: `build/reference-removal-final-build.log`, `build/reference-removal-full-tests.log`.
+The catalog contains **289 commands** at this stage.

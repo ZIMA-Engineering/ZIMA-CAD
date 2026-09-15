@@ -1,97 +1,86 @@
-# Archivní verze přes GUI a CLI
+# Numbered archive versions through GUI and CLI
 
-Správa číslovaných záloh používá společné operace workspace a společné
-číslování s nativním ukládáním. Pracuje se soubory vedle dokumentu, například
-`díl.prtz.2` a `díl.prtz.10`; žádný nový typ povinného úložiště nevzniká.
+Numbered backups use shared Workspace operations and native-save numbering.
+Files remain beside their document, for example `part.prtz.2` and `part.prtz.10`;
+no new required storage type is introduced.
 
-| Příkaz | Argumenty |
+| Command | Arguments |
 | --- | --- |
 | `file.archives.list` | `path` |
 | `file.archives.prune` | `path`, `keep` |
-| `directory.archives.list` | volitelně `path`, jinak pracovní adresář |
-| `directory.archives.prune` | `keep`, volitelně `path`, jinak pracovní adresář |
+| `directory.archives.list` | optional `path`, otherwise working directory |
+| `directory.archives.prune` | `keep`, optional `path`, otherwise working directory |
 
-Relativní cesty vycházejí z pracovního adresáře hostitele. Operace nevyžadují
-otevřený dokument. Cesta souboru označuje základní nativní dokument, nikoli
-jednu zálohu. Podporované přípony jsou `.prtz`, `.asmz`, `.drwz` a současné
-šablony `.frmz`, `.tblz`; velikost písmen přípony nerozhoduje. Samotný
-základní dokument nemusí existovat. Jméno základního souboru se porovnává
-přesně včetně velikosti písmen.
+Relative paths use the host working directory. No open document is required.
+File paths identify the base native document, not an individual backup. Supported
+extensions are `.prtz`, `.asmz`, `.drwz`, and current `.frmz`/`.tblz` templates,
+case-insensitively. The base file need not exist. Its filename is compared exactly,
+including case.
 
-## Výpis a řazení
+## Listing and ordering
 
-Výpis obsahuje `path`, `scope`, `groups`, `count` a `total_size_bytes`.
-Každá skupina vrací `document_path` a `archives`. Archiv obsahuje absolutní
-UTF-8 `path`, přesný řetězec `version` a `size_bytes`. Číslo verze zůstává
-řetězcem, aby JSON neztratil přesnost dlouhých čísel. Pořadí je číselné,
-od nejstaršího: 2 před 10. Počáteční nuly jsou povolené; shodné číselné
-verze se deterministicky řadí podle cesty.
+Listings contain `path`, `scope`, `groups`, `count`, and `total_size_bytes`.
+Each group returns `document_path` and `archives`. Archives contain absolute UTF-8
+`path`, exact string `version`, and `size_bytes`. Versions remain strings to preserve
+long-number precision in JSON. Order is numerical, oldest first: 2 before 10.
+Leading zeros are allowed; equal numerical versions are ordered deterministically by path.
 
-Adresářový výpis zpracuje pouze jeho přímé soubory. Podadresáře, symbolické
-odkazy na soubory, nenativní přípony a nečíselné koncovky vynechá. Výpis
-neotevírá nativní obsah, nenačítá model a nevolá OCCT.
+Directory listing processes only immediate files, skipping subdirectories, file
+symlinks, non-native extensions, and nonnumeric suffixes. It does not open native
+contents, load models, or call OCCT.
 
-## Odstranění starších verzí
+## Pruning older versions
 
-`keep` je povinné nezáporné celé číslo. Hodnota 0 odstraní všechny vybrané
-zálohy, 1 ponechá nejnovější, N ponechá nejnovějších N **pro každý dokument**.
-Počet větší než počet záloh je bezezměnový požadavek. Aktuální soubor
-se neodstraňuje.
+Required `keep` is a nonnegative integer. Zero removes all selected backups, 1 keeps
+the newest, and N keeps the newest N **per document**. Counts above the available
+backup count are no-ops. The current file is never removed.
 
-Výsledek vrací `selected_count`, `removed_paths`, `removed_bytes`, `keep`
-a `changed`. Souborové mazání nemá modelové Undo; nemění revizi, neuložené
-editace, geometrii ani výběr otevřeného dokumentu. Host po skutečné změně
-obnoví dostupnost souborových akcí GUI. Během otevřené editace je příkazové
-mazání blokované stejným kontraktem jako ostatní mutace; výpis zůstává dostupný.
+Results return `selected_count`, `removed_paths`, `removed_bytes`, `keep`, and
+`changed`. File deletion has no model Undo and changes no open-document revision,
+unsaved edits, geometry, or selection. After changes, the host refreshes GUI file-action
+availability. Pending editing blocks command deletion under the normal mutation
+contract; listing remains available.
 
-Společná operace nejprve ověří celý vybraný seznam: platný číslovaný nativní
-název, jedinečnost cest, běžný soubor, velikost a čas poslední změny. GUI
-uchovává tento snímek přes existující potvrzovací okno. Nově vzniklá záloha
-se tím automaticky nepřidá do dříve potvrzeného seznamu.
+The shared operation first validates the complete selected list: valid numbered
+native names, unique paths, regular files, sizes, and modification times. GUI retains
+this snapshot through its existing confirmation dialog. Newly created backups are
+not automatically added to an earlier confirmed list.
 
-Chybný nebo již změněný snímek se odmítne před prvním odstraněním.
-Pokud operační systém selže až během mazání, výsledek obsahuje
-`archive_io_error`, `failed_path` a přesné `removed_paths` již odstraněných
-souborů. GUI i textové hlášení konzole uvádějí chybu a skutečný počet odstraněných souborů. Operace
-netvrdí, že lze souborovou dávku vrátit modelovým Undo.
+Invalid or changed snapshots are rejected before any deletion. If the OS fails during
+deletion, results contain `archive_io_error`, `failed_path`, and exact already-deleted
+`removed_paths`. GUI and console text report the error and actual removed-file count.
+The operation never claims model Undo can reverse file deletion.
 
-## Sdílená implementace
+## Shared implementation
 
-`archive_operations` nahrazuje vlastní mazací smyčky čtyř akcí menu pro
-staré verze. Jejich potvrzení Ano/Ne a volby zachovat poslední verzi zůstávají.
-`versioned_file.hpp` poskytuje společné rozpoznání a číselné řazení pro
-GUI, CLI i nativní ukládání. Číslo nové zálohy se inkrementuje jako desetinný
-řetězec bez přetečení `int`/`unsigned long long`; přípona se připojuje
-k nativní cestě a nepřevádí český název přes systémové ANSI kódování.
+`archive_operations` replaces separate deletion loops in four old-version menu
+actions. Existing Yes/No confirmation and keep-latest options remain.
+`versioned_file.hpp` shares recognition and numerical ordering across GUI, CLI,
+and native saving. New backup numbers increment as decimal strings without
+`int`/`unsigned long long` overflow. Suffixes append to native paths without converting
+Czech filenames through system ANSI encoding.
 
-## Testy
+## Tests
 
-Modelový a hostitelský test ověřují všech pět přípon, české názvy, číselné
-pořadí 001/2/10, třiceticifernou verzi a skutečnou kopii při uložení.
-Kontrolují velikost souborů, seskupení, zachování nejnovějších, chybné typy,
-chybějící cesty, maximální nezáporný počet, aktivní editaci, no-op a neměnnost
-otevřeného modelu. Samostatné případy ověřují změněný snímek, dvojí cestu,
-odmítnutí aktuálního dokumentu a částečné selhání mazání na Windows.
+Model and host tests cover all five extensions, Czech names, numerical order
+001/2/10, 30-digit versions, and actual backup creation on save. They check file sizes,
+grouping, keeping newest versions, wrong types, missing paths, maximum nonnegative
+count, active editing, no-ops, and unchanged open models. Separate cases check stale
+snapshots, duplicate paths, current-document rejection, and partial Windows deletion failure.
 
-Procesní regrese spouští skutečný CLI program se vstupem JSONL a ověřuje
-vzniklé soubory i návratové kódy. GUI regrese používá všechny čtyři akce
-menu, odpovědi Ano/Ne, nativní zálohy vzniklé uložením a následný příkaz
-konzole, který musí obnovit stav menu.
+Actual CLI regression uses JSONL and checks resulting files and exit codes. GUI
+uses all four menu actions, Yes/No, native backups created by saving, and a later
+console command that must refresh menu state. Menu availability reads backup names
+only; sizes/times are read for listings or a specific deletion snapshot.
 
-Obnova dostupnosti položek menu čte pouze názvy záloh. Velikosti a časy
-se načítají až pro výpis nebo snímek konkrétní mazací operace.
+Final Windows Release verification: both applications and all targets built.
+The full run passed **150/151 in 591.33 s** (`build/archive-full-tests.log`); the new
+GUI fixture incorrectly supplied unsupported `path` to `save`. It now sets the
+working directory, creates the document, and uses ordinary `save`.
 
-
-Závěrečné ověření Windows Release: obě aplikace a všechny testovací cíle
-jsou sestavené. Úplný běh ověřil **150/151 za 591,33 s**
-(`build/archive-full-tests.log`); nový GUI přípravek chybně předával
-nepodporovaný argument `path` příkazu `save`. Přípravek nyní nastaví pracovní
-adresář, vytvoří dokument a používá běžné `save`.
-
-Po opravě přípravku a dokončení viditelného hlášení částečné chyby konzole
-prošla závěrečná sada **7/7 za 164,31 s**: archivní operace, nativní dokumenty,
-ukládání a historie dokumentů, skutečný proces CLI, katalog, překlady a GUI
-konzole. Ověřené sestavení a výsledky:
-`build/archive-final-build.log` a `build/archive-final-tests.log`.
-Test skutečně zamčeného souboru Windows ověřuje chybu sdílení, přesné
-odstraněné cesty v JSON a počet odstraněných záloh v textovém hlášení.
+After that fixture repair and completion of visible partial-error console reporting,
+final tests passed **7/7 in 164.31 s**: archives, native documents, document saving/
+history, actual CLI, catalog, translations, and GUI console.
+Logs: `build/archive-final-build.log`, `build/archive-final-tests.log`.
+A genuinely locked Windows file verifies sharing errors, exact removed paths in
+JSON, and the removed-backup count in text.

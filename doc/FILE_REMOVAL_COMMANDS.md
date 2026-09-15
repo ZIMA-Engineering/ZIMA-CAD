@@ -1,96 +1,87 @@
-# Odstranění aktuálního nativního souboru
+# Removing the current native file
 
-## Rozsah
+## Scope
 
-`delete_file` odstraní uložený soubor otevřeného Partu, Assembly nebo Drawing.
-Cílem je přesné ID dokumentu a jeho uložená cesta. Bez `document` použije
-aktivní dokument. Nejde o obecné mazání libovolné cesty nebo o odstranění
-komponenty ze sestavy. Nativní přípony a formát dat se nemění.
+`delete_file` removes the saved file of an open Part, Assembly, or Drawing. The
+target is the exact document ID and saved path; omitted `document` uses the active
+document. This is neither arbitrary-path deletion nor Assembly component removal.
+Native extensions and data formats remain unchanged.
 
-| Argument | Typ | Výchozí hodnota |
+| Argument | Type | Default |
 | --- | --- | --- |
-| `document` | řetězec, ID otevřeného dokumentu | aktivní dokument |
+| `document` | string, open-document ID | active document |
 | `archives` | boolean | `false` |
 | `discard` | boolean | `false` |
 
-`archives: true` zahrne všechny číslované archivy daného souboru, které jsou
-v potvrzovaném snímku. Pravidla názvů jsou společná se
-[správou archivů](ARCHIVE_COMMANDS.md). Jiný dokument ani podadresáře
-do této operace nepatří.
+`archives: true` includes all numbered archives in the confirmed snapshot. Naming
+rules are shared with [archive management](ARCHIVE_COMMANDS.md). Other documents
+and subdirectories are excluded.
 
-Neuložené změny vyžadují `discard: true`. Příkaz neotevírá dialog,
-neukládá rozpracovaný model a nespouští výpočet OCCT. Během otevřených
-vlastností nebo editace je zablokovaný společným hostitelem.
+Unsaved edits require `discard: true`. The command opens no dialog, saves no pending
+model, and invokes no OCCT. Shared host guards block it during Properties or editing.
 
 ```json
 {"command":"delete_file","arguments":{"document":"document-id","archives":true,"discard":true}}
 ```
 
-## Společná operace a potvrzení GUI
+## Shared operation and GUI confirmation
 
-`workspace/file_removal_operations` obsahuje přípravu a provedení.
-Příprava pouze čte: ID otevření, cestu, revizi, generaci vypočtených dat,
-počet přidělených rozměrových identifikátorů, velikost a čas souboru.
-Při zahrnutí archivů pořídí i jejich seznam s velikostmi a časy.
+`workspace/file_removal_operations` contains preparation and execution. Preparation
+only reads opening identity, path, revision, calculated-data generation, allocated
+dimension-ID count, file size, and modification time. Including archives captures
+their list, sizes, and times too.
 
-GUI akce „Odstranit aktuální soubor“ a „Aktuální soubor a všechny verze“
-používají stejnou operaci. Mají jedno potvrzení Ano/Ne, výchozí Ne.
-U neuložených změn otázka výslovně uvádí i jejich zahození. Ne nic nemění.
-Společná ochrana souborových akcí odmítne mazání také během otevřených
-vlastností materiálu nebo jiného editačního okna, nejen kontejneru.
+GUI Delete Current File and Current File and All Versions use the same operation,
+with one Yes/No confirmation defaulting to No. For unsaved edits, the question
+explicitly includes discarding them. No changes nothing. Shared file-action guards
+also block deletion during material Properties or other editing windows, not just
+container dialogs.
 
-Po potvrzení se na vlákně vlastnícím Workspace znovu ověří dokument a
-soubory. Změněný dokument, jiné otevření stejného ID, jiná cesta nebo
-změněný snímek souborů se odmítnou před prvním smazáním.
+After confirmation, the Workspace-owning thread revalidates documents and files.
+Changed documents, another opening of the same ID, different paths, or stale file
+snapshots are rejected before the first deletion.
 
-Pořadí provedení:
+Execution order:
 
-1. Smazat aktuální soubor. Pokud selže, dokument zůstane otevřený a jeho
-   archivy se nemažou.
-2. Zavřít přesně tento dokument bez následné otázky Uložit. Původní GUI
-   cesta mohla po smazání nabídnout uložení a právě smazaný soubor znovu
-   vytvořit, protože neexistující soubor znamená potřebu uložení.
-3. Smazat zvolené archivy. Selhání OS v tomto kroku je částečný výsledek,
-   nikoli obnovení už smazaného souboru.
+1. Delete the current file. On failure, keep the document open and its archives untouched.
+2. Close exactly that document without a Save prompt. The old GUI path could offer
+   saving after deletion and recreate the file because a missing file needs saving.
+3. Delete selected archives. OS failure here is a partial result, not restoration
+   of the already deleted current file.
 
-Zavření používá společný výběr zbývajícího aktivního a zobrazeného dokumentu.
-Při mazání aktivovaného zdrojového Partu v sestavě zůstane rodičovská sestava,
-její komponenta, identita zdroje a vypočtený snímek zachovaný. Zdrojová cesta
-pak samozřejmě odkazuje na odstraněný soubor. Operace neodstraňuje výskyt.
+Closing uses shared selection of the remaining active/displayed document. Deleting
+an activated source Part file preserves the parent Assembly, component, source identity,
+and calculated snapshot. Its source path then points to the removed file. The
+occurrence itself is not removed.
 
-## Výsledek a chyby
+## Results and errors
 
-Výsledek obsahuje `document`, `path`, `closed`, `changed`,
-`removed_paths` a `removed_bytes`. Při selhání během provádění obsahuje
-také `failed_path` a přesné již provedené účinky. Viditelné chybové hlášení
-uvádí selhanou cestu a počet odstraněných souborů. I při částečném selhání
-konzole aktualizuje GUI podle skutečného zavření dokumentu.
+Results contain `document`, `path`, `closed`, `changed`, `removed_paths`, and
+`removed_bytes`. Execution failure adds `failed_path` and exact completed effects.
+Visible errors report failed path and removed-file count. Even on partial failure,
+the console refreshes GUI according to actual document closure.
 
-Mezi odmítnutí patří `no_document`, `document_not_found`,
-`path_required`, `file_not_found`, `unsaved_changes`, `stale_document`,
-`stale_file` a `stale_archive`. Chyby fyzického mazání vracejí
-`file_io_error` nebo `archive_io_error`. Šablony nejsou cílem `delete_file`.
+Rejections include `no_document`, `document_not_found`, `path_required`,
+`file_not_found`, `unsaved_changes`, `stale_document`, `stale_file`, and `stale_archive`.
+Physical deletion errors return `file_io_error` or `archive_io_error`. Templates
+are not targets of `delete_file`.
 
-Smazání souborů nemá modelové Undo a nepřesouvá soubory do koše.
-Kontrola velikosti a času je kontrola snímku, nikoli kryptografické ověření
-obsahu. Další proces může soubor změnit i mezi kontrolou a systémovým
-voláním; taková souběžnost není transakce napříč procesy.
+File deletion has no model Undo and does not use the recycle bin. Size/time checking
+validates snapshots, not cryptographic contents. Another process can change a file
+between validation and the system call; this is not a cross-process transaction.
 
-## Ověření
+## Verification
 
-Modelové testy pokrývají všechny tři nativní formáty, volitelné archivy,
-zahození změn, zachování historie při odmítnutí, zastaralé snímky dokumentu
-a souborů, nové otevření stejného ID a kontext aktivované komponenty.
-Windows testy zamykají skutečný soubor bez sdílení mazání a odlišují
-selhání aktuálního souboru od částečného selhání archivu.
+Model tests cover all three native formats, optional archives, discarded edits,
+history preservation on rejection, stale document/file snapshots, reopening the same
+ID, and activated-component context. Windows tests lock actual files without delete
+sharing and distinguish current-file failure from partial archive failure.
 
-Procesní regrese spouští samostatné CLI pro všechny tři formáty, kontroluje
-skutečné soubory, JSON, návratový kód a požadavek výslovného `discard`.
-GUI regrese používá obě menu, Ano/Ne, čistý i neuložený model a otevřené
-vlastnosti. Kontroluje jediné potvrzení a nepřítomnost následného Uložit.
+Actual CLI regression covers all three formats, real files, JSON, exit codes, and
+explicit `discard`. GUI uses both menus, Yes/No, clean/unsaved models, and open
+Properties, checking one confirmation and no subsequent Save prompt.
 
-Obě aplikace a všechny testovací cíle jsou sestavené ve Windows Release.
-Závěrečná cílená sada prošla **7/7 za 150,02 s**: nové mazání souborů,
-archivy, dokumentové ukládání a historie, skutečný proces CLI, katalog
-příkazů, překlady a GUI konzole. Logy: `build/file-removal-final-build.log`
-a `build/file-removal-targeted-tests.log`.
+Both applications and all targets built in Windows Release. Final targeted tests
+passed **7/7 in 150.02 s**: new file removal, archives, document saving/history,
+actual CLI, catalog, translations, and GUI console. Logs:
+`build/file-removal-final-build.log`, `build/file-removal-targeted-tests.log`.

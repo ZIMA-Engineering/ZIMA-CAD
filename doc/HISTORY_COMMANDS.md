@@ -1,97 +1,87 @@
-# Historie Partu z GUI, konzole a CLI
+# Part history from GUI, console, and CLI
 
-Stav 2026-09-11. Šest příkazů používá společné operace v
-`workspace/history_operations.hpp`; strom už neobsahuje druhou implementaci
-potlačení, přesunu, mazání ani kurzoru Partu. Čisté kontroly pořadí a závislostí
-jsou v `workspace/history_policy.hpp`. Sestava je zatím používá ze svého GUI;
-tato etapa nepřidává její mutační příkazy.
+Status: 2026-09-11. Six commands share `workspace/history_operations.hpp`; the tree
+no longer duplicates Part suppression, movement, deletion, or cursor logic. Pure
+order/dependency checks are in `workspace/history_policy.hpp`. At this stage Assembly
+uses these from GUI; Assembly mutation commands are a later stage.
 
-## Příkazy
+## Commands
 
-| Příkaz | Argumenty | Význam |
+| Command | Arguments | Purpose |
 | --- | --- | --- |
-| `history.list` | `[document]` | Pořadí prvků, stabilní ID, jména, druhy, vlastnící tělesa, potlačení, kurzor a chyby posledního výpočtu |
-| `history.suppress` | `object suppressed [document]` | Výslovně nastavit boolean potlačení, vypočítat a zapsat historii |
-| `history.delete` | `object [document]` | Smazat prvek, samostatnou skicu, konstrukční objekt, těleso nebo Boolean |
-| `history.move` | `object [before document]` | Přesunout před objekt ve stejném rozsahu historie; bez before na konec |
-| `history.can_move` | `object [before document]` | Ověřit pořadí, závislosti a vlastnictví bez výpočtu geometrie |
-| `history.cursor` | `index [document]` | Nastavit nulový index vložení v celkovém pořadí historie Partu |
+| `history.list` | `[document]` | Feature order, IDs, names, kinds, owning Bodies, suppression, cursor, last calculation errors |
+| `history.suppress` | `object suppressed [document]` | Set boolean suppression, calculate, commit history |
+| `history.delete` | `object [document]` | Delete feature, standalone Sketch, construction, Body, or Boolean |
+| `history.move` | `object [before document]` | Move before an object in the same history scope; omitted before means end |
+| `history.can_move` | `object [before document]` | Check order, dependencies, ownership without geometry calculation |
+| `history.cursor` | `index [document]` | Set zero-based insertion index in complete Part history |
 
-Příkazy přijímají stabilní ZIMA ID, nikoli jméno položky nebo index hrany OCCT.
-Volitelný dokument u změn musí být aktivní; dotazy mohou číst jiný otevřený Part.
-Změna uvnitř tělesa vyžaduje jeho aktivaci. Samotná tělesa a Booleany se přesouvají
-v hlavním pořadí těles, prvky vždy v pořadí svého tělesa. Přesun mezi tělesy není
-změnou pořadí a tento příkaz ho nepovoluje.
+Commands use stable ZIMA IDs, not labels or OCCT edge indexes. Mutation `document`
+must be active; queries can read another open Part. Edits inside Bodies require
+activation. Bodies/Booleans move in main Body order; features move only within their
+own Body. Cross-Body transfer is not reordering and is unsupported here.
 
-`history.cursor` čísluje celkovou historii Partu a respektuje rozsah aktivního
-tělesa. `body.cursor` naproti tomu nabízí lokální index uvnitř tělesa, nebo index
-v hlavním pořadí těles a Booleanů. Ani jeden kurzor nepřepočítává geometrii.
+`history.cursor` indexes complete Part history and respects active Body scope.
+`body.cursor` instead offers local Body indexes or main Body/Boolean indexes.
+Neither calculates geometry.
 
 ```json
-{"command":"history.suppress","arguments":{"object":"<ID prvku>","suppressed":true}}
-{"command":"history.can_move","arguments":{"object":"<ID prvku>","before":"<ID následujícího prvku>"}}
+{"command":"history.suppress","arguments":{"object":"<feature-ID>","suppressed":true}}
+{"command":"history.can_move","arguments":{"object":"<feature-ID>","before":"<next-feature-ID>"}}
 {"command":"history.cursor","arguments":{"index":0}}
 ```
 
-## Transakce a reference
+## Transactions and references
 
-Výpočet změny proběhne nad pracovní kopií a historie se zapíše jedním commitem.
-Neplatný typ argumentu, cizí rozsah, porušení pořadí závislostí nebo výjimka před
-commitem ponechají dokument a jeho historii beze změny. Stejná operace z GUI a
-příkazovky sdílí Undo/Redo. Opakované nastavení stejné hodnoty nepřepočítává ani
-nevytváří další revizi.
+Calculation uses a working copy and one history commit. Invalid types, foreign scope,
+dependency-order violations, and pre-commit exceptions preserve document/history.
+GUI/CLI share Undo/Redo. Repeated identical values neither calculate nor create revisions.
 
-Přesun chrání existující správně uspořádané závislosti, vazby těles a vstupy
-Booleanů. Po skutečném výpočtu kontroluje také zachování uložených referencí,
-původní referenční geometrie a platnosti konstrukčních, kontejnerových a externích
-skicových referencí. `history.can_move` kontroluje pouze datové podmínky; jeho
-úspěch není zárukou budoucího geometrického výpočtu. Odpověď obsahuje `allowed`
-a `would_change`; zamítnutí vrací konkrétní chybový kód.
+Movement protects valid dependency order, Body references, and Boolean inputs. After
+calculation it checks persisted references, original geometry, and construction,
+container, and external Sketch-reference validity. `history.can_move` checks data only;
+success cannot guarantee future geometry calculation. Responses contain `allowed`
+and `would_change`; rejection supplies a specific error code.
 
-Mazání zachovává dosavadní opravu navazujících Fillet/Chamfer referencí: hranu
-lze přepojit na vstup před odstraněným prvkem pouze při jediné jednoznačné shodě
-uložené geometrie. Nová, změněná nebo nejednoznačná hrana se neodhaduje.
+Deletion retains existing downstream Fillet/Chamfer repair: edges may reconnect to
+input before the deleted feature only with one unambiguous persisted-geometry match.
+New, changed, or ambiguous edges are never guessed.
 
-Potlačení nebo smazání může podle dosavadního chování GUI zanechat navazující
-prvek nevypočitatelný. Dokument pak uchová změnu i platnou předcházející geometrii.
-Příkaz vrátí `ok:false`, `code:calculation_errors` a **`data.changed:true`** spolu
-s mapou chyb. Tento výsledek výslovně odlišuje provedenou změnu s chybami výpočtu
-od zamítnuté transakce. Je možné použít Undo nebo opravit reference. Běžná CLI
-dávka se na něm zastaví; `--keep-going` pokračuje. Uložení je vždy výslovné.
+Suppression/deletion may leave downstream features uncalculable, matching GUI behavior.
+The document retains the change and valid preceding geometry. Commands return
+`ok:false`, `code:calculation_errors`, and **`data.changed:true`** with an error map,
+explicitly distinguishing committed changes with calculation errors from rejected
+transactions. Undo or reference repair remains available. Ordinary CLI batches stop;
+`--keep-going` continues. Saving is always explicit.
 
-Žádný dotaz, kurzor ani náhled možnosti přesunu nevolá OCCT. Operace neregenerují
-nadřazené sestavy. Řešení umístění, formát dokumentů a startovní šablony se nemění.
+Queries, cursors, and move previews invoke no OCCT. Operations do not regenerate
+parent Assemblies. Placement solving, formats, and start templates are unchanged.
 
-## Ověření
+## Verification
 
-Modelová regrese porovnává skutečné objemy kvádrů, stabilní reference před a po
-přesunu, potlačení, mazání, správné vložení na kurzor, Undo/Redo, ochranu neaktivního
-tělesa a Booleanů, neplatné argumenty a uložení/načtení. Samostatný scénář se dvěma
-zkoseními ověřuje, že po smazání prvního funguje druhé nad přeživší hranou.
-Další zkosení na nově vzniklé hraně ověřuje reportovanou obnovu platného
-předchozího výsledku při ztrátě zdroje, mapu chyb a návrat přes Undo.
-GUI regrese používá skutečný strom, přetažení, kurzor a nabídky Potlačit/Odstranit.
-Procesová regrese spouští samostatné CLI a čte výsledný nativní soubor.
+Models check actual box volumes, stable references around reorder/suppression/deletion,
+correct cursor insertion, Undo/Redo, inactive-Body/Boolean protection, invalid arguments,
+and save/load. Two-chamfer scenarios verify that deleting the first leaves the second
+working on a surviving edge. A chamfer on a newly generated edge checks reported
+restoration of valid preceding results after source loss, error maps, and Undo.
+GUI uses actual tree, dragging, cursor, and Suppress/Delete menus. Actual CLI reads
+resulting native files.
 
-Kompletní Windows Release regrese: **61/61 prošlo**, 386,26 s,
-`build/history-full-tests.log`. Obsahuje modelové testy bez Qt, skutečné CLI
-procesy, historii v GUI, již existující test přetažení stromu i scénáře
-modelování, sestav, výkresů, spline křivek a offsetů. GUI a CLI byly přeloženy
-ze stejného konečného zdroje. Samostatná rozšířená regrese hran prošla rovněž
-(`build/history-edge-tests.log`, 0,47 s).
+Full Windows Release passed **61/61 in 386.26 s**, `build/history-full-tests.log`:
+Qt-free models, actual CLI, GUI history, existing tree-drag regression, modeling,
+Assemblies, drawings, splines, and offsets. GUI/CLI built from identical final source.
+Expanded edge regression also passed (`build/history-edge-tests.log`, 0.47 s).
 
-## Kontextové reference (2026-09-13)
+## Contextual references (2026-09-13)
 
-Potvrzení Part historie nyní používá společnou transakci referencí a souhrnů
-závislostí Assembly. Odstranění prvku, tělesa nebo vlastněné skici tak odstraní
-jen prokazatelně nepoužívané závislosti; kontroluje i zavřené nativní Party ve
-stejné větvi. Part Undo/Redo připraví odpovídající souhrny před změnou historie.
-`history.can_move` výslovně respektuje zadaný neaktivní Part i při aktivní
-Assembly a nemění aktivaci nebo vypočtenou geometrii.
-Podrobnosti: [CONTEXT_REFERENCE_TRANSACTIONS.md](CONTEXT_REFERENCE_TRANSACTIONS.md).
+Part-history commit now uses the shared reference/Assembly-summary transaction.
+Deleting features, Bodies, or owned Sketches removes only demonstrably unused
+dependencies, checking closed native Parts in the same branch too. Part Undo/Redo
+prepares matching summaries before history mutation. `history.can_move` respects an
+explicit inactive Part even with Assembly active, without activation/geometry changes.
+See [CONTEXT_REFERENCE_TRANSACTIONS.md](CONTEXT_REFERENCE_TRANSACTIONS.md).
 
-Samostatné Assembly Undo/Redo zachovává aktuální zdrojové Party a přepočítá
-pouze jejich odvozený seznam závislostí, bez výpočtu geometrie. Neověřitelnou
-závislost zachová; pokud by tak vznikl cyklus, odmítne krok před publikací.
-GUI chybu ohlásí a umožní opakování po zpřístupnění zdroje. Podrobnosti:
-[ASSEMBLY_REFERENCE_SUMMARIES.md](ASSEMBLY_REFERENCE_SUMMARIES.md).
+Independent Assembly Undo/Redo preserves current source Parts and recalculates only
+derived dependency lists, not geometry. Unverifiable dependencies remain; resulting
+cycles reject the step before publication. GUI reports errors and permits retry after
+sources become available. See [ASSEMBLY_REFERENCE_SUMMARIES.md](ASSEMBLY_REFERENCE_SUMMARIES.md).

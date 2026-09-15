@@ -1,104 +1,110 @@
-# Otvor s volitelným závitem
+# Opening with optional internal thread
 
-Příkaz **Otvor** používá společné Vlastnosti pro vytvoření i editaci
-jednoho kontejneru. Typ otvoru vybírá hladký otvor, metrický ISO závit,
-Whitworth BSW nebo válcový trubkový G závit. Hladký otvor má číselný průměr;
-závit má katalogový rozměr a odvozený, případně ručně zadaný průměr předvrtání.
-Použití je vždy vnitřní. Vnější závity nejsou součástí tohoto příkazu.
+**Opening** uses one Properties dialog for creating/editing one container. Types
+are plain hole, ISO metric thread, Whitworth BSW, and cylindrical G pipe thread.
+Plain holes use numerical diameter; threads use catalog size and derived or manually
+specified pilot-bore diameter. This command is internal-only; external threads are separate.
 
-- Hloubka otvoru určuje konec válcové části. Otvor může končit také na cíli
-  **Až k** nebo projít **Skrz vše**.
-- Délka závitu se měří od lokálního počátku otvoru ke konci válce závitu.
-  Výběh o délce zadaného násobku stoupání pokračuje za touto délkou.
-- Volitelné sražení má osovou hloubku a vrcholový úhel (výchozí 90°).
-  Ořízne závitovou plochu, ale neposune počátek měření ani konec délky závitu.
-- Volitelná vrtací špička pokračuje za zadanou válcovou hloubkou slepého
-  otvoru. Pro Až k a Skrz vše se nepřidává.
+- Hole depth defines the cylindrical end. The hole may also end Up To a target or
+  extend Through All.
+- Thread length runs from the local opening Origin to the thread cylinder end.
+  Runout of a specified pitch multiple continues beyond it.
+- Optional chamfer has axial depth and included angle (default 90°). It trims the
+  thread surface without shifting the measurement origin or thread-length end.
+- Optional drill tip extends beyond blind cylindrical depth and is omitted for
+  Up To/Through All.
 
-Výpočet při OK provede postupně odečet profilu otvoru vytažením, volitelný
-odečet špičky rotací, vytvoření technologické závitové plochy a nakonec
-odečet vstupního sražení rotací. Poslední odečet ořízne solid i technologické
-plochy. Vše tvoří jedinou hranici historie. Profilové skici a jejich identity
-se ukládají do dokumentu; náhled a kóty používají ZIMA data bez výpočtu OCCT.
-Cancel neukládá rozpracované změny.
+OK calculation subtracts the extruded bore profile, optionally subtracts the revolved
+tip, creates the technological thread surface, then subtracts the revolved entry
+chamfer. The final subtraction clips solid and technological surfaces. Everything
+forms one history boundary. Profile Sketches/identities persist; preview and dimensions
+use ZIMA data without OCCT. Cancel discards pending changes.
 
-Otvor vlastní trvalou referenční osu `axis:primary`. Je viditelná i mimo
-Vlastnosti a ukládá se s vypočteným modelem. Vede od lokálního počátku
-po konec válcové části otvoru; špička ani vstupní sražení její délku nemění.
-Původní samostatný příkaz Otvor již nabídka nástrojů neobsahuje.
+Opening owns persistent reference axis `axis:primary`, visible outside Properties
+and saved with calculated data. It extends from local Origin to the cylindrical
+hole end; tip/chamfer do not change its length. The old separate Hole command is
+no longer in the toolbar menu.
 
-Nový otvor má špičku i sražení předem zapnuté. Analytický drátový náhled
-používá kružnice a jednu spojovací úsečku pro každou válcovou či kuželovou
-plochu. Zvýraznění kontejneru vychází z uloženého obrysu spojeného řezného
-tělesa; nezobrazuje zaniklé kružnice mezi mezikroky vrtání a sražení.
+New openings initially enable tip and chamfer. Analytic wire preview uses circles
+and one connector per cylinder/cone. Container highlighting uses the persisted outline
+of the combined cutting body, excluding vanished circles between drilling/chamfering steps.
 
-Spojovací čáry všech ploch leží ve stejné podélné polorovině určené osou
-otvoru a jeho lokálním radiálním směrem. Shodně ji používá analytický
-náhled i kruhový profil při explicitním výpočtu OCCT.
+All surface connectors share a longitudinal half-plane defined by opening axis and
+local radial direction. Analytic preview and the circular profile used during explicit
+OCCT calculation share it.
 
-Změna katalogu předává náhledu až kompletní rozměr. Přepnutí na závit
-podle potřeby prodlouží otvor s pevnou hloubkou tak, aby pojal délku
-závitu včetně výběhu. Nový otvor má výchozí hloubku 20 mm.
-Hladký otvor nepoužívá katalog; návrat k závitu zachová zvolený rozměr.
+Catalog changes send complete dimensions to preview. Switching to a thread extends
+fixed-depth holes if needed to fit thread length plus runout. New holes default to
+20 mm depth. Plain holes use no catalog; switching back retains the selected thread size.
 
-Pro výkresové řezy je dostupný příznak `FaceReference::is_thread_surface()`
-na referencích trojúhelníků zobrazené i původní geometrie. Vychází z uložené
-role `thread:surface:nominal`, zachovává se po oříznutí i uložení a načtení.
-Výběh, stěna předvrtání, sražení a špička tento příznak nemají. Zjištění
-nevyžaduje OCCT ani duplicitní údaj oddělený od významu dané plochy.
+Drawing sections can use `FaceReference::is_thread_surface()` on displayed/original
+triangle references. It derives from persisted role `thread:surface:nominal`, surviving
+trimming and save/load. Runout, pilot wall, chamfer, and tip lack the flag. Reading
+it requires no OCCT or duplicate metadata detached from face semantics.
 
-Kóty v otevřených vlastnostech mění pouze rozpracované parametry: hloubka
-mění otvor, délka závitu mění válcovou část závitu měřenou od počátku.
-Průměr předvrtání má skutečnou číselnou hodnotu a kotví na válci za sražením.
-U závitu je tato kóta pouze informativní (`driving=false`, role
-`measurement:bore_diameter`); u hladkého otvoru je editovatelná. Označení
-např. M10 kotví na jmenovitém válci závitu; vyvolání editace otevře existující
-výběr katalogového rozměru ve vlastnostech. Do modelu se změny zapíší až OK.
+Dimensions inside open Properties edit only pending parameters: depth edits the hole;
+thread length edits the thread cylinder measured from Origin. Pilot diameter is actual
+numerical diameter anchored on the cylinder beyond chamfer. For threads it is informative
+(`driving=false`, role `measurement:bore_diameter`); for plain holes it is editable.
+A designation such as M10 anchors to the nominal thread cylinder; editing invokes
+existing catalog selection in Properties. Only OK writes changes to the model.
 
-Zapnuté sražení nabízí hloubku a vrcholový úhel, zapnutá špička slepého
-otvoru nabízí vrcholový úhel. Úhlové kóty používají existující druh Skicáře `AngleSymmetric` (A–B–A)
-a jeho společné vykreslení. Dočasný osový řez obsahuje jednu povrchovou
-přímku a osu; druhou stranu zrcadlí sama symetrická kóta. Nejde o další
-editovatelnou skicu ani druhý zdroj parametrů. Parametry
-se mění přes stejné ovládací prvky vlastností. Zobrazení nic nepočítá v OCCT.
-Tyto kóty používají společný datový typ ViewerDimension; vlastní přenos
-kót otvoru do výkresu je následná práce.
+Enabled chamfer offers depth/included angle; enabled blind tip offers included angle.
+Angular dimensions use existing Sketcher `AngleSymmetric` (A–B–A) and shared rendering.
+A temporary axial section contains one generator and the axis; the symmetric dimension
+mirrors the other side. This is neither another editable Sketch nor another parameter
+source. Existing Properties controls edit values; display performs no OCCT. Dimensions
+use shared ViewerDimension; transfer of Opening dimensions into Drawing is subsequent work.
 
-Katalog vyvolaný z kóty čeká na uvolnění levého tlačítka dvojkliku, aby
-jej koncová událost hned nezavřela. Informativní průměr předvrtání používá
-barvu měřených kót Skicáře; jeho odkazová čára míří na opačnou stranu
-než označení závitu, takže se popisky nepřekrývají ani v osovém pohledu.
+Catalog invocation from a dimension waits for release of the double-click's LMB so
+the release does not immediately close it. Informative pilot diameter uses Sketcher
+measured-dimension color; its leader points opposite the thread designation, preventing
+overlap even in axial views.
 
-Dvojklik na označení závitu v režimu Edit otevře samostatný inline katalog.
-Volba položky explicitně přepočítá a uloží změnu a vrátí pohled ke kótám;
-zavření seznamu nic nemění. Vlastnosti se při tom neotevírají. Když jsou
-Vlastnosti už otevřené, katalog mění jejich rozpracované parametry až do OK.
-Oba vstupy používají stejný zdroj katalogových dat.
+Double-clicking thread designation in Edit mode opens a standalone inline catalog.
+Selecting an item explicitly recalculates/commits and returns to dimensions; closing
+the list changes nothing. Properties does not open. If already open, the catalog
+edits pending Properties values until OK. Both entry points share catalog data.
 
-Informativní průměr má značku ⌀ a zůstává dostupný pro inspekci; jeho
-dvojklik nespouští editaci. U závitu kotví na válcové části pod vstupem,
-aby se nepletl s kótou sražení. Integrační test ověřuje hnědé pixely ve
-3D obrazu, návrat ke kótám po volbě M12 i zrušení další volby bez změny.
+Informative diameter carries ⌀ and remains inspectable; double-click does not edit.
+For threads it anchors below the entry to distinguish it from chamfer dimensions.
+Integration checks brown pixels in the actual 3D image, return to dimensions after
+M12 selection, and cancellation of another selection without mutation.
 
-Vlastnosti otvoru nemají pole Text kóty ani vlastní přepis označení.
-Závitová kóta používá označení z katalogu a průměr díry skutečnou hodnotu.
+Opening Properties has no Dimension Text field or custom designation override.
+Thread dimensions use catalog designation; hole diameters use actual values.
 
-Volba Až k přebírá vstup z referencí umístění pomocí stejné obsluhy cíle
-jako Vytažení. Vypne aktivní řádek umístění i automatický přechod na další
-řádek; existující hodnoty umístění zachová. Po výběru cíle či změně zpět
-na Délku zůstává výběr umístění vypnutý až do explicitního kliknutí na něj.
-Hloubka ke šikmé rovině vychází z průsečíku osy s rovinou. Integrační test
-prochází výběr skutečné plochy, OK, uložení reference i kontrolu objemu.
+Up To takes over reference input using Extrusion's target handler, disabling the
+active placement row and automatic next-row advancement while preserving placement
+values. After target selection or returning to Length, placement input stays inactive
+until explicitly clicked. Depth to an inclined plane uses the axis/plane intersection.
+Integration tests select actual faces, confirm OK, persist references, and check volume.
 
-U Až k (stejně jako Skrz vše) je špička nejen vynechaná z výpočtu, ale
-i odškrtnutá a vypnutá ve vlastnostech. Po návratu na pevnou délku ji lze
-znovu zapnout. Pomocné vytažení ke šikmé rovině pokrývá celý kruhový
-profil před oříznutím, nikoli jen jeho jediný vrchol na švu.
+Up To, like Through All, both omits tip calculation and unchecks/disables tip in
+Properties. Returning to fixed length allows re-enabling it. Helper extrusion to an
+inclined plane covers the whole circular profile before trimming, not just its seam vertex.
 
-Délka závitu má vlastní zakončení Délka / Až k a samostatnou referenci na rovinu nebo rovinnou plochu. Až k ořezává nominální závitovou plochu cílovou rovinou i při jejím sklonu, nevytváří výběh a skrývá jeho nastavení i číselnou délku závitu. Hloubka a zakončení předvrtání zůstávají nezávislé. Náhled používá analytický průsečík; OCCT ořez probíhá až při výpočtu.
+Thread length has independent Length/Up To termination and a separate plane/planar-face
+reference. Up To clips the nominal thread surface even against an inclined plane,
+creates no runout, and hides runout settings and numerical thread length. Pilot depth/
+termination stays independent. Preview uses analytic intersection; OCCT clipping runs
+only during calculation.
 
-Následné sražení a zaoblení hrany zachovávají technologické závitové plochy v každé hranici historie. Odečítají z nich pouze objem odebraný danou úpravou hrany; vlastník a příznak nominálního závitu zůstávají zachované. Regresní test průchozího otvoru ověřuje i polohu konce závitové plochy na výstupním sražení.
+Subsequent chamfers/fillets preserve technological thread surfaces at every history
+boundary, subtracting only volume removed by that edge treatment. Owner and nominal-
+thread flag remain. Through-hole regression also checks the thread-surface end at
+the exit chamfer.
 
-Tree rozepisuje kontejner Otvor na základní Otvor a zapnutý Závit, Sražení a Špičku. Kliknutí vybírá azurově pouze existující hrany odpovídajícího podprvku; vazba používá uložené rodiče profilů a přesnou cestu výskytu. Kontextové Edit zobrazuje ve View jen kóty tohoto podprvku. Vlastnosti otevírají společný dialog otvoru. Delete je pouze u volitelných podprvků a vypíná jejich parametr s výpočtem a Undo. Odebrání závitu přepíná otvor na hladký při zachování průměru předvrtání; Tree pak používá původní ikonu válcového otvoru. Vypnuté prvky lze obnovit ve Vlastnostech.
+Tree expands Opening into base Opening and enabled Thread, Chamfer, and Tip. Clicking
+highlights only existing edges of that child in azure, using persisted profile parents
+and exact occurrence paths. Context Edit shows only that child's dimensions; Properties
+opens the shared Opening dialog. Delete exists only for optional children, disabling
+the parameter with calculation/Undo. Removing thread switches to plain bore while
+preserving pilot diameter; Tree uses the original cylindrical-hole icon. Properties
+can re-enable disabled children.
 
-Stejný výběrový mechanismus ve Tree používají Sražení a Zaoblení: kontejner obsahuje trasy a sbalené segmenty. Jejich azurový drát pochází z uložené hranice před operací. Delete odebírá výběr hrany, nikoli geometrii zdrojového tělesa. Rozdělené souvislé části tvoří samostatné trasy, počátky R1 se odvozují z uložených koncových bodů původní trasy. Delete poslední trasy odstraní kontejner standardní undoovatelnou cestou.
+Chamfer/Fillet use the same Tree selection mechanism: containers hold routes with
+collapsed segments. Azure wire comes from persisted pre-operation input. Delete removes
+edge selection, not source-body geometry. Split connected portions form separate routes;
+R1 starts derive from persisted original-route endpoints. Deleting the final route
+removes its container through standard undoable deletion.

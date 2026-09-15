@@ -1,24 +1,23 @@
-# Překlady uživatelského rozhraní
+# User-interface localization
 
-Jazyk aplikace se vybírá v **Globálním nastavení → Jazyk aplikace**.
-Dostupné jsou čeština (`cs`), angličtina (`en`), němčina (`de`), francouzština (`fr`) a ruština (`ru`).
-Použije se `Application/Language` a adresář `Paths/Localization` z platné
-konfigurace. Místní `config.ini` pracovního adresáře má přednost před
-základním `config/config.ini`; jeho výběr se zachová i po potvrzení nastavení.
+Choose application language in **Global Settings → Application Language**. Available
+languages are Czech (`cs`), English (`en`), German (`de`), French (`fr`), and Russian
+(`ru`). Effective config uses `Application/Language` and `Paths/Localization`.
+Working-directory `config.ini` overrides base `config/config.ini`; that choice survives
+settings confirmation.
 
-Nově otevírané vlastnosti používají změněný jazyk ihned. Pro sjednocení všech
-již otevřených nabídek, panelů a dialogů aplikaci restartujte; upozornění
-je také v Globálním nastavení. Změna jazyka nepřekládá uživatelské názvy
-objektů, souborů, texty razítek ani uložené hodnoty modelu.
+New Properties dialogs use the changed language immediately. Restart to update every
+already open menu, panel, and dialog; Global Settings includes this notice. Language
+changes do not translate user object/file names, title-block text, or persisted model values.
+Project documentation is maintained in English; exact localized strings below are examples.
 
-## Nově přeložené funkce
+## Newly localized features
 
-Všech pět jazyků obsahují texty zámků hodnot, jednorázového převzetí
-vzdálenosti nebo úhlu, obrázků v razítku a oblasti kusovníku. Přeložené
-jsou jejich příkazy, vlastnosti, zarovnání, směry opakování, nápovědy,
-chyby zadání a uložení, filtry souborů a společná tlačítka OK/Zrušit.
+All five languages include value locks, one-time distance/angle capture, title-block
+images, and BOM regions: commands, properties, alignment, repeat directions, help,
+input/save errors, file filters, and shared OK/Cancel buttons.
 
-| Česky | English | Deutsch | Français |
+| Czech | English | German | French |
 | --- | --- | --- | --- |
 | Zamknout hodnotu | Lock value | Wert sperren | Verrouiller la valeur |
 | Odemknout hodnotu | Unlock value | Wert entsperren | Déverrouiller la valeur |
@@ -28,81 +27,69 @@ chyby zadání a uložení, filtry souborů a společná tlačítka OK/Zrušit.
 | Zachovat poměr stran | Keep aspect ratio | Seitenverhältnis beibehalten | Conserver les proportions |
 | Zrušit | Cancel | Abbrechen | Annuler |
 
-Chování zámků popisují [Zámky číselných hodnot](NUMERIC_VALUE_LOCKS.md).
-Vkládání obrázků PNG/SVG a opakování kusovníku popisují [Výkresy](DRAWINGS.md).
+See [Numerical value locks](NUMERIC_VALUE_LOCKS.md) and [Drawings](DRAWINGS.md) for
+lock behavior, PNG/SVG insertion, and BOM repetition.
 
-## Úprava jazykových souborů
+## Editing language files
 
-Katalogy jsou soubory UTF-8 `config/localization/{cs,en,de,fr,ru}.ini`.
-C++ načítá dvě oddělené sekce:
+Catalogs are UTF-8 `config/localization/{cs,en,de,fr,ru}.ini`. C++ reads two sections:
 
-- `[Translations]`: dosavadní pojmenované klíče pro `ApplicationSettings::text`,
-  například `global.language`. Tyto klíče používají také nabídky a výběr souborů.
-- `[QtTranslations]`: zdrojový text pro C++ `tr()` / `QObject::tr()`, například
-  `Zamknout hodnotu = Lock value`. Překladač `QTranslator` je vlastněný aplikací
-  a při změně konfigurace se nahradí; nevzniká řetězec starých jazyků.
+- `[Translations]`: existing named keys for `ApplicationSettings::text`, such as
+  `global.language`, also used by menus/file selection.
+- `[QtTranslations]`: C++ `tr()` / `QObject::tr()` source text, for example
+  `Zamknout hodnotu = Lock value`. Application-owned QTranslator is replaced when
+  config changes, without accumulating old language translators.
 
-Pokud stejný text potřebuje jiný překlad podle kontextu Qt, použijte klíč
-`Kontext|Zdrojový text`. Má přednost před společným zdrojovým textem.
-Kontext určuje třída s `Q_OBJECT`, od které pochází `tr()`; nemusí být shodný
-s názvem odvozeného dialogu. Neznámý text se zobrazí ve zdrojovém jazyce.
-Tato sekce je určena pro texty bez množných tvarů; zprávy s `n` vyžadují
-překladový katalog s podporou plurálů.
+Use `Context|Source text` when Qt contexts need different translations; this overrides
+the shared source-text entry. Context comes from the `Q_OBJECT` class providing
+`tr()`, not necessarily the derived dialog name. Unknown text falls back to source
+language. This section handles nonplural text; messages with `n` need plural-aware catalogs.
 
-Při přidání zprávy doplňte stejné klíče ve všech pěti jazycích.
-Zachovejte přesně zástupné značky `%1`, `%2` atd., tokeny `&bom.item_number`
-a `&bom.quantity` i přípony ve filtrech souborů. Řádek se dělí na prvním
-`=`; klíč je tedy nesmí obsahovat. Texty jsou jednořádkové, mezery na
-okrajích se ořezávají. Nepřekládejte interní identifikátory, například
-`center`, `middle`, `up` nebo klíče zámků.
+Add identical keys in all five languages. Preserve `%1`, `%2`, etc., `&bom.item_number`,
+`&bom.quantity`, and file-filter extensions exactly. Lines split at the first `=`,
+so keys cannot contain it. Text is single-line with trimmed edges. Do not translate
+internal identifiers such as `center`, `middle`, `up`, or lock keys.
 
-## Ověření
+## Verification
 
-`zima_cpp_translations_contract` načte všech pět skutečných katalogů přes
-místní konfiguraci, zkontroluje shodné klíče, zástupné značky, výměnu překladače,
-kontext a návrat ke zdrojovému textu. Ve vlastnostech kvádru ověří nápovědy
-trvalého zámku i obou stavů jednorázového převzetí a tlačítko Zrušit.
+`zima_cpp_translations_contract` loads all five real catalogs through local config,
+checking matching keys, placeholders, translator replacement, contexts, and source
+fallback. Box Properties verifies permanent-lock help, both one-time-capture states,
+and Cancel.
 
-Integrační režim `ZIMA_VERIFY_TEMPLATES_ONLY=1` testu
-`zima_cpp_workspace_startup_contract` otevře skutečné vlastnosti obrázku
-i oblasti kusovníku ve všech pěti jazycích. Ověří texty a zachování
-uloženého zarovnání, pořídí snímky do `Projects/test/image-properties-*.png`
-a `Projects/test/bom-properties-*.png`.
+`ZIMA_VERIFY_TEMPLATES_ONLY=1` in `zima_cpp_workspace_startup_contract` opens actual
+Image/BOM-region Properties in all five languages, checks text and preserved alignment,
+and captures `Projects/test/image-properties-*.png` and `Projects/test/bom-properties-*.png`.
 
-## Ruština a Parameters
+## Russian and Parameters
 
-Ruský katalog obsahuje všechny klíče anglického katalogu, včetně parametrů,
-materiálů, jednotek, modelovacích příkazů a nových režimů textu. Výchozí
-šablony Part a Assembly obsahují ruské popisky standardních Parameters.
-Výběr jazyka v Parameters nabízí `ru`; společné hodnoty se nepřekládají.
-U již existujících dokumentů lze ruské popisky a hodnoty doplnit v Parameters.
-Jazyk rozhraní nemění klíče parametrů ani uživatelský obsah dokumentu.
-Jazyk hodnot razítka se volí samostatně ve vlastnostech listu.
+The Russian catalog contains all English keys, including parameters, materials,
+units, modeling commands, and new text modes. Part/Assembly start templates include
+Russian standard-parameter labels. Parameters language selection offers `ru`; shared
+values are not translated. Existing documents can receive Russian labels/values in
+Parameters. UI language changes neither parameter keys nor user document content.
+Title-block value language is selected separately in Sheet Properties.
 
-## Kontrola českého rozhraní (2026-09-11)
+## Czech interface audit (2026-09-11)
 
-Doplněny jsou překlady standardních tlačítek Qt, souborových dialogů a
-editačních nabídek včetně variant s klávesovými zkratkami (`&`). Potvrzení
-při zavření rozpracovaného dokumentu používá **Uložit / Neukládat / Zrušit**.
-Samotný překlad položky nabídky „Uložit jako…“ nestačí: standardní tlačítka
-`QMessageBox` a `QFileDialog` vyhledávají vlastní zdrojové texty Qt.
+Standard Qt buttons, file dialogs, and editing menus now have translations, including
+mnemonic `&` variants. Unsaved-document confirmation uses **Uložit / Neukládat / Zrušit**
+(Save / Don't Save / Cancel). Translating only Save As menu text is insufficient:
+QMessageBox/QFileDialog buttons look up their own Qt source strings.
 
-České názvy novějších příkazů a vlastností zahrnují **Odsazení**, **Obrátit**,
-**Skica**, **Tenkostěnný**, **Skořepina**, **Booleovská operace** a **Meze vazby**.
-Dialog zobrazení/skrytí nyní překládá obě tlačítka přes `tr()` místo pevně
-zadaných textů SHOW/ERASE. Nové katalogové klíče jsou doplněny ve všech pěti
-jazycích. Kontrola českého rozhraní není potvrzením úplného překladu všech
-starších českých zdrojových hlášek do ostatních jazyků ani diagnostiky jádra.
+Newer Czech labels include **Odsazení**, **Obrátit**, **Skica**, **Tenkostěnný**,
+**Skořepina**, **Booleovská operace**, and **Meze vazby**. Show/Erase now translates
+both buttons through `tr()` instead of fixed SHOW/ERASE. New keys exist in all five
+languages. This audit does not certify complete translation of every older Czech
+source message into other languages or all kernel diagnostics.
 
-Test `zima_cpp_translations_contract` navíc vytváří skutečný `QMessageBox`
-s neuloženým dokumentem a nenativní ukládací `QFileDialog` v každém z pěti
-jazyků. Ověřuje texty jejich tlačítek i názvy vlastností odsazení a změny
-strany. Český potvrzovací dialog ukládá do `unsaved-document-cs.png`
-v pracovním adresáři testu.
+`zima_cpp_translations_contract` additionally creates an actual unsaved-document
+QMessageBox and non-native save QFileDialog in each language, checking button text,
+Offset Properties, and Flip names. It saves Czech confirmation as
+`unsaved-document-cs.png` in the test working directory.
 
-Červené zavírací tlačítko dokumentového tabu používá sdílený
-`TabCloseButton`: bílý křížek kreslí dvěma úsečkami kolem geometrického středu,
-nezávisle na metrice fontu. Zachovává odsazení 10 px od pravého okraje slotu.
-Snímek skutečného tlačítka pořizuje existující test odsazení do
-`build/tab-close-centered.png`. Ověřeno sestavením Windows Release,
-testy překladů, odsazení a zobrazení/skrytí i vizuální kontrolou snímků.
+The red document-tab close button uses shared `TabCloseButton`, drawing a centered
+white cross from two segments independently of font metrics and retaining 10 px
+right-slot inset. The existing offset test captures `build/tab-close-centered.png`.
+Verification includes Windows Release build, translation/offset/Show-Erase tests,
+and visual screenshot inspection.

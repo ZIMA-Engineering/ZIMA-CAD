@@ -1,127 +1,111 @@
-# Vlastnosti komponent v GUI a CLI
+# Component properties in GUI and CLI
 
-`component.set` upravuje bezprostředně vlastněnou komponentu aktivní Assembly.
-Společná transakce `workspace/component_properties` obsluhuje také OK v GUI
-Vlastnostech a kontextové akce viditelnosti, potlačení a uzemnění. Katalog
-obsahuje **206 příkazů**. Sestavový solver ani obecné umístění kontejnerů
-se touto etapou nemění.
+`component.set` edits an immediate component of the active Assembly. Shared
+`workspace/component_properties` also handles GUI Properties OK and visibility,
+suppression, and grounding context actions. The catalog has **206 commands** at this
+stage. Assembly solving and general container placement are unchanged.
 
 ```json
-{"command":"component.set","arguments":{"instance_path":"PRESNA-CESTA","name":"Šroub M10","visible":true}}
-{"command":"component.set","arguments":{"instance_path":"PRESNA-CESTA","grounded":false,"placement":{"x_mm":20,"rotation_z_deg":30}}}
+{"command":"component.set","arguments":{"instance_path":"EXACT-PATH","name":"M10 bolt","visible":true}}
+{"command":"component.set","arguments":{"instance_path":"EXACT-PATH","grounded":false,"placement":{"x_mm":20,"rotation_z_deg":30}}}
 ```
 
-Cestu vrací `component.list/get`. Musí obsahovat jediný bezprostřední výskyt
-v aktivní sestavě; rodič nesmí tímto příkazem upravovat vnitřní komponentu
-podsestavy. Volitelné `document` pouze ověřuje aktivní dokument. Během
-otevřené editace se mutace odmítá. Vnořená aktivace zůstává samostatnou etapou.
+Use paths from `component.list/get`, containing one immediate occurrence in the active
+Assembly. Parents cannot edit internal subassembly components through this command.
+Optional `document` validates the active document. Open editing rejects mutations.
+Nested activation is a separate subsequent stage.
 
-Volitelné vlastnosti jsou `name`, `visible`, `suppressed`, `grounded`,
-`placement` a `placement_references`; alespoň jedna musí být zadána.
-Příznaky jsou skutečné JSON booleany. Název používá validaci nativních textů.
-Výsledek odpovídá `component.get` a přidává `document`, `revision`, `changed`.
+Optional properties are `name`, `visible`, `suppressed`, `grounded`, `placement`,
+and `placement_references`; at least one is required. Flags are actual JSON booleans.
+Names use native-text validation. Results match `component.get` plus `document`,
+`revision`, and `changed`.
 
-`placement` přijímá JSON čísla `x_mm`, `y_mm`, `z_mm` (±1 000 000 mm)
-a `rotation_x_deg`, `rotation_y_deg`, `rotation_z_deg` (±180°).
-Ruční změnu povoluje stejná maska volných souřadnic jako dialog a stejné
-uložené číselné zámky. Uzemněný díl se nejdříve uvolní; lze to zadat ve
-stejném příkazu. Zámky lze měnit již existujícím `value_lock.set`.
+`placement` accepts JSON numbers `x_mm`, `y_mm`, `z_mm` (±1,000,000 mm), and
+`rotation_x_deg`, `rotation_y_deg`, `rotation_z_deg` (±180°). Manual edits use the
+same free-coordinate mask and persisted numerical locks as the dialog. Unground a
+component first, optionally in the same command. Existing `value_lock.set` edits locks.
 
-## Vložené vazby
+## Mate rows
 
-`placement_references` je úplný seznam nejvýše tří řádků; prázdné pole
-odstraní vložené vazby. Stejný seznam vrací `component.get`.
+`placement_references` is the complete list of at most three rows; an empty array
+removes mate rows. `component.get` returns the same list.
 
 ```json
-{"command":"component.set","arguments":{"instance_path":"CESTA-POHYBLIVEHO-DILU","placement_references":[{
+{"command":"component.set","arguments":{"instance_path":"MOVING-PART-PATH","placement_references":[{
   "kind":"plane_coincident",
-  "component":{"owner":"ID-PUVODNIHO-OBJEKTU","key":"KLIC-PLOCHY","instance_path":"CESTA-POHYBLIVEHO-DILU"},
-  "target":{"owner":"ID-JINEHO-OBJEKTU","key":"KLIC-PLOCHY","instance_path":"CESTA-CILOVEHO-DILU"},
+  "component":{"owner":"ORIGINAL-OBJECT-ID","key":"FACE-KEY","instance_path":"MOVING-PART-PATH"},
+  "target":{"owner":"OTHER-OBJECT-ID","key":"FACE-KEY","instance_path":"TARGET-PART-PATH"},
   "offset":7,"flip":false,"locked":true,"lower_limit":2,"upper_limit":9
 }]}}
 ```
 
-Povinné `kind`, `component`, `target` určují typ a přesné původní reference.
-Druhy jsou `plane_coincident`, `plane_angle`, `axis_coincident`,
-`point_coincident`. Reference obsahuje `owner`, `key` a výslovně uvedené
-`instance_path`. Prázdná cesta označuje vlastní datum Assembly.
-Volitelné referenční `kind` musí odpovídat vazbě (`face`, `axis`, `point`).
+Required `kind`, `component`, and `target` define type and exact original references.
+Kinds are `plane_coincident`, `plane_angle`, `axis_coincident`, and `point_coincident`.
+References contain `owner`, `key`, and explicit `instance_path`. Empty paths identify
+Assembly-owned datums. Optional reference `kind` must match the mate (`face`, `axis`, `point`).
 
-Pohyblivá strana patří umísťovanému výskytu, cílová je na něm nezávislá.
-Reference může ukazovat dovnitř podsestavy, ale vždy umísťuje její celý
-bezprostřední výskyt. Nepřenáší vlastnictví vnitřního dílu do rodiče.
-Změněné reference se ověřují proti existujícím původním datům; nepoužívají
-pořadí OCCT ploch ani výsledné těleso jako vlastníka. Nová cyklická vazba
-se odmítne společně s celým příkazem.
+The moving side belongs to the positioned occurrence; its target is independent.
+References may point inside a subassembly but position its entire immediate occurrence,
+without transferring internal-Part ownership to the parent. Changed references are
+validated against existing original data, never OCCT face order or result-body owners.
+New cyclic mates reject the whole command.
 
-`offset` je vzdálenost v mm u plošné vazby (±1 000 000 000), úhel ve stupních
-u `plane_angle` (±180). Osová a bodová shodnost přijímají nulový offset. Uložené meze
-u nich musí zahrnovat nulu; stejně jako v GUI samy neomezují zbývající
-volný pohyb podél osy nebo volné rotace. `flip` a `locked` jsou booleany. `lower_limit`/`upper_limit` mohou být
-čísla nebo `null`, které mez zruší; hodnota musí ležet uvnitř mezí.
-Při zachování stejného typu a dvojice referencí se nezadané hodnoty převezmou
-z existujícího řádku, včetně jeho zámku. U nové dvojice jsou výchozí hodnoty
-nula, bez Flip a bez mezí. Plošné/úhlové vazby začínají bez zámku,
-osová/bodová shodnost má stejně jako po výběru v GUI nulovou hodnotu zamčenou.
-Přesun stejného řádku v seznamu nesmí
-obejít zamčený offset. Výslovné `locked:false` dovolí odemčení a změnu
-hodnoty společně, jako OK ve Vlastnostech.
+`offset` is plane-mate distance in mm (±1,000,000,000) or `plane_angle` degrees (±180).
+Axis/point coincidence accepts zero offset. Their persisted limits must include zero;
+as in GUI, they do not constrain remaining axial translation or free rotation.
+`flip` and `locked` are booleans. `lower_limit`/`upper_limit` are numbers or `null`
+to remove a limit; values must lie within limits. For unchanged mate kind/reference
+pair, omitted values inherit the existing row, including its lock. New pairs default
+to zero, no Flip, and no limits. Plane/angle mates start unlocked; axis/point coincidence
+starts with zero locked, matching GUI selection. Reordering a row cannot bypass its
+locked offset. Explicit `locked:false` permits unlocking and editing together as GUI OK does.
 
-## Transakce a výpočty
+## Transactions and calculations
 
-Společná příprava zachytí revizi a pouze vlastnosti vlastněné výskytem.
-Potvrzení nekopíruje zpět zastaralý balík zdrojové geometrie, cestu, identity
-ani zdrojový vzhled z otevřeného dialogu. Změna názvu nebo viditelnosti
-neřeší vazby a zachová vypočítaná tělesa. Změna polohy, referencí, uzemnění
-nebo potlačení převezme současné zdrojové pakety stejným sdílením jako GUI
-a použije dosavadní `calculate_placement_references` na kandidátovi.
-Nepočítá OCCT, odvozené kopie ani sestavové řezy; jejich aktualizace patří
-výslovné regeneraci. Neuložený zdroj zůstává autoritativní.
+Shared preparation captures revision and only occurrence-owned properties. Commit
+never copies stale source geometry, path, identities, or source appearance from an
+open dialog. Name/visibility changes do not solve mates and preserve calculated bodies.
+Placement, reference, grounding, or suppression changes adopt current shared source
+packets as GUI does and run existing `calculate_placement_references` on a candidate.
+They calculate no OCCT, derived copies, or Assembly sections; those require explicit
+regeneration. Unsaved sources remain authoritative.
 
-OK/CLI uloží jediný krok Undo, shodné hodnoty nevytvoří změnu. Cancel
-ponechá stav beze změny. Stará příprava po změně revize se odmítne.
-Zrcadlo/Pole dovoluje vlastní název, viditelnost a potlačení, jeho umístění
-se mění příkazy `mirror.set`/`pattern.set`, nikoli běžnou polohou komponenty.
+OK/CLI creates one Undo step; identical values are no-ops. Cancel changes nothing.
+Preparation becomes invalid after revision changes. Mirror/Pattern allows custom
+name, visibility, and suppression, but placement uses `mirror.set`/`pattern.set`,
+not ordinary component placement.
 
-Používají se současná pole `.asmz`; formát ani start šablony se nemění.
+Existing `.asmz` fields are used; formats and start templates are unchanged.
 
-## Ověření etapy
+## Stage verification
 
-Dosavadní modelový a skutečný GUI test prošly po sdílení potvrzení **2/2**
-(8,29 s), `build/component-properties-shared-build.log` a
-`build/component-properties-shared-tests.log`. GUI scénář je nyní
-samostatně registrovaný v CTest jako `zima_cpp_component_properties_ui_contract`.
+Existing model and actual GUI tests passed **2/2** after sharing commit (8.29 s):
+`build/component-properties-shared-build.log`, `build/component-properties-shared-tests.log`.
+The GUI scenario is separately registered as `zima_cpp_component_properties_ui_contract`.
 
-Nový modelový test kontroluje nezávisle očekávané souřadnice, všechny čtyři
-druhy vazeb, úhel/Flip, původní plochy, volné stupně pohybu, číselné zámky,
-meze, přesnou identitu opakovaných výskytů, cykly, neplatné vstupy, jediný
-Undo/Redo, no-op, nativní data a nezměněný zdrojový Part. Odhalil zvýšení
-`AssemblySession::data_generation` před úspěšným potvrzením při selhání
-fyzikální relace; revize i obsah přitom zůstaly stejné.
-Reprodukce: `build/component-properties-rejection-tests.log`, **0/1**.
+The new model test checks independently expected coordinates, all four mate kinds,
+angle/Flip, original faces, free movement, numerical locks, limits, repeated-occurrence
+identity, cycles, invalid inputs, one Undo/Redo, no-ops, native data, and unchanged
+source Part. It exposed premature `AssemblySession::data_generation` increments
+when physical-relation validation failed, despite unchanged revision/content.
+Reproduction: `build/component-properties-rejection-tests.log`, **0/1**.
 
-Čítač se nyní mění až po ověření kandidáta. Po opravě prošel modelový test
-**1/1** (0,18 s), `build/component-properties-atomic-build.log` a
-`build/component-properties-atomic-tests.log`. GUI navíc ověřuje, že se
-příkazové jméno a plošná vazba zobrazí ve Vlastnostech, následné OK je čitelné
-z konzole a obě změny lze samostatně vrátit. Procesový test načítá skutečné
-`.asmz`, mění komponentu, provádí Undo/Redo a ověřuje uložený posun 7 mm,
-meze, zámek a zachovaný objem 6000 mm³.
+The counter now changes only after candidate validation. Model tests then passed
+**1/1** (0.18 s): `build/component-properties-atomic-build.log`,
+`build/component-properties-atomic-tests.log`. GUI also checks command-supplied name
+and plane mate in Properties, later OK readable through console, and independent
+Undo of both changes. Actual CLI loads `.asmz`, edits components, performs Undo/Redo,
+and checks saved 7 mm displacement, limits, lock, and preserved 6000 mm³ volume.
 
+Both programs built and full **107/107** tests passed (496.95 s):
+`build/component-properties-all-build.log`, `build/component-properties-full-tests.log`.
+Final review compared axis/point limits with GUI: persisted metadata including zero,
+not constraints on other free motion. Model and actual GUI tests now use these
+explicitly. New coincidences adopt GUI's zero lock. Another model scenario changes
+an unsaved source after Properties preparation, checking that a later name commit
+preserves new shared geometry of 12000 mm³ without regenerating an old derived copy.
 
-Úplné sestavení obou programů a sada **107/107** testů prošly (496,95 s),
-`build/component-properties-all-build.log` a
-`build/component-properties-full-tests.log`. Závěrečná revize porovnala
-osové/bodové meze s GUI: jsou uložitelná metadata zahrnující nulu, nikoli
-omezení dalších volných stupňů pohybu. Model i skutečný GUI scénář je nyní
-výslovně používají. Nové shodnosti také přebírají stejný výchozí nulový
-zámek jako GUI. Další modelový scénář mění neuložený zdroj po přípravě
-Vlastností a ověřuje, že pozdější potvrzení názvu zachová novou sdílenou
-geometrii 12000 mm³ a neregeneruje starou odvozenou kopii.
-
-
-Po posledním doplnění jsou oba programy znovu sestavené a všech **16/16**
-dotčených modelových, procesových, GUI a překladových testů prošlo (93,45 s),
-`build/component-properties-final-build.log` a
-`build/component-properties-final-tests.log`. Úplný běh 107 testů výše
-předcházel úpravě výchozího zámku/mezi a testu zdroje změněného během editace.
+After final additions, both programs rebuilt and all **16/16** affected model,
+process, GUI, and translation tests passed (93.45 s):
+`build/component-properties-final-build.log`, `build/component-properties-final-tests.log`.
+The full 107-test run preceded default-lock/limit changes and the source-change-during-edit test.

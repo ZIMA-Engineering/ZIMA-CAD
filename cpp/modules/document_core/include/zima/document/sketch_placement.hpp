@@ -38,7 +38,8 @@ inline void normalize_sketch_front_references(
             reference.orientation_role = "none";
         }
     }
-    // A Sketch's first planar row owns its complete work-plane frame. Any
+    // A Sketch's first planar row owns its container frame. Its selected
+    // work plane may be automatic or manually overridden within that frame. Any
     // automatic orientation-only twin belonging to rows 1/2 (FRONT, TOP or
     // another role) would rotate that local Origin even though those rows
     // are position constraints only. Retain orientation copies solely for

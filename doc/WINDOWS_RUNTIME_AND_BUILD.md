@@ -18,8 +18,17 @@ build and validation pipeline that verifies at least:
 - extraction and GUI startup from a normal Windows user directory;
 - a deterministic Part calculation smoke test.
 
-The frozen Python/OpenBLAS packaging procedure and its scripts are retained
-only for historical reference under `archive/python/`.
+The Python application and its Python-only packaging scripts were removed on
+2026-09-15. Their source is available in Git history. Conda and Python are not
+C++ runtime requirements. The current Windows vcpkg manifest selects Qt,
+OpenCASCADE, FreeType, HarfBuzz and nlohmann_json. Package the actual native
+runtime dependencies and dynamically loaded Qt plugins; a header-only library
+does not require a runtime DLL. The CLI also needs its offscreen Qt platform.
+
+The old runtime was removed at the user's request after a fresh Windows GUI/CLI
+build and console contract passed with it detached. Linux development presets
+still need a new native dependency setup on Linux; they cannot use the removed
+Conda path. Version layout and release gates are in [DISTRIBUTION_CLEANUP_PLAN.md](DISTRIBUTION_CLEANUP_PLAN.md).
 
 ## Console-free desktop start
 

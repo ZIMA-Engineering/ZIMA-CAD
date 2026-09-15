@@ -128,7 +128,7 @@ transient compound calculation, and DRWZ measuring-data sharing after reload.
 The supplied IGES was also examined through a real OCCT import. Its groups
 contain both the final B-Rep and support surfaces, so blindly transferring all
 group members adds unwanted display geometry. See the measured
-[IGES comparison](IGES_DXF_IMPORT.md#porovnání-dodaného-step-a-iges-2026-09-11).
+[IGES comparison](IGES_DXF_IMPORT.md#comparison-of-supplied-step-and-iges-2026-09-11).
 The audit also exposed quadratic semantic-key lookup in archive binding;
 `persist_imported_topology` now builds a lookup index once per topology kind.
 This leaves the persisted identities and archive contract unchanged.

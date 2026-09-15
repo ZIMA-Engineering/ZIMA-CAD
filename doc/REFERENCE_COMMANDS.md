@@ -1,80 +1,79 @@
-# Dotazy na původní reference
+# Queries for original references
 
-`reference.list` a `reference.get` čtou uložené původní referenční pakety Partu
-nebo sestavy. Nevolají OCCT, neaktivují dokument, neupravují výběr a nenačítají
-novější obsah závislostí. Výsledná topologie tělesa se do původních referencí
-nedoplňuje. Dotaz lze provést také při otevřené editaci.
+`reference.list` and `reference.get` read persisted original-reference packets from
+Part or Assembly. They invoke no OCCT, activate no document, change no selection,
+and load no newer dependency contents. Result-body topology is not added to original
+references. Queries are also allowed during editing.
 
-## Rozhraní
+## Interface
 
-| Příkaz | Argumenty |
+| Command | Arguments |
 | --- | --- |
 | `reference.list` | `[owner kind instance_path document offset limit]` |
 | `reference.get` | `kind owner key [instance_path document limit]` |
 
-`kind` je `face`, `edge`, `point` nebo `axis`. Identitu tvoří druh, stabilní
-`owner`, sémantický `key` a přesná neprůhledná `instance_path`. Cestu vrácenou
-seznamem předejte beze změny; není to název komponenty ani cesta k souboru.
-Dva výskyty stejného dílu mají různé cesty. Vynechaná cesta znamená prázdnou
-cestu dokumentu, nikoli automatický výběr některého výskytu.
+`kind` is `face`, `edge`, `point`, or `axis`. Identity consists of kind, stable
+`owner`, semantic `key`, and exact opaque `instance_path`. Pass returned paths
+unchanged; they are neither component names nor file paths. Repeated Part occurrences
+have different paths. Omitting the path means the empty document path, not automatic
+occurrence selection.
 
-Pro volitelné filtry je vhodný JSON:
+JSON is convenient for optional filters:
 
 ```json
-{"command":"reference.list","arguments":{"kind":"face","owner":"<ID prvku>","limit":50}}
-{"command":"reference.get","arguments":{"kind":"face","owner":"<ID prvku>","key":"<klíč ze seznamu>","instance_path":"<cesta ze seznamu>"}}
+{"command":"reference.list","arguments":{"kind":"face","owner":"<feature-ID>","limit":50}}
+{"command":"reference.get","arguments":{"kind":"face","owner":"<feature-ID>","key":"<key-from-list>","instance_path":"<path-from-list>"}}
 ```
 
-Seznam vrací `items`, `total`, `offset`, `more`, `next_offset`, ID dokumentu a
-jeho revizi. Výchozí limit je 500, maximum 5000; index je nezáporný a nejvýše
-100 000 000. Stránkování je stabilní pro tentýž stav dokumentu. Shodná reference
-opakovaná u několika trojúhelníků se v seznamu objeví pouze jednou.
+Lists return `items`, `total`, `offset`, `more`, `next_offset`, document ID, and
+revision. Default limit is 500, maximum 5000; index is 0–100,000,000. Pagination is
+stable for the same document state. A reference repeated on several triangles
+appears only once.
 
-## Geometrie a přesnost
+## Geometry and accuracy
 
-Detail vrací data v souřadnicích dotazovaného dokumentu, délky v mm a plochu
-v mm². Obsahuje jen údaje skutečně přítomné v uloženém paketu:
+Details use the queried document's coordinates, lengths in mm, and areas in mm².
+Only data actually present in the persisted packet is returned:
 
-- Plocha: trojúhelníkové vzorky, celkový počet trojúhelníků, naměřená plocha
-  a přesná analytická rovina, válec nebo kužel, pokud jsou uložené. Úhel kužele
-  `semi_angle_radians` je v radiánech.
-- Hrana: fragmenty s uloženými body, naměřenou délkou, příznaky švu a nekonečné
-  přímky. Přesný uložený spline obsahuje stupeň, póly, váhy a uzly.
-- Bod: poloha. Osa: bod a směr.
+- Face: triangle samples, total triangle count, measured area, and exact analytic
+  plane/cylinder/cone when stored. Cone `semi_angle_radians` is in radians.
+- Edge: fragments with stored points, measured length, seam and infinite-line flags.
+  Exact stored splines include degree, poles, weights, and knots.
+- Point: position. Axis: point and direction.
 
-`null` u analytického povrchu, délky nebo spline znamená, že údaj není v paketu.
-Vzorky hrany se nevydávají za přesnou křivku a z trojúhelníků se zpětně neodhaduje
-nová analytická plocha. Pro spline se neprovádí fit ani nová aproximace.
+`null` analytic surface, length, or spline means the packet lacks that data. Edge
+samples are not presented as exact curves, triangles are not reverse-fitted into
+analytic surfaces, and splines undergo no fitting or new approximation.
 
-Detail má výchozí `limit:256`, povolené hodnoty 1–10000. U ploch limituje počet
-trojúhelníků, u hran celkový počet vzorků a fragmentů. Úplná spline data se vrátí
-jen pokud jejich součet pólů, vah a uzlů vejde do samostatného stejného limitu.
-Omezení je výslovné v `samples_truncated`, `segments_truncated` a případném
-`spline_omitted_by_limit`. Omezení odpovědi nemění model ani jeho přesnost.
+Detail `limit` defaults to 256 and accepts 1–10000. It limits face triangles and
+total edge samples/fragments. Full spline data is returned only if the combined
+pole, weight, and knot count fits a separate limit of the same size. Truncation is
+explicit in `samples_truncated`, `segments_truncated`, and optional
+`spline_omitted_by_limit`. Response limits change neither model nor precision.
 
-Seznam prochází původní geometrii přímo ze sdílených snapshotů; nevytváří kopii
-celé zobrazované sestavy. Pomocné počátky a konstrukce vznikají z uloženého
-modelu stejnými datovými funkcemi jako pro GUI. Při dotazu na jedinou referenci
-se transformují pouze její vracená data. Analytické povrchy mají ve vnořeném
-snapshotu zdrojový rámec, zatímco vzorky a spline póly už zahrnují vnitřní
-umístění; dotaz pro obě reprezentace používá odpovídající uložený řetězec výskytů.
+Listing traverses original geometry directly from shared snapshots without copying
+the displayed Assembly. Helper Origins and constructions are derived from persisted
+model data by the same functions as GUI. A single-reference query transforms only
+returned data. Analytic surfaces in nested snapshots use the source frame, while
+samples and spline poles already include internal placement; each representation
+uses its corresponding persisted occurrence chain.
 
-Dotaz není příslib, že reference může být použita každým příkazem: vlastnictví,
-pořadí historie, aktivní těleso a závislosti ověřuje přijímající operace. Lze číst
-i zachovanou geometrii skrytého či potlačeného bezprostředního komponentu;
-`source_occurrence_visible` a `source_occurrence_suppressed` popisují tento
-bezprostřední komponent, nikoli stav každého vnitřního prvku.
+A query does not guarantee a reference is valid for every command. The receiving
+operation checks ownership, history order, active body, and dependencies. Preserved
+geometry of hidden/suppressed immediate components remains readable;
+`source_occurrence_visible` and `source_occurrence_suppressed` describe that immediate
+component, not every internal feature.
 
-## Ověření
+## Verification
 
-Modelové testy pokrývají původní plochy kvádru, stránkování, omezení odpovědí,
-původní body, přesné spline, vyloučení výsledné topologie, opakované a vnořené
-výskyty včetně rotace, neměnnost revizí a snapshotů a čtení sestavy po změně
-otevřeného zdrojového Partu. GUI ověřuje zachování potvrzeného výběru; CLI
-proces ověřuje reference ze skutečně uloženého a znovu otevřeného `.prtz`.
+Model tests cover original box faces, pagination, response limits, original points,
+exact splines, exclusion of result topology, repeated/nested occurrences with rotation,
+unchanged revisions/snapshots, and Assembly reads after an open source Part changes.
+GUI checks confirmed-selection preservation; actual CLI checks references from saved
+and reopened `.prtz` files.
 
-Cílená Windows Release regrese: **4/4 prošlo**, 10,14 s,
-`build/reference-integration-tests.log`. GUI a CLI jsou sestavené ze stejného
-zdroje (`build/reference-integration-build.log`). Předchozí celá regrese historie
-prošla **61/61**; tato etapa přidala samostatný test čtení referencí a ověřila
-všechny dotčené příkazové adaptéry. Nespouští ani nemění žádný geometrický výpočet.
+Targeted Windows Release regression passed **4/4 in 10.14 s**,
+`build/reference-integration-tests.log`. GUI and CLI built from the same source
+(`build/reference-integration-build.log`). The preceding full history regression
+passed **61/61**; this stage adds a reference-reading test and verifies all affected
+command adapters. It performs and changes no geometric calculation.

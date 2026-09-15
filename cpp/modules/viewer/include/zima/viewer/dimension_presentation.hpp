@@ -38,6 +38,17 @@ DimensionPresentation dimension_presentation(const kernel::ViewerDimension &d, P
     DimensionPresentation out;
     auto a = project(d.line_first), b = project(d.line_second);
     const auto w1 = project(d.witness_first), w2 = project(d.witness_second);
+    if (d.rotation_handle) {
+        const auto radial = b - w1;
+        const double size = std::hypot(radial.x(), radial.y());
+        if (!std::isfinite(size) || size < 1e-6) return out;
+        const auto tip = w1 + radial * (70.0 / size);
+        out.curves.push_back({w1, tip});
+        out.handles = {tip, tip, tip};
+        out.text_baseline = tip + QPointF(10, -10);
+        out.valid = true;
+        return out;
+    }
     if(angular_leaders&&d.kind==kernel::ViewerDimensionKind::Angular) {
         const auto center=project(d.label_position.value_or(d.line_first));
         for(const auto p:{w1,w2,center})if(!std::isfinite(p.x())||!std::isfinite(p.y()))return out;

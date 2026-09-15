@@ -1,94 +1,91 @@
-# Přesné projekce spline hran do skici
+# Exact projection of spline edges into a Sketch
 
-## Datový tok
+## Data flow
 
-Vstupem je zdrojová spline hrana a rovina skici. Výstupem je vlastní
-racionální B-spline skici, která zachovává tvar ortogonální projekce.
-Při explicitním výpočtu tělesa OCCT omezí zdrojovou spline na skutečný
-rozsah hrany. Uložíme stupeň, řídicí body, uzly včetně násobností a váhy.
-Ve viewer paketu původních referencí jsou tato data spolu se stabilním
-vlastníkem hrany. Pozice ve výčtu OCCT se nestává identitou.
+Inputs are a source spline edge and a Sketch plane. The output is an owned
+rational B-spline preserving the orthogonal projection shape. During explicit
+body calculation, OCCT restricts the source spline to the actual edge range.
+ZIMA stores degree, control points, knots with multiplicities, and weights.
+The original-reference viewer packet contains these data and the stable edge
+owner. OCCT enumeration position never becomes identity.
 
-Reference → obrys promítne řídicí body do roviny skici; uzly a váhy
-zachová. Skicář vyhodnocuje racionální de Boorův algoritmus z našich dat.
-Výběr, projekce, otevření vlastností a obnova z uloženého souboru nevolají
-OCCT. Přesnost promítnuté spline není dána hustotou zobrazovací sítě.
-Data se transformují společně s geometrií Partu, výskytu sestavy,
-zrcadlením a polem. Výpočet navazujícího tělesa používá stejné uzly a váhy;
-jsou zahrnuty do otisku vstupů pro cache.
+Reference → Outline projects control points into the Sketch plane while preserving
+knots and weights. Sketcher evaluates rational de Boor interpolation from ZIMA data.
+Picking, projection, opening Properties, and restoring saved files do not call
+OCCT. Projected-spline accuracy does not depend on display mesh density. Data is
+transformed with Part geometry, Assembly occurrences, mirrors, and patterns.
+Subsequent body calculation uses the same knots and weights, included in the
+cache input fingerprint.
 
-## Vlastnictví a aktualizace
+## Ownership and updates
 
-Vlastní křivka má samostatné ID a vlastní řídicí body. Externí reference
-je samostatná vazba. Delete na externí referenci smaže vazbu a její
-seskupení; vlastní křivka, body a jejich identity zůstanou zachovány.
-Existující rozměry a vazby k vlastní geometrii tím nezaniknou.
+An owned curve has an independent ID and control points. An external reference is
+a separate dependency. Deleting the external reference removes that dependency
+and its grouping; the owned curve, points, and identities remain. Existing
+dimensions and constraints on owned geometry survive.
 
-Při explicitní obnově zdroje se aktualizují řídicí body, uzly a váhy.
-Při stejném počtu řídicích bodů zůstávají jejich identity zachované.
-Pokud zdroj zmizí, je nejednoznačný nebo změní počet řídicích bodů,
-zůstane poslední platný tvar a reference se označí jako porušená.
-Nedochází k automatickému přiřazení jiné podobné hrany.
+Explicit source refresh updates control points, knots, and weights. Point identities
+remain when the control-point count is unchanged. If the source disappears, becomes
+ambiguous, or changes its control-point count, the last valid shape remains and
+the reference becomes broken. No similar edge is substituted automatically.
 
-Vlastnosti přesné spline zachovávají stupeň a neperiodickou parametrizaci;
-řídicí body jsou během externího navázání pouze pro čtení. Pouhé OK
-nezkracuje přesnost původních souřadnic podle počtu zobrazovaných desetinných
-míst. Po odpojení lze polohy řídicích bodů editovat.
+Exact-spline Properties preserve degree and nonperiodic parameterization. Control
+points are read-only while externally linked. Simply pressing OK does not round
+original coordinates to the displayed decimal precision. After detachment, control
+point positions can be edited.
 
-## Rozsah této změny
+## Scope of this change
 
-Přesný převod se týká B-spline hran, včetně racionálních a oříznutých
-zdrojových splinů. Původní rozpoznávání ostatních druhů hran se tímto
-krokem nemění. Přesné spline zatím neprocházejí starým ořezem, který
-rekonstruuje tvar ze vzorků. Asociativní ořez je další samostatný krok,
-po něm následuje offset našich křivek. Spojnice budou ruční.
+Exact conversion covers B-spline edges, including rational and trimmed sources.
+Recognition of other edge types is unchanged. At this stage, exact splines do not
+use the old trim operation that reconstructs shapes from samples. Associative
+trimming is the next separate step, followed by offsets of owned curves.
+Connectors will be manual.
 
-Ukládání zůstává v `.prtz`, `.asmz`, `.drwz`; nevzniká povinný doprovodný
-soubor. Interní verze jsou Part 19 / JSON 43, Assembly 16 / JSON 25,
-Drawing 15 / JSON 7 a Sketch 33. Startovací šablony a testovací dokumenty
-se aktualizují zároveň. Staré formáty se nepřevádějí při běžném načítání.
+Persistence remains inside `.prtz`, `.asmz`, and `.drwz`, with no required companion
+file. Internal versions at this stage are Part 19 / JSON 43, Assembly 16 / JSON 25,
+Drawing 15 / JSON 7, and Sketch 33. Start templates and test documents are updated
+together. Normal loading does not convert old formats.
 
-## Ověření
+## Verification
 
-Regresní test `zima_cpp_exact_spline_contract_tests` ověřuje analytickou
-racionální čtvrtkružnici, nerovnoměrné uzly, obrácení směru, zrcadlení,
-uložení, aktualizaci zdroje, porušenou vazbu, odpojení a objem extruze.
-Zahrnuje také plnou periodickou hranu, omezený parametrický rozsah,
-obrácenou orientaci a prostorový posun. Dialogový test ověřuje zachování
-přesnosti souřadnic při pouhém OK.
+`zima_cpp_exact_spline_contract_tests` covers an analytic rational quarter-circle,
+nonuniform knots, direction reversal, mirroring, persistence, source updates,
+broken dependencies, detachment, and extrusion volume. It also includes a full
+periodic edge, restricted parameter range, reversed orientation, and spatial
+translation. A dialog test verifies coordinate precision after simply pressing OK.
 
-Na testu `63113_0H030_mg___773WF0593_01.stp` bylo prověřeno 2 077 spline
-hran v rovinách XY, XZ a YZ. Z 6 231 kombinací bylo 30 projekcí
-zdegenerovaných do bodu a 6 201 křivek prošlo vytvořením a uložením/načtením
-skici. Porovnání 1 025 parametrických pozic každé křivky proti původní
-OCCT hraně naměřilo maximum 9,87818e-10 mm. Jde o bodové měření, nikoli
-formální důkaz spojité horní meze chyby. Samotný audit trval 3,40 s;
-nejde o měření celého importu do Partu.
+The `63113_0H030_mg___773WF0593_01.stp` audit checked 2,077 spline edges in XY,
+XZ, and YZ. Of 6,231 combinations, 30 projections degenerated into a point and
+6,201 curves passed Sketch creation and save/load. Comparing 1,025 parameter
+positions per curve against the original OCCT edge measured a maximum of
+9.87818e-10 mm. This is a sampled measurement, not a formal continuous error bound.
+The audit itself took 3.40 s; this is not the duration of a full Part import.
 
-Předchozí převod používal až 16 bodů zobrazovacího lomeného obrysu jako
-řídicí body nové spliny. Na stejném souboru dříve naměřil odchylky až
-0,281186 mm při zobrazovací odchylce 0,1 mm a 0,0650588 mm při 0,01 mm.
+The previous conversion used up to 16 display-polyline points as new spline control
+points. On the same file, it previously measured deviations up to 0.281186 mm with
+0.1 mm display deviation and 0.0650588 mm with 0.01 mm display deviation.
 
-Finální Windows Release sestavení prošlo všemi 46 CTest testy (385,29 s).
+The final Windows Release build passed all 46 CTest tests (385.29 s).
 
-Na tento základ navazuje [Offset a zachování podkladu při ořezu](SKETCH_OFFSET.md).
+This foundation is extended by [Offset and support preservation during trimming](SKETCH_OFFSET.md).
 
-## Externí reference v rozepsaném profilu (2026-09-11)
+## External references in a pending profile edit (2026-09-11)
 
-Při editaci vlastního profilu Vytažení se změny provádějí v pracovní skici
-rodičovského dialogu. Přidání externí hrany i příkaz Reference → obrys musí
-použít stejnou aktivní skicu a stejnou cestu změn jako běžné nástroje skicáře.
-Původní zápis přímo do dokumentu nechával View zobrazovat nezměněnou pracovní
-kopii a návrat z profilu mohl právě přidanou referenci přepsat.
+When editing an Extrusion-owned profile, changes belong to the parent dialog's
+working Sketch. Adding an external edge and Reference → Outline must use the
+same active Sketch and mutation path as ordinary Sketcher tools. Previously,
+writing directly to the document left the View showing an unchanged working copy,
+and returning from the profile could overwrite the new reference.
 
-Oprava zachovává geometrii v pracovní kopii do OK rodiče. Cancel původní skicu
-nemění. Regresní test `zima_cpp_owned_profile_reference_ui_contract` vybírá
-hranu prvního tělesa skutečným kliknutím ve View při editaci Vytažení druhého
-tělesa a ověřuje referenci, projekci, Cancel i uložení přes OK. Výběr ani
-projekce nevyvolávají OCCT a nemění společné umísťování kontejnerů.
+The fix retains geometry in the working copy until the parent's OK. Cancel preserves
+the original Sketch. `zima_cpp_owned_profile_reference_ui_contract` clicks an edge
+of the first body in the actual View while editing an Extrusion of the second body,
+then verifies the reference, projection, Cancel, and OK persistence. Picking and
+projection invoke no OCCT and do not change shared container placement.
 
-Ověření opravy: Windows Release, nový integrační test prošel za 8,08 s;
-stejná kontrola referencí, obrysu, Cancel a OK prošla také na pracovních
-kopiích `Projects/part.prtz` s importem q63113-0H030-A. Pro tento velký
-model byl test spuštěn samostatně, protože překročil běžný limit 120 s.
-Navazující kontroly úchopů skici a vlastností offsetu rovněž prošly.
+Repair verification: Windows Release, the new integration test passed in 8.08 s.
+The same reference, outline, Cancel, and OK checks also passed on working copies of
+`Projects/part.prtz` with import q63113-0H030-A. That large-model test ran separately
+because it exceeded the usual 120 s limit. Subsequent Sketch handle and offset
+Properties checks also passed.

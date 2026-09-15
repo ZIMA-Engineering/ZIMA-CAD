@@ -1,88 +1,82 @@
-# Zámky číselných hodnot
+# Numerical value locks
 
-Za délkou nebo úhlem ve vlastnostech je ikona zámku. Zamčené pole nelze
-přepsat ani měnit kolečkem; přímá editace téhož rozměru ve View zámek také
-respektuje. Rozměr lze ve View zamknout či odemknout kontextovým menu.
-Zamčená hodnota je černá; hover a výběr si ponechávají oranžovou a azurovou.
-Zámeček je samostatné tlačítko za rámečkem číselného pole a za jeho šipkami,
-nikoli akce vložená do textového editoru. Sdílený styl rezervuje koncovou
-oblast pro tlačítko; rámeček, editor i šipky končí před ním. Pole zůstává
-běžným QDoubleSpinBox, včetně buněk tabulky referencí. Měření šířky započítává
-tuto oblast jednou, takže přepnutí zámku neroztahuje dialog a nepřekrývá číslo.
-Jednotka a přesnost dokumentu jsou zahrnuté ve výpočtu šířky editoru.
+A lock icon follows each length/angle field in Properties. Locked fields cannot be
+overwritten or changed by wheel; direct View editing respects the same lock.
+View context menus lock/unlock dimensions. Locked values are black; hover and selection
+retain orange and azure. The lock is a separate button after the numerical field
+frame and arrows, not an action inside the text editor. Shared styling reserves a
+trailing button area; frame, editor, and arrows end before it. Fields remain ordinary
+QDoubleSpinBox controls, including reference-table cells. Width calculation counts
+the reserved area once, preventing dialog growth or number overlap on toggling.
+Document units/precision are included in editor-width calculation.
 
-## Zadání reference
+## Reference assignment
 
-- **Prázdný řádek:** zapnutí zámku připraví jednorázové převzetí současné
-  hodnoty. Po výběru roviny se změří vzdálenost aktuálního počátku,
-  zapíše se odsazení a zámek se automaticky odemkne. V sestavě se hodnota
-  převezme po vyplnění obou referencí; u úhlové vazby se změří současný úhel.
-- **Vyplněný řádek:** zapnutí zámku trvale ochrání hodnotu. Při výměně
-  reference se převezme aktuální vzdálenost nebo úhel k nové referenci
-  a zámek zůstane zapnutý.
-- **Bod a osa:** koincidence přisune počátek na vybranou geometrii,
-  nastaví nulové odsazení a automaticky je zamkne. Ostatní volné směry
-  určuje existující řešič vazeb.
-- Když současnou hodnotu nelze určit, reference se nepřepíše a dialog
-  oznámí chybu. Přípravu jednorázového převzetí lze opětovným kliknutím zrušit.
+- **Empty row:** locking arms one-time capture of the current value. Selecting a
+  plane measures distance from the current Origin, stores the offset, and unlocks
+  automatically. Assembly captures after both references are filled; angular mates
+  measure the current angle.
+- **Populated row:** locking permanently protects the value. Replacing its reference
+  adopts current distance/angle to the new reference while retaining the lock.
+- **Point and axis:** coincidence moves the Origin onto selected geometry, sets
+  zero offset, and locks it automatically. Existing mate solving controls other free directions.
+- If the current value cannot be determined, preserve the reference and report an
+  error. Clicking again cancels pending one-time capture.
 
-Příklad: počátek leží na X = 12 mm. Zapnutí zámku v prázdném řádku a výběr
-roviny X = 0 vyplní 12 mm a odemkne hodnotu. Trvalé zamčení vyplněného řádku
-následované výměnou za rovinu X = 5 vyplní 7 mm a zachová zámek.
+Example: Origin X = 12 mm. Arm capture in an empty row and select plane X = 0 to
+fill 12 mm and unlock. Permanently lock that populated row, then replace its plane
+with X = 5: fill 7 mm and retain the lock.
 
-## Rozsah a ukládání
+## Scope and persistence
 
-Zámky jsou součástí vlastností primitiv, tažení, konstrukčních objektů,
-umístění těles a komponent, roztečí a úhlu pole, obrázků a oblastí BOM.
-Vlastnosti výkresového pohledu chrání také jeho polohu a měřítko.
-Zámky obrázku chrání šířku a výšku i před změnou druhého rozměru při
-zachovávání poměru stran. Zamčená souřadnice pohledu omezuje ruční tažení.
+Locks cover primitive, Sweep, and construction properties; body/component placement;
+Pattern spacing/angle; images; and BOM regions. Drawing View Properties also protects
+position/scale. Image width/height locks prevent indirect changes through aspect
+ratio. Locked view coordinates constrain manual dragging.
 
-U orientace řízené referencemi rozměr RX/RY/RZ ve View představuje místní
-úhlovou korekci a zamyká právě její pole. Absolutní úhel a korekce mají
-samostatné uložené zámky.
+For reference-driven orientation, View RX/RY/RZ dimensions represent local angular
+corrections and lock those fields. Absolute angles and corrections have separate
+persisted locks.
 
-OK uloží hodnoty i zámky společně, Zrušit zahodí celý návrh. Bez otevřených
-vlastností je přepnutí zámku ve View samostatná změna dokumentu s Undo/Redo.
-Trvalé zámky se ukládají do dokumentu; jednorázové převzetí je pouze stav
-otevřeného dialogu. Změna samotného zámku nevyvolává výpočet solidu v OCCT.
+OK saves values and locks together; Cancel discards the whole proposal. Outside
+Properties, View lock toggling is an independent document change with Undo/Redo.
+Permanent locks persist; one-time capture is open-dialog state only. Lock-only changes
+perform no OCCT solid calculation.
 
-Zámek chrání ruční editaci hodnoty. Aktualizace závislého rozměru řešičem
-zůstává možná. V sestavě se počet fyzických stupňů volnosti počítá z vazeb;
-ruční tažení navíc respektuje zámky souřadnic. Pokud posuv po šikmé ose
-vyžaduje změnit zamčené X, tažení se neprovede. Měřené kóty výkresu
-neřídí zdrojový díl, proto z nich zámek nevytváří novou geometrickou vazbu.
+Locks protect manual value editing; solver-driven dependent changes remain possible.
+Assembly physical degrees of freedom derive from mates, while manual dragging also
+respects coordinate locks. If movement along an inclined axis requires changing locked
+X, dragging does not proceed. Measured Drawing dimensions do not drive source Parts;
+locking them creates no new geometric constraint.
 
-## Ověření
+## Verification
 
-`zima_cpp_numeric_value_locks_contract` kontroluje zadání, přímou editaci,
-OK/Zrušit, ukládání, jednorázové převzetí, výměnu reference a přisunutí na
-bod či osu. Sestavové testy ověřují zámky při volném i šikmém posuvu,
-měření úhlů a ukládání. Integrační test vlastností tělesa kontroluje
-propojení zámku úhlové korekce s View, Undo/Redo a uložení zámku mimo dialog.
-Test číselných polí používá 3, 4, 6, 9 a 12 desetinných míst a větší písmo.
-Test zámků navíc kontroluje nepřekrývání s editorem a rámečkem, skutečné
-kliknutí myší, jedinou změnu stavu na klik a stálou šířku dialogu po dvaceti
-přepnutích. Ve Windows běží také `zima_cpp_numeric_value_locks_windows_contract`
-s nativním stylem Windows; základní běh používá Fusion. Výsledný dialog byl
-zkontrolován také na snímku `build/cpp-windows-release/Projects/test/numeric-lock-layout.png`.
+`zima_cpp_numeric_value_locks_contract` checks entry, inline editing, OK/Cancel,
+persistence, one-time capture, reference replacement, and coincidence with points/axes.
+Assembly tests cover free/inclined translation locks, angle measurement, and persistence.
+Body Properties integration checks View linkage for correction-angle locks, Undo/Redo,
+and lock saving outside dialogs. Numerical-field tests use 3, 4, 6, 9, and 12 decimals
+and larger fonts. Lock tests check no editor/frame overlap, actual clicks, one state
+change per click, and constant dialog width after 20 toggles. Windows additionally
+runs `zima_cpp_numeric_value_locks_windows_contract` with native Windows style;
+baseline uses Fusion. The resulting dialog was also inspected in
+`build/cpp-windows-release/Projects/test/numeric-lock-layout.png`.
 
-Převzetí odsazení sestavové roviny vychází z její podepsané vzdálenosti od
-počátku komponenty. Nezávisí na zvoleném vrcholu triangulace a zachová
-polohu počátku i při potřebném zarovnání původně nakloněných rovin.
+Assembly plane-offset capture uses signed distance from component Origin, independent
+of selected triangulation vertices. It preserves Origin position even when initially
+inclined planes need alignment.
 
-## Jazyk ovládání
+## UI wording
 
-Nápověda prázdného řádku popisuje jednorázové převzetí současné hodnoty
-při výběru reference a následné odemčení. Po jeho zapnutí nabízí zrušení
-převzetí. Vyplněný řádek používá **Zamknout hodnotu / Odemknout hodnotu**.
-Tyto texty, chybová hlášení i akce ve View jsou dostupné ve čtyřech jazycích
-aplikace; podrobnosti jsou v [dokumentaci překladů](LOCALIZATION.md).
+Empty-row help describes one-time current-value capture on reference selection and
+subsequent unlocking. Once armed, it offers cancellation. Populated rows use
+**Lock Value / Unlock Value**. At this stage these strings, errors, and View actions
+are available in four application languages; see [localization](LOCALIZATION.md).
 
-Původní kompletní běh zachytil rozšíření Vlastností osy na 363 px.
-Rezerva zámečku nyní odpovídá 22px tlačítku a 2px mezeře; zachovává původní
-limit kompaktního dialogu 360 px. Po opravě prošel obecný test dialogů,
-test čitelnosti všech přesností i oba styly zámečků (4/4, 10,35 s).
+The original full run caught Axis Properties expanding to 363 px. Lock reservation
+now matches a 22 px button plus 2 px gap, preserving the original 360 px compact-dialog
+limit. General dialog tests, all-precision readability, and both lock styles passed
+**4/4 in 10.35 s** after repair.
 
-Konečný Windows Release po této opravě prošel celou sadou **55/55 testů**,
-365,35 s (`build/model-calculation-final-tests.log`).
+Final Windows Release after this repair passed full **55/55 tests** in 365.35 s
+(`build/model-calculation-final-tests.log`).

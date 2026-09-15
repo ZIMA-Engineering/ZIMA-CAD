@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760" role="img" aria-labelledby="title description">
-  <title id="title">ZIMA-CAD — barevné rozlišení Part a Assembly</title>
-  <desc id="description">Part je prázdná obrysová krychle. Assembly používá tři žluté plochy stejné kostky.</desc>
+  <title id="title">ZIMA-CAD — Part and Assembly color distinction</title>
+  <desc id="description">Part is an outline cube. Assembly fills three faces of the same cube in yellow.</desc>
   <defs>
     <style>
       .ui { font-family: "Noto Sans", "DejaVu Sans", sans-serif; }
@@ -35,46 +35,46 @@
   <rect width="1200" height="760" fill="#111518"/>
   <rect width="12" height="760" fill="#80aa1a"/>
   <g class="ui">
-    <text x="62" y="68" class="title">Jedna kostka, jiná informace</text>
-    <text x="62" y="104" class="subtitle">Part = prázdný obrys. Assembly = tři plné žluté plochy.</text>
+    <text x="62" y="68" class="title">One cube, different meaning</text>
+    <text x="62" y="104" class="subtitle">Part = outline. Assembly = three filled yellow faces.</text>
 
     <rect x="60" y="142" width="520" height="328" rx="18" fill="#1a2024" stroke="#384249"/>
-    <text x="88" y="187" class="section">PART — PRÁZDNÝ OBRYS</text>
-    <text x="88" y="225" class="heading">Prázdná obrysová krychle</text>
+    <text x="88" y="187" class="section">PART — OUTLINE</text>
+    <text x="88" y="225" class="heading">Empty outline cube</text>
     <g stroke="#f2f2f2"><use href="#part" transform="translate(235 270) scale(6.2)"/></g>
 
     <rect x="620" y="142" width="520" height="328" rx="18" fill="#1a2024" stroke="#80aa1a" stroke-width="2"/>
-    <text x="648" y="187" class="section">ASSEMBLY — BAREVNÁ HMOTA</text>
-    <text x="648" y="225" class="heading">Tři odstíny žluté</text>
+    <text x="648" y="187" class="section">ASSEMBLY — FILLED BODY</text>
+    <text x="648" y="225" class="heading">Three yellow shades</text>
     <g stroke="#f2f2f2"><use href="#assembly" transform="translate(795 270) scale(6.2)"/></g>
 
-    <text x="60" y="519" class="section">SKUTEČNÁ VELIKOST 18 PX</text>
+    <text x="60" y="519" class="section">ACTUAL SIZE: 18 PX</text>
 
     <rect x="60" y="540" width="335" height="112" rx="10" fill="#111619" stroke="#2c353b"/>
     <g stroke="#f2f2f2">
       <use href="#part" transform="translate(82 558) scale(.75)"/>
       <use href="#assembly" transform="translate(82 611) scale(.75)"/>
     </g>
-    <text x="116" y="573" class="tree-dark">Příruba.prtz</text>
-    <text x="116" y="626" class="tree-dark">Pohon.asmz</text>
+    <text x="116" y="573" class="tree-dark">Flange.prtz</text>
+    <text x="116" y="626" class="tree-dark">Drive.asmz</text>
 
     <rect x="430" y="540" width="335" height="112" rx="10" fill="#edf0f2"/>
     <g stroke="#1e2428">
       <use href="#part" transform="translate(452 558) scale(.75)"/>
       <use href="#assembly" transform="translate(452 611) scale(.75)"/>
     </g>
-    <text x="486" y="573" class="tree-light">Příruba.prtz</text>
-    <text x="486" y="626" class="tree-light">Pohon.asmz</text>
+    <text x="486" y="573" class="tree-light">Flange.prtz</text>
+    <text x="486" y="626" class="tree-light">Drive.asmz</text>
 
     <rect x="800" y="540" width="340" height="112" rx="10" fill="#2b8f16"/>
     <g stroke="#ffffff">
       <use href="#part" transform="translate(822 558) scale(.75)"/>
       <use href="#assembly" transform="translate(822 611) scale(.75)"/>
     </g>
-    <text x="856" y="573" class="tab">Příruba.prtz</text>
-    <text x="856" y="626" class="tab">Pohon.asmz</text>
+    <text x="856" y="573" class="tab">Flange.prtz</text>
+    <text x="856" y="626" class="tab">Drive.asmz</text>
 
     <circle cx="68" cy="703" r="7" fill="#80aa1a"/>
-    <text x="88" y="710" class="body">Rozdíl je založený současně na výplni i barvě: Part = prázdný obrys, Assembly = plná žlutá hmota.</text>
+    <text x="88" y="710" class="body">Fill and color distinguish them: Part = empty outline, Assembly = filled yellow body.</text>
   </g>
 </svg>

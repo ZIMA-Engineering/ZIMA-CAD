@@ -1,53 +1,50 @@
-# Obnovení reference Partu v kontextu sestavy
+# Refreshing Part references in Assembly context
 
-`sketch.reference.refresh` nyní podporuje existující externí reference
-Partu aktivovaného v sestavě. Příkaz vyžaduje přesnou uloženou hlavní
-sestavu a cestu závislého výskytu; jiný výskyt stejného Partu se odmítne.
+`sketch.reference.refresh` supports existing external references of a Part activated
+in an Assembly. It requires the exact persisted top-level Assembly and dependent
+occurrence path; another instance of the same Part is rejected.
 
-Příkaz čte aktuální vypočítané původní hrany, body, osy a plochy zdrojů.
-Používá společný převod do souřadnic závislého Partu a následně rámec
-skici. Nevypočítává těleso, sestavové řezy ani vazby; výsledek uvádí
-`body_calculated: false`. Obnovená skica včetně navázané nativní křivky,
-trimu a offsetu se potvrzuje jako jeden existující krok Undo/Redo.
-Sestavové závislosti ani jejich vlastnictví se tímto příkazem nemění.
+The command reads current calculated original source edges, points, axes, and
+faces. Shared conversion maps them into dependent-Part coordinates, then the
+Sketch frame. It calculates no body, Assembly cut, or mate; the result reports
+`body_calculated: false`. The refreshed Sketch, linked native curve, trim, and
+offset are committed through one existing Undo/Redo step. Assembly dependencies
+and their ownership remain unchanged.
 
-Otevřený zdroj je autoritativní i před uložením. Zavřený Part se načte
-z nativního souboru soukromě. Chybějící hrana, nedostupný soubor nebo
-soubor s jiným dokumentovým ID označí příslušné reference za neplatné,
-ale zachovají poslední geometrii. Při návratu téhož původního zdroje se
-reference opraví. Chybná struktura geometrie se odmítne, nepřevádí se
-na novou odhadnutou referenci.
+An open source is authoritative before saving. A closed Part is loaded privately
+from its native file. Missing edges, unavailable files, or mismatched document IDs
+mark affected references invalid while preserving their last geometry. Restoring
+the same original source repairs them. Malformed geometry is rejected rather than
+converted into a guessed replacement reference.
 
-Běžné reference Partu a kořenové Assembly používají dosavadní cestu.
-Příkaz nemění formát ani šablony; katalog má stále **209 příkazů**.
-Tvorba a odpojení kontextové reference se společným potvrzením změny
-skici a sestavových závislostí zůstávají následující etapou.
+Ordinary Part and root-Assembly references retain their existing path. Format and
+templates are unchanged; the catalog remains at **209 commands**. Context-reference
+creation/detachment with a shared Sketch/Assembly-dependency commit is the next stage.
 
-## Ověření
+## Verification
 
-První testy odhalily dvě vlastnosti testovacích dat: nezávisle zadané
-analytické souřadnice se po složené rotaci liší v posledních bitech a
-samotná příprava sestavy nepočítá její kořenový řez. Fixture nyní jednou
-normalizuje reprezentaci souřadnic a ověřuje opakovaný refresh beze změny;
-prázdný řez je v podsestavě, kde příprava jeho výpočet skutečně vyvolá.
+Initial tests exposed two fixture properties: independently specified analytical
+coordinates differ in their final bits after composed rotation, and Assembly
+preparation alone does not calculate a root cut. The fixture now normalizes coordinate
+representation once and verifies no-op repeated refresh. Its empty cut is in a
+subassembly where preparation actually invokes calculation.
 
-Modelové testy a skutečný CLI proces poté prošly **4/4** (18,20 s),
-`build/context-refresh-tests.log`. Kontrolují:
+Model tests and an actual CLI process then passed **4/4** (18.20 s),
+`build/context-refresh-tests.log`, covering:
 
-- 257 bodů přesné racionální čtvrtkružnice po posunu zdroje o 0,01 mm,
-  navázaný offset a nezměněné intervaly oříznutí;
-- všechny čtyři druhy referencí, zdroj před uložením, zavřený zdroj,
-  zachování poslední křivky při ztrátě hrany a opravu při jejím návratu;
-- chybnou identitu souboru, nepovolený opakovaný výskyt, žádnou změnu
-  historie/generace/geometrie hlavní sestavy, Undo/Redo a nativní zápis;
-- samostatný CLI proces, který otevře sestavu, aktivuje Part, obnoví
-  referenci a uloží jeho `.prtz`, i odmítnutí jiné cesty výskytu.
+- 257 exact rational-quarter-circle points after a 0.01 mm source translation,
+  linked offset, and unchanged trim intervals;
+- all four reference kinds, unsaved/open and closed sources, last-curve retention
+  when an edge disappears, and repair when it returns;
+- incorrect file identity, forbidden repeated occurrence, unchanged top-level
+  Assembly history/generation/geometry, Undo/Redo, and native persistence;
+- a standalone CLI process opening an Assembly, activating a Part, refreshing its
+  reference, saving `.prtz`, and rejecting another occurrence path.
 
-Nové zprávy kontextu a kontroly cyklů jsou přeložené do cs/en/de/fr/ru.
+New context and cycle-validation messages are translated into cs/en/de/fr/ru.
 
-Po doplnění případu fyzicky chybějícího nativního souboru a novém sestavení
-všech programů prošla **celá sada 113/113** (511,11 s).
-Logy: `build/context-refresh-all-build.log` a
-`build/context-refresh-full-tests.log`. Zahrnuje modelové příkazy,
-regeneraci, nativní soubory, import/export, reference, skicář, výkresy,
-společné GUI dialogy, celý start aplikace, konzoli a všechny překlady.
+After adding a physically missing native-file case and rebuilding all programs,
+the **full suite passed 113/113** (511.11 s). Logs:
+`build/context-refresh-all-build.log` and `build/context-refresh-full-tests.log`.
+Coverage includes model commands, regeneration, native files, import/export,
+references, Sketcher, Drawings, shared GUI dialogs, full startup, console, and all translations.

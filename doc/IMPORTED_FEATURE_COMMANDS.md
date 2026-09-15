@@ -1,96 +1,87 @@
-# Vlastnosti importovaného tělesa přes CLI
+# Imported-body properties through CLI
 
-Příkazy upravují existující nativní prvek importovaný ze STEP nebo IGES.
-Nové načtení souboru nadále zajišťují import.step a import.iges.
+These commands edit existing native features imported from STEP or IGES.
+`import.step` and `import.iges` still load new files.
 
-| Příkaz | Argumenty |
+| Command | Arguments |
 | --- | --- |
-| import.get | container, volitelně document |
-| import.set | container, volitelně name, combine, placement, document |
-| import.reference.set | container, index, reference, volitelně offset_mm, flip, derive_orientation, document |
+| `import.get` | `container`, optional `document` |
+| `import.set` | `container`, optional `name`, `combine`, `placement`, `document` |
+| `import.reference.set` | `container`, `index`, `reference`, optional `offset_mm`, `flip`, `derive_orientation`, `document` |
 
-import.get čte libovolný otevřený Part bez výpočtu. Vrací ID dokumentu,
-kontejneru, prvku a Body, název, operaci add/subtract, uložený zdroj a cestu
-komponenty, mesh_deflection_mm (nebo null), velikost uloženého B-Rep v bajtech,
-počet původních topologických identit, umístění s referencemi, souřadný rámec,
-platnost referencí a revizi. Nečte původní STEP/IGES ani nekopíruje B-Rep do JSON.
+`import.get` reads any open Part without calculation. It returns document, container,
+feature, and Body IDs; name; add/subtract operation; persisted source and component
+path; `mesh_deflection_mm` or null; stored B-Rep byte size; original topology identity
+count; placement and references; coordinate frame; reference validity; and revision.
+It neither reads original STEP/IGES nor copies B-Rep into JSON.
 
-import.set mění aktivní Part. Musí obsahovat alespoň jednu vlastnost. combine
-přijímá add nebo subtract; name podléhá společné validaci nativních názvů.
-placement je číselný patch x/y/z, rotation_x/y/z nebo reference_offset:N,
-stejný jako ostatní příkazové vlastnosti. Délky jsou v mm, úhly ve stupních;
-omezenou nebo zamčenou hodnotu nelze přepsat. Neplatný patch se celý odmítne.
+`import.set` edits the active Part and requires at least one property. `combine`
+is `add` or `subtract`; `name` uses shared native-name validation. `placement` is a
+numerical patch of x/y/z, rotation_x/y/z, or reference_offset:N, matching other
+command properties. Lengths are mm and angles degrees. Constrained/locked values
+cannot be overwritten; invalid patches are rejected in full.
 
-import.reference.set používá stejný kontrakt jako
-[ostatní reference umístění](PLACEMENT_REFERENCE_COMMANDS.md): index 0–2
-označuje poziční pole, 3 FRONT a 4 TOP. reference obsahuje owner, key
-a volitelnou prázdnou instance_path. Vlastní nebo pozdější zdroj, duplicitní
-reference, neplatný index a cizí cesta jsou odmítnuty. Příkaz používá
-prepare_part_feature_reference a sdílené potvrzení importovaného prvku.
-Stejnou operaci nabízí placement.reference.set s argumentem object.
+`import.reference.set` follows [other placement references](PLACEMENT_REFERENCE_COMMANDS.md):
+indexes 0–2 position, 3 FRONT, 4 TOP. `reference` has `owner`, `key`, and optional empty
+`instance_path`. Own/later sources, duplicates, invalid indexes, and foreign paths
+are rejected. The command uses `prepare_part_feature_reference` and shared imported-
+feature commit. `placement.reference.set` exposes the same operation with `object`.
 
-Výsledek mutace odpovídá import.get a obsahuje changed. No-op nepřidává Undo
-a nepočítá těleso. Vlastnosti otevřené v GUI blokují mutaci příkazem, ale
-dotazy nad potvrzeným dokumentem zůstávají dostupné. Editace vyžaduje aktivní
-vlastnící Body; odvozené těleso je pouze ke čtení.
+Mutation results match `import.get` plus `changed`. No-ops add no Undo or calculation.
+Open GUI Properties blocks commands, while committed-document queries remain available.
+Editing requires the active owning Body; derived bodies are read-only.
 
-## Společná transakce GUI a CLI
+## Shared GUI/CLI transaction
 
-commit_imported_feature přebírá poslední dosud neoddělenou potvrzovací větev
-okna PrimitivePropertiesDialog, kterou používá importovaný prvek. Zachovává
-přípravu referenční geometrie, řešení před výpočtem, původní editační hranici,
-výpočet historie, obnovení externích referencí skic a commit Partu. Společný
-řešič umístění ani ContainerPlacementSection se nemění.
+`commit_imported_feature` extracts the last separate imported-feature commit branch
+of `PrimitivePropertiesDialog`. It preserves reference-geometry preparation, solving
+before calculation, the original editing boundary, history calculation, external
+Sketch-reference refresh, and Part commit. Shared placement solver and
+ContainerPlacementSection are unchanged.
 
-Vlastnosti nemohou přepsat zdrojový B-Rep, topologické identity, cestu zdroje
-ani importní přesnost. Vybraná geometrie je uložená v nativním .prtz; původní
-STEP/IGES není potřebný pro editaci ani regeneraci. Formát ani šablony se nemění.
+Properties cannot overwrite source B-Rep, topology identities, source path, or import
+precision. Selected geometry is stored in native `.prtz`; original STEP/IGES is
+unnecessary for editing or regeneration. Formats and templates are unchanged.
 
-## Ověření
+## Verification
 
-Modelové testy používají STEP i IGES kvádru 10 × 20 × 30 mm a původní soubor
-před editací odstraní. Kontrolují objem 6000 mm³, přírůstek X po přiřazení
-roviny YZ, identitu a neměnnost zdrojové geometrie, zámek offsetu, no-op,
-atomické odmítnutí, neaktivní Body, Undo/Redo a nativní uložení. Samostatný
-odečítací test vloží před import krychli 200 mm a ověří objem
-8 000 000 − 6000 mm³, historii i uložený výsledek.
+Model tests use STEP and IGES versions of a 10 × 20 × 30 mm box and delete the original
+file before editing. They check 6000 mm³ volume, X displacement after assigning YZ,
+source identity/immutability, offset lock, no-op, atomic rejection, inactive Body,
+Undo/Redo, and native saving. A separate subtraction test inserts a 200 mm cube before
+the import and checks 8,000,000 − 6000 mm³ volume, history, and saved results.
 
-Procesní test spouští skutečné CLI pro STEP i IGES. GUI test otevře skutečné
-Vlastnosti, mění offset 3 → 4 mm a kontroluje Cancel/OK, blokování mutace během
-editace, Undo/Redo a nativní geometrii. Překlady nových zpráv jsou doplněné
-v češtině, angličtině, němčině, francouzštině a ruštině.
+The process test runs actual CLI for both STEP and IGES. GUI opens real Properties,
+changes offset 3 → 4 mm, and checks Cancel/OK, mutation blocking during editing,
+Undo/Redo, and native geometry. New messages are translated into Czech, English,
+German, French, and Russian.
 
+## Repair: passing placement to imported bodies
 
-## Oprava předání umístění importovanému tělesu
+A geometry test exposed an older defect: imported containers stored translation
+and rotation, but StepRequest ignored them and calculated the original shape.
+The import adapter now passes resolved position/rotation to the kernel and includes
+them in calculation fingerprints. The kernel applies the same transform to runtime
+shape and original faces, edges, and vertices. Source identities, original B-Rep,
+and archive locators remain unchanged.
 
-Geometrický test odhalil starší chybu: importovaný kontejner ukládal posun
-a natočení, ale StepRequest je vůbec nepřebíral a výpočet používal původní
-tvar. Adaptér importu nyní předává již vyřešenou polohu i rotaci do kernelu
-a zahrnuje je do fingerprintu výpočtu. Kernel umístí runtime tvar a jeho
-původní plochy, hrany a vrcholy stejnou transformací. Zdrojové identity,
-původní B-Rep i archivní lokátory zůstávají nezměněné.
+This consumes existing container placement without changing reference solving,
+orientation rules, or shared placement UI. Feature coordinates belong to the owning
+Body frame; Body placement composes separately. Tests check actual displacement,
+X/Y dimension exchange after 90° rotation, and original identities in the output mesh,
+not just saved values.
 
-Tato oprava spotřebovává existující umístění kontejneru; nemění řešení
-referencí, pravidla orientace ani společnou sekci umístění. Souřadnice prvku
-jsou v rámci vlastnícího Body a umístění Body se nadále skládá samostatně.
-Test kontroluje nejen uložené hodnoty, ale i skutečný posun geometrie,
-záměnu rozměrů X/Y při otočení o 90° a původní identity ve výstupní síti.
+Add mode still combines original shapes into a compound without fusing intersections.
+Tests distinguish summed add-mode volumes from actual subtraction. These rules are unchanged.
 
-Import v režimu add nadále skládá původní tvary do compoundu; neprovádí
-sjednocení jejich průniků. Test proto rozlišuje součet objemů v režimu add
-a skutečný odečet v režimu subtract. Tato stávající pravidla se nemění.
+Native validation now accepts existing `combine=subtract` for imported features;
+previously it rejected that value only during saving. File schema and fields are
+unchanged. Subtraction requires a preceding calculated input in the owning Body and
+otherwise rejects without mutation. The saved-subtraction test recalculates using
+a fresh kernel without source STEP/IGES.
 
-
-Nativní validace nyní přijímá také existující hodnotu combine=subtract
-u importovaného prvku; dřívější kontrola ji odmítala až při ukládání.
-Schéma souboru ani jeho pole se nemění. Odečet vyžaduje předchozí vypočtený
-vstup ve vlastním Body a jinak se odmítne bez změny dokumentu. Test uloženého
-odečtu znovu počítá těleso s čerstvým kernelem bez zdrojového STEP/IGES.
-
-
-Závěrečné ověření Windows Release: obě aplikace a všechny testovací cíle
-jsou sestavené. Úplná regrese prošla **150/150 za 647,59 s**, včetně
-modelových, procesních CLI, překladových a skutečných GUI testů.
-Logy: `build/import-feature-full-build.log` a
-`build/import-feature-full-tests.log`. GUI ověřuje skutečný přírůstek X
-1 mm po změně offsetu 3 → 4 mm i totožný výsledek uloženého Partu.
+Final Windows Release verification: both applications and all targets built. Full
+regression passed **150/150 in 647.59 s**, including model, actual CLI, translations,
+and real GUI tests. Logs: `build/import-feature-full-build.log`,
+`build/import-feature-full-tests.log`. GUI verifies actual 1 mm X displacement after
+3 → 4 mm offset editing and the identical saved-Part result.

@@ -1,663 +1,594 @@
-# Skicář ZIMA-CAD
-
-Tento dokument popisuje závazné chování interaktivního zadávání, zachytávání,
-vazeb a řešení stupňů volnosti ve skicáři. Datový formát a rovnice jsou popsány
-v `SKETCH_MODEL.md`, názvosloví v `SKETCHER-TERMINOLOGY.md` a běžné ovládání
-také v `UZIVATELSKY_MANUAL.md`.
-
-## Potvrzování nástrojů
-
-Zadávání geometrie používá jednotné ovládání. Levým tlačítkem se potvrzují
-všechny definiční body včetně bodu, který dokončuje běžný objekt. Krátký klik
-prostředním tlačítkem geometrii nikdy nevytváří ani nepotvrzuje; je vyhrazený
-navigaci. Textová kotva se zadává levým tlačítkem ve View. Rychlý dvojklik
-prostředním tlačítkem ukončí aktivní nástroj a vrátí skicář na `Výběr`.
-U vícebodové B-spline před ukončením uloží pouze již potvrzené LMB body;
-poloha kurzoru při dvojkliku se nikdy nepřidá jako další bod.
-
-`Enter` uvnitř číselného nebo textového editoru potvrzuje pouze jeho hodnotu;
-nesmí zároveň odeslat geometrii, zavřít Vlastnosti ani vyvolat **OK**.
-
-Po dokončení geometrie, vazby, kóty nebo jiné opakovatelné operace zůstává
-zvolený nástroj aktivní a je připravený k dalšímu zadání. Samovolně se na
-`Výběr` nepřepíná. Nástroj se ukončí rychlým dvojklikem prostředním tlačítkem,
-výslovným zvolením `Výběr` nebo zrušením příslušného dialogu.
-
-## Jednotné zrušení a Escape
-
-Skicář používá jednu centrální stavovou akci **Zrušit**, kterou vyvolá klávesa
-`Esc` i budoucí tlačítko v liště. Jednotlivé nástroje nesmějí implementovat
-vlastní neslučitelné varianty Escape. Akce postupuje od nejmenšího
-rozpracovaného stavu k celému nástroji:
-
-1. první `Esc` zruší právě rozpracovaný bod, dočasnou geometrii nebo aktuálně
-   zvoleného kandidáta, ale ponechá opakovatelný nástroj aktivní;
-2. další `Esc`, pokud už není nic rozpracováno, ukončí aktivní nástroj a
-   přepne skicář na **Výběr**;
-3. v režimu **Výběr** `Esc` zruší hover a potvrzené označení;
-4. otevřené Vlastnosti se klávesou `Esc` nezavírají a jejich změny se tím
-   nezahazují; k tomu slouží explicitní **Zrušit** v dialogu.
-
-Tlačítko **Zrušit** musí volat tutéž stavovou akci jako klávesa `Esc`. Obdobně
-krátký prostřední klik a `Enter` volají jednu centrální akci **Potvrdit**.
-Stavový automat, myš, klávesnice a tlačítka tedy nesmějí mít oddělené
-implementace téhož příkazu.
-
-## Výchozí měřítko a text
-
-Běžná modelová skica se při prvním otevření přiblíží podle logického DPI
-aktuálního monitoru. Cílem je přibližně 1 modelový mm na 1 fyzický mm
-obrazovky. Přiblížení zůstává uživatelské a nejde o kalibrované měření.
-Rámečky `.frmz` a razítka `.tblz` místo toho při otevření zobrazí celý list.
-
-Po potvrzení kotevního bodu textu se otevřou společné interní
-**Vlastnosti skici**. Dokud uživatel nepotvrdí **OK** nebo **Cancel**, view
-nesmí přijmout další bod textu. Editor používá víceřádkové
-pole přibližně pro pět řádků a ukládá zalomení řádků. Stejný dialog a stejné
-ovládání se používají při vytvoření i pozdější editaci textu.
-Výchozí natočení je `0°` a obrys je čitelný zleva doprava bez implicitního
-zrcadlení. Zrcadlení provádí pouze výslovná volba **Převrátit vodorovně**.
-
-Ve vlastnostech textu je **Režim textu**:
-
-- **Běžný text** zobrazuje vyplněné znaky a zůstává editovatelnou textovou
-  entitou. Protrusion, Revolve i tažení jej ignorují při sestavování profilu.
-- **Geometrie pro modelování** nabízí obrysy znaků jako profil. Uzavřené obrysy
-  vytvářejí tělesa, vnitřní obrysy písmen zůstávají otvory.
-
-Přepnutí režimu nepřevádí text na jednotlivé čáry ani neztrácí jeho obsah,
-polohu a zarovnání. Oba režimy používají jeden dialog pro tvorbu i editaci,
-jedno OK/Cancel a společné potvrzení dvojklikem prostředního tlačítka myši.
-Nové texty razítek a rámečků používají běžný režim; běžná modelová skica
-nabízí ve výchozím stavu geometrii. Texty starého razítka s ID jako
-`field1:text` lze vybírat a editovat stejně jako nově vytvořené texty.
-
-## Základní princip
-
-Zadávání geometrie je postupné odebírání možností, tedy stupňů volnosti.
-Každý potvrzený údaj omezuje následující údaj, ale bez výslovného konfliktu
-nesmí rušit dříve potvrzené podmínky.
-
-Při kreslení vícebodové geometrie platí:
-
-1. První potvrzený bod je kotva a určuje výchozí podmínky.
-2. Právě zadávaný bod je řízený kurzorem a přizpůsobuje se již potvrzeným
-   bodům, aktivním inferencím a zachytávání.
-3. Potvrzením se vybraná inference uloží jako skutečná vazba.
-4. Pokud žádná inference neplatí, bod se uloží volně.
-
-V jedné poloze skici existuje pouze jeden interní bod. Potvrzení nabídky `C`
-na existujícím bodě znovu použije jeho stabilní ID; nesmí vytvořit druhý bod
-ve stejné poloze a teprve jej spojit duplicitní vazbou. Navazující úsečky proto
-sdílejí jeden skutečný koncový bod. Nabídka `C` je v tomto okamžiku informace
-náhledu; po sloučení dvou nativních bodů nezůstává samostatná vazba ani značka
-`C`. Trvalé `C` patří pouze bodu ležícímu na jiné geometrii.
-
-Vratný radius společného rohu vzniká výběrem dvou napojených úseček a tažením
-jejich společného bodu. Toto přesné gesto má přednost před běžným tažením
-bodu. Skupinový přesun více vybraných geometrií není podporován; jinak se
-přesouvá pouze přímo uchopený bod v mezích solveru. Radiusová kóta je při
-editaci skici řídicí a měnitelná dvojklikem. V běžném výsledném view je stejně
-jako ostatní skicové kóty skrytá, samotný oblouk zůstává součástí profilu.
-
-U kreslené úsečky nebo konstrukční čáry se automatická směrová inference
-ukládá jako bodová vazba `H/V` na druhém bodu, nikoli jako další vazba celé
-čáry. Pokud jsou oba konce už totožně připojené k počátku nebo ke stejné ose,
-jejich vazby `C C` směr určují a redundantní `H/V` se nevytvoří. Aktivní druhý
-bod je při zadávání vždy zobrazen oranžově.
-
-Obdélník používá stejnou reprezentaci: jeho hrany nenesou geometrické `H/V`.
-Směr je uložen bodovými vazbami mezi navazujícími rohy; první roh je kotva a
-další rohy jsou postupně řízené. Poslední roh uzavírají bodové vazby vůči
-předchozímu rohu a prvnímu rohu.
-
-Při zadávání jsou oranžovým kolečkem zobrazené oba vznikající konce ramen,
-která vycházejí z prvního rohu: konec vodorovné a konec svislé hrany. Běžný
-obdélník lze po určení prvního rohu a velikosti potvrdit prostředním tlačítkem.
-
-Po zadání prvního rohu přepne pravý klik v prázdném prostoru do režimu výběru
-osy. Pravý klik nad geometrií tento režim nezapne a zachová běžné přepínání
-překrývajících se kandidátů. Konstrukční čára se při najetí zvýrazní oranžově
-a levý klik ji zvolí jako osu; vybraná osa se zobrazí modře. Pohyb kurzoru pak
-určuje délku natočeného obdélníku podél osy a prostřední tlačítko jej potvrdí.
-První roh zůstává referenční; jeho protějšek a oba vzdálené rohy jsou řízené.
-Uloží se dvě vazby symetrie a jedna nezbytná rovnoběžnost podélné strany s
-konstrukční osou. Druhá podélná rovnoběžnost a kolmost příčných stran už ze
-symetrie vyplývají, proto se neukládají duplicitně.
-
-Stejně se `H/V` nevytváří, pokud oba body nové úsečky nebo konstrukční čáry
-leží vazbou `C` na téže vodorovné či svislé úsečce. Společná nosná geometrie
-už jejich směr určuje; zůstanou pouze vazby `C`.
-
-Při dodatečném vytváření vazby výběrem existujících prvků platí:
-
-1. První vybraný prvek je reference.
-2. Druhý vybraný prvek je řízený a při vytvoření vazby se přizpůsobí.
-3. Výjimka musí být uvedena u konkrétního nástroje a nesmí vzniknout jen jako
-   vedlejší efekt řešiče.
-
-Po vytvoření je vazba matematický vztah. Pokud pozdější kóta nebo vazba pohne
-referencí, řízený prvek ji následuje. U nedostatečně zavazbené skici řešič
-volí řešení nejbližší poslednímu platnému stavu.
-
-## Priority interaktivního zadávání
-
-Kandidáti se vyhodnocují pouze uvnitř obrazové tolerance. Vyšší priorita má
-přednost před nižší; vzdálenost od kurzoru rozhoduje mezi kandidáty stejné
-priority.
-
-1. **Totožnost** — existující bod nebo lokální počátek skici.
-2. **Bod na geometrii** — osa, úsečka, oblouk, kružnice nebo externí reference.
-3. **Zarovnání bodů** — stejné Y (`H`) nebo stejné X (`V`) vůči existujícímu
-   bodu.
-4. **Směr od předchozího bodu** — vodorovná nebo svislá nová geometrie.
-5. **Geometrická inference nástroje** — tečnost, kolmost, rovnoběžnost,
-   průsečík, střed a charakteristický bod křivky.
-6. **Volné umístění**.
-
-Povinná návaznost konkrétního nástroje může pořadí lokálně změnit. Typickým
-příkladem je tečné pokračování úsečky z kružnice nebo oblouku: potvrzený bod
-dotyku je kotva a tečný směr omezuje pohyb druhého bodu dříve než běžná
-vodorovná či svislá inference. Aktivní kandidát musí být vždy viditelný v
-náhledu; skryté přepsání uživatelova záměru není dovoleno.
-
-Pokud je pod kurzorem více platných objektů nebo zachycení, pravé tlačítko je
-při zadávání postupně překlikává. Zvláštní pravá akce konkrétního nástroje se
-provede až tehdy, když pod kurzorem není další kandidát k výběru.
-
-Stejný cyklus se má rozšířit také na platné varianty inference/vazby pro právě
-zadávanou geometrii. Příklad úsečky může podle situace nabídnout volný bod,
-totožnost, bod na geometrii, vodorovnost, svislost, tečnost, kolmost nebo
-rovnoběžnost. Do cyklu vstupují pouze matematicky platné a nekonfliktní
-varianty. Pravý klik mění oranžově zobrazenou variantu, levý nebo prostřední
-klik potvrdí přesně tuto variantu a potvrzená inference se uloží jako explicitní
-vazba. Automatika smí nabízet a řadit kandidáty, ale nesmí po potvrzení vytvořit
-jinou skrytou vazbu, než jakou ukazoval náhled.
-
-## Stupně volnosti bodu
-
-Volný bod má dvě možnosti pohybu: X a Y.
-
-- vodorovná vazba bodů určí Y řízeného bodu podle reference a odebere jeden
-  stupeň volnosti;
-- svislá vazba bodů určí X řízeného bodu podle reference a odebere jeden
-  stupeň volnosti;
-- totožnost určí X i Y a odebere oba stupně volnosti;
-- bod na přímce nebo křivce ponechá obvykle jeden parametr pohybu;
-- souřadnicová kóta určí příslušnou souřadnici;
-- další nezávislé pravidlo může určit poslední zbývající možnost.
-
-Redundantní vazba se nemá přidat podruhé. Vazba odporující již platným
-podmínkám se odmítne a uživatel dostane jednoznačné hlášení. Skicář nesmí kvůli
-novému konfliktu tiše odstranit starší vazbu.
-
-## Vodorovná a svislá vazba
-
-Stejný příkaz podporuje geometrii i body.
-
-### Úsečka nebo konstrukční čára
-
-Vybere se jeden prvek. Jeho první definiční bod zůstane při vytvoření na místě
-a druhý bod se srovná:
-
-- `H`: oba body úsečky mají stejné Y;
-- `V`: oba body úsečky mají stejné X.
-
-Značka se zobrazuje uprostřed geometrie.
-
-### Dva body
-
-Nejprve se vybere referenční bod a potom řízený bod:
-
-- `H`: řízený bod převezme Y referenčního bodu;
-- `V`: řízený bod převezme X referenčního bodu.
-
-Značka `H` nebo `V` se zobrazuje u řízeného, tedy druhého bodu. Výběr značky
-zvýrazní oba body. Odstranění vazby neodstraní žádný z bodů.
-
-Výběr geometrické značky `H/V` zvýrazní její dva řídicí koncové body, nikoli
-celou úsečku. Trvalé `C` zvýrazní bod a jeho nosnou geometrii; dva sloučené
-nativní body už žádnou vazbu `C` nemají. `T` zvýrazní obě tečné geometrie.
-Fixovaný bod používá značku `F`; `K` je vyhrazeno přesnému generovanému
-charakteristickému bodu křivky.
-Výběr bodové značky `H/V` zvýrazní pouze referenční a řízený bod. Při kreslení
-má kombinace totožnosti `C` a bodové `H/V` přednost před automatickou
-kolmostí i rovnoběžností. Značka `H/V` se v náhledu zobrazuje přímo u právě
-zadávaného druhého bodu. Při tečném vytažení úsečky ke kružnici, oblouku,
-elipse nebo eliptickému oblouku se u běžného kontaktního bodu zobrazují
-současně `C` a `T`. Pouze přesný dotyk v potvrzeném čtvrtinovém bodě používá
-`K + T`.
-
-Výběr vazby `C` bodu na ose zvýrazní běžnou výběrovou azurovou barvou bod i
-osu. Totéž platí pro jinou referenci, ke které vazba `C` náleží.
-
-Při vytahování nové úsečky kolmo z existující geometrie patří náhledová značka
-`⊥` vždy k prvnímu, již potvrzenému kontaktnímu bodu. Zachycení druhého bodu
-nesmí značku kolmosti přesunout na konec nové úsečky.
-
-## Ostatní vazby
-
-- **Shodnost**: dva nativní body se sloučí do jednoho stabilního topologického
-  bodu bez uložené značky `C`. Po výběru bodu lze jako druhý prvek zvolit osu,
-  úsečku či křivku; tehdy vznikne trvalá vazba bodu na geometrii `C`. Hlavní
-  osu X/Y lze zvolit také jako první referenci a potom vybrat řízený bod.
-- **Rovnoběžná**: první čára je reference, druhá se natočí rovnoběžně.
-- **Kolmá**: první čára je reference, druhá se natočí kolmo.
-- **Stejná**: první délka nebo poloměr je reference, druhý ji převezme.
-  Značka `=` se kreslí pouze u druhého, řízeného potomka; reference se
-  zvýrazní až při výběru vztahu.
-- **Střed**: nejprve se vybere řízený bod, poté referenční úsečka; jde o
-  výslovnou výjimku, protože typ druhého prvku určuje význam operace.
-- **Symetrická**: vyberou se dva body a následně osa symetrie; oba body tvoří
-  společně řízenou dvojici.
-- **Tečná**: pořadí a pevný kontaktní bod závisí na podporované dvojici křivek
-  a je zobrazen v náhledu značkou `T`.
-- **Soustředná**: první kružnice nebo oblouk je reference, druhý převezme
-  střed.
-
-## Společná tečná úsečka
-
-**Společná tečna** je nástroj tvorby geometrie, nikoliv pouze dodatečná vazba.
-Přijímá kružnici, kruhový oblouk, elipsu, eliptický oblouk nebo B-spline.
-Úsečky, body, osy, externí reference a křivky jiné skici se během příkazu
-nenabízejí.
-
-Postup je následující:
-
-1. uživatel klikne na první křivku poblíž požadovaného dotyku;
-2. klikne na druhou křivku poblíž druhého požadovaného dotyku;
-3. obě polohy kliknutí určují počáteční větev řešení — například horní,
-   dolní, levou, pravou, vnější nebo vnitřní tečnu;
-4. solver vytvoří běžnou profilovou úsečku a uloží oba její konce jako body
-   na příslušných křivkách společně s tečností na obou stranách.
-
-Výsledkem není neasociativní vypočtená čára. Úsečka, oba dotykové body a čtyři
-vztahy zůstávají v persistovaném ZIMA Sketch modelu a po změně zdrojových
-křivek se znovu řeší. Výpočet používá pouze analytickou nebo persistovanou
-skicovou geometrii; OCCT se při hoveru, výběru ani vytvoření nevolá.
-
-Oblouky a otevřené B-spline navíc omezují dotyk na vlastní parametrický rozsah.
-Pokud v okolí zvolených míst společná tečna neexistuje, je degenerovaná nebo
-je v konfliktu s existujícími vazbami, odmítne se celá operace bez bodu,
-úsečky či vazby navíc. První klik je pouze transientní stav. `Escape` jej
-zruší; druhý platný klik uloží vše jako jednu vratnou revizi.
-
-## Výběr, tažení a transientní zobrazení
-
-Výběr obdélníkem ukládá jednu množinu bodů, čar, křivek a textů. Tree tuto
-množinu pouze zrcadlí a nesmí ji při označování jednotlivých řádků postupně
-zmenšovat. `Delete` odstraní celý výběr v jedné revizi a zároveň bezpečně
-odstraní osiřelé body a související vazby.
-
-Tažení bodu nebo kóty pracuje nad transientní kopií dokumentu. Náhled smí
-zobrazit pouze aktivní skicu a stejný pasivní modelový kontext jako běžný
-Skicář; ostatní skici Partu se během stisku myši nesmějí dočasně objevit.
-
-Tažení jednoho bodu respektuje jeho geometrický význam. Střed kružnice nebo
-oblouku překládá příslušnou křivku bez změny poloměru. Koncový bod kruhového
-oblouku je radiální rukojeť: jeho vzdálenost od středu mění poloměr a jeho směr
-mění rozsah oblouku. Zamknutá poloměrová kóta ponechá poloměr pevný a dovolí
-pouze úhlový pohyb konce. Nezamknutá řídicí poloměrová kóta převezme hodnotu
-dosaženou přímým tažením.
-
-Stejný rigidní překlad středu platí při vytvoření vazby a při topologickém
-sloučení, nejen při přímém tažení. Na osu nebo konec úsečky se proto nepřesune
-samotná souřadnice středu odděleně od konců oblouku. Přenesou se všechny
-závislé řídicí a kontaktní body; pevná či externě ukotvená závislost operaci
-transakčně odmítne.
-
-Pokud View obsahuje více vybraných bodů nebo geometrií a tah začne na jednom
-z vybraných bodů, celý výběr se z původního stavu přeloží jedním společným
-`ΔX, ΔY`. Vnitřní délky, úhly, poloměry a vazby se zachovají. Vybraný bod
-slouží pouze jako rukojeť. Fixovaný nebo externě řízený bod a vazba vedoucí do
-nevybrané ukotvené části pohyb omezují; nesmějí se tiše odpojit.
-
-## Vícekrokové křivky
-
-U oblouku, elipsy, eliptického oblouku a obou typů spline zůstávají všechny již
-potvrzené zadávací body během dalšího kroku viditelné. Zachycení na běžnou
-geometrii se nabízí jako `C`, na charakteristický čtvrtinový bod kružnice,
-oblouku nebo elipsy jako `K`. Potvrzená nabídka se uloží jako skutečná vazba;
-náhled nesmí ukázat vazbu, která po dokončení zmizí.
-
-Skicář nabízí dvě samostatné varianty nad stejným stabilním bodovým modelem.
-**B-spline – řídicí body** používá potvrzené body jako řídicí vrcholy;
-**Interpolační spline** všemi potvrzenými body skutečně prochází. Po prvním
-potvrzení se zobrazuje bod, po druhém lomený náhled a od třetího skutečný
-náhled zvoleného typu spline. Obě varianty vyžadují nejméně tři body a rychlý
-dvojklik prostředním tlačítkem je dokončí na posledním potvrzeném bodě;
-jednoduchý prostřední klik zůstává vyhrazen navigaci. Tříbodová spline zůstává
-spline a nenabízí společný kruhový radius.
-
-Dodatečná vazba `T` na konci otevřené B-spline zachová společný kontaktní bod
-i připojenou úsečku a upraví sousední řídicí bod spline. Koncová tečna se
-vyhodnocuje z přesné derivace koncového ramene, nikoli z obrazově vzorkované
-polyčáry. `C` a `T` zůstávají samostatně zobrazitelné a odstranitelné vazby.
-
-Tečný oblouk v **Lomené čáře** zobrazuje svůj odvozený střed a společný
-počáteční bod. Přiblížení středu k hlavní ose X/Y nabídne `M`; potvrzení uloží
-střed oblouku vazbou na danou osu. Koncový bod oblouku současně používá běžné
-významné body `K` a bodové zarovnání `H/V` vůči existujícím bodům. Přesný `K`
-má přednost před odvozeným přichycením středu k ose a potvrzené `H/V` se uloží
-jako skutečná bodová vazba.
-
-Při přepnutí z oblouku zpět na úsečku v **Lomené čáře** zůstává konec
-oblouku společným bodem. Při aktivní automatické tečnosti pokračování
-nabízí přichycení `C T`, zvýrazní podpůrný oblouk a po potvrzení uloží
-tečnou vazbu. Náhled i potvrzení používají stejnou inferenci. Střed oblouku
-je samostatný bod; na styku úsečky a oblouku se druhý bod nevytváří.
-
-Text je po dobu umístění kreslicí nástroj, takže obdélníkový výběr nesmí
-spotřebovat kliknutí do prázdného View. Levý klik určí kotvu a okamžitě zobrazí
-transientní obrys podle hodnot v interních Vlastnostech. `OK` jej uloží,
-`Cancel` nezmění skicu.
-
-## Automatická kóta
-
-Skicář vystavuje jeden příkaz **Automatická kóta**. První dva potvrzené body
-určují délkovou referenci; úsečka nebo osa předá své dva definiční body. Pohyb
-kurzoru zobrazuje délkovou, vodorovnou nebo svislou variantu podle polohy.
-Kliknutí do prázdného View potvrdí její umístění. Kliknutí na další nabízenou
-úsečku, osu nebo body pokračuje ve stejném příkazu směrem k úhlové kótě.
-
-U bodů na společné svislici automatická volba nabídne svislý rozměr,
-u bodů na společné vodorovné přímce vodorovný rozměr, i když kurzor leží
-za koncem úsečky. Nesmí omylem zvolit nulový kolmý průmět. Odmítnutí
-nadbytečné nebo konfliktní kóty zobrazí zprávu a ponechá rozpracovanou kótu;
-výjimka solveru nesmí ukončit aplikaci.
-
-Stejný postup platí i ve vlastněných skicách sweepů. GUI regrese 2D Sweepu
-kreslí řetěz úsečka–oblouk–úsečka od počátku skici dráhy, přímo přepne na
-kótování první úsečky a potvrdí ji kliknutím do prostoru. Po opětovném
-vstupu ověřuje také kótování úsečky a dvojice jejích bodů a kontroluje
-sdílené konce bez přebytečných bodů.
-
-Úhlová kóta se vytvoří až ze dvou úplných směrů, tedy ze čtyř bodů. Dvě
-úsečky, dvě osy nebo jejich kombinace jsou pouze zkratkou pro stejné čtyři
-body. Druhá reference musí zůstat před potvrzením oranžově zvýrazněná. Po
-získání obou směrů sleduje oblouk i text přesnou polohu kurzoru; poslední klik
-určí výseč, znaménko, poloměr a skutečné uložené umístění kóty. Tažení
-uloženého bodu kóty nesmí samo přepnout na sousední výseč.
-
-Při editaci hodnoty je změna transakční. Solver zachová zvolenou úhlovou
-větev a využije zbývající stupně volnosti navazující geometrie. Typický případ
-je řetěz dvou úseček: první má délku od pevného počátku, mezi úsečkami je úhel
-a vzdálený konec druhé leží na ose. Změna délky pohne společným bodem a solver
-dopočítá nový průsečík druhé úsečky s osou bez změny úhlu. Duplicitní nebo již
-jinou vazbou určená kóta se odmítne a skica zůstane beze změny.
-
-## Regresní scénáře solveru
-
-Tyto případy tvoří průběžnou ověřovací matici; základní varianty jsou již
-pokryté a při rozšíření solveru se nesmějí ztratit:
-
-1. **Úhlové kóty** — dále rozšiřovat regresní kombinace pro řídicí, zamknutou
-   a referenční variantu, záporné hodnoty a odstranění ve složitějších
-   zavazbených řetězcích.
-2. **Navazující křivky** — učit mobilitu řetězců úsečka–oblouk,
-   oblouk–úsečka, eliptický oblouk–úsečka a úsečka–B-spline se samostatnými
-   kombinacemi `C`, `T`, `H/V`, pevného bodu a řídicí kóty. Každý tah musí mít
-   vratný test `A -> B -> A`; u volného konce úsečky tečné ke konci kruhového
-   oblouku je dopředný tah ověřený, ale návrat po stejné větvi zatím může
-   klást odpor a zůstává otevřenou chybou. Přímé tažení samotného konce oblouku
-   funguje správně a není součástí této chyby.
-3. **Středy na osách** — bodová vazba středu kružnice/oblouku na hlavní osu,
-   obě pořadí výběru osy a bodu, rigidní přenos konců oblouku a sloučení středu
-   s koncem úsečky. Solver musí pohyb propagovat do volné větve a nesmí
-   odtáhnout aktivní bod.
-4. **Křivkové parametry** — současně měnit poloměr/natočení kruhových a
-   eliptických objektů, velikost a natočení mnohoúhelníku a koncové rameno
-   B-spline bez porušení kontaktního bodu.
-5. Každý případ ověřit prakticky v C++ aplikaci a převést jeho posloupnost
-   kliknutí, zobrazené inference a persistované vazby na regresní test.
-
-Při zadávání druhého bodu úsečky nebo konstrukční čáry se v omezené obrazové
-toleranci nabízejí také délky existujících úseček. Kandidát přichytí nový
-konec na stejnou délku, zobrazí `=`, oranžově zvýrazní referenční úsečku a po
-potvrzení uloží skutečnou vazbu stejné délky. Tato nabídka nepřebíjí `C`,
-bodové `H/V` ani povinnou tečnou návaznost.
-
-Univerzální kóta přijímá symetrickou délkovou kótu posloupností **bod – osa –
-bod** (stejně také **osa – bod – bod**). Už po výběru bodu a osy zobrazuje
-editovatelný náhled kolmé vzdálenosti. Třetí výběr stejného bodu vytvoří
-průměrovou symetrickou kótu přes osu; výběr jiného bodu řídí oba body na
-opačných stranách osy polovinou celkové hodnoty. Osa může být hlavní osa skici
-nebo konstrukční čára. Symetrické bodové, lineární a úhlové kóty jsou řídicí
-rovnice solveru, nikoli pouze grafické anotace, a proto se podílejí na stupních
-volnosti, redundanci, editaci hodnoty i tažení geometrie.
-
-Pokud je kótovaný bod současně průsečíkem s nosnou úsečkou, solver přenese
-změnu do této úsečky a teprve potom dopočítá ostatní vazby. Jestliže koncový bod
-šikmé stěny řídí symetrická délková kóta a stěnu současně řídí symetrický úhel,
-zůstává tento bod kotvou a natáčí se volný konec stěny. Tím se obě řídicí kóty
-navzájem neruší ani u profilu určeného pro rotaci.
-
-Stejná délka se nabízí také při vodorovném nebo svislém zadávání. Náhled v
-takovém případě ukáže současně `=` a `H/V` a po potvrzení uloží obě nezávislé
-podmínky.
-
-Druhý bod nové úsečky lze magneticky nabídnout jako zrcadlo prvního bodu vůči
-konstrukční čáře. Náhled zvýrazní osu a ukáže `S` společně s `⊥`; je-li
-spojnice dvojice vodorovná nebo svislá, ukáže místo toho `S + H/V`. Potvrzením
-se uloží skutečná symetrická vazba obou bodů ke konstrukční ose. Samostatná
-redundantní kolmost ani `H/V` se neukládá, protože je již důsledkem symetrie.
-
-## Značky a výběr
-
-Značka vazby patří řízenému prvku. Přejetí zvýrazní vztah oranžově, výběr
-modře. Výběr značky musí umožnit dohledat všechny účastníky. Odstranění značky
-odstraní pouze vazbu. Základní značky jsou `H`, `V`, `C`, `K`, `M`, `T`, `F`,
-`=`, `S`, `∥` a `⊥`. `C` značí libovolnou polohu bodu na geometrii, `K` pouze
-přesný generovaný charakteristický bod. Samotný typ „křivka“ nikdy není
-důvodem změnit `C` na `K`.
-
-Počet současně zobrazených náhledových značek není pevně omezen. Bodové a
-vztahové značky u stejného bodu používají společné pořadí a vodorovné sloty,
-aby se kombinace jako `C + H`, `C + T`, `= + H` nebo `S + V` nekreslily přes
-sebe.
-
-Náhledové značky u stejného bodu sdílejí také jednu svislou základní linku.
-Značka stejné délky `=` patří geometrii, proto se při zadávání vždy kreslí
-uprostřed nové úsečky; případná současná značka `H/V` zůstává u druhého bodu.
-
-## Konflikty a výjimky
-
-Výjimka z pořadí reference–řízený prvek je přípustná pouze tehdy, pokud ji
-vyžaduje gesto nástroje nebo již plně zavazbený účastník. Nástroj musí výjimku
-oznámit nebo jasně ukázat v náhledu; nesmí pořadí obrátit potichu. Dlouhodobým
-cílem je ukládat u vztahů explicitní role reference a řízeného prvku a použít
-je při řešení i při zobrazení závislostí.
-
-## Uzavření spline, výběr účastníků a posuv po ose (2026-09-06)
-
-Při zadávání spline lze poslední bod přichytit k prvnímu. Uzavření sdílí jednu
-identitu koncového bodu. Příkaz **Tečná** podporuje dvě spline se společným
-koncovým bodem vytvořeným vazbou C i výběr téže spline dvakrát pro tečnost
-v jejím společném začátku a konci. Nejde o periodickou 3D spline; tato změna
-patří výhradně skicáři. Samouzavření s tečností potřebuje dostatek řídicích
-bodů pro nezávislá koncová ramena. Náhled nepřidává druhý shodný bod, pokud
-kurzor zůstává na právě potvrzeném bodě, například na ose.
-
-Výběr kóty nebo značky vazby ve View či Tree zvýrazňuje její související
-geometrii. Účastníci pocházejí z uložených referencí skici. Délková kóta
-vytvořená kliknutím na běžnou úsečku používá její koncové body A a B.
-Kóta viditelně zkrácené úsečky s rádiusem zachovává také referenci úsečky,
-aby měřila skutečné tečné konce.
-
-Zamčená délka spojnice mezi středem úsečky a bodem na ose nefixuje celý
-bod na ose. Při tažení volného konce první úsečky se střed přepočítává a
-konec spojnice může klouzat po ose. Solver pro délkovou podmínku hledá
-průsečík podpůrné přímky s kružnicí danou délkou a zvolí bližší řešení.
-Nedosažitelná poloha se odmítne bez částečného zápisu. Zamčená délka se
-nemění; odemčené kóty při tažení sledují dosaženou geometrii.
-
-Regresní test `zima_cpp_sketcher_contract_tests` obsahuje konstrukci této
-soustavy i uloženou skicu z hlášeného `02.prtz` ve fixture
-`cpp/tests/fixtures/midpoint_axis_locked_rod.json`. Ověřuje několik dosažitelných
-tahů, zachování vazeb a zamčené délky i odmítnutí nedosažitelné polohy.
-
-### Stav ověření
-
-Po opravě prošly testy skicáře, obecné dokumentové testy, testy 3D křivky/Sweepu
-a kontrola aplikace `--verify-startup`. Samostatný test oken naposledy skončil
-na kontrole odloženého otevření katalogu závitů (`Deferred thread catalog did
-not open after the pointer gesture`); tento problém není touto opravou vyřešen.
-Dříve hlášené dočasné zablokování výběru kóty, které uvolnil nový příkaz Kóta,
-nemá zatím potvrzenou příčinu a nelze je považovat za opravené.
-
-### Kruhové externí reference
-
-Vazby Stejné (poloměr) a Soustřednost přijímají také externí kružnici nebo
-kruhový oblouk. Zdrojem může být hrana nebo jediný kruhový obrys/řez externí
-plochy. Externí geometrie zůstává referencí; mění se vlastní kružnice či
-oblouk skici. Stejné sjednotí poloměr, Soustřednost sjednotí střed.
-
-Rozpoznání středu a poloměru používá uložené body reference bez OCCT a
-ověřuje všechny body; není závislé na rovnoměrném vzorkování. Elipsy,
-neplatné reference a více obrysů jedné plochy se nepovažují za jedinou
-kružnici. Plocha ležící v rovině skici poskytuje svůj konečný obrys,
-nekoplanární plocha zachovává dosavadní průsečnici/řez. Uložení a opětovné
-otevření zachová vazby i identitu zdroje; změna reference aktualizuje vazbu.
-
-Skici 2D Sweepu a Helixu lze otevřít ze stromu i při nedořešené předchozí
-geometrii. Pokud nelze aktuálně odvodit jejich rámec, editor použije uloženou
-rovinu a uvede chybějící závislost ve stavovém řádku. Neprovádí při otevření
-OCCT výpočet ani nepotvrzuje neplatný solid; Cancel zachová původní historii.
-Regrese kontroluje všechny dvě, respektive tři skici také bez vypočteného
-předchozího tělesa.
-
-### Automatická tečnost a společná tečna kružnic (2026-09-07)
-
-Při kreslení společné tečny úsečkou mezi dvěma kružnicemi se na obou
-koncích ukládá C + T (bod na kružnici a tečnost). Významné body slouží
-k výběru větve; kontakt se nezamyká do kvadrantu další vazbou K.
-Náhled ukazuje C + T u obou kontaktů. Pokud jiná automatická tečná vazba
-už vyplývá z existujících vazeb, její nadbytečnost nezruší vytvoření úsečky.
-Konfliktní nebo neplatná vazba se tímto pravidlem neignoruje. Ručně zadávaná
-vazba nadále hlásí nadbytečnost.
-
-Společná tečna dvou kružnic používá přesné geometrické kandidáty. Volbu větve
-určují polohy obou kliknutí. Platí to také pro stejně velké kružnice s vodorovně
-zarovnanými středy a pro kružnice s pevně danou polohou a poloměrem.
-
-### Kotevní bod textu
-
-Text razítka zvýrazňuje při hoveru oranžově a při potvrzení azurově také svůj
-kotevní bod. Bod zůstává samostatným bodem skici; zvýraznění nepřidává druhý
-objekt do výběru. Svislé zarovnání Dole / Uprostřed / Nahoře se vztahuje ke
-skutečnému rozsahu znaků, včetně diakritiky a více řádků. Při otevření šablony
-se obrysy textů znovu odvodí z jejich hodnot, kotev a nastavení zarovnání.
-
-### Tažení při zamčených kótách
-
-Při tažení se kurzor promítne do povoleného směru, pokud polohu vůči počátku,
-pevné referenci nebo ose určuje zamčená vodorovná/svislá vzdálenost. Zamčená
-šířka obdélníku tedy nebrání změně výšky a zamčená výška nebrání změně šířky.
-Totéž platí pro souřadnicové kóty X/Y, záporné souřadnice a přenos přes vazby
-H/V a koincidenci. Odemčené řídicí kóty se přizpůsobují výsledku tažení;
-zamčené hodnoty zůstávají pevné. Úplně zamčený bod se neposune.
-
-## Konstrukční geometrie
-
-Úsečky, kružnice, kruhové i eliptické oblouky, elipsy a B-spline lze přes
-kontextové menu ve View i stromu přepnout příkazem **Převést na pomocnou
-geometrii** a vrátit příkazem **Převést na obrys profilu**. Všechny pomocné
-křivky se zobrazují čerchovaně, také při hoveru a potvrzeném výběru.
-
-Přepnutí zachovává identitu, řídicí body, rozměry, rozsah i uložené vazby
-nebo kóty; mění roli geometrie. Pomocná geometrie se nepoužívá jako profil
-pro vytvoření tělesa. Úsečka zůstane konečná a oblouk si ponechá své konce.
-Nekonečná osa je samostatná možnost: čerchování z úsečky osu neudělá.
-
-### Textové šablony a kóty ve vlastnostech (2026-09-09)
-
-Přepínač **Převrátit vodorovně** popisuje viditelné zrcadlení v aktuálních
-souřadnicích skici. Normální text v razítku či rámečku jej má vypnutý stejně
-jako text běžné skici. Uložená orientace a kontury existujících šablon se
-nemění; odlišný směr os šablony se převádí pouze při čtení a potvrzení dialogu.
-
-Přímá změna kóty dvojklikem ve Sketcheru upravuje aktuální pracovní skicu,
-včetně profilu a dráhy 2D tažení, šroubovice, Sweep/Loftu a skici řezu.
-Zámek kóty nadále chrání tažení geometrie; úmyslná změna číselné hodnoty
-zůstává možná. Výpočet solidu patří až potvrzení celého kontejneru.
-Vlastnosti kontejneru zobrazují i kóty jeho vlastních skic. Dvojklik na kótu
-umožňuje změnit její hodnotu přímo při otevřených vlastnostech Skici,
-Vytažení, Rotace, 2D tažení, šroubovice a Sweep/Loftu. Náhled používá
-rozpracovanou skicu, včetně opakovaných změn a návratu přes tlačítko Skica.
-**OK** potvrdí celý kontejner a provede jeho výpočet; **Zrušit** rozpracované
-změny zahodí. Kóty uložených profilů a drah jsou dostupné také při zobrazení
-parametrů kontejneru ve View.
-
-Při změně poloměru oblouku solver respektuje i tečnou úsečku, jejíž druhý
-konec patří dalšímu oblouku. Tečný bod se může posunout po své kružnici;
-při jeho fixaci se hledá průsečík tečny s kružnicí protějšího oblouku.
-Konce zůstávají na svých obloucích, uložené vazby se nemění a neřešitelná
-změna se odmítne bez zásahu do původní skici. Zamčená kóta nadále dovoluje
-úmyslnou číselnou editaci.
-
-### První rovina a pracovní profil (2026-09-10)
-
-První rovinná polohová reference Vytažení a Rotace určuje skicovou rovinu.
-Další reference doplňují umístění a orientaci; nepřebírají roli první roviny.
-Front/Back, otočení a odsazení profilu se musí ihned shodovat v náhledu,
-kótách profilu, editoru skici a výsledném tělese.
-
-Nový prvek se registruje i v dočasné historii náhledu aktivního tělesa,
-aby jeho vlastní skica prošla běžným řešením referencí. Pracovní kopie
-skici přebírá vyřešenou rovinu, počátek a osy téhož náhledu; její lokální
-2D geometrie se při změně orientace nepřepisuje.
-
-Vstup tlačítkem SKETCH a návrat do vlastností zachovávají celý rozpracovaný
-prvek, včetně referencí, orientace, odsazení a délky či úhlu. To platí i při
-editaci již vypočteného prvku. **OK** potvrdí aktuální návrh a vypočítá
-těleso; **Zrušit** u editovaného prvku zachová původní skicu a parametry.
-
-Regresní test 'zima_cpp_profile_frame_ui_contract' kontroluje první roviny
-XY/XZ/YZ, osm kombinací stran a otočení, odsazení, návraty ze skicáře,
-storno i shodu uložené skici a mezí vypočteného tělesa po OK.
-Audit dále ověřuje první rovinu samostatné Skici, základní kružnice
-šroubovice a dráhy 2D tažení. U 2D tažení první reference předvyplní rovinu
-dráhy, kterou lze následně samostatně změnit. Průřezy tažení a Sweep/Loftu
-zůstávají odvozené z tečny dráhy ve zvoleném bodě.
-
-Oprava používá existující řešení umístění kontejneru beze změny jeho pravidel.
-
-### Okamžitý náhled ořezu a vazby (2026-09-09)
-
-Každé kliknutí nebo dokončené tažení nástroje Ořez se projeví ihned ve View
-u samostatné skici, rozpracovaného profilu, šablony i vnořeného dílu.
-Vykreslení a výběr používají tutéž rozpracovanou geometrii. Escape vrátí stav
-před příkazem; dokončení skici zahrnuje i právě rozpracovaný ořez.
-
-Ořez přenáší tečnost na část křivky, která obsahuje původní bod kontaktu,
-i když se v jednom tahu rozdělí oba její vlastníci. Zachované koncové body
-a středy si ponechávají svá ID a bodové vazby. Pokud se kontakt ořízne pryč,
-příslušná tečnost zanikne. Spojení, které nově představuje jeden společný
-koncový bod, zůstává v topologii bez duplicitní rovnice incidence.
-
-Ořez zpracovává také napojení úsečky přes kvadrantový bod **K** kružnice
-nebo elipsy. Na zachovaném oblouku převede toto napojení na **C**, případně
-na jeden společný koncový bod; neukládá odkaz na již odstraněnou kružnici.
-Posun konce oblouku nepřepisuje samostatně bod dalšího oblouku připojeného
-úsečkou. Jeho pohyb dopočítají vazby. U stejných poloměrů řídí při tažení
-změnu uchopený oblouk bez ohledu na pořadí původního výběru pro rovnost.
-Tečnost v existujícím spoji C/K lze přidat i po změně směru úsečky;
-kontakt určuje uložený spoj, nikoli tečný bod k dosavadnímu směru úsečky.
-
-U dvou stejně velkých oblouků spojených společnými tečnami respektuje tah
-kontaktu vázanou spojnici středů. U pevného středu mění radiální složka tahu
-poloměr; u středu posuvného po spojnici mění podélná složka také jeho polohu.
-Drobná odchylka kurzoru do zakázaného směru nezablokuje povolený pohyb.
-Řídicí kóta poloměru či průměru může po vytvoření rovnosti řídit kteroukoli
-její stranu. Při přidání nové rovnosti nadále určuje výchozí poloměr první
-vybraná křivka; rozporná kóta druhé křivky se odmítne transakčně.
-
-### Směrové kóty bodů na osách (2026-09-09)
-
-Bod vázaný na přímku zůstává pohyblivý podél jejího směru. Při změně X/Y kóty
-se tato vazba nepovažuje za fixaci obou souřadnic. To dovoluje změnit rozteč
-středů profilu s oblouky, tečnými rameny a soustřednými otvory i tehdy,
-když jeden střed leží v počátku a druhý na ose X. Poloměry, rovnosti a
-tečné vazby se zachovají; test pokrývá původní rozteč 19,448732 mm a její
-opakované změny na 12, 20 a 35 mm. Tečné kontakty si ponechávají vlastní
-pravidla ukotvení při editaci délky úsečky.
+# ZIMA-CAD Sketcher
+
+This document defines binding interaction, snapping, constraint and degree-of-
+freedom behavior. `SKETCH_MODEL.md` describes data/equations,
+`SKETCHER-TERMINOLOGY.md` terminology and `UZIVATELSKY_MANUAL.md` ordinary usage.
+
+## Tool confirmation
+
+Geometry entry uses one interaction contract. LMB confirms all definition
+points, including the point completing an ordinary object. Short MMB never
+creates/confirms geometry; it is reserved for navigation. LMB places a text
+anchor in the View. Quick MMB double-click finishes the active tool and returns
+to **Select**. A multipoint B-spline saves only already LMB-confirmed points;
+the double-click cursor position is never added as another point.
+
+`Enter` inside a numeric/text editor confirms only its value. It must not also
+submit geometry, close Properties or invoke **OK**.
+
+After completing geometry, a constraint, dimension or other repeatable operation,
+the selected tool remains active for another input. It does not automatically
+switch to **Select**. Finish with quick MMB double-click, explicit **Select** or
+canceling the associated dialog.
+
+## Shared cancellation and Escape
+
+One central stateful **Cancel** action handles `Esc` and a future toolbar button.
+Tools must not implement incompatible Escape variants. It proceeds from the
+smallest pending state to the whole tool:
+
+1. First `Esc` cancels the pending point, transient geometry or active candidate,
+   retaining a repeatable tool.
+2. With nothing pending, next `Esc` ends the tool and returns to **Select**.
+3. In **Select**, `Esc` clears hover and confirmed selection.
+4. `Esc` neither closes Properties nor discards its changes; use the dialog's
+   explicit **Cancel**.
+
+A Cancel button must call the same state action. Mouse/keyboard/button handling
+must share command logic. The earlier design also proposed one central Confirm
+route for short MMB and Enter; the current Tool confirmation contract above
+restricts them to navigation and editor-value confirmation respectively.
+
+## Initial scale and text
+
+An ordinary model Sketch initially zooms using the current monitor's logical
+DPI, aiming for roughly 1 model mm per physical screen mm. Zoom remains
+user-controlled and is not calibrated measurement. `.frmz` frames and `.tblz`
+title blocks instead open fitted to the whole sheet.
+
+Confirming a text anchor opens shared internal **Sketch Properties**. Until
+**OK**/**Cancel**, the View cannot accept another text point. The multiline
+editor shows about five lines and preserves line breaks. Creation/editing share
+the same dialog and interaction. Default rotation is `0°`, with readable
+left-to-right outlines and no implicit mirroring. Only explicit **Flip
+horizontally** mirrors the text.
+
+**Text mode** offers:
+
+- **Ordinary text**: filled characters, retained as editable text; Protrusion,
+  Revolve and Sweeps ignore it when constructing profiles.
+- **Modeling geometry**: character outlines become profiles; closed outlines
+  form solids while inner letter contours remain holes.
+
+Switching mode does not explode text into lines or lose content, position or
+alignment. Both modes share creation/editing, OK/Cancel and MMB double-click
+confirmation. New title-block/frame text defaults to ordinary mode; model
+Sketch text defaults to geometry. Existing title-block IDs such as `field1:text`
+remain selectable/editable like new text.
+
+## Core principle
+
+Geometry entry progressively removes possibilities (degrees of freedom). Each
+confirmed input constrains the next without discarding earlier confirmed
+conditions unless an explicit conflict is reported.
+
+For multipoint geometry:
+
+1. The first confirmed point anchors the initial conditions.
+2. The current point follows the cursor subject to confirmed points, inference
+   and snapping.
+3. Confirmation saves the selected inference as a real constraint.
+4. Without inference, the point is stored free.
+
+A Sketch position has one internal point. Confirming `C` at an existing point
+reuses its stable ID, rather than creating a duplicate point and constraint.
+Connected segments share one actual endpoint. `C` at this stage is preview
+information; merging native points leaves no independent `C` constraint/marker.
+Persistent `C` means a point lies on other geometry.
+
+A reversible shared-corner radius is created by selecting two connected
+segments and dragging their common point. This exact gesture takes precedence
+over ordinary point dragging. The initial implementation moved only the directly
+grabbed point within solver limits; later group translation is defined below.
+The radius dimension drives the Sketch and is editable by double-click. Like
+other Sketch dimensions it is hidden in ordinary result View, while the arc
+remains part of the profile.
+
+For drawn segments/construction lines, automatic direction inference is stored
+as point-level `H/V` on the second point, not another whole-line constraint.
+If both ends are already coincident with the origin or constrained to the same
+axis, `C C` determines direction and redundant `H/V` is omitted. The active
+second input point is always orange.
+
+Rectangles use the same representation: edges have no geometry-level `H/V`.
+Point constraints between consecutive corners store direction. First corner is
+the anchor, subsequent corners are driven; the last closes against both previous
+and first corners. During entry, orange circles show the emerging horizontal/
+vertical arm ends from the first corner. Confirm size with LMB under the current
+Tool confirmation contract; earlier descriptions used MMB.
+
+After the first corner, RMB in empty space enters axis selection. RMB over
+geometry retains normal candidate cycling. A construction line hovers orange;
+LMB selects it as a blue axis. Cursor movement determines rectangle length along
+that axis; LMB confirms under the shared contract. First corner remains the
+reference; its counterpart and both far corners are driven. Persist two symmetry
+constraints and one necessary longitudinal parallel constraint. The second
+parallel and transverse perpendicular conditions follow from symmetry and are
+not duplicated.
+
+Likewise, omit `H/V` when both new segment/construction-line points have `C` on
+the same horizontal/vertical segment: their support already fixes direction.
+
+For constraints created from existing entities:
+
+1. First selected entity is the reference.
+2. Second is driven and adapts on creation.
+3. Any exception must be specified by the tool, never arise accidentally from
+   solver behavior.
+
+After creation a constraint is a mathematical relationship. If a later dimension/
+constraint moves the reference, its driven entity follows. Underconstrained
+Sketches use the solution nearest the last valid state.
+
+## Interactive input priorities
+
+Evaluate candidates only inside screen tolerance. Higher priority wins; cursor
+distance resolves candidates of equal priority.
+
+1. **Coincidence**: existing point or local Sketch origin.
+2. **Point on geometry**: axis, segment, arc, circle or external reference.
+3. **Point alignment**: same Y (`H`) or X (`V`) as an existing point.
+4. **Direction from previous point**: horizontal/vertical new geometry.
+5. **Tool geometry inference**: tangent, perpendicular, parallel, intersection,
+   midpoint or curve characteristic point.
+6. **Free placement**.
+
+A tool's mandatory continuity may locally change priority. For example, tangent
+continuation from a circle/arc anchors the confirmed contact and constrains the
+second point before ordinary H/V inference. The active candidate must be visible
+in preview; hidden overrides of intent are forbidden.
+
+RMB cycles multiple valid objects/snaps under the cursor. Tool-specific RMB
+behavior runs only when there is no next candidate to select.
+
+The same cycle is intended to include valid inference/constraint alternatives:
+free point, coincidence, point-on-geometry, H/V, tangent, perpendicular or
+parallel. Only mathematically valid, nonconflicting alternatives participate.
+RMB changes the orange preview; LMB confirms exactly it and persists its explicit
+constraint. Automation may offer/order candidates but cannot create a different
+hidden constraint after confirmation. Short MMB follows the navigation contract.
+
+## Point degrees of freedom
+
+A free point has two movement freedoms: X and Y.
+
+- Horizontal point alignment sets driven Y from reference Y, removing one freedom.
+- Vertical alignment sets driven X from reference X, removing one freedom.
+- Coincidence fixes both X/Y, removing both.
+- Point-on-line/curve usually leaves one motion parameter.
+- A coordinate dimension fixes its corresponding coordinate.
+- Another independent condition can fix the last freedom.
+
+Do not add redundant constraints twice. Reject conflicting new constraints with
+a clear message. Never silently remove an older constraint to resolve a new conflict.
+
+## Horizontal and vertical constraints
+
+One command supports geometry and points.
+
+### Segment or construction line
+
+Select one entity. Its first defining point stays fixed during creation while
+the second aligns: `H` gives equal Y; `V` equal X. The marker is at geometry midpoint.
+
+### Two points
+
+Select reference point, then driven point. `H` copies reference Y, `V` copies X.
+The marker appears at the second/driven point. Selecting it highlights both
+points; deleting the constraint deletes neither point.
+
+Selecting a geometry-level `H/V` marker highlights its defining endpoints, not
+the whole segment. Persistent `C` highlights point and support geometry; merged
+native points have no remaining `C`. `T` highlights both tangent geometries.
+Fixed points use `F`; `K` is reserved for an exact generated curve characteristic
+point. A point-level `H/V` marker highlights only its reference/driven points.
+During drawing, `C` with point `H/V` takes precedence over automatic perpendicular/
+parallel inference. Preview `H/V` appears at the current second point. Tangent
+segments meeting circles/arcs/ellipses/elliptic arcs show `C + T` at ordinary
+contacts; only an exact confirmed quadrant contact uses `K + T`.
+
+Selecting point-on-axis `C` highlights point and axis in normal cyan. Other
+reference supports use the same rule. When drawing perpendicular from existing
+geometry, preview `⊥` belongs to the first confirmed contact. Snapping the second
+point must not move that marker to the new segment's end.
+
+## Other constraints
+
+- **Coincident**: merges two native points into one stable topology point without
+  stored `C`. After a point, choosing an axis/segment/curve creates persistent
+  point-on-geometry `C`. Main X/Y axes may also be selected first as reference,
+  then the driven point.
+- **Parallel**: first line is reference; second rotates parallel.
+- **Perpendicular**: first line is reference; second rotates perpendicular.
+- **Equal**: first length/radius is reference; second adopts it. `=` appears only
+  at the driven child; reference highlighting appears when selecting the relation.
+- **Midpoint**: driven point first, reference segment second. This explicit
+  exception lets the second entity's type determine the operation.
+- **Symmetric**: two points, then symmetry axis; the points form one driven pair.
+- **Tangent**: ordering/fixed contact depend on the supported curve pair and are
+  shown with `T` in preview.
+- **Concentric**: first circle/arc is reference; second adopts its center.
+
+## Common tangent segment
+
+**Common Tangent** creates geometry, not merely an additional constraint. It
+accepts circles, circular arcs, ellipses, elliptic arcs and B-splines. Segments,
+points, axes, external references and other Sketches' curves are not offered.
+
+1. Click the first curve near the desired contact.
+2. Click the second curve near its desired contact.
+3. Both click locations select the initial solution branch (upper/lower,
+   left/right, external/internal tangent).
+4. The solver creates a normal profile segment with both endpoints on their
+   curves and tangency at both ends.
+
+The segment, two contact points and four relationships remain in the persisted
+ZIMA Sketch and solve again after source changes. It is not an unassociated
+calculated line. Calculation uses only analytic/persisted Sketch geometry;
+hover, selection and creation call no OCCT.
+
+Arcs/open B-splines restrict contact to their parameter domains. A missing,
+degenerate or conflicting local tangent rejects the entire operation without
+extra points, segments or constraints. First click is transient; Escape cancels
+it. The second valid click saves everything in one reversible revision.
+
+## Selection, dragging and transient display
+
+Rectangle selection stores one set of points, lines, curves and text. Tree only
+mirrors that set and must not shrink it while selecting individual rows.
+`Delete` removes the full selection in one revision, safely removing orphan
+points and related constraints.
+
+Point/dimension dragging operates on a transient document copy. Preview shows
+only the active Sketch and the same passive model context as ordinary Sketcher;
+other Part Sketches must not temporarily appear while the button is held.
+
+Point dragging respects geometric meaning. Circle/arc centers translate the
+curve without changing radius. An arc endpoint is a radial handle: distance
+changes radius, direction changes arc range. A locked radius permits only
+angular endpoint motion; an unlocked driving radius adopts the dragged value.
+
+The same rigid center translation applies during constraint creation/topology
+merging, not just dragging. Moving a center to an axis/segment end also moves
+arc endpoints and dependent control/contact points. A fixed/externally anchored
+dependency rejects the operation transactionally.
+
+With multiple selected points/geometries, starting a drag on a selected point
+translates the entire selection from its original state by one `ΔX, ΔY`.
+Internal lengths, angles, radii and relationships remain. The grabbed point is
+only a handle. Fixed/externally driven points and constraints into unselected
+anchored geometry restrict movement; they must never be silently detached.
+
+## Multistep curves
+
+Arc, ellipse, elliptic arc and both spline tools keep all previously confirmed
+input points visible through subsequent steps. Ordinary geometry snapping offers
+`C`; exact quadrant points of circles/arcs/ellipses offer `K`. Confirmed offers
+persist as real constraints; preview cannot show a relationship that disappears
+on completion.
+
+Two tools share the same stable point model. **B-spline – control points** uses
+confirmed points as control vertices; **Interpolating spline** passes through
+all confirmed points. First confirmation shows a point, second a polyline
+preview, third onward the selected spline's actual preview. Both require at
+least three points; quick MMB double-click finishes at the last confirmed point.
+Short MMB remains navigation. A three-point spline remains a spline and does
+not offer a shared circular radius.
+
+Adding endpoint `T` to an open B-spline preserves the contact point and attached
+segment while adjusting the neighboring spline control point. Tangency uses
+the exact endpoint derivative, not a sampled display polyline. `C` and `T`
+remain separately visible and removable.
+
+A tangent arc in **Polyline** displays its derived center and shared start.
+Bringing its center near main X/Y offers `M`; confirmation constrains the center
+to that axis. The endpoint also uses ordinary `K` and point `H/V` alignment.
+Exact `K` takes precedence over derived center-to-axis snapping; confirmed
+`H/V` persists as a real point constraint.
+
+Switching Polyline from arc back to segment retains the shared arc endpoint.
+With automatic tangency active, continuation offers `C T`, highlights the
+supporting arc and saves tangency on confirmation. Preview/confirmation share
+inference. The arc center is separate; no duplicate point is created at the
+segment/arc junction.
+
+Text placement is a drawing tool, so rectangle selection must not consume empty
+View clicks. LMB sets the anchor and immediately shows a transient outline from
+internal Properties. OK saves; Cancel leaves the Sketch unchanged.
+
+## Automatic dimension
+
+One **Automatic Dimension** command uses the first two confirmed points as a
+length reference; a segment/axis supplies its two defining points. Cursor
+position offers aligned, horizontal or vertical variants. Clicking empty View
+confirms placement; selecting another offered segment, axis or points continues
+the same command toward an angular dimension.
+
+Vertically aligned points offer vertical distance and horizontally aligned
+points offer horizontal distance, even beyond segment endpoints. Never choose
+a zero perpendicular projection accidentally. Redundant/conflicting dimension
+rejection displays a message and retains pending input; solver exceptions must
+not terminate the application.
+
+Owned Sweep Sketches use the same workflow. The 2D Sweep GUI regression draws
+segment–arc–segment from the path origin, switches directly to dimensioning the
+first segment and confirms in empty space. Reentry also verifies dimensioning
+a segment and its point pair, with shared endpoints and no extra points.
+
+Angular dimensions require two complete directions (four points). Two segments,
+two axes or their combination are shortcuts for those same points. The second
+reference stays orange until confirmation. Once both directions exist, arc and
+text follow the cursor; the final click sets sector, sign, radius and actual
+stored placement. Dragging a saved dimension point must not switch sector.
+
+Value edits are transactional. The solver retains the angular branch and uses
+remaining freedoms in connected geometry. Example: two segments, first length
+from a fixed origin, an angle between them, and the second's far endpoint on an
+axis. Changing the first length moves the common point and solves the second
+segment's new axis intersection without changing angle. Duplicate/already-driven
+dimensions are rejected without changing the Sketch.
+
+## Solver regression scenarios
+
+These form an ongoing verification matrix. Basic variants are covered and must
+remain covered as the solver expands:
+
+1. **Angular dimensions**: extend driving, locked/reference, negative-value and
+   deletion cases in more complex constrained chains.
+2. **Connected curves**: cover segment–arc, arc–segment, elliptic arc–segment and
+   segment–B-spline mobility with separate combinations of `C`, `T`, `H/V`, fixed
+   point and driving dimension. Each drag needs an `A -> B -> A` test. Forward
+   dragging a free segment endpoint tangent to a circular-arc endpoint is
+   verified, but return along the same branch may still resist and remains an
+   open issue. Direct arc-endpoint dragging works and is not that issue.
+3. **Centers on axes**: circle/arc center on main axis, both axis/point selection
+   orders, rigid arc endpoint transport and center merge with segment endpoint.
+   Propagate into the free branch without pulling the active point away.
+4. **Curve parameters**: simultaneous circular/elliptic radius and rotation,
+   polygon size/rotation and B-spline end-arm edits without losing contact.
+5. Exercise each scenario in C++ GUI and turn click order, displayed inference
+   and persisted constraints into a regression.
+
+During second-point entry for segments/construction lines, existing segment
+lengths are offered within screen tolerance. A candidate snaps to equal length,
+shows `=`, highlights the reference segment orange and saves a real equal-length
+constraint. It does not override `C`, point `H/V` or mandatory tangent continuity.
+
+Universal Dimension accepts symmetric length via **point–axis–point** or
+**axis–point–point**. After point+axis, an editable perpendicular-distance preview
+appears. Selecting the same point third creates a diametral symmetric dimension
+across the axis; another point drives both on opposite sides by half the total
+value. The axis may be a base Sketch axis or construction line. Symmetric point,
+line and angular dimensions are driving solver equations, participating in
+freedom, redundancy, numeric edits and geometry dragging, not just annotations.
+
+If the dimensioned point is also an intersection on a supporting segment, the
+solver first propagates the change into that segment, then solves other
+constraints. If symmetric length drives a slanted wall endpoint and symmetric
+angle drives the wall, the endpoint remains anchored while the free wall end
+rotates. Both dimensions therefore coexist in a Revolve profile.
+
+Equal length is also offered during H/V entry; preview shows `=` and `H/V` and
+confirmation saves both independent conditions.
+
+A new segment's second point may snap as the mirror of its first across a
+construction line. Preview highlights the axis and shows `S` with `⊥`, or
+`S + H/V` when their connector is horizontal/vertical. Confirmation saves the
+actual symmetric point-pair constraint. Separate perpendicular/H/V constraints
+are omitted as consequences of symmetry.
+
+## Markers and selection
+
+A constraint marker belongs to its driven entity. Hover highlights orange;
+selection uses the normal cyan/blue selection state. Marker selection exposes
+all participants. Deleting a marker removes only its constraint. Basic markers:
+`H`, `V`, `C`, `K`, `M`, `T`, `F`, `=`, `S`, `∥`, `⊥`. `C` denotes arbitrary
+point-on-geometry position; `K` only an exact generated characteristic point.
+Curve type alone never turns `C` into `K`.
+
+There is no fixed cap on simultaneous preview markers. Point/relation markers
+at one point share ordering, horizontal slots and a vertical baseline, avoiding
+overlap for `C + H`, `C + T`, `= + H` or `S + V`. Equal-length `=` belongs to
+geometry and appears at new-segment midpoint; concurrent `H/V` stays at the
+second point.
+
+## Conflicts and exceptions
+
+Reference–driven ordering exceptions require a tool gesture or an already fully
+constrained participant. The tool must announce or clearly preview them; silent
+reversal is forbidden. The long-term aim is explicit persisted reference/driven
+roles for solving and dependency presentation.
+
+## Spline closure, participants and axis sliding (2026-09-06)
+
+During spline entry the final point can snap to the first, sharing one endpoint
+identity. **Tangent** supports two splines sharing an endpoint created through
+C, or selecting one spline twice for tangency at its shared start/end. This is
+Sketcher-only, not periodic 3D spline functionality. Tangent self-closure needs
+enough control points for independent end arms. Preview does not add another
+coincident point when the cursor remains on the just-confirmed point (e.g. an axis).
+
+Selecting a dimension/constraint marker in View or Tree highlights participants
+from stored Sketch references. A length dimension created from an ordinary
+segment uses endpoints A/B. A visibly fillet-shortened segment also retains its
+segment reference to measure actual tangent ends.
+
+A locked connector length between a segment midpoint and a point on an axis does
+not fully fix the axis point. Dragging the first segment's free end recomputes
+the midpoint; the connector endpoint can slide along the axis. The length solver
+intersects the supporting line with the circle defined by the length and chooses
+the nearer solution. Unreachable positions are rejected atomically. Locked
+lengths stay fixed; unlocked dimensions follow achieved geometry.
+
+`zima_cpp_sketcher_contract_tests` constructs this mechanism and loads the reported
+`02.prtz` Sketch fixture `cpp/tests/fixtures/midpoint_axis_locked_rod.json`.
+It checks several reachable drags, retained constraints/locked length and rejection
+of unreachable placement.
+
+### Verification status
+
+After this fix, Sketcher, general document and 3D Curve/Sweep tests plus
+`--verify-startup` passed. The last standalone window test failed at deferred
+thread-catalog opening (`Deferred thread catalog did not open after the pointer
+gesture`); this fix does not resolve it. A previously reported temporary dimension
+selection blockage, cleared by starting Dimension again, still has no confirmed
+cause and must not be reported fixed.
+
+### Circular external references
+
+Equal Radius and Concentric accept external circles/arcs. Sources may be edges
+or a single circular outline/section of an external face. External geometry stays
+read-only; the native Sketch circle/arc changes radius or center respectively.
+
+Center/radius recognition checks all persisted reference points without OCCT,
+independent of uniform sampling. Ellipses, invalid references and multiple face
+contours are not treated as one circle. Coplanar faces provide finite outlines;
+noncoplanar faces retain existing intersection/section behavior. Save/reopen
+preserves constraints/source identity; reference changes update the relation.
+
+2D Sweep/Helix Sketches can open from the tree with unresolved preceding geometry.
+If their frame cannot currently be derived, the editor uses the saved plane and
+reports missing dependencies in the status bar. Opening calls no OCCT and does
+not commit invalid solids; Cancel retains history. Regression checks all two/
+three Sketches even without a calculated preceding body.
+
+### Automatic tangency and common circle tangent (2026-09-07)
+
+A common tangent segment between circles stores C + T at both ends. Significant
+points select branches; an extra K does not lock contact to a quadrant. Preview
+shows C + T at both contacts. If another automatic tangent relation is already
+implied, redundancy does not cancel segment creation. Conflicting/invalid
+constraints are not ignored. Manual constraints still report redundancy.
+
+Two-circle common tangents use exact geometry candidates selected by both click
+positions, including equal circles with horizontally aligned centers and circles
+with fixed centers/radii.
+
+### Text anchor
+
+Title-block text highlights its anchor orange on hover and cyan on confirmation.
+The anchor remains a separate Sketch point; highlighting does not add another
+selected object. Bottom/Middle/Top alignment uses actual glyph bounds including
+diacritics and multiple lines. Template opening derives outlines from stored
+values, anchors and alignment settings.
+
+### Dragging with locked dimensions
+
+The cursor projects onto permitted motion when locked H/V distance fixes position
+relative to origin, fixed reference or axis. Locked rectangle width permits
+height changes and vice versa. The same applies to X/Y dimensions, negative
+coordinates and propagation through H/V/coincidence. Unlocked driving dimensions
+follow the achieved shape; locked values remain fixed. Fully locked points do
+not move.
+
+## Construction geometry
+
+Segments, circles, circular/elliptic arcs, ellipses and B-splines can switch via
+View/Tree context actions **Convert to construction geometry** and **Convert to
+profile outline**. All construction curves use chain lines, including hover/
+confirmed selection.
+
+The role changes while identity, control points, dimensions, ranges, constraints
+and dimensions remain. Construction curves are excluded from solid profiles.
+Segments remain finite and arcs retain ends. Infinite axes are separate;
+chain-line styling does not turn a segment into an axis.
+
+### Template text and dimensions in Properties (2026-09-09)
+
+**Flip horizontally** describes visible mirroring in current Sketch coordinates.
+Normal title-block/frame text has it off, as ordinary Sketch text does. Existing
+template orientation/contours remain; differing template axis direction is
+converted only while reading/confirming the dialog.
+
+Double-click dimension edits affect the current working Sketch, including 2D
+Sweep profile/path, Helical, Sweep/Loft and Section Sketches. Locks still protect
+dragging, while intentional numeric edits remain possible. Solid calculation
+waits for whole-container confirmation.
+
+Container Properties also shows owned-Sketch dimensions. Double-click edits them
+with Sketch, Extrusion, Revolution, 2D Sweep, Helical and Sweep/Loft Properties
+open. Preview uses the pending Sketch, including repeated edits and return via
+Sketch. OK commits/calculates the whole container; Cancel discards pending edits.
+Saved profile/path dimensions also appear when inspecting container parameters
+in the View.
+
+Arc-radius changes respect tangent segments whose other endpoint belongs to
+another arc. Contact may slide on its circle; when fixed, solve the tangent's
+intersection with the opposite circle. Endpoints remain on their arcs, constraints
+persist and unsolvable edits reject without changing the input Sketch. Locked
+dimensions still allow deliberate numeric edits.
+
+### First plane and working profile (2026-09-10)
+
+The first plane placement reference initially determined Extrusion/Revolution's
+Sketch plane; other references supplement position/orientation. The later
+selectable work-plane contract retains this automatic default and permits an
+explicit override; see [WORK_PLANES.md](WORK_PLANES.md). Front/Back, rotation and
+profile offset must immediately agree in preview, dimensions, Sketch editor
+and calculated body.
+
+A new feature also enters the active body's temporary preview history so its
+owned Sketch uses normal reference solving. The working Sketch inherits that
+preview's solved plane/origin/axes; local 2D geometry is not rewritten on
+orientation changes.
+
+SKETCH entry/return retains the entire pending feature, including references,
+orientation, offset and length/angle, also for existing calculated features.
+OK commits the draft and calculates the body; Cancel preserves original Sketch/
+parameters when editing.
+
+`zima_cpp_profile_frame_ui_contract` covers first planes XY/XZ/YZ, eight side/
+rotation combinations, offsets, Sketcher return, cancellation and agreement of
+saved Sketch/calculated-body bounds after OK. The audit also checks first planes
+for standalone Sketch, Helical base circle and 2D Sweep path. For 2D Sweep the
+first reference prefills the independently editable path plane. Sweep/Sweep-Loft
+sections remain derived from the path tangent at the chosen point. The fix uses
+the existing container-placement solver without changing its rules.
+
+### Immediate trim preview and constraints (2026-09-09)
+
+Every Trim click or completed drag updates the View immediately in standalone
+Sketches, profile drafts, templates and nested Parts. Rendering/selection use
+the same pending geometry. Escape restores pre-command state; completing the
+Sketch includes the current trim.
+
+Trim transfers tangency to the curve piece containing the original contact,
+even when both owners split in one stroke. Retained endpoints/centers keep IDs
+and point constraints. Removed contact removes its tangency. A junction now
+represented by one shared endpoint remains topology without duplicate incidence.
+
+Trim also handles segments attached through circle/ellipse quadrant **K**.
+On retained arcs this becomes **C** or one shared endpoint, never a reference
+to a deleted circle. Moving an arc endpoint does not independently overwrite
+another arc's point connected through a segment; constraints solve its motion.
+With equal radii, the grabbed arc drives changes regardless of original equal
+selection order. Tangency can be added at existing C/K junctions after segment
+direction changes; the stored junction determines contact, not a tangent point
+for the old segment direction.
+
+For equal arcs connected by common tangents, contact dragging respects the
+constrained center connector. With fixed center, radial drag changes radius;
+with a center sliding along the connector, longitudinal drag also moves it.
+Small cursor error into a forbidden direction must not block permitted motion.
+A driving radius/diameter dimension may control either side after equality.
+When adding equality, the first selected curve still supplies initial radius;
+a conflicting second-curve dimension is rejected transactionally.
+
+### Directional dimensions for points on axes (2026-09-09)
+
+A point constrained to a line remains movable along it. Editing X/Y does not
+treat point-on-line as fixing both coordinates. This permits changing center
+spacing in a profile with arcs, tangent arms and concentric holes, one center
+at origin and another on X. Radii, equality and tangency remain; tests cover
+original spacing 19.448732 mm and repeated changes to 12, 20 and 35 mm. Tangent
+contacts retain their own anchoring rules during segment-length edits.

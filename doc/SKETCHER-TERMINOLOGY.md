@@ -70,4 +70,4 @@ back creates an ordinary profile segment.
 
 Do not call an arbitrary arc, circle or spline a construction line. Switching
 those entities out of the profile changes only their role and is described in
-the Czech UI and documentation as **konstrukční geometrie**.
+the Czech UI as **konstrukční geometrie**.

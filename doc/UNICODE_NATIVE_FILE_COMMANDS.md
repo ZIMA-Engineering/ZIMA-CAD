@@ -1,63 +1,56 @@
-# Unicode cesty v nativních souborových příkazech
+# Unicode paths in native file commands
 
-## Opravený rozdíl GUI a CLI
+## Repaired GUI/CLI difference
 
-Na Windows přijímá úzký konstruktor `std::filesystem::path` řetězec
-v systémovém kódování. `QString::toStdString()` poskytuje UTF-8.
-Přímé předání mezi nimi proto může změnit český název souboru nebo adresáře.
-Opačným směrem také nelze vydávat `path.string()` za UTF-8.
+On Windows, the narrow `std::filesystem::path` constructor accepts system-encoded
+strings, while `QString::toStdString()` supplies UTF-8. Passing one directly to the
+other can corrupt Czech file/directory names. Likewise, `path.string()` must not
+be treated as UTF-8.
 
-Společná příkazová vrstva již používá `std::filesystem::u8path` a
-`document::path_to_utf8`. Stejný převod nyní používají následující adaptéry GUI:
+The shared command layer already uses `std::filesystem::u8path` and
+`document::path_to_utf8`. The same conversion now applies to these GUI adapters:
 
-- počáteční pracovní adresář okna, zadaný přímo i převzatý z konfigurace;
-- Nový dokument, Otevřít a titulky průběhu otevření;
-- Uložit jako pro Part, Assembly a Drawing, včetně automatické kopie
-  vlastního výkresu;
-- volba pracovního adresáře;
-- JPG/DXF z Uložit jako ve výkresu;
-- přepnutí mezi modelem a jeho výkresem, pokud je nutné otevřít zdrojový soubor.
+- Initial window working directory, supplied directly or through config.
+- New Document, Open, and opening-progress titles.
+- Save As for Part, Assembly, and Drawing, including automatic copies of owned drawings.
+- Working-directory selection.
+- Drawing Save As JPG/DXF.
+- Switching between model and drawing when opening a source file is necessary.
 
-Běžné Uložit a titulky tabů byly opravené v etapě
-[NATIVE_FILE_RENAME.md](NATIVE_FILE_RENAME.md).
-Tato změna nezasahuje do výpočtu modelu, sdíleného umístění ani schématu
-nativních souborů. Start šablony se nemění. Nový příkaz nepřibyl;
-katalog zůstává na **288 příkazech**, registrováno je **154 testů**.
+Ordinary Save and tab titles were fixed during [NATIVE_FILE_RENAME.md](NATIVE_FILE_RENAME.md).
+This changes neither model calculation, shared placement, nor native schemas.
+Start templates are unchanged. No new command is added: the catalog remains at
+**288 commands**, with **154 tests** registered at this stage.
 
-## Ověření skutečnými soubory
+## Verification with actual files
 
-Scénář `verify_save_copy_ui` nyní vytváří dočasný adresář s diakritikou
-a ověřuje GUI společně s konzolí:
+`verify_save_copy_ui` now creates a temporary directory containing accented characters
+and checks GUI together with the console:
 
-1. Počáteční pracovní adresář je přesně ten, který byl předán oknu.
-2. Part se skutečně vypočteným tělesem a jeho výkres se uloží pod českými
-   názvy. GUI Uložit jako vytvoří obě kopie s novými identitami a přesměruje
-   výkres na nový Part. Původní dokument, jeho tab i aktivace se nezmění.
-3. GUI export výkresu vytvoří čitelný JPG a úplný DXF. Příkaz `export.image`
-   načte tentýž český zdroj a vytvoří čitelný obrázek.
-4. GUI volba pracovního adresáře odpovídá adresáři vrácenému příkazem `context`.
-5. GUI Nový, Uložit a Uložit jako proběhnou pro všechny tři nativní typy.
-   Kontrola skutečných uložených dokumentů ověří jejich ID. CLI následně
-   každou vytvořenou kopii otevře.
-6. Testovací dokumenty se zavřou s výslovným zahozením změn, bez ručního dialogu.
+1. Initial working directory exactly matches the directory supplied to the window.
+2. A Part with an actual calculated body and its drawing are saved under Czech names.
+   GUI Save As creates both copies with new IDs and redirects the drawing to the
+   copied Part. Original document, tab, and activation remain unchanged.
+3. GUI drawing export creates readable JPG and complete DXF. `export.image` reads
+   the same Czech-named source and creates a readable image.
+4. GUI-selected working directory matches `context`.
+5. GUI New, Save, and Save As run for all three native types. Saved documents are
+   checked for actual IDs; CLI then opens every created copy.
+6. Test documents close with explicit discard and no manual dialog.
 
-Volba souboru v tomto testu má opakovanou obsluhu a kontroluje nečekaná
-chybová hlášení.
+File selection is handled repeatedly and unexpected error messages are checked.
 
-Windows Release sestavil obě aplikace a všechny testovací cíle
-(`build/unicode-native-gui-final-build.log`).
-Cílený scénář prošel **1/1 za 4,21 s** s
-`ZIMA_VERIFY_SAVE_COPY_ONLY=1`
-(`build/unicode-native-gui-focused-final-tests.log`).
-Navazující regrese prošla **5/5 za 258,44 s**: nativní dokumenty,
-dokumentové operace, skutečný proces CLI, GUI konzole a celý test
-pracovního okna (`build/unicode-native-gui-regression-tests.log`).
-Oba GUI běhy proběhly bez ručních potvrzení.
+Windows Release built both applications and all targets
+(`build/unicode-native-gui-final-build.log`). The focused scenario passed
+**1/1 in 4.21 s** with `ZIMA_VERIFY_SAVE_COPY_ONLY=1`
+(`build/unicode-native-gui-focused-final-tests.log`). Subsequent regression passed
+**5/5 in 258.44 s**: native documents, document operations, actual CLI, GUI console,
+and full workspace-window test (`build/unicode-native-gui-regression-tests.log`).
+Both GUI runs required no manual confirmations.
 
-První běh nového přípravku skončil na chybějícím povinném argumentu
-`sheet` pro `export.image`. Přípravek nyní předává skutečné ID uloženého listu;
-rozhraní exportu se neměnilo. Úspěšné výsledky výše jsou až po této opravě.
+The first new-fixture run omitted required `sheet` for `export.image`. It now supplies
+the actual saved sheet ID; the export interface was unchanged. Successful results
+above were recorded after this correction.
 
-Jde o ověření uvedených nativních pracovních postupů. Není tím prokázaná
-správnost každého zbývajícího převodu cesty v celé aplikaci ani externích
-spouštěčů.
+This verifies the listed native workflows, not every remaining path conversion in
+the application or external launchers.

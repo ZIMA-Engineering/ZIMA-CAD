@@ -1,25 +1,23 @@
-# Pojmenované pohledy – GUI a CLI
+# Named views in GUI and CLI
 
-Stav implementace: 2026-09-15. Pojmenovaný pohled v Partu nebo Assembly
-uchovává úplný stav kamery. Původní dialog zapisoval pouze posun a měřítka,
-takže po novém otevření ztratil natočení. Assembly navíc položku
-`named_views` četla, ale vůbec ji nezapisovala do souboru.
+Implementation status: 2026-09-15. Named Part/Assembly views store complete camera
+state. The original dialog wrote only pan and scales, losing rotation after reopening.
+Assembly also read `named_views` but did not write it.
 
-## Příkazy
+## Commands
 
-| Příkaz | Povinné argumenty | Výsledek |
+| Command | Required arguments | Result |
 | --- | --- | --- |
-| `view.named.list` | žádné | Uspořádané `views` |
-| `view.named.get` | `name` | Jeden úplný `view` |
-| `view.named.set` | `name`, `camera` | Uložení nebo nahrazení, `changed` |
-| `view.named.delete` | `name` | Odstranění, `changed` |
+| `view.named.list` | none | Ordered `views` |
+| `view.named.get` | `name` | One complete `view` |
+| `view.named.set` | `name`, `camera` | Store/replace, `changed` |
+| `view.named.delete` | `name` | Remove, `changed` |
 
-Všechny příkazy přijímají volitelné `document`. Dotazy mohou číst libovolný
-otevřený Part/Assembly; zápis patří aktivnímu dokumentu. Při aktivaci
-podsestavy se zapíše její zdrojový dokument, zobrazená nejvyšší sestava
-se nemění. Neexistující název vrací `named_view_not_found`.
+All accept optional `document`. Queries may read any open Part/Assembly; writing
+belongs to the active document. Activated subassemblies write their source document,
+not the displayed top-level Assembly. Unknown names return `named_view_not_found`.
 
-`camera` je úplný objekt:
+`camera` is complete:
 
 ```json
 {
@@ -31,72 +29,62 @@ se nemění. Neexistující název vrací `named_view_not_found`.
 }
 ```
 
-`rotation` je kvaternion v pořadí `w, x, y, z`; uvedený příklad otočí osu
-X na kladnou osu Y. `pan_x/pan_y` jsou posuny v logických pixelech
-prohlížeče. Obě měřítka mají stejný význam jako hodnoty `MeshView`;
-nejde o přesnost geometrie ani importní toleranci. Pohled se vztahuje
-k zobrazené scéně, není referencí na topologii ani umístěním komponenty.
+`rotation` is quaternion `w, x, y, z`; this example rotates X toward positive Y.
+`pan_x/pan_y` are logical viewer pixels. Scales have MeshView semantics, not geometry
+accuracy/import tolerance. A view refers to the displayed scene, not topology or
+component placement.
 
-`view.named.set` uloží dodaná data; `view.named.get/list` vracejí data
-bez změny živé kamery. Obnovení pohledu v dialogu používá uložených
-osm hodnot. Sedm standardních směrů zůstává součástí prohlížeče,
-neukládají se jako uživatelské položky.
+`view.named.set` stores supplied data; `get/list` return it without changing the live
+camera. Dialog restoration uses all eight stored values. Seven standard directions
+remain viewer functions, not user-stored entries.
 
-## Společná transakce
+## Shared transaction
 
-Qt-free `document/named_views.hpp` validuje a serializuje záznamy.
-`workspace/named_view_operations.hpp` sdílí GUI a command host.
-Přepsání stejného názvu zachová jeho místo v seznamu; opakované
-uložení totožného stavu nevytvoří transakci ani krok Undo.
+Qt-free `document/named_views.hpp` validates/serializes records.
+`workspace/named_view_operations.hpp` is shared by GUI and command host. Replacing a
+name preserves list position; saving identical state creates no transaction or Undo.
 
-Název má 1 až 1024 bajtů UTF-8, bez řídicích znaků a krajních mezer.
-Všech osm čísel musí být konečných, obě měřítka kladná a kvaternion
-nenulový. Nenormalizovaný kvaternion se normalizuje. Záznam musí
-obsahovat všechna pole, neznámá pole a duplicitní názvy se odmítají.
-Validace předchází zveřejnění změny.
+Names are 1–1024 UTF-8 bytes without control characters or surrounding spaces.
+All eight numbers must be finite, both scales positive, and quaternion nonzero.
+Unnormalized quaternions are normalized. All fields are required; unknown fields
+and duplicate names are rejected before publication.
 
-Úpravy jsou metadata: `body_calculated=false`. Nevyvolávají OCCT,
-mate solving ani regeneraci závislostí. Vypočtené geometrie se sdílejí
-beze změny. Undo/Redo obnoví seznam a celý uložený stav kamery.
+Edits are metadata with `body_calculated=false`: no OCCT, mate solving, or dependency
+regeneration. Calculated geometry remains shared unchanged. Undo/Redo restores the
+list and full saved camera state.
 
-Dialog nejprve potvrdí společnou operaci a teprve potom aktualizuje
-seznam. Při chybě zobrazí zprávu uvnitř okna a ponechá rozepsaný název
-nebo mazanou položku. Zachovává dosavadní chování: Uložit/Odstranit
-jsou výslovné akce nad záložkami; Cancel vrátí kameru před otevřením
-dialogu a OK ponechá vybraný pohled.
+The dialog commits through the shared operation before updating its list. Errors
+appear inside the window, preserving pending names or selected deletion items.
+Existing behavior remains: Save/Delete explicitly modify bookmarks; Cancel restores
+the pre-dialog camera, while OK retains the selected view.
 
-## Nativní soubory a ověření
+## Native files and verification
 
-Záznam se ukládá výhradně v `.prtz/.asmz` jako `named_views`:
-název, čtyři složky `rotation`, `zoom`, `pan_x`, `pan_y` a
-`reference_scale`. Part používá INI **20** / interní JSON **44**,
-Assembly INI **19** / JSON **28**. Startovní šablony a sdílené
-testovací dokumenty jsou aktualizované. Přípony zůstávají stejné;
-nevznikají povinné další soubory. Starší schémata se nemigrují.
-`.drwz` se v této etapě nemění.
+Records persist only in `.prtz/.asmz` as `named_views`: name, four `rotation`
+components, `zoom`, `pan_x`, `pan_y`, and `reference_scale`. At this stage Part uses
+INI **20** / JSON **44**, Assembly INI **19** / JSON **28**. Start templates and shared
+test documents were updated. Extensions remain; no required additional files or
+legacy migration. `.drwz` is unchanged.
 
-Nový modelový test `zima_cpp_named_view_command_tests` ověřuje:
+`zima_cpp_named_view_command_tests` verifies:
 
-- samostatný geometrický výpočet účinku čtvrtotáčkového kvaternionu;
-- Part i Assembly, přesnou kameru po uložení a novém načtení;
-- neplatná data, transakční atomitu, dotazy, no-op, Undo/Redo;
-- zachování existujících vypočtených těles a Assembly vazeb;
-- aktivovanou podsestavu a odmítnutí zápisu do neaktivního dokumentu.
+- Independent geometry calculation of a quarter-turn quaternion's effect.
+- Part/Assembly exact camera state after saving/reloading.
+- Invalid data, atomicity, queries, no-ops, Undo/Redo.
+- Preserved calculated bodies and Assembly mates.
+- Activated subassembly and inactive-document write rejection.
 
-GUI regrese skutečně otevře dialog, zachytí natočenou a posunutou
-kameru, uloží a znovu otevře dokument, vybere pohled a ověří všech
-osm hodnot. Porovná celé nativní soubory z GUI a CLI a kontroluje
-chování při chybě i odstranění položky. Ověřuje také zánik pracovního
-okna s dosud otevřeným dialogem Pohledy: dialog se musí zničit ještě
-za života členů okna, které používá jeho callback `destroyed`.
+GUI opens the actual dialog, captures rotated/panned camera state, saves/reopens,
+selects the view, and checks all eight values. It compares full native files from
+GUI/CLI and tests errors/deletion. It also checks workspace destruction with Views
+still open: the dialog must be destroyed while window members used by its `destroyed`
+callback remain alive.
 
-Obě aplikace i všechny testovací programy jsou sestavené.
-Cílený modelový a GUI test prošly **2/2 za 129,39 s**.
-Úplná regrese prošla **161/161 za 659,35 s**, včetně CLI procesu,
-konzole, spuštění pracovního okna, nativních souborů, modelování,
-sestav, výkresů a skic.
+Both applications and all tests built. Focused model/GUI passed **2/2 in 129.39 s**.
+Full regression passed **161/161 in 659.35 s**, including actual CLI, console,
+workspace startup, native files, modeling, Assemblies, drawings, and Sketches.
 
-Lokální protokoly ověření:
+Local logs:
 
 - `build/named-view-final-build.log`
 - `build/named-view-final-focused-tests.log`

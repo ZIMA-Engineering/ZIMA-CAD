@@ -55,6 +55,13 @@ Json details(const workspace::Workspace& live, const std::string& id, const Feat
         {"extent",extent(extrusion?value.extrusion.extent_mode:value.revolution.extent_mode)},
         {"direction",direction==document::ExtrusionDirection::Reverse?"reverse":"forward"},
         {"value_locks",value.value_locks},{"reference_valid",value.placement.reference_valid}};
+    const auto& sketch_id=extrusion?value.extrusion.sketch_id:value.revolution.sketch_id;
+    const auto& sketches=part?part->session.document().sketches:assembly->session.document().sketches;
+    const auto sketch=std::ranges::find(sketches,sketch_id,&sketcher::Sketch::id);
+    if(sketch!=sketches.end()) {
+        result["profile_plane_auto"]=sketch->plane_auto;
+        result["profile_plane"]=sketch->plane==sketcher::SketchPlane::XY?"XY":sketch->plane==sketcher::SketchPlane::XZ?"XZ":"YZ";
+    }
     if(extrusion) result.update({{"length_forward_mm",value.extrusion.length_forward},{"length_reverse_mm",value.extrusion.length_reverse},
         {"end_forward",condition(value.extrusion.end_condition_forward)},{"end_reverse",condition(value.extrusion.end_condition_reverse)},
         {"targets_forward",targets(value.extrusion.end_targets_forward)},{"targets_reverse",targets(value.extrusion.end_targets_reverse)}});
@@ -224,7 +231,7 @@ void Host::register_profile_commands() {
             std::vector<commands::Argument> fields{{create?"sketch":"container",true},{"name",false},{"combine",false},
                 {"result_type",false},{"thin_thickness_mm",false,Type::Number},{"thin_mode",false},{"extent",false},{"direction",false},
                 {extrusion?"length_forward_mm":"angle_degrees",false,Type::Number},{extrusion?"length_reverse_mm":"angle_reverse_degrees",false,Type::Number},
-                {"profile_offset_mm",false,Type::Number},{"placement",false,Type::Object},{"targets",false,Type::Array},{"document",false}};
+                {"profile_offset_mm",false,Type::Number},{"profile_plane",false},{"placement",false,Type::Object},{"targets",false,Type::Array},{"document",false}};
             if(extrusion){fields.push_back({"end_forward",false});fields.push_back({"end_reverse",false});fields.push_back({"targets_forward",false,Type::Array});fields.push_back({"targets_reverse",false,Type::Array});}else fields.push_back({"axis",false});
             dispatcher_.add({prefix+(create?".create":".set"),create?tr("Convert a standalone Sketch to an Extrusion or Revolution in one transaction."):tr("Edit and calculate a profile feature through the shared Properties transaction."),std::move(fields),true},
                 [this,create,kind](const Json& args){
@@ -242,6 +249,14 @@ void Host::register_profile_commands() {
                             if(args.contains("targets"))throw Error("invalid_arguments","Occurrence targets are available only in an Assembly.");
                         }
                         properties(value,args,workspace_,id);const auto container=value.id;
+                        std::optional<sketcher::Sketch> pending_sketch;
+                        if(args.contains("profile_plane")) {
+                            const auto plane=args.at("profile_plane").get<std::string>();
+                            if(plane!="AUTO"&&plane!="XY"&&plane!="XZ"&&plane!="YZ")throw Error("invalid_arguments","Profile plane must be AUTO, XY, XZ or YZ.");
+                            pending_sketch=workspace::document_sketch(workspace_,id,kind==Kind::Extrusion?value.extrusion.sketch_id:value.revolution.sketch_id);
+                            pending_sketch->plane_auto=plane=="AUTO";
+                            if(!pending_sketch->plane_auto)pending_sketch->plane=plane=="XY"?sketcher::SketchPlane::XY:plane=="XZ"?sketcher::SketchPlane::XZ:sketcher::SketchPlane::YZ;
+                        }
                         if(assembly) {
                             std::vector<std::string> selected;
                             if(args.contains("targets")) {
@@ -253,8 +268,8 @@ void Host::register_profile_commands() {
                             else for(const auto& item:assembly->session.document().components)
                                 if(!item.suppressed&&!item.derived_copy&&item.source_kind==zima::assembly::ComponentSourceKind::Part)selected.push_back(item.occurrence_id);
                             workspace::commit_assembly_profile(workspace_,kernel_,id,std::move(value),std::move(selected),
-                                create?workspace::ProfileEditMode::TransformSketch:workspace::ProfileEditMode::Replace);
-                        } else workspace::commit_profile(workspace_,kernel_,id,std::move(value),create?workspace::ProfileEditMode::TransformSketch:workspace::ProfileEditMode::Replace);
+                                create?workspace::ProfileEditMode::TransformSketch:workspace::ProfileEditMode::Replace,pending_sketch);
+                        } else workspace::commit_profile(workspace_,kernel_,id,std::move(value),create?workspace::ProfileEditMode::TransformSketch:workspace::ProfileEditMode::Replace,pending_sketch);
                         change_=Change{ChangeKind::Model,id};auto result=details(workspace_,id,profile(workspace_,id,container,kind));result["changed"]=true;return Result::success(std::move(result));
                     } catch(const Error& e){return Result::failure(e.code,tr(e.what()));}
                       catch(const workspace::PlacementEditError& e){return Result::failure(e.code,tr(e.what()));}

@@ -1,74 +1,74 @@
-# Souhrny referencí při historii a regeneraci Assembly
+# Reference summaries during Assembly history and regeneration
 
-Part ukládá skutečnou externí referenci, Assembly její odvozenou závislost
-mezi bezprostředními větvemi. Vrácení nezávislé změny sestavy nesmí obnovit
-starý souhrn, který už neodpovídá současným Partům.
+A Part stores the actual external reference; an Assembly stores its derived
+dependency between immediate branches. Undoing an independent Assembly change
+must not restore an old summary inconsistent with the current Parts.
 
-## Transakce historie
+## History transactions
 
-`step_assembly_document_history` přesune historii pouze v soukromém kandidátu.
-Společná příprava zkontroluje kandidátní hierarchii a dotčené otevřené kontexty,
-srovná souhrny se zdrojovými Party a připraví potřebné stavy vlastníků.
-Publikace je bez další alokace. Při chybě zůstane živý dokument, jeho revize,
-historie i ostatní dokumenty beze změny. Kandidátní historie se do výsledku
-přesune jednou; zdrojové Party se nepřepočítávají ani nekopírují do sestavy.
+`step_assembly_document_history` moves history only in a private candidate.
+Shared preparation checks the candidate hierarchy and affected open contexts,
+reconciles summaries with source Parts, and prepares the required owner states.
+Publication requires no further allocation. On failure, the live document,
+revision, history, and other documents remain unchanged. Candidate history is
+moved into the result once; source Parts are neither recalculated nor copied
+into the Assembly.
 
-Stejný průchod uloženou cestou výskytu umí při přípravě použít kandidátní
-zdrojovou Assembly. To umožňuje vrátit vnořenou větev, která už v dosavadním
-zobrazeném stromu není. Jde o čtení identit; nedochází k výpočtu umístění,
-vazeb nebo těles.
+The same traversal of persisted occurrence paths can use a candidate source
+Assembly during preparation. This allows restoring a nested branch absent from
+the currently displayed tree. It reads identities without calculating placement,
+mates, or bodies.
 
-Pokud zdroj není dostupný, zachovají se dosavadní i historické souhrnné hrany,
-jejichž oba konce v kandidátu existují. Jejich případný cyklus odmítne celý
-krok. Po zpřístupnění zdroje lze tentýž krok opakovat. Již známé závislosti
-si při obnově zachovají uloženou identitu.
+If a source is unavailable, retain current and historical summary edges whose
+endpoints both exist in the candidate. A resulting cycle rejects the entire
+step. The step can be retried once the source becomes available. Known
+dependencies retain their persisted identity during restoration.
 
-Při změně směru reference se nejprve odstraní všechny prokazatelně zastaralé
-hrany dotčeného vlastníka. Teprve pak se přidají potřebné nové hrany. Stará
-opačná závislost tak nevyvolá nepravdivé odmítnutí cyklu.
+When a reference changes direction, remove all demonstrably stale edges of the
+affected owner before adding new edges. An old opposite dependency must not
+cause a false cycle rejection.
 
-## Výslovná regenerace
+## Explicit regeneration
 
-`regenerate_assembly` nejprve srovná souhrny v požadované hierarchii, včetně
-zavřených nativních podsestav. Otevřené dokumenty mají přednost před soubory.
-Zavřené zdrojové Party se pro kontrolu čtou soukromě; nevznikají jejich taby.
-V paměti průchodu zůstávají malé množiny referencí podle identity Partu,
-nikoli načtená vypočtená tělesa. Nativní loader zatím přečte celý Part.
+`regenerate_assembly` first reconciles summaries in the requested hierarchy,
+including closed native subassemblies. Open documents take precedence over
+files. Closed source Parts are read privately without opening tabs. Traversal
+keeps small reference sets keyed by Part identity rather than loaded calculated
+bodies. The native loader currently still reads the entire Part.
 
-Změněný zavřený vlastník se zveřejní jako otevřená neuložená Assembly,
-aby šlo opravené údaje uložit do jejího `.asmz`. Změna souhrnu nevytváří
-samostatnou položku Undo. Pokud se nic nezměnilo, další dokument se neotevře.
-Zdrojové Party a celou opravenou sestavu je třeba obvyklým způsobem uložit.
+A changed closed owner is published as an open, unsaved Assembly so its repaired
+data can be saved into its `.asmz`. Summary changes create no separate Undo entry.
+If nothing changed, no additional document opens. Source Parts and the repaired
+Assembly must be saved normally.
 
-Atomická je příprava a publikace souhrnů. Následná dosavadní regenerace modelu
-nadále probíhá po dokumentech; tato etapa nezavádí jednu globální transakci
-celého výpočtu. Přepnutí tabu výpočet nevyvolává. Nezměnily se nativní formáty,
-šablony ani řešení vazeb; nevznikají externí povinné cache nebo sidecary.
+Summary preparation and publication are atomic. Subsequent model regeneration
+still runs per document; this stage introduces no global calculation transaction.
+Switching tabs triggers no calculation. Native formats, templates, and mate
+solving are unchanged; no required external caches or sidecars are introduced.
 
-## Ověření
+## Verification
 
-Původní regrese selhala: Assembly Undo odstranilo souhrn reference, která
-v Partu stále existovala (`build/assembly-reference-summary-baseline-tests.log`).
-Po změně prošly oba modelové testy **2/2 za 0,69 s**
-(`build/assembly-reference-summary-identity-tests.log`). Zahrnují:
+The original regression failed: Assembly Undo removed a summary for a reference
+still present in the Part (`build/assembly-reference-summary-baseline-tests.log`).
+After the change, both model tests passed: **2/2 in 0.69 s**
+(`build/assembly-reference-summary-identity-tests.log`). Coverage includes:
 
-- vytvoření i odpojení reference mezi dvěma nezávislými kroky historie sestavy,
-- poslední neuložená data Partu a zachování jeho vypočtené alokace,
-- úpravu Partu při zavřeném kontextu, nové načtení Top a opravu nativního vlastníka,
-- novou opačnou referenci po odpojení původní při zavřeném kontextu,
-- neověřitelné zdroje, atomické odmítnutí cyklu a pozdější úspěšné opakování,
-- Undo obnovující vnořeného vlastníka mimo dosavadní zobrazený strom.
+- Creating and detaching a reference between independent Assembly history steps.
+- Latest unsaved Part data and preservation of its calculated allocation.
+- Editing a Part with its context closed, reopening Top, and repairing the native owner.
+- Creating the opposite reference after detaching the original with its context closed.
+- Unverifiable sources, atomic cycle rejection, and a successful later retry.
+- Undo restoring a nested owner absent from the currently displayed tree.
 
-Procesová regrese a GUI kontrola jsou rozšířené o nezávislé Assembly Undo.
-GUI navíc kontroluje chybu čtení vlastního testovacího zdroje: odmítnutý krok
-se musí ohlásit a zachovat historii pro opakování po opravě souboru.
-Úplné sestavení obou aplikací a všech testovacích programů prošlo
-(`build/assembly-reference-summary-integration-build.log`). Procesové CLI
-s oběma modelovými testy prošlo **3/3 za 21,22 s**; samostatná GUI regrese
-prošla **1/1 za 18,57 s**. Následně prošla **celá sada 119/119 za 528,05 s**
-(`build/assembly-reference-summary-full-tests.log`), včetně stejné GUI regrese,
-konzole, načtení aplikace, výkresů, překladů, skicáře a nativních formátů.
+Process and GUI regressions include independent Assembly Undo. The GUI also tests
+a source-file read failure: the rejected step must be reported and history retained
+for retry after repairing the file. Both applications and all test programs built
+successfully (`build/assembly-reference-summary-integration-build.log`). The CLI
+process and both model tests passed **3/3 in 21.22 s**; the separate GUI regression
+passed **1/1 in 18.57 s**. The **full suite then passed 119/119 in 528.05 s**
+(`build/assembly-reference-summary-full-tests.log`), including that GUI regression,
+the console, application startup, drawings, translations, Sketcher, and native formats.
 
-Katalog má stále 209 příkazů. Tato etapa doplňuje jejich společnou datovou
-transakci; neznačí dokončení ostatních oblastí CLI. Další je společné mazání
-kořenových konstrukcí podle [CAD_COMMAND_COVERAGE.md](CAD_COMMAND_COVERAGE.md).
+The catalog still has 209 commands. This stage adds their shared data transaction;
+it does not complete the remaining CLI areas. Shared root-construction removal
+is next, as described in [CAD_COMMAND_COVERAGE.md](CAD_COMMAND_COVERAGE.md).

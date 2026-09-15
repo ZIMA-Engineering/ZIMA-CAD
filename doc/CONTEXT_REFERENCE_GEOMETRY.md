@@ -1,51 +1,49 @@
-# Původní geometrie v kontextu sestavy
+# Original geometry in Assembly context
 
-Čtení reference aktivovaného Partu používá uložené referenční pakety
-zdrojového dílu a přesné cesty výskytů v zobrazené sestavě. Nevolá
-řešení vazeb, konstrukcí, odvozených kopií ani sestavových řezů.
-Dřívější cesta přes `Workspace::refreshed_assembly` tyto výpočty při
-přípravě referencí prováděla; zůstává dostupná pouze svým výpočetním
-volajícím. Společný solver umístění se v této etapě nemění.
+Reference reads for an activated Part use persisted source-Part reference packets
+and exact occurrence paths in the displayed Assembly. They do not solve mates,
+constructions, derived copies, or Assembly cuts. The former path through
+`Workspace::refreshed_assembly` performed these calculations while preparing
+references; it remains available only to calculation callers. This stage does
+not change the shared placement solver.
 
-## Kontrakt dat
+## Data contract
 
-- Otevřený Part poskytuje aktuální vypočítanou geometrii včetně dosud
-  neuložených změn. Zavřený zdroj se čte z jeho nativního `.prtz` a jeho
-  ID se ověří proti výskytu. Čtení nepřidává živé karty.
-- Opakované výskyty mají samostatné úplné cesty. Posuny a rotace se
-  přebírají z právě zobrazené uložené hierarchie; dotaz nemění historii,
-  generaci ani sdílenou geometrii rodičovské sestavy.
-- Již vypočtená odvozená kopie poskytuje svou uloženou geometrii.
-  Nesmí být nahrazena nezrcadleným zdrojovým dílem. Přímý odvozený Part
-  nabízí také svůj počátek se stejnou identitou jako společný prohlížeč.
-- Společný převod přenáší vzorky hran, póly přesné spline, body, osy,
-  směry a analytické plochy. Stupeň, uzly a váhy spline zůstávají stejné.
-  Vzorky a analytická plocha mohou mít odlišný uložený souřadný rámec.
-- Filtr kopíruje jen požadované reference a použité vrcholy trojúhelníků.
-  Trojúhelníky jedné plochy sdílejí jednu převedenou analytickou plochu.
-  Chybné indexy a neúplné referenční trojúhelníky se odmítají.
+- An open Part supplies current calculated geometry, including unsaved changes.
+  Closed sources are read from native `.prtz` files and their IDs checked against
+  the occurrence. Reading does not add live tabs.
+- Repeated occurrences have separate full paths. Translation/rotation comes from
+  the currently displayed persisted hierarchy. Queries do not change parent
+  Assembly history, generation, or shared geometry.
+- An already calculated derived copy supplies its persisted geometry, never an
+  unmirrored source replacement. A direct derived Part also exposes its Origin
+  with the same identity as the common viewer.
+- Shared conversion transfers edge samples, exact spline poles, points, axes,
+  directions, and analytical surfaces. Spline degree, knots, and weights remain
+  unchanged. Samples and analytical surfaces may use different persisted frames.
+- Filtering copies only requested references and used triangle vertices. Triangles
+  belonging to one face share one transformed analytical surface. Invalid indices
+  and incomplete reference triangles are rejected.
 
-Katalog zůstává na **209 příkazech**. Příkazové vytvoření, odpojení a
-obnovení externí reference aktivovaného Partu je další etapa; tento
-záznam ji neoznačuje za dokončenou. Formát ani startovací šablony se nemění.
+The catalog remains at **209 commands**. Command-driven creation, detachment, and
+refresh of external references in activated Parts are a later stage, not completed
+by this entry. Format and start templates are unchanged.
 
-## Ověření
+## Verification
 
-Modelová sada prošla **4/4** (1,02 s),
-`build/context-reference-geometry-tests.log`. Obsahuje nezávislé
-matematické kontroly 257 bodů racionální čtvrtkružnice po posunu a
-otočení, analytickou rovinu, osy, body, sdílení ploch a řídký převod
-indexů. Zkouší neuložený zdroj, zavřený nativní zdroj, chybnou identitu,
-přesný vnořený výskyt a zrcadlený Part s jeho počátkem.
+The model suite passed **4/4** (1.02 s), `build/context-reference-geometry-tests.log`.
+Independent mathematical checks cover 257 rational-quarter-circle points after
+translation/rotation, an analytical plane, axes, points, surface sharing, and sparse
+index conversion. Cases include an unsaved source, a closed native source, incorrect
+identity, an exact nested occurrence, and a mirrored Part with its Origin.
 
-Regresní sestava obsahuje řez s prázdným profilem: výslovný výpočet
-prokazatelně selže, ale čtení referencí uspěje beze změny jejího stavu.
-První verze tohoto testovacího vstupu neměla platnou definici řezu;
-byla opravena před hodnocením produkčního chování.
+The regression Assembly contains an empty-profile cut: explicit calculation
+provably fails, while reference reads succeed without state changes. The first
+fixture version lacked a valid cut definition; it was corrected before assessing
+production behavior.
 
-Po sestavení všech programů (`build/context-reference-all-build.log`)
-prošla širší sada **17/17** (142,93 s),
-`build/context-reference-integration-tests.log`. Zahrnuje celý start GUI,
-projekci vlastněných profilů, GUI offsety a aktualizaci sestavy, skutečný
-CLI proces, aktivaci komponent, dotazy na reference, odvozené kopie,
-explicitní výpočet modelu, přesné spline a geometrii offsetů.
+After building all programs (`build/context-reference-all-build.log`), the wider
+suite passed **17/17** (142.93 s), `build/context-reference-integration-tests.log`.
+It covers full GUI startup, owned-profile projection, GUI offsets and Assembly
+refresh, an actual CLI process, component activation, reference queries, derived
+copies, explicit model calculation, exact splines, and offset geometry.

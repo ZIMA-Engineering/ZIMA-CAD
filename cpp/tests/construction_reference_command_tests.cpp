@@ -47,6 +47,13 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory,bool assembly_mo
     require(placed.base_plane==document::LocalDatumPlane::XZ&&placed.definition==document::ConstructionDefinition::PointReference,"Plane did not follow first reference as GUI does");
     const auto dot=[](auto a,auto b){return a.x*b.x+a.y*b.y+a.z*b.z;};
     near(std::abs(dot(placed.direction,source.direction)),1);near(dot(kernel::Vec3{placed.origin.x-source.entity_origin.x,placed.origin.y-source.entity_origin.y,placed.origin.z-source.entity_origin.z},source.direction),2);
+    run("construction.set",{{"construction",target_plane},{"base_plane","xy"},{"offset_mm",3}});
+    require(!object(target_plane).base_plane_auto&&object(target_plane).base_plane==document::LocalDatumPlane::XY,"Plane manual override missing");
+    near(dot(object(target_plane).direction,source.direction),0);
+    set(target_plane,0,object(plane).entity_id,"plane",2);
+    require(!object(target_plane).base_plane_auto,"Reference replaced manual Plane choice");
+    run("construction.set",{{"construction",target_plane},{"base_plane","auto"}});
+    require(object(target_plane).base_plane_auto,"Plane AUTO was not restored");near(std::abs(dot(object(target_plane).direction,source.direction)),1);
     require(placed.references.size()==2&&placed.references[1].orientation_only&&placed.references[1].orientation_role=="front","Planar assignment lost separate FRONT reference");
     // The position row was locked by a point. Replacing it captures the current
     // measured distance from the plane, rather than accepting a requested jump.

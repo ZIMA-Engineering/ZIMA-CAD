@@ -1,73 +1,70 @@
-# Mazání samostatných konstrukcí
+# Removing standalone constructions
 
-`construction.delete` přijímá `construction` jako stabilní ID samostatného
-konstrukčního kontejneru a volitelný aktivní `document`. Nepřijímá pořadí bodu,
-název objektu ani ID jeho zobrazované entity. Používá stejnou operaci
-`workspace::delete_construction` jako odstranění konstrukce ze stromu GUI.
+`construction.delete` accepts `construction` as a stable standalone construction
+container ID and optional active `document`. It does not accept point order, object
+name, or displayed-entity ID. It uses `workspace::delete_construction`, shared with
+GUI tree removal.
 
 ```json
 {"command":"construction.delete","arguments":{"construction":"<construction-id>"}}
 ```
 
-Výsledek obsahuje `document`, `construction`, `removed`, `changed`, `revision`
-a `body_calculated`. U Partu obsahuje také chyby navazujícího výpočtu, pokud
-existuje vypočtená hranice. Neúspěšná validace nic neodstraní. Úspěšná operace
-má jeden společný krok Undo/Redo a ukládá se do dosavadního `.prtz` nebo `.asmz`.
+Results contain `document`, `construction`, `removed`, `changed`, `revision`, and
+`body_calculated`. Part results also include downstream calculation errors when a
+calculated boundary exists. Failed validation removes nothing. Success creates one
+shared Undo/Redo step and persists in existing `.prtz` or `.asmz`.
 
-## Vlastnictví a reference
+## Ownership and references
 
-- Part používá stávající mazání historie: zachová pravidla aktivního tělesa,
-  znovu vyhodnotí model a případnou nedostupnou navazující geometrii označí
-  dosavadním způsobem. Tímto příkazem se nemění pravidlo mazání použitých prvků
-  v Partu. Když pozdější prvek nelze vypočítat, zůstává dostupná předchozí
-  platná geometrie podle běžného kontraktu historie.
-- Assembly před odstraněním ověří, zda konstrukci nebo její vlastněné body,
-  entity a počátky nepoužívá jiné uložené umístění, konstrukce, skica nebo řez.
-  Zahrnuje komponentové vazby a umístění i cíle sestavových odečtů. Samotné
-  shodné ID na jiné cestě výskytu neznamená závislost na místní konstrukci.
-- Kontrola externích skic v otevřených Partech zahrnuje i vložené profily a
-  skici řezů. Prochází vypůjčené stavy; nekopíruje geometrii a historii všech
-  otevřených dokumentů. Nejde o index všech libovolných dokumentů na disku.
-- Vlastněný bod 3D křivky se upravuje úplným seznamem bodů nadřazené křivky.
-  Vložená dráha tažení se upravuje příkazem vlastnícího tažení. Odstranění
-  dítěte tímto příkazem se odmítne; nesmaže skrytě celého rodiče.
+- Part uses existing history deletion: preserve active-body rules, reevaluate the
+  model, and mark unavailable downstream geometry as before. This does not change
+  Part rules for deleting used features. If a later feature cannot calculate,
+  preceding valid geometry remains available under the ordinary history contract.
+- Assembly checks whether another persisted placement, construction, Sketch, or
+  section uses the construction or its owned points, entities, and Origins.
+  This includes component mates and Assembly-cut placement/targets. The same ID on
+  a different occurrence path is not a dependency on the local construction.
+- External Sketch checks in open Parts include embedded profiles and section Sketches.
+  Traversal borrows states instead of copying all open geometry and history. It is
+  not an index of arbitrary documents on disk.
+- Edit owned 3D-curve points through the parent's complete point list and embedded
+  Sweep paths through the owning Sweep command. This command rejects children
+  instead of silently deleting their entire parent.
 
-Assembly používá dosavadní následné řešení konstrukcí a komponentového
-umístění. Kontrola závislostí nevolá OCCT. Solver umístění, zdrojové identity,
-sériový formát ani šablony se touto etapou nemění.
+Assembly retains existing subsequent construction and component-placement solving.
+Dependency checks invoke no OCCT. Placement solver, source identities, serialization,
+and templates are unchanged.
 
-## Chyby
+## Errors
 
-`construction_not_found` označuje neexistující ID; `owned_construction`
-a `embedded_construction` chrání vlastněné body a dráhy. `construction_in_use`
-chrání používanou konstrukci Assembly. Part zachovává také dosavadní chyby
-`inactive_body` a `read_only_body`. Obecné kontroly hostitele nadále odmítají
-editaci neaktivního dokumentu, výkresu či otevřeného rozpracovaného dialogu.
+`construction_not_found` means unknown ID; `owned_construction` and
+`embedded_construction` protect owned points and paths. `construction_in_use`
+protects used Assembly constructions. Part retains `inactive_body` and
+`read_only_body`. General host guards reject edits to inactive documents, Drawings,
+and open pending dialogs.
 
-## Ověření
+## Verification
 
-Výchozí modelový test potvrdil chybějící příkaz (`unknown_command`),
-`build/construction-removal-baseline-tests.log`. Testy ověřují:
+The baseline model test confirmed a missing command (`unknown_command`),
+`build/construction-removal-baseline-tests.log`. Coverage includes:
 
-- Part: objem kvádru 24 mm³, vlastnictví historie, nativní uložení a Undo/Redo;
-- odmítnutí bodu patřícího 3D křivce, vložené dráhy a neaktivního tělesa;
-- Assembly: odkazy jiného bodu, bodu v křivce, skici, řezu, vlastností a cíle
-  odečtu, komponentové vazby a externích profilů/řezů Partu;
-- zachování revize, geometrie a historie při odmítnutí a rozlišení cizí cesty;
-- skutečný CLI proces s uložením Partu i Assembly a opakováním Undo/Redo;
-- nabídku stromu GUI a odstranění stejných objektů přes konzoli;
-- úplnost všech pěti lokalizací nových textů.
+- Part: 24 mm³ box volume, history ownership, native saving, Undo/Redo.
+- Rejection of 3D-curve-owned points, embedded paths, and inactive bodies.
+- Assembly: references from another point, curve point, Sketch, section, cut
+  properties/targets, component mates, and external Part profiles/sections.
+- Preserved revision, geometry, and history on rejection; distinct foreign paths.
+- Actual CLI saving Part/Assembly and repeating Undo/Redo.
+- GUI tree menu and console removal of the same objects.
+- All five localizations of new text.
 
-Obě aplikace a všechny testovací programy se sestavily
-(`build/construction-removal-integration-build.log`). Integrační běh ověřil
-**9/10 testů za 168,86 s**, včetně skutečného CLI (20,43 s), konzole s nabídkou
-stromu (51,81 s) a celého startovního GUI testu s překlady (94,71 s).
-Zbývající nový test odhalil chybu svého nastavení: aktivoval další Part, ale
-ponechal zobrazený původní dokument, takže obecná ochrana správně odmítla
-nesouhlasící kontext dříve než kontrola vložené dráhy.
+Both applications and all test programs built
+(`build/construction-removal-integration-build.log`). Integration passed **9/10 tests
+in 168.86 s**, including actual CLI (20.43 s), console/tree menu (51.81 s), and full
+startup GUI/translations (94.71 s). The remaining new test exposed a fixture error:
+it activated another Part while leaving the original displayed, so the general guard
+correctly rejected mismatched context before checking the embedded path.
 
-Po opravě pouze tohoto testovacího nastavení prošly **4/4 cílené regrese
-za 0,89 s** (`build/construction-removal-final-tests.log`), včetně všech devíti
-scénářů používané konstrukce. Produkční kód se po integračním běhu neměnil.
-Všechny příslušné modelové, procesové a GUI scénáře tak prošly.
-Katalog příkazů se rozšiřuje z 209 na 210 položek.
+After correcting only that fixture, **4/4 focused regressions passed in 0.89 s**
+(`build/construction-removal-final-tests.log`), including all nine used-construction
+scenarios. Production code was unchanged after integration. All relevant model,
+process, and GUI scenarios therefore passed. The catalog grows from 209 to 210 commands.

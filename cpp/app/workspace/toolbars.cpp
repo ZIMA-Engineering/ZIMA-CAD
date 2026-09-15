@@ -305,6 +305,7 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         add_command(shell_action_);
         add_green_separator();
         add_command(thread_action_);
+        add_command(holes_action_);
         add_command(shaft_thread_action_);
         add_command(drill_point_action_);
         if(active_body){add_command(mirror_action_);add_command(pattern_action_);}

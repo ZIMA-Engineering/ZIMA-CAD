@@ -1,127 +1,105 @@
-# H-tažení (Helix Sweep)
+# H-Sweep (Helical Sweep)
 
-H-tažení je jeden kontejner historie Partu s operací Přičíst nebo
-Odečíst. Vlastní tři skici; jejich vytvoření a změny zůstávají rozpracované
-ve společném interním okně až do OK. Dokončit skicu se vrací do tohoto okna.
-Cancel zahodí celý rozpracovaný kontejner. Editace používá uložený vstup
-před kontejnerem a po ukončení obnoví normální historii.
+H-Sweep is one Part history container with Add/Subtract. It owns three Sketches;
+creation/edits stay pending in one internal window until OK. Finish Sketch returns
+to that window. Cancel discards the whole pending container. Editing uses persisted
+pre-container input and restores normal history afterward.
 
-Přičíst / Odečíst jsou dole ve vlastnostech jako společná dvojice tlačítek
-s Protrusion. Volba je do potvrzení OK pouze rozpracovaná.
+Add/Subtract are the bottom Properties button pair shared with Protrusion. Selection
+remains pending until OK.
 
-## Vstupy
+## Inputs
 
-1. Základní skica leží v rovině kolmé k ose vinutí. První verze přijímá
-   kružnici a konkrétní počáteční bod na ní. Jediná kružnice a jediný
-   samostatný bod se předvyberou; uložená identita bodu se nemění přidáním
-   dalších bodů. Střed kružnice určuje osu vinutí.
-2. Radiální skica leží v rovině osy a počátečního bodu. Její počátek je
-   ukotvený; lokální X znamená změnu poloměru a Y osovou výšku. Obsahuje
-   jedinou otevřenou, souvislou, nevětvenou dráhu s tečnými spoji.
-   Podporované segmenty jsou úsečka, oblouk, eliptický oblouk a otevřená
-   spline. Křivka postupuje ve výšce jedním směrem, nedosáhne osy a nemá
-   čistě radiální tečnu.
-3. Stoupání je kladný osový posun za jednu otáčku. Volba Pravý / Levý
-   mění smysl obíhání. Výchozí je pravé vinutí.
-4. Skica průřezu má počátek na začátku prostorové dráhy a rovinu kolmou
-   k její tečně. Přijímá jednu uzavřenou oblast včetně vnitřních otvorů.
-   Průřez může být vůči počátku posunutý. Dvě soustředné kružnice
-   v této profilové skici vytvoří dutý průřez; tloušťku určuje rozdíl
-   jejich poloměrů. Samostatný přepínač Thin tento příkaz nemá.
+1. Base Sketch lies normal to the winding axis. The first version accepts a circle
+   and exact start point on it. A sole circle/standalone point is preselected;
+   adding points does not change persisted point identity. Circle center defines the axis.
+2. Radial Sketch lies in the axis/start-point plane with anchored Origin. Local X
+   is radius change, Y axial height. It contains one open continuous unbranched path
+   with tangent joins: segments, arcs, elliptical arcs, or open splines. Height must
+   progress in one direction, radius must not reach the axis, and tangents cannot be
+   purely radial.
+3. Pitch is positive axial travel per revolution. Right/Left changes winding direction;
+   default is right-hand.
+4. Cross-section Sketch starts at the spatial path start, normal to its tangent.
+   It accepts one closed region with holes and may be offset relative to Origin.
+   Concentric circles create a hollow section with wall thickness equal to radius
+   difference. This command has no separate Thin option.
 
-Konec radiální křivky ukončuje vinutí i uprostřed otáčky. Počet otáček
-plyne z absolutní osové výšky dělené stoupáním; délka radiální křivky
-měřená po oblouku není osovou výškou.
+The radial-curve endpoint ends winding even mid-turn. Turn count is absolute axial
+height divided by pitch, not radial-curve arc length.
 
-## Výpočet a reference
+## Calculation and references
 
-Vstupy → prostředky → výstupy: tři skici a stoupání → analytická definice
-prostorové dráhy, její kontrolovaná aproximace a explicitní OCCT sweep →
-solid přičtený nebo odečtený v jedné hranici historie.
+Inputs → means → outputs: three Sketches and pitch → analytic spatial path,
+controlled approximation, explicit OCCT Sweep → solid added/subtracted in one history boundary.
 
-Pro radiální dráhu `(x(u), y(u))` je poloměr `R + x(u)`, výška `y(u)`
-a úhel `±2π y(u) / stoupání`. První kružnice určuje střed a radiální
-počáteční směr. Tečna zahrnuje obíhání, výškový posun i změnu poloměru.
-Konec se nezaokrouhluje na celé otáčky.
+For radial path `(x(u), y(u))`, radius is `R + x(u)`, height `y(u)`, and angle
+`±2π y(u) / pitch`. The base circle defines center/initial radial direction. Tangents
+include winding, axial motion, and radius change. Ends are not rounded to full turns.
 
-Náhled používá pouze data ZIMA: dráhu, koncové obrysy průřezu a podélné
-spojnice. Rám průřezu se přenáší podél dráhy bez zadaného dodatečného
-kroucení. OCCT se používá při OK a explicitní regeneraci; při výpočtu
-kontroluje také platnost tělesa a samoprotínání.
+Preview uses only ZIMA data: path, end cross-section outlines, and longitudinal
+connectors. Section frames transport along the path without extra prescribed twist.
+OCCT runs on OK/explicit regeneration, checking body validity and self-intersection.
 
-Startovní a koncová plocha mají samostatné identity `start:from:…` a
-`end:from:…`, jejichž rodičem je oblast profilové skici. Změna stoupání,
-výšky ani pravého/levého vinutí tyto role neprohazuje. Analytické roviny
-se ukládají do původní referenční geometrie pro navázání dalších prvků.
-Boční plochy odkazují na zdrojové křivky průřezu; hrany na křivky nebo
-body, ze kterých vznikly. Vzorkovací indexy aproximace nejsou trvalé
-identity topologie.
+Start/end faces have distinct `start:from:…` and `end:from:…` identities parented to
+the profile region. Pitch, height, and handedness changes do not swap roles. Analytic
+planes persist in original-reference geometry for later features. Side faces reference
+source profile curves; edges reference their source curves/points. Approximation sample
+indexes are not persistent topology identities.
 
-Umístění a orientace používají běžnou sekci kontejneru: tři poziční
-reference, FRONT/TOP, X/Y/Z, absolutní natočení a korekce, obrácení orientace
-a tlačítko POČÁTEK. Výběr ve View i v Tree používá společný picker.
-Při vytváření je aktivní první poziční reference. Krátký prostřední klik
-ukončí zadávání referencí; dvojklik potvrzuje celé okno.
+Placement/orientation uses ordinary container controls: three position references,
+FRONT/TOP, X/Y/Z, absolute rotations/corrections, orientation flip, and ORIGIN.
+View/Tree share picking. Creation arms the first position reference. Short MMB ends
+reference entry; double-click confirms the whole window.
 
-Základní skica leží v lokální rovině kontejneru (výchozí XZ / FRONT,
-uložené skici zachovávají svou rovinu). Vlastnosti nemají samostatný řádek
-„Rovina skici v kontejneru“. Všechny tři skici přebírají stejné umístění; změna
-posunu nebo orientace přenese celé vinutí. Odvozené roviny zůstávají
-součástí funkce. Samostatná světová reference základní roviny se nepoužívá.
-Sdílený kontrakt umístění kontejnerů se nemění.
-Náhled umístění zobrazuje počátek bez přidané pomocné konstrukční osy.
-Vstup do vlastněné skici natočí kameru na její skutečnou rovinu stejným
-postupem jako u běžné skici v dokumentu.
-Po celou dobu otevřených Vlastností se vedle náhledu vinutí zobrazují dráty
-všech tří zdrojových skic. Zůstávají viditelné také při neúplné nebo neplatné
-dráze. Odvozené roviny se aktualizují podle dostupných vstupů; pokud vstup
-chybí, skica zůstane v posledním vyřešeném rámci. Zobrazení používá data
-skic bez výpočtu tělesa přes OCCT.
+Base Sketch uses a container-local plane, default XZ / FRONT; stored Sketches retain
+their plane. Properties has no separate “Sketch Plane in Container” row. All three
+Sketches adopt the same placement, moving the entire winding together. Derived planes
+belong to the feature; there is no independent world base-plane reference. Shared
+container placement is unchanged. Placement preview shows Origin without an added
+helper construction axis. Entering an owned Sketch aligns camera with its actual
+plane as ordinary document Sketches do.
 
-## Ověření
+While Properties is open, all three source-Sketch wires remain beside the winding
+preview, even with incomplete/invalid paths. Derived planes update from available
+inputs; missing inputs retain the last solved Sketch frame. Display uses Sketch data
+without OCCT body calculation.
 
-`zima_cpp_helical_sweep_contract_tests` kontroluje směr vinutí, částečné
-otáčky, objem válcového vinutí, proměnný poloměr, radiální oblouk a spline,
-dutý průřez, neplatné dráhy, samoprotínání a trvalé start/end reference
-po změně parametrů a uložení/načtení.
+## Verification
 
-Integrační běh aplikace:
+`zima_cpp_helical_sweep_contract_tests` checks handedness, partial turns, cylindrical
+winding volume, variable radius, radial arcs/splines, hollow sections, invalid paths,
+self-intersections, and persistent start/end references after edits/save/load.
+
+Application integration:
 
 ```sh
 ZIMA_VERIFY_HELICAL_SWEEP_ONLY=1 ./build/cpp-debug/zima-cad-cpp --verify-startup
 ```
 
-Prochází vytvoření, vstup do všech tří skic, návrat do Vlastností, OK,
-uložení, znovuotevření, strom vlastněných skic a Cancel bez změny modelu.
-Kontroluje také společná tlačítka Přičíst / Odečíst.
+It covers creation, all three Sketch editors, return to Properties, OK, saving,
+reopening, owned-Sketch tree, Cancel without mutation, and shared Add/Subtract buttons.
 
-Výpočet dráhy používá kubické úseky s kontrolou vzorkovaných odchylek podle
-lineární tolerance dokumentu (polovina pro dráhu, polovina pro OCCT sweep);
-parametrizace vzorkování neovlivňuje identity výsledných ploch. Aktuální
-výpočet odmítá více než 1000 otáček v jednom kontejneru.
+Path calculation uses cubic segments with sampled-deviation checks against document
+linear tolerance: half for path, half for OCCT Sweep. Sampling parameterization does
+not affect face identities. Current calculation rejects over 1000 turns per container.
+Precision comes from File Settings; see [Numerical precision](NUMERICAL_PRECISION.md).
+Mesh deviation also controls rendered winding-edge detail.
 
-Přesnost se přebírá z Nastavení souboru, viz [Numerická přesnost](NUMERICAL_PRECISION.md).
-Odchylka triangulace řídí také jemnost vykreslených hran vinutí.
+### Calculated-solid centerline
 
-### Osová dráha hotového solidu
+The solid publishes a dash-dot source-curve centerline (`centerline:from:<source_id>`).
+Segments, fillets, splines, and helices retain shape; approximated portions share their
+source reference. Only straight portions also offer axis references. Display respects
+Axes visibility, including shaded mode. Geometry persists during calculation;
+rendering/picking invoke no OCCT. Earlier models gain it through explicit Regenerate.
 
-Solid publikuje čerchovanou osovou dráhu podle zdrojových křivek
-(`centerline:from:<source_id>`). Úsečky, zaoblení, spline i helix zachovávají
-tvar; aproximační části jedné zdrojové křivky mají společnou referenci.
-Pouze přímé části nabízejí také osovou referenci pro další prvky.
-Zobrazení respektuje přepínač Os, včetně stínovaného režimu. Geometrie se
-ukládá při výpočtu solidu; vykreslení a výběr nevolají OCCT. Dříve vypočtený
-model doplní osovou dráhu explicitním příkazem Regenerovat.
+## Console and base-Sketch offset
 
+`helical.create` adopts three existing standalone Sketches; `helical.get/set` shares
+Properties transactions. Arguments/input guards: [SWEEP_COMMANDS.md](SWEEP_COMMANDS.md).
 
-## Konzole a odsazení základní skici
-
-`helical.create` přebírá tři existující samostatné skici; `helical.get/set`
-používá stejnou transakci jako Vlastnosti. Argumenty a ochrany vstupů:
-[SWEEP_COMMANDS.md](SWEEP_COMMANDS.md).
-
-Vlastnosti obsahují odsazení základní skici v mm se zámkem hodnoty. Při
-převzetí skici se její původní odsazení zachová. Změna posune rovinu základní
-kružnice a celé vinutí ve směru její normály. Nemění polohu kontejneru ani
-jeho reference. Hodnota zůstává uložená v základní skice nativního dokumentu;
-OK ji potvrdí a Cancel zahodí rozpracovanou změnu.
+Properties includes base-Sketch offset in mm with a value lock. Adopting a Sketch
+preserves its offset. Editing shifts the base-circle plane and whole winding along
+its normal without changing container placement/references. The value remains in the
+native base Sketch; OK commits, Cancel discards pending changes.

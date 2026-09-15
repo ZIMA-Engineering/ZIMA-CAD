@@ -24,7 +24,7 @@
 namespace zima::document {
 
 enum class CombineMode { Add, Subtract };
-enum class FeatureKind { Sketch, Box, Cylinder, Sphere, Cone, Pyramid, Wedge, Extrusion, Revolution, Sweep3D, ImportedStep, Fillet, Chamfer, Shell, Hole, Thread, DrillPoint, ShaftThread, HelicalSweep, Sweep2D };
+enum class FeatureKind { Sketch, Box, Cylinder, Sphere, Cone, Pyramid, Wedge, Extrusion, Revolution, Sweep3D, ImportedStep, Fillet, Chamfer, Shell, Hole, Thread, DrillPoint, ShaftThread, HelicalSweep, Sweep2D, Holes };
 enum class ExtrusionDirection { Forward, Reverse, Symmetric };
 enum class ExtrusionExtent { Blind, UpToPlane, UpToSurface, ThroughAll };
 enum class ProfileSource { Internal, External };
@@ -122,6 +122,7 @@ struct ConstructionObject {
     // Container Origin is used as the un-offset construction plane. This is
     // a semantic local choice, never a self-reference to viewer geometry.
     LocalDatumPlane base_plane{LocalDatumPlane::YZ};
+    bool base_plane_auto{true};
     double display_size{100.0};
     ConstructionDefinition definition{ConstructionDefinition::Absolute};
     std::vector<ConstructionReference> references;
@@ -558,6 +559,12 @@ struct HelicalSweepParameters {
     zima::kernel::Vec3* base_rotation = nullptr,
     bool* orientation_from_reference = nullptr);
 
+struct HolesParameters {
+    std::string sketch_id;
+    double diameter{5.0};
+    bool operator==(const HolesParameters&) const = default;
+};
+
 struct HistoryContainer {
     std::string id;
     std::string feature_id;
@@ -582,6 +589,7 @@ struct HistoryContainer {
     EdgeTreatmentParameters edge_treatment;
     ShellParameters shell;
     HoleParameters hole;
+    HolesParameters holes;
     ThreadParameters thread;
     ShaftThreadParameters shaft_thread;
     DrillPointParameters drill_point;

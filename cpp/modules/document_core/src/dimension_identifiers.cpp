@@ -151,6 +151,8 @@ void append_dimension_parameters(std::vector<DimensionParameter>& out,
     case FeatureKind::Hole:
         add({"diameter", "bore_length", "entrance_chamfer", "exit_chamfer",
              "drill_point_angle", "thread_diameter", "thread_pitch", "thread_length"}); break;
+    case FeatureKind::Holes:
+        add({"diameter", "profile_offset"}); break;
     case FeatureKind::Thread:
         add({"bore_diameter", "bore_length", "thread_designation", "pitch", "thread_length",
              "length_reverse", "chamfer_depth", "chamfer_angle", "drill_point_angle",

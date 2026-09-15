@@ -1,64 +1,61 @@
-# Závěrečný audit GUI a CLI (2026-09-15)
+# Final GUI and CLI audit (2026-09-15)
 
-Rozsah je příkazové pokrytí současných modelových operací Partu,
-Assembly, Drawing a editoru šablon. Přehled domén a průběžné výsledky
-jsou v [CAD_COMMAND_COVERAGE.md](CAD_COMMAND_COVERAGE.md).
+The scope is command coverage for currently supported Part, Assembly, Drawing,
+and template-editor model operations. Domain coverage and incremental results
+are in [CAD_COMMAND_COVERAGE.md](CAD_COMMAND_COVERAGE.md).
 
-## Přímé zápisy z GUI
+## Direct GUI writes
 
-Audit produkčních zápisů do dokumentových sessions odlišil skutečnou
-modelovou operaci od publikování již připraveného výsledku myší.
-Tři nalezené samostatné inline cesty jsou sjednocené:
-katalog závitu, offset komponentové vazby a rádius 3D křivky / Sweepu.
-Podrobnosti a regrese jsou v
-[INLINE_DIMENSION_COMMANDS.md](INLINE_DIMENSION_COMMANDS.md).
+The audit of production document-session writes distinguished model operations
+from mouse-driven publication of already prepared results. Three separate inline
+paths are now unified: thread catalog selection, component mate offset, and
+3D curve / Sweep radius. See [INLINE_DIMENSION_COMMANDS.md](INLINE_DIMENSION_COMMANDS.md)
+for details and regressions.
 
-Zbývající přímé zápisy mají tyto protějšky:
+Remaining direct writes have these counterparts:
 
-| GUI cesta | Modelový výsledek dostupný příkazem | Úloha adaptéru GUI |
+| GUI path | Model result available by command | GUI adapter responsibility |
 | --- | --- | --- |
-| `assembly_drag.cpp` | `component.set` s `placement` | Projekce ukazatele do roviny a dostupných stupňů volnosti, řešený náhled, potvrzení tahu nebo předání návrhu Vlastnostem |
-| `sketch_drag.cpp`, bod | `sketch.point.move` | Souřadnice ze společného průsečíku paprsku a roviny, nativní `Sketch::move_point`, publikování výsledného návrhu |
-| `sketch_drag.cpp`, zaoblení rohu | `sketch.corner_fillet.create` | Poloměr z ukazatele, nativní `Sketch::add_corner_fillet`, potvrzení výsledku |
-| `sketch_drag.cpp`, umístění kóty | `sketch.dimension.set` s `position` | Zápis umístění popisku; nejde o nový hodnotový manipulátor |
-| `sketch_drag.cpp`, existující tah reference | `component.set` s `placement_references` | Projekce lineárního/úhlového offsetu, meze, řešení nativních vazeb a publikování náhledu |
-| `primitive_properties.cpp` / `sketch_document.cpp`, vlastněný profil | `extrusion/revolution.create/set/sketch.edit` | Přechod mezi Vlastnostmi a vlastněnou skicou, dočasný obal a návrat do editoru prvku; výsledný profil potvrzuje společná operace |
-| Skici tažení a řezů | Příkazy tažení a `section.sketch.edit` | Samostatný návrh skici a předání do OK vlastnící operace |
+| `assembly_drag.cpp` | `component.set` with `placement` | Project the pointer into the plane and available degrees of freedom, solve preview, commit drag or pass proposal to Properties |
+| `sketch_drag.cpp`, point | `sketch.point.move` | Coordinates from the shared ray/plane intersection, native `Sketch::move_point`, publish resulting proposal |
+| `sketch_drag.cpp`, corner fillet | `sketch.corner_fillet.create` | Pointer-derived radius, native `Sketch::add_corner_fillet`, commit result |
+| `sketch_drag.cpp`, dimension placement | `sketch.dimension.set` with `position` | Store label placement; this is not a new value manipulator |
+| `sketch_drag.cpp`, existing reference drag | `component.set` with `placement_references` | Project linear/angular offset, apply limits, solve native mates, publish preview |
+| `primitive_properties.cpp` / `sketch_document.cpp`, owned profile | `extrusion/revolution.create/set/sketch.edit` | Switch between Properties and owned Sketch, temporary wrapper, return to feature editor; shared operation commits the resulting profile |
+| Sweep and section Sketches | Sweep commands and `section.sketch.edit` | Independent Sketch proposal passed to the owning operation's OK |
 
-Tyto vstupy nepotřebují příkazy simulující stisk tlačítka, pozici kurzoru
-nebo jednotlivý snímek náhledu. CLI předává výsledné souřadnice,
-reference a parametry. Hover a výběr poskytuje existující kontextový
-adaptér konzole; dávkový proces pracuje s explicitními ID a cestami výskytů.
+These inputs need no commands simulating button presses, cursor positions, or
+individual preview frames. CLI supplies final coordinates, references, and
+parameters. The existing console context adapter provides hover and selection;
+batch processes use explicit IDs and occurrence paths.
 
-Kontrola nepřesouvá solver, společné umístění ani formáty. Nemění
-pravidla regenerace ani vlastnictví zdrojových dokumentů.
-Operace vytažení a rotace v Assembly zůstávají výhradně odečty.
+The audit does not relocate the solver or change shared placement, formats,
+regeneration rules, or source-document ownership. Assembly Extrusion and
+Revolution remain exclusively subtractive.
 
-## Rozsah dokončení
+## Completion scope
 
-Příkazové pokrytí se vztahuje k funkcím, které program nyní podporuje.
-Napojení AI a hlasu je další samostatná etapa. Řízení rozměrů relacemi
-a generování rodinných variant zatím nejsou modelovou funkcí GUI;
-existující příkazy spravují jejich nativní tabulky.
+Command coverage concerns functions currently supported by the program. AI and
+voice integration are separate subsequent stages. Relation-driven dimensions and
+family-variant generation are not yet GUI model features; existing commands
+manage their native tables.
 
-`export.view` snímá existující View prostřednictvím hostitelského adaptéru.
-Samostatný dávkový proces bez View vrací dokumentovanou chybu
-`view_unavailable`. Geometrické exporty a exporty listů mají samostatné
-datové příkazy a nevyžadují ovládání widgetů.
+`export.view` captures the existing View through a host adapter. A standalone batch
+process without a View returns the documented `view_unavailable` error. Geometry
+and sheet exports have separate data commands and require no widget control.
 
-Plošný audit Undo/Redo napříč všemi kombinacemi gest a návratů mezi editory
-zůstává samostatným úkolem podle dohodnutého pořadí modelovacích funkcí.
-Každá převedená operace již má své relevantní regrese historie a odmítnutí
-neplatného vstupu. Dokončení příkazového pokrytí není tvrzení, že software
-nemůže obsahovat další chybu.
+A comprehensive Undo/Redo audit across gesture combinations and transitions
+between editors remains a separate task in the agreed modeling-feature order.
+Each converted operation already has relevant history and invalid-input regressions.
+Completed command coverage does not imply that the software contains no further bugs.
 
-## Kontrolní podklady
+## Evidence
 
-- Modelové a procesové testy ověřují příkazy, stabilní reference,
-  vlastnictví, geometrické výsledky, serializaci a odmítnuté změny.
-- `console_ui_verification.cpp` ověřuje skutečné ovládací prvky,
-  společné operace, uložené soubory a opakované výskyty.
-- `zima_cpp_workspace_startup_contract` zahrnuje gesta, otevřené
-  Vlastnosti, jejich potvrzení/zrušení a průchody jednotlivými nástroji.
-- Závěrečná Windows Release sada a přesné výsledky jsou zaznamenány
-  v [CAD_COMMAND_COVERAGE.md](CAD_COMMAND_COVERAGE.md).
+- Model and process tests check commands, stable references, ownership, geometric
+  results, serialization, and rejected changes.
+- `console_ui_verification.cpp` checks actual controls, shared operations, saved
+  files, and repeated occurrences.
+- `zima_cpp_workspace_startup_contract` covers gestures, open Properties,
+  confirmation/cancellation, and walkthroughs of individual tools.
+- The final Windows Release suite and exact results are recorded in
+  [CAD_COMMAND_COVERAGE.md](CAD_COMMAND_COVERAGE.md).

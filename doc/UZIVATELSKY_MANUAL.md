@@ -1,36 +1,26 @@
-# ZIMA-CAD – uživatelský manuál
+# ZIMA-CAD user manual
 
-## Kompatibilita dokumentů
+This manual describes the native C++ application. UI labels follow the selected
+application language; documentation is maintained in English.
 
-Každý nativní typ dokumentu má vlastní verzi: C++ Part `.prtz` nyní používá
-`format_version` 16, Assembly `.asmz` verzi 13 a Drawing `.drwz` verzi 12.
-ZIMA-CAD během vývoje nepoužívá tiché fallbacky pro starší experimentální
-formáty: nepodporovanou verzi odmítne. Budoucí nekompatibilní změna formátu
-musí zvýšit příslušnou verzi. Zpětná kompatibilita starších Partů a sestav
-není zajišťována. Sdílení totožných cache bez komprese popisuje
-[CACHE_STORAGE.md](CACHE_STORAGE.md).
+## Document compatibility
 
-## Dialogy Otevřít a Uložit
+Part, Assembly and Drawing use `.prtz`, `.asmz` and `.drwz`. Each native type has
+its own format version. Unsupported experimental versions are rejected rather
+than silently converted. Backward compatibility with old Part and Assembly
+formats is not maintained during development. Required geometry and reference
+data live inside native documents; see [cache storage](CACHE_STORAGE.md).
 
-Společné souborové dialogy ZIMA-CAD zobrazují soubory podle právě zvoleného
-typu souboru. Například filtr dílů nabízí `.prtz`, filtr sestav `.asmz` a filtr
-výkresů `.drwz`; soubory, které aktivnímu filtru neodpovídají, jsou skryté.
-Adresáře zůstávají dostupné pro navigaci a jsou zobrazené před soubory. Obě
-skupiny jsou ve výchozím stavu seřazené podle názvu vzestupně.
+## Open and Save dialogs
 
-Adresář s rezervovaným názvem `0000-index` se v těchto dialozích nezobrazuje. Jde
-o aplikačně spravovaný obsah používaný mimo běžné ruční otevírání a ukládání
-dokumentů. Porovnání názvu nerozlišuje velikost písmen, takže stejné pravidlo
-platí například také pro `0000-INDEX`. Skrytí v dialogu adresář ani jeho obsah
-z disku nemaže.
+The selected file-type filter shows the corresponding documents, such as `.prtz`
+for Parts. Directories remain available and appear before files; both groups
+are initially sorted by ascending name. The reserved application directory
+`0000-index` is hidden, case-insensitively. Hiding it does not delete its content.
 
-## Výchozí šablony dílu a sestavy
+## Default Part and Assembly templates
 
-Nový dokument typu **Díl** ani **Sestava** se nezakládá jako pevně
-naprogramovaný prázdný model. Načte se ze skutečného nativního dokumentu
-`config/templates/start_part.prtz` nebo
-`config/templates/start_assembly.asmz`, který je zvolený v hlavní
-konfiguraci:
+New documents load real native templates selected in the main configuration:
 
 ```ini
 [Templates]
@@ -38,1279 +28,813 @@ Part = start_part.prtz
 Assembly = start_assembly.asmz
 ```
 
-Nový dokument převezme jednotky, přesnost, materiálová data, uživatelské
-parametry a relace ze své šablony, ale vždy dostane nové unikátní ID dokumentu
-a název zadaný v dialogu nového souboru. Startovací šablony jsou záměrně čisté
-dokumentové vzory bez modelovacích kontejnerů a komponent; tím nemohou přenést
-ID vnitřních objektů do více dokumentů. Projektový `config.ini` může sekci
-`[Templates]` přepsat a používat vlastní startovací dokumenty. Relativní
-názvy se hledají v adresáři určeném hodnotou `Paths/Templates`.
+The files normally live in `config/templates`. A new document inherits units,
+precision, material, user parameters and relations, and receives a new unique
+document ID and the entered name. Start templates intentionally contain no
+modeling containers or components, preventing copied internal IDs. A project
+`config.ini` may override `[Templates]`; relative names resolve under
+`Paths/Templates`.
 
-## Číselná pole ve vlastnostech
+## Numeric fields and tables
 
-Počet desetinných míst se přebírá z **Nastavení souboru** daného dílu nebo
-sestavy; nový dokument ho získá ze své šablony. Vlastnosti kontejnerů, tažení
-i vložených dílů/sestav zobrazují také koncové nuly podle této přesnosti.
+Numeric fields use the document's **File Settings** precision, including trailing
+zeros. Their width accommodates the sign, full value, unit and font. Reference
+tables allocate sufficient value width by reducing the reference column.
 
-Šířka číselného pole se přizpůsobí celé hodnotě, znaménku, jednotce a použitému
-písmu. Při čtyřech desetinných místech proto zůstane vidět například celé
-`0,0000 mm`. V tabulce vazeb dostane hodnota potřebný prostor na úkor sloupce
-reference. Stejné pravidlo platí i pro neaktivní hodnoty a po přepsání čísla.
+In **Parameters**, Enter commits the cell and starts editing the next row in the
+same column; it does not accept the window. Parameters, Relations, Material and
+Family Table instance lists offer one empty row with a green arrow. Filling it
+creates another empty row; a red cross deletes a filled entry. The empty offer is
+not saved. The Family Table base row remains protected; generated variants are
+not yet implemented.
 
-## Zadávání tabulek
+3D Curve points, Sweep profiles, thread references and individual face colors use
+the same row controls. Removing a station's owned profile leaves its station in
+the path, inheriting the preceding profile. The first station needs a replacement.
+Overview and point-order tables do not delete geometry.
 
-V **Parametrech** Enter potvrdí rozepsanou buňku, posune se ve stejném sloupci
-o řádek dolů a rovnou otevře další buňku k zadávání. Okno tím nepotvrdí.
-Sloupec popisku je užší a celé okno má menší výchozí šířku; lze ho zvětšit.
+## Parameters, relations and mass
 
-Parametry, Relace, Materiál a seznam instancí Family Table nabízejí na konci
-jeden prázdný řádek se zelenou šipkou. Po vyplnění se nabídne další řádek a
-u vyplněné položky je červený křížek pro její odstranění. Prázdná nabídka se
-neukládá. Základní řádek Family Table zůstává chráněný; ovládání jejích sloupců
-je samostatné. Tato úprava nepřidává výpočet variant Family Table.
-
-Stejný vzhled mají řádky bodů 3D křivky, profilů 2D/3D tažení, referencí
-závitu a individuálních barev ploch. U profilů křížek odstraní vlastní skicu v dané stanici; stanice
-zůstane v dráze a může převzít předchozí profil. U prvního profilu je potřeba
-zadat náhradu. Přehledové tabulky a pořadí bodů nenabízejí mazání geometrie.
-Společné zadávání umístění kontejneru se touto úpravou nemění.
-
-## Parametry, relace a hmotnost
-
-**Nástroje → Parametry** obsahují pouze uložené výsledné hodnoty. Vzorce se
-v tabulce parametrů nezobrazují. **Nástroje → Relace** patří modelu dílu nebo
-sestavy a přiřazuje bezpečný výraz jednomu cílovému parametru. Výchozí
-startovací díl obsahuje:
+**Tools → Parameters** shows stored results. **Tools → Relations** belongs to the
+source Part or Assembly and assigns a restricted expression to a target parameter.
+The standard start templates include:
 
 ```text
 mass = model.mass
 ```
 
-`model.mass` je hmotnost v jednotce nastavené v daném souboru (`kg`, `g`,
-`t` nebo `lb`), vypočítaná z uloženého objemu výsledného tělesa a
-z `MASS_DENSITY` přiřazeného materiálu. Globální nastavení poskytuje jednotky
-novým dokumentům; existující soubor používá vlastní nastavení. Podporované
-jednotky hustoty jsou `kg/mm^3`, `kg/m^3`, `g/cm^3` a `lb/in^3`. Výsledek se
-zapíše jako obyčejný text do parametru `mass`; razítko ani další uživatel
-parametru nemusí znát jeho vzorec. Razítko zobrazuje jednotku pomocí
-`&document.mass_unit`. Bez platné hustoty není hmotnost dostupná. Podrobnosti
-včetně součtu sestav a explicitní regenerace popisují
-[hmotnost a fyzikální vlastnosti](PHYSICAL_PROPERTIES.md).
+`model.mass` uses the file's mass unit (`kg`, `g`, `t` or `lb`), calculated body
+volume and material `MASS_DENSITY`. Supported density units are `kg/mm^3`,
+`kg/m^3`, `g/cm^3` and `lb/in^3`. Without valid density, mass is unavailable.
+The result is stored as the ordinary `mass` parameter; title blocks can use
+`&document.mass_unit` for its unit. Existing documents retain their own settings;
+global defaults initialize new ones. See [physical properties](PHYSICAL_PROPERTIES.md).
 
-Výchozí startovací díl má přiřazený materiál **S235JR** včetně jeho
-materiálových vlastností, jednotek a popisů z knihovny materiálů.
+The supplied start Part contains S235JR material properties from the library.
+Parameter keys are stable English identifiers such as `name`, `standard`,
+`drawn_by`, `revision` and `mass`; displayed labels and values may be localized.
+For example, `Název` and `Name` refer to the same `name` key.
 
-Výchozí klíče v prvním sloupci tabulky Parametry jsou stabilní anglické
-identifikátory, například `name`, `standard`, `drawn_by`, `revision` a `mass`.
-Viditelné názvy a hodnoty zůstávají jazykové. Český název `Název` a anglický
-název `Name` proto odkazují na stejný klíč `name`, ale mohou mít různé hodnoty.
-Nová sestava používá stejnou sadu parametrů ze souboru
-`start_assembly.asmz`, včetně relace `mass = model.mass`.
+Relations use a restricted Python-like expression syntax, not an executable
+Python runtime. Supported operators include `+ - * / ** %`, comparisons and a
+conditional expression; functions include `abs`, `min`, `max`, `round`, `sqrt`,
+`sin`, `cos` and `tan`. System values include `model.volume`, `model.area`,
+`model.mass` and `material.density`. Imports, file access and other function calls
+are unavailable. Relations run top to bottom and may consume earlier results.
+Driving geometry dimensions and generating Family Table variants remain future
+work; see [engineering metadata](ENGINEERING_METADATA_COMMANDS.md).
 
-Výrazy používají omezený pythonovský zápis, nikoliv spustitelný Python.
-Podporují čísla, odkazy na dříve dostupné parametry, operátory
-`+ - * / ** %`, porovnání, podmíněný výraz a funkce `abs`, `min`, `max`,
-`round`, `sqrt`, `sin`, `cos` a `tan`. Systémové hodnoty první verze jsou
-`model.volume`, `model.area`, `model.mass` a `material.density`. Importy,
-přístup k souborům a volání jiných funkcí jsou zakázané. Více relací se
-vyhodnocuje shora dolů a pozdější relace smí použít výsledek předchozí.
+Drawings do not own these relations. Their **Parameters** action edits the
+source Part or Assembly and refreshes relevant displayed parameter/title-block
+data. It does not implicitly regenerate parent Assemblies.
 
-Relace se neukládají do `.drwz`. Ve výkresu otevře **Nástroje → Parametry**
-parametry jeho zdrojového `.prtz` nebo `.asmz`, změny uloží do zdrojového
-modelu a následně obnoví geometrii, varianty a razítko výkresu.
+## 3D View controls
 
-## Ovládání 3D pohledu
-
-| Ovládání | Funkce |
+| Input | Action |
 | --- | --- |
-| Prostřední tlačítko + pohyb myši | Otáčení pohledu |
-| Prostřední + pravé tlačítko + pohyb myši | Posun pohledu |
-| Kolečko dopředu | Oddálení |
-| Kolečko dozadu | Přiblížení |
-| Jeden klik prostředním tlačítkem | Bez potvrzení dialogu; ve Skicáři může potvrdit právě rozpracovaný krok nástroje |
-| Dvojklik prostředním tlačítkem | Potvrzení aktivního dialogu tlačítkem OK |
-| F2 | Zavřít aktivní dokumentový tab |
+| Middle mouse button (MMB) + movement | Orbit |
+| MMB + right mouse button (RMB) + movement | Pan |
+| Wheel forward / backward | Zoom out / in |
+| Short MMB click | End reference entry or the documented command-local step; never accept a property dialog |
+| MMB double-click | Invoke enabled OK in the active internal dialog, including over View |
+| F2 | Close the active document tab |
+| F5 | Regenerate |
+| Ctrl+Shift+C | Toggle the CAD command console |
 
-Po posunu kombinací prostředního a pravého tlačítka se kontextové menu
-neotevře.
+Panning does not open the context menu. Reset View and standard views animate
+the camera transition. Part, Assembly and Drawing use the same wheel direction.
+Each document tab retains its own camera; switching tabs does not fit or reset it.
 
-Příkazy **Obnovit pohled** a základní pohledy (izometrický, přední, zadní,
-levý, pravý, horní a dolní) používají plynulý animovaný přechod kamery.
-Směr kolečka je shodný v Partu, sestavě i ve výkresu. Každý dokumentový tab si
-uchovává vlastní natočení, posun a přiblížení; přepnutí tabu pohled automaticky
-nepřizpůsobuje ani neresetuje.
+The toolbar above View starts with **Regenerate**, followed by the terminal icon
+for the existing CAD console. This order is shared by Part, Assembly and Drawing.
+See [CAD console](CAD_CONSOLE.md) for commands and scripting.
 
-## Pohled kolmo
+## Normal View
 
-1. V horní liště pohledu aktivujte tlačítko **Pohled kolmo**.
-2. Ve 3D pohledu vyberte rovinnou plochu solidu nebo referenční rovinu.
-3. Kamera se natočí kolmo k vybrané geometrii a příkaz se automaticky ukončí.
+1. Activate **Normal View** in the View toolbar.
+2. Select a planar original face or reference plane.
+3. The camera aligns with it and the command ends.
 
-Příkaz lze před výběrem zrušit opětovným kliknutím na tlačítko nebo klávesou
-`Esc`.
+Press Esc or the tool again to cancel before choosing a reference.
 
-## Výběr referencí ve Vlastnostech
+## Reference selection in Properties
 
-- Všechny tabulky referencí (Umístění kontejneru, Orientace kontejneru,
-  Nastavit orientaci i Reference dílu/sestavy ve vlastnostech komponenty
-  Assembly) sdílejí jeden vzhled a chování: nevyplněné pole reference je
-  plochý text bez rámečku tlačítka s šedým popiskem a zelenou šipkou vlevo;
-  po přiřazení reference se šipka vlevo změní na červené tlačítko **×** pro
-  její odstranění. Žádné z těchto polí není skutečné tlačítko — kliknutí na
-  vyplněnou referenci pouze přepíná její azurové zvýraznění ve view.
-- Výběrová funkce prochází všechny podporované objekty pod kurzorem, včetně
-  objektů uvnitř kontejnerů a zakrytých ploch. Pravým tlačítkem lze mezi
-  kandidáty cyklovat; stavový řádek popisuje právě nabízený prvek a view jej
-  současně zvýrazní oranžově.
-- Filtr **Všechny objekty z kontejnerů** zahrne plochy, hrany, body i základní
-  objekty kontejnerů. Při výběru geometrické reference se celý solid ani celý
-  kontejner oranžově nezvýrazňuje — zvýrazní se pouze nabízená plocha, hrana
-  nebo bod.
-- V běžném režimu lze ve view vybrat kontejner solidu, bodu, osy nebo roviny.
-  Systémový Počátek dokumentu se tímto způsobem nevybírá.
-- Vybrané plochy, hrany, body, osy a roviny zůstávají ve view azurově
-  zvýrazněné.
-- Geometrie právě hledaná výběrovou funkcí má oranžový obrys stejně jako při
-  běžném výběru modelu.
-- Referenční plocha je označena pouze azurovými obvodovými hranami, nikoli
-  barevnou výplní.
-- Kliknutím na název reference v okně Vlastnosti lze její zvýraznění vypnout
-  nebo znovu zapnout. Reference přitom zůstává součástí vazby.
-- Skutečné odstranění reference provádí červené tlačítko **×** vlevo na jejím
-  řádku.
-- Každá nová reference se nejprve ověří v dočasném řešení. Konfliktní,
-  přeurčující nebo nadbytečná reference se do seznamu nepřidá a původní
-  geometrie zůstane beze změny.
-- Při dosažení 0 stupňů volnosti je objekt plně určený. Geometrii lze stále
-  vybrat, ale jako další reference se přijme až po odebrání některé existující
-  vazby.
-- Klik na zobrazené Body v místě importovaného STEP lze mapovat zpět na jeho
-  původní kontejner a označit jej ve stromu. Při zadávání polohy nebo orientace
-  Protrusion, Revolve a dalších kontejnerů se plochy, hrany a vrcholy berou
-  přímo z původního STEP solidu. Pickerem zjištěný index se předává přímo do
-  reference, takže rychle načtený BREP nepotřebuje předem naplněnou globální
-  cache zdrojové topologie.
-- Vrchol aktuálního výsledného tělesa lze použít jako polohovou referenci bodu
-  nebo kontejneru. Ukládá se stabilní `VertexRef` a odebere všechny tři
-  posuvné stupně volnosti. Když vrchol zmizí, reference se označí jako
-  chybějící, zachová poslední polohu a nepřeskočí na jiný vrchol podle pořadí.
-- Každý kontejner vlastní úplný lokální souřadný systém a ve Vlastnostech má
-  šest stupňů volnosti `X/Y/Z + RX/RY/RZ`, včetně kontejneru bodu, osy a roviny.
-  Vrchol může určit tři posuvné DOF; orientaci kontejneru následně určí nejvýše
-  dvě nezávislé orientační reference. Po dosažení 0 DOF se další nadbytečné,
-  duplicitní nebo konfliktní reference nepřidají.
-- Tabulka polohy přijme nejvýše tři konstrukční reference pro určení
-  počátku. Orientační reference mají samostatné dva sloty a do této tabulky
-  se nepřidávají.
-- Kontejner **Osa** lze umístit výběrem kruhové hrany nebo válcové plochy
-  původního solidu. První reference určí středovou přímku: použije uložený
-  střed kružnice a její normálu, respektive uloženou osu válce. Protože tato
-  reference ještě neurčuje polohu počátku podél osy, výběr se automaticky
-  přepne na plochy. Následující rovinná plocha umístí počátek osy do svého
-  průsečíku se středovou přímkou. Poté se obnoví běžný výběrový filtr.
-- Kuželová plocha ani obecné zaoblení se pro vytvoření středové osy
-  nepovažují za válcovou plochu. Zaoblení je nadále možné obejít výběrem
-  odpovídající původní kruhové hrany, pokud taková stabilní hrana existuje.
-- Pole `RX/RY/RZ` jsou úhlové korekce aplikované na základní rámec určený
-  referencemi. Zůstávají proto editovatelná i po úplném určení jeho orientace;
-  ukazatel DOF nadále popisuje určenost základního rámce.
-- První orientační slot přijímá rovinnou plochu nebo rovinu a roli
-  **FRONT/BACK**. Druhý slot přijímá
-  nezávislou rovinu, plochu, hranu nebo osu a roli
-  **TOP/BOTTOM/LEFT/RIGHT**. Rovnoběžná druhá reference se odmítne.
-- Při zadání rovinné plochy jako reference Sketch, Protrusion nebo Revolve se
-  první orientační slot automaticky nastaví na **BACK** podle vnější normály
-  solidu. Čelní pohled proto míří na pracovní plochu z vnější strany. Pozdější
-  ruční změna na **FRONT** zůstává zachována až do nového zadání nebo nahrazení
-  plošné reference.
-- Oba orientační sloty jsou nepovinné. Bez nich se použije vlastní lokální rámec
-  kontejneru a jeho korekce `RX/RY/RZ`; jde o plnohodnotné a podporované
-  umístění, nikoliv o chybějící definici.
-- **Odsazení pracovní roviny** je samostatná hodnota a nepatří k referenci
-  FRONT. U roviny, skici, Protrusion a Revolve posune pouze pracovní nebo
-  profilovou rovinu v lokálním směru její normály. Neposouvá počátek
-  kontejneru ani jeho polohové reference.
-- Každá změna `X/Y/Z`, posunutí polohové reference, `RX/RY/RZ` nebo odsazení
-  pracovní roviny okamžitě znovu sestaví azurový drát náhledu. Jde pouze o
-  viewerový náhled z rozepsaných hodnot; definice kontejneru a historie se
-  uloží a přepočítají až tlačítkem **OK**.
-- Živé parametrické kóty ve Vlastnostech jsou definované v lokálním systému
-  kontejneru a do View se převádějí jeho aktuálním výsledným rámcem. Jejich
-  body, vynášecí čáry, roviny a normály proto průběžně sledují změnu referencí,
-  odsazení, **PŘEDNÍ/ZADNÍ**, čtvrtotáčku **Rotace** i korekce `RX/RY/RZ`.
-  Korekční úhlové kóty se nekreslí ve světových rovinách, ale kolem odpovídajících
-  lokálních os po aplikování orientačních přepínačů.
-- Parametrická kóta se nabízí k hoveru a editaci pouze nad textem hodnoty,
-  nikoli nad kótovacími či vynášecími čarami. Po zachycení textu se oranžově
-  zvýrazní celá kóta; kliknutí ji potvrdí azurově. Čáry kóty proto neblokují
-  hrany, body ani jiné reference ležící pod nimi.
-- Externí skica předává Protrusion nebo Revolve pouze svou parametrickou
-  2D geometrii. Světovou polohu, orientaci i odsazení profilu určuje cílový
-  kontejner.
+All reference-entry controls share two independent states:
 
-## Měření geometrie
+- A **green outline** marks the one field receiving input. Click reference text
+  to arm it for assignment or replacement.
+- An **azure background** marks a stored reference being inspected. Its eye
+  control toggles inspection without removing the reference.
+- The red **×** removes a reference. Empty rows offer a green arrow.
+- A short MMB click ends reference entry and clears temporary inspection.
+  Stored references remain unchanged.
 
-Ikona **Měření** nad View otevře dvě pole pro výběr bodu, hrany, plochy,
-tělesa, komponenty, osy či roviny. První entita ihned zobrazí své údaje;
-druhá navíc určí nejkratší vzdálenost. Krátké prostřední tlačítko ukončí
-zadávání referencí, dvojklik prostředním zavře okno. **Uložit** vytvoří
-pojmenovanou informační položku v historii. Podrobnosti včetně jednotek,
-přesnosti **≈** a opravy ztracených referencí: [Měření](MEASUREMENT.md).
+Hover offers one exact orange candidate. RMB cycles the common ordered list,
+including supported obscured geometry; LMB confirms the displayed candidate.
+Only the exact face boundary, edge, point, axis or plane is highlighted. A whole
+body is not tinted when selecting a topology reference. The Tree confirms the
+same types and identities as View. Geometry comes from original persisted
+objects, including STEP imports; result-body topology is not a general placement
+source. See [viewer selection](VIEWER_SELECTION.md).
 
-## Běžný výběr ve 3D pohledu
+A new reference is checked before it changes the definition. Conflicting,
+redundant or invalid references are rejected. At zero remaining degrees of
+freedom (DOF), remove or replace a reference before adding another constraint.
+A missing stable reference never silently switches to another object by index,
+name or proximity; its retained independent values preserve meaningful state.
 
-Bez aktivního příkazu nabízí pohled pouze objekty, se kterými lze běžně
-pracovat, nikoli topologii výsledného tělesa:
+Every container has a complete local frame, including Point, Axis and Plane.
+Position uses up to three references, while two separate orientation slots define
+the base orientation. A vertex can constrain three translations. A straight axis
+constrains two perpendicular translations and a plane constrains one normal
+translation. Independent equations determine DOF, not the number of rows.
 
-- v Partu je kandidátem celý kontejner historie;
-- v sestavě je kandidátem nejnižší konkrétní výskyt Partu pod kurzorem, také
-  uvnitř libovolně vnořených sestav;
-- systémový Počátek, jeho osy a roviny nejsou samostatnou identitou komponenty.
+For an **Axis**, an original circular edge or cylindrical face defines a center
+line. A subsequent planar face can place its origin at the line/plane intersection.
+A cone or arbitrary Fillet face is not treated as a cylinder; use an available
+original circular edge when appropriate.
 
-Oranžový hover, potvrzení levým tlačítkem a cyklování pravým tlačítkem používají
-jediný společný seřazený seznam kandidátů. Pravé tlačítko před potvrzením pouze
-přepne na dalšího kandidáta. Levé tlačítko potvrdí přesně nabízený objekt
-azurovým obrysem a současně označí tutéž položku ve stromu.
+The first orientation slot accepts a planar face/plane with **FRONT/BACK**. The
+second accepts an independent plane, face, straight edge or axis with
+**TOP/BOTTOM/LEFT/RIGHT**. A parallel second direction is rejected. Planar face
+entry for Sketch/Extrusion/Revolution initially uses **BACK** from the outward
+normal; a later manual FRONT choice remains until the reference is replaced.
+Both slots are optional: the container's local frame and corrections form a
+valid definition on their own. `RX/RY/RZ` are angular corrections to that base
+frame and remain editable independently of its constrained DOF.
 
-V sestavě jeden klik pouze označí komponentu; její kóty uložení zobrazí
-teprve dvojklik. Kliknutí na hodnotu kóty vybírá přímo kótu a dvojklik otevře
-její hodnotu. Vlastnosti kóty jsou v jejím kontextovém menu.
+### Base plane and plane offset
 
-Po potvrzení již pravé tlačítko necykluje, ale otevře kontextové menu vybraného
-objektu. U vnořené komponenty obsahuje příkaz **Vybrat rodiče**. Každé jeho
-použití posune výběr právě o jednu úroveň výše; opakováním lze projít od Partu
-přes všechny vnořené sestavy až ke kořeni zobrazené sestavy. Vybraná podsestava
-se zvýrazní včetně svých dílů, ostatní výskyty zůstanou neoznačené. Strom a pohled
-zůstávají synchronizované a každé opakované vložení stejného zdrojového souboru
-se rozlišuje vlastní cestou instance. Příkaz **Otevřít** je dostupný také u
-vnořeného dílu, jehož nadřazená podsestava není otevřená; zdrojový soubor se
-dohledá přes uloženou hierarchii bez regenerace sestavy.
+Sketch, Holes, Extrusion, Revolution and construction Plane share **Base plane**:
 
-Při aktivním výběrovém příkazu platí jeho užší filtr. Pravé tlačítko nadále
-cykluje kandidáty tohoto příkazu a běžné kontextové menu se otevře až po jeho
-dokončení nebo zrušení.
+- **Automatic** follows the first planar placement reference.
+- **XY / XZ / YZ** stores a manual plane in the resolved local frame.
+- **Plane offset** moves the working/profile plane perpendicular to that plane;
+  it does not move the container Origin or its placement references.
+- A manual selection survives reference changes, regeneration and reopening.
+  Returning to Automatic resumes following the first reference.
+- Revolution still takes its rotation axis from its Sketch.
 
-## Živé úpravy ve Vlastnostech
+Changing the plane, references, position, angular corrections or offset immediately
+moves the cyan plane border and preview to the resulting frame. Sketch geometry,
+dimensions and manipulators use that same frame. Pending changes are committed
+only by OK. See [work planes](WORK_PLANES.md) for local-plane interpretation.
 
-- Při vytváření nového kontejneru se ve 3D pohledu ihned zobrazí jeho
-  lokální počátek, barevné osy X/Y/Z a roviny XY/YZ/XZ. Náhled se živě
-  posouvá a otáčí podle zvolených referencí a hodnot `X/Y/Z + RX/RY/RZ`.
-  Po prvním potvrzení jej nahradí skutečný počátek vytvořeného kontejneru.
-- Změna číselné hodnoty, včetně použití šipek `+` a `−`, se okamžitě projeví
-  ve 3D pohledu.
-- `Enter` v číselném poli dokončí zadání hodnoty, ale okno nezavře.
-- **OK** hodnoty ověří, vypočítá a uloží jako jednu transakci a okno zavře.
-- **Cancel** zavře okno bez uložení rozpracovaných změn.
-- Krátký klik prostředním tlačítkem dialog nepotvrzuje; tažení je vyhrazené
-  navigaci pohledu.
-- Dvojklik prostředním tlačítkem odpovídá tlačítku **OK** v aktivním dialogu.
+An external profile Sketch supplies parametric 2D geometry; the consuming feature
+owns the profile's world placement, orientation and offset.
 
-U Protrusion a Revolve zůstává během zadávání samostatný azurový drátový
-náhled bez finální operace Fuse/Cut. Reaguje na směr, délku nebo úhel,
-jednostranný, oboustranný či symetrický rozsah a zvolenou operaci. Teprve
-**OK** provede kontrolu, skutečný booleovský výpočet a commit výsledku.
+## Measurement
 
-### Rollback při editaci kontejneru
+**Measurement** above View opens two reference fields for supported points,
+edges, faces, bodies, components, axes or planes. The first selection shows its
+properties; the second adds shortest distance. Short MMB ends reference entry;
+MMB double-click closes the measurement window. **Save** creates a named
+informational history item. Units, approximate results marked **≈**, and reference
+repair are described in [Measurement](MEASUREMENT.md).
 
-Otevření **Vlastností** libovolného kontejneru v historii dočasně vrátí model
-těsně před tento kontejner. Nejde jen o Zaoblení: stejné pravidlo platí pro
-všechny editovatelné kontejnery. Ve 3D pohledu proto není výsledek upravovaného
-kontejneru ani výsledky pozdějších operací. Zobrazuje a vybírá se skutečná
-vstupní geometrie daného kroku, nikoliv finální těleso z cache.
+## Ordinary selection in 3D View
 
-Upravovaný kontejner ze stromu nezmizí. Zůstává na svém místě, je zeleně
-označený jako právě editovaný a za ním je značka **Vložit zde**. Následující
-kontejnery jsou po dobu úpravy viditelně potlačené:
+Without an active command, Part offers history containers and Assembly offers
+the lowest concrete Part occurrence under the pointer, including deeply nested
+occurrences. System Origin geometry is not an alternative component identity.
+Hover is orange; LMB confirms the exact object in cyan and synchronizes the Tree.
+Clicking empty View clears both selections and inspection overlays.
+
+Before confirmation, RMB cycles candidates. Over a confirmed object, RMB opens
+its context menu. **Select Parent** moves exactly one ownership level upward;
+repeat it to traverse nested Assemblies. Each repeated source occurrence has its
+own instance path and remains separately selectable. **Open** can resolve a nested
+Part's source from the stored hierarchy without regenerating the Assembly.
+
+Single selection and dimension inspection are separate. Double-click a component
+to show its placement dimensions. Click a dimension value to select it and
+double-click to edit its value; dimension presentation has its own context action.
+During an active selection command, its filter and RMB cycling remain in force
+until the command finishes or is canceled.
+
+## Live edits in Properties
+
+New container definitions immediately show a local Origin and a transient preview.
+Position, reference and numeric changes update it. Enter commits the focused numeric
+field without closing the dialog. **OK** validates, calculates, commits one
+transaction and closes. **Cancel** discards pending edits. Short MMB never accepts
+the dialog; MMB drag navigates and MMB double-click invokes OK.
+
+Parametric dimensions follow the resolved local frame, including offsets,
+FRONT/BACK, quarter-turn orientation and `RX/RY/RZ`. Their text is the ordinary
+hover/edit target, so extension lines do not steal geometry selection. Purple
+grips provide presentation or value manipulation according to the active tool.
+
+### Rollback while editing a container
+
+Opening Properties temporarily displays the real calculated input immediately
+before the edited history container. The container remains green in the Tree,
+while later operations are suppressed only for the edit session:
 
 ```text
-Těleso → předchozí kontejnery → zelený editovaný kontejner
-        → Vložit zde → potlačené následující kontejnery
+Body → preceding containers → green edited container
+     → Insert here → temporarily suppressed later containers
 ```
 
-Transientní náhled se vždy odvozuje ze stejné vstupní geometrie, nikoliv z
-předchozího náhledu. Výběrové zvýraznění zůstává při otáčení pohledu zachované.
-
-**OK** změny ověří a vypočítá, ukončí editaci, vrátí **Vložit zde** na konec
-stromu a znovu vyhodnotí následující operace. **Cancel** obnoví stav před
-otevřením. V obou případech view odstraní
-dočasný náhled, editační kóty a pomocná zvýraznění, obnoví běžný režim výběru a
-zobrazí celé výsledné těleso. Natočení a přiblížení kamery se přitom nemění.
-
-### Operace solidu
-
-V horní části Vlastností solidu je výrazný přepínač operace:
-
-- azurové **+ Přičíst** přidává objem,
-- červené **− Odečíst** odebírá objem.
-
-Změna operace se okamžitě projeví ve view. Stejná operace je nadále dostupná
-také v kontextovém menu objektu v tree. Obě místa pracují se společným
-nastavením solidu.
-
-### Rozsah vysunutí Až k ploše
-
-Protrusion podporuje číselnou délku, **Až k ploše** a pro odečítání také
-**Skrz vše**. **Až k ploše** přijímá rovinnou plochu, datumovou rovinu,
-válcovou, kulovou, kuželovou i obecnou NURBS/B-spline plochu. Směr vysunutí
-zůstává kolmý ke skicové rovině. U zakřiveného cíle musí každý vzorkovaný
-paprsek profilu mít jednoznačný první kladný průsečík; smíšené, chybějící nebo
-nejednoznačné zásahy se odmítnou.
-
-Azurový drátový náhled se počítá pouze z persistovaných bodů a vzorkovaných
-křivek skici a z uloženého analytického popisu nebo triangulace cílové plochy.
-Otevření Vlastností, změna parametru ani výběr reference proto nespouští OCCT.
-Rovina, koule, válec a kužel používají společný analytický řešič; obecná plocha
-se v náhledu protíná s persistovanými trojúhelníky svého posledního výpočtu.
-
-Při **OK** nebo explicitní regeneraci vytvoří OCCT vysunutí s
-potřebným přesahem a ořízne je objemem odpovídajícím uložené analytické ploše.
-U obecné plochy v tomto explicitním výpočtu vyřeší stabilní referenci a použije
-přesnou OCCT plochu; triangulace slouží pouze náhledu. U roviny se používá čistá
-nekonečná podpůrná rovina odvozená z vybrané plochy; hranice konečné vybrané
-plochy se jako hranice ořezu nepoužívají.
-
-Operace se neprovede, pokud je směr vysunutí rovnoběžný s cílem, některá část
-profilu cílovou plochu mine, profil cílovou plochu kříží nebo cílovou referenci
-nelze vyřešit. Kontejner v takovém případě zůstane označený jako chybný místo
-vytvoření zdánlivě platného tělesa s jiným koncem.
-
-Po dvojkliku na Protrusion nebo Revolve se jejich prostorové kóty zobrazují na
-skutečné profilové rovině. Je-li zadané odsazení pracovní roviny, počátek
-lineární kóty Protrusion i úhlová kóta Revolve toto odsazení respektují.
-
-Uzavřený profil vytváří běžný solid. Otevřený profil automaticky nabídne režim
-**Thin**, který vytvoří tenkostěnný solid s tloušťkou na první stranu, druhou
-stranu nebo symetricky. U uzavřené smyčky lze mezi **Těleso** a **Thin** zvolit
-ručně: například uzavřený obdélník vytvoří buď plný kvádr, nebo
-dutou obdélníkovou stěnu mezi dvěma odsazenými smyčkami. Profil může obsahovat
-úsečky, kruhové oblouky, elipsy, eliptické oblouky, spline a rádiusy vytvořené
-ve společném bodu dvou úseček. Běžný Part nevytváří samostatná plošná tělesa;
-ta budou patřit do budoucího plošného modeláře.
-
-Azurový Thin náhled zobrazuje jednotlivé hrany obou odsazených obrysů,
-podélné hrany v každém rohu a u otevřeného profilu také oba koncové uzávěry.
-Po změně tloušťky nebo volby **První strana / Druhá strana / Symetricky** se
-drát znovu sestaví a nahradí předchozí overlay; nesmí pouze probliknout, zmizet
-ani se nahradit šedým mesh výsledného tělesa. Implementace podporuje jeden
-souvislý nevětvený řetězec nebo jednu uzavřenou smyčku z podporovaných křivek.
-Rádius nejprve zkrátí obě sousední úsečky a mezi jejich tečnými body vloží
-skutečný oblouk. Větvení, několik oddělených řetězců, kolaps příliš velkého
-odsazení a samoprotínající se paralelní obrys se odmítnou s chybou profilu Thin.
-
-Protrusion zobrazuje po celou dobu aktivních Vlastností fialový manipulátor a
-žlutou editovatelnou kótu. Tažení je plynulé, zobrazená hodnota se přichytává po
-1 mm. Záporná hodnota zadaná do prostorové kóty délky nebo úhlu obrátí směr
-prvku, ale uložená a zobrazená velikost zůstane kladná. U oboustranného rozsahu
-**Otočit** vymění Start/End i jejich dvě hodnoty; symetrický rozsah hodnoty
-sjednotí, ale identity obou koncových ploch zachová.
-
-Skica, náhled, výsledné těleso, fialový manipulátor a žlutá kóta používají
-stejný fyzický rámec i při záporném odsazení pracovní roviny a korekcích
-`RX/RY/RZ`. Skica se proto při otevření kreslí přímo v odsazené a natočené
-rovině, nikoliv dočasně v počátku kontejneru.
-
-Samostatný kontejner **Skica** lze z Tree i z View převést příkazem kontextové
-nabídky **Vytažení** nebo **Rotace**. Otevře se stejné okno Vlastností jako při
-novém vytvoření prvku. **OK** nahradí Skicu cílovým prvkem při zachování ID,
-pořadí historie, umístění a profilové geometrie; **Cancel** ponechá původní
-Skicu. Tlačítkem **Skica** lze před potvrzením profil ještě upravit.
-
-### Zaoblení hrany
-
-Příkaz **Zaoblení** rovnou otevře jediné okno **Vlastnosti zaoblení**, které se
-používá také při pozdější editaci. Ve 3D pohledu zvolte jednu nebo více
-podporovaných hran. `Ctrl` přidává a odebírá hrany ze společného výběru; hranu
-lze odebrat také ze seznamu v okně. Všechny uvedené hrany používají jeden
-společný poloměr.
-
-Souvislá tečná trasa může být po předchozích booleovských operacích tvořena
-několika samostatnými OCCT hranami. V seznamu je zobrazena jako nadřazená trasa
-s jednotlivými hranami pod ní. Označení dítěte a odebrání smaže pouze tuto
-hranu; označení nadřazené trasy odstraní celou trasu. **Obnovit kontinuální
-trasu** znovu dopočítá její aktuální členy.
-
-Náhled nevytváří další kontejner a vždy vychází z původního ostrého tělesa.
-**OK** provede kontrolu, vloží právě jeden prvek Zaoblení do historie a okno
-zavře. **Cancel** neuloží rozpracovanou změnu. Krátký klik prostředním
-tlačítkem dialog nepotvrzuje, dvojklik odpovídá **OK** a tažení pouze otáčí
-pohled.
-
-Při editaci se historie dočasně vrátí těsně před upravované Zaoblení, takže je
-ve view dostupná původní ostrá hrana. Upravovaný kontejner zůstává ve stromu
-viditelný a je označen zeleně, zatímco následující prvky jsou po dobu úpravy
-potlačené. **OK** upraví existující prvek bez založení kopie a vrátí
-vyhodnocení na konec historie.
-
-Vybrané zaoblení se ve view zvýrazňuje pouze svými hraničními hranami, nikoliv
-celou plochou nebo celým dílem. Dvojklik levým tlačítkem zobrazí editovatelnou
-kótu poloměru. Okno vlastností se otevírá přes **Vlastnosti** v kontextovém
-menu vybraného prvku. Hrany se ukládají stabilními sémantickými referencemi,
-nikoliv pořadovými čísly geometrického jádra. Neproveditelný poloměr nebo
-nekompatibilní kombinace hran zachová poslední platné těleso a okno zůstane
-otevřené.
-
-Pouhé najetí nad plochu vytvořenou Zaoblením zobrazí oranžově jen její
-persistované hraniční hrany. Drát celého výsledného tělesa ani původní ostrá
-hrana se v tomto režimu nepřekreslují. Přechod na jiný kandidát předchozí
-oranžové zvýraznění vždy odstraní.
-
-U kruhového zaoblení se kóta poloměru zobrazí ve stabilním normálovém řezu mezi
-oběma krajními kružnicemi zaoblené plochy. Hrot leží na oblouku mezi nimi a
-směřuje ke středu poloměru. Poloha řezu se při změně hodnoty ani překreslení
-náhledu nepřehodí na jinou část kružnice.
-
-### Sražení hrany
-
-**Sražení** používá stejné uspořádání a ovládání jako Zaoblení, ale jde o
-samostatný příkaz a samostatný typ kontejneru. **Vlastnosti zaoblení** obsahují
-jen poloměr a **Vlastnosti sražení** jen vzdálenost sražení; žádné z těchto oken
-nenabízí přepnutí na druhou operaci. První verze Sražení je symetrická: stejná
-vzdálenost se měří na obou sousedních plochách.
-
-Výběr více hran pomocí `Ctrl`, seznam hran, **OK**, **Cancel**, prostřední
-tlačítko, rollback stromu a chování náhledu jsou shodné se Zaoblením. Změna
-hodnoty se vztahuje na všechny vybrané hrany. Existující Zaoblení ani Sražení
-se ve Vlastnostech na druhý typ nepřevádí.
-
-Kliknutí ve view zvýrazní pouze hraniční hrany sražené plochy. Dvojklik zobrazí
-editovatelnou lineární kótu vzdálenosti a pravé tlačítko → **Vlastnosti** otevře
-společné okno. Neproveditelná vzdálenost nebo kombinace hran zachová poslední
-platné těleso.
-
-Stejně jako u Zaoblení zvýrazňuje najetí pouze persistované hraniční hrany
-sražené plochy. Dvojklik zobrazuje hodnotu sražení v kompaktním tvaru
-`5x45°`. U kruhového sražení leží kóta ve stabilním normálovém řezu a obě její
-vynášecí čáry začínají přímo na krajních kružnicích sražené plochy.
-
-## Režim skici
-
-Ve Vlastnostech skici tlačítko **SKETCH** potvrdí její umístění a otevře
-samostatný režim kreslení. Tlačítko je dostupné po výběru roviny nebo rovinné
-plochy, která určuje orientaci skici.
-
-Po vstupu se pohled nastaví kolmo ke skice. Lokální osy X/Y jsou zobrazené
-hnědou tenkou čárkovanou čarou přes celé view. Profilová geometrie je modrá,
-body jsou žluté a konstrukční čáry jsou žluté a čerchované jako osy.
-Také u skici na šikmé rovině kamera respektuje celý lokální rámec: normálu
-roviny i natočení její osy X. Stejný převod kamery používá příkaz
-**Nastavit orientaci**.
-Po dokončení nebo opuštění skici se kamera plynule vrátí do polohy, kterou
-měla před vstupem do skicáře.
-
-První přiblížení běžné modelové skici vychází z logického DPI monitoru a míří
-přibližně na poměr 1 mm modelu ku 1 mm na obrazovce. Nejde o metrologicky
-přesné měřidlo, ale nově kreslená úsečka proto vizuálně odpovídá své skutečné
-délce podstatně lépe. Editor rámečku nebo razítka je výjimka: při otevření
-zobrazí celý list, aby zůstala dostupná celá šablona.
-
-Základní nástroje jsou **Konstrukční čára**, **Bod**, **Úsečka**,
-**Obdélník**, **Kružnice**, **Oblouk** a **Spline**. Kružnice se zadává
-prvním kliknutím do středu a druhým kliknutím na obvod. Druhý klik pouze určí
-poloměr; trvalým řídicím bodem kružnice je její střed. Pravé tlačítko zruší
-rozpracovaný prvek; u spline ji po zadání alespoň dvou bodů dokončí.
-
-V nativní pravé liště jsou existující příkazy skici seskupené pod tlačítky
-**Vazby** a **Kóty**. Položky uvnitř nabídek se povolují podle právě vybrané
-geometrie; seskupení nemění jejich výběr, výpočet ani způsob potvrzení.
-
-Samostatný příkaz **Text** otevře stejné interní okno Vlastností jako ostatní
-parametry skici. U nového textu nejprve klikněte na kotevní bod ve výkresovém
-prostoru, nastavte obsah, výšku, vodorovné a svislé zarovnání, barvu, natočení
-a případné vodorovné převrácení a potvrďte **OK**. Změny se před potvrzením
-zobrazují jen jako dočasný náhled; **Cancel** model nezmění. Dvojklik nebo
-**Vlastnosti** v kontextové nabídce otevře pro existující text stejné okno a
-**Odstranit** či `Delete` smaže celý text jako jednu entitu. Obrys ISO písma se
-vypočítá při explicitním OK a uloží se společně se sémantickými parametry;
-otevření, výběr a vykreslení textu proto nevolá OCCT ani znovu nenačítá písmo.
-V aktuálním C++ řezu je text samostatná skicová grafika a zatím nevstupuje do
-profilu Vytažení nebo Rotace.
-
-Příkaz **Externí reference** vedle nástroje Výběr přepne nativní C++ Sketcher
-do výběru původní persistované topologie. Lze převzít plochu, hranu, vrchol
-nebo osu lokálního Partu z kontejneru, který leží před prvním Vytažením či
-Rotací používající aktivní skicu. Tím se zabrání kruhové závislosti skici na
-jejím vlastním výsledku. Hover zvýrazní přesně nabízenou geometrii,
-pravé tlačítko cykluje společný seznam kandidátů a levé tlačítko uloží projekci
-jako jednu Part revizi. Režim zůstane aktivní pro další výběr a ukončí se
-opětovným stisknutím tlačítka.
-
-Konstrukční bod, osa a rovina stejného Partu jsou rovněž platné zdroje.
-Konstrukční geometrie není členem historie tělesa a nemůže vytvořit zpětnou
-závislost na výsledku skici. Potvrzení změny jejích Vlastností obnoví navázané
-projekce bez výpočtu OCCT; změna roviny nebo odsazení cílové skici stejným
-způsobem znovu promítne všechny její externí reference.
-
-Uložená externí hrana, osa a obrys plochy se kreslí hnědou čárkovanou čarou
-a vrchol hnědým křížkem. Plocha může uložit více uzavřených kontur, například
-vnější obrys a otvory. Jsou read-only; lze je vybrat a odstranit přes pravé tlačítko nebo
-`Delete`. Kliknutí, hover, otevření ani mazání nevolá OCCT: používá se pouze
-stabilní identita a geometrie z persistovaného viewer packetu. Při explicitním
-**Regenerovat** se po výpočtu Partu každá lokální reference znovu vyhledá
-podle přesné identity ve výsledném viewer packetu a její uložená projekce se
-obnoví. Chybějící, nejednoznačný nebo do bodu zborcený zdroj se neodhaduje:
-reference zčervená jako přerušená a zachová poslední platnou projekci. Plocha
-s otevřenou, nemanifoldní nebo do čáry zborcenou hranicí se rovněž nepřijme. Po
-obnovení přesně stejné identity se automaticky opraví. Běžné překreslení,
-přepnutí záložky a otevření vlastností tuto obnovu ani OCCT nespouští. Zdroje
-z jiné komponenty sestavy budou doplněny v navazujícím řezu.
-
-V novém C++ pracovním prostoru jsou samostatné příkazy **B-spline – řídicí
-body** a **Interpolační spline**. První používá potvrzené body jako řídicí
-vrcholy, druhá všemi potvrzenými body prochází. Obě se zadávají posloupností
-bodů, potřebují nejméně tři body a rychlý dvojklik prostředním
-tlačítkem je dokončí přesně na posledním bodu potvrzeném levým tlačítkem;
-kurzor při dvojkliku další bod nepřidá. Dodatečná vazba tečnosti na konci
-upraví koncové rameno spline a nepohne připojenou úsečkou.
-Tři body nevytvářejí kruhový oblouk a spline proto nemá společnou radiusovou
-kótu.
-Dvojklikem na hotovou křivku se otevřou interní **Vlastnosti B-spline**, kde
-lze změnit stupeň, souřadnice řídicích bodů a přepnout uzavřenou periodickou
-křivku. `Delete`
-odstraní vybranou spline. Uzavřená spline může tvořit přesný profil Vytažení
-nebo Rotace; výpočet používá přesnou OCCT B-spline, nikoli čárový náhled.
-
-Nativní příkaz **Eliptický oblouk** používá postupně střed, konec hlavní
-poloosy, délku a stranu kolmé vedlejší poloosy, počáteční bod a koncový bod.
-Kurzor u obou konců pouze volí parametr; uložené body leží přesně na elipse.
-Do posledního platného bodu je celý tvar jen náhled. `Escape` jej zruší bez
-změny dokumentu; dokončený oblouk vznikne jako jedna vratná Part revize.
-
-Při kreslení úsečky směrem k lokální ose X nebo Y se přichycení k ose kombinuje
-s nabízenou vodorovnou nebo svislou vazbou. Koncový bod proto skončí přesně na
-ose a úsečka se současně srovná v nabízeném směru; nevznikne pouze přibližná
-vizuální shoda.
-
-Název **Konstrukční čára** označuje konkrétní čárový prvek určený dvěma
-řídicími body. Může nést vazby a kóty, ale nevstupuje do profilu Protrusion.
-První konstrukční čára skici se u Revolve používá jako osa rotace; její směr
-je pro rotační výpočet matematicky prodloužený. Obecné přepnutí kružnice,
-oblouku nebo jiné geometrie mimo výsledný profil se terminologicky označuje
-jako **konstrukční geometrie**. Tvar takového prvku se přepnutím nemění.
-
-Definiční body geometrie se potvrzují levým tlačítkem. Krátký klik ani tažení
-prostředním tlačítkem zadání nepotvrdí; prostřední tlačítko zůstává vyhrazené
-navigaci a jeho rychlý dvojklik ukončuje aktivní nástroj.
-
-V **Lomené čáře** přepne RMB po prvním úseku následující část mezi úsečkou a
-tečným obloukem. Náhled oblouku zobrazuje také jeho odvozený střed. Střed lze
-přichytit na hlavní osu X/Y; koncový bod lze přichytit na významný bod `K`
-nebo vodorovně/svisle zarovnat s jiným bodem. Zobrazená nabídka se po potvrzení
-uloží jako skutečná vazba.
-
-Každý bod má interní souřadnice X/Y, ty ale bez explicitní uživatelské kóty
-nejsou podmínkou a nezobrazují se. Solver je používá jako aktuální polohu a smí
-je měnit při řešení vazeb. Konstrukční čára i další geometrie odkazují na své
-řídicí body; kliknutí do volného místa bod vytvoří a kliknutí poblíž
-existujícího bodu jej znovu použije.
-
-Příkaz **Vazby → Shodnost** rozlišuje body a nosnou geometrii. Dva nativní
-body se po potvrzení skutečně sloučí do jednoho stabilního bodu; nezůstává mezi
-nimi pomocná vazba ani značka `C`. Vyberete-li bod a potom hlavní osu X/Y,
-úsečku nebo křivku, vznikne místo toho asociativní vazba bodu na geometrii
-označená `C`. Hlavní osu lze zvolit také jako první a poté vybrat bod. Středy
-kružnic a oblouků jsou běžné nativní body a lze je stejným příkazem spojit s
-koncem úsečky nebo umístit na osu.
-
-Přesun či navázání středu překládá celou kružnici nebo oblouk rigidně. U
-oblouku se stejným rozdílem přesunou oba konce a navázané kontaktní body;
-poloměr a úhlový rozsah se tím nemění. Pokud by přesun vyžadoval pohnout pevným
-nebo externě ukotveným bodem, celá operace se odmítne bez částečné změny.
-
-Vazba **Tečná** se vytvoří postupným výběrem úsečky (nebo konstrukční čáry)
-a kružnice v libovolném pořadí. Bod dotyku musí ležet v rozsahu vybrané
-úsečky. Běžný uložený bod dotyku je označen kombinací **C + T**: `C` určuje
-polohu bodu na křivce a `T` tečný vztah geometrií. Pokud byl potvrzen přesný
-charakteristický bod křivky po 90°, používá se **K + T**. Samotná skutečnost,
-že jde o kružnici nebo oblouk, značku `K` nevytváří. Solver zachová stranu
-kružnice vůči čáře z okamžiku vytvoření vazby.
-
-Při tažení uloženého bodu **C + T** na kružnici zůstává střed kružnice na
-místě. Není-li poloměr ani průměr zamčený, bod sleduje kurzor, poloměr se
-změní a tečná úsečka si zachová délku i tečný směr. Zamčený poloměr nebo
-průměr dovolí místo toho pouze posun bodu po obvodu. Úhlová kóta tečné úsečky
-se stejným jedním kontaktem otáčí úsečku k odpovídajícímu bodu tečnosti;
-střed, poloměr a délku úsečky nemění.
-
-Přímé tažení koncového bodu oblouku funguje jako radiální rukojeť a mění jeho
-poloměr nebo úhlový rozsah podle aktivních kót. Známé omezení se týká jiné
-cesty: volný konec úsečky tečně napojené na konec oblouku lze táhnout dopředu,
-ale návrat po stejné tečné větvi může klást odpor. Tento vratný případ
-`A → B → A` je veden jako otevřená chyba solveru.
-
-Vratný rádius společného rohu dvou úseček se vytváří v režimu výběru.
-Kliknutím se vybere první úsečka a `Ctrl`+kliknutím se k ní přidá druhá.
-Tažením jejich společného bodu podél některého ramene vzniká živý tečný
-oblouk. Původní ostrý roh zůstává virtuálně zachovaný. Tažením některého
-tečného konce zpět do tohoto rohu se poloměr zmenší na nulu a rádius odstraní.
-Napojené úsečky přitom sdílejí jeden skutečný bod; nabídka `C` nevytváří dva
-překryté body. Gesto společného vrcholu má přednost před posunem bodu a
-skupinový posun více vybraných geometrií se nepoužívá. Kóta radiusu je při
-editaci skici žlutá, řídicí a měnitelná dvojklikem. Po ukončení skici se stejně
-jako ostatní skicové kóty ve výsledném view skryje, zatímco oblouk zaoblení
-zůstane součástí profilu.
-
-Řídicí souřadnicová kóta se vytvoří příkazem **Kóty → Vodorovná vzdálenost**
-nebo **Kóty → Svislá vzdálenost** a následným výběrem bodu. Teprve takto
-vytvořená kóta se zobrazí a její hodnota vstupuje do solveru.
-
-Příkaz **Kóty → Vzdálenost** vytvoří po výběru dvou bodů šikmou řídicí kótu.
-Její hodnota je skutečná eukleidovská vzdálenost bodů. Při změně hodnoty se
-zachová dosavadní směr spojnice, pokud jej jiné vazby neurčují jinak.
-Explicitní kóty jsou ve skicáři zobrazené vždy; samostatný přepínač jejich
-viditelnosti se nepoužívá.
-
-V nabídce **Vazby → Kolmá** vyberte postupně dvě úsečky nebo konstrukční
-čáry. První určuje referenční směr a druhá je řízená.
-U druhé zůstane zachovaný první bod a délka a její druhý bod se dopočítá tak,
-aby byly čáry kolmé. Pravé tlačítko zruší první výběr. Vazbu lze odstranit
-z kontextové nabídky ve stromu skici.
-
-U vazby **Rovnoběžná** je pořadí stejné: první vybraná čára je reference,
-druhá se srovná a nese symbol rovnoběžnosti. První čára se nepřepočítává.
-Pokud je druhá čára již směrově zavazbená, ohlásí se konflikt.
-
-Nativní příkaz **Stejné** přijímá buď dvě úsečky, nebo dvě kruhové křivky:
-kružnice a kruhové oblouky lze vzájemně kombinovat. První výběr je reference,
-druhý řízený prvek. U úseček se zachová směr druhé a převezme se referenční
-délka. U kruhových křivek se převezme poloměr; střed řízené křivky zůstane na
-místě, konce oblouku zachovají své úhly a body navázané na konstrukční kružnici
-se přesunou radiálně spolu s ní. Pevný závislý bod, sdílená reference nebo
-rozporná řídicí kóta celou operaci odmítne bez částečné změny. Elipsy ani
-eliptické oblouky se pro shodný poloměr nenabízejí. První klik nic neukládá,
-druhý platný klik vytvoří jednu Part revizi a `Escape` příkaz zruší.
-
-Nativní vazba **Bod ve středu** se zadává výběrem samostatného bodu a potom
-úsečky nebo konstrukční čáry. Bod se asociativně sváže s přesným průměrem obou
-konců; jeden z koncových bodů téže čáry proto nelze zvolit jako cílový bod.
-Po úspěchu vznikne jedna vratná Part revize a příkaz čeká na bod další vazby.
-`Escape` zruší pouze rozpracovaný výběr. Pokud jsou všechny tři body pevné a
-jejich poloha si odporuje, vazba se odmítne bez částečné změny skici.
-
-Nativní vazba **Symetrická** používá tři výběry: referenční bod, řízený bod a
-konstrukční čáru jako osu. Oba body musí být různé a běžná profilová úsečka se
-jako osa nepřijme. Řízený bod se umístí do přesného zrcadlového obrazu
-referenčního bodu; pozdější přesun reference nebo osy jej znovu dopočítá jen z
-persistovaných dat Skicáře. První dva výběry jsou pouze rozpracovaný stav.
-Platná osa vytvoří jednu vratnou Part revizi, zatímco `Escape` neuloží nic.
-
-Nativní vazba **Soustředná** přijímá kružnici, kruhový oblouk, elipsu nebo
-eliptický oblouk. První vybraná křivka je reference a druhá je řízená; B-spline
-se v tomto příkazu nenabízí. Po potvrzení se střed druhé křivky přesune přesně
-na referenční střed a společně s ním se přeloží všechny její řídicí body.
-Platí to také pro vrcholy pravidelného mnohoúhelníku vázané na jeho konstrukční
-kružnici. Tvar, poloměry a úhlové rozsahy se tím nemění. Pevný závislý bod nebo
-jiný neřešitelný konflikt celou operaci odmítne bez částečné změny. První výběr
-je pouze rozpracovaný stav, platná druhá křivka vytvoří jednu Part revizi a
-`Escape` příkaz zruší.
-
-Nativní vazba **Tečná** pracuje buď s jednou konečnou úsečkou (profilovou i
-konstrukční) a kružnicí, kruhovým obloukem, elipsou či eliptickým obloukem,
-nebo se dvěma kružnicemi či kruhovými oblouky. První výběr je reference a druhá
-geometrie je řízená: solver ji pouze přeloží, zachová délku úsečky, poloměry,
-natočení i skutečný rozsah oblouku. U dvojice kruhových křivek při vytvoření
-zvolí nejbližší geometricky platnou vnější nebo vnitřní tečnost a tento režim
-asociativně uloží. Pro elipsu a úsečku počítá přesný opěrný bod v natočených
-osách, nikoli kruhovou nebo osově zarovnanou aproximaci. Bod dotyku musí ležet
-uvnitř konečné úsečky a u každého oblouku také uvnitř jeho parametrického
-rozsahu; jinak se vazba odmítne bez změny skici. Pevný nebo s referencí sdílený
-bod, který brání tuhému překladu, je rovněž transakční konflikt. Tečnost dvou
-analytických křivek podporuje také elipsy a eliptické oblouky, pokud dotyk leží
-v rozsahu obou křivek. B-spline lze tímto příkazem svázat s existující úsečkou.
-První klik nic neukládá, druhý platný klik vytvoří jednu Part revizi a `Escape`
-příkaz zruší.
-
-Samostatný příkaz **Společná tečna** novou úsečku rovnou vytvoří. Po jeho
-spuštění hover nabízí pouze kružnice, oblouky, elipsy, eliptické oblouky a
-B-spline aktivní skici. Klikněte poblíž požadovaného dotyku na první a potom
-na druhou křivku. Nevybírá se jen dvojice objektů: poloha obou kliknutí určuje,
-zda má vzniknout například horní, dolní, vnější nebo vnitřní větev společné
-tečny.
-
-Vytvořená úsečka je běžná profilová geometrie. Každý její konec zůstane vazbou
-na příslušné křivce a úsečka je k oběma křivkám tečná. Po změně poloměru, os
-elipsy nebo řídicích bodů spline se proto řeší znovu. U oblouku nebo otevřené
-spline musí dotyk ležet v jejich skutečném rozsahu. Neexistující, degenerovaná
-nebo konfliktní větev se odmítne bez částečné změny skici. První klik lze
-zrušit `Escape`; druhý platný klik vytvoří jednu vratnou revizi.
-
-Příkazy **Vazby → Vodorovná** a **Vazby → Svislá** se aplikují výběrem jedné
-úsečky nebo konstrukční čáry. První bod zůstane pevný a odpovídající souřadnice
-druhého bodu se dopočítá. Vodorovné a svislé vazby jsou uprostřed geometrie
-označené zeleným písmenem **H** nebo **V**.
-
-Stejnými příkazy lze spojit také dva body. Nejprve se vybere referenční bod a
-potom řízený bod. Vodorovná vazba přenese na řízený bod souřadnici Y,
-svislá souřadnici X. Značka **H** nebo **V** se zobrazí u řízeného bodu.
-
-Podrobný popis pořadí výběru, priorit přichytávání, stupňů volnosti a typů
-vazeb je v dokumentu [Skicář](SKETCHER.md).
-
-Zobrazené explicitní kóty lze pravým tlačítkem **Zamknout** nebo
-**Odemknout**. Zamknutá kóta je řídicí: solver zachová její hodnotu.
-Do editačního pole kóty ve skicáři i ve 3D view lze místo hotové hodnoty
-zadat výpočet s operátory `+`, `-`, `*`, `/` a závorkami. Například
-`5+4*4` se po potvrzení vyhodnotí jako `21`; podporovaná je také desetinná
-čárka. Dělení nulou a jiné než číselné výrazy se odmítnou.
-Odemknutím přestane být podmínkou a z pohledu zmizí. Stav se ukládá společně
-se skicou.
-
-Tlačítko **Pohled kolmo** s ikonou normálového pohledu kdykoliv znovu narovná
-a vystředí kameru podle aktivní skici.
-
-Nástroj **Výběr** s ikonou šipky ukončí rozpracovaný kreslicí příkaz. Kliknutím
-lze označit bod nebo geometrii oranžově a odstranit ji tlačítkem
-**Vymazat vybrané** nebo klávesou `Delete`. Odstranění řídicího bodu odstraní
-také geometrii, která je na něj navázaná.
-
-Tažením výběrového obdélníku v prázdném prostoru lze označit více bodů,
-geometrií a textů. `Ctrl` přidává k existujícímu výběru a `Delete` odstraní
-celou označenou množinu v jedné vratné revizi. Při tažení jednotlivého bodu
-nebo kóty zůstává ve View pouze aktivní skica; jiné skici Partu se kvůli
-transientnímu náhledu nezobrazují.
-
-- **Dokončit skicu** uloží změny a obnoví předchozí 3D pohled.
-- **Zrušit úpravy** zahodí změny od vstupu do režimu a vrátí se do Vlastností
-  skici.
-
-## Pomocná geometrie kontejneru
-
-Viditelnost pomocných bodů, os a rovin se ovládá v tree pravým tlačítkem nad
-položkou **Počátek** příslušného kontejneru:
-
-- **Skrýt** pomocnou geometrii,
-- **Odkrýt** pomocnou geometrii.
-
-Nastavení je součástí dokumentu.
-
-V otevřených **Vlastnostech kontejneru** slouží tlačítko **POČÁTEK** k
-dočasnému výběru lokálního konstrukčního kontextu jiného kontejneru. První
-kliknutí na kontejner ve View nebo tree jeho kontext zobrazí, další kliknutí
-jej skryje. Vypnutí tlačítka ukončí tento výběrový režim, ale již zobrazené
-kontexty ponechá do zavření dialogu; zadávání přerušené reference se obnoví.
-
-Kontext zahrnuje lokální bod počátku, roviny XY/XZ/YZ a osy X/Y/Z. Podle typu
-navíc ukáže hlavní **Osu prvku** (válec, kužel, otvor, Vytažení a Rotace) a
-skutečnou pracovní či odsazenou profilovou rovinu Vytažení a Rotace. Otvor
-ukazuje vstupní rovinu kolmou ke své hlavní ose. Tato geometrie vzniká z
-persistovaného ZIMA rámce a vyřešené Sketch roviny, nikoli průchodem OCCT
-topologie. Pracovní rovina má stejnou pevnou zobrazovací velikost jako roviny
-lokálního Počátku a po návratu do zadávání referencí je ve View nabízená
-společným hover/click pickerem jako stabilní rovinná reference.
-
-Globální viewerové přepínače jsou nadřazené: vypnuté **Počátky** skryjí celý
-lokální kontext a přepínače **Osy** a **Roviny** samostatně určují, zda se v něm
-smějí zobrazit osy a roviny. Tlačítko **POČÁTEK** jejich stav nepřepisuje.
-
-Lokální Počátek kontejneru, který leží dříve v historii, lze použít také jako
-zdroj ustavení dalšího kontejneru. Kliknutí na jeho uzel Počátek v tree vyplní
-odpovídající tři roviny stejně jako u hlavního Počátku dokumentu. Reference
-zůstávají jednosměrné podle pořadí historie; dopředná nebo cyklická vazba se
-odmítne. Po návratu z vlastněného Sketcheru se rozpracované reference znovu
-vyhodnotí bez výpočtu OCCT, takže dialog zachová správný počet stupňů volnosti.
-
-## Základní práce se sestavou
-
-Nový dokument typu **Sestava** používá příponu `.asmz` a automaticky otevře
-aplikaci **Sestava**. Tlačítko **Vložit** v pravém panelu vloží existující díl
-`.prtz` nebo vnořenou sestavu `.asmz`. První komponenta se vloží do počátku a
-další se podle skutečných rozměrů automaticky rozloží vedle dosavadní sestavy.
-
-Každý vložený soubor je ve stromu samostatná instance pojmenovaná podle
-zdrojového souboru. Po rozbalení ukazuje strom obsah zdrojového Partu nebo
-Assembly a lokální počátek instance. Poloha každé komponenty patří výhradně její
-bezprostředně nadřazené Assembly; nadřazená sestava polohuje vnořenou Assembly
-jako jeden celek a nepřebírá vlastnictví vazeb jejích vnitřních komponent.
-
-Kontextové menu komponenty rozlišuje **Skrýt/Odkrýt** a
-**Potlačit/Obnovit**. Skrytí je pouze stav zobrazení: komponent zůstává aktivní,
-jeho vazby a reference zůstávají platné a závislé komponenty se nemění.
-Potlačení komponent vyřadí z aktivního modelu sestavy. Komponenty závislé přes
-sestavové vazby nebo externí reference skic se potom automaticky potlačí také,
-a to rekurzivně přes celý závislý řetězec.
-
-Automatické potlačení následníků není ukládáno jako jejich ruční potlačení.
-Příkaz **Obnovit** na zdrojovém komponentu proto znovu vyhodnotí pouze jeho
-závislý řetězec; neobnovuje všechny komponenty sestavy a ručně potlačené
-komponenty ponechá beze změny. Následník se obnoví, pouze pokud už nemá jiný
-potlačený zdroj. Chybějící nebo neplatná aktivní reference se nemaže: komponent
-se obnoví v červeném chybovém stavu, aby bylo možné vazbu později opravit.
-
-Změny polohy ve Vlastnostech se zobrazují živě přímo ve view. Strom sestavy
-zůstává sestavový i při práci s obsahem vložených dílů. Dvojklik na instanci
-přímo ve 3D view neotevírá Vlastnosti: zobrazí nebo skryje její klikací kóty
-vazeb. Vlastnosti se nadále otevírají dvojklikem ve stromu nebo z kontextového
-menu.
-
-Pravým tlačítkem nad instancí zvolte **Vlastnosti**. Okno vychází z vlastností
-kontejneru v Partu a obsahuje tři řádky ustavení:
-
-`reference dílu ↔ reference sestavy | Typ vazby | Hodnota | Flip`
-
-Klikněte na první zeleně označené pole a vyberte plochu, rovinu nebo osu
-umisťovaného dílu přímo ve 3D pohledu. Potom vyberte odpovídající referenci
-druhého dílu nebo sestavy. Aktivní výběr automaticky pokračuje další dvojicí.
-Dialog podle geometrie a zbývajících stupňů volnosti nabízí pouze použitelné
-typy: rovinnou vazbu s posunutím, **Souosost** nebo **Úhel**. Hodnota používá
-`mm` nebo stupně podle typu; **Flip** obrací orientaci. Uživatelské i generované
-osy zdrojového dílu lze vybírat ve view i ve stromu. Zakřivené plochy jako
-rovinné reference podporované nejsou.
-
-Kontextové menu má v sestavě dvě odlišné vlastnické úrovně. Nad komponentou ve
-view nebo ve stromu jsou dostupné pouze příkazy sestavy: **Upravit** a
-**Vlastnosti** mění vazby, polohu a vlastnosti komponenty v bezprostředně
-vlastnící Assembly. Nad solidem nebo interní geometrií neaktivního zdrojového
-Partu se Partové příkazy nenabízejí. Akce jako **Skica**, datumová geometrie,
-úprava historie nebo mazání jsou dostupné až po příkazu **Aktivovat díl**; ten
-přepne editovatelný dokument na konkrétní zdrojový Part. U vnořené Assembly se
-stejné pravidlo aplikuje rekurzivně a každá komponenta je upravována pouze ve
-své bezprostředně vlastnící sestavě.
-
-Kontextová nabídka nad dílem obsahuje **Aktivní** a **Vytvořit těleso**.
-Tvorba tělesa otevře stejné vlastnosti jako příkaz v panelu nástrojů.
-Také aktivace tělesa, vloženého dílu nebo podsestavy používá krátký název
-**Aktivní**; obsah upravuje až aktivovaný dokument.
-
-Strom označuje dokumenty i vložené díly a podsestavy stejnými ikonami jako
-záložky: díl modrou kostkou, sestavu zlatou kostkou a výkres drátovou kostkou
-bez barevné výplně.
-
-Okno se jmenuje **Vlastnosti dílu** nebo **Vlastnosti sestavy** podle vloženého
-objektu. Kliknutí na celý počátek vlastnící sestavy v tomto okně najednou
-vyplní tři dvojice rovin XY–XY, YZ–YZ a XZ–XZ. Změnu potvrdí OK.
-
-Po označení dílu se v jeho počátku zobrazí fialový bod. Za něj lze díl
-přesouvat i bez otevřených vlastností; vazby povolí jen zbývající posuvy.
-Uvolnění myši uloží jeden vratný přesun, Escape probíhající přesun zruší.
-S otevřenými vlastnostmi zůstává přesun náhledem do OK a Zrušit jej zahodí.
-Podrobnosti a chování podsestav popisují [reference sestavy](ASSEMBLY_REFERENCES.md).
-
-Skutečná plocha pod kurzorem se zvýrazní oranžově. Po potvrzení zůstane plocha
-ve view azurová a azurové zůstane také příslušné pole reference ve
-Vlastnostech. Toto zobrazení používá dočasný index aktuálního sestavového
-meshe, ale do `.asmz` se ukládá pouze stabilní reference původního solidu.
-Základní roviny počátku zůstávají standardně hnědé; oranžové jsou pouze při
-hoveru. Otevření Vlastností komponenty samo nezapíná zobrazení počátku.
-
-První pole vždy vybírá původní těleso právě umisťovaného dílu. Druhé pole
-vybírá pouze původní geometrii komponent, které jsou ve stromu před ním.
-Výsledné plochy po sestavových odečtech ani celé kontejnery nejsou platnou
-náhradou. Pokud starší cache dílu původní plochy neobsahuje, otevřete zdrojový
-Part, použijte **Regenerovat**, uložte jej a vraťte se do sestavy. Úplný
-datový kontrakt popisují [Reference a vazby sestavy](ASSEMBLY_REFERENCES.md).
-
-Po souososti zůstává volný posun a rotace podél společné osy. Dosednutí čelních
-ploch může uzamknout zbývající posun a následná dvojice bočních rovin pak
-automaticky nabízí úhlovou vazbu. Solver zachovává nejbližší platnou polohu a
-opačnou větev volí pouze pomocí **Flip**.
-
-Kóty zobrazené dvojklikem na díl zahrnují také nulové rovinné a souosé vazby.
-Úhel a rovinné posunutí lze přepsat přímo v kótě a potvrdit Enterem; souosost je
-zobrazená jako zamčená informační vazba.
-
-Změna polohy nebo natočení rodičovské komponenty se okamžitě přenese na
-komponenty, jejichž cílové reference míří na rodiče, a rekurzivně na další
-potomky. Není nutné otevírat Vlastnosti každého potomka. **Zrušit** vrátí celý
-živě přesunutý řetězec do posledního potvrzeného stavu.
-
-Sestavové vazby jsou v současnosti prototyp. Plochy jednoduchých těles Box a
-Wedge a podporované plochy, hrany a vrcholy Extrusion a Revolve mají stabilní
-sémantickou identitu. Sestavová reference ukládá identitu konkrétní instance a
-zdrojovou referenci Partu, nikoliv pořadové číslo plochy výsledného compoundu.
-Podporované booleovské plochy a kruhové hrany se po změně zdrojového Partu
-obnoví; chybějící nebo nejednoznačná reference zůstane výslovně nevyřešená a
-nesmí se tiše nahradit jinou geometrií se stejným indexem.
-
-### Aktivace dílu v sestavě
-
-Příkaz **Aktivovat díl** zpřístupní modelovací nástroje dílu přímo v tabu
-sestavy. Strom zůstane sestavový a ostatní díly lze nadále použít jako zdroje
-externích referencí. Aktivní díl se ve view zobrazuje ve své původní podobě
-před sestavovými řezy.
-
-Skica aktivního dílu používá jeho lokální počátek a transformaci instance,
-nikoliv počátek sestavy. Změny provedené v aktivním dílu se ukládají do jeho
-zdrojového `.prtz`. Tlačítko **Zpět do sestavy** ukončí kontextovou editaci.
-
-Je-li stejný díl otevřený také v samostatném tabu, aplikace používá společný
-aktuální dokumentový stav. Externí reference vytvořená v sestavě uchovává
-identitu sestavy a konkrétní instance; chybějící nebo nejednoznačný zdroj se
-označí jako ztracená reference místo použití nesprávné geometrie.
-
-Po změně otevřeného Partu nebo vnořené Assembly zůstávají nadřazené sestavy v
-posledním vypočteném stavu. Přepnutí tabu, uložení, obnova stromu ani běžné
-překreslení view závislosti automaticky nepřepočítávají. Nový stav převezmete
-výslovným příkazem **Regenerovat** v cílové Assembly. Regenerace použije právě
-otevřené dokumenty jako autoritativní zdroj, takže zahrne i jejich dosud
-neuložené změny, obnoví celý vnořený řetězec a přepočítá požadovanou sestavu.
-
-Externí reference skici na podporované plochy, osy, hrany a vrcholy Extrusion se
-ukládají podle původu ve zdrojové skici, nikoliv podle aktuálního pořadí
-topologie. Osa kolmá k rovině skici se odmítne, protože její kolmý průmět je
-degenerovaný bod. Po změně rozměru rodiče se potomek automaticky regeneruje. Bod ležící
-na hlavní ose skici zůstává samostatně vybratelný a lze jej odstranit stejně
-jako ostatní externí reference. Bodové externí reference se při výběru
-nezobrazují všechny současně: nejbližší bod se zvýrazní až po přiblížení
-kurzoru a kliknutím se potvrdí. Již vybraný bod zůstává viditelný. Příkaz
-**Dokončit skicu** se při vstupu z vlastností kontejneru vrátí zpět do těchto
-vlastností.
-
-Zakřivenou persistovanou plochu lze použít také jako externí řez skicovou
-rovinou. Průsečnice se vypočítá z uložené ZIMA referenční sítě bez nového
-volání OCCT a ukládá jednotlivé konečné větve; rovina procházející osou válce
-tak vytvoří dvě hraniční úsečky jeho pláště. Při ztrátě zdroje zůstane poslední
-platný řez uložený jako přerušená reference a po návratu zdroje se výslovně
-obnoví.
-
-### Sestavové řezy
-
-V sestavě jsou dostupné operace **Protrusion** a **Revolve** pouze jako
-odečítání materiálu. Řez lze omezit na vybrané díly; bez výběru působí na
-všechny vložené instance. Výsledek se ukládá výhradně v `.asmz` a nemění
-původní soubory dílů.
-
-Při hoveru se pro každou instanci střídá její sestavově upravený a původní
-stav, potom se pokračuje další instancí. Po aktivaci dílu se hover řídí
-pravidly Partu.
-
-Komponenty se ve výsledku sestavy uchovávají jako samostatné tvary v OCCT
-compoundu; běžné zobrazení je neslučuje operací Fuse. Zdrojové `.prtz`
-dokumenty se načítají jednou a jejich již vytvořená geometrie se znovu používá.
-Při uložení Partu s importovaným STEP se vedle parametrického zdroje ukládá
-podpisem ověřená komprimovaná BREP cache. Starší importovaný Part je vhodné
-jednou otevřít a uložit; následující načtení a vložení pak použije rychlou
-BREP cache místo opakovaného převodu STEP.
-
-Při interaktivním otevření `.prtz` přes **Soubor → Otevřít** probíhá načtení
-BREP a příprava zobrazovacího meshe velkého vloženého STEP mimo hlavní GUI
-vlákno. Hlavní okno proto během této práce zůstává překreslované a stavový
-řádek zobrazuje načítaný soubor.
-
-### Import IGES a DXF
-
-**Soubor → Importovat** podporuje také IGES (`.igs`, `.iges`) a textové DXF.
-IGES vloží do Partu těleso s importovanou geometrií. DXF vytvoří Sketch s
-importním blokem („mrtvolou“) v aktivním tělese; bez aktivního tělesa vytvoří
-nové. V aktivní skice přidá blok přímo do ní.
-
-Při importu do sestavy vznikne samostatný Part a vloží se jako komponenta
-právě editované sestavy. Aktivovaný Part uvnitř sestavy se upravuje přímo.
-Nová DXF skica používá lokální XY tělesa; umístění se upravuje běžnými Properties.
-Rozsah podporovaných DXF entit a další podrobnosti:
-[Import IGES a DXF](IGES_DXF_IMPORT.md).
-
-### Export STEP
-
-Příkaz **Soubor → Exportovat → STEP** je dostupný pro díl i sestavu.
-Part zapíše viditelná výsledná tělesa; sestava zachová strom podsestav a dílů,
-jejich názvy, polohy a sdílené zdroje opakovaných výskytů. Používá poslední
-vypočtený stav. Před převzetím změn závislostí zvolte **Regenerovat**.
-
-Při importu do Partu dostane každý STEP díl vlastní těleso. Při importu do
-sestavy vzniknou zdrojové Party a podsestavy v novém adresáři; každý STEP
-Part obsahuje těleso. Podrobnosti: [Import a export STEP](STEP_IMPORT_EXPORT.md).
-
-STEP obsahuje pouze výslednou geometrii. Strom historie, skici, vazby,
-materiály ani sestavové vazby se do něj nepřenášejí. Prázdný model nebo model
-bez solidu nelze exportovat. Výkres `.drwz` se exportuje prostřednictvím svého
-zdrojového dílu nebo sestavy, nikoliv přímo.
-
-### Barvy a přejmenování
-
-Jednotný nástroj **Barvy a vzhled…** (ikona koule nad View) nabízí třídy palety,
-vlastní pojmenované vzhledy, lesk a kovové povrchy. Rozlišuje základ tělesa
-a pojmenované skupiny **výsledných ploch**. Podrobný postup a ukládání:
-[Barvy a vzhled](APPEARANCE.md).
-
-Barva nastavená pro vložený díl patří konkrétní instanci a nemění barvy
-ostatních dílů. Příkaz **Soubor → Přejmenovat soubor…** zachová správnou
-příponu a aktualizuje interní odkazy v dílech, sestavách a výkresech. Pokud má
-přejmenovaný model stejně pojmenovaný `.drwz`, přejmenuje se s ním.
-
-## Základní práce s výkresem
-
-Výkres používá společný spodní stavový řádek aplikace. Zobrazuje v něm
-nápovědu aktivního příkazu i zprávy o uložení; další informační řádek
-pod záložkami listů se nezobrazuje.
-
-Výkres používá příponu `.drwz` a je navázaný na zdrojový díl `.prtz` nebo
-sestavu `.asmz`. Lze jej založit přes **Soubor → Nový → Výkres**, nebo
-tlačítkem **Výkres** v záhlaví stromu otevřeného dílu či sestavy. Tlačítko
-nejprve otevře již existující stejně pojmenovaný výkres a teprve pokud
-neexistuje, vytvoří nový a otevře jej v samostatném tabu. Zdrojová vazba
-vzniká okamžitě, není tedy nutné nejprve vložit pohled.
-
-V záhlaví stromu výkresu je opačné tlačítko **Díl** nebo **Sestava**, které
-otevře přesný zdrojový dokument. Přejmenování zdrojového Dílu nebo Sestavy se
-promítne také do názvu a cesty uložené v jeho výkresu.
-
-### Listy a formáty
-
-Jeden výkres může obsahovat více listů. Záložky listů jsou dole pod výkresovou
-plochou:
-
-- **+** přidá nový list,
-- **−** odebere aktivní list; poslední list nelze odebrat,
-- roletka **Formát** mění pouze aktivní list.
-
-Podporované formáty jsou A4, A3, A2, A1 a A0. A4 je vždy na výšku; A3 až A0
-jsou vždy na šířku. Rozměry odpovídají skutečnému papíru v milimetrech.
-
-Soubory formátů `.frmz` a razítek `.tblz` lze otevřít příkazem
-**Soubor → Otevřít**. ZIMA-CAD je otevře přímo ve Sketchi se stejnými
-nástroji, vazbami, kótami, posunem a přiblížením jako běžnou skicu. Pohled
-zůstává kolmý k šabloně, kladné X směřuje stejně jako na výkresu zprava
-doleva a pohled nelze prostorově otáčet. Kontextová nabídka nad
-geometrií umožňuje nastavit její barvu na bílou, zelenou nebo žlutou; stejná
-volba je dostupná také pro text.
-
-Automatická pole razítka jsou ve Sketchi zobrazena se znakem `&` na začátku.
-Jedno textové pole smí kombinovat běžný text s libovolným počtem tokenů,
-například `Číslo: &document.file_stem.&model.revision / &drawing.edice`.
-`&model.revision` odkazuje přímo na anglický klíč zdrojového modelu. Lokalizovaný
-token `&Verze` vybere českou hodnotu stejného parametru a `&Version` hodnotu
-podle jazyka razítka. Token `&drawing.edice` patří pouze konkrétnímu listu výkresu
-a nemění zdrojový model ani šablonu razítka. Tokeny `&document.file_stem`,
-`&sheet.format`, `&sheet.scale` a `&sheet.position` jsou automatické systémové
-hodnoty. Kód lze upravit jako běžný text; po uložení se zapíše zpět jako
-programovatelné pole razítka, nikoli jako statický nápis.
-
-Formáty a razítka jsou uloženy společně v cestě **Formats** z globálního
-nastavení (výchozí `config/formats`). Tlačítka **Přidat formát** a
-**Přidat razítko** otevírají výběr souboru přímo v této cestě. Při
-uložení se předchozí obsah automaticky archivuje jako `soubor.frmz.1`,
-`soubor.frmz.2` nebo obdobně `soubor.tblz.1`, `soubor.tblz.2`.
-
-Při vložení se definice rámečku i razítka uloží přímo do aktivního listu.
-Pozdější smazání, přejmenování nebo změna knihovního souboru již existující
-výkres nezmění. Každý list vícelistového výkresu má vlastní nezávislou kopii.
-
-Počátek každého listu leží v pravém dolním rohu. Kladná osa X směřuje zprava
-doleva a kladná osa Y zdola nahoru. Při změně formátu se proto list mění
-směrem doleva a nahoru a budoucí razítko může zůstat na místě.
-
-Razítko se do listu nepřesouvá ani automaticky nenormalizuje. Uložený počátek
-`(0, 0)` Sketcheru se vloží přesně do počátku `(0, 0)` výkresového prostoru a
-každá úsečka, kružnice i textový kotevní bod používá přímo svou uloženou
-souřadnici. Polohu vůči rámečku je proto nutné navrhnout přímo ve Sketchi;
-renderer nepřidává skrytých 10 mm ani jiný korekční posun.
-
-Výkres čte kanonická data `[Sketch]`, nikoliv zjednodušenou kopii geometrie.
-Zachovává tak vodorovné i svislé zarovnání textu, otočení, převrácení, font,
-barvu a výšku. Zadaná výška ISO textu v milimetrech znamená výšku velkého
-písmene. Nezávisí na tom, zda konkrétní nápis obsahuje diakritiku, malá písmena
-nebo spodní dotažnice; stejná hodnota má ve Sketcheru i ve výkresu stejnou
-velikost.
-
-Výkresová plocha má černé pozadí. List nemá barevnou výplň; jeho formát
-znázorňuje pouze bílý obdélník. Výkresová geometrie je rovněž bílá.
-
-### Ovládání výkresové plochy
-
-| Ovládání | Funkce |
+The preview derives from this input, not from a previous preview or the final
+body. Opening the dialog consumes stored boundary geometry without hidden body
+calculation. OK replaces the existing definition and evaluates following history;
+Cancel restores the unchanged state. Both remove transient overlays and return
+normal selection/full-history display while preserving the camera.
+
+### Solid operations
+
+Feature Properties expose **+ Add** and **− Subtract** where the feature supports
+them. The operation is shared with the Tree context action. Assembly Extrusion
+and Revolution always subtract from selected immediate Part occurrences.
+Bodies themselves have their own histories; Boolean is a separate operation.
+See [multibody modeling](MULTIBODY_AND_BOOLEANS.md).
+
+### Extrusion, Revolution and Thin
+
+Extrusion supports numeric length, **Up to Face**, and **Through All** for
+subtraction. Up to Face accepts an original planar face/datum plane or a supported
+curved face. Extrusion remains normal to the profile plane. Each sampled profile
+ray must reach an unambiguous forward target; a missing, crossing or ambiguous
+target is rejected rather than replaced with a different extent.
+
+The cyan preview uses stored Sketch/reference geometry. OK or Regenerate performs
+the solid calculation against the exact target surface. A planar target uses its
+infinite supporting plane, not the finite boundary of the selected face.
+
+A closed profile can create a solid or **Thin** walls. An open profile uses Thin.
+Choose first side, second side or symmetric thickness. The supported Thin input
+is one continuous unbranched chain or one closed loop of segments, arcs, ellipses,
+elliptic arcs, splines and evaluated corner radii. Branches, disconnected chains,
+collapsed offsets or self-intersections are rejected. Ordinary Part modeling does
+not create standalone surface bodies.
+
+The Thin preview shows both offset boundaries, longitudinal corner edges and open
+end caps. Direction, extent and wall-side changes update the same pending preview.
+Length/angle manipulators and dimensions start at the actual offset profile plane,
+including negative offsets and rotated local frames. Negative direct length/angle
+input reverses direction while retaining a positive magnitude. Two-sided Flip
+swaps Start/End values; symmetric mode retains both end identities.
+
+A standalone Sketch can be converted through **Extrusion** or **Revolution** in
+its Tree/View context menu. The normal creation/edit dialog opens. OK replaces the
+Sketch at its history position while preserving identity, placement and profile;
+Cancel leaves it intact. **Sketch** permits profile edits before confirmation.
+
+### Holes from a Sketch
+
+Use **Part → Holes** for drilled hydraulic channels. Each non-construction
+segment defines one finite cylinder from its start to its end. **Hole diameter**
+is shared by all channels; segment length is the drilling length. Intersecting
+channels are united before subtraction. Ends are flat, with no automatic tip,
+thread or extension.
+
+A selected standalone Sketch converts in place; without one, define a new Sketch
+through the shared Sketch Properties dialog. Construction segments are ignored;
+non-construction circles, arcs, splines and text are unsupported here. OK commits
+one subtraction; Cancel also discards pending Sketch changes. This is a Part
+feature, including a Part activated inside an Assembly. See [Holes](HOLES.md).
+
+### Fillet and Chamfer
+
+**Fillet** opens the same Properties dialog used for later editing. Select actual
+input-body edges; Ctrl adds/removes them and the list can remove entries. All
+selected edges share the radius. A tangent route may contain multiple edges;
+removing a member removes only that member, while removing the parent removes
+the route. **Restore continuous route** refreshes its current membership.
+
+Editing shows the original sharp input before the treatment. OK commits one
+feature or replaces the existing one; Cancel preserves the model. An impossible
+radius or edge combination leaves the dialog open and the last valid body intact.
+Inspection highlights only the treatment's boundary edges. Double-click exposes
+the radius; context **Properties** opens the editor. Circular treatments display
+the dimension in a stable normal section between the two boundary circles.
+
+**Chamfer** has its own container/dialog and cannot be switched to Fillet inside
+Properties. It shares selection, tangent routes and transaction behavior. Current
+modes include symmetric, two distances and length/angle; use the reference side
+for asymmetric definitions. Circular edges use the same command. See
+[edge treatments](EDGE_TREATMENT_COMMANDS.md) for parameter and side rules.
+
+## Sketch mode
+
+**Sketch** in feature Properties opens the owned drawing workspace while retaining
+the pending feature definition. The camera aligns with the complete local Sketch
+frame, including its offset and rotation. Finishing returns to the same Properties
+window; the feature's OK commits it. Cancel discards pending changes.
+
+Local X/Y axes are thin brown dashed lines across View; profile geometry is blue,
+points yellow and construction lines yellow centerlines. On leaving Sketcher,
+the camera animates back to its previous 3D position. Initial model-Sketch zoom
+uses logical display DPI for an approximate 1:1 physical scale; it is not a
+measuring instrument. Frame/title-block editing instead fits the whole sheet.
+
+### Drawing geometry
+
+The toolbar provides construction lines, points, segments, polylines, rectangles,
+polygons, circles, arcs, ellipses, elliptic arcs, splines and text. Constraints and
+dimensions are grouped into menus using the same actions and selection state.
+
+Confirm defining points with LMB. Short MMB and MMB drag do not add points. A quick
+MMB double-click finishes the active tool at the last confirmed point; it does
+not add a point at the double-click position. Esc first cancels pending geometry,
+then ends the tool when nothing is pending. RMB may cycle candidates or perform
+the active tool's documented mode switch.
+
+A circle uses center then circumference. Only the center remains its defining
+point; the second click supplies radius. An ellipse uses center, major-axis end
+and perpendicular minor-axis size. An elliptic arc adds start/end parameters;
+both endpoints lie exactly on the ellipse. Pending steps remain a preview until
+the last valid click.
+
+**B-spline — control points** uses control vertices; **Interpolating spline**
+passes through the entered points. Both need at least three points. MMB
+double-click completes them at the last confirmed point. Three points do not
+turn a spline into a circular arc. Existing spline Properties edit degree,
+coordinates and closed periodic state. A later endpoint tangent constraint
+changes the spline's end handle without moving the attached segment.
+
+In **Polyline**, RMB after the first segment switches the next section between
+a segment and a tangent arc. The preview shows the derived arc center, which can
+snap to X/Y. Endpoints can snap to characteristic points `K` or align horizontally/
+vertically with another point. Confirmed suggestions become actual constraints.
+
+A **construction line** is a two-point line supporting constraints/dimensions but
+excluded from the solid profile. Revolution uses the Sketch's first construction
+line as its extended rotation axis. Other geometry can also be marked construction;
+that state excludes it from the profile without changing its shape.
+
+Sketch points store current X/Y coordinates; these are not automatically driving
+dimensions. Drawing near an existing point reuses it. Snapping a segment endpoint
+to X/Y can combine point-on-axis with H/V alignment, giving exact constraints
+rather than approximate visual agreement.
+
+### Text
+
+Choose **Text**, place its anchor, then enter content, height, alignment, color,
+rotation and optional horizontal flip in the shared internal Properties window.
+OK commits; Cancel discards the preview. Double-click or context Properties edits
+the same entity. Delete removes the complete text.
+
+Native text retains its semantic content and calculated font contours. It can
+participate in Extrusion/Revolution profiles, including multiple letters and
+nested holes. Opening or selecting it consumes stored data without reconstructing
+font or body geometry. The specified ISO text height in millimeters is capital
+letter height, consistent in Sketcher and Drawing.
+
+### External references
+
+**External Reference** offers original persisted faces, edges, vertices and axes
+from valid source objects. The source must exist before the consuming feature's
+history boundary; a Sketch cannot depend on its own result. Construction geometry
+is also available subject to the same dependency checks.
+
+Hover/RMB/LMB use the common candidate list. A valid confirmation stores a
+read-only projection and the command remains active for further references.
+External curves and face boundaries are brown dashed lines; reference points are
+brown crosses. A face may contain several contours. Select/Delete removes the
+reference through the shared transaction.
+
+References may come from other Assembly components while editing an exact active
+Part occurrence. They retain source and consumer identities, occurrence paths
+and Assembly context. This creates a read-only dependency, not ownership of the
+source. Cycles and invalid forward references are rejected.
+
+At an explicit calculation/refresh boundary, the exact stored identity resolves
+again and updates the projection. Missing, ambiguous or degenerate sources are
+marked broken while retaining their last valid projection; they do not bind to
+nearby geometry. An axis perpendicular to the Sketch plane is a degenerate line
+projection and is rejected. A curved face can supply finite section branches;
+an axial plane through a cylinder, for example, yields two mantle boundaries.
+
+Ordinary drawing, hover, tab changes and Properties opening do not trigger body
+calculation or a hidden dependency refresh. See [external reference geometry](CONTEXT_REFERENCE_GEOMETRY.md),
+[exact projection](SKETCH_EXACT_PROJECTION.md) and [refresh](CONTEXT_REFERENCE_REFRESH.md).
+
+### Offsets
+
+**Offset** creates an editable parallel curve with a distance and side. For STEP
+or other external geometry, first project the source into an owned Sketch curve, which may retain its
+external dependency. An offset references that curve and creates no separate
+external reference.
+
+Trimming retains the complete supporting curve and the selected interval. Existing
+offsets keep their supporting shape; a new offset adopts the selected trimmed
+interval. Distance and Flip remain editable together. Offsets do not automatically
+build corner connectors or choose closed-loop branches; add connectors as needed.
+See [Sketch offsets](SKETCH_OFFSET.md) for exact/approximated curve support,
+reference release and validity limits.
+
+### Constraints
+
+Selection order normally distinguishes the reference from the driven geometry.
+A conflicting operation leaves the Sketch unchanged. The following table gives
+the principal workflows; [Sketcher](SKETCHER.md) contains full solver and inference
+rules.
+
+| Constraint | Selection and behavior |
 | --- | --- |
-| Kolečko myši | Přiblížení a oddálení kolem kurzoru |
-| Prostřední + pravé tlačítko a pohyb | Posun výkresové plochy |
-| Obnovit pohled | Animovaně zobrazit celý aktivní list |
-| Levé tlačítko + pohyb na pohledu | Přesunutí vloženého pohledu |
-| Delete | Odstranění vybraného pohledu |
-| Esc | Zrušit právě umisťovaný pohled |
+| Coincident | Two native points merge into one stable point, without a separate `C` marker. A point and axis/segment/curve instead create a point-on-geometry `C` relation; X/Y may be selected first |
+| Horizontal / Vertical | Select a segment, or reference point then driven point. Horizontal shares Y, vertical shares X; a green H/V marks the relation |
+| Equal | First segment length or circular radius drives the second. Circular arcs/circles may be mixed; ellipses are not equal-radius candidates |
+| Midpoint | Select a separate point, then a segment/construction line. The point follows the average of both endpoints; an endpoint of that same segment is not a valid target |
+| Symmetric | Reference point, driven point, then construction-line axis. Points must differ; later source/axis changes update the reflected point |
+| Concentric | Two circles, circular arcs, ellipses or elliptic arcs. The second center and its dependent points move rigidly onto the first; B-splines are excluded |
+| Tangent | Select supported segment/curve or curve/curve pairs. Contact must lie within finite segments and arc domains; stored branch/contact data preserves the chosen relationship |
 
-Výkresová plocha je čistě 2D a nepodporuje rotaci.
+Moving a circle/arc center translates its dependent geometry without changing
+radius or arc interval. Fixed or externally anchored conflicts reject the entire
+change. Equal radius keeps the driven center and arc endpoint angles while moving
+points on the circumference consistently.
 
-### Vložení pohledu
+A normal tangent contact uses **C + T**: point-on-curve and tangency. **K + T**
+means an explicitly selected characteristic point and tangency; circular geometry
+alone does not create K. Dragging an unlocked circular contact can change radius
+while retaining the tangent segment's length/direction. A locked radius constrains
+motion to the circumference. Arc endpoints act as radial/angle handles according
+to active dimensions. A known remaining case is resistance when returning a free
+segment endpoint along the same arc-tangent branch; see Sketcher's open solver
+work before assuming every `A → B → A` motion is covered.
 
-V pravém panelu zvolte **Vložit pohled** a klikněte na jeho místo na listu.
-První pohled je izometrický. Po kliknutí se otevřou **Vlastnosti pohledu**:
-zdrojový otevřený díl/sestava nebo soubor, název a jeho zobrazení, standardní
-orientace, styl hran/stínování, měřítko podle listu nebo vlastní a poloha.
-Samostatné meziokno pro výběr zdroje se neotevírá. Stejné vlastnosti slouží
-pro vložení i pozdější editaci. Náhled je dočasný; **OK** změnu uloží,
-**Zrušit** ji zahodí. Prostřední dvojklik nad výkresem rovněž potvrdí OK;
-krátký prostřední klik nepotvrzuje.
+**Common Tangent** creates a new segment between two selected circles, arcs,
+ellipses, elliptic arcs or B-splines. Click near the desired contact on each curve
+to choose the branch. The resulting ordinary segment keeps its endpoints on the
+curves and remains tangent through stored constraints. A nonexistent, degenerate
+or conflicting branch leaves no partial geometry.
 
-Pohled lze označit kliknutím kamkoliv do celé obdélníkové oblasti kolem jeho
-geometrie. Rámeček je jinak neviditelný; hover ho zvýrazní oranžově a výběr
-azurově. Výběr se synchronizuje se stromem. Kliknutí mimo pohledy jej zruší.
-Pravým tlačítkem otevřete vlastnosti nebo **Projekční pohled**. Ten se
-při umisťování přichytává k osmi směrům po 45 stupních a respektuje metodu
-promítání listu. Přesun rodiče přesune potomky, jednotlivý potomek zůstává
-na svém projekčním paprsku. Esc ruší právě umisťovaný pohled.
+A reversible shared-corner radius is created by selecting two connected segments
+in Select mode and dragging their common point. The radius is retained as a Sketch parameter; its actual arc trims
+the two sides for profile calculation. See [Sketcher](SKETCHER.md)
+for the detailed corner workflow.
 
-Každý pohled nabízí viditelné hrany, viditelné a skryté hrany nebo stínování
-s hranami. U názvu lze zapnout popisek pod pohledem. Měřítko podle listu
-sleduje změnu měřítka listu; vlastní měřítko zůstává nezávislé.
-Přepnutí tabu používá poslední uloženou/vypočtenou projekci. Nový stav zdroje
-se do pohledu načte výslovným příkazem **Regenerovat**.
+### Dimensions and selection
 
-Dole je roletka **Varianta**, zatím s jedinou položkou: názvem zdrojového
-souboru. Jde o přípravu pro budoucí Family Table; přepočet a výběr jejích
-variant zatím implementovaný není.
+Dimensions use stable identities, shared Properties and numeric editing. Their
+locked/driving/measured states determine which values the solver can change.
+Numeric input accepts `+`, `-`, `*`, `/` and parentheses, including a decimal
+comma; `5+4*4` evaluates to `21`. Division by zero and nonnumeric expressions are
+rejected. Use context **Lock/Unlock** for the selected value; dimension appearance
+and value locking are separate properties.
 
-Příkaz **Parametry** je nad View a v kontextové nabídce názvu souboru ve
-stromu dílu, sestavy i výkresu. U výkresu otevře parametry jeho zdrojového
-dílu nebo sestavy. Zdroj lze otevřít i z uložené cesty a výkres zůstane
-zobrazený. Změna parametrů sama neregenuje nadřazené sestavy.
+**Normal View** realigns the camera with the active Sketch. **Select** ends the
+drawing command. Hover is orange, confirmed selection cyan. Delete removes selected
+geometry and its applicable dependencies; deleting a defining point also removes
+geometry that depends on it. A rectangle dragged through empty space selects a
+set; Ctrl adds to the selection and Delete removes the set in one reversible step.
+Dragging a point or dimension displays only the active Sketch's pending geometry.
 
-První lineární výkresová kóta se vytváří výběrem dvou rovnoběžných přímých
-hran modelu a umístěním žluté kóty v listu. Hover je oranžový, potvrzené hrany
-azurové, prostřední klik kótu umístí a prostřední dvojklik nástroj ukončí.
-Kóta drží stabilní reference a po změně rozměru zdrojového modelu se
-přepočítá. Plochy a obecné křivky zatím nelze kotovat.
+**Finish Sketch** retains the pending Sketch and returns to the enclosing feature
+Properties when entered there. **Cancel edits** discards changes since entry.
+The enclosing feature is committed only through its OK transaction.
 
-Rámečky, upravitelná parametrická razítka, česká i anglická mutace a BOM Repeat
-Region s funkcemi **Item Number** a **Quantity** jsou funkční. Zbývá dokončit
-řezy, detaily, úplnou sadu ISO kót, tolerance, pozice, popisky, technické
-symboly a export PDF/DXF. Podrobné ovládání a omezení jsou v dokumentu
-[Výkresy](DRAWINGS.md).
+## Container auxiliary geometry
 
-## 2D tažení: rovinná dráha a více profilů
+Use **Hide/Show** on a container's **Origin** in the Tree to persist auxiliary
+geometry visibility. In Properties, **Origin** temporarily selects another
+container's construction context. Clicking its View/Tree item reveals the context;
+clicking again hides it. Leaving Origin selection resumes reference entry while
+retaining revealed contexts until the dialog closes.
 
-Příkazy **2D tažení**, **3D tažení** a **H-tažení** odpovídají
-anglickým názvům 2D Sweep, 3D Sweep a Helix Sweep. Loft je možnost přechodu
-mezi profily uvnitř 2D a 3D tažení.
+The context includes the local point, X/Y/Z axes and XY/YZ/XZ planes, plus a
+feature axis or actual working/profile plane where supported. A work plane uses
+the local Origin's constant display size and can be picked as a stable reference.
+It is derived from stored frames rather than live solid traversal.
 
-U 2D tažení umístěte kontejner a otevřete **Skicu dráhy**. První rovinná
-reference umístění předvyplní samostatné zelené pole před tímto tlačítkem.
-Výběrem jiné roviny nebo rovinné plochy v tomto poli můžete změnit rovinu
-dráhy bez změny umístění kontejneru. Nakreslete otevřenou dráhu z počátku
-skici; její počáteční směr je libovolný.
+The edited container shows its own construction frame. When selecting external
+Origins inside an Assembly, only the top-level Assembly Origin is offered by
+default; reveal another Origin explicitly for its exact occurrence. Hidden
+contexts are absent from both painting and picking. Closing Properties retires
+the temporary visibility state without changing saved references.
 
-Po návratu ze skici vyplňte první profil v tabulce stanic. Profily leží
-kolmo k místní tečně dráhy. Další prázdná stanice přebírá předchozí profil;
-vyplněním jiné profilové skici vytvoříte Loft. Vlastněné skici jsou dostupné
-i ve stromu. Párování bodů odpovídá 3D tažení popsanému níže.
+A preceding container's Origin can locate a later container. Tree Origin entry
+uses its corresponding planes. History order and cycle checks still apply;
+returning from an owned Sketch preserves pending references and correct DOF.
 
-U 2D i 3D tažení volba **Thin** přidá tloušťku **Dovnitř / Ven / Symetricky**.
-Symetricky znamená polovinu celkové tloušťky na každou stranu profilu.
-Otevřená kontura vytvoří pás; uzavřená dutý průřez. U proměnného Loftu se
-tloušťka měří v profilových rovinách. H-tažení vytváří dutý průřez
-pomocí vnitřního obrysu v profilové skici, například druhé soustředné kružnice.
+## Basic Assembly workflow
 
-## 3D tažení: párování profilů
+Create an **Assembly** (`.asmz`) and use **Insert** for a Part (`.prtz`) or nested
+Assembly. The first component starts at the Origin; subsequent components are
+initially placed beside the current geometry. Each occurrence has a separate
+identity and a Tree branch for its source content and local Origin.
 
-Ve vlastnostech 3D tažení se ve View zobrazují trajektorie i skici jednotlivých
-aktivních stanic. Prázdná stanice přebírá poslední vyplněný profil včetně jeho
-pořadí bodů; první stanice proto musí mít vlastní profil.
+Only the immediate owning Assembly positions a component. A parent treats an
+inserted subassembly as one component; activate that subassembly before editing
+its internal placements. Names and repeated source files do not identify an
+occurrence by themselves.
 
-Za zeleným tlačítkem **Sketch** je u vlastního profilu tlačítko **Pořadí bodů**.
-Vyberte první bod obvodu. Ostatní body následují po obvodu proti směru
-hodinových ručiček při pohledu proti normále skici. View označuje první bod
-**1 – začátek** a další body čísly. Sousední profily se párují 1 → 1, 2 → 2
-atd. Volba začátku používá identitu bodu a ukládá se s dokumentem. **Cancel**
-v okně pořadí vrátí původní volbu; celé těleso přepočítá a změny uloží až
-**OK** ve vlastnostech tažení.
+**Hide/Show** changes display only. **Suppress/Restore** changes participation in
+the active Assembly and propagates along explicit dependent mate/reference chains.
+Derived suppression is separate from manual suppression; restoring a source does
+not restore unrelated or manually suppressed components. Missing references remain
+visible as errors for repair rather than silently disappearing.
 
-Dvě kružnice bez párovacích bodů se spojují bez samovolného pootočení švu.
-Pro řízené pootočení přidejte do každé kružnice bod s vazbou **C** nebo **K**
-na kružnici.
-Pro přechod kružnice na obdélník přidejte na kružnici čtyři takové body,
-aby odpovídaly čtyřem rohům obdélníku, a zvolte odpovídající první bod.
-Počet párovacích bodů sousedních profilů musí souhlasit; jinak výpočet
-skončí vysvětlující chybou. Převzatý profil upravujte v jeho zdrojové stanici.
+### Component Properties and mates
 
-## Zrcadlo a Pole
+Open **Part Properties** or **Assembly Properties** from the occurrence's context
+menu. Placement rows pair a source and target reference:
 
-Oba příkazy jsou dostupné pro tělesa v dílu a komponenty v sestavě. Můžete
-nejprve vybrat zdroj ve View nebo Tree a poté spustit příkaz; výběr se
-předvyplní. Nebo spusťte příkaz, umístěte vlastní počátek kontejneru a
-vyberte objekt zeleným polem **Zdroj**.
+```text
+component reference ↔ owning Assembly reference | mate type | value | Flip
+```
 
-- **Zrcadlo:** vyberte rovinu zrcadlení nebo rovinnou plochu. Tlačítka
-  XY/YZ/XZ použijí rovinu vlastního počátku kontejneru.
-- **Pole – lineární:** v zelených referenčních polích vyberte jednu až tři
-  různé osy X/Y/Z vlastního počátku Pole. Každý směr má rozteč, počet a
-  rozložení **Vpřed**, **Vzad**, **Oboustranně** nebo **Symetricky**. U
-  oboustranného rozložení zadáte navíc počet kopií vzad; symetrické používá
-  lichý celkový počet se zdrojem uprostřed. Dva směry vytvoří mřížku, tři
-  prostorové pole. Uložená osa pro kruhový režim zůstává zachovaná a skrytá.
-- **Pole – kruhové:** zvolte osu, počet a úhel mezi výskyty, nebo rozdělení
-  celého kruhu. Osu lze zadat osovou referencí, přímou či kruhovou hranou.
+Arm a reference field, select original geometry of the component being placed,
+then the corresponding geometry of another immediate component or its owning
+Assembly. The next available pair becomes active. Fields share green input and
+azure inspection states with other Properties dialogs.
 
-Počet Pole zahrnuje původní objekt. Například počet 4 vytvoří tři další
-kopie a zdroj ponechá samostatný. Kopie nemají vlastní editovatelné rozměry;
-vlastnosti geometrie vedou na zdroj. Vlastnosti hlavního kontejneru v Tree
-upravují jeho umístění, zdroj a parametry kopírování. Změny uloží **OK**,
-**Cancel** je zahodí.
+Supported geometry determines the offered mate: point–point, axis–axis, plane
+coincidence/offset or plane angle. Values use millimeters or degrees as applicable.
+Curved faces are not plane references. Selecting the owning Assembly's whole
+Origin pairs XY–XY, YZ–YZ and XZ–XZ as a pending change; OK commits it.
 
-Aktivace původního tělesa přes **Aktivní** zobrazí jeho uloženou geometrii
-před navazujícími operacemi. Následující tělesa, Boolean, Zrcadlo i Pole ve
-stromu zešednou. **Zpět do dílu** obnoví celý výsledek. Toto prohlížení historie
-nemění trvalé potlačení ani viditelnost a nespouští geometrický přepočet.
+Coaxiality retains axial translation and rotation. An end-plane mate can fix
+translation; a subsequent plane angle controls rotation. The solver satisfies all
+active rows together, preserves the nearest valid orientation and reports a
+conflict when no valid placement exists. DOF counts and field editability follow
+independent equations, not row count. Missing or ambiguous identities never bind
+to a different face by position/index.
 
-V dílu je Zrcadlo samostatným tělesem a celé Pole jedním společným výsledkem
-vytvořených kopií. Lze je skrýt nebo použít jako nástroj či cíl Booleanu.
-V sestavě má každý výskyt vlastní identitu. Po změně otevřeného zdrojového
-dokumentu aktualizujte sestavu příkazem **Regenerovat**.
+Moving a source component through an explicit placement edit also updates its
+dependent chain within that transaction. Cancel restores the full pending chain.
+See [Assembly references](ASSEMBLY_REFERENCES.md) for direction, Flip, limits,
+source geometry and nested ownership rules.
 
-## Další podrobnosti k posledním změnám
+### Translation and rotation handles
 
-- [2D tažení](SWEEP_2D.md): rovina dráhy, profilové stanice, Loft a Thin.
-- [3D křivka a 3D tažení](3D_CURVE_AND_SWEEP.md): zaoblení, stanice, přebírání skic, párování bodů a Thin.
-- [H-tažení](HELICAL_SWEEP.md): tři skici, stoupání a dutý průřez.
-- [Zrcadlo a Pole](MIRROR_AND_PATTERN.md): odkazované kopie těles a komponent.
-- [Identifikace kót](DIMENSION_IDENTIFIERS.md): trvalé označení d1, d2, … v rámci dokumentu.
-- [Skicář](SKETCHER.md): uzavření spline, tečnost, zvýraznění účastníků a zamčená spojnice se bodem na ose.
+A selected immediate Part/subassembly shows a purple Origin point. Drag it through
+remaining translational freedoms. A free component moves in the View plane;
+a coaxial component moves along the axis. Grounded or fully constrained components
+do not move. Rotational freedom alone does not enable Origin translation.
 
-Zelené tlačítko **Sketch** označuje vstup do skici také u 2D a šroubovicového
-tažení. V nabídce modelování je 3D křivka za skicou a 2D tažení před 3D tažením.
-Vlastnosti kontejnerů již neobsahují redundantní řádek s typem kontejneru.
+With Properties closed, release commits one reversible move and Esc restores the
+pre-drag placement. With Properties open, movement remains pending until OK;
+Cancel discards it.
 
+For rotation, define an **axis-to-axis mate and an angle mate** for that component.
+Double-click the component to show its dimensions and purple radial arm. Drag
+the endpoint to change the existing angle. The arm stays 70 screen pixels long,
+starts on the common axis and follows its perpendicular plane. It respects angle
+limits, grounded state and value locks. Release commits one revision; Esc cancels.
 
-### Show/Erase ve výkresu
+Angles use the existing -180° to +180° interval. Crossing 180° stores the equivalent
+signed value, such as 190° becoming -170°, while preserving geometric rotation.
+The control does not automatically create an angle mate from coaxiality alone.
+See [Assembly rotation arm](ASSEMBLY_ROTATION_HANDLE.md).
 
-Vyberte pohled a otevřete **Show / Erase…** v liště Výkres, nebo nejprve
-stiskněte jeho ikonu a potom klikněte na pohled. Nástroj nabízí původní kóty,
-osy a pomocnou geometrii. U sestavy přebírá osy dílů a sestavové kóty;
-skicové kóty vložených dílů nepřenáší. Show vybírá
-ze skrytých položek, Erase ze zobrazených. Kliknutím ve View nebo zaškrtnutím
-v seznamu vybíráte položky k ponechání či odebrání. OK potvrdí změnu jen pro
-vybraný pohled; Zrušit obnoví původní zobrazení. Nové zdrojové položky načte
-**Regenerovat**. Kótu pak můžete přesouvat za text nebo úchyt u šipky.
+### Activating a Part or subassembly
 
-Ve vlastnostech pohledu zapněte **Pracovní vodítka kót**: první odstup i rozteč
-jsou standardně **8 mm**. Vodítka vycházejí z orientovaného kvádru objektu, pomáhají
-přichytávat rovnoběžné kóty a nevstupují do PDF. Podrobnosti: [Show/Erase](DRAWING_SHOW_ERASE.md).
+**Active** selects the exact source editing context. A Part exposes Modeling tools;
+a subassembly exposes Assembly tools for its own immediate components. The full
+top-level Assembly stays visible as passive context. Source geometry outside the
+active document can only be used through explicit read-only external references.
 
-### Orientace původních kót v Show/Erase
+A Part Sketch uses its local frame transformed through the active occurrence, not
+the top-level Assembly Origin. Edits belong to the source `.prtz`, shared with any
+separate tab for that Part. **Back to Assembly** ends contextual editing. Parts
+are edited before Assembly-owned cuts.
 
-Parametrické kóty lze zobrazit i v šikmém nebo bočním pohledu. Jejich poloha
-se promítá z 3D, číselná hodnota zůstává navázaná na model.
-Pravým tlačítkem nad vybranou kótou otevřete **Zobrazení kóty…** a upravte
-rovinu, odsazení od kvádru nebo polohu textu. U úhlové kóty je rovina daná
-měřenými rameny. Výkres ukládá úpravu pouze do tohoto pohledu; model ani
-jiný pohled nezmění. Stejné vlastnosti jsou dostupné v Partu a Assembly.
-Zde lze pracovní kvádr zapnout přes **Zobrazení → Prostorový rám kót**
-a polohu kóty měnit fialovými úchopy. Esc zruší rozpracované tažení ve 3D.
-Výběr Show/Erase platí pouze pro právě upravovaný pohled.
+Current calculated Part geometry becomes visible in its Assembly occurrences
+without an Assembly regeneration merely to refresh display. **Regenerate** is
+still required to solve mates and calculate Assembly-owned cuts. It uses open,
+unsaved sources as authoritative and loads closed sources from native documents.
+Switching tabs does not invoke these calculations. Regeneration preserves camera
+orientation, pan and zoom. See [geometry sharing](ASSEMBLY_GEOMETRY_SHARING.md).
 
+### Assembly cuts
 
-### Změna dílu v sestavě, kamera a kóty
+Assembly **Extrusion** and **Revolution** subtract material from selected immediate
+Part occurrences. They never add material, including creation, editing or conversion
+of an Assembly Sketch. Their parameters/results belong to `.asmz`; source Parts
+remain unchanged. Use the explicit target list and the owning Assembly context.
 
-Po změně dílu zvolte v rodičovské sestavě **Regenerovat**. Otevřené zdroje
-se přebírají z paměti bez nutnosti uložit je; zavřené díly a podsestavy z jejich
-souborů. Samotné přepnutí záložky změny do sestavy nepřenáší. Regenerace
-zachová natočení, přiblížení i posunutí pohledu.
+Components retain independent identity and are not fused merely for display.
+Native documents retain required source/calculated geometry internally; there is
+no required geometry sidecar or old-format migration step. See
+[Assembly cut commands](ASSEMBLY_CUT_HISTORY_COMMANDS.md).
 
-Tlačítko **Kóty** nad View (také Zobrazení → Kóty) přepíná jejich zobrazení
-a možnost výběru. Úhlová kóta vazby ploch se umisťuje ke společné ose/čepu,
-pokud ji určuje existující souosá vazba; jinak k průsečnici rovin.
+## Import, export and appearance
 
+**File → Import** supports STEP, IGES and text DXF. IGES imports geometry into a
+Part body. DXF creates a Sketch with an imported block in the active body, or a
+new body when required; in active Sketcher it inserts into that Sketch. Assembly
+import creates normal source Parts/components in the exact editing context.
+STEP Assembly import creates source Parts/subassemblies with their hierarchy.
+A new DXF Sketch starts in local XY and uses ordinary placement Properties.
 
-Po výběru komponenty sestavy se dočasně ukážou její kóty uložení.
-Kliknutí do prázdného View nebo ukončení prostředním tlačítkem je skryje.
-Přepínač **Kóty** zůstává společným povolením jejich zobrazení.
+**File → Export → STEP** exports visible calculated Part bodies or the Assembly
+hierarchy with names, placements and shared repeated sources. It does not export
+ZIMA history, constraints or Assembly mates. Regenerate first when updated
+Assembly operations are required. A Drawing exports model geometry through its
+source Part/Assembly. Supported entity details are in
+[STEP import/export](STEP_IMPORT_EXPORT.md) and [IGES/DXF import](IGES_DXF_IMPORT.md).
 
-### Středy děr, přizpůsobení listu a obrazový export
+**Colors and Appearance** above View provides palette classes, named appearances,
+gloss/metallic settings, base body appearance and named face groups. An occurrence
+override belongs only to that exact Assembly occurrence. See [Appearance](APPEARANCE.md).
 
-Osa viděná ve svém směru se kreslí jako křížek s bodem uprostřed; dvě díry mají
-dva křížky. Z boku má osa délku válce s malým přesahem a středový bod.
-Fialové body po výběru označují přesouvatelné popisky pohledů/řezů a kóty.
-Pevné objekty tyto úchyty nemají.
+**File → Rename File** preserves the native extension and updates supported native
+dependency paths. A same-named linked Drawing is renamed with its model. See
+[native rename](NATIVE_FILE_RENAME.md) for scope and validation.
 
-Ve výkresu **Obnovit pohled** vystředí list a přizpůsobí jeho výšku oknu.
-**Uložit jako → DXF – aktuální list** exportuje aktivní list v milimetrech,
-včetně viditelných os a kót, bez pracovních vodítek.
-**Uložit jako → JPEG – aktuální pohled** funguje v Partu, Assembly i výkresu:
-uloží aktuální výřez View v jeho obrazovém rozlišení, bez panelů aplikace.
-Zachová natočení, přiblížení a právě viditelné zvýraznění. Exporty nemění
-cestu otevřeného modelu ani výkresu.
+## Basic Drawing workflow
+
+Create a `.drwz` through **File → New → Drawing**, or use **Drawing** in the source
+Part/Assembly Tree header. It opens an existing same-named Drawing before creating
+a new one. The source link exists even before the first view. The opposite
+**Part/Assembly** header action opens the exact source. Renaming the model updates
+its stored Drawing link.
+
+Drawings use the common bottom status bar for tool hints and save messages.
+The canvas is black with an unfilled white sheet boundary and white geometry.
+
+### Sheets, frames and title blocks
+
+Bottom sheet tabs provide **+** to add a sheet and **−** to remove the active one;
+the last sheet cannot be removed. **Format** changes only the active sheet.
+A4 is portrait; A3–A0 are landscape, with real paper dimensions in millimeters.
+The sheet Origin is bottom right: positive X points left and positive Y up.
+Changing format extends the sheet left/up.
+
+Open `.frmz` frame and `.tblz` title-block files through **File → Open** to edit
+them in Sketcher. The template remains a 2D orthogonal workspace with the same
+sheet axes; it cannot orbit. Sketch tools, dimensions, constraints, pan/zoom,
+text and supported geometry colors are shared with model Sketches.
+
+Automatic text uses `&` tokens mixed with ordinary text, for example:
+
+```text
+Number: &document.file_stem.&model.revision / &drawing.edition
+```
+
+`&model.revision` addresses the model's English parameter key. Localized tokens
+such as `&Verze` and `&Version` resolve language-specific values. `&drawing.edition`
+is a sheet-local field. `&document.file_stem`, `&sheet.format`, `&sheet.scale` and
+`&sheet.position` are automatic values. Editing/saving the text retains tokens
+rather than replacing them with static captions.
+
+Frames/title blocks share the configured **Formats** path, normally
+`config/formats`. **Add Frame/Add Title Block** starts there. Saving archives the
+previous template as `.frmz.1`, `.frmz.2` or corresponding `.tblz` revisions.
+Inserting a template embeds its definition into that sheet; later library deletion,
+renaming or edits do not alter existing Drawings. Each sheet owns its copy.
+
+Template `(0, 0)` maps exactly to sheet `(0, 0)` without automatic normalization or
+hidden offsets. Design title-block placement in the template. Text retains
+alignment, rotation, flip, font, color and capital height. BOM Repeat Regions
+support item number, quantity and source parameters. See [Drawings](DRAWINGS.md)
+for template images, region direction and language behavior.
+
+### Canvas controls
+
+| Input | Action |
+| --- | --- |
+| Mouse wheel | Zoom around cursor |
+| MMB + RMB + movement | Pan |
+| Reset View | Animate to centered sheet and fit its height |
+| LMB drag on a view | Move the inserted view |
+| Delete | Remove the selected view |
+| Esc | Cancel pending placement |
+
+The Drawing canvas is two-dimensional and does not orbit.
+
+### Inserting and editing views
+
+Choose **Insert View** and click the sheet position. The first view is isometric;
+the shared **View Properties** opens for source, name/label, orientation,
+visible/hidden/shaded edge style, sheet or custom scale and position. It is also
+the later edit dialog. The preview is pending until OK; Cancel discards it.
+MMB double-click over the canvas invokes OK; a short MMB click does not.
+
+The whole rectangular view region is selectable. Its normally hidden border
+turns orange on hover and cyan on confirmation, synchronized with the Tree.
+Empty canvas clears selection. **Projected View** in the context menu snaps to
+eight 45° directions and respects the sheet's projection method. Parent movement
+moves its children; an individual child stays on its projection ray.
+
+A sheet-scale view follows later sheet scale changes; a custom-scale view stays
+independent. Tab changes display the stored projection. **Regenerate** explicitly
+loads current source data and updates the view. The **Variant** control currently
+has the source name only; generated Family Table selection is future work.
+
+### Dimensions and Show/Erase
+
+Drawing supports associative measured dimensions and model annotations. For a
+linear dimension between parallel edges, activate **Dimension**, confirm the two
+original projected edges with LMB, position the yellow preview and use the tool's
+short-MMB placement step. MMB double-click ends the tool. References remain stable
+through regeneration; missing geometry becomes unresolved rather than rebinding.
+See [dimension design](DRAWING_DIMENSIONS_DESIGN.md) for the expanded dimension
+set and current limits.
+
+Select a view and open **Show/Erase**, or open the tool and then select the view.
+It offers original dimensions, axes and auxiliary geometry. Assembly views include
+supported component axes and Assembly dimensions, not every inserted Part's Sketch
+dimension. **Show** offers hidden items; **Erase** offers visible ones. Select
+items in View or the list.
+
+Short MMB ends item selection and arms the next-view field. Pending changes remain
+visible while moving to another view. OK or MMB double-click commits all edited
+views in one transaction; Cancel discards them all. There is no intermediate Apply.
+Regenerate loads newly available source annotations.
+
+Dimension Properties controls text, tolerances and presentation. Drawings store
+view-local overrides without changing the source model or other views. Purple
+text/arrow grips change placement; RMB while dragging switches supported arrow/
+radius modes. Esc discards the drag. Model Part/Assembly presentation uses the same
+controls and can show its oriented dimension box through the View menu.
+
+**Dimension working guides** in View Properties use an initial offset and spacing
+of 8 mm. They follow the oriented object envelope, help align dimensions and do
+not appear in PDF. A dimension remains visible in oblique views unless its measuring
+line itself projects to a point. See [Show/Erase](DRAWING_SHOW_ERASE.md).
+
+An axis viewed along its direction becomes a cross with a center point. Each hole
+owns its own cross; its arms follow the profile radius plus the paper-space
+extension. Side views show an extended axial line. Purple points also identify
+movable view/section labels; fixed objects have no active grips.
+
+### Drawing and image export
+
+PDF, current-sheet DXF and PNG/JPEG sheet/region exports are available through the
+shared export operations. DXF uses millimeters and includes visible axes and
+dimensions without working guides. **JPEG — Current View** captures the actual
+visible View at its screen resolution in Part, Assembly or Drawing, excluding
+application panels and retaining camera/highlight state. Exports do not change
+the open document's path. See [Drawing commands](DRAWING_COMMANDS.md) and
+[View export](VIEW_EXPORT_COMMAND.md).
+
+## 2D Sweep and profile stations
+
+2D Sweep, 3D Sweep and Helical Sweep are separate tools. Loft is a profile-transition
+option inside 2D/3D Sweep.
+
+For 2D Sweep, place the container and open **Path Sketch**. The first planar
+placement reference initializes its separate path-plane field. Choosing another
+plane/face there changes the path plane without moving the container. Draw an
+open path starting at the Sketch Origin, with any initial direction.
+
+After returning, define the first station's profile. Profiles lie perpendicular
+to the local path tangent. An empty later station inherits the preceding profile;
+assigning a different profile creates a Loft transition. Owned Sketches are also
+available in the Tree.
+
+2D/3D **Thin** supports inward/outward/symmetric wall thickness; symmetric uses
+half the total on each side. An open contour forms a band and a closed contour a
+hollow section. Variable-Loft thickness is measured in profile planes. Helical
+Sweep uses an inner profile loop, such as a second concentric circle, for a hollow
+section. See [2D Sweep](SWEEP_2D.md) and [Helical Sweep](HELICAL_SWEEP.md).
+
+## 3D Sweep profile matching
+
+Properties shows the trajectory and active station Sketches. An empty station
+inherits the last defined profile and its point order; the first station therefore
+requires its own profile.
+
+Use **Point Order** beside the owned profile's Sketch button to choose its first
+boundary point. Remaining points follow counterclockwise when viewed against the
+Sketch normal. View labels the first as **1 — start** and numbers the others.
+Adjacent profiles match 1→1, 2→2, and so on. Point identity/order is stored.
+Cancel restores the original choice; Sweep OK calculates and commits the feature.
+
+Two circles without matching points connect without arbitrary seam rotation.
+For controlled twist, add point-on-circle `C` or characteristic `K` points. For a
+circle-to-rectangle transition, add four points corresponding to the rectangle's
+corners and choose matching start points. Neighboring point counts must agree or
+calculation reports an error. Edit inherited profiles at their source station.
+See [3D Curve and Sweep](3D_CURVE_AND_SWEEP.md).
+
+## Mirror and Pattern
+
+These tools create referenced copies of Part bodies or immediate Assembly
+components. Preselect a source or choose it through the **Source** field after
+placing the new container.
+
+- **Mirror:** select a planar face/plane, or use local XY/YZ/XZ.
+- **Linear Pattern:** choose one to three distinct local X/Y/Z axes. Each direction
+  has spacing, count and forward/backward/two-sided/symmetric distribution.
+  Two-sided adds a backward count; symmetric uses an odd total with the source
+  in the middle. Two directions form a grid and three a spatial array.
+- **Circular Pattern:** select an axis, count and step angle or full-circle
+  distribution. Supported references include axes and straight/circular edges.
+
+Pattern count includes the source: 4 means three additional copies. Copied geometry
+is edited at the source; container Properties edits placement, source and copy
+parameters. OK commits and Cancel discards changes. Switching pattern mode retains
+its other saved axis settings.
+
+Activating an earlier source body shows its calculated geometry before downstream
+operations; later bodies, Booleans, Mirrors and Patterns become passive in the
+Tree. **Back to Part** restores full display. This inspection does not change
+persistent suppression/visibility or calculate geometry.
+
+In Part, Mirror forms a separate body and Pattern groups its generated copies into
+one result usable by Booleans. Assembly copies have distinct occurrence identities.
+Use explicit Regenerate for dependent copy/mate calculations after source edits.
+See [Mirror and Pattern](MIRROR_AND_PATTERN.md).
+
+## Further references
+
+- [Sketcher](SKETCHER.md): inference, constraints, dimensions and known solver limits.
+- [Dimension identities](DIMENSION_IDENTIFIERS.md): document-wide stable d1, d2, … labels.
+- [Command coverage](CAD_COMMAND_COVERAGE.md): supported GUI/CLI operations and boundaries.
+- [Release policy](PORTABLE_RELEASE.md): native packaging strategy and platform status.

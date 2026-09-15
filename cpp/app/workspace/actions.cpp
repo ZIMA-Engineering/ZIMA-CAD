@@ -417,6 +417,23 @@ void AssemblyWorkspaceWindow::create_actions() {
     cylinder_action_ = make_action(tr("Válec"), "cylinder");
     thread_action_ = make_action(tr("Otvor"), "cylinder");
     thread_action_->setObjectName("threadAction");
+    holes_action_ = make_action(tr("Otvory"), "holes");
+    holes_action_->setObjectName("holesAction");
+    holes_action_->setToolTip(tr("Vrtané kanálky podle úseček skici; společný průměr, délka podle úsečky."));
+    connect(holes_action_, &QAction::triggered, this, [this] {
+        const auto* part = workspace_.open_part(workspace_.active_document_id());
+        if (!part) return;
+        std::string source;
+        if (const auto* item = tree_->currentItem()) {
+            const auto id = item->data(0, Qt::UserRole).toString().toStdString();
+            for (const auto& sketch : part->session.document().sketches)
+                if (sketch.id == id || sketch.owner_container_id == id) {
+                    const auto* owner = part->session.document().find_container(sketch.owner_container_id);
+                    if (owner && owner->feature_kind == zima::document::FeatureKind::Sketch) source = sketch.id;
+                }
+        }
+        show_sketch_properties(source, true);
+    });
     shaft_thread_action_=make_action(tr("Závit"),"thread");
     shaft_thread_action_->setObjectName("shaftThreadAction");
     connect(shaft_thread_action_,&QAction::triggered,this,[this] { show_shaft_thread_properties(); });
@@ -927,12 +944,12 @@ void AssemblyWorkspaceWindow::create_actions() {
         " color:#fff; border:1px solid #80AA1A; border-radius:4px; }"
         "QToolButton:pressed { background-color:rgba(77,216,17,165);"
         " color:#fff; border:1px solid #9BCC32; border-radius:4px; }");
+    view_toolbar_->addAction(regenerate_document_action_);
     view_toolbar_->addAction(custom_body_color_action_);
     view_toolbar_->addAction(parameters_action_);
     measure_action_=view_toolbar_->addAction(resource_icon("measure"),tr("Měření…"));
     measure_action_->setObjectName("measureAction");
     connect(measure_action_,&QAction::triggered,this,[this]{show_measurement();});
-    view_toolbar_->addAction(regenerate_document_action_);
     section_action_=view_toolbar_->addAction(tr("Řezy…"));
     section_action_->setObjectName("createSectionAction");
     connect(section_action_,&QAction::triggered,this,[this]{show_section_properties();});

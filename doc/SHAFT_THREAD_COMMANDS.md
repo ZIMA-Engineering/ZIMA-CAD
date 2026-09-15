@@ -1,108 +1,97 @@
-# Příkazy vnějšího závitu
+# External-thread commands
 
-`shaft_thread.create/get/set` ovládají současný nativní **ShaftThread**.
-Vnější závit přidává technologickou patní plochu a případný výběh. Nemění
-objem hřídele a nevytváří šroubovicově vyřezaný profil závitu.
+`shaft_thread.create/get/set` manages current native **ShaftThread**, adding a
+technological root surface and optional runout without changing shaft volume or
+cutting a helical thread profile.
 
-GUI Vlastnosti a CLI používají společné `commit_shaft_thread`, stejné původní
-reference před hranicí editace a stejný výběr katalogové velikosti. Výpočet
-probíhá při potvrzení změny. `get` pouze čte uložená data; shodné `set`
-nemění revizi ani nepřepočítává těleso. Úspěšná změna je jeden krok Undo.
+GUI Properties and CLI share `commit_shaft_thread`, original references before the
+editing boundary, and catalog selection. Calculation occurs on commit. `get` only
+reads persisted data; identical `set` changes neither revision nor body calculation.
+Actual changes create one Undo step.
 
-## Příklad
+## Example
 
-Vytvořte Part a válec příkazy `new part hridel` a `cylinder.create 5 30`.
-Do následujícího požadavku doplňte vrácené ID kontejneru válce. Klíče
-`side` a `z_min` jsou původní sémantické plochy tohoto typu válce;
-u jiné geometrie použijte její skutečné původní reference.
+Create a Part and cylinder with `new part shaft` and `cylinder.create 5 30`.
+Supply the returned cylinder container ID below. `side` and `z_min` are original
+semantic faces for this cylinder type; other geometry requires its own actual references.
 
 ```json
-{"command":"shaft_thread.create","arguments":{"cylinder":{"owner":"ID-VALCE","key":"side"},"start":{"owner":"ID-VALCE","key":"z_min"},"designation":"M10","length_mm":15}}
-{"command":"shaft_thread.get","arguments":{"container":"ID-ZAVITU"}}
-{"command":"shaft_thread.set","arguments":{"container":"ID-ZAVITU","length_mm":20,"root_diameter_mm":8.05}}
-{"command":"shaft_thread.set","arguments":{"container":"ID-ZAVITU","end_condition":"up_to","end":{"owner":"ID-VALCE","key":"z_max"}}}
+{"command":"shaft_thread.create","arguments":{"cylinder":{"owner":"CYLINDER-ID","key":"side"},"start":{"owner":"CYLINDER-ID","key":"z_min"},"designation":"M10","length_mm":15}}
+{"command":"shaft_thread.get","arguments":{"container":"THREAD-ID"}}
+{"command":"shaft_thread.set","arguments":{"container":"THREAD-ID","length_mm":20,"root_diameter_mm":8.05}}
+{"command":"shaft_thread.set","arguments":{"container":"THREAD-ID","end_condition":"up_to","end":{"owner":"CYLINDER-ID","key":"z_max"}}}
 ```
 
-## Parametry
+## Parameters
 
-Všechny rozměry jsou JSON čísla v milimetrech, nezávisle na zobrazovaných
-jednotkách dokumentu. `create` vyžaduje `cylinder` a `start`; `set` vyžaduje
-`container` a alespoň jeden měněný parametr. Volitelné `document` určuje Part.
+Dimensions are JSON numbers in mm, independent of display units. `create` requires
+`cylinder` and `start`; `set` requires `container` plus at least one parameter.
+Optional `document` identifies the Part.
 
-| Parametr | Význam |
-|---|---|
-| `name` | Neprázdný název; výchozí název se překládá |
+| Parameter | Meaning |
+| --- | --- |
+| `name` | Nonempty name; default name is localized |
 | `standard` | `metric`, `whitworth`, `pipe` |
-| `designation` | Přesné označení ze společného `thread.catalog` |
-| `root_diameter_mm` | Vlastní patní průměr |
-| `length_mm` | Délka od počáteční plochy, nikoli od konce vstupního sražení |
+| `designation` | Exact shared `thread.catalog` designation |
+| `root_diameter_mm` | Custom root diameter |
+| `length_mm` | Length from start face, not entry-chamfer end |
 | `end_condition` | `length`, `up_to`, `through_all` |
-| `runout_enabled` | Výběh; povolený pouze při zakončení délkou |
-| `runout_pitch_factor` | Nezáporný násobek stoupání pro výběh |
-| `cylinder` | Původní vnější válcová plocha hřídele |
-| `start` | Původní počáteční rovinná plocha |
-| `chamfer` | Volitelná původní kuželová plocha vstupního sražení |
-| `end` | Původní rovina, válec nebo kužel pro zakončení `up_to` |
+| `runout_enabled` | Runout, allowed only with length termination |
+| `runout_pitch_factor` | Nonnegative pitch multiple for runout |
+| `cylinder` | Original external shaft cylinder |
+| `start` | Original planar start face |
+| `chamfer` | Optional original conical entry-chamfer face |
+| `end` | Original plane/cylinder/cone for `up_to` |
 
-Reference má textové `owner` a `key`, volitelně prázdné `instance_path`.
-V této etapě jde o lokální původní plochy Partu. Reference na výsledek,
-neexistující plochy, pozdější prvky nebo jiné výskyty nejsou přijaty.
-`{}` odstraní volitelné `chamfer` nebo `end`; povinnou plochu nelze takto
-vyprázdnit a potvrdit. `get` vrací nepřítomné volitelné reference jako `null`.
-Do vstupu se nepředává analytická náhradní geometrie.
+References contain textual `owner`/`key` and optional empty `instance_path`. This stage
+accepts local original Part faces, rejecting result geometry, missing faces, later
+features, and other occurrences. `{}` clears optional `chamfer`/`end`, but mandatory
+faces cannot be cleared and committed. `get` returns absent optional references as
+`null`. Input contains no analytic substitute geometry.
 
-Změna normy/velikosti převezme jmenovitý průměr, stoupání a **vnější** patní
-průměr katalogu. Výslovně zadaný `root_diameter_mm` má přednost. Při změně
-normy bez velikosti se zachová dostupné označení, jinak se vybere první
-položka nové normy stejně jako ve Vlastnostech. Zámek rozměru brání i jeho
-nepřímé změně katalogovým výběrem v CLI i při potvrzení Vlastností.
-Vlastnosti dovolují zámek výslovně odemknout a pak změnu potvrdit.
+Standard/size changes adopt catalog nominal diameter, pitch, and **external** root
+diameter; explicit `root_diameter_mm` takes precedence. Changing standard without size
+retains an available designation or selects its first entry as Properties does.
+Dimension locks prevent indirect catalog changes in CLI and GUI commit. Properties
+allows explicit unlocking before commit.
 
-`up_to` a `through_all` vypnou výběh; explicitní `runout_enabled: true`
-s těmito režimy je chyba. Výběh u délkového zakončení respektuje zbývající
-délku hřídele. Průsečík patní plochy se vstupním a koncovým sražením počítá
-stávající geometrické pravidlo. Zachovává se i dosavadní možnost nezávisle
-zvolené patní plochy mimo materiál hřídele.
+`up_to`/`through_all` disable runout; explicit `runout_enabled: true` with them is an
+error. Length-mode runout respects remaining shaft length. Existing geometry rules
+calculate root-surface intersections with entry/end chamfers. Independently chosen
+root surfaces outside shaft material remain supported.
 
-`get` navíc vrací ID dokumentu, kontejneru, prvku a tělesa, jmenovitý průměr,
-stoupání, zámky a revizi. Editace zachovává identity. Neplatný požadavek
-nezmění dokument, vypočtenou geometrii ani Undo. Odvozené těleso se přímo
-neupravuje; při editaci musí být aktivní vlastní těleso závitu.
+`get` additionally returns document/container/feature/body IDs, nominal diameter,
+pitch, locks, and revision. Editing preserves identities. Invalid requests change
+neither document, calculated geometry, nor Undo. Derived bodies are not directly
+editable; editing requires the thread's owning Body active.
 
-## Rozsah a ověření
+## Scope and verification
 
-Nativní formát, start šablony a obecné řešení umístění se nemění. Reference
-pro regeneraci při ztrátě zdroje nadále používají dosavadní pravidla;
-tato etapa zpřístupňuje existující příkaz a jeho Vlastnosti v CLI.
-Samostatný Hole, DrillPoint a vnořené části otvoru zůstávají v plánu CLI.
+Native format, start templates, and general placement are unchanged. Missing-source
+regeneration keeps existing rules. This stage exposes existing Thread/Properties
+through CLI; standalone Hole, DrillPoint, and opening children remain planned at this stage.
 
-Modelové testy kontrolují nezměněný objem hřídele, konkrétní poloměry a
-začátky/konce patní plochy a výběhu, obrácený směr, sražení, zakončení,
-katalogový výběr, zámky, chyby referencí, Undo/Redo a nativní uložení se
-studeným výpočtem. Procesní a GUI testy ověřují tvorbu a editaci skutečnou
-konzolí, OK/Cancel, Undo a shodu katalogového výběru.
+Model tests check unchanged shaft volume, exact root/runout radii and endpoints,
+reversed direction, chamfers, termination, catalog selection, locks, reference errors,
+Undo/Redo, and native save with fresh calculation. Process/GUI tests check actual
+console creation/editing, OK/Cancel, Undo, and catalog equivalence.
 
-Sestavení obou programů a všech testů prošlo. Související regrese **9/9**
-(70,03 s), `build/shaft-thread-command-full-build.log` a
-`build/shaft-thread-command-related-tests.log`. Závěrečná kontrola přesunula
-ověření zámku také do společného potvrzení, aby jej neobešel katalog v GUI.
-Po této úpravě prošlo znovu sestavení a **3/3** (57,52 s): model, skutečný
-CLI proces a GUI včetně odmítnutého potvrzení uzamčeného průměru. Logy:
-`build/shaft-thread-command-final-build.log`,
-`build/shaft-thread-command-final-tests.log`.
+Both programs/all tests built. Related regression passed **9/9** (70.03 s):
+`build/shaft-thread-command-full-build.log`, `build/shaft-thread-command-related-tests.log`.
+Final review also moved lock validation into shared commit so GUI catalog cannot
+bypass it. Afterward, rebuild and **3/3** passed (57.52 s): model, actual CLI, and GUI
+including rejected locked-diameter confirmation. Logs:
+`build/shaft-thread-command-final-build.log`, `build/shaft-thread-command-final-tests.log`.
 
-První modelový pokus opravil chybnou očekávanou hodnotu testu M12:
-10,106 mm je vnitřní patní průměr, vnější je 9,853 mm. Při doplnění
-sražené hřídele byla opravena také const kvalifikace cesty v testovacím
-přípravku. Výrobní katalog ani geometrická pravidla se kvůli těmto chybám
-neměnila. Testy navíc ověřily Whitworth a G, začátek/konec na sražení
-0,08/29,92 mm a odmítnutí reference na pozdější prvek.
+The first model attempt corrected a wrong M12 expectation: 10.106 mm is internal
+root diameter; external is 9.853 mm. Adding a chamfered-shaft fixture also required
+correcting path const qualification. Catalog and geometry rules did not change for
+these fixture errors. Tests additionally cover Whitworth/G, chamfer endpoints
+0.08/29.92 mm, and later-feature reference rejection.
 
-
-Následný úklid odstranil dvě kopie celého referenčního paketu při otevření
-Vlastností, které se ihned přepisovaly výsledkem společného filtru. Výběr,
-rollback ani řešení referencí se nemění. Sestavení prošlo; modelový test
-závitu **1/1** (0,29 s) a GUI konzole **1/1** (43,86 s).
-Logy: `build/shaft-thread-reference-copy-build.log`,
-`build/shaft-thread-reference-copy-tests.log` a
+Subsequent cleanup removed two full reference-packet copies on Properties opening
+that were immediately overwritten by shared-filter output. Picking, rollback, and
+reference solving are unchanged. Build passed; thread model **1/1** (0.29 s) and
+GUI console **1/1** (43.86 s) passed. Logs:
+`build/shaft-thread-reference-copy-build.log`, `build/shaft-thread-reference-copy-tests.log`,
 `build/shaft-thread-reference-copy-gui-tests.log`.

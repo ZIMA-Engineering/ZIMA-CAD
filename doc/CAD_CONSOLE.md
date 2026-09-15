@@ -1,96 +1,94 @@
-# Konzole CADu a společné příkazy
+# CAD console and shared commands
 
-## Použití
+## Usage
 
-Konzole se otevírá přes **Zobrazení → Konzole CADu** nebo **Ctrl+Shift+C**.
-Je to zavíratelný spodní panel hlavního okna, nikoli samostatné systémové okno.
-Po spuštění aplikace je skrytý. Enter spustí příkaz, šipky nahoru/dolů procházejí
-posledních 100 příkazů. Historie je pouze v paměti. Tlačítko Vyčistit výpis
-odstraní zobrazený protokol; dokumenty nemění.
+Open the console through **View → CAD Console** or **Ctrl+Shift+C**. It is a closable
+bottom panel inside the main window, initially hidden. Enter executes a command;
+Up/Down recalls the last 100 commands, stored only in memory. Clear Output removes
+the displayed log without changing documents.
 
 ```text
 help
 documents
 context
 tree
-new part konzole_zkouska
+new part console_example
 save
 regenerate
 undo
 redo
 fit
-open "C:/CAD/moje sestava.asmz"
+open "C:/CAD/my assembly.asmz"
 ```
 
-Názvy příkazů a argumentů jsou stabilní anglické identifikátory. Ovládací prvky,
-popisy příkazů a aplikační hlášky používají aktuální jazyk. Diagnostika parseru
-má stabilní kódy a technický anglický detail. Mezery v cestě/názvu uzavřete do
-dvojitých uvozovek. Zpětná lomítka Windows cest se zachovávají; uvnitř uvozovek
-lze vložit znak uvozovky pomocí `\"`. Nejde o shell ani interpret Pythonu.
+Command and argument names are stable English identifiers. Controls, descriptions,
+and application messages use the current language. Parser diagnostics have stable
+codes and technical English details. Quote paths/names containing spaces. Windows
+backslashes are preserved; inside quotes, `\"` inserts a quote. This is neither a
+shell nor a Python interpreter.
 
-## Dostupné operace
+## Available operations
 
-| Příkaz | Argumenty v pořadí pro textovou konzoli | Výsledek |
+| Command | Positional text arguments | Result |
 | --- | --- | --- |
-| `help` | žádné | Katalog příkazů, popisy, argumenty a příznak změny stavu |
-| `documents` | žádné | Otevřené dokumenty, ID, cesty, aktivní/zobrazený stav; dirty, revision a needs_save pro všechny tři typy |
-| `context` | žádné | Aktivní a zobrazený dokument, aktivní výskyt/skica a potvrzený výběr |
-| `tree` | volitelné `document` | Datový strom zadaného nebo zobrazeného dokumentu; nejvýše 2000 položek a příznak truncated |
-| `new` | `type name` | Nový Part/Assembly/Drawing ze společné továrny a start šablon |
-| `open` | `path` | Otevře `.prtz`, `.asmz` nebo `.drwz`; již otevřený dokument aktivuje |
-| `save` | volitelné `document` | Uloží aktivní dokument do jeho existující cesty |
-| `save_as` | `path`, volitelné `document` | Nezávislá kopie s novými ID včetně navázaných výkresů; existující cíl se nepřepíše |
-| `activate` | `document` | Zobrazí otevřený dokument jako hlavní; nepočítá model |
-| `close` | volitelné `document discard` | Zavře dokument; neuložené změny vyžadují explicitní boolean `discard: true` |
-| `pwd` | žádné | Aktuální pracovní adresář |
-| `cd` | `path` | Změní pracovní adresář na existující složku |
-| `regenerate` | volitelné `document` | Výslovná regenerace Partu nebo Assembly |
-| `undo`, `redo` | volitelné `document` | Společná historie změn s GUI |
-| `fit` | žádné | Přizpůsobení modelu pohledu |
-| `box.create` | `length_mm width_mm height_mm`, volitelné `document` | Vytvořit a vypočítat kvádr v aktivním tělese |
-| `box.get` | `container`, volitelné `document` | Přečíst uložené rozměry, zámky a identitu kvádru |
-| `box.set` | `container`, volitelné `length_mm width_mm height_mm document` | Změnit zadané rozměry a vypočítat Part |
+| `help` | none | Command catalog, descriptions, arguments, and state-change flag |
+| `documents` | none | Open documents, IDs, paths, active/displayed state; dirty, revision, and needs_save for all three types |
+| `context` | none | Active/displayed document, active occurrence/Sketch, confirmed selection |
+| `tree` | optional `document` | Data tree for specified or displayed document; at most 2000 items plus truncated flag |
+| `new` | `type name` | New Part/Assembly/Drawing through shared factory and start templates |
+| `open` | `path` | Open `.prtz`, `.asmz`, or `.drwz`; activate if already open |
+| `save` | optional `document` | Save the active document to its existing path |
+| `save_as` | `path`, optional `document` | Independent copy with new IDs, including linked drawings; never overwrite an existing destination |
+| `activate` | `document` | Display an open document as top-level without model calculation |
+| `close` | optional `document discard` | Close a document; unsaved changes require explicit boolean `discard: true` |
+| `pwd` | none | Current working directory |
+| `cd` | `path` | Change working directory to an existing folder |
+| `regenerate` | optional `document` | Explicit Part or Assembly regeneration |
+| `undo`, `redo` | optional `document` | History shared with GUI |
+| `fit` | none | Fit the model in the View |
+| `box.create` | `length_mm width_mm height_mm`, optional `document` | Create and calculate a box in the active body |
+| `box.get` | `container`, optional `document` | Read persisted box dimensions, locks, and identity |
+| `box.set` | `container`, optional `length_mm width_mm height_mm document` | Edit supplied dimensions and calculate the Part |
 
-`new` přijímá typy `part`, `assembly`, `drawing`. Název je základ jména souboru
-v pracovním adresáři; příponu přidá CAD. Soubor se skutečně zapíše až při `save`.
-`save_as` odpovídá současnému GUI Uložit jako: vytvoří samostatnou kopii,
-zatímco původní dokument zůstane otevřený na stejné cestě a se stejnými
-neuloženými úpravami. Cílová přípona musí odpovídat typu dokumentu.
-Kopii lze otevřít příkazem `open`. Běžné `save` zapisuje původní dokument;
-pokud nemá přiřazenou cestu, konzole vrátí `path_required`.
+`new` accepts `part`, `assembly`, and `drawing`. Name is the filename stem in the
+working directory; CAD appends the extension. Only `save` writes the file.
+`save_as` matches GUI Save As: create an independent copy while the original remains
+open at the same path with the same unsaved edits. The target extension must match
+the document type. Open the copy with `open`. Ordinary `save` writes the original;
+without an assigned path it returns `path_required`.
 
-`documents.needs_save` zahrnuje neuložené úpravy i dosud nezapsaný nebo
-chybějící soubor. `close` v takovém případě vrátí `unsaved_changes`.
-Zahození lze požadovat jednoznačně přes JSON:
+`documents.needs_save` includes unsaved edits and an unwritten or missing file.
+`close` then returns `unsaved_changes`. Explicit JSON discard:
 
 ```json
 {"command":"close","arguments":{"discard":true}}
 ```
 
-`activate` a `close` přijímají skutečné ID otevřeného dokumentu. U ostatních
-změnových příkazů argument `document` nadále kontroluje aktivní dokument.
-`cd` ovlivňuje následné relativní cesty; nemění pracovní adresář procesu.
+`activate` and `close` accept actual open-document IDs. For other mutations,
+`document` still checks the active document. `cd` affects later relative paths
+without changing the process working directory.
 
-Čtecí příkazy nespouštějí OCCT. Uložení také nezavádí implicitní regeneraci.
-V katalogu je také tvorba a změna šesti základních primitiv. Ostatní modelovací prvky zůstávají
-dostupné přes stávající nástroje GUI.
+Reads do not invoke OCCT, and saving does not implicitly regenerate. The initial
+catalog also included creation/editing of six basic primitives; other modeling
+features at that stage remained in GUI. Subsequent coverage is tracked in
+[CAD_COMMAND_COVERAGE.md](CAD_COMMAND_COVERAGE.md).
 
-## JSON rozhraní
+## JSON interface
 
-Stejný dispatcher přijímá JSON. Žádná druhá implementace operací pro AI není:
+The same dispatcher accepts JSON; there is no separate AI operation implementation:
 
 ```json
 {"command":"context","arguments":{}}
 ```
 
-U změnových příkazů volitelný argument `document` chrání volajícího před použitím příkazu v jiném
-dokumentu po přepnutí tabu. ID získá z `documents` nebo `context`:
+For mutations, optional `document` protects callers against targeting another
+document after a tab switch. Obtain IDs from `documents` or `context`:
 
 ```json
-{"command":"save","arguments":{"document":"ID-AKTIVNIHO-DOKUMENTU"}}
+{"command":"save","arguments":{"document":"ACTIVE-DOCUMENT-ID"}}
 ```
 
-Výsledek na rozhraní `Result::json()`:
+`Result::json()` output:
 
 ```json
 {
@@ -102,244 +100,236 @@ Výsledek na rozhraní `Result::json()`:
 }
 ```
 
-Přijímají se pouze známé příkazy, argumenty odpovídající deklarovaným typům a přesná
-pole `command`/`arguments`. Chyba validace nikdy nespustí operaci. Textový vstup
-má limit 64 KiB. Výpis panelu je omezený; strojový výsledek nepřichází o data
-kvůli zkrácení textu v panelu. Strom sám má explicitní limit 2000 položek.
+Only known commands, declared argument types, and exact `command`/`arguments`
+fields are accepted. Validation failure never executes an operation. Text input
+is limited to 64 KiB. Panel output is bounded, but shortening displayed text does
+not truncate machine results. The tree itself explicitly limits output to 2000 items.
 
-`context.selection` je potvrzená volba, nikoli odhad podle hoveru. Obsahuje
-`owner_id`, `semantic_key`, `instance_path`, textový `kind` a `geometry`
-(`display` nebo `original_reference`). Nepoužívat popisek stromu jako identitu
-objektu. U výkresu zatím není výběr vystavený. Potvrzené úpravy výkresu sleduje
-`DrawingState`; `dirty` a `revision` jsou dostupné stejně jako u modelů.
+`context.selection` is confirmed selection, not a hover estimate. It contains
+`owner_id`, `semantic_key`, `instance_path`, textual `kind`, and `geometry`
+(`display` or `original_reference`). Never use tree labels as object identity.
+Drawing selection is not exposed at this stage. `DrawingState` tracks committed
+drawing changes; `dirty` and `revision` are available as for models.
 
-## Transakce a chyby
+## Transactions and errors
 
-Příkazy měnící stav se nepřijímají během otevřené editace, aktivní skici,
-výběru reference ani při aktivaci vnořené komponenty. Nejprve je nutné ukončit
-příslušný režim. Opakovaný vstup během probíhajícího příkazu vrací `busy`.
-Čtecí příkazy lze použít i během editace.
+In the initial console stage, mutations are rejected during open editing, an active
+Sketch, reference selection, or nested component activation; finish the relevant
+mode first. Later component activation support is documented in
+[COMPONENT_ACTIVATION_COMMANDS.md](COMPONENT_ACTIVATION_COMMANDS.md).
+Reentrant input during a command returns `busy`. Reads remain available during editing.
 
-Regenerace, otevření a tvorba nativních dokumentů, ukládání a dokumentové
-Undo/Redo nyní používají [společné operace bez Qt](DOCUMENT_OPERATIONS.md);
-aplikační obal zachovává obsluhu interakce a obnovu zobrazení.
-`report_operation_error` zachovává běžné chybové okno při interaktivním volání;
-při příkazovém volání chybu vrátí do výsledku bez blokujícího QMessageBox.
-Příkaz nesmí hlásit úspěch po chybě souborového zápisu nebo výpočtu. Regenerace
-s jednotlivými nevypočtenými prvky vrací `calculation_errors` a jejich mapu;
-platné zachované výsledky zůstávají podle stávajícího kontraktu CADu.
+Regeneration, native opening/creation, saving, and document Undo/Redo use
+[shared operations without Qt](DOCUMENT_OPERATIONS.md); the application wrapper
+retains interaction handling and display refresh. Interactive `report_operation_error`
+keeps the ordinary error dialog, while command invocation returns an error result
+without blocking QMessageBox. Commands must never report success after a write or
+calculation failure. Regeneration with individual uncalculated features returns
+`calculation_errors` and their map; valid retained results follow the existing CAD contract.
 
-## Zdrojové soubory a napojení AI
+## Source files and AI integration
 
-- `cpp/modules/commands`: dispatcher, validace, katalog a výsledky. Nemá Qt,
-  okna ani závislost na OCCT; linkuje pouze nlohmann JSON.
-- `cpp/modules/command_host`: registrace a provádění příkazů nad Workspace,
-  ochrany stavu a čtení datového stromu; nemá Qt ani hlavní okno.
-- `cpp/modules/workspace/document_operations`: ukládání a historie bez GUI.
-- `cpp/modules/workspace/native_documents`: načítání, tvorba a start šablony bez GUI.
-- `cpp/modules/workspace/model_calculation`, `part_references`: explicitní regenerace
-  a obnova uložených referencí bez GUI.
-- `cpp/app/command_console.*`: panel, textový vstup, historie a výpis.
-- `cpp/app/workspace/console.cpp`: propojení příkazů s aktuálním CAD workspace,
-  kontextem ukazatele, stavovým panelem a obnovou zobrazení. Dokumentové
-  operace provádí společný `command_host::Host`.
-- `cpp/app/console_ui_verification.*`: izolovaný integrační scénář panelu.
+- `cpp/modules/commands`: dispatcher, validation, catalog, results; no Qt, windows,
+  or OCCT dependency, linking only nlohmann JSON.
+- `cpp/modules/command_host`: Workspace command registration/execution, state guards,
+  and model-tree reading; no Qt or main window.
+- `cpp/modules/workspace/document_operations`: saving and history without GUI.
+- `cpp/modules/workspace/native_documents`: loading, creation, and start templates without GUI.
+- `cpp/modules/workspace/model_calculation`, `part_references`: explicit regeneration
+  and persisted-reference refresh without GUI.
+- `cpp/app/command_console.*`: panel, text input, history, and output.
+- `cpp/app/workspace/console.cpp`: connection to current Workspace, pointer context,
+  status panel, and display refresh; shared `command_host::Host` executes document operations.
+- `cpp/app/console_ui_verification.*`: isolated panel integration scenario.
 
-Tato etapa zavádí základ pro AI adaptéry. Neobsahuje přihlášení ke Codexu,
-API klíče, síťový server, MCP transport ani automatické odesílání modelů ven.
-Připojení konkrétního poskytovatele je další krok podle volby uživatele.
-Budoucí adaptér má volat společný dispatcher, kontrolovat `ok`/`code` a používat
-stabilní ID. Dokumentové texty a popisky jsou data, nikoli pokyny pro asistenta.
+This stage provides a foundation for AI adapters. It includes no Codex login,
+API keys, network server, MCP transport, or automatic model upload. Provider
+integration is a later user-selected step. Future adapters should call the shared
+dispatcher, check `ok`/`code`, and use stable IDs. Document text and labels are data,
+not instructions for the assistant.
 
-Dispatcher i hostitel současných dvaceti devíti příkazů jsou nezávislí na GUI.
-Stejný `command_host::Host` používá panel a testovací program bez okna.
-Samostatný program `zima-cad-cli` nyní poskytuje stejné příkazy pro jednotlivé
-požadavky i dávky ze souboru/stdin. Viz [příkazová řádka](CAD_COMMAND_LINE.md).
-Kvádry používají společnou transakci popsanou níže.
+The dispatcher and host of the initial 29 commands are GUI-independent. The panel
+and a windowless test program share `command_host::Host`. Standalone `zima-cad-cli`
+provides the same commands for individual requests and file/stdin batches; see the
+[command-line guide](CAD_COMMAND_LINE.md). Boxes use the shared transaction below.
 
-## Ověření
+## Verification
 
-`zima_cpp_command_dispatcher_tests` pokrývá shodu textového a JSON rozhraní,
-Windows cesty a UTF-8, odmítnutí neznámých polí, špatných typů, chybné syntaxe
-a příliš velkého vstupu, guard před mutací a převod výjimek na výsledek.
+`zima_cpp_command_dispatcher_tests` covers text/JSON equivalence, Windows paths and
+UTF-8, rejection of unknown fields, wrong types, invalid syntax, oversized input,
+pre-mutation guards, and conversion of exceptions into results.
 
-`zima_cpp_console_ui_contract` otevře skutečný panel, spustí Enterem nápovědu,
-ověří historii a skrytí panelu. Vytvoří Part, přidá kvádr přes GUI, uloží jej
-příkazem a kontroluje soubor po Undo/Redo. Ověří odmítnutí nesprávného cílového
-ID a rozpracované editace, čtení kontextu bez změny revize, chybějící soubor
-a chybu zápisu bez modálního okna. Snímek: `Projects/test/command-console.png`.
+`zima_cpp_console_ui_contract` opens the real panel, executes help with Enter,
+and checks history and hiding. It creates a Part, adds a box through GUI, saves
+by command, and checks the file after Undo/Redo. It verifies wrong-target rejection,
+pending-edit rejection, context reads without revision changes, missing files,
+and write errors without a modal dialog. Screenshot: `Projects/test/command-console.png`.
 
-Windows Release sestaven a všech 51 testů úplné sady prošlo (375,68 s).
-Panel byl ověřen i vizuálně na snímku skutečného okna.
+Windows Release built and the full 51-test suite passed (375.68 s). The panel was
+also visually checked in a screenshot of the actual window.
 
-## Kompaktní panel a kontext ukazatele (2026-09-11)
+## Compact panel and pointer context (2026-09-11)
 
-Panel lze stáhnout na jeden řádek výstupu a řádek zadávání. Textový `help`
-vypisuje každý příkaz na samostatném řádku s povinnými argumenty v `<…>`
-a nepovinnými v `[…]`; JSON katalog zůstává strukturovaný.
+The panel can shrink to one output line and one input line. Text `help` lists each
+command on its own line, with required arguments in `<…>` and optional ones in `[…]`;
+the JSON catalog stays structured.
 
-`context` přidává okamžik pořízení `captured_at_unix_ms`, `camera`, `pointer`
-a `hover`. Kamera obsahuje osm hodnot: quaternion (w, x, y, z), měřítko,
-posun v pixelech (x, y) a referenční měřítko. Ukazatel používá logické pixely
-pohledu, jeho rozměry a paprsek (`origin`, `direction`) v modelových souřadnicích.
-Paprsek se získává z existující kamery bez výpočtu tělesa nebo dalšího pickeru.
+`context` adds `captured_at_unix_ms`, `camera`, `pointer`, and `hover`. Camera has
+eight values: quaternion (w, x, y, z), scale, pixel offset (x, y), and reference scale.
+Pointer data includes logical View pixels, View dimensions, and a model-coordinate
+ray (`origin`, `direction`). The existing camera supplies the ray without body
+calculation or another picker.
 
-Hover přebírá přesně kandidáta nabízeného pohledem. Pokud je ukazatel mimo
-pohled, nad překrývajícím oknem nebo ještě neodpovídá poslední zpracované pozici
-pickeru, `hover` je `null`. Potvrzený výběr je nezávislý údaj `selection`.
-Výkresový kontext zatím neposkytuje kameru ani geometrii ukazatele.
+Hover uses the exact candidate offered by the View. Outside the View, under an
+overlapping window, or before the picker processes the current position, `hover`
+is `null`. Confirmed `selection` is independent. Drawing context at this stage
+provides neither camera nor pointer geometry.
 
-Budoucí hlasový adaptér musí zachytit kontext při ukazování/vyslovení pokynu,
-ne až po dokončení přepisu. Tento příkaz sám historii ukazatele ani zvuk
-nezaznamenává. Před provedením změny musí adaptér ověřit dokument a platnost
-referencí; nejednoznačné „tady“ nesmí převést na odhadnutou geometrii.
+A future voice adapter must capture context while the user points/speaks, not after
+transcription finishes. This command records neither pointer history nor audio.
+Before mutation, the adapter must validate document and references; ambiguous
+“here” must not become guessed geometry.
 
-Projekt zůstává GPL-3.0-or-later. Hlasový a AI adaptér mají používat společné
-příkazové rozhraní. Před distribucí konkrétního přepisovače nebo modelu je nutné
-ověřit jeho licenci a zachovat vyžadovaná oznámení. V této etapě není přidána
-hlasová knihovna, mikrofon ani poskytovatel AI.
+The project remains GPL-3.0-or-later. Voice and AI adapters should use the shared
+command interface. Before distributing a transcriber or model, verify its license
+and preserve required notices. This stage adds no voice library, microphone, or AI provider.
 
-Ověření této úpravy: Windows Release sestaven, test parseru a integrační test
-konzole prošly; stabilita testu byla ověřena třemi po sobě jdoucími průchody.
-GUI test kontroluje zmenšení panelu, čas a kameru, paprsek a převzetí hoveru
-podle skutečného překrytí oken. Při automatizaci může být CAD překrytý jinou
-aplikací; tehdy se ověřuje prázdný hover, nikoli vynucený zásah geometrie.
-Kompaktní panel byl také zkontrolován na snímku
+Verification: Windows Release built; parser and console integration tests passed,
+including three consecutive stability runs. GUI checks panel shrinking, timestamp,
+camera, ray, and hover according to actual window overlap. During automation,
+another application may cover CAD; then empty hover is checked instead of forcing
+a geometry hit. The compact panel was also inspected in
 `Projects/test/command-console-compact.png`.
 
+## Shared host and model tree (2026-09-11)
 
-## Společný hostitel a strom modelu (2026-09-11)
+`command_host::Host` takes Workspace, kernel, working directory, and optional settings,
+translation, and interaction adapters. Text and JSON share catalog, validation,
+and guards. The host directly calls shared document operations rather than sending
+execution back to the main window.
 
-Vstupem `command_host::Host` je Workspace, kernel, pracovní adresář a volitelné
-adaptéry nastavení, překladu a interakce. Text i JSON procházejí stejným katalogem,
-validací a ochranami. Host přímo volá společné dokumentové operace; nepředává
-jejich provedení zpět hlavnímu oknu.
+Results remain `Result` with protocol `zima-cad.commands/1`. `Change` additionally
+describes the latest mutation (Open, New, Save, Regenerate, History, and document ID).
+GUI refreshes tabs/View accordingly. A new execution clears the previous change;
+reentrant rejection returns `busy` without overwriting ongoing state. Regeneration
+reports a change even on partial failure, allowing View to show valid results and
+errors from the calculation actually performed.
 
-Výsledek je stále `Result` s protokolem `zima-cad.commands/1`. Poslední změnu
-navíc popisuje `Change` (Open, New, Save, Regenerate, History a ID dokumentu).
-GUI podle ní obnoví taby/pohled. Nové provedení předchozí změnu smaže; odmítnutý
-opakovaný vstup během operace vrací `busy` bez přepsání probíhajícího stavu.
-Regenerace vrací změnu i při částečném selhání, aby pohled ukázal platný výsledek
-a chyby po skutečně provedeném výpočtu.
+Call the host on the Workspace-owning thread. `run_io` may move reading/writing of
+an isolated snapshot to a worker thread, but must await completion and propagate
+errors before returning. The worker cannot access live Workspace. While waiting,
+GUI retains its existing event processing without user input. The module explicitly
+requires UTF-8 even for non-Qt MSVC builds, avoiding system-code-page-dependent
+paths and translations.
 
-Host se volá na vlákně vlastnícím Workspace. Adaptér `run_io` smí přesunout
-čtení nebo zápis odděleného snímku na pracovní vlákno, ale musí před návratem
-počkat na dokončení a předat chybu. Samotná pracovní úloha nemá přístup do
-živého Workspace. GUI při čekání zachovává dosavadní obsluhu událostí bez
-uživatelského vstupu. Nový modul explicitně požaduje UTF-8 i při MSVC sestavení
-bez Qt, aby cesty a překlady nezávisely na systémové znakové stránce.
+`tree [document]` returns `projection: "model"`. It reads actual data hierarchy,
+not QTreeWidget rows, excluding temporary edit rows, icons, and localized decoration.
+Part includes bodies in history order, containers, constructions, their Sketches
+and persisted Sketch geometry/reference identities, Origins, and sections. Assembly
+includes owned objects and persisted occurrence hierarchy. Drawing includes sheets,
+views, and dimensions.
 
-`tree [document]` vrací `projection: "model"`. Čte skutečnou datovou hierarchii,
-nikoli řádky QTreeWidgetu. Nezahrnuje dočasné řádky otevřené editace, ikony ani
-lokalizované dekorace. Part zahrnuje tělesa v pořadí historie, kontejnery,
-konstrukce, jejich skici a uloženou geometrii skic/referenční identity, počátky
-a řezy. Assembly zahrnuje vlastní objekty a uloženou hierarchii výskytů.
-Drawing zahrnuje listy, pohledy a výkresové kóty.
+Rows contain `id`, `parent_id`, owning `document_id`, `instance_path`,
+`parent_instance_path`, `depth`, `type`, `label`, and `semantic_key`; types add fields
+such as source document, suppression, and visibility. Occurrence identity is its
+path, not name or source Part ID. Two identical bolts therefore have different paths.
+At this stage the Assembly tree reads the latest stored/calculated snapshot without
+opening dependencies or inserting newer source-tab contents. A specific open source
+can be queried by `document` ID without activation or regeneration. Geometry type
+names are stable identifiers, not localized UI text.
 
-Řádek obsahuje `id`, `parent_id`, `document_id` (vlastník), `instance_path`,
-`parent_instance_path`, `depth`, `type`, `label` a `semantic_key`; podle typu
-přidává např. zdrojový dokument, potlačení a viditelnost. Identita výskytu je
-cesta, ne název ani samotné ID zdrojového dílu. Dva stejné šrouby proto mají
-odlišné cesty i při shodném zdroji. Sestavový strom čte poslední uložený/vypočtený
-snímek, neotevírá závislosti ani do něj nevnáší novější obsah zdrojového tabu.
-Konkrétní otevřený zdroj lze číst jeho `document` ID bez aktivace a regenerace.
-Názvy geometrických typů jsou stabilní identifikátory; nejsou překladem UI.
+Without an interaction adapter, `selection`, `hover`, and `camera` are empty and
+the pointer is outside the View. `fit` without a View adapter returns
+`view_unavailable`. This stage does not change document formats or config templates.
 
-Bez adaptéru interakce zůstávají `selection`, `hover` a `camera` prázdné a
-ukazatel je mimo View. Příkaz `fit` bez adaptéru pohledu vrátí `view_unavailable`.
-Formáty dokumentů a config šablony se touto etapou nemění.
+`zima_cpp_command_host_tests` performs actual windowless New/Open/Save for all three
+native types, Undo/Redo, and box regeneration with independent volume checks. It
+tests UTF-8, text/JSON equivalence, worker I/O, reentrancy rejection, unsaved-document
+preservation, failures without state changes, and model trees including Sketch
+ownership, repeated occurrences, drawings, and item limits. The panel test verifies
+that widget-only tree decoration is absent from `tree`, while actual GUI-created
+features are present.
 
-`zima_cpp_command_host_tests` provádí bez okna skutečné New/Open/Save všech tří
-nativních typů, Undo/Redo a regeneraci kvádru s nezávislou kontrolou objemu.
-Ověřuje UTF-8, shodu textu/JSON, pracovní I/O, zákaz opakovaného vstupu,
-zachování neuloženého dokumentu, chyby bez změny stavu a datový strom včetně
-vlastnictví skic, opakovaných výskytů, výkresů a limitu počtu položek.
-Test panelu navíc ověřuje, že dekorace přidaná pouze do widgetu stromu není
-ve výsledku `tree`, zatímco skutečný prvek vytvořený přes GUI tam je.
+Stage verification: Windows Release, **56/56 tests passed** (363.51 s),
+`build/command-host-full-tests.log`. `dumpbin /dependents` on
+`zima_cpp_command_host_tests.exe` confirmed no Qt DLLs;
+`build/command-host-dependencies.log`. The real panel screenshot
+`Projects/test/command-console.png` was also visually inspected.
 
+## Running without the main window
 
-Ověření této etapy: Windows Release, **56/56 testů prošlo** (363,51 s),
-`build/command-host-full-tests.log`. `dumpbin /dependents` nad
-`zima_cpp_command_host_tests.exe` potvrdil nepřítomnost Qt DLL;
-protokol je `build/command-host-dependencies.log`. Snímek skutečného panelu
-`Projects/test/command-console.png` byl také vizuálně zkontrolován.
-
-
-## Spouštění bez hlavního okna
-
-`zima-cad-cli` používá zde popsaného hostitele bez okna. Pro shodný PDF výstup
-inicializuje Qt Gui/Svg v režimu `offscreen`. Katalog, modelové
-operace, ochrana cílového dokumentu i datový strom jsou společné. Vstup/výstup,
-config, návratové kódy a hranice dávkového provedení popisuje
+`zima-cad-cli` uses this host without a window. Identical PDF output initializes
+Qt Gui/Svg in `offscreen` mode. Catalog, model operations, target-document guards,
+and data tree are shared. I/O, config, exit codes, and batch boundaries are in
 [CAD_COMMAND_LINE.md](CAD_COMMAND_LINE.md).
 
-## Společná operace kvádru (2026-09-11)
+## Shared box operation (2026-09-11)
 
 ```text
-new part prvni_kvadr
+new part first_box
 box.create 10 20 30
 save
 ```
 
-Výsledek tvorby obsahuje `document`, `container`, `feature`, `body`, `name`,
-`length_mm`, `width_mm`, `height_mm`, `value_locks`, `revision` a `changed`.
-Pro další změny použijte skutečné ID `container` z odpovědi nebo ze stromu.
-`box.get ID` čte jen uložené parametry; volitelné `document` umožňuje číst jiný
-otevřený Part bez jeho aktivace. Výsledek neobsahuje přechodné hodnoty rozpracovaného dialogu.
+Creation returns `document`, `container`, `feature`, `body`, `name`, `length_mm`,
+`width_mm`, `height_mm`, `value_locks`, `revision`, and `changed`. Use the actual
+`container` ID from the response or tree for later edits. `box.get ID` reads only
+persisted parameters; optional `document` reads another open Part without activation.
+Pending dialog values are excluded.
 
 ```json
-{"command":"box.set","arguments":{"container":"ID_Z_ODPOVEDI","width_mm":"40"}}
+{"command":"box.set","arguments":{"container":"ID-FROM-RESPONSE","width_mm":"40"}}
 ```
 
-Argumenty uvedených rozměrových příkazů jsou řetězce. Rozměry jsou výslovně v **mm**, nezávisle na
-zobrazovaných jednotkách dokumentu; používají desetinnou tečku. Přípustný rozsah
-je stejný jako v okně kvádru: **0,001 až 1 000 000 mm**. `box.set` vyžaduje alespoň
-jeden rozměr. U textového příkazu jsou hodnoty poziční; pro změnu samotné šířky
-nebo výšky použijte JSON. Nezadané rozměry zůstanou zachované.
+These dimension-command arguments are strings. Dimensions explicitly use **mm**,
+independent of display units, with a decimal point. The allowed range matches Box
+Properties: **0.001–1,000,000 mm**. `box.set` requires at least one dimension. Text
+arguments are positional; use JSON to change only width or height. Omitted dimensions
+remain unchanged.
 
-`box.create` vkládá prvek na aktuální kurzor aktivního tělesa. `box.set` mění
-existující kvádr podle ID a nepřesouvá jej do aktivního tělesa. Zachovává jméno,
-umístění, reference, režim kombinace, potlačení, zámky a identity původních ploch.
-Zamčená hodnota vrací `value_locked`; odemknutí je zatím přes GUI. Změnové příkazy
-podléhají stejným ochranám rozpracované editace a aktivované komponenty jako ostatní
-příkazy konzole. Odvozené těleso není přímo editovatelné.
+`box.create` inserts at the active body's current cursor. `box.set` edits an existing
+box by ID without moving it to the active body. It preserves name, placement,
+references, combine mode, suppression, locks, and original-face identities. Locked
+values return `value_locked`; at this original stage unlocking was GUI-only.
+Mutations share the console's pending-edit and activated-component guards. Derived
+bodies are not directly editable.
 
-GUI OK i příkazy používají `workspace::commit_primitive` v `primitive_operations.cpp`:
-validace, kopie dokumentu, existující vyřešení umístění nad uloženými referencemi,
-výslovný výpočet, obnova externích referencí a jeden společný commit do historie.
-Zrušit v GUI nevolá commit; shodné hodnoty nevytvářejí Undo krok ani výpočet.
-Při chybě validace nebo výpočtu zůstává dokument i jeho cache beze změny.
-Editace kontroluje chybu u upravovaného prvku a zachovává dosavadní pravidlo,
-že již chybné následující prvky lze opravit samostatně. Nadřazené sestavy se
-automaticky neregenerují. Formáty a start šablony se nemění.
+GUI OK and commands use `workspace::commit_primitive` in `primitive_operations.cpp`:
+validation, document copy, existing placement solving from persisted references,
+explicit calculation, external-reference refresh, and one shared history commit.
+GUI Cancel does not commit; unchanged values cause neither Undo nor calculation.
+Validation/calculation errors leave document and cache unchanged. Editing checks
+the edited feature's error while retaining the existing rule allowing independent
+repair of already broken downstream features. Parent Assemblies are not automatically
+regenerated. Formats and start templates remain unchanged.
 
-`zima_cpp_box_command_tests` ověřuje objemy, identity ploch při změně rozměrů,
-zámky, atomické odmítnutí, kurzor a vlastnictví těles, uložení a Undo/Redo.
-GUI scénář střídá konzoli a stejné okno vlastností včetně Zrušit a historie;
-procesový CLI test vytváří i mění skutečný uložený kvádr.
+`zima_cpp_box_command_tests` checks volumes, face identities after resizing, locks,
+atomic rejection, cursor/body ownership, saving, and Undo/Redo. GUI alternates console
+and the same Properties window including Cancel and history; the CLI process test
+creates and edits an actual saved box.
 
-Parametrický patch má v `workspace::set_primitive_dimensions` společnou kontrolu zámků;
-GUI předává celé potvrzené vlastnosti, takže lze během jedné editace hodnotu
-odemknout, změnit a znovu zamknout. Samotný výpočet a commit zůstávají společné.
-Okno kvádru zachovává přesné hodnoty nedotčených polí i při menším počtu zobrazených
-desetinných míst. Zaokrouhlení pro zobrazení nemění model ani nezablokuje změnu
-jiného rozměru. Tyto případy včetně Undo ověřuje test konzolového GUI.
+Parametric patches share lock validation in `workspace::set_primitive_dimensions`.
+GUI passes complete committed properties, allowing unlock/edit/relock within one
+session. Calculation and commit remain shared. Box Properties preserves exact values
+of untouched fields despite fewer displayed decimals. Display rounding neither
+changes the model nor blocks editing another dimension. Console GUI tests cover
+these cases and Undo.
 
-Aktuální rozsah a zbývající práce: [mapa pokrytí CAD příkazů](CAD_COMMAND_COVERAGE.md).
+Current scope and remaining work: [CAD command coverage](CAD_COMMAND_COVERAGE.md).
 
-Ověření kvádru: Windows Release, úplná sada **58/58** prošla (382,07 s,
-`build/box-full-tests.log`). Po doplnění zachování přesných hodnot a kontroly
-parametrických patchů prošlo všech **7/7** dotčených modelových, CLI a GUI
-scénářů (199,07 s, `build/box-final-tests.log`), včetně pracovního okna,
-profilů a úprav kót. Finální překlad je v `build/box-final-build.log`.
-CLI nadále nelinkuje Qt (`build/box-cli-dependencies.log`).
+Box verification: Windows Release, full suite **58/58** passed (382.07 s,
+`build/box-full-tests.log`). After exact-value preservation and parametric-patch
+checks, all **7/7** affected model, CLI, and GUI scenarios passed (199.07 s,
+`build/box-final-tests.log`), including workspace window, profiles, and dimension
+editing. Final build: `build/box-final-build.log`. At this stage CLI still did not
+link Qt (`build/box-cli-dependencies.log`); later shared PDF export changed that runtime.
 
-## Všechna základní primitiva
+## All basic primitives
 
-Tvorbu, čtení a parametrický patch nyní sdílí šest druhů prvků. Textové příkazy
-tvorby přijímají rozměry v tomto pořadí; poslední volitelný argument je `document`.
+Six feature types share creation, reading, and parametric patches. Text creation
+commands take dimensions in this order, followed by optional `document`:
 
-| Příkaz | Povinné rozměry v mm |
+| Command | Required dimensions in mm |
 | --- | --- |
 | `box.create` | `length_mm width_mm height_mm` |
 | `cylinder.create` | `radius_mm height_mm` |
@@ -348,105 +338,108 @@ tvorby přijímají rozměry v tomto pořadí; poslední volitelný argument je 
 | `pyramid.create` | `length_mm width_mm height_mm` |
 | `wedge.create` | `length_mm width_mm height_mm top_offset_mm` |
 
-Každý prefix má také `.get container [document]` a `.set container ...`.
-U `.set` jsou rozměry volitelné, ale musí být zadán nejméně jeden. JSON patch
-umožňuje zadat konkrétní pole bez pozičních zástupných hodnot, například:
+Each prefix also has `.get container [document]` and `.set container ...`.
+For `.set`, dimensions are optional but at least one is required. JSON patches
+specify individual fields without positional placeholders:
 
 ```json
-{"command":"cone.set","arguments":{"container":"ID_KUZELE","top_radius_mm":"0"}}
+{"command":"cone.set","arguments":{"container":"CONE-ID","top_radius_mm":"0"}}
 ```
 
-Horní poloměr kuželu a horní odsazení klínu smějí být nulové. Ostatní rozměry
-mají rozsah 0,001 až 1 000 000 mm; horní odsazení klínu nesmí překročit jeho délku.
-Geometricky neplatný výpočet (například kužel se shodnými poloměry) se odmítne
-bez změny dokumentu. Příkaz konkrétního typu nemůže změnit jiný druh kontejneru.
+Cone top radius and wedge top offset may be zero. Other dimensions range from
+0.001 to 1,000,000 mm; wedge top offset cannot exceed length. Invalid geometry,
+such as a cone with equal radii, is rejected without document changes. A type-specific
+command cannot edit another container kind.
 
-Všech šest oken používá `workspace::commit_primitive`. Parametrické patche
-používají `set_primitive_dimensions`, který respektuje zámky a volá tutéž
-transakci. Jedna definice parametrů v modelové vrstvě poskytuje čtení, zápis
-a rozsahy; GUI zachovává nezměněné přesné hodnoty i při zaokrouhleném zobrazení.
+All six dialogs use `workspace::commit_primitive`. Parametric patches use
+`set_primitive_dimensions`, respecting locks and calling the same transaction.
+One model-layer parameter definition supplies reading, writing, and ranges; GUI
+preserves unchanged exact values despite rounded display.
 
-`zima_cpp_primitive_command_tests` porovnává výsledné objemy s nezávislými
-vzorci válce, koule, komolého kuželu, jehlanu a klínu. Ověřuje identity ploch,
-Undo/Redo, zámky, save/load, nulové horní rozměry a atomické odmítnutí chyb.
-Panelový test prochází všechny typy přes CLI tvorbu a GUI editaci; procesový
-test je vytváří skutečným samostatným CLI.
+`zima_cpp_primitive_command_tests` compares volumes against independent formulas
+for cylinders, spheres, frustums, pyramids, and wedges. It checks face identities,
+Undo/Redo, locks, save/load, zero top dimensions, and atomic error rejection. The
+panel test covers CLI creation and GUI editing for every type; the process test
+creates them through actual standalone CLI.
 
-Ověření rozšíření primitiv: Windows Release, **59/59 testů prošlo** (369,66 s),
-`build/primitives-full-tests.log`. Předtím prošlo všech pět cílených testů
-modelu, GUI a CLI (8,74 s, `build/primitives-focused-tests.log`).
+Primitive extension verification: Windows Release, **59/59 tests passed** (369.66 s),
+`build/primitives-full-tests.log`. Previously all five focused model/GUI/CLI tests
+passed (8.74 s, `build/primitives-focused-tests.log`).
 
-## Typy argumentů
+## Argument types
 
-Každý argument má v katalogu `help` deklaraci `type`. Dispatcher podporuje
-`string`, konečné `number`, `integer`, `boolean`, `object` a `array`.
-Dosavadní příkazy včetně rozměrů primitiv nadále deklarují řetězce; samotné
-rozšíření dispatcheru jejich syntax měnit nesmí. Nová rozhraní mohou deklarovat
-přesné datové typy pro seznamy bodů, parametry a reference.
+Every `help` argument declares `type`. The dispatcher supports `string`, finite
+`number`, `integer`, `boolean`, `object`, and `array`. Existing commands, including
+primitive dimensions, retain string declarations; dispatcher extension must not
+change their syntax. New interfaces may declare exact types for point lists,
+parameters, and references.
 
-JSON požadavek předává hodnoty ve skutečném deklarovaném typu. Řetězec `"true"`
-nenahrazuje boolean a řetězec s JSON nenahrazuje objekt. Textový vstup převádí
-pouze argumenty deklarované jako jiné než `string` pomocí JSON parseru;
-řetězce, Windows cesty a jejich escapování zůstávají stejné. Pro složité objekty
-a seznamy používejte celý JSON požadavek. Prázdný objekt nebo seznam se považuje
-za přítomný argument; jeho obsah dále validuje konkrétní modelová operace.
+JSON supplies actual declared types: string `"true"` is not a boolean and JSON
+inside a string is not an object. Text input parses only non-`string` arguments
+through JSON; strings, Windows paths, and escaping remain unchanged. Use a complete
+JSON request for complex objects/lists. Empty objects and arrays count as present;
+the model operation validates their contents.
 
-Nesprávný typ, chybějící povinná hodnota, neznámé pole nebo neplatné číslo
-selže před mutací. Deklarace nesmí obsahovat duplicitní názvy argumentů.
-Stejná ochrana rozpracované editace platí i pro typované požadavky.
+Wrong types, missing required values, unknown fields, and invalid numbers fail
+before mutation. Argument declarations cannot contain duplicate names. Typed
+requests retain the same pending-edit protection.
 
-Ověření: přeloženo GUI i CLI; **6/6** cílených testů dispatcheru, hostitele,
-primitiv, skutečných CLI procesů a panelu prošlo (8,49 s),
-`build/typed-arguments-tests.log`. Překlad: `build/typed-arguments-build.log`.
+Verification: GUI and CLI built; **6/6** focused dispatcher, host, primitive,
+actual CLI-process, and panel tests passed (8.49 s), `build/typed-arguments-tests.log`.
+Build: `build/typed-arguments-build.log`.
 
-## Tělesa a operace mezi nimi
+## Bodies and operations between them
 
-Katalog nyní obsahuje také `body.list`, `body.get`, `body.create`, `body.set`,
-`body.activate`, `body.cursor` a `body.boolean.create/get/set`. Vlastnosti těles
-a Booleanů používají tutéž transakci jako GUI. Aktivace a kurzory nepočítají OCCT.
-Syntax, datové typy a ověřované objemy jsou v [BODY_COMMANDS.md](BODY_COMMANDS.md).
+The catalog also includes `body.list`, `body.get`, `body.create`, `body.set`,
+`body.activate`, `body.cursor`, and `body.boolean.create/get/set`. Body and Boolean
+Properties share GUI transactions. Activation and cursors perform no OCCT work.
+Syntax, types, and verified volumes: [BODY_COMMANDS.md](BODY_COMMANDS.md).
 
-## Historie Partu
+## Part history
 
 `history.list`, `history.suppress`, `history.delete`, `history.move`,
-`history.can_move` a `history.cursor` sdílejí operace se stromem GUI.
-Argumenty, rozsahy těles, chybové výsledky a příklady popisuje
-[HISTORY_COMMANDS.md](HISTORY_COMMANDS.md).
+`history.can_move`, and `history.cursor` share GUI tree operations. Arguments, body
+scope, errors, and examples: [HISTORY_COMMANDS.md](HISTORY_COMMANDS.md).
 
-## Původní reference
+## Original references
 
-`reference.list` vrací stabilní identity a přesné výskyty původní geometrie.
-`reference.get` čte její uložené podklady, včetně analytických povrchů a přesných
-spline křivek, pokud jsou dostupné. Rozhraní, jednotky a omezení velikosti odpovědi
-popisuje [REFERENCE_COMMANDS.md](REFERENCE_COMMANDS.md).
+`reference.list` returns stable identities and exact occurrences of original
+geometry. `reference.get` reads persisted supporting data, including analytic surfaces
+and exact spline curves where available. Interface, units, and response limits:
+[REFERENCE_COMMANDS.md](REFERENCE_COMMANDS.md).
 
-## Geometrie skicáře
+## Sketcher geometry
 
-Společná tvorba skic, body, kružnice, oblouky, elipsy, B-spline, obdélníky,
-mnohoúhelníky a jejich základní úpravy jsou popsány v
-[SKETCH_COMMANDS.md](SKETCH_COMMANDS.md). Souřadnice příkazů jsou v milimetrech
-skici. Změna křivky ponechá poslední výpočet tělesa do výslovné regenerace.
+Shared Sketch creation, points, circles, arcs, ellipses, B-splines, rectangles,
+polygons, and basic edits are described in [SKETCH_COMMANDS.md](SKETCH_COMMANDS.md).
+Coordinates are Sketch millimeters. Curve edits retain the last calculated body
+until explicit regeneration.
 
+## Construction geometry
 
-## Konstrukční geometrie
-
-`construction.list/get` čtou konstrukční body, osy, roviny, 3D křivky
-a jejich vlastní body. Výstup rozlišuje lokální soustavu tělesa a křivky,
-stabilní identity, reference a jejich platnost; nespouští výpočet modelu.
-Rozsah, argumenty a testy: [CONSTRUCTION_COMMANDS.md](CONSTRUCTION_COMMANDS.md).
-
-Čtení a atomické číselné změny umístění těles, prvků a konstrukcí poskytují
-`placement.get/set`. Rozlišení absolutních hodnot, korekcí a referenčních
-offsetů popisuje [PLACEMENT_COMMANDS.md](PLACEMENT_COMMANDS.md).
-
-`construction.create/set` doplňují tvorbu bodů, os a rovin i atomickou změnu
-jejich vlastností a umístění. Používají společnou transakci GUI Vlastností,
-respektují reference, zámky a aktivní těleso. Argumenty a zbývající rozsah:
+`construction.list/get` reads construction points, axes, planes, 3D curves, and
+owned points. Output distinguishes local body/curve frames, stable identities,
+references, and validity without model calculation. Scope, arguments, and tests:
 [CONSTRUCTION_COMMANDS.md](CONSTRUCTION_COMMANDS.md).
 
+`placement.get/set` reads and atomically edits numerical placement of bodies,
+features, and constructions. Absolute values, corrections, and reference offsets:
+[PLACEMENT_COMMANDS.md](PLACEMENT_COMMANDS.md).
 
-3D křivky vytváří `construction.create` s `kind: "curve3d"` a polem
-`points`. `construction.set` mění typ polyline/spline, zaoblení, tečny,
-vlastnosti bodů a celý jejich seznam při zachování zadaných ID. Vynechané
-body ze seznamu se odstraní. Geometrie i Undo transakce jsou společné s GUI;
-přesné argumenty a příklady uvádí [CONSTRUCTION_COMMANDS.md](CONSTRUCTION_COMMANDS.md).
+`construction.create/set` adds point, axis, and plane creation and atomic property/
+placement editing through the shared GUI Properties transaction, respecting references,
+locks, and the active body. Arguments and remaining scope:
+[CONSTRUCTION_COMMANDS.md](CONSTRUCTION_COMMANDS.md).
+
+Create 3D curves with `construction.create`, `kind: "curve3d"`, and `points`.
+`construction.set` edits polyline/spline type, fillets, tangents, point properties,
+and the complete point list while preserving supplied IDs. Omitted points are
+removed. Geometry and Undo transactions are shared with GUI. Exact arguments and
+examples: [CONSTRUCTION_COMMANDS.md](CONSTRUCTION_COMMANDS.md).
+
+## View toolbar shortcut (2026-09-15)
+
+Regenerate is the first button on the left of the toolbar above the View in
+Part, Assembly and Drawing. The next button toggles the CAD console. Its terminal icon is reused from ZIMA-CAD-Parts. The toolbar, View
+menu and Ctrl+Shift+C share the existing dock action; opening the console
+focuses its input. Closing it also clears the toggle state.

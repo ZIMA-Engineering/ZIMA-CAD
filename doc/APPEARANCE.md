@@ -1,54 +1,52 @@
-# Barvy a vzhled
+# Colors and appearance
 
-Nástroj **Barvy a vzhled…** je dostupný ikonou barevné koule nad View
-nebo v nabídce barev. Používá společné vnitřní okno vlastností s OK/Zrušit.
+**Colors and Appearance...** is available through the colored-sphere icon above
+View or the color menu. It uses the shared internal Properties window with OK/Cancel.
 
-## Paleta a povrchy
+## Palette and surfaces
 
-Roleta rozděluje paletu na Základní barvy, Plasty, Laky, Kovy a vlastní třídy.
-Zůstávají původní barevné odstíny. Kovy obsahují ocel, matnou a leštěnou nerez,
-hliník, matný a leštěný bronz, mosaz a měď. Náhled koule používá stejný renderer
-jako model. Barvu lze zadat jako `#RRGGBB`; posuvníky mění lesk a kovový charakter.
+The palette selector groups Basic Colors, Plastics, Paints, Metals, and custom
+classes, retaining existing shades. Metals include steel, matte/polished stainless
+steel, aluminum, matte/polished bronze, brass, and copper. The preview sphere uses
+the model renderer. Enter colors as `#RRGGBB`; sliders control gloss and metallicity.
 
-Pro vlastní vzhled vyplňte název, upravte povrch, vyberte nebo napište třídu
-a stiskněte **Přidat do palety**. Vlastní položky se ukládají do
-`appearances.json` vedle aplikačního nastavení až po OK. Zrušit je neuloží.
+For a custom appearance, enter a name, adjust the surface, choose/type a class,
+and click **Add to Palette**. Custom entries are written to `appearances.json`
+beside application settings only on OK; Cancel does not save them.
 
-## Těleso a skupiny ploch
+## Body and face groups
 
-Tlačítko **Těleso — základní vzhled** vybírá základní povrch aktivního tělesa
-(nebo celého Partu bez aktivního tělesa). **+ Skupina** vytvoří pojmenovanou
-skupinu ploch. Její barevné políčko vybírá vzhled; pole počtu ploch zeleně
-aktivuje vstup. Klikáním ve View přiřazujete viditelné **výsledné plochy**.
-Každá plocha patří nejvýše jedné skupině; nové přiřazení ji přesune.
-Oko nezávisle zvýrazní přesné obrysy přiřazených ploch azurově.
-Krátké prostřední tlačítko ukončí vstup a inspekci bez smazání hodnot.
+**Body - Base Appearance** selects the active body's base surface, or the whole
+Part if no body is active. **+ Group** creates a named face group. Its color field
+selects appearance; the face-count field arms input with a green outline. Clicking
+View assigns visible **result faces**. A face belongs to at most one group; a new
+assignment moves it. The eye independently highlights exact assigned-face outlines
+in cyan. A short MMB click ends input and inspection without deleting values.
 
-**Vyčistit plochy** odstraní přiřazení a ponechá skupiny. **Výchozí nastavení**
-obnoví základní vzhled a odstraní skupiny upravovaného tělesa. Vlastní paleta
-zůstane zachována. OK potvrdí celek; Zrušit obnoví původní vzhled. Dvojklik
-prostředním tlačítkem potvrzuje OK i nad View.
+**Clear Faces** removes assignments but retains groups. **Defaults** restores the
+edited body's base appearance and removes its groups, preserving the custom palette.
+OK commits the complete change; Cancel restores the original appearance. MMB
+double-click confirms OK even over View.
 
-V sestavě vzhled vybraného bezprostředně vlastněného Partu patří jeho
-výskytu. Nepřepisuje zdrojový Part a explicitní Regenerate jej zachová.
-Pro úpravu samotného Partu jej nejprve aktivujte.
+In Assembly, an immediate Part's selected appearance belongs to its occurrence.
+It does not overwrite the source Part and survives explicit Regenerate. Activate
+the Part first to edit the Part itself.
 
-## Zobrazení a data
+## Display and data
 
-Povrch používá barvu, drsnost a kovový charakter, přímý spekulární odlesk
-a procedurální studiové osvětlení se dvěma měkkými odrazy. Nejde o ray tracing
-ani odrazy okolních součástí. Vzhled nenastavuje fyzikální materiál či hustotu.
+Surfaces use color, roughness, metallicity, direct specular highlights, and procedural
+studio lighting with two soft reflections. This is neither ray tracing nor reflection
+of surrounding components. Appearance does not assign physical material or density.
 
-Skupiny ukládají ZIMA identity výsledných ploch do Partu, výskytové nastavení
-do Assembly. Jsou to prezentační vazby; výsledná plocha se tím nestává
-vlastníkem konstrukční reference. Otevření okna, výběr, náhled koule ani změna
-vzhledu nevolají OCCT a nespouštějí regeneraci rodičů. Po změně geometrie se
-vzhled aplikuje jen na zachované identity; zmizelé plochy se nepřiřazují podle
-pořadí nebo blízkosti jiné ploše.
+Groups store ZIMA result-face identities in Part; occurrence overrides are stored
+in Assembly. These are presentation references, not construction-reference ownership.
+Opening the window, selection, sphere preview, and appearance changes invoke no
+OCCT or parent regeneration. After geometry changes, appearance applies only to
+surviving identities; missing faces are not reassigned by order or proximity.
 
-## Ověření
+## Verification
 
-`zima_cpp_appearance_contract_tests` ověřuje serializaci Part/Assembly a palety,
-výběr výsledných ploch v sestavě, výlučné přiřazení skupin, Clear/Default,
-transakci OK/Zrušit, prostřední dvojklik a rozdíl vykreslení matného a kovového
-povrchu pomocí skutečného OpenGL framebufferu.
+`zima_cpp_appearance_contract_tests` covers Part/Assembly/palette serialization,
+Assembly result-face selection, exclusive group assignment, Clear/Default,
+OK/Cancel transactions, MMB double-click, and matte/metallic rendering differences
+using an actual OpenGL framebuffer.

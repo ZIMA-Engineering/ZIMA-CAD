@@ -1,118 +1,114 @@
-# Vlastnosti samostatné skici v Assembly
+# Standalone Sketch properties in Assembly
 
-## Datový model a společné příkazy
+## Data model and shared commands
 
-Každou samostatnou skicu sestavy vlastní HistoryContainer druhu Sketch.
-Assembly jej ukládá v `sketch_containers`; skica používá `owner_container_id`.
-Kontejner vlastní Placement, Origin, stabilní identitu a zámky. Skica uvnitř
-odečtu patří přímo tomuto odečtu. Nativní validace odmítá osiřelé nebo dvojité
-vlastnictví. Nezavádí se dodatečné vytváření kontejnerů při načítání legacy dat.
+Every standalone Assembly Sketch belongs to a Sketch HistoryContainer.
+The Assembly stores it in `sketch_containers`; the Sketch uses
+`owner_container_id`. The container owns Placement, Origin, stable identity,
+and locks. A Sketch inside a cut belongs directly to that cut. Native validation
+rejects orphaned or duplicate ownership. Loading legacy data does not create
+missing containers.
 
-`sketch.create`, `sketch.set` a `sketch.reference.set` používají stejné
-potvrzení jako Vlastnosti skici v GUI. Název, rovina XY/XZ/YZ, odsazení,
-umístění, FRONT/BACK, otočení a reference se ukládají v jedné transakci.
-`placement.get/set/reference.set/reference.remove` a `value_lock.list/set`
-podporují vlastnící kontejner. Identifikátor skici i kontejneru vrací
-`sketch.get`; hierarchii včetně Originu vrací `tree`.
+`sketch.create`, `sketch.set`, and `sketch.reference.set` use the same commit
+operation as GUI Sketch Properties. Name, XY/XZ/YZ plane, offset, placement,
+FRONT/BACK, rotation, and references are stored in one transaction.
+`placement.get/set/reference.set/reference.remove` and `value_lock.list/set`
+support the owning container. `sketch.get` returns Sketch and container IDs;
+`tree` returns the hierarchy including Origin.
 
-Referenční objekt se zadává jako `{"owner":"…","key":"…","instance_path":"…"}`.
-Cesta rozlišuje přesný výskyt opakovaného dílu nebo vnořené sestavy.
-První rovinná reference určuje pracovní FRONT skici. Výměna této reference
-přesune i její automatický orientační řádek na FRONT; nesmí ponechat novou
-plochu současně jako FRONT a TOP. Bez poziční roviny zůstávají samostatné
-orientační reference nezávislé.
+A reference object uses `{"owner":"…","key":"…","instance_path":"…"}`.
+The path distinguishes the exact occurrence of a repeated Part or nested Assembly.
+The first plane reference defines the Sketch's working FRONT. Replacing it also
+moves its automatic orientation row to FRONT; the new face must not remain both
+FRONT and TOP. Without a position plane, explicit orientation references remain independent.
 
-Samostatná změna skici používá původní uloženou geometrii ZIMA a místní
-řešení rámu. Nepočítá tělesa OCCT, nemění komponenty a nepřepočítává jejich
-vazby ani existující odečty. Výsledek `sketch.set` má `body_calculated=false`.
-Editace skici již vlastněné odečtem potvrzuje celý profilový odečet, proto
-může tělesa počítat. Přepnutí záložky tento výpočet nespouští.
+Standalone Sketch changes use persisted ZIMA geometry and local frame solving.
+They do not calculate OCCT bodies, move components, solve their mates, or regenerate
+existing cuts. `sketch.set` returns `body_calculated=false`. Editing a cut-owned
+Sketch commits the entire profile cut and can calculate bodies. Tab switching
+never triggers this calculation.
 
-## Převod na odečet
+## Conversion to a cut
 
-Podle výslovného pravidla uživatele jsou Extrusion i Revolution v Assembly
-vždy pouze odečty. Platí to pro vytvoření, editaci a převod samostatné skici,
-v GUI i CLI. Společná transakce odmítne CombineMode::Add před změnou sestavy.
-Cílem může být pouze bezprostřední editovatelný výskyt Partu.
+By explicit user rule, Assembly Extrusion and Revolution always subtract material.
+This applies to creation, editing, and standalone Sketch conversion through GUI
+and CLI. The shared transaction rejects CombineMode::Add before changing the
+Assembly. Only an immediate editable Part occurrence may be a target.
 
-Převod zachová ID kontejneru, Origin, umístění, reference a identitu skici.
-Změní druh prvku a atomicky nahradí záznam v `sketch_containers` záznamem
-v `cuts`. Undo obnoví původní samostatnou skicu a původní tělesa. Cancel
-dialogu ponechá původní kontejner beze změny.
+Conversion preserves container ID, Origin, placement, references, and Sketch
+identity. It changes the feature kind and atomically replaces the entry in
+`sketch_containers` with an entry in `cuts`. Undo restores the original standalone
+Sketch and bodies. Cancel leaves the original container unchanged.
 
-Zámek odsazení pracovní roviny se při převodu přenese z parametrů samostatné
-skici do parametrů profilového prvku. Má jediného uloženého vlastníka.
-Vlastnosti vnitřní skici tento zámek čtou a potvrzují přes společný adaptér;
-změna hodnoty nejde obejít volbou jiného příkazu.
+Conversion transfers the work-plane offset lock from standalone Sketch parameters
+to profile-feature parameters. The lock has one persisted owner. Internal Sketch
+Properties read and commit it through the shared adapter; choosing another
+command cannot bypass the locked value.
 
-## Smazání a návaznosti
+## Deletion and dependencies
 
-`sketch.delete` přijímá ID samostatné skici a odstraní zároveň její
-kontejner. GUI používá tutéž operaci. Skicu uvnitř odečtu příkaz odmítne;
-odstraňuje se její vlastnící prvek. Operaci lze vrátit přes Undo/Redo.
+`sketch.delete` accepts a standalone Sketch ID and removes its container too.
+GUI uses the same operation. The command rejects a cut-owned Sketch; remove its
+owning feature instead. Undo/Redo restores/reapplies the operation.
 
-Reference umístění skici patří do kontroly závislostí komponent a
-konstrukčních objektů. Cyklické navázání se odmítá před potvrzením.
-Smazání samotné skici ponechává závislým konstrukcím jejich poslední
-použitelný rám a stav chybějící reference.
+Sketch placement references participate in component and construction dependency
+checks. Cycles are rejected before commit. Deleting a Sketch leaves dependent
+constructions with their last usable frame and a missing-reference state.
 
-Ve stromu je samostatný kontejner se svým Originem a skicou. V běžném
-pohledu se nabízí jeho profil; pomůcky skicáře patří až aktivní editaci.
-Náhled v aktivní podsestavě používá přesnou cestu výskytu a zachovává
-pasivní kontext celé nadřazené sestavy.
+The tree shows a standalone container with its Origin and Sketch. Ordinary View
+selection offers its profile; Sketcher helpers appear only during active editing.
+Preview in an active subassembly uses the exact occurrence path and preserves
+the full parent Assembly as passive context.
 
-## Nativní soubory
+## Native files
 
-`.asmz` používá verzi INI 18 a vnitřní JSON verzi 27. Povinné pole
-`sketch_containers` obsahuje ID, rodičovskou identitu, název, potlačení,
-Placement a zámky. `config/templates/start_assembly.asmz` je aktualizovaný
-se zachováním ostatních metadat šablony. Přípony se nemění. Formát Partu
-ani struktura start Partu se kvůli této změně nemění.
+At this stage, `.asmz` uses INI version 18 and internal JSON version 27. Required
+`sketch_containers` entries contain ID, parent identity, name, suppression,
+Placement, and locks. `config/templates/start_assembly.asmz` was updated while
+preserving other template metadata. Extensions are unchanged. This change does
+not alter the Part format or start Part structure.
 
-Všechna potřebná data zůstávají v nativních `.prtz/.asmz/.drwz`.
-Nevznikají povinné pomocné soubory, revize ani cache adresáře.
+All required data remains in native `.prtz/.asmz/.drwz` files. No required
+auxiliary files, revision storage, or cache directories are introduced.
 
-## Ověření
+## Verification
 
-`assembly_sketch_properties_tests` kontroluje polohu v posunutém a
-natočeném rámu, dva výskyty stejného Partu, výměnu první rovinné reference,
-zámky, neplatné a cyklické zdroje, závislosti, nativní vlastnictví,
-Undo/Redo a smazání. Kontroluje také nezměněné umístění a sdílenou
-vypočtenou geometrii komponent.
+`assembly_sketch_properties_tests` checks placement in translated and rotated
+frames, two occurrences of the same Part, first-plane replacement, locks, invalid
+and cyclic sources, dependencies, native ownership, Undo/Redo, and deletion.
+It also checks unchanged component positions and shared calculated geometry.
 
-Nezávislá kontrola objemu používá kvádr 10 × 10 × 10 mm:
-kruhový profil R1 vytažený o 2 mm zanechá 1000 − 2π mm³;
-rotace obdélníku mezi poloměry 1 a 2 mm s výškou 2 mm zanechá
-1000 − 6π mm³. Druhý výskyt zůstává 1000 mm³. Oba profily musejí zachovat
-původní kontejner a při odmítnutém přičtení se sestava nesmí změnit.
+An independent volume check uses a 10 × 10 × 10 mm box: an R1 circular profile
+extruded 2 mm leaves 1000 − 2π mm³; revolving a rectangle between radii 1 and 2 mm
+with height 2 mm leaves 1000 − 6π mm³. The other occurrence retains 1000 mm³.
+Both profiles must preserve the original container, and rejected addition must
+leave the Assembly unchanged.
 
-GUI konzole provádí stejný scénář Vlastností pro Part i Assembly:
-Cancel/OK, název, rovina, odsazení, FRONT/BACK, otočení, reference
-a samostatný FRONT. Porovnává celé znovuotevřené definice, nikoli jen
-vybrané číselné hodnoty. Stávající GUI scénář převádí skicu sestavy na odečet.
+The GUI console runs the same Properties scenario for Part and Assembly:
+Cancel/OK, name, plane, offset, FRONT/BACK, rotation, references, and independent
+FRONT. It compares complete reopened definitions rather than selected numerical
+values. The existing GUI scenario converts an Assembly Sketch to a cut.
 
-Kontrola závislostí při mazání komponenty zahrnuje i externí reference
-skici přímo v Assembly, které nemají kontext závislého Partu. Reference
-jiné sestavy blokování nepřenáší na nesouvisející výskyty.
+Component-deletion dependency checks include external Sketch references directly
+in an Assembly without a dependent Part context. References in another Assembly
+do not block unrelated occurrences.
 
-GUI regrese aktivuje také natočenou podsestavu, otevře její skicu,
-vybírá konkrétní bod, táhne jej, ověří místní rovinu a uložené souřadnice.
-Během tažení zůstává viditelná pasivní geometrie nadřazené sestavy.
-Modelová regrese zobrazení ověřuje dva výskyty stejné podsestavy a
-nezměněná sdílená data neaktivního výskytu.
+The GUI regression also activates a rotated subassembly, opens its Sketch,
+selects and drags a specific point, and verifies the local plane and saved
+coordinates. Passive parent Assembly geometry remains visible during dragging.
+The display model regression checks two occurrences of the same subassembly and
+unchanged shared data for the inactive occurrence.
 
-Katalog obsahuje 292 příkazů a CTest registruje 159 testů.
-Obě aplikace a všechny testovací programy jsou sestavené. Úplná regrese
-prošla **159/159 za 647,73 s**. Zahrnuje samostatný proces CLI, celé GUI,
-nové skici Assembly, vlastnosti, referenční závislosti, nativní uložení,
-výkresy, modelové operace i testy přesných spline.
-
-Logy: `build/assembly-sketch-release-verified-build.log` a
+The catalog contains 292 commands and CTest registers 159 tests. Both applications
+and all test programs built. The full regression passed **159/159 in 647.73 s**,
+including the separate CLI process, full GUI, new Assembly Sketches, properties,
+reference dependencies, native saving, drawings, model operations, and exact-spline
+tests. Logs: `build/assembly-sketch-release-verified-build.log` and
 `build/assembly-sketch-release-verified-tests.log`.
-Nová chybová hlášení mají překlady ve všech pěti jazykových souborech
-a dialog Vlastností skici používá překlad i při odmítnutí změny.
+New errors have translations in all five language files; Sketch Properties also
+uses translated messages when rejecting changes.
 
-Po posledním doplnění lokalizace bylo dokončené nové sestavení a znovu
-prošly překlady a celý GUI/CLI scénář konzole: **2/2 za 122,21 s**.
-Logy: `build/assembly-sketch-localized-build.log` a
+After the final localization addition, another build completed and translations
+plus the complete GUI/CLI console scenario passed again: **2/2 in 122.21 s**.
+Logs: `build/assembly-sketch-localized-build.log` and
 `build/assembly-sketch-localized-tests.log`.

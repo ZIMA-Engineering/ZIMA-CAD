@@ -166,6 +166,8 @@ void AssemblyWorkspaceWindow::create_command_console() {
     console_dock_->setWidget(console_);addDockWidget(Qt::BottomDockWidgetArea,console_dock_);console_dock_->hide();
     auto* toggle=console_dock_->toggleViewAction();toggle->setObjectName("showCommandConsoleAction");
     toggle->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+C")));
+    toggle->setIcon(resource_icon("terminal"));
+    view_toolbar_->insertAction(view_toolbar_->actions().value(1),toggle);
     if(auto* menu=findChild<QMenu*>("viewMenu")){menu->addSeparator();menu->addAction(toggle);}
     connect(console_dock_,&QDockWidget::visibilityChanged,this,[this](bool visible){if(visible)console_->focus_input();});
 }

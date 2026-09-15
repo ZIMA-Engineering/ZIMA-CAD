@@ -1,3 +1,4 @@
+#include "work_plane_selection.hpp"
 #include <zima/document/hole_profiles.hpp>
 #include <zima/ui/numeric_value_lock.hpp>
 #include "feature_operation_buttons.hpp"
@@ -743,6 +744,14 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         profile_status_->setReadOnly(true);
         profile_status_->setText(tr("Uzavřený"));
         form->addRow(tr("Stav profilu"), profile_status_);
+        profile_plane_ = new QComboBox(this);
+        profile_plane_->setObjectName("profilePlane");
+        profile_plane_->addItem("XY", static_cast<int>(zima::sketcher::SketchPlane::XY));
+        profile_plane_->addItem("XZ", static_cast<int>(zima::sketcher::SketchPlane::XZ));
+        profile_plane_->addItem("YZ", static_cast<int>(zima::sketcher::SketchPlane::YZ));
+        install_automatic_work_plane(profile_plane_, true);
+        form->addRow(tr("Výchozí rovina"), profile_plane_);
+        connect(profile_plane_, &QComboBox::currentIndexChanged, this, [this] { notify_preview(); });
         profile_plane_offset_ = dimension(
             revolve ? initial.revolution.profile_plane_offset
                     : initial.extrusion.profile_plane_offset,
@@ -1788,6 +1797,15 @@ void PrimitivePropertiesDialog::set_preview_callback(
     notify_preview();
 }
 
+void PrimitivePropertiesDialog::set_profile_plane_selection(const zima::sketcher::Sketch& sketch,
+    std::function<void(zima::sketcher::SketchPlane, bool)> changed) {
+    if (!profile_plane_) return;
+    const QSignalBlocker blocker(profile_plane_);
+    update_automatic_work_plane(profile_plane_, static_cast<int>(sketch.plane));
+    profile_plane_->setCurrentIndex(profile_plane_->findData(sketch.plane_auto ? QVariant(QStringLiteral("auto")) : QVariant(static_cast<int>(sketch.plane))));
+    profile_plane_changed_ = std::move(changed);
+}
+
 double PrimitivePropertiesDialog::profile_plane_offset() const {
     return profile_plane_offset_ == nullptr ? 0.0 : profile_plane_offset_->value();
 }
@@ -1862,6 +1880,8 @@ void PrimitivePropertiesDialog::set_reverse_extent_and_direction(
 }
 
 void PrimitivePropertiesDialog::notify_preview() {
+    if (profile_plane_ && profile_plane_changed_)
+        profile_plane_changed_(static_cast<zima::sketcher::SketchPlane>(selected_work_plane(profile_plane_).toInt()), automatic_work_plane(profile_plane_));
     if (preview_) preview_(values());
 }
 
@@ -2118,10 +2138,15 @@ PrimitivePropertiesDialog::highlighted_reference_entries() const {
 bool PrimitivePropertiesDialog::set_reference(std::size_t index,
     zima::document::ConstructionReference reference, const QString& label) {
     if (!placement_) return false;
+    const bool first_plane = index == 0 && reference.supports_offset;
     QString error;
     if (!placement_->set_reference(index, std::move(reference), label, &error)) {
         if (!error.isEmpty()) error_->setText(error);
         return false;
+    }
+    if (first_plane && profile_plane_) {
+        update_automatic_work_plane(profile_plane_, static_cast<int>(zima::sketcher::SketchPlane::XZ), label);
+        notify_preview();
     }
     error_->clear();
     return true;

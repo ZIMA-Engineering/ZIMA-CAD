@@ -1,12 +1,12 @@
-# Konstrukční geometrie v konzoli a CLI
+# Construction geometry in console and CLI
 
-`construction.list` a `construction.get` čtou současný model stejného otevřeného
-Partu nebo Assembly, který používají vlastnosti konstrukcí. Jsou to dotazy:
-nespouštějí OCCT, řešení referencí, načítání závislostí ani regeneraci a nemění
-historii, aktivaci, výběr či vypočtenou geometrii. Mohou se použít i při otevřeném
-editačním dialogu; vracejí potvrzený model, nikoli nepotvrzený návrh dialogu.
+`construction.list` and `construction.get` read the current committed model of the
+same open Part/Assembly used by construction Properties. They trigger no OCCT,
+reference solving, dependency loading or regeneration, and change no history,
+activation, selection or calculated geometry. They work with editing dialogs open,
+returning committed data rather than pending dialog drafts.
 
-## Příkazy
+## Commands
 
 ```text
 construction.list
@@ -14,281 +14,247 @@ construction.list point
 construction.get <construction-ID>
 ```
 
-Volitelné pojmenované argumenty se zadávají JSONem:
+Use JSON for optional named arguments:
 
 ```json
 {"command":"construction.list","arguments":{"parent":"<curve-ID>","offset":0,"limit":100}}
 {"command":"construction.get","arguments":{"construction":"<point-ID>","document":"<open-document-ID>"}}
 ```
 
-`list` přijímá `kind` (`point`, `axis`, `plane`, `curve3d`), `parent`,
-`document`, `offset` a `limit`. Bez filtrů zahrnuje konstrukce dokumentu a jejich
-vlastní body. Filtr `parent` vybere pouze přímé děti: ID tělesa vrací jeho
-konstrukce, ID 3D křivky vrací její body. Pořadí je uložené pořadí konstrukcí,
-s body každé křivky bezprostředně za vlastníkem v pořadí dráhy; nejde o řazení
-podle názvu ani projekci widgetů stromu.
+`list` accepts `kind` (`point`, `axis`, `plane`, `curve3d`), `parent`, `document`,
+`offset`, `limit`. Unfiltered, it includes document constructions and owned points.
+`parent` selects immediate children: Body IDs return its constructions, 3D Curve IDs
+its points. Ordering is saved construction order, with each curve's points immediately
+after their owner in path order, not sorted by name or projected from tree widgets.
 
-Seznam vrací stabilní `construction`, `entity`, `entity_parent` a `origin`,
-`kind`, `name`, `parent`, `body`, `parent_construction`, `reference_valid`,
-`suppressed`, `parent_suppressed` a `child_count`. `parent_suppressed` značí
-potlačení nadřazené konstrukce, nikoli skrytí tělesa nebo výskytu sestavy.
-Seznam nekopíruje souřadnice, reference ani všechny body každé křivky.
-`total`, `more` a `next_offset` umožňují pokračovat další stránkou.
+Items contain stable `construction`, `entity`, `entity_parent`, `origin`, `kind`,
+`name`, `parent`, `body`, `parent_construction`, `reference_valid`, `suppressed`,
+`parent_suppressed`, `child_count`. `parent_suppressed` means parent-construction
+suppression, not Body/occurrence hiding. Listing does not copy coordinates, references
+or every curve point. `total`, `more`, `next_offset` support pagination.
 
-`get` přijímá ID konstrukčního kontejneru nebo jeho vnořeného bodu, nikoli
-ID jeho entity či počátku. Vrací navíc uložené souřadnice, natočení, zámky,
-definici a přesné reference včetně cesty výskytu, klíče, offsetu a zámku.
-Osa uvádí směr; rovina základní rovinu, pracovní offset a oddělenou polohu
-vlastní rovinné entity. Křivka uvádí typ, přepínač zaoblení a ID svých bodů;
-vnořený bod uvádí poloměr a řízení tečny. Neplatná reference zůstane neplatná
-a dotaz vrátí poslední uložený stav bez pokusu o opravu.
+`get` accepts construction-container or nested-point ID, not entity/Origin ID.
+It additionally returns saved coordinates, rotation, locks, definition and exact
+references including occurrence paths, keys, offsets and locks. Axes report direction;
+planes report base plane, work offset and separate planar-entity placement. Curves
+report type, rounding toggle and point IDs; nested points report radius/tangent controls.
+Invalid references retain last-saved state without repair attempts.
 
-`limit` má u obou příkazů výchozí hodnotu 500 a rozsah 1–5000. V `get` omezuje
-zvlášť reference a ID dětí, s příznaky `references_truncated` a
-`children_truncated`. Všechny děti lze stránkovat přes `list` s `parent`.
-`offset` seznamu má rozsah 0–100000000. Změní-li se `revision` mezi stránkami,
-klient má seznam načíst znovu. Velikosti a offsety musí být celá čísla.
+Both commands default `limit` to 500, range 1–5000. For `get` it independently limits
+references/child IDs with `references_truncated` and `children_truncated`. Retrieve
+all children through paginated `list parent`. List `offset`: 0–100000000. If `revision`
+changes between pages, reload the list. Sizes/offsets must be integers.
 
-## Souřadnice a vlastnictví
+## Coordinates and ownership
 
-Hodnoty s příponou `_mm` jsou v milimetrech, `_degrees` ve stupních, nezávisle
-na zobrazovacích jednotkách dokumentu. Reference používají existující nativní
-pole `offset` v mm. `coordinate_system` a `coordinate_owner` rozlišují:
+`_mm` values are millimetres, `_degrees` degrees, independently of display units.
+References use existing native `offset` in mm. `coordinate_system` and
+`coordinate_owner` distinguish:
 
-| Soustava | Vlastník |
+| System | Owner |
 | --- | --- |
-| `document` | Dokument, například kořenová Assembly |
-| `body` | Vlastnící těleso Partu |
-| `parent_construction` | Nadřazená 3D křivka; body jsou v jejím lokálním rámci |
+| `document` | Document, such as a root Assembly |
+| `body` | Owning Part Body |
+| `parent_construction` | Parent 3D Curve; points use its local frame |
 
-Dotazy nepřevádějí uložené souřadnice do soustavy View. Umístění tělesa lze
-přečíst `body.get`, původní referenční geometrii přes `reference.get`.
-Názvy nejsou identitou; dvě stejně pojmenované konstrukce se rozlišují ID.
+Queries do not transform saved coordinates into View space. Read Body placement
+with `body.get`, original reference geometry with `reference.get`. Names are not
+identity; equally named constructions have distinct IDs.
 
-Explicitní `document` může označit jiný již otevřený zdroj bez jeho aktivace.
-Dotazy neprocházejí konstrukce vložených komponent ani neotevírají jejich
-zdroje. Vnořený Part se čte přes jeho otevřený zdrojový dokument; jeho
-opakované výskyty nejsou samostatnými vlastníky konstrukcí.
+Explicit `document` may target another open source without activation. Queries
+neither traverse inserted-component constructions nor open sources. Read nested Parts
+through their open source document; repeated occurrences do not separately own
+constructions.
 
-## Rozsah a ověření
+## Scope and query verification
 
-Základní dotazy pokrývají `document.constructions` a body jejich 3D křivek.
-Novější rozšíření zahrnují také vložené dráhy a samostatné mazání konstrukcí,
-popsané v navazujících částech. Zadávání referencí ještě zbývá. Samostatné 3D křivky včetně
-bodů a jejich parametrů jsou popsány níže. Tvorbu bodů, os a rovin
-a obecné vlastnosti popisuje následující část. Číselné umístění
-také zpřístupňují [placement.get/set](PLACEMENT_COMMANDS.md). Nativní schéma ani start šablony se nemění.
-Konstrukční příkazy používají společnou transakci Vlastností a nativní řešení referencí.
+Basic queries cover `document.constructions` and owned 3D Curve points. Later additions
+include embedded paths and construction deletion. Creation/Properties and standalone
+3D Curves are described below; references are linked at the end. Numeric placement
+also uses [placement.get/set](PLACEMENT_COMMANDS.md). Native schema/templates are
+unchanged. Construction commands share Properties transactions and native reference solving.
 
-Samostatný modelový test ověřuje všechny čtyři druhy, nezaměnitelnost
-kontejneru/entity, vlastnictví tělesa i bodu, přesný lokální rámec při posunutém
-a otočeném tělese, neplatnou referenci s poslední polohou, zámky, omezení
-výstupu, chyby, neaktivní dokument a nativní uložení/načtení Partu i Assembly.
-Kontrola revize, generace a identity vypočtené cache chrání čisté čtení.
-Skutečný CLI proces čte Part přes JSON a Assembly přes textový stdin; konzole
-GUI čte stejnou nativní geometrii a ověřuje nezměněný stav dokumentů.
+Model tests cover all four kinds, distinct container/entity IDs, Body/point ownership,
+exact local frames in moved/rotated Bodies, invalid references retaining placement,
+locks, output limits, errors, inactive documents and native Part/Assembly roundtrip.
+Revision, generation and calculated-cache identity checks enforce read-only behavior.
+Real CLI reads Part via JSON and Assembly via text stdin; GUI console reads identical
+native geometry and verifies unchanged documents.
 
-Závěrečná sada prošla **6/6** (26,86 s),
-`build/construction-query-final-tests.log`: konstrukční dotazy, katalog hostu,
-skutečný CLI proces, původní reference, překlady a konzole GUI. Předchozí běh
-měl 5/6; GUI test posílal prázdné argumenty jako JSON `null` místo objektu.
-Opravena byla pouze tato testovací zpráva, následně prošla celá dotčená sada.
+Final suites **6/6** (26.86 s), `build/construction-query-final-tests.log`: construction
+queries, host catalog, real CLI, original references, translations and GUI console.
+The previous 5/6 run failed because GUI tests sent empty arguments as JSON `null`
+instead of an object. Only that test message changed before the complete affected rerun.
 
-Původní ověření používalo alternativní testovací GUI kvůli běžícímu CADu.
-Po jeho zavření jsou běžné GUI i CLI sestavené a prošly závěrečnou kontrolou
-startu a konzole **3/3**, viz [PLACEMENT_COMMANDS.md](PLACEMENT_COMMANDS.md).
-Nejde o distribuční balíček.
+Initial verification used an alternate GUI executable while user CAD ran. After it
+closed, normal GUI/CLI rebuilt and passed final startup/console checks **3/3**; see
+[PLACEMENT_COMMANDS.md](PLACEMENT_COMMANDS.md). This was not a distribution package.
 
+## Creation and property editing
 
-## Tvorba a změna vlastností
+`construction.create` creates absolute `point`, `axis`, `plane`, `curve3d`.
+`construction.set` edits a saved construction by ID, preserving identity, parent and
+references. Both share the GUI Properties commit transaction. Part creation inserts
+at the active Body's current history position; Assembly creation belongs to its document.
 
-`construction.create` vytváří absolutní `point`, `axis`, `plane` nebo `curve3d`.
-`construction.set` upravuje uloženou konstrukci podle jejího ID; zachovává
-identitu, rodiče a reference. Oba příkazy používají potvrzovací transakci
-stejného okna Vlastnosti jako GUI. V Partu vkládá tvorba konstrukci na aktivní
-pozici historie aktivního tělesa, v Assembly do jejího vlastního dokumentu.
-
-| Argument | Tvorba | Změna a význam |
+| Argument | Creation | Editing and meaning |
 | --- | --- | --- |
-| `kind` | Povinný: `point`, `axis`, `plane`, `curve3d` | Druh existující konstrukce se nemění |
-| `construction` | ID přidělí model | Povinné ID existujícího kontejneru |
-| `name` | Povinný neprázdný název | Volitelné přejmenování |
-| `values` | Volitelný objekt čísel | Stejné klíče, jednotky a omezení jako `placement.set` |
-| `direction_axis` | Pro osu: `x`, `y`, `z`; výchozí `y` | Vybraná lokální osa |
-| `display_size_mm` | Pro osu: výchozí 100 mm | Délka zobrazení od 0,001 do 1 000 000 mm |
-| `base_plane` | Pro rovinu: `xy`, `xz`, `yz`; výchozí `yz` | Rovina lokálního počátku |
-| `offset_mm` | Pro rovinu: výchozí 0 mm | Odsazení entity podél normály, ±1 000 000 mm |
-| `document` | Volitelný aktivní dokument | Jiný než aktivní dokument je odmítnut |
+| `kind` | Required: `point`, `axis`, `plane`, `curve3d` | Existing kind cannot change |
+| `construction` | Model assigns ID | Required existing-container ID |
+| `name` | Required nonempty name | Optional rename |
+| `values` | Optional numeric object | Same keys, units and restrictions as `placement.set` |
+| `direction_axis` | Axis: `x`, `y`, `z`, default `y` | Selected local axis |
+| `display_size_mm` | Axis: default 100 mm | Display length 0.001–1000000 mm |
+| `base_plane` | Plane: `xy`, `xz`, `yz`, initial default `yz` | Local Origin plane; current automatic/manual selection follows [WORK_PLANES.md](WORK_PLANES.md) |
+| `offset_mm` | Plane: default 0 mm | Entity offset along normal, ±1000000 mm |
+| `document` | Optional active-document ID | Inactive documents are rejected |
 
-Rozšířené argumenty posílejte v JSON. Textový zápis používá poziční argumenty,
-například `construction.create point "Měřicí bod"`. Volitelné argumenty
-nepoužívají syntaxi `klíč=hodnota`.
+Send extended arguments as JSON. Text uses positional arguments, for example
+`construction.create point "Measurement point"`; optional arguments do not use
+`key=value` syntax.
 
 ```json
-{"command":"construction.create","arguments":{"kind":"plane","name":"Montážní rovina","base_plane":"xy","offset_mm":12.5,"values":{"x":10,"rotation_x":90}}}
-{"command":"construction.set","arguments":{"construction":"ID_Z_PŘEDCHOZÍHO_VÝSLEDKU","name":"Montážní rovina 2","offset_mm":15}}
+{"command":"construction.create","arguments":{"kind":"plane","name":"Mounting plane","base_plane":"xy","offset_mm":12.5,"values":{"x":10,"rotation_x":90}}}
+{"command":"construction.set","arguments":{"construction":"ID_FROM_PREVIOUS_RESULT","name":"Mounting plane 2","offset_mm":15}}
 ```
 
-Výsledek odpovídá `construction.get` a přidává `changed`. Změna více polí
-je jedna Undo transakce. Chybný parametr, nevhodný druh vlastnosti, zamčená
-hodnota nebo nevyřešitelná reference odmítne celý návrh. Shodné hodnoty
-vracejí `changed: false` bez změny historie a cache. Zámky délek a odsazení
-z Vlastností i zámky/omezení umístění se respektují; příkazy je neodemykají.
-Změnu umístění lze přidat do stejné transakce přes `values`.
+Results match `construction.get` plus `changed`. Multiple fields commit as one Undo
+transaction. Invalid parameters, inappropriate properties, locked values or unresolvable
+references reject the whole draft. Identical values return `changed:false` without
+history/cache changes. Properties length/offset locks and placement constraints are
+respected, never unlocked by commands. `values` includes placement in the same transaction.
 
-Vlastnosti platí v lokálním rámci uvedeném ve výsledku. Odsazení roviny
-posouvá její entitu; neposouvá počátek kontejneru. Směr osy před potvrzením
-připravuje stejná čistá funkce pro GUI i příkaz, v pořadí rotací X, Y, Z.
-Nativní solver pak vyřeší případné geometrické reference. Tuto přípravu
-používá i stávající `placement.set` pro samostatné osy.
+Properties use the returned local frame. Plane offset moves its entity, not container
+Origin. The same pure GUI/command function prepares axis direction in X, Y, Z rotation
+order before the native solver resolves geometric references. Existing `placement.set`
+for standalone axes uses it too.
 
-Editace vyžaduje aktivní vlastnící těleso; odvozené těleso je chráněné.
-Rozpracovaný editační dialog blokuje mutaci z konzole. Konstrukce se řeší
-bez OCCT výpočtu tělesa a zachovávají poslední vypočtenou geometrii, stejně
-jako dosavadní Vlastnosti. Navázaná tělesa a vazby se přepočítají výslovnou
-regenerací. Nativní formáty a start Part/Assembly šablony se nemění.
+Editing requires the active owning Body; derived Bodies are protected. Pending dialogs
+block console mutations. Constructions resolve without OCCT body calculation, preserving
+last-calculated geometry as Properties does. Dependent bodies/mates update on explicit
+regeneration. Native formats and Part/Assembly templates are unchanged.
 
-Název a umístění lze upravit také u samostatné 3D křivky a jejích bodů.
-Geometrii křivky a úplný seznam bodů upravuje rozšíření popsané níže.
-Výměna referencí zůstává navazujícím rozsahem. Mazání kořenových konstrukcí
-pokrývá níže popsaný příkaz `construction.delete`.
+Standalone 3D Curves and points also support name/placement editing; geometry/full point
+lists are below. Reference replacement was a subsequent stage. `construction.delete`
+below handles root constructions.
 
-Při čtení nativních konstrukcí se nyní obnoví i odvozená poloha entity
-roviny z jejího uloženého počátku, normály a odsazení. Dříve ji samotný
-deserializátor ponechal nulovou. Obnova neřeší reference, nepřepisuje
-jejich diagnostiku a nevolá OCCT; platí také pro poslední polohu roviny
-s chybějící referencí. Formát souboru se nemění.
+Native construction reads also restore derived plane-entity placement from saved
+Origin, normal and offset; the deserializer previously left it zero. Restoration
+neither solves references, rewrites diagnostics nor calls OCCT. It also preserves
+last placement for missing-reference planes. File format is unchanged.
 
-Editace bodu existující 3D křivky ověřuje před potvrzením celou vlastnící
-dráhu stejnou nativní kontrolou jako dialog. Přesunutí bodu na sousední bod
-a jiné neplatné definice dráhy nezanechají částečný zápis ani přes
-`construction.set`, ani přes společné `placement.set`.
+Editing an existing 3D Curve point validates its entire owning path before commit,
+using the same native check as the dialog. Collapsing onto a neighbor or other invalid
+paths leaves no partial changes through either `construction.set` or shared `placement.set`.
 
+## Creation/Properties verification
 
-## Ověření tvorby a vlastností
+Full Windows Release **88/88** (389.12 s), `build/construction-edit-full-tests.log`.
+Builds: `build/construction-edit-full-build.log`,
+`build/construction-edit-final-build.log`. Normal GUI/CLI executables were used; no
+alternate test EXE was needed. Production code did not change after the successful run.
 
-Celá Windows Release sada prošla **88/88** (389,12 s),
-`build/construction-edit-full-tests.log`; sestavení všech programů odpovídá
-`build/construction-edit-full-build.log` a závěrečnému
-`build/construction-edit-final-build.log`. GUI i CLI jsou běžné spouštěcí
-programy, není potřeba alternativní testovací EXE. Po úspěšném běhu se
-produkční kód neměnil.
+Model checks independently verify axis directions after Y/Z rotation, offset-plane
+position after local-plane/rotation changes, and a point in a 90°-rotated Body. They
+check calculated-body identity, one Undo, no-op, argument types/ranges, locks, valid/lost
+references, active Body/document, pending edits and 3D Curve neighbor-collapse rejection.
+Native Part/Assembly roundtrips check identity, parameters and last plane placement
+even with invalid references.
 
-Modelové regrese nezávisle kontrolují směry os po otočení kolem Y/Z,
-polohu odsazené roviny po změně lokální roviny a rotace i bod v tělese
-otočeném o 90 stupňů. Hlídají identitu vypočteného tělesa, jednu Undo
-transakci, no-op, typy/rozsahy argumentů, zámky, platné i ztracené reference,
-aktivní těleso/dokument, rozpracovanou editaci a bod 3D křivky včetně
-odmítnutí kolapsu na souseda. Uložení/načtení Partu a Assembly ověřuje
-identitu, parametry a poslední polohu roviny i při neplatné referenci.
+Real CLI creates/saves/opens a plane, edits with JSON Undo/Redo and creates an axis via
+text stdin. GUI console creates a plane, opens the same Properties, checks Cancel, OK,
+concurrent-mutation guards, Undo and later display of command-set values. Full suites
+also include original modeling, Drawing, Sketcher, interchange, translations and dialogs.
 
-Skutečný CLI proces tvoří/ukládá/otevírá rovinu, edituje ji s Undo/Redo
-přes JSON a tvoří osu přes textový stdin. GUI konzole vytvoří rovinu,
-otvírá stejné Vlastnosti a ověřuje Cancel, OK, blokování souběžné změny,
-Undo a pozdější zobrazení hodnoty nastavené příkazem. Úplná sada zahrnuje
-i původní modelování, výkresy, skicář, import/export, překlady a dialogy.
+## Standalone 3D Curves and points
 
+`construction.create kind:"curve3d"` requires `points`: 2–5000 point objects in path
+order. `construction.set` accepts the same curve parameters. This extension covers
+standalone Part/Assembly constructions; feature-owned paths were added separately.
 
-## Samostatné 3D křivky a jejich body
-
-`construction.create` s `kind: "curve3d"` vyžaduje `points`: pole 2–5000
-objektů bodů v pořadí dráhy. `construction.set` přijímá stejné parametry
-křivky. Příkazy platí pro samostatné konstrukce Partu i Assembly; dráhy
-vlastněné modelovacím prvkem nejsou tímto rozšířením zpřístupněné.
-
-| Argument | Význam |
+| Argument | Meaning |
 | --- | --- |
-| `curve_type` | `polyline` (výchozí) nebo `interpolating_spline` |
-| `rounding_enabled` | Zapnutí zaoblení lomené čáry; pro spline není editovatelné |
-| `points` | Úplný nový seznam bodů; při vynechání zůstane původní |
-| `radius_mm` | Poloměr vnitřního bodu zaoblené lomené čáry, 0–1 000 000 000 mm |
-| `tangent` | `automatic`, `+x`, `-x`, `+y`, `-y`, `+z`, `-z` v lokálních osách bodu |
-| `tangent_enabled` | Zapnutí řízení tečny; vypnutí zachová vybranou osu a znaménko |
+| `curve_type` | `polyline` (default) or `interpolating_spline` |
+| `rounding_enabled` | Polyline rounding; not editable for splines |
+| `points` | Complete replacement list; omission retains the original |
+| `radius_mm` | Internal rounded-polyline point radius, 0–1000000000 mm |
+| `tangent` | `automatic`, `+x`, `-x`, `+y`, `-y`, `+z`, `-z` in point-local axes |
+| `tangent_enabled` | Enables control; disabling preserves chosen axis/sign |
 
-`radius_mm`, `tangent` a `tangent_enabled` patří bodu, nikoli kořeni křivky.
-Lze je zadat přímo pomocí `construction.set` s ID bodu, nebo uvnitř jeho
-objektu v `points`. Bod přijímá také `name` a `values`, se stejnými zámky,
-jednotkami a pravidly umístění jako jiné konstrukce.
+`radius_mm`, `tangent`, `tangent_enabled` belong to points, not the curve root.
+Set them directly by point ID or inside `points` objects. Points also accept `name`
+and `values`, sharing construction locks, units and placement rules.
 
-Objekt bodu s `construction` vybírá existující bod této křivky. Zachová se
-jeho identita, původní entity, reference i nezadané vlastnosti. Objekt bez
-`construction` vytvoří nový nativní bod a nový počátek, s vlastníkem danou
-křivkou. Souřadnice bodů jsou lokální ke křivce, i když je křivka nebo její
-těleso posunuté a otočené. Názvy nejsou identitou.
+Point objects with `construction` select existing points of that curve, retaining IDs,
+original entities, references and omitted properties. Without it, they create native
+points/Origins owned by the curve. Coordinates are local to the curve even when it or
+its Body is moved/rotated. Names are not identity.
 
-`points` **nahrazuje celý seznam**, stejně jako potvrzení tabulky bodů ve
-Vlastnostech: pořadí položek určuje pořadí dráhy a vynechaný původní bod se
-odstraní. Opakované ID, cizí bod nebo neznámá vlastnost se odmítne. Před
-změnou načtěte ID přes `construction.get/list`; nový seznam sestavte ze všech
-bodů, které mají zůstat. Odstranění bodu nezaměňuje navázané reference za jiný
-bod. Další závislé geometrické operace se přepočítají výslovnou regenerací.
+`points` **replaces the entire list**, like Properties confirmation: array order is
+path order, omitted old points are deleted. Repeated IDs, foreign points and unknown
+properties are rejected. Read IDs with `construction.get/list` and include every point
+to retain. Deleting a point never substitutes another point in dependent references.
+Further dependent geometry updates on explicit regeneration.
 
 ```json
-{"command":"construction.create","arguments":{"kind":"curve3d","name":"Zaoblená dráha","curve_type":"polyline","rounding_enabled":true,"points":[{"name":"Začátek","values":{"x":0,"y":0,"z":0}},{"name":"Roh","values":{"x":10,"y":0},"radius_mm":2},{"name":"Konec","values":{"x":10,"y":10}}]}}
-{"command":"construction.set","arguments":{"construction":"ID_BODU_ROHU","radius_mm":3}}
-{"command":"construction.set","arguments":{"construction":"ID_KŘIVKY","curve_type":"interpolating_spline"}}
-{"command":"construction.set","arguments":{"construction":"ID_PRVNÍHO_BODU","tangent":"+x","values":{"rotation_z":90}}}
+{"command":"construction.create","arguments":{"kind":"curve3d","name":"Rounded path","curve_type":"polyline","rounding_enabled":true,"points":[{"name":"Start","values":{"x":0,"y":0,"z":0}},{"name":"Corner","values":{"x":10,"y":0},"radius_mm":2},{"name":"End","values":{"x":10,"y":10}}]}}
+{"command":"construction.set","arguments":{"construction":"CORNER_POINT_ID","radius_mm":3}}
+{"command":"construction.set","arguments":{"construction":"CURVE_ID","curve_type":"interpolating_spline"}}
+{"command":"construction.set","arguments":{"construction":"FIRST_POINT_ID","tangent":"+x","values":{"rotation_z":90}}}
 ```
 
-Spline používá přesné kubické úseky a stávající nativní interpolaci.
-`automatic` vypne řízenou tečnu, zadaná podepsaná osa ji zapne. Výslovné
-`tangent_enabled` se vyhodnotí potom; při zapnutí dosud automatického bodu
-se použije `+x`, stejně jako v GUI. Otočení bodu otočí i jeho řízenou tečnu.
-Přepnutí typu křivky uchová poloměry i tečny pro pozdější návrat k původnímu
-typu; neaktivní hodnoty nemění aktuální geometrii.
+Splines use exact cubic spans and existing native interpolation. `automatic` disables
+controlled tangent; signed axes enable it. Explicit `tangent_enabled` applies afterward;
+enabling a previously automatic point uses `+x`, as GUI does. Rotating a point rotates
+its controlled tangent. Switching curve type retains radii/tangents for later return;
+inactive values do not affect current geometry.
 
-Celá změna kořene i více bodů je jedna transakce. Nativní `curve3d_route`
-ověří i sousední úseky: kolaps bodů, obrat o 180° se zaoblením nebo příliš
-velké sousední poloměry odmítnou celý návrh. Zámek poloměru nebo umístění
-nelze obejít nahrazením seznamu se stejnými ID. Shodný seznam a hodnoty jsou
-no-op. Výpočet přesné křivky nepoužívá OCCT a nemění vypočtenou cache tělesa.
-Schéma nativních dokumentů a start šablony se nemění.
+Root and multiple-point edits form one transaction. Native `curve3d_route` also checks
+adjacent segments: point collapse, rounded 180° reversal and oversized neighboring
+radii reject the entire draft. Replacing lists with the same IDs cannot bypass radius/
+placement locks. Identical lists/values are no-ops. Exact-curve calculation uses no OCCT
+and preserves body caches. Native schema/templates are unchanged.
 
+## 3D Curve verification
 
-## Ověření 3D křivek
+Full Windows Release **89/89** (417.79 s), `build/construction-curve-full-tests.log`.
+Extra regression then found combined editing checked referenced-point coordinate
+editability in the old frame when the curve rotated simultaneously. Commands now
+prepare the new frame with existing native functions and use one reference packet
+for the whole list, without creating/calculating a temporary body.
 
-Úplná Windows Release sada prošla **89/89** (417,79 s), viz
-`build/construction-curve-full-tests.log`. Dodatečná regrese pak zachytila
-chybu nové kombinované editace: při současné rotaci křivky a změně souřadnice
-referencovaného bodu se editovatelnost kontrolovala v původním rámci.
-Příkaz nyní připraví nový rámec stávajícími nativními funkcemi a stejný balík
-referencí použije pro celý seznam. Nevytváří ani nepočítá dočasné těleso.
+After correction, **8/8** affected regressions passed (38.76 s),
+`build/construction-curve-final-tests.log`: curves, general constructions, placement,
+catalog, real CLI, GUI console, translations and 3D Sweep. Final GUI/CLI build:
+`build/construction-curve-final-build.log`. A later test-only own-Origin-plane check
+passed **1/1**, `build/construction-curve-own-frame-tests.log`; production code was unchanged.
 
-Po opravě prošlo všech **8/8** dotčených regresí (38,76 s),
-`build/construction-curve-final-tests.log`: křivky, obecné konstrukce,
-umístění, katalog, skutečný CLI proces, konzole GUI, překlady a 3D tažení.
-Sestavení finálního GUI i CLI je v `build/construction-curve-final-build.log`.
-Následná čistě testovací kontrola vlastní roviny počátku prošla **1/1**,
-`build/construction-curve-own-frame-tests.log`; produkční kód se již neměnil.
+Model tests independently check exact quarter-circle midpoint, cubic-spline endpoints,
+tangent after local-axis rotation, all signed controlled axes, tangent disable/restore,
+point insertion/reordering/deletion, locks, atomic errors, no-op, Undo/Redo and native
+Part/Assembly roundtrip. Combined edits use foreign-plane and own-Origin references,
+including new points in the same transaction. Solving must neither silently overwrite
+requested coordinates nor reject them because of an old frame.
 
-Modelový test nezávisle ověřuje střední bod přesného čtvrtkruhového oblouku,
-koncové body kubické spline a její tečnu po otočení lokální osy, znaménka všech
-řízených os, vypnutí a obnovení tečny, vkládání/přesuny/mazání bodů, zámky,
-atomické chyby, no-op, Undo/Redo a nativní Part/Assembly roundtrip. Kombinované
-změny testuje s referencí na cizí rovinu i vlastní počátek, včetně přidání
-nového bodu v téže transakci. Předepsanou souřadnici nesmí následné řešení
-tiše přepsat ani odmítnout kvůli starému rámci.
+Process tests create splines in Part/Assembly, save, convert to rounded polylines in
+new CLI processes, Undo/Redo and inspect native files. GUI opens CLI curves in the same
+Properties and checks radius, Cancel, OK, Undo and changed-type display. Initial row-count
+expectations were corrected: the table includes **New point…**, which is not geometry.
 
-Procesový test tvoří spline v Partu i Assembly, uloží ji, v novém CLI procesu
-změní na zaoblenou lomenou čáru, provede Undo/Redo a kontroluje nativní soubor.
-GUI test otevírá CLI křivku ve stejných Vlastnostech, ověřuje poloměr, Cancel,
-OK, Undo a zobrazení změny typu. Jeho původní očekávání počtu řádků bylo
-opraveno: tabulka obsahuje i nabídku „Nový bod…“, která není geometrickým bodem.
+## Deleting standalone constructions (2026-09-13)
 
-## Odstranění samostatné konstrukce (2026-09-13)
+`construction.delete <construction-ID>` shares tree-menu removal. Part uses existing
+history deletion and active-Body checks. Assembly also protects references to owned
+points, entities and Origins, including section sketches and embedded profiles in
+open Parts. Edit owned points through their parent curve list and embedded paths
+through their owning Sweep.
 
-`construction.delete <construction-ID>` sdílí odstranění s nabídkou stromu.
-Part používá dosavadní mazání historie a kontrolu aktivního tělesa. Assembly
-chrání i reference na vlastněné body, entity a počátky konstrukce, včetně
-skic řezů a vložených profilů otevřených Partů. Vlastněný bod se mění seznamem
-bodů nadřazené křivky; vložená dráha přes vlastnící tažení.
-
-Příkaz má společné Undo/Redo a nativní uložení. Katalog má 210 příkazů.
-Přesný rozsah, chyby, výpočetní chování a ověřené testy:
+Shared Undo/Redo and native saving apply. Catalog at this milestone: 210 commands.
+Exact scope, errors, calculation behavior and tests:
 [CONSTRUCTION_REMOVAL.md](CONSTRUCTION_REMOVAL.md).
 
-## Původní reference nezávislé konstrukce
+## Original references of independent constructions
 
-`construction.reference.set` sdílí přiřazení pozičních/orientačních polí
-s Vlastnostmi a potvrzuje stejnou konstrukční transakci. Podrobnosti,
-identifikátory, zámky a rozsah: [CONSTRUCTION_REFERENCE_COMMANDS.md](CONSTRUCTION_REFERENCE_COMMANDS.md).
+`construction.reference.set` shares positional/orientation-field assignment and the
+Properties construction transaction. IDs, locks and scope:
+[CONSTRUCTION_REFERENCE_COMMANDS.md](CONSTRUCTION_REFERENCE_COMMANDS.md).

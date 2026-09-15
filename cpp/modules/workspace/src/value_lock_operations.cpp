@@ -76,6 +76,7 @@ template<class Document> auto fields(Document& doc,const std::string& owner) {
             case Kind::Cone:add({"bottom_radius","top_radius","height"});break;
             case Kind::Wedge:add({"length","width","height","top_offset"});break;
             case Kind::Sketch:number(out,object.placement.value_locks,"profile_offset");break;
+            case Kind::Holes:add({"diameter"});number(out,object.placement.value_locks,"profile_offset");break;
             case Kind::Extrusion:add({"profile_offset","length_forward","length_reverse","thin_thickness"});break;
             case Kind::Revolution:add({"profile_offset","angle","length_reverse","thin_thickness"});break;
             case Kind::Fillet:add({"primary","secondary"});break;

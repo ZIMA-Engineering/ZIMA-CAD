@@ -53,7 +53,7 @@ document::ConstructionObject prepare_construction_reference(Object value,
     value.references=combined(position,orientation);
     for(auto& ref:value.references)ref.measured_offset.reset();
     if(index<3)value.definition=document::ConstructionDefinition::PointReference;
-    if(first_plane)value.base_plane=document::LocalDatumPlane::XZ;
+    if(first_plane&&value.base_plane_auto)value.base_plane=document::LocalDatumPlane::XZ;
     if(!document::resolve_construction(value,geometry))reject("invalid_reference","The proposed construction references cannot be resolved.");
     return value;
 }

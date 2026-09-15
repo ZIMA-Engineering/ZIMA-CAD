@@ -1,45 +1,42 @@
-# Zvýraznění a editace v modelování
+# Highlighting and editing in Modeling
 
-Potvrzený výběr ve View a Tree používá azurový drát. Je viditelný i přes
-materiál ve všech pěti režimech zobrazení, takže lze prohlédnout celý otvor
-i jeho vnitřní podprvky. Zvýrazňuje se pouze vybraný kontejner, podprvek nebo
-přesný výskyt komponenty, nikoli jiné výskyty stejného zdrojového dílu.
-Hover používá oranžový drát.
+Confirmed View/Tree selection uses cyan wire, visible through material in all
+five display modes so an entire hole and its internal subfeatures can be inspected.
+Only the selected container, subfeature, or exact component occurrence is highlighted;
+other instances of the same source Part are unaffected. Hover uses orange wire.
 
-Po dvojkliku na kontejner zůstává azurový drát zobrazený společně s kótami.
-Toto vizuální označení je oddělené od výběru pro zadávání: kóty lze dále
-vybírat a opakovaně upravovat. Kliknutí do prázdného View vyčistí potvrzený
-výběr, inspekční drát i související označení Tree. Změny parametrů otvoru
-a závitu zachovávají nastavení kamery.
+Double-clicking a container keeps its cyan wire visible with its dimensions.
+This inspection state is separate from input selection, so dimensions remain
+selectable and repeatedly editable. Clicking empty View space clears confirmed
+selection, inspection wire, and associated Tree selection. Hole and Thread
+parameter changes preserve the camera.
 
-Drát používá uloženou geometrii kontejneru. Sražení a Zaoblení používají
-hrany skutečného vstupu před operací; jejich výběr není obecnou referencí
-umístění. Zobrazení, hover ani výběr nevyvolávají OCCT výpočet.
+Wire comes from persisted container geometry. Chamfer and Fillet use real input
+edges before the operation; their selection is not a general placement reference.
+Display, hover, and selection do not invoke OCCT calculation.
 
-Tree zobrazuje prvky se ztracenými referencemi červeným pozadím řádku
-v Partu i Assembly, včetně řezů. Chyba zmizí až po skutečné opravě reference;
-samotné OK ji nepotlačí. Ztracená reference má ve vlastnostech prázdné červené
-pole a lze ji nahradit. Původní identita zůstává zachovaná až do nahrazení
-nebo odstranění. Platné reference používají čitelné názvy, například
-**Plocha 6**, místo interních identifikátorů.
-Samostatný Závit navíc uchovává poslední vypočtenou geometrii ztracených
-referencí pro běžné přepočty; otevření jeho Vlastností vyžaduje nové zadání
-chybějících povinných referencí. Podrobnosti ukládání a chování Cancel jsou
-v dokumentaci [vnějšího závitu](SHAFT_THREAD.md).
+Tree rows for broken references have a red background in Part and Assembly,
+including sections. The error disappears only after actual reference repair;
+OK alone does not suppress it. Properties shows a missing reference as an empty
+red field that can be replaced. The original identity remains until replacement
+or removal. Valid references use readable names such as **Face 6**, not internal IDs.
+Standalone Thread also retains the last calculated geometry of missing references
+for ordinary regeneration; opening its Properties requires replacing missing
+mandatory references. Persistence and Cancel details are in [Shaft Thread](SHAFT_THREAD.md).
 
-V pravém panelu příkazů Partu odděluje zelená čára Shell od skupiny začínající
-příkazem Otvor. Příkaz Otvor a jeho základní podprvek Tree mají shodné jméno
-i ikonu. Vnější Závit má samostatnou ikonu.
+In the right-hand Part command panel, a green separator divides Shell from the
+group starting with Hole. The Hole command and its primary Tree subfeature share
+a name and icon. Shaft Thread has a separate icon.
 
-Ověření společného vykreslení zajišťují `zima_cpp_ui_contract_tests`, včetně
-zakrytých hran, všech režimů zobrazení a přesné cesty výskytu. Integrační
-ověření závitu kontroluje také zachování kamery a drátu po editaci kóty.
+`zima_cpp_ui_contract_tests` verifies shared rendering, including occluded edges,
+all display modes, and exact occurrence paths. Thread integration also checks
+camera and wire retention after dimension editing.
 
-## Výchozí měřítko View a první skici
+## Initial View and first-Sketch scale
 
-Prázdný dokument používá přibližné měřítko 1:1 podle výšky View a DPI
-monitoru. Přesnost závisí na údajích, které o monitoru poskytne operační
-systém. Počátky a osy jsou pomocné reference; nezpůsobí přiblížení prázdné
-skici na zlomek milimetru ani při opakovaném zastoupení stejného počátku.
-Existující geometrie se při Obnovit pohled nadále přizpůsobí velikosti View.
-Velikost symbolů počátků na obrazovce je na tomto měřítku nezávislá.
+An empty document uses an approximate 1:1 scale based on View height and monitor
+DPI. Accuracy depends on monitor information supplied by the operating system.
+Origins and axes are auxiliary references: they do not zoom an empty Sketch down
+to a fraction of a millimeter, even when the same Origin occurs repeatedly.
+Fit View still fits existing geometry to the viewport. Origin symbols have a
+screen size independent of this scale.

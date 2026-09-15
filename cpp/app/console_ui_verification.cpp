@@ -58,6 +58,9 @@
 
 namespace zima::app {
 int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& window,const std::filesystem::path& directory) {
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_WORK_PLANE_ONLY")) return verify_work_plane_ui(application,window,directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_ROTATION_HANDLE_ONLY")) return verify_rotation_handle_ui(application,window,directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_HOLES_ONLY")) return verify_holes_ui(application,window,directory);
     const auto check=[](bool condition,const char* message){if(!condition)throw std::runtime_error(message);};
     const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
     const auto run=[&](const QString& command){auto result=window.execute_console_command(command);if(!result.ok)throw std::runtime_error(command.toStdString()+": "+result.code+": "+result.message);return result;};
@@ -77,6 +80,7 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         window.resizeDocks({dock},{260},Qt::Vertical);flush();
         input->setText("help");QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(input,&enter);flush();
         check(output->toPlainText().contains("regenerate"),"Enter did not dispatch help");
+        check(output->toPlainText().contains("holes.create") && output->toPlainText().contains(QString::fromStdString(run("help").data.back().at("name").get<std::string>())),"Console truncated the command catalog");
         QKeyEvent up(QEvent::KeyPress,Qt::Key_Up,Qt::NoModifier);QApplication::sendEvent(input,&up);check(input->text()=="help","Command history failed");
         input->clear();
         const auto catalog=run("thread.catalog metric M10").data;

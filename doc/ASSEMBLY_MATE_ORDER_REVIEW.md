@@ -1,71 +1,70 @@
-# Opraveno: pořadí výpočtu vazeb komponent
+# Fixed: component mate evaluation order
 
-## Ověřená chyba
+## Verified defect
 
-V pořadí stromu A, B, C má A plošnou vazbu k B s odsazením 2 mm a B k C
-s odsazením 3 mm. C je na z = 0. Po potvrzení vazby B vychází B = 3 mm,
-ale A zůstane na 2 mm místo nezávisle spočtených 5 mm.
+With tree order A, B, C, A has a plane mate to B with a 2 mm offset and B to C
+with a 3 mm offset. C is at z = 0. After confirming B's mate, B reaches 3 mm,
+but A remains at 2 mm instead of the independently calculated 5 mm.
 
-Důvod: `AssemblyDocument::calculate_placement_references` řeší komponenty
-jedním průchodem v uloženém pořadí. A použije předchozí polohu B, která se
-změní až později v témže průchodu. Stejnou funkci používá GUI náhled,
-GUI potvrzení, CLI a explicitní regenerace.
+`AssemblyDocument::calculate_placement_references` made one pass in persisted
+component order. A used B's previous position, which changed later in that pass.
+GUI preview, GUI confirmation, CLI, and explicit regeneration share this function.
 
-Reprodukční rozšíření `cpp/tests/component_property_command_tests.cpp` je
-uchované ve stashi `953168c8669d7391df429da82c4b187454e3f028`
-(`codex pending approval: assembly mate evaluation order`). `build/component-chain-repro-tests.log`: **0/1**, očekáváno
-5 mm, skutečnost 2 mm. Výchozí etapa CLI je commit `efbfc58`; její úplná
-sada 107/107 a závěrečná sada 16/16 prošly před tímto novým scénářem.
+The reproduction extension to `cpp/tests/component_property_command_tests.cpp`
+is preserved in stash `953168c8669d7391df429da82c4b187454e3f028`
+(`codex pending approval: assembly mate evaluation order`).
+`build/component-chain-repro-tests.log`: **0/1**, expected 5 mm, actual 2 mm.
+The baseline CLI stage is commit `efbfc58`; its full 107/107 suite and final
+16/16 suite passed before this new scenario.
 
-## Schválený a provedený zásah
+## Approved and implemented change
 
-Pouze v `cpp/modules/assembly/src/assembly_document.cpp`, ve funkci
-`calculate_placement_references`, nahradit přímý průchod kandidátem:
+Only `calculate_placement_references` in
+`cpp/modules/assembly/src/assembly_document.cpp` changes its direct traversal:
 
-1. Vytvořit mapu existujících ID výskytů na jejich místa v uloženém seznamu.
-2. Z `target_reference.instance_path` každé neuzemněné komponenty sestavit
-   seznam bezprostředních cílových komponent. Duplicitní cíle započíst jednou.
-   Vlastní reference Assembly s prázdnou cestou nemá předchůdce. Chybějící
-   výskyt nepřidává novou geometrii; stávající řešení neplatných referencí zůstává.
-3. Zpracovat nejdříve komponenty bez předchůdců, pak jejich následovníky.
-   Pro každou použít přesně dosavadní `make_placement_system` a
-   `solve_placement`, pouze nad již aktualizovanými cíli.
-4. Pokud zbude cyklus, odmítnout celý výpočet. Vše probíhá na současném
-   soukromém kandidátovi; do živého dokumentu se polohy převezmou až po úspěchu.
-5. Uložené pořadí komponent, identity, reference, rovnice, zámky, vzhled,
-   zdrojové pakety a formát zůstanou beze změny. Bez nového volání OCCT.
+1. Map existing occurrence IDs to their positions in the persisted list.
+2. Collect immediate target components from each ungrounded component's
+   `target_reference.instance_path`, counting duplicate targets once. An Assembly
+   reference with an empty path has no predecessor. Missing occurrences introduce
+   no geometry; existing invalid-reference handling remains.
+3. Process components without predecessors first, then their followers. Use the
+   existing `make_placement_system` and `solve_placement` with updated targets.
+4. Reject the entire calculation if a cycle remains. Work uses a private
+   candidate; positions are published to the live document only on success.
+5. Preserve component order, identities, references, equations, locks, appearance,
+   source packets, and document format. Introduce no OCCT calls.
 
-Použije se iterativní fronta, nikoli rekurze nebo opakovaná regenerace.
-Změna se projeví také v náhledu Vlastností, při tažení a regeneraci všech
-sestavových vazeb; proto jde o společný zásah vyžadující konkrétní souhlas.
+An iterative queue replaces recursion or repeated regeneration. The change also
+affects Properties previews, dragging, and regeneration of all Assembly mates,
+so this shared change required specific approval.
 
-## Ověření
+## Verification
 
-- Řetězec A/B/C musí po založení mít 5/3/0 mm a po změně C na 10 mm 15/13/10 mm.
-- Jediné Undo/Redo změny C vrátí/obnoví celý řetězec.
-- Všech šest pořadí tří komponent dá stejnou geometrii, bez přeskládání stromu.
-- Cyklus v nativním výpočtu bude odmítnut bez úniku dílčích poloh.
-- Dosavadní modelové, procesové CLI a skutečné GUI testy vazeb a odvozených kopií.
+- The A/B/C chain must start at 5/3/0 mm and reach 15/13/10 mm when C moves to 10 mm.
+- One Undo/Redo of C's change restores/reapplies the entire chain.
+- All six orders of three components produce identical geometry without tree reordering.
+- Native calculation rejects cycles without publishing partial positions.
+- Existing model, CLI-process, and actual GUI tests cover mates and derived copies.
 
-Uživatel po vysvětlení dopadu na společné umístění výslovně povolil opravu
-zprávou „povluji opravu.“ dne 2026-09-13. Dřívější blokace této konkrétní
-opravy je tím vyřešena. Nativní solver nyní používá frontu závislostí nad
-soukromým kandidátem a odmítá cyklus před publikováním výsledku.
+The user explicitly approved this repair on 2026-09-13 after its effects on
+shared placement were explained. This resolved the earlier block for this
+specific repair. The native solver now uses a dependency queue on a private
+candidate and rejects cycles before publishing results.
 
-Aktuální reprodukce nejprve selhala: očekáváno 5 mm, skutečnost 2 mm
-(`build/mate-order-baseline-tests.log`, 0/1 za 0,28 s). Po opravě prošly
-modelové testy **2/2 za 0,88 s** (`build/mate-order-first-tests.log`).
-Kromě řetězce a všech šesti pořadí ověřují duplicitní cíl, zachování pořadí
-stromu a sdílené geometrie, opakovaný výpočet, explicitní regeneraci,
-nativní uložení, cyklus bez dílčích změn a původní pravidlo uzemnění.
+The current reproduction first failed: expected 5 mm, actual 2 mm
+(`build/mate-order-baseline-tests.log`, 0/1 in 0.28 s). After the repair, model
+tests passed **2/2 in 0.88 s** (`build/mate-order-first-tests.log`). Alongside the
+chain and six orders, they cover duplicate targets, preserved tree order and
+shared geometry, repeated calculation, explicit regeneration, native saving,
+atomic cycle rejection, and the original grounding rule.
 
-Obě aplikace a všechny testovací programy se sestavily. Integrační sada
-prošla **9/9 za 34,98 s** (`build/mate-order-integration-tests.log`):
-Assembly, komponenty, vnořená aktivace, umístění, odvozené kopie včetně GUI
-a skutečný CLI proces. Navazující GUI sada prošla **3/3 za 117,99 s**
-(`build/mate-order-ui-tests.log`): vlastnosti komponenty, start a překlady
-a aktualizace zobrazení sestavy. Nová chyba cyklu má všech pět překladů.
+Both applications and all test programs built. Integration passed **9/9 in
+34.98 s** (`build/mate-order-integration-tests.log`): Assembly, components,
+nested activation, placement, derived copies including GUI, and the actual CLI
+process. Subsequent GUI tests passed **3/3 in 117.99 s**
+(`build/mate-order-ui-tests.log`): component properties, startup and translations,
+and Assembly display updates. The new cycle error has all five translations.
 
-Rozsah opravy je pořadí existujících sestavových vazeb. Nemění rovnice,
-zámky, identity, uložené pořadí stromu ani formát dokumentů. Nezavádí OCCT
-při přepínání tabů. Samostatný výpočet odvozených kopií zůstává beze změny.
+The repair changes evaluation order for existing Assembly mates. Equations,
+locks, identities, persisted tree order, and document formats remain unchanged.
+Switching tabs introduces no OCCT work. Separate derived-copy calculation is unchanged.

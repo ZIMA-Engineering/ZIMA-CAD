@@ -80,6 +80,7 @@ public:
     void set_commit_required(bool required);
     void set_preview_callback(
         std::function<void(const zima::document::HistoryContainer&)> callback);
+    void set_profile_plane_selection(const zima::sketcher::Sketch&, std::function<void(zima::sketcher::SketchPlane, bool)>);
     [[nodiscard]] double profile_plane_offset() const;
     void refresh_sketch_preview() { set_commit_required(true); notify_preview(); }
     [[nodiscard]] zima::document::HistoryContainer pending_value() const { return values(); }
@@ -220,6 +221,8 @@ private:
     QPushButton* profile_reset_button_{};
     QPushButton* own_sketch_button_{};
     QLineEdit* profile_status_{};
+    QComboBox* profile_plane_{};
+    std::function<void(zima::sketcher::SketchPlane, bool)> profile_plane_changed_;
     QDoubleSpinBox* profile_plane_offset_{};
     QComboBox* result_type_{};
     QPushButton* result_type_switch_button_{};

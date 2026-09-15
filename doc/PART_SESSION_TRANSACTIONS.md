@@ -1,41 +1,39 @@
-# Atomické potvrzení a historie Partu
+# Atomic Part commits and history
 
-Společná relace Partu nyní dokončí validaci fyzikálních relací, identifikátorů
-rozměrů a přípravu paměti před publikací změny dokumentu. Odmítnuté `commit`,
-`replace` ani `update_calculated_boundaries` nesmějí měnit revizi, generaci,
-uložený stav, dostupné Undo/Redo nebo vypočtenou geometrii.
+The shared Part session completes physical-relation validation, dimension-identifier
+validation, and memory preparation before publishing a document change. Rejected
+`commit`, `replace`, and `update_calculated_boundaries` calls must preserve revision,
+generation, save state, available Undo/Redo, and calculated geometry.
 
-## Uložení stavů
+## State ownership
 
-Aktuální stav a jednotlivé položky historie mají jednoznačné vlastnictví pomocí
-`std::unique_ptr`. Potvrzení přesune připravený stav; růst vektoru historie
-přesouvá jen ukazatele. To je důležité také ve Windows: přesun celého
-`PartDocument` nemusí být bezvýjimečný a růst vektoru hodnot mohl kopírovat
-staré vypočtené hranice.
+The current state and history entries use unique ownership through `std::unique_ptr`.
+Commit moves the prepared state; history-vector growth moves only pointers. This
+also matters on Windows: moving a complete `PartDocument` need not be noexcept,
+so a vector of values could copy older calculated boundaries when growing.
 
-Výslovná kopie celé `DocumentSession` nadále vytváří nezávislý dokument a historii.
-Přesun relace je bezvýjimečný. Nativní formát ani význam historie se nemění.
-Importované B-Rep zůstává sdílené přes dosavadní `shared_ptr`; ověřování nových
-fyzikálních hodnot nekopíruje dosavadní vypočtené hranice.
+Explicitly copying a complete `DocumentSession` still creates independent document
+and history data. Session moves are noexcept. Native format and history semantics
+are unchanged. Imported B-Rep remains shared through the existing `shared_ptr`;
+validating new physical values does not copy existing calculated boundaries.
 
-Undo/Redo si nejprve připraví zachování přidělených identifikátorů rozměrů.
-Teprve potom přesune vlastnictví stavů. Zamítnutá editace nespotřebuje nové
-číslo revize a nezruší dosud dostupné Redo. Přepočet mění generaci a příznak
-neuloženého výpočtu; nevytváří samostatný editační krok.
+Undo/Redo first prepares retention of allocated dimension identifiers, then moves
+state ownership. Rejected edits consume no revision number and preserve existing
+Redo. Regeneration changes generation and the unsaved-calculation flag, without
+creating a separate editing step.
 
-## Ověření
+## Verification
 
-Nový `zima_cpp_document_session_transaction_tests` používá kvádr o objemu
-1000 mm³ a změnu na 2000 mm³ s relací, která druhý stav odmítne dělením nulou.
-Kontroluje chyby fyzikální relace, jednotek a identifikátorů, původní geometrii,
-stav uložení, čítače i pokračování Undo/Redo. Při 24 dalších krocích porovnává
-skutečné adresy vypočtených hranic při průchodu historií a ověřuje nezávislost
-výslovné kopie relace.
+`zima_cpp_document_session_transaction_tests` uses a 1000 mm³ Box and a change to
+2000 mm³ with a relation that rejects the latter through division by zero. It
+checks physical-relation, unit, and identifier errors; original geometry; save
+state; counters; and continued Undo/Redo. Across 24 additional steps it compares
+actual calculated-boundary addresses through history and verifies independent
+explicit session copies.
 
-Původní implementace test odmítla za 0,13 s: odmítnutá transakce změnila generaci.
-Po opravě prošly 3/3 cílené testy za 0,48 s včetně identifikátorů rozměrů a
-ukládání dokumentů. Po rozšíření testu prošlo celé sestavení obou aplikací a
-**115/115 regresí za 502,04 s**, včetně skutečného procesu CLI, konzole,
-startu GUI, vnitřních profilů, přesných spline, offsetů a nativních dokumentů.
-Výsledky jsou v pracovních protokolech `build/part-transaction-all-build.log`
-a `build/part-transaction-full-tests.log`.
+The original implementation failed in 0.13 s: a rejected transaction changed
+generation. After the fix, 3/3 targeted tests passed in 0.48 s, including dimension
+identifiers and document persistence. After expanding the test, both applications
+built and **115/115 regressions passed in 502.04 s**, including an actual CLI process,
+console, GUI startup, internal profiles, exact splines, offsets, and native documents.
+Logs: `build/part-transaction-all-build.log` and `build/part-transaction-full-tests.log`.

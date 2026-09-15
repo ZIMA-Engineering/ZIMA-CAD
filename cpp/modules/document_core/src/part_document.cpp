@@ -1,3 +1,4 @@
+#include <zima/document/holes.hpp>
 #include <zima/document/named_views.hpp>
 #include <zima/document/profile_serialization.hpp>
 #include <zima/document/cache_storage.hpp>
@@ -524,12 +525,12 @@ void add_json_parameters(
 
 nlohmann::json read_part_ini(const std::filesystem::path& path) {
     const auto ini = read_ini(path);
-    if (ini_value(ini, "Document", "format_version") != "20") {
+    if (ini_value(ini, "Document", "format_version") != "22") {
         throw std::runtime_error("Unsupported ZIMA-CAD Part document format");
     }
     nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 44},
+        {"format_version", 46},
         {"document_id", ini_required(ini, "Document", "document_id")},
         {"type", ini_value(ini, "Document", "type", "part")},
         {"name", ini_value(ini, "Document", "name", "Nový díl")},
@@ -681,7 +682,7 @@ void write_part_ini(
     const nlohmann::json& root, const std::filesystem::path& path) {
     IniSections ini;
     ini["Document"] = {
-        {"format_version", "20"},
+        {"format_version", "22"},
         {"type", "part"},
         {"document_id", root.at("document_id").get<std::string>()},
         {"name", root.at("name").get<std::string>()},
@@ -3413,6 +3414,12 @@ ContainerOrigin create_container_origin(const std::string& parent_id) {
 
 bool resolve_construction(ConstructionObject& object,
     const zima::kernel::ViewerReferenceGeometry& geometry) {
+    if (object.kind == ConstructionKind::Plane && object.base_plane_auto) {
+        const auto first_plane = std::ranges::find_if(object.references, [](const auto& ref) {
+            return !ref.orientation_only && ref.supports_offset && !ref.owner_id.empty();
+        });
+        if (first_plane != object.references.end()) object.base_plane = LocalDatumPlane::XZ;
+    }
     // Resolution is transactional with respect to the object's last usable
     // geometric frame. Missing references change only the diagnostic state;
     // they must not erase, relocate or hide a previously calculated datum.
@@ -5668,19 +5675,17 @@ void PartDocument::resolve_constructions(
                 return container.id == sketch.owner_container_id;
             });
         if (owner == history.end()) continue;
-        // This is a document invariant, not merely a dialog convenience:
-        // the first planar position reference is the Sketch work plane and
-        // therefore the zero plane for Sketch/profile offset. FRONT maps the
-        // referenced plane normal onto local Y, so the matching local datum
-        // is XZ. Enforcing it here keeps create, edit, reload and regeneration
-        // on the same frame even if a caller did not pass through the Qt UI.
+        // Automatic work planes follow the first planar position reference.
+        // FRONT maps its normal onto local Y, hence the matching datum is XZ.
+        // A persisted manual choice only changes the work plane within that
+        // container frame; resolving references must never overwrite it.
         const auto first_position_reference = std::find_if(
             owner->placement.references.begin(), owner->placement.references.end(),
             [](const auto& reference) {
                 return !reference.orientation_only &&
                     !reference.owner_id.empty();
             });
-        if (first_position_reference != owner->placement.references.end() &&
+        if (sketch.plane_auto && first_position_reference != owner->placement.references.end() &&
             first_position_reference->supports_offset) {
             sketch.plane = zima::sketcher::SketchPlane::XZ;
         }
@@ -8217,7 +8222,11 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
             container.placement.rotation_x, container.placement.rotation_y,
             container.placement.rotation_z};
         zima::kernel::PrimitiveRequest primitive;
-        if (container.feature_kind == FeatureKind::Box) {
+        if (container.feature_kind == FeatureKind::Holes) {
+            const auto sketch = std::ranges::find(sketches, container.holes.sketch_id, &zima::sketcher::Sketch::id);
+            if (sketch == sketches.end()) throw std::runtime_error("Otvory nemají zdrojovou skicu.");
+            primitive = holes_request(container, *sketch);
+        } else if (container.feature_kind == FeatureKind::Box) {
             zima::kernel::BoxRequest box{
                 container.box.length, container.box.width, container.box.height};
             const auto centered_corner = rotated_vector(
@@ -9166,6 +9175,7 @@ std::vector<ConstructionObject> deserialize_construction_objects(
             throw std::runtime_error("Invalid construction direction_axis");
         }
         object.display_size = source.at("display_size").get<double>();
+        object.base_plane_auto = source.at("base_plane_auto").get<bool>();
         const auto base_plane = source.value("base_plane", "yz");
         object.base_plane = base_plane == "xy" ? LocalDatumPlane::XY
             : base_plane == "xz" ? LocalDatumPlane::XZ
@@ -9378,6 +9388,7 @@ std::string serialize_construction_objects(
             {"direction_y", object.direction.y},
             {"direction_z", object.direction.z},
             {"direction_axis", object.direction_axis},
+            {"base_plane_auto", object.base_plane_auto},
             {"base_plane", object.base_plane == LocalDatumPlane::XY ? "xy"
                 : object.base_plane == LocalDatumPlane::XZ ? "xz" : "yz"},
             {"display_size", object.display_size}, {"definition", definition},
@@ -9444,7 +9455,7 @@ PartDocument PartDocument::load(
             type != "imported_step" &&
             type != "fillet" && type != "chamfer" &&
             type != "shell" &&
-            type != "hole" && type != "thread" && type != "shaft_thread" &&
+            type != "holes" && type != "hole" && type != "thread" && type != "shaft_thread" &&
             type != "drill_point") {
             throw std::runtime_error("Unsupported history feature type");
         }
@@ -9464,6 +9475,7 @@ PartDocument PartDocument::load(
             : type == "fillet" ? FeatureKind::Fillet
             : type == "chamfer" ? FeatureKind::Chamfer
             : type == "shell" ? FeatureKind::Shell
+            : type == "holes" ? FeatureKind::Holes
             : type == "hole" ? FeatureKind::Hole
             : type == "shaft_thread" ? FeatureKind::ShaftThread
             : type == "thread" ? FeatureKind::Thread
@@ -9520,6 +9532,10 @@ PartDocument PartDocument::load(
         if (container.feature_kind == FeatureKind::Sketch) {
             // Sketch geometry is persisted in PartDocument::sketches and
             // linked through Sketch::owner_container_id.
+        } else if (container.feature_kind == FeatureKind::Holes) {
+            container.holes.sketch_id = source.at("sketch_id");
+            container.holes.diameter = source.at("diameter");
+            require_positive(container.holes.diameter, "diameter");
         } else if (container.feature_kind == FeatureKind::Box) {
             container.box.length = source.at("length").get<double>();
             container.box.width = source.at("width").get<double>();
@@ -10241,6 +10257,10 @@ void PartDocument::save(
                 })) {
                 throw std::runtime_error("Sketch container does not own a Sketch");
             }
+        } else if (container.feature_kind == FeatureKind::Holes) {
+            const auto sketch = std::ranges::find(sketches, container.holes.sketch_id, &zima::sketcher::Sketch::id);
+            if (sketch == sketches.end()) throw std::runtime_error("Otvory nemají zdrojovou skicu.");
+            static_cast<void>(holes_request(container, *sketch));
         } else if (container.feature_kind == FeatureKind::Box) {
             require_positive(container.box.length, "length");
             require_positive(container.box.width, "width");
@@ -10501,7 +10521,8 @@ void PartDocument::save(
             {"id", container.id}, {"value_locks", container.value_locks},
             {"feature_id", container.feature_id},
             {"feature_parent_id", container.feature_parent_id},
-            {"type", container.feature_kind == FeatureKind::Sketch ? "sketch"
+            {"type", container.feature_kind == FeatureKind::Holes ? "holes"
+                : container.feature_kind == FeatureKind::Sketch ? "sketch"
                 : container.feature_kind == FeatureKind::Box ? "box"
                 : container.feature_kind == FeatureKind::Cylinder
                     ? "cylinder"
@@ -10599,6 +10620,9 @@ void PartDocument::save(
         if (container.feature_kind == FeatureKind::Sketch) {
             // No additional feature parameters: the owned Sketch is stored
             // in the document sketch collection.
+        } else if (container.feature_kind == FeatureKind::Holes) {
+            serialized["sketch_id"] = container.holes.sketch_id;
+            serialized["diameter"] = container.holes.diameter;
         } else if (container.feature_kind == FeatureKind::Box) {
             serialized["length"] = container.box.length;
             serialized["width"] = container.box.width;
@@ -10997,7 +11021,7 @@ void PartDocument::save(
     static_cast<void>(zima::document::parse_named_views(named_views));
     nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 44},
+        {"format_version", 46},
         {"document_id", document_id},
         {"type", "part"},
         {"name", name},

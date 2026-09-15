@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1500" height="920" viewBox="0 0 1500 920" role="img" aria-labelledby="title description">
-  <title id="title">ZIMA-CAD — druhé kolo návrhů ikony Assembly</title>
-  <desc id="description">Ikona Part A zůstává pevná. Tři silnější návrhy Assembly jsou porovnány ve velkém měřítku a při skutečné velikosti 18 pixelů.</desc>
+  <title id="title">ZIMA-CAD — Assembly icon proposals, round two</title>
+  <desc id="description">Part A is retained. Three bolder Assembly proposals are compared enlarged and at their actual 18-pixel size.</desc>
   <defs>
     <style>
       .ui { font-family: "Noto Sans", "DejaVu Sans", sans-serif; }
@@ -24,7 +24,7 @@
       </g>
     </symbol>
 
-    <!-- 1: dvě velká, samostatně čitelná tělesa -->
+    <!-- 1: two large, separately readable bodies -->
     <symbol id="assembly-wide" viewBox="0 0 24 24">
       <path d="M1.2 6.4 6.5 3.4l5.3 3-5.3 3.1z" fill="#80aa1a"/>
       <path d="M12.2 9.4 17.5 6.3l5.3 3.1-5.3 3z" fill="#a6d332"/>
@@ -38,7 +38,7 @@
       <path d="m10.7 10.4 2.6 1.5" fill="none" stroke="#a6d332" stroke-width="2.5" stroke-linecap="round"/>
     </symbol>
 
-    <!-- 2: plnohodnotný hlavní objem a zřetelný druhý díl za ním -->
+    <!-- 2: full main body with a distinct second Part behind it -->
     <symbol id="assembly-overlap" viewBox="0 0 24 24">
       <path d="M10.5 5.5 16 2.4l5.5 3.1L16 8.6z" fill="#a6d332"/>
       <path d="M10.5 5.5v6l5.5 3V8.6z" fill="#6f9918"/>
@@ -54,7 +54,7 @@
       <path d="m17.9 12.3 1.7-1" fill="none" stroke="#a6d332" stroke-width="2.4" stroke-linecap="round"/>
     </symbol>
 
-    <!-- 3: dvě široké komponenty ve výrazných vrstvách -->
+    <!-- 3: two wide components in distinct layers -->
     <symbol id="assembly-stack" viewBox="0 0 24 24">
       <path d="M4 4.8 12 1.3l8 3.5-8 3.5z" fill="#a6d332"/>
       <path d="M4 14.2 12 10.7l8 3.5-8 3.5z" fill="#80aa1a"/>
@@ -71,91 +71,91 @@
   <rect width="1500" height="920" fill="#111518"/>
   <rect width="12" height="920" fill="#80aa1a"/>
   <g class="ui">
-    <text x="62" y="68" class="title">Assembly — silnější druhé kolo</text>
-    <text x="62" y="104" class="subtitle">Part A zůstává. Mění se pouze silueta Assembly; rozhoduje čitelnost při 18 px.</text>
+    <text x="62" y="68" class="title">Assembly — bolder second round</text>
+    <text x="62" y="104" class="subtitle">Part A stays. Assembly silhouettes are compared for clarity at 18 px.</text>
 
     <!-- Fixed Part -->
     <rect x="60" y="142" width="280" height="714" rx="18" fill="#1a2024" stroke="#384249"/>
     <rect x="82" y="164" width="130" height="27" rx="13.5" fill="#9bc729"/>
-    <text x="102" y="183" class="badge">PART — PEVNÝ</text>
+    <text x="102" y="183" class="badge">PART — RETAINED</text>
     <text x="88" y="231" class="card-title">Part A</text>
-    <text x="88" y="260" class="body">Beze změny.</text>
+    <text x="88" y="260" class="body">Unchanged.</text>
     <g stroke="#f2f2f2">
       <use href="#part-fixed" transform="translate(133 310) scale(5.5)"/>
     </g>
-    <text x="88" y="493" class="section">18 PX — TMAVÝ</text>
+    <text x="88" y="493" class="section">18 PX — DARK</text>
     <rect x="88" y="510" width="224" height="52" rx="7" fill="#111619" stroke="#2c353b"/>
     <g stroke="#f2f2f2"><use href="#part-fixed" transform="translate(105 527) scale(.75)"/></g>
-    <text x="139" y="542" class="tree-dark">Příruba.prtz</text>
-    <text x="88" y="610" class="section">18 PX — SVĚTLÝ</text>
+    <text x="139" y="542" class="tree-dark">Flange.prtz</text>
+    <text x="88" y="610" class="section">18 PX — LIGHT</text>
     <rect x="88" y="627" width="224" height="52" rx="7" fill="#edf0f2"/>
     <g stroke="#1e2428"><use href="#part-fixed" transform="translate(105 644) scale(.75)"/></g>
-    <text x="139" y="659" class="tree-light">Příruba.prtz</text>
-    <text x="88" y="738" class="small">Jedno kompaktní těleso</text>
-    <text x="88" y="765" class="small">Zelená horní plocha</text>
+    <text x="139" y="659" class="tree-light">Flange.prtz</text>
+    <text x="88" y="738" class="small">One compact body</text>
+    <text x="88" y="765" class="small">Green top face</text>
 
     <!-- Candidate 1 -->
     <rect x="370" y="142" width="340" height="714" rx="18" fill="#1a2024" stroke="#80aa1a" stroke-width="2"/>
     <rect x="392" y="164" width="145" height="27" rx="13.5" fill="#9bc729"/>
-    <text x="412" y="183" class="badge">NEJSILNĚJŠÍ 1</text>
-    <text x="398" y="231" class="card-title">Dvojblok</text>
-    <text x="398" y="260" class="body">Dvě velká tělesa vedle sebe.</text>
+    <text x="412" y="183" class="badge">STRONGEST 1</text>
+    <text x="398" y="231" class="card-title">Twin block</text>
+    <text x="398" y="260" class="body">Two large bodies side by side.</text>
     <g stroke="#f2f2f2">
       <use href="#assembly-wide" transform="translate(474 310) scale(5.5)"/>
     </g>
-    <text x="398" y="493" class="section">18 PX — TMAVÝ</text>
+    <text x="398" y="493" class="section">18 PX — DARK</text>
     <rect x="398" y="510" width="284" height="52" rx="7" fill="#111619" stroke="#2c353b"/>
     <g stroke="#f2f2f2"><use href="#assembly-wide" transform="translate(415 527) scale(.75)"/></g>
-    <text x="449" y="542" class="tree-dark">Pohon.asmz</text>
-    <text x="398" y="610" class="section">18 PX — SVĚTLÝ</text>
+    <text x="449" y="542" class="tree-dark">Drive.asmz</text>
+    <text x="398" y="610" class="section">18 PX — LIGHT</text>
     <rect x="398" y="627" width="284" height="52" rx="7" fill="#edf0f2"/>
     <g stroke="#1e2428"><use href="#assembly-wide" transform="translate(415 644) scale(.75)"/></g>
-    <text x="449" y="659" class="tree-light">Pohon.asmz</text>
-    <text x="398" y="738" class="body">✓ Úplně jiná, široká silueta</text>
-    <text x="398" y="765" class="small">✓ Obě komponenty zůstávají velké</text>
-    <text x="398" y="792" class="small">✓ Funguje bez spoléhání na barvu</text>
+    <text x="449" y="659" class="tree-light">Drive.asmz</text>
+    <text x="398" y="738" class="body">✓ Distinct, wide silhouette</text>
+    <text x="398" y="765" class="small">✓ Both components stay large</text>
+    <text x="398" y="792" class="small">✓ Works without color</text>
 
     <!-- Candidate 2 -->
     <rect x="740" y="142" width="340" height="714" rx="18" fill="#1a2024" stroke="#384249"/>
-    <text x="768" y="183" class="section">VARIANTA 2</text>
-    <text x="768" y="231" class="card-title">Hlavní + druhý díl</text>
-    <text x="768" y="260" class="body">Velká kostka, další vystupuje vzadu.</text>
+    <text x="768" y="183" class="section">OPTION 2</text>
+    <text x="768" y="231" class="card-title">Main + second Part</text>
+    <text x="768" y="260" class="body">Large cube, second one behind.</text>
     <g stroke="#f2f2f2">
       <use href="#assembly-overlap" transform="translate(844 310) scale(5.5)"/>
     </g>
-    <text x="768" y="493" class="section">18 PX — TMAVÝ</text>
+    <text x="768" y="493" class="section">18 PX — DARK</text>
     <rect x="768" y="510" width="284" height="52" rx="7" fill="#111619" stroke="#2c353b"/>
     <g stroke="#f2f2f2"><use href="#assembly-overlap" transform="translate(785 527) scale(.75)"/></g>
-    <text x="819" y="542" class="tree-dark">Pohon.asmz</text>
-    <text x="768" y="610" class="section">18 PX — SVĚTLÝ</text>
+    <text x="819" y="542" class="tree-dark">Drive.asmz</text>
+    <text x="768" y="610" class="section">18 PX — LIGHT</text>
     <rect x="768" y="627" width="284" height="52" rx="7" fill="#edf0f2"/>
     <g stroke="#1e2428"><use href="#assembly-overlap" transform="translate(785 644) scale(.75)"/></g>
-    <text x="819" y="659" class="tree-light">Pohon.asmz</text>
-    <text x="768" y="738" class="body">✓ Nejblíž logice Pro/E</text>
-    <text x="768" y="765" class="small">✓ Zachová velký hlavní objem</text>
-    <text x="768" y="792" class="small">△ Překrytí přidává několik hran</text>
+    <text x="819" y="659" class="tree-light">Drive.asmz</text>
+    <text x="768" y="738" class="body">✓ Closest to Pro/E logic</text>
+    <text x="768" y="765" class="small">✓ Keeps a large main body</text>
+    <text x="768" y="792" class="small">△ Overlap adds extra edges</text>
 
     <!-- Candidate 3 -->
     <rect x="1110" y="142" width="330" height="714" rx="18" fill="#1a2024" stroke="#384249"/>
-    <text x="1138" y="183" class="section">VARIANTA 3</text>
-    <text x="1138" y="231" class="card-title">Dvě vrstvy</text>
-    <text x="1138" y="260" class="body">Dva robustní bloky nad sebou.</text>
+    <text x="1138" y="183" class="section">OPTION 3</text>
+    <text x="1138" y="231" class="card-title">Two layers</text>
+    <text x="1138" y="260" class="body">Two solid blocks stacked.</text>
     <g stroke="#f2f2f2">
       <use href="#assembly-stack" transform="translate(1209 310) scale(5.5)"/>
     </g>
-    <text x="1138" y="493" class="section">18 PX — TMAVÝ</text>
+    <text x="1138" y="493" class="section">18 PX — DARK</text>
     <rect x="1138" y="510" width="274" height="52" rx="7" fill="#111619" stroke="#2c353b"/>
     <g stroke="#f2f2f2"><use href="#assembly-stack" transform="translate(1155 527) scale(.75)"/></g>
-    <text x="1189" y="542" class="tree-dark">Pohon.asmz</text>
-    <text x="1138" y="610" class="section">18 PX — SVĚTLÝ</text>
+    <text x="1189" y="542" class="tree-dark">Drive.asmz</text>
+    <text x="1138" y="610" class="section">18 PX — LIGHT</text>
     <rect x="1138" y="627" width="274" height="52" rx="7" fill="#edf0f2"/>
     <g stroke="#1e2428"><use href="#assembly-stack" transform="translate(1155 644) scale(.75)"/></g>
-    <text x="1189" y="659" class="tree-light">Pohon.asmz</text>
-    <text x="1138" y="738" class="body">✓ Velmi kompaktní značka</text>
-    <text x="1138" y="765" class="small">✓ Silná i při malém rozlišení</text>
-    <text x="1138" y="792" class="small">△ Může připomínat vrstvy</text>
+    <text x="1189" y="659" class="tree-light">Drive.asmz</text>
+    <text x="1138" y="738" class="body">✓ Very compact symbol</text>
+    <text x="1138" y="765" class="small">✓ Clear at small sizes</text>
+    <text x="1138" y="792" class="small">△ May suggest layers</text>
 
     <rect x="60" y="876" width="1380" height="1" fill="#344047"/>
-    <text x="60" y="906" class="small">Měřítko kontroly: 18 px, stejně jako dokumentové záložky ZIMA-CAD. Barva je sekundární; primární je silueta.</text>
+    <text x="60" y="906" class="small">Check size: 18 px, matching ZIMA-CAD document tabs. Silhouette comes first; color is secondary.</text>
   </g>
 </svg>

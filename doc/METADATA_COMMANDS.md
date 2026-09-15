@@ -1,11 +1,11 @@
-# Parametry a nastavení dokumentu přes GUI a CLI
+# Document parameters and settings through GUI and CLI
 
-`document.parameters.get/set` a `document.settings.get/set` používají společné
-operace `workspace::metadata_operations`. Stejná data a validace jsou v oknech
-Parametry a Nastavení souboru. Vytvoření, odstranění a změna pořadí parametrů
-jsou vyjádřeny náhradou celé uspořádané tabulky. Nastavení přijímá dílčí patch.
+`document.parameters.get/set` and `document.settings.get/set` share
+`workspace::metadata_operations` with Parameters and File Settings dialogs.
+Creating/removing/reordering parameters replaces the whole ordered table; settings
+accept a partial patch.
 
-## Parametry
+## Parameters
 
 ```json
 {"command":"document.parameters.get","arguments":{}}
@@ -15,90 +15,82 @@ jsou vyjádřeny náhradou celé uspořádané tabulky. Nastavení přijímá d�
 ]}}
 ```
 
-Pořadí pole je pořadím řádků dialogu. `key` je jedinečný neprázdný klíč bez
-okolních mezer a řídicích znaků, nejvýše 256 bajtů UTF-8. `labels` a `values`
-jsou objekty jazykových klíčů a textových hodnot; vynechaný objekt je prázdný.
-Prázdný jazykový klíč v `values` znamená sdílenou hodnotu použitelnou v relacích.
-Jazykové varianty zůstávají oddělené a samy nevytvářejí sdílený číselný parametr.
+The example retains Czech values as literal multilingual data. Array order is dialog
+row order. `key` is unique, nonempty, trimmed, without control characters, at most
+256 UTF-8 bytes. `labels`/`values` map language keys to text; omitted objects are empty.
+An empty language key in `values` means a shared value usable by relations. Language
+variants remain separate and do not create shared numerical parameters themselves.
 
-Podporováno je nejvýše 4096 parametrů, 128 jazykových variant na položku a
-65536 bajtů na textovou hodnotu. Celkový limit řádku CLI protokolu zůstává
-64 KiB. Neznámá pole a chybné typy se odmítají, nic se tiše nevynechává.
+Limits: 4096 parameters, 128 language variants per item, 65536 bytes per text value.
+The overall CLI line limit remains 64 KiB. Unknown fields/wrong types are rejected,
+never silently omitted.
 
-Stávající fyzikální relace zůstávají autoritou pro své cíle. Například
-startovní šablona obsahuje `mass = model.mass`; tento parametr se po potvrzení
-znovu odvodí z uložených fyzikálních údajů, i když v předané tabulce chyběl.
-Výsledek příkazu vrací skutečnou výslednou tabulku včetně takových řádků.
-Opakování stejného požadavku nevytváří další krok Undo. Úprava samotných
-relací patří do další příkazové etapy.
+Existing physical relations remain authoritative for their targets. For example,
+start-template `mass = model.mass` rederives its parameter from stored physical data
+after commit even if omitted from the supplied table. Results return the actual
+final table including derived rows. Repeating identical requests adds no Undo.
+Relation editing belongs to a subsequent command stage.
 
-## Jednotky a přesnost
+## Units and precision
 
 ```json
 {"command":"document.settings.get","arguments":{}}
 {"command":"document.settings.set","arguments":{"units":{"Length":"cm"},"precision":{"mesh_deflection":2,"decimal_places":6}}}
 ```
 
-`get` vrací `units`, číselné `precision` a `unit_choices`. Povolené jednotky
-sdílí příkazovka s dialogem: Length mm/cm/m/in, Angle deg/rad, Mass kg/g/t/lb,
-Time s/min, Temperature C/K/F a Stress Pa/kPa/MPa/GPa/psi. Neznámé veličiny
-či jednotky jsou odmítnuty před změnou dokumentu.
+`get` returns `units`, numerical `precision`, and `unit_choices`. Commands/dialogs
+share choices: Length mm/cm/m/in, Angle deg/rad, Mass kg/g/t/lb, Time s/min,
+Temperature C/K/F, Stress Pa/kPa/MPa/GPa/psi. Unknown quantities/units fail before mutation.
 
-`linear_tolerance` a `angular_tolerance` přijímají konečné hodnoty 0 až 1000000,
-`mesh_deflection` 0,000000001 až 1000000 a `decimal_places` celé číslo 0–12.
-Lineární tolerance a odchylka sítě jsou v mm. `angular_tolerance` se nyní
-pouze uchovává jako existující nastavení; tato etapa nezavádí nové použití
-v geometrickém jádře. Změna jednotek či desetinných míst nepřepočítává geometrii.
-Změna lineární tolerance či odchylky sítě porovná výpočetní požadavky; pokud
-se skutečně liší, potvrzení OK nebo tento příkaz výslovně přepočítá dotčený
-Part přes existující společné řešení. U sestavy přepočítá pouze její vlastní
-řezy, pokud nějaké má, bez obnovy zdrojů či rodičů. Vlastní nastavení
-importovaného prvku má nadále přednost.
+`linear_tolerance` and `angular_tolerance` accept finite 0–1000000;
+`mesh_deflection` 0.000000001–1000000; `decimal_places` integer 0–12. Linear tolerance
+and mesh deviation are mm. `angular_tolerance` remains a stored existing setting;
+this stage introduces no new kernel use. Unit/decimal changes do not recalculate
+geometry. Linear-tolerance/mesh-deviation changes compare calculation requests;
+if different, OK or the command explicitly recalculates the affected Part through
+shared solving. Assembly recalculates only its owned sections, if present, without
+refreshing sources/parents. Imported-feature precision overrides still take precedence.
 
-To je nutné také pro konzistentní uložení: nativní soubor ověřuje, že cache
-odpovídá parametrům a přesnosti výpočtu. Původní dialog mohl ponechat cache
-se starým otiskem a následné Save selhalo. Potvrzení nyní ukládá nastavení
-a odpovídající výsledek v jednom kroku Undo. Neúspěšný výpočet zachová původní
-dokument. Nemění se formát souborů ani umístění kontejnerů.
+This is also required for consistent saving: native files validate cache against
+parameters and precision. The old dialog could leave stale cache fingerprints and
+cause Save failure. Commit now stores settings and corresponding results in one Undo
+step. Failed calculation preserves the document. Formats and container placement are unchanged.
 
-Změna mm na cm převádí zobrazované fyzikální hodnoty: kvádr o objemu
-6000 mm³ zůstává geometricky stejný a jeho objem se zobrazí jako 6 cm³.
-Samotná změna jednotek a počtu desetinných míst obnoví související fyzikální
-relace z již vypočtených měr, bez volání OCCT.
+Changing mm to cm converts displayed physical values: 6000 mm³ geometry remains
+unchanged and displays as 6 cm³. Units/decimal changes refresh related physical
+relations from calculated measures without OCCT.
 
-## Transakce a rozhraní
+## Transactions and interface
 
-Všechny čtyři příkazy mají volitelné `document`. Čtení může určit otevřený Part
-či Assembly; změna musí mířit na právě aktivní dokument podle běžné ochrany
-příkazové vrstvy. Výkresové parametry zdroje se z GUI nadále otevírají přes
-původní explicitní postup; CLI si příslušný zdroj otevře/aktivuje samostatně.
+All four commands accept optional `document`. Queries may target open Part/Assembly;
+mutations require the active document under ordinary guards. GUI Drawing-source
+parameters retain the original explicit opening workflow; CLI opens/activates the
+source separately.
 
-Výsledek obsahuje `document`, `revision` a u změny také `changed`; nastavení
-navíc vrací `calculated`, zda proběhl potřebný geometrický výpočet. Potvrzení
-validuje celý požadavek i závislé fyzikální relace před změnou živého dokumentu.
-Chyba například při dělení nulou zachová i generaci dat. Úspěšná skutečná změna
-má jeden krok Undo; shodná výsledná data žádný. Běžná metadata zachovávají vypočtený
-B-Rep a Assembly sdílené snímky komponent; rodiče se neobnovují.
+Results contain `document`, `revision`, and mutation `changed`; settings additionally
+return `calculated`. The full request and dependent physical relations are validated
+before live mutation. Errors such as division by zero preserve data generation too.
+Actual changes create one Undo step; identical final data creates none. Ordinary
+metadata preserves calculated B-Rep and shared Assembly component snapshots; parents
+are not refreshed.
 
-GUI nadále používá společné okno PropertiesSubWindow s OK/Cancel. Cancel
-nezapisuje rozpracovaná data. Po chybě potvrzení se hodnoty ponechají v dialogu
-pro opravu. Změna počtu desetinných míst se promítne do vlastnosti okna stejně
-přes dialog i přes konzoli. Uložení do `.prtz`/`.asmz` zůstává výslovné.
+GUI retains PropertiesSubWindow with OK/Cancel. Cancel writes nothing; failed commit
+keeps pending values for correction. Decimal-count changes update the window property
+identically through dialog or console. `.prtz`/`.asmz` saving remains explicit.
 
-## Ověření
+## Verification
 
-Modelová regrese ověřuje jazykové varianty, pořadí, odvozený parametr `mass`,
-rozpoznání shodných dat, Undo/Redo, neplatné typy a jednotky, chybu relace,
-převod 6000 mm³ na 6 cm³ bez změny B-Rep, potřebný výpočet při změně
-geometrické přesnosti, zachování snímků sestavy a rodiče a nativní uložení. Procesová regrese spouští skutečné CLI a znovu otevírá
-soubor. GUI regrese čte CLI hodnoty v dialogu, mění je přes OK, ověřuje Cancel
-a upravuje jednotky a přesnost skutečnými ovládacími prvky.
+Model regression covers language variants, ordering, derived `mass`, identical data,
+Undo/Redo, invalid types/units, relation errors, 6000 mm³ → 6 cm³ conversion without
+B-Rep change, required precision-triggered calculation, preserved Assembly/parent
+snapshots, and native saving. Actual CLI saves/reopens files. GUI reads CLI values
+in dialogs, edits through OK, verifies Cancel, and changes units/precision with real controls.
 
-Katalog má 112 příkazů. Celá Windows Release sada prošla **74/74**
-(405,58 s); `build/metadata-full-tests.log`.
+The catalog has 112 commands at this stage. Full Windows Release passed **74/74**
+(405.58 s); `build/metadata-full-tests.log`.
 
-Texty parametrů, materiálových vlastností a jejich popisů jsou jednořádkové,
-bez okolních mezer či tabulátorů, aby se zachovaly v nativním INI zápisu.
-Klíče nesmí obsahovat `\\`, čárku, `=`, `[` nebo `]` ani začínat `#` či `;`.
-Víceřádkové hodnoty a rezervované oddělovače se odmítnou před transakcí.
-Hodnoty buněk tabulky variant jsou uvnitř JSON, proto toto omezení řádků nemají.
+Parameter/material values and descriptions are single-line without surrounding
+spaces/tabs to survive native INI serialization. Keys cannot contain backslashes,
+commas, `=`, `[`, or `]`, or begin with `#`/`;`. Multiline values and reserved separators
+fail before transactions. Family-table cells are inside JSON and do not have this
+single-line restriction.

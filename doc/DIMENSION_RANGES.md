@@ -1,97 +1,88 @@
-# Kóty, výrobní tolerance a omezený pohyb
+# Dimensions, manufacturing tolerances, and limited motion
 
-## Účel
+## Purpose
 
-Jednotný model kóty podporuje parametrické řízení, omezený pohyb ve
-Sketcheru a pohyb komponent sestavy. Výrobní tolerance a pohybové meze jsou
-dvě rozdílné vlastnosti a nesmějí se vzájemně ovlivňovat.
+One dimension model supports parametric control, limited Sketcher motion, and Assembly
+component motion. Manufacturing tolerances and motion limits are separate properties
+and must not affect each other. The same principle applies to linear, angular,
+radius, and diameter dimensions.
 
-Stejný princip platí pro lineární, úhlové, poloměrové a průměrové kóty.
+## Data model
 
-## Datový model
+A dimension contains:
 
-Kóta obsahuje:
+- `nominal_value`: editable nominal value also determining current geometry position;
+- `range_enabled`: whether motion limits are enabled;
+- `lower_limit`: absolute lower bound in the dimension's coordinate system;
+- `upper_limit`: absolute upper bound in the same system;
+- separate manufacturing-tolerance metadata.
 
-- `nominal_value` – editovatelnou jmenovitou hodnotu, která zároveň určuje
-  aktuální polohu geometrie;
-- `range_enabled` – zda jsou zapnuté pohybové meze;
-- `lower_limit` – absolutní dolní mez ve stejné soustavě jako kóta;
-- `upper_limit` – absolutní horní mez ve stejné soustavě jako kóta;
-- samostatná metadata výrobní tolerance.
-
-Meze nejsou odchylky od jmenovité hodnoty. Všechny tři číselné hodnoty
-mají stejnou absolutní nulu a stejné jednotky.
-
-Příklad:
+Limits are not deviations from nominal. All three numerical values share the same
+absolute zero and units.
 
 ```text
-Jmenovitá hodnota: 100 mm
-Dolní mez:          90 mm
-Horní mez:         110 mm
-Jmenovitá hodnota po posunu: 105 mm
+Nominal value:             100 mm
+Lower limit:               90 mm
+Upper limit:              110 mm
+Nominal value after move:  105 mm
 ```
 
-Povoleno je i rozmezí, ve kterém jsou obě meze kladné nebo obě záporné,
-například `20 .. 30 mm` nebo `-30 .. -20 mm`.
+Both bounds may be positive or both negative, for example `20 .. 30 mm` or `-30 .. -20 mm`.
 
-## Pravidla
+## Rules
 
-Při zapnutém rozsahu musí platit:
+With range enabled:
 
 ```text
 lower_limit <= nominal_value <= upper_limit
 ```
 
-Neplatné nebo obrácené meze se nesmějí uložit. Změna jmenovité hodnoty
-přímo změní polohu geometrie; absolutní meze se neposouvají.
+Invalid/reversed bounds must not be saved. Editing nominal value directly changes
+geometry position without shifting absolute limits.
 
-Ve view se zobrazuje jedna kóta. Nevzniká druhá kóta pro rozsah, která by
-například u pístu zobrazovala vedle vazby další matoucí nulu.
+View displays one dimension, not a second range dimension that could show a confusing
+extra zero beside a piston mate, for example.
 
-## GUI a editace
+## GUI and editing
 
-Vlastnosti kóty obsahují jmenovitou hodnotu, volbu omezení pohybu a dolní a
-horní mez. Všechna tři číselná pole mají šipky, dovolují přepsat celou
-hodnotu a používají počet desetinných míst dokumentu ze Settings. Samostatné
-pole Aktuální hodnota se nezobrazuje. `OK` vše validuje, vypočítá model,
-uloží a zavře. `Cancel` změny zahodí.
+Dimension Properties contains nominal value, motion-limit enablement, and lower/upper
+bounds. All three numerical fields have arrows, allow whole-value replacement, and
+use document decimal precision from Settings. No separate Current Value field is
+shown. `OK` validates, calculates, saves, and closes; `Cancel` discards changes.
 
-Při prvním zapnutí rozsahu se meze předvyplní mezi nulou a jmenovitou
-hodnotou: pro `20` tedy `0 .. 20`, pro `-20` pak `-20 .. 0`.
+Initially enabling a range fills bounds between zero and nominal: `0 .. 20` for
+`20`, or `-20 .. 0` for `-20`.
 
-Přímá editace kóty ani změna aktuálního posunutí ve Vlastnostech
-komponenty nesmí překročit uložené meze. Číselný ovladač ve Vlastnostech
-komponenty hodnotu na mezi zastaví; dialog Vlastnosti kóty odmítne neplatné
-potvrzení.
+Inline dimension editing and current-displacement changes in Component Properties
+cannot exceed persisted limits. Component Properties controls stop at bounds;
+Dimension Properties rejects invalid confirmation.
 
 ## Sketcher solver
 
-Kóta bez rozsahu přidá běžnou rovnici `measured_value = nominal_value`.
-Odemknutá kóta s rozsahem ponechá daný stupeň volnosti pohyblivý, ale při
-zadání i tažení omezí aktuální hodnotu absolutními mezemi. Po uvolnění
-zůstane geometrie v poslední platné poloze.
+A dimension without a range adds the ordinary `measured_value = nominal_value`
+equation. An unlocked ranged dimension leaves that degree of freedom movable but
+constrains current value to absolute limits during input and dragging. On release,
+geometry stays at the last valid position.
 
-## Sestavy
+## Assemblies
 
-U sestavové vazby je `nominal_value` editovatelné posunutí nebo úhel použitý
-solverem. Vazba je jediným vlastníkem pohybových dat. Sloupec **Aktuální
-posunutí / úhel** ve Vlastnostech komponenty a **Jmenovitá hodnota** ve
-Vlastnostech kóty editují tutéž hodnotu. Tabulka komponenty nezobrazuje
-samostatný sloupec povoleného rozsahu; meze se nastavují ve Vlastnostech kóty.
-`dimension_styles` uchovává pouze vzhled a výrobní toleranci.
+An Assembly mate's `nominal_value` is the editable displacement/angle used by the
+solver. The mate exclusively owns motion data. Component Properties **Current
+Displacement / Angle** and Dimension Properties **Nominal Value** edit the same
+value. The component table has no separate allowed-range column; limits are edited
+in Dimension Properties. `dimension_styles` stores only appearance and manufacturing tolerance.
 
-## Výrobní tolerance
+## Manufacturing tolerance
 
-Výrobní tolerance zůstává samostatným údajem pro výkres a výrobu. Nevstupuje
-do solveru, neomezuje tažení, nemění aktuální polohu a automaticky se
-nepřevádí na pohybové meze ani opačně.
+Manufacturing tolerance is separate drawing/manufacturing data. It does not enter
+the solver, constrain dragging, change current position, or automatically convert
+to/from motion limits.
 
-Jednotka tolerance vždy odpovídá typu kóty. Lineární, poloměrová a průměrová
-kóta používá jednotku délky dokumentu; tolerance úhlové kóty je ve stupních
-a ve view nese znak `°`.
+Tolerance units follow dimension kind: linear/radius/diameter use document length
+units; angular tolerance uses degrees and shows `°` in View.
 
-## Persistenční pravidla
+## Persistence rules
 
-Dialog, viewer, Sketcher a sestava používají jeden datový model. Po načtení
-dokumentu se aktuální poloha obnoví deterministicky. Staré relativní režimy
-rozsahu nejsou podporovány; podle pravidel formátu se nepřidává migrační větev.
+Dialogs, viewer, Sketcher, and Assembly share one data model. Loading restores current
+position deterministically. Old relative-range modes are unsupported; format rules
+prohibit adding migration branches.
