@@ -12,6 +12,7 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import sys
 import tarfile
 import tempfile
 import zipfile
@@ -23,7 +24,12 @@ MAX_BYTES = 8 * 1024**3
 
 
 def run(args, **kwargs):
-    return subprocess.run([str(a) for a in args], check=True, **kwargs)
+    try:
+        return subprocess.run([str(a) for a in args], check=True, **kwargs)
+    except subprocess.CalledProcessError as error:
+        for output in (error.stdout, error.stderr):
+            if output: print(output.decode('utf-8', errors='replace') if isinstance(output, bytes) else output, file=sys.stderr)
+        raise
 
 
 def git(repo, *args):
@@ -216,7 +222,7 @@ def smoke(root, version, gui=True):
     if not (project / 'smoke.pdf').read_bytes().startswith(b'%PDF-') or not (project / 'smoke.jpg').read_bytes().startswith(b'\xff\xd8'):
         raise ValueError('PDF/JPEG export failed')
     if gui:
-        env['ZIMA_VERIFY_CONSOLE_ONLY'] = '1'
+        env['ZIMA_VERIFY_PACKAGE_ONLY'] = '1'
         run([runtime / 'zima-cad-cpp.exe', '--working-directory', project, '--verify-startup'],
             cwd=project, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=600)
     if user_config.read_bytes() != config_before:

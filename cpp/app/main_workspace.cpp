@@ -5181,6 +5181,30 @@ int verify_startup_contract(
     const std::filesystem::path& initial_test_directory,
     const QString& part_capture_path = {}, const QString& drawing_capture_path = {}) {
     auto test_directory = initial_test_directory;
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_PACKAGE_ONLY")) {
+        try {
+            window.showMaximized();
+            application.processEvents();
+            const auto run = [&](const QString& command) {
+                const auto result = window.execute_console_command(command);
+                if (!result.ok) throw std::runtime_error(result.code + ": " + result.message);
+            };
+            run(QStringLiteral("new part gui-package-smoke"));
+            run(QStringLiteral("box.create 10 20 30"));
+            run(QStringLiteral("save"));
+            application.processEvents();
+            const auto path = QString::fromStdString(zima::document::path_to_utf8(test_directory / "gui-package-view.png"));
+            run(QStringLiteral("export.view \"%1\"").arg(path));
+            const QImage rendered(path);
+            if (rendered.isNull() || rendered.width() < 32 || rendered.height() < 32)
+                throw std::runtime_error("Portable GUI did not render a usable View");
+            std::cout << "Portable GUI: factory template, Box calculation, native save and rendered View passed\n";
+            return 0;
+        } catch (const std::exception& error) {
+            std::cerr << "Portable GUI: " << error.what() << '\n';
+            return 1;
+        }
+    }
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_CONSOLE_ONLY")) return zima::app::verify_command_console(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_PROFILE_OFFSET_PLANE_ONLY")) return verify_profile_offset_dimension_plane(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_BODY_REFERENCE_DIMENSION_ONLY")) return verify_body_reference_dimension_edit(application,test_directory);
@@ -9465,7 +9489,7 @@ int main(int argc, char* argv[]) {
     if (application.arguments().contains("--verify-startup") ||
         !part_capture_path.isEmpty() || !drawing_capture_path.isEmpty()) {
         return verify_startup_contract(
-            application, window, std::filesystem::path(startup_directory.toStdString()),
+            application, window, std::filesystem::u8path(startup_directory.toStdString()),
             part_capture_path, drawing_capture_path);
     }
     // A document supplied by Windows file association/double-click must show

@@ -161,8 +161,11 @@ Validation enforces a 180 UTF-16-code-unit archive member budget (including the
 top-level folder), safe paths, case collisions, file/size limits, CRC and SHA-256.
 Extraction uses a directory with spaces and non-ASCII characters and removes
 developer SDK locations from PATH. Smoke checks cover build identity, a
-10 x 20 x 30 mm Part (6000 mm3), save/reopen, PDF/JPEG and the existing GUI console
-contract. Only then is the candidate copied to the requested output directory.
+10 x 20 x 30 mm Part (6000 mm3), save/reopen, PDF/JPEG and a GUI startup smoke
+that creates a Part from the packaged template, calculates/saves a Box and
+exports the rendered View. This bounded package check does not require the
+repository-wide interactive console test's fixture paths. Only then is the
+candidate copied to the requested output directory.
 The SHA-256 and validation report are stored beside the ZIP.
 
 ```powershell
