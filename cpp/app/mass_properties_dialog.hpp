@@ -8,6 +8,7 @@
 #include <QFormLayout>
 #include <QLabel>
 #include <QLineEdit>
+#include <QScrollArea>
 #include <QVBoxLayout>
 namespace zima::app {
 class MassPropertiesDialog final : public ui::PropertiesSubWindow {
@@ -20,12 +21,15 @@ public:
         setObjectName("massPropertiesDialog");setAttribute(Qt::WA_DeleteOnClose);set_initial_size({460,430});
         length_=document::length_unit_mm(units.at("Length"));mass_=document::mass_unit_kg(units.at("Mass"));
         length_unit_=QString::fromStdString(units.at("Length"));mass_unit_=QString::fromStdString(units.at("Mass"));
-        auto* form=new QFormLayout;content_layout()->addLayout(form);
+        auto* scroll=new QScrollArea(this);scroll->setObjectName("bodyPropertiesScroll");scroll->setWidgetResizable(true);scroll->setFrameShape(QFrame::NoFrame);
+        auto* body=new QWidget(scroll);auto* content=new QVBoxLayout(body);content->setContentsMargins(0,0,6,0);
+        scroll->setWidget(body);content_layout()->addWidget(scroll);
+        auto* form=new QFormLayout;content->addLayout(form);
         name_=new QLineEdit(QString::fromStdString(row_.name));name_->setObjectName("bodyPropertiesName");form->addRow(tr("Název"),name_);
         auto* location=new QLabel(scope);location->setWordWrap(true);form->addRow(tr("Měřená geometrie"),location);
         result_=new QLabel;result_->setObjectName("bodyPropertiesResults");result_->setTextInteractionFlags(Qt::TextSelectableByMouse);
-        result_->setWordWrap(true);content_layout()->addWidget(result_);
-        auto* axes=new QFormLayout;content_layout()->addLayout(axes);
+        result_->setWordWrap(true);content->addWidget(result_);
+        auto* axes=new QFormLayout;content->addLayout(axes);
         for(int i=0;i<3;++i) {
             auto* angle=new QDoubleSpinBox;angle->setObjectName(QString("bodyPropertiesRotation%1").arg(i));
             angle->setRange(-360000,360000);angle->setDecimals(6);angle->setSuffix(QStringLiteral("°"));
@@ -35,9 +39,9 @@ public:
                 (i==0?row_.rotation_degrees.x:i==1?row_.rotation_degrees.y:row_.rotation_degrees.z)=value;refresh();preview_(current());});
         }
         auto* show=new QCheckBox(tr("Zobrazit Origin v těžišti"));show->setObjectName("bodyPropertiesVisible");show->setChecked(row_.visible);
-        content_layout()->addWidget(show);connect(show,&QCheckBox::toggled,this,[this](bool on){row_.visible=on;preview_(current());});
+        content->addWidget(show);connect(show,&QCheckBox::toggled,this,[this](bool on){row_.visible=on;preview_(current());});
         auto* hint=new QLabel(tr("Poloha Origin se vypočítá z geometrie. Regenerovat aktualizuje hodnoty v tomto místě historie."));
-        hint->setWordWrap(true);content_layout()->addWidget(hint);content_layout()->addStretch();refresh();
+        hint->setWordWrap(true);content->addWidget(hint);content->addStretch();refresh();
     }
     document::BodyProperties current()const{auto row=row_;row.name=name_->text().trimmed().toStdString();return row;}
 protected:

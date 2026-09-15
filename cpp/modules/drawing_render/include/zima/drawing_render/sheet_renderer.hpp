@@ -18,7 +18,7 @@ public:
     void set_render_context(drawing::TitleBlockContext context) {title_block_context_=std::move(context);}
     void paint_sheet(QPainter&,double zoom,QPointF origin,bool printing);
 protected:
-    enum class AnnotationKind { Caption, SectionLabel, Dimension, SectionEnd, Model };
+    enum class AnnotationKind { Caption, SectionLabel, Dimension, SectionEnd, Model, Balloon };
     struct AnnotationKey {
         AnnotationKind kind{};std::string view,id;int end{};
         bool operator==(const AnnotationKey&)const=default;
@@ -45,6 +45,7 @@ protected:
     std::optional<zima::drawing::TitleBlockContext> title_block_context_;
     const drawing::DrawingSheet* sheet_{};
     virtual const drawing::DrawingDimension* pending_dimension() const {return nullptr;}
+    virtual const std::vector<drawing::DrawingBalloon>* pending_balloons() const {return nullptr;}
     virtual void paint_reference_overlay(QPainter&) {}
     QColor annotation_color(const AnnotationKey&,QColor,bool) const;
     QRectF view_bounds_at(const drawing::DrawingView&,double,QPointF) const;

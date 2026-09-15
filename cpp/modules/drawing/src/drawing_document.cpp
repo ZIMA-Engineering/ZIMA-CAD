@@ -4,6 +4,7 @@
 #include <zima/sketcher/template_image_json.hpp>
 #include <zima/document/document_copy_json.hpp>
 #include <zima/drawing/drawing_document.hpp>
+#include <zima/drawing/balloon.hpp>
 #include <zima/document/versioned_file.hpp>
 #include <zima/kernel/stable_id.hpp>
 
@@ -479,7 +480,7 @@ void DrawingDocument::save(const std::filesystem::path& path,
     if (document_id.empty() || name.empty() || sheets.empty()) {
         throw std::runtime_error("Drawing identity, name and sheets are required");
     }
-    nlohmann::json root{{"format", "zima-cad-drawing"}, {"version", 8},
+    nlohmann::json root{{"format", "zima-cad-drawing"}, {"version", 9},
                         {"document_id", document_id}, {"name", name},
                         {"source_document_id", source_document_id},
                         {"source_path", zima::document::path_to_utf8(source_path)},
@@ -536,9 +537,13 @@ void DrawingDocument::save(const std::filesystem::path& path,
             {"box_width",field.box_width},{"box_height",field.box_height},
             {"format",field.format},{"write_back",field.write_back},{"anchor_position",field.anchor_position},
             {"angle",field.angle},{"flipped",field.flipped},{"font",field.font}});
+        serialized["bom_source_document_id"]=sheet.bom_source_document_id;
+        for(const auto& b:sheet.balloons)if(!ids.insert(b.id).second||std::ranges::none_of(sheet.views,[&](const auto& v){return v.id==b.view_id;}))
+            throw std::runtime_error("Invalid balloon identity or view");
+        serialized["balloons"]=nlohmann::json::parse(serialize_balloons(sheet.balloons));
         serialized["bom_rows"]=nlohmann::json::array();
         for(const auto& row:sheet.bom_rows) serialized["bom_rows"].push_back({
-            {"item_number",row.item_number},{"quantity",row.quantity},{"name",row.name},
+            {"occurrence_paths",row.occurrence_paths},{"item_number",row.item_number},{"quantity",row.quantity},{"name",row.name},
             {"designation",row.designation},{"material",row.material},{"file_stem",row.file_stem},
             {"parameters",row.parameters},{"parameter_values",row.parameter_values},{"parameter_aliases",row.parameter_aliases},{"mass_unit",row.mass_unit},{"source_document_id",row.source_document_id},{"source_path",zima::document::path_to_utf8(row.source_path)}});
         const auto circles_json=[](const auto& circles){nlohmann::json values=nlohmann::json::array();for(const auto& c:circles)values.push_back({{"center",{c.center.x,c.center.y}},{"radius",c.radius},{"pen",static_cast<int>(c.pen)}});return values;};
@@ -624,7 +629,7 @@ void DrawingDocument::save(const std::filesystem::path& path,
     // C++ drawing model has no Python entity fields, so its complete payload
     // lives in the ordinary param.* namespace.
     stream << "[Document]\n"
-           << "format_version=16\n"
+           << "format_version=17\n"
            << "type=drawing\n"
            << "document_id=" << root.at("document_id").get<std::string>() << "\n"
            << "name=" << root.at("name").get<std::string>() << "\n"
@@ -638,7 +643,7 @@ DrawingDocument DrawingDocument::load(const std::filesystem::path& path) {
     const auto document_section = ini.find("Document");
     if (document_section == ini.end() ||
         document_section->second.find("format_version") == document_section->second.end() ||
-        document_section->second.at("format_version") != "16" ||
+        document_section->second.at("format_version") != "17" ||
         document_section->second.find("type") == document_section->second.end() ||
         document_section->second.at("type") != "drawing")
         throw std::runtime_error("Unsupported Drawing document format");
@@ -652,7 +657,7 @@ DrawingDocument DrawingDocument::load(const std::filesystem::path& path) {
         throw std::runtime_error(
             std::string("Invalid C++ Drawing payload: ") + error.what());
     }
-    if (root.value("format", "") != "zima-cad-drawing" || root.value("version", 0) != 8)
+    if (root.value("format", "") != "zima-cad-drawing" || root.value("version", 0) != 9)
         throw std::runtime_error("Unsupported C++ Drawing payload");
     std::map<std::string,std::shared_ptr<const MeasurementGeometry>> measurement_sources;
     for(const auto& [id,geometry]:root.at("measurement_sources").items()) {
@@ -705,10 +710,12 @@ DrawingDocument DrawingDocument::load(const std::filesystem::path& path) {
             item.value("box_width", 0.0), item.value("box_height", 0.0),
             item.value("format", ""), item.value("write_back", false),item.value("anchor_position",false),
             item.value("angle",0.0),item.value("flipped",true),item.value("font","osifont")});
+        sheet.bom_source_document_id=serialized.at("bom_source_document_id").get<std::string>();
+        sheet.balloons=deserialize_balloons(serialized.at("balloons").dump());
         for(const auto& item:serialized.at("bom_rows")) sheet.bom_rows.push_back({
             item.at("item_number"),item.at("quantity"),item.at("name"),item.at("designation"),item.at("material"),
             item.value("file_stem",std::string{}),item.value("parameters",std::map<std::string,std::string>{}),
-            item.value("parameter_values",std::map<std::string,std::map<std::string,std::string>>{}),item.value("parameter_aliases",std::map<std::string,std::string>{}),item.value("mass_unit","kg"),item.value("source_document_id",std::string{}),std::filesystem::u8path(item.value("source_path",std::string{}))});
+            item.value("parameter_values",std::map<std::string,std::map<std::string,std::string>>{}),item.value("parameter_aliases",std::map<std::string,std::string>{}),item.value("mass_unit","kg"),item.value("source_document_id",std::string{}),std::filesystem::u8path(item.value("source_path",std::string{})),item.at("occurrence_paths").get<std::vector<std::string>>()});
         const auto parse_circles=[](const auto& values){std::vector<TemplateCircle> result;for(const auto& c:values)result.push_back({{c.at("center").at(0),c.at("center").at(1)},c.at("radius"),static_cast<DrawingPen>(c.at("pen").template get<int>())});return result;};
         sheet.frame_circles=parse_circles(serialized.value("frame_circles",nlohmann::json::array()));sheet.title_block_circles=parse_circles(serialized.value("title_block_circles",nlohmann::json::array()));
         sheet.title_block_images=serialized.value("title_block_images",std::vector<zima::sketcher::TemplateImage>{});
@@ -789,6 +796,7 @@ DrawingDocument DrawingDocument::load(const std::filesystem::path& path) {
             sheet.views.push_back(std::move(view));
         }
         sheet.dimensions=deserialize_drawing_dimensions(serialized.value("dimensions",nlohmann::json::array()).dump());
+        for(const auto& b:sheet.balloons)if(std::ranges::none_of(sheet.views,[&](const auto& v){return v.id==b.view_id;}))throw std::runtime_error("Invalid balloon view");
         document.sheets.push_back(std::move(sheet));
     }
     if (document.sheets.empty()) throw std::runtime_error("Drawing has no sheets");

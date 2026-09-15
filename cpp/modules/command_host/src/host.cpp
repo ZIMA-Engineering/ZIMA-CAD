@@ -105,6 +105,7 @@ void Host::register_commands(){
     register_component_property_commands();
     register_drawing_commands();
     register_drawing_annotation_commands();
+    register_drawing_balloon_commands();
     register_drawing_dimension_commands();
     register_drawing_title_commands();
     dispatcher_.set_guard([this](const commands::Command& command){

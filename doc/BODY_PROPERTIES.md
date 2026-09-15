@@ -22,10 +22,12 @@ at the centroid; three rotation parameters orient its axes. Position is calculat
   **OK** commits one Undo step. **Cancel** restores the full scene without
   changing the record. Middle-button double click over View confirms; a short
   middle click does not.
-- Context-menu Properties and Remove also work from the Origin child. The
-  visibility checkbox controls its display. Missing anchors or failed input
+- Context-menu Properties, Hide/Show and Remove also work from the Origin child.
+  The visibility checkbox and Hide/Show control the same persisted display state.
+  Results scroll independently of the fixed OK/Cancel footer, so confirmation
+  remains accessible in a short window. Missing anchors or failed input
   calculations produce a red record and unavailable results; the record never
-  silently moves to the end of history.
+    silently moves to the end of history.
 
 ## Quantities
 
@@ -94,3 +96,12 @@ of downstream geometry after closing Properties.
 Acceptance: ten distinct selected contracts pass in
 `build/body-properties-tests.log` and `build/body-properties-final-tests.log`.
 The final build is `2026091510`; no portable release was published for this change.
+
+Build **2026091511** adds a regression for an active Body: Measurement and Body
+properties must remain children of the real Body, before Insert Here, after a
+later feature is created. The historical volume remains 6000 mm³ even after a
+larger block is added downstream. Actual context-menu interaction verifies
+Hide/Show and the centroid overlay; a 260-pixel-high dialog keeps OK accessible.
+These checks pass with the other 14 selected contracts in
+`build/balloons-acceptance-tests.log`. The centroid-window capture is
+`build/balloons-measurement-ui.png.mass.png`.

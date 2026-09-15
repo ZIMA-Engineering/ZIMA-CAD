@@ -47,8 +47,14 @@ MeasurementEdit prepare_measurement_edit(const Workspace& live,const std::string
         }
         if(const auto* part=live.open_part(id)) {
             const auto& doc=part->session.document();edit.initial.body_id=doc.body_history.active_body_id();
-            const auto cursor=doc.effective_history_cursor();
-            if(cursor>0&&cursor<=doc.history_order.size())edit.initial.after_object_id=doc.history_order[cursor-1].id;
+            if(const auto* body=doc.body_history.find(edit.initial.body_id)) {
+                if(body->cursor)edit.initial.after_object_id=body->entries.at(body->cursor-1).id;
+            }else if(!doc.body_history.bodies().empty()) {
+                if(doc.body_history.insertion_cursor())edit.initial.after_object_id=doc.body_history.order().at(doc.body_history.insertion_cursor()-1);
+            }else {
+                const auto cursor=doc.effective_history_cursor();
+                if(cursor)edit.initial.after_object_id=doc.history_order.empty()?doc.history.at(cursor-1).id:doc.history_order.at(cursor-1).id;
+            }
         }
     }else {
         const auto found=std::ranges::find(values,object,&kernel::SavedMeasurement::id);

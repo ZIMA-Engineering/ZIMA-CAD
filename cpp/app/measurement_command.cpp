@@ -155,19 +155,22 @@ void AssemblyWorkspaceWindow::update_measurement_ui(){
         auto* parent=root;QTreeWidgetItem* anchor{};
         for(QTreeWidgetItemIterator it(root);*it;++it){
             const auto key=(*it)->data(0,Qt::UserRole).toString().toStdString();
-            if(!row.body_id.empty()&&key==row.body_id)parent=*it;
-            if(!row.after_object_id.empty()&&key==row.after_object_id)anchor=*it;
+            const auto kind=(*it)->data(0,Qt::UserRole+3).toString();
+            if(!row.body_id.empty()&&key==row.body_id&&kind=="part-body")parent=*it;
+            if(!row.after_object_id.empty()&&key==row.after_object_id&&
+               (kind=="part-container"||kind=="part-sketch"||kind=="part-construction"||kind=="part-body"||kind=="part-body-boolean"))anchor=*it;
         }
         if(anchor&&anchor->parent()==parent){}else anchor=nullptr;
         auto* item=new QTreeWidgetItem(QStringList{QString::fromStdString(row.name)});
         int position=anchor?parent->indexOfChild(anchor)+1:parent->childCount();
         if(!anchor)for(int i=0;i<parent->childCount();++i) {
             const auto kind=parent->child(i)->data(0,Qt::UserRole+3).toString();
-            if(kind=="part-insert-here"||kind=="part-body-insert-here"||kind=="assembly-insert-here") {position=i;break;}
+            if(kind=="part-insert-here"||kind=="part-body-insert-here"||kind=="assembly-insert-here"||
+               (row.after_object_id.empty()&&(kind=="part-container"||kind=="part-sketch"||kind=="part-construction"||kind=="part-body"||kind=="part-body-boolean"))) {position=i;break;}
         }
         // Measurements at one boundary retain their creation order, before
         // the insertion marker rather than after the end of the model tree.
-        if(anchor)while(position<parent->childCount()&&parent->child(position)->data(0,Qt::UserRole+3)=="document-measurement")++position;
+        if(anchor)while(position<parent->childCount()&&(parent->child(position)->data(0,Qt::UserRole+3)=="document-measurement"||parent->child(position)->data(0,Qt::UserRole+3)=="body-properties"))++position;
         parent->insertChild(position,item);
         item->setData(0,Qt::UserRole,QString::fromStdString(row.id));item->setData(0,Qt::UserRole+3,"document-measurement");
         item->setIcon(0,resource_icon("measure"));item->setFlags(item->flags()&~Qt::ItemIsUserCheckable);

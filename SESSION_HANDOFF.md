@@ -2,24 +2,40 @@
 
 ## Current application
 
-Development build **2026091510** adds **Body properties** (Czech **Vlastnosti
-tělesa**) to the View toolbar for Parts. Each history record measures its own
-insertion boundary: volume, surface area, centroid, mass and central inertia.
-Its displayed Origin follows the centroid and has editable rotation. Existing
-Measurement rows now also appear before Insert Here. See
-[Body properties](doc/BODY_PROPERTIES.md) for scope, units, native storage and
-the five shared GUI/CLI operations. Current formats are Part INI 26 / payload
-50 and Assembly INI 22 / payload 34; both start templates are updated.
-Drawing remains INI 16 / payload 8. The root `zima-cad.bat` still launches the
-development executable. The published Windows release remains `2026091508`.
+Development build **2026091511** adds **Balloons** (Czech **Pozice**) to the
+right Drawing toolbar. Show all labels the first BOM level, including whole
+subassemblies; Erase all retains hidden balloons and their placements. Manual
+creation, reference replacement, purple center/endpoint grips and shared
+Properties use one Undo transaction. Text defaults to 5 mm on paper. Native
+storage and PDF/DXF/JPEG output are covered in [Drawing balloons](doc/DRAWING_BALLOONS.md).
 
-Ten distinct selected contracts pass across `build/body-properties-tests.log`
-and `build/body-properties-final-tests.log`, including analytical inertia and
-placed-body checks, GUI interaction, translations, saved measurements, the
-command host, Family Table, core solids, Assemblies, multibody and derived-copy
-behavior. Final build log: `build/body-properties-final-build.log`.
+Measurement and Body properties now remain before Insert Here and survive later
+features in an active Body. The tree must identify the actual Body role, because
+the insertion marker carries the same object ID. Body properties offers Hide/Show
+in its context menu. Its scrollable content keeps OK/Cancel accessible in small
+windows; OK stores the centroid analysis. See [Body properties](doc/BODY_PROPERTIES.md).
+
+Current formats are Part INI 26 / payload 50, Assembly INI 22 / payload 34 and
+Drawing INI 17 / payload 9. Part/Assembly start templates are unchanged in this
+revision. The root `zima-cad.bat` still launches the development executable.
+The published Windows release remains `2026091508`.
+
+Acceptance: all 15 selected GUI, CLI, native-document, rendering, translation,
+measurement and balloon contracts pass in `build/balloons-acceptance-tests.log`.
+GUI/CLI and affected test targets build successfully; final build log:
+`build/balloons-acceptance-build.log`. The CLI process fixture now follows the
+already implemented solid-source and bound Family Table contracts. Captures
+`build/balloons-ui.png`, `build/balloons-ui.png.dialog.png` and
+`build/balloons-measurement-ui.png.mass.png` were visually inspected.
 
 ## Previous development and published application
+
+Development build `2026091510` introduced historical Body properties: volume,
+surface area, centroid, mass and central inertia at the record's insertion
+boundary. The displayed Origin follows the centroid and has editable rotation.
+Its ten selected contracts passed across `build/body-properties-tests.log`
+and `build/body-properties-final-tests.log`; build log:
+`build/body-properties-final-build.log`.
 
 Development build `2026091509` adds the native/instance chooser to Assembly
 insertion and **Replace…** to an immediate component's context menu. Replace

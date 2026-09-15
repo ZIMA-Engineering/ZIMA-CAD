@@ -111,6 +111,7 @@ private:
     void register_component_property_commands();
     void register_drawing_commands();
     void register_drawing_annotation_commands();
+    void register_drawing_balloon_commands();
     void register_drawing_dimension_commands();
     void register_drawing_title_commands();
     void add_sketch_query(commands::Command,std::function<Json(const sketcher::Sketch&,const Json&)>);

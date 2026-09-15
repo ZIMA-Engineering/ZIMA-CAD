@@ -206,7 +206,7 @@ target_link_libraries(zima_assembly
     PRIVATE nlohmann_json::nlohmann_json)
 
 add_library(zima_drawing modules/drawing/src/file_relocation.cpp modules/drawing/src/drawing_document.cpp modules/drawing/src/model_annotations.cpp
-    modules/drawing/src/measurement_dimension.cpp
+    modules/drawing/src/measurement_dimension.cpp modules/drawing/src/balloon.cpp
     modules/drawing/src/drawing_template.cpp modules/drawing/src/drawing_section_trace.cpp)
 target_include_directories(zima_drawing PUBLIC modules/drawing/include)
 target_link_libraries(zima_drawing
@@ -249,7 +249,7 @@ add_library(zima_workspace modules/workspace/src/workspace.cpp
     modules/workspace/src/drawing_sources.cpp
     modules/workspace/src/drawing_annotation_sources.cpp
     modules/workspace/src/drawing_title_operations.cpp
-    modules/workspace/src/drawing_dimension_operations.cpp
+    modules/workspace/src/drawing_dimension_operations.cpp modules/workspace/src/drawing_balloon_operations.cpp
     modules/workspace/src/drawing_annotation_operations.cpp
     modules/workspace/src/model_dimension_layout_operations.cpp
     modules/workspace/src/drawing_label_operations.cpp
@@ -347,6 +347,7 @@ add_library(zima_command_host
     modules/command_host/src/drawing_title_commands.cpp
     modules/command_host/src/drawing_dimension_commands.cpp
     modules/command_host/src/drawing_annotation_commands.cpp
+    modules/command_host/src/drawing_balloon_commands.cpp
     modules/command_host/src/drawing_commands.cpp)
 target_include_directories(zima_command_host PUBLIC modules/command_host/include)
 target_link_libraries(zima_command_host PUBLIC zima_commands zima_workspace)
@@ -481,7 +482,7 @@ endif()
 
 add_executable(zima-cad-drawing-harness
     app/main_drawing.cpp app/drawing_window.cpp app/sketch_text_properties_dialog.cpp app/show_erase_dialog.cpp app/file_dialog.cpp app/application_settings.cpp
-    tests/drawing_ui_contract.cpp tests/show_erase_ui_contract.cpp tests/measurement_dimension_ui_contract.cpp
+    tests/drawing_ui_contract.cpp tests/show_erase_ui_contract.cpp tests/measurement_dimension_ui_contract.cpp tests/drawing_balloon_ui_contract.cpp
     app/resource_icon.cpp app/zima_resources.qrc)
 if(WIN32 AND TARGET Qt6::QJpegPlugin)
     foreach(image_target zima-cad-cpp zima-cad-drawing-harness zima-cad-cli)
@@ -1014,6 +1015,10 @@ if(ZIMA_BUILD_TESTS)
 
     add_executable(zima_cpp_measurement_edit_command_tests tests/measurement_edit_command_tests.cpp)
     add_executable(zima_cpp_body_properties_tests tests/body_properties_tests.cpp)
+    add_executable(zima_cpp_drawing_balloon_tests tests/drawing_balloon_tests.cpp)
+    target_link_libraries(zima_cpp_drawing_balloon_tests PRIVATE zima_command_host)
+    add_test(NAME zima_cpp_drawing_balloon_tests COMMAND zima_cpp_drawing_balloon_tests)
+    set_tests_properties(zima_cpp_drawing_balloon_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     target_link_libraries(zima_cpp_body_properties_tests PRIVATE zima_command_host)
     add_test(NAME zima_cpp_body_properties_tests COMMAND zima_cpp_body_properties_tests)
     set_tests_properties(zima_cpp_body_properties_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
@@ -1207,6 +1212,8 @@ if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_cpp_show_erase_ui_contract COMMAND zima-cad-drawing-harness --verify-show-erase)
     set_tests_properties(zima_cpp_show_erase_ui_contract PROPERTIES ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT}" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     add_test(NAME zima_cpp_measurement_dimension_ui_contract COMMAND zima-cad-drawing-harness --verify-measurements)
+    add_test(NAME zima_cpp_drawing_balloon_ui_contract COMMAND zima-cad-drawing-harness --verify-balloons)
+    set_tests_properties(zima_cpp_drawing_balloon_ui_contract PROPERTIES ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT}" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 90)
     set_tests_properties(zima_cpp_measurement_dimension_ui_contract PROPERTIES ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT}" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     add_test(NAME zima_cpp_drawing_ui_contract COMMAND zima-cad-drawing-harness --verify-ui)
     set_tests_properties(zima_cpp_drawing_ui_contract PROPERTIES

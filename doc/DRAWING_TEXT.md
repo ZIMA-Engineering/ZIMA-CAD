@@ -15,8 +15,8 @@ editor, height in mm, alignment, ISO font, colour, rotation and horizontal flip.
 4. Delete or the text context menu removes selected text. Undo/Redo restores edits,
    movement and deletion through the ordinary Drawing history.
 
-Text belongs to its sheet and retains a stable local ID. Drawing INI **16** /
-JSON payload **8** stores `texts` with the complete presentation, position and
+Text belongs to its sheet and retains a stable local ID. Drawing INI **17** /
+JSON payload **9** stores `texts` with the complete presentation, position and
 Unicode string, including newlines. No external text file is required. The
 shared sheet renderer draws each line as text in View, PDF, DXF and image exports.
 PDF and DXF retain real text; each DXF line is a TEXT entity.

@@ -9,6 +9,8 @@
 #include <zima/workspace/drawing_title_operations.hpp>
 #include <zima/workspace/drawing_operations.hpp>
 #include "drawing_dimension_dialog.hpp"
+#include "drawing_balloon_dialog.hpp"
+#include <zima/workspace/drawing_balloon_operations.hpp>
 #include <zima/drawing_render/sheet_renderer.hpp>
 #include <QCursor>
 #include <zima/viewer/dimension_text_layer.hpp>
@@ -509,6 +511,8 @@ class DrawingCanvas final : public QWidget, public SheetRenderer {
         hovered_annotation_=offered_annotations_.empty()?std::optional<AnnotationKey>{}:offered_annotations_[offered_annotation_index_].key;
     }
 public:
+#include "drawing_balloon_canvas.inc"
+public:
     explicit DrawingCanvas(QWidget* parent = nullptr) : QWidget(parent) {
         setMinimumSize(640, 480); setMouseTracking(true); setFocusPolicy(Qt::StrongFocus);
         auto drawing_font = font();
@@ -632,6 +636,13 @@ public:
                 candidate.distance*=scale;candidates.push_back({view.id,std::move(candidate)});
             }
         }
+        if(const auto id=balloon_reference_view();!id.empty()&&sheet_)for(const auto& view:sheet_->views)if(view.id==id){
+            const double scale=canvas_zoom()*view.scale;
+            drawing::MeasurementPickRequest request;request.mode=int(drawing::DimensionAttachmentKind::CurvePoint);
+            for(auto candidate:drawing::measurement_candidates(view,measurement_point(view,point),8/scale,request))if(drawing::balloon_bom_row(*sheet_,view,candidate.attachment.reference)){
+                candidate.distance*=scale;candidates.push_back({view.id,std::move(candidate)});
+            }
+        }
         std::stable_sort(candidates.begin(),candidates.end(),[](const auto& a,const auto& b){return a.candidate.distance<b.candidate.distance;});
         bool same=candidates.size()==measurement_offered_.size();
         for(std::size_t i=0;same&&i<candidates.size();++i)same=candidates[i].view==measurement_offered_[i].view&&candidates[i].candidate.attachment==measurement_offered_[i].candidate.attachment;
@@ -664,7 +675,7 @@ public:
         return {canvas_origin(zoom),QSizeF(sheet_->width_mm()*zoom,sheet_->height_mm()*zoom)};
     }
     void choose_view(std::function<void(const std::string&)> pick) { start_selection();choose_view_=std::move(pick);selected_.clear();if(selection_changed_)selection_changed_();update(); }
-    void start_selection() { choose_view_={};if(dimension_command_)dimension_command_->reject();dimension_mode_=false;update(); }
+    void start_selection() { choose_view_={};if(balloon_command_)balloon_command_->reject();if(dimension_command_)dimension_command_->reject();dimension_mode_=false;update(); }
     [[nodiscard]] bool dimension_mode() const { return dimension_mode_; }
     bool interacting() const { return bool(preview_); }
 protected:
@@ -709,6 +720,7 @@ protected:
         update();
     }
     void contextMenuEvent(QContextMenuEvent* event) override {
+        if(balloon_context(event))return;
         if(text_editor_){event->accept();return;}
         if(const auto field=field_at(event->pos());editable_text(field)) {
             selected_field_=field;selected_.clear();selected_annotation_.reset();selected_dimension_id_.clear();update();
@@ -770,6 +782,8 @@ protected:
         menu->popup(event->globalPos()); event->accept();
     }
     void mouseDoubleClickEvent(QMouseEvent* event) override {
+        if(balloon_command_){event->accept();return;}
+        if(event->button()==Qt::LeftButton&&selected_annotation_&&selected_annotation_->kind==AnnotationKind::Balloon){balloon_drag_original_.reset();if(balloon_properties_)balloon_properties_(selected_annotation_->id);event->accept();return;}
         if(event->button()==Qt::LeftButton) {
             if(text_editor_){event->accept();return;}
             if(const auto field=field_at(event->position());editable_text(field)) {
@@ -819,7 +833,7 @@ public:
 protected:
     const drawing::DrawingDimension* pending_dimension() const override {return dimension_command_?&dimension_command_->value():nullptr;}
     void paint_reference_overlay(QPainter& painter) override {
-        if(dimension_command_){
+        if(dimension_command_||balloon_command_||balloon_drag_original_){
             const auto highlight=[&](const drawing::DrawingView& view,const kernel::EdgeReference& ref,QColor color){
                 painter.save();painter.setPen(QPen(color,2));painter.setBrush(Qt::NoBrush);
                 for(const auto& curve:drawing::measurement_reference_geometry(view,ref)){QPolygonF line;for(const auto& p:curve)line<<view_screen_point(view,p);painter.drawPolyline(line);}
@@ -833,7 +847,8 @@ protected:
                     painter.save();painter.setPen(QPen(QColor("#FF9300"),2));painter.setBrush(Qt::NoBrush);painter.drawEllipse(view_screen_point(view,candidate.candidate.position),4,4);painter.restore();
                 }
             }
-            for(const auto& view:sheet_->views)if(view.id==dimension_command_->value().view_id)for(const auto& ref:dimension_command_->inspected_references())highlight(view,ref,QColor("#00D1FF"));
+            if(dimension_command_)for(const auto& view:sheet_->views)if(view.id==dimension_command_->value().view_id)for(const auto& ref:dimension_command_->inspected_references())highlight(view,ref,QColor("#00D1FF"));
+            if(balloon_command_&&balloon_command_->inspecting_attachment())if(const auto* b=balloon_command_->selected_balloon())for(const auto& view:sheet_->views)if(view.id==b->view_id)highlight(view,b->attachment.reference,QColor("#00D1FF"));
         }
     }
     void mousePressEvent(QMouseEvent* event) override {
@@ -864,6 +879,7 @@ protected:
         if (event->button() != Qt::LeftButton) return;
         setFocus();
         if(text_editor_) {const auto p=paper_point(event->position());text_editor_->set_anchor(p.x,p.y);event->accept();return;}
+        if(balloon_press(event))return;
         if(dimension_command_){
             setFocus();
             if(dimension_command_->entering()){
@@ -908,12 +924,14 @@ protected:
             offer_annotations(event->position());
             if(!offered_annotations_.empty()){
                 const auto candidate=offered_annotations_[offered_annotation_index_];selected_annotation_=candidate.key;selected_field_.clear();selected_dimension_id_.clear();drag_view_id_.clear();dragged_label_.reset();dragged_dimension_id_.clear();
-                selected_=candidate.key.kind==AnnotationKind::Dimension?std::string{}:candidate.key.view;
+                selected_=(candidate.key.kind==AnnotationKind::Dimension||candidate.key.kind==AnnotationKind::Balloon)?std::string{}:candidate.key.view;
                 if(candidate.key.kind==AnnotationKind::Dimension)selected_dimension_id_=candidate.key.id;
                 if(QLineF(candidate.point,event->position()).length()<=8){
                     if(candidate.key.kind==AnnotationKind::Caption||candidate.key.kind==AnnotationKind::SectionLabel){
                         dragged_label_=std::pair{candidate.key.view,candidate.key.kind==AnnotationKind::SectionLabel};label_drag_start_=event->position();label_moved_=false;
                         for(const auto& view:sheet_->views)if(view.id==candidate.key.view){const auto origin=view_screen_point(view,{});label_position_start_={(candidate.point.x()-origin.x())/canvas_zoom(),(origin.y()-candidate.point.y())/canvas_zoom()};}
+                    }else if(candidate.key.kind==AnnotationKind::Balloon){
+                        begin_balloon_drag(candidate,event->position());
                     }else if(candidate.key.kind==AnnotationKind::Dimension){
                         begin_manual_drag(candidate,event->position());
                     }else if(candidate.key.kind==AnnotationKind::Model){
@@ -937,6 +955,7 @@ protected:
         update();
     }
     void mouseMoveEvent(QMouseEvent* event) override {
+        if(balloon_move(event))return;
         if(text_drag_original_&&!view_panning_&&(event->buttons()&Qt::LeftButton)) {
             if(auto* text=editable_text("text:"+text_drag_original_->id)) {
                 const auto delta=(event->position()-text_drag_start_)/canvas_zoom();
@@ -1070,6 +1089,7 @@ protected:
         update();
     }
     void mouseReleaseEvent(QMouseEvent* event) override {
+        if(balloon_release(event))return;
         if(text_drag_original_&&event->button()==Qt::LeftButton) {
             const auto* text=editable_text("text:"+text_drag_original_->id);
             const bool moved=text&&(text->presentation.position.x!=text_drag_original_->presentation.position.x||text->presentation.position.y!=text_drag_original_->presentation.position.y);
@@ -1113,6 +1133,7 @@ protected:
             dimension_command_->set_mode(int(event->key()==Qt::Key_C?drawing::DimensionAttachmentKind::Center:event->key()==Qt::Key_T?drawing::DimensionAttachmentKind::Tangent:drawing::DimensionAttachmentKind::Intersection));event->accept();return;
         }
         if(event->key()==Qt::Key_Escape) {
+            if(balloon_escape()){event->accept();return;}
             if(text_editor_){text_editor_->reject();event->accept();return;}
             if(text_drag_original_){if(auto* text=editable_text("text:"+text_drag_original_->id))*text=*text_drag_original_;text_drag_original_.reset();update();event->accept();return;}
             selected_field_.clear();hovered_field_.clear();
@@ -1128,6 +1149,8 @@ protected:
         if(event->key()==Qt::Key_Delete && sheet_ && !dimension_command_ && !model_pick_ && !preview_ && !placed_ && !choose_view_) {
             if(text_editor_){event->accept();return;}
             if(editable_text(selected_field_)){erase_text(selected_field_);event->accept();return;}
+            if(balloon_command_){event->accept();return;}
+            if(selected_annotation_&&selected_annotation_->kind==AnnotationKind::Balloon){erase_balloon(selected_annotation_->id);event->accept();return;}
             bool removed=false;
             if(!selected_dimension_id_.empty())
                 removed=workspace::erase_drawing_dimension(*sheet_,selected_dimension_id_);
@@ -1278,6 +1301,8 @@ void DrawingWindow::create_actions() {
     linear_dimension_action_->setCheckable(true);
     text_action_=drawing->addAction(resource_icon("sketch-text"),tr("Text"),this,[this]{show_text_properties();});
     text_action_->setObjectName("drawingTextAction");
+    balloon_action_=drawing->addAction(resource_icon("drawing-balloon"),tr("Pozice"),this,[this]{show_balloon_properties();});
+    balloon_action_->setObjectName("drawingBalloonAction");
     selection_action_ = new QAction(tr("Výběr"), this);
     selection_action_->setObjectName("drawingSelectionAction");
     selection_action_->setCheckable(true);
@@ -1297,6 +1322,7 @@ void DrawingWindow::create_actions() {
     drawing_toolbar_->addAction(show_erase_action_);
     drawing_toolbar_->addAction(linear_dimension_action_);
     drawing_toolbar_->addAction(text_action_);
+    drawing_toolbar_->addAction(balloon_action_);
     addToolBar(Qt::TopToolBarArea, drawing_toolbar_);
 }
 
@@ -1308,6 +1334,7 @@ void DrawingWindow::create_layout() {
     sheets_->setExpanding(false);
     canvas_ = new DrawingCanvas(central); canvas_->setObjectName("drawingCanvas");
     state_ = new QLabel(central); state_->setObjectName("drawingState");
+    canvas_->set_balloon_properties([this](const auto& id){show_balloon_properties(id);});
     canvas_->set_manual_properties_callback([this](const auto& id,int end){show_dimension_properties(id,end);});
     canvas_->set_dimension_properties_callback([this](const auto& view,const auto& key){edit_model_dimension(view,key);});
     canvas_->set_changed_callback([this] {
@@ -1831,6 +1858,26 @@ void DrawingWindow::delete_selected_view() {
 void DrawingWindow::edit_selected_view() {
     if (const auto* view=document_.find_view(canvas_->selected_view_id())) show_view_properties(*view,false);
 }
+std::optional<QPointF> DrawingWindow::balloon_handle_for_test(const std::string& id,int end)const{return canvas_->balloon_handle(id,end);}
+void DrawingWindow::show_balloon_properties(const std::string& id) {
+    if(view_dialog_){view_dialog_->raise();return;}if(raise_open_properties(window()))return;
+    const auto* sheet=active_sheet();if(!sheet||sheet->views.empty())return;
+    const auto sheet_id=sheet->id,doc_id=document_.document_id;
+    const auto* state=workspace_?workspace_->open_drawing(doc_id):nullptr;
+    const auto generation=state?state->data_generation():0;
+    const auto identity=state?state->runtime_identity:nullptr;
+    canvas_->start_selection();
+    auto* owner=qobject_cast<QMainWindow*>(window());
+    auto* dialog=new DrawingBalloonDialog(*sheet,canvas_->selected_view_id(),id,
+        [this,sheet_id,doc_id,generation,identity](const auto& values){
+            if(document_.document_id!=doc_id)throw std::runtime_error("The Drawing changed while editing balloons.");
+            if(workspace_){const auto* current=workspace_->open_drawing(doc_id);if(!current||current->runtime_identity!=identity||current->data_generation()!=generation)throw std::runtime_error("The Drawing changed while editing balloons.");}
+            if(workspace::set_drawing_balloons(document_,sheet_id,values))sync_workspace_document();
+        },owner?owner:this);
+    view_dialog_=dialog;canvas_->set_balloon_command(dialog);
+    connect(dialog,&QDialog::finished,this,[this]{canvas_->set_balloon_command(nullptr);view_dialog_=nullptr;if(properties_handler_)properties_handler_(nullptr);refresh(false);});
+    if(properties_handler_)properties_handler_(dialog);dialog->show();update_action_states();
+}
 void DrawingWindow::start_linear_dimension() {show_dimension_properties({},0);}
 void DrawingWindow::show_dimension_properties(const std::string& id,int extend) {
     if(view_dialog_){view_dialog_->raise();return;}if(raise_open_properties(window()))return;
@@ -1879,6 +1926,7 @@ void DrawingWindow::update_action_states() {
     delete_view_action_->setEnabled(selected_view);
     linear_dimension_action_->setEnabled(has_view);
     text_action_->setEnabled(has_sheet&&!view_dialog_);
+    balloon_action_->setEnabled(has_view);
     linear_dimension_action_->setChecked(canvas_->dimension_mode());
     show_erase_action_->setEnabled(has_view);
     selection_action_->setEnabled(has_sheet);

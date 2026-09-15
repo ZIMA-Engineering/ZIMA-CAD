@@ -1,6 +1,7 @@
 #include <zima/workspace/drawing_view_operations.hpp>
 #include <zima/workspace/drawing_projection.hpp>
 #include <zima/drawing/measurement_dimension.hpp>
+#include <zima/drawing/balloon.hpp>
 #include <algorithm>
 #include <cmath>
 #include <zima/document/file_path.hpp>
@@ -87,7 +88,7 @@ void edit_drawing_view(drawing::DrawingDocument& document,const std::string& she
         }
     };
     children(children,*next.find_view(id),0);
-    sheet->bom_rows=projection.source(accepted).bom;
+    sheet->bom_rows=projection.source(accepted).bom;sheet->bom_source_document_id=accepted.source_document_id;
     if(accepted.section_snapshot)for(auto& s:next.sheets)for(auto& other:s.views)
         if(other.source_document_id==accepted.source_document_id&&other.section_id==accepted.section_id) {
             other.section_snapshot=accepted.section_snapshot;
@@ -100,6 +101,7 @@ void edit_drawing_view(drawing::DrawingDocument& document,const std::string& she
         next.source_name=document::path_to_utf8(accepted.source_path.stem());
         if(next.source_name.empty()&&!sheet->bom_rows.empty())next.source_name=sheet->bom_rows.front().name;
     }
+    for(auto& s:next.sheets)drawing::refresh_balloons(s);
     document=std::move(next);
 }
 std::size_t regenerate_drawing_views(drawing::DrawingDocument& document,const Workspace* live,const std::filesystem::path& document_path) {
@@ -127,9 +129,10 @@ std::size_t regenerate_drawing_views(drawing::DrawingDocument& document,const Wo
             state=2;++count;
         };
         for(auto& view:sheet.views)refresh(refresh,view,0);
-        for(const auto& view:sheet.views)if(!sheet_bom||view.source_document_id==next.source_document_id)sheet_bom=projection.source(view).bom;
+        for(const auto& view:sheet.views)if(!sheet_bom||view.source_document_id==next.source_document_id){sheet_bom=projection.source(view).bom;sheet.bom_source_document_id=view.source_document_id;}
         if(sheet_bom)sheet.bom_rows=std::move(*sheet_bom);
     }
+    for(auto& s:next.sheets)drawing::refresh_balloons(s);
     document=std::move(next);return count;
 }
 std::vector<std::string> delete_drawing_view(drawing::DrawingDocument& document,const std::string& id) {
@@ -139,6 +142,7 @@ std::vector<std::string> delete_drawing_view(drawing::DrawingDocument& document,
         if(view.parent_view_id==order[i]&&removed.insert(view.id).second)order.push_back(view.id);
     for(auto& sheet:document.sheets) {
         std::erase_if(sheet.views,[&](const auto& view){return removed.contains(view.id);});
+        std::erase_if(sheet.balloons,[&](const auto& b){return removed.contains(b.view_id);});
         std::erase_if(sheet.dimensions,[&](const auto& dimension){return removed.contains(dimension.view_id);});
         // A section is an independent source view; only its removed trace link ends.
         for(auto& view:sheet.views)if(removed.contains(view.section_parent_id))view.section_parent_id.clear();

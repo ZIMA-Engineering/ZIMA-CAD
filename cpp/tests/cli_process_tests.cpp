@@ -360,7 +360,11 @@ int main(int argc,char** argv){
         const auto pattern_get=command({{"command","pattern.get"},{"arguments",{{"object",copy_fixture.pattern}}}});
         result=launch(executable,root,common+QStringList{"--command",copy_open,"--command",copy_sources,"--command",mirror_get,"--command",pattern_get});
         const auto copy_records=result.results();
-        require(result.exit_code==0&&copy_records.size()==4&&copy_records[1].at("data").at("items").size()==2&&
+        require(result.exit_code==0&&copy_records.size()==4,"Actual CLI failed persisted copy queries");
+        Json copy_source_ids=Json::array();
+        for(const auto& item:copy_records[1].at("data").at("items"))copy_source_ids.push_back(item.at("id"));
+        require(copy_source_ids==Json::array({copy_fixture.source,copy_fixture.document.history[0].id,
+                copy_fixture.other,copy_fixture.document.history[1].id})&&
             copy_records[2].at("data").at("source")==copy_fixture.source&&copy_records[2].at("data").at("placement").at("x")==-2&&
             copy_records[3].at("data").at("pattern").at("instance_count")==12&&copy_records[3].at("data").at("name")=="Pole žluťoučké"&&
             copy_records[1].at("data").at("revision")==copy_records[3].at("data").at("revision"),
@@ -1007,12 +1011,20 @@ int main(int argc,char** argv){
         require(result.exit_code==0 && result.results()[1].at("data").at("parameters")[1].at("values")==metadata_entries[1].at("values") && result.results()[2].at("data").at("units").at("Length")=="m","CLI metadata readback failed");
         const auto engineering_material=command({{"command","document.material.set"},{"arguments",{{"properties",Json::array({{{"key","MATERIAL_NAME"},{"value","Hliník"}},{{"key","MASS_DENSITY"},{"value","2700"},{"unit","kg/m^3"}}})}}}});
         const auto engineering_relations=command({{"command","document.relations.set"},{"arguments",{{"relations",Json::array({{{"target","grams"},{"expression","model.mass * 1000"}}})}}}});
-        const auto engineering_family=command({{"command","document.family.set"},{"arguments",{{"table",{{"columns",{"NUMBER"}},{"instances",Json::array({{{"name","Varianta A"},{"values",{{"NUMBER","ZE-100"}}}}})}}}}}});
+        const Json family_table_fixture={
+            {"columns",{"Stock"}},
+            {"bindings",{{"Stock",{{"kind","feature"},{"owner",metadata_part.history.front().id},{"key",""}}}}},
+            {"instances",Json::array({{{"id",""},{"name","Varianta A"},{"values",{{"Stock","yes"}}}}})}};
+        const auto engineering_family=command({{"command","document.family.set"},{"arguments",{{"table",family_table_fixture}}}});
         result=launch(executable,root,common+QStringList{"--command","open cli-step.prtz","--command",engineering_material,"--command",engineering_relations,"--command",engineering_family,"--command","save"});
         if(result.exit_code!=0)std::cerr<<result.output.toStdString()<<result.diagnostics.toStdString();
         require(result.exit_code==0 && result.results().size()==5,"CLI engineering metadata update failed");
         const auto engineering_native=document::PartDocument::load(project/"cli-step.prtz");
-        require(engineering_native.physical_parameters.at("MATERIAL_NAME")=="Hliník" && engineering_native.user_parameters.at("grams")=="16.200000" && engineering_native.family_table.find("ZE-100")!=std::string::npos,"CLI engineering metadata failed native persistence or mass calculation");
+        const auto stored_family=Json::parse(engineering_native.family_table);
+        require(engineering_native.physical_parameters.at("MATERIAL_NAME")=="Hliník" && engineering_native.user_parameters.at("grams")=="16.200000" &&
+            stored_family.at("bindings").at("Stock").at("owner")==metadata_part.history.front().id &&
+            stored_family.at("instances")[0].at("values").at("Stock")=="yes" && !stored_family.at("instances")[0].at("id").get<std::string>().empty(),
+            "CLI engineering metadata failed native persistence or mass calculation");
         result=launch(executable,root,common+QStringList{"--command","open cli-step.prtz","--command","document.material.get","--command","document.relations.get","--command","document.family.get"});
         require(result.exit_code==0 && result.results()[2].at("data").at("parameters").at("grams")=="16.200000" && result.results()[3].at("data").at("table").at("instances")[0].at("name")=="Varianta A","CLI engineering metadata readback failed");
         const auto material_source=project/fs::path(u8"Ocel česká.matz");fs::copy_file(repository/"config/materials/01_oceli/konstrukcni/S235JR.matz",material_source);

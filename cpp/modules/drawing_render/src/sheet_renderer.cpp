@@ -1,4 +1,5 @@
 #include <zima/drawing_render/sheet_renderer.hpp>
+#include <zima/drawing/balloon.hpp>
 #include <zima/viewer/dimension_text_layer.hpp>
 #include <zima/viewer/embedded_image.hpp>
 #include <zima/viewer/annotation_arrow.hpp>
@@ -335,6 +336,36 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
                 }painter.restore();
             }
         }
+        const auto* balloon_preview=printing?nullptr:pending_balloons();
+        for(const auto& b:balloon_preview?*balloon_preview:sheet_->balloons) {
+            if(!b.visible)continue;
+            const auto view=std::ranges::find(sheet_->views,b.view_id,&drawing::DrawingView::id);
+            if(view==sheet_->views.end())continue;
+            const auto e=drawing::evaluate_balloon(*sheet_,b);if(!e.anchor)continue;
+            const auto paper=[&](drawing::Point2 p){return QPointF(origin.x()+(sheet_->width_mm()-view->x+p.x)*zoom,origin.y()+(sheet_->height_mm()-view->y-p.y)*zoom);};
+            const auto center=paper(b.position),anchor=paper({e.anchor->x*view->scale,e.anchor->y*view->scale});
+            const AnnotationKey key{AnnotationKind::Balloon,b.view_id,b.id,0};
+            const auto color=annotation_color(key,e.unresolved?QColor("#C62828"):printing?ink:QColor(Qt::white),printing);
+            const auto label=e.item_number>0?QString::number(e.item_number):QStringLiteral("?");
+            QFont font(drawing_font_family());font.setPixelSize(1000);const QFontMetricsF metrics(font);
+            const auto text_bounds=metrics.tightBoundingRect(label);const double text_scale=b.text_height/metrics.capHeight()*zoom;
+            const double radius=std::max(b.diameter*zoom/2,(text_bounds.width()*text_scale+4*zoom)/2);
+            const auto delta=anchor-center;const double length=std::hypot(delta.x(),delta.y());
+            const auto rim=length>radius?center+delta*(radius/length):center;
+            painter.save();painter.setPen(QPen(color,width(false)));painter.setBrush(Qt::NoBrush);
+            if(length>radius)painter.drawLine(rim,anchor);
+            painter.setBrush(printing?QColor(Qt::white):QColor(Qt::black));painter.drawEllipse(center,radius,radius);
+            painter.save();painter.setFont(font);painter.translate(center);painter.scale(text_scale,text_scale);
+            painter.drawText(-text_bounds.center(),label);painter.restore();
+            painter.setPen(Qt::NoPen);painter.setBrush(e.unresolved?QColor("#C62828"):printing?ink:QColor("#FFD400"));painter.drawEllipse(anchor,.7*zoom,.7*zoom);
+            painter.restore();
+            if(!printing) {
+                QPainterPath stroke;stroke.moveTo(rim);stroke.lineTo(anchor);QPainterPathStroker picker;picker.setWidth(10);
+                auto hit=picker.createStroke(stroke);hit.addEllipse(center,radius+3,radius+3);
+                annotation_handles_.push_back({key,center,hit});
+                auto endpoint=key;endpoint.end=1;annotation_handles_.push_back({endpoint,anchor,hit});
+            }
+        }
         if(!printing)paint_reference_overlay(painter);
         viewer::paint_dimension_text_layer(painter,dimension_texts,.5*zoom,
             [printing](QPainter& text_painter,const QPainterPath& mask){
@@ -346,7 +377,7 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
         if(!printing&&text_preview_) {auto text=text_preview_->presentation;text.field_id="text:"+text_preview_->id;draw_text(text);}
         if(!printing&&!preview_)for(const auto& handle:annotation_handles_){
             const bool selected=(selected_annotation_&&selected_annotation_->kind==handle.key.kind&&selected_annotation_->view==handle.key.view&&selected_annotation_->id==handle.key.id)||(dimension_preview&&handle.key.kind==AnnotationKind::Dimension&&dimension_preview->id==handle.key.id),hovered=hovered_annotation_&&*hovered_annotation_==handle.key;
-            const bool movable=handle.key.kind==AnnotationKind::Caption||handle.key.kind==AnnotationKind::SectionLabel||handle.key.kind==AnnotationKind::SectionEnd||handle.key.kind==AnnotationKind::Dimension||
+            const bool movable=handle.key.kind==AnnotationKind::Balloon||handle.key.kind==AnnotationKind::Caption||handle.key.kind==AnnotationKind::SectionLabel||handle.key.kind==AnnotationKind::SectionEnd||handle.key.kind==AnnotationKind::Dimension||
                 (handle.key.kind==AnnotationKind::Model&&std::ranges::any_of(sheet_->views,[&](const auto& view){return view.id==handle.key.view&&std::ranges::any_of(view.model_annotations,[&](const auto& item){return item.kind==drawing::ModelAnnotationKind::Dimension&&model_annotation_key(item.source)==handle.key.id;});}));
             if(movable&&(selected||hovered))draw_handle(handle.point,selected);
         }

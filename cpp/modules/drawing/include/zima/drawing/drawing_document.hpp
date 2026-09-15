@@ -209,6 +209,20 @@ struct DrawingDimension {
     bool operator==(const DrawingDimension&) const = default;
 };
 
+// A BOM balloon is attached to original projected geometry in one exact
+// occurrence. Presentation sizes and position are view-relative paper mm.
+struct DrawingBalloon {
+    std::string id, view_id;
+    DimensionAttachment attachment;
+    Point2 position{25,25};
+    double diameter{16}, text_height{5};
+    std::optional<Point2> last_anchor; // View model units, retained for repair.
+    int item_number{};
+    bool unresolved{};
+    bool visible{true};
+    bool operator==(const DrawingBalloon&) const = default;
+};
+
 enum class DrawingPen { White, Green, Yellow, Red };
 struct TemplateLine { Point2 first; Point2 second; DrawingPen pen{DrawingPen::Green}; };
 struct TemplateCircle { Point2 center; double radius{}; DrawingPen pen{DrawingPen::Green}; };
@@ -242,6 +256,8 @@ struct BomRow {
     std::string mass_unit{"kg"};
     std::string source_document_id;
     std::filesystem::path source_path;
+    // Length-prefixed immediate occurrence paths; grouped quantities retain all.
+    std::vector<std::string> occurrence_paths;
 };
 
 struct DrawingSheet {
@@ -262,6 +278,8 @@ struct DrawingSheet {
     std::vector<TemplateText> title_block_texts;
     std::vector<TitleBlockField> title_block_fields;
     std::vector<BomRow> bom_rows;
+    std::string bom_source_document_id;
+    std::vector<DrawingBalloon> balloons;
     std::vector<TemplateCircle> frame_circles, title_block_circles;
     std::vector<zima::sketcher::SketchRepeatRegion> repeat_regions;
     std::vector<zima::sketcher::TemplateImage> title_block_images;

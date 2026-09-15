@@ -15,6 +15,8 @@
 #include <QTreeWidget>
 #include <QTreeWidgetItemIterator>
 #include <QTabBar>
+#include <QMenu>
+#include <QTimer>
 #include <iostream>
 
 namespace zima::app {
@@ -103,6 +105,7 @@ try{
     check(tree->currentItem()&&tree->currentItem()->data(0,Qt::UserRole+3)=="document-measurement","Save did not reveal/select its Tree record");
     const auto check_before_cursor=[&] {
         auto* record=tree->currentItem();auto* parent=record->parent();check(parent!=nullptr,"Measurement has no owning tree branch");
+        check(!parent->data(0,Qt::UserRole+3).toString().endsWith("insert-here"),"Measurement became a child of Insert Here");
         for(int i=0;i<parent->childCount();++i)if(parent->child(i)->data(0,Qt::UserRole+3).toString().endsWith("insert-here"))
             check(parent->indexOfChild(record)<i,"Saved measurement follows Insert Here");
     };
@@ -174,6 +177,11 @@ try{
     mass_action->trigger();flush();check(mass_dialog(),"Body properties did not open");
     check(mass_dialog()->parentWidget()==&window&&(mass_dialog()->windowFlags()&Qt::WindowType_Mask)==Qt::SubWindow,"Body properties uses a native window");
     check(mass_dialog()->buttons()->standardButtons()==(QDialogButtonBox::Ok|QDialogButtonBox::Cancel),"Body properties has extra commit actions");
+    mass_dialog()->resize(460,260);flush();
+    const auto* mass_ok=mass_dialog()->buttons()->button(QDialogButtonBox::Ok);
+    const auto ok_rect=QRect(mass_ok->mapTo(mass_dialog(),QPoint()),mass_ok->size());
+    check(mass_ok->isVisible()&&mass_ok->isEnabled()&&mass_dialog()->rect().contains(ok_rect),"Body properties OK was clipped by results on a small window");
+    mass_dialog()->resize(460,430);flush();
     check(mass_dialog()->current().integrals&&std::abs(mass_dialog()->current().volume-6000)<1e-8,"Body properties shows wrong geometry");
     mass_dialog()->reject();flush();check(execute("body_properties.list").data.at("total")==0,"Cancel created a mass feature");
     mass_action->trigger();flush();
@@ -200,6 +208,50 @@ try{
     check(extent<31,"Mass properties displayed downstream geometry");
     mass_dialog()->reject();flush();check(view->mesh().vertices==full_vertices,"Cancel did not restore full history display");
     execute("undo");flush();
+    // Active Body rows and the insertion marker deliberately carry the same
+    // Body ID. Information records must resolve the real owning Body row.
+    const auto before_analysis_revision=execute("measurement.get",{{"object",measurement_id}}).data.at("revision");
+    const auto active_body=execute("body.create",{{"name","Analysis owner"}}).data.at("body").get<std::string>();
+    const auto analysis_box=execute("box.create",{{"length_mm","10"},{"width_mm","8"},{"height_mm","6"}}).data.at("container").get<std::string>();
+    const auto in_body=execute("body_properties.create").data.at("object").get<std::string>();
+    const auto first_mass=execute("body_properties.get",{{"object",in_body}}).data;
+    // The first Body adopts the existing 10 x 20 x 30 solid; the small box
+    // lies wholly inside it, so the measured volume remains 6000 mm3.
+    check(std::abs(first_mass.at("volume_mm3").get<double>()-6000)<1e-8,"Active Body measurement ignored its existing solid");
+    const auto body_measurement=execute("measurement.create",{{"references",commands::Json::array({{{"kind","object"},{"owner",analysis_box},{"key",""},{"instance_path",""}}})}}).data.at("object").get<std::string>();
+    const auto analysis_row=[&](const std::string& id){
+        QTreeWidgetItem* found{};for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==id){found=*it;break;}
+        check(found&&found->parent(),"Information feature disappeared from Tree");
+        check(found->parent()->data(0,Qt::UserRole+3)=="part-body"&&found->parent()->data(0,Qt::UserRole).toString().toStdString()==active_body,"Information feature is not a direct child of its Body");
+        tree->setCurrentItem(found);check_before_cursor();return found;
+    };
+    analysis_row(in_body);analysis_row(body_measurement);
+    const auto later_box=execute("box.create",{{"length_mm","100"},{"width_mm","80"},{"height_mm","60"}}).data.at("container").get<std::string>();
+    for(const auto& id:{in_body,body_measurement}) {
+        auto* row=analysis_row(id);auto* parent=row->parent();int later=-1;
+        for(int i=0;i<parent->childCount();++i)if(parent->child(i)->data(0,Qt::UserRole).toString().toStdString()==later_box)later=i;
+        check(later>parent->indexOfChild(row),"Later feature moved an earlier measurement below itself");
+    }
+    const auto later_mass=execute("body_properties.get",{{"object",in_body}}).data;
+    check(std::abs(later_mass.at("volume_mm3").get<double>()-6000)<1e-8,"Later feature changed historical volume");
+    for(bool expected:{false,true}) {
+        auto* item=analysis_row(in_body);tree->scrollToItem(item);flush();bool invoked=false;
+        QTimer::singleShot(0,&window,[&]{
+            auto* menu=qobject_cast<QMenu*>(QApplication::activePopupWidget());
+            if(!menu)return;
+            for(auto* action:menu->actions())if(action->objectName()=="bodyPropertiesVisibilityAction") {
+                invoked=true;menu->setActiveAction(action);QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(menu,&enter);return;
+            }
+            menu->close();
+        });
+        QMetaObject::invokeMethod(tree,"customContextMenuRequested",Qt::DirectConnection,Q_ARG(QPoint,tree->visualItemRect(item).center()));flush();
+        check(invoked,"Body properties visibility context action missing");
+        check(execute("body_properties.get",{{"object",in_body}}).data.at("visible")==expected,"Context menu did not save Origin visibility");
+        check(std::ranges::any_of(view->mesh().points,[&](const auto& p){return p.reference.owner_id==in_body+":origin";})==expected,"Origin picker/display ignored visibility");
+    }
+    // Restore the original source before the existing Assembly inspector test.
+    for(int i=0;i<10&&execute("measurement.get",{{"object",measurement_id}}).data.at("revision")!=before_analysis_revision;++i)execute("undo");
+    check(execute("measurement.get",{{"object",measurement_id}}).data.at("revision")==before_analysis_revision,"Analysis history could not be undone");flush();
     auto second_part=document::PartDocument::create_default();
     auto second_box=document::PartDocument::create_box_container();second_box.box={20,20,30};second_part.history={second_box};
     second_part.physical_parameters["MASS_DENSITY"]="2700";second_part.physical_parameter_units["MASS_DENSITY"]="kg/m^3";
