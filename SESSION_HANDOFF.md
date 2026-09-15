@@ -2,7 +2,7 @@
 
 ## Current application
 
-Development build `2026091505` adds **Settings > AI** and `codex` mode in the
+Version `2026091505` adds **Settings > AI** and `codex` mode in the
 desktop CAD console. It uses the user's own ChatGPT account through the native
 Codex App Server, following ZIMA-CAD-Parts. Each request follows the active Part,
 Assembly or Drawing and its active occurrence; a changed tab, selection or
@@ -125,7 +125,7 @@ releases. Current Windows native dependencies remain available in the build/vcpk
 setup. A fresh GUI/CLI build and console UI contract passed with the old runtime
 absent (see the Linux handoff for validation details).
 
-Published build ID: `2026091504`; release notes are in
+Previous published build ID: `2026091504`; release notes are in
 [2026091504](doc/releases/2026091504.md). The earlier `2026091503` Windows candidate from commit
 `3d7eaaf89bdd6a8a7f47081ae587c2a8c449d6cc` passed the full package smoke and archive
 checks; the exact SHA-256, local output locations and test scope are recorded in
@@ -141,8 +141,21 @@ for its exact commit, SHA-256 and logs. The user-approved
 was published on 2026-09-15 at 14:11:02 UTC with all three verified assets. Public
 updater discovery reports version `2026091504` as available from a disposable
 older-version selection (`build/updates-public-release-04.log`). Linux acceptance
-remains assigned to Linux. Development now uses `2026091505`; it has not been
-packaged or published.
+remains assigned to Linux.
+
+Current stable Windows build `2026091505` was published with user approval on
+2026-09-15 at 15:00:15 UTC:
+[GitHub release](https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026091505).
+The clean tagged source is commit `a2a5b1a6910e8d938bc493d45c8a9ab4140f04be`.
+The signed ZIP, native smoke, bootstrap trust and packaged AI/Updates Settings
+checks passed, and all remote asset hashes match the accepted files. The previous
+production updater offers the new build as installable and passed a public
+download/preparation check in a disposable signed `2026091504` installation.
+Shared settings, the test project and the selected previous version were preserved;
+the prepared update was not activated. See
+[2026091505 acceptance](doc/NATIVE_DISTRIBUTION.md#signed-windows-build-2026091505)
+for the exact hash, byte size and logs. The development BAT keeps its current
+local build; release publication does not switch its launcher.
 
 ## Application updates
 
@@ -174,7 +187,7 @@ then continue Sketcher offsets, especially external and STEP source curves.
 Updater implementation, Windows signed-bundle acceptance and the explicitly
 approved publication are complete. The user then prioritized AI integration in
 the console, following ZIMA-CAD-Parts, with the active Part/Assembly/Drawing tab as
-context. That integration is implemented in development build `2026091505`.
+context. That integration is implemented and published for Windows in `2026091505`.
 Live authenticated AI behavior remains to be tried after the user signs in through
 Settings > AI. Modeling work subsequently returns to Sketcher offsets.
 

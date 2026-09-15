@@ -124,7 +124,10 @@ The first signed Windows release,
 is now public. Its accepted archive and signed manifest are immutable. Linux can
 publish independently under a new build ID after Linux runtime validation.
 
-Development build `2026091505` adds the [AI console](AI_CONSOLE.md). The CMake
+The signed Windows release
+[2026091505](https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026091505)
+adds the [AI console](AI_CONSOLE.md). Its native smoke, signed archive and packaged
+Settings checks passed; this does not establish Linux support. The CMake
 `zima_ai` target uses existing Qt Core/Gui dependencies, AUTOMOC and a bundled
 engineering-reasoning resource. Codex remains a separately installed optional
 native executable; do not bundle accounts or a developer's Codex profile.

@@ -188,8 +188,8 @@ switch selection after application exit and preserve all shared user data.
 - Build/verify the native Linux dependencies and launcher on the Linux host.
 - Platforms may publish independently. If combined, their commits must match;
   published archives are immutable and adding a platform later requires a new ID.
-- The first signed Windows distribution is prepared and verified (see below).
-  Publishing the three immutable assets remains a separate release action.
+- Signed Windows releases `2026091504` and `2026091505` are verified and public
+  (see below). Future publication remains an explicit release action.
 - Run the updater's Linux execution and desktop acceptance on Linux.
 - Binary rollback does not promise backward compatibility of native documents.
 
@@ -197,6 +197,54 @@ See [binding requirements](DISTRIBUTION_CLEANUP_PLAN.md) and
 [Linux handoff](LINUX_RELEASE_HANDOFF.md).
 
 ## Windows verification on 2026-09-15
+
+### Signed Windows build 2026091505
+
+Tag `ZIMA-CAD-2026091505` identifies commit
+`a2a5b1a6910e8d938bc493d45c8a9ab4140f04be`. A clean detached checkout supplied
+the builder and signing finalizer. Reused compilation first verified the previous
+staged source against its Git commit; the new source came exclusively from Git.
+The unrelated working image remained outside the package.
+
+The candidate and finalized signed ZIP passed path, collision, CRC, SHA-256 and
+native Windows smoke gates. Those checks cover launcher/GUI/CLI identities,
+a saved and reopened 6000 mm3 Part, PDF/JPEG export and rendered GUI startup.
+Seven source/archive tests and seven publisher input-gate tests also passed.
+A fresh signed extraction passed production bootstrap trust and the packaged
+AI/Updates Settings GUI contract with developer SDK paths removed from PATH.
+Its runtime remained trusted after the GUI check. The AI Settings capture was
+visually inspected; account credentials and the optional Codex runtime are not
+included in the archive.
+
+Accepted assets are under `.dist-output/release-2026091505/`:
+
+- `ZIMA-CAD-2026091505.zip` (70,188,092 bytes).
+- `update-manifest.json` and `update-manifest.sig`.
+- `ZIMA-CAD-2026091505.validation.json` is the local acceptance record.
+
+Signed ZIP SHA-256:
+
+```text
+3d175520348db1c1441e0d46b12d3b76b88fbd08a325e86d82baee18261cbbe1
+```
+
+All three GitHub asset names, sizes and SHA-256 digests matched the accepted
+local files before the user-approved publication. The
+[Windows release](https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026091505)
+became the latest stable release on 2026-09-15 at 15:00:15 UTC. The existing signed
+`2026091504` production updater offers `2026091505` as installable.
+In a disposable signed `2026091504` installation, that same production helper
+downloaded the public ZIP, verified it and reached `prepared` for `2026091505`.
+Shared configuration, a test project and the selected `2026091504` launcher entry
+remained byte-identical. The old runtime remained trusted. This public check stops
+at preparation; it does not claim a live activation or rollback of this release.
+
+Logs: `build/release-05-candidate.log`, `build/release-05-signed.log`,
+`build/release-05-acceptance.log`, `build/release-05-remote-draft.json`,
+`build/release-05-public.json`, `build/release-05-public-check.log`,
+`build/release-05-public-download.log` and `build/release-05-public-acceptance.json`.
+The release notes are [2026091505](releases/2026091505.md). Development still uses
+the repository-root `zima-cad.bat`; this release does not redirect it.
 
 ### Signed Windows build 2026091504
 

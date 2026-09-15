@@ -2,7 +2,7 @@
 
 ## User workflow
 
-Settings contains **General** and **Updates** sections in the existing internal
+Settings contains **General**, **Updates** and **AI** sections in the existing internal
 properties window. Updates shows the running build, retained previous build,
 available build, plain-text release notes, download size, progress and errors.
 
@@ -218,4 +218,17 @@ version selection and returned `available` for `2026091504`
 (`build/updates-public-release-04.log`). See
 [signed build acceptance](NATIVE_DISTRIBUTION.md#signed-windows-build-2026091504)
 for hashes, locations and the distinction from an upgrade between two installed
-production releases. AI development build `2026091505` is not a published update.
+production releases.
+
+The following Windows release,
+[2026091505](https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026091505),
+was published with user approval on 2026-09-15 at 15:00:15 UTC. Its candidate and
+final signed archive passed the same native smoke and archive gates; a fresh
+extraction also passed the packaged AI/Updates Settings contract and production
+bootstrap verification. Remote asset hashes matched the accepted local files.
+The production updater from signed version `2026091504` verified the public
+manifest, offered `2026091505` as installable and downloaded/prepared the public
+archive in a disposable installation. Shared settings, the test project and the
+selected previous version were preserved. This public test did not activate or
+roll back the prepared update. Exact archive identity and logs:
+[signed build acceptance](NATIVE_DISTRIBUTION.md#signed-windows-build-2026091505).
