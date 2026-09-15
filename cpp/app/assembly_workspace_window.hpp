@@ -93,6 +93,7 @@ public:
 
 private:
     QDialog* mass_properties_dialog_{};
+    bool mass_properties_origin_inspected_{};
     QAction* mass_properties_action_{};
     void show_mass_properties(const std::string& id = {});
     void update_mass_properties_ui();

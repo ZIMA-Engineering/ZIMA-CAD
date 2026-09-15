@@ -627,6 +627,7 @@ void AssemblyWorkspaceWindow::create_layout() {
         sketch_offset_action_->setEnabled(!active_sketch_id_.empty() && !properties_dialog_);
     });
     viewer_->set_empty_confirmation_callback([this] {
+        if(mass_properties_dialog_){viewer_->confirm_origin(mass_properties_dialog_->property("centroidOriginId").toString().toStdString(),{});return;}
         if(measurement_dialog_){tree_->clearSelection();return;}
         assembly_dimension_path_.clear();update_assembly_dimension_visibility();
         clear_selected_sketch_geometry();
@@ -1586,8 +1587,15 @@ void AssemblyWorkspaceWindow::create_layout() {
     });
     const auto synchronize_tree_selection = [this] {
             if(measurement_dialog_||mass_properties_dialog_)return;
-            if(auto* item=tree_->currentItem();item&&item->data(0,Qt::UserRole+3).toString().startsWith("body-properties")){
-                viewer_->clear_selection();return;
+            if(mass_properties_origin_inspected_){mass_properties_origin_inspected_=false;viewer_->set_editing_origin_visible(false);}
+            if(auto* item=tree_->currentItem();item&&item->isSelected()&&item->data(0,Qt::UserRole+3).toString().startsWith("body-properties")){
+                const bool origin=item->data(0,Qt::UserRole+3)=="body-properties-origin";
+                const auto id=item->data(0,origin?Qt::UserRole+5:Qt::UserRole).toString().toStdString()+":origin";
+                viewer_->clear_selection();
+                if(std::ranges::any_of(viewer_->mesh().points,[&](const auto& p){return p.reference.owner_id==id;})){
+                    mass_properties_origin_inspected_=true;viewer_->set_editing_origin_visible(true);viewer_->confirm_origin(id,{});
+                }
+                return;
             }
             if(auto* item=tree_->currentItem();item&&item->data(0,Qt::UserRole+3)=="document-measurement"){
                 viewer_->clear_selection();return;

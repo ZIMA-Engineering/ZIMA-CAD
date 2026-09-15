@@ -9,7 +9,7 @@ void AssemblyWorkspaceWindow::show_mass_properties(const std::string& object) {
     if(properties_dialog_||tree_edit_dialog_||!section_dialog_.isNull())return;
     const auto id=workspace_.displayed_document_id();
     workspace::BodyPropertiesEdit edit;
-    try{edit=workspace::prepare_body_properties_edit(workspace_,id,object,tr("Vlastnosti tělesa").toStdString());}
+    try{edit=workspace::prepare_body_properties_edit(workspace_,id,object,tr("Měření tělesa").toStdString());}
     catch(const std::exception& e){state_->setText(tr(e.what()));return;}
     cancel_sketch_segment();const auto& part=*workspace_.open_part(id);const auto& doc=part.session.document();
     auto input=std::make_shared<kernel::ViewerMesh>();
@@ -21,9 +21,12 @@ void AssemblyWorkspaceWindow::show_mass_properties(const std::string& object) {
         }
     }catch(const std::exception&){} // A broken record remains editable and removable.
     const auto preview=[this,input](const document::BodyProperties& row){
-        auto mesh=*input;append_mesh(mesh,document::body_properties_origin(row));
+        auto shown=row;shown.visible=true;
+        auto mesh=*input;append_mesh(mesh,document::body_properties_origin(shown,tr("Těžiště").toStdString()));
         viewer_->set_mesh(std::move(mesh),false);
+        viewer_->set_editing_origin_visible(true);
         viewer_->set_candidate_filter([](const auto&){return false;});
+        viewer_->confirm_origin(row.id+":origin",{});
     };
     const auto* body=doc.body_history.find(edit.initial.body_id);
     const auto scope=body?QString::fromStdString(body->name):tr("Celý díl");
@@ -31,14 +34,16 @@ void AssemblyWorkspaceWindow::show_mass_properties(const std::string& object) {
         [this,edit](auto value){try{static_cast<void>(workspace::commit_body_properties(workspace_,edit,std::move(value)));}
             catch(const std::exception& e){throw std::runtime_error(tr(e.what()).toStdString());}},preview,this);
     mass_properties_dialog_=dialog;properties_dialog_=dialog;
+    dialog->setProperty("centroidOriginId",QString::fromStdString(edit.initial.id+":origin"));
     viewer_->clear_selection();tree_->clearSelection();tree_->setProperty("commandSelectionActive",true);
     viewer_->set_dimension_layout_editable(false);
     connect(dialog,&QDialog::finished,this,[this,dialog,id,object=edit.initial.id](int result){
         if(mass_properties_dialog_!=dialog)return;
         mass_properties_dialog_=nullptr;if(properties_dialog_==dialog)properties_dialog_=nullptr;
         tree_->setProperty("commandSelectionActive",false);viewer_->set_candidate_filter({});viewer_->set_selection_contract({});
+        viewer_->set_editing_origin_visible(false);
         viewer_->clear_selection();preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();
-        if(result==QDialog::Accepted)for(QTreeWidgetItemIterator it(tree_);*it;++it) {
+        if(result==QDialog::Accepted&&dialog->property("bodyPropertiesSaved").toBool())for(QTreeWidgetItemIterator it(tree_);*it;++it) {
             if((*it)->data(0,Qt::UserRole+3)=="body-properties"&&(*it)->data(0,Qt::UserRole).toString().toStdString()==object) {
                 for(auto* parent=(*it)->parent();parent;parent=parent->parent())parent->setExpanded(true);
                 tree_->setCurrentItem(*it);(*it)->setSelected(true);tree_->scrollToItem(*it);break;
@@ -86,9 +91,9 @@ void AssemblyWorkspaceWindow::update_mass_properties_ui() {
         item->setIcon(0,resource_icon("body-properties"));item->setFlags(item->flags()&~Qt::ItemIsUserCheckable);
         item->setData(0,missing_reference_role,!row.error.empty());
         if(!row.error.empty()){item->setForeground(0,QColor("#d85858"));item->setToolTip(0,tr(row.error.c_str()));}
-        else item->setToolTip(0,tr("Vlastnosti tělesa v tomto místě historie."));
+        else item->setToolTip(0,tr("Měření tělesa v tomto místě historie."));
         if(!row.visible&&row.error.empty())item->setForeground(0,QColor("#888888"));
-        auto* origin=new QTreeWidgetItem(item,QStringList{tr("Origin — těžiště")});origin->setIcon(0,resource_icon("origin"));
+        auto* origin=new QTreeWidgetItem(item,QStringList{tr("Těžiště")});origin->setIcon(0,resource_icon("origin"));
         origin->setData(0,Qt::UserRole,QString::fromStdString(row.id+":origin"));origin->setData(0,Qt::UserRole+3,"body-properties-origin");
         origin->setData(0,Qt::UserRole+5,QString::fromStdString(row.id));origin->setFlags(origin->flags()&~Qt::ItemIsUserCheckable);
         if(row.integrals){const auto c=row.integrals->centroid;origin->setToolTip(0,QString("X: %1; Y: %2; Z: %3 mm").arg(c.x).arg(c.y).arg(c.z));}

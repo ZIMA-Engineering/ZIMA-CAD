@@ -166,8 +166,7 @@ try{
     check(dialog()->geometries()[0]->values.mass&&std::abs(dialog()->geometries()[0]->values.mass->value-.0471)<1e-10,"Inspector did not use material density");
     if(qEnvironmentVariableIsSet("ZIMA_MEASUREMENT_CAPTURE"))window.grab().save(qEnvironmentVariable("ZIMA_MEASUREMENT_CAPTURE"));
     dialog()->reject();flush();
-    // The mass-property feature shares one creation/edit window and the
-    // application's OK/Cancel and middle-button confirmation contract.
+    // Body measurement shares the inspector's explicit Save contract.
     auto* mass_action=window.findChild<QAction*>("massPropertiesAction");
     check(mass_action&&mass_action->isEnabled()&&!mass_action->icon().isNull(),"Body properties action missing");
     const auto mass_dialog=[&]()->MassPropertiesDialog* {
@@ -175,23 +174,38 @@ try{
         return nullptr;
     };
     mass_action->trigger();flush();check(mass_dialog(),"Body properties did not open");
+    check(mass_action->text()=="Měření tělesa"&&mass_dialog()->windowTitle()=="Měření tělesa","Body measurement is confused with Body placement properties");
     check(mass_dialog()->parentWidget()==&window&&(mass_dialog()->windowFlags()&Qt::WindowType_Mask)==Qt::SubWindow,"Body properties uses a native window");
     check(mass_dialog()->buttons()->standardButtons()==(QDialogButtonBox::Ok|QDialogButtonBox::Cancel),"Body properties has extra commit actions");
     mass_dialog()->resize(460,260);flush();
     const auto* mass_ok=mass_dialog()->buttons()->button(QDialogButtonBox::Ok);
     const auto ok_rect=QRect(mass_ok->mapTo(mass_dialog(),QPoint()),mass_ok->size());
     check(mass_ok->isVisible()&&mass_ok->isEnabled()&&mass_dialog()->rect().contains(ok_rect),"Body properties OK was clipped by results on a small window");
+    auto* mass_save=mass_dialog()->findChild<QPushButton*>("saveBodyProperties");
+    check(mass_save&&mass_save->isEnabled()&&mass_dialog()->rect().contains(QRect(mass_save->mapTo(mass_dialog(),QPoint()),mass_save->size())),"Explicit Save is missing or clipped");
     mass_dialog()->resize(460,430);flush();
     check(mass_dialog()->current().integrals&&std::abs(mass_dialog()->current().volume-6000)<1e-8,"Body properties shows wrong geometry");
+    const auto draft_id=mass_dialog()->current().id;
+    check(execute("body_properties.list").data.at("total")==0,"Opening body measurement inserted a record");
+    for(QTreeWidgetItemIterator it(tree);*it;++it)check((*it)->data(0,Qt::UserRole).toString().toStdString()!=draft_id,"Preview appeared in Tree before Save");
+    check(view->confirmed_candidate()&&view->confirmed_candidate()->owner_id==draft_id+":origin","Initial centroid preview is not azure");
     mass_dialog()->reject();flush();check(execute("body_properties.list").data.at("total")==0,"Cancel created a mass feature");
     mass_action->trigger();flush();
     click(QPointF(25,25),Qt::MiddleButton);check(mass_dialog(),"Short MMB committed mass properties");
     mouse(QEvent::MouseButtonDblClick,QPointF(25,25),Qt::MiddleButton);mouse(QEvent::MouseButtonRelease,QPointF(25,25),Qt::MiddleButton);flush();
     check(!mass_dialog(),"Double MMB over View did not confirm mass properties");
+    check(execute("body_properties.list").data.at("total")==0,"Double MMB implicitly saved a body measurement");
+    mass_action->trigger();flush();mass_dialog()->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+    check(execute("body_properties.list").data.at("total")==0,"OK implicitly saved a body measurement");
+    mass_action->trigger();flush();mass_dialog()->findChild<QPushButton*>("saveBodyProperties")->click();flush();
     const auto mass_id=execute("body_properties.list").data.at("items").at(0).at("object").get<std::string>();
     check(tree->currentItem()&&tree->currentItem()->data(0,Qt::UserRole+3)=="body-properties","Mass feature not selected in Tree");
     check_before_cursor();
     check(std::ranges::any_of(view->mesh().points,[&](const auto& p){return p.reference.owner_id==mass_id+":origin";}),"COG Origin missing from View");
+    auto* centroid_item=tree->currentItem()->child(0);check(centroid_item&&centroid_item->text(0)=="Těžiště","Centroid Tree label is ambiguous");
+    tree->setCurrentItem(centroid_item);flush();
+    check(view->confirmed_candidate()&&view->confirmed_candidate()->owner_id==mass_id+":origin","Selecting centroid in Tree does not highlight its own frame");
+    click({25,25},Qt::LeftButton);check(!view->confirmed_candidate()&&tree->selectedItems().empty(),"Empty View click retained centroid selection");
     const auto mass_reopen=[&] {
         QTreeWidgetItem* item{};for(QTreeWidgetItemIterator i(tree);*i;++i)if((*i)->data(0,Qt::UserRole).toString().toStdString()==mass_id){item=*i;break;}
         check(item,"Mass row missing");window.show_tree_item_properties(item);flush();check(mass_dialog(),"Mass edit window missing");
@@ -291,7 +305,36 @@ try{
     check(dialog()->geometries()[0]&&!dialog()->findChild<QPushButton*>("saveMeasurement")->isEnabled(),
         "Inactive displayed Assembly allowed a measurement write through the active Part");
     dialog()->reject();flush();execute("component.deactivate");
-    std::cout<<"Measurement inspector picking, MMB, persistence and repair passed\n";return 0;
+    if(qEnvironmentVariableIsSet("ZIMA_BODY_MEASUREMENT_SOURCE")) {
+        const auto source=std::filesystem::path(qEnvironmentVariable("ZIMA_BODY_MEASUREMENT_SOURCE").toStdWString());
+        std::vector<kernel::BodyResult> cached;const auto source_doc=document::PartDocument::load(source,&cached);
+        const auto probe_path=directory/"centroid-source.prtz";source_doc.save(probe_path,cached);
+        check(window.open_document_path(QString::fromStdString(probe_path.string())),"Cannot open centroid source copy");flush();
+        const auto before=execute("body_properties.list").data.at("total").get<int>();
+        const auto body_before=execute("body.list").data;
+        view->set_reference_visibility(viewer::ReferenceVisibility::Origins,false);
+        mass_action->trigger();flush();check(mass_dialog(),"Source body measurement did not open");
+        const auto draft=mass_dialog()->current();check(draft.integrals&&draft.error.empty(),"Source centroid unavailable");
+        const auto c=draft.integrals->centroid;
+        check(std::abs(c.x)>1&&std::abs(c.y)>1&&std::abs(c.z)>1,"Source centroid must distinguish the Body origin");
+        const auto point=std::ranges::find_if(view->mesh().points,[&](const auto& p){return p.reference.owner_id==draft.id+":origin";});
+        check(point!=view->mesh().points.end()&&point->position==c&&point->label=="Těžiště","Source preview reused Body origin or label");
+        check(execute("body_properties.list").data.at("total")==before,"Source preview was persisted before Save");
+        click({25,25},Qt::LeftButton);
+        check(view->confirmed_candidate()&&view->confirmed_candidate()->owner_id==draft.id+":origin","Preview lost azure color on empty View click");
+        if(qEnvironmentVariableIsSet("ZIMA_MEASUREMENT_CAPTURE"))window.grab().save(qEnvironmentVariable("ZIMA_MEASUREMENT_CAPTURE")+".source.png");
+        mass_dialog()->findChild<QPushButton*>("saveBodyProperties")->click();flush();
+        check(execute("body_properties.list").data.at("total")==before+1,"Save did not insert exactly one source measurement");
+        const auto body_after=execute("body.list").data;
+        check(body_before.at("items")[0].at("placement")==body_after.at("items")[0].at("placement")&&body_before.at("items")[0].at("origin")==body_after.at("items")[0].at("origin"),"Measurement changed Body placement or identity");
+        auto* saved_origin=tree->currentItem()->child(0);tree->setCurrentItem(saved_origin);flush();
+        check(view->confirmed_candidate()&&view->confirmed_candidate()->owner_id==draft.id+":origin","Source centroid Tree selection is wrong");
+        if(qEnvironmentVariableIsSet("ZIMA_MEASUREMENT_CAPTURE"))window.grab().save(qEnvironmentVariable("ZIMA_MEASUREMENT_CAPTURE")+".source-tree.png");
+        window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+        check(document::PartDocument::load(probe_path).body_properties.size()==static_cast<std::size_t>(before+1),"Explicitly saved source measurement did not persist");
+        check(document::PartDocument::load(source).body_properties==source_doc.body_properties,"User source was modified");
+    }
+    std::cout<<"Measurement inspector picking, explicit Save, centroid preview, MMB, persistence and repair passed\n";return 0;
 }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
 }
 }

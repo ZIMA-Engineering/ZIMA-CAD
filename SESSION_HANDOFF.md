@@ -2,7 +2,35 @@
 
 ## Current application
 
-Development build **2026091511** adds **Balloons** (Czech **Pozice**) to the
+Development build **2026091512** distinguishes **Body measurement** (Czech
+**Měření tělesa**) from the existing Body container's **Body properties** dialog.
+The measured point is labelled **Center of gravity** (**Těžiště**) and its exact
+frame is highlighted in azure immediately when the inspector opens, including
+with ordinary Origins hidden. Selecting its Tree row highlights the same frame.
+Only explicit **Save** inserts or updates a measurement. OK, Cancel, window close
+and middle-button double-click close without storing pending changes, matching
+Measurement. The Body's actual Origin and placement are independent.
+See [Body measurement](doc/BODY_PROPERTIES.md).
+
+Acceptance for `2026091512`: the five targeted contracts pass (measurement
+inspector UI, shared UI, body properties, measurement commands and translations)
+in `build/body-measurement-tests.log` and
+`build/body-measurement-translations.log`. The inspector test used a temporary
+copy of `Projects/01.prtz`; the original SHA-256 remained
+`D0D6A98CD4762A9C18538ECB2101B63D408F70D7728BA4CDDD50CC861B6E7B5B`.
+GUI/CLI and affected test targets build successfully in
+`build/body-measurement-build.log`; the final GUI rebuild is recorded in
+`build/body-measurement-startup-build.log`. The source/Tree centroid captures
+listed in the feature document were visually inspected.
+
+The broader `zima_cpp_workspace_startup_contract` is **not passing**:
+`build/body-measurement-startup-tests.log` stops at
+"inserting the open Part must create an Assembly occurrence". This revision
+updates its obsolete Global Settings field-count and unsaved-tab expectations;
+the later Assembly insertion failure remains to investigate. Do not report the
+whole startup suite as passing or use it as release acceptance.
+
+Development build `2026091511` added **Balloons** (Czech **Pozice**) to the
 right Drawing toolbar. Show all labels the first BOM level, including whole
 subassemblies; Erase all retains hidden balloons and their placements. Manual
 creation, reference replacement, purple center/endpoint grips and shared
@@ -12,15 +40,15 @@ storage and PDF/DXF/JPEG output are covered in [Drawing balloons](doc/DRAWING_BA
 Measurement and Body properties now remain before Insert Here and survive later
 features in an active Body. The tree must identify the actual Body role, because
 the insertion marker carries the same object ID. Body properties offers Hide/Show
-in its context menu. Its scrollable content keeps OK/Cancel accessible in small
-windows; OK stores the centroid analysis. See [Body properties](doc/BODY_PROPERTIES.md).
+in its context menu. Scrollable results keep the footer accessible in small
+windows. The explicit Save behavior above supersedes its former OK-to-save behavior.
 
 Current formats are Part INI 26 / payload 50, Assembly INI 22 / payload 34 and
 Drawing INI 17 / payload 9. Part/Assembly start templates are unchanged in this
 revision. The root `zima-cad.bat` still launches the development executable.
 The published Windows release remains `2026091508`.
 
-Acceptance: all 15 selected GUI, CLI, native-document, rendering, translation,
+Acceptance for `2026091511`: all 15 selected GUI, CLI, native-document, rendering, translation,
 measurement and balloon contracts pass in `build/balloons-acceptance-tests.log`.
 GUI/CLI and affected test targets build successfully; final build log:
 `build/balloons-acceptance-build.log`. The CLI process fixture now follows the

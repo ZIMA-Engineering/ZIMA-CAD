@@ -1,9 +1,13 @@
-# Body properties
+# Body measurement
 
-**Body properties** (**Vlastnosti tělesa** in Czech), beside Measurement in the
+**Body measurement** (**Měření tělesa** in Czech), beside Measurement in the
 View toolbar, creates a named Part history analysis. It reports volume, surface
 area, centroid, mass and central mass inertia. Its Origin is automatically placed
 at the centroid; three rotation parameters orient its axes. Position is calculated.
+The body container's separate **Body properties** dialog continues to edit its
+placement and local Origin. Neither its identity nor its placement is changed by
+measuring the body. The measured point is labelled **Center of gravity**
+(**Těžiště**) in the View and Tree.
 
 ## History and interaction
 
@@ -12,22 +16,27 @@ at the centroid; three rotation parameters orient its axes. Position is calculat
 - Without an active Body, it measures available Part results at the current
   Body-history insertion position. Independent Bodies are summed; overlapping
   Bodies are not implicitly fused. Boolean results replace consumed operands.
-- The row appears before **Insert Here**, with an **Origin — centroid** child.
+- The row appears before **Insert Here**, with a **Center of gravity** child.
   Create records at several boundaries to compare centroid movement.
 - Regenerate refreshes records from their own boundaries. Later features do not
   affect measurements inside a Body; upstream changes update them. A whole-Part
   measurement after a Body includes that Body's current history.
 - Creation and editing use one shared internal property window, showing the
-  cached input solid at the saved boundary. Rotations preview immediately.
-  **OK** commits one Undo step. **Cancel** restores the full scene without
-  changing the record. Middle-button double click over View confirms; a short
-  middle click does not.
+  cached input solid at the saved boundary. The centroid frame appears immediately
+  in azure, including when ordinary Origins are hidden. Rotations preview immediately.
+  Only **Save** commits one Undo step and inserts or updates the history row.
+  **OK**, **Cancel**, closing the window and middle-button double-click close
+  without saving pending changes. A short middle click leaves the window open.
+  This explicit inspection contract is the same as Measurement.
+- Selecting the analysis row or its Center of gravity child highlights that exact
+  centroid frame in azure. An empty View click clears ordinary Tree/View selection.
 - Context-menu Properties, Hide/Show and Remove also work from the Origin child.
-  The visibility checkbox and Hide/Show control the same persisted display state.
-  Results scroll independently of the fixed OK/Cancel footer, so confirmation
+  The visibility checkbox and Hide/Show control the same persisted display state;
+  opening the inspector still shows its transient centroid preview.
+  Results scroll independently of the fixed Save/OK/Cancel footer, so confirmation
   remains accessible in a short window. Missing anchors or failed input
   calculations produce a red record and unavailable results; the record never
-    silently moves to the end of history.
+  silently moves to the end of history.
 
 ## Quantities
 
@@ -67,6 +76,9 @@ Older Part/Assembly formats are intentionally unsupported under repository polic
 
 ## CLI
 
+The GUI rename does not change the `body_properties.*` command identifiers or
+the native record structure. Existing user-assigned record names are retained.
+
 | Command | Arguments |
 | --- | --- |
 | `body_properties.create` | Optional `name`, `rotation_degrees: [x,y,z]`, `visible`, `document`; uses the insertion position |
@@ -105,3 +117,28 @@ Hide/Show and the centroid overlay; a 260-pixel-high dialog keeps OK accessible.
 These checks pass with the other 14 selected contracts in
 `build/balloons-acceptance-tests.log`. The centroid-window capture is
 `build/balloons-measurement-ui.png.mass.png`.
+
+Build **2026091512** separates Body measurement from Body placement properties.
+The inspector regression checks the explicit Save action, no history insertion
+on opening, OK, Cancel or middle-button double-click, an immediately confirmed
+centroid preview, exact Tree selection and clearing selection on an empty View
+click. The Save footer remains accessible at a dialog height of 260 pixels.
+
+Setting `ZIMA_BODY_MEASUREMENT_SOURCE` exercises the same workflow on a temporary
+copy of a native Part. The inspected `Projects/01.prtz` has a centroid near
+(5.564568, -1.918716, -2.026137) mm, distinct from its Body Origin at (0, 0, 0).
+With ordinary Origins hidden, its transient centroid is still shown in azure.
+Save creates exactly one record, preserves Body placement and identity, and
+survives reopening the saved copy. The original file remains unchanged.
+The captures `build/body-measurement-ui.png.source.png` and
+`build/body-measurement-ui.png.source-tree.png` were visually inspected.
+
+The five targeted contracts pass: measurement inspector UI (with the source
+copy above), shared UI, body properties, measurement commands and translations.
+Logs: `build/body-measurement-tests.log` and
+`build/body-measurement-translations.log`. GUI, CLI and the affected test targets
+build successfully in `build/body-measurement-build.log`.
+The additional workspace startup test is not passing: after updating obsolete
+settings-field and unsaved-tab expectations, it stops at Assembly insertion.
+See `build/body-measurement-startup-tests.log` and `SESSION_HANDOFF.md`.
+This does not constitute full startup-suite or portable-release acceptance.

@@ -5,6 +5,8 @@
 #include <zima/ui/properties_subwindow.hpp>
 #include <QCheckBox>
 #include <QDoubleSpinBox>
+#include <QDialogButtonBox>
+#include <QPushButton>
 #include <QFormLayout>
 #include <QLabel>
 #include <QLineEdit>
@@ -17,7 +19,7 @@ public:
     using Preview=std::function<void(const document::BodyProperties&)>;
     MassPropertiesDialog(document::BodyProperties row,const std::map<std::string,std::string>& units,
         QString scope,Save save,Preview preview,QWidget* parent)
-        :PropertiesSubWindow(tr("Vlastnosti tělesa"),parent),row_(std::move(row)),save_(std::move(save)),preview_(std::move(preview)) {
+        :PropertiesSubWindow(tr("Měření tělesa"),parent),row_(std::move(row)),save_(std::move(save)),preview_(std::move(preview)) {
         setObjectName("massPropertiesDialog");setAttribute(Qt::WA_DeleteOnClose);set_initial_size({460,430});
         length_=document::length_unit_mm(units.at("Length"));mass_=document::mass_unit_kg(units.at("Mass"));
         length_unit_=QString::fromStdString(units.at("Length"));mass_unit_=QString::fromStdString(units.at("Mass"));
@@ -38,14 +40,21 @@ public:
             connect(angle,&QDoubleSpinBox::valueChanged,this,[this,i](double value){
                 (i==0?row_.rotation_degrees.x:i==1?row_.rotation_degrees.y:row_.rotation_degrees.z)=value;refresh();preview_(current());});
         }
-        auto* show=new QCheckBox(tr("Zobrazit Origin v těžišti"));show->setObjectName("bodyPropertiesVisible");show->setChecked(row_.visible);
+        auto* show=new QCheckBox(tr("Zobrazit uložené těžiště"));show->setObjectName("bodyPropertiesVisible");show->setChecked(row_.visible);
         content->addWidget(show);connect(show,&QCheckBox::toggled,this,[this](bool on){row_.visible=on;preview_(current());});
-        auto* hint=new QLabel(tr("Poloha Origin se vypočítá z geometrie. Regenerovat aktualizuje hodnoty v tomto místě historie."));
+        auto* hint=new QLabel(tr("Těžiště je náhled. Uložit přidá měření do historie. OK nebo Zrušit zavře okno bez uložení."));
         hint->setWordWrap(true);content->addWidget(hint);content->addStretch();refresh();
+        auto* save_button=new QPushButton(tr("Uložit"),this);save_button->setObjectName("saveBodyProperties");save_button->setAutoDefault(false);
+        buttons()->addButton(save_button,QDialogButtonBox::ActionRole);
+        connect(save_button,&QPushButton::clicked,this,[this]{
+            try{save_(current());setProperty("bodyPropertiesSaved",true);accept();}
+            catch(const std::exception& e){result_->setText(QString::fromUtf8(e.what()));}
+        });
+        connect(name_,&QLineEdit::textChanged,this,[this,save_button]{save_button->setEnabled(!name_->text().trimmed().isEmpty());preview_(current());});
     }
     document::BodyProperties current()const{auto row=row_;row.name=name_->text().trimmed().toStdString();return row;}
 protected:
-    bool submit()override {save_(current());return true;}
+    bool submit()override {return true;} // Inspection closes without saving; Save is explicit.
 private:
     QString number(double x)const {return QString::fromStdString(kernel::dimension_number(x,ui::numeric_decimal_places(this)));}
     void refresh() {
@@ -60,7 +69,7 @@ private:
             lines<<tr("Hmotnost: %1").arg(number(row_.volume * *row_.density_kg_mm3/mass_)+" "+mass_unit_);
             auto t=kernel::inertia_rotate(row_.integrals->inertia,kernel::inertia_frame(row_.rotation_degrees),true);
             const double factor=*row_.density_kg_mm3/(mass_*length_*length_);
-            lines<<tr("Hmotnostní momenty v osách Origin (%1):").arg(mass_unit_+QStringLiteral("·")+length_unit_+QStringLiteral("²"));
+            lines<<tr("Hmotnostní momenty v osách těžiště (%1):").arg(mass_unit_+QStringLiteral("·")+length_unit_+QStringLiteral("²"));
             lines<<QString("Ixx: %1   Iyy: %2   Izz: %3").arg(number(t[0]*factor),number(t[4]*factor),number(t[8]*factor));
             lines<<QString("Ixy: %1   Ixz: %2   Iyz: %3").arg(number(t[1]*factor),number(t[2]*factor),number(t[5]*factor));
         }else lines<<tr("Hmotnost: není zadaná hustota materiálu.");

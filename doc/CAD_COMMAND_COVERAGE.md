@@ -8,7 +8,7 @@ direct GUI writes is complete. [Holes](HOLES.md) adds `holes.create/get/set`,
 using finite Sketch segments and a common diameter for Part subtraction.
 Family Table reference queries and instance opening, plus `component.replace`,
 cover the linked-variant workflow described in [Family Table](FAMILY_TABLE.md).
-Historical [Body properties](BODY_PROPERTIES.md) adds five commands sharing the
+Historical [Body measurement](BODY_PROPERTIES.md) adds five commands sharing the
 GUI's cached geometry, history-boundary and transaction contracts.
 [Drawing balloons](DRAWING_BALLOONS.md) adds seven commands for first-level BOM
 positions, reference repair and visibility through the same GUI transaction.

@@ -5947,12 +5947,19 @@ int verify_startup_contract(
                     global_language->findText("en") >= 0 &&
                     global_language->findText("fr") >= 0 &&
                     global_language->findText("ru") >= 0 &&
-                    global_dialog->findChildren<QLineEdit*>().size() == 5 &&
                     global_dialog->findChild<QLineEdit*>(
                         "globalPathWorkingDirectory") != nullptr &&
+                    global_dialog->findChild<QLineEdit*>(
+                        "globalPathMaterials") != nullptr &&
+                    global_dialog->findChild<QLineEdit*>(
+                        "globalPathTemplates") != nullptr &&
+                    global_dialog->findChild<QLineEdit*>(
+                        "globalPathFormats") != nullptr &&
+                    global_dialog->findChild<QLineEdit*>(
+                        "globalPathLocalization") != nullptr &&
                     global_buttons != nullptr &&
                     global_buttons->buttons().size() == 2,
-                "Global Settings must implement the Python startup contract")) {
+                "Global Settings must expose the five configured paths and shared confirmation actions")) {
         return 1;
     }
     global_buttons->button(QDialogButtonBox::Cancel)->click();
@@ -6012,7 +6019,7 @@ int verify_startup_contract(
     if (!create_document(QStringLiteral("part"),
                          part_name + QStringLiteral(".prtz")) ||
         !verify(tabs->count() == 1 &&
-                    tabs->tabText(0) == part_name + QStringLiteral(".prtz"),
+                    tabs->tabText(0) == part_name + QStringLiteral(".prtz *"),
                 "new Part must open in the common document tabs") ||
         !verify(splitter->isVisible() && box->isEnabled() && tools_toolbar->isVisible(),
                 "Part workspace and Modeling commands must become visible") ||
@@ -8009,7 +8016,7 @@ int verify_startup_contract(
     auto* insert_menu = window.findChild<QMenu*>("insertComponentMenu");
     if (!verify(tabs->count() == 2 &&
                     tabs->tabText(tabs->currentIndex()) ==
-                        assembly_name + QStringLiteral(".asmz"),
+                        assembly_name + QStringLiteral(".asmz *"),
                 "New Assembly must become a visible second document") ||
         !verify(insert != nullptr && insert->isEnabled() && insert_menu != nullptr,
                 "calculated open Part must be insertable into the Assembly") ||
@@ -8274,7 +8281,7 @@ int verify_startup_contract(
         }
         if (!verify(tabs->count() == 3 &&
                         tabs->tabText(tabs->currentIndex()) ==
-                            nested_assembly_name + QStringLiteral(".asmz"),
+                            nested_assembly_name + QStringLiteral(".asmz *"),
                     "New outer Assembly must become a visible third document")) {
             return 1;
         }

@@ -45,6 +45,10 @@
   retain an `Apply` action or an intermediate Apply transaction. `OK`
   validates, calculates, commits, and closes. `Cancel` closes without
   committing the pending dialog changes.
+- Measurement and Body measurement are inspection exceptions explicitly agreed
+  with the user. Their separate **Save** action commits the record and closes;
+  OK, middle-button double-click, Cancel and the close button only close without
+  saving pending changes. Opening an inspector never inserts a history row.
 - A middle-button double-click invokes OK even while the pointer is over the
   3D view. A short middle-button click does not commit a dialog. Middle-button
   drag is reserved for view navigation and must not confirm a dialog.

@@ -99,10 +99,11 @@ BodyProperties evaluate_body_properties(const PartDocument& doc,const std::vecto
 void refresh_body_properties(PartDocument& doc,const std::vector<kernel::BodyResult>& calculated) {
     for(auto& row:doc.body_properties)row=evaluate_body_properties(doc,calculated,std::move(row));
 }
-kernel::ViewerMesh body_properties_origin(const BodyProperties& row) {
+kernel::ViewerMesh body_properties_origin(const BodyProperties& row,const std::string& label) {
     if(!row.integrals||!row.error.empty()||!row.visible)return {};
     PartDocument carrier;carrier.document_id=row.id;carrier.name=row.name;
     auto mesh=carrier.origin_viewer_mesh();const auto r=kernel::inertia_frame(row.rotation_degrees);const auto c=row.integrals->centroid;
+    for(auto& p:mesh.points)p.label=label;
     const auto point=[&](kernel::Vec3& p){p=kernel::inertia_transform(r,p);p.x+=c.x;p.y+=c.y;p.z+=c.z;};
     const auto transform=[&](auto& geometry) {
         for(auto& p:geometry.vertices)point(p);
@@ -112,7 +113,7 @@ kernel::ViewerMesh body_properties_origin(const BodyProperties& row) {
     };
     transform(mesh);transform(mesh.original_references);return mesh;
 }
-kernel::ViewerMesh body_properties_origins(const PartDocument& doc) {
+kernel::ViewerMesh body_properties_origins(const PartDocument& doc,const std::string& label) {
     kernel::ViewerMesh result;
     for(const auto& row:doc.body_properties) {
         try {
@@ -126,7 +127,7 @@ kernel::ViewerMesh body_properties_origins(const PartDocument& doc) {
             }else if(!doc.history_order.empty()) {
                 if(boundary(doc.history_order,row.after_object_id)>doc.effective_history_cursor())continue;
             }
-            auto mesh=body_properties_origin(row);
+            auto mesh=body_properties_origin(row,label);
             result.points.insert(result.points.end(),mesh.points.begin(),mesh.points.end());
             result.axes.insert(result.axes.end(),mesh.axes.begin(),mesh.axes.end());
             result.edges.insert(result.edges.end(),mesh.edges.begin(),mesh.edges.end());
