@@ -61,6 +61,7 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_WORK_PLANE_ONLY")) return verify_work_plane_ui(application,window,directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_ROTATION_HANDLE_ONLY")) return verify_rotation_handle_ui(application,window,directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_HOLES_ONLY")) return verify_holes_ui(application,window,directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_EDGE_TREATMENT_ONLY")) return verify_edge_treatment_ui(application,window,directory);
     const auto check=[](bool condition,const char* message){if(!condition)throw std::runtime_error(message);};
     const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
     const auto run=[&](const QString& command){auto result=window.execute_console_command(command);if(!result.ok)throw std::runtime_error(command.toStdString()+": "+result.code+": "+result.message);return result;};

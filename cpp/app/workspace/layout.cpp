@@ -662,6 +662,9 @@ void AssemblyWorkspaceWindow::create_layout() {
     });
     viewer_->set_dimension_layout_resolver([this](const auto& reference)->std::optional<zima::kernel::DimensionLayout>{
         if (reference.instance_path==workspace_.active_occurrence_path())
+            if (const auto* dialog=dynamic_cast<PrimitivePropertiesDialog*>(properties_dialog_))
+                if (const auto layout=dialog->pending_dimension_layout(reference)) return layout;
+        if (reference.instance_path==workspace_.active_occurrence_path())
             if (const auto* dialog=dynamic_cast<SketchPropertiesDialog*>(properties_dialog_))
                 if (const auto layout=dialog->pending_dimension_layout(reference)) return layout;
         if(reference.owner_id==active_sketch_id_ &&

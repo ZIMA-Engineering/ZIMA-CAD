@@ -7,4 +7,5 @@ int verify_command_console(QApplication&,AssemblyWorkspaceWindow&,const std::fil
 int verify_work_plane_ui(QApplication&,AssemblyWorkspaceWindow&,const std::filesystem::path&);
 int verify_rotation_handle_ui(QApplication&,AssemblyWorkspaceWindow&,const std::filesystem::path&);
 int verify_holes_ui(QApplication&,AssemblyWorkspaceWindow&,const std::filesystem::path&);
+int verify_edge_treatment_ui(QApplication&,AssemblyWorkspaceWindow&,const std::filesystem::path&);
 }

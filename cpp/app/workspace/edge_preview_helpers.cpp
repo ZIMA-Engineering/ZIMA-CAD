@@ -197,6 +197,8 @@ std::optional<EdgeTreatmentSection> edge_treatment_section(
         point, *second_direction, second_distance);
     result.first_distance = first_distance;
     result.second_distance = second_distance;
+    result.plane_normal = zima::kernel::dimension_unit(
+        zima::kernel::dimension_cross(*first_direction, *second_direction));
     if (!fillet) {
         result.wire.points = {result.first_tangent, result.second_tangent};
         return result;
@@ -396,6 +398,7 @@ EdgeTreatmentPreviewGeometry edge_treatment_preview_wire(
                     dimension.reference = {owner_id,
                         std::string{"parameter:"} + key, {}};
                     dimension.kind = zima::kernel::ViewerDimensionKind::Linear;
+                    dimension.plane_normal = first_section->plane_normal;
                     dimension.witness_first = path.edges.front().points.front();
                     dimension.witness_second = tangent;
                     const auto shift = edge_preview_difference(

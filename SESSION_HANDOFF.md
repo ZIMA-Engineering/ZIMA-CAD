@@ -2,6 +2,27 @@
 
 ## Current application
 
+Boolean split-edge repair: shared Add/Subtract topology completion assigns distinct
+parent-derived identities to disconnected edge fragments and persists their new
+endpoints for Fillet/Chamfer routes and variable R1. The original `Projects/11.prtz`
+was inspected without modification; reproductions also cover subtractive Boxes,
+asymmetric walls and multiple solids. Existing calculated documents require one
+explicit **Regenerate**. No shared placement or native file-structure change is
+involved. See [Boolean edge fragments](doc/EDGE_TREATMENT_COMMANDS.md#boolean-edge-fragments-2026-09-15).
+
+Fillet/Chamfer annotations now retain LMB confirmation on the way to their purple
+grips and after View drags. Create/edit Properties stages annotation placement and
+commits it with the feature in one Undo step; Cancel discards it. All five treatment
+modes passed actual picker/grip tests in Properties and ordinary View, including
+direct numeric edits. Chamfer distances now use their true section plane. See
+[annotation grips](doc/EDGE_TREATMENT_COMMANDS.md#fillet-and-chamfer-annotation-grips-2026-09-15).
+The missing updater translations in Czech, German, French and Russian were also
+completed; the exact catalog/placeholder contract passes for all five UI languages.
+Final GUI/CLI and all-test-target build passed, as did all 12 related contracts
+and the separate treatment-grip GUI regression. Logs and captures are linked in
+the edge-treatment documentation. These changes are in the root BAT's development
+build; the portable release candidate has not been replaced.
+
 ZIMA-CAD is a native C++/Qt application. Python, its old runtime and its packaging
 tools have been removed with the user's approval. The old migration and cutover
 checklists have been retired; previous source and documentation remain in Git.

@@ -100,6 +100,10 @@ public:
     void set_edge_groups(std::vector<EdgeGroup> groups);
     void set_edge_route_start_vertices(
         std::vector<zima::kernel::VertexReference> vertices);
+    void set_dimension_layouts(const std::vector<zima::kernel::DimensionLayoutEntry>&);
+    [[nodiscard]] const std::vector<zima::kernel::DimensionLayoutEntry>& dimension_layouts() const { return dimension_layouts_; }
+    [[nodiscard]] std::optional<zima::kernel::DimensionLayout> pending_dimension_layout(const zima::kernel::EdgeReference&) const;
+    bool set_pending_dimension_layout(const zima::kernel::EdgeReference&, zima::kernel::DimensionLayout);
     void set_edge_group_callbacks(
         std::function<void(std::size_t, std::optional<std::size_t>)> remove,
         std::function<void(std::size_t)> restore);
@@ -168,6 +172,7 @@ private:
     void show_thread_catalog_after_release();
     bool thread_catalog_pending_{};
     zima::document::HistoryContainer initial_;
+    std::vector<zima::kernel::DimensionLayoutEntry> dimension_layouts_;
     std::map<QDoubleSpinBox*, std::pair<double,double>> primitive_initial_values_;
     bool edit_mode_{};
     bool commit_required_{};

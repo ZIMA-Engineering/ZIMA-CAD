@@ -222,6 +222,29 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     const auto ring_routes=Json::array({Json{{"edges",Json::array({Json{{"owner",ring->reference.owner_id},{"key",ring->reference.semantic_key}}})}}});
     run(host,"fillet.create",{{"routes",ring_routes}});
     near(state->session.calculated_boundaries().back().volume,2000*std::numbers::pi-2*std::numbers::pi*(55./6-9*std::numbers::pi/4),1e-4);
+    // Properties commits pending geometry and annotation placement together;
+    // a layout-only edit reuses the current calculated body and has one Undo.
+    const auto treatment=state->session.document().history.back();
+    const auto volume=state->session.calculated_boundaries().back().volume;
+    kernel::DimensionLayout layout;layout.text_along=4;layout.text_outward=3;
+    const std::vector<kernel::DimensionLayoutEntry> layouts{{treatment.id,"parameter:primary",layout}};
+    const auto layout_revision=state->session.revision();
+    for(const auto& invalid:std::vector<kernel::DimensionLayoutEntry>{{"foreign","parameter:primary",layout},{treatment.id,"parameter:diameter",layout}}) {
+        bool rejected=false;
+        try {static_cast<void>(workspace::commit_edge_treatment(live,kernel,live.active_document_id(),treatment,workspace::EdgeTreatmentEditMode::Replace,{invalid}));}
+        catch(const workspace::EdgeTreatmentOperationError& error){rejected=std::string(error.code)=="invalid_reference";}
+        require(rejected&&state->session.revision()==layout_revision&&state->session.document().dimension_layouts.empty(),"Invalid annotation layout changed the document");
+    }
+    require(workspace::commit_edge_treatment(live,kernel,live.active_document_id(),treatment,workspace::EdgeTreatmentEditMode::Replace,layouts),"Layout-only edit was ignored");
+    require(state->session.document().dimension_layouts==layouts,"Layout-only edit was not stored");
+    near(state->session.calculated_boundaries().back().volume,volume);
+    require(!workspace::commit_edge_treatment(live,kernel,live.active_document_id(),treatment,workspace::EdgeTreatmentEditMode::Replace,layouts),"Unchanged layout created an Undo step");
+    run(host,"undo");require(state->session.document().dimension_layouts.empty(),"Layout-only edit did not undo in one step");
+    auto changed=treatment;changed.edge_treatment.primary_size=.75;
+    require(workspace::commit_edge_treatment(live,kernel,live.active_document_id(),changed,workspace::EdgeTreatmentEditMode::Replace,layouts),"Combined treatment edit was ignored");
+    require(state->session.document().dimension_layouts==layouts&&std::abs(state->session.calculated_boundaries().back().volume-volume)>.1,"Combined edit lost annotation or geometry");
+    run(host,"undo");require(state->session.document().dimension_layouts.empty()&&*state->session.document().find_container(treatment.id)==treatment,"Combined geometry/layout edit took multiple Undo steps");
+    near(state->session.calculated_boundaries().back().volume,volume);
 }
 }
 int main(){try{kernel::OcctKernel kernel;const auto directory=fs::temp_directory_path()/("zima-edge-commands-"+document::PartDocument::create_box_container().id);

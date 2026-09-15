@@ -1791,6 +1791,33 @@ void PrimitivePropertiesDialog::set_commit_required(bool required) {
     commit_required_ = required;
 }
 
+void PrimitivePropertiesDialog::set_dimension_layouts(
+    const std::vector<zima::kernel::DimensionLayoutEntry>& entries) {
+    dimension_layouts_.clear();
+    for (const auto& entry : entries)
+        if (entry.owner_id == initial_.id) dimension_layouts_.push_back(entry);
+}
+
+std::optional<zima::kernel::DimensionLayout> PrimitivePropertiesDialog::pending_dimension_layout(
+    const zima::kernel::EdgeReference& reference) const {
+    using Kind = zima::document::FeatureKind;
+    if ((initial_.feature_kind != Kind::Fillet && initial_.feature_kind != Kind::Chamfer) ||
+        reference.owner_id != initial_.id ||
+        (reference.semantic_key != "parameter:primary" && reference.semantic_key != "parameter:secondary" &&
+         reference.semantic_key != "parameter:treatment_angle")) return {};
+    if (const auto* layout = zima::kernel::find_dimension_layout(dimension_layouts_, reference)) return *layout;
+    return zima::kernel::DimensionLayout{0,8.0,0,0};
+}
+
+bool PrimitivePropertiesDialog::set_pending_dimension_layout(
+    const zima::kernel::EdgeReference& reference, zima::kernel::DimensionLayout layout) {
+    if (!pending_dimension_layout(reference)) return false;
+    zima::kernel::store_dimension_layout(dimension_layouts_, reference, std::move(layout));
+    set_commit_required(true);
+    notify_preview();
+    return true;
+}
+
 void PrimitivePropertiesDialog::set_preview_callback(
     std::function<void(const zima::document::HistoryContainer&)> callback) {
     preview_ = std::move(callback);

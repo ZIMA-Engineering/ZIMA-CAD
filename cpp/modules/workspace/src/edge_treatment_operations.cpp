@@ -48,7 +48,8 @@ std::vector<kernel::VertexReference> edge_treatment_route_endpoints(const std::v
     return endpoints(group_edges(edges),route);
 }
 bool commit_edge_treatment(Workspace& live,const kernel::OcctKernel& kernel,const std::string& id,
-    document::HistoryContainer feature,EdgeTreatmentEditMode mode) {
+    document::HistoryContainer feature,EdgeTreatmentEditMode mode,
+    const std::vector<kernel::DimensionLayoutEntry>& layouts) {
     using Error=EdgeTreatmentOperationError;using Parameters=document::EdgeTreatmentParameters;
     auto* state=live.open_part(id);
     if(!state)throw Error("unsupported_document","Edge treatment operations require an open Part.");
@@ -103,8 +104,18 @@ bool commit_edge_treatment(Workspace& live,const kernel::OcctKernel& kernel,cons
                 throw Error("invalid_reference","R1 must identify an endpoint of one connected open input route.");
         }
     }
-    if(stored&&*stored==feature)return false;
     const auto feature_id=feature.id;auto next=before;
+    for (const auto& entry : layouts) {
+        if (entry.owner_id != feature_id || (entry.semantic_key != "parameter:primary" &&
+            entry.semantic_key != "parameter:secondary" && entry.semantic_key != "parameter:treatment_angle"))
+            throw Error("invalid_reference", "Dimension layout does not belong to this edge treatment.");
+        kernel::store_dimension_layout(next.dimension_layouts, {entry.owner_id, entry.semantic_key, {}}, entry.layout);
+    }
+    if (stored && *stored == feature) {
+        if (next.dimension_layouts == before.dimension_layouts) return false;
+        state->session.commit(std::move(next), state->session.calculated_boundaries());
+        return true;
+    }
     if(stored)*next.find_container(feature.id)=std::move(feature);
     else {next.insert_history_entry(document::PartHistoryKind::Feature,feature.id);next.history.push_back(std::move(feature));}
     const auto& previous=state->session.calculated_boundaries();

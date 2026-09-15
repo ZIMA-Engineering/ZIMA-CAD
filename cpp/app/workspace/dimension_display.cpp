@@ -7,6 +7,12 @@ using namespace workspace_detail;
 
 void AssemblyWorkspaceWindow::commit_dimension_layout(const zima::kernel::EdgeReference& reference,zima::kernel::DimensionLayout layout) {
     if (reference.instance_path==workspace_.active_occurrence_path())
+        if (auto* dialog=dynamic_cast<PrimitivePropertiesDialog*>(properties_dialog_))
+            if (dialog->set_pending_dimension_layout(reference,layout)) {
+                viewer_->confirm_reference(reference.owner_id,reference.semantic_key,reference.instance_path,zima::viewer::CandidateKind::Dimension);
+                return;
+            }
+    if (reference.instance_path==workspace_.active_occurrence_path())
         if (auto* dialog=dynamic_cast<SketchPropertiesDialog*>(properties_dialog_))
             if (dialog->set_pending_dimension_layout(reference,layout)) {
                 viewer_->confirm_reference(reference.owner_id,reference.semantic_key,reference.instance_path,zima::viewer::CandidateKind::Dimension);
@@ -23,6 +29,7 @@ void AssemblyWorkspaceWindow::commit_dimension_layout(const zima::kernel::EdgeRe
     const auto id=workspace_.active_document_id();
     if(workspace::set_model_dimension_layout(workspace_,id,reference,std::move(layout))) {
         preserve_view_on_refresh_=true;refresh_scene();refresh_tabs();
+        viewer_->confirm_reference(reference.owner_id,reference.semantic_key,reference.instance_path,zima::viewer::CandidateKind::Dimension);
     }
 }
 void AssemblyWorkspaceWindow::show_dimension_layout_properties(const zima::viewer::ViewerCandidate& candidate) {

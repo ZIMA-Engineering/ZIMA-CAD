@@ -42,7 +42,7 @@ void AssemblyWorkspaceWindow::start_edge_treatment(
                         std::vector<std::string>) {
             try {
                 static_cast<void>(zima::workspace::commit_edge_treatment(workspace_,kernel_,part_id,std::move(committed),
-                    zima::workspace::EdgeTreatmentEditMode::Create));
+                    zima::workspace::EdgeTreatmentEditMode::Create, edge_treatment_dialog_->dimension_layouts()));
             } catch(const std::exception& error) { throw std::runtime_error(tr(error.what()).toStdString()); }
         }, this);
     properties_dialog_ = dialog;
@@ -167,7 +167,7 @@ void AssemblyWorkspaceWindow::refresh_edge_treatment_selection_ui() {
                     candidate.geometry ==
                         zima::viewer::CandidateGeometry::Display &&
                     candidate.instance_path == expected_path;
-            });
+            }, false);
     }
     for (const auto& group : pending_edge_treatment_groups_) {
         for (const auto& edge : group) {
@@ -188,6 +188,12 @@ void AssemblyWorkspaceWindow::refresh_edge_treatment_selection_ui() {
 
 void AssemblyWorkspaceWindow::refresh_edge_treatment_preview() {
     if (viewer_ == nullptr) return;
+    if (edge_treatment_dialog_) {
+        viewer_->set_dimension_layout_editable(true, [this](const auto& reference) {
+            return edge_treatment_dialog_ && reference.instance_path == workspace_.active_occurrence_path() &&
+                edge_treatment_dialog_->pending_dimension_layout(reference).has_value();
+        });
+    }
     const auto* part = workspace_.open_part(workspace_.active_document_id());
     if (!edge_treatment_selection_ || part == nullptr ||
         pending_edge_treatment_groups_.empty()) {
@@ -260,6 +266,7 @@ void AssemblyWorkspaceWindow::refresh_edge_treatment_preview() {
         *edge_treatment_selection_,
         edge_treatment_preview_owner_id_);
     viewer_->set_transient_edges(std::move(preview.edges));
+    for (auto& dimension : preview.dimensions) dimension.reference.instance_path = instance_path;
     viewer_->set_transient_dimensions(std::move(preview.dimensions));
 }
 

@@ -4019,6 +4019,16 @@ std::vector<OwnedEdge> complete_boolean_edges(
     TopExp::MapShapesAndAncestors(
         result_shape, TopAbs_VERTEX, TopAbs_FACE, vertex_faces);
 
+    // History locates descendants, but a one-to-many relation is not identity.
+    // Count distinct surviving shapes, not repeated uses in adjacent faces or
+    // descendants which a later stage removed from this result.
+    TopTools_IndexedMapOfShape actual_edges;
+    TopExp::MapShapes(result_shape, TopAbs_EDGE, actual_edges);
+    std::map<std::string, TopTools_IndexedMapOfShape> descendants;
+    for (const auto& candidate : propagated_edges)
+        if (candidate.reference.valid() && actual_edges.Contains(candidate.shape))
+            descendants[encoded_topology_reference(candidate.reference)].Add(candidate.shape);
+
     std::vector<OwnedEdge> result;
     TopTools_IndexedMapOfShape visited;
     for (TopExp_Explorer explorer(result_shape, TopAbs_EDGE);
@@ -4029,14 +4039,16 @@ std::vector<OwnedEdge> complete_boolean_edges(
 
         std::vector<EdgeReference> inherited_references;
         for (const auto& candidate : propagated_edges) {
-            if (!candidate.shape.IsSame(edge)) continue;
+            if (!candidate.reference.valid() || !candidate.shape.IsSame(edge)) continue;
             if (std::find(inherited_references.begin(),
                     inherited_references.end(), candidate.reference) ==
                 inherited_references.end()) {
                 inherited_references.push_back(candidate.reference);
             }
         }
-        if (inherited_references.size() == 1) {
+        const bool split = inherited_references.size() == 1 &&
+            descendants.at(encoded_topology_reference(inherited_references.front())).Extent() > 1;
+        if (inherited_references.size() == 1 && !split) {
             result.push_back({edge, inherited_references.front()});
             continue;
         }
@@ -4065,12 +4077,58 @@ std::vector<OwnedEdge> complete_boolean_edges(
         // the persisted key.
         std::string semantic_key = "boolean:";
         semantic_key += operation_role;
-        semantic_key += ":intersection:between:" +
+        if (split) {
+            // The parent remains recoverable from persisted ZIMA data. Boundary
+            // face ancestry distinguishes fragments even when their lengths are
+            // equal and continues to identify them when dimensions change.
+            semantic_key += ":split-edge:from:" +
+                encoded_topology_reference(inherited_references.front());
+        } else {
+            semantic_key += ":intersection";
+        }
+        semantic_key += ":between:" +
             encoded_topology_reference_set(adjacent_faces);
         semantic_key += ":ends:" +
             encoded_topology_reference_set(endpoint_supports);
         result.push_back({edge,
             EdgeReference{operation_owner, std::move(semantic_key), {}}});
+    }
+    return result;
+}
+
+std::vector<OwnedVertex> complete_boolean_vertices(
+    const TopoDS_Shape& shape, const std::vector<OwnedFace>& faces,
+    const std::vector<OwnedEdge>& edges,
+    const std::vector<OwnedVertex>& propagated,
+    const std::string& owner, std::string_view role) {
+    const TopologyReferenceIndex<FaceReference, OwnedFace> face_references(faces);
+    const TopologyReferenceIndex<EdgeReference, OwnedEdge> edge_references(edges);
+    const TopologyReferenceIndex<VertexReference, OwnedVertex> vertex_references(propagated);
+    TopTools_IndexedDataMapOfShapeListOfShape vertex_faces, vertex_edges;
+    TopExp::MapShapesAndAncestors(shape, TopAbs_VERTEX, TopAbs_FACE, vertex_faces);
+    TopExp::MapShapesAndAncestors(shape, TopAbs_VERTEX, TopAbs_EDGE, vertex_edges);
+    TopTools_IndexedMapOfShape vertices;
+    TopExp::MapShapes(shape, TopAbs_VERTEX, vertices);
+    std::map<std::string, TopTools_IndexedMapOfShape> descendants;
+    for (const auto& value : propagated)
+        if (value.reference.valid() && vertices.Contains(value.shape))
+            descendants[encoded_topology_reference(value.reference)].Add(value.shape);
+    std::vector<OwnedVertex> result;
+    for (int index = 1; index <= vertices.Extent(); ++index) {
+        const auto& vertex = vertices.FindKey(index);
+        const auto inherited = vertex_references.reference_for(vertex);
+        if (inherited.valid() && descendants.at(encoded_topology_reference(inherited)).Extent() == 1) {
+            result.push_back({vertex, inherited});
+            continue;
+        }
+        const auto support = referenced_ancestor_tokens(vertex_faces, vertex, face_references);
+        const auto incident = referenced_ancestor_tokens(vertex_edges, vertex, edge_references);
+        if (support.empty() || incident.empty()) continue;
+        std::string key = "boolean:" + std::string(role) + ":vertex";
+        if (inherited.valid()) key += ":from:" + encoded_topology_reference(inherited);
+        key += ":at:" + encoded_topology_reference_set(support);
+        key += ":edges:" + encoded_topology_reference_set(incident);
+        result.push_back({vertex, VertexReference{owner, std::move(key), {}}});
     }
     return result;
 }
@@ -6041,6 +6099,8 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                             combined.shape = fuse.Shape();
                             combined.edges = complete_boolean_edges(combined.shape, combined.faces,
                                 combined.edges, operation.owner_id, "opening");
+                            combined.vertices = complete_boolean_vertices(combined.shape, combined.faces,
+                                combined.edges, combined.vertices, operation.owner_id, "opening");
                         }
                         BRepAlgoAPI_Cut cut;
                         set_boolean_inputs(cut, result_shape, operand.shape);
@@ -6058,6 +6118,8 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                         result_shape = cut.Shape();
                         topology->edges = complete_boolean_edges(result_shape,
                             topology->faces, topology->edges, operation.owner_id, "subtract");
+                        topology->vertices = complete_boolean_vertices(result_shape, topology->faces,
+                            topology->edges, topology->vertices, operation.owner_id, "subtract");
                         owned_topology = std::move(topology);
                         for (auto& surface : technological_surfaces) {
                             if (surface.shape.IsNull()) continue;
@@ -7528,6 +7590,8 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 unified.edges = complete_boolean_edges(
                     result_shape, unified.faces, unified.edges,
                     operation.owner_id, "add");
+                unified.vertices = complete_boolean_vertices(result_shape, unified.faces,
+                    unified.edges, unified.vertices, operation.owner_id, "add");
                 owned_topology = std::make_shared<LiveCache::Topology>(
                     LiveCache::Topology{std::move(unified.faces),
                         std::move(unified.edges), std::move(unified.vertices),
@@ -7553,6 +7617,8 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 cut_topology.edges = complete_boolean_edges(
                     result_shape, cut_topology.faces, cut_topology.edges,
                     operation.owner_id, "subtract");
+                cut_topology.vertices = complete_boolean_vertices(result_shape, cut_topology.faces,
+                    cut_topology.edges, cut_topology.vertices, operation.owner_id, "subtract");
                 owned_topology = std::make_shared<LiveCache::Topology>(
                     std::move(cut_topology));
                 for (auto& surface : technological_surfaces) {

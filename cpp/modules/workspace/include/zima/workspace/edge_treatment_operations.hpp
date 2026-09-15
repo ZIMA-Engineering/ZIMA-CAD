@@ -13,7 +13,8 @@ enum class EdgeTreatmentEditMode { Create, Replace };
 [[nodiscard]] std::vector<kernel::VertexReference> edge_treatment_route_endpoints(
     const std::vector<kernel::ViewerEdge>&,const std::vector<kernel::EdgeReference>&);
 [[nodiscard]] bool commit_edge_treatment(Workspace&,const kernel::OcctKernel&,
-    const std::string& document_id,document::HistoryContainer,EdgeTreatmentEditMode);
+    const std::string& document_id,document::HistoryContainer,EdgeTreatmentEditMode,
+    const std::vector<kernel::DimensionLayoutEntry>& layouts = {});
 // Removes one persisted edge or the whole user-defined route. Returns true
 // when the last route removes the history container. Downstream calculation
 // errors then follow the existing history-delete contract and remain undoable.

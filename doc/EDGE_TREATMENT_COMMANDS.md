@@ -182,3 +182,101 @@ cases for both types and real CLI/GUI console scenarios. Translations passed sep
 **1/1** (1.43 s). Logs: `build/edge-remove-all-build.log`,
 `build/edge-remove-related-tests.log`, `build/edge-remove-translations-tests.log`.
 Catalog: **196 commands**; formats/templates unchanged.
+
+## Boolean edge fragments (2026-09-15)
+
+A through Extrusion across a hollow Part can leave multiple disconnected pieces
+of each longitudinal edge. Previously, Boolean history copied the original edge
+reference to every piece. A real 6 mm front-wall edge and a separate 6 mm rear-wall
+edge consequently shared one ID, and both Fillet and Chamfer correctly rejected
+the ambiguous selection before attempting geometry calculation. The same defect
+occurred with a subtractive Box instead of Shell and with unequal wall thicknesses.
+
+Boolean topology completion now distinguishes a surviving single edge from a
+parent with several distinct surviving edge shapes. Repeated uses of the same
+runtime shape are counted once; discarded intermediate shapes do not count.
+Each split child belongs to the dividing feature and carries the semantic role
+`boolean:<operation>:split-edge:from:` followed by its length-delimited original
+parent reference, adjacent source-face ancestry and endpoint supporting-face
+ancestry. Coordinates, lengths and OCCT enumeration positions do not define IDs.
+An unchanged single survivor retains its original reference.
+
+New Boolean vertices also receive persisted references derived from their source
+faces and incident edges. This supplies the real endpoints needed by tangent-route
+queries and explicit R1 selection for variable Fillet. A second cut can split a
+child again: its new children retain the complete parent relation, and the consumed
+parent cannot silently select either child. Query and GUI ambiguity guards remain
+in place; unresolved ancestry is never replaced by an arbitrary edge number.
+
+The shared completion runs during explicit Add/Subtract and composite opening
+calculations. It changes neither the placement solver nor ordinary original-object
+selection rules. Assembly result topology remains outside the general reference
+contract; occurrence paths continue to distinguish repeated source Parts.
+
+Existing calculated documents need **Regenerate** once to replace their saved
+edge data. Opening a document, inspecting properties or hovering does not calculate
+geometry. Native structure, file extensions and empty factory templates are
+unchanged; no migration branch or sidecar is introduced.
+
+The regression `zima_cpp_boolean_split_edge_tests` constructs open/closed Box
+cavities, an offset cavity with 4/8 mm walls, Shell, three disconnected solids and
+a solid control. It independently checks volumes, unique edges and endpoints,
+individual Fillet/Chamfer results, untouched sibling fragments, explicit variable
+R1, native save/reload, cold calculation, regeneration and cavity dimension changes.
+It also reverses independent solid construction order, splits an existing child
+again and checks a through Assembly cut across two separated hollow Part occurrences.
+
+The Windows Release build succeeded. The model suite covered 144 tests: 143
+passed on the first run, and the translation contract passed after completing
+the missing updater messages in Czech, German, French and Russian. The five
+selected GUI contracts also passed. Logs: `build/split-edges-all-build.log`,
+`build/split-edges-model-regressions.log`,
+`build/split-edges-translations-recheck.log` and
+`build/split-edges-ui-regressions.log`.
+
+Native CLI probes on the unchanged `Projects/11.prtz` resolved all 48 physical
+edges to 48 distinct identities, including 16 split children; all edges had
+persisted endpoints. Each child independently accepted Fillet and Chamfer
+(32/32 operations). Saved copies with either treatment also reopened and
+regenerated in a new CLI process. Evidence: `build/11-edges-fixed.json`,
+`build/split-treatment-probes.json` and `build/split-edge-11-verification/report.json`.
+
+## Fillet and Chamfer annotation grips (2026-09-15)
+
+LMB confirms a parameter annotation and keeps it selected while the pointer
+travels to its purple grips. The edge-selection filter no longer advances that
+confirmation on hover. An empty View click clears it; subsequent edge clicks
+still use the same command picker. Completing a model annotation drag restores
+the exact selected dimension after the scene refresh.
+
+Both creation and editing in `PrimitivePropertiesDialog` now stage treatment
+dimension layouts. The existing viewer grip renderer and mouse gestures handle
+radius R/R1/R2, Chamfer distances and the Chamfer angle. RMB during a drag cycles
+the shared presentation, and Escape restores the previous layout. The pending
+layout resolver and edit filter are restricted to the current feature and active
+occurrence. Chamfer distance dimensions explicitly carry their section plane,
+including for edges that are not parallel to the Z axis.
+
+OK passes pending layouts into the shared `commit_edge_treatment` transaction,
+so geometry and annotation placement form one Undo step. A layout-only OK reuses
+the calculated body; Cancel discards the pending layouts. Native document
+`dimension_layouts` remains the only persistence store. No new file structure,
+placement solver behavior or reference ownership rule is introduced.
+
+The GUI regression `zima_cpp_edge_treatment_ui_contract` uses actual common-picker
+clicks, pointer travel and every available grip in Properties and ordinary View.
+It covers constant/linear Fillet, equal-distance/two-distance/distance-angle
+Chamfer, creation and editing, Escape, empty selection, Cancel/OK, Undo/Redo,
+native persistence, annotation-only OK and direct numeric double-click editing.
+It passed in 58.52 s (`build/edge-grips-modes-test.log`). The command regression
+also passed with added invalid-layout ownership checks and atomic geometry/layout
+Undo (`build/edge-grips-followup-test.log`). Captures
+`Projects/test/fillet-purple-grips.png` and
+`Projects/test/chamfer-purple-grips.png` were visually inspected.
+
+The final full Windows Release build passed (`build/edge-grips-all-build.log`).
+All 12 related contracts passed in 264.02 s (`build/edge-grips-related-tests.log`),
+including Boolean fragments, edge treatments, dimension editing and layout,
+the console, Holes, work planes, shared properties and translations. The focused
+treatment-grip GUI regression passed separately as recorded above. The root
+`zima-cad.bat` launches this local build; no portable release was produced.

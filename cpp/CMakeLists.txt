@@ -400,7 +400,7 @@ include(app/workspace/sources.cmake)
 
 add_executable(zima-cad-cpp
     ${ZIMA_WORKSPACE_SOURCES}
-    app/command_console.cpp app/console_ui_verification.cpp app/holes_ui_verification.cpp app/rotation_handle_ui_verification.cpp
+    app/command_console.cpp app/console_ui_verification.cpp app/holes_ui_verification.cpp app/edge_treatment_ui_verification.cpp app/rotation_handle_ui_verification.cpp
     app/main_workspace.cpp app/appearance_dialog.cpp app/appearance_command.cpp app/section_command.cpp app/section_ui_verification.cpp app/assembly_workspace_window.cpp app/template_command.cpp app/numeric_value_lock_command.cpp app/shaft_thread_command.cpp app/derived_copy_command.cpp
     app/application_settings.cpp app/global_settings_dialog.cpp app/measurement_command.cpp app/measurement_ui_verification.cpp
     app/document_tools_dialogs.cpp app/updates_ui_verification.cpp
@@ -953,6 +953,11 @@ if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_cpp_edge_treatment_command_tests COMMAND zima_cpp_edge_treatment_command_tests)
     set_tests_properties(zima_cpp_edge_treatment_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
 
+    add_executable(zima_cpp_boolean_split_edge_tests tests/boolean_split_edge_tests.cpp)
+    target_link_libraries(zima_cpp_boolean_split_edge_tests PRIVATE zima_command_host)
+    add_test(NAME zima_cpp_boolean_split_edge_tests COMMAND zima_cpp_boolean_split_edge_tests)
+    set_tests_properties(zima_cpp_boolean_split_edge_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
+
     add_executable(zima_cpp_edge_treatment_query_tests tests/edge_treatment_query_tests.cpp)
     target_link_libraries(zima_cpp_edge_treatment_query_tests PRIVATE zima_command_host)
     add_test(NAME zima_cpp_edge_treatment_query_tests COMMAND zima_cpp_edge_treatment_query_tests)
@@ -1143,6 +1148,10 @@ if(ZIMA_BUILD_TESTS)
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_WORK_PLANE_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120)
     add_test(NAME zima_cpp_holes_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_edge_treatment_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_edge_treatment_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_EDGE_TREATMENT_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120)
     set_tests_properties(zima_cpp_holes_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_CONSOLE_ONLY=1;ZIMA_VERIFY_HOLES_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120)

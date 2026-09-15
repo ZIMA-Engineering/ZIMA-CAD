@@ -387,7 +387,8 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             if (committed.feature_kind == zima::document::FeatureKind::Fillet || committed.feature_kind == zima::document::FeatureKind::Chamfer) {
                 try {
                     static_cast<void>(zima::workspace::commit_edge_treatment(workspace_,kernel_,owner_id,std::move(committed),
-                        edit_mode?zima::workspace::EdgeTreatmentEditMode::Replace:zima::workspace::EdgeTreatmentEditMode::Create));
+                        edit_mode?zima::workspace::EdgeTreatmentEditMode::Replace:zima::workspace::EdgeTreatmentEditMode::Create,
+                        edge_treatment_dialog_->dimension_layouts()));
                 } catch (const std::exception& error) { throw std::runtime_error(tr(error.what()).toStdString()); }
                 return;
             }
@@ -1505,6 +1506,8 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         edge_treatment_hover_seed_.reset();
         viewer_->set_feature_hover_edges({});
         edge_treatment_dialog_ = dialog;
+        if (const auto* part = workspace_.open_part(owner_id))
+            dialog->set_dimension_layouts(part->session.document().dimension_layouts);
         pending_edge_treatment_edges_ =
             initial.edge_treatment.flattened_edges();
         pending_edge_treatment_groups_ = initial.edge_treatment.routes;
