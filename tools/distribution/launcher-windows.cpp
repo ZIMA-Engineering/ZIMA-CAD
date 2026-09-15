@@ -98,7 +98,13 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
         std::wstring command = quote(executable.wstring());
         for (const auto& arg : forwarded) command += L" " + quote(arg);
         STARTUPINFOW startup{}; startup.cb = sizeof(startup); PROCESS_INFORMATION process{};
-        if (!CreateProcessW(executable.c_str(), command.data(), nullptr, nullptr, TRUE, 0,
+        if (cli) {
+            startup.dwFlags |= STARTF_USESTDHANDLES;
+            startup.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+            startup.hStdOutput = GetStdHandle(STD_OUTPUT_HANDLE);
+            startup.hStdError = GetStdHandle(STD_ERROR_HANDLE);
+        }
+        if (!CreateProcessW(executable.c_str(), command.data(), nullptr, nullptr, TRUE, cli ? CREATE_NO_WINDOW : 0,
             nullptr, root.c_str(), &startup, &process)) throw std::runtime_error("Cannot start selected version");
         CloseHandle(process.hThread);
         // Keep a CLI invocation synchronous for automation and its exit code.

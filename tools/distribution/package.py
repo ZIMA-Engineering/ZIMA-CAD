@@ -189,8 +189,15 @@ def smoke(root, version, gui=True):
     selected = run([root / 'ZIMA-CAD.exe', '-Check'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15).stdout
     if Path(selected.decode('utf-8')) != runtime / 'zima-cad-cpp.exe':
         raise ValueError('Launcher selected an unexpected executable')
-    run([root / 'ZIMA-CAD.exe', '-CLI', '--', '--build-info'], cwd=project, env=env,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
+    launched = run([root / 'ZIMA-CAD.exe', '-CLI', '--', '--build-info'], cwd=project, env=env,
+                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
+    if json.loads(launched.stdout)['version'] != version:
+        raise ValueError('Launcher did not preserve the CLI protocol output')
+    launched = run([root / 'ZIMA-CAD.exe', '-CLI', '--', '--working-directory', project, '--stdin'],
+                   cwd=project, env=env, input=b'documents\n', stdout=subprocess.PIPE,
+                   stderr=subprocess.PIPE, timeout=30)
+    if not json.loads(launched.stdout)['ok']:
+        raise ValueError('Launcher did not preserve the CLI input/output pipes')
     user_config = root / 'config/config.ini'
     user_config.write_text('[UserData]\nPreserve=package-smoke\n', encoding='utf-8')
     config_before = user_config.read_bytes()
