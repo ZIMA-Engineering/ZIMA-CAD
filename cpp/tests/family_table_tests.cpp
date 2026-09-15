@@ -42,11 +42,23 @@ void test(const kernel::OcctKernel& kernel,const fs::path& directory) {
     const auto variant=workspace::open_family_instance(live,kernel,id,"Long");
     require(std::abs(volume(live,variant)-944)<1e-8 && std::abs(volume(live,id)-464)<1e-8,"Variant dimensions changed the generic or copied the wrong operand");
     require(workspace::open_family_instance(live,kernel,id,"Long")==variant && live.size()==2,"Opening a row duplicated its tab");
+    auto* held_member=live.open_part(variant);
+    for(const auto& name:{"First rename","Second rename"}) {auto model=held_member->session.document();model.name=name;held_member->session.commit(std::move(model),held_member->session.calculated_boundaries());}
+    require(workspace::family_table(live,id).instances.front().name=="Second rename","Repeated edits through the same open session lost family ownership");
+    static_cast<void>(workspace::set_family_table(live,id,table));
+    const auto previous_generation=live.open_part(variant)->session.data_generation();
+    const auto previous_revision=live.open_part(variant)->session.revision();
+    auto observing=assembly::AssemblyDocument::create_default();const auto observing_id=observing.document_id;live.add_assembly(observing);
+    const auto observing_occurrence=live.insert_open_part(observing_id,variant,"Variant");
     auto revised=table;revised.instances.front().values[length.name]="22";
     static_cast<void>(workspace::set_family_table(live,id,revised));
     require(workspace::open_family_instance(live,kernel,id,"Long")==variant&&std::abs(volume(live,variant)-1040)<1e-8,"Opening an updated row did not regenerate its existing tab");
     bool nested_rejected=false;try {auto child=live.open_part(variant)->session.document();child.family_table=document::serialize_family_table(table);live.open_part(variant)->session.commit(std::move(child),live.open_part(variant)->session.calculated_boundaries());}catch(const std::exception&){nested_rejected=true;}
     require(nested_rejected,"An instance accepted its own nested Family Table");
+    require(live.open_part(variant)->session.data_generation()>previous_generation&&live.open_part(variant)->session.revision()>previous_revision,"Family edit reset the instance revision or viewer generation");
+    live.refresh_source_geometry();
+    require(std::abs(live.open_assembly(observing_id)->session.document().find_occurrence(observing_occurrence)->calculated_source->volume-1040)<1e-8,"Assembly retained stale geometry after a family edit");
+    static_cast<void>(workspace::close_document(live,observing_id,true));
     const auto no_cut=workspace::open_family_instance(live,kernel,id,"No cut");
     const auto one=workspace::open_family_instance(live,kernel,id,"One body");
     require(std::abs(volume(live,no_cut)-968)<1e-8,"Absent cut remains");
@@ -122,6 +134,9 @@ void test(const kernel::OcctKernel& kernel,const fs::path& directory) {
     document::FamilyTable assembly_table;assembly_table.columns={"Block"};assembly_table.bindings["Block"]={"component",component,{}};assembly_table.instances={{"Empty",{{"Block","no"}}}};
     static_cast<void>(workspace::set_family_table(live,aid,assembly_table));const auto av=workspace::open_family_instance(live,kernel,aid,"Empty");
     require(live.open_assembly(av)->session.document().find_occurrence(component)->suppressed&&!live.open_assembly(aid)->session.document().find_occurrence(component)->suppressed,"Family component presence mutated owning Assembly");
+    auto* held_assembly=live.open_assembly(av);
+    for(const auto& name:{"First Assembly rename","Second Assembly rename"}) {auto model=held_assembly->session.document();model.name=name;held_assembly->session.commit(std::move(model));}
+    require(workspace::family_table(live,aid).instances.front().name=="Second Assembly rename","Repeated Assembly edits lost family ownership");
     auto changed_assembly=live.open_assembly(av)->session.document();changed_assembly.find_occurrence(component)->name="Shared component";
     live.open_assembly(av)->session.commit(std::move(changed_assembly));
     require(live.open_assembly(aid)->session.document().find_occurrence(component)->name=="Shared component","Assembly member edit did not propagate to parent");

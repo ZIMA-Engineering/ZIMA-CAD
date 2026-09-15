@@ -43,6 +43,12 @@ stable identity is the parent document ID plus the row ID. Renaming a row change
 its display name, never its identity. An instance cannot own another family;
 opening Family Table from an instance edits the parent's table and opens siblings.
 
+Corresponding features, Sketch curves and their semantic topology ancestry retain
+their identities across variants, qualified by the instance document identity.
+This does not guarantee identical resulting topology: dimensions and suppression
+can remove or split geometry. An unavailable reference must remain unresolved
+rather than silently binding to a different edge or face.
+
 - Editing a dimension or presence controlled by a column changes that instance's
   row. The generic baseline and other rows retain their values.
 - Editing a parameter outside the columns, adding/removing a feature, or changing
@@ -146,3 +152,8 @@ Acceptance logs (2026-09-15): `build/family-text-all-build.log`,
 `build/family-linked-assembly-gui-tests.log` (Part and Assembly Drawing sources).
 All selected contracts ultimately passed. The multiline Drawing capture was
 visually inspected and its PDF text was independently extracted.
+
+Follow-up session checks cover consecutive edits through the same open Part or
+Assembly instance, monotonic document revisions/viewer generations, and refreshed
+Assembly occurrence geometry without Assembly regeneration. Evidence:
+`build/family-session-generation-tests.log` and `build/family-final-gui-tests.log`.

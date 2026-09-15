@@ -301,18 +301,24 @@ bool commit_family_part(Workspace& live,const std::string& id,document::PartDocu
     std::map<std::string,document::DocumentSession> members;
     for(const auto& row:table.instances)if(rows.contains(row.id)) {
         auto next=member(base,table,row);std::vector<kernel::BodyResult> previous;
-        if(const auto* existing=std::as_const(live).open_part(next.document_id))previous=existing->session.calculated_boundaries();
+        const auto* existing=std::as_const(live).open_part(next.document_id);
+        if(existing)previous=existing->session.calculated_boundaries();
         else if(const auto old=parent->session.document().family.evaluated.find(row.id);old!=parent->session.document().family.evaluated.end())
             static_cast<void>(document::PartDocument::from_serialized(*old->second,&previous));
         auto result=evaluated_part(next,previous,kernel);
-        document::DocumentSession session(std::move(next),std::move(result));
+        auto session=existing?existing->session:document::DocumentSession(next,result);
+        if(existing)session.commit(std::move(next),std::move(result));
         base.family.evaluated[row.id]=std::make_shared<const nlohmann::json>(session.document().serialized(session.calculated_boundaries()));
         members.emplace(session.document().document_id,std::move(session));
     }
     auto prepared=parent->session;prepared.commit(std::move(base),std::move(base_calculated));
-    // All validation, calculation and allocation precedes publication.
+    // Prepared session copies retain monotonic revisions/generations for viewers and commands.
+    // Rebind routing immediately after publication for callers retaining a state pointer.
     live.open_part(owner)->session=std::move(prepared);
-    for(auto& [member_id,session]:members)if(auto* existing=live.open_part(member_id))existing->session=std::move(session);
+    static_cast<void>(live.find(owner));
+    for(auto& [member_id,session]:members)if(auto* existing=live.open_part(member_id)) {
+        existing->session=std::move(session);static_cast<void>(live.find(member_id));
+    }
     return true;
 }
 bool commit_family_assembly(Workspace& live,const std::string& id,assembly::AssemblyDocument& candidate) {
@@ -340,13 +346,17 @@ bool commit_family_assembly(Workspace& live,const std::string& id,assembly::Asse
         std::optional<assembly::AssemblyDocument> previous;
         if(!existing)if(const auto old=parent->session.document().family.evaluated.find(row.id);old!=parent->session.document().family.evaluated.end())previous=assembly::AssemblyDocument::from_serialized(*old->second);
         evaluate_assembly(next,existing?&existing->session.document():previous?&*previous:nullptr,kernel);
-        assembly::AssemblySession session(std::move(next));
+        auto session=existing?existing->session:assembly::AssemblySession(next);
+        if(existing)session.commit(std::move(next));
         base.family.evaluated[row.id]=std::make_shared<const nlohmann::json>(session.document().serialized());
         members.emplace(session.document().document_id,std::move(session));
     }
     auto prepared=parent->session;prepared.commit(std::move(base));
     live.open_assembly(owner)->session=std::move(prepared);
-    for(auto& [member_id,session]:members)if(auto* existing=live.open_assembly(member_id))existing->session=std::move(session);
+    static_cast<void>(live.find(owner));
+    for(auto& [member_id,session]:members)if(auto* existing=live.open_assembly(member_id)) {
+        existing->session=std::move(session);static_cast<void>(live.find(member_id));
+    }
     return true;
 }
 document::PartDocument family_part_source(document::PartDocument base,std::vector<kernel::BodyResult>& calculated,const std::string& expected) {
@@ -373,12 +383,13 @@ void restore_family_tabs(Workspace& live,const std::string& owner) {
                 if(!parent->session.document().family.evaluated.contains(doc.family.row_id)){close.push_back(id);return;}
                 std::vector<kernel::BodyResult> cache;
                 auto next=family_part_source(parent->session.document(),cache,id);
-                value.session=document::DocumentSession(std::move(next),std::move(cache));value.path=parent->path;
+                value.session.commit(std::move(next),std::move(cache));value.path=parent->path;
             } else {
                 const auto* parent=std::as_const(live).open_assembly(owner);
                 if(!parent->session.document().family.evaluated.contains(doc.family.row_id)){close.push_back(id);return;}
-                value.session=assembly::AssemblySession(family_assembly_source(parent->session.document(),id));value.path=parent->path;
+                value.session.commit(family_assembly_source(parent->session.document(),id));value.path=parent->path;
             }
+            static_cast<void>(live.find(id));
         }
     },state);
     for(const auto& id:close)static_cast<void>(live.remove(id));
