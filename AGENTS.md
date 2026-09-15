@@ -14,6 +14,17 @@
 - This is a binding user requirement agreed on 2026-09-15. It does not change
   the language of conversations with the user or the application's localization.
 
+## Local development launch (mandatory)
+
+- The user's normal Windows development entry point is `zima-cad.bat` in the
+  repository root. Keep this name and location stable across builds and releases.
+- It launches the current local C++ build with the repository working directory.
+  Maintain this launcher when build paths change; do not require the user to
+  navigate build directories or change their normal launch path for each release.
+- Versioned portable packages use their own installation-root launcher. Creating
+  a release must not redirect the development BAT to an older packaged version.
+- This workflow was confirmed by the user on 2026-09-15.
+
 ## Property and parameter dialogs
 
 - Every newly created property, feature-parameter, or editing dialog must use

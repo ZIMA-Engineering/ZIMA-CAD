@@ -45,7 +45,12 @@ Run `tools/register-windows-file-types.ps1` after building to associate the
 current document/template extensions with this EXE for the current user.
 External launches create separate processes; [instance numbering and project
 isolation](MULTIPLE_INSTANCES.md) also apply to Window > New Window.
-The root `.bat` remains an asynchronous convenience for command-line users.
+The user's normal development entry point is `zima-cad.bat` in the repository
+root, confirmed on 2026-09-15. Its name and location remain stable. It starts
+the current local C++ executable asynchronously with the repository working
+directory; no build-directory navigation is required after each rebuild.
+Keep it working when build paths change. Portable releases retain their own
+installation-root launcher and do not replace this development entry point.
 
 
 ## Local JPEG export dependency

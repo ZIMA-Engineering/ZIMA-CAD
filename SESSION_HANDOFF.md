@@ -9,6 +9,11 @@ Use [native architecture](doc/CXX_ARCHITECTURE.md),
 [native behavior](doc/NATIVE_BEHAVIOR_CONTRACT.md) and [AGENTS.md](AGENTS.md).
 All project documentation must remain English; application localization is separate.
 
+The user's agreed Windows development entry point is the repository-root
+`zima-cad.bat`. Preserve its stable name/location and keep it targeting the current
+local build with the repository working directory. Release packaging must not
+change this daily workflow. Direct EXE navigation is not required of the user.
+
 Recent feature work is documented in [Holes](doc/HOLES.md),
 [work-plane selection](doc/WORK_PLANES.md) and the
 [Assembly rotation arm](doc/ASSEMBLY_ROTATION_HANDLE.md). The shared View toolbar
