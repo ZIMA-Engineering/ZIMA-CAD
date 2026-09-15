@@ -285,8 +285,28 @@ bool ApplicationSettings::save(QString* error) const {
         paths.insert("Paths/" + it.key(), path);
     }
     if (platform_config_path.isEmpty()) common.insert(paths);
-    else if (!paths.isEmpty() && !save_values(platform_config_path, paths, error)) return false;
-    return save_values(config_path, common, error);
+    if (platform_config_path.isEmpty() || paths.isEmpty()) return save_values(config_path, common, error);
+    const bool existed = QFileInfo::exists(platform_config_path);
+    QByteArray previous;
+    if (existed) {
+        QFile input(platform_config_path);
+        if (!input.open(QIODevice::ReadOnly)) {
+            if (error) *error = QStringLiteral("Konfiguraci cest nelze přečíst: %1").arg(platform_config_path);
+            return false;
+        }
+        previous = input.readAll();
+        if (input.error() != QFile::NoError) return false;
+    }
+    if (!save_values(platform_config_path, paths, error)) return false;
+    if (save_values(config_path, common, error)) return true;
+    // A failed OK must not leave only the path half of the edit committed.
+    bool restored = false;
+    if (existed) {
+        QSaveFile restore(platform_config_path);
+        restored = restore.open(QIODevice::WriteOnly) && restore.write(previous) == previous.size() && restore.commit();
+    } else restored = QFile::remove(platform_config_path);
+    if (!restored && error) *error += QStringLiteral("\nZměny cest nelze vrátit: %1").arg(platform_config_path);
+    return false;
 }
 
 void apply_application_translations(QApplication& application,

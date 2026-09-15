@@ -52,6 +52,13 @@ int main(int argc, char** argv) {
         require(settings.save(&error), "platform save failed");
         settings = zima::app::ApplicationSettings::load(root + "/Projects", exe);
         require(QDir::cleanPath(settings.resolved_paths["Templates"]) == root + "/config/new-templates", "edited path moved after save");
+        auto failing = settings;
+        const auto before_failure = read(failing.platform_config_path);
+        failing.configured_paths["Templates"] = "failed-change";
+        failing.config_path = root + "/config/not-a-file";
+        QDir().mkpath(failing.config_path);
+        require(!failing.save(&error), "invalid common target unexpectedly saved");
+        require(read(failing.platform_config_path) == before_failure, "failed OK left a partial path edit");
         // Switching to another complete version must use its own inherited resources.
         const auto newer = root + "/" + platform + "/2026091502";
         write(newer + "/version.json", "{}\n"); write(newer + executable_name, "fixture"); write(newer + "/config/config.ini", factory_bytes);
