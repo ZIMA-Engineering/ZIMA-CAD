@@ -130,6 +130,12 @@ selection does not edit `launcher.ini` and does not delete any other version.
 First build dependencies with `tools/build-windows.ps1`. Commit the intended
 source and updated `VERSION`. Use a new short staging directory; neither an
 existing staging tree nor an existing output ZIP is overwritten.
+To retry a package check, pass `-ReuseBuild` with the original `-Stage` and the
+desired `-Commit`. The builder first compares every staged source file against
+its previously recorded Git commit and rejects modified or unknown files. It
+then exports the selected commit, preserves unchanged source timestamps and
+lets CMake rebuild changed inputs. Assembly/extraction use new directories.
+It never overwrites an old archive.
 
 ```powershell
 ./tools/distribution/build-windows.ps1 `

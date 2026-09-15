@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(ZimaCadCpp VERSION 0.1.0 LANGUAGES CXX)
+project(ZimaCadCpp LANGUAGES CXX)
 
 file(READ "${CMAKE_SOURCE_DIR}/../VERSION" ZIMA_BUILD_ID)
 string(STRIP "${ZIMA_BUILD_ID}" ZIMA_BUILD_ID)

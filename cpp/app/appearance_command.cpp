@@ -58,7 +58,9 @@ void AssemblyWorkspaceWindow::show_body_color_dialog() {
                                 .absoluteDir()
                                 .filePath("appearances.json");
   auto palette = document::default_surface_palette();
-  QFile file(palette_path);
+  const auto factory_palette = QFileInfo(application_settings_.base_config_path)
+                                   .absoluteDir().filePath("appearances.json");
+  QFile file(QFileInfo::exists(palette_path) ? palette_path : factory_palette);
   if (file.exists())
     try {
       if (!file.open(QIODevice::ReadOnly))
@@ -84,6 +86,8 @@ void AssemblyWorkspaceWindow::show_body_color_dialog() {
                                                palette.end());
         const auto serialized = document::serialize_palette(custom);
         if (serialized != initial_custom) {
+          if (!QDir().mkpath(QFileInfo(palette_path).absolutePath()))
+            throw std::runtime_error("Nelze vytvořit adresář palety vzhledů");
           QSaveFile file(palette_path);
           if (!file.open(QIODevice::WriteOnly))
             throw std::runtime_error("Nelze uložit paletu vzhledů");

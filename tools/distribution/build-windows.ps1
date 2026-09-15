@@ -5,7 +5,8 @@ param(
     [Parameter(Mandatory=$true)][string]$Output,
     [string]$Commit = 'HEAD',
     [int]$Jobs = 4,
-    [switch]$Release
+    [switch]$Release,
+    [switch]$ReuseBuild
 )
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
@@ -24,5 +25,6 @@ $arguments = @((Join-Path $PSScriptRoot 'package.py'), 'windows', '--commit', $C
     '--toolchain', (Join-Path $taskVcpkg 'scripts/buildsystems/vcpkg.cmake'),
     '--cmake', $taskCmake, '--redist', $redist[0].FullName, '--jobs', $Jobs)
 if ($Release) { $arguments += '--release' }
+if ($ReuseBuild) { $arguments += '--reuse-build' }
 & $Python @arguments
 if ($LASTEXITCODE -ne 0) { throw "Candidate build or validation failed: $LASTEXITCODE" }

@@ -105,6 +105,32 @@ def export_source(repo, commit, destination):
             export_source(child, revision.decode(), destination / name.decode('utf-8'))
 
 
+def refresh_source(repo, previous, commit, source, stage):
+    """Reuse compilation only after verifying the old source, then export the new commit.
+
+    Unchanged file timestamps survive; changed files always come from Git objects.
+    Unknown/modified files cause failure before any source is replaced or removed.
+    """
+    with tempfile.TemporaryDirectory(prefix='verify-source-', dir=stage) as temporary:
+        expected = Path(temporary) / 'old'
+        export_source(repo, previous, expected)
+        if inventory(source) != inventory(expected):
+            raise ValueError('Existing staging source differs from its recorded Git commit')
+        current = Path(temporary) / 'new'
+        export_source(repo, commit, current)
+        incoming = {p.relative_to(current): p for p in current.rglob('*') if p.is_file()}
+        for path in list(source.rglob('*')):
+            if path.is_file() and path.relative_to(source) not in incoming:
+                if source.resolve() not in path.resolve().parents:
+                    raise ValueError('Source cleanup escapes staging')
+                path.unlink()
+        for relative, path in incoming.items():
+            target = source / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if not target.exists() or sha(target) != sha(path):
+                shutil.copy2(path, target)
+
+
 def deploy_dependencies(runtime, installed, redist, dumpbin):
     plugins = installed / 'Qt6/plugins'
     for group, names in {'platforms': ['qwindows.dll', 'qoffscreen.dll'],
@@ -144,7 +170,7 @@ def deploy_dependencies(runtime, installed, redist, dumpbin):
 
 def clean_environment(runtime):
     env = {k: v for k, v in os.environ.items() if not k.upper().startswith(('QT_', 'QML', 'CSF_', 'ZIMA_VERIFY'))}
-    windows = Path(env['SystemRoot'])
+    windows = Path(os.environ['SystemRoot'])
     env['PATH'] = os.pathsep.join(map(str, (runtime, windows / 'System32', windows)))
     return env
 
@@ -233,6 +259,8 @@ def validate_archive(archive, destination=None):
         if destination is not None:
             if destination.exists():
                 raise ValueError('Extraction requires a new directory')
+            if any(len(str(destination / m.filename).encode('utf-16-le')) // 2 > 259 for m in members):
+                raise ValueError('Choose a shorter extraction directory; full paths exceed 259 characters')
             destination.mkdir(parents=True)
             for member in members:
                 target = destination / member.filename
@@ -252,11 +280,21 @@ def package(args):
     if args.release and git(ROOT, 'rev-parse', 'ZIMA-CAD-' + version + '^{commit}').decode().strip() != commit:
         raise ValueError('Release tag must identify the packaged commit')
     stage = args.stage.resolve()
-    if stage.exists() or len(str(stage)) > 60:
+    if len(str(stage)) > 60 or (stage.exists() and not args.reuse_build):
         raise ValueError('Use a new short staging directory (at most 60 characters)')
-    stage.mkdir(parents=True)
     source = stage / 's'
-    export_source(ROOT, commit, source)
+    if args.reuse_build:
+        if not source.is_dir() or not (stage / 'b/CMakeCache.txt').is_file():
+            raise ValueError('Reuse requires the source and build of a previous candidate attempt')
+        cache = (stage / 'b/CMakeCache.txt').read_text(encoding='utf-8')
+        previous = re.search(r'^ZIMA_SOURCE_COMMIT:[^=]+=([0-9a-f]{40})$', cache, re.M)
+        home = re.search(r'^CMAKE_HOME_DIRECTORY:[^=]+=(.+)$', cache, re.M)
+        if not previous or not home or Path(home[1]).resolve() != (source / 'cpp').resolve():
+            raise ValueError('Cached build does not belong to this source staging directory')
+        refresh_source(ROOT, previous[1], commit, source, stage)
+    else:
+        stage.mkdir(parents=True)
+        export_source(ROOT, commit, source)
     build = stage / 'b'
     run([args.cmake, '-S', source / 'cpp', '-B', build, '-G', 'Ninja',
          '-DCMAKE_BUILD_TYPE=Release', '-DZIMA_BUILD_TESTS=OFF', '-DZIMA_SOURCE_COMMIT=' + commit,
@@ -264,7 +302,8 @@ def package(args):
          '-DVCPKG_MANIFEST_INSTALL=OFF',
          '-DVCPKG_INSTALLED_DIR=' + str(args.installed.resolve().parent), '-DVCPKG_TARGET_TRIPLET=x64-windows'])
     run([args.cmake, '--build', build, '--target', 'zima-cad-cpp', 'zima-cad-cli', 'zima-cad-launcher', '--parallel', str(args.jobs)])
-    root = stage / 'p/ZIMA-CAD'; runtime = root / 'windows' / version
+    assembly = Path(tempfile.mkdtemp(prefix='p-', dir=stage))
+    root = assembly / 'ZIMA-CAD'; runtime = root / 'windows' / version
     runtime.mkdir(parents=True)
     for exe in ('zima-cad-cpp.exe', 'zima-cad-cli.exe'):
         shutil.copy2(build / exe, runtime / exe)
@@ -296,11 +335,11 @@ def package(args):
     archive = output / ('ZIMA-CAD-' + version + '.zip')
     if archive.exists():
         raise ValueError('Archive already exists; use a new build ID or output directory')
-    candidate = stage / 'candidate.zip'
+    candidate = assembly / 'candidate.zip'
     with zipfile.ZipFile(candidate, 'x', zipfile.ZIP_DEFLATED, compresslevel=6) as zipped:
         for path in sorted(root.rglob('*')):
             if path.is_file(): zipped.write(path, 'ZIMA-CAD/' + path.relative_to(root).as_posix())
-    extracted = stage / 'ověření balíku'
+    extracted = assembly / 'ověření balíku'
     digest = validate_archive(candidate, extracted)
     smoke(extracted / 'ZIMA-CAD', version)
     # Validation report is outside the immutable archive. No official publication.
@@ -327,6 +366,7 @@ def main():
     build.add_argument('--dumpbin', default='dumpbin')
     build.add_argument('--jobs', type=int, default=4)
     build.add_argument('--release', action='store_true', help='Require a clean checkout and matching tag; still unsigned/unpublished')
+    build.add_argument('--reuse-build', action='store_true', help='Verify previous source against Git, export the selected commit and reuse unchanged compilation')
     validate = commands.add_parser('validate')
     validate.add_argument('archive', type=Path)
     args = parser.parse_args()
