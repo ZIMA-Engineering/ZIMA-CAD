@@ -19,6 +19,51 @@ commands::Result run(command_host::Host& host, const std::string& command, Json 
     if (!result.ok) throw std::runtime_error(command+": "+result.message);
     return result;
 }
+void verify_preview(const document::HistoryContainer& feature, const sketcher::Sketch& sketch) {
+    const auto preview=document::holes_preview(feature,sketch);
+    std::size_t cylinders=0;
+    for(const auto& segment:sketch.segments) {
+        if(segment.construction)continue;
+        ++cylinders;
+        const auto* a=sketch.find_point(segment.first_point_id),*b=sketch.find_point(segment.second_point_id);
+        const auto start=sketch.world_point(a->x,a->y),end=sketch.world_point(b->x,b->y);
+        const kernel::Vec3 delta{end.x-start.x,end.y-start.y,end.z-start.z};
+        const double length=std::hypot(delta.x,delta.y,delta.z);
+        std::size_t count=0;double low=length,high=0;
+        for(const auto& edge:preview.edges)if(edge.reference.semantic_key.starts_with("preview:holes:"+segment.id+":")) {
+            ++count;
+            for(const auto& point:edge.points) {
+                const kernel::Vec3 offset{point.x-start.x,point.y-start.y,point.z-start.z};
+                const double along=(offset.x*delta.x+offset.y*delta.y+offset.z*delta.z)/length;
+                const double radial=std::hypot(offset.x-along*delta.x/length,
+                    offset.y-along*delta.y/length,offset.z-along*delta.z/length);
+                check(std::abs(radial-feature.holes.diameter*.5)<1e-8,"Preview radius differs from drilling diameter");
+                check(along>=-1e-8 && along<=length+1e-8,"Preview exceeds the segment depth");
+                low=std::min(low,along);high=std::max(high,along);
+            }
+        }
+        check(count==6 && std::abs(low)<1e-8 && std::abs(high-length)<1e-8,"Cylinder preview has incomplete endpoints or sides");
+    }
+    check(preview.edges.size()==cylinders*6 && preview.dimensions.size()==1,"Preview includes construction geometry or duplicate diameter dimensions");
+    const auto dimension=preview.dimensions.front();
+    check(dimension.kind==kernel::ViewerDimensionKind::Diameter && dimension.value==feature.holes.diameter &&
+          dimension.reference.semantic_key=="parameter:diameter" && dimension.label_prefix=="⌀ ","Preview lost its editable diameter annotation");
+    auto reordered=sketch;std::reverse(reordered.segments.begin(),reordered.segments.end());
+    check(document::holes_preview(feature,reordered).dimensions.front().witness_first==dimension.witness_first,
+          "Reordering segments moved the diameter anchor");
+    auto reduced=sketch;
+    std::erase_if(reduced.segments,[&](const auto& segment){
+        const auto* point=reduced.find_point(segment.first_point_id);
+        return !segment.construction && reduced.world_point(point->x,point->y)==dimension.witness_first;
+    });
+    if(std::ranges::any_of(reduced.segments,[](const auto& segment){return !segment.construction;}))
+        check(document::holes_preview(feature,reduced).dimensions.front().witness_first!=dimension.witness_first,
+              "Deleted segment retained the diameter anchor");
+    reduced.segments.clear();
+    const auto empty=document::holes_preview(feature,reduced);
+    check(empty.edges.empty()&&empty.dimensions.empty(),"Empty Sketch retained a cylinder or diameter dimension");
+}
+
 void verify(const kernel::OcctKernel& kernel, fs::path directory) {
     workspace::Workspace live; command_host::Options options;
     options.settings=[] {command_host::Settings s;s.templates={fs::absolute("config/templates"),"start_part.prtz","start_assembly.asmz","Body"};return s;};
@@ -71,6 +116,7 @@ void verify(const kernel::OcctKernel& kernel, fs::path directory) {
     auto auxiliary=sketch;static_cast<void>(auxiliary.add_segment(-20,10,20,10));auxiliary.segments.back().construction=true;
     workspace::commit_holes(live,kernel,id,current,auxiliary);
     near(volume(),64000-(2*std::numbers::pi*4*40-16.*8/3));
+    verify_preview(current,auxiliary);
     // Plane rotation and translation must use the resolved Sketch frame once.
     current.placement.rotation_x=90;current.placement.absolute_rotation_x=90;current.placement.z=5;
     workspace::commit_holes(live,kernel,id,current,sketch);
@@ -78,6 +124,7 @@ void verify(const kernel::OcctKernel& kernel, fs::path directory) {
     const auto request=document::holes_request(*state->session.document().find_container(owner),resolved);
     bool vertical=false;for(const auto& child:request.children){const auto& e=std::get<kernel::ExtrusionRequest>(child);vertical=vertical||std::abs(e.direction.z)>39.9;}
     check(vertical,"Rotated Sketch did not rotate drilling axes");
+    verify_preview(current,resolved);
     run(host,"save");std::vector<kernel::BodyResult> loaded_cache;
     const auto loaded=document::PartDocument::load(state->path,&loaded_cache);
     check(loaded.find_container(owner)->holes==current.holes,"Native file lost Holes parameters");

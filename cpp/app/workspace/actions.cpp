@@ -186,8 +186,8 @@ void AssemblyWorkspaceWindow::create_actions() {
     display_mode_group_ = new QActionGroup(this);
     display_mode_group_->setExclusive(true);
     const auto display_action = [this, &make_action](
-        const QString& text, zima::viewer::DisplayMode mode) {
-        auto* action = make_action(text);
+        const QString& text, zima::viewer::DisplayMode mode, const char* icon) {
+        auto* action = make_action(text, icon);
         action->setCheckable(true);
         display_mode_group_->addAction(action);
         connect(action, &QAction::triggered, this, [this, mode] {
@@ -195,15 +195,15 @@ void AssemblyWorkspaceWindow::create_actions() {
         });
         return action;
     };
-    wire_action_ = display_action(tr("Drátový"), zima::viewer::DisplayMode::Wire);
+    wire_action_ = display_action(tr("Drátový"), zima::viewer::DisplayMode::Wire, "display-wire");
     hidden_edges_action_ = display_action(
-        tr("Skryté hrany"), zima::viewer::DisplayMode::HiddenEdges);
+        tr("Skryté hrany"), zima::viewer::DisplayMode::HiddenEdges, "display-hidden");
     no_hidden_edges_action_ = display_action(
-        tr("Bez skrytých hran"), zima::viewer::DisplayMode::NoHiddenEdges);
+        tr("Bez skrytých hran"), zima::viewer::DisplayMode::NoHiddenEdges, "display-visible");
     shaded_edges_action_ = display_action(
-        tr("Stínovaný s hranami"), zima::viewer::DisplayMode::ShadedWithEdges);
+        tr("Stínovaný s hranami"), zima::viewer::DisplayMode::ShadedWithEdges, "display-shaded-edges");
     shaded_action_ = display_action(
-        tr("Stínovaný"), zima::viewer::DisplayMode::Shaded);
+        tr("Stínovaný"), zima::viewer::DisplayMode::Shaded, "display-shaded");
     wire_action_->setObjectName("wireDisplayAction");
     hidden_edges_action_->setObjectName("hiddenEdgesDisplayAction");
     no_hidden_edges_action_->setObjectName("noHiddenEdgesDisplayAction");

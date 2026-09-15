@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-labelledby="title">
+  <title id="title">Wireframe</title>
+  <g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 2 21 6v10l-9 4-9-4V6zM3 6l9 4 9-4M12 10v10"/>
+    <path d="M12 2v10l-9 4M12 12l9 4"/>
+  </g>
+</svg>

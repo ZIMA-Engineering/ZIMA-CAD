@@ -38,6 +38,19 @@ Sketcher views confirm the normal axis/origin colors. Logs are under
 These changes are in the local development GUI/CLI build. The immutable
 `2026091503` portable candidate described below predates this repair.
 
+Holes Properties also has an analytical cyan cylinder preview and one editable
+diameter dimension attached to an existing cylinder. The anchor is recomputed
+from stable segment identities and disappears for an empty Sketch. The five
+View display modes now use distinct palette-aware cube SVG icons (wireframe,
+hidden edges, visible edges, shaded with edges, shaded). They retain the same
+actions, tooltips and display-mode behavior.
+
+This preview/icon follow-up passed the native Holes, Holes GUI and work-plane
+GUI tests (3/3) with a successful GUI/CLI build. The captured cylinder wires,
+diameter annotation and five toolbar icons were visually inspected. See
+`build/holes-preview-final-build.log`, `build/holes-preview-tests.log` and
+`Projects/test/holes-cylinder-preview.png`. No new portable release was built.
+
 ## Distribution and Linux continuation
 
 Read [the binding distribution rules](doc/DISTRIBUTION_CLEANUP_PLAN.md) and
@@ -64,6 +77,11 @@ not a GitHub release. Next distribution work is signed update/restart/rollback
 coordination and Linux acceptance on Linux.
 
 ## Work order
+
+On 2026-09-15 the user confirmed this immediate order: finish the Holes preview,
+diameter annotation and display-mode icons; then complete program updates;
+then continue Sketcher offsets, especially external and STEP source curves.
+Updater implementation remains pending; see the distribution section above.
 
 New explicit user instructions take precedence. The agreed Part sequence is in
 [ROADMAP.md](ROADMAP.md#agreed-next-steps-for-part-2026-09-06), beginning with

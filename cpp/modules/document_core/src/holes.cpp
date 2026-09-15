@@ -1,6 +1,7 @@
 #include <zima/document/holes.hpp>
 #include <algorithm>
 #include <cmath>
+#include <numbers>
 
 namespace zima::document {
 kernel::FeatureGroupRequest holes_request(const HistoryContainer& feature,
@@ -48,5 +49,70 @@ kernel::FeatureGroupRequest holes_request(const HistoryContainer& feature,
     }
     if (group.children.empty()) throw std::invalid_argument("Nakreslete alespoň jednu nekonstrukční úsečku otvoru.");
     return group;
+}
+
+kernel::ViewerMesh holes_preview(const HistoryContainer& feature,
+    const sketcher::Sketch& sketch) {
+    kernel::ViewerMesh result;
+    if (std::ranges::none_of(sketch.segments, [](const auto& segment) { return !segment.construction; }))
+        return result;
+    const auto request = holes_request(feature, sketch);
+    result.edges.reserve(request.children.size() * 6);
+    std::string dimension_segment;
+    const auto cross = [](const kernel::Vec3& a, const kernel::Vec3& b) {
+        return kernel::Vec3{a.y*b.z-a.z*b.y, a.z*b.x-a.x*b.z, a.x*b.y-a.y*b.x};
+    };
+    for (const auto& child : request.children) {
+        const auto& bore = std::get<kernel::ExtrusionRequest>(child);
+        const auto& circle = std::get<kernel::ExtrusionRequest::CircleProfile>(bore.outer_profile);
+        const double length = std::hypot(bore.direction.x, bore.direction.y, bore.direction.z);
+        const kernel::Vec3 axis{bore.direction.x/length, bore.direction.y/length, bore.direction.z/length};
+        auto radial = cross(axis, std::abs(axis.z) < 0.9 ? kernel::Vec3{0,0,1} : kernel::Vec3{0,1,0});
+        const double norm = std::hypot(radial.x, radial.y, radial.z);
+        radial = {radial.x/norm, radial.y/norm, radial.z/norm};
+        const auto tangent = cross(axis, radial);
+        // Stable choice across segment reordering, recomputed from the live
+        // draft so no stale point or segment reference survives deletion.
+        if (dimension_segment.empty() || bore.outer_boundary_id < dimension_segment) {
+            dimension_segment = bore.outer_boundary_id;
+            const kernel::Vec3 rim{circle.center.x+circle.radius*radial.x,
+                                   circle.center.y+circle.radius*radial.y,
+                                   circle.center.z+circle.radius*radial.z};
+            kernel::ViewerDimension dimension{circle.center, rim, circle.center, rim,
+                feature.holes.diameter, {feature.id, "parameter:diameter", {}}, "⌀ "};
+            dimension.kind = kernel::ViewerDimensionKind::Diameter;
+            dimension.plane_normal = axis;
+            dimension.value_lock_key = "diameter";
+            dimension.locked = feature.value_locks.contains("diameter");
+            result.dimensions.assign(1, std::move(dimension));
+        }
+        constexpr int samples = 64;
+        std::array<std::vector<kernel::Vec3>, 2> rings;
+        for (int end = 0; end < 2; ++end) {
+            auto& points = rings[end];
+            points.reserve(samples+1);
+            for (int sample = 0; sample < samples; ++sample) {
+                const double angle = 2*std::numbers::pi*sample/samples;
+                const double u = circle.radius*std::cos(angle), v = circle.radius*std::sin(angle);
+                points.push_back({circle.center.x+end*bore.direction.x+u*radial.x+v*tangent.x,
+                                  circle.center.y+end*bore.direction.y+u*radial.y+v*tangent.y,
+                                  circle.center.z+end*bore.direction.z+u*radial.z+v*tangent.z});
+            }
+            points.push_back(points.front());
+        }
+        const auto append = [&](std::vector<kernel::Vec3> points, const std::string& role) {
+            kernel::ViewerEdge edge;
+            edge.reference = {feature.id, "preview:holes:"+bore.outer_boundary_id+":"+role, {}};
+            edge.points = std::move(points);
+            result.edges.push_back(std::move(edge));
+        };
+        for (int side = 0; side < 4; ++side) {
+            const auto index = side*samples/4;
+            append({rings[0][index], rings[1][index]}, "side:"+std::to_string(side));
+        }
+        append(std::move(rings[0]), "start");
+        append(std::move(rings[1]), "end");
+    }
+    return result;
 }
 }

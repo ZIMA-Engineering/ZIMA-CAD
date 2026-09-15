@@ -112,6 +112,10 @@ Briefly remind the user of this plan when development next resumes. This is a wo
 order, not authorization to implement every feature immediately. Newer user
 instructions take precedence.
 
+On 2026-09-15 the user placed completion of program updates before resuming
+this Part sequence, after the current Holes preview, diameter annotation and
+View icon refinements. Continue with Sketcher offsets after that update work.
+
 1. **Inward/outward Sketcher offsets** with a specified distance, especially
    from imported STEP edges projected into a Sketch.
 2. **Complete and stabilize every Extrusion mode**: creation, editing, calculation,

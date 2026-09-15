@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-labelledby="title">
+  <title id="title">Shaded</title>
+  <g fill="currentColor">
+    <path d="m12 2 9 4-9 4-9-4z" fill-opacity=".18"/>
+    <path d="m3 6 9 4v10l-9-4z" fill-opacity=".4"/>
+    <path d="m12 10 9-4v10l-9 4z" fill-opacity=".7"/>
+  </g>
+</svg>

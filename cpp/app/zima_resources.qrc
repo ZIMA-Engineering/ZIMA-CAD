@@ -1,5 +1,10 @@
 <RCC>
   <qresource prefix="/zima">
+    <file alias="icons/display-wire.svg">../../resources/icons/display-wire.svg</file>
+    <file alias="icons/display-hidden.svg">../../resources/icons/display-hidden.svg</file>
+    <file alias="icons/display-visible.svg">../../resources/icons/display-visible.svg</file>
+    <file alias="icons/display-shaded-edges.svg">../../resources/icons/display-shaded-edges.svg</file>
+    <file alias="icons/display-shaded.svg">../../resources/icons/display-shaded.svg</file>
     <file alias="icons/terminal.svg">../../resources/icons/terminal.svg</file>
     <file alias="icons/holes.svg">../../resources/icons/holes.svg</file>
     <file alias="icons/measure.svg">../../resources/icons/measure.svg</file>

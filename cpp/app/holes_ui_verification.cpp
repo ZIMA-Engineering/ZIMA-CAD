@@ -82,6 +82,11 @@ int verify_holes_ui(QApplication& application, AssemblyWorkspaceWindow& window,
                   "Drilling diameter must follow the plane offset");
             return result;
         };
+        const auto diameter_dimension=[&](const std::string& feature) -> std::optional<kernel::ViewerDimension> {
+            for(const auto& dimension:view->mesh().dimensions)
+                if(dimension.reference.owner_id==feature && dimension.reference.semantic_key=="parameter:diameter")return dimension;
+            return std::nullopt;
+        };
         const auto click=[&](const QPointF& position) {
             const auto global=QPointF(view->mapToGlobal(position.toPoint()));
             QMouseEvent move(QEvent::MouseMove,position,global,Qt::NoButton,Qt::NoButton,Qt::NoModifier);
@@ -103,6 +108,7 @@ int verify_holes_ui(QApplication& application, AssemblyWorkspaceWindow& window,
         const auto exercise_sketch=[&](SketchPropertiesDialog* pending,const char* capture) {
             const auto before=pending->pending_value().first;
             pending->findChild<QPushButton*>("sketchOpenButton")->click();flush();
+            check(!diameter_dimension(before.owner_container_id),"Properties diameter remained in Sketcher");
             // Let the Sketch-normal camera animation finish before locating
             // a candidate and clicking the same screen position.
             QEventLoop alignment;QTimer::singleShot(950,&alignment,&QEventLoop::quit);alignment.exec();flush();
@@ -150,7 +156,11 @@ int verify_holes_ui(QApplication& application, AssemblyWorkspaceWindow& window,
         };
         select();action->trigger();flush();
         auto* pending=dialog();pending->findChild<QDoubleSpinBox*>("holesDiameter")->setValue(6);
+        check(diameter_dimension(owner) && diameter_dimension(owner)->kind==kernel::ViewerDimensionKind::Diameter &&
+              diameter_dimension(owner)->value==6,"Properties did not update its diameter dimension");
+        check(window.grab().save(QString::fromStdString((directory/"holes-cylinder-preview.png").string())),"Cylinder preview screenshot failed");
         pending->buttons()->button(QDialogButtonBox::Cancel)->click();flush();run("save");
+        check(!diameter_dimension(owner),"Cancelled Holes retained its preview dimension");
         check(document::PartDocument::load(file).find_container(owner)->feature_kind==document::FeatureKind::Sketch,"Cancel converted the source Sketch");
         select();action->trigger();flush();pending=dialog();
         pending->findChild<QDoubleSpinBox*>("holesDiameter")->setValue(6);
@@ -188,6 +198,7 @@ int verify_holes_ui(QApplication& application, AssemblyWorkspaceWindow& window,
         // New feature may enter Sketcher without inserting an empty history item.
         tree->clearSelection();tree->setCurrentItem(nullptr);action->trigger();flush();pending=dialog();
         const auto new_sketch=pending->pending_value().first.id;
+        check(!diameter_dimension(pending->pending_value().first.owner_container_id),"New empty Holes shows a stale diameter dimension");
         exercise_sketch(pending,"holes-new-sketch.png");
         pending->mutate_sketch(new_sketch,[](auto& s){static_cast<void>(s.add_segment(-20,10,20,10));});
         pending->buttons()->button(QDialogButtonBox::Cancel)->click();flush();run("save");

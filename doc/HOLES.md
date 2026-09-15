@@ -19,6 +19,15 @@ diameter. Ends are flat; the feature adds no drill tip, thread, or extension.
   confirm; an MMB double-click confirms even over View.
 - Editing shows the stored input before Holes. Opening Properties or entering
   Sketcher does not calculate a body. Closing restores the full history.
+- Properties show a live cyan cylinder wire for each drilling segment: two
+  circular rims and four longitudinal lines. Diameter, Sketch edits, work plane
+  and offset update this analytical preview using the existing resolved frame.
+  It shows the cutting cylinders; the solid subtraction is calculated on OK.
+- One cylinder carries an editable **diameter** dimension with the diameter
+  symbol, sharing the dialog's diameter value. Its segment is chosen by stable
+  identity, so reordering does not move it. Deleting that segment selects another
+  existing cylinder; an empty or construction-only Sketch has no diameter label.
+  The preview and dimension disappear while Sketcher is active or on Cancel.
 - Sketcher retires the property preview and offset handle while editing. Its
   axes use the normal brown plane color and its idle origin point is black;
   ordinary hover/confirmation colors remain available. Segments can attach to
@@ -82,3 +91,16 @@ Holes and Sketch-reference command tests, and the work-plane GUI contract. The
 mouse test waits for camera alignment and selects edges with a nonzero planar
 projection; an edge perpendicular to the Sketch plane cannot become a line.
 New/edit screenshots were inspected for the normal brown axes and black origin.
+
+The analytical preview contract checks radius and axial bounds against the
+Sketch endpoints, rotated/offset frames, exclusion of construction segments,
+stable dimension anchoring and reassignment/removal after segment deletion.
+The GUI contract checks the live diameter value, its diameter dimension kind,
+and retirement of the annotation during Sketcher and after Cancel.
+
+The preview follow-up passed all three targeted Windows Release tests on
+2026-09-15: native Holes commands, the Holes GUI contract, and the work-plane
+GUI contract. The GUI and CLI build passed. The cylinder preview and all five
+display-mode icons were visually inspected in the captured application views.
+Local logs: `build/holes-preview-final-build.log` and
+`build/holes-preview-tests.log`.

@@ -2,6 +2,7 @@
 #include <zima/workspace/sketch_operations.hpp>
 #include <zima/workspace/sketch_properties.hpp>
 #include <zima/workspace/holes_operations.hpp>
+#include <zima/document/holes.hpp>
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -130,6 +131,7 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
                 viewer_->set_constraint_reference_highlights({}, {});
                 viewer_->set_feature_preview_owners({});
                 viewer_->set_extent_manipulator(std::nullopt);
+                viewer_->set_transient_edges({});
                 primitive_origin_preview_mesh_.reset(); parameter_dimension_preview_.reset();
                 dialog->hide(); properties_dialog_ = nullptr;
                 active_sketch_id_ = prepared_sketch->id; selected_sketch_id_ = active_sketch_id_;
@@ -200,7 +202,7 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
                     "profile_offset",
                     sketch_offset_drag->baseline_offset + delta));
             }, [] {});
-        dialog->set_preview_callback([this, sketch_offset_drag, prepared_sketch](
+        dialog->set_preview_callback([this, sketch_offset_drag, prepared_sketch, holes_feature](
                 const zima::sketcher::Sketch& sketch,
                 const zima::document::Placement& pending_placement) {
             auto placement = pending_placement;
@@ -419,8 +421,21 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
             sketch_properties_preview_id_ = sketch.id;
             viewer_->set_feature_preview_owners(
                 {plane.entity_id, sketch.id});
+            zima::kernel::ViewerMesh drilling_preview;
+            if (holes_feature) {
+                try {
+                    drilling_preview = zima::document::holes_preview(*holes_feature, resolved_sketch);
+                    primitive_origin_preview_mesh_->dimensions.insert(
+                        primitive_origin_preview_mesh_->dimensions.end(),
+                        drilling_preview.dimensions.begin(), drilling_preview.dimensions.end());
+                } catch (const std::exception&) {
+                    // Empty or incomplete drafts have no drilling preview.
+                    // OK retains the normal feature validation and message.
+                }
+            }
             preserve_view_on_refresh_ = true;
             refresh_scene();
+            if (holes_feature) viewer_->set_transient_edges(std::move(drilling_preview.edges));
             viewer_->set_extent_manipulator(offset_manipulator);
             if (!pending_primitive_reference_index_) {
                 set_primitive_properties_dimension_selection();
@@ -459,6 +474,7 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
         viewer_->set_selection_contract({});
         viewer_->set_constraint_reference_highlights({}, {});
         viewer_->set_feature_preview_owners({});
+        viewer_->set_transient_edges({});
         viewer_->set_extent_manipulator(std::nullopt);
         viewer_->set_extent_manipulator_callbacks({}, {}, {});
         primitive_origin_preview_mesh_.reset();
