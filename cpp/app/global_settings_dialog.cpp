@@ -115,6 +115,7 @@ GlobalSettingsDialog::GlobalSettingsDialog(
         if (accepted) { if (rollback) service->rollback(); else service->restartPrepared(); }
     }, sections_);
     sections_->addTab(updates_, tr("Aktualizace"));
+    connect(this, &QDialog::finished, updates_, [this] { updates_->cancelPendingInstallation(); });
     connect(this, &QDialog::rejected, this, [] {
         if (UpdateService::get()->busy()) UpdateService::get()->cancel();
     });

@@ -112,7 +112,8 @@ releases. Current Windows native dependencies remain available in the build/vcpk
 setup. A fresh GUI/CLI build and console UI contract passed with the old runtime
 absent (see the Linux handoff for validation details).
 
-Current build ID: `2026091503`. A Windows candidate from commit
+Current build ID: `2026091504`; release notes are in
+[2026091504](doc/releases/2026091504.md). The earlier `2026091503` Windows candidate from commit
 `3d7eaaf89bdd6a8a7f47081ae587c2a8c449d6cc` passed the full package smoke and archive
 checks; the exact SHA-256, local output locations and test scope are recorded in
 [Native distribution](doc/NATIVE_DISTRIBUTION.md#windows-verification-on-2026-09-15).
@@ -126,8 +127,10 @@ official distribution and Linux acceptance remain release work.
 The 2026-09-15 update request is implemented using the current ZCP design adapted
 to native CAD/CMake. Settings has General/Updates tabs. Startup checks run in a
 background helper and expose only a small status-bar link for verified newer
-versions. Download/verification and explicit restart are separate actions; dirty
-documents or an active model edit block restart. Successful startup keeps current
+versions. One explicit Install and restart action downloads, verifies and restarts;
+dirty documents and active edits prevent both its start and the final restart.
+Cancel or closing Settings revokes that approval, including a queued restart.
+Cached preparation alone never activates a build. Successful startup keeps current
 plus previous per platform, with signed-inventory checks before cleanup/rollback.
 Root launchers recover interrupted selection and GUI/CLI processes register their
 runtime lifetimes. No other CAD process is forcibly stopped.

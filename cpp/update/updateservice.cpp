@@ -92,7 +92,7 @@ void UpdateService::run(const QString &command, const QStringList &arguments)
     m_process.start(zimaUpdateExecutable(), args);
     emit changed();
 }
-void UpdateService::check() { if (!m_busy) { m_offer = {}; run("check"); } }
+void UpdateService::check() { if (!m_busy) { m_offer = {}; m_preparedVersion.clear(); run("check"); } }
 void UpdateService::install()
 {
     if (m_busy || !m_offer["installable"].toBool()) return;

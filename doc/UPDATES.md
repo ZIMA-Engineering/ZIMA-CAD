@@ -7,14 +7,20 @@ properties window. Updates shows the running build, retained previous build,
 available build, plain-text release notes, download size, progress and errors.
 
 - **Check** requests the public ZIMA-Engineering/ZIMA-CAD GitHub Releases feed.
-- **Download update** downloads and verifies the offered version. The application
-  stays open; preparation alone never authorizes activation.
-- **Install and restart** confirms Settings through its normal OK action, then
-  starts the installer and closes the application. Save or close unsaved Part,
-  Assembly and Drawing documents and finish active model edits first.
+- **Install and restart** authorizes the offered build, downloads and verifies it,
+  confirms Settings through its normal OK action, then starts the installer and
+  closes the application. One click completes this sequence; no second download
+  confirmation is needed. Save or close unsaved Part, Assembly and Drawing
+  documents and finish active model edits first. The guard is checked both before
+  downloading and immediately before restarting. A document edited during the
+  download blocks restart and leaves the verified build ready for an explicit retry.
 - **Return to previous version** verifies the retained runtime and restarts it.
 - **Cancel download** stops only the owned download/preparation helper. Cancel
   in Settings discards pending preferences and cancels an active download.
+  Closing Settings, including its ordinary OK action, revokes a pending automatic
+  restart before deferred widget deletion. Cancel also revokes a restart already
+  queued by successful verification. Cached prepared files never authorize a later
+  activation; reopening Settings requires another explicit install action.
 
 The startup check is asynchronous, delayed by 1.5 seconds and enabled by default.
 Only a verified newer version produces a small link in the status bar. Clicking
@@ -112,8 +118,9 @@ preparation preserves the archive's path budget rather than adding a deep prefix
 Requests use HTTPS, a restricted GitHub host allowlist, bounded redirects/timeouts,
 ETag caching and rate-limit backoff. A highest-verified-version record detects a
 missing or older catalog. Discovery/cache state is disposable application cache
-data, not model data or a registry-based preference store. Failed rechecks clear
-the live offer; downloading rechecks the release before fetching its archive.
+data, not model data or a registry-based preference store. A new check retires the
+previous prepared offer; failed rechecks clear the live offer. Downloading rechecks
+the release before fetching its archive.
 
 `cpp/update/trusted-keys.json` embeds the same **public publisher key** currently
 used by ZCP (`zcp-8fa1f825cbde5d81`). CAD manifests are product-bound and ZCP
@@ -173,7 +180,11 @@ Windows fixtures exercise signed discovery, download, install, rollback, startup
 failure/recovery, live-instance blocking, two-version retention, source sharing,
 tampering, path rejection, interrupted imports and independent platform publishing.
 GUI verification checks the internal Settings page, silent initial state,
-Cancel/OK preference semantics and unsaved-document restart protection. Linux
+Cancel/OK preference semantics, one-action installation, release notes/progress,
+exact-build approval, cancellation before/after preparation, closing Settings,
+failure/retry, explicit rollback and unsaved-document protection at both ends
+of the download. Presentation-only test callbacks drive the actual Qt controls;
+production still uses the authenticated helper without test trust overrides. Linux
 fixture manifests test protocol handling only; they do not establish Linux runtime
 or desktop compatibility. No official update was published during implementation.
 
@@ -185,3 +196,12 @@ Logs: `build/updates-accepted-engine.log`, `build/updates-accepted-longpath.log`
 `build/updates-accepted-package.log`, `build/updates-accepted-publisher.log`,
 `build/updates-accepted-native.log` and `build/updates-live-check.log`.
 The GUI capture `Projects/test/updates-settings.png` was visually inspected.
+
+The one-action UI follow-up passed all 23 lifecycle/signature cases, seven
+archive/source tests, seven publisher input-gate tests and five native contracts
+(Updates GUI, shared dialogs, translations, portable settings and CLI processes).
+The final Updates GUI rerun also covers retry after Settings validation and
+immediate cancellation of an already queued restart. Evidence:
+`build/updates-release-engine.log`, `build/updates-release-package.log`,
+`build/updates-release-publisher.log`, `build/updates-one-action-native.log` and
+`build/updates-one-action-ui.log`.
