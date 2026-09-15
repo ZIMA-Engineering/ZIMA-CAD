@@ -5,6 +5,7 @@
 #include <zima/viewer/annotation_arrow.hpp>
 #include <QOpenGLPaintDevice>
 #include <zima/viewer/mesh_view.hpp>
+#include <zima/kernel/surface_results.hpp>
 #include <zima/viewer/embedded_image.hpp>
 #include <zima/viewer/picking.hpp>
 #include <zima/viewer/shading.hpp>
@@ -107,6 +108,8 @@ void draw_circular_marker(QPainter& painter, const QPointF& center,
 
 struct MeshView::Impl {
     zima::kernel::ViewerMesh mesh;
+    std::optional<zima::kernel::ViewerMesh> surface_source_mesh;
+    bool show_surfaces{true};
     // Picking traverses this compact view on every pointer move. Build it once
     // when the scene changes instead of copying all persisted geometry for
     // every hover sample.
@@ -370,6 +373,7 @@ struct MeshView::Impl {
             if(const auto it=owner_styles.find(owner);it!=owner_styles.end())style=it->second;
             if(const auto it=face_styles.find(owner+"\x1f"+r.semantic_key);it!=face_styles.end())style=it->second;
             if(r.semantic_key.starts_with("thread:surface:"))style={"#8F969D",.5,.65};
+            if(r.surface_result)style={zima::kernel::surface_result_color,0.0,.55};
             return style;
         };
         for (std::size_t triangle = 0; triangle < triangle_count; ++triangle) {
@@ -702,6 +706,10 @@ MeshView::~MeshView() {
 }
 
 void MeshView::set_mesh(zima::kernel::ViewerMesh mesh, bool fit_view) {
+    if(zima::kernel::has_surface_results(mesh))
+        impl_->surface_source_mesh=mesh;
+    else impl_->surface_source_mesh.reset();
+    if(!impl_->show_surfaces)zima::kernel::hide_surface_results(mesh);
     impl_->container_inspection_wire.clear();
     const auto previous_confirmation = impl_->confirmed_candidate;
     impl_->dimension_bounds=kernel::model_envelope(mesh);
@@ -2489,6 +2497,9 @@ void MeshView::set_dimension_visibility_filter(std::function<bool(const zima::ke
 void MeshView::set_reference_visibility(
     ReferenceVisibility reference, bool visible) {
     switch (reference) {
+        case ReferenceVisibility::Surfaces:
+            if(impl_->show_surfaces!=visible){impl_->show_surfaces=visible;if(impl_->surface_source_mesh)set_mesh(*impl_->surface_source_mesh,false);}
+            break;
         case ReferenceVisibility::Origins: impl_->show_origins = visible; break;
         case ReferenceVisibility::Points: impl_->show_points = visible; break;
         case ReferenceVisibility::Axes: impl_->show_axes = visible; break;
@@ -2505,6 +2516,7 @@ void MeshView::set_reference_visibility(
 
 bool MeshView::reference_visible(ReferenceVisibility reference) const {
     switch (reference) {
+        case ReferenceVisibility::Surfaces: return impl_->show_surfaces;
         case ReferenceVisibility::Origins: return impl_->show_origins;
         case ReferenceVisibility::Points: return impl_->show_points;
         case ReferenceVisibility::Axes: return impl_->show_axes;
@@ -3090,6 +3102,7 @@ if (impl_->show_origins) {
              impl_->display_mode == DisplayMode::HiddenEdges ||
              impl_->display_mode == DisplayMode::NoHiddenEdges);
         if (preview) return QVector4D(0.0F, 0.82F, 1.0F, 1.0F);
+        if(edge.surface_result) return QVector4D(242.F/255,211.F/255,79.F/255,1.F);
         if (impl_->edge_color_override) {
             const auto& color = *impl_->edge_color_override;
             return QVector4D(static_cast<float>(color.redF()),

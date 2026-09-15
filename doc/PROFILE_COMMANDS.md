@@ -8,7 +8,7 @@ operation gets a new feature ID; its sketch stays in the same container without 
 ## Input
 
 First create a sketch with `sketch.create` and populate a closed profile through
-Sketcher commands; Thin can also use open profiles. IDs below come from command
+Sketcher commands; Thin and Surface can also use open profiles. IDs below come from command
 results, not tree names or edge indices.
 
 ```json
@@ -46,7 +46,8 @@ during Properties, without calculation, reference solving, history or dependency
 
 ## Thin results
 
-`result_type`: `solid` or `thin`. Thin uses `thin_thickness_mm` and `thin_mode`
+`result_type`: `solid`, `thin` or `surface`. See [Surface profiles](SURFACE_PROFILES.md)
+for open sheets, appearance, Drawing exclusion and Boolean restrictions. Thin uses `thin_thickness_mm` and `thin_mode`
 (`one_side`, `other_side`, `symmetric`). Type/side changes calculate actual bodies and
 enter calculation fingerprints. The former bug saving full volume despite Thin preview
 was removed from model calculation.

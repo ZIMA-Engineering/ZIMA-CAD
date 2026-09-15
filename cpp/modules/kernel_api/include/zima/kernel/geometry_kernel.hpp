@@ -46,6 +46,7 @@ struct FaceReference {
     std::string instance_path;
     std::shared_ptr<const SurfaceGeometry> surface;
     std::optional<double> measured_area; // Captured only during explicit calculation.
+    bool surface_result{}; // Non-volumetric modeling surface; not part of identity.
 
     [[nodiscard]] bool valid() const {
         return !owner_id.empty() && !semantic_key.empty();
@@ -203,6 +204,7 @@ struct ViewerEdge {
     bool filled_text{};
     std::optional<double> measured_length; // Exact source curve length in mm.
     std::optional<BSplineGeometry> exact_spline;
+    bool surface_result{};
 };
 
 struct ViewerPoint {
@@ -220,6 +222,7 @@ struct ViewerPoint {
     bool construction{};
     // Sketch display association, derived from persisted SketchText.anchor_point_id.
     std::string sketch_text_key;
+    bool surface_result{};
 };
 
 struct ViewerAxis {
@@ -552,6 +555,8 @@ struct ExtrusionRequest {
     std::vector<Vec3> target_surface_triangles;
     std::optional<ExtrusionLimit> reverse_limit;
     bool symmetric_limit{};
+    bool surface_result{};
+    std::string open_profile_end_id;
 };
 
 struct RevolutionRequest {
@@ -576,6 +581,8 @@ struct RevolutionRequest {
     bool first_cap_is_start{true};
     double start_angle_degrees{};
     double angle_degrees{360.0};
+    bool surface_result{};
+    std::string open_profile_end_id;
 };
 
 // A semantic feature may organize several ordinary modeling primitives while
@@ -1000,6 +1007,7 @@ struct PlacedBody {
                     u64(std::bit_cast<std::uint64_t>(value));
                 }
             } else if constexpr (std::is_same_v<Request, ExtrusionRequest>) {
+                if(primitive.surface_result) {byte(0xf1);for(const auto c:primitive.open_profile_end_id)byte(c);}
                 // Exact profile bounds reject an inclined plane crossing away from seam vertices.
                 if (primitive.extent == ExtrusionRequest::Extent::UpToPlane) byte(2);
                 if (primitive.extent == ExtrusionRequest::Extent::UpToPlane ||
@@ -1209,6 +1217,7 @@ struct PlacedBody {
                 u64(child_fingerprint.size());
                 for (const unsigned char value : child_fingerprint) byte(value);
             } else if constexpr (std::is_same_v<Request, RevolutionRequest>) {
+                if(primitive.surface_result) {byte(0xf1);for(const auto c:primitive.open_profile_end_id)byte(c);}
                 const auto append_profile = [&](const auto& profile_variant) {
                     byte(static_cast<std::uint8_t>(profile_variant.index()));
                     std::visit([&](const auto& profile) {

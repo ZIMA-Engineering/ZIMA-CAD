@@ -35,6 +35,22 @@ struct Fixture {
     std::string rectangle(double x,double y,double width,double height){const auto id=sketch();line(id,x,y,x+width,y);line(id,x+width,y,x+width,y+height);line(id,x+width,y+height,x,y+height);line(id,x,y+height,x,y);return id;}
     double volume(){require(!part().session.calculated_boundaries().empty(),"Missing calculated body");return part().session.calculated_boundaries().back().volume;}
 };
+void surfaces(const kernel::OcctKernel& kernel,fs::path directory) {
+    for(const bool revolve:{false,true}) {
+        Fixture f(kernel,directory);f.run("new",{{"type","part"},{"name",revolve?"surface-cli-revolve":"surface-cli-extrude"}});
+        const auto sketch=f.sketch();f.line(sketch,5,0,5,10);
+        if(revolve){const auto axis=f.line(sketch,0,0,0,10);f.run("sketch.segment.centerline",{{"sketch",sketch},{"segment",axis},{"centerline",true}});}
+        const auto* create=revolve?"revolution.create":"extrusion.create";const auto* set=revolve?"revolution.set":"extrusion.set";
+        const auto made=f.run(create,{{"sketch",sketch},{"result_type","surface"}});const auto id=made.at("container").get<std::string>();near(f.volume(),0);
+        require(made.at("result_type")=="surface"&&f.doc().find_container(id)->is_surface_result(),"CLI lost surface result type");
+        f.reject(set,{{"container",id},{"combine","subtract"}},"invalid_arguments");
+        f.run(set,{{"container",id},{"result_type","thin"},{"thin_thickness_mm",1}});require(f.volume()>0,"Surface to Thin did not produce material");
+        f.run("undo");near(f.volume(),0);f.run("redo");require(f.volume()>0,"Surface type Redo did not restore Thin");
+        f.run(set,{{"container",id},{"result_type","surface"}});near(f.volume(),0);
+        f.run("save");
+    }
+}
+
 void front_reference() {
     document::ConstructionReference stale, front, top;
     stale.owner_id="obsolete";stale.orientation_only=true;stale.supports_offset=true;
@@ -198,6 +214,6 @@ void revolution(const kernel::OcctKernel& kernel,fs::path directory){
 }
 }
 int main(){try{const auto root=fs::canonical(fs::temp_directory_path());const auto directory=root/("zima-profile-commands-"+document::PartDocument::create_default().document_id);
-    require(fs::create_directory(directory),"Cannot create fixture directory");kernel::OcctKernel kernel;front_reference();extrusion(kernel,directory);thin_and_cut(kernel,directory);end_targets(kernel,directory);original_body_target_commands(kernel,directory);revolution(kernel,directory);
+    require(fs::create_directory(directory),"Cannot create fixture directory");kernel::OcctKernel kernel;front_reference();surfaces(kernel,directory);extrusion(kernel,directory);thin_and_cut(kernel,directory);end_targets(kernel,directory);original_body_target_commands(kernel,directory);revolution(kernel,directory);
     require(directory.parent_path()==root,"Unexpected cleanup path");fs::remove_all(directory);std::cout<<"Profile commands: native ownership, exact solid volumes, Thin walls, cuts, dimensions, locks, atomic errors and Undo/Redo passed\n";return 0;
 }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

@@ -93,6 +93,9 @@ bool is_profile(document::FeatureKind kind) {
 void validate_profile_definition(const document::HistoryContainer& value) {
     if (!is_profile(value.feature_kind)) throw ProfileOperationError("wrong_feature", "This container is not an Extrusion or Revolution.");
     const bool extrusion = value.feature_kind == document::FeatureKind::Extrusion;
+    if ((extrusion ? value.extrusion.result_type : value.revolution.result_type) == document::ProfileResultType::Surface &&
+        value.combine_mode == document::CombineMode::Subtract)
+        throw ProfileOperationError("invalid_arguments", "A surface cannot subtract material.");
     const auto number = [](double value, double minimum, double maximum) {
         if (!std::isfinite(value) || value < minimum || value > maximum)
             throw ProfileOperationError("invalid_arguments", "Profile dimension is outside the supported range.");

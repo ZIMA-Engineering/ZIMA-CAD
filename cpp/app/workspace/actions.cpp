@@ -256,6 +256,9 @@ void AssemblyWorkspaceWindow::create_actions() {
         connect(action, &QAction::toggled, this, [this, reference](bool visible) {
             if (viewer_ != nullptr) {
                 viewer_->set_reference_visibility(reference, visible);
+                if(reference==zima::viewer::ReferenceVisibility::Surfaces && !visible) {
+                    viewer_->clear_selection();tree_->clearSelection();
+                }
             }
         });
         return action;
@@ -268,6 +271,8 @@ void AssemblyWorkspaceWindow::create_actions() {
         tr("Osy"), "axis", zima::viewer::ReferenceVisibility::Axes);
     show_planes_action_ = reference_action(
         tr("Roviny"), "plane", zima::viewer::ReferenceVisibility::Planes);
+    show_surfaces_action_ = reference_action(tr("Plochy"), "surface", zima::viewer::ReferenceVisibility::Surfaces);
+    show_surfaces_action_->setObjectName("showSurfacesAction");
     show_sketches_action_ = reference_action(
         tr("Skici"), "sketch", zima::viewer::ReferenceVisibility::Sketches);
     show_dimensions_action_ = reference_action(tr("Kóty"), "sketch-dimensions", zima::viewer::ReferenceVisibility::Dimensions);
@@ -316,7 +321,7 @@ void AssemblyWorkspaceWindow::create_actions() {
     }
     view->addSeparator();
     for (auto* action : {show_origins_action_, show_points_action_, show_axes_action_,
-                         show_planes_action_, show_sketches_action_, show_dimensions_action_}) {
+                         show_planes_action_, show_surfaces_action_, show_sketches_action_, show_dimensions_action_}) {
         view->addAction(action);
     }
     view->addSeparator();
@@ -1009,7 +1014,7 @@ void AssemblyWorkspaceWindow::create_actions() {
     }
     view_toolbar_->addSeparator();
     for (auto* action : {show_origins_action_, show_points_action_, show_axes_action_,
-                         show_planes_action_, show_sketches_action_, show_dimensions_action_}) {
+                         show_planes_action_, show_surfaces_action_, show_sketches_action_, show_dimensions_action_}) {
         view_toolbar_->addAction(action);
     }
 

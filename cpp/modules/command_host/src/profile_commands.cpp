@@ -49,7 +49,7 @@ Json details(const workspace::Workspace& live, const std::string& id, const Feat
         {"combine",value.combine_mode==document::CombineMode::Add?"add":"subtract"},
         {"profile_source",(extrusion?value.extrusion.profile_source:value.revolution.profile_source)==document::ProfileSource::Internal?"internal":"external"},
         {"profile_offset_mm",extrusion?value.extrusion.profile_plane_offset:value.revolution.profile_plane_offset},
-        {"result_type",result_type==document::ProfileResultType::Solid?"solid":"thin"},
+        {"result_type",result_type==document::ProfileResultType::Solid?"solid":result_type==document::ProfileResultType::Surface?"surface":"thin"},
         {"thin_thickness_mm",extrusion?value.extrusion.thin_thickness:value.revolution.thin_thickness},
         {"thin_mode",thin_mode==document::ThinMode::OneSide?"one_side":thin_mode==document::ThinMode::OtherSide?"other_side":"symmetric"},
         {"extent",extent(extrusion?value.extrusion.extent_mode:value.revolution.extent_mode)},
@@ -89,7 +89,7 @@ void properties(Feature& value, const Json& args, const workspace::Workspace& li
         if(name.empty()||std::ranges::all_of(name,[](unsigned char c){return std::isspace(c)!=0;}))throw Error("invalid_arguments","Specify a nonempty object name.");value.name=name;}
     if(args.contains("combine"))value.combine_mode=choose("combine",{"add","subtract"})=="add"?document::CombineMode::Add:document::CombineMode::Subtract;
     auto& result_type=extrusion?value.extrusion.result_type:value.revolution.result_type;
-    if(args.contains("result_type"))result_type=choose("result_type",{"solid","thin"})=="solid"?document::ProfileResultType::Solid:document::ProfileResultType::Thin;
+    if(args.contains("result_type")){const auto type=choose("result_type",{"solid","thin","surface"});result_type=type=="solid"?document::ProfileResultType::Solid:type=="surface"?document::ProfileResultType::Surface:document::ProfileResultType::Thin;}
     auto& thin_mode=extrusion?value.extrusion.thin_mode:value.revolution.thin_mode;
     if(args.contains("thin_mode")){const auto mode=choose("thin_mode",{"one_side","other_side","symmetric"});thin_mode=mode=="one_side"?document::ThinMode::OneSide:mode=="other_side"?document::ThinMode::OtherSide:document::ThinMode::Symmetric;}
     auto& extent_mode=extrusion?value.extrusion.extent_mode:value.revolution.extent_mode;

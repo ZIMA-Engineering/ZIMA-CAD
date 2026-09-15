@@ -30,7 +30,7 @@ enum class FeatureKind { Sketch, Box, Cylinder, Sphere, Cone, Pyramid, Wedge, Ex
 enum class ExtrusionDirection { Forward, Reverse, Symmetric };
 enum class ExtrusionExtent { Blind, UpToPlane, UpToSurface, ThroughAll };
 enum class ProfileSource { Internal, External };
-enum class ProfileResultType { Solid, Thin };
+enum class ProfileResultType { Solid, Thin, Surface };
 enum class ProfileExtentMode { OneSide, TwoSides, Symmetric };
 enum class ThinMode { OneSide, OtherSide, Symmetric };
 enum class EndCondition { Length, UpTo, ThroughAll };
@@ -597,6 +597,10 @@ struct HistoryContainer {
     DrillPointParameters drill_point;
     bool suppressed{};
     std::set<std::string> value_locks;
+    [[nodiscard]] bool is_surface_result() const {
+        return (feature_kind==FeatureKind::Extrusion && extrusion.result_type==ProfileResultType::Surface) ||
+            (feature_kind==FeatureKind::Revolution && revolution.result_type==ProfileResultType::Surface);
+    }
     bool operator==(const HistoryContainer&) const = default;
 };
 

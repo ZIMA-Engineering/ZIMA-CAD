@@ -3581,12 +3581,75 @@ int verify_owned_profile_external_reference(QApplication& application,const std:
     std::cout<<"Owned profile external reference, projection, Cancel and OK persistence passed\n";return 0;
 }
 
+int verify_surface_profiles_ui(QApplication& application,const std::filesystem::path& directory) {
+    using namespace zima;
+    try {
+        const auto check=[](bool ok,const char* text){if(!ok)throw std::runtime_error(text);};
+        const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
+        for(const bool revolve:{false,true}) {
+            auto part=document::PartDocument::create_default();auto sketch=sketcher::Sketch::create_default();
+            static_cast<void>(sketch.add_circle(5,0,1));
+            if(revolve){static_cast<void>(sketch.add_segment(0,-3,0,3));sketch.segments.back().construction=true;sketch.segments.back().centerline=true;}
+            auto feature=revolve?document::PartDocument::create_revolution_container(sketch.id):document::PartDocument::create_extrusion_container(sketch.id);
+            sketch.owner_container_id=feature.id;feature.extrusion.result_type=document::ProfileResultType::Surface;feature.revolution.result_type=document::ProfileResultType::Surface;
+            feature.extrusion.height=3;feature.extrusion.length_forward=3;feature.extrusion.thin_thickness=.25;feature.revolution.thin_thickness=.25;
+            part.history={feature};part.sketches={sketch};document::BodyHistoryGraph graph;const auto body=graph.create_body("Surface UI");graph.insert({document::PartHistoryKind::Feature,feature.id});part.set_body_history(graph);part.resolve_constructions();
+            kernel::OcctKernel kernel;const auto calculated=kernel.evaluate_history(part.kernel_operations());
+            const auto path=directory/(revolve?"surface-revolution.prtz":"surface-extrusion.prtz");part.save(path,calculated);
+            app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));window.resize(1200,900);window.show();
+            check(window.open_document_path(QString::fromStdString(path.string())),"Cannot open surface fixture");flush();
+            check(activate_test_body(application,window,body),"Cannot activate surface body");flush();
+            auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>());auto* tree=window.findChild<QTreeWidget*>("documentTree");
+            auto* toggle=window.findChild<QAction*>("showSurfacesAction");check(view&&tree&&toggle&&!toggle->icon().isNull(),"Surface action/icon missing");
+            const auto surfaces=[&]{return std::ranges::count_if(view->mesh().triangle_references,[](const auto& r){return r.surface_result;});};
+            check(surfaces()>0,"Surface lost display type after native open");
+            toggle->setChecked(false);flush();check(surfaces()==0,"Surface filter left triangles visible");
+            check(std::ranges::none_of(view->mesh().original_references.triangle_references,[](const auto& r){return r.surface_result;}),"Hidden surface remains in reference picker geometry");
+            toggle->setChecked(true);flush();check(surfaces()>0,"Surface filter failed to restore geometry");
+            view->set_standard_view(viewer::StandardView::Isometric);view->fit_all();flush();
+            check(window.grab().save(revolve?"build/surface-revolution-view.png":"build/surface-extrusion-view.png"),"Surface screenshot failed");
+            const auto properties=[&] {
+                QTreeWidgetItem* row{};for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==feature.id&&(*it)->data(0,Qt::UserRole+3)=="part-container"){row=*it;break;}
+                check(row,"Surface history row missing");window.show_tree_item_properties(row);flush();
+                app::PrimitivePropertiesDialog* dialog{};for(auto* d:window.findChildren<QDialog*>())if(auto* p=dynamic_cast<app::PrimitivePropertiesDialog*>(d);p&&p->isVisible())dialog=p;
+                check(dialog,"Surface properties did not open");return dialog;
+            };
+            for(const auto* mode:{"solid","surface","thin","surface"}) {
+                auto* dialog=properties();auto* types=dialog->findChild<QComboBox*>("profileResultType");check(types&&types->count()==3,"Profile does not expose all three result types");
+                types->setCurrentIndex(types->findData(mode));flush();
+                if(std::string_view(mode)=="surface") {
+                    if(auto* cut=dialog->findChild<QPushButton*>("primitiveSubtractOperation"))check(!cut->isEnabled(),"Surface subtraction button enabled");
+                }
+                dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+                for(auto* d:window.findChildren<QDialog*>())if(dynamic_cast<app::PrimitivePropertiesDialog*>(d)&&d->isVisible()) {
+                    std::cerr<<"Surface conversion to "<<mode<<" failed\n";
+                    for(auto* label:d->findChildren<QLabel*>())if(label->isVisible())std::cerr<<label->text().toStdString()<<'\n';
+                    throw std::runtime_error("Surface mode OK failed");
+                }
+                check((surfaces()>0)==(std::string_view(mode)=="surface"),"Profile conversion retained wrong display type");
+            }
+            window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+            std::vector<kernel::BodyResult> cache;const auto reopened=document::PartDocument::load(path,&cache);
+            check(reopened.history.front().is_surface_result()&&!cache.empty()&&std::abs(cache.back().volume)<1e-8,"Surface GUI save did not preserve zero-volume result");
+        }
+        std::cout<<"Surface GUI types, conversion, subtraction guard, visibility and native persistence passed\n";return 0;
+    }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
+}
+
 int verify_sketch_offset_ui(QApplication& application,const std::filesystem::path& directory) {
     using namespace zima::document;
     auto document=PartDocument::create_default();auto feature=PartDocument::create_sketch_container();
     auto sketch=zima::sketcher::Sketch::create_default();sketch.owner_container_id=feature.id;
     const auto source=sketch.add_segment(2,5,20,5);document.history={feature};document.sketches={sketch};
     BodyHistoryGraph graph;const auto body=graph.create_body("Offset test");graph.insert({PartHistoryKind::Feature,feature.id});document.set_body_history(graph);document.resolve_constructions();
+    zima::kernel::SavedMeasurement measurement;
+    measurement.id=PartDocument::create_box_container().id;measurement.name="Offset fixture measurement";
+    measurement.body_id=body;measurement.after_object_id=feature.id;
+    measurement.references={{zima::kernel::MeasurementKind::Object,feature.id,{},{}}};measurement.values.resize(1);
+    document.measurements.push_back(measurement);
+    zima::document::BodyProperties mass;mass.id=PartDocument::create_box_container().id;
+    mass.name="Offset fixture body measurement";mass.body_id=body;mass.after_object_id=feature.id;
+    document.body_properties.push_back(mass);
     const auto path=directory/"sketch-offset.prtz";document.save(path);
     zima::app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));window.resize(1200,900);window.show();
     const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
@@ -3608,7 +3671,7 @@ int verify_sketch_offset_ui(QApplication& application,const std::filesystem::pat
     mouse(*hit,QEvent::MouseMove,Qt::NoButton);mouse(*hit,QEvent::MouseButtonPress,Qt::LeftButton);mouse(*hit,QEvent::MouseButtonRelease,Qt::LeftButton);
     if(!verify(dialog->values().source_id==source&&!dialog->entering_reference(),"LMB did not assign offset source"))return 1;
     dialog->findChild<QDoubleSpinBox*>("sketchOffsetDistance")->setValue(2.5);dialog->findChild<QPushButton*>("sketchOffsetFlip")->click();flush();
-    if(!verify(window.grab().save("sketch-offset-view.png"),"Offset View screenshot failed"))return 1;
+    if(!verify(window.grab().save("build/sketch-offset-view.png"),"Offset View screenshot failed"))return 1;
     if(auto* close=window.findChild<QPushButton*>("documentTabCloseButton"))close->grab().save("build/tab-close-centered.png");
     mouse(*hit,QEvent::MouseButtonPress,Qt::MiddleButton);mouse(*hit,QEvent::MouseButtonRelease,Qt::MiddleButton);
     if(!verify(dynamic_cast<zima::app::SketchOffsetDialog*>(window.findChild<QDialog*>("sketchOffsetDialog"))!=nullptr,"Short MMB committed offset"))return 1;
@@ -3622,12 +3685,24 @@ int verify_sketch_offset_ui(QApplication& application,const std::filesystem::pat
     dialog->findChild<QDoubleSpinBox*>("sketchOffsetDistance")->setValue(3);dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();
     for(const auto& edge:view->mesh().edges)if(edge.reference.semantic_key==key)if(!verify(std::abs(edge.points.front().y-2)<1e-8,"Offset edit did not move the result"))return 1;
     action->trigger();flush();dialog=dynamic_cast<zima::app::SketchOffsetDialog*>(window.findChild<QDialog*>("sketchOffsetDialog"));dialog->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
+    const auto analysis_rows=[&]{int count{};for(QTreeWidgetItemIterator it(tree);*it;++it) {
+        const auto kind=(*it)->data(0,Qt::UserRole+3).toString();
+        if(kind=="document-measurement"||kind=="body-properties")++count;
+    }return count;};
+    if(!verify(analysis_rows()==0,"Model measurements leaked into the Sketcher tree before Undo"))return 1;
+    const auto edited_hit=find(key);if(!verify(edited_hit.has_value(),"Edited offset is not selectable"))return 1;
+    mouse(*edited_hit,QEvent::MouseMove,Qt::NoButton);mouse(*edited_hit,QEvent::MouseButtonPress,Qt::LeftButton);mouse(*edited_hit,QEvent::MouseButtonRelease,Qt::LeftButton);
+    QKeyEvent remove(QEvent::KeyPress,Qt::Key_Delete,Qt::NoModifier);QApplication::sendEvent(&window,&remove);flush();
+    if(!verify(std::ranges::none_of(view->mesh().edges,[&](const auto& edge){return edge.reference.semantic_key==key;}),"Delete did not remove offset"))return 1;
+    auto* undo=window.findChild<QAction*>("undoAction");if(!verify(undo&&undo->isEnabled(),"Offset delete is not undoable"))return 1;undo->trigger();flush();
+    if(!verify(std::ranges::any_of(view->mesh().edges,[&](const auto& edge){return edge.reference.semantic_key==key;})&&analysis_rows()==0,"Undo failed to restore offset or inserted model analysis into Sketcher"))return 1;
     window.findChild<QAction*>("finishSketchAction")->trigger();flush();
     for(auto* candidate:window.findChildren<QDialog*>())if(auto* parent=dynamic_cast<zima::app::ConstructionPropertiesDialog*>(candidate);parent&&parent->isVisible())parent->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
     window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
     const auto saved=PartDocument::load(path);
     if(!verify(saved.sketches.front().offsets.size()==1&&saved.sketches.front().offsets.front().distance==3,"Offset edit/Cancel/persistence transaction failed"))return 1;
-    std::cout<<"Sketch Offset View selection, preview, short/double MMB, properties, Cancel and persistence passed\n";return 0;
+    if(!verify(saved.measurements==document.measurements&&saved.body_properties.size()==1&&saved.body_properties.front().id==mass.id&&analysis_rows()==2,"Offset Undo changed saved analysis or duplicated model tree rows"))return 1;
+    std::cout<<"Sketch Offset View selection, preview, short/double MMB, properties, delete/Undo isolation, Cancel and persistence passed\n";return 0;
 }
 
 int verify_standalone_trim_preview(QApplication& application, const std::filesystem::path& directory) {
@@ -5622,6 +5697,7 @@ int verify_startup_contract(
         return verify_body_curve_references(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_OWNED_PROFILE_REFERENCE_ONLY"))
         return verify_owned_profile_external_reference(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SURFACE_ONLY")) return verify_surface_profiles_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_OFFSET_ONLY"))
         return verify_sketch_offset_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_TRIM_ONLY"))

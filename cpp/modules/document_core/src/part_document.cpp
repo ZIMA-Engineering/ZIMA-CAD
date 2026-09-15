@@ -525,12 +525,12 @@ void add_json_parameters(
 
 nlohmann::json read_part_ini(const std::filesystem::path& path) {
     const auto ini = read_ini(path);
-    if (ini_value(ini, "Document", "format_version") != "26") {
+    if (ini_value(ini, "Document", "format_version") != "27") {
         throw std::runtime_error("Unsupported ZIMA-CAD Part document format");
     }
     nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 50},
+        {"format_version", 51},
         {"document_id", ini_required(ini, "Document", "document_id")},
         {"type", ini_value(ini, "Document", "type", "part")},
         {"name", ini_value(ini, "Document", "name", "Nový díl")},
@@ -684,7 +684,7 @@ void write_part_ini(
     const nlohmann::json& root, const std::filesystem::path& path) {
     IniSections ini;
     ini["Document"] = {
-        {"format_version", "26"},
+        {"format_version", "27"},
         {"type", "part"},
         {"document_id", root.at("document_id").get<std::string>()},
         {"name", root.at("name").get<std::string>()},
@@ -2312,6 +2312,8 @@ zima::kernel::RevolutionRequest revolution_request(
     request.inner_vertex_source_ids = source.inner_vertex_source_ids;
     request.profile_normal = source.direction;
     request.wall = source.wall;
+    request.surface_result = source.surface_result;
+    request.open_profile_end_id = source.open_profile_end_id;
     auto axis = sketch.segments.end();
     if (!axis_segment_id.empty()) {
         axis = std::find_if(sketch.segments.begin(), sketch.segments.end(),
@@ -7191,7 +7193,7 @@ zima::kernel::ExtrusionRequest open_sweep_profile(const zima::sketcher::Sketch& 
         for(const auto& [other,ep]:endpoints)for(const auto& v:{ep.first,ep.second})if(distance(p,point(s,v))<1e-7)++count;
         if(count==1)ends.push_back(idp);
     }
-    if(ends.size()!=2)throw std::runtime_error("Thin vyžaduje jednu souvislou otevřenou nebo uzavřenou konturu");
+    if(ends.size()!=2)throw std::runtime_error("Profil vyžaduje jednu souvislou otevřenou nebo uzavřenou konturu");
     std::sort(ends.begin(),ends.end());
     if (!start_id.empty()) {
         if (start_id==ends.back()) std::swap(ends.front(),ends.back());
@@ -7214,7 +7216,7 @@ zima::kernel::ExtrusionRequest open_sweep_profile(const zima::sketcher::Sketch& 
             for(const auto& id:it->control_point_ids)spline.control_points.push_back(world(point(s,id)));
             if(!forward){std::reverse(spline.control_points.begin(),spline.control_points.end());zima::kernel::reverse_bspline_parameters(spline.knots,spline.weights);}profile.curves.push_back(std::move(spline));
         }else{
-            const auto ellipse=std::ranges::find_if(s.elliptical_arcs,[&](const auto& l){return l.id==curve.id;});if(ellipse==s.elliptical_arcs.end())throw std::runtime_error("Neznámá křivka Thin profilu");
+            const auto ellipse=std::ranges::find_if(s.elliptical_arcs,[&](const auto& l){return l.id==curve.id;});if(ellipse==s.elliptical_arcs.end())throw std::runtime_error("Neznámá křivka profilu");
             E::EllipticalArcCurve arc;arc.start=world(curve.start);arc.end=world(curve.end);arc.center=world(point(s,ellipse->center_point_id));arc.major_axis_direction=add(mul(s.resolved_x_axis,std::cos(ellipse->rotation)),mul(s.resolved_y_axis,std::sin(ellipse->rotation)));arc.major_radius=ellipse->major_radius;arc.minor_radius=ellipse->minor_radius;arc.start_parameter=ellipse->start_parameter;arc.end_parameter=ellipse->end_parameter;arc.reversed=ellipse->reversed;profile.curves.push_back(arc);
         }
     }
@@ -7224,8 +7226,8 @@ zima::kernel::ExtrusionRequest open_sweep_profile(const zima::sketcher::Sketch& 
 zima::kernel::ExtrusionRequest body_profile_request(
     const zima::sketcher::Sketch& sketch, double height, ExtrusionDirection direction,
     ProfileResultType result_type, double thickness, ThinMode mode) {
-    if (result_type != ProfileResultType::Thin) return extrusion_request(sketch,height,direction);
-    require_positive(thickness,"profile thickness");
+    if (result_type == ProfileResultType::Solid) return extrusion_request(sketch,height,direction);
+    if (result_type == ProfileResultType::Thin) require_positive(thickness,"profile thickness");
     if (std::ranges::any_of(sketch.offsets,[](const auto& value){return value.broken;}) ||
         std::ranges::any_of(sketch.curve_trims,[](const auto& value){return value.broken;}))
         throw std::runtime_error("Sketch contains an unresolved offset or trim intersection");
@@ -7240,7 +7242,10 @@ zima::kernel::ExtrusionRequest body_profile_request(
         request.first_cap_is_start=sign>0;
     }
     const double first=mode==ThinMode::OneSide?0.0:mode==ThinMode::OtherSide?-thickness:-thickness/2;
-    request.wall=zima::kernel::ProfileWall{first,first+thickness,std::move(end)};
+    if (result_type == ProfileResultType::Surface) {
+        request.surface_result=true;
+        request.open_profile_end_id=std::move(end);
+    } else request.wall=zima::kernel::ProfileWall{first,first+thickness,std::move(end)};
     return request;
 }
 }
@@ -8219,6 +8224,8 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
         const auto& container = *ordered_container;
         if (container.feature_kind == FeatureKind::Sketch) continue;
         try {
+        if(container.is_surface_result() && container.combine_mode==CombineMode::Subtract)
+            throw std::runtime_error("A surface cannot subtract material.");
         const auto profile_id = container.feature_kind == FeatureKind::Extrusion
             ? container.extrusion.sketch_id
             : container.feature_kind == FeatureKind::Revolution
@@ -11043,7 +11050,7 @@ nlohmann::json PartDocument::serialized(
     static_cast<void>(zima::document::parse_named_views(named_views));
     nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 50},
+        {"format_version", 51},
         {"document_id", document_id},
         {"type", "part"},
         {"name", name},

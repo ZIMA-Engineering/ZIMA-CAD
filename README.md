@@ -98,6 +98,7 @@ Current modeling tools and interaction contracts:
 - [Multibody Part and Boolean operations](doc/MULTIBODY_AND_BOOLEANS.md)
 - [Mirror and Pattern: linked body and component copies](doc/MIRROR_AND_PATTERN.md)
 - [Save As: model and drawing copies](doc/DOCUMENT_COPY.md)
+- [Surface Extrusion and Revolution](doc/SURFACE_PROFILES.md)
 - [3D Sweep: Loft, Thin, and trajectory references](doc/3D_CURVE_AND_SWEEP.md)
 - [Threaded openings](doc/THREADED_OPENING.md)
 - [External shaft threads](doc/SHAFT_THREAD.md)

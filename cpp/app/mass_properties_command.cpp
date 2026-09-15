@@ -66,7 +66,7 @@ void AssemblyWorkspaceWindow::update_mass_properties_ui() {
         mass_properties_action_->setVisible(part!=nullptr);
         mass_properties_action_->setEnabled(part&&workspace_.active_document_id()==id&&!properties_dialog_&&active_sketch_id_.empty()&&section_dialog_.isNull());
     }
-    if(!part)return;auto* root=tree_->topLevelItem(0);if(!root)return;
+    if(!part||!active_sketch_id_.empty())return;auto* root=tree_->topLevelItem(0);if(!root)return;
     for(const auto& row:part->session.document().body_properties) {
         auto* parent=root;QTreeWidgetItem* anchor{};
         for(QTreeWidgetItemIterator it(root);*it;++it) {

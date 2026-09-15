@@ -43,6 +43,7 @@
     <file alias="icons/origin.svg">../../resources/icons/origin.svg</file>
     <file alias="icons/point.svg">../../resources/icons/point.svg</file>
     <file alias="icons/axis.svg">../../resources/icons/axis.svg</file>
+    <file alias="icons/surface.svg">../../resources/icons/surface.svg</file>
     <file alias="icons/plane.svg">../../resources/icons/plane.svg</file>
     <file alias="icons/sketch.svg">../../resources/icons/sketch.svg</file>
     <file alias="icons/sketch-3d.svg">../../resources/icons/sketch-3d.svg</file>

@@ -1060,7 +1060,7 @@ void validate_extrusion_limit(const ExtrusionLimitView& limit,const Vec3& direct
 }
 
 void validate_extrusion(const ExtrusionRequest& request, bool allow_open_profile = false) {
-    allow_open_profile = allow_open_profile || request.wall.has_value();
+    allow_open_profile = allow_open_profile || request.wall.has_value() || request.surface_result;
     const auto validate_profile = [&](const auto& profile_variant) {
         std::visit([&](const auto& profile) {
             using Profile = std::decay_t<decltype(profile)>;
@@ -2233,8 +2233,37 @@ void transform_profile_wire(SweepProfileWire& profile, const gp_Trsf& transform)
     profile.wire=TopoDS::Wire(builder.Shape());
 }
 
+// A surface sweeps profile wires; a solid sweeps their filled region.
+TopoDS_Shape profile_base(const std::vector<TopoDS_Wire>& wires,bool surface) {
+    if(surface) {
+        TopoDS_Compound result;BRep_Builder builder;builder.MakeCompound(result);
+        for(const auto& wire:wires)builder.Add(result,wire);
+        return result;
+    }
+    BRepBuilderAPI_MakeFace builder(wires.front(),true);
+    for(std::size_t i=1;i<wires.size();++i)builder.Add(wires[i]);
+    if(!builder.IsDone() || !BRepCheck_Analyzer(builder.Face()).IsValid())
+        throw std::runtime_error("OCCT profile face is invalid");
+    return builder.Face();
+}
+
+template<class Builder>
+void append_surface_end_point(PrimitiveData& result,Builder& builder,
+    const TopoDS_Vertex& vertex,const std::string& owner,const std::string& source,
+    const std::string& first_role,const std::string& last_role,bool closed=false) {
+    if(source.empty() || vertex.IsNull())return;
+    for(TopTools_ListIteratorOfListOfShape it(builder.Generated(vertex));it.More();it.Next())
+        if(it.Value().ShapeType()==TopAbs_EDGE)
+            result.edges.push_back({it.Value(),{owner,"generated:"+source}});
+    if(!closed) {
+        const auto first=builder.FirstShape(vertex),last=builder.LastShape(vertex);
+        if(!first.IsNull())result.vertices.push_back({first,{owner,first_role+":"+source}});
+        if(!last.IsNull())result.vertices.push_back({last,{owner,last_role+":"+source}});
+    }
+}
+
 double extrusion_limit_span(const ExtrusionLimitView& limit,const Vec3& unit,
-    const TopoDS_Face& face,const std::vector<TopoDS_Wire>& wires) {
+    const TopoDS_Shape& face,const std::vector<TopoDS_Wire>& wires) {
     if(limit.planar) {
         // Bound the complete analytic profile along the plane normal. A circle's
         // seam vertex does not prove that the rest stays before an inclined plane.
@@ -2344,13 +2373,7 @@ PrimitiveData make_extrusion_data(
     auto profiles=make_body_profiles(request,normal,circle_radial_direction);
     std::vector<TopoDS_Wire> wires;
     for(const auto& profile:profiles)wires.push_back(profile.wire);
-    BRepBuilderAPI_MakeFace face_builder(wires.front(), true);
-    for(std::size_t i=1;i<wires.size();++i)face_builder.Add(wires[i]);
-    if (!face_builder.IsDone()) throw std::runtime_error("OCCT profile face failed");
-    TopoDS_Face face = face_builder.Face();
-    if (!BRepCheck_Analyzer(face).IsValid()) {
-        throw std::runtime_error("OCCT profile face is invalid");
-    }
+    TopoDS_Shape face=profile_base(wires,request.surface_result);
     const double direction_length = std::sqrt(
         request.direction.x * request.direction.x +
         request.direction.y * request.direction.y +
@@ -2392,10 +2415,7 @@ PrimitiveData make_extrusion_data(
     if(std::abs(bounded_start)>1e-12) {
         gp_Trsf shift;shift.SetTranslation(gp_Vec(unit.x*bounded_start,unit.y*bounded_start,unit.z*bounded_start));
         for(std::size_t i=0;i<wires.size();++i){transform_profile_wire(profiles[i],shift);wires[i]=profiles[i].wire;}
-        BRepBuilderAPI_MakeFace shifted(wires.front(),true);
-        for(std::size_t i=1;i<wires.size();++i)shifted.Add(wires[i]);
-        if(!shifted.IsDone())throw std::runtime_error("OCCT extrusion start shift failed");
-        face=shifted.Face();
+        face=profile_base(wires,request.surface_result);
     }
     const double bounded_length=bounded_end-bounded_start;
     const Vec3 prism_direction{unit.x*bounded_length,unit.y*bounded_length,unit.z*bounded_length};
@@ -2412,8 +2432,10 @@ PrimitiveData make_extrusion_data(
         profile_cap_semantic_key(first_role, request.profile_region_id), {}};
     const FaceReference last_cap_reference{owner_id,
         profile_cap_semantic_key(last_role, request.profile_region_id), {}};
-    result.faces.push_back({prism.FirstShape(), first_cap_reference});
-    result.faces.push_back({prism.LastShape(), last_cap_reference});
+    if(!request.surface_result) {
+        result.faces.push_back({prism.FirstShape(), first_cap_reference});
+        result.faces.push_back({prism.LastShape(), last_cap_reference});
+    }
     std::vector<std::vector<std::string>> edge_sources,vertex_sources;
     for(const auto& profile:profiles) {
         edge_sources.push_back(profile.curve_ids);vertex_sources.push_back(profile.point_ids);
@@ -2486,6 +2508,10 @@ PrimitiveData make_extrusion_data(
             throw std::runtime_error("Extrusion profile provenance count mismatch");
         }
     }
+    if(!request.open_profile_end_id.empty())
+        append_surface_end_point(result,prism,TopExp::LastVertex(profiles.front().edges.back(),true),
+            owner_id,request.open_profile_end_id,first_role,last_role);
+    for(auto& owned:result.faces)owned.reference.surface_result=request.surface_result;
     const auto clip_end=[&](const ExtrusionLimitView& limit,const Vec3& outward,
         const std::optional<TopoDS_Face>& exact,const FaceReference& cap_reference) {
         TopoDS_Face limiting_face;
@@ -2933,7 +2959,7 @@ void validate_revolution(const RevolutionRequest& request) {
     profile_request.inner_profiles = request.inner_profiles;
     profile_request.additional_profile_regions = request.additional_profile_regions;
     profile_request.direction = request.profile_normal;
-    validate_extrusion(profile_request,request.wall.has_value());
+    validate_extrusion(profile_request,request.wall.has_value() || request.surface_result);
     const double axis_length = std::sqrt(
         request.axis_direction.x * request.axis_direction.x +
         request.axis_direction.y * request.axis_direction.y +
@@ -2953,16 +2979,11 @@ PrimitiveData make_revolution_data(
     auto profiles=make_body_profiles(request,request.profile_normal);
     std::vector<TopoDS_Wire> wires;
     for(const auto& profile:profiles)wires.push_back(profile.wire);
-    BRepBuilderAPI_MakeFace face_builder(wires.front(), true);
-    for(std::size_t i=1;i<wires.size();++i)face_builder.Add(wires[i]);
-    if (!face_builder.IsDone() || !BRepCheck_Analyzer(face_builder.Face()).IsValid()) {
-        throw std::runtime_error("OCCT Revolution profile face is invalid");
-    }
     const gp_Ax1 axis(gp_Pnt(request.axis_point.x, request.axis_point.y,
                             request.axis_point.z),
                       gp_Dir(request.axis_direction.x, request.axis_direction.y,
                              request.axis_direction.z));
-    TopoDS_Face face = face_builder.Face();
+    TopoDS_Shape face=profile_base(wires,request.surface_result);
     if (std::abs(request.start_angle_degrees) > 1.0e-12) {
         gp_Trsf rotation;
         rotation.SetRotation(axis,
@@ -2970,14 +2991,7 @@ PrimitiveData make_revolution_data(
         for (std::size_t i=0;i<wires.size();++i) {
             transform_profile_wire(profiles[i],rotation);wires[i]=profiles[i].wire;
         }
-        BRepBuilderAPI_MakeFace rotated_face(wires.front(), true);
-        for (std::size_t index = 1; index < wires.size(); ++index) {
-            rotated_face.Add(wires[index]);
-        }
-        if (!rotated_face.IsDone()) {
-            throw std::runtime_error("OCCT Revolution start rotation failed");
-        }
-        face = rotated_face.Face();
+        face=profile_base(wires,request.surface_result);
     }
     BRepPrimAPI_MakeRevol revolution(
         face, axis,
@@ -2990,7 +3004,7 @@ PrimitiveData make_revolution_data(
     PrimitiveData result{revolution.Shape(), {}, {}, {}};
     const std::string first_role = request.first_cap_is_start ? "start" : "end";
     const std::string last_role = request.first_cap_is_start ? "end" : "start";
-    if (request.angle_degrees < 360.0 - 1.0e-9) {
+    if (!request.surface_result && request.angle_degrees < 360.0 - 1.0e-9) {
         result.faces.push_back(
             {revolution.FirstShape(), {owner_id,
                 profile_cap_semantic_key(
@@ -3068,6 +3082,10 @@ PrimitiveData make_revolution_data(
             throw std::runtime_error("Revolution profile provenance count mismatch");
         }
     }
+    if(!request.open_profile_end_id.empty())
+        append_surface_end_point(result,revolution,TopExp::LastVertex(profiles.front().edges.back(),true),
+            owner_id,request.open_profile_end_id,first_role,last_role,request.angle_degrees>=360.0-1e-9);
+    for(auto& owned:result.faces)owned.reference.surface_result=request.surface_result;
     if (!request.additional_profile_regions.empty()) {
         TopoDS_Compound compound;
         BRep_Builder builder;
@@ -4607,11 +4625,13 @@ BodyResult make_result(
             break;
         }
     }
+    TopoDS_Compound volume_shape;BRep_Builder volume_builder;volume_builder.MakeCompound(volume_shape);
+    for(TopExp_Explorer solid(shape,TopAbs_SOLID);solid.More();solid.Next())volume_builder.Add(volume_shape,solid.Current());
     if (rational_surface) {
-        const double error=BRepGProp::VolumePropertiesGK(shape,volume_properties,1e-12,false,true);
+        const double error=BRepGProp::VolumePropertiesGK(volume_shape,volume_properties,1e-12,false,true);
         if(error<0)throw std::runtime_error("OCCT rational volume integration failed");
     }
-    else BRepGProp::VolumeProperties(shape, volume_properties);
+    else BRepGProp::VolumeProperties(volume_shape, volume_properties);
     BRepGProp::SurfaceProperties(shape, surface_properties);
     result.volume = volume_properties.Mass();
     result.surface_area = surface_properties.Mass();
@@ -4621,8 +4641,8 @@ BodyResult make_result(
     std::optional<TopologyReferenceIndex<EdgeReference, OwnedEdge>> edge_references;
     std::optional<TopologyReferenceIndex<VertexReference, OwnedVertex>>
         vertex_references;
+    face_references.emplace(owned_faces);
     if (original_reference_geometry || collect_original_references) {
-        face_references.emplace(owned_faces);
         vertex_references.emplace(owned_vertices);
     }
     // Display body edges remain non-reference geometry, but retain their
@@ -4638,10 +4658,7 @@ BodyResult make_result(
         const Handle(Poly_Triangulation) triangulation =
             BRep_Tool::Triangulation(face, location);
         if (triangulation.IsNull()) continue;
-        FaceReference reference =
-            (original_reference_geometry || collect_original_references)
-            ? face_references->reference_for(face)
-            : FaceReference{};
+        FaceReference reference = face_references->reference_for(face);
         if (reference.valid()) {
             GProp_GProps measured;
             BRepGProp::SurfaceProperties(face, measured);
@@ -4675,8 +4692,9 @@ BodyResult make_result(
                 base + static_cast<std::uint32_t>(second - 1),
                 base + static_cast<std::uint32_t>(third - 1),
             });
-            result.mesh.triangle_references.push_back(
-                original_reference_geometry ? reference : FaceReference{});
+            auto display_reference=original_reference_geometry ? reference : FaceReference{};
+            display_reference.surface_result=reference.surface_result;
+            result.mesh.triangle_references.push_back(std::move(display_reference));
             if (collect_face) {
                 result.mesh.original_references.triangles.insert(
                     result.mesh.original_references.triangles.end(), {
@@ -4709,6 +4727,11 @@ BodyResult make_result(
         BRepGProp::LinearProperties(edge, measured_edge);
         viewer_edge.measured_length = std::abs(measured_edge.Mass());
         const int edge_index = edge_faces.FindIndex(edge);
+        if(edge_index!=0) {
+            viewer_edge.surface_result=true;
+            for(TopTools_ListIteratorOfListOfShape it(edge_faces.FindFromIndex(edge_index));it.More();it.Next())
+                viewer_edge.surface_result &= face_references->reference_for(it.Value()).surface_result;
+        }
         if (edge_index != 0) {
             std::vector<TopoDS_Face> adjacent_faces;
             for (TopTools_ListIteratorOfListOfShape iterator(
@@ -4851,6 +4874,8 @@ BodyResult make_result(
         }
         result.mesh.edges.push_back(std::move(viewer_edge));
     }
+    TopTools_IndexedDataMapOfShapeListOfShape vertex_surface_faces;
+    TopExp::MapShapesAndAncestors(shape,TopAbs_VERTEX,TopAbs_FACE,vertex_surface_faces);
     TopTools_IndexedMapOfShape sampled_vertices;
     if (original_reference_geometry || collect_original_references) for (
         TopExp_Explorer explorer(shape, TopAbs_VERTEX); explorer.More(); explorer.Next()) {
@@ -4867,6 +4892,11 @@ BodyResult make_result(
         // markers. The viewer reveals them only while a Vertex-taking
         // command is active (or when explicitly highlighted).
         viewer_point.always_visible = false;
+        if(vertex_surface_faces.Contains(vertex)) {
+            viewer_point.surface_result=true;
+            for(TopTools_ListIteratorOfListOfShape it(vertex_surface_faces.FindFromKey(vertex));it.More();it.Next())
+                viewer_point.surface_result &= face_references->reference_for(it.Value()).surface_result;
+        }
         if (original_reference_geometry) result.mesh.points.push_back(viewer_point);
         if (collect_original_references) {
             result.mesh.original_references.points.push_back(viewer_point);
@@ -5949,6 +5979,12 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
         for (std::size_t operation_index = reusable_prefix;
              operation_index < operations.size(); ++operation_index) {
             const auto& operation = operations[operation_index];
+            const bool surface_operand=std::visit([](const auto& request){
+                if constexpr(requires{request.surface_result;})return request.surface_result;
+                else return false;
+            },operation.primitive);
+            if(surface_operand && operation.operation==BooleanOperation::Subtract)
+                throw std::invalid_argument("A surface cannot subtract material.");
             if (!operation.suppressed && !operation.input_error.empty())
                 throw std::runtime_error(operation.input_error);
             if (!std::isfinite(operation.mesh_deflection) || operation.mesh_deflection <= 0)
@@ -7647,7 +7683,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 owned_topology = std::make_shared<LiveCache::Topology>(
                     LiveCache::Topology{
                         operand.faces, operand.edges, operand.vertices, {}});
-            } else if (imported_step && operation.operation == BooleanOperation::Add) {
+            } else if ((imported_step || surface_operand) && operation.operation == BooleanOperation::Add) {
                 TopoDS_Compound compound;
                 BRep_Builder builder;
                 builder.MakeCompound(compound);
@@ -7666,7 +7702,12 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 owned_topology = std::move(combined_topology);
             } else if (operation.operation == BooleanOperation::Add) {
                 BRepAlgoAPI_Fuse algorithm;
-                set_boolean_inputs(algorithm, result_shape, operand.shape);
+                TopoDS_Compound solid_input,surface_input;BRep_Builder split_builder;
+                split_builder.MakeCompound(solid_input);split_builder.MakeCompound(surface_input);
+                bool has_surfaces=false;
+                for(TopExp_Explorer it(result_shape,TopAbs_SOLID);it.More();it.Next()){split_builder.Add(solid_input,it.Current());}
+                for(TopExp_Explorer it(result_shape,TopAbs_FACE,TopAbs_SOLID);it.More();it.Next()){split_builder.Add(surface_input,it.Current());has_surfaces=true;}
+                set_boolean_inputs(algorithm,has_surfaces?TopoDS_Shape(solid_input):result_shape,operand.shape);
                 algorithm.SetToFillHistory(true);
                 algorithm.SetFuzzyValue(
                     std::max(1.0e-7, operation.boolean_tolerance));
@@ -7686,6 +7727,14 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                         propagate_display_edges(
                             algorithm, owned_topology->hidden_display_edges)});
                 result_shape = algorithm.Shape();
+                if(has_surfaces) {
+                    TopoDS_Compound combined;split_builder.MakeCompound(combined);
+                    split_builder.Add(combined,result_shape);split_builder.Add(combined,surface_input);result_shape=combined;
+                    TopTools_IndexedMapOfShape members;TopExp::MapShapes(surface_input,members);
+                    for(const auto& face:owned_topology->faces)if(members.Contains(face.shape))fused_topology->faces.push_back(face);
+                    for(const auto& edge:owned_topology->edges)if(members.Contains(edge.shape))fused_topology->edges.push_back(edge);
+                    for(const auto& vertex:owned_topology->vertices)if(members.Contains(vertex.shape))fused_topology->vertices.push_back(vertex);
+                }
                 auto unified = unify_preserving_face_provenance(result_shape,
                     fused_topology->faces, fused_topology->edges,
                     fused_topology->vertices,
@@ -7701,23 +7750,35 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                         std::move(unified.edges), std::move(unified.vertices),
                         std::move(unified.hidden_display_edges)});
             } else {
-                BRepAlgoAPI_Cut algorithm;
-                set_boolean_inputs(algorithm, result_shape, operand.shape);
-                algorithm.SetToFillHistory(true);
-                algorithm.SetFuzzyValue(
-                    std::max(1.0e-7, operation.boolean_tolerance));
-                algorithm.Build();
-                if (!algorithm.IsDone()) throw std::runtime_error("OCCT cut failed");
-                auto cut_topology = LiveCache::Topology{
-                        propagate_topology(algorithm, owned_topology->faces,
-                            operand.faces),
-                        propagate_topology(algorithm, owned_topology->edges,
-                            operand.edges),
-                        propagate_topology(algorithm, owned_topology->vertices,
-                            operand.vertices),
-                        propagate_display_edges(
-                            algorithm, owned_topology->hidden_display_edges)};
-                result_shape = algorithm.Shape();
+                // OCCT Boolean operands must have homogeneous dimensions.
+                // Trim independent sheets and the solid collection separately.
+                TopoDS_Compound solid_input,surface_input,combined;
+                BRep_Builder builder;builder.MakeCompound(solid_input);builder.MakeCompound(surface_input);builder.MakeCompound(combined);
+                bool solids=false,surfaces=false;
+                for(TopExp_Explorer it(result_shape,TopAbs_SOLID);it.More();it.Next()){builder.Add(solid_input,it.Current());solids=true;}
+                for(TopExp_Explorer it(result_shape,TopAbs_FACE,TopAbs_SOLID);it.More();it.Next()){builder.Add(surface_input,it.Current());surfaces=true;}
+                LiveCache::Topology cut_topology;
+                const auto trim=[&](const TopoDS_Shape& input) {
+                    BRepAlgoAPI_Cut algorithm;
+                    set_boolean_inputs(algorithm,input,operand.shape);
+                    algorithm.SetToFillHistory(true);
+                    algorithm.SetFuzzyValue(std::max(1.0e-7,operation.boolean_tolerance));
+                    algorithm.Build();
+                    if(!algorithm.IsDone()||algorithm.Shape().IsNull())throw std::runtime_error("OCCT cut failed");
+                    builder.Add(combined,algorithm.Shape());
+                    TopTools_IndexedMapOfShape members;TopExp::MapShapes(algorithm.Shape(),members);
+                    const auto append=[&](auto& target,const auto& source) {
+                        for(const auto& entry:source)if(members.Contains(entry.shape))target.push_back(entry);
+                    };
+                    append(cut_topology.faces,propagate_topology(algorithm,owned_topology->faces,operand.faces));
+                    append(cut_topology.edges,propagate_topology(algorithm,owned_topology->edges,operand.edges));
+                    append(cut_topology.vertices,propagate_topology(algorithm,owned_topology->vertices,operand.vertices));
+                    for(const auto& edge:propagate_display_edges(algorithm,owned_topology->hidden_display_edges))
+                        if(members.Contains(edge))cut_topology.hidden_display_edges.push_back(edge);
+                    return algorithm.Shape();
+                };
+                if(solids&&surfaces){trim(solid_input);trim(surface_input);result_shape=combined;}
+                else result_shape=trim(result_shape);
                 cut_topology.edges = complete_boolean_edges(
                     result_shape, cut_topology.faces, cut_topology.edges,
                     operation.owner_id, "subtract");

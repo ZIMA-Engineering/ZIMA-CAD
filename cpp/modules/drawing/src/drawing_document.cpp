@@ -7,6 +7,7 @@
 #include <zima/drawing/balloon.hpp>
 #include <zima/document/versioned_file.hpp>
 #include <zima/kernel/stable_id.hpp>
+#include <zima/kernel/surface_results.hpp>
 
 #include <nlohmann/json.hpp>
 
@@ -298,7 +299,9 @@ std::vector<ProjectedEdge> project_edges(
 
 std::vector<ProjectedEdge> project_edges(
     const zima::kernel::ViewerMesh& mesh, const ProjectionCamera& camera) {
-    return detail::project_drawing_edges(mesh,camera);
+    if(!zima::kernel::has_surface_results(mesh))return detail::project_drawing_edges(mesh,camera);
+    auto visible=mesh;zima::kernel::hide_surface_results(visible);
+    return detail::project_drawing_edges(visible,camera);
 }
 
 std::vector<ProjectedTriangle> project_triangles(
@@ -312,6 +315,7 @@ std::vector<ProjectedTriangle> project_triangles(
     result.reserve(mesh.triangles.size() / 3);
     const auto view_direction = camera.depth;
     for (std::size_t triangle = 0; triangle + 2 < mesh.triangles.size(); triangle += 3) {
+        if(triangle/3<mesh.triangle_references.size()&&mesh.triangle_references[triangle/3].surface_result)continue;
         const auto ia = mesh.triangles[triangle]; const auto ib = mesh.triangles[triangle + 1];
         const auto ic = mesh.triangles[triangle + 2];
         if (ia >= mesh.vertices.size() || ib >= mesh.vertices.size() || ic >= mesh.vertices.size()) continue;
@@ -361,9 +365,7 @@ DrawingView DrawingDocument::create_view(
     view.source_path = std::move(source_path);
     view.orientation = orientation;
     view.camera = standard_camera(orientation);
-    capture_measurement_geometry(view,source_mesh);
-    view.projected_edges = project_edges(source_mesh, view.camera);
-    view.projected_triangles = project_triangles(source_mesh, view.camera);
+    refresh_view_geometry(view,source_mesh);
     return view;
 }
 
@@ -387,7 +389,12 @@ const DrawingView* DrawingDocument::find_view(const std::string& id) const {
     return const_cast<DrawingDocument*>(this)->find_view(id);
 }
 
-void refresh_view_geometry(DrawingView& view,const zima::kernel::ViewerMesh& source) {
+void refresh_view_geometry(DrawingView& view,const zima::kernel::ViewerMesh& source_mesh) {
+    std::optional<zima::kernel::ViewerMesh> filtered;
+    if(zima::kernel::has_surface_results(source_mesh)) {
+        filtered=source_mesh;zima::kernel::hide_surface_results(*filtered);
+    }
+    const auto& source=filtered?*filtered:source_mesh;
     if(view.section_id.empty()){
         capture_measurement_geometry(view,source);
         view.projected_edges=project_edges(source,view.camera);view.projected_triangles=project_triangles(source,view.camera);return;

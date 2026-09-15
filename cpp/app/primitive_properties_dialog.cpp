@@ -767,9 +767,11 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         result_type_ = new QComboBox(this);
         result_type_->addItem(tr("Těleso"), "solid");
         result_type_->addItem(tr("Thin"), "thin");
+        result_type_->setObjectName("profileResultType");
+        if(!assembly_cut_mode) result_type_->addItem(tr("Plocha"), "surface");
         result_type_->setCurrentIndex(result_type_->findData(
             result_type == zima::document::ProfileResultType::Thin
-                ? "thin" : "solid"));
+                ? "thin" : result_type == zima::document::ProfileResultType::Surface ? "surface" : "solid"));
         auto* result_row = new QWidget(this);
         auto* result_layout = new QHBoxLayout(result_row);
         result_layout->setContentsMargins(0, 0, 0, 0);
@@ -1179,6 +1181,20 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
             });
         add_operation_button_ = operation_buttons.add;
         subtract_operation_button_ = operation_buttons.subtract;
+        if(result_type_ && !assembly_cut_mode) {
+            const auto refresh_surface=[this] {
+                const bool surface=result_type_->currentData()=="surface";
+                subtract_operation_button_->setEnabled(!surface);
+                if(surface) {
+                    operation_->setCurrentIndex(operation_->findData("add"));
+                    add_operation_button_->setChecked(true);
+                    subtract_operation_button_->setChecked(false);
+                }
+                notify_preview();
+            };
+            connect(result_type_,&QComboBox::currentIndexChanged,this,[refresh_surface]{refresh_surface();});
+            refresh_surface();
+        }
         if (assembly_cut_mode) {
             add_operation_button_->setEnabled(false);
             subtract_operation_button_->setEnabled(false);
@@ -1405,6 +1421,7 @@ zima::document::HistoryContainer PrimitivePropertiesDialog::values() const {
             zima::document::ProfileSource::Internal;
         result.extrusion.result_type = result_type_->currentData() == "thin"
             ? zima::document::ProfileResultType::Thin
+            : result_type_->currentData() == "surface" ? zima::document::ProfileResultType::Surface
             : zima::document::ProfileResultType::Solid;
         result.extrusion.thin_thickness = thin_thickness_->value();
         result.extrusion.thin_mode = thin_mode_->currentData() == "other_side"
@@ -1443,6 +1460,7 @@ zima::document::HistoryContainer PrimitivePropertiesDialog::values() const {
             zima::document::ProfileSource::Internal;
         result.revolution.result_type = result_type_->currentData() == "thin"
             ? zima::document::ProfileResultType::Thin
+            : result_type_->currentData() == "surface" ? zima::document::ProfileResultType::Surface
             : zima::document::ProfileResultType::Solid;
         result.revolution.thin_thickness = thin_thickness_->value();
         result.revolution.thin_mode = thin_mode_->currentData() == "other_side"

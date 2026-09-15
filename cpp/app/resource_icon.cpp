@@ -43,7 +43,18 @@ QIcon svg_icon(const QString& path, bool palette_color) {
 
 }  // namespace
 
-QIcon resource_icon(const QString& name) {
+QIcon resource_icon(const QString& name, bool surface) {
+    if(surface) {
+        QIcon icon;
+        const auto base=resource_icon(name);
+        const auto badge=resource_icon("surface");
+        for(const int size:{16,18,20,24,32,48}) {
+            auto pixmap=base.pixmap(size,size);QPainter painter(&pixmap);
+            painter.drawPixmap(size/2,size/2,badge.pixmap(size/2,size/2));painter.end();
+            icon.addPixmap(pixmap);
+        }
+        return icon;
+    }
     return svg_icon(QStringLiteral(":/zima/icons/") + name + QStringLiteral(".svg"),
                     true);
 }

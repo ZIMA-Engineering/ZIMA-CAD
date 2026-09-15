@@ -227,6 +227,7 @@ private:
     QAction* show_points_action_{};
     QAction* show_axes_action_{};
     QAction* show_planes_action_{};
+    QAction* show_surfaces_action_{};
     QAction* show_sketches_action_{};
     QAction* show_dimensions_action_{};
     QMenu* colors_menu_{};

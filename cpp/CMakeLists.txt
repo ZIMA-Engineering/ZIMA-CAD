@@ -951,6 +951,9 @@ if(ZIMA_BUILD_TESTS)
     set_tests_properties(zima_cpp_extrusion_limit_contract_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
 
     add_executable(zima_cpp_thin_profile_contract_tests tests/thin_profile_contract_tests.cpp)
+    add_executable(zima_cpp_surface_profile_tests tests/surface_profile_tests.cpp)
+    target_link_libraries(zima_cpp_surface_profile_tests PRIVATE zima_document_core zima_kernel_occt zima_drawing)
+    add_test(NAME zima_cpp_surface_profile_tests COMMAND zima_cpp_surface_profile_tests)
     target_link_libraries(zima_cpp_thin_profile_contract_tests PRIVATE zima_document_core zima_kernel_occt)
     add_test(NAME zima_cpp_thin_profile_contract_tests COMMAND zima_cpp_thin_profile_contract_tests)
     set_tests_properties(zima_cpp_thin_profile_contract_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
@@ -1244,6 +1247,11 @@ if(ZIMA_BUILD_TESTS)
     set_tests_properties(zima_cpp_owned_profile_reference_ui_contract PROPERTIES
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_OWNED_PROFILE_REFERENCE_ONLY=1"
+        TIMEOUT 120)
+    add_test(NAME zima_cpp_surface_profile_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_surface_profile_ui_contract PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SURFACE_ONLY=1"
         TIMEOUT 120)
     add_test(NAME zima_cpp_sketch_offset_ui_contract COMMAND zima-cad-cpp --verify-startup)
     set_tests_properties(zima_cpp_sketch_offset_ui_contract PROPERTIES

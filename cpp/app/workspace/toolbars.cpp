@@ -71,7 +71,7 @@ void AssemblyWorkspaceWindow::update_document_area_visibility() {
                          shaded_edges_action_, shaded_action_,
                          orthographic_camera_action_, perspective_camera_action_,
                          fly_camera_action_, show_origins_action_, show_points_action_,
-                         show_axes_action_, show_planes_action_, show_sketches_action_, show_dimensions_action_}) {
+                         show_axes_action_, show_planes_action_, show_surfaces_action_, show_sketches_action_, show_dimensions_action_}) {
         action->setEnabled(has_document);
     }
     update_application_actions();

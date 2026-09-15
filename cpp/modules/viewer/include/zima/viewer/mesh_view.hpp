@@ -47,6 +47,7 @@ enum class StandardView {
 };
 
 enum class ReferenceVisibility {
+    Surfaces,
     Origins,
     Points,
     Axes,

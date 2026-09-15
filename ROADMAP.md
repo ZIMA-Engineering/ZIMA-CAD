@@ -301,8 +301,10 @@ completion of the agreed features.
 - persisted thin topology roles (Inside/Outside and Start/End) participate in
   semantic ancestry and recover references when changing between thin and
   ordinary solid results
-- ordinary Part modeling intentionally produces solids only; standalone
-  surface output is deferred to the future surface-modeling workspace
+- Solid, Thin and Surface results share the existing Part Properties window;
+  Surface supports open and closed profiles without caps or material volume
+- fixed yellow Surface display, a shared visibility toggle, and Drawing exclusion;
+  technological threads remain outside this filter ([contract](doc/SURFACE_PROFILES.md))
 
 ## 4. Revolve
 
@@ -320,8 +322,7 @@ completion of the agreed features.
   in-view input flips direction
 - 360-degree initial one-sided proposal and independent remembered 45-degree
   proposals for newly selected two-sided and symmetric modes
-- the same solid/thin profile contract as Protrusion; ordinary Part Revolve
-  does not create standalone surface bodies
+- the same Solid/Thin/Surface profile contract as Protrusion
 
 ## 5. Sweep
 
@@ -388,9 +389,7 @@ Further sweep scope:
 - linear and circular semantic Patterns with stable per-occurrence identities,
   followed by curve/table-driven variants
 - Part feature/body Mirror with semantic source provenance
-- cutting a solid with a selected surface or surface body
-- explicit retained/removed half-space selection for surface cuts, controlled
-  by Flip and shown by a direction arrow before calculation
+- solid cutters can trim Surface results; Surface results cannot remove material
 - surface modeling foundation: creation, trimming, extending, joining and
   inspection of surface bodies
 - conversion workflows between suitable closed surface sets and solid bodies

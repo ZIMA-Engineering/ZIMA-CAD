@@ -17,7 +17,8 @@ void load_profile_parameters(HistoryContainer& container, const nlohmann::json& 
                     : throw std::runtime_error("Invalid profile source");
             container.extrusion.result_type = source.at("result_type") == "solid"
                 ? ProfileResultType::Solid : source.at("result_type") == "thin"
-                    ? ProfileResultType::Thin
+                    ? ProfileResultType::Thin : source.at("result_type") == "surface"
+                        ? ProfileResultType::Surface
                     : throw std::runtime_error("Invalid profile result type");
             container.extrusion.thin_thickness = source.at("thin_thickness");
             container.extrusion.profile_plane_offset =
@@ -156,7 +157,8 @@ void load_profile_parameters(HistoryContainer& container, const nlohmann::json& 
                     : throw std::runtime_error("Invalid Revolution profile source");
             container.revolution.result_type = source.at("result_type") == "solid"
                 ? ProfileResultType::Solid : source.at("result_type") == "thin"
-                    ? ProfileResultType::Thin
+                    ? ProfileResultType::Thin : source.at("result_type") == "surface"
+                        ? ProfileResultType::Surface
                     : throw std::runtime_error("Invalid Revolution result type");
             container.revolution.thin_thickness = source.at("thin_thickness");
             container.revolution.profile_plane_offset =
@@ -209,7 +211,7 @@ void save_profile_parameters(const HistoryContainer& container, nlohmann::json& 
             serialized["profile_source"] = container.extrusion.profile_source ==
                     ProfileSource::Internal ? "internal" : "external";
             serialized["result_type"] = container.extrusion.result_type ==
-                    ProfileResultType::Solid ? "solid" : "thin";
+                    ProfileResultType::Solid ? "solid" : container.extrusion.result_type == ProfileResultType::Surface ? "surface" : "thin";
             serialized["thin_thickness"] = container.extrusion.thin_thickness;
             serialized["profile_plane_offset"] =
                 container.extrusion.profile_plane_offset;
@@ -286,7 +288,7 @@ void save_profile_parameters(const HistoryContainer& container, nlohmann::json& 
             serialized["profile_source"] = container.revolution.profile_source ==
                     ProfileSource::Internal ? "internal" : "external";
             serialized["result_type"] = container.revolution.result_type ==
-                    ProfileResultType::Solid ? "solid" : "thin";
+                    ProfileResultType::Solid ? "solid" : container.revolution.result_type == ProfileResultType::Surface ? "surface" : "thin";
             serialized["thin_thickness"] = container.revolution.thin_thickness;
             serialized["profile_plane_offset"] =
                 container.revolution.profile_plane_offset;
