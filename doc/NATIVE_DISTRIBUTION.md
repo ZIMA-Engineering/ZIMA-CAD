@@ -140,6 +140,9 @@ existing staging tree nor an existing output ZIP is overwritten.
 
 The script exports Git blobs, recursively exports recorded submodule commits,
 builds with CMake in the staging tree and uses the pinned vcpkg dependencies.
+The existing native SDK is consumed with `VCPKG_MANIFEST_INSTALL=OFF`; packaging
+must not reinstall or mutate the developer SDK. Provision/verify dependencies
+separately before invoking the candidate builder.
 Python is only a developer tool; no interpreter is included in the product.
 Uncommitted changes and untracked files never enter the candidate. A regular
 candidate may be built from a selected commit while unrelated work is present.

@@ -261,6 +261,7 @@ def package(args):
     run([args.cmake, '-S', source / 'cpp', '-B', build, '-G', 'Ninja',
          '-DCMAKE_BUILD_TYPE=Release', '-DZIMA_BUILD_TESTS=OFF', '-DZIMA_SOURCE_COMMIT=' + commit,
          '-DCMAKE_TOOLCHAIN_FILE=' + str(args.toolchain.resolve()),
+         '-DVCPKG_MANIFEST_INSTALL=OFF',
          '-DVCPKG_INSTALLED_DIR=' + str(args.installed.resolve().parent), '-DVCPKG_TARGET_TRIPLET=x64-windows'])
     run([args.cmake, '--build', build, '--target', 'zima-cad-cpp', 'zima-cad-cli', 'zima-cad-launcher', '--parallel', str(args.jobs)])
     root = stage / 'p/ZIMA-CAD'; runtime = root / 'windows' / version
