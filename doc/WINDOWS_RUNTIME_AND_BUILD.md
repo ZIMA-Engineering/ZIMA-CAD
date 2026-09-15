@@ -2,8 +2,9 @@
 
 The product-level portable distribution layout and settings contract are
 defined in [`PORTABLE_RELEASE.md`](PORTABLE_RELEASE.md). The preferred release
-is one self-contained archive carrying both the Linux and Windows launchers,
-runtimes and shared portable data.
+is a self-contained archive carrying the launchers, available platform runtimes
+and shared portable data. Platforms may publish independently; published archives
+remain immutable.
 
 The active application is now the C++ `zima-cad-cpp` target. A supported C++
 Windows candidate pipeline is implemented in `tools/distribution/`; see
@@ -22,7 +23,7 @@ packaging scripts. The repository-owned build and validation pipeline must verif
 The Python application and its Python-only packaging scripts were removed on
 2026-09-15. Their source is available in Git history. Conda and Python are not
 C++ runtime requirements. The current Windows vcpkg manifest selects Qt,
-OpenCASCADE, FreeType, HarfBuzz and nlohmann_json. Package the actual native
+OpenCASCADE, FreeType, HarfBuzz, OpenSSL and nlohmann_json. Package the actual native
 runtime dependencies and dynamically loaded Qt plugins; a header-only library
 does not require a runtime DLL. The CLI also needs its offscreen Qt platform.
 

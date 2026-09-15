@@ -11,8 +11,9 @@ The CLI also supports `--version`. The About window displays the same ID.
 
 Windows has a native launcher and a committed-source candidate builder. Linux
 has the equivalent launcher source; its runtime and execution must be completed
-and verified on Linux. Authenticated network updates, restart coordination,
-startup acknowledgement, automatic rollback and retention are subsequent work.
+and verified on Linux. Signed updates, restart coordination, startup
+acknowledgement, recovery and two-version retention are implemented; see
+[Application updates](UPDATES.md) for the UI, signing and acceptance procedure.
 Neither the scripts nor a successful local build publish a release.
 
 ## Installed layout
@@ -22,6 +23,8 @@ ZIMA-CAD/
   ZIMA-CAD.exe
   ZIMA-CAD.sh
   launcher.ini
+  installation.json
+  release-info/
   LICENSE
   checksums.json
   config/
@@ -32,6 +35,7 @@ ZIMA-CAD/
   windows/<build-id>/
     zima-cad-cpp.exe
     zima-cad-cli.exe
+    zima-cad-update.exe
     *.dll
     plugins/
     qt.conf
@@ -155,7 +159,7 @@ candidate may be built from a selected commit while unrelated work is present.
 `-Release` additionally requires a clean checkout and a matching
 `ZIMA-CAD-<build-id>` tag; it still produces an unsigned, unpublished candidate.
 
-The builder deploys both executables, transitive DLLs, Windows/offscreen and
+The builder deploys GUI, CLI and updater executables, transitive DLLs, Schannel TLS, Windows/offscreen and
 image/style plugins, OCCT resources, licenses and exact committed source.
 Validation enforces a 180 UTF-16-code-unit archive member budget (including the
 top-level folder), safe paths, case collisions, file/size limits, CRC and SHA-256.
@@ -173,22 +177,20 @@ python tools/distribution/test_package.py
 python tools/distribution/package.py validate path/to/ZIMA-CAD-2026091501.zip
 ```
 
-Hashes establish integrity, not publisher authentication. Signing keys, signed
-metadata verification and the updater must be implemented before advertising
-automatic authenticated updates. Never merge by extracting a new whole archive
+Hashes establish integrity, not publisher authentication. The signing finalizer
+and authenticated updater are described in [Application updates](UPDATES.md).
+Never merge by extracting a new whole archive
 over an existing installation. Import only a validated new version/source pair;
 switch selection after application exit and preserve all shared user data.
 
 ## Remaining update and Linux acceptance
 
 - Build/verify the native Linux dependencies and launcher on the Linux host.
-- Assemble matching platform commits before publication; published archives
-  are immutable and adding a platform later requires a new release identity.
-- Define publisher key ownership, trusted keys and signed release metadata.
-- Implement staging, instance coordination, restart/startup acknowledgement,
-  recovery after interruption and explicit rollback.
-- Retain current/previous verified official builds per OS and required source;
-  preserve modified/custom builds and user data.
+- Platforms may publish independently. If combined, their commits must match;
+  published archives are immutable and adding a platform later requires a new ID.
+- Produce the first signed CAD distribution using the implemented signing and
+  validation workflow. No official update was published during implementation.
+- Run the updater's Linux execution and desktop acceptance on Linux.
 - Binary rollback does not promise backward compatibility of native documents.
 
 See [binding requirements](DISTRIBUTION_CLEANUP_PLAN.md) and
@@ -226,7 +228,8 @@ Evidence logs: `build/version-package-final-03.log`,
 `build/version-layout-final-build.log`. The per-archive `.validation.json`
 records its commit, hash and Windows smoke result. Artifacts/logs remain local
 and ignored by Git. No release/tag was published, no signing key was created,
-and no Linux runtime or automatic updater is claimed verified.
+and no Linux runtime or automatic updater was verified by that earlier candidate
+run. Subsequent updater implementation and verification are in [UPDATES.md](UPDATES.md).
 
 Earlier local candidates remain available as ZIPs. The prepared runnable
 installation keeps the current and previous versions; custom/user directories

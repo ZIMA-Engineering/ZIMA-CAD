@@ -34,6 +34,33 @@ std::wstring quote(const std::wstring& value) {
     }
     result.append(2 * slashes, L'\\'); result += L'"'; return result;
 }
+void recover_update(const fs::path& root) {
+    auto version = setting(root / "launcher.ini", L"launcher", L"windows");
+    if (!safe_version(version, false)) return;
+    const bool signed_build = fs::exists(root / "release-info" / (L"windows-x64-" + version + L".json"))
+        || fs::exists(root / ".updates/installed" / (L"windows-x64-" + version + L".json"));
+    if (!signed_build) return; // Unsigned packaging candidates retain the normal launch path.
+    const auto engine = setting(root / ".updates/engine.ini", L"updater", L"windows");
+    if (!engine.empty()) {
+        if (!safe_version(engine, false)) throw std::runtime_error("Invalid recovery engine");
+        version = engine;
+    }
+    const auto helper = root / "windows" / version / "zima-cad-update.exe";
+    for (auto path = helper; path != path.root_path(); path = path.parent_path()) {
+        const auto attributes = GetFileAttributesW(path.c_str());
+        if (attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_REPARSE_POINT))
+            throw std::runtime_error("Linked managed installation paths are not supported");
+    }
+    std::wstring command = quote(helper.wstring()) + L" recover --root " + quote(root.wstring());
+    STARTUPINFOW startup{}; startup.cb = sizeof(startup); PROCESS_INFORMATION process{};
+    if (!CreateProcessW(helper.c_str(), command.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW,
+        nullptr, root.c_str(), &startup, &process)) throw std::runtime_error("Cannot start update recovery");
+    CloseHandle(process.hThread);
+    DWORD result = 1;
+    if (WaitForSingleObject(process.hProcess, 30000) == WAIT_OBJECT_0) GetExitCodeProcess(process.hProcess, &result);
+    CloseHandle(process.hProcess);
+    if (result) throw std::runtime_error("Update recovery could not complete. Another installation may be active; try again shortly.");
+}
 int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
     bool interactive_error = true;
     try {
@@ -57,6 +84,8 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
             else forwarded.push_back(args[i]);
         }
         if (version.empty()) {
+            if (!check && !explicit_custom && setting(root / "launcher.ini", L"launcher", L"windows_custom") != L"true")
+                recover_update(root);
             version = setting(root / "launcher.ini", L"launcher", L"windows");
             if (!explicit_custom) custom = setting(root / "launcher.ini", L"launcher", L"windows_custom") == L"true";
         }

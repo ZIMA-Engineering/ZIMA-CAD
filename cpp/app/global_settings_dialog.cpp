@@ -1,5 +1,10 @@
 #include "global_settings_dialog.hpp"
 #include "file_dialog.hpp"
+#include "updatespage.h"
+#include "updateservice.h"
+#include <QTabWidget>
+#include <QVBoxLayout>
+#include <QDialogButtonBox>
 
 #include <QComboBox>
 #include <QDir>
@@ -26,6 +31,12 @@ GlobalSettingsDialog::GlobalSettingsDialog(
             settings_.text("label.options", tr("Nastavení")),
             settings_.config_path), this));
 
+    sections_ = new QTabWidget(this);
+    sections_->setObjectName("globalSettingsSections");
+    auto* general = new QWidget(sections_);
+    auto* general_layout = new QVBoxLayout(general);
+    sections_->addTab(general, tr("Obecné"));
+    content_layout()->addWidget(sections_);
     auto* form = new QFormLayout;
     language_ = new QComboBox(this);
     language_->setObjectName("globalSettingsLanguage");
@@ -85,11 +96,31 @@ GlobalSettingsDialog::GlobalSettingsDialog(
         path_fields_.insert(it.key(), edit);
         form->addRow(it.value(), row);
     }
-    content_layout()->addLayout(form);
+    general_layout->addLayout(form);
     auto* language_note = new QLabel(tr("Po změně jazyka restartujte aplikaci, aby se přeložily i všechny otevřené nabídky a panely."), this);
     language_note->setWordWrap(true);
-    content_layout()->addWidget(language_note);
+    general_layout->addWidget(language_note);
+    updates_ = new UpdatesPage([this](bool rollback) {
+        auto* service = UpdateService::get();
+        const auto blocker = service->restartBlocker();
+        if (!blocker.isEmpty()) {
+            QMessageBox::information(this, tr("Před restartem"), blocker);
+            return;
+        }
+        // Use the same validated OK path as the ordinary confirmation action.
+        bool accepted = false;
+        const auto connection = connect(this, &QDialog::accepted, this, [&accepted] { accepted = true; });
+        buttons()->button(QDialogButtonBox::Ok)->click();
+        disconnect(connection);
+        if (accepted) { if (rollback) service->rollback(); else service->restartPrepared(); }
+    }, sections_);
+    sections_->addTab(updates_, tr("Aktualizace"));
+    connect(this, &QDialog::rejected, this, [] {
+        if (UpdateService::get()->busy()) UpdateService::get()->cancel();
+    });
 }
+
+void GlobalSettingsDialog::show_updates() { sections_->setCurrentWidget(updates_); }
 
 const ApplicationSettings& GlobalSettingsDialog::settings() const {
     return settings_;
@@ -124,7 +155,13 @@ bool GlobalSettingsDialog::submit() {
         settings_.configured_paths[it.key()] = it.value()->text().trimmed();
     }
     QString error;
-    if (settings_.save(&error)) return true;
+    auto* update_service = UpdateService::get();
+    const bool previous_automatic = update_service->automatic();
+    if (updates_->save(&error)) {
+        if (settings_.save(&error)) return true;
+        QString restore_error;
+        if (!update_service->saveAutomatic(previous_automatic, &restore_error)) error += '\n' + restore_error;
+    }
     QMessageBox::critical(this, tr("Uložení selhalo"), error);
     return false;
 }

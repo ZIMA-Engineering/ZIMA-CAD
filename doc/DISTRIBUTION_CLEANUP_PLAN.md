@@ -6,15 +6,17 @@ The user approved retiring the Python application and using the same principle
 as ZIMA-CAD-Parts: each version owns its executables, native dependencies and
 resources; previous versions remain launchable; user data lives outside version
 directories. C++ is the only product implementation. The detailed layout and
-implementation stages below are the agreed packaging requirements. They are not a claim
-that a portable package, updater or signing system already exists.
+implementation stages below are the agreed packaging requirements. The Windows
+candidate builder and native signed updater are now implemented; actual release
+acceptance is recorded separately in [Application updates](UPDATES.md).
 
 Reviewed sibling documents: `ZIMA-CAD-Parts/doc/distribution-policy.md` and
 `ZIMA-CAD-Parts/doc/windows-distribution.md`, as present on 2026-09-15.
 The Parts policy is applicable, but its scripts cannot be copied unchanged:
 Parts uses qmake and different executables/resources, while CAD uses CMake,
-two executables and different runtime plugins. Parts' working tree now includes updater/signing work, but that work is still
-uncommitted and was not verified in CAD. Do not treat it as a released updater.
+GUI/CLI executables and different runtime plugins. Its updater/signing sources
+have since been adapted and tested in CAD; this is not a claim that either
+product has published a signed official release.
 CAD's implementation and acceptance status are recorded in
 [NATIVE_DISTRIBUTION.md](NATIVE_DISTRIBUTION.md).
 
@@ -121,12 +123,10 @@ is not a guarantee it can read documents saved in a newer native format:
 backward format compatibility remains outside the product contract. Keep
 original documents/recovery data and report an unsupported format clearly.
 
-Prefer the combined Windows/Linux ZIP and source layout from Parts. Prepare
-both platforms before publication. Once published, keep an archive immutable;
-adding a later platform requires a new complete build ID or an explicitly
-versioned new artifact, not replacing existing bytes under the same identity.
-This resolves the tension between Parts' incremental platform assembly and
-CAD's existing prohibition on silently replacing published archives.
+Use the Windows/Linux ZIP and source layout from Parts. Following the user's
+2026-09-15 updater request and current ZCP policy, platforms may publish
+independently. Combined platforms must share the same source commit. Published
+archives are immutable; adding a platform later requires a new build ID.
 
 ## Native runtime replacement
 
@@ -192,13 +192,14 @@ Conda package cache or `conda-unpack` belongs in the finished product archive.
 - Version switching and return to the previous version, plus preservation of
   Projects, user settings, autosaves/recovery and custom builds.
 - Authentication verified separately from integrity: hashes alone do not
-  establish official provenance. Signatures and key policy are still to be
-  implemented.
+  establish official provenance. Apply the signature and key policy in
+  [Application updates](UPDATES.md).
 
 The earlier cleanup itself produced no distributable or updater. The subsequent
 Windows launcher, committed-source builder and settings implementation are
 documented in [NATIVE_DISTRIBUTION.md](NATIVE_DISTRIBUTION.md). Authenticated
-updates and native Linux acceptance remain separate pending work. See [Windows runtime requirements](WINDOWS_RUNTIME_AND_BUILD.md) and
+updates have since been implemented in [UPDATES.md](UPDATES.md); native Linux
+acceptance remains assigned to Linux. See [Windows runtime requirements](WINDOWS_RUNTIME_AND_BUILD.md) and
 the [earlier portable layout](PORTABLE_RELEASE.md) for the superseded design.
 
 ## Windows verification and Linux handoff

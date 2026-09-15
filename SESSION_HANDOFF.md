@@ -85,8 +85,8 @@ presets, so replace that dependency setup on Linux before building there.
 
 The native Windows launcher, committed-source candidate builder and shared
 portable `config/` layers are implemented; see
-[Native distribution](doc/NATIVE_DISTRIBUTION.md). The signed updater and Linux
-runtime acceptance remain pending. Do not publish old-style development builds as compliant
+[Native distribution](doc/NATIVE_DISTRIBUTION.md). The signed updater is now
+implemented; Linux runtime acceptance remains pending. Do not publish old-style development builds as compliant
 releases. Current Windows native dependencies remain available in the build/vcpkg
 setup. A fresh GUI/CLI build and console UI contract passed with the old runtime
 absent (see the Linux handoff for validation details).
@@ -97,15 +97,35 @@ checks; the exact SHA-256, local output locations and test scope are recorded in
 [Native distribution](doc/NATIVE_DISTRIBUTION.md#windows-verification-on-2026-09-15).
 The unpacked local portable installation holds versions `2026091503` and
 `2026091502` and preserves shared `config/`. It is an unsigned local candidate,
-not a GitHub release. Next distribution work is signed update/restart/rollback
-coordination and Linux acceptance on Linux.
+not a GitHub release. The native updater is now implemented; its first signed
+official distribution and Linux acceptance remain release work.
+
+## Application updates
+
+The 2026-09-15 update request is implemented using the current ZCP design adapted
+to native CAD/CMake. Settings has General/Updates tabs. Startup checks run in a
+background helper and expose only a small status-bar link for verified newer
+versions. Download/verification and explicit restart are separate actions; dirty
+documents or an active model edit block restart. Successful startup keeps current
+plus previous per platform, with signed-inventory checks before cleanup/rollback.
+Root launchers recover interrupted selection and GUI/CLI processes register their
+runtime lifetimes. No other CAD process is forcibly stopped.
+
+Read [Application updates](doc/UPDATES.md) for the manifest, public trust anchor,
+signing commands and tests. The existing ZCP publisher public key is embedded;
+its private key was not copied/read. Development continues through the same root
+BAT. It can check releases, while installation requires a signed portable bundle.
+Windows and Linux may now publish independently with immutable release assets.
+Linux execution stays assigned to the Linux host; test Linux manifests are not
+evidence of Linux runtime support. No GitHub release was created by this work.
 
 ## Work order
 
 On 2026-09-15 the user confirmed this immediate order: finish the Holes preview,
 diameter annotation and display-mode icons; then complete program updates;
 then continue Sketcher offsets, especially external and STEP source curves.
-Updater implementation remains pending; see the distribution section above.
+Updater implementation is complete; finish its release acceptance before
+publishing the first signed bundle. Modeling work next returns to Sketcher offsets.
 
 New explicit user instructions take precedence. The agreed Part sequence is in
 [ROADMAP.md](ROADMAP.md#agreed-next-steps-for-part-2026-09-06), beginning with

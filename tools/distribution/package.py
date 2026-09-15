@@ -16,6 +16,7 @@ import sys
 import tarfile
 import tempfile
 import zipfile
+import uuid
 
 ROOT = Path(__file__).resolve().parents[2]
 MAX_MEMBER = 180  # Includes the ZIMA-CAD/ top-level directory; leaves 79 for destination.
@@ -60,7 +61,16 @@ def sha(path):
 
 
 def write_json(path, value):
-    Path(path).write_text(json.dumps(value, indent=2, sort_keys=True) + '\n', encoding='utf-8')
+    Path(path).write_bytes(canonical(value))
+
+
+def canonical(value):
+    def order(v):
+        if isinstance(v, dict):
+            return {k: order(v[k]) for k in sorted(v, key=lambda s: s.encode('utf-16-be'))}
+        if isinstance(v, list): return [order(x) for x in v]
+        return v
+    return (json.dumps(order(value), ensure_ascii=False, separators=(',', ':')) + '\n').encode('utf-8')
 
 
 def inventory(folder):
@@ -68,13 +78,16 @@ def inventory(folder):
     for path in sorted(folder.rglob('*')):
         if path.is_symlink() or (hasattr(path, 'is_junction') and path.is_junction()):
             raise ValueError('Links are not allowed in a Windows candidate: ' + str(path))
-        name = safe_name('ZIMA-CAD/' + path.relative_to(folder).as_posix())
+        name = path.relative_to(folder).as_posix()
+        safe_name('ZIMA-CAD/' + name)
         key = name.casefold()
         if key in names:
             raise ValueError('Case-colliding paths: ' + name)
         names[key] = True
         if path.is_file():
-            files[name] = {'size': path.stat().st_size, 'sha256': sha(path)}
+            with path.open('rb') as stream:
+                executable = name.endswith('.sh') or stream.read(4).startswith((b'#!', b'\x7fELF'))
+            files[name] = {'size': path.stat().st_size, 'sha256': sha(path), 'executable': executable}
     if len(files) > MAX_FILES or sum(f['size'] for f in files.values()) > MAX_BYTES:
         raise ValueError('Candidate exceeds extraction limits')
     return files
@@ -141,7 +154,8 @@ def deploy_dependencies(runtime, installed, redist, dumpbin):
     plugins = installed / 'Qt6/plugins'
     for group, names in {'platforms': ['qwindows.dll', 'qoffscreen.dll'],
                          'imageformats': ['qjpeg.dll', 'qsvg.dll'],
-                         'styles': ['qmodernwindowsstyle.dll']}.items():
+                         'styles': ['qmodernwindowsstyle.dll'],
+                         'tls': ['qschannelbackend.dll']}.items():
         (runtime / 'plugins' / group).mkdir(parents=True)
         for name in names:
             shutil.copy2(plugins / group / name, runtime / 'plugins' / group / name)
@@ -175,7 +189,7 @@ def deploy_dependencies(runtime, installed, redist, dumpbin):
 
 
 def clean_environment(runtime):
-    env = {k: v for k, v in os.environ.items() if not k.upper().startswith(('QT_', 'QML', 'CSF_', 'ZIMA_VERIFY'))}
+    env = {k: v for k, v in os.environ.items() if not k.upper().startswith(('QT_', 'QML', 'CSF_', 'ZIMA_VERIFY', 'ZIMA_UPDATE', 'ZIMA_INSTALL'))}
     windows = Path(os.environ['SystemRoot'])
     env['PATH'] = os.pathsep.join(map(str, (runtime, windows / 'System32', windows)))
     return env
@@ -235,7 +249,7 @@ def smoke(root, version, gui=True):
     if user_config.read_bytes() != config_before:
         raise ValueError('Startup/smoke replaced shared user configuration')
     for name, record in json.loads((root / 'checksums.json').read_text(encoding='utf-8')).items():
-        if sha(root.parent / name) != record['sha256']:
+        if sha(root / name) != record['sha256']:
             raise ValueError('Smoke modified a packaged source/runtime file: ' + name)
 
 
@@ -262,12 +276,12 @@ def validate_archive(archive, destination=None):
         if zipped.getinfo('ZIMA-CAD/checksums.json').file_size > 32 * 1024**2:
             raise ValueError('ZIP inventory is too large')
         checksums = json.loads(zipped.read('ZIMA-CAD/checksums.json'))
-        if set(checksums) != {m.filename for m in members} - {'ZIMA-CAD/checksums.json'}:
+        if set(checksums) != {m.filename.removeprefix('ZIMA-CAD/') for m in members} - {'checksums.json'}:
             raise ValueError('ZIP inventory mismatch')
         for name, record in checksums.items():
-            with zipped.open(name) as data:
+            with zipped.open('ZIMA-CAD/' + name) as data:
                 digest = hashlib.file_digest(data, 'sha256').hexdigest()
-            if zipped.getinfo(name).file_size != record['size'] or digest != record['sha256']:
+            if zipped.getinfo('ZIMA-CAD/' + name).file_size != record['size'] or digest != record['sha256']:
                 raise ValueError('ZIP SHA-256 mismatch: ' + name)
         if destination is not None:
             if destination.exists():
@@ -314,11 +328,11 @@ def package(args):
          '-DCMAKE_TOOLCHAIN_FILE=' + str(args.toolchain.resolve()),
          '-DVCPKG_MANIFEST_INSTALL=OFF',
          '-DVCPKG_INSTALLED_DIR=' + str(args.installed.resolve().parent), '-DVCPKG_TARGET_TRIPLET=x64-windows'])
-    run([args.cmake, '--build', build, '--target', 'zima-cad-cpp', 'zima-cad-cli', 'zima-cad-launcher', '--parallel', str(args.jobs)])
+    run([args.cmake, '--build', build, '--target', 'zima-cad-cpp', 'zima-cad-cli', 'zima-cad-launcher', 'zima-cad-update', '--parallel', str(args.jobs)])
     assembly = Path(tempfile.mkdtemp(prefix='p-', dir=stage))
     root = assembly / 'ZIMA-CAD'; runtime = root / 'windows' / version
     runtime.mkdir(parents=True)
-    for exe in ('zima-cad-cpp.exe', 'zima-cad-cli.exe'):
+    for exe in ('zima-cad-cpp.exe', 'zima-cad-cli.exe', 'zima-cad-update.exe'):
         shutil.copy2(build / exe, runtime / exe)
     shutil.copy2(build / 'ZIMA-CAD.exe', root / 'ZIMA-CAD.exe')
     shutil.copy2(source / 'tools/distribution/launcher-linux.sh', root / 'ZIMA-CAD.sh')
@@ -341,6 +355,7 @@ def package(args):
     write_json(runtime / 'version.json', metadata)
     (runtime / 'build.ini').write_text(f'[build]\nproduct=ZIMA-CAD\nversion={version}\nplatform=windows-x64\n', encoding='utf-8')
     (root / 'launcher.ini').write_text(f'[launcher]\nwindows={version}\nwindows_custom=false\nlinux=\nlinux_custom=false\n', encoding='utf-8')
+    write_json(root / 'installation.json', {'product': 'ZIMA-CAD', 'protocol': 1, 'id': str(uuid.uuid4())})
     # User config and project directories are created on first launch. Updates
     # must never extract a supplied user config over an existing installation.
     write_json(root / 'checksums.json', inventory(root))

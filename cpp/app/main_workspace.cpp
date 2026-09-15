@@ -1,4 +1,7 @@
 #include <zima_build_info.hpp>
+#include "installationclient.h"
+#include "updateservice.h"
+#include "updates_ui_verification.hpp"
 #include <zima/document/file_path.hpp>
 #include <zima/workspace/native_documents.hpp>
 #include <zima/interchange/dxf.hpp>
@@ -5181,6 +5184,8 @@ int verify_startup_contract(
     const std::filesystem::path& initial_test_directory,
     const QString& part_capture_path = {}, const QString& drawing_capture_path = {}) {
     auto test_directory = initial_test_directory;
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_UPDATES_ONLY"))
+        return zima::app::verify_updates_ui(application, window, test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_PACKAGE_ONLY")) {
         try {
             window.showMaximized();
@@ -9474,6 +9479,11 @@ int main(int argc, char* argv[]) {
         }
         startup_directory = test_directory;
     }
+    QString installation_error;
+    if (!registerZimaInstance(&installation_error)) {
+        std::cerr << installation_error.toStdString() << '\n';
+        return 2;
+    }
     zima::app::AssemblyWorkspaceWindow window(startup_directory);
     QString part_capture_path;
     QString drawing_capture_path;
@@ -9502,5 +9512,7 @@ int main(int argc, char* argv[]) {
         if (!window.open_document_path(document)) return 1;
     }
     zima::app::install_instance_verification(window, startup_directory);
+    UpdateService::get()->acknowledgeStartup();
+    UpdateService::get()->scheduleStartupCheck();
     return application.exec();
 }

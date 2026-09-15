@@ -21,6 +21,17 @@ while [ "$#" -gt 0 ]; do
     esac
 done
 if [ -z "$version" ]; then
+    selected=$(read_setting "$root/launcher.ini" launcher linux)
+    if [ "$check" = false ] && [ "$custom" = false ] && [ "$(read_setting "$root/launcher.ini" launcher linux_custom)" != true ]; then
+        case "$selected" in ''|*[!0-9]*) ;; *)
+            if [ -f "$root/release-info/linux-x86_64-$selected.json" ] || [ -f "$root/.updates/installed/linux-x86_64-$selected.json" ]; then
+                engine=$selected
+                if [ -f "$root/.updates/engine.ini" ]; then engine=$(read_setting "$root/.updates/engine.ini" updater linux); fi
+                case "$engine" in ''|*[!0-9]*) echo 'Invalid recovery engine' >&2; exit 2 ;; esac
+                LD_LIBRARY_PATH="$root/linux/$engine/lib" "$root/linux/$engine/bin/zima-cad-update" recover --root "$root"
+            fi ;;
+        esac
+    fi
     version=$(read_setting "$root/launcher.ini" launcher linux)
     if [ "$custom" = false ]; then custom=$(read_setting "$root/launcher.ini" launcher linux_custom); fi
 fi

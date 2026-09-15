@@ -10,6 +10,7 @@
     "nlohmann-json",
     "opencascade",
     "qtbase",
+    "openssl",
     "qtsvg",
     "freetype",
     "harfbuzz"

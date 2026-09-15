@@ -1,5 +1,6 @@
 #include <zima_build_info.hpp>
 #include "runner.hpp"
+#include "installationclient.h"
 #include <algorithm>
 #include <cerrno>
 #include <cstdio>
@@ -101,6 +102,9 @@ int main(int argc,char** argv){
 #elif defined(__linux__)
         std::error_code error;const auto module=std::filesystem::read_symlink("/proc/self/exe",error);if(!error)executable=module;
 #endif
+        QString installation_error;
+        if (!registerZimaInstance(&installation_error, QString::fromStdU16String(executable.u16string())))
+            throw std::runtime_error(installation_error.toStdString());
         return zima::cli::run(arguments,executable,std::cin,[&](const std::string& text){output.write(text);});
     }catch(const std::exception& error){std::cerr<<"zima-cad-cli: "<<error.what()<<'\n';return 2;}
 }

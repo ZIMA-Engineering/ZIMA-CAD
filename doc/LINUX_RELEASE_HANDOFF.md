@@ -31,6 +31,16 @@ build; do not restore Conda from Git or package it.
 
 ## Next work on Linux
 
+The updater uses Qt Network, OpenSSL 3 Ed25519 and the **matching Qt Core private
+headers** for QZipReader. Build `zima-cad-update` with GUI/CLI and deploy it under
+`linux/<build>/bin/`, with its native dependencies and TLS plugin. Current manifest
+platform identity is `linux-x86_64`; establish and enforce the supported distro/
+libc baseline before publishing Linux assets. Add Linux runtime smoke/report
+generation to the candidate builder and finalized-archive acceptance; Windows
+tests of synthetic Linux metadata do not replace that work. Run the isolated
+updater lifecycle tests and exercise KDE/Wayland startup/acknowledgement, normal
+shutdown, instance blocking, launcher recovery, permissions and rollback.
+
 1. Inspect installed distro/toolchain and existing C++ build cache. Select and
    record the exact supported Debian x86_64 baseline and KDE/Wayland environment
    from the shared policy. Check actual versions; do not lower CMake's Qt/OCCT
@@ -46,11 +56,10 @@ build; do not restore Conda from Git or package it.
    Linux checkout retains a local ignored copy, remove it after the new native
    checks pass. Check resolved paths and preserve user data. Record proof of
    dependency independence.
-5. Implement packaging in the order specified by the binding requirements:
-   one build ID, exact source export, native dependencies/licenses, portable
-   settings separation, launchers, archive validation, then signed update logic.
-   Adapt the sibling Parts design to CMake; do not claim its unfinished features
-   already exist and do not import its unrelated runtime dependencies.
+5. Extend the existing native candidate builder with Linux dependency deployment
+   and smoke checks. The CMake updater, signed metadata, GUI Settings and retention
+   are now implemented; read [Application updates](UPDATES.md) and verify their
+   actual Linux execution. Do not import unrelated ZCP runtime dependencies.
 
 ## Release rules to preserve
 
@@ -66,13 +75,13 @@ Build official artifacts only from clean committed/tagged source, including
 initialized submodules. Never package working artifacts, old Conda runtimes,
 private data or required external geometry sidecars. Validate paths/collisions,
 member lengths, CRC, SHA-256, clean extraction, dependencies and actual execution.
-Hashes prove integrity, not official origin; signatures/key management remain
-required before authenticated updates. Keep the current and previous verified
+Hashes prove integrity, not official origin; use the implemented signed manifest
+and publisher workflow for authenticated updates. Keep current and previous verified
 official versions per OS, preserve custom builds and all user data, and retain
 sources for every retained platform build.
 
-Stage both platforms before publication. Do not overwrite a published archive
-when adding the other platform later. Document unsupported native document
+Platforms may publish independently. Use a new build ID when adding another
+platform; never replace published bytes. Document unsupported native document
 versions explicitly; binary rollback does not imply backward file compatibility.
 
 Update English documentation with actual results, remaining limitations and

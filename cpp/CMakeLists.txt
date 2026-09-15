@@ -18,7 +18,8 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(ZIMA_BUILD_TESTS "Build the C++ contract tests" ON)
 
-find_package(Qt6 6.5 REQUIRED COMPONENTS Core Gui Widgets OpenGL OpenGLWidgets Svg)
+find_package(Qt6 6.5 REQUIRED COMPONENTS Core Gui Widgets OpenGL OpenGLWidgets Svg Network CorePrivate)
+find_package(OpenSSL 3 REQUIRED COMPONENTS Crypto)
 find_package(OpenCASCADE REQUIRED)
 set(ZIMA_OCCT_VERSION
     "${OpenCASCADE_MAJOR_VERSION}.${OpenCASCADE_MINOR_VERSION}.${OpenCASCADE_MAINTENANCE_VERSION}")
@@ -69,7 +70,39 @@ else()
     set(ZIMA_BUILD_PLATFORM "linux-${CMAKE_SYSTEM_PROCESSOR}")
 endif()
 configure_file(common/build_info.hpp.in generated/zima_build_info.hpp @ONLY)
+configure_file(update/version.h.in generated/version.h @ONLY)
 include_directories("${CMAKE_CURRENT_BINARY_DIR}/generated")
+add_library(zima_update_client update/installationclient.cpp)
+target_link_libraries(zima_update_client PUBLIC Qt6::Core)
+target_include_directories(zima_update_client PUBLIC update)
+set(ZIMA_UPDATE_SOURCES update/updatemain.cpp update/updatecore.cpp
+    update/updatehttp.cpp update/updateinstall.cpp update/update.qrc)
+add_executable(zima-cad-update ${ZIMA_UPDATE_SOURCES})
+target_link_libraries(zima-cad-update PRIVATE Qt6::CorePrivate Qt6::Network OpenSSL::Crypto)
+set_target_properties(zima-cad-update PROPERTIES AUTORCC ON)
+if(WIN32 AND TARGET Qt6::QSchannelBackendPlugin)
+    add_custom_command(TARGET zima-cad-update POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:zima-cad-update>/tls"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:Qt6::QSchannelBackendPlugin>"
+            "$<TARGET_FILE_DIR:zima-cad-update>/tls/")
+endif()
+add_library(zima_update_ui update/updateservice.cpp update/updatespage.cpp)
+target_link_libraries(zima_update_ui PUBLIC zima_update_client Qt6::Widgets Qt6::Network)
+set_target_properties(zima_update_ui PROPERTIES AUTOMOC ON)
+if(MSVC)
+    target_compile_options(zima_update_ui PRIVATE /utf-8)
+    target_compile_options(zima-cad-update PRIVATE /utf-8)
+endif()
+install(TARGETS zima-cad-update RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+if(ZIMA_BUILD_TESTS)
+    add_executable(zima_update_test_helper ${ZIMA_UPDATE_SOURCES})
+    target_compile_definitions(zima_update_test_helper PRIVATE ZIMA_UPDATE_TESTING)
+    target_compile_options(zima_update_test_helper PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
+    target_link_libraries(zima_update_test_helper PRIVATE Qt6::CorePrivate Qt6::Network OpenSSL::Crypto)
+    set_target_properties(zima_update_test_helper PROPERTIES AUTORCC ON)
+    add_executable(zima_update_fixture tests/update-fixture.cpp)
+    target_link_libraries(zima_update_fixture PRIVATE Qt6::Network)
+endif()
 if(WIN32)
     add_executable(zima-cad-launcher WIN32 ../tools/distribution/launcher-windows.cpp)
     target_link_libraries(zima-cad-launcher PRIVATE shell32 user32)
@@ -370,7 +403,7 @@ add_executable(zima-cad-cpp
     app/command_console.cpp app/console_ui_verification.cpp app/holes_ui_verification.cpp app/rotation_handle_ui_verification.cpp
     app/main_workspace.cpp app/appearance_dialog.cpp app/appearance_command.cpp app/section_command.cpp app/section_ui_verification.cpp app/assembly_workspace_window.cpp app/template_command.cpp app/numeric_value_lock_command.cpp app/shaft_thread_command.cpp app/derived_copy_command.cpp
     app/application_settings.cpp app/global_settings_dialog.cpp app/measurement_command.cpp app/measurement_ui_verification.cpp
-    app/document_tools_dialogs.cpp
+    app/document_tools_dialogs.cpp app/updates_ui_verification.cpp
     app/drawing_window.cpp app/show_erase_dialog.cpp app/file_dialog.cpp app/resource_icon.cpp
     app/zima_resources.qrc
     app/component_properties_dialog.cpp app/primitive_properties_dialog.cpp
@@ -383,10 +416,12 @@ add_executable(zima-cad-cpp
     app/sketch_dimension_properties_dialog.cpp)
 target_include_directories(zima-cad-cpp PRIVATE app)
 target_link_libraries(zima-cad-cpp PRIVATE
+    zima_update_ui
     zima_command_host zima_commands zima_workspace zima_assembly zima_document_core zima_drawing zima_kernel_occt zima_viewer zima_ui
     zima_interchange nlohmann_json::nlohmann_json
     Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Svg)
 set_target_properties(zima-cad-cpp PROPERTIES AUTORCC ON)
+add_dependencies(zima-cad-cpp zima-cad-update)
 if(MSVC)
     # Retain the large-object budget for lambda-heavy UI translation units.
     target_compile_options(zima-cad-cpp PRIVATE /bigobj)
@@ -418,6 +453,7 @@ install(TARGETS zima-cad-cpp RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 # A console-subsystem executable. Qt Gui runs offscreen for shared PDF painting; no Widgets are created.
 add_executable(zima-cad-cli cli/main.cpp cli/runner.cpp cli/settings.cpp)
 target_link_libraries(zima-cad-cli PRIVATE zima_command_host)
+target_link_libraries(zima-cad-cli PRIVATE zima_update_client)
 if(WIN32 AND TARGET Qt6::QOffscreenIntegrationPlugin)
     add_custom_command(TARGET zima-cad-cli POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:zima-cad-cli>/platforms"
@@ -1094,6 +1130,10 @@ if(ZIMA_BUILD_TESTS)
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_DERIVED_COPY_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120)
     add_test(NAME zima_cpp_console_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_updates_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_updates_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_UPDATES_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 90)
     add_test(NAME zima_cpp_work_plane_ui_contract COMMAND zima-cad-cpp --verify-startup)
     add_test(NAME zima_cpp_rotation_handle_ui_contract COMMAND zima-cad-cpp --verify-startup)
     set_tests_properties(zima_cpp_rotation_handle_ui_contract PROPERTIES
