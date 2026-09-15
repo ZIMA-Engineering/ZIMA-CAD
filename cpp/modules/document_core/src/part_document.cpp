@@ -6,6 +6,7 @@
 #include <zima/document/appearance.hpp>
 #include <zima/document/document_copy_json.hpp>
 #include <zima/document/part_document.hpp>
+#include <zima/document/profile_status.hpp>
 #include <zima/document/profile_targets.hpp>
 #include <zima/document/sweep_inputs.hpp>
 #include <zima/document/precision.hpp>
@@ -7248,6 +7249,21 @@ zima::kernel::ExtrusionRequest body_profile_request(
     } else request.wall=zima::kernel::ProfileWall{first,first+thickness,std::move(end)};
     return request;
 }
+}
+
+ProfileStatus profile_status(const zima::sketcher::Sketch& source) {
+    if(std::ranges::any_of(source.offsets,[](const auto& value){return value.broken;}) ||
+       std::ranges::any_of(source.curve_trims,[](const auto& value){return value.broken;}))return ProfileStatus::Invalid;
+    try {
+        const auto sketch=source.evaluated_profile_sketch();
+        const auto geometry=[](const auto& curves){return std::ranges::any_of(curves,[](const auto& curve){return !curve.construction;});};
+        if(!geometry(sketch.segments)&&!geometry(sketch.circles)&&!geometry(sketch.arcs)&&
+           !geometry(sketch.ellipses)&&!geometry(sketch.elliptical_arcs)&&!geometry(sketch.bsplines)&&
+           std::ranges::none_of(sketch.texts,[](const auto& text){return text.modeling_geometry&&!text.contours.empty();}))return ProfileStatus::Empty;
+        try {static_cast<void>(extrusion_request(source,1.0,ExtrusionDirection::Forward));return ProfileStatus::Closed;}
+        catch(const std::exception&) {}
+        std::string end;static_cast<void>(open_sweep_profile(source,end));return ProfileStatus::Open;
+    }catch(const std::exception&){return ProfileStatus::Invalid;}
 }
 
 namespace {

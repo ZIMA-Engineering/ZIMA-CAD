@@ -83,13 +83,16 @@ void AssemblyWorkspaceWindow::update_application_actions() {
     if(section_action_)section_action_->setEnabled(workspace_.active_document_id()==workspace_.displayed_document_id()&&!workspace_.open_drawing(workspace_.displayed_document_id())&&!properties_dialog_&&active_sketch_id_.empty()&&!template_sketch());
     for (auto* action : application_actions_) action->setEnabled(false);
     if (workspace_.size() == 0) return;
+    const auto owner=workspace_.active_document_id();
+    const auto saved=document_application_modes_.find(owner);
+    active_application_=saved==document_application_modes_.end()
+        ? (workspace_.open_assembly(owner)?ApplicationMode::Assembly:ApplicationMode::Modeling) : saved->second;
     if (workspace_.open_drawing(workspace_.displayed_document_id()) != nullptr) {
         application_actions_[static_cast<std::size_t>(ApplicationMode::Drawing)]
             ->setEnabled(true);
         active_application_ = ApplicationMode::Drawing;
     } else if (workspace_.open_part(workspace_.active_document_id()) != nullptr) {
-        for (const auto mode : {ApplicationMode::Modeling, ApplicationMode::SheetMetal,
-                                ApplicationMode::Surface, ApplicationMode::Piping}) {
+        for (const auto mode : {ApplicationMode::Modeling, ApplicationMode::SheetMetal}) {
             application_actions_[static_cast<std::size_t>(mode)]->setEnabled(true);
         }
         if (!application_actions_[static_cast<std::size_t>(active_application_)]
@@ -108,6 +111,8 @@ void AssemblyWorkspaceWindow::update_application_actions() {
         }
     }
     application_actions_[static_cast<std::size_t>(active_application_)]->setChecked(true);
+    if(properties_dialog_ || !active_sketch_id_.empty() || section_dialog_)
+        for(auto* action:application_actions_)action->setEnabled(false);
 }
 
 void AssemblyWorkspaceWindow::set_active_application(ApplicationMode mode) {
@@ -118,12 +123,14 @@ void AssemblyWorkspaceWindow::set_active_application(ApplicationMode mode) {
         return;
     }
     active_application_ = mode;
+    document_application_modes_[workspace_.active_document_id()]=mode;
     application_actions_[index]->setChecked(true);
     rebuild_application_toolbar();
 }
 
 void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
     if (tools_toolbar_ == nullptr) return;
+    if(command_insert_menu_){command_insert_menu_->clear();command_insert_menu_->setEnabled(workspace_.size()!=0);}
     tools_toolbar_->clear();
     // QToolBar recalculates its minimum width after clear() and centers
     // narrower items. Give every command the width of the longest label.
@@ -142,15 +149,32 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         : !active_sketch_id_.empty() ? tr("Skica")
         : active_application_ == ApplicationMode::Modeling ? tr("Modelování")
         : active_application_ == ApplicationMode::Assembly ? tr("Sestava")
-        : active_application_ == ApplicationMode::SheetMetal ? tr("Plech")
+        : active_application_ == ApplicationMode::SheetMetal ? application_actions_[static_cast<std::size_t>(ApplicationMode::SheetMetal)]->text()
         : active_application_ == ApplicationMode::Surface ? tr("Plochy")
         : active_application_ == ApplicationMode::Piping ? tr("Potrubí")
         : tr("Výkres");
-    auto* heading = new QLabel(heading_text, tools_toolbar_);
-    heading->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
-    heading->setFont(tree_->font());
-    heading->setStyleSheet(QStringLiteral("font-weight:600; padding:3px;"));
-    tools_toolbar_->addWidget(heading);
+    if(!drawing && active_sketch_id_.empty() && workspace_.open_part(workspace_.active_document_id())) {
+        auto* selector=new QComboBox(tools_toolbar_);selector->setObjectName("applicationModeSelector");
+        for(const auto mode:{ApplicationMode::Modeling,ApplicationMode::SheetMetal}) {
+            const auto index=static_cast<std::size_t>(mode);
+            selector->addItem(application_actions_[index]->text(),static_cast<int>(mode));
+        }
+        selector->setCurrentIndex(selector->findData(static_cast<int>(active_application_)));
+        selector->setEnabled(application_actions_[static_cast<std::size_t>(active_application_)]->isEnabled());
+        selector->setFont(tree_->font());selector->setMinimumWidth(146);
+        connect(selector,&QComboBox::activated,this,[this,selector](int index) {
+            const auto mode=selector->itemData(index).toInt();
+            // The command rebuilds this toolbar; retire the popup before dispatch.
+            QTimer::singleShot(0,this,[this,mode]{application_actions_[mode]->trigger();});
+        });
+        tools_toolbar_->addWidget(selector);
+    } else {
+        auto* heading = new QLabel(heading_text, tools_toolbar_);
+        heading->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+        heading->setFont(tree_->font());
+        heading->setStyleSheet(QStringLiteral("font-weight:600; padding:3px;"));
+        tools_toolbar_->addWidget(heading);
+    }
     const auto add_green_separator = [this] {
         auto* separator = new QWidget(tools_toolbar_);
         separator->setObjectName("greenToolbarSeparator");
@@ -159,10 +183,12 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         separator->setStyleSheet(
             "QWidget#greenToolbarSeparator { background:#4DD811; border:none; }");
         tools_toolbar_->addWidget(separator);
+        if(command_insert_menu_&&!command_insert_menu_->actions().empty())command_insert_menu_->addSeparator();
     };
-    const auto add_command = [this](QAction* action) {
+    const auto add_command = [this](QAction* action,bool insert=true) {
         if (action == nullptr) return;
         tools_toolbar_->addAction(action);
+        if(command_insert_menu_&&insert&&action!=selection_action_&&action->objectName()!="drawingSelectionAction")command_insert_menu_->addAction(action);
         if (auto* button=qobject_cast<QToolButton*>(tools_toolbar_->widgetForAction(action))) {
             new LeftAlignedCommandLabel(button);
             button->setObjectName("applicationCommandButton");
@@ -209,7 +235,7 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         connect(return_action, &QAction::triggered, this, [this] {
             deactivate_active_occurrence_for_test();
         });
-        add_command(return_action);
+        add_command(return_action,false);
         tools_toolbar_->addSeparator();
     }
 
@@ -227,9 +253,9 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
             }
             add_command(template_region_action_);add_command(template_image_action_);add_green_separator();
         }
-        add_command(sketch_normal_view_action_);
-        add_command(sketch_flip_view_action_);
-        add_command(sketch_rotate_view_action_);
+        add_command(sketch_normal_view_action_,false);
+        add_command(sketch_flip_view_action_,false);
+        add_command(sketch_rotate_view_action_,false);
         add_command(selection_action_);
         add_command(sketch_external_reference_action_);
         add_command(sketch_external_profile_action_);
@@ -254,8 +280,8 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         add_command(sketch_universal_dimension_action_);
         add_command(sketch_text_action_);
         add_green_separator();
-        if(!template_sketch())add_command(finish_sketch_action_);
-        if(section_dialog_)add_command(cancel_section_sketch_action_);
+        if(!template_sketch())add_command(finish_sketch_action_,false);
+        if(section_dialog_)add_command(cancel_section_sketch_action_,false);
         return;
     }
 

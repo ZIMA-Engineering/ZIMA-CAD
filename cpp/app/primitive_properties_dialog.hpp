@@ -72,6 +72,7 @@ public:
     }
     void finish_extrusion_target_entry();
     void set_profile_pick_request(std::function<void(bool)> callback);
+    void set_profile_sketch_status(const zima::sketcher::Sketch&);
     void set_edit_sketch_callback(
         std::function<void(zima::document::HistoryContainer)> callback);
     // The numeric fields may be unchanged after returning from an owned

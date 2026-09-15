@@ -237,6 +237,8 @@ private:
     QActionGroup* application_group_{};
     std::array<QAction*, 6> application_actions_{};
     ApplicationMode active_application_{ApplicationMode::Modeling};
+    std::map<std::string,ApplicationMode> document_application_modes_;
+    QMenu* command_insert_menu_{};
     QAction* box_action_{};
     QAction* cylinder_action_{};
     QAction* thread_action_{};

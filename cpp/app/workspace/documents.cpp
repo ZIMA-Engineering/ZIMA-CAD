@@ -328,7 +328,7 @@ void AssemblyWorkspaceWindow::refresh_tabs() {
                             return "part";
                         } else return "assembly";
                     }()),
-                    label + (workspace::document_needs_save(workspace_,model.document_id) ? QStringLiteral(" *") : QString{}));
+                    label);
                 tabs_->setTabData(index, QString::fromStdString(model.document_id));
                 if (model.document_id == workspace_.displayed_document_id()) {
                     displayed_index = index;
@@ -341,10 +341,17 @@ void AssemblyWorkspaceWindow::refresh_tabs() {
         // Reserve an explicit right inset inside the tab button slot. Native
         // styles can otherwise place the red button against/outside the tab edge.
         auto* close_slot = new QWidget(tabs_);
-        close_slot->setFixedSize(36, 22);
+        close_slot->setFixedSize(48, 22);
         auto* close_layout = new QHBoxLayout(close_slot);
         close_layout->setContentsMargins(0, 0, 10, 0);
         close_layout->setSpacing(0);
+        // The dirty marker owns a fixed slot: saving must not resize the tab.
+        auto* dirty_marker=new QLabel(close_slot);dirty_marker->setObjectName("documentTabDirtyMarker");
+        dirty_marker->setFixedSize(12,22);dirty_marker->setAlignment(Qt::AlignCenter);
+        const bool dirty=workspace::document_needs_save(workspace_,tabs_->tabData(index).toString().toStdString());
+        dirty_marker->setText(dirty?QStringLiteral("*"):QString{});
+        dirty_marker->setToolTip(dirty?tr("Neuložené změny"):QString{});
+        close_layout->addWidget(dirty_marker);
         auto* close = new TabCloseButton(close_slot);
         close_layout->addWidget(close);
         close->setObjectName("documentTabCloseButton");

@@ -1248,6 +1248,11 @@ if(ZIMA_BUILD_TESTS)
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_OWNED_PROFILE_REFERENCE_ONLY=1"
         TIMEOUT 120)
+    add_test(NAME zima_cpp_application_tools_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_application_tools_ui_contract PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_APPLICATION_TOOLS_ONLY=1"
+        TIMEOUT 120)
     add_test(NAME zima_cpp_surface_profile_ui_contract COMMAND zima-cad-cpp --verify-startup)
     set_tests_properties(zima_cpp_surface_profile_ui_contract PROPERTIES
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."

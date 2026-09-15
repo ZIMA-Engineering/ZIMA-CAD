@@ -5,6 +5,10 @@ Surface sweeps the Sketch curves directly into faces, without closing cap faces
 or material volume. A connected open profile and closed profile regions are
 supported. Open endpoints are not extended automatically.
 
+The read-only **Profile status** field reflects actual Sketch connectivity:
+Empty, Open, Closed or Invalid. It updates after Sketcher edits independently
+of the result type. See [Application tools](APPLICATION_TOOLS.md).
+
 The existing Properties window handles creation, editing and conversion. Selecting
 Surface forces Add and disables Subtract. Workspace commands, document calculation
 and the kernel also reject a subtractive Surface. Assembly profile features remain

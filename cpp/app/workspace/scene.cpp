@@ -1079,13 +1079,6 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         const auto construction_dimension_geometry =
             part_construction_dimension_geometry(
                 document, part->session.calculated_boundaries());
-        // Explicitly re-assert Modeling mode every time this Part branch
-        // runs (not just on first activation): refresh_scene() runs on
-        // every tab switch, and active_application_ otherwise keeps
-        // whatever value the previously active tab left it at, so
-        // rebuild_application_toolbar() below could render e.g. the
-        // Assembly toolbar while a Part tab is actually being displayed.
-        active_application_ = ApplicationMode::Modeling;
         tree_->setHeaderLabels({tr("DÍL")});
         const bool active_sweep_profile_sketch = sweep_profile_sketch_draft_ &&
             sweep_profile_sketch_draft_->id == active_sketch_id_;
@@ -1934,12 +1927,6 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         update_measurement_ui();
         return;
     }
-    // Explicitly re-assert Assembly mode every time this branch runs (not
-    // just on first activation), matching the Part branch above: otherwise
-    // active_application_ keeps whatever the previously active tab left it
-    // at, and rebuild_application_toolbar() below can render the wrong
-    // (e.g. Part-mode) toolbar while an Assembly tab is actually displayed.
-    active_application_ = ApplicationMode::Assembly;
     const auto& document = assembly->session.document();
     const auto active_assembly_display = [this, &append_curve_radii](
             const zima::assembly::AssemblyDocument& original) {

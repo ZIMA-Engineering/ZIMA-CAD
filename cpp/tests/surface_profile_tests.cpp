@@ -1,4 +1,5 @@
 #include <zima/document/part_document.hpp>
+#include <zima/document/profile_status.hpp>
 #include <zima/kernel/occt_kernel.hpp>
 #include <zima/kernel/surface_results.hpp>
 #include <zima/drawing/drawing_document.hpp>
@@ -12,6 +13,25 @@ using namespace zima;
 namespace {
 void check(bool ok,const char* text){if(!ok)throw std::runtime_error(text);}
 void near(double value,double expected){if(!std::isfinite(value)||std::abs(value-expected)>=1e-5*std::max(1.,std::abs(expected)))throw std::runtime_error("Expected "+std::to_string(expected)+", got "+std::to_string(value));}
+void profile_states(){
+    using document::ProfileStatus;
+    auto sketch=sketcher::Sketch::create_default();
+    check(document::profile_status(sketch)==ProfileStatus::Empty,"Empty profile misclassified");
+    static_cast<void>(sketch.add_segment(0,0,10,0));sketch.segments.back().construction=true;
+    check(document::profile_status(sketch)==ProfileStatus::Empty,"Construction geometry counted as profile");
+    sketch.segments.back().construction=false;
+    check(document::profile_status(sketch)==ProfileStatus::Open,"Open line misclassified");
+    static_cast<void>(sketch.add_segment(10,0,10,10));
+    static_cast<void>(sketch.add_segment(10,10,0,0));
+    check(document::profile_status(sketch)==ProfileStatus::Closed,"Closed triangle misclassified");
+    sketch.segments.pop_back();
+    check(document::profile_status(sketch)==ProfileStatus::Open,"Removing an edge did not open profile");
+    static_cast<void>(sketch.add_segment(20,20,30,30));
+    check(document::profile_status(sketch)==ProfileStatus::Invalid,"Disconnected chain accepted");
+    auto circle=sketcher::Sketch::create_default();static_cast<void>(circle.add_circle(0,0,5));
+    check(document::profile_status(circle)==ProfileStatus::Closed,"Circle misclassified");
+    check(circle.circles.size()==1&&circle.segments.empty(),"Profile inspection changed native geometry");
+}
 struct Fixture {
     document::PartDocument part=document::PartDocument::create_default();
     Fixture(sketcher::Sketch sketch,bool revolve=false){
@@ -80,4 +100,4 @@ void mixed(const kernel::OcctKernel& kernel){
     check(std::ranges::any_of(b.back().mesh.triangle_references,[](const auto& r){return r.surface_result;}),"Solid operation discarded sheets");
 }
 }
-int main(){try{kernel::OcctKernel kernel;extrude(kernel);circle(kernel);revolve(kernel);mixed(kernel);std::cout<<"Surface profiles, ancestry, mixed solids, conversion and native persistence passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
+int main(){try{profile_states();kernel::OcctKernel kernel;extrude(kernel);circle(kernel);revolve(kernel);mixed(kernel);std::cout<<"Profile classification, surface ancestry, mixed solids, conversion and native persistence passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

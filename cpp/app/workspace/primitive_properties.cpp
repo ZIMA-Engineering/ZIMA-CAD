@@ -415,6 +415,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         }, this, std::move(assembly_targets), std::move(selected_targets),
         assembly_cut);
     if (profile_feature && property_owned_sketch_draft_) {
+        dialog->set_profile_sketch_status(*property_owned_sketch_draft_);
         dialog->set_profile_plane_selection(*property_owned_sketch_draft_, [this](auto plane, bool automatic) {
             if (!property_owned_sketch_draft_) return;
             property_owned_sketch_draft_->plane = plane;
@@ -503,7 +504,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         // different interpretation of the same placement and shifted the
         // preview away from the calculated solid.
     };
-    const auto update_owned_profile_context_preview = [this](
+    const auto update_owned_profile_context_preview = [this,dialog](
             zima::document::PartDocument& preview_document,
             const zima::document::HistoryContainer& preview) {
         const bool extrusion = preview.feature_kind ==
@@ -515,6 +516,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 return value.id == sketch_id;
             });
         if (sketch == preview_document.sketches.end()) return;
+        dialog->set_profile_sketch_status(*sketch);
         auto plane = zima::document::PartDocument::create_construction(
             zima::document::ConstructionKind::Plane);
         plane.id = preview.id;

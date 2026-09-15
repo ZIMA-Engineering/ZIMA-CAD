@@ -3,6 +3,7 @@
 #include <zima/ui/numeric_value_lock.hpp>
 #include "feature_operation_buttons.hpp"
 #include "primitive_properties_dialog.hpp"
+#include <zima/document/profile_status.hpp>
 #include "thread_catalog.hpp"
 
 #include <zima/ui/reference_cell.hpp>
@@ -742,7 +743,8 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         });
         profile_status_ = new QLineEdit(this);
         profile_status_->setReadOnly(true);
-        profile_status_->setText(tr("Uzavřený"));
+        profile_status_->setObjectName("profileStatus");
+        profile_status_->setText(tr("Prázdný"));
         form->addRow(tr("Stav profilu"), profile_status_);
         profile_plane_ = new QComboBox(this);
         profile_plane_->setObjectName("profilePlane");
@@ -1840,6 +1842,16 @@ void PrimitivePropertiesDialog::set_preview_callback(
     std::function<void(const zima::document::HistoryContainer&)> callback) {
     preview_ = std::move(callback);
     notify_preview();
+}
+
+void PrimitivePropertiesDialog::set_profile_sketch_status(const zima::sketcher::Sketch& sketch) {
+    if(!profile_status_)return;
+    switch(zima::document::profile_status(sketch)) {
+        case zima::document::ProfileStatus::Empty:profile_status_->setText(tr("Prázdný"));break;
+        case zima::document::ProfileStatus::Open:profile_status_->setText(tr("Otevřený"));break;
+        case zima::document::ProfileStatus::Closed:profile_status_->setText(tr("Uzavřený"));break;
+        case zima::document::ProfileStatus::Invalid:profile_status_->setText(tr("Neplatný"));break;
+    }
 }
 
 void PrimitivePropertiesDialog::set_profile_plane_selection(const zima::sketcher::Sketch& sketch,

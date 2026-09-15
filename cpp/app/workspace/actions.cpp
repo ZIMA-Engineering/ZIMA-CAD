@@ -1,4 +1,5 @@
 #include "workspace_internal.hpp"
+#include <zima/workspace/document_operations.hpp>
 #include "tool_button_style.hpp"
 
 namespace zima::app {
@@ -284,6 +285,8 @@ void AssemblyWorkspaceWindow::create_actions() {
     show_planes_action_->setObjectName("showPlanesAction");
     show_sketches_action_->setObjectName("showSketchesAction");
 
+    command_insert_menu_=menuBar()->addMenu(t("menu.insert", "Vložit"));
+    command_insert_menu_->setObjectName("insertMenu");
     auto* view = menuBar()->addMenu(t("menu.view", "Zobrazení"));
     view->setObjectName("viewMenu");
     view->addAction(fit_view_action_);
@@ -340,7 +343,7 @@ void AssemblyWorkspaceWindow::create_actions() {
     const std::array<QString, 6> application_names{
         t("application.modeling", "Modelování"),
         t("application.assembly", "Sestava"),
-        t("application.sheet_metal", "Plech"),
+        t("application.sheet_metal", "Plechy"),
         t("application.surface", "Plochy"),
         t("application.piping", "Potrubí"),
         t("application.drawing", "Výkres")};
@@ -402,7 +405,8 @@ void AssemblyWorkspaceWindow::create_actions() {
             return;
         }
         for (int index = 0; index < tabs_->count(); ++index) {
-            auto* action = window_menu->addAction(tabs_->tabIcon(index), tabs_->tabText(index));
+            const bool dirty=workspace::document_needs_save(workspace_,tabs_->tabData(index).toString().toStdString());
+            auto* action = window_menu->addAction(tabs_->tabIcon(index), tabs_->tabText(index)+(dirty?QStringLiteral(" *"):QString{}));
             action->setCheckable(true);
             action->setChecked(index == tabs_->currentIndex());
             connect(action, &QAction::triggered, this, [this, index] {

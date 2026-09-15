@@ -3581,6 +3581,68 @@ int verify_owned_profile_external_reference(QApplication& application,const std:
     std::cout<<"Owned profile external reference, projection, Cancel and OK persistence passed\n";return 0;
 }
 
+int verify_application_tools_ui(QApplication& application,const std::filesystem::path& directory) {
+    using namespace zima;
+    try {
+        const auto check=[](bool ok,const char* text){if(!ok)throw std::runtime_error(text);};
+        const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
+        auto part=document::PartDocument::create_default();auto sketch=sketcher::Sketch::create_default();
+        static_cast<void>(sketch.add_segment(0,0,10,0));
+        auto feature=document::PartDocument::create_extrusion_container(sketch.id);sketch.owner_container_id=feature.id;
+        feature.extrusion.result_type=document::ProfileResultType::Surface;feature.extrusion.height=3;feature.extrusion.length_forward=3;
+        part.history={feature};part.sketches={sketch};document::BodyHistoryGraph graph;
+        const auto body=graph.create_body("Application tools");graph.insert({document::PartHistoryKind::Feature,feature.id});part.set_body_history(graph);part.resolve_constructions();
+        kernel::OcctKernel kernel;const auto path=directory/"application-tools.prtz";part.save(path,kernel.evaluate_history(part.kernel_operations()));
+        const auto other_path=directory/"application-other.prtz";document::PartDocument::create_default().save(other_path);
+        const auto drawing_path=directory/"application-drawing.drwz";drawing::DrawingDocument::create_default().save(drawing_path);
+        const auto assembly_path=directory/"application-assembly.asmz";assembly::AssemblyDocument::create_default().save(assembly_path);
+        app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));window.resize(1200,900);window.show();
+        check(window.open_document_path(QString::fromStdString(path.string())),"Application fixture failed to open");flush();
+        check(activate_test_body(application,window,body),"Cannot activate application fixture body");flush();
+        auto* tabs=window.findChild<QTabBar*>("documentTabs");auto* menu=window.findChild<QMenu*>("insertMenu");
+        auto* modeling=window.findChild<QAction*>("applicationModeAction0");auto* sheet=window.findChild<QAction*>("applicationModeAction2");
+        auto* extrusion=window.findChild<QAction*>("extrusionAction");
+        const auto selector=[&]{return window.findChild<QComboBox*>("applicationModeSelector");};
+        check(tabs&&menu&&modeling&&sheet&&extrusion&&selector()&&selector()->count()==2,"Application controls missing");
+        check(menu->actions().contains(extrusion)&&modeling->isChecked(),"Modeling Insert commands missing");
+        auto* combo=selector();combo->setCurrentIndex(combo->findData(2));combo->activated(combo->currentIndex());flush();
+        check(sheet->isChecked()&&selector()->currentData().toInt()==2&&!menu->actions().contains(extrusion),"Dropdown did not switch application and Insert commands");
+        window.findChild<QAction*>("regenerateDocumentAction")->trigger();flush();
+        check(sheet->isChecked()&&selector()->currentData().toInt()==2,"Refresh lost Sheet Metal choice");
+        check(window.open_document_path(QString::fromStdString(other_path.string())),"Other Part failed to open");flush();
+        check(modeling->isChecked()&&selector()->currentData().toInt()==0,"New Part inherited another Part application");
+        tabs->setCurrentIndex(0);flush();check(sheet->isChecked(),"Tab switch lost per-document application");
+        modeling->trigger();flush();check(selector()->currentData().toInt()==0&&menu->actions().contains(extrusion),"Applications menu failed to sync selector");
+        window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+        const auto marker=[&]{return tabs->tabButton(tabs->currentIndex(),QTabBar::RightSide)->findChild<QLabel*>("documentTabDirtyMarker");};
+        check(marker()&&marker()->text().isEmpty(),"Clean tab displays dirty marker");const auto clean_width=tabs->tabRect(tabs->currentIndex()).width();
+        auto* tree=window.findChild<QTreeWidget*>("documentTree");QTreeWidgetItem* row{};
+        for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==feature.id&&(*it)->data(0,Qt::UserRole+3)=="part-container"){row=*it;break;}
+        check(row,"Application fixture feature row missing");window.show_tree_item_properties(row);flush();
+        app::PrimitivePropertiesDialog* dialog{};for(auto* d:window.findChildren<QDialog*>())if(auto* p=dynamic_cast<app::PrimitivePropertiesDialog*>(d);p&&p->isVisible())dialog=p;
+        check(dialog,"Open Surface properties missing");auto* status=dialog->findChild<QLineEdit*>("profileStatus");
+        check(status&&status->text()=="Otevřený","Open Surface status is not Open");
+        auto* own_sketch=dialog->findChild<QPushButton*>("primitiveOwnSketchButton");check(own_sketch,"Owned Sketch action missing");own_sketch->click();flush();
+        check(menu->actions().contains(window.findChild<QAction*>("sketchSegmentAction"))&&!menu->actions().contains(extrusion),"Sketcher Insert contains wrong commands");
+        window.findChild<QAction*>("finishSketchAction")->trigger();flush();
+        dialog=nullptr;for(auto* d:window.findChildren<QDialog*>())if(auto* p=dynamic_cast<app::PrimitivePropertiesDialog*>(d);p&&p->isVisible())dialog=p;
+        check(dialog&&dialog->findChild<QLineEdit*>("profileStatus")->text()=="Otevřený","Returning from Sketcher lost profile status");
+        auto* types=dialog->findChild<QComboBox*>("profileResultType");types->setCurrentIndex(types->findData("thin"));flush();
+        check(dialog->findChild<QLineEdit*>("profileStatus")->text()=="Otevřený","Result type changed actual profile status");
+        dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+        check(marker()->text()=="*","Editing did not mark tab dirty");
+        check(tabs->tabRect(tabs->currentIndex()).width()==clean_width,"Dirty marker resized tab");
+        window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+        check(marker()->text().isEmpty()&&tabs->tabRect(tabs->currentIndex()).width()==clean_width,"Saving resized tab or retained dirty marker");
+        check(window.grab().save("build/application-tools-view.png"),"Application screenshot failed");
+        check(window.open_document_path(QString::fromStdString(drawing_path.string())),"Drawing fixture failed to open");flush();
+        check(menu->actions().contains(window.findChild<QAction*>("insertDrawingViewAction"))&&!menu->actions().contains(extrusion),"Drawing Insert contains wrong commands");
+        check(window.open_document_path(QString::fromStdString(assembly_path.string())),"Assembly fixture failed to open");flush();
+        check(menu->actions().contains(window.findChild<QAction*>("insertComponentAction")),"Assembly Insert lost component insertion");
+        std::cout<<"Application selector, per-document modes, contextual Insert, live profile status and stable Save tabs passed\n";return 0;
+    }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
+}
+
 int verify_surface_profiles_ui(QApplication& application,const std::filesystem::path& directory) {
     using namespace zima;
     try {
@@ -3616,6 +3678,7 @@ int verify_surface_profiles_ui(QApplication& application,const std::filesystem::
             };
             for(const auto* mode:{"solid","surface","thin","surface"}) {
                 auto* dialog=properties();auto* types=dialog->findChild<QComboBox*>("profileResultType");check(types&&types->count()==3,"Profile does not expose all three result types");
+                check(dialog->findChild<QLineEdit*>("profileStatus")->text()=="Uzavřený","Closed profile status is not Closed");
                 types->setCurrentIndex(types->findData(mode));flush();
                 if(std::string_view(mode)=="surface") {
                     if(auto* cut=dialog->findChild<QPushButton*>("primitiveSubtractOperation"))check(!cut->isEnabled(),"Surface subtraction button enabled");
@@ -5697,6 +5760,7 @@ int verify_startup_contract(
         return verify_body_curve_references(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_OWNED_PROFILE_REFERENCE_ONLY"))
         return verify_owned_profile_external_reference(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_APPLICATION_TOOLS_ONLY")) return verify_application_tools_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SURFACE_ONLY")) return verify_surface_profiles_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_OFFSET_ONLY"))
         return verify_sketch_offset_ui(application,test_directory);
@@ -6095,7 +6159,7 @@ int verify_startup_contract(
     if (!create_document(QStringLiteral("part"),
                          part_name + QStringLiteral(".prtz")) ||
         !verify(tabs->count() == 1 &&
-                    tabs->tabText(0) == part_name + QStringLiteral(".prtz *"),
+                    tabs->tabText(0) == part_name + QStringLiteral(".prtz"),
                 "new Part must open in the common document tabs") ||
         !verify(splitter->isVisible() && box->isEnabled() && tools_toolbar->isVisible(),
                 "Part workspace and Modeling commands must become visible") ||
@@ -8092,7 +8156,7 @@ int verify_startup_contract(
     auto* insert_menu = window.findChild<QMenu*>("insertComponentMenu");
     if (!verify(tabs->count() == 2 &&
                     tabs->tabText(tabs->currentIndex()) ==
-                        assembly_name + QStringLiteral(".asmz *"),
+                        assembly_name + QStringLiteral(".asmz"),
                 "New Assembly must become a visible second document") ||
         !verify(insert != nullptr && insert->isEnabled() && insert_menu != nullptr,
                 "calculated open Part must be insertable into the Assembly") ||
@@ -8374,7 +8438,7 @@ int verify_startup_contract(
         }
         if (!verify(tabs->count() == 3 &&
                         tabs->tabText(tabs->currentIndex()) ==
-                            nested_assembly_name + QStringLiteral(".asmz *"),
+                            nested_assembly_name + QStringLiteral(".asmz"),
                     "New outer Assembly must become a visible third document")) {
             return 1;
         }
