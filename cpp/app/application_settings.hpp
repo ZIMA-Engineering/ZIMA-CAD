@@ -18,6 +18,9 @@ struct ApplicationSettings {
     QString config_path;
     QString base_config_path;
     QString local_config_path;
+    QString platform_config_path;
+    QString installation_root;
+    QMap<QString, QString> initial_configured_paths;
     QMap<QString, QString> configured_paths;
     QMap<QString, QString> resolved_paths;
     QMap<QString, QString> units;
@@ -28,7 +31,7 @@ struct ApplicationSettings {
     bool use_iso_application_font{true};
 
     [[nodiscard]] static ApplicationSettings load(
-        const QString& working_directory = {});
+        const QString& working_directory = {}, const QString& executable = {});
     [[nodiscard]] bool save(QString* error = nullptr) const;
     [[nodiscard]] QString text(const QString& key, const QString& fallback) const;
 };

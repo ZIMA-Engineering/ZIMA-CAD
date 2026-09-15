@@ -99,7 +99,9 @@ Each executed command produces exactly one LF-terminated JSON object on stdout:
 Output is sent immediately after each command without waiting for EOF or process
 exit. There are no interactive prompts. C/C++ and OCCT diagnostics go to stderr;
 stdout has a separate protocol descriptor. `--help` is an exception: it returns
-readable help without loading config, documents, or the kernel.
+readable help without loading config, documents, or the kernel. `--build-info`
+returns the embedded JSON build identity and `--version` returns the build ID;
+both exit before configuration or graphics startup.
 
 | Exit code | Meaning |
 | --- | --- |
@@ -386,3 +388,6 @@ button and commits the corresponding object. Missing sources are supported; one
 Undo/Redo step is created. An empty row is a no-op. Supported objects, orientation
 pairing, persisted indexes, and JSON examples:
 [PLACEMENT_REFERENCE_REMOVAL.md](PLACEMENT_REFERENCE_REMOVAL.md).
+
+Portable configuration layers and version selection are documented in
+[NATIVE_DISTRIBUTION.md](NATIVE_DISTRIBUTION.md).

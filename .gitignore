@@ -23,6 +23,7 @@ runtime/linux/*.tar*
 build/
 builds/
 dist/
+.dist-output/
 *.egg-info/
 
 # User CAD documents stay local and are never modified by Git

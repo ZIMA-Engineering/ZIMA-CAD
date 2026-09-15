@@ -2,10 +2,11 @@ cmake_minimum_required(VERSION 3.24)
 
 project(ZimaCadCpp VERSION 0.1.0 LANGUAGES CXX)
 
-file(READ "${CMAKE_SOURCE_DIR}/../RELEASE_DATE" ZIMA_RELEASE_DATE)
-string(STRIP "${ZIMA_RELEASE_DATE}" ZIMA_RELEASE_DATE)
-if(NOT ZIMA_RELEASE_DATE MATCHES "^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$")
-    message(FATAL_ERROR "RELEASE_DATE must use the YYYY-MM-DD format")
+file(READ "${CMAKE_SOURCE_DIR}/../VERSION" ZIMA_BUILD_ID)
+string(STRIP "${ZIMA_BUILD_ID}" ZIMA_BUILD_ID)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/../VERSION")
+if(NOT ZIMA_BUILD_ID MATCHES "^[0-9][0-9][0-9][0-9][01][0-9][0-3][0-9][0-9][0-9]$" OR ZIMA_BUILD_ID MATCHES "00$")
+    message(FATAL_ERROR "VERSION must use YYYYMMDDNN with sequence 01-99")
 endif()
 
 include(GNUInstallDirs)
@@ -28,6 +29,53 @@ endif()
 find_package(nlohmann_json 3.11 REQUIRED)
 find_package(Freetype REQUIRED)
 find_package(harfbuzz CONFIG REQUIRED)
+if(ZIMA_BUILD_TESTS)
+    add_executable(zima_cpp_portable_settings_tests tests/portable_settings_tests.cpp app/application_settings.cpp cli/settings.cpp)
+    target_link_libraries(zima_cpp_portable_settings_tests PRIVATE zima_command_host Qt6::Widgets)
+    add_test(NAME zima_cpp_portable_settings COMMAND zima_cpp_portable_settings_tests -platform offscreen)
+endif()
+
+# Informational development identity. Release packaging verifies this against
+# the committed source exported to its own clean staging checkout.
+set(ZIMA_BUILD_COMMIT "unknown")
+set(ZIMA_BUILD_MODIFIED true)
+find_package(Git QUIET)
+if(Git_FOUND)
+    execute_process(COMMAND "${GIT_EXECUTABLE}" rev-parse HEAD
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." OUTPUT_VARIABLE ZIMA_GIT_HEAD
+        OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET RESULT_VARIABLE ZIMA_GIT_RESULT)
+    if(ZIMA_GIT_RESULT EQUAL 0)
+        set(ZIMA_BUILD_COMMIT "${ZIMA_GIT_HEAD}")
+        execute_process(COMMAND "${GIT_EXECUTABLE}" status --porcelain --untracked-files=normal
+            WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." OUTPUT_VARIABLE ZIMA_GIT_STATUS
+            ERROR_QUIET RESULT_VARIABLE ZIMA_GIT_RESULT)
+        if(ZIMA_GIT_RESULT EQUAL 0 AND ZIMA_GIT_STATUS STREQUAL "")
+            set(ZIMA_BUILD_MODIFIED false)
+        endif()
+    endif()
+endif()
+if(DEFINED ZIMA_SOURCE_COMMIT)
+    # Set only by the repository packager after exporting this commit's blobs.
+    string(LENGTH "${ZIMA_SOURCE_COMMIT}" ZIMA_COMMIT_LENGTH)
+    if(NOT ZIMA_COMMIT_LENGTH EQUAL 40 OR NOT ZIMA_SOURCE_COMMIT MATCHES "^[0-9a-f]+$")
+        message(FATAL_ERROR "ZIMA_SOURCE_COMMIT must be a full Git commit ID")
+    endif()
+    set(ZIMA_BUILD_COMMIT "${ZIMA_SOURCE_COMMIT}")
+    set(ZIMA_BUILD_MODIFIED false)
+endif()
+if(WIN32)
+    set(ZIMA_BUILD_PLATFORM "windows-x64")
+else()
+    set(ZIMA_BUILD_PLATFORM "linux-${CMAKE_SYSTEM_PROCESSOR}")
+endif()
+configure_file(common/build_info.hpp.in generated/zima_build_info.hpp @ONLY)
+include_directories("${CMAKE_CURRENT_BINARY_DIR}/generated")
+if(WIN32)
+    add_executable(zima-cad-launcher WIN32 ../tools/distribution/launcher-windows.cpp)
+    target_link_libraries(zima-cad-launcher PRIVATE shell32 user32)
+    set_target_properties(zima-cad-launcher PROPERTIES OUTPUT_NAME "ZIMA-CAD"
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
 
 add_library(zima_commands modules/commands/src/dispatcher.cpp)
 target_include_directories(zima_commands PUBLIC modules/commands/include)
@@ -334,8 +382,6 @@ add_executable(zima-cad-cpp
     app/sketch_text_properties_dialog.cpp
     app/sketch_dimension_properties_dialog.cpp)
 target_include_directories(zima-cad-cpp PRIVATE app)
-target_compile_definitions(zima-cad-cpp PRIVATE
-    ZIMA_RELEASE_DATE="${ZIMA_RELEASE_DATE}")
 target_link_libraries(zima-cad-cpp PRIVATE
     zima_command_host zima_commands zima_workspace zima_assembly zima_document_core zima_drawing zima_kernel_occt zima_viewer zima_ui
     zima_interchange nlohmann_json::nlohmann_json

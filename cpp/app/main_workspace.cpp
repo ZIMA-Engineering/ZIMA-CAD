@@ -1,3 +1,4 @@
+#include <zima_build_info.hpp>
 #include <zima/document/file_path.hpp>
 #include <zima/workspace/native_documents.hpp>
 #include <zima/interchange/dxf.hpp>
@@ -9403,6 +9404,11 @@ int verify_startup_contract(
 }  // namespace
 
 int main(int argc, char* argv[]) {
+    // Metadata must work without a display, configuration or model startup.
+    if (argc == 2 && std::string_view(argv[1]) == "--build-info") {
+        std::cout << zima::distribution::build_info << '\n';
+        return 0;
+    }
     QSurfaceFormat format;
     format.setRenderableType(QSurfaceFormat::OpenGL);
     format.setVersion(3, 3);

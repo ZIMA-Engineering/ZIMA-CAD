@@ -1,4 +1,5 @@
 #include "workspace_internal.hpp"
+#include <zima_build_info.hpp>
 #include <zima/workspace/document_operations.hpp>
 #include <zima/workspace/archive_operations.hpp>
 #include <zima/workspace/file_removal_operations.hpp>
@@ -72,7 +73,7 @@ public:
                 "ZIMA-CAD\nNativní CAD aplikace pro parametrické modelování, "
                 "sestavy a technické výkresy.\n\n"
                 "Vydání: ZIMA-CAD-%1")
-                .arg(QStringLiteral(ZIMA_RELEASE_DATE)),
+                .arg(QString::fromUtf8(distribution::version.data(), static_cast<qsizetype>(distribution::version.size()))),
             this);
         description->setObjectName(QStringLiteral("aboutDescription"));
         description->setAlignment(Qt::AlignCenter);

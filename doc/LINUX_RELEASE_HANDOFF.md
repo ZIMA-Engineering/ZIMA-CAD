@@ -58,7 +58,9 @@ build; do not restore Conda from Git or package it.
 `ZIMA-CAD-<id>.zip` must match embedded GUI/CLI metadata. A common root contains
 `windows/<id>`, `linux/<id>`, `source/<id>` and separate `custom` directories.
 Each version carries its own native libraries and immutable factory resources.
-Portable user profiles/Projects/recovery live outside those directories.
+Portable user `config/`, Projects and recovery live outside those directories.
+`config/config.ini` holds common overrides; `config/linux/config.ini` holds Linux
+path overrides. Preserve the root `config/` instead of introducing `profile/`.
 
 Build official artifacts only from clean committed/tagged source, including
 initialized submodules. Never package working artifacts, old Conda runtimes,
@@ -81,3 +83,21 @@ Final Windows run with the entire old runtime absent: GUI/CLI build passed;
 console GUI contract passed 1/1 in 139.26 s. Logs:
 `build/native-only-toolbar-build.log`, `build/native-only-toolbar-tests.log`.
 The user explicitly accepted doing the remaining Linux work from Linux.
+
+## Subsequent Windows implementation
+
+Read [NATIVE_DISTRIBUTION.md](NATIVE_DISTRIBUTION.md) before duplicating work.
+`VERSION`, GUI/CLI `--build-info`, shared portable installation detection and
+configuration layers now exist. `tools/distribution/package.py` exports exact
+Git blobs (including recorded submodule commits) and provides archive validation.
+The native Windows launcher and Windows build wrapper are implemented.
+
+`tools/distribution/launcher-linux.sh` is the Linux selection contract to verify
+on Linux. Supply `build.ini` (`product=ZIMA-CAD`, matching version/platform),
+`version.json`, version-local `config/`, executable `bin/` and dependencies.
+Preserve ELF and script executable modes when assembling a Linux archive.
+The current ZIP extractor is deliberately a Windows verifier and does not apply
+Unix executable modes; extend and verify the Linux extraction path on Linux.
+Do not claim KDE/Wayland execution, Debian dependency closure or the signed updater
+based on these Windows changes. Keep configuration snapshots before future schema
+conversion, separately from ordinary numbered INI backups.

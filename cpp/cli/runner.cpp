@@ -22,6 +22,8 @@ Options:
   --config FILE             Base config.ini (project config.ini overrides it).
   --keep-going              Continue after failed commands; exit still reports failure.
   --help                    Show this help without loading documents or config.
+  --build-info              Print the embedded build identity as JSON and exit.
+  --version                 Print the build ID and exit.
 
 Commands are the same text/JSON commands as the CAD console. One UTF-8 command
 per line in scripts/stdin; blank lines and whole-line # comments are ignored.

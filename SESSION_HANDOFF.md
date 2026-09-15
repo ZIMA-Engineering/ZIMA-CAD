@@ -24,8 +24,10 @@ The user will finish Linux support on Linux. Do not install WSL as part of this
 Windows task. The removed Conda runtime was still referenced by Linux development
 presets, so replace that dependency setup on Linux before building there.
 
-The native release launcher, packager and updater are not yet implemented to the
-new versioned layout. Do not publish old-style development builds as compliant
+The native Windows launcher, committed-source candidate builder and shared
+portable `config/` layers are implemented; see
+[Native distribution](doc/NATIVE_DISTRIBUTION.md). The signed updater and Linux
+runtime acceptance remain pending. Do not publish old-style development builds as compliant
 releases. Current Windows native dependencies remain available in the build/vcpkg
 setup. A fresh GUI/CLI build and console UI contract passed with the old runtime
 absent (see the Linux handoff for validation details).

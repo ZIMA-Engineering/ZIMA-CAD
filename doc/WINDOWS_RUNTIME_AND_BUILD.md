@@ -6,11 +6,12 @@ is one self-contained archive carrying both the Linux and Windows launchers,
 runtimes and shared portable data.
 
 The active application is now the C++ `zima-cad-cpp` target. A supported C++
-Windows portable-build pipeline has not yet been established.
+Windows candidate pipeline is implemented in `tools/distribution/`; see
+[NATIVE_DISTRIBUTION.md](NATIVE_DISTRIBUTION.md) for commands, configuration
+ownership and the distinction between a candidate and a signed official release.
 
 Do not publish a Windows build by adapting or bypassing the former Python
-packaging scripts. Before the first C++ Windows release, add a repository-owned
-build and validation pipeline that verifies at least:
+packaging scripts. The repository-owned build and validation pipeline must verify at least:
 
 - the exact committed Git source used for the build;
 - the C++ executable and all Qt/OCCT runtime DLL dependencies;

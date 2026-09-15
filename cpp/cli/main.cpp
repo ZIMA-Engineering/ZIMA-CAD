@@ -1,3 +1,4 @@
+#include <zima_build_info.hpp>
 #include "runner.hpp"
 #include <algorithm>
 #include <cerrno>
@@ -87,6 +88,10 @@ int main(int argc,char** argv){
 #else
             arguments.emplace_back(argv[i]);
 #endif
+        }
+        if(arguments.size()==1 && (arguments[0]=="--build-info" || arguments[0]=="--version")) {
+            output.write(std::string(arguments[0]=="--build-info" ? zima::distribution::build_info : zima::distribution::version)+"\n");
+            return 0;
         }
         std::filesystem::path executable=std::filesystem::absolute(argv[0]);
 #ifdef _WIN32

@@ -149,6 +149,10 @@
 - Linux completion belongs on the Linux host. Read `doc/LINUX_RELEASE_HANDOFF.md`
   before continuing it. The obsolete runtime tree has been removed after
   Windows verification; establish and verify fresh native Linux dependencies.
+- The root `VERSION` file is the single build identity. Shared user settings
+  belong in installation-root `config/` (with Windows/Linux overrides); factory
+  settings belong to each immutable version. Preserve configuration and projects
+  during updates. Read `doc/NATIVE_DISTRIBUTION.md` for implementation details.
 - Do not claim an updater, signed release pipeline or portable layout is
   implemented before it has been verified.
 

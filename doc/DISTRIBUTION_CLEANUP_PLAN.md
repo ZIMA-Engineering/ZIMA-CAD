@@ -13,9 +13,10 @@ Reviewed sibling documents: `ZIMA-CAD-Parts/doc/distribution-policy.md` and
 `ZIMA-CAD-Parts/doc/windows-distribution.md`, as present on 2026-09-15.
 The Parts policy is applicable, but its scripts cannot be copied unchanged:
 Parts uses qmake and different executables/resources, while CAD uses CMake,
-two executables and different runtime plugins. Parts' implemented Windows
-launcher/package builder does not yet implement its full updater, signatures,
-automatic cleanup or a verified Debian runtime.
+two executables and different runtime plugins. Parts' working tree now includes updater/signing work, but that work is still
+uncommitted and was not verified in CAD. Do not treat it as a released updater.
+CAD's implementation and acceptance status are recorded in
+[NATIVE_DISTRIBUTION.md](NATIVE_DISTRIBUTION.md).
 
 ## Inputs, means, outputs and independent check
 
@@ -65,9 +66,9 @@ automatic cleanup or a verified Debian runtime.
 Use the Parts build ID convention `YYYYMMDDNN` (two-digit daily sequence), with
 product-specific names: tag `ZIMA-CAD-2026091501` and
 `ZIMA-CAD-2026091501.zip`. These are examples, not an assigned release.
-The embedded GUI/CLI build identity, manifest and tag must agree. Replace the
-current `RELEASE_DATE` mechanism as one coordinated change before publishing;
-do not introduce two competing authoritative version values.
+The embedded GUI/CLI build identity, manifest and tag must agree. The root
+`VERSION` file replaces `RELEASE_DATE`; GUI, CLI and the package builder consume
+that one authority. Do not introduce competing authoritative version values.
 
 ```text
 ZIMA-CAD/
@@ -93,13 +94,18 @@ ZIMA-CAD/
   source/<build-id>/           # exact source and initialized submodules
   custom/windows/<build-id>/
   custom/linux/<build-id>/
-  profile/common/
-  profile/windows/
-  profile/linux/
+  config/config.ini           # shared user overrides
+  config/windows/config.ini   # Windows directory overrides
+  config/linux/config.ini     # Linux directory overrides
+  config/templates/
+  config/materials/
+  config/formats/
+  config/localization/
   Projects/
   cache/
   autosave/
   recovery/
+  .updates/
 ```
 
 Each version is complete. Never share mutable Qt/OCCT directories or factory
@@ -108,7 +114,7 @@ version without changing system PATH. A previous version must still start
 using its own dependencies after an update. Do not bundle WebEngine or
 Ghostscript merely because Parts uses them; CAD's dependency graph decides.
 
-The portable profile, Projects and recovery data are shared user-owned data.
+The shared root config, Projects and recovery data are user-owned data.
 Updates never overwrite them. Version-specific defaults must be separated from
 user changes in the settings/path implementation. Opening an older application
 is not a guarantee it can read documents saved in a newer native format:
@@ -189,9 +195,10 @@ Conda package cache or `conda-unpack` belongs in the finished product archive.
   establish official provenance. Signatures and key policy are still to be
   implemented.
 
-The current CMake install target and local plugin deployment do not yet satisfy
-these release gates. No new distributable or updater was produced by this
-cleanup. See [Windows runtime requirements](WINDOWS_RUNTIME_AND_BUILD.md) and
+The earlier cleanup itself produced no distributable or updater. The subsequent
+Windows launcher, committed-source builder and settings implementation are
+documented in [NATIVE_DISTRIBUTION.md](NATIVE_DISTRIBUTION.md). Authenticated
+updates and native Linux acceptance remain separate pending work. See [Windows runtime requirements](WINDOWS_RUNTIME_AND_BUILD.md) and
 the [earlier portable layout](PORTABLE_RELEASE.md) for the superseded design.
 
 ## Windows verification and Linux handoff

@@ -1,4 +1,7 @@
 #include "application_settings.hpp"
+#include "../common/installation.hpp"
+#include <memory>
+#include <vector>
 
 #include <QCoreApplication>
 #include <QApplication>
@@ -10,6 +13,7 @@
 #include <QTemporaryFile>
 #include <QTextStream>
 #include <QSettings>
+#include <QScopeGuard>
 #include <QTranslator>
 
 namespace zima::app {
@@ -44,15 +48,7 @@ const QMap<QString, QString> path_defaults{
     {QStringLiteral("Templates"), QStringLiteral("templates")},
     {QStringLiteral("Formats"), QStringLiteral("formats")},
     {QStringLiteral("Localization"), QStringLiteral("localization")},
-#ifdef Q_OS_WIN
-    {QStringLiteral("WorkingDirectory"), QDir::toNativeSeparators(
-        QStringLiteral("C:/Users/vladi/Prace/ZIMA-Engineering/00-SOFTWARE/"
-                       "01-ZIMA/ZIMA-CAD/Projects"))}};
-#else
-    {QStringLiteral("WorkingDirectory"),
-        QStringLiteral("/home/vladimir/Prace/ZIMA-Engineering/00-SOFTWARE/"
-                       "01-ZIMA/ZIMA-CAD/Projects")}};
-#endif
+    {QStringLiteral("WorkingDirectory"), QStringLiteral("../Projects")}};
 
 const QMap<QString, QString> unit_defaults{
     {QStringLiteral("Length"), QStringLiteral("mm")},
@@ -79,15 +75,6 @@ QString resolved_path(const QString& config_path, const QString& value) {
     return QDir(QFileInfo(config_path).absolutePath()).absoluteFilePath(portable);
 }
 
-QString layered_value(const QSettings& base, const QSettings* local,
-                      const QString& key, const QString& fallback) {
-    if (local != nullptr) {
-        const QString value = local->value(key).toString().trimmed();
-        if (!value.isEmpty()) return value;
-    }
-    return base.value(key, fallback).toString();
-}
-
 QString next_archive_path(const QString& target) {
     int version = 1;
     QString archive;
@@ -99,47 +86,66 @@ QString next_archive_path(const QString& target) {
 
 }  // namespace
 
-ApplicationSettings ApplicationSettings::load(const QString& working_directory) {
+ApplicationSettings ApplicationSettings::load(const QString& working_directory, const QString& executable) {
     ApplicationSettings result;
-    result.base_config_path = locate_base_config_path();
-    const QDir startup_directory(
-        working_directory.trimmed().isEmpty()
-            ? QDir::currentPath()
-            : QFileInfo(working_directory).absoluteFilePath());
+    const auto qpath = [](const std::filesystem::path& p) {
+        const auto bytes = p.generic_u8string();
+        return QString::fromUtf8(reinterpret_cast<const char*>(bytes.data()), static_cast<qsizetype>(bytes.size()));
+    };
+    const auto installed = distribution::locate_installation(std::filesystem::u8path(
+        (executable.isEmpty() ? QCoreApplication::applicationFilePath() : executable).toStdString()));
+    QStringList paths;
+    if (installed) {
+        for (const auto& p : distribution::config_layers(*installed)) paths.push_back(qpath(p));
+        result.base_config_path = paths.front();
+        result.config_path = qpath(installed->config);
+        result.platform_config_path = qpath(installed->platform_config);
+        result.installation_root = qpath(installed->root);
+    } else {
+        result.base_config_path = locate_base_config_path();
+        result.config_path = result.base_config_path;
+        paths.push_back(result.base_config_path);
+    }
+    const QDir startup_directory(working_directory.trimmed().isEmpty() ? QDir::currentPath() : working_directory);
     const QString local_candidate = startup_directory.absoluteFilePath("config.ini");
     if (QFileInfo::exists(local_candidate) &&
-        QFileInfo(local_candidate).canonicalFilePath() != result.base_config_path) {
+        !paths.contains(QFileInfo(local_candidate).canonicalFilePath()) &&
+        !paths.contains(QFileInfo(local_candidate).absoluteFilePath())) {
         result.local_config_path = QFileInfo(local_candidate).canonicalFilePath();
+        result.config_path = result.local_config_path;
+        result.platform_config_path.clear();
+        paths.push_back(result.local_config_path);
     }
-    result.config_path = result.local_config_path.isEmpty()
-        ? result.base_config_path : result.local_config_path;
-
-    QSettings base(result.base_config_path, QSettings::IniFormat);
-    QSettings local(result.local_config_path, QSettings::IniFormat);
-    const QSettings* local_layer = result.local_config_path.isEmpty() ? nullptr : &local;
-    result.language = layered_value(base, local_layer, "Application/Language", "cs").trimmed();
-    result.use_iso_application_font = layered_value(
-        base, local_layer, "Application/UseISOFont", "true").trimmed().toLower()
-        != QStringLiteral("false");
-    if (result.language.isEmpty()) result.language = QStringLiteral("cs");
+    std::vector<std::unique_ptr<QSettings>> layers;
+    for (const auto& p : paths) layers.push_back(std::make_unique<QSettings>(p, QSettings::IniFormat));
+    const auto value = [&](const QString& key, const QString& fallback, QString* origin = nullptr) {
+        for (auto it = layers.rbegin(); it != layers.rend(); ++it) {
+            const auto text = (*it)->value(key).toString().trimmed();
+            if (!text.isEmpty()) {
+                if (origin) *origin = (*it)->fileName();
+                return text;
+            }
+        }
+        if (origin) *origin = result.base_config_path;
+        return fallback;
+    };
+    result.language = value("Application/Language", "cs");
+    result.use_iso_application_font = value("Application/UseISOFont", "true").toLower() != "false";
     for (const auto& key : path_keys) {
-        const QString setting_key = QStringLiteral("Paths/") + key;
-        const QString configured = layered_value(
-            base, local_layer, setting_key, path_defaults.value(key));
-        result.configured_paths.insert(key, configured);
-        const bool from_local = local_layer != nullptr &&
-            !local.value(setting_key).toString().trimmed().isEmpty();
-        result.resolved_paths.insert(key, resolved_path(
-            from_local ? result.local_config_path : result.base_config_path, configured));
+        QString origin;
+        const auto fallback = installed && key == "WorkingDirectory" ? qpath(installed->root / "Projects") : path_defaults.value(key);
+        const auto configured = value("Paths/" + key, fallback, &origin);
+        const auto resolved = resolved_path(origin, configured);
+        result.resolved_paths.insert(key, resolved);
+        // Display relative paths against the writable config, not a hidden lower layer.
+        const auto displayed = installed ? QDir(QFileInfo(result.config_path).absolutePath()).relativeFilePath(resolved) : configured;
+        result.configured_paths.insert(key, displayed);
     }
-    for (auto it = unit_defaults.cbegin(); it != unit_defaults.cend(); ++it) {
-        result.units.insert(it.key(), layered_value(
-            base, local_layer, QStringLiteral("Units/") + it.key(), it.value()));
-    }
-    result.part_template = layered_value(
-        base, local_layer, "Templates/Part", "start_part.prtz");
-    result.assembly_template = layered_value(
-        base, local_layer, "Templates/Assembly", "start_assembly.asmz");
+    result.initial_configured_paths = result.configured_paths;
+    for (auto it = unit_defaults.cbegin(); it != unit_defaults.cend(); ++it)
+        result.units.insert(it.key(), value("Units/" + it.key(), it.value()));
+    result.part_template = value("Templates/Part", "start_part.prtz");
+    result.assembly_template = value("Templates/Assembly", "start_assembly.asmz");
     QFile translations(QDir(result.resolved_paths.value("Localization"))
                            .absoluteFilePath(result.language + ".ini"));
     if (translations.open(QIODevice::ReadOnly | QIODevice::Text)) {
@@ -170,7 +176,7 @@ QString ApplicationSettings::text(
     return translations.value(key, fallback);
 }
 
-bool ApplicationSettings::save(QString* error) const {
+static bool save_values(const QString& config_path, const QMap<QString, QVariant>& values, QString* error) {
     const QFileInfo target_info(config_path);
     if (!target_info.absoluteDir().exists() &&
         !QDir().mkpath(target_info.absolutePath())) {
@@ -181,37 +187,31 @@ bool ApplicationSettings::save(QString* error) const {
         return false;
     }
 
-    QTemporaryFile temporary(
-        target_info.absolutePath() + QStringLiteral("/.") +
-        target_info.fileName() + QStringLiteral(".XXXXXX.tmp"));
-    temporary.setAutoRemove(true);
-    if (!temporary.open()) {
-        if (error != nullptr) {
-            *error = QStringLiteral("Dočasný konfigurační soubor nelze vytvořit: %1")
-                         .arg(config_path);
+    QString temporary_path;
+    {
+        QTemporaryFile temporary(target_info.absolutePath() + QStringLiteral("/.") +
+            target_info.fileName() + QStringLiteral(".XXXXXX.tmp"));
+        if (!temporary.open()) {
+            if (error != nullptr) *error = QStringLiteral("Dočasný konfigurační soubor nelze vytvořit: %1").arg(config_path);
+            return false;
         }
-        return false;
+        temporary_path = temporary.fileName();
+        temporary.setAutoRemove(false);
+        // Destroy the native temporary handle before QSettings writes this file.
     }
-    const QString temporary_path = temporary.fileName();
-    temporary.close();
+    const auto cleanup = qScopeGuard([&] { QFile::remove(temporary_path); });
 
     QSettings output(temporary_path, QSettings::IniFormat);
+    // Only this disposable staging file may be written directly. The actual
+    // user configuration is replaced atomically by QSaveFile below.
+    output.setAtomicSyncRequired(false);
     if (QFileInfo::exists(config_path)) {
         QSettings source(config_path, QSettings::IniFormat);
         for (const auto& key : source.allKeys())
             output.setValue(key, source.value(key));
     }
-    output.setValue("Application/Language", language);
-    output.setValue("Application/UseISOFont", use_iso_application_font);
-    for (auto it = configured_paths.cbegin(); it != configured_paths.cend(); ++it) {
-        output.setValue(QStringLiteral("Paths/") + it.key(),
-                        QDir::fromNativeSeparators(it.value().trimmed()));
-    }
-    output.setValue("Templates/Part", part_template);
-    output.setValue("Templates/Assembly", assembly_template);
-    for (auto it = units.cbegin(); it != units.cend(); ++it) {
-        output.setValue(QStringLiteral("Units/") + it.key(), it.value());
-    }
+    for (auto it = values.cbegin(); it != values.cend(); ++it)
+        output.setValue(it.key(), it.value());
     output.sync();
     if (output.status() != QSettings::NoError) {
         if (error != nullptr) {
@@ -269,6 +269,24 @@ bool ApplicationSettings::save(QString* error) const {
         return false;
     }
     return true;
+}
+
+bool ApplicationSettings::save(QString* error) const {
+    QMap<QString, QVariant> common{
+        {"Application/Language", language}, {"Application/UseISOFont", use_iso_application_font},
+        {"Templates/Part", part_template}, {"Templates/Assembly", assembly_template}};
+    for (auto it = units.cbegin(); it != units.cend(); ++it) common.insert("Units/" + it.key(), it.value());
+    QMap<QString, QVariant> paths;
+    for (auto it = configured_paths.cbegin(); it != configured_paths.cend(); ++it) {
+        if (!installation_root.isEmpty() && it.value() == initial_configured_paths.value(it.key())) continue;
+        auto path = QDir::fromNativeSeparators(it.value().trimmed());
+        if (!platform_config_path.isEmpty() && !path.isEmpty() && !QDir::isAbsolutePath(path))
+            path = QDir(QFileInfo(platform_config_path).absolutePath()).relativeFilePath(resolved_path(config_path, path));
+        paths.insert("Paths/" + it.key(), path);
+    }
+    if (platform_config_path.isEmpty()) common.insert(paths);
+    else if (!paths.isEmpty() && !save_values(platform_config_path, paths, error)) return false;
+    return save_values(config_path, common, error);
 }
 
 void apply_application_translations(QApplication& application,

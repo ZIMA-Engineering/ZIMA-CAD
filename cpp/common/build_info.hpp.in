@@ -1,0 +1,6 @@
+#pragma once
+#include <string_view>
+namespace zima::distribution {
+inline constexpr std::string_view version = "@ZIMA_BUILD_ID@";
+inline constexpr std::string_view build_info = R"json({"product":"ZIMA-CAD","version":"@ZIMA_BUILD_ID@","commit":"@ZIMA_BUILD_COMMIT@","source_modified":@ZIMA_BUILD_MODIFIED@,"platform":"@ZIMA_BUILD_PLATFORM@","qt":"@Qt6_VERSION@","occt":"@ZIMA_OCCT_VERSION@","compiler":"@CMAKE_CXX_COMPILER_ID@ @CMAKE_CXX_COMPILER_VERSION@","configuration":"@CMAKE_BUILD_TYPE@"})json";
+}

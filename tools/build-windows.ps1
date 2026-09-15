@@ -67,7 +67,7 @@ try {
     if ($RunTests) {
         & $cmake --build --preset "windows-$presetSuffix" --parallel
     } else {
-        & $cmake --build --preset "windows-$presetSuffix" --target zima-cad-cpp zima-cad-cli --parallel
+        & $cmake --build --preset "windows-$presetSuffix" --target zima-cad-cpp zima-cad-cli zima-cad-launcher --parallel
     }
     if ($LASTEXITCODE -ne 0) { throw "CMake build failed with exit code $LASTEXITCODE." }
 

@@ -1,4 +1,5 @@
 #include "settings.hpp"
+#include "../common/installation.hpp"
 #include <algorithm>
 #include <fstream>
 #include <stdexcept>
@@ -70,24 +71,30 @@ std::string Settings::translate(const char* source,const char* context) const{
     return found==translations.end()||found->second.empty()?std::string(source):found->second;
 }
 Settings load_settings(const fs::path& executable,const fs::path& working,const fs::path& explicit_config){
-    auto base=explicit_config;
-    if(base.empty())for(const auto& candidate:{fs::current_path()/"config/config.ini",
-        executable.parent_path()/"config/config.ini",executable.parent_path()/"../../config/config.ini"})
-        if(fs::is_regular_file(candidate)){base=fs::absolute(candidate).lexically_normal();break;}
-    if(!explicit_config.empty()&&!fs::is_regular_file(explicit_config))throw std::runtime_error("Config file does not exist");
-    Values primary=base.empty()?Values{}:read_ini(base);
-    if(base.empty())base=fs::current_path()/"config/config.ini";
+    const auto installed=distribution::locate_installation(executable);
+    std::vector<fs::path> paths;
+    if(installed && explicit_config.empty()) paths=distribution::config_layers(*installed);
+    else {
+        auto base=explicit_config;
+        if(base.empty())for(const auto& candidate:{fs::current_path()/"config/config.ini",
+            executable.parent_path()/"config/config.ini",executable.parent_path()/"../../config/config.ini"})
+            if(fs::is_regular_file(candidate)){base=fs::absolute(candidate).lexically_normal();break;}
+        if(!explicit_config.empty()&&!fs::is_regular_file(explicit_config))throw std::runtime_error("Config file does not exist");
+        paths.push_back(base.empty()?fs::current_path()/"config/config.ini":base);
+    }
     const auto local=working/"config.ini";
-    const bool use_local=fs::is_regular_file(local)&&(!fs::exists(base)||!fs::equivalent(base,local));
-    const auto overrides=use_local?read_ini(local):Values{};
-    const auto value=[&](const char* key,const char* fallback){
-        if(const auto it=overrides.find(key);it!=overrides.end()&&!it->second.empty())return it->second;
-        const auto it=primary.find(key);return it==primary.end()?std::string(fallback):it->second;
+    if(fs::is_regular_file(local) && std::none_of(paths.begin(),paths.end(),[&](const auto& p){return fs::exists(p)&&fs::equivalent(p,local);}))paths.push_back(local);
+    std::vector<std::pair<fs::path,Values>> layers;
+    for(const auto& p:paths)layers.emplace_back(p,fs::is_regular_file(p)?read_ini(p):Values{});
+    const auto supplied=[&](const char* key){
+        for(auto it=layers.rbegin();it!=layers.rend();++it){
+            const auto found=it->second.find(key);
+            if(found!=it->second.end()&&!found->second.empty())return std::pair{it->first,found->second};
+        }
+        return std::pair{paths.front(),std::string{}};
     };
-    const auto configured_path=[&](const char* key,const char* fallback){
-        const auto it=overrides.find(key);
-        return resolve(it!=overrides.end()&&!it->second.empty()?local:base,value(key,fallback));
-    };
+    const auto value=[&](const char* key,const char* fallback){const auto found=supplied(key);return found.second.empty()?std::string(fallback):found.second;};
+    const auto configured_path=[&](const char* key,const char* fallback){const auto found=supplied(key);return resolve(found.first,found.second.empty()?fallback:found.second);};
     Settings result;
     result.documents.templates={configured_path("Paths/Templates","templates"),
         fs::u8path(value("Templates/Part","start_part.prtz")),fs::u8path(value("Templates/Assembly","start_assembly.asmz")),"Těleso 1"};
