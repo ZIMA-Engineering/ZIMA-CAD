@@ -205,3 +205,11 @@ immediate cancellation of an already queued restart. Evidence:
 `build/updates-release-engine.log`, `build/updates-release-package.log`,
 `build/updates-release-publisher.log`, `build/updates-one-action-native.log` and
 `build/updates-one-action-ui.log`.
+
+The first signed Windows build, `2026091504`, passed the committed-source builder,
+signing finalizer and finalized-archive Windows smoke. In a fresh extraction the
+production helper reported `trusted: true`; live GitHub discovery returned
+`current`, and the packaged Updates GUI contract passed. The three immutable
+assets are ready locally, not published. See
+[signed build acceptance](NATIVE_DISTRIBUTION.md#signed-windows-build-2026091504)
+for hashes, locations and the distinction from a live public upgrade test.

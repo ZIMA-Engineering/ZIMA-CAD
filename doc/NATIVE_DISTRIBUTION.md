@@ -188,8 +188,8 @@ switch selection after application exit and preserve all shared user data.
 - Build/verify the native Linux dependencies and launcher on the Linux host.
 - Platforms may publish independently. If combined, their commits must match;
   published archives are immutable and adding a platform later requires a new ID.
-- Produce the first signed CAD distribution using the implemented signing and
-  validation workflow. No official update was published during implementation.
+- The first signed Windows distribution is prepared and verified (see below).
+  Publishing the three immutable assets remains a separate release action.
 - Run the updater's Linux execution and desktop acceptance on Linux.
 - Binary rollback does not promise backward compatibility of native documents.
 
@@ -197,6 +197,43 @@ See [binding requirements](DISTRIBUTION_CLEANUP_PLAN.md) and
 [Linux handoff](LINUX_RELEASE_HANDOFF.md).
 
 ## Windows verification on 2026-09-15
+
+### Signed Windows build 2026091504
+
+Tag `ZIMA-CAD-2026091504` identifies commit
+`5ef3ea0fc8ada37954b1dca47e40b2acf5d6f9d9`. Its clean, detached checkout supplied
+the release builder; unrelated working files did not enter the source snapshot.
+The candidate and finalized signed archive both passed the native Windows smoke,
+archive path, CRC and SHA-256 gates. The publisher used the existing protected
+local key; no private key was exported or included in the package.
+
+Prepared assets are under `.dist-output/release-2026091504/`:
+
+- `ZIMA-CAD-2026091504.zip` (70,087,247 bytes).
+- `update-manifest.json` and `update-manifest.sig`.
+- `ZIMA-CAD-2026091504.validation.json` records acceptance and is not a required
+  public update asset.
+
+Signed ZIP SHA-256:
+
+```text
+65827c71e1df697d06b0dea0e67f68666b1713873789624d7224d0d5415bddba
+```
+
+A fresh extraction passed the production helper's bootstrap verification
+(`trusted: true`, installed version `2026091504`), a live HTTPS discovery check
+(`current`), and the full Updates GUI interaction contract. No public date-based
+release was available, so this does not claim a live public upgrade between two
+production releases; signed lifecycle fixtures cover installation and rollback.
+
+Logs: `build/updates-package-04.log`, `build/updates-signed-04.log`,
+`build/updates-signed-04-acceptance.log`. The candidate View capture was visually
+inspected and copied to `Projects/test/release-2026091504-view.png`. Release notes:
+[2026091504](releases/2026091504.md). The assets are prepared locally and have not
+been published. Development still starts through repository-root `zima-cad.bat`;
+the first signed portable bundle must be extracted into a new installation root.
+
+### Earlier unsigned candidate
 
 Validated candidate: `2026091503`, built from commit
 `3d7eaaf89bdd6a8a7f47081ae587c2a8c449d6cc`.

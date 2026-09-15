@@ -21,7 +21,7 @@ completed; the exact catalog/placeholder contract passes for all five UI languag
 Final GUI/CLI and all-test-target build passed, as did all 12 related contracts
 and the separate treatment-grip GUI regression. Logs and captures are linked in
 the edge-treatment documentation. These changes are in the root BAT's development
-build; the portable release candidate has not been replaced.
+build and the signed `2026091504` package described below.
 
 ZIMA-CAD is a native C++/Qt application. Python, its old runtime and its packaging
 tools have been removed with the user's approval. The old migration and cutover
@@ -119,8 +119,12 @@ checks; the exact SHA-256, local output locations and test scope are recorded in
 [Native distribution](doc/NATIVE_DISTRIBUTION.md#windows-verification-on-2026-09-15).
 The unpacked local portable installation holds versions `2026091503` and
 `2026091502` and preserves shared `config/`. It is an unsigned local candidate,
-not a GitHub release. The native updater is now implemented; its first signed
-official distribution and Linux acceptance remain release work.
+not a GitHub release. The new signed `2026091504` package is ready separately in
+`.dist-output/release-2026091504/`. It passed candidate and finalized-archive smoke,
+production bootstrap verification and the packaged Updates GUI contract.
+See [signed build acceptance](doc/NATIVE_DISTRIBUTION.md#signed-windows-build-2026091504)
+for its exact commit, SHA-256 and logs. Public release publication and Linux
+acceptance remain separate release work; older local installations are unchanged.
 
 ## Application updates
 
@@ -137,7 +141,8 @@ runtime lifetimes. No other CAD process is forcibly stopped.
 
 Read [Application updates](doc/UPDATES.md) for the manifest, public trust anchor,
 signing commands and tests. The existing ZCP publisher public key is embedded;
-its private key was not copied/read. Development continues through the same root
+its protected private key was used locally for signing without export or inclusion
+in the package. Development continues through the same root
 BAT. It can check releases, while installation requires a signed portable bundle.
 Windows and Linux may now publish independently with immutable release assets.
 Linux execution stays assigned to the Linux host; test Linux manifests are not
@@ -148,8 +153,9 @@ evidence of Linux runtime support. No GitHub release was created by this work.
 On 2026-09-15 the user confirmed this immediate order: finish the Holes preview,
 diameter annotation and display-mode icons; then complete program updates;
 then continue Sketcher offsets, especially external and STEP source curves.
-Updater implementation is complete; finish its release acceptance before
-publishing the first signed bundle. Modeling work next returns to Sketcher offsets.
+Updater implementation and Windows signed-bundle acceptance are complete.
+The first signed bundle is prepared locally; public release publication is pending.
+Modeling work next returns to Sketcher offsets.
 
 New explicit user instructions take precedence. The agreed Part sequence is in
 [ROADMAP.md](ROADMAP.md#agreed-next-steps-for-part-2026-09-06), beginning with
