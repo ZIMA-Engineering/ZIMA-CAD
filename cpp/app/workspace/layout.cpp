@@ -1585,7 +1585,10 @@ void AssemblyWorkspaceWindow::create_layout() {
         }
     });
     const auto synchronize_tree_selection = [this] {
-            if(measurement_dialog_)return;
+            if(measurement_dialog_||mass_properties_dialog_)return;
+            if(auto* item=tree_->currentItem();item&&item->data(0,Qt::UserRole+3).toString().startsWith("body-properties")){
+                viewer_->clear_selection();return;
+            }
             if(auto* item=tree_->currentItem();item&&item->data(0,Qt::UserRole+3)=="document-measurement"){
                 viewer_->clear_selection();return;
             }

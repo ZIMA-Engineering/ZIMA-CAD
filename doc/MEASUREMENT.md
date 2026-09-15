@@ -1,5 +1,8 @@
 # Measurement in the View
 
+For historical volume, mass, centroid and inertia analysis with a centroid
+Origin, see [Body properties](BODY_PROPERTIES.md).
+
 **Measurement** is on the toolbar above Part/Assembly 3D views and is also available
 inside Sketcher. It measures current calculated geometry without regenerating
 the model or dependencies.
@@ -66,6 +69,9 @@ is disabled; it cannot write to the passive parent Assembly on behalf of the Par
 are red and replaceable in the same field. Saving is blocked until repair; cancelling
 preserves the original record. Context menus also offer **Remove**. Creation,
 editing and removal support document Undo/Redo.
+
+Saved measurement rows precede the owning branch's **Insert Here** marker. Rows
+anchored to the same model boundary retain their creation order.
 
 Saved values snapshot the last measurement save. Opening Properties reevaluates the
 currently displayed calculated model. Source Part changes appear in occurrences

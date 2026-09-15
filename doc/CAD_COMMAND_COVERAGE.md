@@ -2,12 +2,14 @@
 
 ## Current scope — 2026-09-15
 
-The command layer covers the currently supported CAD operations with **302
+The command layer covers the currently supported CAD operations with **307
 commands**. GUI and CLI use shared model operations; the audit of remaining
 direct GUI writes is complete. [Holes](HOLES.md) adds `holes.create/get/set`,
 using finite Sketch segments and a common diameter for Part subtraction.
 Family Table reference queries and instance opening, plus `component.replace`,
 cover the linked-variant workflow described in [Family Table](FAMILY_TABLE.md).
+Historical [Body properties](BODY_PROPERTIES.md) adds five commands sharing the
+GUI's cached geometry, history-boundary and transaction contracts.
 
 The GUI does not launch the CLI executable for each action. Both applications
 call the same command/model layer. Mouse picking, camera movement and transient

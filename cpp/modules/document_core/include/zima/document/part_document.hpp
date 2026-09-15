@@ -1,6 +1,7 @@
 #pragma once
 #include <zima/document/family_document.hpp>
 #include <zima/document/measurement_record.hpp>
+#include <zima/document/body_properties.hpp>
 #include <zima/kernel/dimension_layout.hpp>
 #include <zima/kernel/appearance.hpp>
 #include <zima/document/section.hpp>
@@ -632,6 +633,7 @@ public:
     std::string named_views{"[]"};
     std::vector<zima::document::SectionDefinition> sections;
     std::vector<zima::kernel::SavedMeasurement> measurements;
+    std::vector<BodyProperties> body_properties;
     std::vector<zima::kernel::DimensionLayoutEntry> dimension_layouts;
     // Display colour of the calculated body.  It is presentation metadata;
     // changing it never invalidates or recalculates OCCT geometry.

@@ -525,12 +525,12 @@ void add_json_parameters(
 
 nlohmann::json read_part_ini(const std::filesystem::path& path) {
     const auto ini = read_ini(path);
-    if (ini_value(ini, "Document", "format_version") != "25") {
+    if (ini_value(ini, "Document", "format_version") != "26") {
         throw std::runtime_error("Unsupported ZIMA-CAD Part document format");
     }
     nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 49},
+        {"format_version", 50},
         {"document_id", ini_required(ini, "Document", "document_id")},
         {"type", ini_value(ini, "Document", "type", "part")},
         {"name", ini_value(ini, "Document", "name", "Nový díl")},
@@ -540,6 +540,7 @@ nlohmann::json read_part_ini(const std::filesystem::path& path) {
         {"named_views", ini_value(ini, "Document", "named_views", "[]")},
         {"sections", nlohmann::json::parse(ini_value(ini,"Document","sections","[]"))},
         {"measurements", nlohmann::json::parse(ini_value(ini,"Document","measurements","[]"))},
+        {"body_properties", nlohmann::json::parse(ini_value(ini,"Document","body_properties"))},
         {"dimension_layouts", nlohmann::json::parse(ini_value(ini,"Document","dimension_layouts","[]"))},
         {"dimension_identifiers", nlohmann::json::parse(ini_required(ini, "Document", "dimension_identifiers"))},
         {"body_history", nlohmann::json::parse(ini_required(ini, "Document", "body_history"))},
@@ -683,7 +684,7 @@ void write_part_ini(
     const nlohmann::json& root, const std::filesystem::path& path) {
     IniSections ini;
     ini["Document"] = {
-        {"format_version", "25"},
+        {"format_version", "26"},
         {"type", "part"},
         {"document_id", root.at("document_id").get<std::string>()},
         {"name", root.at("name").get<std::string>()},
@@ -692,6 +693,7 @@ void write_part_ini(
         {"named_views", root.value("named_views", std::string("[]"))},
         {"sections", root.value("sections",nlohmann::json::array()).dump()},
         {"measurements", root.value("measurements",nlohmann::json::array()).dump()},
+        {"body_properties", root.at("body_properties").dump()},
         {"dimension_layouts", root.value("dimension_layouts",nlohmann::json::array()).dump()},
         {"dimension_identifiers", root.at("dimension_identifiers").dump()},
         {"body_history", root.at("body_history").dump()},
@@ -9454,6 +9456,7 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
     static_cast<void>(zima::document::parse_named_views(document.named_views));
     document.sections = parse_sections(root.value("sections",nlohmann::json::array()).dump());
     document.measurements = parse_measurements(root.value("measurements",nlohmann::json::array()).dump());
+    document.body_properties = parse_body_properties(root.at("body_properties").dump());
     document.dimension_layouts=zima::document::dimension_layouts_from_json(root.value("dimension_layouts",nlohmann::json::array()));
     document.dimension_identifiers = DimensionIdentifiers::from_serialized(root.at("dimension_identifiers").dump());
     document.body_color = root.at("body_color").get<std::string>();
@@ -11040,7 +11043,7 @@ nlohmann::json PartDocument::serialized(
     static_cast<void>(zima::document::parse_named_views(named_views));
     nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 49},
+        {"format_version", 50},
         {"document_id", document_id},
         {"type", "part"},
         {"name", name},
@@ -11062,6 +11065,7 @@ nlohmann::json PartDocument::serialized(
         {"named_views", named_views},
         {"sections", nlohmann::json::parse(serialize_sections(sections))},
         {"measurements", nlohmann::json::parse(serialize_measurements(measurements))},
+        {"body_properties", nlohmann::json::parse(serialize_body_properties(body_properties))},
         {"body_color", body_color},
         {"appearance", serialize_appearance(appearance)},
         {"face_colors", face_colors},

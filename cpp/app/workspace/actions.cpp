@@ -943,6 +943,9 @@ void AssemblyWorkspaceWindow::create_actions() {
     measure_action_=view_toolbar_->addAction(resource_icon("measure"),tr("Měření…"));
     measure_action_->setObjectName("measureAction");
     connect(measure_action_,&QAction::triggered,this,[this]{show_measurement();});
+    mass_properties_action_=view_toolbar_->addAction(resource_icon("body-properties"),tr("Vlastnosti tělesa"));
+    mass_properties_action_->setObjectName("massPropertiesAction");
+    connect(mass_properties_action_,&QAction::triggered,this,[this]{show_mass_properties();});
     section_action_=view_toolbar_->addAction(tr("Řezy…"));
     section_action_->setObjectName("createSectionAction");
     connect(section_action_,&QAction::triggered,this,[this]{show_section_properties();});

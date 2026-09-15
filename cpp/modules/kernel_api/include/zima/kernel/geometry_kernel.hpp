@@ -796,6 +796,14 @@ private:
     std::shared_ptr<const BodyResult> value_;
 };
 
+// Exact volume integrals calculated with the solid, never from display facets.
+// Central inertia is row-major, about centroid, in model axes and mm^5.
+struct VolumeIntegrals {
+    Vec3 centroid;
+    std::array<double,9> inertia{};
+    bool operator==(const VolumeIntegrals&) const = default;
+};
+
 struct BodyResult {
     // Failed/blocked feature owners. Geometry is the last valid input, never a
     // successful result of these operations. Persist with calculation snapshots.
@@ -806,6 +814,7 @@ struct BodyResult {
     ViewerMesh mesh;
     double volume{};
     double surface_area{};
+    std::optional<VolumeIntegrals> volume_integrals;
     std::string source_fingerprint;
     // Opaque calculation snapshot. Only the solid kernel may consume it
     // during an explicit body calculation; viewer/reference code uses mesh.

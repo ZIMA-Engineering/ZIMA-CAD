@@ -1,6 +1,7 @@
 #include "measurement_ui_verification.hpp"
 #include "assembly_workspace_window.hpp"
 #include "measurement_dialog.hpp"
+#include "mass_properties_dialog.hpp"
 #include "drawing_window.hpp"
 #include "drawing_dimension_dialog.hpp"
 #include <zima/viewer/mesh_view.hpp>
@@ -100,6 +101,12 @@ try{
     auto* tree=window.findChild<QTreeWidget*>();tree->collapseAll();
     dialog()->findChild<QPushButton*>("saveMeasurement")->click();flush();check(!dialog(),"Save did not close inspector");
     check(tree->currentItem()&&tree->currentItem()->data(0,Qt::UserRole+3)=="document-measurement","Save did not reveal/select its Tree record");
+    const auto check_before_cursor=[&] {
+        auto* record=tree->currentItem();auto* parent=record->parent();check(parent!=nullptr,"Measurement has no owning tree branch");
+        for(int i=0;i<parent->childCount();++i)if(parent->child(i)->data(0,Qt::UserRole+3).toString().endsWith("insert-here"))
+            check(parent->indexOfChild(record)<i,"Saved measurement follows Insert Here");
+    };
+    check_before_cursor();
     for(auto* parent=tree->currentItem()->parent();parent;parent=parent->parent())check(parent->isExpanded(),"Saved measurement is hidden in a collapsed parent");
     window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
     auto stored=document::PartDocument::load(path);
@@ -156,6 +163,43 @@ try{
     check(dialog()->geometries()[0]->values.mass&&std::abs(dialog()->geometries()[0]->values.mass->value-.0471)<1e-10,"Inspector did not use material density");
     if(qEnvironmentVariableIsSet("ZIMA_MEASUREMENT_CAPTURE"))window.grab().save(qEnvironmentVariable("ZIMA_MEASUREMENT_CAPTURE"));
     dialog()->reject();flush();
+    // The mass-property feature shares one creation/edit window and the
+    // application's OK/Cancel and middle-button confirmation contract.
+    auto* mass_action=window.findChild<QAction*>("massPropertiesAction");
+    check(mass_action&&mass_action->isEnabled()&&!mass_action->icon().isNull(),"Body properties action missing");
+    const auto mass_dialog=[&]()->MassPropertiesDialog* {
+        for(auto* child:window.findChildren<QDialog*>())if(auto* d=dynamic_cast<MassPropertiesDialog*>(child);d&&d->isVisible())return d;
+        return nullptr;
+    };
+    mass_action->trigger();flush();check(mass_dialog(),"Body properties did not open");
+    check(mass_dialog()->parentWidget()==&window&&(mass_dialog()->windowFlags()&Qt::WindowType_Mask)==Qt::SubWindow,"Body properties uses a native window");
+    check(mass_dialog()->buttons()->standardButtons()==(QDialogButtonBox::Ok|QDialogButtonBox::Cancel),"Body properties has extra commit actions");
+    check(mass_dialog()->current().integrals&&std::abs(mass_dialog()->current().volume-6000)<1e-8,"Body properties shows wrong geometry");
+    mass_dialog()->reject();flush();check(execute("body_properties.list").data.at("total")==0,"Cancel created a mass feature");
+    mass_action->trigger();flush();
+    click(QPointF(25,25),Qt::MiddleButton);check(mass_dialog(),"Short MMB committed mass properties");
+    mouse(QEvent::MouseButtonDblClick,QPointF(25,25),Qt::MiddleButton);mouse(QEvent::MouseButtonRelease,QPointF(25,25),Qt::MiddleButton);flush();
+    check(!mass_dialog(),"Double MMB over View did not confirm mass properties");
+    const auto mass_id=execute("body_properties.list").data.at("items").at(0).at("object").get<std::string>();
+    check(tree->currentItem()&&tree->currentItem()->data(0,Qt::UserRole+3)=="body-properties","Mass feature not selected in Tree");
+    check_before_cursor();
+    check(std::ranges::any_of(view->mesh().points,[&](const auto& p){return p.reference.owner_id==mass_id+":origin";}),"COG Origin missing from View");
+    const auto mass_reopen=[&] {
+        QTreeWidgetItem* item{};for(QTreeWidgetItemIterator i(tree);*i;++i)if((*i)->data(0,Qt::UserRole).toString().toStdString()==mass_id){item=*i;break;}
+        check(item,"Mass row missing");window.show_tree_item_properties(item);flush();check(mass_dialog(),"Mass edit window missing");
+    };
+    mass_reopen();mass_dialog()->findChild<QDoubleSpinBox*>("bodyPropertiesRotation2")->setValue(90);
+    const auto axis=std::ranges::find_if(view->mesh().axes,[&](const auto& a){return a.reference.owner_id==mass_id+":origin"&&a.reference.semantic_key=="origin:axis:x";});
+    check(axis!=view->mesh().axes.end()&&std::abs(axis->direction.y-1)<1e-8,"Origin rotation preview did not update");
+    if(qEnvironmentVariableIsSet("ZIMA_MEASUREMENT_CAPTURE"))window.grab().save(qEnvironmentVariable("ZIMA_MEASUREMENT_CAPTURE")+".mass.png");
+    mass_dialog()->reject();flush();check(execute("body_properties.get",{{"object",mass_id}}).data["rotation_degrees"][2]==0,"Cancel changed Origin axes");
+    execute("box.create",{{"length_mm","100"},{"width_mm","200"},{"height_mm","300"}});flush();
+    const auto full_vertices=view->mesh().vertices;
+    mass_reopen();double extent{};for(const auto& p:view->mesh().vertices)extent=std::max(extent,std::abs(p.z));
+    check(mass_dialog()->current().integrals&&std::abs(mass_dialog()->current().volume-6000)<1e-8,"Downstream edit broke mass history anchor");
+    check(extent<31,"Mass properties displayed downstream geometry");
+    mass_dialog()->reject();flush();check(view->mesh().vertices==full_vertices,"Cancel did not restore full history display");
+    execute("undo");flush();
     auto second_part=document::PartDocument::create_default();
     auto second_box=document::PartDocument::create_box_container();second_box.box={20,20,30};second_part.history={second_box};
     second_part.physical_parameters["MASS_DENSITY"]="2700";second_part.physical_parameter_units["MASS_DENSITY"]="kg/m^3";
@@ -186,6 +230,7 @@ try{
     if(qEnvironmentVariableIsSet("ZIMA_MEASUREMENT_CAPTURE"))window.grab().save(qEnvironmentVariable("ZIMA_MEASUREMENT_CAPTURE")+".assembly.png");
     tree->collapseAll();dialog()->findChild<QPushButton*>("saveMeasurement")->click();flush();
     check(tree->currentItem()&&tree->currentItem()->data(0,Qt::UserRole+3)=="document-measurement","Assembly Save did not reveal record");
+    check_before_cursor();
     window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
     check(assembly::AssemblyDocument::load(assembly_path).measurements.size()==1,"Assembly lost saved measurement");
     execute("component.activate",{{"instance_path",assembly::InstancePath{{first.occurrence_id}}.encoded()}});flush();

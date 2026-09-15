@@ -178,6 +178,7 @@ add_library(zima_document_core
     modules/document_core/src/body_history.cpp
     modules/document_core/src/section.cpp
     modules/document_core/src/measurement_record.cpp
+    modules/document_core/src/body_properties.cpp
     modules/document_core/src/relations.cpp
     modules/document_core/src/named_views.cpp
     modules/document_core/src/metadata.cpp
@@ -269,6 +270,7 @@ add_library(zima_workspace modules/workspace/src/workspace.cpp
     modules/workspace/src/primitive_reference_operations.cpp
     modules/workspace/src/primitive_operations.cpp
     modules/workspace/src/measurement_edits.cpp
+    modules/workspace/src/body_properties_edits.cpp
     modules/workspace/src/measurement_operations.cpp
     modules/workspace/src/section_operations.cpp
     modules/workspace/src/section_reference_operations.cpp
@@ -307,6 +309,7 @@ add_library(zima_command_host
     modules/command_host/src/template_commands.cpp modules/command_host/src/template_object_commands.cpp
     modules/command_host/src/sweep_commands.cpp
     modules/command_host/src/measurement_commands.cpp
+    modules/command_host/src/body_properties_commands.cpp
     modules/command_host/src/section_commands.cpp
     modules/command_host/src/appearance_commands.cpp
     modules/command_host/src/hole_commands.cpp
@@ -409,7 +412,7 @@ add_executable(zima-cad-cpp
     ${ZIMA_WORKSPACE_SOURCES}
     app/command_console.cpp app/console_ui_verification.cpp app/holes_ui_verification.cpp app/edge_treatment_ui_verification.cpp app/rotation_handle_ui_verification.cpp
     app/main_workspace.cpp app/appearance_dialog.cpp app/appearance_command.cpp app/section_command.cpp app/section_ui_verification.cpp app/assembly_workspace_window.cpp app/template_command.cpp app/numeric_value_lock_command.cpp app/shaft_thread_command.cpp app/derived_copy_command.cpp
-    app/application_settings.cpp app/global_settings_dialog.cpp app/measurement_command.cpp app/measurement_ui_verification.cpp
+    app/application_settings.cpp app/global_settings_dialog.cpp app/measurement_command.cpp app/measurement_ui_verification.cpp app/mass_properties_command.cpp
     app/document_tools_dialogs.cpp app/updates_ui_verification.cpp app/ai_settings_page.cpp
     app/drawing_window.cpp app/show_erase_dialog.cpp app/file_dialog.cpp app/resource_icon.cpp
     app/zima_resources.qrc
@@ -1010,6 +1013,10 @@ if(ZIMA_BUILD_TESTS)
     set_tests_properties(zima_cpp_section_property_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
 
     add_executable(zima_cpp_measurement_edit_command_tests tests/measurement_edit_command_tests.cpp)
+    add_executable(zima_cpp_body_properties_tests tests/body_properties_tests.cpp)
+    target_link_libraries(zima_cpp_body_properties_tests PRIVATE zima_command_host)
+    add_test(NAME zima_cpp_body_properties_tests COMMAND zima_cpp_body_properties_tests)
+    set_tests_properties(zima_cpp_body_properties_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     target_link_libraries(zima_cpp_measurement_edit_command_tests PRIVATE zima_command_host)
     add_test(NAME zima_cpp_measurement_edit_command_tests COMMAND zima_cpp_measurement_edit_command_tests)
     set_tests_properties(zima_cpp_measurement_edit_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")

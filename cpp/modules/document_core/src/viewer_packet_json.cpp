@@ -537,6 +537,9 @@ nlohmann::json serialize_body_result(const zima::kernel::BodyResult& result, boo
     nlohmann::json packet = {
         {"calculation_errors", result.calculation_errors},
         {"volume", result.volume}, {"surface_area", result.surface_area},
+        {"volume_integrals",result.volume_integrals?nlohmann::json{
+            {"centroid",serialize_vec3(result.volume_integrals->centroid)},
+            {"inertia",result.volume_integrals->inertia}}:nlohmann::json(nullptr)},
         {"source_fingerprint", result.source_fingerprint},
         {"kernel_shape", result.kernel_shape},
         {"viewer_binary_encoding", "f64le-u32le-base64-v1"},
@@ -607,6 +610,13 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source) {
     result.mesh.annotation_frames=annotation_frames_from_json(source.value("annotation_frames",nlohmann::json::array()));
     result.volume = source.at("volume").get<double>();
     result.surface_area = source.at("surface_area").get<double>();
+    if(!source.at("volume_integrals").is_null()) {
+        zima::kernel::VolumeIntegrals p;
+        p.centroid=load_vec3(source.at("volume_integrals").at("centroid"));
+        p.inertia=source.at("volume_integrals").at("inertia").get<std::array<double,9>>();
+        for(double x:p.inertia)require_finite(x,"volume inertia");
+        result.volume_integrals=p;
+    }
     result.source_fingerprint = source.at("source_fingerprint").get<std::string>();
     result.kernel_shape = source.at("kernel_shape").get<std::string>();
     result.mesh.original_references = load_reference_geometry(

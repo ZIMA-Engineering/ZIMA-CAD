@@ -92,6 +92,11 @@ public:
     }
 
 private:
+    QDialog* mass_properties_dialog_{};
+    QAction* mass_properties_action_{};
+    void show_mass_properties(const std::string& id = {});
+    void update_mass_properties_ui();
+    bool mass_properties_context_menu(QTreeWidgetItem*,const QPoint&);
     QPointer<MeasurementDialog> measurement_dialog_;
     QAction* measure_action_{};
     QAction* sketch_offset_action_{};

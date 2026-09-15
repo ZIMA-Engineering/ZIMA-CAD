@@ -1,4 +1,5 @@
 #include <zima/kernel/drill_point_identity.hpp>
+#include <zima/kernel/inertia.hpp>
 #include <zima/kernel/occt_curve_data.hpp>
 #include <zima/kernel/pattern_geometry.hpp>
 #include <zima/kernel/mirror_geometry.hpp>
@@ -4554,6 +4555,16 @@ std::optional<SurfaceGeometry> analytic_surface(const TopoDS_Face& face) {
     return result;
 }
 
+void store_volume_integrals(BodyResult& result,const GProp_GProps& properties) {
+    result.volume_integrals.reset();
+    if(std::abs(properties.Mass())<=0)return;
+    const auto c=properties.CentreOfMass();const auto inertia=properties.MatrixOfInertia();
+    VolumeIntegrals p;p.centroid={c.X(),c.Y(),c.Z()};
+    const double sign=properties.Mass()<0?-1:1;
+    for(int i=0;i<3;++i)for(int j=0;j<3;++j)p.inertia[3*i+j]=sign*inertia.Value(i+1,j+1);
+    result.volume_integrals=p;
+}
+
 BodyResult make_result(
     const TopoDS_Shape& shape,
     const std::vector<OwnedFace>& owned_faces,
@@ -4604,6 +4615,7 @@ BodyResult make_result(
     BRepGProp::SurfaceProperties(shape, surface_properties);
     result.volume = volume_properties.Mass();
     result.surface_area = surface_properties.Mass();
+    store_volume_integrals(result,volume_properties);
     if (persist_kernel_shape) result.kernel_shape = serialize_kernel_shape(shape);
     std::optional<TopologyReferenceIndex<FaceReference, OwnedFace>> face_references;
     std::optional<TopologyReferenceIndex<EdgeReference, OwnedEdge>> edge_references;
@@ -5319,6 +5331,13 @@ std::vector<BodyResult> OcctKernel::evaluate_history(
 namespace {
 
 void place_body_result(BodyResult& result, const gp_Trsf& placement) {
+    if(result.volume_integrals) {
+        auto& p=*result.volume_integrals;
+        const auto c=gp_Pnt(p.centroid.x,p.centroid.y,p.centroid.z).Transformed(placement);
+        p.centroid={c.X(),c.Y(),c.Z()};Matrix3 r;
+        for(int i=0;i<3;++i)for(int j=0;j<3;++j)r[3*i+j]=placement.Value(i+1,j+1);
+        p.inertia=inertia_rotate(p.inertia,r);
+    }
     auto& mesh = result.mesh;
     const auto point = [&](Vec3& value) {
         const auto p = gp_Pnt(value.x, value.y, value.z).Transformed(placement);
@@ -5393,6 +5412,12 @@ BodyResult OcctKernel::mirror_body(const BodyResult& source,MirrorPlane plane,co
     if(!transform.IsDone()||!BRepCheck_Analyzer(transform.Shape()).IsValid())throw std::runtime_error("Zrcadlo nevytvořilo platné těleso.");
     result.kernel_shape=serialize_kernel_shape(transform.Shape());
     result.mesh=mirrored_viewer_mesh(std::move(result.mesh),plane,owner_id);
+    if(result.volume_integrals) {
+        auto& p=*result.volume_integrals;const auto c=gp_Pnt(p.centroid.x,p.centroid.y,p.centroid.z).Transformed(reflection);
+        p.centroid={c.X(),c.Y(),c.Z()};Matrix3 r;
+        for(int i=0;i<3;++i)for(int j=0;j<3;++j)r[3*i+j]=reflection.Value(i+1,j+1);
+        p.inertia=inertia_rotate(p.inertia,r);
+    }
     result.shaft_thread_owner.clear();result.shaft_thread_references={};result.imported_step_topology.clear();
     HistoryOperation key;key.owner_id=owner_id;key.body.combination=BodyCombination::Mirror;key.body.mirror_plane=plane;
     key.body.translation=translation;key.body.rotation_degrees=rotation;
@@ -5417,6 +5442,23 @@ BodyResult OcctKernel::pattern_body(const BodyResult& source,const PatternReques
         append_body_viewer(result.mesh,pattern_copy_mesh(input.mesh,p,index,owner,occurrences));
     }
     result.kernel_shape=serialize_kernel_shape(compound);result.volume=source.volume*(p.count-1);result.surface_area=source.surface_area*(p.count-1);
+    // Rigid copies preserve the exact source integrals, including adaptive
+    // integration of spline surfaces; only their coordinate frames change.
+    if(source.volume_integrals) {
+        std::vector<VolumeIntegrals> copies;Vec3 center{};
+        for(unsigned index=1;index<p.count;++index) {
+            gp_Trsf copy;
+            if(p.circular)copy.SetRotation(gp_Ax1(gp_Pnt(p.origin.x,p.origin.y,p.origin.z),gp_Dir(p.axis.x,p.axis.y,p.axis.z)),p.angle_degrees*index*std::numbers::pi/180.0);
+            else {const auto t=pattern_translation(p,index);copy.SetTranslation(gp_Vec(t.x,t.y,t.z));}
+            BodyResult integral;integral.volume_integrals=input.volume_integrals;place_body_result(integral,copy);
+            copies.push_back(*integral.volume_integrals);const auto c=copies.back().centroid;center.x+=c.x;center.y+=c.y;center.z+=c.z;
+        }
+        center.x/=copies.size();center.y/=copies.size();center.z/=copies.size();VolumeIntegrals total;total.centroid=center;
+        for(const auto& value:copies) {
+            for(int i=0;i<9;++i)total.inertia[i]+=value.inertia[i];
+            inertia_shift(total.inertia,std::abs(source.volume),{value.centroid.x-center.x,value.centroid.y-center.y,value.centroid.z-center.z});
+        }result.volume_integrals=total;
+    }
     HistoryOperation key;key.owner_id=owner;key.body.id=owner;key.body.combination=BodyCombination::Pattern;key.body.pattern=p;
     key.body.translation=translation;key.body.rotation_degrees=rotation;
     result.source_fingerprint=source.source_fingerprint+":pattern:"+history_fingerprint({key},1);return result;
@@ -5724,6 +5766,23 @@ std::vector<BodyResult> OcctKernel::evaluate_body_histories(
         append_body_viewer(document.mesh, output.mesh);
     }
     document.kernel_shape = serialize_kernel_shape(compound);
+    if(document.volume>0) {
+        VolumeIntegrals total;bool valid=true;
+        for(const auto& id:available) {
+            const auto& body=document.body_outputs.at(id).get();if(body.volume==0)continue;
+            if(!body.volume_integrals){valid=false;break;}
+            const auto c=body.volume_integrals->centroid;total.centroid.x+=body.volume*c.x;
+            total.centroid.y+=body.volume*c.y;total.centroid.z+=body.volume*c.z;
+        }
+        if(valid) {
+            total.centroid.x/=document.volume;total.centroid.y/=document.volume;total.centroid.z/=document.volume;
+            for(const auto& id:available) {
+                const auto& body=document.body_outputs.at(id).get();if(!body.volume_integrals)continue;
+                const auto& p=*body.volume_integrals;for(int i=0;i<9;++i)total.inertia[i]+=p.inertia[i];
+                inertia_shift(total.inertia,body.volume,{p.centroid.x-total.centroid.x,p.centroid.y-total.centroid.y,p.centroid.z-total.centroid.z});
+            }document.volume_integrals=total;
+        }
+    }
     document.source_fingerprint = history_fingerprint(operations, operations.size());
     boundaries.back() = std::move(document);
     compact_history_reference_geometry(boundaries);

@@ -2,6 +2,25 @@
 
 ## Current application
 
+Development build **2026091510** adds **Body properties** (Czech **Vlastnosti
+tělesa**) to the View toolbar for Parts. Each history record measures its own
+insertion boundary: volume, surface area, centroid, mass and central inertia.
+Its displayed Origin follows the centroid and has editable rotation. Existing
+Measurement rows now also appear before Insert Here. See
+[Body properties](doc/BODY_PROPERTIES.md) for scope, units, native storage and
+the five shared GUI/CLI operations. Current formats are Part INI 26 / payload
+50 and Assembly INI 22 / payload 34; both start templates are updated.
+Drawing remains INI 16 / payload 8. The root `zima-cad.bat` still launches the
+development executable. The published Windows release remains `2026091508`.
+
+Ten distinct selected contracts pass across `build/body-properties-tests.log`
+and `build/body-properties-final-tests.log`, including analytical inertia and
+placed-body checks, GUI interaction, translations, saved measurements, the
+command host, Family Table, core solids, Assemblies, multibody and derived-copy
+behavior. Final build log: `build/body-properties-final-build.log`.
+
+## Previous development and published application
+
 Development build `2026091509` adds the native/instance chooser to Assembly
 insertion and **Replace…** to an immediate component's context menu. Replace
 preserves occurrence identity and mates; missing references remain stored and
@@ -29,8 +48,8 @@ update that row, other edits update shared history and all evaluated variants.
 Undo/Redo belongs to the parent. Stable instance IDs survive renaming and Drawing
 references resolve the row from the common parent file. Nested families are
 rejected. See [Family Table](doc/FAMILY_TABLE.md) and [Drawing text](doc/DRAWING_TEXT.md).
-Part INI 25 / payload 49, Assembly payload 33 and Drawing INI 16 / payload 8 are
-current. Signed Windows release `2026091508` is published, with candidate and
+Part INI 25 / payload 49, Assembly payload 33 and Drawing INI 16 / payload 8 were
+used by signed Windows release `2026091508`, with candidate and
 final archive smoke checks passed. The production updater in signed `2026091505`
 verified the public manifest and offered the new version as installable. See
 [release acceptance](doc/releases/2026091508.md) for the exact commit, hash and logs.

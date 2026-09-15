@@ -79,6 +79,19 @@ struct Tree {
         std::map<std::string,const document::ConstructionObject*> objects;
         std::map<std::string,const sketcher::Sketch*> sketches;
         std::set<std::string> emitted;
+        std::set<std::string> analyses;
+        const auto analysis=[&](const document::BodyProperties& row,const std::string& parent,int depth) {
+            if(!analyses.insert(row.id).second||!add(row.id,parent,id,{},depth,"body-properties",row.name))return;
+            rows.back()["after_object_id"]=row.after_object_id;rows.back()["body_id"]=row.body_id;
+            rows.back()["visible"]=row.visible;rows.back()["error"]=row.error;
+            if(add(row.id+":origin",row.id,id,{},depth+1,"analysis-origin","Origin")) {
+                rows.back()["rotation_degrees"]={row.rotation_degrees.x,row.rotation_degrees.y,row.rotation_degrees.z};
+                if(row.integrals){const auto c=row.integrals->centroid;rows.back()["position_mm"]={c.x,c.y,c.z};}
+            }
+        };
+        const auto analyses_after=[&](const std::string& anchor,const std::string& parent,int depth) {
+            for(const auto& row:value.body_properties)if(row.after_object_id==anchor)analysis(row,parent,depth);
+        };
         for(const auto& item:value.history)features.emplace(item.id,&item);
         for(const auto& item:value.constructions)objects.emplace(item.id,&item);
         for(const auto& item:value.sketches)sketches.emplace(item.id,&item);
@@ -87,6 +100,7 @@ struct Tree {
             if(const auto found=features.find(entry_id);found!=features.end())feature(*found->second,value.sketches,parent,id,{},depth);
             else if(const auto found=objects.find(entry_id);found!=objects.end())construction(*found->second,parent,id,{},depth);
             else if(const auto found=sketches.find(entry_id);found!=sketches.end()&&found->second->owner_container_id.empty())sketch(*found->second,parent,id,{},depth);
+            analyses_after(entry_id,parent,depth);
         };
         for(const auto& step:value.body_history.order()){
             if(truncated)break;
@@ -96,6 +110,7 @@ struct Tree {
                 for(const auto& item:body->entries)entry(item.id,step,2);
             }else if(const auto* operation=value.body_history.find_boolean(step))
                 add(step,id,id,{},1,"body-boolean",operation->name);
+            analyses_after(step,id,1);
         }
         // Include all current objects, including unowned construction/sketch items.
         for(const auto& item:value.history_order)entry(item.id,id,1);
@@ -103,6 +118,7 @@ struct Tree {
         for(const auto& item:value.constructions)entry(item.id,id,1);
         for(const auto& item:value.sketches)entry(item.id,id,1);
         sections(value.sections,id,id,1);
+        for(const auto& row:value.body_properties)if(!analyses.contains(row.id))analysis(row,row.body_id.empty()?id:row.body_id,row.body_id.empty()?1:2);
     }
     void assembly(const assembly::AssemblyDocument& value){
         const auto& id=value.document_id;if(!add(id,{},id,{},0,"assembly",value.name))return;

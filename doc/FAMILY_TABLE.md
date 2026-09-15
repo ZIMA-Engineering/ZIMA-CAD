@@ -148,7 +148,7 @@ first implementation. Shared container placement contracts are unchanged.
 
 ## Native data and commands
 
-Part INI version **25** (internal payload 49) and Assembly payload **33** carry
+Part INI version **26** (internal payload 50) and Assembly INI **22** / payload **34** carry
 the current Family Table schema. Both tracked start templates and native fixtures
 are updated. All definitions remain inside `.prtz` / `.asmz`; no sidecar is needed.
 
