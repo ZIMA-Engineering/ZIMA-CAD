@@ -188,7 +188,7 @@ switch selection after application exit and preserve all shared user data.
 - Build/verify the native Linux dependencies and launcher on the Linux host.
 - Platforms may publish independently. If combined, their commits must match;
   published archives are immutable and adding a platform later requires a new ID.
-- Signed Windows releases `2026091504`, `2026091505` and `2026091508` are verified and public
+- Signed Windows releases through `2026091603` are verified and public
   (see below). Future publication remains an explicit release action.
 - Run the updater's Linux execution and desktop acceptance on Linux.
 - Binary rollback does not promise backward compatibility of native documents.
@@ -196,11 +196,28 @@ switch selection after application exit and preserve all shared user data.
 See [binding requirements](DISTRIBUTION_CLEANUP_PLAN.md) and
 [Linux handoff](LINUX_RELEASE_HANDOFF.md).
 
+## Windows verification on 2026-09-16
+
+### Signed Windows build 2026091603
+
+The latest stable Windows release adds Part Sheet Metal defaults and their shared
+File Settings shortcut. It also includes the application selector, contextual
+Insert menu, Surface Extrusion/Revolution, family variant replacement, historical
+Body measurement and Drawing BOM balloons from the development commits since
+`2026091508`. The first Bend/Unbend geometry command remains specified only.
+
+Clean committed source `20af33d8e6d2e5971378c04c806cf9d81fec95ff` supplied the
+candidate and signed release. Both archives passed native smoke and archive
+gates. Production bootstrap trust and public update discovery from signed
+`2026091508` passed; published asset hashes match local acceptance. Exact archive
+identity and verification scope are recorded in
+[release 2026091603](releases/2026091603.md#signed-windows-acceptance).
+
 ## Windows verification on 2026-09-15
 
 ### Signed Windows build 2026091508
 
-The latest stable Windows release includes linked Family Table editing, one-file
+This Windows release includes linked Family Table editing, one-file
 family persistence, independent instance Save As, variant Drawing sources and
 multiline Drawing Text. It was built from clean committed source
 `05fccf205fd434dbeb6860db9d9c0596a580ebaf`; candidate and finalized signed archives
