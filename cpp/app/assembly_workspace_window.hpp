@@ -638,6 +638,8 @@ private:
     [[nodiscard]] bool has_insertable_component() const;
     void insert_component_from_file();
     void insert_component(const std::string& source_document_id);
+    void choose_component_variant(const std::string& source_document_id,
+        const std::string& replaced_instance_path = {});
     void rebuild_application_toolbar();
     void sync_sketch_tool_action_checks();
     [[nodiscard]] bool sketch_command_active() const;

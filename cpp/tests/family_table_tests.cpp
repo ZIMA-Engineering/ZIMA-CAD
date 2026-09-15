@@ -5,6 +5,8 @@
 #include <zima/document/physical_properties.hpp>
 #include <zima/workspace/document_operations.hpp>
 #include <zima/workspace/drawing_operations.hpp>
+#include <zima/workspace/component_operations.hpp>
+#include <zima/workspace/component_source_operations.hpp>
 #include <zima/command_host/host.hpp>
 #include <cmath>
 #include <iostream>
@@ -13,6 +15,73 @@ namespace fs=std::filesystem;
 namespace {
 void require(bool condition,const char* text){if(!condition)throw std::runtime_error(text);}
 double volume(const workspace::Workspace& live,const std::string& id){return live.open_part(id)->session.calculated_boundaries().back().volume;}
+void component_test(const kernel::OcctKernel& kernel,const fs::path& directory) {
+    workspace::Workspace live;auto part=document::PartDocument::create_default();part.name="Family component";
+    const auto root=part.document_id;auto box=document::PartDocument::create_box_container();box.box={10,8,6};part.history={box};
+    document::BodyHistoryGraph graph;static_cast<void>(graph.create_body("Body"));graph.insert({document::PartHistoryKind::Feature,box.id});part.set_body_history(graph);part.synchronize_dimension_identifiers();
+    const auto file=directory/"component-family.prtz";live.add_part(part,kernel.evaluate_history(part.kernel_operations()),file);
+    document::FamilyTable table;table.columns={"Length","Stock"};table.bindings["Length"]={"dimension",box.id,"parameter:length"};table.bindings["Stock"]={"feature",box.id,{}};
+    table.instances={{"Long",{{"Length","20"}}},{"Short",{{"Length","5"}}},{"Empty",{{"Stock","no"}}}};
+    static_cast<void>(workspace::set_family_table(live,root,table));
+    auto assembly=assembly::AssemblyDocument::create_default();const auto owner=assembly.document_id;const auto assembly_file=directory/"component-owner.asmz";live.add_assembly(assembly,assembly_file);live.display_top_level(owner);live.activate(owner);
+    const auto long_id=workspace::open_family_instance(live,kernel,root,"Long",false);
+    const auto short_id=workspace::open_family_instance(live,kernel,root,"Short",false);
+    const auto empty_id=workspace::open_family_instance(live,kernel,root,"Empty",false);
+    require(live.active_document_id()==owner&&live.displayed_document_id()==owner,"Variant selection changed the insertion context");
+    const auto first=workspace::insert_component(live,owner,root),second=workspace::insert_component(live,owner,root,"Custom occurrence");
+    auto placed=live.open_assembly(owner)->session.document();auto* moving=placed.find_occurrence(first);moving->placement.x=25;moving->value_locks.insert("x");
+    assembly::ComponentPlacementReference mate;mate.component_reference={assembly::MateReferenceKind::Face,assembly::InstancePath{}.child(first),root+":origin","origin:plane:xy"};mate.target_reference={assembly::MateReferenceKind::Face,assembly::InstancePath{}.child(second),root+":origin","origin:plane:xy"};moving->placement_references.push_back(mate);placed.calculate_placement_references();live.open_assembly(owner)->session.commit(placed);
+    require(workspace::replace_component(live,kernel,owner,first,long_id),"Replace failed");
+    const auto& replaced=live.open_assembly(owner)->session.document();const auto* changed=replaced.find_occurrence(first);
+    require(changed->source_document_id==long_id&&changed->source_path==file&&std::abs(changed->calculated_source->volume-960)<1e-8,"Replace selected the wrong variant");
+    require(std::abs(changed->placement.x-placed.find_occurrence(first)->placement.x)<1e-8,"Replace moved an unconstrained coordinate");
+    require(changed->visible==placed.find_occurrence(first)->visible&&changed->value_locks==placed.find_occurrence(first)->value_locks,"Replace lost occurrence flags or locks");
+    require(changed->placement_references.size()==1&&replaced.resolve_plane(changed->placement_references[0].component_reference).status==assembly::MateStatus::Valid,"Replace lost the origin mate");
+    require(replaced.find_occurrence(second)->source_document_id==root&&replaced.find_occurrence(second)->name=="Custom occurrence","Replace changed another occurrence");
+    require(workspace::step_document_history(live,owner,workspace::HistoryDirection::Undo)&&live.open_assembly(owner)->session.document().find_occurrence(first)->source_document_id==root,"Replace is not one Undo step");
+    require(workspace::step_document_history(live,owner,workspace::HistoryDirection::Redo)&&live.open_assembly(owner)->session.document().find_occurrence(first)->source_document_id==long_id,"Replace Redo lost identity");
+    auto cwd=directory;command_host::Host host(live,kernel,cwd);
+    const auto cli=host.execute({{"command","component.replace"},{"arguments",{{"source",root},{"instance_path",assembly::InstancePath{}.child(first).encoded()}}}});
+    require(cli.ok&&live.open_assembly(owner)->session.document().find_occurrence(first)->source_document_id==root,"CLI cannot replace an instance by the generic");
+    static_cast<void>(workspace::replace_component(live,kernel,owner,first,long_id));
+    static_cast<void>(workspace::replace_component(live,kernel,owner,second,short_id));
+    // Missing feature topology keeps the new variant and the repairable old reference.
+    auto face_mate=live.open_assembly(owner)->session.document();auto& row=face_mate.find_occurrence(first)->placement_references.front();
+    for(const auto& ref:live.open_part(long_id)->session.calculated_boundaries().back().mesh.original_references.triangle_references)
+        if(ref.owner_id==box.id){row.component_reference.owner_id=ref.owner_id;row.component_reference.semantic_key=ref.semantic_key;break;}
+    require(row.component_reference.owner_id==box.id&&face_mate.resolve_plane(row.component_reference).status==assembly::MateStatus::Valid,"Missing-reference fixture lacks an original face");
+    face_mate.calculate_placement_references();live.open_assembly(owner)->session.commit(face_mate);const auto before_failure=live.open_assembly(owner)->session.revision();
+    require(workspace::replace_component(live,kernel,owner,first,empty_id),"Missing mate geometry blocked Replace");
+    const auto& missing=live.open_assembly(owner)->session.document();const auto* unresolved=missing.find_occurrence(first);
+    require(missing.resolve_plane(unresolved->placement_references.front().component_reference).status==assembly::MateStatus::MissingReference&&unresolved->placement_references==face_mate.find_occurrence(first)->placement_references&&live.open_assembly(owner)->session.revision()>before_failure,"Replace discarded or rebound the missing mate reference");
+    require(workspace::step_document_history(live,owner,workspace::HistoryDirection::Undo)&&live.open_assembly(owner)->session.document().find_occurrence(first)->source_document_id==long_id,"Unresolved Replace cannot be undone");
+    const auto saved=workspace::prepare_document_save(live,root,file).write();static_cast<void>(workspace::complete_document_save(live,saved));
+    const auto saved_assembly=workspace::prepare_document_save(live,owner,assembly_file).write();static_cast<void>(workspace::complete_document_save(live,saved_assembly));
+    workspace::Workspace cold;cold.add_assembly(assembly::AssemblyDocument::load(assembly_file),assembly_file);cold.refresh_source_geometry();
+    const auto& reopened=cold.open_assembly(owner)->session.document();
+    require(std::abs(reopened.find_occurrence(first)->calculated_source->volume-960)<1e-8&&std::abs(reopened.find_occurrence(second)->calculated_source->volume-240)<1e-8,"Cold Assembly confused two members in one file");
+    const auto snapshot=reopened.find_occurrence(first)->calculated_source;cold.refresh_source_geometry();require(snapshot.shares_with(cold.open_assembly(owner)->session.document().find_occurrence(first)->calculated_source),"Unchanged display rebuilt the variant source");
+    const auto opened=workspace::open_component_source(cold,owner,assembly::InstancePath{}.child(first));
+    require(opened.document_id==long_id&&cold.open_part(root)&&cold.open_part(long_id),"Cold component Open did not load its parent and selected member");
+    auto edited=cold.open_part(root)->session.document();edited.find_container(box.id)->box.width=9;cold.open_part(root)->session.commit(edited,kernel.evaluate_history(edited.kernel_operations()));
+    cold.refresh_source_geometry();require(std::abs(cold.open_assembly(owner)->session.document().find_occurrence(second)->calculated_source->volume-270)<1e-8,"Closed member ignored unsaved open-parent geometry");
+    // A family Assembly can itself contain Part variants and be inserted cold.
+    document::FamilyTable assembly_table;assembly_table.columns={"Second"};assembly_table.bindings["Second"]={"component",second,{}};assembly_table.instances={{"One component",{{"Second","no"}}}};
+    static_cast<void>(workspace::set_family_table(live,owner,assembly_table));const auto assembly_variant=workspace::open_family_instance(live,kernel,owner,"One component",false);
+    const auto family_saved=workspace::prepare_document_save(live,owner,assembly_file).write();static_cast<void>(workspace::complete_document_save(live,family_saved));
+    auto top=assembly::AssemblyDocument::create_default();const auto top_id=top.document_id;const auto top_file=directory/"family-top.asmz";live.add_assembly(top,top_file);live.display_top_level(top_id);live.activate(top_id);
+    const auto nested=workspace::insert_component(live,top_id,assembly_variant);const auto native_nested=workspace::insert_component(live,top_id,owner);
+    const auto top_saved=workspace::prepare_document_save(live,top_id,top_file).write();static_cast<void>(workspace::complete_document_save(live,top_saved));
+    workspace::Workspace nested_cold;nested_cold.add_assembly(assembly::AssemblyDocument::load(top_file),top_file);nested_cold.refresh_source_geometry();
+    const auto nested_path=assembly::InstancePath{}.child(nested).child(second);
+    require(nested_cold.resolve_occurrence(top_id,nested_path)->source_document_id==short_id&&nested_cold.occurrence_source_file(top_id,nested_path)==file,"Nested member lost its occurrence or native path");
+    const auto opened_nested=workspace::open_component_source(nested_cold,top_id,assembly::InstancePath{}.child(nested));
+    require(opened_nested.document_id==assembly_variant&&nested_cold.open_assembly(owner),"Cold Assembly member did not open with its parent");
+    nested_cold.activate(top_id);static_cast<void>(workspace::replace_component(nested_cold,kernel,top_id,nested,owner));
+    require(nested_cold.open_assembly(top_id)->session.document().find_occurrence(native_nested)->source_document_id==owner,"Nested replacement changed its sibling");
+    bool cycle=false;try{nested_cold.activate(owner);static_cast<void>(workspace::insert_component(nested_cold,owner,assembly_variant));}catch(const std::exception&){cycle=true;}
+    require(cycle,"Assembly accepted an instance of its own family as a child");
+}
 void test(const kernel::OcctKernel& kernel,const fs::path& directory) {
     auto base=document::PartDocument::create_default();base.name="Block";
     auto box=document::PartDocument::create_box_container();box.box={10,8,6};box.name="Stock";
@@ -151,4 +220,4 @@ void test(const kernel::OcctKernel& kernel,const fs::path& directory) {
     auto opened=host.execute({{"command","document.family.open"},{"arguments",{{"document",id},{"instance","Long"}}}});if(!opened.ok)throw std::runtime_error(opened.code+": "+opened.message);require(opened.data.at("document")==variant,"CLI did not open the same family instance");
 }
 }
-int main(){try{kernel::OcctKernel kernel;const auto root=fs::canonical(fs::temp_directory_path());const auto dir=root/("zima-family-"+document::PartDocument::create_default().document_id);fs::create_directory(dir);test(kernel,dir);require(dir.parent_path()==root,"Unsafe test cleanup");fs::remove_all(dir);std::cout<<"Linked Family Table edits, shared history, single-file persistence, drawings, CLI and atomic rejection passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
+int main(){try{kernel::OcctKernel kernel;const auto root=fs::canonical(fs::temp_directory_path());const auto dir=root/("zima-family-"+document::PartDocument::create_default().document_id);fs::create_directory(dir);test(kernel,dir);component_test(kernel,dir);require(dir.parent_path()==root,"Unsafe test cleanup");fs::remove_all(dir);std::cout<<"Linked Family Table, component insertion/replacement, cold nested sources, shared history, drawings and CLI passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

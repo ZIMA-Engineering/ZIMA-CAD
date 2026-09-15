@@ -14,7 +14,7 @@ std::vector<FamilyReference> family_references(const Workspace&, const std::stri
 void validate_family_references(const Workspace&, const std::string&, const document::FamilyTable&);
 // Explicit calculation opens a linked view of a row in the owning native file.
 std::string open_family_instance(Workspace&, const kernel::OcctKernel&,
-    const std::string& generic, const std::string& instance_name);
+    const std::string& generic, const std::string& instance_name, bool activate = true);
 std::string family_owner(const Workspace&, const std::string&);
 bool commit_family_part(Workspace&, const std::string&, document::PartDocument&,
     std::vector<kernel::BodyResult>&);

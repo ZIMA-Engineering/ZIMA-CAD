@@ -24,4 +24,9 @@ void remove_component(Workspace&,const kernel::OcctKernel&,const std::string& ow
 // Dependency validation reads native data only and never changes the open documents.
 [[nodiscard]] std::string insert_component(Workspace&,const std::string& owner,
     const std::string& source,const std::optional<std::string>& name={});
+// Replace one owned occurrence by its generic or a sibling Family Table member.
+// Keeps occurrence identity and stored reference keys; validates/calculates a
+// private Assembly before publishing one Undo step.
+bool replace_component(Workspace&,const kernel::OcctKernel&,const std::string& owner,
+    const std::string& occurrence,const std::string& source);
 }

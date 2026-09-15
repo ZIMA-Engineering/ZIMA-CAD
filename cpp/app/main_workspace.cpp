@@ -369,7 +369,157 @@ int verify_family_table(QApplication& application,zima::app::AssemblyWorkspaceWi
     if(!verify(view_properties,"Assembly variant could not insert a Drawing view"))return 1;
     view_properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
     if(!verify(drawing_window.document_for_test().sheets.front().views.size()==1&&drawing_window.document_for_test().sheets.front().views.front().source_document_id==assembly_variant,"Inserted view lost its selected Assembly variant"))return 1;
-    std::cout<<"Family Table common picker, double click dimensions, typed row, MMB, instance tab and native result passed\n";return 0;
+    // Replace belongs to the main view. A sibling root view stays independent.
+    const auto edit_view=[&](const std::string& id) {
+        drawing_window.select_view_for_test(id);drawing_window.findChild<QAction*>("editDrawingViewAction")->trigger();flush();
+        auto* dialog=drawing_window.findChild<QDialog*>("drawingViewProperties");
+        if(!dialog)throw std::runtime_error("Drawing view Properties did not open");return dialog;
+    };
+    const auto assembly_view=drawing_window.document_for_test().sheets.front().views.front().id;
+    view_properties=edit_view(assembly_view);auto* view_source=view_properties->findChild<QComboBox*>("drawingViewSource");
+    if(!verify(view_source->currentData().toString().toStdString()==assembly_variant&&view_source->findData(QString::fromStdString(assembly_id))==0,"View source confused variants sharing the same native file"))return 1;
+    view_source->setCurrentIndex(0);view_properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+    if(!verify(drawing_window.document_for_test().find_view(assembly_view)->source_document_id==assembly_id&&drawing_window.document_for_test().source_document_id==assembly_id,"Assembly main view Replace did not update Drawing source"))return 1;
+    auto drawing_table=document::parse_family_table(stored_table.data.at("table").dump());std::string length_column;
+    for(const auto& [column,binding]:drawing_table.bindings)if(binding.kind=="dimension")length_column=column;
+    drawing_table.instances.push_back({"Short",{{length_column,"5"}}});
+    drawing_table.instances.push_back({"Invalid",{{length_column,"-5"}}});
+    drawing_table.instances.push_back({"Tiny",{{length_column,"3"}}});
+    static_cast<void>(workspace::set_family_table(drawing_models,part.document_id,drawing_table));
+    drawing_table=workspace::family_table(drawing_models,part.document_id);
+    const auto short_row=drawing_table.instances[1].id,invalid_row=drawing_table.instances[2].id;
+    const auto short_id=part.document_id+":family:"+short_row,invalid_id=part.document_id+":family:"+invalid_row;
+    const auto main_view=drawing.sheets.front().views.front().id;
+    auto child=drawing::DrawingDocument::create_view(part.document_id,path,cache.back().mesh);child.parent_view_id=main_view;child.projection_direction=drawing::ProjectionDirection::Right;child.x=110;
+    auto grand=child;grand.id=document::PartDocument::create_default().document_id;grand.parent_view_id=child.id;grand.projection_direction=drawing::ProjectionDirection::Top;grand.y=110;
+    auto other=drawing::DrawingDocument::create_view(part.document_id,path,cache.back().mesh);other.x=160;
+    drawing.sheets.front().views.insert(drawing.sheets.front().views.end(),{child,grand,other});
+    drawing_models.open_drawing(drawing.document_id)->commit(drawing);
+    drawing_window.edit_workspace_document(drawing.document_id);flush();
+    const auto source_generation=drawing_models.open_part(part.document_id)->session.data_generation();
+    view_properties=edit_view(main_view);view_source=view_properties->findChild<QComboBox*>("drawingViewSource");
+    if(!verify(view_source->count()==5&&view_source->currentData().toString().toStdString()==part.document_id&&view_source->mapToGlobal(QPoint(0,0)).y()<view_properties->findChild<QLineEdit*>("drawingViewName")->mapToGlobal(QPoint(0,0)).y(),"Main view omitted family rows or source is not at the top"))return 1;
+    view_source->setCurrentIndex(view_source->findData(QString::fromStdString(short_id)));flush();
+    if(!verify(drawing_models.open_part(part.document_id)->session.data_generation()==source_generation&&!drawing_models.open_part(part.document_id)->session.document().family.evaluated.contains(short_row),"Selecting an unevaluated row calculated the source before OK"))return 1;
+    view_properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
+    if(!verify(drawing_window.document_for_test().find_view(main_view)->source_document_id==part.document_id,"Cancel committed Drawing Replace"))return 1;
+    view_properties=edit_view(main_view);view_source=view_properties->findChild<QComboBox*>("drawingViewSource");
+    view_source->setCurrentIndex(view_source->findData(QString::fromStdString(invalid_id)));view_properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+    if(!verify(view_properties->isVisible()&&!drawing_models.open_part(part.document_id)->session.document().family.evaluated.contains(invalid_row)&&drawing_window.document_for_test().find_view(main_view)->source_document_id==part.document_id,"Failed row calculation partially committed Drawing Replace"))return 1;
+    view_source->setCurrentIndex(view_source->findData(QString::fromStdString(short_id)));
+    drawing_window.grab().save(QString::fromStdString((directory/"family-drawing-replace.png").string()));
+    view_properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+    for(const auto& id:{main_view,child.id,grand.id})if(!verify(drawing_window.document_for_test().find_view(id)->source_document_id==short_id,"A descendant view retained the former variant"))return 1;
+    if(!verify(drawing_window.document_for_test().find_view(other.id)->source_document_id==part.document_id&&drawing_window.document_for_test().source_document_id==short_id&&drawing_models.open_part(part.document_id)->session.document().family.evaluated.contains(short_row),"Drawing Replace changed an independent root or failed to publish the native row packet"))return 1;
+    double low=1e100,high=-1e100;for(const auto& triangle:drawing_window.document_for_test().find_view(main_view)->projected_triangles)for(const auto& point:triangle.points){low=std::min(low,point.x);high=std::max(high,point.x);}
+    if(!verify(std::abs(high-low-5)<1e-8,"Drawing Replace did not project the short variant's geometry"))return 1;
+    drawing_models.open_drawing(drawing.document_id)->undo();drawing_window.edit_workspace_document(drawing.document_id);flush();
+    if(!verify(drawing_window.document_for_test().find_view(grand.id)->source_document_id==part.document_id,"One Undo did not restore the complete view hierarchy"))return 1;
+    drawing_models.open_drawing(drawing.document_id)->redo();drawing_window.edit_workspace_document(drawing.document_id);flush();
+    view_properties=edit_view(child.id);
+    if(!verify(!view_properties->findChild<QComboBox*>("drawingViewSource")->isEnabled(),"A projected view allows independent source replacement"))return 1;
+    view_properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
+    const auto updated_family=workspace::prepare_document_save(drawing_models,part.document_id,path).write();static_cast<void>(workspace::complete_document_save(drawing_models,updated_family));
+    static_cast<void>(drawing_models.remove(family_id));static_cast<void>(drawing_models.remove(part.document_id));
+    view_properties=edit_view(main_view);view_source=view_properties->findChild<QComboBox*>("drawingViewSource");
+    if(!verify(view_source->count()==5&&view_source->currentData().toString().toStdString()==short_id,"Cold parent file omitted or misidentified its Drawing variants"))return 1;
+    view_source->setCurrentIndex(0);view_properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+    if(!verify(drawing_window.document_for_test().find_view(grand.id)->source_document_id==part.document_id,"Cold Drawing Replace failed"))return 1;
+    const auto tiny_row=drawing_table.instances[3].id,tiny_id=part.document_id+":family:"+tiny_row;
+    view_properties=edit_view(main_view);view_source=view_properties->findChild<QComboBox*>("drawingViewSource");
+    view_source->setCurrentIndex(view_source->findData(QString::fromStdString(tiny_id)));flush();
+    if(!verify(!drawing_models.open_part(part.document_id),"Reading a cold variant opened or calculated its parent"))return 1;
+    view_properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+    if(!verify(drawing_window.document_for_test().find_view(grand.id)->source_document_id==tiny_id&&drawing_models.open_part(part.document_id)&&drawing_models.open_part(part.document_id)->session.document().family.evaluated.contains(tiny_row),"Cold unevaluated Drawing variant did not publish its parent packet"))return 1;
+    const auto cold_saved=workspace::prepare_document_save(drawing_models,part.document_id,path).write();static_cast<void>(workspace::complete_document_save(drawing_models,cold_saved));
+    std::vector<kernel::BodyResult> tiny_cache;const auto tiny=workspace::read_family_part(nullptr,path,tiny_id,tiny_cache);
+    if(!verify(tiny.find_container(box.id)->box.length==3&&std::abs(tiny_cache.back().volume-72)<1e-8,"New cold variant was not saved in the parent native file"))return 1;
+    drawing_window.hide();
+    const auto run=[&](const std::string& command,commands::Json args=commands::Json::object()) {
+        const auto result=window.execute_console_command(QString::fromStdString(commands::Json{{"command",command},{"arguments",std::move(args)}}.dump()));
+        if(!result.ok)throw std::runtime_error(command+": "+result.code+": "+result.message);flush();return result.data;
+    };
+    auto insertion_table=stored_table.data.at("table");std::string body_column;
+    for(const auto& [column,binding]:insertion_table.at("bindings").items())if(binding.at("kind")=="body")body_column=column;
+    if(!verify(!body_column.empty(),"Family GUI fixture has no Body presence column"))return 1;
+    insertion_table["instances"].push_back({{"id",""},{"name","Without body"},{"values",{{body_column,"no"}}}});
+    run("document.family.set",{{"table",insertion_table}});
+    run("new",{{"type","assembly"},{"name","Family insertion GUI"}});
+    const auto rows=[&]{return run("component.list").at("items");};
+    const auto choose=[&](const std::string& source_name) {
+        QAction* source=nullptr;for(auto* candidate:window.findChildren<QAction*>("insertSourceAction"))
+            if(candidate->text().startsWith(QString::fromStdString(source_name)+" —")){source=candidate;break;}
+        if(!source)throw std::runtime_error("Family insertion source is missing from the actual menu");source->trigger();flush();
+        auto* chooser=window.findChild<QDialog*>("componentFamilyDialog");
+        if(!chooser)throw std::runtime_error("Insertion omitted the family chooser");return chooser;
+    };
+    auto* chooser=choose(part.name);auto* choices=chooser->findChild<QTableWidget*>("componentFamilyTable");
+    if(!verify(chooser->windowFlags().testFlag(Qt::SubWindow)&&choices->rowCount()==3&&choices->currentRow()==0&&choices->item(0,0)->data(Qt::UserRole).toString().isEmpty(),"Family chooser omitted/defaulted away from native model"))return 1;
+    chooser->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
+    if(!verify(rows().empty(),"Cancel inserted a family component"))return 1;
+    chooser=choose(part.name);choices=chooser->findChild<QTableWidget*>("componentFamilyTable");choices->selectRow(1);
+    window.grab().save(QString::fromStdString((directory/"family-component-picker.png").string()));
+    mouse(view,QEvent::MouseButtonPress,view->rect().center(),Qt::MiddleButton);mouse(view,QEvent::MouseButtonRelease,view->rect().center(),Qt::MiddleButton);
+    if(!verify(chooser->isVisible(),"Short MMB committed the family chooser"))return 1;
+    mouse(view,QEvent::MouseButtonDblClick,view->rect().center(),Qt::MiddleButton);mouse(view,QEvent::MouseButtonRelease,view->rect().center(),Qt::MiddleButton);
+    const auto finish_properties=[&] {
+        for(auto* properties:window.findChildren<QDialog*>())if(dynamic_cast<app::ComponentPropertiesDialog*>(properties)&&properties->isVisible()) {
+            properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();return;
+        }
+        throw std::runtime_error("Insertion did not continue to component properties");
+    };
+    finish_properties();const auto inserted=rows();
+    if(!verify(inserted.size()==1&&inserted[0].at("source_document")==member_id,"MMB inserted a different family member"))return 1;
+    chooser=choose(part.name);chooser->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();finish_properties();
+    if(!verify(rows().size()==2&&rows()[1].at("source_document")==part.document_id,"Native choice did not insert the generic"))return 1;
+    const auto selected_path=inserted[0].at("instance_path").get<std::string>();
+    const auto replace_menu=[&] {
+        QTreeWidgetItem* selected=nullptr;tree->expandAll();
+        for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole+1).toString().toStdString()==selected_path&&(*it)->data(0,Qt::UserRole+3).toString()=="part-occurrence"){selected=*it;break;}
+        if(!selected)throw std::runtime_error("Replacement occurrence missing from Tree");tree->setCurrentItem(selected);tree->scrollToItem(selected);flush();
+        QTimer click_menu;click_menu.setInterval(10);bool found=false;
+        QObject::connect(&click_menu,&QTimer::timeout,&window,[&]{
+            auto* menu=qobject_cast<QMenu*>(QApplication::activePopupWidget());if(!menu)return;
+            for(auto* action:menu->actions())if(action->objectName()=="replaceComponentAction"&&action->isEnabled()){
+                click_menu.stop();found=true;menu->setActiveAction(action);QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(menu,&enter);return;
+            }
+            click_menu.stop();menu->close();
+        });click_menu.start();
+        const auto position=tree->visualItemRect(selected).center();
+        QMetaObject::invokeMethod(tree,"customContextMenuRequested",Qt::DirectConnection,Q_ARG(QPoint,position));flush();
+        auto* result=window.findChild<QDialog*>("componentFamilyDialog");if(!found||!result)throw std::runtime_error("Tree Replace did not open the shared family chooser");return result;
+    };
+    chooser=replace_menu();choices=chooser->findChild<QTableWidget*>("componentFamilyTable");
+    if(!verify(choices->currentRow()==1,"Replace did not preselect the current instance"))return 1;
+    choices->selectRow(0);chooser->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
+    if(!verify(rows()[0].at("source_document")==member_id,"Replace Cancel changed its source"))return 1;
+    chooser=replace_menu();chooser->findChild<QTableWidget*>("componentFamilyTable")->selectRow(0);
+    chooser->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+    if(!verify(rows()[0].at("source_document")==part.document_id&&rows()[0].at("instance_path")==selected_path&&rows()[1].at("source_document")==part.document_id,"Replace changed occurrence identity or the other occurrence"))return 1;
+    run("undo");if(!verify(rows()[0].at("source_document")==member_id,"GUI Replace did not undo to its original variant"))return 1;
+    std::string face_key;for(const auto& ref:cache.back().mesh.original_references.triangle_references)if(ref.owner_id==box.id){face_key=ref.semantic_key;break;}
+    if(!verify(!face_key.empty(),"Replacement GUI fixture has no original Box face"))return 1;
+    const auto reference=[&](const std::string& path){return commands::Json{{"instance_path",path},{"owner",box.id},{"key",face_key}};};
+    run("component.set",{{"instance_path",selected_path},{"placement_references",commands::Json::array({{{"kind","plane_coincident"},{"component",reference(selected_path)},{"target",reference(rows()[1].at("instance_path").get<std::string>())},{"offset",0}}})}});
+    chooser=replace_menu();chooser->findChild<QTableWidget*>("componentFamilyTable")->selectRow(2);
+    chooser->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+    const auto marked=[&] {
+        for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole+1).toString().toStdString()==selected_path&&(*it)->data(0,Qt::UserRole+3).toString()=="part-occurrence")return (*it)->data(0,app::missing_reference_role).toBool();
+        return false;
+    };
+    if(!verify(marked()&&rows()[0].at("source_document")!=member_id&&rows()[0].at("placement_references").size()==1,"Replace blocked missing topology or failed to retain/red-mark its mate"))return 1;
+    window.grab().save(QString::fromStdString((directory/"family-replace-missing-reference.png").string()));
+    run("undo");if(!verify(!marked()&&rows()[0].at("source_document")==member_id,"Undo did not restore the resolved component"))return 1;
+    run("redo");if(!verify(marked(),"Redo lost the missing-reference marker"))return 1;
+    run("component.set",{{"instance_path",selected_path},{"placement_references",commands::Json::array()}});
+    if(!verify(!marked(),"Repaired references left a stale red component"))return 1;
+    if(!verify(window.open_document_path(QString::fromStdString(assembly_path.string())),"Assembly family insertion source did not open"))return 1;flush();
+    run("new",{{"type","assembly"},{"name","Assembly family insertion GUI"}});
+    chooser=choose(assembly_model.name);choices=chooser->findChild<QTableWidget*>("componentFamilyTable");
+    if(!verify(choices->rowCount()==2&&choices->item(0,0)->data(Qt::UserRole).toString().isEmpty(),"Assembly picker omitted native or variant"))return 1;
+    choices->selectRow(1);chooser->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();finish_properties();
+    if(!verify(rows().size()==1&&rows()[0].at("source_document")==assembly_variant,"Assembly chooser inserted the generic instead of the selected member"))return 1;
+    std::cout<<"Family Table, native/member insertion, context Replace, Cancel, MMB, Undo and Part/Assembly Drawing sources passed\n";return 0;
 }
 
 int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWorkspaceWindow& window,

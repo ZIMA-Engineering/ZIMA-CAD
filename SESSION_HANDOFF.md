@@ -2,7 +2,27 @@
 
 ## Current application
 
-Development build `2026091508` implements linked Family Table ownership and
+Development build `2026091509` adds the native/instance chooser to Assembly
+insertion and **Replace…** to an immediate component's context menu. Replace
+preserves occurrence identity and mates; missing references remain stored and
+mark the component red for repair. Cold and nested Assembly loading distinguishes
+variants sharing one parent file. The shared placement implementation is unchanged.
+
+Drawing main-view Properties now starts with a source dropdown containing the
+generic model and all family rows. OK replaces the source of that view and its
+projected descendants in one Undo step, retaining independent main views. An
+unevaluated row is calculated privately only on OK and its packet is published
+to the parent after the full Drawing edit succeeds. Save the parent to persist
+that newly evaluated row. Part, Assembly and Drawing format versions are unchanged.
+See [Family Table](doc/FAMILY_TABLE.md) for the interaction and persistence contract.
+Build `2026091509` is local development; the published Windows release remains
+`2026091508`. The repository-root `zima-cad.bat` launches the development build.
+Verification covers 17 distinct selected core/GUI contracts; final source-error
+and GUI corrections pass in `build/family-drawing-replace-final-tests.log`, with
+cold unevaluated-row persistence in `build/family-drawing-replace-cold-tests.log`.
+The Family Table document records the full log list and independent geometry checks.
+
+Published build `2026091508` implements linked Family Table ownership and
 multiline Drawing Text. Ordinary Save stores all family data in one parent native
 file; Save As from an instance creates an independent copy. Row-controlled edits
 update that row, other edits update shared history and all evaluated variants.

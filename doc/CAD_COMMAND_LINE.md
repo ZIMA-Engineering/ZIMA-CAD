@@ -327,6 +327,17 @@ dependency usage with `component.dependencies`. The shared GUI/CLI transaction
 validates the whole candidate, including sections, before changing the live Assembly:
 [COMPONENT_REMOVAL_COMMAND.md](COMPONENT_REMOVAL_COMMAND.md).
 
+`component.replace` takes `instance_path` and `source`, the document ID of an open
+generic model or Family Table instance. The occurrence must belong immediately
+to the active Assembly; an optional `document` identifies that owner. It preserves
+the occurrence's identity, placement and mates while replacing only its source.
+The replacement must belong to the same family. Missing mate references remain
+stored and repairable, with the affected component marked red. The result reports
+`source_document`, `instance_path` and `changed`. One Undo restores the replacement.
+Use `document.family.open` first when the desired instance is not open, then
+reactivate the owning Assembly before replacing its component.
+See [Family Table insertion and Replace](FAMILY_TABLE.md#assembly-insertion-and-replace).
+
 `component.activate` activates an exact `instance_path` from the displayed top-level
 Assembly, whose ID can be supplied as `document`. Model commands and Save then edit
 the source while the whole Assembly stays displayed. An activated subassembly uses

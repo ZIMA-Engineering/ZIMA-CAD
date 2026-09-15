@@ -1,5 +1,6 @@
 #include "sketch_text_properties_dialog.hpp"
 #include <zima/workspace/family_operations.hpp>
+#include <zima/workspace/native_documents.hpp>
 #include <zima/workspace/drawing_label_operations.hpp>
 #include <zima/workspace/drawing_projection.hpp>
 #include <zima/workspace/drawing_view_operations.hpp>
@@ -96,15 +97,73 @@ struct DrawingSourceChoice {
     std::string id;
     std::filesystem::path path;
     QString name;
+    bool evaluated{true};
 };
+
+// Reading the chooser and its previews consumes only persisted model data.
+std::vector<DrawingSourceChoice> family_source_choices(const zima::workspace::Workspace* live,
+    const std::string& requested, const std::filesystem::path& path) {
+    std::vector<DrawingSourceChoice> result;
+    auto root=requested.substr(0,requested.find(":family:"));
+    if(root.empty()&&live)if(const auto open=live->document_id_for_path(path))root=open->substr(0,open->find(":family:"));
+    const auto append=[&](const auto& model,const auto& source_path) {
+        result.push_back({model.document_id,source_path,QString::fromStdString(model.name)+" — "+QObject::tr("Výchozí (nativní)")});
+        for(const auto& row:zima::document::parse_family_table(model.family_table).instances)
+            result.push_back({model.document_id+":family:"+row.id,source_path,QString::fromStdString(row.name),model.family.evaluated.contains(row.id)});
+    };
+    if(live) {
+        if(const auto* part=live->open_part(root)){append(part->session.document(),part->path);return result;}
+        if(const auto* assembly=live->open_assembly(root)){append(assembly->session.document(),assembly->path);return result;}
+    }
+    if(QString::fromStdString(path.extension().string()).compare(".prtz",Qt::CaseInsensitive)==0) {
+        std::vector<zima::kernel::BodyResult> cache;append(zima::workspace::read_family_part(live,path,root,cache),path);
+    } else append(zima::workspace::read_family_assembly(live,path,root),path);
+    return result;
+}
+
+// Called only by OK. Calculate an unopened row in a private workspace, and
+// publish its native packet only after the complete Drawing edit succeeds.
+std::function<void()> prepare_drawing_family_variant(zima::workspace::Workspace* live,
+    zima::workspace::Workspace& draft,const zima::drawing::DrawingView& view,const std::filesystem::path& drawing_path) {
+    const auto separator=view.source_document_id.find(":family:");
+    if(separator==std::string::npos)return []{};
+    const auto root=view.source_document_id.substr(0,separator),row_id=view.source_document_id.substr(separator+8);
+    auto path=view.source_path;if(path.is_relative()&&!drawing_path.empty())path=drawing_path.parent_path()/path;
+    if(!draft.find(root)) {
+        auto source=zima::workspace::read_native_document(path);
+        if(source.id()!=root)throw std::runtime_error("The drawing source file belongs to a different document.");
+        static_cast<void>(zima::workspace::insert_native_document(draft,std::move(source)));
+    }
+    const auto family=draft.open_part(root)?draft.open_part(root)->session.document().family:draft.open_assembly(root)->session.document().family;
+    if(family.evaluated.contains(row_id))return []{};
+    if(!live)throw std::runtime_error("Open the family instance before selecting it in the Drawing.");
+    const auto table=zima::document::parse_family_table(draft.open_part(root)?draft.open_part(root)->session.document().family_table:draft.open_assembly(root)->session.document().family_table);
+    const auto row=std::ranges::find(table.instances,row_id,&zima::document::FamilyInstance::id);
+    if(row==table.instances.end())throw std::runtime_error("Family instance no longer exists.");
+    zima::kernel::OcctKernel kernel;
+    static_cast<void>(zima::workspace::open_family_instance(draft,kernel,root,row->name,false));
+    if(const auto* part=draft.open_part(root)) {
+        const auto model=part->session.document();const auto cache=part->session.calculated_boundaries();
+        return [live,root,model,cache,path] {
+            if(auto* parent=live->open_part(root))parent->session.update_family_evaluated(model.family);
+            else {live->add_part(model,cache,path);live->open_part(root)->session.update_family_evaluated(model.family);}
+        };
+    }
+    const auto model=draft.open_assembly(root)->session.document();
+    return [live,root,model,path] {
+        if(auto* parent=live->open_assembly(root))parent->session.update_family_evaluated(model.family);
+        else {live->add_assembly(model,path);live->open_assembly(root)->session.update_family_evaluated(model.family);}
+    };
+}
 
 class ViewPropertiesDialog final : public zima::ui::PropertiesSubWindow {
 public:
     ViewPropertiesDialog(QMainWindow* parent, zima::drawing::DrawingView initial,
         std::vector<DrawingSourceChoice> sources, double sheet_scale,
         std::function<bool(zima::drawing::DrawingView)> accepted,
-        std::function<void(zima::drawing::DrawingView)> preview,
-        std::function<std::vector<zima::document::SectionDefinition>(const std::string&,const std::filesystem::path&)> sections)
+        std::function<void(std::optional<zima::drawing::DrawingView>)> preview,
+        std::function<std::vector<zima::document::SectionDefinition>(const std::string&,const std::filesystem::path&)> sections,
+        std::function<std::vector<DrawingSourceChoice>(const std::filesystem::path&)> browse_sources)
         : PropertiesSubWindow(QObject::tr("Vlastnosti pohledu"), parent),
           value_(std::move(initial)), sources_(std::move(sources)),
           sections_(std::move(sections)), sheet_scale_(sheet_scale), accepted_(std::move(accepted)), preview_(std::move(preview)) {
@@ -122,9 +181,9 @@ public:
         source_->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
         int selected = -1;
         for (std::size_t i = 0; i < sources_.size(); ++i) {
-            source_->addItem(sources_[i].name);
+            source_->addItem(sources_[i].name,QString::fromStdString(sources_[i].id));
             if ((!value_.source_document_id.empty() && sources_[i].id == value_.source_document_id) ||
-                (!value_.source_path.empty() && sources_[i].path == value_.source_path)) selected = static_cast<int>(i);
+                (value_.source_document_id.empty() && !value_.source_path.empty() && sources_[i].path == value_.source_path)) selected = static_cast<int>(i);
         }
         source_->setCurrentIndex(selected >= 0 ? selected : (sources_.empty() ? -1 : 0));
         auto* source_row = new QWidget(content);
@@ -134,13 +193,16 @@ public:
         browse->setObjectName("drawingViewBrowseSource");
         source_layout->addWidget(source_, 1); source_layout->addWidget(browse);source_row->setSizePolicy(QSizePolicy::Expanding,QSizePolicy::Fixed);
         source_row->setEnabled(value_.parent_view_id.empty());
-        connect(browse, &QPushButton::clicked, this, [this] {
+        connect(browse, &QPushButton::clicked, this, [this,browse_sources] {
             const auto path = open_file(this, tr("Zdroj pohledu"),
                 QString::fromStdString(value_.source_path.string()), tr("Model ZIMA-CAD (*.prtz *.asmz)"));
             if (path.isEmpty()) return;
-            sources_.push_back({{}, path.toStdString(), QFileInfo(path).fileName()});
-            source_->addItem(sources_.back().name);
-            source_->setCurrentIndex(source_->count()-1);
+            try {
+                const auto choices=browse_sources(std::filesystem::u8path(path.toStdString()));
+                const int first=source_->count();
+                for(const auto& choice:choices){sources_.push_back(choice);source_->addItem(choice.name,QString::fromStdString(choice.id));}
+                source_->setCurrentIndex(first);
+            }catch(const std::exception& error){set_error(tr(error.what()));}
         });
         orientation_ = new QComboBox(content);
         orientation_->setObjectName("drawingViewOrientation");
@@ -179,8 +241,8 @@ public:
         x_->setObjectName("drawingViewX"); y_->setObjectName("drawingViewY");
         // Projected views keep the position constrained by their parent's ray.
         x_->setEnabled(value_.parent_view_id.empty()); y_->setEnabled(value_.parent_view_id.empty());
-        form->addRow(QObject::tr("Název"), name_); form->addRow(caption_);
         form->addRow(QObject::tr("Zdroj"), source_row);
+        form->addRow(QObject::tr("Název"), name_); form->addRow(caption_);
         form->addRow(QObject::tr("Orientace"), orientation_);
         auto* rotations=new QWidget(content);rotations->setSizePolicy(QSizePolicy::Expanding,QSizePolicy::Fixed);auto* rotation_row=new QHBoxLayout(rotations);rotation_row->setContentsMargins(0,0,0,0);
         const std::array directions{zima::drawing::ProjectionDirection::Left,zima::drawing::ProjectionDirection::Right,zima::drawing::ProjectionDirection::Top,zima::drawing::ProjectionDirection::Bottom};
@@ -189,7 +251,7 @@ public:
         for(int i=0;i<4;++i){auto* button=new QPushButton(labels[i]+" 90°",rotations);button->setObjectName(ids[i]);button->setAutoDefault(false);rotation_row->addWidget(button);rotation_buttons_.push_back(button);
             connect(button,&QPushButton::clicked,this,[this,direction=directions[i]]{
                 value_.camera=zima::drawing::projected_camera(value_.camera,direction,zima::drawing::ProjectionMethod::ThirdAngle);
-                {QSignalBlocker block(orientation_);orientation_->setCurrentIndex(7);}preview_(values());
+                {QSignalBlocker block(orientation_);orientation_->setCurrentIndex(7);}preview_values();
             });
         }
         form->addRow(tr("Otočit pohled"),rotations);
@@ -204,7 +266,7 @@ public:
         guide_offset_=new QDoubleSpinBox(content);guide_spacing_=new QDoubleSpinBox(content);guide_offset_->setObjectName("drawingGuideOffset");guide_spacing_->setObjectName("drawingGuideSpacing");
         guide_offset_->setRange(0,1000);guide_spacing_->setRange(.1,1000);guide_offset_->setValue(value_.dimension_guide_offset);guide_spacing_->setValue(value_.dimension_guide_spacing);
         form->addRow(guides_);form->addRow(tr("První vodítko [mm]"),guide_offset_);form->addRow(tr("Rozteč vodítek [mm]"),guide_spacing_);
-        connect(guides_,&QCheckBox::toggled,this,[this]{preview_(values());});for(auto* control:{guide_offset_,guide_spacing_})connect(control,&QDoubleSpinBox::valueChanged,this,[this]{preview_(values());});
+        connect(guides_,&QCheckBox::toggled,this,[this]{preview_values();});for(auto* control:{guide_offset_,guide_spacing_})connect(control,&QDoubleSpinBox::valueChanged,this,[this]{preview_values();});
         section_=new QComboBox(content);section_->setObjectName("drawingSection");
         section_label_=new QCheckBox(tr("Zobrazit označení řezu"),content);section_label_->setObjectName("drawingSectionLabel");section_label_->setChecked(value_.show_section_label);
         components_=new SectionComponentsWidget(content);
@@ -218,16 +280,16 @@ public:
         setMinimumWidth(680);
         load_sections(value_.section_id);
         connect(source_,&QComboBox::currentIndexChanged,this,[this]{load_sections({});});
-        connect(section_,&QComboBox::currentIndexChanged,this,[this]{set_section_components();preview_(values());});
-        components_->changed=[this]{preview_(values());};
-        connect(marker_table_,&QTableWidget::itemChanged,this,[this]{preview_(values());});
-        connect(section_label_,&QCheckBox::toggled,this,[this]{preview_(values());});
-        const auto preview_change = [this] { preview_(values()); };
+        connect(section_,&QComboBox::currentIndexChanged,this,[this]{set_section_components();preview_values();});
+        components_->changed=[this]{preview_values();};
+        connect(marker_table_,&QTableWidget::itemChanged,this,[this]{preview_values();});
+        connect(section_label_,&QCheckBox::toggled,this,[this]{preview_values();});
+        const auto preview_change = [this] { preview_values(); };
         zima::ui::bind_numeric_value_lock(x_,"x",value_.value_locks,preview_change);
         zima::ui::bind_numeric_value_lock(y_,"y",value_.value_locks,preview_change);
         zima::ui::bind_numeric_value_lock(scale_,"scale",value_.value_locks,preview_change);
         connect(orientation_,&QComboBox::currentIndexChanged,this,[this](int index){
-            if(index>=0&&index<7){value_.orientation=static_cast<zima::drawing::ViewOrientation>(index);value_.camera=zima::drawing::standard_camera(value_.orientation);preview_(values());}
+            if(index>=0&&index<7){value_.orientation=static_cast<zima::drawing::ViewOrientation>(index);value_.camera=zima::drawing::standard_camera(value_.orientation);preview_values();}
         });
         for (auto* combo : {source_, display_, scale_mode_,hidden_style_,tangent_style_})
             connect(combo, &QComboBox::currentIndexChanged, this, [this,preview_change] {
@@ -242,7 +304,7 @@ public:
     }
     void move_preview(zima::drawing::Point2 position) {
         {QSignalBlocker x_block(x_),y_block(y_);x_->setValue(position.x);y_->setValue(position.y);}
-        preview_(values());
+        preview_values();
     }
     void set_error(const QString& error) { error_->setText(error);error_->setVisible(!error.isEmpty()); }
     zima::drawing::DrawingView values() const {
@@ -286,7 +348,7 @@ private:
     SectionComponentsWidget* components_{};
     void load_sections(const std::string& selected){
         QSignalBlocker block(section_);section_->clear();section_->addItem(tr("Bez řezu"),QString{});available_sections_.clear();
-        try{const auto i=source_->currentIndex();if(i>=0)available_sections_=sections_(sources_[i].id,sources_[i].path);
+        try{const auto i=source_->currentIndex();if(i>=0&&sources_[i].evaluated)available_sections_=sections_(sources_[i].id,sources_[i].path);
             for(const auto& s:available_sections_)section_->addItem(QString::fromStdString(s.name),QString::fromStdString(s.id));
             auto index=section_->findData(QString::fromStdString(selected));
             if(index<0&&!selected.empty()){section_->addItem(tr("Chybějící řez"),QString::fromStdString(selected));index=section_->count()-1;}
@@ -308,7 +370,12 @@ private:
     }
     double sheet_scale_;
     std::function<bool(zima::drawing::DrawingView)> accepted_;
-    std::function<void(zima::drawing::DrawingView)> preview_;
+    std::function<void(std::optional<zima::drawing::DrawingView>)> preview_;
+    void preview_values() {
+        const int i=source_->currentIndex();
+        if(i>=0&&!sources_[i].evaluated){preview_({});set_error(tr("Varianta se vypočítá po potvrzení OK."));return;}
+        preview_(values());
+    }
     QLineEdit* name_{};
     QCheckBox* caption_{};
     QComboBox *source_{}, *orientation_{}, *display_{}, *scale_mode_{}, *hidden_style_{}, *tangent_style_{};
@@ -1603,20 +1670,18 @@ void DrawingWindow::show_view_properties(zima::drawing::DrawingView view, bool c
     const auto sheet_id=sheet->id;
     const auto drawing_id=document_.document_id;
     std::vector<DrawingSourceChoice> sources;
-    if (workspace_) for (const auto& state : workspace_->documents())
-        std::visit([&](const auto& item) {
-            using State=std::decay_t<decltype(item)>;
-            if constexpr (std::is_same_v<State,zima::workspace::PartState> ||
-                          std::is_same_v<State,zima::workspace::AssemblyState>)
-                sources.push_back({item.session.document().document_id,item.path,
-                    QString::fromStdString(item.session.document().name + (item.session.document().family.parent_id.empty() ? std::string{} : " [Family Table]"))});
-        },state);
-    if ((!view.source_document_id.empty() || !view.source_path.empty()) &&
-        std::none_of(sources.begin(),sources.end(),[&](const auto& source) {
-            return !view.source_document_id.empty() ? source.id==view.source_document_id : source.path==view.source_path;
-        })) sources.push_back({view.source_document_id,view.source_path,
-            QString::fromStdString(view.source_path.empty() ? view.source_document_id : view.source_path.filename().string())});
-    for(auto& source:sources)if(!view.source_path.empty()&&!view.source_document_id.empty()&&source.id==view.source_document_id)source.path=view.source_path;
+    const auto add_family=[&](const std::string& id,auto path) {
+        if(!path.empty()&&path.is_relative()&&!path_.empty())path=path_.parent_path()/path;
+        const auto choices=family_source_choices(workspace_,id,path);
+        for(const auto& choice:choices)if(std::ranges::none_of(sources,[&](const auto& item){return item.id==choice.id;}))sources.push_back(choice);
+    };
+    try{if(!view.source_document_id.empty()||!view.source_path.empty())add_family(view.source_document_id,view.source_path);}catch(const std::exception&){}
+    if(creating&&workspace_)for(const auto& state:workspace_->documents())std::visit([&](const auto& item){
+        if constexpr(requires{item.session;})if(item.session.document().family.parent_id.empty())add_family(item.session.document().document_id,item.path);
+    },state);
+    if((!view.source_document_id.empty()||!view.source_path.empty())&&std::ranges::none_of(sources,[&](const auto& source){return source.id==view.source_document_id;}))
+        sources.push_back({view.source_document_id,view.source_path,QString::fromStdString(view.source_path.filename().string())});
+    for(auto& source:sources)if(!view.source_path.empty()&&source.id==view.source_document_id)source.path=view.source_path;
     auto cache=std::make_shared<zima::workspace::DrawingProjection>(workspace_,path_);
     const auto project=[cache](zima::drawing::DrawingView& value,bool pending_settings=false){
         cache->project(value,{.pending_hatch=pending_settings});
@@ -1626,28 +1691,33 @@ void DrawingWindow::show_view_properties(zima::drawing::DrawingView view, bool c
     };
     auto* owner=qobject_cast<QMainWindow*>(window());
     auto* dialog=new ViewPropertiesDialog(owner ? owner : this, view, std::move(sources),sheet->default_scale,
-        [this,cache,error,sheet_id,drawing_id,creating](auto accepted) {
+        [this,error,sheet_id,drawing_id,creating](auto accepted) {
             if (document_.document_id!=drawing_id) return false;
             try {
+                auto source_models=workspace_?*workspace_:zima::workspace::Workspace{};
+                const auto publish_family=prepare_drawing_family_variant(workspace_,source_models,accepted,path_);
+                zima::workspace::DrawingProjection projection(&source_models,path_);
                 auto next_document=document_;
-                zima::workspace::edit_drawing_view(next_document,sheet_id,accepted,creating,*cache,true);
+                zima::workspace::edit_drawing_view(next_document,sheet_id,accepted,creating,projection,true);
                 const auto id=accepted.id;
                 const auto* result=next_document.find_view(id);
                 std::function<void()> commit_source=[]{};
                 if(result->section_snapshot) {
-                    const auto& source=cache->source(*result);
+                    const auto& source=projection.source(*result);
                     const auto original=std::ranges::find(source.sections,result->section_id,&zima::document::SectionDefinition::id);
                     commit_source=prepare_section_component_commit(workspace_,result->source_document_id,source.path,*result->section_snapshot,
                         original==source.sections.end()?nullptr:&*original);
                 }
-                commit_source();document_=std::move(next_document);
+                commit_source();publish_family();document_=std::move(next_document);
                 canvas_->set_preview({}); refresh(); canvas_->select_view_for_test(id);
                 return true;
             } catch (const std::exception& exception) { error(tr(exception.what())); return false; }
         }, [this,project,error](auto pending) {
-            try { project(pending,true); canvas_->set_preview(std::move(pending)); error({}); }
-            catch (const std::exception& exception) { error(tr(exception.what())); }
-        },[this](const auto& id,auto path){if(!path.empty()&&path.is_relative()&&!path_.empty())path=path_.parent_path()/path;return source_sections(workspace_,id,path);});
+            if(!pending){canvas_->set_preview({});return;}
+            try { project(*pending,true); canvas_->set_preview(std::move(pending)); error({}); }
+            catch (const std::exception& exception) { canvas_->set_preview({});error(tr(exception.what())); }
+        },[this](const auto& id,auto path){if(!path.empty()&&path.is_relative()&&!path_.empty())path=path_.parent_path()/path;return source_sections(workspace_,id,path);},
+        [this](const auto& path){return family_source_choices(workspace_,{},path);});
     dialog->set_initial_size(QSize(820,980));
     view_dialog_=dialog;
     canvas_->set_preview_move_handler([dialog=QPointer<ViewPropertiesDialog>(dialog)](auto position){if(dialog)dialog->move_preview(position);});

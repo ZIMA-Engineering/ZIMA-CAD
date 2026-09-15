@@ -365,18 +365,21 @@ void Workspace::refresh_source_geometry() {
             })) continue;
             auto file=component.source_path;
             if(file.is_relative())file=owner_file.parent_path()/file;
+            if(!file.empty())file=std::filesystem::absolute(file).lexically_normal();
+            const NativeSourceKey source_key{file,component.source_document_id};
+            const auto parent_id=component.source_document_id.substr(0,component.source_document_id.find(":family:"));
             if (component.source_kind==zima::assembly::ComponentSourceKind::Part) {
                 const auto* part=open_part(component.source_document_id);
-                if(part && !file.empty())
-                    native_part_cache_.erase(std::filesystem::absolute(file).lexically_normal());
-                if(!part && !file.empty() && std::filesystem::is_regular_file(file)) {
-                    file=std::filesystem::absolute(file).lexically_normal();
-                    const auto modified=std::filesystem::last_write_time(file);
-                    auto cached=native_part_cache_.find(file);
-                    if(cached==native_part_cache_.end()||cached->second.modified!=modified) {
+                const auto* parent=open_part(parent_id);
+                if(part)native_part_cache_.erase(source_key);
+                if(!part && (parent || (!file.empty() && std::filesystem::is_regular_file(file)))) {
+                    const auto generation=parent?std::optional{parent->session.data_generation()}:std::nullopt;
+                    const auto modified=parent?std::filesystem::file_time_type{}:std::filesystem::last_write_time(file);
+                    auto cached=native_part_cache_.find(source_key);
+                    if(cached==native_part_cache_.end()||cached->second.modified!=modified||cached->second.source_generation!=generation) {
                         std::vector<zima::kernel::BodyResult> boundaries;
-                        auto source=zima::document::PartDocument::load(file,&boundaries);
-                        cached=native_part_cache_.insert_or_assign(file,NativePartCache{modified,
+                        auto source=read_family_part(this,file,component.source_document_id,boundaries);
+                        cached=native_part_cache_.insert_or_assign(source_key,NativePartCache{modified,generation,
                             PartState{zima::document::DocumentSession(std::move(source),std::move(boundaries)),file}}).first;
                     }
                     part=&cached->second.part;
@@ -404,19 +407,20 @@ void Workspace::refresh_source_geometry() {
                 source_stamp+="open:"+std::to_string(open->session.revision());
                 nested=open->session.document();
                 file=open->path;
-                if(!file.empty())native_assembly_cache_.erase(std::filesystem::absolute(file).lexically_normal());
+                native_assembly_cache_.erase(source_key);
                 if(self(self,nested,file))open->session.update_source_geometry(nested);
             } else {
-                if(file.empty()||!std::filesystem::is_regular_file(file))continue;
-                file=std::filesystem::absolute(file).lexically_normal();
-                const auto modified=std::filesystem::last_write_time(file);
-                auto cached=native_assembly_cache_.find(file);
-                if(cached==native_assembly_cache_.end()||cached->second.modified!=modified) {
-                    auto loaded=zima::assembly::AssemblyDocument::load(file);
-                    cached=native_assembly_cache_.insert_or_assign(file,
-                        NativeAssemblyCache{modified,std::move(loaded)}).first;
+                const auto* parent=open_assembly(parent_id);
+                if(!parent&&(file.empty()||!std::filesystem::is_regular_file(file)))continue;
+                const auto generation=parent?std::optional{parent->session.data_generation()}:std::nullopt;
+                const auto modified=parent?std::filesystem::file_time_type{}:std::filesystem::last_write_time(file);
+                auto cached=native_assembly_cache_.find(source_key);
+                if(cached==native_assembly_cache_.end()||cached->second.modified!=modified||cached->second.source_generation!=generation) {
+                    auto loaded=read_family_assembly(this,file,component.source_document_id);
+                    cached=native_assembly_cache_.insert_or_assign(source_key,
+                        NativeAssemblyCache{modified,generation,std::move(loaded)}).first;
                 }
-                source_stamp+="file:"+std::to_string(modified.time_since_epoch().count());
+                source_stamp+=generation?"parent:"+std::to_string(*generation):"file:"+std::to_string(modified.time_since_epoch().count());
                 nested=cached->second.document;
                 if(self(self,nested,file))cached->second.document=nested;
             }
@@ -521,7 +525,7 @@ std::optional<std::filesystem::path> Workspace::occurrence_source_file(
             document = &open->session.document();
             owner_file = open->path.empty() ? source_file : open->path;
         } else {
-            loaded = zima::assembly::AssemblyDocument::load(source_file);
+            loaded = read_family_assembly(this,source_file,source_id);
             if (loaded->document_id != source_id) return std::nullopt;
             document = &*loaded;
             owner_file = source_file;
@@ -956,7 +960,7 @@ zima::assembly::AssemblyDocument Workspace::refreshed_assembly(
     }
     const auto* assembly = open_assembly(assembly_document_id);
     auto refreshed = assembly ? assembly->session.document()
-        : zima::assembly::AssemblyDocument::load(source_path);
+        : read_family_assembly(this,source_path,assembly_document_id);
     if (refreshed.document_id != assembly_document_id)
         throw std::runtime_error("Assembly dependency document identity mismatch");
     const auto owner_path = assembly ? assembly->path : source_path;
@@ -983,7 +987,7 @@ zima::assembly::AssemblyDocument Workspace::refreshed_assembly(
         std::optional<PartState> loaded;
         if (!part) {
             std::vector<zima::kernel::BodyResult> boundaries;
-            auto source = zima::document::PartDocument::load(dependency_path, &boundaries);
+            auto source = read_family_part(this,dependency_path,occurrence.source_document_id,boundaries);
             if (source.document_id != occurrence.source_document_id)
                 throw std::runtime_error("Part dependency document identity mismatch");
             loaded.emplace(PartState{zima::document::DocumentSession(std::move(source), std::move(boundaries)), dependency_path});

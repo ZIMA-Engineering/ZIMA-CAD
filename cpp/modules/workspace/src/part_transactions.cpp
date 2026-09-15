@@ -2,6 +2,8 @@
 #include <zima/workspace/document_dependencies.hpp>
 #include <zima/workspace/sketch_operations.hpp>
 #include <zima/workspace/sketch_reference_operations.hpp>
+#include <zima/workspace/family_operations.hpp>
+#include <zima/workspace/drawing_operations.hpp>
 #include <algorithm>
 #include <map>
 #include <set>
@@ -79,7 +81,9 @@ public:
         if(const auto* open=live_.open_assembly(id))return assemblies_.emplace(id,NativeAssembly{
             assembly_candidate_&&assembly_candidate_->document_id==id?*assembly_candidate_:open->session.document(),open->path}).first->second;
         if(path.empty()||!std::filesystem::is_regular_file(path))throw DocumentDependencyError("dependency_unavailable","A native source document required to verify the dependency is unavailable.");
-        auto doc=assembly::AssemblyDocument::load(path);
+        assembly::AssemblyDocument doc;
+        try {doc=read_family_assembly(&live_,path,id);}
+        catch(const DrawingOperationError&){throw DocumentDependencyError("dependency_identity","The component source file belongs to a different document.");}
         if(doc.document_id!=id)throw DocumentDependencyError("dependency_identity","The component source file belongs to a different document.");
         return assemblies_.emplace(id,NativeAssembly{std::move(doc),path}).first->second;
     }
@@ -99,7 +103,7 @@ public:
                 if(candidate_&&candidate_->document_id==id){remember(*candidate_);return true;}
                 if(const auto* open=live_.open_part(id)){remember(open->session.document());return true;}
                 if(file.empty()||!std::filesystem::is_regular_file(file))return false;
-                const auto doc=document::PartDocument::load(file);
+                std::vector<kernel::BodyResult> cache;const auto doc=read_family_part(&live_,file,id,cache);
                 if(doc.document_id!=id)return false;
                 remember(doc);return true;
             }
@@ -109,7 +113,8 @@ public:
         }catch(const DocumentDependencyError& error) {
             if(std::string_view(error.code)!="dependency_unavailable"&&std::string_view(error.code)!="dependency_identity")throw;
             return false;
-        }catch(const std::filesystem::filesystem_error&){return false;}
+        }catch(const DrawingOperationError&){return false;}
+        catch(const std::filesystem::filesystem_error&){return false;}
     }
 
 private:

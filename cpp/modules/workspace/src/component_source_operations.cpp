@@ -1,5 +1,6 @@
 #include <zima/workspace/component_source_operations.hpp>
 #include <zima/workspace/native_documents.hpp>
+#include <zima/workspace/family_operations.hpp>
 namespace zima::workspace {
 namespace {
 std::filesystem::path source_path(const Workspace& workspace,const std::string& id) {
@@ -36,10 +37,21 @@ ComponentSourceOpen open_component_source(Workspace& workspace,const std::string
         return workspace.open_part(id)!=nullptr || workspace.open_assembly(id)!=nullptr;
     };
     if(already_open())return {id,source_path(workspace,id),source,false};
+    const auto parent_id=id.substr(0,id.find(":family:"));
+    const auto open_member=[&](const std::filesystem::path& path) {
+        if(expected==NativeDocumentType::Part) {
+            std::vector<kernel::BodyResult> cache;auto member=read_family_part(&workspace,path,id,cache);
+            workspace.add_part(std::move(member),std::move(cache),path);
+        } else workspace.add_assembly(read_family_assembly(&workspace,path,id),path);
+    };
+    if(parent_id!=id&&(workspace.open_part(parent_id)||workspace.open_assembly(parent_id))) {
+        const auto path=source_path(workspace,parent_id);open_member(path);
+        return {id,path,source,true};
+    }
     const auto file=workspace.occurrence_source_file(top_id,source);
     if(!file || file->empty())throw ComponentOperationError("source_unavailable","The selected component has no available native source file.");
     const auto path=std::filesystem::absolute(*file).lexically_normal();
-    if(const auto same_path=workspace.document_id_for_path(path);same_path && *same_path!=id)
+    if(const auto same_path=workspace.document_id_for_path(path);same_path && *same_path!=parent_id)
         throw ComponentOperationError("dependency_identity","The component source file belongs to a different document.");
     const auto active=workspace.active_document_id(),displayed=workspace.displayed_document_id(),active_path=workspace.active_occurrence_path();
     const auto runtime=top->runtime_identity;const auto revision=top->session.revision(),generation=top->session.data_generation();
@@ -50,14 +62,22 @@ ComponentSourceOpen open_component_source(Workspace& workspace,const std::string
     if(workspace.active_document_id()!=active || workspace.displayed_document_id()!=displayed || workspace.active_occurrence_path()!=active_path || !current || current->runtime_identity!=runtime || current->session.revision()!=revision || current->session.data_generation()!=generation)
         throw ComponentOperationError("document_changed","The owning Assembly changed while its component source was being opened.");
     if(!prepared)throw ComponentOperationError("read_incomplete","Native source reading did not complete.");
-    if(prepared->id()!=id || prepared->type()!=expected)
+    if(prepared->id()!=parent_id || prepared->type()!=expected)
         throw ComponentOperationError("dependency_identity","The component source file belongs to a different document.");
     // An editor may have opened the source while the synchronous GUI runner
     // pumped events. Its current in-memory state remains authoritative.
     if(already_open())return {id,source_path(workspace,id),source,false};
-    if(const auto same_path=workspace.document_id_for_path(path);same_path && *same_path!=id)
+    if(const auto same_path=workspace.document_id_for_path(path);same_path && *same_path!=parent_id)
         throw ComponentOperationError("dependency_identity","The component source file belongs to a different document.");
-    const auto inserted=insert_native_document(workspace,std::move(*prepared));
-    return {inserted,path,source,true};
+    // Validate the stored row before publishing its parent. Reading a member is
+    // not an implicit regeneration and never opens an unrelated generic instead.
+    if(parent_id!=id) {
+        Workspace checked;static_cast<void>(insert_native_document(checked,*prepared));
+        if(expected==NativeDocumentType::Part){std::vector<kernel::BodyResult> cache;static_cast<void>(read_family_part(&checked,path,id,cache));}
+        else static_cast<void>(read_family_assembly(&checked,path,id));
+    }
+    static_cast<void>(insert_native_document(workspace,std::move(*prepared)));
+    if(parent_id!=id)open_member(path);
+    return {id,path,source,true};
 }
 }

@@ -49,6 +49,11 @@ void edit_drawing_view(drawing::DrawingDocument& document,const std::string& she
     if(creating?next.find_view(accepted.id)!=nullptr:found==sheet->views.end())
         throw DrawingOperationError("view_not_found","The drawing view does not exist.");
     if(!creating&&found->parent_view_id!=accepted.parent_view_id)invalid_view();
+    const drawing::DrawingView* primary=nullptr;
+    for(const auto& candidate_sheet:next.sheets)for(const auto& candidate:candidate_sheet.views)
+        if(!primary&&candidate.parent_view_id.empty())primary=&candidate;
+    const bool changes_primary=primary&&primary->id==accepted.id&&
+        (primary->source_document_id!=accepted.source_document_id||primary->source_path!=accepted.source_path);
     if(accepted.use_sheet_scale)accepted.scale=sheet->default_scale;
     validate_drawing_view(accepted);
     if(!accepted.parent_view_id.empty()) {
@@ -90,7 +95,7 @@ void edit_drawing_view(drawing::DrawingDocument& document,const std::string& she
         }
     for(auto& s:next.sheets)for(auto& dimension:s.dimensions)if(refreshed.contains(dimension.view_id))
         drawing::refresh_drawing_dimension(*next.find_view(dimension.view_id),dimension);
-    if(next.source_document_id.empty()) {
+    if(next.source_document_id.empty()||changes_primary) {
         next.source_document_id=accepted.source_document_id;next.source_path=accepted.source_path;
         next.source_name=document::path_to_utf8(accepted.source_path.stem());
         if(next.source_name.empty()&&!sheet->bom_rows.empty())next.source_name=sheet->bom_rows.front().name;

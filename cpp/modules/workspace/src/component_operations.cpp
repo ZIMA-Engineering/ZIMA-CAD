@@ -1,5 +1,6 @@
 #include <zima/workspace/component_operations.hpp>
 #include <zima/workspace/document_dependencies.hpp>
+#include <zima/workspace/family_operations.hpp>
 #include <zima/document/metadata.hpp>
 #include <set>
 namespace zima::workspace {
@@ -39,5 +40,45 @@ std::string insert_component(Workspace& live,const std::string& owner,const std:
     try{require_acyclic_document_dependency(live,owner,source);}
     catch(const DocumentDependencyError& error){throw ComponentOperationError(error.code,error.what());}
     return part?live.insert_open_part(owner,source,name):live.insert_open_assembly(owner,source,name);
+}
+bool replace_component(Workspace& live,const kernel::OcctKernel& kernel,const std::string& owner,
+    const std::string& occurrence,const std::string& source) {
+    const auto* state=live.open_assembly(owner);
+    if(!state||live.active_document_id()!=owner)
+        throw ComponentOperationError("unsupported_context","Edit a component only in its immediate owning Assembly.");
+    const auto* item=state->session.document().find_occurrence(occurrence);
+    if(!item)throw ComponentOperationError("occurrence_not_found","The requested component occurrence does not exist.");
+    if(item->derived_copy||item->source_kind==assembly::ComponentSourceKind::Pattern)
+        throw ComponentOperationError("read_only_copy","Replace the original component of a Mirror or Pattern.");
+    if(item->source_document_id==source)return false;
+    const auto root=[](const std::string& id){return id.substr(0,id.find(":family:"));};
+    if(root(item->source_document_id)!=root(source))
+        throw ComponentOperationError("different_family","Replace requires the native model or an instance of the same family.");
+    const auto* part=live.open_part(source);const auto* subassembly=live.open_assembly(source);
+    if((item->source_kind==assembly::ComponentSourceKind::Part&&!part)||
+       (item->source_kind==assembly::ComponentSourceKind::Assembly&&!subassembly))
+        throw ComponentOperationError("source_not_open","The component source must be an open Part or Assembly.");
+    require_acyclic_document_dependency(live,owner,source);
+    auto file=item->source_path;if(file.is_relative())file=state->path.parent_path()/file;
+    std::string old_name;
+    if(part){std::vector<kernel::BodyResult> cache;old_name=read_family_part(&live,file,item->source_document_id,cache).name;}
+    else old_name=read_family_assembly(&live,file,item->source_document_id).name;
+    auto next=state->session.document();auto* changed=next.find_occurrence(occurrence);
+    changed->source_document_id=source;changed->source_path=part?part->path:subassembly->path;
+    if(changed->name==old_name)changed->name=part?part->session.document().name:subassembly->session.document().name;
+    for(auto& component:next.components)for(auto& row:component.placement_references)
+        for(auto* reference:{&row.component_reference,&row.target_reference})
+            if(reference->instance_path.occurrence_ids==std::vector<std::string>{occurrence}&&
+               reference->owner_id==item->source_document_id+":origin")reference->owner_id=source+":origin";
+    // Existing placement/reference contracts calculate against the replacement's
+    // persisted original topology. Never substitute another reference key.
+    auto prepared=live;prepared.family_transaction_active=true;
+    prepared.open_assembly(owner)->session.commit(std::move(next));
+    next=prepared.prepare_assembly_calculation(owner);
+    // Missing mate references deliberately remain stored. The existing reference
+    // index marks the affected component red until its Properties repair them.
+    calculate_resolved_assembly_cuts(kernel,next);
+    live.open_assembly(owner)->session.commit(std::move(next));
+    return true;
 }
 }

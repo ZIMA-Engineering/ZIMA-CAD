@@ -1,4 +1,6 @@
 #include <zima/workspace/reference_sources.hpp>
+#include <zima/workspace/family_operations.hpp>
+#include <zima/workspace/drawing_operations.hpp>
 namespace zima::workspace {
 kernel::ViewerReferenceGeometry context_original_reference_geometry(const Workspace& live,
     const std::string& top_id,const assembly::InstancePath& dependent,
@@ -36,7 +38,9 @@ kernel::ViewerReferenceGeometry context_original_reference_geometry(const Worksp
         if(!file||file->empty())throw ReferenceQueryError("source_unavailable","The selected component has no available native source file.");
         std::error_code error;
         if(!std::filesystem::is_regular_file(*file,error))throw ReferenceQueryError("source_unavailable","The selected component has no available native source file.");
-        std::vector<kernel::BodyResult> boundaries;auto document=document::PartDocument::load(*file,&boundaries);
+        std::vector<kernel::BodyResult> boundaries;document::PartDocument document;
+        try{document=read_family_part(&live,*file,source_document,boundaries);}
+        catch(const DrawingOperationError&){throw ReferenceQueryError("dependency_identity","The component source file belongs to a different document.");}
         if(document.document_id!=source_document)throw ReferenceQueryError("dependency_identity","The component source file belongs to a different document.");
         loaded.add_part(std::move(document),std::move(boundaries),*file);return loaded;
     };

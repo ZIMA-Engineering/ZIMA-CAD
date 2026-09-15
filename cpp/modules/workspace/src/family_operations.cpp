@@ -408,13 +408,13 @@ assembly::AssemblyDocument read_family_assembly(const Workspace* live,const std:
         return family_assembly_source(source->session.document(),expected);
     return family_assembly_source(assembly::AssemblyDocument::load(path),expected);
 }
-std::string open_family_instance(Workspace& live,const kernel::OcctKernel& kernel,const std::string& requested,const std::string& name) {
+std::string open_family_instance(Workspace& live,const kernel::OcctKernel& kernel,const std::string& requested,const std::string& name,bool activate) {
     const auto id=family_owner(live,requested);
     const auto table=family_table(live,id);validate_family_references(live,id,table);
     const auto row=std::ranges::find(table.instances,name,&document::FamilyInstance::name);
     if(row==table.instances.end()||row->id.empty())throw std::invalid_argument("Family instance no longer exists.");
     const auto instance_id=id+":family:"+row->id;
-    if(live.find(instance_id)){live.display_top_level(instance_id);live.activate(instance_id);return instance_id;}
+    if(live.find(instance_id)){if(activate){live.display_top_level(instance_id);live.activate(instance_id);}return instance_id;}
     FamilyTransaction transaction(live);
     if(auto* source=live.open_part(id)) {
         auto family=source->session.document().family;const auto path=source->path;
@@ -436,7 +436,7 @@ std::string open_family_instance(Workspace& live,const kernel::OcctKernel& kerne
         }
         live.add_assembly(std::move(next),path);
     } else throw std::invalid_argument("Family Table requires a Part or Assembly.");
-    live.display_top_level(instance_id);live.activate(instance_id);return instance_id;
+    if(activate){live.display_top_level(instance_id);live.activate(instance_id);}return instance_id;
 }
 void select_family_drawing_source(drawing::DrawingDocument& drawing,const Workspace& live,
     const std::string& source,const std::filesystem::path& drawing_path) {

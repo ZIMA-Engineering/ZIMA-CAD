@@ -116,6 +116,18 @@ private:
     std::string requested_instance_;
 };
 
+class FamilyInstanceDialog final : public zima::ui::PropertiesSubWindow {
+public:
+    FamilyInstanceDialog(QString generic_name, const zima::document::FamilyTable&,
+        const std::string& selected_row, bool replacing,
+        std::function<void(const std::string&)> accepted, QWidget* parent);
+protected:
+    bool submit() override;
+private:
+    QTableWidget* table_{};
+    std::function<void(const std::string&)> accepted_;
+};
+
 class MaterialDialog final : public zima::ui::PropertiesSubWindow {
 public:
     MaterialDialog(DocumentToolData data, ToolDataAccepted accepted,

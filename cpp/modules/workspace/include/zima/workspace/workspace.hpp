@@ -199,14 +199,17 @@ private:
     std::vector<DocumentState> documents_;
     struct NativeAssemblyCache {
         std::filesystem::file_time_type modified;
+        std::optional<std::uint64_t> source_generation;
         zima::assembly::AssemblyDocument document;
     };
     struct NativePartCache {
         std::filesystem::file_time_type modified;
+        std::optional<std::uint64_t> source_generation;
         PartState part;
     };
-    std::map<std::filesystem::path,NativePartCache> native_part_cache_;
-    std::map<std::filesystem::path,NativeAssemblyCache> native_assembly_cache_;
+    using NativeSourceKey = std::pair<std::filesystem::path,std::string>;
+    std::map<NativeSourceKey,NativePartCache> native_part_cache_;
+    std::map<NativeSourceKey,NativeAssemblyCache> native_assembly_cache_;
     std::string active_document_id_;
     std::string displayed_document_id_;
     std::string active_occurrence_path_;

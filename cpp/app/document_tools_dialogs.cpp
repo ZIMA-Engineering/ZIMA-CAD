@@ -352,6 +352,37 @@ bool RelationsDialog::submit() {
     return true;
 }
 
+FamilyInstanceDialog::FamilyInstanceDialog(QString generic_name,const zima::document::FamilyTable& model,
+    const std::string& selected_row,bool replacing,std::function<void(const std::string&)> accepted,QWidget* parent)
+    : PropertiesSubWindow(replacing?tr("Replace — vybrat variantu"):tr("Vložit — vybrat variantu"),parent),accepted_(std::move(accepted)) {
+    setObjectName("componentFamilyDialog");setMinimumSize(430,240);set_initial_size(QSize(620,380));
+    content_layout()->addWidget(new QLabel(tr("Vyberte výchozí model nebo instanci Family Table."),this));
+    table_=new QTableWidget(static_cast<int>(model.instances.size()+1),2,this);
+    table_->setObjectName("componentFamilyTable");
+    table_->setHorizontalHeaderLabels({tr("Název"),tr("Typ")});
+    table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    table_->setSelectionMode(QAbstractItemView::SingleSelection);table_->setSelectionBehavior(QAbstractItemView::SelectRows);
+    table_->verticalHeader()->hide();table_->horizontalHeader()->setSectionResizeMode(0,QHeaderView::Stretch);
+    table_->horizontalHeader()->setSectionResizeMode(1,QHeaderView::ResizeToContents);
+    table_->setItem(0,0,new QTableWidgetItem(std::move(generic_name)));
+    table_->item(0,0)->setData(Qt::UserRole,QString{});
+    table_->setItem(0,1,new QTableWidgetItem(tr("Výchozí (nativní)")));
+    int selected=0;
+    for(std::size_t i=0;i<model.instances.size();++i) {
+        const auto& row=model.instances[i];const auto index=static_cast<int>(i+1);
+        table_->setItem(index,0,new QTableWidgetItem(QString::fromStdString(row.name)));
+        table_->item(index,0)->setData(Qt::UserRole,QString::fromStdString(row.id));
+        table_->setItem(index,1,new QTableWidgetItem(tr("Instance")));
+        if(row.id==selected_row)selected=index;
+    }
+    table_->selectRow(selected);content_layout()->addWidget(table_);
+    connect(table_,&QTableWidget::cellDoubleClicked,this,[this]{buttons()->button(QDialogButtonBox::Ok)->click();});
+}
+bool FamilyInstanceDialog::submit() {
+    if(table_->currentRow()<0)return false;
+    accepted_(table_->item(table_->currentRow(),0)->data(Qt::UserRole).toString().toStdString());return true;
+}
+
 FamilyTableDialog::FamilyTableDialog(
     QString generic_name, DocumentToolData data, ToolDataAccepted accepted,
     const ApplicationSettings& settings, QWidget* parent)
