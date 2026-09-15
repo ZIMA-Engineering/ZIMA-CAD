@@ -423,6 +423,7 @@ struct MeshView::Impl {
     std::map<kernel::ObjectEnvelopeKey,kernel::ModelEnvelope> object_bounds;
     bool show_dimension_frame{};
     bool dimension_layout_editable{true};
+    std::function<bool(const kernel::EdgeReference&)> dimension_layout_edit_filter;
     struct LayoutDrag {ViewerCandidate candidate;kernel::ViewerDimension source,shown;kernel::ModelEnvelope bounds;kernel::DimensionLayout initial,current;QPointF start;int handle{};bool moved{};};
     std::optional<LayoutDrag> layout_drag;
 
@@ -743,7 +744,16 @@ void MeshView::set_mesh(zima::kernel::ViewerMesh mesh, bool fit_view) {
     update();
 }
 
-void MeshView::set_dimension_layout_editable(bool editable){impl_->dimension_layout_editable=editable;}
+void MeshView::set_dimension_layout_editable(bool editable,
+    std::function<bool(const kernel::EdgeReference&)> filter) {
+    impl_->dimension_layout_editable=editable;
+    impl_->dimension_layout_edit_filter=std::move(filter);
+}
+bool MeshView::dimension_layout_editable(const ViewerCandidate& candidate) const {
+    return impl_->dimension_layout_editable && candidate.kind==CandidateKind::Dimension &&
+        (!impl_->dimension_layout_edit_filter || impl_->dimension_layout_edit_filter(
+            {candidate.owner_id,candidate.semantic_key,candidate.instance_path}));
+}
 std::optional<QPointF> MeshView::dimension_handle_position(const ViewerCandidate& candidate,int index)const {
     if(candidate.kind!=CandidateKind::Dimension||index<0||index>2)return {};
     const auto i=candidate.geometry_index;
@@ -4825,7 +4835,7 @@ if (impl_->show_origins) {
                 text_painter.setClipping(false);
             });
         // Editing handles remain above coincident geometry and point markers.
-        if(impl_->dimension_layout_editable&&impl_->dimension_layout_commit&&impl_->confirmed_candidate&&impl_->confirmed_candidate->kind==CandidateKind::Dimension&&impl_->show_dimensions) {
+        if(impl_->dimension_layout_commit&&impl_->confirmed_candidate&&dimension_layout_editable(*impl_->confirmed_candidate)&&impl_->show_dimensions) {
             for(int i=0;i<3;++i)if(auto point=dimension_handle_position(*impl_->confirmed_candidate,i))draw_circular_marker(painter,*point,QColor("#D05CFF"));
         }
     }
@@ -4880,7 +4890,7 @@ void MeshView::mousePressEvent(QMouseEvent* event) {
         if(i<impl_->mesh.dimensions.size())impl_->mesh.dimensions[i]=shown;else impl_->transient_dimensions[i-impl_->mesh.dimensions.size()]=shown;
         update();event->accept();return;
     }
-    if(event->button()==Qt::LeftButton&&impl_->dimension_layout_editable&&impl_->dimension_layout_commit&&impl_->confirmed_candidate&&impl_->confirmed_candidate->kind==CandidateKind::Dimension) {
+    if(event->button()==Qt::LeftButton&&impl_->dimension_layout_commit&&impl_->confirmed_candidate&&dimension_layout_editable(*impl_->confirmed_candidate)) {
         const auto candidate=*impl_->confirmed_candidate;
         if(auto source=dimension_source(candidate);source && !source->rotation_handle)for(int handle=0;handle<3;++handle)if(auto point=dimension_handle_position(candidate,handle);point&&QLineF(*point,event->position()).length()<=5.5) {
             const auto i=candidate.geometry_index;const auto shown=i<impl_->mesh.dimensions.size()?impl_->mesh.dimensions[i]:impl_->transient_dimensions[i-impl_->mesh.dimensions.size()];

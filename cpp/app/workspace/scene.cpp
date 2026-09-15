@@ -1,4 +1,5 @@
 #include <zima/workspace/assembly_scene.hpp>
+#include <zima/document/holes.hpp>
 #include "workspace_internal.hpp"
 
 namespace zima::app {
@@ -9,6 +10,11 @@ void AssemblyWorkspaceWindow::refresh_scene() {
     workspace_.refresh_source_geometry();
     if(measure_action_)measure_action_->setEnabled(workspace_.open_part(workspace_.displayed_document_id())||workspace_.open_assembly(workspace_.displayed_document_id()));
     viewer_->set_dimension_layout_editable((!properties_dialog_||!properties_dialog_->isVisible())&&!sketch_universal_dimension_active_);
+    if (auto* dialog=dynamic_cast<SketchPropertiesDialog*>(properties_dialog_); dialog && dialog->isVisible())
+        viewer_->set_dimension_layout_editable(true, [this, dialog](const auto& reference) {
+            return reference.instance_path==workspace_.active_occurrence_path() &&
+                dialog->pending_dimension_layout(reference).has_value();
+        });
     update_assembly_dimension_visibility();
     update_viewer_body_colors();
     update_body_color_actions();
@@ -313,6 +319,16 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                         {-8,0,0}, container->box.width);
                     linear("height", "Výška = ", local(-x,-y,-z), local(-x,-y,z),
                         {-8,0,0}, container->box.height);
+                } else if (container->feature_kind == FeatureKind::Holes) {
+                    const auto sketch=std::ranges::find(document.sketches,container->holes.sketch_id,&zima::sketcher::Sketch::id);
+                    if (sketch!=document.sketches.end() && sketch->id!=sketch_properties_preview_id_) {
+                        try {
+                            auto display=zima::document::holes_preview(*container,*sketch);
+                            if (const auto* body=document.body_owner_for_object(container->id))
+                                display=document.place_body_mesh(std::move(display),body->scope.id);
+                            mesh.dimensions.insert(mesh.dimensions.end(),display.dimensions.begin(),display.dimensions.end());
+                        } catch (const std::exception&) { /* Invalid drafts have no diameter annotation. */ }
+                    }
                 } else if (container->feature_kind == FeatureKind::Cylinder) {
                     radius("radius", origin,
                         local(container->cylinder.radius,0,0), {0,6,0},

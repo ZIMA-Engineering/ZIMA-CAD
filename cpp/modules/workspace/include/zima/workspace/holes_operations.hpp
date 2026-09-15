@@ -7,5 +7,5 @@ namespace zima::workspace {
 // Create, conversion and later edit all commit one pending Sketch + diameter.
 [[nodiscard]] bool commit_holes(Workspace&, const kernel::OcctKernel&,
     const std::string& document_id, document::HistoryContainer,
-    sketcher::Sketch);
+    sketcher::Sketch, std::optional<kernel::DimensionLayout> diameter_layout = {});
 }

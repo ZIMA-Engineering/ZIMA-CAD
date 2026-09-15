@@ -2,6 +2,7 @@
 #include <zima/workspace/sweep_operations.hpp>
 #include <zima/workspace/opening_operations.hpp>
 #include <zima/workspace/component_properties.hpp>
+#include <zima/workspace/holes_operations.hpp>
 #include "workspace_internal.hpp"
 
 namespace zima::app {
@@ -434,6 +435,21 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
             if (part == nullptr) throw std::runtime_error(
                 "Inline dimension editing currently requires an active Part");
             auto next = part->session.document();
+            // Direct View editing must use the same owned Sketch and transaction
+            // as Holes Properties. The plane offset belongs to that Sketch.
+            if (const auto* holes=next.find_container(candidate.owner_id);
+                holes && holes->feature_kind==zima::document::FeatureKind::Holes &&
+                (candidate.semantic_key=="parameter:diameter" || candidate.semantic_key=="parameter:profile_offset")) {
+                const auto sketch=std::ranges::find(next.sketches,holes->holes.sketch_id,&zima::sketcher::Sketch::id);
+                if (sketch==next.sketches.end()) throw std::runtime_error("Holes Sketch no longer exists");
+                auto feature=*holes;
+                if (candidate.semantic_key=="parameter:diameter") feature.holes.diameter=next_value;
+                else sketch->plane_offset=next_value;
+                static_cast<void>(workspace::commit_holes(workspace_,kernel_,workspace_.active_document_id(),feature,*sketch));
+                guarded->hide();
+                refresh_tabs();show_parameter_dimensions(candidate.owner_id);
+                guarded->deleteLater();return;
+            }
             bool changed{};
             if (const auto* body=next.body_history.find(candidate.owner_id);
                     body && candidate.semantic_key.starts_with("parameter:placement:")) {

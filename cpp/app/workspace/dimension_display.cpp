@@ -6,6 +6,12 @@ using namespace workspace_detail;
 
 
 void AssemblyWorkspaceWindow::commit_dimension_layout(const zima::kernel::EdgeReference& reference,zima::kernel::DimensionLayout layout) {
+    if (reference.instance_path==workspace_.active_occurrence_path())
+        if (auto* dialog=dynamic_cast<SketchPropertiesDialog*>(properties_dialog_))
+            if (dialog->set_pending_dimension_layout(reference,layout)) {
+                viewer_->confirm_reference(reference.owner_id,reference.semantic_key,reference.instance_path,zima::viewer::CandidateKind::Dimension);
+                return;
+            }
     if(reference.instance_path!=workspace_.active_occurrence_path()||(!part_element_context_menu_enabled(reference.owner_id)&&reference.owner_id!=active_sketch_id_))throw std::invalid_argument("Dimension is outside the active editing occurrence");
     if(const auto* sketch=active_sketch();sketch && reference.owner_id==sketch->id) {
         if(mutate_active_sketch([&](auto& pending){zima::kernel::store_dimension_layout(pending.dimension_layouts,reference,layout);})) {

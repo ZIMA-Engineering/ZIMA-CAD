@@ -51,6 +51,20 @@ diameter annotation and five toolbar icons were visually inspected. See
 `build/holes-preview-final-build.log`, `build/holes-preview-tests.log` and
 `Projects/test/holes-cylinder-preview.png`. No new portable release was built.
 
+The Holes controls follow-up adds the shared purple diameter grips in both View
+and Properties, transactional annotation placement, and a visible persisted axis
+for each source segment. Direct View edits of diameter and Sketch plane offset
+now use the Holes transaction; previously the generic inline editor had no
+Holes branch and rejected the submitted offset. This does not change the
+shared container-placement solver or the native file schema. See [Holes](doc/HOLES.md).
+GUI/CLI builds and all seven targeted contracts passed. The direct View test
+verifies offset persistence, axis movement, diameter edits and Undo; grip tests
+verify pending Cancel/OK and save/reopen behavior. Logs are under
+`build/holes-controls-*.log`; `Projects/test/holes-view-controls.png` shows the
+ordinary View controls. Existing calculated models need explicit regeneration
+to populate the new persisted drilling axes. The root BAT remains the launch
+entry point; no new portable release was produced.
+
 ## Distribution and Linux continuation
 
 Read [the binding distribution rules](doc/DISTRIBUTION_CLEANUP_PLAN.md) and

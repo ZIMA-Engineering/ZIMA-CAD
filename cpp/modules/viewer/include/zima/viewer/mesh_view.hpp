@@ -89,7 +89,9 @@ public:
     std::optional<kernel::ViewerDimension> dimension_source(const ViewerCandidate&)const;
     kernel::ModelEnvelope dimension_envelope()const;
     void set_dimension_frame_visible(bool);
-    void set_dimension_layout_editable(bool);
+    void set_dimension_layout_editable(bool,
+        std::function<bool(const kernel::EdgeReference&)> filter = {});
+    [[nodiscard]] bool dimension_layout_editable(const ViewerCandidate&) const;
     std::optional<QPointF> dimension_handle_position(const ViewerCandidate&,int)const;
     void set_object_frame_provider(std::function<std::map<kernel::ObjectEnvelopeKey,kernel::ModelEnvelope>(const kernel::ViewerMesh&)>);
 

@@ -501,6 +501,8 @@ std::vector<ViewerAxis> axes_for_operation(
                     length));
             }
             return axes;
+        } else if constexpr (std::is_same_v<Request, FeatureGroupRequest>) {
+            return primitive.axes;
         } else if constexpr (std::is_same_v<Request, Sweep3DRequest>) {
             std::vector<ViewerAxis> axes;
             for(const auto& edge:centerlines) {

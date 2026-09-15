@@ -661,6 +661,9 @@ void AssemblyWorkspaceWindow::create_layout() {
         return frames;
     });
     viewer_->set_dimension_layout_resolver([this](const auto& reference)->std::optional<zima::kernel::DimensionLayout>{
+        if (reference.instance_path==workspace_.active_occurrence_path())
+            if (const auto* dialog=dynamic_cast<SketchPropertiesDialog*>(properties_dialog_))
+                if (const auto layout=dialog->pending_dimension_layout(reference)) return layout;
         if(reference.owner_id==active_sketch_id_ &&
            ((!universal_corner_radius_dimension_id_.empty() && reference.semantic_key=="corner_dimension:"+universal_corner_radius_dimension_id_) ||
             (!pending_corner_radius_dimension_id_.empty() && reference.semantic_key=="corner_dimension:"+pending_corner_radius_dimension_id_)))

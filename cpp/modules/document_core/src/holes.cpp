@@ -45,6 +45,9 @@ kernel::FeatureGroupRequest holes_request(const HistoryContainer& feature,
         // seam edges still need separate children of that persisted point.
         bore.outer_vertex_source_ids = {"holes:" + feature.feature_id + ":axis:" +
             segment.id + ":from:" + segment.first_point_id};
+        group.axes.push_back({{(start.x+end.x)*.5,(start.y+end.y)*.5,(start.z+end.z)*.5},
+            {direction.x/length,direction.y/length,direction.z/length}, length+2.0,
+            {feature.id,"axis:profile:holes:"+feature.feature_id+":from:"+segment.id,{}},"Osa otvoru"});
         group.children.emplace_back(std::move(bore));
     }
     if (group.children.empty()) throw std::invalid_argument("Nakreslete alespoň jednu nekonstrukční úsečku otvoru.");
@@ -57,6 +60,7 @@ kernel::ViewerMesh holes_preview(const HistoryContainer& feature,
     if (std::ranges::none_of(sketch.segments, [](const auto& segment) { return !segment.construction; }))
         return result;
     const auto request = holes_request(feature, sketch);
+    result.axes = request.axes;
     result.edges.reserve(request.children.size() * 6);
     std::string dimension_segment;
     const auto cross = [](const kernel::Vec3& a, const kernel::Vec3& b) {

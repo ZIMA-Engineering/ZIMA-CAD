@@ -89,9 +89,13 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
             object.entity_id, QString::fromStdString(object.name)});
     }
     const std::string owner_id = workspace_.active_document_id();
+    auto diameter_layout = std::make_shared<std::optional<zima::kernel::DimensionLayout>>();
+    if (holes_feature) if (const auto* layout = zima::kernel::find_dimension_layout(
+            part->session.document().dimension_layouts, {holes_feature->id,"parameter:diameter",{}}))
+        *diameter_layout = *layout;
     auto* dialog = new SketchPropertiesDialog(
         initial, initial_placement, edit_mode, std::move(plane_options),
-        [this, owner_id, edit_mode, new_sketch_container, holes_feature](
+        [this, owner_id, edit_mode, new_sketch_container, holes_feature, diameter_layout](
             zima::sketcher::Sketch committed,
             zima::document::Placement committed_placement,
             bool enter_sketch) {
@@ -100,7 +104,7 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
                 auto value = *holes_feature;
                 value.name = committed.name; value.placement = std::move(committed_placement);
                 static_cast<void>(workspace::commit_holes(workspace_, kernel_, owner_id,
-                    std::move(value), std::move(committed)));
+                    std::move(value), std::move(committed), *diameter_layout));
             } else {
                 static_cast<void>(workspace::commit_sketch_properties(workspace_, kernel_, owner_id,
                     std::move(committed), std::move(committed_placement), new_sketch_container));
@@ -137,7 +141,7 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
                 active_sketch_id_ = prepared_sketch->id; selected_sketch_id_ = active_sketch_id_;
                 clear_selected_sketch_geometry(); viewer_->clear_selection(); tree_->clearSelection();
                 preserve_view_on_refresh_ = true; refresh_scene(); align_active_sketch_view();
-            });
+            }, *diameter_layout, [diameter_layout](auto layout) { *diameter_layout = std::move(layout); });
     }
     {
         zima::kernel::ViewerReferenceGeometry reference_geometry;
@@ -425,6 +429,9 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
             if (holes_feature) {
                 try {
                     drilling_preview = zima::document::holes_preview(*holes_feature, resolved_sketch);
+                    primitive_origin_preview_mesh_->axes.insert(
+                        primitive_origin_preview_mesh_->axes.end(),
+                        drilling_preview.axes.begin(), drilling_preview.axes.end());
                     primitive_origin_preview_mesh_->dimensions.insert(
                         primitive_origin_preview_mesh_->dimensions.end(),
                         drilling_preview.dimensions.begin(), drilling_preview.dimensions.end());
@@ -493,6 +500,8 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
         }
     });
     dialog->show();
+    preserve_view_on_refresh_ = true;
+    refresh_scene();
     const auto first = dialog->first_empty_position_index();
     if (first < 3) {
         start_primitive_reference_selection(first, true);

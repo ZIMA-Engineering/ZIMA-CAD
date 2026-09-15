@@ -28,6 +28,19 @@ diameter. Ends are flat; the feature adds no drill tip, thread, or extension.
   identity, so reordering does not move it. Deleting that segment selects another
   existing cylinder; an empty or construction-only Sketch has no diameter label.
   The preview and dimension disappear while Sketcher is active or on Cancel.
+- The diameter uses the shared purple dimension grips for text/leader placement
+  and arrow presentation. RMB during a drag cycles the presentation; Escape
+  cancels the drag. In Properties the layout stays pending until OK and Cancel
+  discards it. Outside Properties it is saved as one undoable annotation edit.
+- Double-clicking the Holes container exposes its parameter dimensions in View.
+  Double-clicking the diameter or nonzero plane-offset dimension edits that
+  value directly, using the same Holes transaction as Properties. Updating the
+  offset changes the owned Sketch offset and recalculates the channels.
+- Each drilling segment supplies a visible center axis, with the same axis
+  display and reference behavior as a cylinder. Its identity derives from the
+  feature and source segment, not their order. Calculation stores the axes as
+  original references in the native document; View and picking consume those
+  stored axes. Existing calculated files acquire them on explicit regeneration.
 - Sketcher retires the property preview and offset handle while editing. Its
   axes use the normal brown plane color and its idle origin point is black;
   ordinary hover/confirmation colors remain available. Segments can attach to
@@ -104,3 +117,18 @@ GUI contract. The GUI and CLI build passed. The cylinder preview and all five
 display-mode icons were visually inspected in the captured application views.
 Local logs: `build/holes-preview-final-build.log` and
 `build/holes-preview-tests.log`.
+
+The controls/axes follow-up passed seven targeted Windows Release contracts:
+Holes commands and GUI, ordinary Hole geometry, model dimension layout commands,
+shared dimension presentation, inline dimension editing, and work-plane GUI.
+The Holes GUI test checks pending/committed purple-grip placement, RMB arrow
+cycling, Escape, Cancel, save/reopen and Undo. It also reproduces direct View
+editing without Properties: changing the plane offset moves the stored Sketch
+and drilling axis, and changing diameter uses the same feature transaction.
+The direct-offset check uses an oblique camera so the dimension is not edge-on.
+Native checks verify visible/reference axes survive segment reordering and
+native save/load. Captured View grips were visually inspected.
+Local evidence: `build/holes-controls-build.log`,
+`build/holes-controls-native-tests.log`, `build/holes-controls-ui-tests.log`,
+and `build/holes-controls-regression-tests.log` (five passing companion tests;
+the final corrected Holes GUI run is recorded separately).

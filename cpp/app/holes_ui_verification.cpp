@@ -14,6 +14,7 @@
 #include <QKeyEvent>
 #include <QEventLoop>
 #include <QLabel>
+#include <QLineEdit>
 #include <QPushButton>
 #include <QTreeWidget>
 #include <QTreeWidgetItemIterator>
@@ -105,6 +106,38 @@ int verify_holes_ui(QApplication& application, AssemblyWorkspaceWindow& window,
             }
             throw std::runtime_error("Sketcher did not offer the requested common-picker candidate");
         };
+        const auto mouse=[&](QEvent::Type type,QPointF position,Qt::MouseButton button,Qt::MouseButtons buttons) {
+            QMouseEvent event(type,position,QPointF(view->mapToGlobal(position.toPoint())),button,buttons,Qt::NoModifier);
+            QApplication::sendEvent(view,&event);flush();
+        };
+        const auto dimension_candidate=[&](const std::string& key) {
+            const auto& dimensions=view->mesh().dimensions;
+            for (std::size_t i=0;i<dimensions.size();++i) if (dimensions[i].reference.owner_id==owner && dimensions[i].reference.semantic_key==key)
+                return viewer::ViewerCandidate{viewer::CandidateKind::Dimension,0,i,owner,key,{}};
+            throw std::runtime_error("Holes parameter dimension missing: "+key);
+        };
+        const auto drag_diameter=[&](bool cancel) {
+            const auto candidate=dimension_candidate("parameter:diameter");
+            check(view->dimension_layout_editable(candidate),"Holes diameter layout is not editable");
+            view->confirm_reference(owner,candidate.semantic_key,{},viewer::CandidateKind::Dimension);flush();
+            for (int i=0;i<3;++i) check(view->dimension_handle_position(candidate,i).has_value(),"Diameter purple grip missing");
+            const auto from=*view->dimension_handle_position(candidate,0),to=from+QPointF(58,-37);
+            mouse(QEvent::MouseButtonPress,from,Qt::LeftButton,Qt::LeftButton);
+            mouse(QEvent::MouseMove,to,Qt::NoButton,Qt::LeftButton);
+            mouse(QEvent::MouseButtonPress,to,Qt::RightButton,Qt::LeftButton|Qt::RightButton);
+            mouse(QEvent::MouseButtonRelease,to,Qt::RightButton,Qt::LeftButton);
+            if (cancel) {QKeyEvent escape(QEvent::KeyPress,Qt::Key_Escape,Qt::NoModifier);QApplication::sendEvent(view,&escape);flush();}
+            mouse(QEvent::MouseButtonRelease,to,Qt::LeftButton,Qt::NoButton);
+        };
+        const auto direct_value=[&](const std::string& key,const QString& text) {
+            const auto candidate=dimension_candidate(key);
+            view->confirm_reference(owner,key,{},viewer::CandidateKind::Dimension);
+            const auto position=view->candidate_dimension_label_position(candidate);check(position.has_value(),"Dimension label missing");
+            mouse(QEvent::MouseButtonDblClick,*position,Qt::LeftButton,Qt::LeftButton);
+            auto* input=view->findChild<QLineEdit*>("inlineDimensionValueEdit");check(input&&input->isVisible(),"Double-click did not open the inline value editor");
+            input->setText(text);QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(input,&enter);flush();
+            check(!view->findChild<QLineEdit*>("inlineDimensionValueEdit"),"Inline value editor did not close");
+        };
         const auto exercise_sketch=[&](SketchPropertiesDialog* pending,const char* capture) {
             const auto before=pending->pending_value().first;
             pending->findChild<QPushButton*>("sketchOpenButton")->click();flush();
@@ -158,12 +191,23 @@ int verify_holes_ui(QApplication& application, AssemblyWorkspaceWindow& window,
         auto* pending=dialog();pending->findChild<QDoubleSpinBox*>("holesDiameter")->setValue(6);
         check(diameter_dimension(owner) && diameter_dimension(owner)->kind==kernel::ViewerDimensionKind::Diameter &&
               diameter_dimension(owner)->value==6,"Properties did not update its diameter dimension");
+        drag_diameter(false);
+        check(pending->pending_dimension_layout({owner,"parameter:diameter",{}})->arrows_reversed,
+              "Right-click during diameter drag did not cycle the common presentation");
         check(window.grab().save(QString::fromStdString((directory/"holes-cylinder-preview.png").string())),"Cylinder preview screenshot failed");
         pending->buttons()->button(QDialogButtonBox::Cancel)->click();flush();run("save");
         check(!diameter_dimension(owner),"Cancelled Holes retained its preview dimension");
         check(document::PartDocument::load(file).find_container(owner)->feature_kind==document::FeatureKind::Sketch,"Cancel converted the source Sketch");
+        check(document::PartDocument::load(file).dimension_layouts.empty(),"Cancel retained a pending diameter layout");
         select();action->trigger();flush();pending=dialog();
         pending->findChild<QDoubleSpinBox*>("holesDiameter")->setValue(6);
+        pending->findChild<QDoubleSpinBox*>("sketchPlaneOffset")->setValue(3);
+        drag_diameter(false);
+        const auto committed_layout=pending->pending_dimension_layout({owner,"parameter:diameter",{}});
+        check(committed_layout && (std::abs(committed_layout->text_along)>1e-6 || std::abs(committed_layout->text_outward)>1e-6),
+              "Dragging the diameter text did not change its placement");
+        drag_diameter(true);
+        check(pending->pending_dimension_layout({owner,"parameter:diameter",{}})==committed_layout,"Escape retained a pending grip drag");
         pending->findChild<QPushButton*>("sketchOpenButton")->click();flush();
         check(!pending->isVisible(),"Owned Sketch did not open");
         auto* finish=window.findChild<QAction*>("finishSketchAction");check(finish&&finish->isEnabled(),"Sketcher finish missing");
@@ -181,8 +225,12 @@ int verify_holes_ui(QApplication& application, AssemblyWorkspaceWindow& window,
         check(run("holes.get",{{"container",owner}}).at("diameter_mm")==6,"GUI lost drilling diameter");
         run("save");std::vector<kernel::BodyResult> cached;
         const auto native=document::PartDocument::load(file,&cached);
+        const auto* saved_layout=kernel::find_dimension_layout(native.dimension_layouts,{owner,"parameter:diameter",{}});
+        check(saved_layout && *saved_layout==*committed_layout,"Native file lost the diameter layout");
+        check(std::ranges::any_of(view->mesh().axes,[&](const auto& axis){return axis.reference.owner_id==owner;}),"Normal View did not show the drilling axis");
         check(std::abs(cached.back().volume-(64000-std::numbers::pi*9*40))<1e-5,"GUI drilled the wrong geometry");
         edit();pending=dialog();
+        check(pending->pending_dimension_layout({owner,"parameter:diameter",{}})==committed_layout,"Reopened Holes lost its diameter layout");
         exercise_sketch(pending,"holes-edit-sketch.png");
         pending->findChild<QDoubleSpinBox*>("holesDiameter")->setValue(8);
         check(pending->mutate_sketch(sketch,[](auto& s){static_cast<void>(s.add_segment(0,-20,0,20));}),"Pending sketch mutation failed");
@@ -195,6 +243,31 @@ int verify_holes_ui(QApplication& application, AssemblyWorkspaceWindow& window,
         pending->buttons()->button(QDialogButtonBox::Ok)->click();flush();
         check(run("holes.get",{{"container",owner}}).at("diameter_mm")==8,"Edit OK lost diameter");
         run("undo");check(run("holes.get",{{"container",owner}}).at("diameter_mm")==6,"Edit Undo failed");
+        // Reproduce the user's double-click mode with no Properties window.
+        // The previous Sketcher session left the camera normal to the Sketch;
+        // its plane-offset dimension is edge-on there. Use an oblique view.
+        view->set_standard_view(viewer::StandardView::Isometric);
+        {QEventLoop alignment;QTimer::singleShot(950,&alignment,&QEventLoop::quit);alignment.exec();}flush();
+        view->confirm_container(owner);
+        mouse(QEvent::MouseButtonDblClick,QPointF(view->rect().center()),Qt::LeftButton,Qt::LeftButton);
+        check(!window.findChild<QDialog*>("holesPropertiesDialog"),"View dimension mode opened Properties");
+        direct_value("parameter:profile_offset","7");
+        check(view->candidate_dimension_value(dimension_candidate("parameter:profile_offset"))==7,"Direct plane-offset edit reverted in View");
+        run("save");const auto moved=document::PartDocument::load(file);
+        check(moved.sketches.front().plane_offset==7,"Direct plane-offset edit was not saved");
+        const auto moved_axis=std::ranges::find(view->mesh().axes,owner,[](const auto& axis){return axis.reference.owner_id;});
+        check(moved_axis!=view->mesh().axes.end() && std::abs(moved_axis->point.z-7)<1e-8,"Direct offset did not move the drilling axis");
+        run("undo");check(view->candidate_dimension_value(dimension_candidate("parameter:profile_offset"))==3,"Direct offset Undo failed");
+        direct_value("parameter:diameter","8");
+        check(run("holes.get",{{"container",owner}}).at("diameter_mm")==8,"Direct diameter edit failed");
+        run("undo");check(run("holes.get",{{"container",owner}}).at("diameter_mm")==6,"Direct diameter Undo failed");
+        drag_diameter(false);run("save");const auto adjusted=document::PartDocument::load(file);
+        const auto* adjusted_layout=kernel::find_dimension_layout(adjusted.dimension_layouts,{owner,"parameter:diameter",{}});
+        check(adjusted_layout && *adjusted_layout!=*committed_layout,"View diameter drag was not persisted");
+        view->confirm_reference(owner,"parameter:diameter",{},viewer::CandidateKind::Dimension);flush();
+        check(window.grab().save(QString::fromStdString((directory/"holes-view-controls.png").string())),"View controls screenshot failed");
+        run("undo");run("save");const auto restored=document::PartDocument::load(file);
+        check(*kernel::find_dimension_layout(restored.dimension_layouts,{owner,"parameter:diameter",{}})==*committed_layout,"View diameter drag was not one Undo step");
         // New feature may enter Sketcher without inserting an empty history item.
         tree->clearSelection();tree->setCurrentItem(nullptr);action->trigger();flush();pending=dialog();
         const auto new_sketch=pending->pending_value().first.id;

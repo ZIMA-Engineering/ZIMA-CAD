@@ -45,6 +45,7 @@ void verify_preview(const document::HistoryContainer& feature, const sketcher::S
         check(count==6 && std::abs(low)<1e-8 && std::abs(high-length)<1e-8,"Cylinder preview has incomplete endpoints or sides");
     }
     check(preview.edges.size()==cylinders*6 && preview.dimensions.size()==1,"Preview includes construction geometry or duplicate diameter dimensions");
+    check(preview.axes.size()==cylinders,"Each drilling segment must have one preview axis");
     const auto dimension=preview.dimensions.front();
     check(dimension.kind==kernel::ViewerDimensionKind::Diameter && dimension.value==feature.holes.diameter &&
           dimension.reference.semantic_key=="parameter:diameter" && dimension.label_prefix=="⌀ ","Preview lost its editable diameter annotation");
@@ -108,6 +109,7 @@ void verify(const kernel::OcctKernel& kernel, fs::path directory) {
         for(const auto& f:geometry.triangle_references)result.insert("face:"+f.owner_id+":"+f.semantic_key);
         for(const auto& e:geometry.edges)result.insert("edge:"+e.reference.owner_id+":"+e.reference.semantic_key);
         for(const auto& p:geometry.points)result.insert("point:"+p.reference.owner_id+":"+p.reference.semantic_key);
+        for(const auto& a:geometry.axes)result.insert("axis:"+a.reference.owner_id+":"+a.reference.semantic_key);
         return result;
     };
     check(!references.triangle_references.empty(),"Missing original topology");
@@ -127,6 +129,14 @@ void verify(const kernel::OcctKernel& kernel, fs::path directory) {
     verify_preview(current,resolved);
     run(host,"save");std::vector<kernel::BodyResult> loaded_cache;
     const auto loaded=document::PartDocument::load(state->path,&loaded_cache);
+    for (const auto& axis:request.axes) {
+        const auto matches=[&](const auto& a){return a.reference==axis.reference && a.point==axis.point &&
+            a.direction==axis.direction && a.display_length==axis.display_length;};
+        check(std::ranges::any_of(loaded_cache.back().mesh.axes,matches),"Native cache lost the visible drilling axis");
+        check(std::ranges::any_of(loaded_cache.back().mesh.original_references.axes,matches),"Native cache lost the original drilling axis reference");
+    }
+    check(std::ranges::count_if(loaded_cache.back().mesh.axes,[&](const auto& a){return a.reference.owner_id==owner;})==2,
+        "Drilling axes were duplicated or omitted");
     check(loaded.find_container(owner)->holes==current.holes,"Native file lost Holes parameters");
     near(loaded_cache.back().volume,volume());
     near(kernel.evaluate_history(loaded.kernel_operations()).back().volume,volume());

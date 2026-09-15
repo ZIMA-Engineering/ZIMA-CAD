@@ -585,6 +585,8 @@ struct RevolutionRequest {
 struct FeatureGroupRequest {
     using Child = std::variant<ExtrusionRequest, RevolutionRequest>;
     std::vector<Child> children;
+    // Reference axes authored by the native feature before body calculation.
+    std::vector<ViewerAxis> axes;
 };
 
 struct StepRequest {
@@ -1163,6 +1165,15 @@ struct PlacedBody {
                 }
             } else if constexpr (std::is_same_v<Request, FeatureGroupRequest>) {
                 u64(primitive.children.size());
+                u64(primitive.axes.size());
+                for (const auto& axis : primitive.axes) {
+                    for (const auto* text : {&axis.reference.owner_id,&axis.reference.semantic_key,&axis.reference.instance_path,&axis.label}) {
+                        u64(text->size()); for (const unsigned char value : *text) byte(value);
+                    }
+                    for (const double value : {axis.point.x,axis.point.y,axis.point.z,
+                            axis.direction.x,axis.direction.y,axis.direction.z,axis.display_length})
+                        u64(std::bit_cast<std::uint64_t>(value));
+                }
                 std::vector<HistoryOperation> child_operations;
                 child_operations.reserve(primitive.children.size());
                 for (std::size_t child_index = 0;

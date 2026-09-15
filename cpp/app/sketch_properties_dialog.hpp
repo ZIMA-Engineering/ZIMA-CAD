@@ -59,7 +59,11 @@ public:
         const std::function<void(zima::sketcher::Sketch&)>& mutation);
     [[nodiscard]] auto pending_value() const { return current_values(); }
     void set_holes_mode(double diameter, std::set<std::string>& locks, std::function<void(double)> changed,
-        std::function<void()> edit_sketch);
+        std::function<void()> edit_sketch, std::optional<zima::kernel::DimensionLayout> layout = {},
+        std::function<void(zima::kernel::DimensionLayout)> layout_changed = {});
+    [[nodiscard]] std::optional<zima::kernel::DimensionLayout> pending_dimension_layout(
+        const zima::kernel::EdgeReference&) const;
+    bool set_pending_dimension_layout(const zima::kernel::EdgeReference&, zima::kernel::DimensionLayout);
     void set_pending_sketch(zima::sketcher::Sketch sketch);
     [[nodiscard]] std::vector<zima::document::ConstructionReference>
         highlighted_reference_entries() const;
@@ -109,6 +113,8 @@ private:
     PreviewCallback preview_;
     bool enter_sketch_after_commit_{};
     std::function<void()> edit_pending_sketch_;
+    std::optional<zima::kernel::DimensionLayout> holes_dimension_layout_;
+    std::function<void(zima::kernel::DimensionLayout)> holes_layout_changed_;
 
     void update_plane_fields_enabled();
     void refresh_resolved_placement();

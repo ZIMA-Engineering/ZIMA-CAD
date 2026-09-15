@@ -23,10 +23,15 @@ document::HistoryContainer holes_from_sketch(const document::PartDocument& part,
 }
 
 bool commit_holes(Workspace& live, const kernel::OcctKernel& kernel,
-    const std::string& id, document::HistoryContainer feature, sketcher::Sketch sketch) {
+    const std::string& id, document::HistoryContainer feature, sketcher::Sketch sketch,
+    std::optional<kernel::DimensionLayout> diameter_layout) {
     auto* state = live.open_part(id);
     if (!state) throw std::invalid_argument("Otvory jsou dostupné pouze v Partu.");
     const auto& before = state->session.document();
+    const kernel::EdgeReference diameter_reference{feature.id,"parameter:diameter",{}};
+    const auto* previous_layout = kernel::find_dimension_layout(before.dimension_layouts, diameter_reference);
+    if (diameter_layout) kernel::validate_dimension_layout(*diameter_layout);
+    const bool layout_changed = diameter_layout && (!previous_layout || *previous_layout != *diameter_layout);
     const auto* existing = before.find_container(feature.id);
     const auto* body = existing ? before.body_owner_for_object(feature.id)
         : before.body_history.find(before.body_history.active_body_id());
@@ -42,7 +47,7 @@ bool commit_holes(Workspace& live, const kernel::OcctKernel& kernel,
             (!converting && (existing->feature_id != feature.feature_id || existing->holes.sketch_id != feature.holes.sketch_id)) ||
             old_sketch == before.sketches.end() || old_sketch->owner_container_id != feature.id)
             throw std::invalid_argument("Úprava musí zachovat identitu kontejneru a skici.");
-        if (*existing == feature && old_sketch->serialized() == sketch.serialized()) return false;
+        if (*existing == feature && old_sketch->serialized() == sketch.serialized() && !layout_changed) return false;
     } else if (feature.id.empty() || feature.feature_id.empty() || old_sketch != before.sketches.end()) {
         throw std::invalid_argument("Nové Otvory musí mít vlastní kontejner a skicu.");
     }
@@ -52,6 +57,7 @@ bool commit_holes(Workspace& live, const kernel::OcctKernel& kernel,
     document::normalize_sketch_front_references(feature.placement.references);
     const auto container = feature.id;
     auto next = before;
+    if (diameter_layout) kernel::store_dimension_layout(next.dimension_layouts, diameter_reference, *diameter_layout);
     if (existing) {
         *next.find_container(container) = std::move(feature);
         *std::ranges::find(next.sketches, sketch.id, &sketcher::Sketch::id) = std::move(sketch);

@@ -130,7 +130,11 @@ SketchPropertiesDialog::SketchPropertiesDialog(
 }
 
 void SketchPropertiesDialog::set_holes_mode(double diameter,
-    std::set<std::string>& locks, std::function<void(double)> changed, std::function<void()> edit_sketch) {
+    std::set<std::string>& locks, std::function<void(double)> changed, std::function<void()> edit_sketch,
+    std::optional<zima::kernel::DimensionLayout> layout,
+    std::function<void(zima::kernel::DimensionLayout)> layout_changed) {
+    holes_dimension_layout_ = std::move(layout);
+    holes_layout_changed_ = std::move(layout_changed);
     set_internal_title(tr("Vlastnosti otvorů"));
     setObjectName("holesPropertiesDialog");
     auto* form = new QFormLayout;
@@ -146,6 +150,23 @@ void SketchPropertiesDialog::set_holes_mode(double diameter,
     connect(field, &QDoubleSpinBox::valueChanged, this,
         [this, changed=std::move(changed)](double value) { changed(value); notify_preview(); });
     edit_pending_sketch_ = std::move(edit_sketch);
+}
+
+std::optional<zima::kernel::DimensionLayout> SketchPropertiesDialog::pending_dimension_layout(
+    const zima::kernel::EdgeReference& reference) const {
+    if (!holes_diameter_ || reference.owner_id != initial_.owner_container_id ||
+        reference.semantic_key != "parameter:diameter") return {};
+    return holes_dimension_layout_.value_or(zima::kernel::DimensionLayout{0,8.0,0,0});
+}
+
+bool SketchPropertiesDialog::set_pending_dimension_layout(
+    const zima::kernel::EdgeReference& reference, zima::kernel::DimensionLayout layout) {
+    if (!pending_dimension_layout(reference)) return false;
+    zima::kernel::validate_dimension_layout(layout);
+    holes_dimension_layout_ = layout;
+    if (holes_layout_changed_) holes_layout_changed_(std::move(layout));
+    notify_preview();
+    return true;
 }
 
 void SketchPropertiesDialog::set_pending_sketch(zima::sketcher::Sketch sketch) {
