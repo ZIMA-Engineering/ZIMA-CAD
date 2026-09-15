@@ -92,6 +92,8 @@ void AssemblyWorkspaceWindow::set_primitive_properties_dimension_selection() {
         sketches.emplace(dimension.reference.owner_id,dimension.reference.semantic_key);
     viewer_->set_selection_contract(
         {zima::viewer::CandidateKind::Dimension});
+    // A confirmed annotation stays selected while the pointer travels to its
+    // grips. Advancing on hover belongs to reference entry, not dimension editing.
     viewer_->set_candidate_filter(
         [owner_id,sketches](const zima::viewer::ViewerCandidate& candidate) {
             return candidate.kind ==
@@ -100,7 +102,7 @@ void AssemblyWorkspaceWindow::set_primitive_properties_dimension_selection() {
                  (candidate.semantic_key.starts_with("parameter:") ||
                   candidate.semantic_key.starts_with("measurement:"))) ||
                  sketches.contains({candidate.owner_id,candidate.semantic_key}));
-        });
+        }, false);
 }
 
 bool AssemblyWorkspaceWindow::placement_origin_allowed(const std::string& owner_id) const {

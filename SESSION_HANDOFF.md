@@ -65,6 +65,16 @@ ordinary View controls. Existing calculated models need explicit regeneration
 to populate the new persisted drilling axes. The root BAT remains the launch
 entry point; no new portable release was produced.
 
+A subsequent Holes selection repair makes the shared feature-properties
+annotation filter retain LMB confirmation during pointer movement. Its previous
+advance-on-hover behavior cleared the selected diameter before the pointer
+could reach a rim grip. The GUI regression now uses actual picker clicks,
+button-free travel through empty View space, and drags of both rim grips;
+it no longer substitutes programmatic confirmation for that interaction.
+The regression reproduced the failure before the fix; the final Holes,
+inline-dimension and work-plane GUI contracts passed (3/3). Evidence is in
+`build/holes-selection-reproduction.log` and `build/holes-selection-tests.log`.
+
 ## Distribution and Linux continuation
 
 Read [the binding distribution rules](doc/DISTRIBUTION_CLEANUP_PLAN.md) and

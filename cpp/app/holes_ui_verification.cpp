@@ -116,12 +116,33 @@ int verify_holes_ui(QApplication& application, AssemblyWorkspaceWindow& window,
                 return viewer::ViewerCandidate{viewer::CandidateKind::Dimension,0,i,owner,key,{}};
             throw std::runtime_error("Holes parameter dimension missing: "+key);
         };
-        const auto drag_diameter=[&](bool cancel) {
+        const auto drag_diameter=[&](bool cancel,int handle=0) {
             const auto candidate=dimension_candidate("parameter:diameter");
             check(view->dimension_layout_editable(candidate),"Holes diameter layout is not editable");
-            view->confirm_reference(owner,candidate.semantic_key,{},viewer::CandidateKind::Dimension);flush();
-            for (int i=0;i<3;++i) check(view->dimension_handle_position(candidate,i).has_value(),"Diameter purple grip missing");
-            const auto from=*view->dimension_handle_position(candidate,0),to=from+QPointF(58,-37);
+            if (window.findChild<QDialog*>("holesPropertiesDialog")) {
+                // Finish reference entry before selecting a parameter annotation.
+                const auto at=QPointF(view->rect().center());
+                mouse(QEvent::MouseButtonPress,at,Qt::MiddleButton,Qt::MiddleButton);
+                mouse(QEvent::MouseButtonRelease,at,Qt::MiddleButton,Qt::NoButton);
+            }
+            click(hit([&](const auto& offered){return offered.kind==viewer::CandidateKind::Dimension &&
+                offered.owner_id==owner && offered.semantic_key==candidate.semantic_key;}));
+            const auto selected=[&] {
+                const auto confirmed=view->confirmed_candidate();
+                return confirmed && confirmed->kind==candidate.kind && confirmed->owner_id==owner &&
+                    confirmed->semantic_key==candidate.semantic_key;
+            };
+            check(selected(),"Clicking the diameter did not confirm it");
+            mouse(QEvent::MouseMove,QPointF(20,view->height()-20),Qt::NoButton,Qt::NoButton);
+            check(selected(),"Leaving the diameter cleared its confirmed selection");
+            for (int i=0;i<3;++i) {
+                const auto grip=view->dimension_handle_position(candidate,i);
+                check(grip.has_value(),"Diameter purple grip missing");
+                mouse(QEvent::MouseMove,*grip,Qt::NoButton,Qt::NoButton);
+                check(selected(),"Moving to a diameter grip cleared its selection");
+            }
+            const auto from=*view->dimension_handle_position(candidate,handle),to=from+QPointF(58,-37);
+            mouse(QEvent::MouseMove,from,Qt::NoButton,Qt::NoButton);
             mouse(QEvent::MouseButtonPress,from,Qt::LeftButton,Qt::LeftButton);
             mouse(QEvent::MouseMove,to,Qt::NoButton,Qt::LeftButton);
             mouse(QEvent::MouseButtonPress,to,Qt::RightButton,Qt::LeftButton|Qt::RightButton);
@@ -194,7 +215,16 @@ int verify_holes_ui(QApplication& application, AssemblyWorkspaceWindow& window,
         drag_diameter(false);
         check(pending->pending_dimension_layout({owner,"parameter:diameter",{}})->arrows_reversed,
               "Right-click during diameter drag did not cycle the common presentation");
+        for (int handle=1;handle<3;++handle) {
+            const auto before=pending->pending_dimension_layout({owner,"parameter:diameter",{}})->radius_rotation_degrees;
+            drag_diameter(false,handle);
+            check(std::abs(pending->pending_dimension_layout({owner,"parameter:diameter",{}})->radius_rotation_degrees-before)>1e-6,
+                  "Dragging a rim grip did not rotate the diameter annotation");
+        }
         check(window.grab().save(QString::fromStdString((directory/"holes-cylinder-preview.png").string())),"Cylinder preview screenshot failed");
+        const auto empty=QPointF(20,view->height()-20);
+        check(view->selection_candidates_at(empty).empty(),"Empty-click test position contains geometry");
+        click(empty);check(!view->confirmed_candidate(),"Empty View click retained the selected diameter");
         pending->buttons()->button(QDialogButtonBox::Cancel)->click();flush();run("save");
         check(!diameter_dimension(owner),"Cancelled Holes retained its preview dimension");
         check(document::PartDocument::load(file).find_container(owner)->feature_kind==document::FeatureKind::Sketch,"Cancel converted the source Sketch");

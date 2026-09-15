@@ -32,6 +32,9 @@ diameter. Ends are flat; the feature adds no drill tip, thread, or extension.
   and arrow presentation. RMB during a drag cycles the presentation; Escape
   cancels the drag. In Properties the layout stays pending until OK and Cancel
   discards it. Outside Properties it is saved as one undoable annotation edit.
+  Clicking the dimension confirms a persistent selection: moving the pointer
+  away from its text or to either rim grip keeps all three grips available.
+  Clicking empty View space clears the selection.
 - Double-clicking the Holes container exposes its parameter dimensions in View.
   Double-clicking the diameter or nonzero plane-offset dimension edits that
   value directly, using the same Holes transaction as Properties. Updating the
@@ -132,3 +135,12 @@ Local evidence: `build/holes-controls-build.log`,
 `build/holes-controls-native-tests.log`, `build/holes-controls-ui-tests.log`,
 and `build/holes-controls-regression-tests.log` (five passing companion tests;
 the final corrected Holes GUI run is recorded separately).
+
+The selection-retention regression first reproduced the reported failure on
+button-free movement away from an LMB-confirmed diameter. After disabling
+advance-on-hover for the shared feature-properties annotation filter, all three
+GUI contracts passed: Holes, inline dimension editing, and work planes. The
+expanded Holes test clicks through the common picker, travels to all three
+grips, drags both rim grips, and confirms that an empty click still clears the
+selection. Logs: `build/holes-selection-reproduction.log` (expected failure)
+and `build/holes-selection-tests.log` (3/3 passed).
