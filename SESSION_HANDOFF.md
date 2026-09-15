@@ -32,6 +32,15 @@ releases. Current Windows native dependencies remain available in the build/vcpk
 setup. A fresh GUI/CLI build and console UI contract passed with the old runtime
 absent (see the Linux handoff for validation details).
 
+Current build ID: `2026091503`. A Windows candidate from commit
+`3d7eaaf89bdd6a8a7f47081ae587c2a8c449d6cc` passed the full package smoke and archive
+checks; the exact SHA-256, local output locations and test scope are recorded in
+[Native distribution](doc/NATIVE_DISTRIBUTION.md#windows-verification-on-2026-09-15).
+The unpacked local portable installation holds versions `2026091503` and
+`2026091502` and preserves shared `config/`. It is an unsigned local candidate,
+not a GitHub release. Next distribution work is signed update/restart/rollback
+coordination and Linux acceptance on Linux.
+
 ## Work order
 
 New explicit user instructions take precedence. The agreed Part sequence is in

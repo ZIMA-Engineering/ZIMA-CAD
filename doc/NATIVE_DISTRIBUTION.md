@@ -193,3 +193,41 @@ switch selection after application exit and preserve all shared user data.
 
 See [binding requirements](DISTRIBUTION_CLEANUP_PLAN.md) and
 [Linux handoff](LINUX_RELEASE_HANDOFF.md).
+
+## Windows verification on 2026-09-15
+
+Validated candidate: `2026091503`, built from commit
+`3d7eaaf89bdd6a8a7f47081ae587c2a8c449d6cc`.
+The local ZIP is `.dist-output/candidate-2026091503/ZIMA-CAD-2026091503.zip`
+(66,880,593 bytes). SHA-256:
+
+```text
+b6a8c804a457ddf2dd36e2f89d4ca1afd0da1775c0bd4ca88e8d082b39a0ad8e
+```
+
+Passed checks:
+
+- Seven Python source/archive/environment validation tests.
+- Native portable settings test: GUI/CLI layering, user overrides, numbered
+  backups, version switching and rollback after a failed common-config save.
+- Existing standalone CLI process suite, including native documents, Unicode,
+  settings, streaming and explicit calculation.
+- Committed-source Windows build, dependency deployment, archive paths, CRC and
+  SHA-256, extraction with spaces/diacritics, and runtime/source immutability.
+- Packaged GUI/CLI identities, launcher stdout/stdin pipes, 6000 mm3 Part
+  save/reopen, PDF/JPEG exports, and actual GUI View rendering. The rendered Box
+  was visually inspected. Shared user configuration remained unchanged.
+- A local unpacked installation at `.dist-output/portable/ZIMA-CAD` contains
+  current `2026091503` and previous `2026091502`. Both started through the same
+  native launcher with correct JSON output and shared configuration preserved.
+
+Evidence logs: `build/version-package-final-03.log`,
+`build/portable-settings-tests.log`, `build/version-cli-tests.log`,
+`build/version-layout-final-build.log`. The per-archive `.validation.json`
+records its commit, hash and Windows smoke result. Artifacts/logs remain local
+and ignored by Git. No release/tag was published, no signing key was created,
+and no Linux runtime or automatic updater is claimed verified.
+
+Earlier local candidates remain available as ZIPs. The prepared runnable
+installation keeps the current and previous versions; custom/user directories
+were not pruned. Package test staging is disposable and is not the user's data.

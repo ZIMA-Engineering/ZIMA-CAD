@@ -101,3 +101,9 @@ Unix executable modes; extend and verify the Linux extraction path on Linux.
 Do not claim KDE/Wayland execution, Debian dependency closure or the signed updater
 based on these Windows changes. Keep configuration snapshots before future schema
 conversion, separately from ordinary numbered INI backups.
+
+Windows candidate `2026091503` is now validated (commit, hash and exact check scope
+are recorded in [NATIVE_DISTRIBUTION.md](NATIVE_DISTRIBUTION.md#windows-verification-on-2026-09-15)).
+Use this as evidence for Windows only. Changes needed for Linux will require a
+new committed candidate identity and matching Windows build before combining
+platforms; do not label a different Linux commit as the existing Windows build.
