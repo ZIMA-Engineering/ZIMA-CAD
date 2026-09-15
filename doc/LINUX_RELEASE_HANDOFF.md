@@ -116,3 +116,20 @@ are recorded in [NATIVE_DISTRIBUTION.md](NATIVE_DISTRIBUTION.md#windows-verifica
 Use this as evidence for Windows only. Changes needed for Linux will require a
 new committed candidate identity and matching Windows build before combining
 platforms; do not label a different Linux commit as the existing Windows build.
+
+## Published Windows release and AI follow-up
+
+The first signed Windows release,
+[2026091504](https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026091504),
+is now public. Its accepted archive and signed manifest are immutable. Linux can
+publish independently under a new build ID after Linux runtime validation.
+
+Development build `2026091505` adds the [AI console](AI_CONSOLE.md). The CMake
+`zima_ai` target uses existing Qt Core/Gui dependencies, AUTOMOC and a bundled
+engineering-reasoning resource. Codex remains a separately installed optional
+native executable; do not bundle accounts or a developer's Codex profile.
+Settings stores `AI/Model` and `AI/CodexExecutableLinux` in the shared installation
+configuration. Verify native executable discovery, the desktop sign-in browser,
+OS keyring, the private application-local profile and cancellation on Linux.
+Run `zima_ai_contract` without an account first; authenticated AI acceptance is a
+separate step. Windows results do not establish Linux authentication/runtime support.

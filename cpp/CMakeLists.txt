@@ -114,6 +114,13 @@ add_library(zima_commands modules/commands/src/dispatcher.cpp)
 target_include_directories(zima_commands PUBLIC modules/commands/include)
 target_link_libraries(zima_commands PUBLIC nlohmann_json::nlohmann_json)
 
+add_library(zima_ai ai/aiprovider.h ai/codexprovider.h ai/codexprovider.cpp
+    ai/aitools.cpp ai/aipreferences.cpp ai/ai.qrc)
+target_include_directories(zima_ai PUBLIC ai)
+target_link_libraries(zima_ai PUBLIC zima_commands Qt6::Gui)
+set_target_properties(zima_ai PROPERTIES AUTOMOC ON AUTORCC ON)
+target_compile_options(zima_ai PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
+
 add_library(zima_kernel_api INTERFACE)
 target_include_directories(zima_kernel_api INTERFACE
     modules/kernel_api/include)
@@ -403,7 +410,7 @@ add_executable(zima-cad-cpp
     app/command_console.cpp app/console_ui_verification.cpp app/holes_ui_verification.cpp app/edge_treatment_ui_verification.cpp app/rotation_handle_ui_verification.cpp
     app/main_workspace.cpp app/appearance_dialog.cpp app/appearance_command.cpp app/section_command.cpp app/section_ui_verification.cpp app/assembly_workspace_window.cpp app/template_command.cpp app/numeric_value_lock_command.cpp app/shaft_thread_command.cpp app/derived_copy_command.cpp
     app/application_settings.cpp app/global_settings_dialog.cpp app/measurement_command.cpp app/measurement_ui_verification.cpp
-    app/document_tools_dialogs.cpp app/updates_ui_verification.cpp
+    app/document_tools_dialogs.cpp app/updates_ui_verification.cpp app/ai_settings_page.cpp
     app/drawing_window.cpp app/show_erase_dialog.cpp app/file_dialog.cpp app/resource_icon.cpp
     app/zima_resources.qrc
     app/component_properties_dialog.cpp app/primitive_properties_dialog.cpp
@@ -416,7 +423,7 @@ add_executable(zima-cad-cpp
     app/sketch_dimension_properties_dialog.cpp)
 target_include_directories(zima-cad-cpp PRIVATE app)
 target_link_libraries(zima-cad-cpp PRIVATE
-    zima_update_ui
+    zima_update_ui zima_ai
     zima_command_host zima_commands zima_workspace zima_assembly zima_document_core zima_drawing zima_kernel_occt zima_viewer zima_ui
     zima_interchange nlohmann_json::nlohmann_json
     Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Svg)
@@ -518,6 +525,13 @@ if(ZIMA_BUILD_TESTS)
     target_link_libraries(zima_cpp_section_contract_tests PRIVATE zima_document_core zima_assembly zima_drawing zima_kernel_occt)
     add_test(NAME zima_cpp_section_contract_tests COMMAND zima_cpp_section_contract_tests)
     enable_testing()
+    add_executable(zima_ai_contract_tests tests/ai_contract_tests.cpp app/command_console.cpp
+        app/ai_settings_page.cpp app/file_dialog.cpp app/resource_icon.cpp)
+    target_include_directories(zima_ai_contract_tests PRIVATE app)
+    target_link_libraries(zima_ai_contract_tests PRIVATE zima_ai zima_command_host zima_ui Qt6::Widgets)
+    target_compile_options(zima_ai_contract_tests PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
+    add_test(NAME zima_ai_contract COMMAND zima_ai_contract_tests -platform offscreen)
+    set_tests_properties(zima_ai_contract PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 90)
     add_executable(zima_cpp_cache_storage_contract_tests tests/cache_storage_contract_tests.cpp)
     target_link_libraries(zima_cpp_cache_storage_contract_tests PRIVATE zima_document_core nlohmann_json::nlohmann_json)
     add_test(NAME zima_cpp_cache_storage_contract_tests COMMAND zima_cpp_cache_storage_contract_tests)

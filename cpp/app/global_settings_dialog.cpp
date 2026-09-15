@@ -2,6 +2,8 @@
 #include "file_dialog.hpp"
 #include "updatespage.h"
 #include "updateservice.h"
+#include "ai_settings_page.hpp"
+#include "aipreferences.h"
 #include <QTabWidget>
 #include <QVBoxLayout>
 #include <QDialogButtonBox>
@@ -115,6 +117,10 @@ GlobalSettingsDialog::GlobalSettingsDialog(
         if (accepted) { if (rollback) service->rollback(); else service->restartPrepared(); }
     }, sections_);
     sections_->addTab(updates_, tr("Aktualizace"));
+    ai_preferences_path_ = settings_.installation_root.isEmpty() ? settings_.base_config_path
+        : settings_.installation_root + "/config/config.ini";
+    ai_ = new AiSettingsPage(ai_preferences_path_, sections_);
+    sections_->addTab(ai_, tr("AI"));
     connect(this, &QDialog::finished, updates_, [this] { updates_->cancelPendingInstallation(); });
     connect(this, &QDialog::rejected, this, [] {
         if (UpdateService::get()->busy()) UpdateService::get()->cancel();
@@ -122,6 +128,7 @@ GlobalSettingsDialog::GlobalSettingsDialog(
 }
 
 void GlobalSettingsDialog::show_updates() { sections_->setCurrentWidget(updates_); }
+void GlobalSettingsDialog::show_ai() { sections_->setCurrentWidget(ai_); }
 
 const ApplicationSettings& GlobalSettingsDialog::settings() const {
     return settings_;
@@ -158,8 +165,13 @@ bool GlobalSettingsDialog::submit() {
     QString error;
     auto* update_service = UpdateService::get();
     const bool previous_automatic = update_service->automatic();
+    const auto previous_ai = CadAi::preferences(ai_preferences_path_);
     if (updates_->save(&error)) {
-        if (settings_.save(&error)) return true;
+        if (CadAi::savePreferences(ai_->values(), ai_preferences_path_, &error)) {
+            if (settings_.save(&error)) return true;
+            QString restore_ai_error;
+            if (!CadAi::savePreferences(previous_ai, ai_preferences_path_, &restore_ai_error)) error += '\n' + restore_ai_error;
+        }
         QString restore_error;
         if (!update_service->saveAutomatic(previous_automatic, &restore_error)) error += '\n' + restore_error;
     }

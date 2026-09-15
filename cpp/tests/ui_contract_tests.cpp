@@ -880,6 +880,23 @@ int main(int argc, char* argv[]) {
                     !view.fly_navigation_enabled(),
                 "Viewer did not start in the established orthographic CAD mode");
         view.set_projection_mode(zima::viewer::ProjectionMode::Perspective);
+        // The same wheel direction must widen/narrow the visible model scale
+        // in all four independent projection/navigation combinations.
+        for(const bool perspective : {false,true}) for(const bool fly : {false,true}) {
+            zima::viewer::MeshView navigation(&parent);
+            navigation.resize(500,360);
+            navigation.set_projection_mode(perspective ? zima::viewer::ProjectionMode::Perspective
+                : zima::viewer::ProjectionMode::Orthographic);
+            navigation.set_fly_navigation_enabled(fly);
+            const auto before=navigation.world_tolerance_for_pixels(10);
+            QWheelEvent out(QPointF(250,180),QPointF(250,180),QPoint(),QPoint(0,120),Qt::NoButton,Qt::NoModifier,Qt::ScrollUpdate,false);
+            QApplication::sendEvent(&navigation,&out);
+            const auto wider=navigation.world_tolerance_for_pixels(10);
+            require(wider>before,"Positive wheel step zoomed inward in a navigation mode");
+            QWheelEvent in(QPointF(250,180),QPointF(250,180),QPoint(),QPoint(0,-120),Qt::NoButton,Qt::NoModifier,Qt::ScrollUpdate,false);
+            QApplication::sendEvent(&navigation,&in);
+            require(navigation.world_tolerance_for_pixels(10)<wider,"Negative wheel step zoomed outward in a navigation mode");
+        }
         require(view.projection_mode() ==
                     zima::viewer::ProjectionMode::Perspective,
                 "Perspective projection was not activated");

@@ -12,12 +12,14 @@ class QTabWidget;
 class UpdatesPage;
 
 namespace zima::app {
+class AiSettingsPage;
 
 class GlobalSettingsDialog final : public zima::ui::PropertiesSubWindow {
 public:
     explicit GlobalSettingsDialog(ApplicationSettings settings, QWidget* parent);
     [[nodiscard]] const ApplicationSettings& settings() const;
     void show_updates();
+    void show_ai();
 
 protected:
     bool submit() override;
@@ -28,6 +30,8 @@ private:
     ApplicationSettings settings_;
     QTabWidget* sections_{};
     UpdatesPage* updates_{};
+    AiSettingsPage* ai_{};
+    QString ai_preferences_path_;
     QComboBox* language_{};
     QComboBox* application_font_{};
     QMap<QString, QComboBox*> unit_fields_;

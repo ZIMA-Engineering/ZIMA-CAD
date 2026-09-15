@@ -2,6 +2,19 @@
 
 ## Current application
 
+Development build `2026091505` adds **Settings > AI** and `codex` mode in the
+desktop CAD console. It uses the user's own ChatGPT account through the native
+Codex App Server, following ZIMA-CAD-Parts. Each request follows the active Part,
+Assembly or Drawing and its active occurrence; a changed tab, selection or
+revision invalidates pending commands. Changes use inline approval and the shared
+CAD command host. See [AI console](doc/AI_CONSOLE.md) for setup, protocol checks,
+privacy and the remaining account-connected acceptance step.
+
+The model/drawing navigation button now shares the main toolbar's green hover and
+pressed feedback. Wheel navigation with both Perspective and Fly enabled now
+matches the ordinary zoom direction. Both wheel directions passed in all four
+projection/navigation combinations.
+
 Boolean split-edge repair: shared Add/Subtract topology completion assigns distinct
 parent-derived identities to disconnected edge fragments and persists their new
 endpoints for Fillet/Chamfer routes and variable R1. The original `Projects/11.prtz`
@@ -112,24 +125,29 @@ releases. Current Windows native dependencies remain available in the build/vcpk
 setup. A fresh GUI/CLI build and console UI contract passed with the old runtime
 absent (see the Linux handoff for validation details).
 
-Current build ID: `2026091504`; release notes are in
+Published build ID: `2026091504`; release notes are in
 [2026091504](doc/releases/2026091504.md). The earlier `2026091503` Windows candidate from commit
 `3d7eaaf89bdd6a8a7f47081ae587c2a8c449d6cc` passed the full package smoke and archive
 checks; the exact SHA-256, local output locations and test scope are recorded in
 [Native distribution](doc/NATIVE_DISTRIBUTION.md#windows-verification-on-2026-09-15).
 The unpacked local portable installation holds versions `2026091503` and
 `2026091502` and preserves shared `config/`. It is an unsigned local candidate,
-not a GitHub release. The new signed `2026091504` package is ready separately in
+not a GitHub release. The signed `2026091504` package is stored separately in
 `.dist-output/release-2026091504/`. It passed candidate and finalized-archive smoke,
 production bootstrap verification and the packaged Updates GUI contract.
 See [signed build acceptance](doc/NATIVE_DISTRIBUTION.md#signed-windows-build-2026091504)
-for its exact commit, SHA-256 and logs. Public release publication and Linux
-acceptance remain separate release work; older local installations are unchanged.
+for its exact commit, SHA-256 and logs. The user-approved
+[Windows release](https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026091504)
+was published on 2026-09-15 at 14:11:02 UTC with all three verified assets. Public
+updater discovery reports version `2026091504` as available from a disposable
+older-version selection (`build/updates-public-release-04.log`). Linux acceptance
+remains assigned to Linux. Development now uses `2026091505`; it has not been
+packaged or published.
 
 ## Application updates
 
 The 2026-09-15 update request is implemented using the current ZCP design adapted
-to native CAD/CMake. Settings has General/Updates tabs. Startup checks run in a
+to native CAD/CMake. Settings has General/Updates/AI tabs. Startup checks run in a
 background helper and expose only a small status-bar link for verified newer
 versions. One explicit Install and restart action downloads, verifies and restarts;
 dirty documents and active edits prevent both its start and the final restart.
@@ -146,16 +164,19 @@ in the package. Development continues through the same root
 BAT. It can check releases, while installation requires a signed portable bundle.
 Windows and Linux may now publish independently with immutable release assets.
 Linux execution stays assigned to the Linux host; test Linux manifests are not
-evidence of Linux runtime support. No GitHub release was created by this work.
+evidence of Linux runtime support. The first signed Windows release is now public.
 
 ## Work order
 
 On 2026-09-15 the user confirmed this immediate order: finish the Holes preview,
 diameter annotation and display-mode icons; then complete program updates;
 then continue Sketcher offsets, especially external and STEP source curves.
-Updater implementation and Windows signed-bundle acceptance are complete.
-The first signed bundle is prepared locally; public release publication is pending.
-Modeling work next returns to Sketcher offsets.
+Updater implementation, Windows signed-bundle acceptance and the explicitly
+approved publication are complete. The user then prioritized AI integration in
+the console, following ZIMA-CAD-Parts, with the active Part/Assembly/Drawing tab as
+context. That integration is implemented in development build `2026091505`.
+Live authenticated AI behavior remains to be tried after the user signs in through
+Settings > AI. Modeling work subsequently returns to Sketcher offsets.
 
 New explicit user instructions take precedence. The agreed Part sequence is in
 [ROADMAP.md](ROADMAP.md#agreed-next-steps-for-part-2026-09-06), beginning with
@@ -163,7 +184,7 @@ Sketcher offsets, especially projected STEP geometry. Current offset support is
 in [SKETCH_OFFSET.md](doc/SKETCH_OFFSET.md); review remaining practical coverage
 before treating the historical plan as unimplemented work. The comprehensive
 Undo/Redo audit stays after the agreed modeling features are broadly implemented.
-AI integration is a separate next stage after the shared CAD commands.
+AI uses the shared commands; it does not introduce an independent modeling path.
 
 Preserve current user configuration and unrelated working files. Required native
 fixtures under `tests/fixtures/cross_language` are still consumed by C++ tests;

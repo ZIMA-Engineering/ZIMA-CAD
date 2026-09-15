@@ -2,6 +2,7 @@
 #include <zima/workspace/opening_component_operations.hpp>
 #include <zima/workspace/edge_treatment_operations.hpp>
 #include "workspace_internal.hpp"
+#include "tool_button_style.hpp"
 #include <zima/workspace/body_operations.hpp>
 
 namespace zima::app {
@@ -88,13 +89,11 @@ void AssemblyWorkspaceWindow::create_layout() {
     tree_->setHeaderLabels({tr("DÍL")});
     tree_->setMinimumWidth(280);
     tree_->header()->setMinimumHeight(38);
-    // Shared Part / Assembly / Drawing navigation lives in the Tree header,
-    // exactly where the Python workspace exposes it.  It is deliberately not
-    // a separate application command: its target depends on the displayed
-    // document and remains available in every application mode.
+    // Shared navigation follows the displayed Part, Assembly or Drawing.
     document_kind_button_ = new QToolButton(tree_->header());
     document_kind_button_->setObjectName("documentKindButton");
     document_kind_button_->setAutoRaise(true);
+    document_kind_button_->setStyleSheet(command_button_style());
     connect(document_kind_button_, &QToolButton::clicked, this,
         [this] { navigate_document_kind(); });
     tree_->setStyleSheet(

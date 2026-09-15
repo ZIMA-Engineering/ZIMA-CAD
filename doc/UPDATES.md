@@ -210,6 +210,12 @@ The first signed Windows build, `2026091504`, passed the committed-source builde
 signing finalizer and finalized-archive Windows smoke. In a fresh extraction the
 production helper reported `trusted: true`; live GitHub discovery returned
 `current`, and the packaged Updates GUI contract passed. The three immutable
-assets are ready locally, not published. See
+assets were published with user approval on 2026-09-15 at 14:11:02 UTC:
+[Windows release 2026091504](https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026091504).
+GitHub asset names, sizes and digests matched the accepted local files. The
+production helper subsequently verified public discovery from a disposable older
+version selection and returned `available` for `2026091504`
+(`build/updates-public-release-04.log`). See
 [signed build acceptance](NATIVE_DISTRIBUTION.md#signed-windows-build-2026091504)
-for hashes, locations and the distinction from a live public upgrade test.
+for hashes, locations and the distinction from an upgrade between two installed
+production releases. AI development build `2026091505` is not a published update.

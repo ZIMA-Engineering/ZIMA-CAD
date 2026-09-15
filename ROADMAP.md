@@ -114,7 +114,10 @@ instructions take precedence.
 
 On 2026-09-15 the user placed completion of program updates before resuming
 this Part sequence, after the current Holes preview, diameter annotation and
-View icon refinements. Continue with Sketcher offsets after that update work.
+View icon refinements. The user subsequently prioritized AI in the CAD console,
+following ZIMA-CAD-Parts and using the active Part/Assembly/Drawing tab as context.
+That integration is implemented in development build `2026091505`; authenticated
+user acceptance is next. Resume Sketcher offsets after this AI work.
 
 1. **Inward/outward Sketcher offsets** with a specified distance, especially
    from imported STEP edges projected into a Sketch.

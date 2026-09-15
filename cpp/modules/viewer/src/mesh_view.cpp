@@ -5606,7 +5606,9 @@ void MeshView::wheelEvent(QWheelEvent* event) {
             QVector3D(0.0F, 0.0F, -1.0F));
         const float distance = std::max(impl_->radius * 0.12F,
             impl_->view_scale * 0.08F);
-        impl_->fly_position += forward * steps * distance;
+        // Positive wheel steps widen the ordinary camera's view scale.
+        // Move backward in fly mode to preserve that same zoom direction.
+        impl_->fly_position -= forward * steps * distance;
         impl_->candidates.clear();
         update();
         event->accept();

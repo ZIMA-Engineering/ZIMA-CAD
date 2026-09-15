@@ -57,6 +57,11 @@ available for cylinder, sphere, cone, pyramid and wedge. Command dimensions are
 explicitly in mm.
 See [CLI usage and configuration](doc/CAD_COMMAND_LINE.md).
 
+The desktop console also supports `codex` mode. Configure your own ChatGPT account
+in **Settings > AI**. Requests follow the active Part, Assembly or Drawing tab;
+changes are reviewed inline and executed through the same CAD commands.
+See [AI console setup and behavior](doc/AI_CONSOLE.md).
+
 ## Native application and runtime
 
 The Python implementation was removed on 2026-09-15 at the user's request.

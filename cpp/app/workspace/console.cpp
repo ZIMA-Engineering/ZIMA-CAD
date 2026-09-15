@@ -1,6 +1,8 @@
 #include "workspace_internal.hpp"
 #include <zima/command_host/host.hpp>
 #include "command_console.hpp"
+#include "global_settings_dialog.hpp"
+#include <QJsonDocument>
 #include <QDockWidget>
 #include <QCursor>
 
@@ -162,7 +164,19 @@ void AssemblyWorkspaceWindow::create_command_console() {
     console_dock_->setObjectName("commandConsoleDock");
     console_dock_->setFeatures(QDockWidget::DockWidgetClosable);
     console_dock_->setAllowedAreas(Qt::BottomDockWidgetArea);
-    console_=new CommandConsole([this](const QString& text){return execute_console_command(text);},console_dock_);
+    CadAi::configurePreferences(application_settings_.installation_root.isEmpty()?application_settings_.base_config_path
+        :QDir(application_settings_.installation_root).filePath("config/config.ini"));
+    CommandConsole::AiOptions ai;
+    ai.snapshot=[this]{
+        const auto context=command_host_->execute_text("context");
+        const auto documents=command_host_->execute_text("documents");
+        const auto cad=QJsonDocument::fromJson(QByteArray::fromStdString(context.data.dump())).object();
+        return QJsonObject{{"cad",cad},{"documents",QJsonDocument::fromJson(QByteArray::fromStdString(documents.data.dump())).array()},
+            {"currentDirectory",cad["working_directory"]},{"language",application_settings_.language}};
+    };
+    ai.preferences=[]{return CadAi::preferences();};
+    ai.show_settings=[this]{show_global_settings();if(auto* dialog=dynamic_cast<GlobalSettingsDialog*>(global_settings_dialog_))dialog->show_ai();};
+    console_=new CommandConsole([this](const QString& text){return execute_console_command(text);},std::move(ai),console_dock_);
     console_dock_->setWidget(console_);addDockWidget(Qt::BottomDockWidgetArea,console_dock_);console_dock_->hide();
     auto* toggle=console_dock_->toggleViewAction();toggle->setObjectName("showCommandConsoleAction");
     toggle->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+C")));

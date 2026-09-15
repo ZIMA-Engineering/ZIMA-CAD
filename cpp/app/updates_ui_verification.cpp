@@ -1,6 +1,11 @@
 #include "updates_ui_verification.hpp"
 #include "assembly_workspace_window.hpp"
 #include "global_settings_dialog.hpp"
+#include "aiprovider.h"
+#include "aipreferences.h"
+#include <QLineEdit>
+#include <QComboBox>
+#include <QToolButton>
 #include "updateservice.h"
 #include "updatespage.h"
 #include <QAction>
@@ -144,9 +149,27 @@ int verify_updates_ui(QApplication& app, AssemblyWorkspaceWindow& window, const 
         checkbox->setChecked(!automatic);
         const auto image = QString::fromStdU16String((directory / "updates-settings.png").u16string());
         require(window.grab().save(image), "Cannot capture Updates UI");
+        require(!cadAiProvider()->connected() && !cadAiProvider()->busy(),"Opening Settings started AI");
+        dialog->show_ai();app.processEvents();
+        require(tabs->currentWidget()->objectName()=="aiSettingsPage","Missing AI Settings section");
+        auto* ai_executable=dialog->findChild<QLineEdit*>("aiExecutable");
+        require(ai_executable!=nullptr,"Missing AI executable preference");
+        const auto previous_ai=CadAi::preferences();
+        ai_executable->setText("cancelled-ai-executable");
+        require(window.grab().save(QString::fromStdU16String((directory/"ai-settings.png").u16string())),"Cannot capture AI Settings");
         dialog->buttons()->button(QDialogButtonBox::Cancel)->click(); app.processEvents();
+        require(CadAi::preferences().executable==previous_ai.executable,"Settings Cancel persisted AI changes");
         require(service->automatic() == automatic, "Cancel changed startup preference");
         QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        if(auto* navigation=window.findChild<QToolButton*>("documentKindButton");navigation&&navigation->isVisible()) {
+            navigation->setAttribute(Qt::WA_UnderMouse,false);navigation->setDown(false);
+            navigation->grab().save(QString::fromStdU16String((directory/"document-switch-idle.png").u16string()));
+            navigation->setAttribute(Qt::WA_UnderMouse,true);
+            navigation->grab().save(QString::fromStdU16String((directory/"document-switch-hover.png").u16string()));
+            navigation->setDown(true);
+            navigation->grab().save(QString::fromStdU16String((directory/"document-switch-pressed.png").u16string()));
+            navigation->setDown(false);navigation->setAttribute(Qt::WA_UnderMouse,false);
+        }
 
         QTemporaryDir temp;
         require(temp.isValid(), "Cannot create isolated preference test");
@@ -158,9 +181,11 @@ int verify_updates_ui(QApplication& app, AssemblyWorkspaceWindow& window, const 
         GlobalSettingsDialog isolated(settings, &window);
         isolated.show_updates(); isolated.show(); app.processEvents();
         isolated.findChild<QCheckBox*>("updatesAutomatic")->setChecked(false);
+        isolated.show_ai();isolated.findChild<QLineEdit*>("aiExecutable")->setText("chosen-native-codex");
         isolated.buttons()->button(QDialogButtonBox::Ok)->click(); app.processEvents();
         require(isolated.result() == QDialog::Accepted && !service->automatic(), "OK must persist startup check preference");
         require(!QSettings(config, QSettings::IniFormat).value("Updates/CheckAtStartup", true).toBool(), "Preference is missing from config");
+        require(CadAi::preferences(config).executable=="chosen-native-codex","Settings OK did not persist AI preferences");
         std::cout << "Updates UI: one-action install, exact approval/cancellation lifetime, retry, rollback, progress, internal Settings, silent initial state, Cancel/OK and unsaved-document restart guard passed\n";
         return 0;
     } catch (const std::exception& error) {

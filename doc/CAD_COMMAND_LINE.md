@@ -152,8 +152,10 @@ The catalog is shared with the console: documents, context/tree, new/open/save,
 regenerate, undo/redo, fit, and create/get/set for all six basic primitives.
 Without a View, `fit` returns an error. `context` invents no selection, hover, or
 camera. Box, cylinder, sphere, cone, pyramid, and wedge dimensions are explicitly
-in mm and use the same transactions as GUI. Connection to a running GUI, an AI
-provider, and voice are outside this stage.
+in mm and use the same transactions as GUI. The desktop console's
+[AI mode](AI_CONSOLE.md) uses this same host with active-tab context and inline
+command review. The headless CLI does not connect to a running GUI or AI provider;
+voice input remains outside this stage.
 
 `zima_cpp_cli_process_tests` launches actual CLI processes. It checks QSettings-saved
 config, project layering, templates/units, Czech paths, all three native types,

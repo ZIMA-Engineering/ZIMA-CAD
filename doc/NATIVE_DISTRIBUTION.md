@@ -229,8 +229,14 @@ production releases; signed lifecycle fixtures cover installation and rollback.
 Logs: `build/updates-package-04.log`, `build/updates-signed-04.log`,
 `build/updates-signed-04-acceptance.log`. The candidate View capture was visually
 inspected and copied to `Projects/test/release-2026091504-view.png`. Release notes:
-[2026091504](releases/2026091504.md). The assets are prepared locally and have not
-been published. Development still starts through repository-root `zima-cad.bat`;
+[2026091504](releases/2026091504.md). With the user's approval, all three assets
+were published on 2026-09-15 at 14:11:02 UTC as the latest stable
+[GitHub release](https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026091504).
+Their remote names, sizes and SHA-256 digests matched the accepted local assets.
+The production updater then verified the public manifest and reported `available`
+from a disposable older-version selection; see `build/updates-public-release-04.log`.
+This was discovery only, not replacement of a user's running installation.
+Development still starts through repository-root `zima-cad.bat`;
 the first signed portable bundle must be extracted into a new installation root.
 
 ### Earlier unsigned candidate
