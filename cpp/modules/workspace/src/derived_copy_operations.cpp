@@ -1,6 +1,16 @@
 #include <zima/workspace/derived_copy_operations.hpp>
 #include <algorithm>
 namespace zima::workspace {
+namespace {
+bool solid_source(const document::HistoryContainer& feature) {
+    using Kind=document::FeatureKind;
+    switch(feature.feature_kind) {
+    case Kind::Sketch:case Kind::Fillet:case Kind::Chamfer:case Kind::Shell:
+    case Kind::Thread:case Kind::ShaftThread:case Kind::DrillPoint:return false;
+    default:return !feature.suppressed;
+    }
+}
+}
 DerivedCopyDefinition derived_copy_definition(const Workspace& live,const std::string& id,const std::string& object) {
     if(const auto* part=live.open_part(id)) {
         const auto* body=part->session.document().body_history.find(object);
@@ -20,7 +30,7 @@ CopySources derived_copy_sources(const Workspace& live,const std::string& id,con
     if(!object.empty())static_cast<void>(derived_copy_definition(live,id,object));
     CopySources result;
     if(const auto* part=live.open_part(id)) {
-        const auto& graph=part->session.document().body_history;
+        const auto& document=part->session.document();const auto& graph=document.body_history;
         result.boundary=graph.insertion_cursor();
         if(!object.empty()||!graph.active_body_id().empty()) {
             const auto& anchor=object.empty()?graph.active_body_id():object;
@@ -28,9 +38,24 @@ CopySources derived_copy_sources(const Workspace& live,const std::string& id,con
             if(found==graph.order().end())throw DerivedCopyError("invalid_history","The copy boundary is missing from the document history.");
             result.boundary=static_cast<std::size_t>(found-graph.order().begin())+(object.empty()?1:0);
         }
-        for(const auto& source:graph.available_before(result.boundary)) {
-            if(const auto* body=graph.find(source))result.items.push_back({source,body->name,CopySourceKind::Body,body->visible});
-            else if(const auto* operation=graph.find_boolean(source))result.items.push_back({source,operation->name,CopySourceKind::Boolean,operation->visible});
+        result.context_bodies=graph.available_before(result.boundary);
+        const auto active=object.empty()?graph.active_body_id():std::string{};
+        for(std::size_t position=0;position<result.boundary;++position) {
+            const auto& source=graph.order()[position];
+            const bool available=std::ranges::find(result.context_bodies,source)!=result.context_bodies.end();
+            if(!active.empty()&&source!=active)continue;
+            if(const auto* body=graph.find(source)) {
+                if(active.empty()&&available)result.items.push_back({source,body->name,CopySourceKind::Body,body->visible});
+                const auto count=active.empty()?body->entries.size():body->cursor;
+                for(std::size_t index=0;index<count;++index) {
+                    const auto* feature=document.find_container(body->entries[index].id);
+                    if(feature&&solid_source(*feature)) {
+                        if(feature->combine_mode==document::CombineMode::Subtract&&
+                            std::ranges::find(result.context_bodies,graph.copy_target_before(feature->id,result.boundary))==result.context_bodies.end())continue;
+                        result.items.push_back({feature->id,feature->name,CopySourceKind::Solid,body->visible});
+                    }
+                }
+            } else if(const auto* operation=graph.find_boolean(source);operation&&available)result.items.push_back({source,operation->name,CopySourceKind::Boolean,operation->visible});
         }
         return result;
     }
@@ -43,5 +68,28 @@ CopySources derived_copy_sources(const Workspace& live,const std::string& id,con
         return result;
     }
     throw DerivedCopyError("unsupported_document","Derived copies require an open Part or Assembly.");
+}
+kernel::ViewerMesh derived_copy_source_mesh(const document::DocumentSession& session,const CopySource& source) {
+    if(session.calculated_boundaries().empty())return {};
+    const auto& result=session.calculated_boundaries().back();
+    if(source.kind!=CopySourceKind::Solid) {
+        const auto found=result.body_outputs.find(source.id);
+        return found==result.body_outputs.end()?kernel::ViewerMesh{}:found->second->mesh;
+    }
+    kernel::ViewerMesh mesh;
+    const auto& geometry=result.mesh.original_references;
+    for(std::size_t i=0;i<geometry.triangle_references.size();++i) {
+        const auto& ref=geometry.triangle_references[i];if(ref.owner_id!=source.id)continue;
+        for(std::size_t j=0;j<3;++j) {
+            mesh.triangles.push_back(static_cast<std::uint32_t>(mesh.vertices.size()));
+            mesh.vertices.push_back(geometry.vertices.at(geometry.triangles.at(3*i+j)));
+        }
+        mesh.triangle_references.push_back(ref);
+    }
+    for(const auto& edge:geometry.edges)if(edge.reference.owner_id==source.id)mesh.edges.push_back(edge);
+    for(const auto& point:geometry.points)if(point.reference.owner_id==source.id)mesh.points.push_back(point);
+    for(const auto& axis:geometry.axes)if(axis.reference.owner_id==source.id)mesh.axes.push_back(axis);
+    mesh.original_references={mesh.vertices,mesh.triangles,mesh.triangle_references,mesh.edges,mesh.points,mesh.axes};
+    return mesh;
 }
 } // namespace zima::workspace

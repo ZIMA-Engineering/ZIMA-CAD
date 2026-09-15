@@ -1838,7 +1838,7 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path) {
     } catch (const nlohmann::json::exception&) {
         throw std::runtime_error("Assembly INI contains invalid Container data");
     }
-    if (root.value("format", "") != "zima-cad-cpp" || root.at("format_version") != 30 ||
+    if (root.value("format", "") != "zima-cad-cpp" || root.at("format_version") != 31 ||
         root.value("type", "") != "assembly") {
         throw std::runtime_error("Invalid Assembly Container data");
     }
@@ -2177,7 +2177,7 @@ void AssemblyDocument::save(const std::filesystem::path& path,
     }
     static_cast<void>(zima::document::parse_named_views(named_views));
     nlohmann::json root = {
-        {"format", "zima-cad-cpp"}, {"format_version", 30},
+        {"format", "zima-cad-cpp"}, {"format_version", 31},
         {"type", "assembly"}, {"document_id", document_id}, {"name", name},
         {"user_parameters", user_parameters},
         {"user_parameter_order", user_parameter_order},

@@ -25,12 +25,13 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     const auto revision=state->session.revision();const auto* cache=state->session.calculated_boundaries().data();
     const auto* source_shape=&state->session.calculated_boundaries().back().body_outputs.at(fixture.source).get();
     auto data=run(host,"derived_copy.sources",{{"object",fixture.mirror}}).data;
-    require(data.at("boundary")==2&&source_ids(data)==Json::array({fixture.source,fixture.other}),"Mirror boundary offered itself or downstream geometry");
+    const auto solid=fixture.document.history[0].id,other_solid=fixture.document.history[1].id;
+    require(data.at("boundary")==2&&source_ids(data)==Json::array({fixture.source,solid,fixture.other,other_solid}),"Mirror boundary offered itself or downstream geometry");
     data=run(host,"derived_copy.sources",{{"object",fixture.pattern}}).data;
-    require(source_ids(data)==Json::array({fixture.source,fixture.other,fixture.mirror}),"Pattern boundary lost a preceding copy");
+    require(source_ids(data)==Json::array({fixture.source,solid,fixture.other,other_solid,fixture.mirror}),"Pattern boundary lost a preceding copy");
     data=run(host,"derived_copy.sources").data;
-    require(source_ids(data)==Json::array({fixture.mirror,fixture.pattern,fixture.combined,fixture.copy_of_boolean})&&
-        data.at("items")[2].at("kind")=="boolean","Copy source list failed Boolean consumption/order");
+    require(source_ids(data)==Json::array({solid,other_solid,fixture.mirror,fixture.pattern,fixture.combined,fixture.copy_of_boolean})&&
+        data.at("items")[4].at("kind")=="boolean","Copy source list failed Boolean consumption/order");
     auto mirror=run(host,"mirror.get",{{"object",fixture.mirror}}).data;
     require(mirror.at("source")==fixture.source&&mirror.at("reference").at("owner")==fixture.mirror+":origin"&&
         mirror.at("placement").at("x")==-2&&mirror.at("placement").at("value_locks")==Json::array({"x"})&&
@@ -53,7 +54,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
         &state->session.calculated_boundaries().back().body_outputs.at(fixture.source).get()==source_shape&&
         state->session.document().body_history==original_graph&&!host.change(),"Read-only copy queries calculated or mutated document/cache");
     auto active=state->session.document();active.body_history.activate(fixture.source);state->session.commit(std::move(active),state->session.calculated_boundaries());
-    require(source_ids(run(host,"derived_copy.sources").data)==Json::array({fixture.source}),"Creation ignored the active Body boundary");
+    require(source_ids(run(host,"derived_copy.sources").data)==Json::array({solid}),"Active Body must offer its solid, not the whole Body");
     active=state->session.document();active.body_history.activate({});active.body_history.set_insertion_cursor(0);state->session.commit(std::move(active),state->session.calculated_boundaries());
     require(run(host,"derived_copy.sources").data.at("items").empty(),"Creation ignored the root insertion cursor");
     auto assembly=assembly::AssemblyDocument::create_default();

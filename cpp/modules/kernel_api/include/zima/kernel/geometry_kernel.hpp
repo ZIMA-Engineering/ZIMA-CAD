@@ -748,6 +748,9 @@ struct BodyHistoryScope {
     Vec3 rotation_degrees;
     MirrorPlane mirror_plane;
     PatternRequest pattern;
+    // Optional solid feature within source_id. Copies its original operand,
+    // never the accumulated Body result at that feature's history boundary.
+    std::string source_feature_id;
     bool operator==(const BodyHistoryScope&) const = default;
 };
 
@@ -923,6 +926,10 @@ struct PlacedBody {
             for(double v:{operation.body.mirror_plane.point.x,operation.body.mirror_plane.point.y,operation.body.mirror_plane.point.z,
                     operation.body.mirror_plane.normal.x,operation.body.mirror_plane.normal.y,operation.body.mirror_plane.normal.z})
                 u64(std::bit_cast<std::uint64_t>(v));
+        if(!operation.body.source_feature_id.empty()) {
+            u64(operation.body.source_feature_id.size());
+            for(const unsigned char value:operation.body.source_feature_id)byte(value);
+        }
         if(operation.body.combination==BodyCombination::Pattern) {
             const auto& p=operation.body.pattern;u64(p.count);byte(p.circular);byte(p.full_circle);
             for(double v:{p.angle_degrees,p.origin.x,p.origin.y,p.origin.z,p.axis.x,p.axis.y,p.axis.z})

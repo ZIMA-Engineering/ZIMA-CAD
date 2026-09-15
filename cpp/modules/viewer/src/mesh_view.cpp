@@ -155,6 +155,7 @@ struct MeshView::Impl {
     std::vector<CandidateKind> allowed_kinds{CandidateKind::Container};
     std::function<bool(const ViewerCandidate&)> candidate_filter;
     bool offer_result_faces{};
+    bool offer_original_containers{};
     bool advance_selection_on_hover{true};
     std::function<int(const ViewerCandidate&)> candidate_priority;
     std::vector<ViewerCandidate> candidates;
@@ -563,7 +564,7 @@ struct MeshView::Impl {
              ++triangle) {
             const auto& reference =
                 mesh.original_references.triangle_references[triangle];
-            if (has_local_display_faces && reference.instance_path.empty()) continue;
+            if (has_local_display_faces && reference.instance_path.empty() && !offer_original_containers) continue;
             if (reference.semantic_key.starts_with("origin:plane:") ||
                 reference.semantic_key == "plane") continue;
             if (triangle * 3 + 2 >= mesh.original_references.triangles.size()) continue;
@@ -938,7 +939,7 @@ std::vector<ViewerCandidate> MeshView::selection_candidates_at(
             ray_origin, ray_direction, world_tolerance)
         : ordered_viewer_candidates(
             impl_->mesh, impl_->persisted_reference_mesh,
-            ray_origin, ray_direction, world_tolerance, impl_->offer_result_faces);
+            ray_origin, ray_direction, world_tolerance, impl_->offer_result_faces,impl_->offer_original_containers);
     if (sketch_only) {
         for (auto& candidate : candidates) {
             const std::vector<std::size_t>* indices = nullptr;
@@ -2019,6 +2020,10 @@ void MeshView::set_body_surface_styles(zima::kernel::SurfaceStyle base,
     impl_->owner_styles=std::move(owners);impl_->face_styles=std::move(faces);update();
 }
 void MeshView::set_result_face_selection(bool enabled) { impl_->offer_result_faces=enabled; clear_selection(); }
+void MeshView::set_original_container_selection(bool enabled) {
+    if(impl_->offer_original_containers==enabled)return;
+    impl_->offer_original_containers=enabled;impl_->rebuild_persisted_reference_mesh();clear_selection();
+}
 
 void MeshView::set_inspected_faces(std::vector<ViewerCandidate> faces){impl_->inspected_faces=std::move(faces);update();}
 

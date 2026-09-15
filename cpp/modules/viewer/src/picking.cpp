@@ -407,7 +407,7 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
     const zima::kernel::ViewerMesh& references,
     const Vec3& ray_origin,
     const Vec3& ray_direction,
-    double world_tolerance, bool offer_result_faces) {
+    double world_tolerance, bool offer_result_faces, bool offer_original_containers) {
     std::vector<ViewerCandidate> result;
     const bool has_local_display_faces = std::any_of(
         mesh.triangle_references.begin(), mesh.triangle_references.end(),
@@ -489,6 +489,11 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
             // dependency resolution, but must not become a second picker.
             if (geometry == CandidateGeometry::OriginalReference &&
                 has_local_display_faces && face.reference.instance_path.empty()) {
+                if(offer_original_containers&&face.reference.valid()&&
+                    face.reference.semantic_key!="plane"&&!face.reference.semantic_key.starts_with("origin:")&&
+                    std::ranges::none_of(result,[&](const auto& item){return item.kind==CandidateKind::Container&&
+                        item.owner_id==face.reference.owner_id&&item.instance_path==face.reference.instance_path;}))
+                    result.push_back({CandidateKind::Container,face.distance,face.triangle,face.reference.owner_id,{},face.reference.instance_path,geometry});
                 continue;
             }
             // A Plane's filled interior quad (built-in Origin XY/YZ/XZ, or a

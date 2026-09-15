@@ -32,7 +32,8 @@ void BodyHistoryGraph::erase_step(const std::string& id) {
     if(found==next.order_.end())throw std::invalid_argument("Body history object does not exist");
     for(const auto& body:next.bodies_)if(body.scope.id!=id&&
         (std::ranges::find(body.dependencies,id)!=body.dependencies.end() ||
-         (body.derived_copy&&body.derived_copy->source_id==id)))
+         (body.derived_copy&&(body.derived_copy->source_id==id||
+             (owner(body.derived_copy->source_id)&&owner(body.derived_copy->source_id)->scope.id==id)))))
         throw std::invalid_argument("Objekt používá navazující těleso: "+body.name);
     for(const auto& op:next.booleans_)if(op.target_id==id||op.tool_id==id)
         throw std::invalid_argument("Objekt používá navazující Boolean: "+op.name);
@@ -77,8 +78,16 @@ void BodyHistoryGraph::validate() const {
             if (body->name.empty() || body->cursor > body->entries.size())
                 throw std::invalid_argument("Invalid body name or history cursor");
             if(body->derived_copy) {
-                if(!body->entries.empty()||body->cursor||!available.contains(body->derived_copy->source_id))
+                const auto* source_owner=owner(body->derived_copy->source_id);
+                const auto source=source_owner?source_owner->scope.id:body->derived_copy->source_id;
+                if(!body->entries.empty()||body->cursor||
+                    !(source_owner?preceding.contains(source):available.contains(source)))
                     throw std::invalid_argument("Kopie potřebuje předcházející zdroj a nemůže mít vlastní historii.");
+                if(body->derived_copy->subtract_source) {
+                    if(!source_owner)throw std::invalid_argument("Subtractive copy requires a source solid.");
+                    if(!available.erase(copy_target_before(body->derived_copy->source_id,preceding.size())))
+                        throw std::invalid_argument("Subtractive copy requires an available target Body.");
+                }
                 if(body->derived_copy->pattern)static_cast<void>(zima::kernel::validated_pattern(*body->derived_copy->pattern));
                 else static_cast<void>(zima::kernel::normalized_mirror_plane(body->derived_copy->resolved_plane));
             }
@@ -226,6 +235,18 @@ BodyHistoryBoundary BodyHistoryGraph::rollback_before(const std::string& entry_i
     return {body->scope.id, static_cast<std::size_t>(std::distance(body->entries.begin(), found))};
 }
 
+std::string BodyHistoryGraph::copy_target_before(const std::string& source,std::size_t boundary) const {
+    const auto* source_owner=owner(source);
+    if(!source_owner)return source;
+    auto target=source_owner->scope.id;
+    for(std::size_t i=0;i<boundary;++i) {
+        const auto* body=find(order_.at(i));
+        if(body&&body->derived_copy&&body->derived_copy->subtract_source&&owner(body->derived_copy->source_id)==source_owner)
+            target=body->scope.id;
+    }
+    return target;
+}
+
 std::vector<std::string> BodyHistoryGraph::available_before(std::size_t boundary) const {
     if (boundary > order_.size()) throw std::invalid_argument("Boundary is outside body history");
     std::set<std::string> available;
@@ -234,6 +255,8 @@ std::vector<std::string> BodyHistoryGraph::available_before(std::size_t boundary
         if (const auto* operation = find_boolean(id)) {
             available.erase(operation->target_id); available.erase(operation->tool_id);
         }
+        if(const auto* body=find(id);body&&body->derived_copy&&body->derived_copy->subtract_source)
+            available.erase(copy_target_before(body->derived_copy->source_id,index));
         available.insert(id);
     }
     std::vector<std::string> result;
@@ -248,6 +271,8 @@ std::vector<std::string> BodyHistoryGraph::visible_context() const {
             available.erase(op->target_id);
             available.erase(op->tool_id);
         }
+        if(const auto* body=find(id);body&&body->derived_copy&&body->derived_copy->subtract_source)
+            available.erase(copy_target_before(body->derived_copy->source_id,static_cast<std::size_t>(std::ranges::find(order_,id)-order_.begin())));
         available.insert(id);
         if (id == active_) break;
     }
@@ -278,10 +303,15 @@ std::vector<zima::kernel::HistoryOperation> BodyHistoryGraph::compile(const Comp
         }
         const auto& body = *find(id);
         if(body.derived_copy) {
-            if(!calculated.contains(body.derived_copy->source_id)||!body.derived_copy->reference_valid)
+            const auto* source_owner=owner(body.derived_copy->source_id);
+            const auto source=source_owner?source_owner->scope.id:body.derived_copy->source_id;
+            if(!calculated.contains(source)||!body.derived_copy->reference_valid)
                 throw std::invalid_argument("Kopie nemá platný zdroj nebo referenci.");
             zima::kernel::HistoryOperation operation;operation.owner_id=id;operation.body.id=id;
-            operation.body.combination=zima::kernel::BodyCombination::Mirror;operation.body.source_id=body.derived_copy->source_id;
+            operation.body.combination=zima::kernel::BodyCombination::Mirror;operation.body.source_id=source;
+            if(source_owner)operation.body.source_feature_id=body.derived_copy->source_id;
+            if(body.derived_copy->subtract_source)operation.body.target_id=copy_target_before(body.derived_copy->source_id,
+                static_cast<std::size_t>(std::ranges::find(order_,id)-order_.begin()));
             operation.body.mirror_plane=body.derived_copy->resolved_plane;
             if(body.derived_copy->pattern){operation.body.combination=zima::kernel::BodyCombination::Pattern;operation.body.pattern=*body.derived_copy->pattern;}
             result.push_back(std::move(operation));calculated.insert(id);continue;

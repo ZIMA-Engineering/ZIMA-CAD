@@ -8,6 +8,7 @@ const char* source_kind(workspace::CopySourceKind kind) {
     switch(kind) {
     case workspace::CopySourceKind::Body:return "body";
     case workspace::CopySourceKind::Boolean:return "boolean";
+    case workspace::CopySourceKind::Solid:return "solid";
     case workspace::CopySourceKind::Component:return "component";
     }
     throw std::logic_error("Unknown copy source kind");
@@ -33,7 +34,7 @@ Json derived_copy_details(const workspace::Workspace& live,const std::string& id
         throw workspace::DerivedCopyError("wrong_feature","The requested copy type does not match this object.");
     const auto& p=copy.parameters;const auto& ref=p.reference;
     Json result={{"document",id},{"object",object},{"name",copy.name},{"kind",pattern?"pattern":"mirror"},
-        {"source",p.source_id},{"origin",document::create_container_origin(object).id},{"visible",copy.visible},
+        {"source",p.source_id},{"operation",p.subtract_source?"subtract":"copy"},{"origin",document::create_container_origin(object).id},{"visible",copy.visible},
         {"placement",copy.placement},{"reference_valid",p.reference_valid},{"value_locks",p.value_locks},
         {"reference",{{"owner",ref.owner_id},{"key",ref.semantic_key},{"instance_path",ref.instance_path},
             {"offset_mm",ref.offset}}},
@@ -55,7 +56,7 @@ Json derived_copy_details(const workspace::Workspace& live,const std::string& id
     return result;
 }
 void Host::register_derived_copy_queries() {
-    dispatcher_.add({"derived_copy.sources",tr("List available Bodies or immediate components before a derived copy."),
+    dispatcher_.add({"derived_copy.sources",tr("List available solids, Bodies or immediate components before a derived copy."),
         {{"object",false},{"document",false}},false},[this](const Json& args) {
             try {
                 const auto id=args.value("document",workspace_.active_document_id());

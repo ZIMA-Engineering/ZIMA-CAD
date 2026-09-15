@@ -96,7 +96,7 @@ follows actual references/Boolean inputs; later order alone is not dependency.
 Explicit calculation refreshes changed branches and dependent outputs. Ordinary
 display/activation use saved results.
 
-## Whole-body Mirror and Pattern
+## Mirror and Pattern sources
 
 Mirror and linear/circular Pattern reference a source body/Boolean output and
 own an Origin/placement. Copies do not duplicate modeling history; edit source
@@ -104,6 +104,12 @@ dimensions. Mirror creates an independent body-type result. A whole Pattern is
 one result containing generated copies. Both can be hidden or used as Boolean
 target/tool (e.g. multiple impressions cut from stock). Source stays separate;
 Pattern count includes it.
+
+With a Body active, these commands offer its own individual solid features.
+At Part level, whole Bodies and solid features are both available. A subtractive
+solid repeats its subtraction; the copy's history result replaces the input Body
+instead of displaying positive cutter copies. Linear and circular modes share
+this rule. Source dimensions and the Add/Subtract operation remain source-owned.
 
 Linear Pattern uses local X/Y/Z and pitch. Circular Pattern uses axis, count and
 angle or full-circle distribution. Switching to linear retains the axis.

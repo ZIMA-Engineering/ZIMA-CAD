@@ -9,6 +9,9 @@ struct DerivedCopyParameters {
     bool reference_valid{true};
     std::optional<kernel::PatternRequest> pattern;
     std::set<std::string> value_locks;
+    // Derived from a Part solid's operation. A subtractive copy replaces its
+    // source Body with the result of subtracting the additional operands.
+    bool subtract_source{};
     bool operator==(const DerivedCopyParameters&) const = default;
 };
 } // namespace zima::document

@@ -732,7 +732,8 @@ void AssemblyWorkspaceWindow::add_part_tree_children(
             origin->setText(0, definition->derived_copy ? (definition->derived_copy->pattern?tr("Počátek Pole"):tr("Počátek Zrcadla")) : tr("Počátek tělesa"));
             if(definition->derived_copy) {
                 const auto* source=graph.find(definition->derived_copy->source_id);
-                auto* link=new QTreeWidgetItem(row,{tr("Zdroj: %1").arg(QString::fromStdString(source?source->name:definition->derived_copy->source_id))});
+                const auto* feature=document.find_container(definition->derived_copy->source_id);
+                auto* link=new QTreeWidgetItem(row,{tr("Zdroj: %1").arg(QString::fromStdString(source?source->name:feature?feature->name:definition->derived_copy->source_id))});
                 link->setData(0,Qt::UserRole,QString::fromStdString(id));link->setData(0,Qt::UserRole+3,"mirror-source");
             }
             for (const auto& entry : definition->entries) {

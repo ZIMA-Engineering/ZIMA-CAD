@@ -21,14 +21,18 @@ remain in the dialog.
 ## Available sources
 
 `derived_copy.sources` returns `document`, `object`, `boundary`, `revision` and
-`items`. Each item has `id`, `name`, `kind` (`body`, `boolean`, `component`),
+`items`. Each item has `id`, `name`, `kind` (`body`, `boolean`, `solid`, `component`),
 `visible` and local `instance_path` for Assembly components. Names are not identity;
 two insertions of the same file are independent occurrences.
 
 Without `object`, the Part boundary is immediately after the active Body, or at
 the root cursor if no Body is active. Editing uses the boundary before the specified
-copy. A Boolean consumes input Bodies and offers its own result. Mirror/Pattern
-do not consume sources. Ordering follows history.
+copy. An active Body offers only its own solid features before its cursor. At Part
+level, whole available Bodies and preceding original solid features are offered.
+A Boolean consumes input Bodies and offers its own result; original positive
+solid features retain their identity. A subtractive Pattern replaces the current
+result of its source Body; further subtractive copies follow that result. Ordering
+follows history. This contract is shared by linear and circular Pattern and Mirror.
 
 Assembly offers only its own immediate components before the copy, or all components
 without `object`. Suppressed components are omitted; hidden ones remain valid
@@ -44,7 +48,7 @@ history with one fictitious Body was removed.
 ## Saved properties
 
 `mirror.get` and `pattern.get` return `object`, `name`, `kind`, `source`, `origin`,
-`visible`, `placement`, `reference`, `reference_valid`, `value_locks`, `document`
+`visible`, `operation` (`copy` or inherited `subtract`), `placement`, `reference`, `reference_valid`, `value_locks`, `document`
 and `revision`. Component copies expose actual `copy_placement`, not normal inserted-
 component placement.
 
@@ -74,8 +78,9 @@ Missing/foreign objects return `object_not_found`, wrong feature types
 must identify an actual Mirror/Pattern in that document. Queries never resolve
 ambiguous occurrences by name.
 
-Formats, extensions and start templates are unchanged. Required data already lives
-inside `.prtz` or `.asmz`.
+Required data remains inside `.prtz` or `.asmz`. Development build `2026091506`
+uses Part INI version 23 and Assembly payload version 31 for the persisted
+subtractive-source state. Both tracked start templates are updated.
 
 ## Query verification
 
@@ -120,6 +125,12 @@ Mutations target the active Part/Assembly after closing dialogs and Sketcher. Th
 initial stage used a shared guard restricting nested activation; consult current
 [command coverage](CAD_COMMAND_COVERAGE.md) for subsequent activation support.
 Commands never infer sources from names or current hover.
+
+For a `solid` source, `source` is the history feature ID, not its owning Body ID.
+The original calculated operand supplies copies, including a subtractive cutter;
+the whole accumulated Body at that boundary is never substituted. Source-owned
+Add/Subtract changes propagate on explicit calculation. Pattern counts include
+the original, already applied feature, so only additional copies are calculated.
 
 Mirror needs either local-Origin `local_plane` (`xy/xz/yz`) or exact `reference`,
 never both. Explicit reference `offset_mm` moves its plane along the normal. Source

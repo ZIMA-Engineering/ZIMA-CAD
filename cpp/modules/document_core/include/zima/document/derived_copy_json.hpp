@@ -6,7 +6,7 @@ inline void to_json(nlohmann::json& j,const DerivedCopyParameters& m) {
     const auto& p=m.resolved_plane;const auto& r=m.reference;
     j={{"source_id",m.source_id},{"value_locks",m.value_locks},{"reference",{{"owner_id",r.owner_id},{"semantic_key",r.semantic_key},{"instance_path",r.instance_path},{"offset",r.offset}}},
         {"point",{p.point.x,p.point.y,p.point.z}},{"normal",{p.normal.x,p.normal.y,p.normal.z}},
-        {"reference_valid",m.reference_valid},{"pattern",nullptr}};
+        {"reference_valid",m.reference_valid},{"subtract_source",m.subtract_source},{"pattern",nullptr}};
     if(m.pattern){const auto& p=*m.pattern;j["pattern"]={{"circular",p.circular},{"count",p.count},{"angle_degrees",p.angle_degrees},
         {"full_circle",p.full_circle},{"origin",{p.origin.x,p.origin.y,p.origin.z}},{"axis",{p.axis.x,p.axis.y,p.axis.z}},{"linear",nlohmann::json::array()}};
         for(const auto& d:p.linear)j["pattern"]["linear"].push_back({{"local_axis",d.local_axis},{"count",d.count},
@@ -21,6 +21,7 @@ inline void from_json(const nlohmann::json& j,DerivedCopyParameters& m) {
     const auto& p=j.at("point");const auto& n=j.at("normal");
     m.resolved_plane=kernel::normalized_mirror_plane({{p.at(0),p.at(1),p.at(2)},{n.at(0),n.at(1),n.at(2)}});
     m.reference_valid=j.at("reference_valid");
+    m.subtract_source=j.at("subtract_source");
     if(!j.at("pattern").is_null()) {const auto& p=j.at("pattern");kernel::PatternRequest pattern;
         pattern.circular=p.at("circular");pattern.count=p.at("count");pattern.angle_degrees=p.at("angle_degrees");pattern.full_circle=p.at("full_circle");
         const auto vector=[&](const char* key){const auto& v=p.at(key);return kernel::Vec3{v.at(0),v.at(1),v.at(2)};};

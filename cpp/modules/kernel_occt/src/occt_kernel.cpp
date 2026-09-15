@@ -5050,6 +5050,8 @@ struct OcctKernel::HistoryContext {
     std::shared_ptr<const OriginalFaces> original_faces;
     std::string dependency_key;
     bool require_original_faces{};
+    std::set<std::string> requested_solids;
+    std::map<std::string,BodyResult> source_solids;
 };
 
 OcctKernel::OcctKernel() : live_cache_(std::make_unique<LiveCache>()) {}
@@ -5510,8 +5512,10 @@ std::vector<BodyResult> OcctKernel::evaluate_body_histories(
                 if (!scope.target_id.empty() || !scope.source_id.empty())
                     throw std::invalid_argument("Independent body cannot define a Boolean");
             } else if(scope.combination==BodyCombination::Mirror||scope.combination==BodyCombination::Pattern) {
-                if(!available.contains(scope.source_id)||!scope.target_id.empty()||operation.suppressed)
+                if(!(scope.source_feature_id.empty()?available.contains(scope.source_id):seen.contains(scope.source_id))||
+                    (!scope.target_id.empty()&&(scope.source_feature_id.empty()||!available.contains(scope.target_id)))||operation.suppressed)
                     throw std::invalid_argument("Zrcadlo potřebuje dostupný předcházející zdroj.");
+                if(!scope.target_id.empty())available.erase(scope.target_id);
                 if(scope.combination==BodyCombination::Mirror)static_cast<void>(normalized_mirror_plane(scope.mirror_plane));
                 else static_cast<void>(validated_pattern(scope.pattern));
             } else {
@@ -5544,10 +5548,16 @@ std::vector<BodyResult> OcctKernel::evaluate_body_histories(
     const auto requested_faces=extrusion_references(operations);
     std::vector<OwnedFace> preceding_faces;
     std::unordered_map<std::string,std::string> source_keys;
+    std::map<std::string,BodyResult> source_solids;
     for (const auto& branch : branches) {
         const auto cached = previous.body_boundaries.find(branch.scope.id);
         const auto placement=primitive_transform(branch.scope.translation,branch.scope.rotation_degrees);
         HistoryContext context;
+        for(const auto& copy:branches)if(copy.scope.source_id==branch.scope.id&&!copy.scope.source_feature_id.empty()) {
+            if(std::ranges::none_of(branch.operations,[&](const auto& operation){return operation.owner_id==copy.scope.source_feature_id;}))
+                throw std::invalid_argument("Copy solid does not belong to its source Body.");
+            context.requested_solids.insert(copy.scope.source_feature_id);
+        }
         const auto branch_references=extrusion_references(branch.operations);
         for(const auto& face:preceding_faces) {
             if(!std::ranges::any_of(branch_references,[&](const auto& reference){return same_face_identity(face.reference,reference);}))continue;
@@ -5570,6 +5580,15 @@ std::vector<BodyResult> OcctKernel::evaluate_body_histories(
                 : evaluate_flat_history(branch.operations,
                     cached == previous.body_boundaries.end() ? std::vector<BodyResult>{} : cached->second,context))
             : std::vector<BodyResult>{document.body_outputs.at(branch.scope.source_id)};
+        for(auto& [id,solid]:context.source_solids) {
+            if(!(branch.scope.translation==Vec3{})||!(branch.scope.rotation_degrees==Vec3{})) {
+                BRepBuilderAPI_Transform transform(read_kernel_shape(solid),placement,true);transform.Build();
+                if(!transform.IsDone())throw std::runtime_error("Source solid placement failed");
+                solid.kernel_shape=serialize_kernel_shape(transform.Shape());place_body_result(solid,placement);
+            }
+            solid.calculation_errors=local.back().calculation_errors;
+            source_solids.emplace(id,std::move(solid));
+        }
         if(context.require_original_faces) {
             const auto source_key=local.back().source_fingerprint+":placed:"+history_fingerprint({frame_key},1);
             for(const auto& operation:branch.operations)source_keys[operation.owner_id]=source_key;
@@ -5610,7 +5629,9 @@ std::vector<BodyResult> OcctKernel::evaluate_body_histories(
         auto output = input;
         const auto preserve_failed_inputs = [&](const std::string& message) {
             auto retained = input;
-            if (!branch.scope.target_id.empty()) {
+            if(!branch.scope.source_feature_id.empty()&&!branch.scope.target_id.empty())
+                retained=document.body_outputs.at(branch.scope.target_id);
+            else if (!branch.scope.target_id.empty()) {
                 const auto& target = document.body_outputs.at(branch.scope.target_id).get();
                 retained = compound_bodies({PlacedBody{target}, PlacedBody{input}});
                 retained.calculation_errors = input.calculation_errors;
@@ -5628,9 +5649,19 @@ std::vector<BodyResult> OcctKernel::evaluate_body_histories(
         if(branch.scope.combination==BodyCombination::Mirror||branch.scope.combination==BodyCombination::Pattern) {
             // The source is already in document coordinates; only the plane
             // belongs to the Mirror container's resolved placement.
+            const auto& feature=branch.scope.source_feature_id;
+            if(!feature.empty()&&!source_solids.contains(feature))throw std::runtime_error("Copy source has no calculated solid operand.");
+            const auto& source=feature.empty()?document.body_outputs.at(branch.scope.source_id).get():source_solids.at(feature);
             output=branch.scope.combination==BodyCombination::Mirror
-                ? mirror_body(document.body_outputs.at(branch.scope.source_id),branch.scope.mirror_plane,branch.scope.id)
-                : pattern_body(document.body_outputs.at(branch.scope.source_id),branch.scope.pattern,branch.scope.id);
+                ? mirror_body(source,branch.scope.mirror_plane,branch.scope.id)
+                : pattern_body(source,branch.scope.pattern,branch.scope.id);
+            if(!branch.scope.target_id.empty()) {
+                const auto references=output.mesh.original_references;
+                output=subtract_bodies(document.body_outputs.at(branch.scope.target_id),output,{},{},
+                    branch.operations.front().boolean_tolerance,branch.operations.front().mesh_deflection);
+                append_reference_geometry(output.mesh.original_references,references);
+                mark_copy_display(output.mesh,branch.scope.id);
+            }
             document.body_inputs.emplace(branch.scope.id,output);
         } else if (branch.scope.combination != BodyCombination::Separate) {
             const auto& target = document.body_outputs.at(branch.scope.target_id).get();
@@ -5720,6 +5751,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
     const std::vector<HistoryOperation>& operations,
     const std::vector<BodyResult>& previous_boundaries,HistoryContext& context) const {
     context.original_faces.reset();
+    context.source_solids.clear();
     const auto fingerprint=[&](const std::vector<HistoryOperation>& values,std::size_t count) {
         return history_fingerprint(values,count)+context.dependency_key;
     };
@@ -5768,7 +5800,9 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
         std::size_t matching_prefix = 0;
         const auto available = std::min(
             operations.size(), previous_boundaries.size());
-        while (matching_prefix < available &&
+        // Requested operands must be calculated with their real preceding
+        // geometry (Through All / Up To included), not reconstructed in UI.
+        while (context.requested_solids.empty() && matching_prefix < available &&
                previous_boundaries[matching_prefix].calculation_errors.empty() &&
                previous_boundaries[matching_prefix].source_fingerprint ==
                    fingerprint(operations, matching_prefix + 1)) {
@@ -5870,6 +5904,15 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
             };
             const bool persist_boundary_shape =
                 operation_index + 1 == operations.size();
+            const auto retain_copy_solid=[&](const PrimitiveData& operand) {
+                if(!context.requested_solids.contains(operation.owner_id))return;
+                auto solid=make_operation_result(operand.shape,operand.faces,operand.edges,operand.vertices,true,true,true);
+                const auto centerlines=centerlines_for_operation(operation);
+                solid.mesh.axes=axes_for_operation(operation,operand.shape,centerlines);
+                solid.mesh.original_references.axes=solid.mesh.axes;
+                solid.source_fingerprint=fingerprint(operations,operation_index+1)+":solid:"+operation.owner_id;
+                context.source_solids.insert_or_assign(operation.owner_id,std::move(solid));
+            };
             if (operation.owner_id.empty()) {
                 throw std::invalid_argument("History operation owner ID is required");
             }
@@ -6249,6 +6292,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 }
                 cut_group(thread->cuts_after);
                 if (opening_reference_operand) {
+                    retain_copy_solid(*opening_reference_operand);
                     const auto& combined = *opening_reference_operand;
                     const auto unified = unify_preserving_face_provenance(combined.shape,
                         combined.faces, combined.edges, combined.vertices,
@@ -7461,6 +7505,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 });
                 source_faces.insert(source_faces.end(),operand.source_caps.begin(),operand.source_caps.end());
             }
+            retain_copy_solid(operand);
             retain_originals(source_faces);
             const std::string reference_cache_key = fingerprint(
                 std::vector<HistoryOperation>{operation}, 1);

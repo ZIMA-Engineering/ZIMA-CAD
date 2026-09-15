@@ -117,7 +117,7 @@ public:
     void clear_reference_highlights() override{inspected_={};refresh_fields();SweepPlacementDialog::clear_reference_highlights();}
 protected:
     bool submit() override{try{read_placement();if(pending.name.empty())throw std::invalid_argument("Zadejte název kontejneru.");
-        if(derived_copy.source_id.empty())throw std::invalid_argument("Vyberte zdrojové těleso nebo komponentu.");
+        if(derived_copy.source_id.empty())throw std::invalid_argument("Vyberte zdrojový solid, těleso nebo komponentu.");
         if((!derived_copy.pattern||derived_copy.pattern->circular)&&derived_copy.reference.owner_id.empty())throw std::invalid_argument(derived_copy.pattern?"Vyberte osu Pole.":"Vyberte rovinu zrcadlení.");
         commit_(pending,derived_copy);return true;}catch(const std::exception& error){set_status(QString::fromUtf8(error.what()));return false;}}
 private:

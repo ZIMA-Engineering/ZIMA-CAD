@@ -525,12 +525,12 @@ void add_json_parameters(
 
 nlohmann::json read_part_ini(const std::filesystem::path& path) {
     const auto ini = read_ini(path);
-    if (ini_value(ini, "Document", "format_version") != "22") {
+    if (ini_value(ini, "Document", "format_version") != "23") {
         throw std::runtime_error("Unsupported ZIMA-CAD Part document format");
     }
     nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 46},
+        {"format_version", 47},
         {"document_id", ini_required(ini, "Document", "document_id")},
         {"type", ini_value(ini, "Document", "type", "part")},
         {"name", ini_value(ini, "Document", "name", "Nový díl")},
@@ -682,7 +682,7 @@ void write_part_ini(
     const nlohmann::json& root, const std::filesystem::path& path) {
     IniSections ini;
     ini["Document"] = {
-        {"format_version", "22"},
+        {"format_version", "23"},
         {"type", "part"},
         {"document_id", root.at("document_id").get<std::string>()},
         {"name", root.at("name").get<std::string>()},
@@ -5429,8 +5429,10 @@ void PartDocument::resolve_constructions(
                 throw std::invalid_argument("Reference umístění tělesa není dostupná.");
             if(body.derived_copy) {
                 dependency(body.derived_copy->reference);
-                if(std::ranges::find(body.dependencies,body.derived_copy->source_id)==body.dependencies.end())
-                    body.dependencies.push_back(body.derived_copy->source_id);
+                const auto* source_owner=next.body_history.owner(body.derived_copy->source_id);
+                const auto source=source_owner?source_owner->scope.id:body.derived_copy->source_id;
+                if(std::ranges::find(body.dependencies,source)==body.dependencies.end())
+                    body.dependencies.push_back(source);
                 resolve_copy_reference(*body.derived_copy,body.scope.id,body.scope.placement,source_geometry);
             }
             const auto construction_dependencies = [&](const auto& self, const ConstructionObject& object) -> void {
@@ -8062,9 +8064,21 @@ void PartDocument::erase_history_object(const std::string& id) {
     *this = std::move(next);
 }
 
+void PartDocument::synchronize_derived_copy_sources() {
+    const auto bodies=body_history.bodies();
+    for(auto body:bodies)if(body.derived_copy) {
+        const auto* source=find_container(body.derived_copy->source_id);
+        const bool subtract=source&&source->combine_mode==CombineMode::Subtract;
+        if(body.derived_copy->subtract_source!=subtract) {
+            body.derived_copy->subtract_source=subtract;body_history.update_body(std::move(body));
+        }
+    }
+}
+
 void PartDocument::set_body_history(BodyHistoryGraph graph) {
     auto next = *this;
     next.body_history = std::move(graph);
+    next.synchronize_derived_copy_sources();
     next.history_order.clear();
     for (const auto& body : next.body_history.bodies())
         next.history_order.insert(next.history_order.end(), body.entries.begin(), body.entries.end());
@@ -11021,7 +11035,7 @@ void PartDocument::save(
     static_cast<void>(zima::document::parse_named_views(named_views));
     nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 46},
+        {"format_version", 47},
         {"document_id", document_id},
         {"type", "part"},
         {"name", name},

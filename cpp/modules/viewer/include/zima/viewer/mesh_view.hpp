@@ -258,6 +258,9 @@ public:
         std::map<std::string,zima::kernel::SurfaceStyle> faces = {});
     // Appearance command only: offer final faces without changing reference ownership.
     void set_result_face_selection(bool enabled);
+    // Command-only selection of original solid containers. Faces/edges keep
+    // their normal reference contract; ordinary selection remains leaf-first.
+    void set_original_container_selection(bool enabled);
     void set_inspected_faces(std::vector<ViewerCandidate> faces);
     void set_body_surface_colors(QColor default_color,
         std::map<std::string, QColor> instance_colors = {},

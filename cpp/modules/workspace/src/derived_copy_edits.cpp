@@ -14,7 +14,8 @@ std::uint64_t revision(const Workspace& live,const std::string& id) {
 }
 kernel::ViewerReferenceGeometry references(const Workspace& live,const std::string& id,const CopySources& sources) {
     kernel::ViewerReferenceGeometry geometry;
-    const auto available=[&](const std::string& owner){return std::ranges::any_of(sources.items,[&](const auto& item){return item.id==owner;});};
+    const auto available=[&](const std::string& owner){return std::ranges::find(sources.context_bodies,owner)!=sources.context_bodies.end()||
+        std::ranges::any_of(sources.items,[&](const auto& item){return item.id==owner;});};
     const auto* part=live.open_part(id);
     if(part) {
         const auto& document=part->session.document();
@@ -32,7 +33,9 @@ kernel::ViewerReferenceGeometry references(const Workspace& live,const std::stri
     const auto unavailable=[&](const auto& reference) {
         if(part) {
             const auto* owner=part->session.document().body_owner_for_object(reference.owner_id);
-            return owner&&!available(owner->scope.id);
+            return owner&&!available(owner->scope.id)&&std::ranges::none_of(sources.items,[&](const auto& source) {
+                return part->session.document().body_owner_for_object(source.id)==owner;
+            });
         }
         const auto path=assembly::InstancePath::decode(reference.instance_path);
         return !path.occurrence_ids.empty()&&!available(path.occurrence_ids.front());
@@ -102,6 +105,10 @@ DerivedCopyEdit prepare_derived_copy_edit(Workspace& live,const std::string& id,
 bool commit_derived_copy(Workspace& live,const kernel::OcctKernel& kernel,const DerivedCopyEdit& edit,DerivedCopyDefinition value) {
     if(revision(live,edit.document_id)!=edit.revision)
         throw DerivedCopyError("document_changed","The document changed while copy properties were open.");
+    if(const auto* part=live.open_part(edit.document_id)) {
+        const auto* source=part->session.document().find_container(value.parameters.source_id);
+        value.parameters.subtract_source=source&&source->combine_mode==document::CombineMode::Subtract;
+    }
     validate(edit,value);
     if(!document::resolve_placement(value.placement,edit.references))
         throw DerivedCopyError("missing_reference","Chybí reference umístění kontejneru.");

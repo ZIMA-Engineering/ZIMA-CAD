@@ -76,6 +76,7 @@ public:
     void move_body(const std::string& id, std::size_t destination);
     [[nodiscard]] BodyHistoryBoundary rollback_before(const std::string& entry_id) const;
     [[nodiscard]] std::vector<std::string> available_before(std::size_t boundary) const;
+    [[nodiscard]] std::string copy_target_before(const std::string& source, std::size_t boundary) const;
     [[nodiscard]] std::vector<std::string> visible_context() const;
     [[nodiscard]] std::vector<zima::kernel::HistoryOperation> compile(const CompileEntry& compiler) const;
     [[nodiscard]] std::string serialized() const;

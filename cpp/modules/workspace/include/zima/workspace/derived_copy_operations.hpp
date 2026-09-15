@@ -7,7 +7,7 @@ public:
     DerivedCopyError(const char* code,const char* message):std::runtime_error(message),code(code){}
     const char* code;
 };
-enum class CopySourceKind { Body, Boolean, Component };
+enum class CopySourceKind { Body, Boolean, Solid, Component };
 struct CopySource {
     std::string id,name;
     CopySourceKind kind{};
@@ -16,6 +16,7 @@ struct CopySource {
 struct CopySources {
     std::size_t boundary{};
     std::vector<CopySource> items;
+    std::vector<std::string> context_bodies;
 };
 struct DerivedCopyDefinition {
     std::string id,name;
@@ -27,7 +28,10 @@ struct DerivedCopyDefinition {
 // Read persisted data only. The boundary matches Properties: immediately after
 // the active Body, otherwise the root cursor; immediately before an edited copy.
 // Assembly sources are preceding, unsuppressed immediate occurrences.
+// An active Part Body offers only its own solid features before its cursor.
+// At Part level both available Bodies and their solid features are offered.
 [[nodiscard]] CopySources derived_copy_sources(const Workspace&,const std::string& document,const std::string& object={});
+[[nodiscard]] kernel::ViewerMesh derived_copy_source_mesh(const document::DocumentSession&,const CopySource&);
 [[nodiscard]] DerivedCopyDefinition derived_copy_definition(const Workspace&,const std::string& document,const std::string& object);
 struct DerivedCopyEdit {
     std::string document_id;

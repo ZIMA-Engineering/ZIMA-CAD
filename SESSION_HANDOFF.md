@@ -2,6 +2,22 @@
 
 ## Current application
 
+Development build `2026091506` repairs Mirror/Pattern source selection by editing
+scope: own solid features in an active Body, Bodies and solids at Part level,
+and immediate components in Assembly. Linear and circular Pattern use the same
+picker and persist the exact selected solid. Subtractive solids repeat their cuts
+in the source Body. See [Mirror and Pattern](doc/MIRROR_AND_PATTERN.md).
+Native Part INI version 23 and Assembly payload version 31 persist the inherited
+subtraction state; factory templates are updated. Windows stable remains
+`2026091505`; this development change is not a published release.
+
+Acceptance: GUI/CLI builds and all eight related contracts passed, including
+actual View picking, RMB cycling between a solid and its Body, circular/subtractive
+GUI commits, native reload and cold regeneration. See the verification section
+in [Mirror and Pattern](doc/MIRROR_AND_PATTERN.md). The next authorized task is
+Family Table: reference-bound dimension/presence columns, generated variants in
+document tabs and Drawing support. Sketcher offsets remain later in the queue.
+
 Version `2026091505` adds **Settings > AI** and `codex` mode in the
 desktop CAD console. It uses the user's own ChatGPT account through the native
 Codex App Server, following ZIMA-CAD-Parts. Each request follows the active Part,

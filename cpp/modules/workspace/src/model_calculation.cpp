@@ -39,6 +39,7 @@ calculate_part_with_resolved_references(
     zima::document::PartDocument& document,
     const std::vector<zima::kernel::BodyResult>* previous,
     const PartCalculationPolicy& policy) {
+    document.synchronize_derived_copy_sources();
     std::vector<zima::kernel::BodyResult> calculated;
     const auto* incremental_source = previous;
     // A downstream container may reference geometry produced by another

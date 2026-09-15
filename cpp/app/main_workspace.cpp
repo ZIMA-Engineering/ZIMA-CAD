@@ -298,11 +298,29 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
         return window.execute_console_command(QString::fromStdString(commands::Json{{"command",command},{"arguments",std::move(args)}}.dump()));
     };
     const auto source_query=copy_query("derived_copy.sources");
-    if(!verify(source_query.ok&&source_query.data.at("items").size()==1&&source_query.data.at("items")[0].at("id")==source,
+    if(!verify(source_query.ok&&source_query.data.at("items").size()==2&&source_query.data.at("items")[0].at("id")==source&&source_query.data.at("items")[1].at("id")==box.id,
             "GUI console and Mirror Properties disagree about available sources"))return 1;
     tree->setCurrentItem(row(source,"part-body"));flush();action->trigger();flush();
     auto* dialog=dynamic_cast<app::DerivedCopyDialog*>(window.findChild<QDialog*>("mirrorDialog"));
     if(!verify(dialog&&dialog->derived_copy.source_id==source,"Mirror did not prefill selected body"))return 1;
+    dialog->request_input(1);flush();
+    std::optional<QPointF> root_hit;
+    for(int y=4;y<view->height()&&!root_hit;y+=8)for(int x=4;x<view->width();x+=8) {
+        const auto candidates=view->selection_candidates_at(QPointF(x,y));
+        if(candidates.size()==2&&candidates[0].owner_id==box.id&&candidates[1].owner_id==source){root_hit=QPointF(x,y);break;}
+    }
+    if(!verify(root_hit.has_value(),"Part source picker must offer both the leaf solid and its whole Body"))return 1;
+    {
+        const auto p=*root_hit;
+        QMouseEvent hover(QEvent::MouseMove,p,p,p,Qt::NoButton,Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(view,&hover);
+        QMouseEvent cycle_press(QEvent::MouseButtonPress,p,p,p,Qt::RightButton,Qt::RightButton,Qt::NoModifier);
+        QMouseEvent cycle_release(QEvent::MouseButtonRelease,p,p,p,Qt::RightButton,Qt::NoButton,Qt::NoModifier);
+        QApplication::sendEvent(view,&cycle_press);QApplication::sendEvent(view,&cycle_release);
+        QMouseEvent press(QEvent::MouseButtonPress,p,p,p,Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+        QMouseEvent release(QEvent::MouseButtonRelease,p,p,p,Qt::LeftButton,Qt::NoButton,Qt::NoModifier);
+        QApplication::sendEvent(view,&press);QApplication::sendEvent(view,&release);flush();
+    }
+    if(!verify(dialog->derived_copy.source_id==source&&dialog->active_input()==-1,"RMB cycle and LMB could not choose the whole source Body"))return 1;
     if(!verify(part_insertion_marker_count(tree)==0,"Mirror creation retained the body-level insertion marker"))return 1;
     if(!verify(dialog->parentWidget()==&window&&(dialog->windowFlags()&Qt::WindowType_Mask)==Qt::SubWindow,"Mirror is not an internal properties window"))return 1;
     if(!verify(!dialog->buttons()->button(QDialogButtonBox::Apply),"Mirror exposes Apply"))return 1;
@@ -483,9 +501,11 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
     auto history_part=document::PartDocument::create_default();document::BodyHistoryGraph history_graph;
     const auto first=history_graph.create_body("First");auto first_box=document::PartDocument::create_box_container();first_box.box={8,6,4};
     history_graph.insert({document::PartHistoryKind::Feature,first_box.id});
+    auto cutter=document::PartDocument::create_box_container();cutter.box={2,1,4};cutter.placement.x=2;cutter.combine_mode=document::CombineMode::Subtract;
+    history_graph.insert({document::PartHistoryKind::Feature,cutter.id});
     const auto later=history_graph.create_body("Later");auto later_box=document::PartDocument::create_box_container();later_box.box={8,6,4};later_box.placement.x=80;
     history_graph.insert({document::PartHistoryKind::Feature,later_box.id});history_graph.activate(first);
-    history_part.history={first_box,later_box};history_part.set_body_history(history_graph);
+    history_part.history={first_box,cutter,later_box};history_part.set_body_history(history_graph);
     const auto history_path=directory/"copy-history-ui.prtz";
     history_part.save(history_path,kernel.evaluate_history(history_part.kernel_operations()));
     if(!verify(window.open_document_path(QString::fromStdString(history_path.string())),"Copy history fixture did not open"))return 1;
@@ -496,21 +516,64 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
             std::ranges::none_of(view->mesh().vertices,[](const auto& point){return point.x>60;});
     };
     if(!verify(later_is_suppressed(),"Future body was not suppressed before copy command"))return 1;
-    for(bool make_pattern:{false,true}) {
+    for(int copy_mode=0;copy_mode<3;++copy_mode) {
+        const bool make_pattern=copy_mode!=0;
         auto* command=window.findChild<QAction*>(make_pattern?"patternAction":"mirrorAction");
         tree->clearSelection();view->clear_selection();command->trigger();flush();
         auto* copy=dynamic_cast<app::DerivedCopyDialog*>(window.findChild<QDialog*>(make_pattern?"patternDialog":"mirrorDialog"));
         if(!verify(copy&&later_is_suppressed(),"Copy command exposed a future body before source selection"))return 1;
+        if(copy_mode==2)copy->findChild<QComboBox*>("patternMode")->setCurrentIndex(1);
         copy->request_input(1);flush();
         const auto source_filter=view->candidate_filter();
         if(!verify(source_filter&&!source_filter(viewer::ViewerCandidate{viewer::CandidateKind::Container,0,0,later,{}, {},viewer::CandidateGeometry::Display}),"Copy command offered a future source body or lost its selection contract"))return 1;
-        copy->set_source(first,"First");
+        if(!verify(source_filter(viewer::ViewerCandidate{viewer::CandidateKind::Container,0,0,first_box.id,{}, {},viewer::CandidateGeometry::Display})&&
+            !source_filter(viewer::ViewerCandidate{viewer::CandidateKind::Container,0,0,first,{}, {},viewer::CandidateGeometry::Display}),"Active Body source filter confused a solid with its Body"))return 1;
+        tree->setCurrentItem(row(first_box.id,"part-container"));flush();
+        if(!verify(copy->derived_copy.source_id==first_box.id,"Tree source selection promoted the solid to its Body"))return 1;
+        copy->request_input(1);flush();std::optional<QPointF> hit;
+        for(int y=4;y<view->height()&&!hit;y+=8)for(int x=4;x<view->width();x+=8) {
+            const auto candidates=view->selection_candidates_at(QPointF(x,y));
+            if(!candidates.empty()&&candidates.front().owner_id==first_box.id){hit=QPointF(x,y);break;}
+        }
+        if(!verify(hit.has_value(),"Active Body solid is absent from the common View picker"))return 1;
+        QMouseEvent move(QEvent::MouseMove,*hit,*hit,*hit,Qt::NoButton,Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(view,&move);
+        if(!verify(view->hovered_candidate()&&view->hovered_candidate()->owner_id==first_box.id,"Source hover promoted the solid to its Body"))return 1;
+        QMouseEvent press(QEvent::MouseButtonPress,*hit,*hit,*hit,Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+        QMouseEvent release(QEvent::MouseButtonRelease,*hit,*hit,*hit,Qt::LeftButton,Qt::NoButton,Qt::NoModifier);
+        QApplication::sendEvent(view,&press);QApplication::sendEvent(view,&release);flush();
+        if(!verify(copy->derived_copy.source_id==first_box.id&&copy->active_input()==-1,"View source click disagreed with hover"))return 1;
         if(!make_pattern)copy->findChild<QPushButton*>("mirrorPlane_yz")->click();
         flush();copy->changed();flush();
         if(!verify(later_is_suppressed(),"Copy preview exposed a future body"))return 1;
+        if(copy_mode==2)window.grab().save(QString::fromStdString((directory/"pattern-solid-circular-ui.png").string()));
         copy->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
         if(!verify(later_is_suppressed(),"Copy Cancel changed the active history boundary"))return 1;
     }
+    tree->setCurrentItem(row(first_box.id,"part-container"));flush();pattern_action->trigger();flush();
+    dialog=dynamic_cast<app::DerivedCopyDialog*>(window.findChild<QDialog*>("patternDialog"));
+    if(!verify(dialog&&dialog->derived_copy.source_id==first_box.id,"Selected solid did not prefill Pattern"))return 1;
+    const auto solid_pattern_id=dialog->pending.id;dialog->findChild<QComboBox*>("patternMode")->setCurrentIndex(1);
+    dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+    if(!verify(!window.findChild<QDialog*>("patternDialog"),"Circular solid Pattern did not commit"))return 1;
+    save->trigger();flush();
+    if(!verify(document::PartDocument::load(history_path).body_history.find(solid_pattern_id)->derived_copy->source_id==first_box.id,
+        "Circular solid Pattern did not persist the exact source"))return 1;
+    window.show_tree_item_properties(row(solid_pattern_id,"part-body"));flush();
+    dialog=dynamic_cast<app::DerivedCopyDialog*>(window.findChild<QDialog*>("patternDialog"));
+    if(!verify(dialog&&dialog->derived_copy.source_id==first_box.id&&dialog->derived_copy.pattern->circular,"Circular solid Pattern did not reopen"))return 1;
+    dialog->reject();flush();
+    if(!verify(activate_test_body(application,window,first),"Cannot reactivate source Body for subtractive Pattern"))return 1;
+    tree->setCurrentItem(row(cutter.id,"part-container"));flush();pattern_action->trigger();flush();
+    dialog=dynamic_cast<app::DerivedCopyDialog*>(window.findChild<QDialog*>("patternDialog"));
+    if(!verify(dialog&&dialog->derived_copy.source_id==cutter.id,"Subtractive solid did not prefill Pattern"))return 1;
+    const auto subtract_pattern=dialog->pending.id;dialog->findChild<QComboBox*>("patternMode")->setCurrentIndex(1);
+    dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+    if(!verify(!window.findChild<QDialog*>("patternDialog"),"Subtractive circular Pattern did not commit"))return 1;
+    save->trigger();flush();std::vector<kernel::BodyResult> subtract_boundaries;
+    const auto subtract_document=document::PartDocument::load(history_path,&subtract_boundaries);
+    if(!verify(subtract_document.body_history.find(subtract_pattern)->derived_copy->subtract_source&&
+        std::abs(subtract_boundaries.back().body_outputs.at(subtract_pattern)->volume-160)<1e-7,
+        "GUI Pattern turned a subtractive solid into positive copies"))return 1;
     std::cout<<"Mirror and Pattern UI contracts passed\n";return 0;
 }
 
