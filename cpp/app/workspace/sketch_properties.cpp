@@ -63,7 +63,7 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
                 value.feature_kind=zima::document::FeatureKind::Bend;value.name="Ohyb";value.bend.sketch_id=initial.id;
                 const auto defaults=zima::document::sheet_metal_defaults(part->session.document());
                 value.bend.thickness=defaults.thickness_mm.value_or(1);value.bend.k_factor=defaults.k_factor;
-                static_cast<void>(initial.add_segment(-20,0,20,0));
+                zima::document::initialize_bend_start_profile(initial,40);
             }
             zima::document::prepare_bend_sketches(value,initial,zima::document::sheet_metal_defaults(part->session.document()));
             initial.name=value.name;sketch_feature=std::make_shared<zima::document::HistoryContainer>(std::move(value));
@@ -286,50 +286,10 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
                 const zima::sketcher::Sketch& sketch,
                 const zima::document::Placement& pending_placement) {
             auto placement = pending_placement;
-            // resolve_placement() deliberately treats the complete built-in
-            // Origin plane triad as a request for the document identity
-            // frame.  That is correct for an ordinary container populated by
-            // clicking the whole Origin node, but not for Sketch Properties:
-            // here row 0 is an explicitly selected work plane and must remain
-            // FRONT while rows 1/2 only finish locating the container.  The
-            // committed PartDocument resolver already enforces that stricter
-            // Sketch contract.  Give the live preview the same transient
-            // row-0 orientation twin so its cyan plane cannot jump back to
-            // the identity/last Origin plane while the dialog is open.
-            const auto first_position_plane = std::find_if(
-                placement.references.begin(), placement.references.end(),
-                [](const auto& reference) {
-                    return !reference.orientation_only &&
-                        reference.supports_offset &&
-                        !reference.owner_id.empty();
-                });
-            if (first_position_plane != placement.references.end()) {
-                const auto front_owner = first_position_plane->owner_id;
-                const auto front_path = first_position_plane->instance_path;
-                const auto front_semantic = first_position_plane->semantic_key;
-                const auto is_front_source = [&](const auto& reference) {
-                    return reference.owner_id == front_owner &&
-                        reference.instance_path == front_path &&
-                        reference.semantic_key == front_semantic;
-                };
-                for (auto& reference : placement.references) {
-                    if (reference.orientation_only) continue;
-                    reference.orientation_drives_rotation =
-                        is_front_source(reference);
-                    reference.orientation_role =
-                        is_front_source(reference) ? "front" : "none";
-                }
-                std::erase_if(placement.references,
-                    [&](const auto& reference) {
-                        return reference.orientation_only &&
-                            !is_front_source(reference);
-                    });
-                auto preview_front = *first_position_plane;
-                preview_front.orientation_only = true;
-                preview_front.orientation_drives_rotation = true;
-                preview_front.orientation_role = "front";
-                placement.references.push_back(std::move(preview_front));
-            }
+            // Consume the dialog's complete FRONT/TOP contract, just as the
+            // committed document does. A preview-only first-plane override
+            // used to discard TOP, release RY and rotate the prepared Sketch
+            // when Properties was refreshed after returning from Sketcher.
             zima::kernel::Vec3 base_rotation;
             bool orientation_from_reference = false;
             const bool placement_valid = zima::document::resolve_placement(
@@ -388,7 +348,8 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
             preview_document.constructions.push_back(plane);
             if (!sketch.owner_container_id.empty()) {
                 auto preview_container =
-                    zima::document::PartDocument::create_sketch_container();
+                    sketch_feature && sketch_feature->feature_kind == zima::document::FeatureKind::Bend
+                    ? *sketch_feature : zima::document::PartDocument::create_sketch_container();
                 preview_container.id = sketch.owner_container_id;
                 preview_container.placement = geometric_placement;
                 preview_document.history.push_back(std::move(preview_container));
@@ -410,11 +371,8 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
                     resolved_sketch.plane_offset};
             *prepared_sketch = resolved_sketch;
             // The cyan rectangle represents the actual (possibly offset)
-            // Sketch work plane.  Do not leave it in the generic container
-            // placement frame: the complete built-in Origin triad has a
-            // special identity-frame rule there, while an owned Sketch keeps
-            // its first selected plane as FRONT.  Rebuild this display-only
-            // Plane from the already resolved Sketch frame so the rectangle,
+            // Sketch work plane, including an explicitly selected local plane.
+            // Build this display-only Plane from the resolved Sketch frame so the rectangle,
             // offset point and the plane opened by SKETCH are identical.
             auto& resolved_plane = preview_document.constructions.front();
             const zima::kernel::Vec3 local_z{

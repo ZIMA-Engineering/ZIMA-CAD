@@ -1,3 +1,4 @@
+#include <zima/document/placement_orientation.hpp>
 #include <zima/workspace/placement_edit.hpp>
 #include "workspace_internal.hpp"
 
@@ -198,23 +199,10 @@ bool construction_shortcut_satisfied(zima::document::ConstructionKind kind,
         });
 }
 
-// Assigns the next unused orientation role ("normal" first, then "up") to a
-// newly accepted Point position reference that drives rotation, matching
-// Python's `_default_orientation_role()`/`_ensure_automatic_orientation_roles()`.
-// A Point container has no dedicated orientation-reference table: the same
-// position reference simultaneously participates in placement (equations
-// solved by `resolve_construction`) and, once marked, in the rotation-DOF
-// count via `orientation_constraint_remaining_dof(..., marked_only=true)`.
 void assign_automatic_orientation_role(
     zima::document::ConstructionReference& reference,
     const std::vector<zima::document::ConstructionReference>& existing) {
-    std::set<std::string> used_roles;
-    for (const auto& other : existing) {
-        if (other.orientation_drives_rotation) used_roles.insert(other.orientation_role);
-    }
-    reference.orientation_role = !used_roles.contains("front") ? "front"
-        : !used_roles.contains("top") ? "top" : "none";
-    reference.orientation_drives_rotation = reference.orientation_role != "none";
+    zima::document::assign_container_orientation_role(reference, existing);
 }
 
 

@@ -1984,6 +1984,30 @@ PrimitiveData make_sweep3d_data(
         if(d.Magnitude()<1e-12)throw std::runtime_error("Dráha nemá platnou tečnu.");
         return d.Normalized();
     };
+    // Decide before converting section wires: an exact circular revolution
+    // needs analytic line edges to retain plane/cylinder surfaces. Revolving
+    // degree-one splines instead produced general revolution surfaces and
+    // pathological rational-volume quadrature on oblique half-turns.
+    const bool exact_revolution=[&] {
+        if(request.sections.size()!=2||request.path_segments.size()!=1||
+            !request.path_segments.front().arc_midpoint||profile_wires||
+            request.sections[0].point_index!=0||request.sections[1].point_index!=1)return false;
+        BRepAdaptor_Curve spine(spine_edges.front());
+        if(spine.GetType()!=GeomAbs_Circle)return false;
+        const auto* first=std::get_if<ExtrusionRequest::PolygonProfile>(&request.sections[0].profile.outer_profile);
+        const auto* last=std::get_if<ExtrusionRequest::PolygonProfile>(&request.sections[1].profile.outer_profile);
+        if(!first||!last||first->vertices.size()!=last->vertices.size())return false;
+        gp_Trsf rotation;rotation.SetRotation(spine.Circle().Axis(),spine.LastParameter()-spine.FirstParameter());
+        for(std::size_t n=0;n<first->vertices.size();++n) {
+            const auto& a=first->vertices[n];const auto& b=last->vertices[n];
+            if(gp_Pnt(a.x,a.y,a.z).Transformed(rotation).Distance(gp_Pnt(b.x,b.y,b.z))>1e-9)return false;
+        }
+        for(std::size_t n=0;n<2;++n) {
+            const auto& normal=request.sections[n].profile_normal;
+            if(gp_Vec(normal.x,normal.y,normal.z).Normalized().Dot(tangent(0,n==1))<1-1e-9)return false;
+        }
+        return true;
+    }();
     std::optional<gp_Vec> previous_direction;
     std::optional<gp_Vec> transported_radial;
     for(std::size_t i=0;i<request.path_points.size();++i) {
@@ -2028,9 +2052,11 @@ PrimitiveData make_sweep3d_data(
             station.wire=make_profile_wire(section->profile.outer_profile,
                 section->profile_normal,radial,&station.edges);
         }
-        BRepBuilderAPI_NurbsConvert nurbs(station.wire,true);
-        station.wire=TopoDS::Wire(nurbs.Shape());
-        for(auto& edge:station.edges)edge=TopoDS::Edge(nurbs.ModifiedShape(edge));
+        if(!exact_revolution) {
+            BRepBuilderAPI_NurbsConvert nurbs(station.wire,true);
+            station.wire=TopoDS::Wire(nurbs.Shape());
+            for(auto& edge:station.edges)edge=TopoDS::Edge(nurbs.ModifiedShape(edge));
+        }
         const auto& from=request.path_points[section->point_index];
         const auto& to=request.path_points[i];
         const auto& normal=section->profile_normal;
@@ -2125,6 +2151,56 @@ PrimitiveData make_sweep3d_data(
                 if(station.edges.size()!=station.curve_ids.size())
                     throw std::runtime_error("Chybí původ geometrie profilu Sweepu.");
                 for(std::size_t e=0;e<station.edges.size();++e) {
+                    // A station's authored boundary is also original topology.
+                    // Generated() only finds longitudinal children, so it used
+                    // to omit the straight End rim needed to attach another
+                    // Bend. Define its ancestry before locating the body edge.
+                    const auto rim_semantic="sweep:rim:"+std::string(start?"start":"end")+
+                        ":at:"+request.path_point_ids[index]+":profile:"+station.profile_id+
+                        ":from:"+station.curve_ids[e];
+                    const auto lies_on=[](const TopoDS_Edge& source,const TopoDS_Edge& target,double tolerance) {
+                        BRepAdaptor_Curve curve(source);
+                        for(double f:{0.,.25,.5,.75,1.}) {
+                            const auto p=curve.Value(curve.FirstParameter()+(curve.LastParameter()-curve.FirstParameter())*f);
+                            const auto v=BRepBuilderAPI_MakeVertex(p).Vertex();
+                            BRepExtrema_DistShapeShape distance(v,target);
+                            if(!distance.IsDone()||distance.Value()>tolerance)return false;
+                        }
+                        return true;
+                    };
+                    for(TopExp_Explorer edges(builder.Shape(),TopAbs_EDGE);edges.More();edges.Next()) {
+                        const auto candidate=TopoDS::Edge(edges.Current());
+                        if(BRep_Tool::Degenerated(candidate))continue;
+                        if(!candidate.IsSame(station.edges[e])) {
+                            // Reject unrelated rails cheaply before an extrema solve.
+                            BRepAdaptor_Curve authored(station.edges[e]),actual(candidate);
+                            const auto a=authored.Value(authored.FirstParameter()),b=authored.Value(authored.LastParameter());
+                            const auto c=actual.Value(actual.FirstParameter()),d=actual.Value(actual.LastParameter());
+                            const double tolerance=request.linear_tolerance;
+                            const bool closed=a.Distance(b)<=tolerance&&c.Distance(d)<=tolerance;
+                            if(!closed && !((a.Distance(c)<=tolerance&&b.Distance(d)<=tolerance)||
+                                (a.Distance(d)<=tolerance&&b.Distance(c)<=tolerance)))continue;
+                        }
+                        if(candidate.IsSame(station.edges[e]) ||
+                            (lies_on(station.edges[e],candidate,request.linear_tolerance)&&
+                             lies_on(candidate,station.edges[e],request.linear_tolerance))) {
+                            piece.edges.push_back({candidate,{owner_id,rim_semantic}});
+                            break;
+                        }
+                    }
+                    if(e<station.point_ids.size()) {
+                        const auto authored=TopExp::FirstVertex(station.edges[e],true);
+                        const auto position=BRep_Tool::Pnt(authored);
+                        const auto vertex_semantic="sweep:vertex:"+std::string(start?"start":"end")+
+                            ":at:"+request.path_point_ids[index]+":profile:"+station.profile_id+
+                            ":from:"+station.point_ids[e];
+                        for(TopExp_Explorer vertices(builder.Shape(),TopAbs_VERTEX);vertices.More();vertices.Next()) {
+                            const auto candidate=TopoDS::Vertex(vertices.Current());
+                            if(position.Distance(BRep_Tool::Pnt(candidate))<=request.linear_tolerance) {
+                                piece.vertices.push_back({candidate,{owner_id,vertex_semantic}});break;
+                            }
+                        }
+                    }
                     const auto semantic="sweep:"+request.path_segments[i].source_id+":profile:"+
                         station.profile_id+":from:"+station.curve_ids[e];
                     const auto& generated=builder.Generated(station.edges[e]);
@@ -2166,26 +2242,8 @@ PrimitiveData make_sweep3d_data(
             // revolution. Preserve its circular edges (including the R=0
             // inner collapse of a hem) instead of approximating it by a pipe.
             // The same authored Sweep identities are collected in either case.
-            bool rigid_arc=false;BRepAdaptor_Curve spine(spine_edges[i]);
-            if(segment.arc_midpoint&&request.sections.size()==2&&request.path_segments.size()==1&&
-                request.sections[0].point_index==0&&request.sections[1].point_index==1&&
-                !profile_wires&&spine.GetType()==GeomAbs_Circle) {
-                const auto* first=std::get_if<ExtrusionRequest::PolygonProfile>(&request.sections[0].profile.outer_profile);
-                const auto* last=std::get_if<ExtrusionRequest::PolygonProfile>(&request.sections[1].profile.outer_profile);
-                if(first&&last&&first->vertices.size()==last->vertices.size()) {
-                    gp_Trsf rotation;rotation.SetRotation(spine.Circle().Axis(),spine.LastParameter()-spine.FirstParameter());
-                    rigid_arc=true;
-                    for(std::size_t n=0;n<first->vertices.size();++n) {
-                        const auto& a=first->vertices[n];const auto& b=last->vertices[n];
-                        if(gp_Pnt(a.x,a.y,a.z).Transformed(rotation).Distance(gp_Pnt(b.x,b.y,b.z))>1e-9)rigid_arc=false;
-                    }
-                    for(std::size_t n=0;n<2;++n) {
-                        const auto& normal=request.sections[n].profile_normal;
-                        if(gp_Vec(normal.x,normal.y,normal.z).Normalized().Dot(tangent(i,n==1))<1-1e-9)rigid_arc=false;
-                    }
-                }
-            }
-            if(rigid_arc) {
+            BRepAdaptor_Curve spine(spine_edges[i]);
+            if(exact_revolution) {
                 TopoDS_Shape base=request.make_solid?TopoDS_Shape(BRepBuilderAPI_MakeFace(stations[first_station(i)].wire).Face())
                     :TopoDS_Shape(stations[first_station(i)].wire);
                 BRepPrimAPI_MakeRevol builder(base,spine.Circle().Axis(),spine.LastParameter()-spine.FirstParameter(),true);

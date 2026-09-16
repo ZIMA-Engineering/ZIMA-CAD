@@ -1,3 +1,4 @@
+#include <zima/document/placement_orientation.hpp>
 #include <zima/workspace/body_reference_operations.hpp>
 #include <zima/workspace/placement_edit.hpp>
 #include <zima/document/placement_reference_assignment.hpp>
@@ -8,10 +9,7 @@ namespace {
 using Ref=document::ConstructionReference;
 void reject(const char* code,const char* message){throw BodyOperationError(code,message);}
 std::vector<Ref> combined(const std::vector<Ref>& position,const std::vector<Ref>& orientation,std::optional<std::size_t> skip={}) {
-    std::vector<Ref> result;
-    for(std::size_t i=0;i<position.size();++i)if(skip!=i&&(!position[i].owner_id.empty()||!position[i].semantic_key.empty()))result.push_back(position[i]);
-    for(std::size_t i=0;i<orientation.size();++i)if(skip!=i+3&&(!orientation[i].owner_id.empty()||!orientation[i].semantic_key.empty()))result.push_back(orientation[i]);
-    return result;
+    return document::combined_placement_references(position,orientation,skip);
 }
 }
 bool set_body_placement_reference(Workspace& live,const kernel::OcctKernel& kernel,
@@ -54,9 +52,7 @@ bool set_body_placement_reference(Workspace& live,const kernel::OcctKernel& kern
         source.orientation_drives_rotation=true;source.orientation_role=direction?"direction":index==3?"front":"top";
         source.orientation_only=direction;if(direction)source.supports_offset=false;
     } else if(face||axis||edge) {
-        std::set<std::string> used;for(const auto& ref:baseline.references)if(ref.orientation_drives_rotation)used.insert(ref.orientation_role);
-        source.orientation_role=!used.contains("front")?"front":!used.contains("top")?"top":"none";
-        source.orientation_drives_rotation=source.orientation_role!="none";
+        document::assign_container_orientation_role(source,baseline.references);
     }
     source.measured_offset=document::measure_placement_reference_offset(source,geometry,origin);
     const auto assigned=document::assign_placement_reference({position,orientation,empty_locks},true,index,std::move(source),derive_orientation);

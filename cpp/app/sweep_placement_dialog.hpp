@@ -14,6 +14,7 @@ namespace zima::app {
 // No feature-specific reference solver or placement widget is maintained here.
 class SweepPlacementDialog : public ui::PropertiesSubWindow, public PlacementReferenceDialog {
 public:
+    zima::document::Placement placement_seed() const override { return placement_->numeric_placement(); }
     document::HistoryContainer pending;
     std::function<void()> changed;
     std::function<void(unsigned)> edit_sketch;

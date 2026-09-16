@@ -177,6 +177,9 @@ struct ConstructionObject {
 struct PointConstraintState {
     int remaining_dof{3};
     std::array<bool, 3> constrained_axes{};
+    // Ordered straight Edge + containing Plane + Point projects the final
+    // point onto the edge. Expose that meaning in the shared reference row.
+    bool third_point_is_station{};
 };
 struct OrientationConstraintState {
     int remaining_dof{3};

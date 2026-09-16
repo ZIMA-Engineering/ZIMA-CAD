@@ -28,6 +28,7 @@
 #include "tree_reference_state.hpp"
 #include "history_tree_widget.hpp"
 #include <zima/workspace/history_policy.hpp>
+#include <zima/document/sketch_placement.hpp>
 #include "resource_icon.hpp"
 
 #include <zima/viewer/mesh_view.hpp>
@@ -375,6 +376,52 @@ void verify_sketch_endpoint_dialog(QWidget& parent) {
     }
 }
 
+void verify_container_frame_dialog(QWidget& parent) {
+    using namespace zima;
+    auto doc=document::PartDocument::create_default();
+    auto source=sketcher::Sketch::create_default();
+    const auto line=source.add_segment(-10,0,10,0),point=source.add_point(10,0);
+    auto geometry=doc.origin_viewer_mesh().original_references;
+    const auto sg=source.placement_reference_geometry();
+    geometry.points.insert(geometry.points.end(),sg.points.begin(),sg.points.end());
+    geometry.edges.insert(geometry.edges.end(),sg.edges.begin(),sg.edges.end());
+    const document::ConstructionReference e{{},source.id,"segment:"+line};
+    const document::ConstructionReference p{{},source.id,"point:"+point};
+    const document::ConstructionReference f{{},doc.document_id+":origin","origin:plane:xy",0,true};
+    const document::ConstructionReference g{{},doc.document_id+":origin","origin:plane:xz",0,true};
+    const document::ConstructionReference n{{},doc.document_id+":origin","origin:plane:yz",0,true};
+    for (const auto& sequence : {std::vector{e,f,p},std::vector{f,e,p},std::vector{p,e,f},std::vector{f,g,n}}) {
+        auto sketch=sketcher::Sketch::create_default();
+        app::SketchPropertiesDialog dialog(sketch,{},false,{},[](auto,auto,bool){},&parent);
+        dialog.set_reference_geometry(geometry);
+        for(std::size_t i=0;i<sequence.size();++i) {
+            auto baseline=dialog.placement_seed();baseline.references=dialog.references_without(i);
+            require(document::resolve_placement(baseline,geometry),"Dialog baseline lost its frame");
+            const kernel::Vec3 origin{baseline.x,baseline.y,baseline.z};auto ref=sequence[i];
+            const bool direction=document::point_constraint_remaining_dof(baseline.references,geometry,origin)==0;
+            if(direction){ref.orientation_only=true;ref.supports_offset=false;ref.orientation_role="direction";ref.orientation_drives_rotation=true;}
+            else if(ref.semantic_key!=p.semantic_key)document::assign_container_orientation_role(ref,baseline.references);
+            require(dialog.set_reference(i,ref,"Source"),"Dialog rejected ordered reference");
+        }
+        const auto pending=dialog.pending_value();auto solved=pending.second;
+        require(document::resolve_placement(solved,geometry),"Dialog draft failed to solve");
+        require(document::orientation_constraint_remaining_dof(solved.references,geometry,true,{solved.x,solved.y,solved.z})==0,
+            "Sketch/Bend/Flat/Holes dialog lost TOP");
+        require(pending.first.plane_auto&&pending.first.plane==sketcher::SketchPlane::XZ,"Dialog did not select FRONT work plane");
+        // A positional replacement must remove its own automatic twin from
+        // the baseline; otherwise an old plane secretly continues driving it.
+        const auto without=dialog.references_without(0);
+        require(std::ranges::none_of(without,[&](const auto& ref){return ref.owner_id==sequence[0].owner_id&&ref.semantic_key==sequence[0].semantic_key;}),
+            "Replacement baseline retained the old automatic orientation");
+        app::SketchPropertiesDialog reopened(pending.first,pending.second,true,{},[](auto,auto,bool){},&parent);
+        reopened.set_reference_geometry(geometry);
+        const auto second=reopened.pending_value().second;
+        require(second.references==pending.second.references,"Reopening properties changed directional references");
+        require(std::abs(second.rotation_x-solved.rotation_x)<1e-6&&std::abs(second.rotation_y-solved.rotation_y)<1e-6&&
+            std::abs(second.rotation_z-solved.rotation_z)<1e-6,"Preview and reopened frame disagree");
+    }
+}
+
 void verify_sketch_reference_tree() {
     using namespace zima;
     auto doc=document::PartDocument::create_default();
@@ -418,6 +465,7 @@ int main(int argc, char* argv[]) {
         verify_sketch_line_styles(application,parent);
         verify_curve_placement_picker(application,parent);
         verify_sketch_endpoint_dialog(parent);
+        verify_container_frame_dialog(parent);
         verify_sketch_reference_tree();
         {
             using namespace zima::app;

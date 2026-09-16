@@ -57,11 +57,11 @@ void front_reference() {
     front.owner_id="origin";front.semantic_key="origin:plane:xy";front.supports_offset=true;front.offset=12;
     top.owner_id="origin";top.semantic_key="origin:plane:yz";top.supports_offset=true;
     std::vector<document::ConstructionReference> references{stale,front,top};
-    workspace::normalize_owned_profile_front_references(references,true);
-    require(references.size()==3 && references[0].semantic_key==front.semantic_key &&
-        references[1].orientation_role=="top" && references[2].orientation_only &&
-        references[2].semantic_key==front.semantic_key && references[2].offset==12 &&
-        references[2].orientation_role=="front","Removing a stale row lost the explicit profile Front reference");
+    workspace::normalize_owned_profile_front_references(references);
+    require(references.size()==3 && references[0]==stale &&
+        references[1].orientation_role=="front" && references[1].offset==12 &&
+        references[2].orientation_role=="top" && !references[2].orientation_only,
+        "Profile normalization discarded a stored reference or changed FRONT/TOP order");
 }
 void extrusion(const kernel::OcctKernel& kernel,fs::path directory){
     Fixture f(kernel,directory);f.run("new",{{"type","part"},{"name","profile-extrusion"}});

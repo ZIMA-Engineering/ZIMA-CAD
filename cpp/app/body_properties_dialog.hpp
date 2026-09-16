@@ -21,6 +21,7 @@ namespace zima::app {
 
 class BodyPropertiesDialog final : public zima::ui::PropertiesSubWindow, public PlacementReferenceDialog {
 public:
+    zima::document::Placement placement_seed() const override { return placement_->numeric_placement(); }
     using Commit = std::function<void(zima::document::BodyHistory, bool)>;
     BodyPropertiesDialog(zima::document::BodyHistory initial, bool active, Commit commit, QWidget* parent,
         int decimal_places = 3)

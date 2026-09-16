@@ -1,3 +1,4 @@
+#include <zima/document/sketch_placement.hpp>
 #include <zima/workspace/part_transactions.hpp>
 #include <zima/workspace/profile_operations.hpp>
 #include <algorithm>
@@ -5,54 +6,8 @@
 
 namespace zima::workspace {
 void normalize_owned_profile_front_references(
-        std::vector<zima::document::ConstructionReference>& references,
-        bool preserve_front_through_origin_triad) {
-    const auto first = std::find_if(references.begin(), references.end(),
-        [](const auto& reference) {
-            return !reference.orientation_only && reference.supports_offset &&
-                !reference.owner_id.empty();
-        });
-    if (first == references.end()) return;
-    const auto owner = first->owner_id;
-    const auto path = first->instance_path;
-    const auto semantic = first->semantic_key;
-    const auto same_source = [&](const auto& reference) {
-        return reference.owner_id == owner &&
-            reference.instance_path == path &&
-            reference.semantic_key == semantic;
-    };
-    const auto second_plane = std::find_if(std::next(first), references.end(),
-        [&](const auto& reference) {
-            return !reference.orientation_only && reference.supports_offset &&
-                !same_source(reference);
-        });
-    for (auto& reference : references) {
-        if (reference.orientation_only) continue;
-        const bool front = same_source(reference);
-        const bool top = second_plane != references.end() &&
-            &reference == &*second_plane;
-        reference.orientation_drives_rotation = front || top;
-        reference.orientation_role = front ? "front" : top ? "top" : "none";
-    }
-    // Erasing an earlier orientation-only row can invalidate first.
-    auto explicit_front = *first;
-    std::erase_if(references, [&](const auto& reference) {
-        return reference.orientation_only && !same_source(reference);
-    });
-    if (preserve_front_through_origin_triad) {
-        // resolve_placement() deliberately collapses the ordinary three
-        // planes of the main Origin to the document identity frame.  An
-        // owned Sketch/profile is different: its first positional plane is
-        // explicitly its FRONT, also while the feature dialog is only
-        // showing a transient preview.  The calculated Sketch path already
-        // supplies this non-persisted orientation twin; do the same here so
-        // the cyan local origin cannot jump to the last reference until the
-        // first profile calculation/drag refreshes it.
-        explicit_front.orientation_only = true;
-        explicit_front.orientation_drives_rotation = true;
-        explicit_front.orientation_role = "front";
-        references.push_back(std::move(explicit_front));
-    }
+        std::vector<zima::document::ConstructionReference>& references) {
+    document::normalize_container_front_references(references);
 }
 
 std::string revolution_axis_segment_id(

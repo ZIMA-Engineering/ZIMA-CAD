@@ -32,6 +32,7 @@ namespace zima::app {
 class ConstructionPropertiesDialog final : public zima::ui::PropertiesSubWindow,
                                            public PlacementReferenceDialog {
 public:
+    zima::document::Placement placement_seed() const override { return placement_->numeric_placement(); }
     using CommitCallback = std::function<void(zima::document::ConstructionObject)>;
 
     ConstructionPropertiesDialog(

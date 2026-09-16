@@ -131,10 +131,23 @@ Creation and editing use the same internal properties window, OK/Cancel and
 middle-button double-click confirmation. Changes remain transient until OK.
 Editing evaluates the existing history boundary before the Bend.
 
-- The command consumes ordinary container placement: the first plane defines the
-  Sketch plane and the second defines TOP. The shared placement contract is unchanged.
+- The command consumes ordinary container placement. With an automatic Base plane,
+  selecting a straight outer edge and its narrow planar attachment face puts the
+  start profile in that face, its segment along the edge, and thickness into the
+  face. The initial sweep tangent leaves the face outwards. This also works on
+  the End face of an existing Bend; another perpendicular face is not required.
+  Edge direction reversal does not reverse the material side. Base plane remains
+  available for an explicit manual choice; FRONT/BACK, rotation and offset remain
+  available. These are Bend profile frames, not a different container solver.
+- The ordered placement sequence **Edge, containing Plane, Point** uses the last
+  point as a station along the edge: its perpendicular projection locates the
+  origin, including when the point is the opposite corner of the attachment
+  rectangle. The reference row identifies this meaning. A third intersecting
+  plane can locate the origin instead. Point-first placement still anchors the
+  origin directly to that point. Reference order and identity are persisted in
+  the native document; no additional geometry file or cache is required.
 - One history container owns three prepared Sketches: the start profile (initially
-  a 40 mm segment), a circular trajectory, and the end profile. Their editors are
+  a 40 mm segment from 0 to +40), a circular trajectory, and the end profile. Their editors are
   available in the same properties window. The end frame follows the path tangent
   automatically; it has no independent twist.
 - Each profile has one non-construction straight segment. The end editor includes
@@ -143,6 +156,16 @@ Editing evaluates the existing history boundary before the Bend.
   side; negative entry reverses it, following the ordinary Sketch dimension rule.
   The initial positive direction widens each end. CLI extension arguments are
   signed: positive widens, negative shortens. End width must remain positive.
+- Both start endpoints have C constraints to the horizontal Sketch axis and
+  separate horizontal dimensions from the Sketch origin (initially 0 and 40 mm).
+  Both end endpoints have C constraints to their axis and difference dimensions
+  from the corresponding transported start endpoints. Editing start dimensions
+  moves these reference points without replacing Sketch, curve or point IDs.
+  During new GUI placement the initial span points toward the selected edge's
+  other end: at the opposite corner its endpoint coordinates become `-width`
+  and `0`, with the usual nonnegative displayed dimensions. This preserves the
+  width, material side and outgoing tangent. Opening
+  Sketcher or editing its geometry ends this automatic initial layout.
 - Set the inside radius (0–1,000,000 mm) and angle (0–180 degrees).
   Material extends from the segment toward the rotation axis, at outside radius R+t.
 - The prepared path is the **outside** circular arc. Its Sketch radius dimension
@@ -175,6 +198,9 @@ Start and End retain their respective semantic face identities across Bend and
 Unbend. Face and rim identities derive from the feature, section, source segment
 and endpoints. Their geometry changes while their persisted ancestry stays stable.
 Neither OCCT traversal order nor preview edges define persistent references.
+Calculated station rims and vertices carry Start/End ancestry from the authored
+path point, profile, curve and point. Their persisted original references are
+available for subsequent Bend placement, including after Bend/Unbend.
 Double-click the Bend in View to inspect its dimensions. **Unbend/Bend** appears
 in the View and calculates one undoable state change without opening Properties.
 Radius, angle and endpoint differences also support inline dimension editing.
@@ -186,6 +212,12 @@ command. For a width transition, the side edges need not be circles: the authore
 outside path radius and the endpoint dimensions are available through Drawing
 Show/Erase model dimensions. The path radius annotation is omitted in Unbend and
 at zero angle. Do not interpret a width-transition edge as a circular arc.
+
+A circular Bend with matching start/end sections retains analytic lines and
+cylindrical surfaces throughout the exact revolution calculation. Converting
+those sections to NURBS unnecessarily produced general revolution surfaces and
+could stall volume integration for a rotated 180-degree Bend. Variable-width
+sections continue to use the general Sweep calculation.
 
 Native Part INI format **30** / JSON payload **54** stores Flat and Bend parameters, the
 owned Flat profile, Bend start Sketch and both embedded Bend Sketches;
@@ -270,3 +302,10 @@ model dimension layout. Logs: `build/bend-final-tests.log`,
 The final shared-Sketch run passed all three tests in 11.17 seconds. GUI and CLI
 built successfully; the properties and View captures were visually inspected.
 This is focused verification, not a claim that the entire repository suite ran.
+
+The subsequent attachment repair passed 25 focused contracts on the rebuilt
+Windows GUI/CLI, including 16 calculated Bend-to-Bend cases and 16 actual GUI
+attachment scenarios. The matrix covers rotated 180-degree geometry, both edge
+directions, off-edge point projection, start/end dimension edits, Bend/Unbend,
+Sketcher return and native persistence. See the final verification section in
+[Container Placement Analysis](CONTAINER_PLACEMENT_ANALYSIS.md#final-verification-of-the-combined-repair-2026-09-16).

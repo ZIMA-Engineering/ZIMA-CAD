@@ -25,7 +25,7 @@ bool commit_flat(Workspace& live,const kernel::OcctKernel& kernel,const std::str
     document::validate_native_metadata_text(feature.name);
     if(feature.name.empty())throw std::invalid_argument("Specify a Flat name.");
     static_cast<void>(document::flat_request(feature,sketch,document::sheet_metal_defaults(before)));
-    document::normalize_sketch_front_references(feature.placement.references);
+    document::normalize_container_front_references(feature.placement.references);
     const auto container=feature.id;auto next=before;
     if(existing) {
         *next.find_container(container)=std::move(feature);

@@ -1,3 +1,6 @@
+#include <zima/workspace/bend_operations.hpp>
+#include <zima/workspace/flat_operations.hpp>
+#include <zima/workspace/holes_operations.hpp>
 #include <zima/workspace/sketch_properties.hpp>
 #include <zima/workspace/placement_reference_removal.hpp>
 #include <zima/document/placement_reference_assignment.hpp>
@@ -47,7 +50,7 @@ void writable(const document::PartDocument& part, const std::string& object) {
     }
 }
 bool supported(Kind kind) {
-    return kind == Kind::Sketch || primitive_definition(kind) || kind == Kind::Extrusion || kind == Kind::Revolution ||
+    return kind == Kind::Sketch || kind == Kind::Bend || kind == Kind::Flat || kind == Kind::Holes || primitive_definition(kind) || kind == Kind::Extrusion || kind == Kind::Revolution ||
         kind == Kind::Hole || kind == Kind::Thread || kind == Kind::Sweep2D || kind == Kind::Sweep3D ||
         kind == Kind::HelicalSweep || kind == Kind::ImportedStep;
 }
@@ -59,6 +62,14 @@ bool commit_feature(Workspace& live, const kernel::OcctKernel& kernel,
         const auto sketch=std::ranges::find(sketches,value.id,&sketcher::Sketch::owner_container_id);
         if(sketch==sketches.end())reject("sketch_not_found","The requested Sketch does not exist.");
         return commit_part_sketch_properties(live,kernel,id,*sketch,std::move(value.placement));
+    }
+    if (kind == Kind::Bend || kind == Kind::Flat || kind == Kind::Holes) {
+        const auto& sketches=live.open_part(id)->session.document().sketches;
+        const auto sketch=std::ranges::find(sketches,value.id,&sketcher::Sketch::owner_container_id);
+        if(sketch==sketches.end())reject("sketch_not_found","The requested Sketch does not exist.");
+        if(kind==Kind::Bend)return commit_bend(live,kernel,id,std::move(value),*sketch);
+        if(kind==Kind::Flat)return commit_flat(live,kernel,id,std::move(value),*sketch);
+        return commit_holes(live,kernel,id,std::move(value),*sketch);
     }
     if (primitive_definition(kind)) return commit_primitive(live, kernel, id, std::move(value), PrimitiveEditMode::Replace);
     if (kind == Kind::Extrusion || kind == Kind::Revolution) {

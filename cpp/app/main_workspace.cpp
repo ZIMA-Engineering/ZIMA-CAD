@@ -4630,6 +4630,255 @@ int verify_inline_primitive_dimensions(QApplication& application, const std::fil
     }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
 }
 
+int verify_sketch_return_frames(QApplication& application, const std::filesystem::path& directory) {
+    using namespace zima;
+    const bool origin_pick=qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_ORIGIN_PICK_ONLY");
+    const bool bend_attachment=qEnvironmentVariableIsSet("ZIMA_VERIFY_BEND_ATTACHMENT_ONLY");
+    const auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
+    const auto near=[](const kernel::Vec3& a,const kernel::Vec3& b) {
+        return std::hypot(a.x-b.x,a.y-b.y,a.z-b.z)<1e-6;
+    };
+    const auto flush=[&] {
+        application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+        application.processEvents();
+    };
+    try {
+        for(const auto kind:{document::FeatureKind::Sketch,document::FeatureKind::Holes,
+                document::FeatureKind::Flat,document::FeatureKind::Bend})
+        for(const bool existing:{false,true}) for(int scenario=bend_attachment?9:origin_pick?6:0;scenario<(bend_attachment?17:origin_pick?9:6);++scenario) {
+            if(bend_attachment && kind!=document::FeatureKind::Bend)continue;
+            std::cout<<"Sketch return frame: kind="<<int(kind)<<" existing="<<existing
+                     <<" scenario="<<scenario<<std::endl;
+            auto part=document::PartDocument::create_default();
+            auto source=document::PartDocument::create_sketch_container();
+            auto source_sketch=sketcher::Sketch::create_default();source_sketch.owner_container_id=source.id;
+            const auto segment=source_sketch.add_segment(-10,0,10,0);
+            const auto point=source_sketch.segments.front().second_point_id;
+            auto box=document::PartDocument::create_box_container();
+            box.box.length=40;box.box.width=40;box.box.height=40;
+            if(bend_attachment)box.box.height=1;
+            part.history={source,box};part.sketches={source_sketch};
+            auto feature=document::PartDocument::create_sketch_container();feature.feature_kind=kind;
+            auto sketch=sketcher::Sketch::create_default();sketch.owner_container_id=feature.id;
+            const auto populate=[&](sketcher::Sketch& s) {
+                if(kind==document::FeatureKind::Flat) {
+                    s.add_segment(2,3,12,3);s.add_segment(12,3,12,9);
+                    s.add_segment(12,9,2,9);s.add_segment(2,9,2,3);
+                } else if(s.segments.empty())s.add_segment(0,0,15,0);
+            };
+            populate(sketch);
+            if(kind==document::FeatureKind::Holes) {
+                feature.holes.sketch_id=sketch.id;feature.combine_mode=document::CombineMode::Subtract;
+            } else if(kind==document::FeatureKind::Flat)feature.flat.sketch_id=sketch.id;
+            else if(kind==document::FeatureKind::Bend) {
+                feature.bend.sketch_id=sketch.id;
+                document::prepare_bend_sketches(feature,sketch,document::sheet_metal_defaults(part));
+            }
+            if(existing){part.history.push_back(feature);part.sketches.push_back(sketch);}
+            document::BodyHistoryGraph graph;const auto body=graph.create_body("Sketch return frame");
+            for(const auto& f:part.history)graph.insert({document::PartHistoryKind::Feature,f.id});
+            part.set_body_history(graph);part.resolve_constructions();
+            kernel::OcctKernel kernel;
+            const auto path=directory/"sketch-return-frame.prtz";
+            const auto calculated=kernel.evaluate_history(part.kernel_operations());
+            part.save(path,calculated);
+            app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));
+            window.resize(1200,850);window.show();
+            check(window.open_document_path(QString::fromStdString(path.string())),"Cannot open Sketch return fixture");
+            flush();check(activate_test_body(application,window,body),"Cannot activate Sketch return Body");
+            auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>());
+            const auto dialog=[&]()->app::SketchPropertiesDialog* {
+                for(auto* child:window.findChildren<QDialog*>())
+                    if(auto* d=dynamic_cast<app::SketchPropertiesDialog*>(child);d&&d->isVisible())return d;
+                return nullptr;
+            };
+            const auto open=[&] {
+                auto* tree=window.findChild<QTreeWidget*>("documentTree");QTreeWidgetItem* row{};
+                for(QTreeWidgetItemIterator i(tree);*i;++i)
+                    if((*i)->data(0,Qt::UserRole).toString().toStdString()==feature.id&&
+                       (*i)->data(0,Qt::UserRole+3)=="part-container"){row=*i;break;}
+                check(row,"Cannot locate Sketch return feature");window.show_tree_item_properties(row);flush();
+                check(dialog(),"Sketch feature Properties did not open");
+            };
+            if(existing)open();
+            else {
+                if(kind==document::FeatureKind::Flat||kind==document::FeatureKind::Bend) {
+                    window.findChild<QAction*>("applicationModeAction2")->trigger();flush();
+                }
+                const char* action=kind==document::FeatureKind::Sketch?"sketchAction":
+                    kind==document::FeatureKind::Flat?"flatAction":
+                    kind==document::FeatureKind::Bend?"bendAction":"holesAction";
+                auto* command=window.findChild<QAction*>(action);check(command,"Missing Sketch feature action");
+                command->trigger();flush();check(dialog(),"New Sketch feature Properties did not open");
+                const auto id=dialog()->pending_value().first.id;
+                check(dialog()->mutate_sketch(id,populate),"Cannot populate pending profile");flush();
+            }
+            std::vector<document::ConstructionReference> refs;
+            const auto plane=[&](const std::string& key,const std::string& role) {
+                return document::ConstructionReference{{},part.document_id+":origin","origin:plane:"+key,0,true,role,true};
+            };
+            if(bend_attachment) {
+                const auto& geometry=calculated.back().mesh.original_references;
+                double min_y=1e30,max_z=-1e30;
+                for(const auto& p:geometry.points)if(p.reference.owner_id==box.id) {
+                    min_y=std::min(min_y,p.position.y);max_z=std::max(max_z,p.position.z);
+                }
+                const auto edge=std::ranges::find_if(geometry.edges,[&](const auto& e) {
+                    return e.reference.owner_id==box.id&&e.points.size()>=2&&
+                        std::ranges::all_of(e.points,[&](const auto& p){return std::abs(p.y-min_y)<1e-6&&std::abs(p.z-max_z)<1e-6;});
+                });
+                check(edge!=geometry.edges.end(),"Bend attachment edge missing");
+                std::optional<kernel::FaceReference> face;
+                for(std::size_t i=0;i<geometry.triangle_references.size();++i) {
+                    if(geometry.triangle_references[i].owner_id!=box.id)continue;
+                    bool on_face=true;
+                    for(int j=0;j<3;++j)on_face=on_face&&std::abs(geometry.vertices[geometry.triangles[3*i+j]].y-min_y)<1e-6;
+                    if(on_face){face=geometry.triangle_references[i];break;}
+                }
+                check(face.has_value(),"Bend attachment face missing");
+                const auto vertex=std::ranges::find_if(geometry.points,[&](const auto& p) {
+                    if(scenario>=14) {
+                        const double x=scenario==15?edge->points.back().x:edge->points.front().x;
+                        return p.reference.owner_id==box.id&&std::abs(p.position.x-x)<1e-6&&
+                            std::abs(p.position.y-min_y)<1e-6&&p.position.z<max_z-.5;
+                    }
+                    return p.reference.owner_id==box.id&&near(p.position,edge->points.front());
+                });
+                check(vertex!=geometry.points.end(),"Bend attachment point missing");
+                refs={{{},box.id,edge->reference.semantic_key,0,false,"front",true},
+                    {{},box.id,face->semantic_key,0,true,"top",true},
+                    {{},box.id,vertex->reference.semantic_key}};
+                if(scenario==13)refs.resize(2);
+                if(scenario==16) {
+                    std::optional<kernel::FaceReference> stop;
+                    for(std::size_t i=0;i<geometry.triangle_references.size();++i) {
+                        if(geometry.triangle_references[i].owner_id!=box.id)continue;
+                        bool on_face=true;
+                        for(int j=0;j<3;++j)on_face=on_face&&std::abs(geometry.vertices[geometry.triangles[3*i+j]].x-vertex->position.x)<1e-6;
+                        if(on_face){stop=geometry.triangle_references[i];break;}
+                    }
+                    check(stop.has_value(),"Bend stop plane missing");
+                    refs[2]={{},box.id,stop->semantic_key,0,true,"top",true};
+                }
+            } else if(scenario<3||scenario==5) {
+                const std::vector<std::string> keys=scenario==1?std::vector<std::string>{"xy","yz","xz"}:
+                    scenario==2?std::vector<std::string>{"yz","xz","xy"}:std::vector<std::string>{"xz","xy","yz"};
+                refs={plane(keys[0],"front"),plane(keys[1],"top"),plane(keys[2],"top")};
+                if(scenario==5)refs.resize(1); // A genuinely free roll must remain free.
+            } else {
+                document::ConstructionReference edge{{},source_sketch.id,"segment:"+segment,0,false,"front",true};
+                document::ConstructionReference anchor{{},source_sketch.id,"point:"+point};
+                auto face=plane("xy","top");
+                if(scenario==3)refs={edge,face,anchor};
+                else {edge.orientation_only=true;edge.orientation_role="direction";face.orientation_only=true;refs={anchor,edge,face};}
+            }
+            for(std::size_t i=0;i<refs.size();++i) {
+                if(origin_pick)break;
+                check(dialog()->set_reference(i,refs[i],QString::fromStdString(refs[i].semantic_key)),"Cannot set return-test reference");flush();
+            }
+            if(origin_pick) {
+                if(scenario==7) {
+                    auto ref=plane("xz","front");ref.owner_id=body+":origin";
+                    check(dialog()->set_reference(0,ref,"Body XZ"),"Cannot prefill Body plane");flush();
+                }
+                auto* tree=window.findChild<QTreeWidget*>("documentTree");QTreeWidgetItem* origin{};
+                for(QTreeWidgetItemIterator i(tree);*i;++i)
+                    if((*i)->data(0,Qt::UserRole).toString().toStdString()==body+":origin"&&
+                       (*i)->data(0,Qt::UserRole+3)=="document-origin"){origin=*i;break;}
+                check(origin,"Body Origin tree row missing");
+                for(auto* parent=origin->parent();parent;parent=parent->parent())parent->setExpanded(true);
+                tree->scrollToItem(origin);flush();
+                if(scenario==8) {
+                    // Reference entry may start with this row already selected.
+                    // Clicking it must still confirm it, without a selection change.
+                    const QSignalBlocker blocked(tree);tree->setCurrentItem(origin);origin->setSelected(true);
+                }
+                const QPointF pos(tree->visualItemRect(origin).center()),global(tree->viewport()->mapToGlobal(pos.toPoint()));
+                for(auto type:{QEvent::MouseButtonPress,QEvent::MouseButtonRelease}) {
+                    QMouseEvent event(type,pos,global,Qt::LeftButton,type==QEvent::MouseButtonPress?Qt::LeftButton:Qt::NoButton,Qt::NoModifier);
+                    QApplication::sendEvent(tree->viewport(),&event);
+                }
+                flush();
+                const auto value=dialog()->pending_value().second;
+                if(std::ranges::count_if(value.references,[](const auto& r){return !r.orientation_only;})!=3) {
+                    std::cerr<<"Origin pick: rows="<<value.references.size()<<" status="
+                             <<window.findChild<QLabel*>("workspaceState")->text().toStdString()<<std::endl;
+                    throw std::runtime_error("Clicking Body Origin did not populate three placement planes");
+                }
+                for(const auto& ref:value.references)check(ref.owner_id==body+":origin","Body Origin pick stored a different owner");
+            }
+            if(kind!=document::FeatureKind::Flat)dialog()->findChild<QDoubleSpinBox*>("sketchPlaneOffset")->setValue(3);
+            // Exercise both the automatic plane and an explicit local plane.
+            if(scenario==2||scenario==12) {
+                auto* choice=dialog()->findChild<QComboBox*>("sketchPlane");
+                const auto index=choice->findData(int(sketcher::SketchPlane::XY));check(index>=0,"Manual XY plane missing");
+                choice->setCurrentIndex(index);
+            }
+            if(!bend_attachment||scenario==10)dialog()->findChild<QPushButton*>("containerOrientationFlipButton")->click();
+            if(!bend_attachment||scenario==11)dialog()->findChild<QPushButton*>("containerOrientationRotateButton")->click();flush();
+            for(int cycle=0;cycle<2;++cycle) {
+                auto pending=dialog()->pending_value();feature.id=pending.first.owner_container_id;
+                feature.flat.sketch_id=pending.first.id;feature.bend.sketch_id=pending.first.id;feature.holes.sketch_id=pending.first.id;
+                // Resolve the model independently of the GUI preview. In particular,
+                // retaining the references alone does not prove that the shown frame is right.
+                auto expected=part;
+                if(auto* f=expected.find_container(feature.id))f->placement=pending.second;
+                else {auto added=feature;added.placement=pending.second;expected.history.push_back(added);}
+                if(auto i=std::ranges::find(expected.sketches,pending.first.id,&sketcher::Sketch::id);i!=expected.sketches.end())*i=pending.first;
+                else expected.sketches.push_back(pending.first);
+                expected.set_body_history({});expected.resolve_constructions(bend_attachment
+                    ? calculated.back().mesh.original_references : part.body_origin_reference_geometry());
+                const auto expected_sketch=*std::ranges::find(expected.sketches,pending.first.id,&sketcher::Sketch::id);
+                dialog()->findChild<QPushButton*>("sketchOpenButton")->click();flush();
+                check(!dialog(),"Sketch button did not enter Sketcher");
+                for(const bool x:{false,true}) {
+                    const auto axis=std::ranges::find_if(view->mesh().axes,[&](const auto& a) {
+                        return a.reference.owner_id==pending.first.id&&a.reference.semantic_key==(x?"sketch_axis:x":"sketch_axis:y");
+                    });
+                    check(axis!=view->mesh().axes.end(),"Entered Sketch has no working axes");
+                    check(near(axis->point,expected_sketch.resolved_origin)&&
+                        near(axis->direction,x?expected_sketch.resolved_x_axis:expected_sketch.resolved_y_axis),
+                        "Sketcher entry rotated or moved the pending work plane");
+                }
+                window.findChild<QAction*>("finishSketchAction")->trigger();flush();
+                check(dialog(),"Sketcher did not return to Sketch feature Properties");
+                const auto returned=dialog()->pending_value();
+                check(returned.second.references==pending.second.references&&
+                    returned.second.orientation_back==pending.second.orientation_back&&
+                    returned.second.orientation_quarter_turns==pending.second.orientation_quarter_turns&&
+                    returned.first.plane==pending.first.plane&&returned.first.plane_auto==pending.first.plane_auto&&
+                    returned.first.plane_offset==pending.first.plane_offset,
+                    "Sketcher return lost references, plane selection, offset or orientation controls");
+                const auto& p=expected.find_container(feature.id)->placement;
+                check(near({returned.second.rotation_x,returned.second.rotation_y,returned.second.rotation_z},
+                           {p.rotation_x,p.rotation_y,p.rotation_z}),"Sketcher return changed the resolved container rotation");
+                int free_rotation=0;
+                for(const char* name:{"containerRotationX","containerRotationY","containerRotationZ"})
+                    if(dialog()->findChild<QDoubleSpinBox*>(name)->isEnabled())++free_rotation;
+                check(free_rotation==(scenario==5?1:0),"Sketcher return released a constrained rotation (RY)");
+                if(kind==document::FeatureKind::Bend)for(const char* button:{"bendPathSketchButton","bendEndSketchButton"}) {
+                    dialog()->findChild<QPushButton*>(button)->click();flush();check(!dialog(),"Bend auxiliary Sketch did not open");
+                    window.findChild<QAction*>("finishSketchAction")->trigger();flush();check(dialog(),"Bend auxiliary Sketch did not return");
+                    check(dialog()->pending_value().second==returned.second,"Auxiliary Sketch changed Bend placement");
+                }
+            }
+            const auto pending=dialog()->pending_value();
+            dialog()->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+            check(!dialog(),"Sketch feature OK did not commit after returning from Sketcher");
+            window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+            const auto saved=document::PartDocument::load(path);
+            check(saved.find_container(feature.id)&&saved.find_container(feature.id)->placement.references==pending.second.references,
+                "Saved Sketch feature lost references");
+            open();
+            check(near({dialog()->pending_value().second.rotation_x,dialog()->pending_value().second.rotation_y,dialog()->pending_value().second.rotation_z},
+                       {pending.second.rotation_x,pending.second.rotation_y,pending.second.rotation_z}),"Reopening committed feature changed rotation");
+            dialog()->reject();flush();
+        }
+        std::cout<<"Sketch/Flat/Holes/Bend create/edit: work planes, offsets, FRONT/TOP, flips, free roll and repeated Sketcher return passed\n";
+        return 0;
+    } catch(const std::exception& error) {std::cerr<<"Sketch return frame: "<<error.what()<<std::endl;return 1;}
+}
+
 int verify_owned_profile_frames(QApplication& application, const std::filesystem::path& directory) {
     using namespace zima;
     const auto check=[](bool condition,const char* message) {
@@ -6129,6 +6378,9 @@ int verify_startup_contract(
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_PROFILE_DIMENSION_FILE")) return verify_property_sketch_dimensions(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_DIMENSION_EDITS_ONLY")) return verify_inline_primitive_dimensions(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_PROFILE_FRAMES_ONLY")) return verify_owned_profile_frames(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_RETURN_FRAME_ONLY")) return verify_sketch_return_frames(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_ORIGIN_PICK_ONLY")) return verify_sketch_return_frames(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_BEND_ATTACHMENT_ONLY")) return verify_sketch_return_frames(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_MEASUREMENT_INSPECTOR_ONLY")) return zima::app::verify_measurement_inspector(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_ASSEMBLY_REFRESH_ONLY")) return verify_assembly_refresh_view(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SECTIONS_ONLY")) return zima::app::verify_sections(application,window,test_directory);

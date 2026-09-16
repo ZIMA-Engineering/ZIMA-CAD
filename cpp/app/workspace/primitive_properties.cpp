@@ -894,8 +894,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             }
             if (defer_profile_scene_refresh) {
                 normalize_owned_profile_front_references(
-                    placement.references,
-                    /*preserve_front_through_origin_triad=*/true);
+                    placement.references);
             }
             zima::kernel::Vec3 base_rotation;
             bool orientation_from_reference = false;

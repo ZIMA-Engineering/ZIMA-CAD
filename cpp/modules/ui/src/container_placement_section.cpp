@@ -341,6 +341,7 @@ zima::document::Placement ContainerPlacementSection::numeric_placement() const {
 void ContainerPlacementSection::set_translation_constraint_state(
         const zima::document::PointConstraintState& state,
         const zima::kernel::Vec3& solution) {
+    third_point_is_station_=state.third_point_is_station;
     set_remaining_translation_dof(state.remaining_dof);
     const std::array values{solution.x, solution.y, solution.z};
     for (std::size_t i = 0; i < 3; ++i) {
@@ -651,32 +652,7 @@ ContainerPlacementSection::combined_references(std::size_t required) const {
 
 std::vector<zima::document::ConstructionReference>
 ContainerPlacementSection::references_without(std::size_t index) const {
-    auto result = populated_references();
-    if (index < 3 && index < references_.size() &&
-        !(references_[index].owner_id.empty() &&
-          references_[index].semantic_key.empty())) {
-        const auto removed = std::find(result.begin(), result.end(),
-            references_[index]);
-        if (removed != result.end()) result.erase(removed);
-    }
-    if (index >= 3) {
-        const auto orientation_index = index - 3;
-        if (orientation_index < orientation_references_.size()) {
-            auto orientations = orientation_references_;
-            orientations.erase(orientations.begin() +
-                static_cast<std::ptrdiff_t>(orientation_index));
-            for (const auto& reference : orientations) {
-                if (reference.owner_id.empty() && reference.semantic_key.empty()) continue;
-                result.push_back(reference);
-            }
-            return result;
-        }
-    }
-    for (const auto& reference : orientation_references_) {
-        if (reference.owner_id.empty() && reference.semantic_key.empty()) continue;
-        result.push_back(reference);
-    }
-    return result;
+    return zima::document::combined_placement_references(references_,orientation_references_,index);
 }
 
 std::set<std::string> ContainerPlacementSection::highlighted_reference_owner_ids() const {
@@ -833,6 +809,10 @@ void ContainerPlacementSection::refresh_reference_table() {
             if (reference_label_resolver_)
                 reference->setText(resolved ? QStringLiteral("%1. %2").arg(index + 1).arg(*resolved) : QString{});
             reference->set_missing(missing);
+            if(index==2 && third_point_is_station_) {
+                reference->setText(reference->text()+tr(" — poloha podél hrany"));
+                reference->setToolTip(tr("Bod určuje polohu svým kolmým průmětem na první vybranou hranu."));
+            }
             offset->setValue(references_[index].offset);
             offset->setEnabled(!missing && references_[index].supports_offset);
             connect(offset, &QDoubleSpinBox::valueChanged, this,

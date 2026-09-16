@@ -33,6 +33,13 @@ inline bool solve_curve_constraints(const std::vector<BSplineGeometry>& curves,
         std::vector<double> x{initial.x,initial.y,initial.z};
         x.insert(x.end(),parameters.begin(),parameters.end());
         if(seed && !curves.empty())x[3]=(seed-1)/8.0;
+        if(!curves.empty()) {
+            // Start on the trimmed curve, including its endpoints. Starting
+            // outside a remote segment leaves LM pushing a clamped parameter
+            // beyond its boundary instead of moving the origin onto it.
+            const auto projected=bspline_value(curves.front(),x[3]);
+            x[0]=projected.x;x[1]=projected.y;x[2]=projected.z;
+        }
         double lambda=1e-5;
         for(unsigned iteration=0;iteration<120;++iteration) {
             std::vector<std::vector<double>> j;const auto r=residual(x,&j);const double error=norm(r);

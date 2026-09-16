@@ -54,6 +54,157 @@ void verify_sketches(document::HistoryContainer feature,const sketcher::Sketch& 
     const auto point=path.world_point(path.find_point(path.arcs.front().end_point_id)->x,path.find_point(path.arcs.front().end_point_id)->y);
     near(point.x,end.resolved_origin.x);near(point.y,end.resolved_origin.y);near(point.z,end.resolved_origin.z);
 }
+void verify_attachment(const std::filesystem::path& directory) {
+    kernel::OcctKernel kernel;
+    const auto distance=[](kernel::Vec3 a,kernel::Vec3 b){return std::hypot(a.x-b.x,a.y-b.y,a.z-b.z);};
+    const auto close=[&](kernel::Vec3 a,kernel::Vec3 b){return distance(a,b)<1e-6;};
+    for(double angle:{35.,90.,145.,180.})for(bool rotated:{false,true})for(bool reversed:{false,true}) {
+        std::cout<<"Bend attachment angle="<<angle<<" rotated="<<rotated<<" reversed="<<reversed<<std::endl;
+        auto source=document::PartDocument::create_default();
+        auto first=document::PartDocument::create_sketch_container();first.feature_kind=document::FeatureKind::Bend;
+        auto initial=sketcher::Sketch::create_default();initial.owner_container_id=first.id;
+        static_cast<void>(initial.add_segment(-20,0,20,0));first.bend.sketch_id=initial.id;first.bend.angle_degrees=angle;
+        if(rotated) {
+            first.placement.x=75;first.placement.y=-31;first.placement.z=22;
+            first.placement.absolute_rotation_x=31;first.placement.absolute_rotation_y=22;first.placement.absolute_rotation_z=53;
+        }
+        source.history={first};source.sketches={initial};source.resolve_constructions();
+        const auto body=kernel.evaluate_history(source.kernel_operations()).back();
+        near(body.volume,40*(angle*std::numbers::pi/180)*(36-25)/2);
+        std::cout<<"  Source End calculated"<<std::endl;
+        auto geometry=body.mesh.original_references;
+        const auto end=sketcher::Sketch::from_serialized(source.history.front().bend.auxiliary_sketches[1]);
+        const auto a=end.world_point(-20,0),b=end.world_point(20,0);
+        const auto edge=std::ranges::find_if(geometry.edges,[&](const auto& e) {
+            return e.points.size()>=2&&((close(e.points.front(),a)&&close(e.points.back(),b))||
+                (close(e.points.front(),b)&&close(e.points.back(),a)));
+        });
+        if(edge==geometry.edges.end()) {
+            std::cerr<<"Expected End "<<a.x<<','<<a.y<<','<<a.z<<" -> "<<b.x<<','<<b.y<<','<<b.z<<'\n';
+            for(const auto& e:geometry.edges)if(!e.points.empty())std::cerr<<e.reference.semantic_key<<" "
+                <<e.points.front().x<<','<<e.points.front().y<<','<<e.points.front().z<<" -> "
+                <<e.points.back().x<<','<<e.points.back().y<<','<<e.points.back().z<<'\n';
+            throw std::runtime_error("Calculated Bend has no outer End generatrix");
+        }
+        const auto face=std::ranges::find_if(geometry.triangle_references,[](const auto& f){return f.semantic_key.starts_with("sweep:cap:end:from:");});
+        check(face!=geometry.triangle_references.end(),"Calculated Bend has no End cap");
+        const auto vertex=std::ranges::find_if(geometry.points,[&](const auto& p){return close(p.position,a);});
+        check(vertex!=geometry.points.end(),"Calculated Bend has no End vertex");
+        if(reversed) {
+            std::ranges::reverse(edge->points);
+            if(edge->exact_spline) {
+                std::ranges::reverse(edge->exact_spline->poles);
+                kernel::reverse_bspline_parameters(edge->exact_spline->knots,edge->exact_spline->weights);
+            }
+        }
+        auto part=document::PartDocument::create_default();
+        auto feature=document::PartDocument::create_sketch_container();feature.feature_kind=document::FeatureKind::Bend;
+        auto start=sketcher::Sketch::create_default();start.owner_container_id=feature.id;
+        document::initialize_bend_start_profile(start,40);feature.bend.sketch_id=start.id;
+        feature.placement.references={
+            {{},edge->reference.owner_id,edge->reference.semantic_key,0,false,"front",true},
+            {{},face->owner_id,face->semantic_key,0,true,"top",true}};
+        const auto direction=document::bend_attachment_profile_direction(feature.placement.references,geometry);
+        check(direction.has_value(),"Edge and narrow End face did not define a Bend attachment");
+        check(document::point_constraint_state(feature.placement.references,geometry,a).remaining_dof==1,
+            "Edge/face must leave one translation along the edge");
+        check(document::orientation_constraint_state(feature.placement.references,geometry,true,a).remaining_dof==0,
+            "Edge/face must fix all rotations without a third planar face");
+        feature.placement.references.push_back({{},vertex->reference.owner_id,vertex->reference.semantic_key});
+        part.history={feature};part.sketches={start};part.resolve_constructions(geometry);
+        check(part.history.front().placement.reference_valid,"Edge/End face/vertex placement failed");
+        const auto resolved=part.sketches.front();
+        check(resolved.plane==sketcher::SketchPlane::XY&&resolved.plane_auto,"Automatic Bend start plane is not the attachment plane");
+        check(close(resolved.world_point(0,0),a)&&close(resolved.world_point(40,0),b),
+            "Bend outer start generatrix does not coincide with selected edge");
+        check(close(resolved.resolved_y_axis,end.resolved_y_axis),"Bend material points outside the attachment face");
+        check(close(resolved.resolved_normal,end.resolved_normal),"Bend does not leave the End face outwards");
+        const auto refs=part.history.front().placement.references;
+        for(bool last:{false,true}) {
+            const auto inner=end.world_point(last?20:-20,1);
+            const auto corner=std::ranges::find_if(geometry.points,[&](const auto& p){return close(p.position,inner);});
+            check(corner!=geometry.points.end(),"Calculated Bend has no opposite End corner");
+            part.history.front().placement.references[2]={{},corner->reference.owner_id,corner->reference.semantic_key};
+            part.resolve_constructions(geometry);
+            check(part.history.front().placement.reference_valid&&close(part.sketches.front().resolved_origin,last?b:a),
+                "Opposite End corner did not project onto the selected edge");
+            const auto state=document::point_constraint_state(part.history.front().placement.references,geometry,part.sketches.front().resolved_origin);
+            check(state.remaining_dof==0&&state.third_point_is_station,"Projected point has incorrect DOF or presentation");
+            auto prepared=start;
+            document::orient_bend_start_toward_edge(prepared,part.history.front().placement,geometry);
+            auto seeded=part;seeded.sketches.front()=prepared;seeded.resolve_constructions(geometry);
+            const auto& line=seeded.sketches.front();const auto& s=line.segments.front();
+            check(close(line.world_point(line.find_point(s.first_point_id)->x,0),a)&&
+                close(line.world_point(line.find_point(s.second_point_id)->x,0),b),
+                "Prepared line points away from the selected edge at its opposite endpoint");
+            check(close(line.resolved_y_axis,end.resolved_y_axis),"Reversing the initial span reversed the material side");
+        }
+        // Point-first remains coincidence: an off-edge point conflicts with
+        // the selected edge, rather than silently acquiring projection meaning.
+        auto coincident=part.history.front().placement;
+        coincident.references={coincident.references[2],refs[0],refs[1]};
+        check(!document::resolve_placement(coincident,geometry),"Point-first anchor was silently projected");
+        part.history.front().placement.references=refs;part.resolve_constructions(geometry);
+        const auto start_id=resolved.segments.front().id;
+        for(bool unbend:{false,true,false}) {
+            std::cout<<"  Attached state "<<(unbend?"unbend":"bend")<<std::endl;
+            part.history.front().bend.unbend=unbend;part.resolve_constructions(geometry);
+            check(close(part.sketches.front().resolved_x_axis,resolved.resolved_x_axis)&&
+                close(part.sketches.front().resolved_normal,resolved.resolved_normal),"Bend/Unbend moved the attached start profile");
+            const auto result=kernel.evaluate_history(part.kernel_operations()).back();
+            near(result.volume,40*std::numbers::pi/2*5.5);
+        }
+        part.save(directory/"bend-attachment.prtz");
+        auto reopened=document::PartDocument::load(directory/"bend-attachment.prtz");reopened.resolve_constructions(geometry);
+        check(close(reopened.sketches.front().resolved_y_axis,resolved.resolved_y_axis),"Reopening changed Bend material side");
+        // Point first and curve second is the same geometric attachment.
+        auto& reordered=part.history.front().placement.references;
+        reordered={refs[2],refs[0],refs[1]};part.resolve_constructions(geometry);
+        check(close(part.sketches.front().resolved_x_axis,resolved.resolved_x_axis),"Point-first attachment changed Bend frame");
+        // Losing the source preserves the last complete frame and its authored IDs.
+        part.resolve_constructions({});
+        check(!part.history.front().placement.reference_valid&&
+            close(part.sketches.front().resolved_normal,resolved.resolved_normal)&&
+            close(part.sketches.front().resolved_y_axis,resolved.resolved_y_axis)&&
+            part.sketches.front().segments.front().id==start_id,"Missing source lost Bend frame or profile identity");
+        part.sketches.front().plane_auto=false;part.sketches.front().plane=sketcher::SketchPlane::XY;
+        part.resolve_constructions(geometry);
+        check(close(part.sketches.front().resolved_x_axis,resolved.resolved_x_axis),"Selecting explicit XY changed the automatic XY attachment axes");
+        part.sketches.front().plane=sketcher::SketchPlane::YZ;
+        part.resolve_constructions(geometry);
+        check(part.sketches.front().plane==sketcher::SketchPlane::YZ&&!part.sketches.front().plane_auto,
+            "Bend attachment replaced an explicit Base plane");
+    }
+    std::cout<<"16 Bend-to-Bend attachments: rotated frames, reversed edges, point anchor, state, persistence and missing references passed\n";
+}
+void verify_prepared_start() {
+    std::cout<<"Prepared Bend profile dimension edits"<<std::endl;
+    auto start=sketcher::Sketch::create_default();
+    auto feature=document::PartDocument::create_sketch_container();feature.feature_kind=document::FeatureKind::Bend;
+    start.owner_container_id=feature.id;feature.bend.sketch_id=start.id;
+    document::initialize_bend_start_profile(start,40);
+    check(start.constraints.size()==2&&start.dimensions.size()==2,"Bend start needs two C constraints and two origin dimensions");
+    const auto first=start.segments.front().first_point_id,last=start.segments.front().second_point_id;
+    near(start.find_point(first)->x,0);near(start.find_point(last)->x,40);
+    const auto initial=start;
+    for(double first_value:{5.,-7.,0.})for(double last_value:{35.,52.}) {
+        std::cout<<"Bend origin dimensions "<<first_value<<", "<<last_value<<std::endl;
+        start=initial;feature.bend.auxiliary_sketches={};
+        check(start.set_dimension_value(start.id+":position:first",first_value),"Cannot edit first Bend origin dimension");
+        check(start.set_dimension_value(start.id+":position:last",last_value),"Cannot edit last Bend origin dimension");
+        near(start.find_point(first)->y,0);near(start.find_point(last)->y,0);
+        near(start.find_point(first)->x,first_value);near(start.find_point(last)->x,last_value);
+        document::prepare_bend_sketches(feature,start,{});
+        auto end=sketcher::Sketch::from_serialized(feature.bend.auxiliary_sketches[1]);
+        near(end.find_point(end.id+":reference:first")->x,first_value);
+        near(end.find_point(end.id+":reference:last")->x,last_value);
+        check(end.constraints.size()==2&&end.dimensions.size()==2,"Bend end needs two C constraints and two difference dimensions");
+        check(end.set_dimension_value(end.id+":difference:first",3),"Cannot edit prepared first end difference");
+        check(end.set_dimension_value(end.id+":difference:last",4),"Cannot edit prepared last end difference");
+        document::accept_bend_sketch(feature,start,1,end,{});
+        const auto ext=document::bend_profile_extensions(feature);near(ext[0],3);near(ext[1],4);
+    }
+}
 void verify(std::filesystem::path directory) {
     kernel::OcctKernel kernel;workspace::Workspace live;command_host::Options options;
     options.settings=[] {command_host::Settings s;s.templates={std::filesystem::absolute("config/templates"),"start_part.prtz","start_assembly.asmz","Body"};return s;};
@@ -217,6 +368,6 @@ void verify(std::filesystem::path directory) {
 int main() {
     const auto directory=std::filesystem::temp_directory_path()/("zima-bend-"+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     std::filesystem::create_directories(directory);
-    try{verify(directory);std::filesystem::remove_all(directory);std::cout<<"Bend geometry, identities, defaults, history and persistence passed\n";return 0;}
+    try{verify_prepared_start();verify_attachment(directory);verify(directory);std::filesystem::remove_all(directory);std::cout<<"Bend geometry, identities, defaults, history and persistence passed\n";return 0;}
     catch(const std::exception& e){std::cerr<<e.what()<<"; fixture: "<<directory<<'\n';return 1;}
 }

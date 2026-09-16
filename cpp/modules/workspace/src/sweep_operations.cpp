@@ -22,7 +22,7 @@ void inherit_sketch_placement(document::HistoryContainer& feature, const documen
         return !reference.orientation_only && !reference.owner_id.empty();
     });
     if (first != feature.placement.references.end() && first->supports_offset)
-        normalize_owned_profile_front_references(feature.placement.references, first->orientation_drives_rotation);
+        normalize_owned_profile_front_references(feature.placement.references);
 }
 void validate_sweep(const document::HistoryContainer& feature) {
     if (!supported(feature.feature_kind))

@@ -3018,6 +3018,31 @@ bool construction_reference_is_planar_face(
 // references using the same weighted least-squares projection as
 // ConstructionDefinition::PointReference, so a container can be positioned
 // by more than one reference (e.g. a point plus a plane offset).
+struct PlacementPointStation {
+    const ConstructionReference* reference{};
+    zima::kernel::Vec3 direction;
+};
+
+std::optional<PlacementPointStation> placement_point_station(
+        const std::vector<std::reference_wrapper<const ConstructionReference>>& positional,
+        const zima::kernel::ViewerReferenceGeometry& geometry) {
+    // Ordered Edge -> containing Plane -> Point is a station along the edge.
+    // A Point entered first remains an ordinary coincident origin anchor.
+    if(positional.size()!=3)return std::nullopt;
+    const auto& first=positional[0].get();const auto& plane_ref=positional[1].get();
+    const auto& point=positional[2].get();
+    if(!placement_reference_point(point,geometry))return std::nullopt;
+    const auto edge=std::ranges::find_if(geometry.edges,[&](const auto& e){return placement_reference_matches(e.reference,first);});
+    if(edge==geometry.edges.end())return std::nullopt;
+    const auto axis=placement_straight_direction(edge->exact_spline?edge->exact_spline->poles:edge->points);
+    const auto plane=placement_reference_plane(plane_ref,geometry);
+    if(!axis||!plane||!construction_reference_is_planar_face(plane_ref,geometry))return std::nullopt;
+    if(std::abs(placement_vec_dot(axis->direction,plane->normal))>1e-7 ||
+        std::abs(placement_vec_dot(placement_vec_sub(axis->point,plane->point),plane->normal)-plane_ref.offset)>1e-7)
+        return std::nullopt;
+    return PlacementPointStation{&point,axis->direction};
+}
+
 bool placement_solve_position(
     const std::vector<std::reference_wrapper<const ConstructionReference>>&
         placement_references,
@@ -3026,6 +3051,7 @@ bool placement_solve_position(
     if (placement_references.empty()) return true;
     std::vector<std::pair<zima::kernel::Vec3, double>> equations;
     std::vector<zima::kernel::BSplineGeometry> curves;
+    const auto station=placement_point_station(placement_references,geometry);
     const auto add_axis_equations = [&](const PlacementReferenceAxis& value) {
         const auto seed = std::abs(value.direction.x) < 0.8
             ? zima::kernel::Vec3{1.0, 0.0, 0.0}
@@ -3044,6 +3070,10 @@ bool placement_solve_position(
         if (curve!=geometry.edges.end()) {
             curves.push_back(*curve->exact_spline);
         } else if (const auto resolved = placement_reference_point(reference, geometry)) {
+            if(station && station->reference==&reference) {
+                equations.push_back({station->direction,placement_vec_dot(station->direction,*resolved)});
+                continue;
+            }
             equations.push_back({{1.0, 0.0, 0.0}, resolved->x});
             equations.push_back({{0.0, 1.0, 0.0}, resolved->y});
             equations.push_back({{0.0, 0.0, 1.0}, resolved->z});
@@ -3101,33 +3131,74 @@ bool placement_solve_position(
     return true;
 }
 
+bool placement_directions_independent(const zima::kernel::Vec3& a,
+        const zima::kernel::Vec3& b) {
+    const auto cross = placement_vec_cross(placement_vec_normalized(a), placement_vec_normalized(b));
+    return std::hypot(cross.x, cross.y, cross.z) >=
+        std::sin(placement_direction_limit_degrees * std::numbers::pi / 180.0);
+}
+
 void placement_assign_orientation_direction(
-    const ConstructionReference& reference,
-    zima::kernel::Vec3 direction,
-    std::optional<zima::kernel::Vec3>& front_direction,
-    std::optional<zima::kernel::Vec3>& top_direction) {
+    const ConstructionReference& reference, zima::kernel::Vec3 direction,
+    std::optional<zima::kernel::Vec3>& front,
+    std::optional<zima::kernel::Vec3>& top) {
+    direction = placement_vec_normalized(direction);
     if (reference.flip) direction = {-direction.x, -direction.y, -direction.z};
     const auto& role = reference.orientation_role;
-    if (role == "back") {
-        front_direction = {-direction.x, -direction.y, -direction.z};
-    } else if (role == "top") {
-        top_direction = direction;
-    } else if (role == "bottom") {
-        top_direction = {-direction.x, -direction.y, -direction.z};
-    } else if (role == "left" || role == "right") {
-        if (!front_direction) return;
-        const zima::kernel::Vec3 local_x = role == "left" ? direction
-            : zima::kernel::Vec3{-direction.x, -direction.y, -direction.z};
-        auto local_z = placement_vec_cross(local_x, *front_direction);
-        if (!placement_vec_is_zero(local_z)) {
-            top_direction = placement_vec_normalized(local_z);
+    if (role == "back" || role == "bottom" || role == "right")
+        direction = {-direction.x, -direction.y, -direction.z};
+    const bool secondary = role == "top" || role == "bottom" || role == "left" ||
+        role == "right" || (role == "direction" && front.has_value());
+    if (secondary) {
+        if (top || (front && !placement_directions_independent(*front, direction))) return;
+        if (role == "left" || role == "right") {
+            if (!front) return;
+            direction = placement_vec_normalized(placement_vec_cross(direction, *front));
         }
-    } else if (role == "direction") {
-        if (front_direction) top_direction = direction;
-        else front_direction = direction;
-    } else {
-        front_direction = direction;
+        top = direction;
+    } else if (!front) {
+        front = direction;
+        if (top && !placement_directions_independent(*front, *top)) top.reset();
     }
+    // The first direction owns FRONT. Later positional or mirrored references
+    // must never overwrite it. A nearly parallel TOP leaves the roll free.
+}
+
+struct PlacementDirections {
+    std::optional<zima::kernel::Vec3> front, top;
+    bool valid{true};
+};
+
+PlacementDirections placement_resolve_directions(
+        const std::vector<ConstructionReference>& references,
+        const zima::kernel::ViewerReferenceGeometry& geometry,
+        const zima::kernel::Vec3& origin, bool marked_only) {
+    PlacementDirections result;
+    std::vector<const ConstructionReference*> seen;
+    for (const auto& reference : references) {
+        if (marked_only && !reference.orientation_drives_rotation) continue;
+        if (std::ranges::any_of(seen, [&](const auto* prior) {
+                return prior->owner_id == reference.owner_id &&
+                    prior->semantic_key == reference.semantic_key &&
+                    prior->instance_path == reference.instance_path;
+            })) continue;
+        seen.push_back(&reference);
+        std::optional<zima::kernel::Vec3> direction;
+        if (const auto axis = placement_reference_axis(reference, geometry, origin,
+                placement_uses_secondary_direction(reference, result.front.has_value())))
+            direction = axis->direction;
+        else if (const auto plane = placement_reference_plane(reference, geometry))
+            direction = plane->normal;
+        else if (reference.orientation_role == "direction")
+            if (const auto point = placement_reference_point(reference, geometry))
+                direction = placement_vec_sub(*point, origin);
+        if (!direction || placement_vec_is_zero(*direction)) {
+            result.valid = false;
+            continue;
+        }
+        placement_assign_orientation_direction(reference, *direction, result.front, result.top);
+    }
+    return result;
 }
 
 }  // namespace
@@ -4074,7 +4145,8 @@ bool resolve_placement(
             const auto y_axis = placement_vec_normalized(
                 placement_vec_project_perpendicular(
                     difference(*third, *first), x_axis));
-            if (!placement_vec_is_zero(x_axis) && !placement_vec_is_zero(y_axis)) {
+            if (!placement_vec_is_zero(x_axis) &&
+                    placement_directions_independent(difference(*second,*first),difference(*third,*first))) {
                 const auto z_axis = placement_vec_normalized(
                     placement_vec_cross(x_axis, y_axis));
                 if (!placement_vec_is_zero(z_axis)) {
@@ -4094,31 +4166,11 @@ bool resolve_placement(
     // origin. Using placement.x/y/z from the previous preview here made a
     // valid Point + Plane/Axis sequence briefly (and sometimes persistently)
     // produce a direction for the wrong origin.
-    for (const auto& wrapped : orientation_references) {
-        const auto& reference = wrapped.get();
-        std::optional<zima::kernel::Vec3> direction;
-        if (const auto resolved = placement_reference_axis(reference, geometry,
-                {placement.x,placement.y,placement.z},
-                placement_uses_secondary_direction(reference,front_direction.has_value()))) {
-            direction = resolved->direction;
-        } else if (const auto resolved =
-                       placement_reference_plane(reference, geometry)) {
-            direction = resolved->normal;
-        } else if (reference.orientation_role == "direction") {
-            if (const auto resolved = placement_reference_point(reference, geometry)) {
-                direction = zima::kernel::Vec3{
-                    resolved->x - placement.x,
-                    resolved->y - placement.y,
-                    resolved->z - placement.z};
-            }
-        }
-        if (!direction || placement_vec_is_zero(*direction)) {
-            orientation_resolved = false;
-            continue;
-        }
-        placement_assign_orientation_direction(reference, *direction,
-            front_direction, top_direction);
-    }
+    const auto directions = placement_resolve_directions(placement.references, geometry,
+        {placement.x, placement.y, placement.z}, true);
+    front_direction = directions.front;
+    top_direction = directions.top;
+    orientation_resolved = orientation_resolved && directions.valid;
     if (orientation_from_reference) {
         *orientation_from_reference = has_orientation_reference;
     }
@@ -4199,6 +4251,9 @@ PointConstraintState point_constraint_state(
             actual.semantic_key == expected.semantic_key;
     };
     std::vector<zima::kernel::Vec3> rows;
+    std::vector<std::reference_wrapper<const ConstructionReference>> positional;
+    for(const auto& reference:references)if(!reference.orientation_only)positional.push_back(reference);
+    const auto station=placement_point_station(positional,geometry);
     const auto append_axis_rows = [&](zima::kernel::Vec3 direction) {
         const double magnitude = std::hypot(
             std::hypot(direction.x, direction.y), direction.z);
@@ -4228,6 +4283,10 @@ PointConstraintState point_constraint_state(
         if (reference.orientation_only) continue;
         if (std::any_of(geometry.points.begin(), geometry.points.end(),
                 [&](const auto& item) { return matches(item.reference, reference); })) {
+            if(station && station->reference==&reference) {
+                rows.push_back(station->direction);
+                continue;
+            }
             rows.insert(rows.end(), {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}});
             continue;
         }
@@ -4327,6 +4386,7 @@ PointConstraintState point_constraint_state(
         ++rank;
     }
     PointConstraintState state;
+    state.third_point_is_station=station.has_value();
     state.remaining_dof = 3 - std::min(rank, 3);
     // Python exposes the pivot columns of its reduced equation matrix as the
     // constrained X/Y/Z controls. Keep the UI contract identical, including
@@ -4589,92 +4649,21 @@ OrientationConstraintState orientation_constraint_state(
     const std::vector<ConstructionReference>& references,
     const zima::kernel::ViewerReferenceGeometry& geometry,
     bool marked_only, const zima::kernel::Vec3& orientation_origin) {
-    const auto matches = [](const auto& actual, const auto& expected) {
-        return actual.instance_path == expected.instance_path &&
-            actual.owner_id == expected.owner_id &&
-            actual.semantic_key == expected.semantic_key;
-    };
-    struct DirectionConstraint {
-        zima::kernel::Vec3 direction;
-        std::size_t local_axis{};
-    };
-    std::vector<DirectionConstraint> directions;
-    bool front_assigned = false;
-    for (const auto& reference : references) {
-        if (marked_only && !reference.orientation_drives_rotation) continue;
-        std::optional<zima::kernel::Vec3> direction;
-        // Picking, DOF feedback and solving must use the same direction rule.
-        if (const auto axis = placement_reference_axis(reference,geometry,orientation_origin,
-                placement_uses_secondary_direction(reference,front_assigned)))
-            direction = axis->direction;
-        if (!direction && reference.orientation_role == "direction") {
-            const auto point = std::find_if(geometry.points.begin(),
-                geometry.points.end(), [&](const auto& item) {
-                    return matches(item.reference, reference);
-                });
-            if (point != geometry.points.end()) {
-                direction = zima::kernel::Vec3{
-                    point->position.x - orientation_origin.x,
-                    point->position.y - orientation_origin.y,
-                    point->position.z - orientation_origin.z};
-            }
-        }
-        if (!direction) {
-            for (std::size_t index = 0;
-                 index < geometry.triangle_references.size(); ++index) {
-                if (!matches(geometry.triangle_references[index], reference) ||
-                    index * 3 + 2 >= geometry.triangles.size()) continue;
-                const auto& a = geometry.vertices[geometry.triangles[index * 3]];
-                const auto& b = geometry.vertices[geometry.triangles[index * 3 + 1]];
-                const auto& c = geometry.vertices[geometry.triangles[index * 3 + 2]];
-                direction = zima::kernel::Vec3{
-                    (b.y-a.y)*(c.z-a.z)-(b.z-a.z)*(c.y-a.y),
-                    (b.z-a.z)*(c.x-a.x)-(b.x-a.x)*(c.z-a.z),
-                    (b.x-a.x)*(c.y-a.y)-(b.y-a.y)*(c.x-a.x)};
-                break;
-            }
-        }
-        if (!direction) continue;
-        const double magnitude = std::hypot(
-            std::hypot(direction->x, direction->y), direction->z);
-        if (magnitude <= 1.0e-9) continue;
-        std::size_t local_axis = 1;
-        if (reference.orientation_role == "top" ||
-            reference.orientation_role == "bottom") {
-            local_axis = 2;
-        } else if (reference.orientation_role == "left" ||
-                   reference.orientation_role == "right") {
-            local_axis = 0;
-        } else if (reference.orientation_role == "direction") {
-            local_axis = front_assigned ? 2 : 1;
-        }
-        if (local_axis == 1) front_assigned = true;
-        directions.push_back({
-            {direction->x / magnitude, direction->y / magnitude,
-             direction->z / magnitude},
-            local_axis});
+    std::vector<const ConstructionReference*> positional;
+    for (const auto& ref : references) if (!ref.orientation_only) positional.push_back(&ref);
+    if (positional.size() >= 3) {
+        const auto a=placement_reference_point(*positional[0],geometry);
+        const auto b=placement_reference_point(*positional[1],geometry);
+        const auto c=placement_reference_point(*positional[2],geometry);
+        if (a && b && c && placement_directions_independent(placement_vec_sub(*b,*a),placement_vec_sub(*c,*a)))
+            return {0,{true,true,true}};
     }
+    const auto directions = placement_resolve_directions(references, geometry, orientation_origin, marked_only);
     OrientationConstraintState state;
-    if (directions.empty()) return state;
-    state.remaining_dof = 1;
+    if (!directions.front && !directions.top) return state;
+    state.remaining_dof = directions.front && directions.top ? 0 : 1;
     state.constrained_axes = {true, true, true};
-    state.constrained_axes[directions.front().local_axis] = false;
-    const auto& first = directions.front().direction;
-    const bool independent = std::any_of(directions.begin() + 1,
-        directions.end(), [&](const auto& constraint) {
-            if (constraint.local_axis == directions.front().local_axis)
-                return false;
-            const auto& direction = constraint.direction;
-            const zima::kernel::Vec3 cross{
-                first.y * direction.z - first.z * direction.y,
-                first.z * direction.x - first.x * direction.z,
-                first.x * direction.y - first.y * direction.x};
-            return std::hypot(std::hypot(cross.x, cross.y), cross.z) > 1.0e-6;
-        });
-    if (independent) {
-        state.remaining_dof = 0;
-        state.constrained_axes = {true, true, true};
-    }
+    if (state.remaining_dof) state.constrained_axes[directions.front ? 1 : 2] = false;
     return state;
 }
 
@@ -5637,17 +5626,23 @@ void PartDocument::resolve_constructions(
                     return container.id == sketch.owner_container_id;
                 });
             if (owner == history.end()) continue;
+            // Bend consumes the shared placement without redefining FRONT or
+            // TOP: its start section lies in the narrow attachment face, with
+            // the outer generatrix along the picked edge. A missing reference
+            // keeps the complete last resolved section frame.
+            if (owner->feature_kind == FeatureKind::Bend && !owner->placement.reference_valid)
+                continue;
+            const auto bend_attachment = owner->feature_kind == FeatureKind::Bend &&
+                (sketch.plane_auto || sketch.plane == zima::sketcher::SketchPlane::XY)
+                ? bend_attachment_profile_direction(owner->placement.references, source_geometry)
+                : std::nullopt;
             // Automatic work planes follow FRONT, including a tangent assigned
             // after an anchor point. FRONT is local Y; its normal plane is XZ.
             // A persisted manual choice only changes the work plane within that
             // container frame; resolving references must never overwrite it.
-            const auto first_position_reference = std::find_if(
-                owner->placement.references.begin(), owner->placement.references.end(),
-                [](const auto& reference) {
-                    return !reference.orientation_only &&
-                        !reference.owner_id.empty();
-                });
-            if (sketch.plane_auto && sketch_placement_uses_front_plane(owner->placement.references)) {
+            if (bend_attachment) {
+                sketch.plane = zima::sketcher::SketchPlane::XY;
+            } else if (sketch.plane_auto && sketch_placement_uses_front_plane(owner->placement.references)) {
                 sketch.plane = zima::sketcher::SketchPlane::XZ;
             }
             zima::kernel::Vec3 local_origin;
@@ -5667,85 +5662,24 @@ void PartDocument::resolve_constructions(
                 local_x = {0.0, 1.0, 0.0}; local_y = {0.0, 0.0, 1.0};
                 local_normal = {1.0, 0.0, 0.0};
             }
+            if (bend_attachment) {
+                local_x = {0.0, *bend_attachment, 0.0};
+                local_y = {-*bend_attachment, 0.0, 0.0};
+            }
             // The Sketch is rigidly attached to the final container frame.
             // FRONT/BACK and quarter turns therefore rotate its actual wire and
             // every feature preview consuming it; they never alter its local 2D
             // coordinates or the operation's own Forward/Reverse parameter.
             auto geometric_placement = owner->placement;
-            if (first_position_reference != owner->placement.references.end() &&
-                first_position_reference->supports_offset) {
-                const auto front_owner = first_position_reference->owner_id;
-                const auto front_path = first_position_reference->instance_path;
-                const auto front_semantic = first_position_reference->semantic_key;
-                const auto is_front_source = [&](const auto& reference) {
-                    return reference.owner_id == front_owner &&
-                        reference.instance_path == front_path &&
-                        reference.semantic_key == front_semantic;
-                };
-                const auto second_plane = std::find_if(
-                    std::next(first_position_reference),
-                    owner->placement.references.end(), [&](const auto& reference) {
-                        return !reference.orientation_only &&
-                            reference.supports_offset && !is_front_source(reference);
-                    });
-                const auto is_top_source = [&](const auto& reference) {
-                    return second_plane != owner->placement.references.end() &&
-                        reference.owner_id == second_plane->owner_id &&
-                        reference.instance_path == second_plane->instance_path &&
-                        reference.semantic_key == second_plane->semantic_key;
-                };
-                // Row 0 owns FRONT.  The next independent planar row supplies
-                // TOP (the roll around FRONT); row 2 only completes translation.
-                // This is essential for solid Faces because a tessellation edge
-                // is not a meaningful in-plane construction direction.
-                for (auto& reference : geometric_placement.references) {
-                    if (reference.orientation_only) continue;
-                    if (is_front_source(reference)) {
-                        reference.orientation_drives_rotation = true;
-                        reference.orientation_role = "front";
-                    } else if (is_top_source(reference)) {
-                        reference.orientation_drives_rotation = true;
-                        reference.orientation_role = "top";
-                    } else {
-                        reference.orientation_drives_rotation = false;
-                        reference.orientation_role = "none";
-                    }
-                }
-                std::erase_if(geometric_placement.references,
-                    [&](const auto& reference) {
-                        return reference.orientation_only &&
-                            !is_front_source(reference);
-                    });
-            }
-            // The generic whole-Origin triad intentionally resolves to the
-            // document identity frame. A Sketch is the exception: its first
-            // position plane is an explicit work-plane FRONT even when rows 1/2
-            // complete the same Origin triad. Add a transient orientation-only
-            // twin so resolve_placement() preserves that first-plane contract;
-            // this copy is calculation input only and is never persisted.
-            if (first_position_reference != owner->placement.references.end() &&
-                first_position_reference->supports_offset &&
-                first_position_reference->orientation_drives_rotation) {
-                auto sketch_front = *first_position_reference;
-                sketch_front.orientation_only = true;
-                sketch_front.orientation_role = "front";
-                sketch_front.orientation_drives_rotation = true;
-                geometric_placement.references.push_back(std::move(sketch_front));
-            }
             zima::kernel::Vec3 geometric_base_rotation;
             static_cast<void>(resolve_placement(geometric_placement, source_geometry,
                 &geometric_base_rotation));
             zima::kernel::Vec3 rotation{geometric_placement.rotation_x,
                 geometric_placement.rotation_y, geometric_placement.rotation_z};
-            const bool has_position_top = std::any_of(
-                geometric_placement.references.begin(),
-                geometric_placement.references.end(), [](const auto& reference) {
-                    return !reference.orientation_only &&
-                        reference.orientation_drives_rotation &&
-                        reference.orientation_role == "top";
-                });
-            if (first_position_reference != owner->placement.references.end() &&
-                first_position_reference->supports_offset) {
+            const bool has_position_top = orientation_constraint_remaining_dof(
+                geometric_placement.references, source_geometry, true,
+                {geometric_placement.x, geometric_placement.y, geometric_placement.z}) == 0;
+            if (!bend_attachment && sketch_placement_uses_front_plane(owner->placement.references)) {
                 // Owned profiles use local XZ with local +Y as FRONT. Recompose
                 // the SAME generic reference-derived base used by Box and every
                 // other container, changing only ROTATE's local axis to the

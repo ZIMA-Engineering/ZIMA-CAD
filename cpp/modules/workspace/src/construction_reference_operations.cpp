@@ -1,3 +1,4 @@
+#include <zima/document/placement_orientation.hpp>
 #include <zima/workspace/construction_reference_operations.hpp>
 #include <zima/document/placement_reference_assignment.hpp>
 #include <algorithm>
@@ -11,10 +12,7 @@ bool owns(const Object& object,const std::string& owner) {
     return std::ranges::any_of(object.curve_points,[&](const auto& child){return owns(child,owner);});
 }
 std::vector<Ref> combined(const std::vector<Ref>& position,const std::vector<Ref>& orientation,std::optional<std::size_t> skip={}) {
-    std::vector<Ref> result;
-    for(std::size_t i=0;i<position.size();++i)if(skip!=i&&(!position[i].owner_id.empty()||!position[i].semantic_key.empty()))result.push_back(position[i]);
-    for(std::size_t i=0;i<orientation.size();++i)if(skip!=i+3&&(!orientation[i].owner_id.empty()||!orientation[i].semantic_key.empty()))result.push_back(orientation[i]);
-    return result;
+    return document::combined_placement_references(position,orientation,skip);
 }
 }
 document::ConstructionObject prepare_construction_reference(Object value,
@@ -41,8 +39,9 @@ document::ConstructionObject prepare_construction_reference(Object value,
     if(index<3&&translation==0&&rotation>0) {
         reference.orientation_drives_rotation=true;reference.orientation_role="direction";reference.orientation_only=true;reference.supports_offset=false;
     }
-    // The construction dialog leaves position rows independent of FRONT/TOP.
-    // Planar references are mirrored by the approved common assignment helper.
+    if(index<3 && !reference.orientation_only && derive_orientation && (face||axis||edge))
+        document::assign_container_orientation_role(reference,baseline);
+    // Position and orientation share the same ordered directional contract.
     const bool first_plane=value.kind==document::ConstructionKind::Plane&&index==0&&reference.supports_offset;
     reference.measured_offset=document::measure_placement_reference_offset(reference,geometry,value.origin);
     const auto assigned=document::assign_placement_reference({position,orientation,empty_locks},true,index,std::move(reference),derive_orientation);

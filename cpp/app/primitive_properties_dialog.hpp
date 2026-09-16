@@ -36,6 +36,7 @@ namespace zima::app {
 class PrimitivePropertiesDialog final : public zima::ui::PropertiesSubWindow,
                                         public PlacementReferenceDialog {
 public:
+    zima::document::Placement placement_seed() const override { return placement_->numeric_placement(); }
     using LegacyCommitCallback =
         std::function<void(zima::document::HistoryContainer)>;
     using CommitCallback = std::function<void(

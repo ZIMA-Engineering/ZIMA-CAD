@@ -7,6 +7,7 @@
 #include <zima/workspace/placement_edit.hpp>
 #include <zima/workspace/reference_sources.hpp>
 #include <zima/workspace/sketch_properties.hpp>
+#include <zima/document/sketch_placement.hpp>
 #include <chrono>
 #include <iostream>
 #include <numbers>
@@ -116,9 +117,83 @@ void third_direction() {
         if(invalid==2)line.points.insert(line.points.begin()+1,{remote.x+10,remote.y-10,remote.z+10}); // Remote bend, no tangent at anchor.
         line.exact_spline=kernel::BSplineGeometry{1,line.points,invalid==2?std::vector<double>{0,0,.5,1,1}:std::vector<double>{0,0,1,1},std::vector<double>(line.points.size(),1)};
         g.edges.push_back(line);auto placed=two;placed.references.push_back({{},"bad","line",0,false,"direction",true,true});
-        check(!document::resolve_placement(placed,g),"Invalid third direction accepted");
+        if (invalid == 0) {
+            check(document::resolve_placement(placed,g),"A redundant parallel direction invalidated the anchor");
+            check(document::orientation_constraint_remaining_dof(placed.references,g,true,anchor)==1,
+                "A parallel direction consumed roll");
+        } else check(!document::resolve_placement(placed,g),"Invalid third direction accepted");
         near(placed.x,two.x);near(placed.y,two.y);near(placed.z,two.z);
         near(placed.rotation_x,two.rotation_x);near(placed.rotation_y,two.rotation_y);near(placed.rotation_z,two.rotation_z);
+    }
+}
+void ordered_frames() {
+    auto doc = document::PartDocument::create_default();
+    auto source = document::PartDocument::create_sketch_container();
+    auto sketch = sketcher::Sketch::create_default(); sketch.owner_container_id = source.id;
+    const auto segment = sketch.add_segment(-10,0,10,0);
+    const auto anchor = sketch.add_point(10,0);
+    auto g = doc.origin_viewer_mesh().original_references;
+    const auto sg = sketch.placement_reference_geometry();
+    g.edges.insert(g.edges.end(),sg.edges.begin(),sg.edges.end());
+    g.points.insert(g.points.end(),sg.points.begin(),sg.points.end());
+    auto remote=sketcher::Sketch::create_default();const auto remote_id=remote.add_segment(20,20,20,40);
+    for(const auto origin:std::vector<kernel::Vec3>{{0,0,0},{0,25,0},{20,30,0},{30,50,0}}) {
+        document::Placement placed;placed.x=origin.x;placed.y=origin.y;placed.z=origin.z;
+        placed.references={{{},remote.id,"segment:"+remote_id,0,false,"front",true}};
+        check(document::resolve_placement(placed,remote.placement_reference_geometry()),"Remote trimmed segment rejected initial attachment");
+        near(placed.x,20);near(placed.y,std::clamp(origin.y,20.,40.));near(placed.z,0);
+    }
+    const document::ConstructionReference edge{{},sketch.id,"segment:"+segment,0,false,"front",true};
+    const document::ConstructionReference face{{},doc.document_id+":origin","origin:plane:xy",0,true,"top",true};
+    const document::ConstructionReference point{{},sketch.id,"point:"+anchor};
+    const auto verify_frame = [&](const document::Placement& placed, kernel::Vec3 expected_front) {
+        check(placed.reference_valid,"Ordered placement failed");
+        near(placed.x,10);near(placed.y,0);near(placed.z,0);
+        near(front(placed).x,expected_front.x);near(front(placed).y,expected_front.y);near(front(placed).z,expected_front.z);
+        check(document::orientation_constraint_remaining_dof(placed.references,g,true,{10,0,0})==0,
+            "Edge, incident plane and endpoint must have zero rotations");
+    };
+    for (bool plane_first : {false,true}) {
+        document::Placement p;
+        p.references = plane_first ? std::vector{face,edge,point} : std::vector{edge,face,point};
+        document::normalize_container_front_references(p.references);
+        check(document::resolve_placement(p,g),"FRONT/TOP sequence rejected");
+        const kernel::Vec3 n = plane_first ? kernel::Vec3{0,0,1} : kernel::Vec3{1,0,0};
+        verify_frame(p,n);
+        // The real owned Sketch must use the identical frame during history
+        // resolution; offsets and manual work-plane choices stay independent.
+        for (bool automatic : {false,true}) {
+            auto model=doc;auto target=document::PartDocument::create_sketch_container();target.placement=p;
+            auto owned=sketcher::Sketch::create_default();owned.owner_container_id=target.id;
+            owned.plane_auto=automatic;owned.plane=sketcher::SketchPlane::XY;owned.plane_offset=3;
+            model.history={source,target};model.sketches={sketch,owned};
+            model.history_order={{document::PartHistoryKind::Feature,source.id},{document::PartHistoryKind::Feature,target.id}};
+            model.resolve_constructions();verify_frame(model.history.back().placement,n);
+            const auto& resolved=model.sketches.back();
+            const auto expected=automatic?n:top(model.history.back().placement);
+            near(resolved.resolved_normal.x,expected.x);near(resolved.resolved_normal.y,expected.y);near(resolved.resolved_normal.z,expected.z);
+            near(resolved.resolved_origin.x,10+3*expected.x);near(resolved.resolved_origin.y,3*expected.y);near(resolved.resolved_origin.z,3*expected.z);
+        }
+    }
+    // Verify both sides of the 0.01 degree threshold, including antiparallel
+    // directions, flips, retained free roll, and a usable third direction.
+    for (double degrees : {0.,0.001,0.009,0.011,0.1,90.,179.989,179.991,180.}) {
+        const double angle=degrees*std::numbers::pi/180;
+        auto geometry=g;
+        geometry.axes.push_back({{0,0,0},{std::cos(angle),std::sin(angle),0},100,{"test","second",{}}});
+        geometry.axes.push_back({{0,0,0},{0,0,1},100,{"test","third",{}}});
+        auto p=document::Placement{};p.absolute_rotation_y=37;
+        p.references={edge,{{},"test","second",0,false,"top",true,true}};
+        const bool independent=degrees>=0.01 && degrees<=179.99;
+        check(document::resolve_placement(p,geometry),"Near-parallel reference rejected placement");
+        near(front(p).x,1);near(front(p).y,0);near(front(p).z,0);
+        check(document::orientation_constraint_remaining_dof(p.references,geometry,true)==(independent?0:1),
+            "Frame and DOF disagree at angular limit");
+        if(!independent)near(p.absolute_rotation_y,37);
+        for(int i=0;i<20;++i){const auto before=p;check(document::resolve_placement(p,geometry),"Repeated frame failed");near(p.rotation_x,before.rotation_x);near(p.rotation_y,before.rotation_y);near(p.rotation_z,before.rotation_z);}
+        p.references.push_back({{},"test","third",0,false,"top",true,true});
+        check(document::resolve_placement(p,geometry)&&document::orientation_constraint_remaining_dof(p.references,geometry,true)==0,
+            "Parallel second direction prevented a useful third direction");
     }
 }
 void verify() {
@@ -441,7 +516,7 @@ void sketch_endpoint_assignments(const std::filesystem::path& file) {
 }
 int main(int argc,char** argv){try{
     if(argc>1){saved_endpoint_study(argv[1]);return 0;}
-    verify();curve_matrix();history();boundaries();third_direction();
+    verify();curve_matrix();history();boundaries();third_direction();ordered_frames();
     const auto root=std::filesystem::temp_directory_path();
     const auto prefix="zima-curve-"+document::PartDocument::create_default().document_id;
     const auto native=root/(prefix+".prtz"),solid=root/(prefix+"-solid.prtz");

@@ -647,10 +647,11 @@ The native-document command path also verifies edits, Undo/Redo, save and reopen
 
 ### First plane and working profile (2026-09-10)
 
-The first plane placement reference initially determined Extrusion/Revolution's
-Sketch plane; other references supplement position/orientation. The later
-selectable work-plane contract retains this automatic default and permits an
-explicit override; see [WORK_PLANES.md](WORK_PLANES.md). Front/Back, rotation and
+The automatic Sketch plane follows the first directional reference, FRONT.
+For a plane this is its normal; for a curve it is the tangent at the attachment.
+A second independent direction supplies TOP without replacing FRONT. The
+selectable work-plane contract permits an explicit override;
+see [WORK_PLANES.md](WORK_PLANES.md). Front/Back, rotation and
 profile offset must immediately agree in preview, dimensions, Sketch editor
 and calculated body.
 
@@ -671,6 +672,16 @@ for standalone Sketch, Helical base circle and 2D Sweep path. For 2D Sweep the
 first reference prefills the independently editable path plane. Sweep/Sweep-Loft
 sections remain derived from the path tangent at the chosen point. The fix uses
 the existing container-placement solver without changing its rules.
+
+The Sketch, Holes, Flat and Bend Properties preview consumes the same complete
+FRONT/TOP references as the document resolver. It must not replace an earlier
+curve direction with a later plane or discard TOP when returning from Sketcher.
+The prepared working plane and rotation-field availability must agree before
+entry, in Sketcher, after return and after OK/reopen. A genuinely free roll stays
+free; a constrained RY must not become editable merely because Sketcher closed.
+`zima_cpp_sketch_return_frame_ui_contract` exercises that full application
+lifecycle for new and existing containers, including repeated returns, plane
+orders, point/curve references, manual planes, offsets and Bend auxiliary sketches.
 
 ### Immediate trim preview and constraints (2026-09-09)
 

@@ -4,6 +4,27 @@
 #include <array>
 
 namespace zima::document {
+// Assemble the exact pending reference set, excluding both halves of a
+// replaced positional source. Shared by the dialog and command adapters.
+inline std::vector<ConstructionReference> combined_placement_references(
+        const std::vector<ConstructionReference>& position,
+        const std::vector<ConstructionReference>& orientation,
+        std::optional<std::size_t> skip = {}) {
+    const auto populated=[](const auto& ref){return !ref.owner_id.empty() || !ref.semantic_key.empty();};
+    std::vector<ConstructionReference> result;
+    for(std::size_t i=0;i<position.size();++i)
+        if(skip!=i && populated(position[i]))result.push_back(position[i]);
+    for(std::size_t i=0;i<orientation.size();++i) {
+        if(skip==i+3 || !populated(orientation[i]))continue;
+        if(skip && *skip<3 && *skip<position.size()) {
+            const auto& removed=position[*skip];const auto& ref=orientation[i];
+            if(ref.owner_id==removed.owner_id && ref.semantic_key==removed.semantic_key &&
+                    ref.instance_path==removed.instance_path)continue;
+        }
+        result.push_back(orientation[i]);
+    }
+    return result;
+}
 // A view of pending dialog/command rows. Position and FRONT/TOP rows have
 // independent ownership; this operation changes only the caller's draft.
 struct PlacementReferenceRows {
@@ -42,6 +63,13 @@ struct PlacementReferenceAssignment {
         if(locked&&!reference.measured_offset)return {PlacementReferenceError::MissingMeasuredOffset,{}};
         if(locked)reference.offset=*reference.measured_offset;
     } else {reference.offset=0;reference.offset_locked=true;}
+    const auto previous = rows.position[index];
+    if (previous.owner_id != reference.owner_id || previous.semantic_key != reference.semantic_key ||
+            previous.instance_path != reference.instance_path) {
+        for (auto& oriented : rows.orientation)
+            if (oriented.owner_id == previous.owner_id && oriented.semantic_key == previous.semantic_key &&
+                    oriented.instance_path == previous.instance_path) oriented = {};
+    }
     rows.empty_position_locks[index]=false;reference.measured_offset.reset();rows.position[index]=std::move(reference);
     PlacementReferenceAssignment result;
     if(with_orientation&&derive_orientation&&rows.position[index].supports_offset) {
@@ -50,7 +78,18 @@ struct PlacementReferenceAssignment {
             return !existing.owner_id.empty()&&duplicate(existing);
         };
         if(!std::any_of(rows.orientation.begin(),rows.orientation.end(),same_source)) {
-            const auto empty=std::find_if(rows.orientation.begin(),rows.orientation.end(),[](const auto& value){return value.owner_id.empty()&&value.semantic_key.empty();});
+            // A positional edge may already own FRONT without an orientation
+            // table twin. Never mirror the following plane into that FRONT.
+            const auto& positional = rows.position[index];
+            auto empty = rows.orientation.end();
+            if (positional.orientation_drives_rotation &&
+                    (positional.orientation_role == "front" || positional.orientation_role == "top")) {
+                const auto slot = positional.orientation_role == "front" ? 0 : 1;
+                if (rows.orientation[slot].owner_id.empty() && rows.orientation[slot].semantic_key.empty())
+                    empty = rows.orientation.begin() + slot;
+            } else {
+                empty = std::find_if(rows.orientation.begin(),rows.orientation.end(),[](const auto& value){return value.owner_id.empty()&&value.semantic_key.empty();});
+            }
             if(empty!=rows.orientation.end()) {
                 const auto slot=static_cast<std::size_t>(empty-rows.orientation.begin());*empty=rows.position[index];
                 empty->orientation_drives_rotation=true;empty->orientation_role=slot==0?"front":"top";empty->orientation_only=true;

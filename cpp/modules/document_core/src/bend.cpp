@@ -68,6 +68,119 @@ V path_point(const BendFrame& f,const BendParameters& p,double fraction) {
         scale(f.normal,(p.radius+p.thickness)*std::sin(angle*fraction)));
 }
 }
+std::optional<double> bend_attachment_profile_direction(
+        const std::vector<ConstructionReference>& references,
+        const kernel::ViewerReferenceGeometry& geometry) {
+    const auto matches=[](const auto& actual,const auto& reference) {
+        return actual.owner_id==reference.owner_id && actual.semantic_key==reference.semantic_key &&
+            actual.instance_path==reference.instance_path;
+    };
+    const ConstructionReference* edge_reference=nullptr;
+    for(const auto& reference:references) {
+        if(!reference.orientation_drives_rotation)continue;
+        if(reference.orientation_role=="front"||reference.orientation_role=="direction") {
+            edge_reference=&reference;break;
+        }
+    }
+    if(!edge_reference)return std::nullopt;
+    const auto edge=std::ranges::find_if(geometry.edges,[&](const auto& e){return matches(e.reference,*edge_reference);});
+    if(edge==geometry.edges.end()||edge->points.size()<2)return std::nullopt;
+    const auto first=edge->points.front();
+    auto along=add(edge->points.back(),scale(first,-1));
+    const double length=std::sqrt(dot(along,along));
+    if(length<1e-7)return std::nullopt;
+    along=scale(along,1/length);
+    const auto straight=[&](const auto& points) {
+        return std::ranges::all_of(points,[&](V p) {
+            const auto deviation=cross(add(p,scale(first,-1)),along);
+            return dot(deviation,deviation)<1e-14;
+        });
+    };
+    if(!straight(edge->points)||(edge->exact_spline&&!straight(edge->exact_spline->poles)))return std::nullopt;
+    if(edge_reference->flip)along=scale(along,-1);
+    for(const auto& reference:references) {
+        if(!reference.orientation_drives_rotation ||
+            (reference.orientation_role!="top"&&reference.orientation_role!="bottom"))continue;
+        if(matches(*edge_reference,reference))continue; // Mirrored FRONT row.
+        V normal{},interior{};double area=0;
+        std::vector<V> vertices;
+        for(std::size_t i=0;i<geometry.triangle_references.size();++i) {
+            if(!matches(geometry.triangle_references[i],reference))continue;
+            if(3*i+2>=geometry.triangles.size())return std::nullopt;
+            const auto ai=geometry.triangles[3*i],bi=geometry.triangles[3*i+1],ci=geometry.triangles[3*i+2];
+            if(ai>=geometry.vertices.size()||bi>=geometry.vertices.size()||ci>=geometry.vertices.size())return std::nullopt;
+            const V a=geometry.vertices[ai],b=geometry.vertices[bi],c=geometry.vertices[ci];
+            const auto n=cross(add(b,scale(a,-1)),add(c,scale(a,-1)));
+            const double weight=std::sqrt(dot(n,n));
+            if(weight<1e-14)continue;
+            if(area==0)normal=scale(n,1/weight);
+            vertices.insert(vertices.end(),{a,b,c});
+            interior=add(interior,scale(add(add(a,b),c),weight/3));area+=weight;
+        }
+        // A different secondary direction must retain its normal placement
+        // meaning; do not reinterpret a later unrelated face as the join.
+        if(area==0)return std::nullopt;
+        if(std::abs(dot(normal,along))>1e-7)return std::nullopt;
+        if(std::ranges::any_of(vertices,[&](V p){return std::abs(dot(add(p,scale(first,-1)),normal))>1e-7;}))
+            return std::nullopt;
+        if(reference.flip!=(reference.orientation_role=="bottom"))normal=scale(normal,-1);
+        const auto inward=cross(normal,along);
+        const double side=dot(add(scale(interior,1/area),scale(first,-1)),inward);
+        if(std::abs(side)<1e-7)return std::nullopt;
+        const double sign=side>0?1.:-1.;
+        // Only a boundary edge determines a unique material side. A datum
+        // plane crossing the line or a curved face is not an attachment face.
+        if(std::ranges::any_of(vertices,[&](V p){return sign*dot(add(p,scale(first,-1)),inward)<-1e-7;}))
+            return std::nullopt;
+        return sign;
+    }
+    return std::nullopt;
+}
+void initialize_bend_start_profile(sketcher::Sketch& sketch,double width) {
+    if(!std::isfinite(width)||width<.001||!sketch.points.empty()||!sketch.segments.empty())
+        throw std::invalid_argument("A new Bend needs an empty start Sketch and a positive width.");
+    static_cast<void>(sketch.add_segment(0,0,width,0));
+    const auto segment=sketch.segments.front();
+    for(bool last:{false,true}) {
+        const auto& point=last?segment.second_point_id:segment.first_point_id;
+        static_cast<void>(sketch.add_point_on_line_constraint(point,"sketch_axis:x"));
+        auto dimension=sketch.create_point_dimension("sketch_origin",point,sketcher::DimensionKind::DistanceX);
+        dimension.id=sketch.id+(last?":position:last":":position:first");
+        dimension.placement=std::array{last?width*.5:-5.,last?8.:-8.};
+        sketch.dimensions.push_back(std::move(dimension));
+    }
+    sketch.validate();
+}
+void orient_bend_start_toward_edge(sketcher::Sketch& sketch,const Placement& placement,
+        const kernel::ViewerReferenceGeometry& geometry) {
+    if(!sketch.plane_auto||!bend_attachment_profile_direction(placement.references,geometry))return;
+    auto first_dimension=std::ranges::find(sketch.dimensions,sketch.id+":position:first",&sketcher::SketchDimension::id);
+    auto last_dimension=std::ranges::find(sketch.dimensions,sketch.id+":position:last",&sketcher::SketchDimension::id);
+    if(first_dimension==sketch.dimensions.end()||last_dimension==sketch.dimensions.end()||sketch.segments.size()!=1)return;
+    auto* first=sketch.find_point(sketch.segments.front().first_point_id);
+    auto* last=sketch.find_point(sketch.segments.front().second_point_id);
+    if(!first||!last)return;
+    const double width=last->x-first->x;if(width<.001)return;
+    PartDocument carrier;auto feature=PartDocument::create_sketch_container();
+    feature.id=sketch.owner_container_id;feature.feature_kind=FeatureKind::Bend;
+    feature.bend.sketch_id=sketch.id;feature.placement=placement;
+    carrier.history={feature};carrier.sketches={sketch};carrier.resolve_constructions(geometry);
+    if(!carrier.history.front().placement.reference_valid)return;
+    const auto& resolved=carrier.sketches.front();
+    const auto front=std::ranges::find_if(placement.references,[](const auto& r) {
+        return r.orientation_drives_rotation&&(r.orientation_role=="front"||r.orientation_role=="direction");
+    });
+    if(front==placement.references.end())return;
+    const auto edge=std::ranges::find_if(geometry.edges,[&](const auto& e) {
+        return e.reference.owner_id==front->owner_id&&e.reference.semantic_key==front->semantic_key&&e.reference.instance_path==front->instance_path;
+    });
+    if(edge==geometry.edges.end()||edge->points.empty())return;
+    const auto middle=scale(add(edge->points.front(),edge->points.back()),.5);
+    const bool reverse=dot(add(middle,scale(resolved.resolved_origin,-1)),resolved.resolved_x_axis)<-1e-7;
+    first->x=reverse?-width:0;last->x=reverse?0:width;
+    first_dimension->value=std::abs(first->x);first_dimension->solution_side=reverse?-1:1;
+    last_dimension->value=std::abs(last->x);last_dimension->solution_side=1;
+}
 BendParameters resolved_bend_parameters(const HistoryContainer& feature,const SheetMetalDefaults& defaults) {
     auto p=feature.bend;
     if(!p.thickness_override)p.thickness=defaults.thickness_mm.value_or(1.0);

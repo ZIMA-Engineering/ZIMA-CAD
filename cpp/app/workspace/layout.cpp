@@ -2022,6 +2022,17 @@ void AssemblyWorkspaceWindow::create_layout() {
                 toggle_local_origin_visibility(candidate);
                 return;
             }
+            // An Origin can already be selected when reference entry starts.
+            // Such a click emits no itemSelectionChanged, but it must still
+            // use the ordinary whole-Origin placement shortcut. A successful
+            // earlier selection handler either rebuilt the Tree or finished
+            // entry, so this does not start another placement transaction.
+            if (item && primitive_reference_dialog_ && pending_primitive_reference_index_ &&
+                (item->data(0, Qt::UserRole + 3) == "document-origin" ||
+                 item->data(0, Qt::UserRole + 3) == "construction-origin")) {
+                synchronize_tree_selection();
+                return;
+            }
             if (item != nullptr &&
                 item->data(0, Qt::UserRole + 3).toString() ==
                     QStringLiteral("assembly-insert-here")) {

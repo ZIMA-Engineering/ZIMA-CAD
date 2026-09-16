@@ -9,10 +9,7 @@ namespace {
 using Ref=document::ConstructionReference;
 void reject(const char* code,const char* message){throw PlacementEditError(code,message);}
 std::vector<Ref> combined(const std::vector<Ref>& position,const std::vector<Ref>& orientation,std::optional<std::size_t> skip={}) {
-    std::vector<Ref> result;
-    for(std::size_t i=0;i<position.size();++i)if(skip!=i&&(!position[i].owner_id.empty()||!position[i].semantic_key.empty()))result.push_back(position[i]);
-    for(std::size_t i=0;i<orientation.size();++i)if(skip!=i+3&&(!orientation[i].owner_id.empty()||!orientation[i].semantic_key.empty()))result.push_back(orientation[i]);
-    return result;
+    return document::combined_placement_references(position,orientation,skip);
 }
 document::HistoryContainer assign_feature_reference(document::HistoryContainer value,
     const kernel::ViewerReferenceGeometry& geometry,std::size_t index,Ref source,bool derive_orientation) {
@@ -46,8 +43,7 @@ document::HistoryContainer assign_feature_reference(document::HistoryContainer v
             ref.owner_id==source.owner_id&&ref.semantic_key==source.semantic_key&&ref.instance_path==source.instance_path;});
         if(retained!=baseline.references.end())source.orientation_role=retained->orientation_role;
         else {
-            std::set<std::string> used;for(const auto& ref:baseline.references)if(ref.orientation_drives_rotation)used.insert(ref.orientation_role);
-            source.orientation_role=!used.contains("front")?"front":!used.contains("top")?"top":"none";
+            document::assign_container_orientation_role(source, baseline.references);
         }
         source.orientation_drives_rotation=source.orientation_role!="none";
     }
@@ -59,7 +55,7 @@ document::HistoryContainer assign_feature_reference(document::HistoryContainer v
     if(assigned.error!=Error::None)reject("invalid_arguments","The placement reference slot is unavailable.");
     value.placement.references=combined(position,orientation);
     for(auto& ref:value.placement.references)ref.measured_offset.reset();
-    if(value.feature_kind==document::FeatureKind::Sketch)document::normalize_sketch_front_references(value.placement.references);
+    if(value.feature_kind==document::FeatureKind::Sketch)document::normalize_container_front_references(value.placement.references);
     if(!document::resolve_placement(value.placement,geometry))reject("invalid_reference","The proposed feature placement references cannot be resolved.");
     return value;
 }

@@ -54,7 +54,7 @@ void Host::register_bend_commands() {
                     feature.bend.thickness=defaults.thickness_mm.value_or(1);feature.bend.k_factor=defaults.k_factor;
                     const double width=args.value("width_mm",40.0);
                     if(!std::isfinite(width)||width<.001||width>1000000)throw std::invalid_argument("Bend width must be between 0.001 and 1000000 mm.");
-                    static_cast<void>(sketch.add_segment(-width*.5,0,width*.5,0));
+                    document::initialize_bend_start_profile(sketch,width);
                 } else {
                     const auto found=std::ranges::find(state->session.document().sketches,feature.bend.sketch_id,&sketcher::Sketch::id);
                     if(found==state->session.document().sketches.end())throw std::invalid_argument("Bend source Sketch is missing.");

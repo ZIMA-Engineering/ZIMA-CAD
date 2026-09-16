@@ -54,7 +54,7 @@ bool commit_holes(Workspace& live, const kernel::OcctKernel& kernel,
     document::validate_native_metadata_text(feature.name);
     if (feature.name.empty()) throw std::invalid_argument("Zadejte název otvorů.");
     static_cast<void>(document::holes_request(feature, sketch));
-    document::normalize_sketch_front_references(feature.placement.references);
+    document::normalize_container_front_references(feature.placement.references);
     const auto container = feature.id;
     auto next = before;
     if (diameter_layout) kernel::store_dimension_layout(next.dimension_layouts, diameter_reference, *diameter_layout);

@@ -108,9 +108,16 @@ void references(const kernel::OcctKernel& kernel,const fs::path& directory,bool 
         ref.surface->kind==kernel::SurfaceGeometry::Kind::Plane&&ref.surface->origin.z>4.99&&std::abs(ref.surface->axis.z)>.99;});
     require(face!=geometry.triangle_references.end(),"Assembly reference fixture has no original top face");
     request["reference"]={{"owner",face->owner_id},{"key",face->semantic_key},{"instance_path",first_path}};request["offset_mm"]=-4;
-    // Position and FRONT/TOP have independent ownership. Auto-filling TOP
-    // from a plane parallel to the retained FRONT is an actual conflict.
-    f.reject(command.c_str(),request,"invalid_reference");
+    // Replacing a positional source replaces its automatic orientation twin.
+    // The old FRONT must not survive and conflict with the new source.
+    f.run(command.c_str(),request);near(f.doc().find_cut(cut)->definition.placement.z,1);
+    const auto replaced=*f.doc().find_cut(cut);
+    require(std::ranges::all_of(replaced.definition.placement.references,[&](const auto& ref) {
+        return ref.owner_id==face->owner_id&&ref.semantic_key==face->semantic_key&&ref.instance_path==first_path;
+    }),"Replacing a source retained its obsolete orientation twin");
+    f.run("undo");require(f.doc().find_cut(cut)->definition==assigned.definition,"Reference replacement Undo lost the previous source");
+    f.run("redo");require(f.doc().find_cut(cut)->definition==replaced.definition,"Reference replacement Redo changed occurrence identity");
+    f.run("undo");
     f.run("undo"); // Return to the original cutter with empty reference rows.
     request["derive_orientation"]=false;
     f.run(command.c_str(),request);near(f.doc().find_cut(cut)->definition.placement.z,1);

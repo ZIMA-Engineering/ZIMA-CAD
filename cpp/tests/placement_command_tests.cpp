@@ -138,11 +138,48 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     run(host,"save");const auto restored=assembly::AssemblyDocument::load(directory/"placement-assembly.asmz");near(restored.find_construction(child)->origin.y,5);
     require(run(host,"placement.get",{{"object",point.id},{"document",id}}).data.at("body")==body&&live.active_document_id()==assembly_id,"Explicit source query changed activation");
 }
+void sheet_feature_references(const kernel::OcctKernel& kernel, fs::path directory) {
+    for(const std::string kind:{"bend","flat","holes"})for(bool plane_first:{false,true}) {
+        workspace::Workspace live;
+        auto doc=document::PartDocument::create_default();const auto id=doc.document_id;
+        auto source=document::PartDocument::create_sketch_container();
+        auto sketch=sketcher::Sketch::create_default();sketch.owner_container_id=source.id;
+        const auto edge=sketch.add_segment(-10,0,10,0),point=sketch.add_point(10,0);
+        doc.history={source};doc.sketches={sketch};doc.history_order={{document::PartHistoryKind::Feature,source.id}};
+        const auto file=directory/(kind+(plane_first?"-plane":"-edge")+".prtz");
+        live.add_part(doc,{},file);live.activate(id);command_host::Host host(live,kernel,directory);
+        std::string target;
+        if(kind=="holes") {
+            run(host,"box.create",{{"length_mm","40"},{"width_mm","40"},{"height_mm","40"}});
+            const auto owned=run(host,"sketch.create",{{"name","Channels"}}).data.at("sketch").get<std::string>();
+            run(host,"sketch.segment.create",{{"sketch",owned},{"first",{0,0}},{"second",{20,0}}});
+            target=run(host,"holes.create",{{"sketch",owned},{"diameter_mm",4}}).data.at("container").get<std::string>();
+        } else target=run(host,(kind+".create").c_str()).data.at("container").get<std::string>();
+        const Json e={{"owner",sketch.id},{"key","segment:"+edge}},
+            f={{"owner",id+":origin"},{"key","origin:plane:xy"}},
+            p={{"owner",sketch.id},{"key","point:"+point}};
+        const std::vector<Json> references=plane_first?std::vector{f,e,p}:std::vector{e,f,p};
+        for(std::size_t i=0;i<references.size();++i)
+            run(host,"placement.reference.set",{{"object",target},{"index",i},{"reference",references[i]}});
+        auto* state=live.open_part(id);const auto placed=state->session.document().find_container(target)->placement;
+        const auto geometry=workspace::placement_edit_geometry(live,id,target);
+        require(placed.reference_valid&&document::orientation_constraint_remaining_dof(placed.references,geometry,true,{placed.x,placed.y,placed.z})==0,
+            "Sheet feature command lost its independent TOP");
+        near(placed.x,10);near(placed.y,0);near(placed.z,0);
+        run(host,"placement.reference.remove",{{"object",target},{"index",2}});
+        run(host,"undo");require(state->session.document().find_container(target)->placement==placed,"Sheet placement removal Undo changed frame");
+        run(host,"redo");run(host,"undo");run(host,"regenerate");
+        const auto regenerated=state->session.document().find_container(target)->placement;
+        near(regenerated.rotation_x,placed.rotation_x);near(regenerated.rotation_y,placed.rotation_y);near(regenerated.rotation_z,placed.rotation_z);
+        run(host,"save");auto loaded=document::PartDocument::load(file);
+        require(loaded.find_container(target)->placement==regenerated,"Sheet placement native reload changed frame");
+    }
+}
 }
 int main(){try{
     helpers();const auto root=fs::canonical(fs::temp_directory_path());
     const auto directory=root/("zima-placement-"+document::PartDocument::create_default().document_id);
-    require(fs::create_directory(directory),"Cannot create fixture directory");kernel::OcctKernel kernel;verify(kernel,directory);
+    require(fs::create_directory(directory),"Cannot create fixture directory");kernel::OcctKernel kernel;verify(kernel,directory);sheet_feature_references(kernel,directory);
     require(directory.parent_path()==root,"Unexpected cleanup path");fs::remove_all(directory);
     std::cout<<"Placement: mixed reference angles, atomic values, locks, independent transformed bounds, native persistence, Part/Assembly and history passed\n";return 0;
 }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}}

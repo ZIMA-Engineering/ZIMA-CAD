@@ -402,5 +402,12 @@ Undo/Redo step is created. An empty row is a no-op. Supported objects, orientati
 pairing, persisted indexes, and JSON examples:
 [PLACEMENT_REFERENCE_REMOVAL.md](PLACEMENT_REFERENCE_REMOVAL.md).
 
+`placement.reference.set` and `placement.reference.remove` also support Bend,
+Flat and Holes container IDs. They commit through the same owned-Sketch feature
+transactions as Properties. The first directional reference supplies FRONT;
+the next independent direction supplies TOP. Geometry solving and rotation
+feedback share the 0.01-degree independence limit. See
+[container placement](CONTAINER_PLACEMENT_ANALYSIS.md).
+
 Portable configuration layers and version selection are documented in
 [NATIVE_DISTRIBUTION.md](NATIVE_DISTRIBUTION.md).

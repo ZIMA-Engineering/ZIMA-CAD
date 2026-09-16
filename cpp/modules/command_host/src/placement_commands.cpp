@@ -1,3 +1,7 @@
+#include <zima/workspace/feature_reference_input.hpp>
+#include <zima/workspace/bend_operations.hpp>
+#include <zima/workspace/flat_operations.hpp>
+#include <zima/workspace/holes_operations.hpp>
 #include <algorithm>
 #include <zima/workspace/sketch_properties.hpp>
 #include <zima/workspace/placement_reference_removal.hpp>
@@ -97,6 +101,15 @@ void Host::register_placement_commands() {
                     const auto sketch=std::ranges::find(sketches,object,&sketcher::Sketch::owner_container_id);
                     if(sketch==sketches.end())throw workspace::SketchOperationError("sketch_not_found","The requested Sketch does not exist.");
                     changed=workspace::set_part_sketch_reference(workspace_,kernel_,id,sketch->id,index,std::move(source));
+                }
+                else if(kind==document::FeatureKind::Bend||kind==document::FeatureKind::Flat||kind==document::FeatureKind::Holes) {
+                    auto value=workspace::prepare_part_feature_reference(workspace_,id,object,index,std::move(source),derive);
+                    const auto& sketches=workspace_.open_part(id)->session.document().sketches;
+                    const auto sketch=std::ranges::find(sketches,object,&sketcher::Sketch::owner_container_id);
+                    if(sketch==sketches.end())throw workspace::SketchOperationError("sketch_not_found","The requested Sketch does not exist.");
+                    if(kind==document::FeatureKind::Bend)changed=workspace::commit_bend(workspace_,kernel_,id,std::move(value),*sketch);
+                    else if(kind==document::FeatureKind::Flat)changed=workspace::commit_flat(workspace_,kernel_,id,std::move(value),*sketch);
+                    else changed=workspace::commit_holes(workspace_,kernel_,id,std::move(value),*sketch);
                 }
                 else if(kind==document::FeatureKind::Extrusion||kind==document::FeatureKind::Revolution)
                     changed=workspace::set_profile_reference(workspace_,kernel_,id,object,index,std::move(source),derive);

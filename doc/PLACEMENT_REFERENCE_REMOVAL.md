@@ -23,6 +23,7 @@ Command names remain English; help and errors are localized.
 | Standalone 3D-curve point | Owned point ID | Construction transaction in the parent's local frame |
 | Box and other primitives | Container ID | Corresponding Properties and calculation |
 | Part Extrusion and Revolution | Container ID | Profile transaction including owned Sketch |
+| Bend, Flat and Holes | Container ID | Feature transaction including owned Sketch |
 | Assembly profile cut | Cut ID | Calculate the owned cut while preserving source Parts |
 | Sweep2D, Sweep3D, and helical Sweep | Container ID | Shared Sweep transaction |
 | Embedded Sweep3D path point | Owned point ID | One parent-Sweep commit |

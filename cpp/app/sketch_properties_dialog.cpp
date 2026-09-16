@@ -1,5 +1,6 @@
 #include "work_plane_selection.hpp"
 #include <zima/document/sketch_placement.hpp>
+#include <zima/document/bend.hpp>
 #include <zima/ui/numeric_value_lock.hpp>
 #include "sketch_button_style.hpp"
 #include "sketch_properties_dialog.hpp"
@@ -37,7 +38,8 @@ SketchPropertiesDialog::SketchPropertiesDialog(
     : PropertiesSubWindow(tr("Vlastnosti skici"), parent),
       initial_(std::move(initial)), initial_placement_(std::move(initial_placement)),
       plane_options_(std::move(plane_options)), commit_(std::move(commit)) {
-    zima::document::normalize_sketch_front_references(initial_placement_.references);
+    bend_seed_from_edge_=!edit_mode;
+    zima::document::normalize_container_front_references(initial_placement_.references);
     setAttribute(Qt::WA_DeleteOnClose, true);
     setMinimumWidth(320);
     auto* form = new QFormLayout;
@@ -297,6 +299,7 @@ bool SketchPropertiesDialog::set_pending_dimension_layout(
 
 void SketchPropertiesDialog::set_pending_sketch(zima::sketcher::Sketch sketch) {
     if (sketch.id != initial_.id) throw std::invalid_argument("Sketch identity changed");
+    bend_seed_from_edge_=false;
     initial_ = std::move(sketch);
     error_->clear();
     notify_preview();
@@ -337,6 +340,7 @@ bool SketchPropertiesDialog::mutate_sketch(const std::string& id,
     if (initial_.id != id) return bend_sketch_mutator&&bend_sketch_mutator(id,mutation);
     auto next = initial_;
     mutation(next); next.validate();
+    if(next.serialized()!=initial_.serialized())bend_seed_from_edge_=false;
     initial_ = std::move(next);
     error_->clear();
     notify_preview();
@@ -360,8 +364,11 @@ SketchPropertiesDialog::current_values() const {
     auto placement = placement_->numeric_placement();
     if(initial_placement_.value_locks.contains("profile_offset"))placement.value_locks.insert("profile_offset");else placement.value_locks.erase("profile_offset");
     placement.references = placement_->combined_references(3);
-    zima::document::normalize_sketch_front_references(placement.references);
-    if (sketch.plane_auto && zima::document::sketch_placement_uses_front_plane(placement.references))
+    zima::document::normalize_container_front_references(placement.references);
+    if (sketch.plane_auto && bend_radius_ &&
+            zima::document::bend_attachment_profile_direction(placement.references, reference_geometry_))
+        sketch.plane = zima::sketcher::SketchPlane::XY;
+    else if (sketch.plane_auto && zima::document::sketch_placement_uses_front_plane(placement.references))
         sketch.plane = zima::sketcher::SketchPlane::XZ;
     return {std::move(sketch), std::move(placement)};
 }
@@ -375,11 +382,14 @@ void SketchPropertiesDialog::notify_preview() {
 void SketchPropertiesDialog::refresh_resolved_placement() {
     auto value = placement_->numeric_placement();
     value.references = placement_->combined_references(3);
-    zima::document::normalize_sketch_front_references(value.references);
+    zima::document::normalize_container_front_references(value.references);
+    const auto automatic_plane = bend_radius_ &&
+        zima::document::bend_attachment_profile_direction(value.references, reference_geometry_)
+        ? zima::sketcher::SketchPlane::XY : zima::sketcher::SketchPlane::XZ;
     if (zima::document::sketch_placement_uses_front_plane(value.references) &&
         plane_->itemData(plane_->findData(QStringLiteral("auto")), Qt::UserRole + 1).toInt() !=
-            static_cast<int>(zima::sketcher::SketchPlane::XZ))
-        update_automatic_work_plane(plane_, static_cast<int>(zima::sketcher::SketchPlane::XZ));
+            static_cast<int>(automatic_plane))
+        update_automatic_work_plane(plane_, static_cast<int>(automatic_plane));
     zima::kernel::Vec3 base_rotation;
     bool orientation_from_reference = false;
     const bool placement_valid = zima::document::resolve_placement(
@@ -435,7 +445,14 @@ bool SketchPropertiesDialog::set_reference(std::size_t index,
         update_automatic_work_plane(plane_, static_cast<int>(zima::sketcher::SketchPlane::XZ), label);
         notify_preview();
     }
-    if (accepted) refresh_resolved_placement();
+    if (accepted) {
+        refresh_resolved_placement();
+        if(bend_radius_&&bend_seed_from_edge_) {
+            auto [sketch,placement]=current_values();
+            zima::document::orient_bend_start_toward_edge(sketch,placement,reference_geometry_);
+            initial_=std::move(sketch);notify_preview();
+        }
+    }
     return accepted;
 }
 

@@ -19,6 +19,7 @@ namespace zima::app {
 class PlacementReferenceDialog {
 public:
     virtual ~PlacementReferenceDialog() = default;
+    [[nodiscard]] virtual zima::document::Placement placement_seed() const = 0;
     [[nodiscard]] virtual std::vector<zima::document::ConstructionReference>
         references_without(std::size_t index) const = 0;
     [[nodiscard]] virtual bool owns_reference_owner(

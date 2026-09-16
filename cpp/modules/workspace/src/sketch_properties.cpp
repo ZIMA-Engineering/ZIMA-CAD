@@ -48,7 +48,7 @@ bool commit_part_sketch_properties(Workspace& live,const kernel::OcctKernel& ker
         reject("invalid_name","A Sketch name must contain 1 to 1024 UTF-8 bytes.");
     if(!std::isfinite(sketch.plane_offset)||std::abs(sketch.plane_offset)>1000000)
         reject("invalid_arguments","The base Sketch offset is outside the supported range.");
-    document::normalize_sketch_front_references(placement.references);
+    document::normalize_container_front_references(placement.references);
     if(sketch.plane_auto&&document::sketch_placement_uses_front_plane(placement.references))
         sketch.plane=sketcher::SketchPlane::XZ;
     sketch.validate();
@@ -87,7 +87,7 @@ bool set_part_sketch_reference(Workspace& live,const kernel::OcctKernel& kernel,
     document::ConstructionReference source) {
     auto sketch=document_sketch(live,id,sketch_id);
     auto feature=prepare_part_feature_reference(live,id,sketch.owner_container_id,index,std::move(source),index==0);
-    document::normalize_sketch_front_references(feature.placement.references);
+    document::normalize_container_front_references(feature.placement.references);
     sketch.plane_reference_owner_id.clear();
     return commit_part_sketch_properties(live,kernel,id,std::move(sketch),sketch_properties_placement(feature));
 }
@@ -106,7 +106,7 @@ bool commit_sketch_properties(Workspace& live,const kernel::OcctKernel& kernel,c
     if(sketch.name.empty()||sketch.name.size()>1024)reject("invalid_name","A Sketch name must contain 1 to 1024 UTF-8 bytes.");
     if(!std::isfinite(sketch.plane_offset)||std::abs(sketch.plane_offset)>1000000)
         reject("invalid_arguments","The base Sketch offset is outside the supported range.");
-    sketch.validate();document::normalize_sketch_front_references(placement.references);
+    sketch.validate();document::normalize_container_front_references(placement.references);
     if(sketch.plane_auto&&document::sketch_placement_uses_front_plane(placement.references))
         sketch.plane=sketcher::SketchPlane::XZ;
     if(!create)if(const auto* cut=before.find_cut(sketch.owner_container_id)) {
