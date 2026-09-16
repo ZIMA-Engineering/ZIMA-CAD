@@ -325,8 +325,7 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
                 const auto& source=evaluation.presentations[index];const AnnotationKey key{AnnotationKind::Dimension,dimension.view_id,dimension.id,int(evaluation.cached_segment_indices.empty()?index:evaluation.cached_segment_indices[index])*3};
                 const auto color=annotation_color(key,evaluation.state==drawing::MeasurementState::Unresolved?QColor("#C62828"):printing?ink:QColor("#FFD400"),printing);
                 const auto text=QString::fromStdString(drawing::drawing_dimension_text(dimension,source,evaluation.state==drawing::MeasurementState::Unresolved));
-                const auto gap=viewer::dimension_text_clearance(painter.font(),text,.5*zoom,width(false),.75*zoom);
-                const auto layout=viewer::dimension_presentation(source,screen,QFontMetricsF(painter.font()).horizontalAdvance(text),2.5*zoom,gap,index<evaluation.angular_leaders.size()&&evaluation.angular_leaders[index]);
+                const auto layout=viewer::dimension_text_presentation(source,screen,painter.font(),text,.5*zoom,width(false),2.5*zoom,.75*zoom,index<evaluation.angular_leaders.size()&&evaluation.angular_leaders[index]);
                 if(!layout.valid)continue;
                 painter.save();painter.setPen(QPen(color,width(false)));painter.setBrush(color);QPainterPath stroke;
                 for(const auto& curve:layout.curves){if(curve.empty())continue;painter.drawPolyline(curve);stroke.moveTo(curve.front());for(qsizetype i=1;i<curve.size();++i)stroke.lineTo(curve[i]);}

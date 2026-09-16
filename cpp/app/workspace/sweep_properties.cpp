@@ -84,6 +84,7 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
     append_reference_geometry(geometry,source.origin_viewer_mesh().original_references);
     append_reference_geometry(geometry,source.construction_viewer_mesh().original_references);
     append_reference_geometry(geometry,source.history_origin_reference_geometry_before(initial.id));
+    append_reference_geometry(geometry,source.sketch_placement_reference_geometry(initial.id));
     const auto* owner_body=source.body_owner_for_object(initial.id);
     const auto body_id=owner_body ? owner_body->scope.id : source.body_history.active_body_id();
     if(!body_id.empty())geometry=source.construction_reference_geometry_for(body_id,std::move(geometry));
@@ -351,7 +352,7 @@ void AssemblyWorkspaceWindow::show_sweep3d_properties(
 
             const auto constraint_state =
                 zima::document::point_constraint_state(
-                    preview.references, construction_reference_geometry_);
+                    preview.references, construction_reference_geometry_, display_path.origin);
             construction_translation_dof_ = constraint_state.remaining_dof;
             dialog->set_translation_constraint_state(
                 constraint_state, display_path.origin);

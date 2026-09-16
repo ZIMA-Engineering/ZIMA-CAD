@@ -40,7 +40,7 @@ inline void remap_document_identity(nlohmann::json& value,
             if (text==old_id) value=new_id;
             else if (text==old_id+":origin") value=new_id+":origin";
         } else if (!text.empty() && (field.ends_with("sketch_serialized") ||
-                field=="sketches")) {
+                field=="sketches" || field=="auxiliary_sketches")) {
             auto sketch=nlohmann::json::parse(text);
             remap_document_identity(sketch,old_id,new_id,{},source_directory,target_path);
             value=sketch.dump();

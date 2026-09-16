@@ -132,6 +132,8 @@ void AssemblyWorkspaceWindow::show_construction_properties(
                     next.construction_viewer_mesh().original_references);
                 append_reference_geometry(reference_geometry,
                     next.history_origin_reference_geometry_before(preview.id));
+                append_reference_geometry(reference_geometry,
+                    next.sketch_placement_reference_geometry(preview.id));
                 reference_geometry = next.construction_reference_geometry_for(
                     preview.id, std::move(reference_geometry));
             } else if (const auto* source = workspace_.open_assembly(document_id)) {
@@ -162,7 +164,7 @@ void AssemblyWorkspaceWindow::show_construction_properties(
             if (construction_reference_dialog_ != nullptr) {
                 const auto constraint_state =
                     zima::document::point_constraint_state(
-                        preview.references, reference_geometry);
+                        preview.references, reference_geometry, resolved_origin);
                 construction_translation_dof_ = constraint_state.remaining_dof;
                 construction_reference_dialog_->set_translation_constraint_state(
                     constraint_state, resolved_origin);
@@ -519,6 +521,8 @@ void AssemblyWorkspaceWindow::show_curve_point_properties(
             append_reference_geometry(reference_geometry,
                 next.history_origin_reference_geometry_before(""));
             append_reference_geometry(reference_geometry,
+                next.sketch_placement_reference_geometry(preview.id));
+            append_reference_geometry(reference_geometry,
                 next.construction_viewer_mesh().original_references);
             if (sweep_carrier) {
                 if (!sweep_body.empty()) reference_geometry=next.construction_reference_geometry_for(
@@ -532,7 +536,7 @@ void AssemblyWorkspaceWindow::show_curve_point_properties(
 
             const auto constraint_state =
                 zima::document::point_constraint_state(
-                    preview.references, construction_reference_geometry_);
+                    preview.references, construction_reference_geometry_, resolved->origin);
             construction_translation_dof_ = constraint_state.remaining_dof;
             if (construction_reference_dialog_ != nullptr) {
                 construction_reference_dialog_->set_translation_constraint_state(

@@ -6,6 +6,29 @@ freedom behavior. `SKETCH_MODEL.md` describes data/equations,
 
 ## Tool confirmation
 
+Geometry and dimension entry offer eligible points before overlapping curves,
+lines, axes or annotations, including the second reference after selecting a
+line. Native endpoints and external characteristic points follow the same rule.
+RMB cycles the remaining candidates in that same list; LMB confirms the offered
+candidate. This ordering does not enlarge hit tolerances or accept references
+excluded by the active command.
+While a dimension preview is pending, RMB over an eligible reference still
+cycles that reference list. RMB in empty View space cycles the dimension's
+presentation. The preview must not consume reference-cycling clicks.
+
+Dimension labels use font-aware clearance above their own dimension stroke in
+Sketcher and the model View, as in Drawings. Painting, text hit testing and
+purple-handle placement share the layout. Text backgrounds still mask unrelated
+geometry behind the value, but leave its own dimension line visible.
+
+For container placement on native Sketch points and curves, see
+[curve placement](SKETCH_CURVE_PLACEMENT_DESIGN.md). Points fix position;
+curves supply their finite locus and tangent. XYZ and rotation controls remain
+visible, and the source Sketch must precede its consumer in history.
+Selecting an endpoint and then its curve sets FRONT along the endpoint tangent.
+The automatic Sketch plane is perpendicular to that tangent; an explicit manual
+XY/XZ/YZ choice still selects a plane within the resulting container frame.
+
 Geometry entry uses one interaction contract. LMB confirms all definition
 points, including the point completing an ordinary object. Short MMB never
 creates/confirms geometry; it is reserved for navigation. LMB places a text
@@ -325,6 +348,24 @@ input points visible through subsequent steps. Ordinary geometry snapping offers
 persist as real constraints; preview cannot show a relationship that disappears
 on completion.
 
+After confirming an arc's start point, RMB in empty View space reverses the
+direction before the final LMB click. This applies to both circular and
+elliptical arcs, and updates the preview immediately without moving the mouse.
+RMB over overlapping reference candidates retains the common candidate cycle.
+Ellipse semi-axis points remain unchanged; reversal selects the complementary
+arc between the same two endpoints. Endpoint snapping follows the user's click
+order even when the stored curve interval requires swapping its endpoints.
+A rejected final click leaves only the accepted defining-point references
+pending, so the next attempt cannot inherit a stale endpoint constraint.
+Escape cancels the pending curve and resets its direction.
+
+The `zima_cpp_sketch_arc_direction_ui_contract` exercises real mouse input,
+zero/one/two direction switches, both ellipse-axis orientations, fixed source
+points, retry after a rejected endpoint, and native save/reopen.
+On 2026-09-16 its clockwise circular case reproduced the original completion
+failure. After correction all nine direction cases passed, together with the
+Coincident input-order and endpoint C/midpoint M GUI suites (three suites total).
+
 Two tools share the same stable point model. **B-spline – control points** uses
 confirmed points as control vertices; **Interpolating spline** passes through
 all confirmed points. First confirmation shows a point, second a polyline
@@ -450,6 +491,13 @@ overlap for `C + H`, `C + T`, `= + H` or `S + V`. Equal-length `=` belongs to
 geometry and appears at new-segment midpoint; concurrent `H/V` stays at the
 second point.
 
+While drawing a segment, an available endpoint contact `C` takes priority over
+placing the new segment's midpoint on a line (`M`). The preview retains the
+snapped endpoint and removes the competing midpoint guide and label, matching
+the constraint committed by the click. `M` remains available when no endpoint
+contact is offered. Compatible endpoint tangent/perpendicular and axis H/V
+relations still use the snapped endpoint.
+
 ## Conflicts and exceptions
 
 Reference–driven ordering exceptions require a tool gesture or an already fully
@@ -539,17 +587,19 @@ coordinates and propagation through H/V/coincidence. Unlocked driving dimensions
 follow the achieved shape; locked values remain fixed. Fully locked points do
 not move.
 
-## Construction geometry
+## Auxiliary geometry and construction lines
 
 Segments, circles, circular/elliptic arcs, ellipses and B-splines can switch via
-View/Tree context actions **Convert to construction geometry** and **Convert to
-profile outline**. All construction curves use chain lines, including hover/
-confirmed selection.
+View/Tree context actions **Convert to auxiliary geometry** and **Convert to
+profile outline**. Auxiliary curves use dashed lines. The separate **Construction
+line** tool creates an infinite centerline with a dash-dot (chain) pattern.
+Hover and confirmed selection change only the color, preserving the line pattern
+and extent. Sampled curves keep one continuous dash pattern across their chords.
 
 The role changes while identity, control points, dimensions, ranges, constraints
-and dimensions remain. Construction curves are excluded from solid profiles.
-Segments remain finite and arcs retain ends. Infinite axes are separate;
-chain-line styling does not turn a segment into an axis.
+remain. Auxiliary curves are excluded from solid profiles. Segments remain finite
+and arcs retain ends; converting a segment to auxiliary geometry does not turn it
+into an infinite construction line.
 
 ### Template text and dimensions in Properties (2026-09-09)
 
@@ -575,6 +625,25 @@ another arc. Contact may slide on its circle; when fixed, solve the tangent's
 intersection with the opposite circle. Endpoints remain on their arcs, constraints
 persist and unsolvable edits reject without changing the input Sketch. Locked
 dimensions still allow deliberate numeric edits.
+
+### Arc angle and radius edits with an anchored endpoint (2026-09-16)
+
+An angular dimension between a construction radius and a line/axis rotates the
+arc endpoint about its centre. It must not translate both ends of the radius
+segment and invalidate the opposite end of the arc. Either orientation of the
+construction segment is supported.
+
+When exactly one arc endpoint is fixed or attached to a fixed external point
+(including the Sketch origin), a radius/diameter edit retains that endpoint and
+seeds the movable centre and opposite endpoint from the requested radius. The
+ordinary solver checks all remaining supports; in particular a centre constrained
+to an axis must remain on that axis. Conflicting fixed geometry rejects the edit
+without changing the Sketch.
+
+Regression coverage includes the origin-supported construction-radius case,
+both arc endpoints, X/Y supports, reversed radius segments, fixed/reference
+anchors, repeated angle/radius/diameter edits, persistence, and atomic rejection.
+The native-document command path also verifies edits, Undo/Redo, save and reopen.
 
 ### First plane and working profile (2026-09-10)
 

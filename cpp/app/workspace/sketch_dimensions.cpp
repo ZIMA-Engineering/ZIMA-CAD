@@ -1,4 +1,5 @@
 #include "workspace_internal.hpp"
+#include "../sketch_point_pick_priority.hpp"
 #include <zima/workspace/sketch_operations.hpp>
 
 namespace zima::app {
@@ -194,21 +195,7 @@ void AssemblyWorkspaceWindow::set_sketch_universal_dimension_contract() {
                 return value.kind == kind && value.id == id;
             });
         });
-    if (references.size() == 1 &&
-        references[0].kind == UniversalDimensionReferenceKind::Line) {
-        // A line endpoint and its owning line overlap by definition. For the
-        // second angular direction offer the line itself first; the point
-        // remains in this same list and is reachable by RMB cycling.
-        viewer_->set_candidate_priority([](const auto& candidate) {
-            if (candidate.kind ==
-                    zima::viewer::CandidateKind::SketchSegment) return 0;
-            if (candidate.kind ==
-                    zima::viewer::CandidateKind::SketchAxis) return 1;
-            if (candidate.kind ==
-                    zima::viewer::CandidateKind::SketchPoint) return 2;
-            return 3;
-        });
-    }
+    viewer_->set_candidate_priority(sketch_point_pick_priority);
 }
 
 void AssemblyWorkspaceWindow::accept_sketch_universal_dimension(

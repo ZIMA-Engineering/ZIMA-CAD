@@ -47,7 +47,7 @@ bool set_body_placement_reference(Workspace& live,const kernel::OcctKernel& kern
     auto baseline=value.scope.placement;baseline.references=combined(position,orientation,index);
     if(!document::resolve_placement(baseline,geometry))reject("invalid_placement","Existing Body placement references cannot be resolved.");
     const kernel::Vec3 origin{baseline.x,baseline.y,baseline.z};
-    const auto translation_dof=document::point_constraint_remaining_dof(baseline.references,geometry);
+    const auto translation_dof=document::point_constraint_remaining_dof(baseline.references,geometry,origin);
     const auto rotation_dof=document::orientation_constraint_remaining_dof(baseline.references,geometry,true,origin);
     const bool direction=index<3&&translation_dof==0&&rotation_dof>0;
     if(index>=3||direction) {

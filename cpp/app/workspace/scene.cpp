@@ -9,6 +9,7 @@ using namespace workspace_detail;
 
 
 void AssemblyWorkspaceWindow::refresh_scene() {
+    update_bend_view_action();
     workspace_.refresh_source_geometry();
     if(measure_action_)measure_action_->setEnabled(workspace_.open_part(workspace_.displayed_document_id())||workspace_.open_assembly(workspace_.displayed_document_id()));
     viewer_->set_dimension_layout_editable((!properties_dialog_||!properties_dialog_->isVisible())&&!sketch_universal_dimension_active_);
@@ -66,6 +67,8 @@ void AssemblyWorkspaceWindow::refresh_scene() {
             ? *construction_preview_mesh_
             : document.construction_viewer_mesh({}, scene_size);
         if constexpr (requires { document.history; }) {
+            append_reference_geometry(mesh.original_references,
+                document.sketch_placement_reference_geometry(primitive_parameter_owner_id_));
             if (body_dialog_preview_ && primitive_reference_dialog_) {
                 if (const auto* body = body_dialog_preview_->body_history.find(body_dialog_step_id_)) {
                     append_nonzero_parameter_dimensions(mesh.dimensions,
@@ -253,7 +256,8 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                 : stored_container != document.history.end()
                     ? &*stored_container : nullptr;
             if (container != nullptr) {
-                if(active_sketch_id_.empty())zima::document::visit_feature_sketches(*container,[&](const auto& data,std::size_t){
+                if(active_sketch_id_.empty())zima::document::visit_feature_sketches(*container,[&](const auto& data,std::size_t stage){
+                    if(container->feature_kind==zima::document::FeatureKind::Bend&&stage==0&&container->bend.angle_degrees==0)return;
                     const auto sketch=zima::sketcher::Sketch::from_serialized(data);
                     auto display=sketch.viewer_mesh();
                     const auto* body=document.body_owner_for_object(container->id);

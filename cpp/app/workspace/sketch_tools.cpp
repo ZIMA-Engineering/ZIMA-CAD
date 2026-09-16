@@ -295,10 +295,19 @@ bool AssemblyWorkspaceWindow::cancel_current_sketch_step(
     }
     if (right_click_behavior && sketch_arc_active_ && pending_arc_start_) {
         sketch_arc_clockwise_ = !sketch_arc_clockwise_;
-        viewer_->set_transient_edges({});
+        static_cast<void>(viewer_->refresh_current_pointer_preview());
         state_->setText(sketch_arc_clockwise_
             ? tr("Oblouk: směr po hodinových ručičkách. Určete koncový bod.")
             : tr("Oblouk: směr proti hodinovým ručičkám. Určete koncový bod."));
+        return true;
+    }
+    if (right_click_behavior && sketch_elliptical_arc_active_ &&
+        pending_elliptical_arc_start_) {
+        pending_elliptical_arc_reversed_ = !pending_elliptical_arc_reversed_;
+        static_cast<void>(viewer_->refresh_current_pointer_preview());
+        state_->setText(pending_elliptical_arc_reversed_
+            ? tr("Eliptický oblouk: směr po hodinových ručičkách. Určete koncový bod.")
+            : tr("Eliptický oblouk: směr proti hodinovým ručičkám. Určete koncový bod."));
         return true;
     }
     if (right_click_behavior && sketch_rectangle_active_ && pending_rectangle_corner_ &&
@@ -437,12 +446,14 @@ bool AssemblyWorkspaceWindow::cancel_current_sketch_step(
     pending_circle_tangent_inference_.reset();
     pending_arc_center_.reset();
     pending_arc_start_.reset();
+    sketch_arc_clockwise_ = false;
     pending_ellipse_center_.reset();
     pending_ellipse_major_.reset();
     pending_elliptical_arc_center_.reset();
     pending_elliptical_arc_major_.reset();
     pending_elliptical_arc_minor_.reset();
     pending_elliptical_arc_start_.reset();
+    pending_elliptical_arc_reversed_ = false;
     pending_bspline_points_.clear();
     pending_curve_point_snaps_.clear();
     viewer_->set_transient_edges({});

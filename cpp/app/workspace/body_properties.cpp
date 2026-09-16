@@ -70,6 +70,7 @@ void AssemblyWorkspaceWindow::show_body_properties(const std::string& id) {
     append_reference_geometry(primitive_reference_geometry_, pending.body_origin_reference_geometry());
     append_reference_geometry(primitive_reference_geometry_, pending.history_origin_reference_geometry_before({}));
     append_reference_geometry(primitive_reference_geometry_, pending.construction_viewer_mesh().original_references);
+    append_reference_geometry(primitive_reference_geometry_, pending.sketch_placement_reference_geometry());
     dialog->set_forbidden_owner([pending,position](const std::string& id) {
         if (id==pending.document_id+":origin") return false;
         const auto* owner=pending.body_owner_for_object(id);
@@ -89,7 +90,8 @@ void AssemblyWorkspaceWindow::show_body_properties(const std::string& id) {
         zima::kernel::Vec3 base;
         bool oriented=false;
         const bool valid=zima::document::resolve_placement(placement,primitive_reference_geometry_,&base,&oriented);
-        const auto constraint=zima::document::point_constraint_state(placement.references,primitive_reference_geometry_);
+        const auto constraint=zima::document::point_constraint_state(placement.references,primitive_reference_geometry_,
+            {placement.x,placement.y,placement.z});
         primitive_translation_dof_=constraint.remaining_dof;
         dialog->set_translation_constraint_state(constraint,{placement.x,placement.y,placement.z});
         dialog->set_rotation_constraint_state(zima::document::orientation_constraint_state(

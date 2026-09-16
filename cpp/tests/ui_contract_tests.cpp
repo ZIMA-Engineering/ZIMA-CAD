@@ -22,6 +22,7 @@
 #include "extrusion_dimension_policy.hpp"
 #include "opening_dimension_policy.hpp"
 #include "reference_tree_policy.hpp"
+#include "part_reference_index.hpp"
 #include "reference_display.hpp"
 #include <zima/ui/container_placement_section.hpp>
 #include "tree_reference_state.hpp"
@@ -224,8 +225,182 @@ int verify_entry_tables(QApplication& application,QWidget& parent) {
     return 0;
 }
 
+int verify_sketch_line_styles(QApplication& application, QWidget& parent) {
+    using namespace zima::viewer;
+    for (int kind = 0; kind < 3; ++kind) {
+        auto sketch = zima::sketcher::Sketch::create_default();
+        const auto id = kind == 1 ? sketch.add_circle(0, 0, 10)
+            : sketch.add_segment(-15, 0, 15, 0);
+        if (kind == 2) sketch.set_segment_centerline(id, true);
+        else sketch.set_geometry_construction(id, true);
+        auto mesh = sketch.viewer_mesh();
+        mesh.points.clear(); mesh.axes.clear(); mesh.dimensions.clear();
+        MeshView view(&parent);
+        view.setGeometry(0, 0, 600, 380);
+        view.set_mesh(mesh);
+        auto camera = view.camera_state();
+        camera[0] = 1; camera[1] = camera[2] = camera[3] = 0;
+        view.set_camera_state(camera);
+        view.set_active_sketch_owner(sketch.id);
+        view.set_selection_contract({CandidateKind::SketchSegment, CandidateKind::SketchCurve});
+        view.show(); view.raise();
+        application.processEvents();
+        const auto idle = view.grabFramebuffer();
+        std::optional<QPointF> pointer;
+        for (int y = 20; y < view.height() - 20 && !pointer; y += 3)
+            for (int x = 20; x < view.width() - 20; x += 3)
+                if (!view.selection_candidates_at(QPointF(x, y)).empty()) {
+                    pointer = QPointF(x, y); break;
+                }
+        require(pointer.has_value(), "Styled Sketch curve is not offered by the picker");
+        QMouseEvent move(QEvent::MouseMove, *pointer, *pointer, *pointer,
+            Qt::NoButton, Qt::NoButton, Qt::NoModifier);
+        QApplication::sendEvent(&view, &move);
+        application.processEvents();
+        require(view.hovered_candidate().has_value(), "Styled Sketch curve did not hover");
+        const auto hover = view.grabFramebuffer();
+        QMouseEvent press(QEvent::MouseButtonPress, *pointer, *pointer, *pointer,
+            Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+        QMouseEvent release(QEvent::MouseButtonRelease, *pointer, *pointer, *pointer,
+            Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+        QApplication::sendEvent(&view, &press);
+        QApplication::sendEvent(&view, &release);
+        application.processEvents();
+        require(view.confirmed_candidate().has_value(), "Styled Sketch curve did not confirm");
+        const auto selected = view.grabFramebuffer();
+        const auto colored = [](const QColor& actual, const QColor& expected) {
+            return std::abs(actual.red() - expected.red()) < 35 &&
+                std::abs(actual.green() - expected.green()) < 35 &&
+                std::abs(actual.blue() - expected.blue()) < 35;
+        };
+        for (const auto& [frame, color] : std::array{
+                std::pair{hover, QColor(255, 122, 0)},
+                std::pair{selected, QColor(0, 209, 255)}}) {
+            int original = 0, highlighted = 0, common = 0;
+            for (int y = 10; y < idle.height() - 10; ++y)
+                for (int x = 10; x < idle.width() - 10; ++x) {
+                    const bool a = colored(idle.pixelColor(x, y), QColor(77, 216, 17));
+                    const bool b = colored(frame.pixelColor(x, y), color);
+                    original += a; highlighted += b; common += a && b;
+                }
+            if (!(original > 80 && common > original * 0.85 && common > highlighted * 0.85)) {
+                idle.save("sketch-style-idle.png"); frame.save("sketch-style-highlight.png");
+                throw std::runtime_error("Sketch stroke changed: kind=" + std::to_string(kind) +
+                    " color=" + color.name().toStdString() + " original=" + std::to_string(original) +
+                    " highlighted=" + std::to_string(highlighted) + " common=" + std::to_string(common));
+            }
+        }
+    }
+    std::cout << "Sketch auxiliary/centerline strokes survive hover and confirmation\n";
+    return 0;
+}
+
+int verify_curve_placement_picker(QApplication& application,QWidget& parent) {
+    using namespace zima::viewer;
+    auto sketch=zima::sketcher::Sketch::create_default();
+    const auto circle=sketch.add_circle(0,0,10),point=sketch.add_point(10,0);
+    auto mesh=sketch.viewer_mesh();mesh.dimensions.clear();mesh.axes.clear();
+    mesh.original_references=sketch.placement_reference_geometry();
+    MeshView view(&parent);view.setGeometry(0,0,600,380);view.set_mesh(mesh);
+    auto camera=view.camera_state();camera[0]=1;camera[1]=camera[2]=camera[3]=0;view.set_camera_state(camera);
+    view.set_selection_contract(zima::app::placement_reference_candidate_kinds());
+    view.set_candidate_filter([](const auto& candidate) {
+        return zima::app::placement_reference_candidate_has_stable_geometry(candidate);
+    });
+    view.show();view.raise();application.processEvents();
+    for(const auto& key:{"point:"+point,"circle:"+circle}) {
+        std::optional<QPointF> pointer;
+        for(int y=10;y<view.height()-10&&!pointer;y+=2)
+            for(int x=10;x<view.width()-10;++x) {
+                const auto offered=view.selection_candidates_at(QPointF(x,y));
+                if(!offered.empty() && offered.front().owner_id==sketch.id && offered.front().semantic_key==key) {
+                    pointer=QPointF(x,y);break;
+                }
+            }
+        require(pointer.has_value(),"Container placement did not offer native Sketch point/curve");
+        QMouseEvent move(QEvent::MouseMove,*pointer,*pointer,*pointer,Qt::NoButton,Qt::NoButton,Qt::NoModifier);
+        QApplication::sendEvent(&view,&move);application.processEvents();
+        const auto hover=view.hovered_candidate();
+        require(hover && hover->owner_id==sketch.id && hover->semantic_key==key,"Placement hover chose a different native entity");
+        QMouseEvent down(QEvent::MouseButtonPress,*pointer,*pointer,*pointer,Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+        QMouseEvent up(QEvent::MouseButtonRelease,*pointer,*pointer,*pointer,Qt::LeftButton,Qt::NoButton,Qt::NoModifier);
+        QApplication::sendEvent(&view,&down);QApplication::sendEvent(&view,&up);application.processEvents();
+        const auto confirmed=view.confirmed_candidate();
+        require(confirmed && confirmed->owner_id==hover->owner_id && confirmed->semantic_key==hover->semantic_key,
+            "Placement click did not confirm the hovered native reference");
+        view.clear_selection();
+    }
+    return 0;
+}
+
 int verify_numeric_value_locks(QApplication&,QWidget&);
 int verify_translations(QApplication&,QWidget&);
+
+void verify_sketch_endpoint_dialog(QWidget& parent) {
+    using namespace zima;
+    auto source=sketcher::Sketch::create_default();
+    const auto arc=source.add_arc(0,-10,0,0,-7.66044443118978,-3.572123903134605);
+    source.resolved_origin={50,40,.5};source.resolved_x_axis={0,-1,0};
+    source.resolved_y_axis={0,0,-1};source.resolved_normal={1,0,0};
+    for(const auto& point:{source.arcs.front().start_point_id,source.arcs.front().end_point_id})for(bool rounded:{false,true}) {
+        auto sketch=sketcher::Sketch::create_default();
+        auto geometry=source.placement_reference_geometry();
+        // A solved native endpoint can differ slightly from the analytic arc.
+        // Its fixed point must not become a second, redundant position solve
+        // merely because the curve is used to define a tangent direction.
+        if(rounded)for(auto& p:geometry.points)if(p.reference.semantic_key=="point:"+point)p.position.x+=5e-8;
+        QPointer<app::SketchPropertiesDialog> dialog=new app::SketchPropertiesDialog(sketch,{},false,{},[](auto,auto,bool){},&parent);
+        dialog->set_reference_geometry(geometry);
+        require(dialog->set_reference(0,{{},source.id,"point:"+point},"Endpoint"),"Sketch dialog rejected endpoint");
+        require(dialog->set_reference(1,{{},source.id,"arc:"+arc,0,false,"direction",true,true},"Arc tangent"),"Sketch dialog rejected tangent");
+        const auto [pending,placement]=dialog->pending_value();
+        require(placement.references.size()==2&&placement.references[1].orientation_only&&
+            placement.references[1].orientation_drives_rotation&&placement.references[1].orientation_role=="direction",
+            "Sketch dialog discarded the second reference tangent orientation");
+        require(pending.plane==sketcher::SketchPlane::XZ&&pending.plane_auto,"Automatic Sketch plane is not perpendicular to FRONT tangent");
+        auto resolved=placement;
+        require(document::resolve_placement(resolved,geometry),"Sketch dialog endpoint/tangent cannot resolve");
+        const auto anchor=std::ranges::find_if(geometry.points,[&](const auto& p){return p.reference.semantic_key=="point:"+point;});
+        require(std::abs(resolved.x-anchor->position.x)<1e-10&&std::abs(resolved.y-anchor->position.y)<1e-10&&
+            std::abs(resolved.z-anchor->position.z)<1e-10,"Tangent assignment moved the fixed native endpoint");
+        auto* plane=dialog->findChild<QComboBox*>("sketchPlane");
+        plane->setCurrentIndex(plane->findData(static_cast<int>(sketcher::SketchPlane::XY)));
+        require(dialog->pending_value().first.plane==sketcher::SketchPlane::XY&&!dialog->pending_value().first.plane_auto,
+            "Tangent assignment overrode a manual Sketch plane");
+        delete dialog;
+        dialog=new app::SketchPropertiesDialog(pending,placement,true,{},[](auto,auto,bool){},&parent);
+        dialog->set_reference_geometry(geometry);
+        require(dialog->pending_value().second.references==placement.references,"Reopened Sketch dialog lost tangent reference");
+        delete dialog;
+    }
+}
+
+void verify_sketch_reference_tree() {
+    using namespace zima;
+    auto doc=document::PartDocument::create_default();
+    auto source=document::PartDocument::create_sketch_container();
+    auto sketch=sketcher::Sketch::create_default();sketch.owner_container_id=source.id;
+    const auto circle=sketch.add_circle(0,0,10),point=sketch.add_point(10,0);
+    auto target=document::PartDocument::create_sketch_container();
+    target.placement.references={{{},sketch.id,"point:"+point},{{},sketch.id,"circle:"+circle,0,false,"direction",true,true}};
+    doc.sketches={sketch};doc.history={source,target};
+    doc.history_order={{document::PartHistoryKind::Feature,source.id},{document::PartHistoryKind::Feature,target.id}};
+    doc.resolve_constructions();
+    require(doc.find_container(target.id)->placement.reference_valid,"Tree fixture endpoint placement failed");
+    const auto issue=[&]{return app::feature_reference_issue(*doc.find_container(target.id),doc,app::part_reference_index(doc));};
+    require(issue().empty(),"Tree marked valid native Sketch placement references as missing");
+    QTreeWidgetItem item;app::TreeReferenceState state;
+    doc.find_container(target.id)->placement.reference_valid=false;
+    state.apply(&item,doc.document_id,target.id,issue());
+    require(item.data(0,app::missing_reference_role).toBool(),"Tree hid an unresolved placement");
+    doc.resolve_constructions();
+    state.apply(&item,doc.document_id,target.id,issue());
+    require(!item.data(0,app::missing_reference_role).toBool()&&item.toolTip(0).isEmpty()&&
+        item.background(0).style()==Qt::NoBrush,"Repaired Sketch placement retained its red Tree marker");
+    doc.sketches.front().circles.clear();doc.resolve_constructions();
+    state.apply(&item,doc.document_id,target.id,issue());
+    require(item.data(0,app::missing_reference_role).toBool(),"Deleted source curve no longer marked the Tree");
+}
 
 int main(int argc, char* argv[]) {
     QApplication application(argc, argv);
@@ -239,6 +414,11 @@ int main(int argc, char* argv[]) {
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_VALUE_LOCKS_ONLY")) return verify_numeric_value_locks(application,parent);
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_ENTRY_TABLES_ONLY")) return verify_entry_tables(application,parent);
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_NUMERIC_ONLY")) return verify_numeric_fields(application,parent);
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_LINE_STYLES_ONLY")) return verify_sketch_line_styles(application,parent);
+        verify_sketch_line_styles(application,parent);
+        verify_curve_placement_picker(application,parent);
+        verify_sketch_endpoint_dialog(parent);
+        verify_sketch_reference_tree();
         {
             using namespace zima::app;
             int committed=0;

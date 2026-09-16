@@ -6763,7 +6763,9 @@ std::string Sketch::add_external_profile_geometry(
         throw std::invalid_argument(
             "External edge already owns profile geometry");
     }
-    if (reference->exact_spline) {
+    // Exact finite lines retain the existing native Segment editing contract.
+    if (reference->exact_spline && !(reference->exact_spline->degree==1 &&
+            reference->exact_spline->poles.size()==2)) {
         reference->exact_spline->validate();
         auto next = *this;
         SketchBSpline spline;
@@ -8191,11 +8193,46 @@ void Sketch::apply_dimension(SketchDimension dimension) {
                 corner->radius = dimension_kind == DimensionKind::Diameter
                     ? dimension_value * 0.5 : dimension_value;
             } else {
-                arc->radius = dimension_kind == DimensionKind::Diameter
-                    ? dimension_value * 0.5 : dimension_value;
-                const auto* center = next.find_point(arc->center_point_id);
+                const auto linked = externally_linked_point_ids(next);
+                const auto anchored = [&](const SketchPoint& point) {
+                    return point.fixed || linked.contains(point.id) ||
+                        std::ranges::any_of(next.constraints, [&](const auto& support) {
+                            if (support.suppressed ||
+                                support.kind != ConstraintKind::PointReference) return false;
+                            const auto other = support.first_point_id == point.id
+                                ? support.second_point_id
+                                : support.second_point_id == point.id
+                                    ? support.first_point_id : std::string{};
+                            return !other.empty() && next.find_point(other) == nullptr &&
+                                external_point_position(next, other).has_value();
+                        });
+                };
+                auto* center = next.find_point(arc->center_point_id);
                 auto* start = next.find_point(arc->start_point_id);
                 auto* end = next.find_point(arc->end_point_id);
+                const bool start_anchored = anchored(*start);
+                const bool end_anchored = anchored(*end);
+                arc->radius = dimension_kind == DimensionKind::Diameter
+                    ? dimension_value * 0.5 : dimension_value;
+                // Keep a single anchored endpoint in place while the centre
+                // and free end resize. Moving the anchored endpoint first
+                // breaks the arc when its reference is restored by the solver.
+                // All remaining supports are checked by the normal transaction.
+                if (!anchored(*center) && start_anchored != end_anchored) {
+                    const auto* anchor = start_anchored ? start : end;
+                    const double angle = start_anchored ? arc->start_angle : arc->end_angle;
+                    center->x = anchor->x - arc->radius * std::cos(angle);
+                    center->y = anchor->y - arc->radius * std::sin(angle);
+                }
+                const auto check_anchor = [&](const SketchPoint& point, double angle) {
+                    if (anchored(point) && std::hypot(
+                            center->x + arc->radius * std::cos(angle) - point.x,
+                            center->y + arc->radius * std::sin(angle) - point.y) > 1.0e-8) {
+                        throw std::runtime_error("Arc radius cannot move an anchored endpoint");
+                    }
+                };
+                check_anchor(*start, arc->start_angle);
+                check_anchor(*end, arc->end_angle);
                 start->x = center->x + arc->radius * std::cos(arc->start_angle);
                 start->y = center->y + arc->radius * std::sin(arc->start_angle);
                 end->x = center->x + arc->radius * std::cos(arc->end_angle);
@@ -10153,6 +10190,30 @@ SolveResult Sketch::solve_impl(
                                 direction_sign = -1.0;
                             }
                         }
+                        // A construction radius is an arc arm, not a free
+                        // segment: rotate its endpoint about the arc centre.
+                        // Translating both ends destroys the opposite radius
+                        // before the following curve-consistency check.
+                        if (shared == nullptr) {
+                            for (const auto& arc : arcs) {
+                                const auto is_endpoint = [&](const std::string& id) {
+                                    return id == arc.start_point_id || id == arc.end_point_id;
+                                };
+                                if (arc.center_point_id == driven_first->id &&
+                                    is_endpoint(driven_second->id)) {
+                                    shared = driven_first;
+                                    free_endpoint = driven_second;
+                                    break;
+                                }
+                                if (arc.center_point_id == driven_second->id &&
+                                    is_endpoint(driven_first->id)) {
+                                    shared = driven_second;
+                                    free_endpoint = driven_first;
+                                    direction_sign = -1.0;
+                                    break;
+                                }
+                            }
+                        }
                         if (shared != nullptr && free_endpoint != nullptr &&
                             !immutable(*free_endpoint)) {
                             const double ray_x = direction_sign * std::cos(target);
@@ -11742,7 +11803,7 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
             {project(*find_point(segment.first_point_id)),
              project(*find_point(segment.second_point_id))},
             {id, "segment:" + segment.id, {}}, segment.construction, true,
-            segment.centerline, segment.construction});
+            segment.centerline, segment.centerline});
     }
     constexpr std::size_t circle_samples = 96;
     for (const auto& circle : circles) {
@@ -11750,7 +11811,6 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
         zima::kernel::ViewerEdge edge;
         edge.reference = {id, "circle:" + circle.id, {}};
         edge.construction = circle.construction;
-        edge.dash_dot = circle.construction;
         edge.overlay = true;
         edge.points.reserve(circle_samples + 1);
         for (std::size_t sample = 0; sample <= circle_samples; ++sample) {
@@ -11768,7 +11828,6 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
         if(const auto* offset=find_offset(spline.id);offset && offset->broken)edge.color="#FF5555";
         if(std::ranges::any_of(curve_trims,[&](const auto& c){return c.id==spline.id && c.broken;}))edge.color="#FF5555";
         edge.construction = spline.construction;
-        edge.dash_dot = spline.construction;
         edge.overlay = true;
         if (!spline.knots.empty()) {
             zima::kernel::BSplineGeometry exact{spline.degree, {}, spline.knots, spline.weights};
@@ -11788,7 +11847,6 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
         zima::kernel::ViewerEdge edge;
         edge.reference = {id, "ellipse:" + ellipse.id, {}};
         edge.construction = ellipse.construction;
-        edge.dash_dot = ellipse.construction;
         edge.overlay = true;
         edge.points.reserve(circle_samples + 1);
         for (std::size_t sample = 0; sample <= circle_samples; ++sample) {
@@ -11809,7 +11867,6 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
         zima::kernel::ViewerEdge edge;
         edge.reference = {id, "elliptical_arc:" + arc.id, {}};
         edge.construction = arc.construction;
-        edge.dash_dot = arc.construction;
         edge.overlay = true;
         const double sweep = arc.end_parameter - arc.start_parameter;
         const auto samples = std::max<std::size_t>(8,
@@ -11830,7 +11887,6 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
         zima::kernel::ViewerEdge edge;
         edge.reference = {id, "arc:" + arc.id, {}};
         edge.construction = arc.construction;
-        edge.dash_dot = arc.construction;
         edge.overlay = true;
         const double sweep = arc.end_angle - arc.start_angle;
         const auto samples = std::max<std::size_t>(2,
@@ -13370,6 +13426,38 @@ Sketch Sketch::from_serialized(const std::string& value) {
     }
     sketch.validate();
     return sketch;
+}
+
+zima::kernel::ViewerReferenceGeometry Sketch::placement_reference_geometry() const {
+    zima::kernel::ViewerReferenceGeometry result;
+    for (const auto& p : points)
+        result.points.push_back({world_point(p.x,p.y),{id,"point:"+p.id,{}}});
+    const auto add = [&](const std::string& curve_id, const std::string& prefix, bool auxiliary) {
+        auto exact = supporting_curve(curve_id);
+        for (auto& p : exact.poles) p = world_point(p.x,p.y);
+        zima::kernel::ViewerEdge edge;
+        edge.reference={id,prefix+curve_id,{}};
+        edge.construction=auxiliary;edge.overlay=true;
+        edge.exact_spline=std::move(exact);
+        const unsigned samples=edge.exact_spline->degree==1?1:96;
+        for(unsigned i=0;i<=samples;++i)edge.points.push_back(
+            zima::kernel::bspline_value(*edge.exact_spline,double(i)/samples));
+        result.edges.push_back(std::move(edge));
+    };
+    for (const auto& c:segments) {
+        if (!c.centerline) add(c.id,"segment:",c.construction);
+        else {
+            const auto* a=find_point(c.first_point_id); const auto* b=find_point(c.second_point_id);
+            const auto p=world_point(a->x,a->y),q=world_point(b->x,b->y);
+            result.axes.push_back({p,{q.x-p.x,q.y-p.y,q.z-p.z},1,{id,"segment:"+c.id,{}}});
+        }
+    }
+    for (const auto& c:circles) add(c.id,"circle:",c.construction);
+    for (const auto& c:arcs) add(c.id,"arc:",c.construction);
+    for (const auto& c:ellipses) add(c.id,"ellipse:",c.construction);
+    for (const auto& c:elliptical_arcs) add(c.id,"elliptical_arc:",c.construction);
+    for (const auto& c:bsplines) add(c.id,"bspline:",c.construction);
+    return result;
 }
 
 void Sketch::save(const std::filesystem::path& path) const {

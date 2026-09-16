@@ -31,6 +31,81 @@ belong to the active Part source, including while editing it inside an Assembly.
 Sheet Metal Properties is an editing shortcut, so it is absent from **Insert**.
 Assembly file settings have no Sheet Metal page.
 
+Closing File Settings restores the application dropdown immediately, after OK,
+Cancel or middle-button confirmation. Switching back to Modeling does not require
+regeneration or a tab switch. Application switching remains disabled while a
+properties editor owns the interaction.
+
+## Flat sheet (Tabule)
+
+The **Tabule** command is available in the Part's Sheet Metal toolbar and Insert
+menu, before Bend. It creates one additive history container with one owned
+Sketch, using the existing container placement and work-plane selection. The
+Sketch lies on the container plane; this feature has no separate profile-plane
+offset. Container XYZ and reference offsets retain their usual behavior.
+
+Draw a closed outline through the green **SKETCH** button. Closed inner loops
+make openings. The feature uses the same exact profile extrusion calculation as
+Extrusion; an open or empty outline cannot be committed. The cyan wire previews
+the pending sheet without invoking the solid kernel.
+
+Circular and elliptical profile loops publish their extrusion axes, including
+inner openings, with the same View display, axis filter and tree controls as
+Extrusion. These axes are persisted with the calculated native geometry.
+The shared profile classifier supports elliptic openings mixed with ordinary
+closed outlines, nested ellipses and disconnected elliptic regions. Polygon
+winding follows the extrusion direction so reversing the side also keeps circular
+and elliptic inner loops valid. Exact conics reach the kernel; sampled contours
+are used only for nesting and intersection validation.
+
+- **First side:** extrude along the selected Sketch normal by the total thickness.
+- **Second side:** extrude in the opposite direction by the total thickness.
+- **Symmetric:** put half of the total thickness on each side of the Sketch.
+- Thickness follows the Part's `SHEETMETAL_THICKNESS` default (1 mm initially).
+  **Custom thickness** enables the local numeric field. Unchecking it restores
+  the inherited value. Changed document defaults take effect on explicit
+  regeneration, as for Bend.
+
+Creation and editing share one internal properties window. SKETCH edits a
+transient draft and returns to that window. OK validates, calculates and commits
+one history transaction; Cancel discards the pending changes. Editing rolls back
+to the feature's input boundary. Native save/reopen and Undo/Redo preserve the
+feature, profile, thickness policy and extrusion side.
+
+Faces, edges and vertices use Extrusion's source-based topology ancestry.
+Changing the extrusion side or thickness preserves the semantic Start/End and
+source-curve identities. Flat creates ordinary solid material, including in
+Drawing views; it is not a yellow surface feature. Family Table can vary the
+local thickness when Custom thickness is enabled.
+
+Console commands share the GUI's atomic workspace transaction:
+
+```text
+flat.create width_mm=40 height_mm=30 direction=symmetric
+flat.get container=<id>
+flat.set container=<id> thickness_mm=2
+flat.set container=<id> thickness_override=false direction=reverse
+```
+
+`flat.create` supplies a rectangular initial profile for console use; the GUI
+starts with an empty editable Sketch. `thickness_mm` enables the local override;
+an explicit `thickness_override` argument takes precedence. These commands are
+Part-only. Profile geometry remains editable through the common Sketch commands.
+
+`zima_cpp_flat_command_tests` checks thickness inheritance and overrides, all
+three directions and their preview bounds, persistent topology, circular and
+elliptical openings and their axes, Sketch dimension changes, a changed work
+plane, save/reopen, Undo/Redo, Family thickness and invalid-input rollback.
+The application-tools UI contract covers real toolbar/dialog/Sketcher transitions,
+empty-profile rejection, Cancel, middle-button OK and the application dropdown.
+
+The focused Windows run passes ten suites: Flat, Bend, Holes, application tools,
+Family Table, dimension identifiers, extrusion limits, profile commands, thin
+profiles and surface profiles. The separate monolithic `zima_cpp_contract_tests`
+currently stops while loading `tests/fixtures/cross_language/part.prtz`, an obsolete
+format-26 fixture. It does not reach its geometry assertions; no legacy reader was
+introduced to make that fixture pass.
+
 ## Console
 
 `document.settings.get` returns a `sheet_metal` object for Parts:
@@ -58,20 +133,40 @@ Editing evaluates the existing history boundary before the Bend.
 
 - The command consumes ordinary container placement: the first plane defines the
   Sketch plane and the second defines TOP. The shared placement contract is unchanged.
-- Its owned Sketch initially contains a 40 mm straight segment. Edit the Sketch to
-  change the width. Exactly one non-construction segment is required; other modeling
-  curves are rejected. Construction geometry may support constraints.
-- Set the inside radius (at least 0.001 mm) and angle (0–180 degrees).
+- One history container owns three prepared Sketches: the start profile (initially
+  a 40 mm segment), a circular trajectory, and the end profile. Their editors are
+  available in the same properties window. The end frame follows the path tangent
+  automatically; it has no independent twist.
+- Each profile has one non-construction straight segment. The end editor includes
+  a fixed construction copy of the start segment and two endpoint difference
+  dimensions. Their initial values are zero. Positive entry preserves the current
+  side; negative entry reverses it, following the ordinary Sketch dimension rule.
+  The initial positive direction widens each end. CLI extension arguments are
+  signed: positive widens, negative shortens. End width must remain positive.
+- Set the inside radius (0–1,000,000 mm) and angle (0–180 degrees).
   Material extends from the segment toward the rotation axis, at outside radius R+t.
+- The prepared path is the **outside** circular arc. Its Sketch radius dimension
+  is R+t; editing that dimension updates the inside radius in Properties. The
+  **Radius follows thickness** checkbox continuously sets the inside R to t and
+  locks the path radius. Unchecking it retains the current effective inside radius.
 - Thickness and K factor follow the Part settings. **Local value** enables an
   override for each separately. A missing Part thickness evaluates as 1 mm.
-- **Bend** rotates the authored thickened section; **Unbend** extrudes the same
-  section by `angle_radians * (R + K*t)`. It shows an axis at the developed region's
+- **Bend** carries the section along the circular trajectory, interpolating the
+  endpoint differences across the sweep. Matching profiles use exact revolution;
+  a width transition uses a two-section sweep. **Unbend** connects the profiles
+  along `angle_radians * (R + K*t)`. It shows an axis at the developed region's
   midpoint. K is a manufacturing input, not inferred from the geometry. The bent
   and flat simplified solids need not have equal volume when K differs from 0.5.
 - At exactly zero degrees the feature contributes no material, keeps its history
   identity and can be edited back to a positive angle. It has no selectable faces
   at that boundary. This avoids a degenerate OCCT solid.
+  The trajectory editor is disabled at zero angle; change the property angle to
+  restore it. The last nondegenerate path retains its curve and point identities.
+- An inside radius of zero is supported for **matching profiles**, including a
+  180-degree fold. The inner cylindrical face collapses and is absent; surviving
+  faces retain their identities. This is the geometric foundation for a future
+  Hem command. Variable-width R=0 bends and zero-length developments are rejected
+  atomically. Contact between attached sheet legs is not handled by this command.
 - The cyan wire preview is generated analytically without OCCT. OK and explicit
   Regenerate calculate the solid. Document default changes affect existing Bends
   on the next calculation; switching tabs does not regenerate them.
@@ -80,17 +175,28 @@ Start and End retain their respective semantic face identities across Bend and
 Unbend. Face and rim identities derive from the feature, section, source segment
 and endpoints. Their geometry changes while their persisted ancestry stays stable.
 Neither OCCT traversal order nor preview edges define persistent references.
-Hem contact, automatic sheet recognition and complete-part flattening are outside
-this elementary command.
+Double-click the Bend in View to inspect its dimensions. **Unbend/Bend** appears
+in the View and calculates one undoable state change without opening Properties.
+Radius, angle and endpoint differences also support inline dimension editing.
+All three Sketch editors remain pending until the owning properties window is
+confirmed. Cancel discards them together.
 
-Native Part INI format **28** / JSON payload **52** stores Bend parameters and its
-owned Sketch; `config/templates/start_part.prtz` uses that format. Earlier Part
+Ordinary circular body edges remain available to the Drawing radius-measurement
+command. For a width transition, the side edges need not be circles: the authored
+outside path radius and the endpoint dimensions are available through Drawing
+Show/Erase model dimensions. The path radius annotation is omitted in Unbend and
+at zero angle. Do not interpret a width-transition edge as a circular arc.
+
+Native Part INI format **30** / JSON payload **54** stores Flat and Bend parameters, the
+owned Flat profile, Bend start Sketch and both embedded Bend Sketches;
+`config/templates/start_part.prtz` uses that format. Earlier Part
 formats are intentionally unsupported. Assembly format is unchanged.
 
 Console commands `bend.create`, `bend.get` and `bend.set` use the same workspace
 transaction as the GUI. Creation accepts `width_mm` (default 40), `radius_mm`,
 `angle_degrees`, `thickness_mm`, `k_factor`, `thickness_override`,
-`k_factor_override`, `state` (`bend` or `unbend`), `name` and `document`.
+`k_factor_override`, `radius_follows_thickness`, `first_extension_mm`,
+`last_extension_mm`, `state` (`bend` or `unbend`), `name` and `document`.
 Editing uses `container` and the same parameters except width; edit the owned
 Sketch to change width. Supplying thickness or K enables its override unless the
 corresponding override flag explicitly says false. Readback reports effective values.
@@ -100,19 +206,67 @@ corresponding override flag explicitly says false. Readback reports effective va
 {"command":"bend.set","arguments":{"container":"<id>","state":"unbend"}}
 ```
 
-## Verification
+## Reference study (2026-09-16)
 
-The Bend command contract covers analytic volume checks, inherited and overridden
-parameters, state transitions, stable faces, invalid input, zero angle, Undo/Redo
-and native save/reopen. The application-tools GUI contract exercises command
-availability, default settings, Cancel, OK, editing the first history feature and
-middle-button double-click confirmation over the View.
+### Open issue: trajectory endpoint references during Unbend
 
-Windows Release verification, 2026-09-16: all nine selected contracts passed:
-Bend commands, Holes commands, metadata commands, application tools, Drawing UI,
-dimension layout, shared UI, Family Table and Holes UI. Logs are
-`build/bend-drawing-tests.log` (six tests, 12.32 s) and
-`build/bend-shared-tests.log` (three tests, 21.99 s). The final Bend rerun also
-checks referenced Start/End planes and Family Table angles of 45 and 0 degrees.
-The Bend properties, compact Drawing text dialog and text-mask clearance proof
-were visually inspected. GUI and CLI targets built successfully.
+The user's `Projects/03.prtz` contains Flat, Bend, and a second Flat. The second
+Flat references the Bend End cap, the end-profile segment, and the circular
+trajectory's end point. Switching to Unbend moves the cap and the end profile,
+but the authored circular trajectory remains in its bent frame. Its endpoint
+therefore conflicts with the other two placement references. The Flat correctly
+retains its last valid placement and reports an invalid reference set; the
+identities themselves are still present.
+
+Reproduced through the native CLI on 2026-09-16. In a disposable copy, replacing
+only that third reference with the end profile's first endpoint keeps placement
+valid through Unbend and back to Bend. The original user document was not changed.
+This is a verified workaround, not a trajectory-reference fix. Release 2026091605
+retains this limitation. The user deferred its resolution to the next session.
+
+Next work must define how the Bend's evaluated trajectory references follow the
+developed state while retaining the editable authored arc, radius/angle dimensions,
+and stable source identities. View, picking and downstream reference geometry
+must agree. Do not weaken the general placement solver to accept contradictory
+references. Verify both state changes, end-profile/trajectory attachments,
+Undo/Redo, regeneration and native save/reopen.
+
+### Three-Sketch study
+
+The user's saved `Projects/01.prtz` example has a circular path of radius 5 mm
+and sweep 45 degrees. Its parallel profiles span -2 to 40 mm (42 mm total) and
+-5 to 50 mm (55 mm total), giving endpoint extensions of 3 and 10 mm. Their
+directions have no twist. The arc starts at (50, 40, 0.5) and ends at
+(50, 43.535534, -0.964466) mm. Its geometric length is 3.926991 mm.
+These values were read from persisted Sketch geometry, without changing the file.
+
+With material extending toward the arc centre, this R5 trajectory describes the
+outside surface. At 1 mm thickness its corresponding inside radius is 4 mm.
+The native example was not modified or converted during development.
+
+## Implemented Bend verification
+
+The Bend command contract checks analytical volumes for ordinary, variable-width,
+flat and zero-radius bends; actual Sketch radius/angle/difference edits; inherited
+and overridden parameters; the radius/thickness link; referenced Start/End planes;
+stable surviving face identities; rejected edits; zero angle; Undo/Redo; native
+save/reopen; Drawing radius measurement and model annotation; and Family Table
+variants. At 180 degrees cap matching checks the authored section boundary as well
+as its plane, including when the R=0 caps touch along the fold axis.
+
+The application-tools GUI contract opens all three editors, returns to pending
+Properties, checks Cancel and OK, edits the first history feature, confirms with
+middle-button double-click, changes state in View and edits radius, angle and both
+endpoint dimensions inline. It also verifies that leaving inspection hides the
+state button. Captures: `build/bend-properties.png` and
+`build/bend-three-sketch-view.png`.
+
+Windows Release verification on 2026-09-16 passed twelve distinct focused
+contracts across the final verification runs: Bend, application tools, Sweep,
+Curve3D Sweep, Family Table, Holes, dimension layout, Drawing measurement,
+Sketch dimension entry, Sketch dimension commands, dimension identifiers and
+model dimension layout. Logs: `build/bend-final-tests.log`,
+`build/bend-identities-tests.log`, and `build/bend-shared-sketch-tests.log`.
+The final shared-Sketch run passed all three tests in 11.17 seconds. GUI and CLI
+built successfully; the properties and View captures were visually inspected.
+This is focused verification, not a claim that the entire repository suite ran.

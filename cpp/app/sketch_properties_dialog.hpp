@@ -58,12 +58,17 @@ public:
     void set_preview_callback(PreviewCallback callback);
     bool mutate_sketch(const std::string& id,
         const std::function<void(zima::sketcher::Sketch&)>& mutation);
+    std::function<bool(const std::string&,const std::function<void(zima::sketcher::Sketch&)>&)> bend_sketch_mutator;
     [[nodiscard]] auto pending_value() const { return current_values(); }
     void set_holes_mode(double diameter, std::set<std::string>& locks, std::function<void(double)> changed,
         std::function<void()> edit_sketch, std::optional<zima::kernel::DimensionLayout> layout = {},
         std::function<void(zima::kernel::DimensionLayout)> layout_changed = {});
     void set_bend_mode(zima::document::BendParameters, const zima::document::SheetMetalDefaults&,
         std::set<std::string>& locks, std::function<void(zima::document::BendParameters)> changed,
+        std::function<void()> edit_sketch, std::function<void(std::size_t)> edit_bend_sketch = {});
+    void set_pending_bend_parameters(zima::document::BendParameters);
+    void set_flat_mode(zima::document::FlatParameters, const zima::document::SheetMetalDefaults&,
+        std::set<std::string>& locks, std::function<void(zima::document::FlatParameters)> changed,
         std::function<void()> edit_sketch);
     [[nodiscard]] std::optional<zima::kernel::DimensionLayout> pending_dimension_layout(
         const zima::kernel::EdgeReference&) const;
@@ -111,6 +116,7 @@ private:
     QDoubleSpinBox* holes_diameter_{};
     QDoubleSpinBox* bend_radius_{};
     QDoubleSpinBox* bend_angle_{};
+    std::function<void(zima::document::BendParameters)> set_bend_parameters_;
     QComboBox* plane_reference_{};
     QPushButton* sketch_button_{};
     QLabel* error_{};

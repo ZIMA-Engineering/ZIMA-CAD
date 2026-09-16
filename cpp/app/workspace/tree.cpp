@@ -1,4 +1,5 @@
 #include "workspace_internal.hpp"
+#include "../part_reference_index.hpp"
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -479,15 +480,11 @@ void AssemblyWorkspaceWindow::add_part_tree_children(
     const auto construction_path = workspace_.active_occurrence_path().empty()
         ? zima::assembly::InstancePath{}
         : zima::assembly::InstancePath::decode(workspace_.active_occurrence_path());
-    zima::workspace::ReferenceIndex references;
+    auto references=part_reference_index(document);
     if (const auto* part=workspace_.open_part(document.document_id)) {
         const auto& boundaries=part->session.calculated_boundaries();
         if (!boundaries.empty()) references.add_geometry(boundaries.back().mesh.original_references);
     }
-    references.add_geometry(document.origin_viewer_mesh().original_references);
-    references.add_geometry(document.body_origin_reference_geometry());
-    references.add_geometry(document.history_origin_reference_geometry_before(""));
-    references.add_geometry(document.construction_viewer_mesh().original_references);
     add_origin_tree_item(parent, document.document_id, false, construction_path);
     for (std::size_t index = 0; index < document.history.size(); ++index) {
         const auto& container = document.history[index];

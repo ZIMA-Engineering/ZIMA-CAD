@@ -14,6 +14,11 @@ using namespace workspace_detail;
 void AssemblyWorkspaceWindow::show_primitive_properties(
     zima::document::FeatureKind feature_kind,
     const std::string& container_id) {
+    if (feature_kind == zima::document::FeatureKind::Flat) {
+        const auto* part=workspace_.open_part(workspace_.active_document_id());
+        const auto* feature=part?part->session.document().find_container(container_id):nullptr;
+        show_sketch_properties(feature?feature->flat.sketch_id:std::string{},false,false,true);return;
+    }
     if (feature_kind == zima::document::FeatureKind::Bend) {
         const auto* part=workspace_.open_part(workspace_.active_document_id());
         const auto* feature=part?part->session.document().find_container(container_id):nullptr;
@@ -825,6 +830,8 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             reference_geometry = construction_reference_source_geometry(calculated);
             const auto& document = part->session.document();
             append_reference_geometry(reference_geometry,
+                document.sketch_placement_reference_geometry(initial.id));
+            append_reference_geometry(reference_geometry,
                 document.origin_viewer_mesh().original_references);
             append_reference_geometry(reference_geometry,
                 document.construction_viewer_mesh().original_references);
@@ -896,7 +903,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 placement, primitive_reference_geometry_, &base_rotation,
                 &orientation_from_reference);
             const auto constraint_state = zima::document::point_constraint_state(
-                placement.references, primitive_reference_geometry_);
+                placement.references, primitive_reference_geometry_, {placement.x,placement.y,placement.z});
             primitive_translation_dof_ = constraint_state.remaining_dof;
             primitive_reference_dialog_->set_translation_constraint_state(
                 constraint_state,

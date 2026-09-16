@@ -45,6 +45,17 @@ namespace zima::viewer {
 
 namespace {
 
+bool is_sketch_wire_edge(const zima::kernel::ViewerEdge& edge) {
+    const auto& key = edge.reference.semantic_key;
+    return key.starts_with("segment:") || key.starts_with("trim_piece:") ||
+        key.starts_with("circle:") || key.starts_with("arc:") ||
+        key.starts_with("corner_radius:") || key.starts_with("ellipse:") ||
+        key.starts_with("elliptical_arc:") || key.starts_with("bspline:") ||
+        key.starts_with("text:") || key.starts_with("external_edge:") ||
+        key.starts_with("external_axis:") || key.starts_with("external_face:") ||
+        key.starts_with("repeat_region:");
+}
+
 template<class Project> void paint_normal_text(QPainter& painter,
     const std::vector<zima::kernel::ViewerEdge>& edges,
     const std::vector<zima::kernel::ViewerEdge>& preview,Project project,bool visible) {
@@ -772,7 +783,7 @@ std::optional<QPointF> MeshView::dimension_handle_position(const ViewerCandidate
     const auto mvp=impl_->projection(width(),height())*impl_->view();
     const auto project=[&](kernel::Vec3 p){auto q=mvp*QVector4D(p.x,p.y,p.z,1);if(std::abs(q.w())>1e-9)q/=q.w();return QPointF((q.x()+1)*width()/2.,(1-q.y())*height()/2.);};
     const auto text=!d->display_text_override.empty()?QString::fromStdString(d->display_text_override):QString::fromStdString(d->label_prefix)+QString::fromStdString(kernel::dimension_number(d->value,impl_->dimension_decimal_places))+QString::fromStdString(kernel::dimension_unit_text(d->unit_suffix));
-    const auto layout=dimension_presentation(*d,project,QFontMetricsF(font()).horizontalAdvance(text));
+    const auto layout=dimension_text_presentation(*d,project,font(),text,.5*logicalDpiX()/25.4,1.5);
     return layout.valid?std::optional(layout.handles[index]):std::nullopt;
 }
 void MeshView::set_object_frame_provider(std::function<std::map<kernel::ObjectEnvelopeKey,kernel::ModelEnvelope>(const kernel::ViewerMesh&)> provider){impl_->object_frame_provider=std::move(provider);}
@@ -1029,7 +1040,7 @@ std::vector<ViewerCandidate> MeshView::selection_candidates_at(
             : QString::fromStdString(dimension.label_prefix) +
                 QString::fromStdString(kernel::dimension_number(dimension.value,impl_->dimension_decimal_places)) +
                 QString::fromStdString(kernel::dimension_unit_text(dimension.unit_suffix));
-        const auto layout=dimension_presentation(dimension,project,metrics.horizontalAdvance(text));
+        const auto layout=dimension_text_presentation(dimension,project,font(),text,.5*logicalDpiX()/25.4,1.5);
         if(!layout.valid) {
             std::erase_if(candidates,[index](const auto& c){return c.kind==CandidateKind::Dimension && c.geometry_index==index;});
             continue;
@@ -1700,7 +1711,7 @@ std::optional<QPoint> MeshView::candidate_dimension_label_position(
             QString::fromStdString(kernel::dimension_number(dimension.value,impl_->dimension_decimal_places)) +
             QString::fromStdString(kernel::dimension_unit_text(dimension.unit_suffix));
     const QFontMetricsF metrics(font());
-    const auto layout=dimension_presentation(dimension,project,metrics.horizontalAdvance(text));
+    const auto layout=dimension_text_presentation(dimension,project,font(),text,.5*logicalDpiX()/25.4,1.5);
     if(!layout.valid)return std::nullopt;
     QTransform transform;transform.translate(layout.text_baseline.x(),layout.text_baseline.y());transform.rotate(layout.text_angle);
     return transform.map(metrics.boundingRect(text).center()).toPoint();
@@ -3379,20 +3390,7 @@ if (impl_->show_origins) {
     const bool axes_visible = impl_->show_axes || impl_->show_origins ||
         impl_->editing_origin_visible || axes_selectable;
     const bool sketch_geometry_visible = impl_->show_sketches && std::any_of(
-        impl_->mesh.edges.begin(), impl_->mesh.edges.end(), [](const auto& edge) {
-            return edge.reference.semantic_key.starts_with("segment:") ||
-                edge.reference.semantic_key.starts_with("trim_piece:") ||
-                edge.reference.semantic_key.starts_with("circle:") ||
-                edge.reference.semantic_key.starts_with("arc:") ||
-                edge.reference.semantic_key.starts_with("corner_radius:") ||
-                edge.reference.semantic_key.starts_with("ellipse:") ||
-                edge.reference.semantic_key.starts_with("elliptical_arc:") ||
-                edge.reference.semantic_key.starts_with("bspline:") ||
-                edge.reference.semantic_key.starts_with("text:") ||
-                edge.reference.semantic_key.starts_with("external_edge:") ||
-                edge.reference.semantic_key.starts_with("external_axis:") ||
-                edge.reference.semantic_key.starts_with("external_face:");
-        });
+        impl_->mesh.edges.begin(), impl_->mesh.edges.end(), is_sketch_wire_edge);
     const bool curve3d_geometry_visible = std::any_of(
         impl_->mesh.edges.begin(), impl_->mesh.edges.end(),
         [](const auto& edge) {
@@ -3638,19 +3636,7 @@ if (impl_->show_origins) {
         }
         if (sketch_geometry_visible) {
             for (const auto& edge : impl_->mesh.edges) {
-                if (!edge.reference.semantic_key.starts_with("segment:") &&
-                    !edge.reference.semantic_key.starts_with("trim_piece:") &&
-                    !edge.reference.semantic_key.starts_with("circle:") &&
-                    !edge.reference.semantic_key.starts_with("arc:") &&
-                    !edge.reference.semantic_key.starts_with("corner_radius:") &&
-                    !edge.reference.semantic_key.starts_with("ellipse:") &&
-                    !edge.reference.semantic_key.starts_with("elliptical_arc:") &&
-                    !edge.reference.semantic_key.starts_with("bspline:") &&
-                    !edge.reference.semantic_key.starts_with("text:") &&
-                    !edge.reference.semantic_key.starts_with("external_edge:") &&
-                    !edge.reference.semantic_key.starts_with("external_axis:") &&
-                    !edge.reference.semantic_key.starts_with("external_face:") &&
-                    !edge.reference.semantic_key.starts_with("repeat_region:")) continue;
+                if (!is_sketch_wire_edge(edge)) continue;
                 if(edge.filled_text)continue; // Filled annotation; selection still draws its exact wire.
                 const bool text = edge.reference.semantic_key.starts_with("text:");
                 const bool external = edge.reference.semantic_key.starts_with(
@@ -3947,6 +3933,7 @@ if (impl_->show_origins) {
             }
         }
         if (dimensions_visible && impl_->show_dimensions) {
+            painter.setFont(font());
             const std::size_t persisted_dimension_count =
                 impl_->mesh.dimensions.size();
             const std::size_t displayed_dimension_count =
@@ -3981,7 +3968,7 @@ if (impl_->show_origins) {
                     : QString::fromStdString(dimension.label_prefix) +
                         QString::fromStdString(kernel::dimension_number(dimension.value,impl_->dimension_decimal_places)) +
                         QString::fromStdString(kernel::dimension_unit_text(dimension.unit_suffix));
-                const auto layout=dimension_presentation(dimension,project,painter.fontMetrics().horizontalAdvance(text));
+                const auto layout=dimension_text_presentation(dimension,project,font(),text,.5*logicalDpiX()/25.4,1.5);
                 if(!layout.valid)continue;
                 if (dimension.rotation_handle) {
                     const QColor purple("#D05CFF");
@@ -4409,6 +4396,10 @@ if (impl_->show_origins) {
         const auto* treatment_wire = exact_edge_treatment_wire(impl_->confirmed_candidate);
         for (std::size_t index = 0; index < impl_->mesh.edges.size(); ++index) {
             const auto& edge = impl_->mesh.edges[index];
+            // The Sketch pass already paints confirmed wires with their
+            // original dash pattern and infinite/finite extent.
+            if (sketch_geometry_visible && is_sketch_wire_edge(edge) &&
+                (edge.construction || edge.dash_dot) && !edge.filled_text) continue;
             const auto key = edge_key(edge.reference);
             const bool candidate_match = impl_->confirmed_candidate &&
                 original_container_wire(impl_->confirmed_candidate) == nullptr &&
@@ -4685,7 +4676,14 @@ if (impl_->show_origins) {
                    highlighted->semantic_key.starts_with("external_axis:") ||
                    highlighted->semantic_key.starts_with("external_face:"))) ||
                  highlighted->kind == CandidateKind::SketchTrimPiece) &&
-                highlighted->geometry_index < selectable_edges.size()) {
+                highlighted->geometry_index < selectable_edges.size() &&
+                // Sketch wires were already recolored in their styled pass.
+                // A second solid stroke fills dash gaps and truncates centerlines.
+                !(sketch_geometry_visible &&
+                  is_sketch_wire_edge(selectable_edges[highlighted->geometry_index]) &&
+                  (selectable_edges[highlighted->geometry_index].construction ||
+                   selectable_edges[highlighted->geometry_index].dash_dot) &&
+                  !selectable_edges[highlighted->geometry_index].filled_text)) {
                 painter.setPen(QPen(color, 1.5, Qt::SolidLine, Qt::RoundCap));
                 if (highlighted->kind == CandidateKind::SketchText ||
                     (highlighted->kind == CandidateKind::SketchExternalReference &&
@@ -4898,8 +4896,6 @@ MeshView::ray_at(const QPointF& position) const {
 }
 
 void MeshView::mousePressEvent(QMouseEvent* event) {
-    if(event->button()==Qt::RightButton && impl_->dimension_placement_cycle_callback &&
-       impl_->dimension_placement_cycle_callback()) {event->accept();return;}
     if(event->button()==Qt::RightButton&&impl_->layout_drag&&(event->buttons()&Qt::LeftButton)) {
         auto& drag=*impl_->layout_drag;kernel::cycle_dimension_presentation(drag.initial,drag.source.kind);
         drag.current.arrows_reversed=drag.initial.arrows_reversed;
@@ -5073,6 +5069,12 @@ void MeshView::mousePressEvent(QMouseEvent* event) {
             update_candidates(click_position);
         }
     }
+    // Reference entry owns RMB over an offered candidate. Only empty View
+    // space cycles the pending dimension presentation; otherwise its preview
+    // can consume every click and make overlapping points/lines unreachable.
+    if(event->button()==Qt::RightButton && !impl_->confirmed_candidate &&
+       impl_->candidates.empty() && impl_->dimension_placement_cycle_callback &&
+       impl_->dimension_placement_cycle_callback()) {event->accept();return;}
     if (event->button() == Qt::LeftButton &&
         impl_->command_gesture_begin_callback) {
         const auto ray = ray_at(event->position());
@@ -5272,7 +5274,7 @@ void MeshView::mouseMoveEvent(QMouseEvent* event) {
             // Use the original rendered grip, not the source label (automatic
             // outside placement can put these far apart in an oblique view).
             const auto text=!d.display_text_override.empty()?QString::fromStdString(d.display_text_override):QString::fromStdString(d.label_prefix)+QString::fromStdString(kernel::dimension_number(d.value,impl_->dimension_decimal_places))+QString::fromStdString(kernel::dimension_unit_text(d.unit_suffix));
-            const auto initial_grip=dimension_presentation(d,project,QFontMetricsF(font()).horizontalAdvance(text)).handles[0];
+            const auto initial_grip=dimension_text_presentation(d,project,font(),text,.5*logicalDpiX()/25.4,1.5).handles[0];
             const auto correction=initial_grip-project(label);
             if(const auto offset=dimension_plane_drag(correction,a,b)) {
                 drag.current.text_along+=offset->x();drag.current.text_outward+=offset->y();

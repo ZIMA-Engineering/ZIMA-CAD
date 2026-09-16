@@ -162,6 +162,8 @@ bool candidate_drives_rotation(const zima::viewer::ViewerCandidate& candidate) {
     return candidate.kind == zima::viewer::CandidateKind::Plane ||
         candidate.kind == zima::viewer::CandidateKind::Face ||
         candidate.kind == zima::viewer::CandidateKind::Edge ||
+        candidate.kind == zima::viewer::CandidateKind::SketchSegment ||
+        candidate.kind == zima::viewer::CandidateKind::SketchCurve ||
         candidate.kind == zima::viewer::CandidateKind::Axis ||
         candidate.semantic_key.starts_with("origin:plane:") ||
         candidate.semantic_key.starts_with("origin:axis:");

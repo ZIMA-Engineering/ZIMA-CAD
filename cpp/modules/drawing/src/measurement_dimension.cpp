@@ -567,12 +567,14 @@ std::vector<MeasurementCandidate> measurement_candidates(const DrawingView &view
         return length(
             sub(p, add(a, mul(delta, size > 1e-18 ? std::clamp(dot(sub(p, a), delta) / size, 0., 1.) : 0.))));
     };
-    const auto add_candidate = [&](DimensionAttachment a, Point2 point, double distance) {
+    const auto add_candidate = [&](DimensionAttachment a, Point2 point, double distance, bool point_target=false) {
         if (distance > tolerance)
             return;
         if (std::ranges::any_of(offered, [&](const auto &c) { return c.attachment == a; }))
             return;
-        offered.push_back({std::move(a), point, distance});
+        point_target=point_target||a.kind==DimensionAttachmentKind::Point||
+            a.kind==DimensionAttachmentKind::Center||a.kind==DimensionAttachmentKind::Intersection;
+        offered.push_back({std::move(a), point, distance, point_target});
     };
     const auto *parallel = find_curve(curves, request.parallel_line);
     for (const auto &curve : curves) {
@@ -663,7 +665,7 @@ std::vector<MeasurementCandidate> measurement_candidates(const DrawingView &view
                         a.reference = stored.source;
                         break;
                     }
-                add_candidate(a, point, length(sub(cursor, point)) * .75);
+                add_candidate(a, point, length(sub(cursor, point)) * .75, true);
                 a.reference = curve.source;
             }
         }
@@ -682,9 +684,12 @@ std::vector<MeasurementCandidate> measurement_candidates(const DrawingView &view
             add_candidate(a, point_at(curve, a.parameter), distance + .1 * tolerance);
         }
     }
-    std::stable_sort(offered.begin(), offered.end(),
-                     [](const auto &a, const auto &b) { return a.distance < b.distance; });
+    std::stable_sort(offered.begin(), offered.end(), measurement_candidate_precedes);
     return offered;
+}
+bool measurement_candidate_precedes(const MeasurementCandidate& a,const MeasurementCandidate& b) {
+    if(a.point_target!=b.point_target)return a.point_target;
+    return a.distance<b.distance;
 }
 DimensionEvaluation evaluate_drawing_dimension(const DrawingView &view, const DrawingDimension &d) {
     DimensionEvaluation result;

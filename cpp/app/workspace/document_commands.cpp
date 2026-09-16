@@ -247,7 +247,13 @@ void AssemblyWorkspaceWindow::edit_file_settings(bool sheet_metal) {
     if(sheet_metal)dialog->show_sheet_metal_page();
     dialog->setAttribute(Qt::WA_DeleteOnClose);
     properties_dialog_ = dialog;
-    connect(dialog, &QObject::destroyed, this, [this, dialog] { if (properties_dialog_ == dialog) properties_dialog_ = nullptr; });
+    update_application_actions();
+    rebuild_application_toolbar();
+    connect(dialog, &QObject::destroyed, this, [this, dialog] {
+        if (properties_dialog_ == dialog) properties_dialog_ = nullptr;
+        update_application_actions();
+        rebuild_application_toolbar();
+    });
     dialog->show();
 }
 

@@ -4,6 +4,7 @@
 #include <zima/workspace/profile_operations.hpp>
 #include <zima/workspace/drawing_view_operations.hpp>
 #include <zima/document/feature_sketches.hpp>
+#include <zima/document/bend.hpp>
 #include <zima/document/document_copy_json.hpp>
 #include <zima/document/file_path.hpp>
 #include <zima/document/physical_properties.hpp>
@@ -26,7 +27,12 @@ Slots feature_slots(document::HistoryContainer& f) {
     case FeatureKind::Fillet: return {{"primary",&f.edge_treatment.primary_size},{"secondary",&f.edge_treatment.secondary_size}};
     case FeatureKind::Chamfer: return {{"primary",&f.edge_treatment.primary_size},{"secondary",&f.edge_treatment.secondary_size},{"treatment_angle",&f.edge_treatment.angle_degrees}};
     case FeatureKind::Shell: return {{"thickness",&f.shell.thickness}};
-    case FeatureKind::Bend: return {{"radius",&f.bend.radius},{"angle",&f.bend.angle_degrees}};
+    case FeatureKind::Flat: return f.flat.thickness_override?Slots{{"thickness",&f.flat.thickness}}:Slots{};
+    case FeatureKind::Bend: {
+        Slots result{{"angle",&f.bend.angle_degrees}};
+        if(!f.bend.radius_follows_thickness)result.emplace("radius",&f.bend.radius);
+        return result;
+    }
     case FeatureKind::Holes: return {{"diameter",&f.holes.diameter}};
     case FeatureKind::Hole: return {{"diameter",&f.hole.diameter},{"bore_length",&f.hole.bore_length},{"entrance_chamfer",&f.hole.entrance_chamfer},{"exit_chamfer",&f.hole.exit_chamfer},{"drill_point_angle",&f.hole.drill_point_angle_degrees},{"thread_diameter",&f.hole.thread_nominal_diameter},{"thread_pitch",&f.hole.thread_pitch},{"thread_length",&f.hole.thread_length}};
     case FeatureKind::Thread: return {{"bore_diameter",&f.thread.nominal_diameter},{"bore_length",&f.thread.bore_length},{"thread_length",&f.thread.length_forward},{"length_reverse",&f.thread.length_reverse},{"chamfer_depth",&f.thread.chamfer_depth},{"chamfer_angle",&f.thread.chamfer_angle_degrees},{"drill_point_angle",&f.hole.drill_point_angle_degrees}};
@@ -70,7 +76,7 @@ void assign_feature(document::HistoryContainer& f,const std::string& key,double 
     if(primitive_definition(f.feature_kind)){assign_primitive_dimensions(f,{{key,value}});return;}
     auto slots=feature_slots(f);const auto found=slots.find(key);
     if(found==slots.end())throw std::invalid_argument("The family dimension is not editable.");
-    const bool zero_bend_angle=f.feature_kind==FeatureKind::Bend&&key=="angle"&&value==0;
+    const bool zero_bend_angle=f.feature_kind==FeatureKind::Bend&&(key=="angle"||key=="radius")&&value==0;
     if(key!="profile_offset" && value<=0&&!zero_bend_angle)throw std::invalid_argument("Family feature dimensions must be positive.");
     if((f.feature_kind==FeatureKind::Revolution&&(key=="angle"||key=="length_reverse")&&value>360) ||
         (f.feature_kind==FeatureKind::Bend&&key=="angle"&&value>180) ||
@@ -108,9 +114,16 @@ template<class Doc> bool assign_dimension(Doc& doc,const FamilyColumn& binding,d
     }
     for(auto& sketch:doc.sketches)if(assign_sketch(sketch,binding,value))return true;
     bool changed=false;
-    if constexpr(requires {doc.history;})for(auto& f:doc.history)document::visit_feature_sketches(f,[&](auto& serialized,std::size_t){
+    if constexpr(requires {doc.history;})for(auto& f:doc.history)document::visit_feature_sketches(f,[&](auto& serialized,std::size_t stage){
         auto sketch=sketcher::Sketch::from_serialized(serialized);
-        if(assign_sketch(sketch,binding,value)){serialized=sketch.serialized();changed=true;}
+        if(assign_sketch(sketch,binding,value)){
+            if(f.feature_kind==FeatureKind::Bend) {
+                const auto start=std::ranges::find(doc.sketches,f.bend.sketch_id,&sketcher::Sketch::id);
+                if(start==doc.sketches.end())throw std::invalid_argument("Bend start profile is missing.");
+                document::accept_bend_sketch(f,*start,stage,std::move(sketch),document::sheet_metal_defaults(doc));
+            } else serialized=sketch.serialized();
+            changed=true;
+        }
     });
     return changed;
 }

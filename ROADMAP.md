@@ -108,6 +108,15 @@ See [Drawings](doc/DRAWINGS.md), [Sketcher](doc/SKETCHER.md),
 
 ## Agreed next steps for Part (2026-09-06)
 
+**Next-session priority agreed on 2026-09-16:** finish the Bend trajectory-reference
+behavior exposed by `Projects/03.prtz` before resuming the general Part sequence.
+The attached Flat stays at its last valid frame on Unbend because a reference to
+the authored arc endpoint conflicts with the moved End cap and end profile.
+Attachment through the end-profile endpoint was verified in both states. See
+[the diagnosis and acceptance scope](doc/SHEET_METAL.md#open-issue-trajectory-endpoint-references-during-unbend).
+The user deferred this fix until the next session and requested documentation,
+commit, push and a Windows release of today's completed work.
+
 Briefly remind the user of this plan when development next resumes. This is a work
 order, not authorization to implement every feature immediately. Newer user
 instructions take precedence.

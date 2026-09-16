@@ -63,6 +63,7 @@ void visit_original_references(const Workspace& live,const std::string& id,const
         if(!visit(document.origin_viewer_mesh().original_references,frame))return;
         if(!visit(document.body_origin_reference_geometry(),frame))return;
         if(!visit(document.history_origin_reference_geometry_before({}),frame))return;
+        if(!visit(document.sketch_placement_reference_geometry(),frame))return;
         static_cast<void>(visit(document.construction_viewer_mesh().original_references,frame));
         return;
     }

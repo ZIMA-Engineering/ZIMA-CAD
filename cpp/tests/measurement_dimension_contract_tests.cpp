@@ -40,6 +40,25 @@ DrawingView view(kernel::ViewerMesh mesh) {
 int main() {
     try {
         {
+            kernel::ViewerMesh mesh;mesh.edges={line("point-priority",{0,0,0},{40,0,0})};
+            auto v=view(mesh);
+            for(double x:{.3,19.7,39.7}) {
+                const auto offered=measurement_candidates(v,{x,0},.5,{});
+                require(offered.size()>=2&&offered.front().point_target,
+                    "Drawing line precedes its nearby endpoint or midpoint");
+                require(offered.front().attachment.kind==DimensionAttachmentKind::CurvePoint,
+                    "Drawing characteristic point lost its curve attachment");
+                require(std::ranges::any_of(offered,[](const auto& c){return c.attachment.kind==DimensionAttachmentKind::Line&&!c.point_target;}),
+                    "Point priority removed the line from RMB cycling");
+                MeasurementPickRequest request;request.lines_only=true;
+                const auto lines=measurement_candidates(v,{x,0},.5,request);
+                require(!lines.empty()&&std::ranges::all_of(lines,[](const auto& c){return c.attachment.kind==DimensionAttachmentKind::Line&&!c.point_target;}),
+                    "Point priority bypassed a line-only command contract");
+            }
+            require(!measurement_candidates(v,{3,0},.5,{}).front().point_target,
+                "Drawing point priority enlarged the point hit tolerance");
+        }
+        {
             kernel::ViewerMesh mesh;mesh.edges={line("first",{0,0,0},{20,0,0}),line("second",{0,0,0},{10,10*std::sqrt(3.),0})};
             auto v=view(mesh);auto angle=make_drawing_dimension(v.id,DrawingDimensionKind::Angular);
             angle.attachments={{DimensionAttachmentKind::Line,ref("first"),{},.5},{DimensionAttachmentKind::Line,ref("second"),{},.5}};

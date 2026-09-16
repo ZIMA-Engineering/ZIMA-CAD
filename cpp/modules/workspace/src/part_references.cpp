@@ -120,6 +120,7 @@ zima::kernel::ViewerReferenceGeometry part_construction_dimension_geometry(
     const std::vector<zima::kernel::BodyResult>& calculated_boundaries) {
     auto geometry =
         construction_reference_source_geometry(calculated_boundaries);
+    append_reference_geometry(geometry, document.sketch_placement_reference_geometry());
     append_reference_geometry(
         geometry, document.origin_viewer_mesh().original_references);
     append_reference_geometry(geometry, document.body_origin_reference_geometry());

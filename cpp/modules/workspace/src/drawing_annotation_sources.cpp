@@ -8,6 +8,7 @@
 #include <stdexcept>
 #include <zima/assembly/assembly_document.hpp>
 #include <zima/document/part_document.hpp>
+#include <zima/document/feature_sketches.hpp>
 #include <zima/workspace/workspace.hpp>
 namespace zima::workspace {
 namespace {
@@ -157,6 +158,19 @@ drawing_annotation_sources(const Workspace *workspace,
           }
         }
         append(mesh, std::move(packet));
+      }
+      for(const auto& feature:part.history)if(feature.feature_kind==document::FeatureKind::Bend&&!feature.suppressed) {
+        document::visit_feature_sketches(feature,[&](const auto& data,std::size_t stage) {
+          // The circular path dimension remains an authored radius reference
+          // even when the two physical side edges are width-transition curves.
+          if(stage==0&&(feature.bend.unbend||feature.bend.angle_degrees==0))return;
+          const auto sketch=sketcher::Sketch::from_serialized(data);
+          auto packet=sketch.viewer_mesh();
+          if(const auto* body=part.body_owner_for_object(feature.id))packet=part.place_body_mesh(std::move(packet),body->scope.id);
+          layouts.insert(layouts.begin(),sketch.dimension_layouts.begin(),sketch.dimension_layouts.end());
+          frames=kernel::object_envelopes(packet,std::move(frames));
+          append(mesh,std::move(packet));
+        });
       }
       if (!occurrence.occurrence_ids.empty()) mesh.dimensions.clear();
     };

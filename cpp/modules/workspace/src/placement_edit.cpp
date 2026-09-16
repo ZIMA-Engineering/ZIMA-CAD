@@ -30,7 +30,30 @@ bool assign(Fields fields, const kernel::ViewerReferenceGeometry& geometry,
     const kernel::Vec3 origin{*fields.position[0], *fields.position[1], *fields.position[2]};
     if (key == "x" || key == "y" || key == "z") {
         const std::size_t axis = key == "x" ? 0 : key == "y" ? 1 : 2;
-        if (document::point_constraint_state(fields.references, geometry).constrained_axes[axis]) return false;
+        if (document::point_constraint_state(fields.references, geometry, origin).constrained_axes[axis]) return false;
+        bool has_curve=false;
+        for(const auto& reference:fields.references)if(!reference.orientation_only) {
+            const auto edge=std::ranges::find_if(geometry.edges,[&](const auto& e) {
+                return e.exact_spline && e.reference.owner_id==reference.owner_id &&
+                    e.reference.semantic_key==reference.semantic_key && e.reference.instance_path==reference.instance_path;
+            });
+            has_curve|=edge!=geometry.edges.end();
+        }
+        if(has_curve) {
+            // Validate the requested coordinate together with every existing
+            // reference through the same solver. This temporary equation is
+            // never published, selected or stored as a model reference.
+            auto equations=geometry;const auto offset=static_cast<std::uint32_t>(equations.vertices.size());
+            const std::array<kernel::Vec3,3> basis{{{1,0,0},{0,1,0},{0,0,1}}};
+            equations.vertices.insert(equations.vertices.end(),{{0,0,0},basis[(axis+1)%3],basis[(axis+2)%3]});
+            equations.triangles.insert(equations.triangles.end(),{offset,offset+1,offset+2});
+            equations.triangle_references.push_back({"pending-coordinate","coordinate",{}});
+            document::Placement trial;trial.x=origin.x;trial.y=origin.y;trial.z=origin.z;
+            trial.references=fields.references;
+            trial.references.push_back({{},"pending-coordinate","coordinate",value,true});
+            if(!document::resolve_placement(trial,equations))return false;
+            *fields.position[0]=trial.x;*fields.position[1]=trial.y;*fields.position[2]=trial.z;
+        }
         *fields.position[axis] = value; return true;
     }
     if (key.starts_with("reference_offset:")) {

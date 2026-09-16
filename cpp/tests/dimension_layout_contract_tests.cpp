@@ -47,6 +47,41 @@ int main(int argc, char **argv) {
     QApplication app(argc, argv);
     try {
         {
+            viewer::MeshView view;view.resize(900,700);view.show();flush();
+            // Exercise the real View paint path, including Sketcher, instead of
+            // testing only the paper renderer's text-clearance helper.
+            for(bool sketch:{false,true})for(int pixels:{12,24})for(double angle:{0.,.7,1.5707963267948966}) {
+                QFont font("Arial");font.setPixelSize(pixels);view.setFont(font);
+                kernel::ViewerDimension d;d.reference={"clearance","dimension:test",{}};
+                d.witness_second={80*std::cos(angle),80*std::sin(angle),0};
+                d.line_first={-10*std::sin(angle),10*std::cos(angle),0};
+                d.line_second=kernel::dimension_add(d.line_first,d.witness_second);
+                d.value=80;d.display_text_override="45,831mm g";
+                kernel::ViewerMesh mesh;mesh.vertices={d.witness_first,d.witness_second,d.line_first,d.line_second};mesh.dimensions={d};
+                view.set_active_sketch_owner(sketch?"clearance":"");view.set_mesh(mesh);view.set_view_direction({0,0,1});
+                for(auto* animation:view.findChildren<QVariantAnimation*>())animation->setCurrentTime(animation->duration());
+                view.fit_all();flush();
+                const viewer::ViewerCandidate candidate{viewer::CandidateKind::Dimension,0,0,"clearance","dimension:test",{}};
+                const auto first=view.dimension_handle_position(candidate,1),last=view.dimension_handle_position(candidate,2);
+                require(first&&last,"Dimension clearance fixture has no line grips");
+                const auto labeled=view.grabFramebuffer();
+                if(!sketch&&pixels==24&&angle==0.)require(labeled.save("build/view-dimension-clearance.png"),"Cannot save View dimension clearance proof");
+                mesh.dimensions[0].display_text_override=" ";view.set_mesh(mesh);flush();
+                const auto bare=view.grabFramebuffer();const double ratio=labeled.devicePixelRatio();
+                const auto direction=*last-*first;const double length=QLineF(*first,*last).length();
+                const QPointF normal(-direction.y()/length,direction.x()/length);
+                for(int sample=35;sample<=65;++sample)for(double offset:{-.5,0.,.5}) {
+                    const auto point=(*first+direction*(sample/100.)+normal*offset)*ratio;
+                    const auto x=qRound(point.x()),y=qRound(point.y());
+                    if(!labeled.valid(x,y))continue;
+                    if(labeled.pixel(x,y)!=bare.pixel(x,y)) {
+                        labeled.save("build/view-dimension-clearance-failed.png");
+                        throw std::runtime_error("View text background erases its dimension line: sketch="+std::to_string(sketch)+", font="+std::to_string(pixels)+", angle="+std::to_string(angle));
+                    }
+                }
+            }
+        }
+        {
             QWidget owner;owner.resize(900,700);
             viewer::MeshView view(&owner);view.setGeometry(0,0,900,700);
             owner.show();view.show();flush();

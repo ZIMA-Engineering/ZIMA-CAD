@@ -64,6 +64,9 @@ zima::kernel::BodyResult part_result(const PartState& part) {
         append_mesh(result.mesh,mesh);
     }
     append_mesh(result.mesh, document.construction_viewer_mesh());
+    zima::kernel::ViewerMesh sketch_references;
+    sketch_references.original_references=document.sketch_placement_reference_geometry();
+    append_mesh(result.mesh,sketch_references);
     // Publish the persisted datum frames in the component snapshot when it
     // is explicitly inserted or regenerated. Display visibility stays local
     // to the editing View; mate resolution uses this reference packet.

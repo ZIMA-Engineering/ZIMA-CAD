@@ -384,7 +384,7 @@ public:
     std::string name{"Skica"};
     bool suppressed{};
     SketchPlane plane{SketchPlane::XY};
-    bool plane_auto{true}; // First planar placement reference selects the work plane until overridden.
+    bool plane_auto{true}; // Placement FRONT (plane normal or tangent) selects the work plane until overridden.
     double plane_offset{};
     // Persisted: when non-empty, this Sketch's frame is not one of the
     // three fixed `plane`/`plane_offset` planes above -- it instead follows
@@ -680,6 +680,7 @@ public:
     [[nodiscard]] SketchDimension create_ellipse_rotation_dimension(
         const std::string& ellipse_id) const;
     [[nodiscard]] zima::kernel::ViewerMesh viewer_mesh() const;
+    [[nodiscard]] zima::kernel::ViewerReferenceGeometry placement_reference_geometry() const;
     // Recomputes resolved_origin/resolved_x_axis/resolved_y_axis/
     // resolved_normal from `plane`/`plane_offset`. Call after changing
     // either field directly (e.g. from the properties dialog) whenever

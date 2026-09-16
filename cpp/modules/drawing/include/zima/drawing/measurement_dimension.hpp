@@ -31,7 +31,10 @@ struct MeasurementCandidate {
     DimensionAttachment attachment;
     Point2 position;
     double distance{};
+    // Transient pick metadata, including characteristic points of a curve.
+    bool point_target{};
 };
+bool measurement_candidate_precedes(const MeasurementCandidate&, const MeasurementCandidate&);
 std::vector<MeasurementCandidate> measurement_candidates(const DrawingView &, Point2, double tolerance,
                                                          const MeasurementPickRequest &);
 void capture_measurement_geometry(DrawingView &, const kernel::ViewerMesh &);

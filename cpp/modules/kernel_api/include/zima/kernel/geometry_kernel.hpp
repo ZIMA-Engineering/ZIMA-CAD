@@ -585,17 +585,6 @@ struct RevolutionRequest {
     std::string open_profile_end_id;
 };
 
-// A semantic feature may organize several ordinary modeling primitives while
-// still committing one history boundary.  The children remain real ZIMA
-// operations (currently Extrusion/Revolution); this is grouping, not a new
-// kernel shortcut for any particular feature such as Hole.
-struct FeatureGroupRequest {
-    using Child = std::variant<ExtrusionRequest, RevolutionRequest>;
-    std::vector<Child> children;
-    // Reference axes authored by the native feature before body calculation.
-    std::vector<ViewerAxis> axes;
-};
-
 struct StepRequest {
     std::string source_path;
     std::string component_path;
@@ -667,6 +656,14 @@ struct Sweep3DRequest {
     double thin_first{}, thin_second{};
     double linear_tolerance{0.001};
 
+};
+
+// One semantic feature may own ordinary modeling primitives at one history
+// boundary. All child identities are authored before kernel calculation.
+struct FeatureGroupRequest {
+    using Child = std::variant<ExtrusionRequest, RevolutionRequest, Sweep3DRequest>;
+    std::vector<Child> children;
+    std::vector<ViewerAxis> axes;
 };
 
 struct FilletRequest {

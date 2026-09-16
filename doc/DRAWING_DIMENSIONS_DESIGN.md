@@ -134,6 +134,12 @@ entire label with a 0.5 mm Drawing margin.
 
 ## Verification
 
+During reference entry, eligible endpoints, midpoints and other explicit point
+targets precede curve/line targets inside the existing hit tolerance. The core
+picker and the canvas use the same ordering, including candidates gathered from
+multiple views. RMB cycles the remaining choices. Explicit line/circle-only
+requests keep their own eligibility restrictions.
+
 Calculation contracts cover C/T, both intersection branches, tangent contact,
 projected measurement, both chain ends, missing references, save/reopen and
 invariant radius while dragging. UI contracts use real mouse events for references,

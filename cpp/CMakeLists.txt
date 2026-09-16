@@ -281,6 +281,7 @@ add_library(zima_workspace modules/workspace/src/workspace.cpp
     modules/workspace/src/opening_operations.cpp
     modules/workspace/src/holes_operations.cpp
     modules/workspace/src/bend_operations.cpp
+    modules/workspace/src/flat_operations.cpp
     modules/workspace/src/opening_component_operations.cpp
     modules/workspace/src/template_operations.cpp modules/workspace/src/template_object_operations.cpp
     modules/workspace/src/opening_targets.cpp
@@ -318,6 +319,7 @@ add_library(zima_command_host
     modules/command_host/src/hole_commands.cpp
     modules/command_host/src/holes_commands.cpp
     modules/command_host/src/bend_commands.cpp
+    modules/command_host/src/flat_commands.cpp
     modules/command_host/src/opening_commands.cpp
     modules/command_host/src/drill_point_commands.cpp
     modules/command_host/src/shell_commands.cpp
@@ -639,6 +641,9 @@ if(ZIMA_BUILD_TESTS)
     set_tests_properties(zima_cpp_ui_contract_tests PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT}")
     add_test(NAME zima_cpp_entry_tables_contract COMMAND zima_cpp_ui_contract_tests)
+    add_test(NAME zima_cpp_sketch_line_styles_contract COMMAND zima_cpp_ui_contract_tests)
+    set_tests_properties(zima_cpp_sketch_line_styles_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SKETCH_LINE_STYLES_ONLY=1")
     set_tests_properties(zima_cpp_entry_tables_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_ENTRY_TABLES_ONLY=1")
     add_test(NAME zima_cpp_translations_contract COMMAND zima_cpp_ui_contract_tests)
@@ -651,6 +656,9 @@ if(ZIMA_BUILD_TESTS)
     set_tests_properties(zima_cpp_numeric_fields_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_NUMERIC_ONLY=1")
     add_executable(zima_cpp_viewer_contract_tests tests/viewer_contract_tests.cpp)
+    add_executable(zima_cpp_curve_placement_contract_tests tests/curve_placement_contract_tests.cpp)
+    target_link_libraries(zima_cpp_curve_placement_contract_tests PRIVATE zima_command_host)
+    add_test(NAME zima_cpp_curve_placement_contract_tests COMMAND zima_cpp_curve_placement_contract_tests)
     target_link_libraries(zima_cpp_viewer_contract_tests PRIVATE zima_viewer)
     add_test(NAME zima_cpp_viewer_contract_tests COMMAND zima_cpp_viewer_contract_tests)
     add_executable(zima_cpp_assembly_contract_tests tests/assembly_contract_tests.cpp)
@@ -1273,6 +1281,16 @@ if(ZIMA_BUILD_TESTS)
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SKETCH_COINCIDENT_ONLY=1"
         TIMEOUT 120)
     add_test(NAME zima_cpp_sketch_offset_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_sketch_endpoint_priority_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_sketch_arc_direction_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_sketch_arc_direction_ui_contract PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SKETCH_ARC_DIRECTION_ONLY=1"
+        TIMEOUT 120)
+    set_tests_properties(zima_cpp_sketch_endpoint_priority_ui_contract PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SKETCH_ENDPOINT_PRIORITY_ONLY=1"
+        TIMEOUT 120)
     set_tests_properties(zima_cpp_sketch_offset_ui_contract PROPERTIES
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_OFFSET_ONLY=1"
@@ -1286,6 +1304,11 @@ if(ZIMA_BUILD_TESTS)
 
     add_executable(zima_cpp_holes_command_tests tests/holes_command_tests.cpp)
     add_executable(zima_cpp_bend_command_tests tests/bend_command_tests.cpp)
+    add_executable(zima_cpp_flat_command_tests tests/flat_command_tests.cpp)
+    target_link_libraries(zima_cpp_flat_command_tests PRIVATE zima_command_host)
+    target_compile_options(zima_cpp_flat_command_tests PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
+    add_test(NAME zima_cpp_flat_command_tests COMMAND zima_cpp_flat_command_tests)
+    set_tests_properties(zima_cpp_flat_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     target_link_libraries(zima_cpp_bend_command_tests PRIVATE zima_command_host)
     target_compile_options(zima_cpp_bend_command_tests PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
     add_test(NAME zima_cpp_bend_command_tests COMMAND zima_cpp_bend_command_tests)

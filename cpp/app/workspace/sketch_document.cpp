@@ -1,5 +1,6 @@
 #include <zima/workspace/assembly_scene.hpp>
 #include "workspace_internal.hpp"
+#include "../sketch_point_pick_priority.hpp"
 #include <zima/workspace/sketch_operations.hpp>
 
 namespace zima::app {
@@ -615,6 +616,7 @@ void AssemblyWorkspaceWindow::set_sketch_placement_selection_contract() {
         zima::viewer::CandidateKind::SketchPoint,
         zima::viewer::CandidateKind::SketchCurve,
         zima::viewer::CandidateKind::SketchExternalReference});
+    viewer_->set_candidate_priority(sketch_point_pick_priority);
 }
 
 } // namespace zima::app

@@ -14,10 +14,15 @@ const document::HistoryContainer& bend(const workspace::PartState* state,const s
 }
 Json details(const workspace::PartState& state,const document::HistoryContainer& feature) {
     const auto p=document::resolved_bend_parameters(feature,document::sheet_metal_defaults(state.session.document()));
+    const auto extensions=document::bend_profile_extensions(feature);
     return {{"document",state.session.document().document_id},{"container",feature.id},{"feature",feature.feature_id},
         {"sketch",p.sketch_id},{"name",feature.name},{"radius_mm",p.radius},{"angle_degrees",p.angle_degrees},
+        {"path_sketch",sketcher::Sketch::from_serialized(p.auxiliary_sketches[0]).id},
+        {"end_sketch",sketcher::Sketch::from_serialized(p.auxiliary_sketches[1]).id},
+        {"first_extension_mm",extensions[0]},{"last_extension_mm",extensions[1]},
         {"thickness_mm",p.thickness},{"k_factor",p.k_factor},{"thickness_override",p.thickness_override},
-        {"k_factor_override",p.k_factor_override},{"state",p.unbend?"unbend":"bend"},{"revision",state.session.revision()}};
+        {"k_factor_override",p.k_factor_override},{"radius_follows_thickness",p.radius_follows_thickness},
+        {"state",p.unbend?"unbend":"bend"},{"revision",state.session.revision()}};
 }
 }
 void Host::register_bend_commands() {
@@ -32,8 +37,8 @@ void Host::register_bend_commands() {
         // The GUI and console use the same atomic workspace operation.
         if(!create)arguments.push_back({"container",true});
         if(create)arguments.push_back({"width_mm",false,Type::Number});
-        for(const auto* key:{"radius_mm","angle_degrees","thickness_mm","k_factor"})arguments.push_back({key,false,Type::Number});
-        for(const auto* key:{"thickness_override","k_factor_override"})arguments.push_back({key,false,Type::Boolean});
+        for(const auto* key:{"radius_mm","angle_degrees","thickness_mm","k_factor","first_extension_mm","last_extension_mm"})arguments.push_back({key,false,Type::Number});
+        for(const auto* key:{"thickness_override","k_factor_override","radius_follows_thickness"})arguments.push_back({key,false,Type::Boolean});
         for(const auto* key:{"state","name","document"})arguments.push_back({key,false});
         dispatcher_.add({create?"bend.create":"bend.set",tr("Create or edit a sketch-based sheet metal Bend/Unbend."),arguments,true},[this,create](const Json& args){
             if(auto result=target(args);!result.ok)return result;
@@ -63,9 +68,22 @@ void Host::register_bend_commands() {
                 if(args.contains("k_factor"))feature.bend.k_factor_override=true;
                 if(args.contains("thickness_override"))feature.bend.thickness_override=args.at("thickness_override");
                 if(args.contains("k_factor_override"))feature.bend.k_factor_override=args.at("k_factor_override");
+                if(args.contains("radius_follows_thickness")) {
+                    const bool enabled=args.at("radius_follows_thickness");
+                    if(feature.bend.radius_follows_thickness&&!enabled&&!args.contains("radius_mm"))
+                        feature.bend.radius=document::resolved_bend_parameters(feature,document::sheet_metal_defaults(state->session.document())).radius;
+                    feature.bend.radius_follows_thickness=enabled;
+                }
+                if(args.contains("radius_mm")&&feature.bend.radius_follows_thickness)
+                    throw std::invalid_argument("Disable radius linked to thickness before editing the radius.");
                 if(args.contains("state")){const auto value=args.at("state").get<std::string>();
                     if(value!="bend"&&value!="unbend")throw std::invalid_argument("Bend state must be bend or unbend.");feature.bend.unbend=value=="unbend";}
                 if(args.contains("name"))feature.name=args.at("name");sketch.name=feature.name;
+                document::prepare_bend_sketches(feature,sketch,document::sheet_metal_defaults(state->session.document()));
+                if(args.contains("first_extension_mm")||args.contains("last_extension_mm")) {
+                    const auto extensions=document::bend_profile_extensions(feature);
+                    document::set_bend_profile_extensions(feature,args.value("first_extension_mm",extensions[0]),args.value("last_extension_mm",extensions[1]));
+                }
                 const auto container=feature.id;
                 const bool changed=workspace::commit_bend(workspace_,kernel_,id,std::move(feature),std::move(sketch));
                 if(changed)change_=Change{ChangeKind::Model,id};state=workspace_.open_part(id);

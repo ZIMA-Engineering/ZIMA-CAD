@@ -7,6 +7,7 @@
 #include <QString>
 #include <span>
 #include <algorithm>
+#include <zima/viewer/dimension_presentation.hpp>
 
 namespace zima::viewer {
 struct DimensionTextLabel {
@@ -28,6 +29,14 @@ inline QRectF dimension_text_box(const QFont& font, const QString& text, double 
 inline double dimension_text_clearance(const QFont& font, const QString& text,
                                        double padding, double stroke_width, double minimum_gap) {
     return std::max(minimum_gap, dimension_text_box(font,text,padding).bottom()+stroke_width*.5+padding*.5);
+}
+// Painting, text picking and grip layout must use the same font and clearance.
+template<class Project>
+DimensionPresentation dimension_text_presentation(const kernel::ViewerDimension& dimension,
+    Project project, const QFont& font, const QString& text, double padding,
+    double stroke_width, double arrow=10, double minimum_gap=3, bool angular_leaders=false) {
+    return dimension_presentation(dimension,project,QFontMetricsF(font).horizontalAdvance(text),arrow,
+        dimension_text_clearance(font,text,padding,stroke_width,minimum_gap),angular_leaders);
 }
 // Stable input order is the annotation order: each later label masks earlier
 // labels as well as all geometry painted before this final text layer.

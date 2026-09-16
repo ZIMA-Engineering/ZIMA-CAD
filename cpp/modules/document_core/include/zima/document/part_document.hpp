@@ -26,7 +26,7 @@
 namespace zima::document {
 
 enum class CombineMode { Add, Subtract };
-enum class FeatureKind { Sketch, Box, Cylinder, Sphere, Cone, Pyramid, Wedge, Extrusion, Revolution, Sweep3D, ImportedStep, Fillet, Chamfer, Shell, Hole, Thread, DrillPoint, ShaftThread, HelicalSweep, Sweep2D, Holes, Bend };
+enum class FeatureKind { Sketch, Box, Cylinder, Sphere, Cone, Pyramid, Wedge, Extrusion, Revolution, Sweep3D, ImportedStep, Fillet, Chamfer, Shell, Hole, Thread, DrillPoint, ShaftThread, HelicalSweep, Sweep2D, Holes, Bend, Flat };
 enum class ExtrusionDirection { Forward, Reverse, Symmetric };
 enum class ExtrusionExtent { Blind, UpToPlane, UpToSurface, ThroughAll };
 enum class ProfileSource { Internal, External };
@@ -172,7 +172,8 @@ struct ConstructionObject {
     const zima::kernel::ViewerReferenceGeometry& references);
 [[nodiscard]] int point_constraint_remaining_dof(
     const std::vector<ConstructionReference>& references,
-    const zima::kernel::ViewerReferenceGeometry& geometry);
+    const zima::kernel::ViewerReferenceGeometry& geometry,
+    const zima::kernel::Vec3& origin = {});
 struct PointConstraintState {
     int remaining_dof{3};
     std::array<bool, 3> constrained_axes{};
@@ -187,7 +188,8 @@ struct OrientationConstraintState {
 struct Placement;
 [[nodiscard]] PointConstraintState point_constraint_state(
     const std::vector<ConstructionReference>& references,
-    const zima::kernel::ViewerReferenceGeometry& geometry);
+    const zima::kernel::ViewerReferenceGeometry& geometry,
+    const zima::kernel::Vec3& origin = {});
 // A Point exposes six possible editable dimension slots: absolute X/Y/Z
 // coordinates and the offsets of up to three position-reference rows.
 // Only slots whose matching dialog fields are editable are returned.
@@ -567,14 +569,25 @@ struct HolesParameters {
     bool operator==(const HolesParameters&) const = default;
 };
 
+struct FlatParameters {
+    std::string sketch_id;
+    double thickness{1.0};
+    bool thickness_override{};
+    ExtrusionDirection direction{ExtrusionDirection::Forward};
+    bool operator==(const FlatParameters&) const = default;
+};
+
 struct BendParameters {
     std::string sketch_id;
+    // Path and end profile; the start profile is the ordinary owned Sketch.
+    std::array<std::string,2> auxiliary_sketches;
     double radius{5.0};
     double angle_degrees{90.0};
     double thickness{1.0};
     double k_factor{0.5};
     bool thickness_override{};
     bool k_factor_override{};
+    bool radius_follows_thickness{};
     bool unbend{};
     bool operator==(const BendParameters&) const = default;
 };
@@ -605,6 +618,7 @@ struct HistoryContainer {
     HoleParameters hole;
     HolesParameters holes;
     BendParameters bend;
+    FlatParameters flat;
     ThreadParameters thread;
     ShaftThreadParameters shaft_thread;
     DrillPointParameters drill_point;
@@ -713,6 +727,8 @@ public:
         history_origin_reference_geometry_before(
             const std::string& container_id,
             double reference_scene_size = 0.0) const;
+    [[nodiscard]] zima::kernel::ViewerReferenceGeometry
+        sketch_placement_reference_geometry(const std::string& before = {}) const;
     // A container's own editing-mode Origin likewise has a fixed plane size,
     // the same for every ConstructionKind and distinct from the document's
     // own Origin. Its axis arrow tips use that plane's half-extent as well.

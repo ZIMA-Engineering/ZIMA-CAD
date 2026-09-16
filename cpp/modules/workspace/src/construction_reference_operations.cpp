@@ -36,7 +36,7 @@ document::ConstructionObject prepare_construction_reference(Object value,
     }
     if(position.size()>3)reject("invalid_placement","The construction has too many position reference rows.");
     const auto baseline=combined(position,orientation,index);
-    const auto translation=document::point_constraint_remaining_dof(baseline,geometry);
+    const auto translation=document::point_constraint_remaining_dof(baseline,geometry,value.origin);
     const auto rotation=document::orientation_constraint_remaining_dof(baseline,geometry,true,value.origin);
     if(index<3&&translation==0&&rotation>0) {
         reference.orientation_drives_rotation=true;reference.orientation_role="direction";reference.orientation_only=true;reference.supports_offset=false;

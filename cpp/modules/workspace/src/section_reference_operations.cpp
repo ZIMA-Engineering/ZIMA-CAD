@@ -44,7 +44,7 @@ bool set_section_placement_reference(Workspace& live,const std::string& id,
     auto baseline=value.placement;baseline.references=combined(position,orientation,index);
     if(!document::resolve_placement(baseline,geometry))reject("invalid_placement","Existing Section placement references cannot be resolved.");
     const kernel::Vec3 origin{baseline.x,baseline.y,baseline.z};
-    const auto translation=document::point_constraint_remaining_dof(baseline.references,geometry);
+    const auto translation=document::point_constraint_remaining_dof(baseline.references,geometry,origin);
     const auto rotation=document::orientation_constraint_remaining_dof(baseline.references,geometry,true,origin);
     const bool direction=index<3&&translation==0&&rotation>0;
     if(index>=3||direction) {

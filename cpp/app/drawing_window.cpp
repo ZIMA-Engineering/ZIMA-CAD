@@ -649,7 +649,7 @@ public:
                 candidate.distance*=scale;candidates.push_back({view.id,std::move(candidate)});
             }
         }
-        std::stable_sort(candidates.begin(),candidates.end(),[](const auto& a,const auto& b){return a.candidate.distance<b.candidate.distance;});
+        std::stable_sort(candidates.begin(),candidates.end(),[](const auto& a,const auto& b){return drawing::measurement_candidate_precedes(a.candidate,b.candidate);});
         bool same=candidates.size()==measurement_offered_.size();
         for(std::size_t i=0;same&&i<candidates.size();++i)same=candidates[i].view==measurement_offered_[i].view&&candidates[i].candidate.attachment==measurement_offered_[i].candidate.attachment;
         if(!same)measurement_index_=0;measurement_offered_=std::move(candidates);

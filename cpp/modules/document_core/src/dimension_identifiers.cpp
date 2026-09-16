@@ -152,7 +152,12 @@ void append_dimension_parameters(std::vector<DimensionParameter>& out,
         add({"diameter", "bore_length", "entrance_chamfer", "exit_chamfer",
              "drill_point_angle", "thread_diameter", "thread_pitch", "thread_length"}); break;
     case FeatureKind::Bend:
-        add({"radius", "angle", "profile_offset"}); break;
+        add({"radius", "angle", "profile_offset"});
+        for(const auto& sketch:feature.bend.auxiliary_sketches)embedded_sketch(out,sketch);
+        break;
+    case FeatureKind::Flat:
+        if(feature.flat.thickness_override)add({"thickness"});
+        break;
     case FeatureKind::Holes:
         add({"diameter", "profile_offset"}); break;
     case FeatureKind::Thread:

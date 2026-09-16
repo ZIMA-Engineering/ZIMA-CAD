@@ -3,6 +3,17 @@
 #include <algorithm>
 
 namespace zima::document {
+// FRONT is local +Y. A plane normal or a point-followed-by-curve tangent
+// therefore selects local XZ for an automatic Sketch work plane.
+inline bool sketch_placement_uses_front_plane(
+        const std::vector<ConstructionReference>& references) {
+    return std::ranges::any_of(references, [](const auto& reference) {
+        if (reference.owner_id.empty() && reference.semantic_key.empty()) return false;
+        return (!reference.orientation_only && reference.supports_offset) ||
+            (reference.orientation_drives_rotation &&
+                (reference.orientation_role == "front" || reference.orientation_role == "direction"));
+    });
+}
 inline void normalize_sketch_front_references(
         std::vector<zima::document::ConstructionReference>& references) {
     auto first_position_plane = std::find_if(references.begin(), references.end(),

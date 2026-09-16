@@ -3,6 +3,7 @@
 #include <zima/workspace/sketch_operations.hpp>
 #include <zima/workspace/part_transactions.hpp>
 #include <zima/document/feature_sketches.hpp>
+#include <zima/document/bend.hpp>
 #include <algorithm>
 
 namespace zima::workspace {
@@ -10,6 +11,15 @@ void apply_sketch_geometry(sketcher::Sketch& draft,const SketchMutation& mutatio
     mutation(draft);draft.refresh_curve_dependencies();draft.validate();
 }
 namespace {
+template<class Document> void store_feature_sketch(Document& document,document::HistoryContainer& container,
+    std::size_t stage,std::string& data,sketcher::Sketch sketch) {
+    if constexpr(requires{document.history;})if(container.feature_kind==document::FeatureKind::Bend) {
+        const auto start=std::ranges::find(document.sketches,container.bend.sketch_id,&sketcher::Sketch::id);
+        if(start==document.sketches.end())throw std::invalid_argument("Bend start profile is missing.");
+        document::accept_bend_sketch(container,*start,stage,std::move(sketch),document::sheet_metal_defaults(document));return;
+    }
+    data=sketch.serialized();
+}
 template<class Document,class Visitor> void visit_sketches(const Document& document,const Visitor& visit) {
     for(const auto& sketch:document.sketches)if(!visit(sketch))return;
     bool more=true;
@@ -26,9 +36,9 @@ template<class Document> bool update_sketches(Document& document,const std::func
     bool changed=false;
     for(auto& sketch:document.sketches)changed=update(sketch)||changed;
     const auto feature=[&](auto& container) {
-        document::visit_feature_sketches(container,[&](auto& data,std::size_t) {
+        document::visit_feature_sketches(container,[&](auto& data,std::size_t stage) {
             auto sketch=sketcher::Sketch::from_serialized(data);
-            if(update(sketch)){data=sketch.serialized();changed=true;}
+            if(update(sketch)){store_feature_sketch(document,container,stage,data,std::move(sketch));changed=true;}
         });
     };
     if constexpr(requires{document.history;})for(auto& container:document.history)feature(container);
@@ -52,9 +62,9 @@ template<class Document> bool mutate(Document& document,const std::string& id,co
     }
     bool found=false;
     const auto feature=[&](auto& container) {
-        document::visit_feature_sketches(container,[&](auto& data,std::size_t) {
+        document::visit_feature_sketches(container,[&](auto& data,std::size_t stage) {
             if(found)return;auto sketch=sketcher::Sketch::from_serialized(data);
-            if(sketch.id!=id)return;apply(sketch,container.id);data=sketch.serialized();found=true;
+            if(sketch.id!=id)return;apply(sketch,container.id);store_feature_sketch(document,container,stage,data,std::move(sketch));found=true;
         });
     };
     if constexpr(requires{document.history;})for(auto& container:document.history)feature(container);

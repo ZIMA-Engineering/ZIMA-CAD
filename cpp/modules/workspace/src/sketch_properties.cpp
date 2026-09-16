@@ -35,7 +35,7 @@ bool commit_part_sketch_properties(Workspace& live,const kernel::OcctKernel& ker
         if(existing->owner_container_id!=sketch.owner_container_id||!owner||new_container)
             reject("invalid_sketch_owner","Sketch owning container no longer exists");
         if(owner->feature_kind!=document::FeatureKind::Sketch&&owner->feature_kind!=document::FeatureKind::Extrusion&&
-            owner->feature_kind!=document::FeatureKind::Revolution&&owner->feature_kind!=document::FeatureKind::Holes&&owner->feature_kind!=document::FeatureKind::Bend)
+            owner->feature_kind!=document::FeatureKind::Revolution&&owner->feature_kind!=document::FeatureKind::Holes&&owner->feature_kind!=document::FeatureKind::Bend&&owner->feature_kind!=document::FeatureKind::Flat)
             reject("unsupported_sketch","Edit this Sketch through its owning section operation.");
     }
     const auto* body=create?before.body_history.find(before.body_history.active_body_id())
@@ -49,6 +49,8 @@ bool commit_part_sketch_properties(Workspace& live,const kernel::OcctKernel& ker
     if(!std::isfinite(sketch.plane_offset)||std::abs(sketch.plane_offset)>1000000)
         reject("invalid_arguments","The base Sketch offset is outside the supported range.");
     document::normalize_sketch_front_references(placement.references);
+    if(sketch.plane_auto&&document::sketch_placement_uses_front_plane(placement.references))
+        sketch.plane=sketcher::SketchPlane::XZ;
     sketch.validate();
     auto locks=owner?owner->value_locks:std::set<std::string>{};
     if(owner&&(owner->feature_kind==document::FeatureKind::Extrusion||owner->feature_kind==document::FeatureKind::Revolution)) {
@@ -86,8 +88,6 @@ bool set_part_sketch_reference(Workspace& live,const kernel::OcctKernel& kernel,
     auto sketch=document_sketch(live,id,sketch_id);
     auto feature=prepare_part_feature_reference(live,id,sketch.owner_container_id,index,std::move(source),index==0);
     document::normalize_sketch_front_references(feature.placement.references);
-    if(sketch.plane_auto&&index==0&&std::ranges::any_of(feature.placement.references,[](const auto& ref){return !ref.orientation_only&&ref.supports_offset;}))
-        sketch.plane=sketcher::SketchPlane::XZ;
     sketch.plane_reference_owner_id.clear();
     return commit_part_sketch_properties(live,kernel,id,std::move(sketch),sketch_properties_placement(feature));
 }
@@ -107,6 +107,8 @@ bool commit_sketch_properties(Workspace& live,const kernel::OcctKernel& kernel,c
     if(!std::isfinite(sketch.plane_offset)||std::abs(sketch.plane_offset)>1000000)
         reject("invalid_arguments","The base Sketch offset is outside the supported range.");
     sketch.validate();document::normalize_sketch_front_references(placement.references);
+    if(sketch.plane_auto&&document::sketch_placement_uses_front_plane(placement.references))
+        sketch.plane=sketcher::SketchPlane::XZ;
     if(!create)if(const auto* cut=before.find_cut(sketch.owner_container_id)) {
         auto value=cut->definition;
         if(placement.value_locks.erase("profile_offset"))value.value_locks.insert("profile_offset");else value.value_locks.erase("profile_offset");
@@ -156,8 +158,6 @@ bool set_sketch_reference(Workspace& live,const kernel::OcctKernel& kernel,const
     auto feature=assembly->session.document().find_cut(sketch.owner_container_id)
         ?prepare_assembly_profile_reference(live,id,sketch.owner_container_id,index,std::move(source),index==0)
         :prepare_assembly_sketch_reference(live,id,sketch.owner_container_id,index,std::move(source));
-    if(sketch.plane_auto&&index==0&&std::ranges::any_of(feature.placement.references,[](const auto& ref){return !ref.orientation_only&&ref.supports_offset;}))
-        sketch.plane=sketcher::SketchPlane::XZ;
     sketch.plane_reference_owner_id.clear();
     return commit_sketch_properties(live,kernel,id,std::move(sketch),sketch_properties_placement(feature));
 }

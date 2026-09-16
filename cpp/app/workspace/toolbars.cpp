@@ -371,7 +371,14 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
                 properties->setObjectName("sheetMetalPropertiesAction");
                 connect(properties,&QAction::triggered,this,[this]{edit_file_settings(true);});
             }
-            properties->setEnabled(!properties_dialog_);add_command(properties,false);add_green_separator();
+            properties->setEnabled(!properties_dialog_ || properties_dialog_->objectName()=="fileSettingsDialog");
+            add_command(properties,false);add_green_separator();
+            auto* flat=findChild<QAction*>("flatAction");
+            if(!flat) {
+                flat=new QAction(resource_icon("flat"),tr("Tabule"),this);flat->setObjectName("flatAction");
+                connect(flat,&QAction::triggered,this,[this]{show_sketch_properties({},false,false,true);});
+            }
+            flat->setEnabled(!properties_dialog_);add_command(flat);
             auto* bend=findChild<QAction*>("bendAction");
             if(!bend) {
                 bend=new QAction(resource_icon("bend"),tr("Ohyb"),this);bend->setObjectName("bendAction");

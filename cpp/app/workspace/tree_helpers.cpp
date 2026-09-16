@@ -70,6 +70,7 @@ QString feature_icon_name(zima::document::FeatureKind kind) {
         case FeatureKind::Shell: return QStringLiteral("shell");
         case FeatureKind::Hole: return QStringLiteral("cylinder");
         case FeatureKind::Bend: return QStringLiteral("bend");
+        case FeatureKind::Flat: return QStringLiteral("flat");
         case FeatureKind::Holes: return QStringLiteral("holes");
         case FeatureKind::Thread: return QStringLiteral("cylinder");
         case FeatureKind::ShaftThread: return QStringLiteral("thread");
@@ -248,6 +249,7 @@ void add_history_container_tree_children(QTreeWidgetItem* parent,
     if (primitive_primary_axis ||
         (owned_sketch != nullptr &&
          (container.feature_kind == zima::document::FeatureKind::Extrusion ||
+          container.feature_kind == zima::document::FeatureKind::Flat ||
           container.feature_kind == zima::document::FeatureKind::Revolution))) {
         std::vector<std::array<double, 2>> centers;
         const auto append_center = [&](const std::string& point_id) {
@@ -264,9 +266,9 @@ void add_history_container_tree_children(QTreeWidgetItem* parent,
             centers.push_back({});
         } else {
             for (const auto& circle : owned_sketch->circles)
-                append_center(circle.center_point_id);
+                if(!circle.construction)append_center(circle.center_point_id);
             for (const auto& ellipse : owned_sketch->ellipses)
-                append_center(ellipse.center_point_id);
+                if(!ellipse.construction)append_center(ellipse.center_point_id);
         }
         for (std::size_t index = 0; index < centers.size(); ++index) {
             const std::string semantic = index == 0 ? "axis:primary"

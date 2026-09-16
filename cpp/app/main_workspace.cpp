@@ -4,6 +4,7 @@
 #include "updateservice.h"
 #include "updates_ui_verification.hpp"
 #include <zima/document/file_path.hpp>
+#include <zima/document/bend.hpp>
 #include <zima/workspace/native_documents.hpp>
 #include <zima/interchange/dxf.hpp>
 #include "console_ui_verification.hpp"
@@ -3477,15 +3478,16 @@ int verify_owned_profile_external_reference(QApplication& application,const std:
         if(supplied.isEmpty()) {
             auto dxf= zima::sketcher::Sketch::create_default();static_cast<void>(dxf.add_circle(35,5,1));
             const auto source=std::filesystem::absolute(directory/"owned-dxf-circle.dxf");zima::interchange::export_dxf(source,dxf);
-            bool selected=false,failed=false;QTimer chooser;chooser.setInterval(50);
+            bool selected=false,failed=false;QTimer chooser;chooser.setInterval(50);QTimer timeout;timeout.setSingleShot(true);
             QObject::connect(&chooser,&QTimer::timeout,[&]{
                 if(auto* dialog=qobject_cast<QFileDialog*>(QApplication::activeModalWidget())) {
+                    QObject::connect(dialog,&QDialog::accepted,&timeout,&QTimer::stop,Qt::UniqueConnection);
                     if(!selected){dialog->setDirectory(QString::fromStdString(source.parent_path().string()));dialog->selectFile("owned-dxf-circle.dxf");selected=true;return;}
                     if(auto* filename=dialog->findChild<QLineEdit*>("fileNameEdit"))filename->setText(QString::fromStdString(source.string()));
                     QMetaObject::invokeMethod(dialog,"accept",Qt::DirectConnection);
                 }else if(auto* message=qobject_cast<QMessageBox*>(QApplication::activeModalWidget())){failed=true;std::cerr<<message->text().toStdString()<<'\n';message->accept();}
             });
-            QTimer timeout;timeout.setSingleShot(true);QObject::connect(&timeout,&QTimer::timeout,[&]{
+            QObject::connect(&timeout,&QTimer::timeout,[&]{
                 failed=true;auto* modal=QApplication::activeModalWidget();
                 std::cerr<<"Pending DXF timeout: scenario="<<scenario<<", selected="<<selected<<", exists="<<std::filesystem::exists(source)
                     <<", modal="<<(modal?modal->metaObject()->className():"none")<<'\n';
@@ -3494,6 +3496,10 @@ int verify_owned_profile_external_reference(QApplication& application,const std:
             });
             chooser.start();timeout.start(10000);window.findChild<QAction*>("importDocumentAction")->trigger();chooser.stop();timeout.stop();flush();
             if(!verify(selected&&!failed,"DXF import into pending profile failed"))return 1;
+            auto* imported_view=dynamic_cast<zima::viewer::MeshView*>(window.findChild<QOpenGLWidget*>());
+            if(!verify(imported_view && std::ranges::any_of(imported_view->mesh().edges,[&](const auto& edge) {
+                return edge.reference.owner_id==original.id && edge.reference.semantic_key.starts_with("circle:");
+            }),"DXF chooser closed without importing its circle into the pending Sketch"))return 1;
         }
         QEventLoop animation;QTimer::singleShot(950,&animation,&QEventLoop::quit);animation.exec();
         auto* view=dynamic_cast<zima::viewer::MeshView*>(window.findChild<QOpenGLWidget*>());
@@ -3628,11 +3634,16 @@ int verify_application_tools_ui(QApplication& application,const std::filesystem:
         auto* model_view=window.findChild<QOpenGLWidget*>();const QPointF click(50,50);
         QMouseEvent middle(QEvent::MouseButtonDblClick,click,QPointF(model_view->mapToGlobal(click.toPoint())),Qt::MiddleButton,Qt::MiddleButton,Qt::NoModifier);
         QApplication::sendEvent(model_view,&middle);flush();check(!settings_dialog(),"View middle-button double-click did not confirm sheet settings");
+        check(selector()->isEnabled(),"Sheet settings left application selector disabled");
+        combo=selector();combo->setCurrentIndex(combo->findData(0));combo->activated(combo->currentIndex());flush();
+        check(modeling->isChecked()&&menu->actions().contains(extrusion),"Cannot return to Modeling after confirming sheet settings");
+        sheet->trigger();flush();
         window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
         check(document::sheet_metal_defaults(document::PartDocument::load(path))==document::SheetMetalDefaults{2.5,.42},"Sheet properties did not persist to the native Part");
         window.findChild<QAction*>("fileSettingsAction")->trigger();flush();file=settings_dialog();
         check(file->findChild<QDoubleSpinBox*>("sheetMetalThickness")->value()==2.5&&file->findChild<QDoubleSpinBox*>("sheetMetalKFactor")->value()==.42,"File Settings disagrees with Sheet properties");
         file->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
+        check(selector()->isEnabled(),"Cancelling File Settings left application selector disabled");
         window.findChild<QAction*>("regenerateDocumentAction")->trigger();flush();
         check(sheet->isChecked()&&selector()->currentData().toInt()==2,"Refresh lost Sheet Metal choice");
         check(window.open_document_path(QString::fromStdString(other_path.string())),"Other Part failed to open");flush();
@@ -3665,6 +3676,55 @@ int verify_application_tools_ui(QApplication& application,const std::filesystem:
         check(menu->actions().contains(window.findChild<QAction*>("insertDrawingViewAction"))&&!menu->actions().contains(extrusion),"Drawing Insert contains wrong commands");
         check(window.open_document_path(QString::fromStdString(assembly_path.string())),"Assembly fixture failed to open");flush();
         check(menu->actions().contains(window.findChild<QAction*>("insertComponentAction")),"Assembly Insert lost component insertion");
+        // Flat creation and editing use the same transient container/Sketch dialog.
+        auto flat_part=document::PartDocument::create_default();document::BodyHistoryGraph flat_graph;
+        const auto flat_body=flat_graph.create_body("Flat body");flat_part.set_body_history(flat_graph);
+        document::set_sheet_metal_defaults(flat_part,{2.,.4});const auto flat_path=directory/"flat-ui.prtz";flat_part.save(flat_path);
+        check(window.open_document_path(QString::fromStdString(flat_path.string())),"Flat fixture failed to open");flush();
+        check(activate_test_body(application,window,flat_body),"Cannot activate Flat body");sheet->trigger();flush();
+        auto* flat_action=window.findChild<QAction*>("flatAction");
+        check(flat_action&&!flat_action->icon().isNull()&&menu->actions().contains(flat_action),"Flat toolbar/Insert command missing");
+        const auto flat_dialog=[&]{return dynamic_cast<app::SketchPropertiesDialog*>(window.findChild<QDialog*>("flatPropertiesDialog"));};
+        flat_action->trigger();flush();auto* flat=flat_dialog();check(flat&&flat->windowType()==Qt::SubWindow,"Flat properties are not internal");
+        check(!flat->findChild<QDoubleSpinBox*>("sketchPlaneOffset")->isVisible(),"Flat exposes a profile plane offset");
+        auto* flat_thickness=flat->findChild<QDoubleSpinBox*>("flatThickness");auto* flat_override=flat->findChild<QCheckBox*>("flatThicknessOverride");
+        check(flat_thickness&&flat_override&&!flat_thickness->isEnabled()&&flat_thickness->value()==2.,"Flat did not inherit thickness");
+        flat->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();check(flat_dialog(),"Empty Flat was committed");
+        const auto flat_sketch_id=flat->pending_value().first.id;
+        check(flat->mutate_sketch(flat_sketch_id,[](auto& s){
+            static_cast<void>(s.add_rectangle(0,0,40,30));
+            static_cast<void>(s.add_circle(20,15,3));static_cast<void>(s.add_ellipse(8,15,12,15,8,17));
+        }),"Cannot edit pending Flat profile");
+        flat->findChild<QPushButton*>("sketchOpenButton")->click();flush();check(!flat->isVisible(),"Flat did not open Sketcher");
+        window.findChild<QAction*>("finishSketchAction")->trigger();flush();check(flat->isVisible(),"Flat did not return from Sketcher");
+        flat_override->setChecked(true);flat_thickness->setValue(3.);flat_override->setChecked(false);
+        check(!flat_thickness->isEnabled()&&flat_thickness->value()==2.,"Flat override did not restore document value");
+        flat->findChild<QComboBox*>("flatDirection")->setCurrentIndex(2);flush();
+        check(window.grab().save("build/flat-properties.png"),"Flat screenshot failed");
+        QApplication::sendEvent(model_view,&middle);flush();
+        if(flat_dialog()) {
+            QString messages;for(auto* label:flat_dialog()->findChildren<QLabel*>())messages+=label->text()+"; ";
+            throw std::runtime_error("Flat middle-button confirmation failed: "+messages.toStdString());
+        }
+        window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+        std::vector<kernel::BodyResult> flat_results;const auto saved_flat=document::PartDocument::load(flat_path,&flat_results);
+        check(saved_flat.history.size()==1&&saved_flat.history.front().feature_kind==document::FeatureKind::Flat&&
+            saved_flat.history.front().flat.direction==document::ExtrusionDirection::Symmetric,"Flat history/side did not persist");
+        const double flat_volume=2*(1200-17*std::acos(-1.));
+        check(std::abs(flat_results.back().volume-flat_volume)<1e-5,"Flat GUI created wrong volume");
+        const auto flat_row=[&]()->QTreeWidgetItem*{for(QTreeWidgetItemIterator it(tree);*it;++it)
+            if((*it)->data(0,Qt::UserRole).toString().toStdString()==saved_flat.history.front().id&&(*it)->data(0,Qt::UserRole+3)=="part-container")return *it;return nullptr;};
+        check(flat_row(),"Flat tree row missing");
+        int flat_axes=0;for(int i=0;i<flat_row()->childCount();++i)
+            if(flat_row()->child(i)->data(0,Qt::UserRole+5).toString().startsWith("axis:"))++flat_axes;
+        check(flat_axes==2,"Flat tree does not expose circle and ellipse axes");
+        window.show_tree_item_properties(flat_row());flush();flat=flat_dialog();check(flat,"Flat properties did not reopen");
+        flat->findChild<QCheckBox*>("flatThicknessOverride")->setChecked(true);flat->findChild<QDoubleSpinBox*>("flatThickness")->setValue(5.);
+        flat->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
+        window.findChild<QAction*>("saveDocumentAction")->trigger();flush();flat_results.clear();static_cast<void>(document::PartDocument::load(flat_path,&flat_results));
+        check(std::abs(flat_results.back().volume-flat_volume)<1e-5,"Flat Cancel committed pending thickness");
+        flat_action->trigger();flush();flat=flat_dialog();flat->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
+        window.findChild<QAction*>("saveDocumentAction")->trigger();flush();check(document::PartDocument::load(flat_path).history.size()==1,"Flat Cancel inserted a new feature");
         // Exercise the actual Sheet Metal command on an otherwise empty Body.
         auto bend_part=document::PartDocument::create_default();document::BodyHistoryGraph bend_graph;
         const auto bend_body=bend_graph.create_body("Bend body");bend_part.set_body_history(bend_graph);
@@ -3676,6 +3736,17 @@ int verify_application_tools_ui(QApplication& application,const std::filesystem:
         bend_action->trigger();flush();auto* bend=bend_dialog();check(bend&&bend->windowType()==Qt::SubWindow,"Bend properties did not open internally");
         auto* thickness=bend->findChild<QDoubleSpinBox*>("bendThickness");auto* override=bend->findChild<QCheckBox*>("bendThicknessOverride");
         check(thickness&&override&&!override->isChecked()&&!thickness->isEnabled()&&thickness->value()==2.,"Bend did not inherit Part thickness");
+        auto* radius_link=bend->findChild<QCheckBox*>("bendRadiusFollowsThickness");
+        check(radius_link,"Bend radius/thickness link missing");radius_link->setChecked(true);flush();
+        check(!bend->findChild<QDoubleSpinBox*>("bendRadius")->isEnabled()&&bend->findChild<QDoubleSpinBox*>("bendRadius")->value()==2.,"Bend linked radius does not follow thickness");
+        radius_link->setChecked(false);flush();
+        for(const auto* button_name:{"bendPathSketchButton","sketchOpenButton","bendEndSketchButton"}) {
+            auto* button=bend->findChild<QPushButton*>(button_name);check(button,"One of the three Bend Sketch editors is missing");
+            check(button->styleSheet().contains("#4DD811"),"Bend Sketch button does not use the shared green style");
+            button->click();flush();check(!bend->isVisible(),"Bend properties did not yield to owned Sketch editor");
+            auto* finish=window.findChild<QAction*>("finishSketchAction");check(finish&&finish->isEnabled(),"Owned Bend Sketch did not activate");
+            finish->trigger();flush();check(bend->isVisible(),"Owned Bend Sketch did not return to properties");
+        }
         override->setChecked(true);thickness->setValue(3.);override->setChecked(false);check(thickness->value()==2.,"Disabling local thickness did not restore Part value");
         bend->findChild<QDoubleSpinBox*>("bendRadius")->setValue(7.);bend->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
         window.findChild<QAction*>("saveDocumentAction")->trigger();flush();check(document::PartDocument::load(bend_path).history.empty(),"Bend Cancel inserted history");
@@ -3688,6 +3759,35 @@ int verify_application_tools_ui(QApplication& application,const std::filesystem:
         check(bend_row,"Bend history row missing");window.show_tree_item_properties(bend_row);flush();bend=bend_dialog();check(bend,"First Bend history edit cannot enter rollback");
         bend->findChild<QComboBox*>("bendState")->setCurrentIndex(0);QApplication::sendEvent(model_view,&middle);flush();check(!bend_dialog(),"Bend middle double-click did not confirm");
         window.findChild<QAction*>("saveDocumentAction")->trigger();flush();check(!document::PartDocument::load(bend_path).history.front().bend.unbend,"Bend edit failed to persist state");
+        const auto bend_id=saved_bend.history.front().id;
+        window.show_parameter_dimensions(bend_id);flush();
+        auto* state_button=model_view->findChild<QPushButton*>("bendViewStateButton");
+        check(state_button&&state_button->isVisible()&&!bend_dialog(),"Bend/Unbend View action requires Properties");
+        state_button->click();flush();window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+        check(document::PartDocument::load(bend_path).history.front().bend.unbend,"View Unbend did not commit");
+        state_button->click();flush();
+        const auto inline_edit=[&](const std::string& suffix,const QString& value) {
+            const auto& dimensions=dynamic_cast<viewer::MeshView*>(model_view)->mesh().dimensions;
+            const auto found=std::ranges::find_if(dimensions,[&](const auto& d){return d.reference.semantic_key.ends_with(suffix);});
+            check(found!=dimensions.end(),"Bend driving dimension is absent from View");
+            viewer::ViewerCandidate candidate;candidate.kind=viewer::CandidateKind::Dimension;
+            candidate.owner_id=found->reference.owner_id;candidate.semantic_key=found->reference.semantic_key;
+            candidate.instance_path=found->reference.instance_path;candidate.geometry_index=std::distance(dimensions.begin(),found);
+            window.edit_dimension_inline(candidate);flush();
+            QPointer<QLineEdit> editor=model_view->findChild<QLineEdit*>("inlineDimensionValueEdit");check(editor&&editor->isVisible(),"Bend inline dimension editor did not open");
+            editor->setText(value);QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(editor,&enter);flush();
+            check(!editor||!editor->isVisible(),"Bend inline dimension edit failed");
+        };
+        inline_edit(":radius","10");inline_edit(":angle","45");
+        inline_edit(":difference:first","3");inline_edit(":difference:last","10");
+        window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+        const auto edited_bend=document::PartDocument::load(bend_path);const auto& definition=edited_bend.history.front();
+        check(std::abs(definition.bend.radius-8)<1e-6&&std::abs(definition.bend.angle_degrees-45)<1e-6,"Bend inline dimensions did not update feature parameters");
+        const auto extensions=document::bend_profile_extensions(definition);
+        check(std::abs(extensions[0]-3)<1e-6&&std::abs(extensions[1]-10)<1e-6,"Endpoint difference edits did not persist");
+        window.grab().save("build/bend-three-sketch-view.png");
+        check(window.finish_parameter_dimensions(),"Bend inspection did not finish");flush();
+        check(!state_button->isVisible(),"Bend View action survived clearing inspection");
         std::cout<<"Application selector, per-document modes, contextual Insert, live profile status and stable Save tabs passed\n";return 0;
     }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
 }
@@ -3758,6 +3858,8 @@ int verify_sketch_dimension_entry_ui(QApplication& application,const std::filesy
             auto sketch=sketcher::Sketch::create_default();sketch.owner_container_id=feature.id;
             static_cast<void>(sketch.add_segment(12,8,32,15));
             const auto first=sketch.segments.front().first_point_id,second=sketch.segments.front().second_point_id;
+            const auto other_line=sketch.add_segment(40,26,55,36);
+            const auto other_point=sketch.segments.back().first_point_id;
             part.history={feature};part.sketches={sketch};document::BodyHistoryGraph graph;
             const auto body=graph.create_body("Dimension test");graph.insert({document::PartHistoryKind::Feature,feature.id});part.set_body_history(graph);part.resolve_constructions();
             const auto path=directory/(std::string("dimension-entry-")+std::to_string(reverse)+std::to_string(finish)+".prtz");part.save(path);
@@ -3780,6 +3882,30 @@ int verify_sketch_dimension_entry_ui(QApplication& application,const std::filesy
                 throw std::runtime_error("Dimension candidate missing: "+key);
             };
             auto* action=window.findChild<QAction*>("sketchUniversalDimensionAction");check(action&&action->isEnabled(),"Dimension command unavailable");
+            // A point remains the first offer even after an angular direction
+            // has been selected. RMB still reaches its owning line.
+            action->trigger();flush();click(find("segment:"+sketch.segments.front().id));
+            const auto endpoint=[&] {
+                // Require an actual overlap: a point marker can also be hit
+                // from outside the narrower curve-wire tolerance.
+                for(int y=20;y<view->height()-20;y+=2)for(int x=20;x<view->width()-20;x+=2) {
+                    const auto offered=view->selection_candidates_at(QPointF(x,y));
+                    if(!offered.empty()&&offered.front().semantic_key=="point:"+other_point&&
+                        std::ranges::any_of(offered,[&](const auto& c){return c.semantic_key=="segment:"+other_line;}))return QPointF(x,y);
+                }
+                throw std::runtime_error("Dimension entry does not prioritize an overlapping endpoint");
+            }();
+            mouse(endpoint,QEvent::MouseMove,Qt::NoButton);
+            check(view->hovered_candidate()&&view->hovered_candidate()->semantic_key=="point:"+other_point,"Dimension entry offers a line before its endpoint");
+            bool cycled_to_line=false;
+            for(int cycle=0;cycle<12&&!cycled_to_line;++cycle) {
+                mouse(endpoint,QEvent::MouseButtonPress,Qt::RightButton);mouse(endpoint,QEvent::MouseButtonRelease,Qt::RightButton);
+                cycled_to_line=view->hovered_candidate()&&view->hovered_candidate()->semantic_key=="segment:"+other_line;
+            }
+            check(cycled_to_line,"Point priority prevents RMB cycling to the line");
+            window.findChild<QAction*>("sketchSegmentAction")->trigger();flush();
+            mouse(endpoint+QPointF(1,0),QEvent::MouseMove,Qt::NoButton);
+            check(view->hovered_candidate()&&view->hovered_candidate()->semantic_key=="point:"+other_point,"Geometry entry offers a line before its endpoint");
             action->trigger();flush();click(find("point:"+(reverse?second:first)));click(find("point:"+(reverse?first:second)));
             std::optional<QPointF> placement;
             for(int y=40;y<view->height()-40&&!placement;y+=8)for(int x=40;x<view->width()-40;x+=8) {
@@ -3787,7 +3913,12 @@ int verify_sketch_dimension_entry_ui(QApplication& application,const std::filesy
                 const auto p=sketch.intersect_ray(ray->first,ray->second);
                 if(p&&(*p)[0]>16&&(*p)[0]<28&&(*p)[1]>22&&(*p)[1]<35&&view->selection_candidates_at(QPointF(x,y)).empty()){placement=QPointF(x,y);break;}
             }
-            check(placement.has_value(),"No empty position for horizontal dimension");click(*placement);
+            check(placement.has_value(),"No empty position for horizontal dimension");
+            mouse(*placement,QEvent::MouseMove,Qt::NoButton);const auto initial_presentation=view->grabFramebuffer();
+            mouse(*placement,QEvent::MouseButtonPress,Qt::RightButton);mouse(*placement,QEvent::MouseButtonRelease,Qt::RightButton);
+            check(view->grabFramebuffer()!=initial_presentation,"Empty-space RMB no longer changes the pending dimension presentation");
+            mouse(*placement,QEvent::MouseButtonPress,Qt::RightButton);mouse(*placement,QEvent::MouseButtonRelease,Qt::RightButton);
+            click(*placement);
             check(view->mesh().dimensions.size()==1&&std::abs(view->mesh().dimensions.front().value-20)<1e-7,"Created point distance has wrong magnitude");
             const auto key=view->mesh().dimensions.front().reference.semantic_key;
             if(finish) {
@@ -3847,6 +3978,133 @@ int verify_sketch_dimension_entry_ui(QApplication& application,const std::filesy
         if(reference!=0)check(std::abs(sketch.find_point(b)->x-30)<1e-7,"Origin/axis Properties edit did not reverse the point's side");
         }
         std::cout<<"Sketch dimension creation/editing, MMB finish, signed direction and arithmetic input passed\n";return 0;
+    }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
+}
+
+int verify_sketch_arc_direction_ui(QApplication& application,const std::filesystem::path& directory) {
+    using namespace zima;
+    int shape{},flips{};
+    try {
+        const auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
+        const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
+        for(shape=0;shape<3;++shape)for(flips=0;flips<3;++flips) {
+            auto part=document::PartDocument::create_default();auto feature=document::PartDocument::create_sketch_container();
+            auto sketch=sketcher::Sketch::create_default();sketch.owner_container_id=feature.id;
+            const bool ellipse=shape!=0,negative_minor=shape==2;
+            const std::array<double,2> center{12,22},start=ellipse?std::array{24.,30.}:std::array{12.,10.},end=ellipse?std::array{-4.,28.}:std::array{24.,22.};
+            const auto fixed=[&](std::array<double,2> p){const auto id=sketch.add_point(p[0],p[1]);std::ranges::find(sketch.points,id,&sketcher::SketchPoint::id)->fixed=true;return id;};
+            const auto center_id=fixed(center),start_id=fixed(start),end_id=fixed(end);
+            fixed({-30,-20});fixed({40,40});
+            const std::array<double,2> major{32,22},minor{12,negative_minor?12.:32.};
+            if(ellipse){fixed(major);fixed(minor);}
+            part.history={feature};part.sketches={sketch};document::BodyHistoryGraph graph;
+            const auto body=graph.create_body("Arc direction");graph.insert({document::PartHistoryKind::Feature,feature.id});part.set_body_history(graph);part.resolve_constructions();
+            const auto path=directory/("arc-direction-"+std::to_string(shape)+"-"+std::to_string(flips)+".prtz");part.save(path);
+            app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));window.resize(1200,900);window.show();
+            check(window.open_document_path(QString::fromStdString(path.string())),"Arc fixture failed to open");flush();
+            check(activate_test_body(application,window,body),"Arc fixture Body unavailable");flush();
+            auto* tree=window.findChild<QTreeWidget*>("documentTree");QTreeWidgetItem* row{};
+            for(QTreeWidgetItemIterator i(tree);*i;++i)if((*i)->data(0,Qt::UserRole).toString().toStdString()==sketch.id&&(*i)->data(0,Qt::UserRole+3)=="part-sketch"){row=*i;break;}
+            check(row,"Arc Sketch row missing");window.show_tree_item_properties(row);flush();window.findChild<QPushButton*>("sketchOpenButton")->click();flush();
+            QEventLoop animation;QTimer::singleShot(950,&animation,&QEventLoop::quit);animation.exec();
+            auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>());check(view,"Arc View missing");
+            const auto local=[&](QPointF p){const auto ray=view->ray_at(p);check(ray.has_value(),"Arc camera ray missing");const auto q=sketch.intersect_ray(ray->first,ray->second);check(q.has_value(),"Arc camera not facing Sketch");return *q;};
+            const auto a=local({0,0}),b=local({100,0}),c=local({0,100});
+            const double ux=(b[0]-a[0])/100,uy=(b[1]-a[1])/100,vx=(c[0]-a[0])/100,vy=(c[1]-a[1])/100,det=ux*vy-uy*vx;
+            const auto screen=[&](std::array<double,2> p){return QPointF(((p[0]-a[0])*vy-(p[1]-a[1])*vx)/det,(ux*(p[1]-a[1])-uy*(p[0]-a[0]))/det);};
+            const auto mouse=[&](QPointF p,QEvent::Type type,Qt::MouseButton button){QMouseEvent event(type,p,QPointF(view->mapToGlobal(p.toPoint())),button,type==QEvent::MouseButtonPress?button:Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(view,&event);flush();};
+            const auto click=[&](std::array<double,2> p,Qt::MouseButton button=Qt::LeftButton){const auto screen_point=screen(p);mouse(screen_point,QEvent::MouseMove,Qt::NoButton);mouse(screen_point,QEvent::MouseButtonPress,button);mouse(screen_point,QEvent::MouseButtonRelease,button);};
+            auto* action=window.findChild<QAction*>(ellipse?"sketchEllipticalArcAction":"sketchArcAction");check(action&&action->isEnabled(),"Arc command unavailable");action->trigger();flush();
+            click(center);if(ellipse){click(major);click(minor);}click(start);
+            const std::array<double,2> free{32,35};mouse(screen(free),QEvent::MouseMove,Qt::NoButton);
+            check(!view->hovered_candidate(),"Arc direction gesture fixture has a candidate");
+            for(int i=0;i<flips;++i) {
+                const auto before=view->grabFramebuffer();
+                mouse(screen(free),QEvent::MouseButtonPress,Qt::RightButton);mouse(screen(free),QEvent::MouseButtonRelease,Qt::RightButton);
+                check(before!=view->grabFramebuffer(),"Arc direction did not update the stationary preview");
+            }
+            // A rejected zero-sweep endpoint must not poison the next click.
+            if(shape==0&&flips==1)click(start);
+            click(end);
+            const auto kind=ellipse?std::string("elliptical_arc:"):std::string("arc:");
+            const auto count=std::ranges::count_if(view->mesh().edges,[&](const auto& edge){return edge.reference.owner_id==sketch.id&&edge.reference.semantic_key.starts_with(kind);});
+            check(count==1,"Arc endpoint was not committed after direction switching");
+            window.findChild<QAction*>("finishSketchAction")->trigger();flush();
+            app::SketchPropertiesDialog* properties{};for(auto* dialog:window.findChildren<QDialog*>())if(auto* p=dynamic_cast<app::SketchPropertiesDialog*>(dialog);p&&p->isVisible())properties=p;
+            check(properties,"Arc test did not return to Sketch Properties");const auto result=properties->pending_value().first;result.validate();
+            const bool swapped=flips%2!=0,clockwise=negative_minor!=swapped;
+            const auto verify_arc=[&](const auto& arc,double sweep) {
+                check(arc.center_point_id==center_id&&arc.start_point_id==(swapped?end_id:start_id)&&arc.end_point_id==(swapped?start_id:end_id),"Arc reversal reassigned the user's point references");
+                check(std::abs(sweep-(clockwise?1.5:.5)*3.14159265358979323846)<1e-7,"Arc committed the opposite sweep from the selected direction");
+            };
+            if(ellipse){check(result.elliptical_arcs.size()==1,"Elliptical arc missing");const auto& arc=result.elliptical_arcs.front();verify_arc(arc,arc.end_parameter-arc.start_parameter);}
+            else {check(result.arcs.size()==1,"Circular arc missing");const auto& arc=result.arcs.front();verify_arc(arc,arc.end_angle-arc.start_angle);}
+            for(const auto& point:sketch.points){const auto* p=result.find_point(point.id);check(p&&std::hypot(p->x-point.x,p->y-point.y)<1e-7,"Arc direction changed a fixed source point");}
+            properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+            const auto loaded=document::PartDocument::load(path);loaded.sketches.front().validate();
+            check(loaded.sketches.front().arcs==result.arcs&&loaded.sketches.front().elliptical_arcs==result.elliptical_arcs,"Arc direction did not survive save/reopen");
+        }
+        std::cout<<"Circular/elliptical arc RMB reversal, both ellipse-axis orientations, repeated flips, endpoint references and native persistence passed\n";return 0;
+    }catch(const std::exception& error){std::cerr<<"Arc shape="<<shape<<", flips="<<flips<<": "<<error.what()<<'\n';return 1;}
+}
+
+int verify_sketch_endpoint_priority_ui(QApplication& application,const std::filesystem::path& directory) {
+    using namespace zima;
+    try {
+        const auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
+        const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
+        // Both C cases put the proposed new segment midpoint near the X axis.
+        // The final case removes endpoint contact while retaining that M offer.
+        for(int kind:{0,1,2}) {
+            auto part=document::PartDocument::create_default();auto feature=document::PartDocument::create_sketch_container();
+            auto sketch=sketcher::Sketch::create_default();sketch.owner_container_id=feature.id;
+            const auto support=kind==1?sketch.add_circle(15,4,20):sketch.add_segment(-40,kind==2?35:20,40,kind==2?35:20);
+            const auto start=sketch.add_point(7,-19.5);
+            part.history={feature};part.sketches={sketch};document::BodyHistoryGraph graph;
+            const auto body=graph.create_body("Endpoint priority");graph.insert({document::PartHistoryKind::Feature,feature.id});part.set_body_history(graph);part.resolve_constructions();
+            const auto path=directory/("endpoint-priority-"+std::to_string(kind)+".prtz");part.save(path);
+            app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));window.resize(1200,900);window.show();
+            check(window.open_document_path(QString::fromStdString(path.string())),"Endpoint fixture failed to open");flush();
+            check(activate_test_body(application,window,body),"Endpoint fixture Body unavailable");flush();
+            auto* tree=window.findChild<QTreeWidget*>("documentTree");QTreeWidgetItem* row{};
+            for(QTreeWidgetItemIterator i(tree);*i;++i)if((*i)->data(0,Qt::UserRole).toString().toStdString()==sketch.id&&(*i)->data(0,Qt::UserRole+3)=="part-sketch"){row=*i;break;}
+            check(row,"Endpoint Sketch row missing");window.show_tree_item_properties(row);flush();
+            window.findChild<QPushButton*>("sketchOpenButton")->click();flush();
+            QEventLoop animation;QTimer::singleShot(950,&animation,&QEventLoop::quit);animation.exec();
+            auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>());check(view,"Endpoint View missing");
+            const auto local=[&](QPointF p){const auto ray=view->ray_at(p);check(ray.has_value(),"Endpoint camera ray missing");const auto q=sketch.intersect_ray(ray->first,ray->second);check(q.has_value(),"Endpoint camera not facing Sketch");return *q;};
+            const auto a=local({0,0}),b=local({100,0}),c=local({0,100});
+            const double ux=(b[0]-a[0])/100,uy=(b[1]-a[1])/100,vx=(c[0]-a[0])/100,vy=(c[1]-a[1])/100,det=ux*vy-uy*vx;
+            const auto screen=[&](double x,double y){return QPointF(((x-a[0])*vy-(y-a[1])*vx)/det,(ux*(y-a[1])-uy*(x-a[0]))/det);};
+            const auto mouse=[&](QPointF p,QEvent::Type type,Qt::MouseButton button){QMouseEvent event(type,p,QPointF(view->mapToGlobal(p.toPoint())),button,type==QEvent::MouseButtonPress?button:Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(view,&event);flush();};
+            const auto click=[&](QPointF p){mouse(p,QEvent::MouseMove,Qt::NoButton);mouse(p,QEvent::MouseButtonPress,Qt::LeftButton);mouse(p,QEvent::MouseButtonRelease,Qt::LeftButton);};
+            auto* action=window.findChild<QAction*>("sketchSegmentAction");check(action&&action->isEnabled(),"Endpoint Segment command unavailable");action->trigger();flush();
+            click(screen(7,-19.5));const auto end=screen(27,kind==2?19.5:20);
+            check(view->rect().contains(end.toPoint()),"Endpoint test cursor lies outside View");
+            mouse(end,QEvent::MouseMove,Qt::NoButton);
+            if(kind<2)check(view->hovered_candidate()&&view->hovered_candidate()->semantic_key==(kind==1?"circle:":"segment:")+support,"Endpoint C was not offered by common picker");
+            else check(!view->hovered_candidate(),"Free M case unexpectedly has an endpoint candidate");
+            // Compare only the midpoint label region before/after removing
+            // labels. Geometry, cursor and the real C label remain unchanged.
+            const auto before=view->grabFramebuffer();view->set_transient_labels({});flush();const auto after=view->grabFramebuffer();
+            const double ratio=before.devicePixelRatio();const auto center=screen(17,0);
+            const QRect region(qRound((center.x()+6)*ratio),qRound((center.y()-28)*ratio),qRound(32*ratio),qRound(23*ratio));
+            int changed{};for(int y=region.top();y<=region.bottom();++y)for(int x=region.left();x<=region.right();++x)if(before.valid(x,y)&&before.pixel(x,y)!=after.pixel(x,y))++changed;
+            if(kind<2)check(changed==0,"Endpoint C preview still displays midpoint M");
+            else check(changed>3,"Midpoint M disappeared when no endpoint C exists");
+            click(end);window.findChild<QAction*>("finishSketchAction")->trigger();flush();
+            app::SketchPropertiesDialog* properties{};for(auto* dialog:window.findChildren<QDialog*>())if(auto* p=dynamic_cast<app::SketchPropertiesDialog*>(dialog);p&&p->isVisible())properties=p;
+            check(properties,"Endpoint test did not return to Sketch Properties");const auto result=properties->pending_value().first;
+            const auto& segment=result.segments.back();const auto* endpoint=result.find_point(segment.second_point_id);
+            const double position_tolerance=view->world_tolerance_for_pixels(.01);
+            if(!endpoint||std::abs(endpoint->x-27)>position_tolerance||std::abs(endpoint->y-(kind==2?19.5:20))>position_tolerance)
+                throw std::runtime_error("Confirmed endpoint differs from offered C/M position; case="+std::to_string(kind)+"; end="+(endpoint?std::to_string(endpoint->x)+","+std::to_string(endpoint->y):"missing"));
+            const auto expected=kind==2?sketcher::ConstraintKind::MidpointOnLine:kind==1?sketcher::ConstraintKind::PointOnCircle:sketcher::ConstraintKind::PointOnLine;
+            check(std::ranges::any_of(result.constraints,[&](const auto& constraint){return constraint.kind==expected&&(kind==2?constraint.geometry_id==segment.id:constraint.geometry_id==support);}),"Offered C/M constraint was not committed");
+            if(kind<2)check(std::ranges::none_of(result.constraints,[](const auto& constraint){return constraint.kind==sketcher::ConstraintKind::MidpointOnLine;}),"Endpoint C also committed midpoint M");
+            properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
+        }
+        std::cout<<"Endpoint C precedes new-segment midpoint M in preview and confirmation; M remains available without C\n";return 0;
     }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
 }
 
@@ -5968,6 +6226,8 @@ int verify_startup_contract(
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SURFACE_ONLY")) return verify_surface_profiles_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_DIMENSION_ENTRY_ONLY")) return verify_sketch_dimension_entry_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_COINCIDENT_ONLY")) return verify_sketch_coincident_ui(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_ENDPOINT_PRIORITY_ONLY")) return verify_sketch_endpoint_priority_ui(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_ARC_DIRECTION_ONLY")) return verify_sketch_arc_direction_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_OFFSET_ONLY"))
         return verify_sketch_offset_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_TRIM_ONLY"))

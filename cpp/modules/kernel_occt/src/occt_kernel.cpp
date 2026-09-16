@@ -2097,6 +2097,21 @@ PrimitiveData make_sweep3d_data(
                         const auto plane = surface.Plane();
                         if (std::abs(plane.Axis().Direction().Dot(gp_Dir(normal))) < 1-1e-9 ||
                             plane.Distance(gp_Pnt(location.x,location.y,location.z)) > request.linear_tolerance) continue;
+                        // At a half-turn the two section planes coincide.
+                        // Match the authored section boundary as well as its
+                        // plane, otherwise both caps receive both identities.
+                        BRepExtrema_DistShapeShape distance(station.wire,face);
+                        if(!distance.IsDone()||distance.Value()>request.linear_tolerance)continue;
+                        bool contains_section=true;
+                        for(const auto& edge:station.edges) {
+                            BRepAdaptor_Curve curve(edge);
+                            const auto probe=BRepBuilderAPI_MakeVertex(curve.Value((curve.FirstParameter()+curve.LastParameter())*.5)).Vertex();
+                            BRepExtrema_DistShapeShape probe_distance(probe,face);
+                            if(!probe_distance.IsDone()||probe_distance.Value()>request.linear_tolerance) {
+                                contains_section=false;break;
+                            }
+                        }
+                        if(!contains_section)continue;
                         FaceReference reference{owner_id,key,{}};
                         if (station.circular_cap) {
                             auto geometry = *station.circular_cap;
@@ -2147,6 +2162,35 @@ PrimitiveData make_sweep3d_data(
             builder.AddWire(stations[first].wire);builder.AddWire(stations[last].wire);
             builder.Build();piece=collect(builder);
         } else {
+            // A rigid polygonal section on a circular route has an exact
+            // revolution. Preserve its circular edges (including the R=0
+            // inner collapse of a hem) instead of approximating it by a pipe.
+            // The same authored Sweep identities are collected in either case.
+            bool rigid_arc=false;BRepAdaptor_Curve spine(spine_edges[i]);
+            if(segment.arc_midpoint&&request.sections.size()==2&&request.path_segments.size()==1&&
+                request.sections[0].point_index==0&&request.sections[1].point_index==1&&
+                !profile_wires&&spine.GetType()==GeomAbs_Circle) {
+                const auto* first=std::get_if<ExtrusionRequest::PolygonProfile>(&request.sections[0].profile.outer_profile);
+                const auto* last=std::get_if<ExtrusionRequest::PolygonProfile>(&request.sections[1].profile.outer_profile);
+                if(first&&last&&first->vertices.size()==last->vertices.size()) {
+                    gp_Trsf rotation;rotation.SetRotation(spine.Circle().Axis(),spine.LastParameter()-spine.FirstParameter());
+                    rigid_arc=true;
+                    for(std::size_t n=0;n<first->vertices.size();++n) {
+                        const auto& a=first->vertices[n];const auto& b=last->vertices[n];
+                        if(gp_Pnt(a.x,a.y,a.z).Transformed(rotation).Distance(gp_Pnt(b.x,b.y,b.z))>1e-9)rigid_arc=false;
+                    }
+                    for(std::size_t n=0;n<2;++n) {
+                        const auto& normal=request.sections[n].profile_normal;
+                        if(gp_Vec(normal.x,normal.y,normal.z).Normalized().Dot(tangent(i,n==1))<1-1e-9)rigid_arc=false;
+                    }
+                }
+            }
+            if(rigid_arc) {
+                TopoDS_Shape base=request.make_solid?TopoDS_Shape(BRepBuilderAPI_MakeFace(stations[first_station(i)].wire).Face())
+                    :TopoDS_Shape(stations[first_station(i)].wire);
+                BRepPrimAPI_MakeRevol builder(base,spine.Circle().Axis(),spine.LastParameter()-spine.FirstParameter(),true);
+                builder.Build();piece=collect(builder);
+            } else {
             BRepOffsetAPI_MakePipeShell builder(BRepBuilderAPI_MakeWire(spine_edges[i]).Wire());
             builder.SetMode(false);
             builder.SetTolerance(request.linear_tolerance,request.linear_tolerance,1e-6);
@@ -2156,6 +2200,7 @@ PrimitiveData make_sweep3d_data(
             builder.Build();
             if(request.make_solid&&!builder.MakeSolid())throw std::runtime_error("Sweep nelze uzavřít.");
             piece=collect(builder);
+            }
         }
         if(result.shape.IsNull())result=std::move(piece);
         else {
@@ -6098,9 +6143,14 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                             forward_span, reverse_span, opening
                                 ? std::optional<Vec3>{opening->radial_direction} : std::nullopt, operation.boolean_tolerance, exact_reverse);
                     } else {
+                        if constexpr(std::is_same_v<Child,Sweep3DRequest>) {
+                            validate_sweep3d(value);
+                            return make_sweep3d_data(value,operation.owner_id);
+                        } else {
                         validate_revolution(value);
                         return make_revolution_data(
                             value, operation.owner_id);
+                        }
                     }
                 }, child);
             };

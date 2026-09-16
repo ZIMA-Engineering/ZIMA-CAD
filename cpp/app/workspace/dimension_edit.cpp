@@ -4,6 +4,7 @@
 #include <zima/workspace/component_properties.hpp>
 #include <zima/workspace/holes_operations.hpp>
 #include "workspace_internal.hpp"
+#include <zima/document/bend.hpp>
 #include "../numeric_expression_edit.hpp"
 
 namespace zima::app {
@@ -618,9 +619,15 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
                 }
             }
             if(!changed&&sketch_dimension)for(auto& feature:next.history){
-                zima::document::visit_feature_sketches(feature,[&](auto& data,std::size_t){
+                zima::document::visit_feature_sketches(feature,[&](auto& data,std::size_t stage){
                     auto sketch=zima::sketcher::Sketch::from_serialized(data);if(sketch.id!=candidate.owner_id)return;
-                    edit_sketch(sketch);data=sketch.serialized();changed=true;
+                    edit_sketch(sketch);
+                    if(feature.feature_kind==zima::document::FeatureKind::Bend) {
+                        const auto start=std::ranges::find(next.sketches,feature.bend.sketch_id,&zima::sketcher::Sketch::id);
+                        if(start==next.sketches.end())throw std::runtime_error("Bend start profile is missing.");
+                        zima::document::accept_bend_sketch(feature,*start,stage,std::move(sketch),zima::document::sheet_metal_defaults(next));
+                    } else data=sketch.serialized();
+                    changed=true;
                     construction_dimension_object_id_=feature.id;
                 });
             }

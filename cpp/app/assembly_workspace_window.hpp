@@ -80,6 +80,7 @@ public:
     void show_dimension_layout_properties(const zima::viewer::ViewerCandidate&);
     void commit_dimension_layout(const zima::kernel::EdgeReference&,zima::kernel::DimensionLayout);
     void update_assembly_dimension_visibility();
+    void update_bend_view_action();
     void show_parameter_dimensions(const std::string& owner_id,
         const std::string& component = {});
     // Exposed for regression coverage of nested Assembly occurrence
@@ -806,7 +807,7 @@ private:
     [[nodiscard]] bool accept_origin_reference_value(
         const QString& owner_id, const QString& instance_path,
         const QString& semantic_key);
-    void show_sketch_properties(const std::string& sketch_id = {}, bool holes_mode = false, bool bend_mode = false);
+    void show_sketch_properties(const std::string& sketch_id = {}, bool holes_mode = false, bool bend_mode = false, bool flat_mode = false);
     void show_sweep_profile_sketch(
         ConstructionPropertiesDialog* sweep_dialog,
         std::size_t profile_index);

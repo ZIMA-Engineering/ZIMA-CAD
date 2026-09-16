@@ -1,5 +1,6 @@
 #include "workspace_internal.hpp"
 #include <zima/workspace/model_dimension_layout_operations.hpp>
+#include <zima/workspace/bend_operations.hpp>
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -101,6 +102,37 @@ void AssemblyWorkspaceWindow::show_parameter_dimensions(
     }
     state_->setText(tr(
         "Parametrické kóty jsou zobrazené. Dvojklikem na kótu upravíte hodnotu."));
+}
+
+void AssemblyWorkspaceWindow::update_bend_view_action() {
+    if(!viewer_)return;
+    auto* button=viewer_->findChild<QPushButton*>("bendViewStateButton",Qt::FindDirectChildrenOnly);
+    const auto* part=workspace_.open_part(workspace_.active_document_id());
+    const auto* feature=part?part->session.document().find_container(construction_dimension_object_id_):nullptr;
+    const bool visible=feature&&feature->feature_kind==zima::document::FeatureKind::Bend&&
+        !feature->suppressed&&!properties_dialog_&&active_sketch_id_.empty();
+    if(!visible){if(button)button->hide();return;}
+    if(!button) {
+        button=new QPushButton(viewer_);button->setObjectName("bendViewStateButton");
+        button->setCursor(Qt::PointingHandCursor);
+        connect(button,&QPushButton::clicked,this,[this] {
+            if(properties_dialog_||!active_sketch_id_.empty())return;
+            const auto id=workspace_.active_document_id();auto* state=workspace_.open_part(id);
+            const auto* stored=state?state->session.document().find_container(construction_dimension_object_id_):nullptr;
+            if(!stored||stored->feature_kind!=zima::document::FeatureKind::Bend)return;
+            const auto& sketches=state->session.document().sketches;
+            const auto sketch=std::ranges::find(sketches,stored->bend.sketch_id,&zima::sketcher::Sketch::id);
+            if(sketch==sketches.end())return;
+            try {
+                auto pending=*stored;pending.bend.unbend=!pending.bend.unbend;
+                static_cast<void>(workspace::commit_bend(workspace_,kernel_,id,std::move(pending),*sketch));
+                preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();
+            } catch(const std::exception& error){state_->setText(QString::fromUtf8(error.what()));}
+        });
+    }
+    button->setText(feature->bend.unbend?tr("Ohnout (Bend)"):tr("Rozvinout (Unbend)"));
+    button->setToolTip(QString::fromStdString(feature->name));
+    button->adjustSize();button->move(12,12);button->show();button->raise();
 }
 
 bool AssemblyWorkspaceWindow::is_edge_treatment_feature(

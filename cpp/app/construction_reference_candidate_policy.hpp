@@ -3,13 +3,29 @@
 #include <zima/viewer/picking.hpp>
 
 #include <vector>
+#include <algorithm>
 
 namespace zima::app {
+
+[[nodiscard]] inline bool placement_reference_exists(
+    const zima::viewer::ViewerCandidate& candidate,
+    const zima::kernel::ViewerReferenceGeometry& geometry,
+    const std::string& local_path) {
+    const auto matches=[&](const auto& ref) {
+        return ref.owner_id==candidate.owner_id && ref.semantic_key==candidate.semantic_key &&
+            ref.instance_path==local_path;
+    };
+    return std::ranges::any_of(geometry.points,[&](const auto& p){return matches(p.reference);}) ||
+        std::ranges::any_of(geometry.edges,[&](const auto& e){return matches(e.reference);}) ||
+        std::ranges::any_of(geometry.axes,[&](const auto& a){return matches(a.reference);}) ||
+        std::ranges::any_of(geometry.triangle_references,matches);
+}
 
 [[nodiscard]] inline std::vector<zima::viewer::CandidateKind>
 placement_reference_candidate_kinds() {
     using zima::viewer::CandidateKind;
     return {CandidateKind::Vertex, CandidateKind::Axis, CandidateKind::Edge,
+        CandidateKind::SketchPoint, CandidateKind::SketchSegment, CandidateKind::SketchCurve,
         CandidateKind::Plane, CandidateKind::Face, CandidateKind::Dimension};
 }
 
@@ -25,13 +41,18 @@ placement_reference_candidate_kinds() {
 // entities alongside Document Origin. A calculated Part Body carries the
 // same persisted source identity on every surviving visible Face, Edge and
 // Vertex fragment; those Display candidates are stable rather than anonymous
-// OCCT result topology. Persisted original edges are admitted as well: linear edges define an
-// axis directly and closed planar circle/ellipse edges define their normal
-// axis through the curve centre. Result-body/transient edges remain barred.
+// OCCT result topology. Persisted original curves constrain the origin to their
+// locus and supply the tangent at that location. Centers and axes are selected
+// explicitly. Result-body/transient edges remain barred.
 [[nodiscard]] inline bool placement_reference_candidate_has_stable_geometry(
     const zima::viewer::ViewerCandidate& candidate) {
     using zima::viewer::CandidateGeometry;
     using zima::viewer::CandidateKind;
+    if ((candidate.geometry == CandidateGeometry::Display ||
+         candidate.geometry == CandidateGeometry::OriginalReference) &&
+        (candidate.kind == CandidateKind::SketchPoint ||
+         candidate.kind == CandidateKind::SketchSegment || candidate.kind == CandidateKind::SketchCurve))
+        return !candidate.owner_id.empty() && !candidate.semantic_key.empty();
     if (candidate.geometry == CandidateGeometry::Display) {
         return ((candidate.kind == CandidateKind::Face ||
                  candidate.kind == CandidateKind::Edge ||
@@ -66,6 +87,8 @@ placement_reference_candidate_kinds() {
     if (!placement_reference_candidate_has_stable_geometry(candidate))
         return false;
     return candidate.kind == CandidateKind::Vertex ||
+        candidate.kind == CandidateKind::SketchPoint ||
+        candidate.kind == CandidateKind::SketchSegment || candidate.kind == CandidateKind::SketchCurve ||
         candidate.kind == CandidateKind::Axis ||
         candidate.kind == CandidateKind::Edge ||
         candidate.kind == CandidateKind::Plane ||

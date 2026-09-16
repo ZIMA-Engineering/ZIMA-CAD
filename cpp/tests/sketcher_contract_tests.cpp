@@ -25,6 +25,120 @@ int main() {
     try {
         using zima::sketcher::DimensionKind;
         {
+            // 01.prtz: arc start at the origin, centre sliding on Y, and an
+            // angular driver on its construction radius. Both edits are feasible.
+            auto sketch = zima::sketcher::Sketch::create_default();
+            constexpr double radius = 1.7735391839808474;
+            const auto arc_id = sketch.add_arc(0., -radius, 0., 0.,
+                -1.5655290208331833, -0.9401364469775759);
+            const auto arc = sketch.arcs.front();
+            static_cast<void>(sketch.add_point_on_line_constraint(
+                arc.center_point_id, "sketch_axis:y"));
+            static_cast<void>(sketch.add_point_reference_constraint(
+                arc.start_point_id, "sketch_origin"));
+            auto radial = zima::sketcher::Sketch::create_segment(
+                arc.center_point_id, arc.end_point_id);
+            radial.construction = true;
+            sketch.segments.push_back(radial);
+            auto angle = sketch.create_line_pair_dimension(
+                "sketch_axis:y", radial.id, DimensionKind::AngleBetween);
+            angle.value = -angle.value;
+            angle.angle_sector = 0;
+            angle.angle_presentation_reversed = true;
+            sketch.apply_dimension(angle);
+            const auto radial_dimension = sketch.create_arc_radius_dimension(arc_id);
+            sketch.apply_dimension(radial_dimension);
+            auto angular_edit = sketch;
+            auto radius_edit = sketch;
+            const bool angle_ok = angular_edit.set_dimension_value(angle.id, -90.);
+            const bool radius_ok = radius_edit.set_dimension_value(radial_dimension.id, 3.);
+            if (!angle_ok || !radius_ok) {
+                throw std::runtime_error("Origin-supported arc edits failed: angle=" +
+                    std::to_string(angle_ok) + ", radius=" + std::to_string(radius_ok));
+            }
+            for (bool anchored_end : {false, true}) {
+                for (bool rotated : {false, true}) for (bool reversed_arm : {false, true}) {
+                    for (bool fixed_anchor : {false, true}) for (bool diameter : {false, true}) {
+                        auto s = zima::sketcher::Sketch::create_default();
+                        const auto transform = [&](double x, double y) {
+                            if (anchored_end) x = -x;
+                            return rotated ? std::array{-y, x} : std::array{x, y};
+                        };
+                        const auto c = transform(0., -radius);
+                        const auto e = transform(-1.5655290208331833, -0.9401364469775759);
+                        const auto id = s.add_arc(c[0], c[1], 0., 0., e[0], e[1],
+                            false, 1e-6, anchored_end);
+                        const auto a = s.arcs.front();
+                        const auto anchor_id = anchored_end ? a.end_point_id : a.start_point_id;
+                        const auto free_id = anchored_end ? a.start_point_id : a.end_point_id;
+                        const std::string axis = rotated ? "sketch_axis:x" : "sketch_axis:y";
+                        static_cast<void>(s.add_point_on_line_constraint(a.center_point_id, axis));
+                        if (fixed_anchor) s.set_point_fixed(anchor_id, true);
+                        else static_cast<void>(s.add_point_reference_constraint(anchor_id, "sketch_origin"));
+                        auto arm = zima::sketcher::Sketch::create_segment(
+                            reversed_arm ? free_id : a.center_point_id,
+                            reversed_arm ? a.center_point_id : free_id);
+                        arm.construction = true;
+                        s.segments.push_back(arm);
+                        auto angular = s.create_line_pair_dimension(axis, arm.id, DimensionKind::AngleBetween);
+                        s.apply_dimension(angular);
+                        auto size = diameter ? s.create_arc_diameter_dimension(id)
+                                             : s.create_arc_radius_dimension(id);
+                        s.apply_dimension(size);
+                        const auto verify = [&](double expected_radius, double expected_angle) {
+                            s.validate();
+                            const auto solved = s.solve();
+                            require(solved.status != zima::sketcher::SolveStatus::Conflicting &&
+                                solved.status != zima::sketcher::SolveStatus::Invalid &&
+                                solved.maximum_residual < 1e-7,
+                                "Arc dimension edit left an unsatisfied constraint");
+                            const auto* anchor = s.find_point(anchor_id);
+                            const auto* center = s.find_point(a.center_point_id);
+                            require(std::hypot(anchor->x, anchor->y) < 1e-8 &&
+                                std::abs(rotated ? center->y : center->x) < 1e-8 &&
+                                std::abs(s.arcs.front().radius - expected_radius) < 1e-8,
+                                "Arc edit moved its anchor, left its support, or lost its radius");
+                            const auto* first = s.find_point(arm.first_point_id);
+                            const auto* second = s.find_point(arm.second_point_id);
+                            const double dx = second->x-first->x, dy = second->y-first->y;
+                            const double measured = std::acos(std::clamp(
+                                (rotated ? dx : dy)/std::hypot(dx,dy), -1., 1.)) *
+                                180./std::numbers::pi;
+                            require(std::abs(measured-expected_angle) < 1e-7,
+                                "Arc construction arm did not reach its requested angle");
+                            const auto reopened = zima::sketcher::Sketch::from_serialized(s.serialized());
+                            require(reopened.points == s.points && reopened.arcs == s.arcs &&
+                                reopened.dimensions == s.dimensions && reopened.constraints == s.constraints &&
+                                reopened.viewer_mesh().dimensions.size() == 2,
+                                "Edited arc did not preserve geometry and dimensions after reopening");
+                        };
+                        for (const double target : {30., 90., 120., 175., 61.971584229235674}) {
+                            require(s.set_dimension_value(angular.id, target),
+                                "Anchored arc construction arm rejected a feasible angle edit");
+                            verify(s.arcs.front().radius, target);
+                            for (const double target_radius : {3., .5, 10., radius}) {
+                                require(s.set_dimension_value(size.id, target_radius*(diameter ? 2. : 1.)),
+                                    "Anchored arc rejected a feasible radius or diameter edit");
+                                verify(target_radius, target);
+                            }
+                        }
+                        auto blocked = s;
+                        blocked.find_point(a.center_point_id)->fixed = true;
+                        const auto before = blocked.serialized();
+                        require(!blocked.set_dimension_value(size.id, 4.*(diameter ? 2. : 1.)) &&
+                            blocked.serialized() == before,
+                            "Rejected radius edit moved a fixed centre or changed the sketch");
+                        blocked = s;
+                        blocked.find_point(free_id)->fixed = true;
+                        const auto angular_before = blocked.serialized();
+                        require(!blocked.set_dimension_value(angular.id, 45.) &&
+                            blocked.serialized() == angular_before,
+                            "Rejected angular edit moved a fixed endpoint or changed the sketch");
+                    }
+                }
+            }
+        }
+        {
             // An axis-supported rectangle must resize in either direction.
             // Sliding one endpoint must respect its horizontal/vertical group.
             using zima::sketcher::ConstraintKind;
@@ -1317,7 +1431,7 @@ int main() {
                     stress_result.maximum_residual < 1.0e-7 &&
                     stress_elapsed < std::chrono::seconds(2),
                 "Solver stress matrix was slow, inaccurate, or reported wrong DOF");
-        // All native Sketch curve types share the construction presentation contract.
+        // Auxiliary curves are dashed; the separate construction centerline is dash-dot.
         auto auxiliary_curves = zima::sketcher::Sketch::create_default();
         const std::vector<std::string> auxiliary_curve_ids{
             auxiliary_curves.add_segment(0, 0, 10, 0),
@@ -1335,11 +1449,11 @@ int main() {
         require(auxiliary_edges.size() == auxiliary_curve_ids.size(),
                 "Construction conversion changed the number of sketch curves");
         for (std::size_t i = 0; i < auxiliary_edges.size(); ++i) {
-            require(auxiliary_edges[i].construction && auxiliary_edges[i].dash_dot &&
+            require(auxiliary_edges[i].construction && !auxiliary_edges[i].dash_dot &&
                         !auxiliary_edges[i].infinite &&
                         auxiliary_edges[i].reference == auxiliary_edges_before[i].reference &&
                         auxiliary_edges[i].points == auxiliary_edges_before[i].points,
-                    "Construction curve lost its finite shape, identity, or dash-dot style");
+                    "Auxiliary curve lost its finite shape, identity, or dashed style");
         }
         for (const auto& curve_id : auxiliary_curve_ids)
             auxiliary_curves.set_geometry_construction(curve_id, false);
@@ -1369,7 +1483,7 @@ int main() {
                     auxiliary_circle.points == auxiliary_before.points &&
                     auxiliary_circle.dimensions == auxiliary_before.dimensions &&
                     auxiliary_circle.constraints == auxiliary_before.constraints &&
-                    auxiliary_mesh.edges.front().construction && auxiliary_mesh.edges.front().dash_dot,
+                    auxiliary_mesh.edges.front().construction && !auxiliary_mesh.edges.front().dash_dot,
                 "Construction circle styling changed its geometry, dimensions, or constraints");
         auto auxiliary_loaded = zima::sketcher::Sketch::from_serialized(auxiliary_circle.serialized());
         require(auxiliary_loaded.circles.front().construction &&

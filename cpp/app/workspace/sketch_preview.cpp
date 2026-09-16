@@ -3,6 +3,13 @@
 namespace zima::app {
 using namespace workspace_detail;
 
+namespace {
+bool ellipse_axes_reversed(const std::array<double,2>& center,
+        const std::array<double,2>& major,const std::array<double,2>& minor) {
+    return (major[0]-center[0])*(minor[1]-center[1]) -
+        (major[1]-center[1])*(minor[0]-center[0]) < 0;
+}
+}
 
 void AssemblyWorkspaceWindow::preview_sketch_segment_ray(
     const zima::kernel::Vec3& origin, const zima::kernel::Vec3& direction) {
@@ -112,6 +119,20 @@ void AssemblyWorkspaceWindow::preview_sketch_segment_ray(
             endpoint_snap = sketch_candidate_snap_ray(
                 *candidate, origin, direction);
         }
+    }
+    if (endpoint_snap || pending_sketch_snap_kind_) {
+        // The common picker's endpoint contact owns this position. Match
+        // confirmation: midpoint M and other free-end inferences cannot move
+        // a C endpoint or survive as labels for constraints we will not save.
+        inference.position = *position;
+        inference.kind.reset();
+        inference.reference_point_id.clear();
+        inference.equal_length_reference_id.clear();
+        inference.symmetry_axis_id.clear();
+        inference.tangent_reference_id.clear();
+        inference.perpendicular_reference_id.clear();
+        inference.parallel_reference_id.clear();
+        inference.midpoint_line_reference_id.clear();
     }
     if (endpoint_snap && endpoint_snap->relation ==
             zima::sketcher::ConstraintKind::PointOnLine &&
@@ -1213,7 +1234,10 @@ bool AssemblyWorkspaceWindow::accept_sketch_arc_ray(
     const std::array projected_end{
         (*pending_arc_center_)[0] + radius * end_dx / end_length,
         (*pending_arc_center_)[1] + radius * end_dy / end_length};
-    pending_curve_point_snaps_.push_back({
+    // Only the accepted center/start belong to pending input. A failed final
+    // click must not leave an endpoint snap behind for the next attempt.
+    auto point_snaps = pending_curve_point_snaps_;
+    point_snaps.push_back({
         std::exchange(pending_sketch_snap_geometry_id_, {}),
         std::exchange(pending_sketch_snap_kind_, std::nullopt)});
     try {
@@ -1226,14 +1250,16 @@ bool AssemblyWorkspaceWindow::accept_sketch_arc_ray(
                 const auto arc = std::ranges::find_if(target.arcs,
                     [&](const auto& value) { return value.id == arc_id; });
                 if (arc == target.arcs.end()) return;
+                // Circular arcs are stored counterclockwise. add_arc swaps
+                // endpoints for clockwise input; bind snaps in click order.
                 const std::array point_ids{arc->center_point_id,
-                    arc->start_point_id, arc->end_point_id};
+                    sketch_arc_clockwise_ ? arc->end_point_id : arc->start_point_id,
+                    sketch_arc_clockwise_ ? arc->start_point_id : arc->end_point_id};
                 for (std::size_t index = 0;
                      index < point_ids.size() &&
-                         index < pending_curve_point_snaps_.size(); ++index) {
+                         index < point_snaps.size(); ++index) {
                     apply_sketch_point_snap(target, point_ids[index],
-                        pending_curve_point_snaps_[index].first,
-                        pending_curve_point_snaps_[index].second);
+                        point_snaps[index].first, point_snaps[index].second);
                 }
             })) return true;
         pending_arc_center_.reset();
@@ -1456,20 +1482,9 @@ bool AssemblyWorkspaceWindow::accept_sketch_elliptical_arc_ray(
         pending_curve_point_snaps_.push_back({
             std::exchange(pending_sketch_snap_geometry_id_, {}),
             std::exchange(pending_sketch_snap_kind_, std::nullopt)});
-        const double major_x =
-            (*pending_elliptical_arc_major_)[0] -
-            (*pending_elliptical_arc_center_)[0];
-        const double major_y =
-            (*pending_elliptical_arc_major_)[1] -
-            (*pending_elliptical_arc_center_)[1];
-        const double minor_x =
-            (*pending_elliptical_arc_minor_)[0] -
-            (*pending_elliptical_arc_center_)[0];
-        const double minor_y =
-            (*pending_elliptical_arc_minor_)[1] -
-            (*pending_elliptical_arc_center_)[1];
-        pending_elliptical_arc_reversed_ =
-            major_x * minor_y - major_y * minor_x < 0.0;
+        pending_elliptical_arc_reversed_ = ellipse_axes_reversed(
+            *pending_elliptical_arc_center_, *pending_elliptical_arc_major_,
+            *pending_elliptical_arc_minor_);
         state_->setText(tr(
             "Eliptický oblouk: určete počáteční bod na elipse."));
         return true;
@@ -1492,8 +1507,8 @@ bool AssemblyWorkspaceWindow::accept_sketch_elliptical_arc_ray(
             std::exchange(pending_sketch_snap_geometry_id_, {}),
             std::exchange(pending_sketch_snap_kind_, std::nullopt)});
         state_->setText(pending_elliptical_arc_reversed_
-            ? tr("Eliptický oblouk: určete koncový bod ve směru hodinových ručiček.")
-            : tr("Eliptický oblouk: určete koncový bod proti směru hodinových ručiček."));
+            ? tr("Eliptický oblouk: určete koncový bod ve směru hodinových ručiček; RMB přepíná směr.")
+            : tr("Eliptický oblouk: určete koncový bod proti směru hodinových ručiček; RMB přepíná směr."));
         return true;
     }
     if (std::hypot(
@@ -1504,9 +1519,18 @@ bool AssemblyWorkspaceWindow::accept_sketch_elliptical_arc_ray(
             "Počáteční a koncový bod eliptického oblouku musí být odlišné."));
         return true;
     }
-    pending_curve_point_snaps_.push_back({
+    auto point_snaps = pending_curve_point_snaps_;
+    point_snaps.push_back({
         std::exchange(pending_sketch_snap_geometry_id_, {}),
         std::exchange(pending_sketch_snap_kind_, std::nullopt)});
+    // Keep both authored semi-axis points and their references unchanged.
+    // A direction change selects the complementary interval in that frame.
+    const bool axes_reversed = ellipse_axes_reversed(
+        *pending_elliptical_arc_center_, *pending_elliptical_arc_major_,
+        *pending_elliptical_arc_minor_);
+    const bool swap_ends = axes_reversed != pending_elliptical_arc_reversed_;
+    const auto arc_start = swap_ends ? confirmed_position : *pending_elliptical_arc_start_;
+    const auto arc_end = swap_ends ? *pending_elliptical_arc_start_ : confirmed_position;
     try {
         if (!mutate_active_sketch([&](auto& target) {
             const auto arc_id = target.add_elliptical_arc(
@@ -1516,22 +1540,19 @@ bool AssemblyWorkspaceWindow::accept_sketch_elliptical_arc_ray(
             (*pending_elliptical_arc_major_)[1],
             (*pending_elliptical_arc_minor_)[0],
             (*pending_elliptical_arc_minor_)[1],
-            (*pending_elliptical_arc_start_)[0],
-            (*pending_elliptical_arc_start_)[1],
-            confirmed_position[0], confirmed_position[1],
-            pending_elliptical_arc_reversed_);
+            arc_start[0], arc_start[1], arc_end[0], arc_end[1], axes_reversed);
             const auto arc = std::ranges::find_if(target.elliptical_arcs,
                 [&](const auto& value) { return value.id == arc_id; });
             if (arc == target.elliptical_arcs.end()) return;
             const std::array point_ids{arc->center_point_id,
                 arc->major_point_id, arc->minor_point_id,
-                arc->start_point_id, arc->end_point_id};
+                swap_ends ? arc->end_point_id : arc->start_point_id,
+                swap_ends ? arc->start_point_id : arc->end_point_id};
             for (std::size_t index = 0;
                  index < point_ids.size() &&
-                     index < pending_curve_point_snaps_.size(); ++index) {
+                     index < point_snaps.size(); ++index) {
                 apply_sketch_point_snap(target, point_ids[index],
-                    pending_curve_point_snaps_[index].first,
-                    pending_curve_point_snaps_[index].second);
+                    point_snaps[index].first, point_snaps[index].second);
             }
         })) return true;
         pending_elliptical_arc_center_.reset();
@@ -1655,9 +1676,13 @@ void AssemblyWorkspaceWindow::preview_sketch_elliptical_arc_ray(
         return;
     }
     constexpr double full_turn = 2.0 * 3.14159265358979323846;
+    double start_parameter = start->parameter;
     double end_parameter = projected->parameter;
-    while (end_parameter <= start->parameter) end_parameter += full_turn;
-    const double sweep = end_parameter - start->parameter;
+    if (pending_elliptical_arc_reversed_ != ellipse_axes_reversed(
+            *pending_elliptical_arc_center_, *pending_elliptical_arc_major_, minor))
+        std::swap(start_parameter, end_parameter);
+    while (end_parameter <= start_parameter) end_parameter += full_turn;
+    const double sweep = end_parameter - start_parameter;
     if (sweep >= full_turn - 1.0e-12) {
         viewer_->set_transient_edges(std::move(preview));
         return;
@@ -1667,7 +1692,7 @@ void AssemblyWorkspaceWindow::preview_sketch_elliptical_arc_ray(
         static_cast<std::size_t>(std::ceil(192.0 * sweep / full_turn)));
     arc.points.reserve(samples + 1);
     for (std::size_t sample = 0; sample <= samples; ++sample) {
-        const double parameter = start->parameter + sweep *
+        const double parameter = start_parameter + sweep *
             static_cast<double>(sample) / static_cast<double>(samples);
         arc.points.push_back(sketch->world_point(
             (*pending_elliptical_arc_center_)[0] +
