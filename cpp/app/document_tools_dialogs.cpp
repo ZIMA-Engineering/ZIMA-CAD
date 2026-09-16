@@ -492,6 +492,10 @@ void FamilyTableDialog::refresh_references() {
             table_->setSpan(row,c,1,2);
             if(column&&column->binding.kind!="dimension") {
                 auto* combo=new QComboBox(table_);combo->addItem(QString(),QString());
+                // The item retains the canonical yes/no value for persistence.
+                // Cover its text before painting the localized cell editor.
+                combo->setBackgroundRole(QPalette::Base);
+                combo->setAutoFillBackground(true);
                 combo->addItem(settings_.text("dialog.family_table.yes","Yes"),"yes");combo->addItem(settings_.text("dialog.family_table.no","No"),"no");
                 combo->setToolTip(settings_.text("dialog.family_table.inherit","Empty = use the base value"));
                 combo->setCurrentIndex(std::max(0,combo->findData(value)));table_->setCellWidget(row,c,combo);

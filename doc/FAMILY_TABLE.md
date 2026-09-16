@@ -13,6 +13,9 @@ presence and whole independent Body presence are supported. In Assembly, select
 an immediate owned component. A component column refers to that occurrence,
 including when another occurrence uses the same source file.
 
+Presence cells display the localized Yes/No label on an opaque editor background;
+the canonical `yes`/`no` value remains internal and does not paint beneath it.
+
 Double-click a Part feature in View to show its dimensions, then click a dimension
 to bind the active column. Its header uses the existing stable secondary name
 (`d1`, `d2`, …), while the base cell shows the current numeric value. A renamed
