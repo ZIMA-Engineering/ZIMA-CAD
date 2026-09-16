@@ -188,7 +188,7 @@ switch selection after application exit and preserve all shared user data.
 - Build/verify the native Linux dependencies and launcher on the Linux host.
 - Platforms may publish independently. If combined, their commits must match;
   published archives are immutable and adding a platform later requires a new ID.
-- Signed Windows releases through `2026091603` are verified and public
+- Signed Windows releases through `2026091604` are verified and public
   (see below). Future publication remains an explicit release action.
 - Run the updater's Linux execution and desktop acceptance on Linux.
 - Binary rollback does not promise backward compatibility of native documents.
@@ -198,9 +198,24 @@ See [binding requirements](DISTRIBUTION_CLEANUP_PLAN.md) and
 
 ## Windows verification on 2026-09-16
 
+### Signed Windows build 2026091604
+
+This release unifies positive Sketcher distance display and negative-input side
+reversal for ordinary points, the origin and built-in axes. It includes arithmetic
+dimension entry, immediate dimension editing, both Coincident selection orders,
+the first Bend/Unbend command, and Drawing Text/dimension-line refinements.
+
+Clean committed source `3d89418b3253924de2102ea24c6e9312e397056c` supplied the
+candidate and signed archive. Nine targeted native/GUI suites, fourteen packaging
+and publisher tests, both native package smoke runs, production bootstrap trust
+and public update discovery from signed `2026091603` passed. Published asset
+hashes match local acceptance. See
+[release 2026091604](releases/2026091604.md#signed-windows-acceptance) for archive
+identity and verification scope. Development retains root `zima-cad.bat`.
+
 ### Signed Windows build 2026091603
 
-The latest stable Windows release adds Part Sheet Metal defaults and their shared
+This Windows release adds Part Sheet Metal defaults and their shared
 File Settings shortcut. It also includes the application selector, contextual
 Insert menu, Surface Extrusion/Revolution, family variant replacement, historical
 Body measurement and Drawing BOM balloons from the development commits since
