@@ -6,8 +6,16 @@
 #include <unordered_map>
 
 namespace zima::sketcher {
-bool seed_rectilinear_template(Sketch& sketch,const std::vector<std::string>& anchors) {
-    if(!sketch.drawing_template || !sketch.external_references.empty() || sketch.points.empty())return false;
+bool seed_rectilinear_equations(Sketch& sketch,const std::vector<std::string>& anchors) {
+    if(!sketch.external_references.empty() || sketch.points.empty() ||
+       !sketch.circles.empty() || !sketch.arcs.empty() || !sketch.ellipses.empty() ||
+       !sketch.elliptical_arcs.empty() || !sketch.bsplines.empty() ||
+       !sketch.corner_radii.empty() || !sketch.curve_trims.empty() ||
+       !sketch.offsets.empty())return false;
+    // Undimensioned point/line commands retain their existing picked-reference
+    // priority. Coupled dimension equations need the simultaneous solve.
+    if(!sketch.drawing_template && std::ranges::none_of(sketch.dimensions,
+       [](const auto& d){return d.driving&&!d.suppressed;}))return false;
     const std::size_t count=sketch.points.size()*2;
     std::unordered_map<std::string,std::size_t> index;
     std::vector<double> coordinates;coordinates.reserve(count);
@@ -27,18 +35,27 @@ bool seed_rectilinear_template(Sketch& sketch,const std::vector<std::string>& an
     std::vector<Row> rows;std::vector<double> targets;
     const auto add=[&](Row row,double target){rows.push_back(std::move(row));targets.push_back(target);};
     const auto pair=[&](const std::string& a,const std::string& b,int axis,double value)->bool {
-        const auto first=coordinate(a,axis),second=coordinate(b,axis);if(!first||!second)return false;
-        Row row(count);row[*first]=-1;row[*second]+=1;add(std::move(row),value);return true;
+        const auto first=coordinate(a,axis),second=coordinate(b,axis);
+        if((!first&&a!="sketch_origin")||(!second&&b!="sketch_origin"))return false;
+        Row row(count);if(first)row[*first]=-1;if(second)row[*second]+=1;
+        add(std::move(row),value);return true;
     };
     // H/V equivalence is persisted design intent. Current coordinates determine
     // only the existing positive-length branch, never whether a line is constrained.
-    const auto segment_row=[&](const std::string& id)->std::optional<Row> {
-        const auto line=std::ranges::find(sketch.segments,id,&SketchSegment::id);if(line==sketch.segments.end())return {};
-        const auto a=index.at(line->first_point_id)*2,b=index.at(line->second_point_id)*2;
+    const auto distance_row=[&](const std::string& first,const std::string& second)->std::optional<Row> {
+        const auto ai=index.find(first),bi=index.find(second);if(ai==index.end()||bi==index.end())return {};
+        const auto a=ai->second*2,b=bi->second*2;
         int axis;
         if(root(a+1)==root(b+1))axis=0;else if(root(a)==root(b))axis=1;else return {};
         const double delta=coordinates[b+axis]-coordinates[a+axis];if(std::abs(delta)<1e-10)return {};
         const double sign=delta>0?1:-1;Row row(count);row[a+axis]=-sign;row[b+axis]+=sign;return row;
+    };
+    const auto segment_row=[&](const std::string& id)->std::optional<Row> {
+        const auto line=std::ranges::find(sketch.segments,id,&SketchSegment::id);if(line==sketch.segments.end())return {};
+        return distance_row(line->first_point_id,line->second_point_id);
+    };
+    const auto axis_coordinate=[](const std::string& id)->int {
+        return id=="sketch_axis:y"?0:id=="sketch_axis:x"?1:-1;
     };
     for(const auto& c:sketch.constraints)if(!c.suppressed) {
         if(c.kind==ConstraintKind::Horizontal||c.kind==ConstraintKind::Vertical) {
@@ -47,19 +64,37 @@ bool seed_rectilinear_template(Sketch& sketch,const std::vector<std::string>& an
             if(!pair(c.first_point_id,c.second_point_id,0,0)||!pair(c.first_point_id,c.second_point_id,1,0))return false;
         } else if(c.kind==ConstraintKind::PointReference&&c.second_point_id=="sketch_origin") {
             for(int axis=0;axis<2;++axis){const auto i=coordinate(c.first_point_id,axis);if(!i)return false;Row row(count);row[*i]=1;add(std::move(row),0);}
+        } else if(c.kind==ConstraintKind::PointOnLine&&axis_coordinate(c.geometry_id)>=0) {
+            if(!pair("sketch_origin",c.first_point_id,axis_coordinate(c.geometry_id),0))return false;
         } else if(c.kind==ConstraintKind::EqualLength) {
             auto a=segment_row(c.geometry_id),b=segment_row(c.second_geometry_id);if(!a||!b)return false;
             for(std::size_t i=0;i<count;++i)(*a)[i]-=(*b)[i];add(std::move(*a),0);
         } else return false;
     }
+    std::vector<Row> positive_distances;
     for(const auto& d:sketch.dimensions)if(!d.suppressed&&d.driving) {
-        if(d.kind!=DimensionKind::DistanceX&&d.kind!=DimensionKind::DistanceY)return false;
-        const int axis=d.kind==DimensionKind::DistanceX?0:1;
-        if(!d.second_point_id.empty()){if(!pair(d.first_point_id,d.second_point_id,axis,d.value))return false;}
-        else {
-            if(d.geometry_id!=(axis==0?"sketch_axis:y":"sketch_axis:x"))return false;
-            const auto i=coordinate(d.first_point_id,axis);if(!i)return false;Row row(count);row[*i]=1;add(std::move(row),d.value);
-        }
+        if(d.kind==DimensionKind::DistanceX||d.kind==DimensionKind::DistanceY) {
+            const int axis=d.kind==DimensionKind::DistanceX?0:1;
+            if(!d.second_point_id.empty()){if(!pair(d.first_point_id,d.second_point_id,axis,d.value))return false;}
+            else {
+                if(axis_coordinate(d.geometry_id)!=axis ||
+                   !pair("sketch_origin",d.first_point_id,axis,d.value))return false;
+            }
+        } else if(d.kind==DimensionKind::Distance) {
+            auto row=distance_row(d.first_point_id,d.second_point_id);if(!row)return false;
+            positive_distances.push_back(*row);add(std::move(*row),d.value);
+        } else if(d.kind==DimensionKind::DistancePointLine||d.kind==DimensionKind::DistanceLine) {
+            const int axis=axis_coordinate(d.geometry_id);if(axis<0)return false;
+            const double target=d.value*d.solution_side*(axis==0?-1:1);
+            if(d.kind==DimensionKind::DistancePointLine) {
+                if(!pair("sketch_origin",d.first_point_id,axis,target))return false;
+            } else {
+                const auto line=std::ranges::find(sketch.segments,d.second_geometry_id,&SketchSegment::id);
+                if(line==sketch.segments.end() ||
+                   !pair("sketch_origin",line->first_point_id,axis,target) ||
+                   !pair("sketch_origin",line->second_point_id,axis,target))return false;
+            }
+        } else return false;
     }
     for(const auto& p:sketch.points)if(p.fixed||std::ranges::find(anchors,p.id)!=anchors.end())
         for(int axis=0;axis<2;++axis){Row row(count);const auto i=*coordinate(p.id,axis);row[i]=1;add(std::move(row),coordinates[i]);}
@@ -82,6 +117,7 @@ bool seed_rectilinear_template(Sketch& sketch,const std::vector<std::string>& an
     auto solved=coordinates;
     for(std::size_t j=0;j<basis.size();++j)for(std::size_t k=0;k<count;++k)solved[k]+=values[j]*basis[j][k];
     for(std::size_t i=0;i<rows.size();++i)if(!std::isfinite(dot(rows[i],solved))||std::abs(dot(rows[i],solved)-targets[i])>1e-7)return false;
+    for(const auto& row:positive_distances)if(dot(row,solved)<-1e-8)return false;
     for(const auto& c:sketch.constraints)if(!c.suppressed&&c.kind==ConstraintKind::EqualLength)
         if(dot(*segment_row(c.geometry_id),solved)<=1e-8||dot(*segment_row(c.second_geometry_id),solved)<=1e-8)return false;
     for(std::size_t i=0;i<sketch.points.size();++i){sketch.points[i].x=solved[i*2];sketch.points[i].y=solved[i*2+1];}

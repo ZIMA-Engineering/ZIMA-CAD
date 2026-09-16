@@ -3953,6 +3953,56 @@ int verify_sketch_dimension_entry_ui(QApplication& application,const std::filesy
             check(result.dimensions.size()==1&&result.dimensions.front().id==key.substr(10),"Editing replaced the dimension identity");
             check(std::abs(result.find_point(second)->x-result.find_point(first)->x+20)<1e-7,"Negative input did not reverse the segment; positive edit flipped it back");
         }
+        // The screenshot rectangle must also accept both negative coordinate
+        // edits through real View labels, then retain them through OK/save/open.
+        for (bool origin : {false, true}) {
+            auto part=document::PartDocument::create_default();auto feature=document::PartDocument::create_sketch_container();
+            auto sketch=sketcher::Sketch::create_default();sketch.owner_container_id=feature.id;
+            const auto lines=sketch.add_rectangle(-71.525,-50,-29.383,-40);
+            const auto corner=sketch.segments[1].first_point_id;
+            auto width=sketch.create_segment_dimension(lines[0]);width.placement=std::array{-52.,-57.};sketch.apply_dimension(width);
+            auto height=sketch.create_segment_dimension(lines[1]);height.placement=std::array{-80.,-45.};sketch.apply_dimension(height);
+            auto x=origin?sketch.create_point_dimension("sketch_origin",corner,sketcher::DimensionKind::DistanceX):sketch.create_axis_dimension(corner,"sketch_axis:y");
+            auto y=origin?sketch.create_point_dimension("sketch_origin",corner,sketcher::DimensionKind::DistanceY):sketch.create_axis_dimension(corner,"sketch_axis:x");
+            x.placement=std::array{-15.,-65.};y.placement=std::array{10.,-25.};sketch.apply_dimension(x);sketch.apply_dimension(y);
+            part.history={feature};part.sketches={sketch};document::BodyHistoryGraph graph;
+            const auto body=graph.create_body("Signed rectangle");graph.insert({document::PartHistoryKind::Feature,feature.id});part.set_body_history(graph);part.resolve_constructions();
+            const auto path=directory/(origin?"rectangle-origin.prtz":"rectangle-axis.prtz");part.save(path);
+            app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));window.resize(1200,900);window.show();
+            check(window.open_document_path(QString::fromStdString(path.string())),"Rectangle fixture failed to open");flush();
+            check(activate_test_body(application,window,body),"Cannot activate rectangle Body");flush();
+            QTreeWidgetItem* row{};auto* tree=window.findChild<QTreeWidget*>("documentTree");
+            for(QTreeWidgetItemIterator i(tree);*i;++i)if((*i)->data(0,Qt::UserRole).toString().toStdString()==sketch.id&&(*i)->data(0,Qt::UserRole+3)=="part-sketch"){row=*i;break;}
+            check(row,"Rectangle Sketch row missing");window.show_tree_item_properties(row);flush();
+            window.findChild<QPushButton*>("sketchOpenButton")->click();flush();
+            QEventLoop animation;QTimer::singleShot(950,&animation,&QEventLoop::quit);animation.exec();
+            auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>());check(view,"Rectangle View missing");
+            const auto mouse=[&](QPointF p,QEvent::Type type,Qt::MouseButton button){QMouseEvent e(type,p,QPointF(view->mapToGlobal(p.toPoint())),button,type==QEvent::MouseButtonPress?button:Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(view,&e);flush();};
+            for(const auto& [id,value]:std::vector<std::pair<std::string,double>>{{x.id,-35.},{y.id,-60.},{x.id,-20.},{y.id,-45.}}) {
+                const auto key="dimension:"+id;std::optional<QPoint> label;
+                for(int py=20;py<view->height()-20&&!label;py+=3)for(int px=20;px<view->width()-20&&!label;px+=3) {
+                    const auto offered=view->selection_candidates_at(QPointF(px,py));
+                    if(!offered.empty()&&offered.front().semantic_key==key)
+                        label=view->candidate_dimension_label_position(offered.front());
+                }
+                check(label.has_value(),"Signed rectangle dimension cannot be picked");
+                mouse(*label,QEvent::MouseMove,Qt::NoButton);mouse(*label,QEvent::MouseButtonPress,Qt::LeftButton);mouse(*label,QEvent::MouseButtonRelease,Qt::LeftButton);
+                mouse(*label,QEvent::MouseButtonDblClick,Qt::LeftButton);mouse(*label,QEvent::MouseButtonRelease,Qt::LeftButton);
+                auto* editor=view->findChild<QLineEdit*>("inlineDimensionValueEdit");check(editor&&editor->isVisible(),"Signed rectangle editor did not open");
+                editor->setText(QString::number(value));QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(editor,&enter);flush();
+                const auto d=std::ranges::find_if(view->mesh().dimensions,[&](const auto& v){return v.reference.semantic_key==key;});
+                check(d!=view->mesh().dimensions.end()&&std::abs(d->value-value)<1e-8,"GUI rejected a feasible negative rectangle coordinate");
+            }
+            if(!origin)view->grabFramebuffer().save(QString::fromStdString((directory/"signed-rectangle.png").string()));
+            window.findChild<QAction*>("finishSketchAction")->trigger();flush();
+            for(auto* d:window.findChildren<QDialog*>())if(auto* p=dynamic_cast<app::SketchPropertiesDialog*>(d);p&&p->isVisible())p->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+            window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+            const auto reopened=document::PartDocument::load(path);const auto& result=reopened.sketches.front();
+            for(const auto& p:sketch.points) {
+                const auto* q=result.find_point(p.id);
+                check(q&&std::abs(q->x-p.x-9.383)<1e-7&&std::abs(q->y-p.y-5.)<1e-7,"GUI coordinate edits deformed the saved rectangle");
+            }
+        }
         // Properties uses signed origin/axis coordinates and other distances
         // use magnitudes, with the same expression grammar as inline entry.
         QWidget parent;parent.resize(1000,850);parent.show();

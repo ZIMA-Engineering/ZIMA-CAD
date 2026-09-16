@@ -25,6 +25,72 @@ int main() {
     try {
         using zima::sketcher::DimensionKind;
         {
+            // Screenshot 2026-09-16: a dimensioned rectangle left of the Y
+            // axis. Editing either signed coordinate must translate the full
+            // constrained rectangle without changing its size or orientation.
+            for (int reference = 0; reference < 4; ++reference)
+            for (bool reverse_equations : {false, true}) {
+                auto s = zima::sketcher::Sketch::create_default();
+                const auto lines = s.add_rectangle(-71.525, -50., -29.383, -40.);
+                const auto corner = s.segments[1].first_point_id;
+                auto width = s.create_segment_dimension(lines[0]);
+                auto height = s.create_segment_dimension(lines[1]);
+                s.apply_dimension(width);
+                s.apply_dimension(height);
+                const auto coordinate = [&](bool x) {
+                    if (reference == 0) return s.create_axis_dimension(corner,
+                        x ? "sketch_axis:y" : "sketch_axis:x");
+                    if (reference == 1) return s.create_point_line_dimension(corner,
+                        x ? "sketch_axis:y" : "sketch_axis:x");
+                    return s.create_point_dimension(
+                        reference == 2 ? "sketch_origin" : corner,
+                        reference == 2 ? corner : "sketch_origin",
+                        x ? DimensionKind::DistanceX : DimensionKind::DistanceY);
+                };
+                auto x = coordinate(true), y = coordinate(false);
+                s.apply_dimension(x);
+                s.apply_dimension(y);
+                if (reverse_equations) {
+                    std::reverse(s.dimensions.begin(), s.dimensions.end());
+                    std::reverse(s.constraints.begin(), s.constraints.end());
+                }
+                for (bool edit_x : {true, false}) {
+                    for (double value : {-35., -15., 15., -29.383, 0., -1000., -29.383}) {
+                        const auto before = s;
+                        const auto* old_corner = before.find_point(corner);
+                        const double shift = value - (edit_x ? old_corner->x : old_corner->y);
+                        const auto id = edit_x ? x.id : y.id;
+                        if (!s.set_dimension_value(id, value))
+                            throw std::runtime_error("Rectangle signed coordinate rejected: reference=" +
+                                std::to_string(reference) + " axis=" + (edit_x ? "X" : "Y") +
+                                " target=" + std::to_string(value));
+                        for (const auto& p : before.points) {
+                            const auto* q = s.find_point(p.id);
+                            if (std::abs(q->x - p.x - (edit_x ? shift : 0.)) >= 1e-7 ||
+                                std::abs(q->y - p.y - (edit_x ? 0. : shift)) >= 1e-7)
+                                throw std::runtime_error("Rectangle deformed: reference=" +
+                                    std::to_string(reference) + " axis=" + (edit_x ? "X" : "Y") +
+                                    " target=" + std::to_string(value) + " dx=" + std::to_string(q->x-p.x) +
+                                    " dy=" + std::to_string(q->y-p.y) + " expected=" + std::to_string(shift));
+                        }
+                        const auto& edited = *std::find_if(s.dimensions.begin(), s.dimensions.end(),
+                            [&](const auto& d) { return d.id == id; });
+                        require(std::abs(zima::sketcher::dimension_display_value(edited) - value) < 1e-9,
+                            "Solver changed the signed coordinate value");
+                        const auto solved = s.solve();
+                        require(solved.status == zima::sketcher::SolveStatus::Solved &&
+                                solved.maximum_residual < 1e-8,
+                            "Signed rectangle equations did not converge together");
+                        s = zima::sketcher::Sketch::from_serialized(s.serialized());
+                    }
+                }
+                s.find_point(corner)->fixed = true;
+                const auto fixed = s.serialized();
+                require(!s.set_dimension_value(x.id, -60.) && s.serialized() == fixed,
+                    "Infeasible coordinate edit changed a fixed rectangle");
+            }
+        }
+        {
             // 01.prtz: arc start at the origin, centre sliding on Y, and an
             // angular driver on its construction radius. Both edits are feasible.
             auto sketch = zima::sketcher::Sketch::create_default();

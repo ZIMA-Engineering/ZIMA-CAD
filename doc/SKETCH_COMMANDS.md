@@ -256,6 +256,33 @@ signed absolute values, including `point_line` against a built-in axis. Repeatin
 `value=-30` keeps that coordinate at -30. Other distances display magnitudes;
 negative input reverses their current direction. Limits use the displayed value.
 
+### Coupled coordinate solving (2026-09-16)
+
+The solver solves supported rectilinear dimension equations simultaneously before
+its common constraint verification. H/V and coincident point groups, signed
+origin/axis coordinates, axis point/line distances, aligned lengths and equal
+lengths participate in the same system. This prevents a coordinate edit from
+pulling one corner across its opposite corner and reversing a dimensioned
+rectangle. Fixed points and drag anchors remain equations in that system.
+Unsupported nonlinear/reference graphs retain the existing solver path.
+Dimension signs, input conversion, labels and native serialization are unchanged.
+
+Verification includes 112 coordinate edits across both axes, four reference
+forms and reversed equation order: negative values, repeated negative input,
+zero, crossing the origin and a 1000 mm translation. Each result checks all
+point coordinates, dimensions, residuals and native Sketch round trips; eight
+fixed-corner conflicts must reject atomically. Actual Windows GUI tests edit
+both coordinates through double-click/Enter and check the saved rectangle.
+Eleven related CTest contracts passed, including Sketcher, dimension commands,
+Family Table, profiles, Flat, Bend and drawing-template commands.
+
+An isolated copy of the user's `part.prtz` supplied a second rectangle fixture.
+Its saved state predates the screenshot's coordinate locators, so the test adds
+those locators to the copy and checks seven native command edits and saved
+results. The original document hash remains unchanged. Evidence:
+`build/signed-rectangle-tests.log`, `build/signed-rectangle-neighbors-tests.log`,
+`build/signed-rectangle-native.log`, and `Projects/test/signed-rectangle.png`.
+
 Create/set accept optional properties:
 
 - `value`, `driving`, `locked`: locks protect geometry from dragging. Intentional

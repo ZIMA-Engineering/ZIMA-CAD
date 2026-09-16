@@ -8475,7 +8475,7 @@ SolveResult Sketch::solve_impl(
     const auto original_ellipses = ellipses;
     const auto original_elliptical_arcs = elliptical_arcs;
     const auto original_dimensions = dimensions;
-    if(drawing_template)seed_rectilinear_template(*this,preferred_point_ids);
+    seed_rectilinear_equations(*this,preferred_point_ids);
     constexpr double tolerance = 1.0e-8;
     double maximum_residual{};
     const auto linked_points = externally_linked_point_ids(*this);
