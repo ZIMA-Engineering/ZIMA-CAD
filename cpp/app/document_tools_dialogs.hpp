@@ -18,7 +18,6 @@ class QDoubleSpinBox;
 class QSpinBox;
 class QTableWidget;
 class QTabWidget;
-class QCheckBox;
 
 namespace zima::app {
 
@@ -70,7 +69,6 @@ private:
     QDoubleSpinBox* mesh_{};
     QSpinBox* decimals_{};
     QTabWidget* pages_{};
-    QCheckBox* thickness_enabled_{};
     QDoubleSpinBox* thickness_{};
     QDoubleSpinBox* k_factor_{};
 };

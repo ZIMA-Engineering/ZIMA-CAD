@@ -3,17 +3,19 @@
 #include <zima/workspace/sketch_properties.hpp>
 #include <zima/workspace/holes_operations.hpp>
 #include <zima/document/holes.hpp>
+#include <zima/document/bend.hpp>
+#include <zima/workspace/bend_operations.hpp>
 
 namespace zima::app {
 using namespace workspace_detail;
 
 
-void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_id, bool holes_mode) {
+void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_id, bool holes_mode, bool bend_mode) {
     if (properties_dialog_ != nullptr) return;
     auto* part = workspace_.open_part(workspace_.active_document_id());
     auto* assembly = workspace_.open_assembly(workspace_.active_document_id());
     if (part == nullptr && assembly == nullptr) return;
-    if (holes_mode && !part) return;
+    if ((holes_mode || bend_mode) && !part) return;
     const auto& sketches = part != nullptr
         ? part->session.document().sketches : assembly->session.document().sketches;
     const auto found = std::find_if(sketches.begin(), sketches.end(),
@@ -26,10 +28,11 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
         new_sketch_container = zima::document::PartDocument::create_sketch_container();
         initial.owner_container_id = new_sketch_container->id;
     }
-    std::shared_ptr<zima::document::HistoryContainer> holes_feature;
+    std::shared_ptr<zima::document::HistoryContainer> sketch_feature;
     if (part) {
         const auto* owner = part->session.document().find_container(initial.owner_container_id);
         holes_mode = holes_mode || (owner && owner->feature_kind == zima::document::FeatureKind::Holes);
+        bend_mode = bend_mode || (owner && owner->feature_kind == zima::document::FeatureKind::Bend);
         if (holes_mode) {
             if (owner && owner->feature_kind != zima::document::FeatureKind::Sketch &&
                 owner->feature_kind != zima::document::FeatureKind::Holes) return;
@@ -41,14 +44,27 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
                 value.name = "Otvory"; value.holes.sketch_id = initial.id;
             }
             initial.name = value.name;
-            holes_feature = std::make_shared<zima::document::HistoryContainer>(std::move(value));
+            sketch_feature = std::make_shared<zima::document::HistoryContainer>(std::move(value));
+        } else if (bend_mode) {
+            if(owner && owner->feature_kind!=zima::document::FeatureKind::Bend)return;
+            auto value=owner?*owner:*new_sketch_container;
+            if(!owner) {
+                value.feature_kind=zima::document::FeatureKind::Bend;value.name="Ohyb";value.bend.sketch_id=initial.id;
+                const auto defaults=zima::document::sheet_metal_defaults(part->session.document());
+                value.bend.thickness=defaults.thickness_mm.value_or(1);value.bend.k_factor=defaults.k_factor;
+                static_cast<void>(initial.add_segment(-20,0,20,0));
+            }
+            initial.name=value.name;sketch_feature=std::make_shared<zima::document::HistoryContainer>(std::move(value));
+        }
+        if(sketch_feature) {
             const auto occurrence = resolve_active_occurrence(part->session.document().document_id);
             if (!occurrence) {state_->setText(tr("Nejprve aktivujte přesný výskyt Partu."));return;}
             properties_dialog_instance_path_ = *occurrence;
             if (owner) {
                 const auto rollback = part->session.rollback_boundary(owner->id);
-                if (!rollback || !rollback->input_body) {
-                    state_->setText(tr("Otvory potřebují vypočtené vstupní těleso. Nejprve regenerujte Part."));return;
+                // A first feature has a valid rollback boundary with no input solid.
+                if (!rollback) {
+                    state_->setText(tr("Nejprve regenerujte Part, aby byl dostupný vstup upravovaného prvku."));return;
                 }
                 part_rollback_ = PartRollbackContext{part->session.document().document_id,
                     *occurrence, rollback->history_index, rollback->input_body};
@@ -90,20 +106,22 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
     }
     const std::string owner_id = workspace_.active_document_id();
     auto diameter_layout = std::make_shared<std::optional<zima::kernel::DimensionLayout>>();
-    if (holes_feature) if (const auto* layout = zima::kernel::find_dimension_layout(
-            part->session.document().dimension_layouts, {holes_feature->id,"parameter:diameter",{}}))
+    if (holes_mode && sketch_feature) if (const auto* layout = zima::kernel::find_dimension_layout(
+            part->session.document().dimension_layouts, {sketch_feature->id,"parameter:diameter",{}}))
         *diameter_layout = *layout;
     auto* dialog = new SketchPropertiesDialog(
         initial, initial_placement, edit_mode, std::move(plane_options),
-        [this, owner_id, edit_mode, new_sketch_container, holes_feature, diameter_layout](
+        [this, owner_id, edit_mode, new_sketch_container, sketch_feature, diameter_layout](
             zima::sketcher::Sketch committed,
             zima::document::Placement committed_placement,
             bool enter_sketch) {
             const auto selected_id = committed.id;
-            if (holes_feature) {
-                auto value = *holes_feature;
+            if (sketch_feature) {
+                auto value = *sketch_feature;
                 value.name = committed.name; value.placement = std::move(committed_placement);
-                static_cast<void>(workspace::commit_holes(workspace_, kernel_, owner_id,
+                if(value.feature_kind==zima::document::FeatureKind::Bend)
+                    static_cast<void>(workspace::commit_bend(workspace_,kernel_,owner_id,std::move(value),std::move(committed)));
+                else static_cast<void>(workspace::commit_holes(workspace_, kernel_, owner_id,
                     std::move(value), std::move(committed), *diameter_layout));
             } else {
                 static_cast<void>(workspace::commit_sketch_properties(workspace_, kernel_, owner_id,
@@ -117,10 +135,8 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
             }
             selected_sketch_id_ = selected_id;
         }, this);
-    if (holes_feature) {
-        dialog->set_holes_mode(holes_feature->holes.diameter, holes_feature->value_locks,
-            [holes_feature](double diameter) { holes_feature->holes.diameter = diameter; },
-            [this, dialog, prepared_sketch] {
+    if (sketch_feature) {
+        const auto edit_owned_sketch=[this, dialog, prepared_sketch] {
                 sweep_profile_sketch_draft_ = *prepared_sketch;
                 embedded_sketch_finished_ = [this, dialog](auto sketch) {
                     properties_dialog_ = dialog; primitive_reference_dialog_ = dialog;
@@ -141,7 +157,12 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
                 active_sketch_id_ = prepared_sketch->id; selected_sketch_id_ = active_sketch_id_;
                 clear_selected_sketch_geometry(); viewer_->clear_selection(); tree_->clearSelection();
                 preserve_view_on_refresh_ = true; refresh_scene(); align_active_sketch_view();
-            }, *diameter_layout, [diameter_layout](auto layout) { *diameter_layout = std::move(layout); });
+            };
+        if(bend_mode) dialog->set_bend_mode(sketch_feature->bend,zima::document::sheet_metal_defaults(part->session.document()),
+            sketch_feature->value_locks,[sketch_feature](auto p){sketch_feature->bend=std::move(p);},edit_owned_sketch);
+        else dialog->set_holes_mode(sketch_feature->holes.diameter,sketch_feature->value_locks,
+            [sketch_feature](double diameter){sketch_feature->holes.diameter=diameter;},edit_owned_sketch,
+            *diameter_layout,[diameter_layout](auto layout){*diameter_layout=std::move(layout);});
     }
     {
         zima::kernel::ViewerReferenceGeometry reference_geometry;
@@ -206,7 +227,8 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
                     "profile_offset",
                     sketch_offset_drag->baseline_offset + delta));
             }, [] {});
-        dialog->set_preview_callback([this, sketch_offset_drag, prepared_sketch, holes_feature](
+        const auto sheet_defaults=part?zima::document::sheet_metal_defaults(part->session.document()):zima::document::SheetMetalDefaults{};
+        dialog->set_preview_callback([this, sketch_offset_drag, prepared_sketch, sketch_feature, sheet_defaults](
                 const zima::sketcher::Sketch& sketch,
                 const zima::document::Placement& pending_placement) {
             auto placement = pending_placement;
@@ -426,9 +448,11 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
             viewer_->set_feature_preview_owners(
                 {plane.entity_id, sketch.id});
             zima::kernel::ViewerMesh drilling_preview;
-            if (holes_feature) {
+            if (sketch_feature) {
                 try {
-                    drilling_preview = zima::document::holes_preview(*holes_feature, resolved_sketch);
+                    drilling_preview = sketch_feature->feature_kind==zima::document::FeatureKind::Bend
+                        ?zima::document::bend_preview(*sketch_feature,resolved_sketch,sheet_defaults)
+                        :zima::document::holes_preview(*sketch_feature, resolved_sketch);
                     primitive_origin_preview_mesh_->axes.insert(
                         primitive_origin_preview_mesh_->axes.end(),
                         drilling_preview.axes.begin(), drilling_preview.axes.end());
@@ -442,7 +466,7 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
             }
             preserve_view_on_refresh_ = true;
             refresh_scene();
-            if (holes_feature) viewer_->set_transient_edges(std::move(drilling_preview.edges));
+            if (sketch_feature) viewer_->set_transient_edges(std::move(drilling_preview.edges));
             viewer_->set_extent_manipulator(offset_manipulator);
             if (!pending_primitive_reference_index_) {
                 set_primitive_properties_dimension_selection();
@@ -452,7 +476,7 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
     properties_dialog_ = dialog;
     track_tree_edit(dialog);
     if (tree_edit_dialog_ == dialog) {
-        tree_edit_sketch_container_ = new_sketch_container;
+        tree_edit_sketch_container_ = sketch_feature?std::optional{*sketch_feature}:new_sketch_container;
         if (!tree_edit_sketch_container_ && part) {
             if (const auto* owner = part->session.document().find_container(dialog->pending_value().first.owner_container_id))
                 tree_edit_sketch_container_ = *owner;
@@ -463,8 +487,8 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
         }
     }
 
-    connect(dialog, &QObject::destroyed, this, [this, holes_feature] {
-        if (holes_feature) {
+    connect(dialog, &QObject::destroyed, this, [this, sketch_feature] {
+        if (sketch_feature) {
             part_rollback_.reset();
             properties_dialog_instance_path_.clear();
             sweep_profile_sketch_draft_.reset(); embedded_sketch_finished_ = {};

@@ -5,8 +5,11 @@
 #include "sketch_properties_dialog.hpp"
 
 #include <QComboBox>
+#include <QCheckBox>
 #include <QDoubleSpinBox>
 #include <QFormLayout>
+#include <QHBoxLayout>
+#include <QSignalBlocker>
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
@@ -150,6 +153,50 @@ void SketchPropertiesDialog::set_holes_mode(double diameter,
     connect(field, &QDoubleSpinBox::valueChanged, this,
         [this, changed=std::move(changed)](double value) { changed(value); notify_preview(); });
     edit_pending_sketch_ = std::move(edit_sketch);
+}
+
+void SketchPropertiesDialog::set_bend_mode(zima::document::BendParameters initial,
+    const zima::document::SheetMetalDefaults& defaults,std::set<std::string>& locks,
+    std::function<void(zima::document::BendParameters)> changed,std::function<void()> edit_sketch) {
+    set_internal_title(tr("Vlastnosti ohybu"));setObjectName("bendPropertiesDialog");
+    auto pending=std::make_shared<zima::document::BendParameters>(initial);
+    auto* form=new QFormLayout;
+    auto* mode=new QComboBox(this);mode->setObjectName("bendState");
+    mode->addItem(tr("Ohnutý (Bend)"),false);mode->addItem(tr("Rozvinutý (Unbend)"),true);mode->setCurrentIndex(initial.unbend?1:0);
+    form->addRow(tr("Stav"),mode);
+    const auto field=[&](const char* name,double value,double minimum,double maximum,const QString& suffix) {
+        auto* spin=new QDoubleSpinBox(this);spin->setObjectName(name);spin->setDecimals(6);spin->setRange(minimum,maximum);spin->setSuffix(suffix);spin->setValue(value);return spin;
+    };
+    bend_radius_=field("bendRadius",initial.radius,.001,1000000," mm");
+    bend_angle_=field("bendAngle",initial.angle_degrees,0,180," °");
+    form->addRow(tr("Vnitřní poloměr"),bend_radius_);form->addRow(tr("Úhel ohybu"),bend_angle_);
+    zima::ui::bind_numeric_value_lock(bend_radius_,"radius",locks,[this]{notify_preview();});
+    zima::ui::bind_numeric_value_lock(bend_angle_,"angle",locks,[this]{notify_preview();});
+    const auto publish=[this,pending,changed]{changed(*pending);notify_preview();};
+    connect(mode,&QComboBox::currentIndexChanged,this,[pending,publish](int index){pending->unbend=index==1;publish();});
+    connect(bend_radius_,&QDoubleSpinBox::valueChanged,this,[pending,publish](double v){pending->radius=v;publish();});
+    connect(bend_angle_,&QDoubleSpinBox::valueChanged,this,[pending,publish](double v){pending->angle_degrees=v;publish();});
+    const auto override_field=[&](bool thickness) {
+        auto* row=new QWidget(this);auto* layout=new QHBoxLayout(row);layout->setContentsMargins(0,0,0,0);
+        auto* override=new QCheckBox(tr("Vlastní hodnota"),row);override->setObjectName(thickness?"bendThicknessOverride":"bendKFactorOverride");
+        const double inherited=thickness?defaults.thickness_mm.value_or(1):defaults.k_factor;
+        const bool local=thickness?initial.thickness_override:initial.k_factor_override;
+        auto* spin=field(thickness?"bendThickness":"bendKFactor",local?(thickness?initial.thickness:initial.k_factor):inherited,
+            thickness?.000001:0,thickness?1000000:1,thickness?" mm":"");
+        override->setChecked(local);spin->setEnabled(local);layout->addWidget(override);layout->addWidget(spin,1);
+        form->addRow(thickness?tr("Tloušťka materiálu"):tr("K faktor"),row);
+        connect(spin,&QDoubleSpinBox::valueChanged,this,[pending,publish,thickness](double value){
+            if(thickness)pending->thickness=value;else pending->k_factor=value;publish();
+        });
+        connect(override,&QCheckBox::toggled,this,[pending,publish,spin,inherited,thickness](bool enabled){
+            if(thickness)pending->thickness_override=enabled;else pending->k_factor_override=enabled;
+            const QSignalBlocker blocker(spin);spin->setValue(enabled?(thickness?pending->thickness:pending->k_factor):inherited);
+            spin->setEnabled(enabled);publish();
+        });
+    };
+    override_field(true);override_field(false);
+    auto* note=new QLabel(tr("Bez vlastní hodnoty se použije nastavení plechu v dílu."),this);note->setWordWrap(true);form->addRow(note);
+    content_layout()->insertLayout(content_layout()->indexOf(sketch_button_),form);edit_pending_sketch_=std::move(edit_sketch);
 }
 
 std::optional<zima::kernel::DimensionLayout> SketchPropertiesDialog::pending_dimension_layout(
@@ -363,6 +410,8 @@ bool SketchPropertiesDialog::set_inline_parameter_value(
     };
     if (key == "profile_offset") return set_field(offset_);
     if (key == "diameter") return set_field(holes_diameter_);
+    if (key == "radius") return set_field(bend_radius_);
+    if (key == "angle") return set_field(bend_angle_);
     constexpr std::string_view placement_prefix{"placement:"};
     if (!key.starts_with(placement_prefix)) return false;
     key.remove_prefix(placement_prefix.size());

@@ -244,7 +244,9 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
                 const auto item=drawing::project_model_annotation(*view,stored);
                 const auto id=model_annotation_key(item.source);const bool offered=!printing&&model_pick_&&preview_&&view->id==preview_->id&&model_offered_.contains(id);
                 if(!item.visible&&!offered)continue;
-                const auto layout=model_annotation_layout(*view,item,paper_bounds.adjusted(-5,-5,5,5),QFontMetricsF(painter.font()).horizontalAdvance(QString::fromStdString(item.text))/zoom);
+                const auto label=QString::fromStdString(item.text);
+                const auto gap=viewer::dimension_text_clearance(painter.font(),label,.5*zoom,width(false),.75*zoom);
+                const auto layout=model_annotation_layout(*view,item,paper_bounds.adjusted(-5,-5,5,5),QFontMetricsF(painter.font()).horizontalAdvance(label)/zoom,gap/zoom);
                 if(item.model_dimension && layout.curves.empty())continue;
                 const AnnotationKey key{AnnotationKind::Model,view->id,id,0};
                 QColor color=annotation_color(key,printing?ink:item.unresolved?QColor("#E05050"):!item.visible?QColor("#777777"):item.kind==drawing::ModelAnnotationKind::Dimension?QColor("#FFD400"):QColor("#E6C85C"),printing);
@@ -323,7 +325,8 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
                 const auto& source=evaluation.presentations[index];const AnnotationKey key{AnnotationKind::Dimension,dimension.view_id,dimension.id,int(evaluation.cached_segment_indices.empty()?index:evaluation.cached_segment_indices[index])*3};
                 const auto color=annotation_color(key,evaluation.state==drawing::MeasurementState::Unresolved?QColor("#C62828"):printing?ink:QColor("#FFD400"),printing);
                 const auto text=QString::fromStdString(drawing::drawing_dimension_text(dimension,source,evaluation.state==drawing::MeasurementState::Unresolved));
-                const auto layout=viewer::dimension_presentation(source,screen,QFontMetricsF(painter.font()).horizontalAdvance(text),2.5*zoom,.75*zoom,index<evaluation.angular_leaders.size()&&evaluation.angular_leaders[index]);
+                const auto gap=viewer::dimension_text_clearance(painter.font(),text,.5*zoom,width(false),.75*zoom);
+                const auto layout=viewer::dimension_presentation(source,screen,QFontMetricsF(painter.font()).horizontalAdvance(text),2.5*zoom,gap,index<evaluation.angular_leaders.size()&&evaluation.angular_leaders[index]);
                 if(!layout.valid)continue;
                 painter.save();painter.setPen(QPen(color,width(false)));painter.setBrush(color);QPainterPath stroke;
                 for(const auto& curve:layout.curves){if(curve.empty())continue;painter.drawPolyline(curve);stroke.moveTo(curve.front());for(qsizetype i=1;i<curve.size();++i)stroke.lineTo(curve[i]);}

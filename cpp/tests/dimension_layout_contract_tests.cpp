@@ -676,6 +676,23 @@ int main(int argc, char **argv) {
             }
             painter.end();require(proof.save("build/radius-seven-states-proof.png"),"Cannot save seven radius states");
         }
+        {
+            QImage proof(900,480,QImage::Format_ARGB32);proof.fill(Qt::white);QPainter painter(&proof);
+            for(int row=0;row<4;++row) {
+                const double zoom=1<<row,stroke=.5*zoom;QFont font("Arial");font.setPixelSize(int(3.5*zoom));
+                const QString text=QStringLiteral("25 g");const double gap=viewer::dimension_text_clearance(font,text,.5*zoom,stroke,.75*zoom);
+                const double y=70+row*110;const QPointF baseline(60,y-gap);
+                painter.setPen(QPen(Qt::black,stroke));painter.drawLine(QPointF(40,y),QPointF(500,y));
+                const std::array<viewer::DimensionTextLabel,1> label{{{text,baseline,0,font,Qt::black}}};
+                viewer::paint_dimension_text_layer(painter,label,.5*zoom,[](QPainter& p,const QPainterPath& mask){p.fillPath(mask,Qt::white);});
+                const auto box=viewer::dimension_text_box(font,text,.5*zoom).translated(baseline);
+                require(box.bottom()<y-stroke/2,"Text mask intersects its dimension line");
+                int dark=255;
+                for(int dy=-1;dy<=1;++dy){dark=std::min(dark,proof.pixelColor(65,int(y)+dy).lightness());require(proof.pixelColor(65,int(y)+dy)==proof.pixelColor(450,int(y)+dy),"Dimension line was erased below its text");}
+                require(dark<255,"Dimension stroke was not painted");
+            }
+            painter.end();require(proof.save("build/drawing-dimension-clearance.png"),"Cannot save dimension clearance proof");
+        }
         viewer.set_context_menu_callback({});
         viewer.set_dimension_frame_visible(true);
         viewer.grab().save("build/dimension-layout-view.png");

@@ -26,6 +26,7 @@ Slots feature_slots(document::HistoryContainer& f) {
     case FeatureKind::Fillet: return {{"primary",&f.edge_treatment.primary_size},{"secondary",&f.edge_treatment.secondary_size}};
     case FeatureKind::Chamfer: return {{"primary",&f.edge_treatment.primary_size},{"secondary",&f.edge_treatment.secondary_size},{"treatment_angle",&f.edge_treatment.angle_degrees}};
     case FeatureKind::Shell: return {{"thickness",&f.shell.thickness}};
+    case FeatureKind::Bend: return {{"radius",&f.bend.radius},{"angle",&f.bend.angle_degrees}};
     case FeatureKind::Holes: return {{"diameter",&f.holes.diameter}};
     case FeatureKind::Hole: return {{"diameter",&f.hole.diameter},{"bore_length",&f.hole.bore_length},{"entrance_chamfer",&f.hole.entrance_chamfer},{"exit_chamfer",&f.hole.exit_chamfer},{"drill_point_angle",&f.hole.drill_point_angle_degrees},{"thread_diameter",&f.hole.thread_nominal_diameter},{"thread_pitch",&f.hole.thread_pitch},{"thread_length",&f.hole.thread_length}};
     case FeatureKind::Thread: return {{"bore_diameter",&f.thread.nominal_diameter},{"bore_length",&f.thread.bore_length},{"thread_length",&f.thread.length_forward},{"length_reverse",&f.thread.length_reverse},{"chamfer_depth",&f.thread.chamfer_depth},{"chamfer_angle",&f.thread.chamfer_angle_degrees},{"drill_point_angle",&f.hole.drill_point_angle_degrees}};
@@ -49,7 +50,7 @@ template<class Doc> void add_feature_references(std::vector<FamilyReference>& ou
     };
     if(primitive_definition(f.feature_kind))for(const auto& [key,value]:primitive_dimensions(f))add(key,value);
     else for(const auto& [key,value]:feature_slots(f))add(key,*value);
-    if(f.feature_kind==FeatureKind::Sketch || f.feature_kind==FeatureKind::Holes)
+    if(f.feature_kind==FeatureKind::Sketch || f.feature_kind==FeatureKind::Holes || f.feature_kind==FeatureKind::Bend)
         for(const auto& sketch:doc.sketches)if(sketch.owner_container_id==f.id)add("profile_offset",sketch.plane_offset);
 }
 template<class Doc> void add_sketch_references(std::vector<FamilyReference>& out,const Doc& doc,const sketcher::Sketch& sketch) {
@@ -69,8 +70,10 @@ void assign_feature(document::HistoryContainer& f,const std::string& key,double 
     if(primitive_definition(f.feature_kind)){assign_primitive_dimensions(f,{{key,value}});return;}
     auto slots=feature_slots(f);const auto found=slots.find(key);
     if(found==slots.end())throw std::invalid_argument("The family dimension is not editable.");
-    if(key!="profile_offset" && value<=0)throw std::invalid_argument("Family feature dimensions must be positive.");
+    const bool zero_bend_angle=f.feature_kind==FeatureKind::Bend&&key=="angle"&&value==0;
+    if(key!="profile_offset" && value<=0&&!zero_bend_angle)throw std::invalid_argument("Family feature dimensions must be positive.");
     if((f.feature_kind==FeatureKind::Revolution&&(key=="angle"||key=="length_reverse")&&value>360) ||
+        (f.feature_kind==FeatureKind::Bend&&key=="angle"&&value>180) ||
         (key=="treatment_angle"&&value>=90) || ((key=="drill_point_angle"||key=="chamfer_angle")&&value>=180))
         throw std::invalid_argument("The family angle is outside its allowed range.");
     *found->second=value;
@@ -90,7 +93,7 @@ template<class Doc> bool assign_dimension(Doc& doc,const FamilyColumn& binding,d
     if constexpr(requires {doc.history;}) {
         for(auto& f:doc.history)if(f.id==binding.owner_id && binding.semantic_key.starts_with("parameter:")) {
             const auto key=binding.semantic_key.substr(10);
-            if(key=="profile_offset" && (f.feature_kind==FeatureKind::Sketch||f.feature_kind==FeatureKind::Holes)) {
+            if(key=="profile_offset" && (f.feature_kind==FeatureKind::Sketch||f.feature_kind==FeatureKind::Holes||f.feature_kind==FeatureKind::Bend)) {
                 for(auto& sketch:doc.sketches)if(sketch.owner_container_id==f.id){sketch.plane_offset=value;return true;}
                 throw std::invalid_argument("The family profile Sketch is missing.");
             }

@@ -4,6 +4,7 @@
 
 #include <zima/sketcher/sketch.hpp>
 #include <zima/document/part_document.hpp>
+#include <zima/document/metadata.hpp>
 #include <zima/ui/container_placement_section.hpp>
 #include <zima/ui/properties_subwindow.hpp>
 
@@ -61,6 +62,9 @@ public:
     void set_holes_mode(double diameter, std::set<std::string>& locks, std::function<void(double)> changed,
         std::function<void()> edit_sketch, std::optional<zima::kernel::DimensionLayout> layout = {},
         std::function<void(zima::kernel::DimensionLayout)> layout_changed = {});
+    void set_bend_mode(zima::document::BendParameters, const zima::document::SheetMetalDefaults&,
+        std::set<std::string>& locks, std::function<void(zima::document::BendParameters)> changed,
+        std::function<void()> edit_sketch);
     [[nodiscard]] std::optional<zima::kernel::DimensionLayout> pending_dimension_layout(
         const zima::kernel::EdgeReference&) const;
     bool set_pending_dimension_layout(const zima::kernel::EdgeReference&, zima::kernel::DimensionLayout);
@@ -105,6 +109,8 @@ private:
     QComboBox* plane_{};
     QDoubleSpinBox* offset_{};
     QDoubleSpinBox* holes_diameter_{};
+    QDoubleSpinBox* bend_radius_{};
+    QDoubleSpinBox* bend_angle_{};
     QComboBox* plane_reference_{};
     QPushButton* sketch_button_{};
     QLabel* error_{};

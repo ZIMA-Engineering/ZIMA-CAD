@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-labelledby="title">
+  <title id="title">Bend</title>
+  <g stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" fill="none">
+    <path d="M3 19h7a8 8 0 0 0 8-8V3h-3v8a5 5 0 0 1-5 5H3z"/>
+    <path d="M4 5a9 9 0 0 1 7 5m-1-4 1 4-4-1" stroke="#ae75d6" stroke-linecap="round"/>
+  </g>
+</svg>

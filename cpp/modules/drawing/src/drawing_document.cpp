@@ -528,7 +528,7 @@ void DrawingDocument::save(const std::filesystem::path& path,
         };
         serialized["texts"]=nlohmann::json::array();
         for(const auto& text:sheet.texts) {
-            if(text.id.empty()||!ids.insert(text.id).second||text.presentation.text.empty()||!std::isfinite(text.presentation.height)||text.presentation.height<=0)throw std::runtime_error("Invalid Drawing text");
+            if(text.id.empty()||!ids.insert(text.id).second||!std::isfinite(text.presentation.height)||text.presentation.height<=0)throw std::runtime_error("Invalid Drawing text");
             auto item=text_json(std::vector{text.presentation}).front();item["id"]=text.id;serialized["texts"].push_back(std::move(item));
         }
         serialized["frame_lines"]=line_json(sheet.frame_lines);

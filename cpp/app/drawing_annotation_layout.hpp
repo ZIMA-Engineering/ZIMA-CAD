@@ -23,7 +23,7 @@ struct ModelAnnotationLayout {
 };
 inline ModelAnnotationLayout
 model_annotation_layout(const drawing::DrawingView &view,
-                        const drawing::ModelAnnotation &source, QRectF bounds, double text_width = -1) {
+                        const drawing::ModelAnnotation &source, QRectF bounds, double text_width = -1, double text_gap = .75) {
   auto item=drawing::project_model_annotation(view,source);
   const auto h=view.camera.horizontal,v=view.camera.vertical;
   const bool same_camera=std::hypot(h.x-item.handle_camera_horizontal[0],h.y-item.handle_camera_horizontal[1],h.z-item.handle_camera_horizontal[2])<1e-6 && std::hypot(v.x-item.handle_camera_vertical[0],v.y-item.handle_camera_vertical[1],v.z-item.handle_camera_vertical[2])<1e-6;
@@ -36,7 +36,7 @@ model_annotation_layout(const drawing::DrawingView &view,
   if(item.kind==drawing::ModelAnnotationKind::Dimension && item.model_dimension) {
     const auto d=kernel::layout_dimension(*item.model_dimension,item.model_envelope,item.view_layout.value_or(item.model_layout));
     const auto project=[&](kernel::Vec3 p){return QPointF(kernel::dimension_dot(p,view.camera.horizontal)*view.scale,-kernel::dimension_dot(p,view.camera.vertical)*view.scale);};
-    const auto layout=viewer::dimension_presentation(d,project,text_width<0?double(item.text.size())*2:text_width,2.5,.75);
+    const auto layout=viewer::dimension_presentation(d,project,text_width<0?double(item.text.size())*2:text_width,2.5,text_gap);
     if(!layout.valid)return out;
     const auto paper=[](QPointF p){return QPointF(p.x(),-p.y());};
     for(const auto& curve:layout.curves){std::vector<QPointF> points;for(auto p:curve)points.push_back(paper(p));out.curves.push_back(std::move(points));}

@@ -29,16 +29,19 @@ public:
         PreviewCallback preview, CommitCallback commit, QWidget* parent, bool y_up = false, bool drawing_text = false);
 
     void set_anchor(double x, double y);
+    void set_preview_anchor(double x, double y);
+    [[nodiscard]] bool needs_anchor() const { return !anchor_; }
 
 protected:
     bool submit() override;
 
 private:
-    [[nodiscard]] zima::sketcher::SketchText build_text() const;
+    [[nodiscard]] zima::sketcher::SketchText build_text(bool preview = false) const;
     void update_preview();
 
     zima::sketcher::SketchText initial_;
     std::optional<std::array<double, 2>> anchor_;
+    std::optional<std::array<double, 2>> preview_anchor_;
     PreviewCallback preview_;
     CommitCallback commit_;
     QPlainTextEdit* value_{};

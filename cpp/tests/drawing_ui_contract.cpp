@@ -1,3 +1,5 @@
+#include "sketch_text_properties_dialog.hpp"
+#include <QToolButton>
 #include <QPlainTextEdit>
 #include <QKeyEvent>
 #include <QToolBar>
@@ -644,6 +646,33 @@ int verify_drawing_ui() {
             std::ifstream file(directory/"multiline-text.dxf");const std::string dxf((std::istreambuf_iterator<char>(file)),{});require(dxf.find("Hydraulic manifold")!=std::string::npos&&dxf.find("Deburr all ports")!=std::string::npos&&dxf.find("Clean before assembly")!=std::string::npos,"DXF lost real text lines");
             window.grab().save(QString::fromStdString((directory/"multiline-text.png").string()));
             center=window.title_field_center_for_test("text:"+text.id);click(canvas,*center);QKeyEvent key(QEvent::KeyPress,Qt::Key_Delete,Qt::NoModifier);QApplication::sendEvent(canvas,&key);flush();require(window.document_for_test().sheets.front().texts.empty(),"Selected text cannot be deleted");
+        }
+        {
+            std::optional<zima::sketcher::SketchText> preview,committed;
+            zima::sketcher::SketchText initial;initial.value.clear();initial.height=2.5;initial.color=zima::sketcher::SketchTextColor::Green;
+            auto* props=new zima::app::SketchTextPropertiesDialog(initial,{},[&](auto p){preview=p;},[&](auto p){committed=p;},&window,true,true);
+            props->show();props->set_preview_anchor(20,30);flush();
+            require(props->needs_anchor()&&preview&&preview->value.empty()&&preview->anchor_x==20,"Empty text does not preview at cursor");
+            props->set_preview_anchor(25,35);require(preview->anchor_x==25,"Text placement preview does not follow cursor");
+            props->set_anchor(25,35);props->set_preview_anchor(80,90);
+            require(!props->needs_anchor()&&preview->anchor_x==25&&preview->anchor_y==35,"Placed text still follows cursor");
+            auto* editor=props->findChild<QPlainTextEdit*>("sketchTextValue");
+            auto* symbols=props->findChild<QToolButton*>("drawingTextSymbols");require(symbols&&symbols->menu(),"Text symbols missing");
+            editor->setPlainText("AB");auto cursor=editor->textCursor();cursor.setPosition(1);editor->setTextCursor(cursor);
+            symbols->menu()->actions().front()->trigger();require(editor->toPlainText()==QStringLiteral("A⌀B"),"Symbol was not inserted at text cursor");
+            editor->clear();props->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+            require(committed&&committed->value.empty()&&committed->height==2.5,"Empty placed text cannot be confirmed");
+            auto fixture=zima::drawing::DrawingDocument::create_default();workspace.add_drawing(fixture);window.edit_workspace_document(fixture.document_id);flush();
+            action("drawingTextAction")->trigger();flush();
+            props=dynamic_cast<zima::app::SketchTextPropertiesDialog*>(window.findChild<QDialog*>("drawingTextProperties"));
+            require(props&&props->findChild<QDoubleSpinBox*>("sketchTextHeight")->value()==2.5&&props->findChild<QComboBox*>("sketchTextColor")->currentData().toInt()==int(zima::sketcher::SketchTextColor::Green),"New drawing text has incorrect defaults");
+            click(canvas,canvas->rect().center());mouse(canvas,QEvent::MouseMove,{10,10},Qt::NoButton,Qt::NoButton);
+            window.grab().save(QString::fromStdString((directory/"drawing-text-properties.png").string()));
+            props->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+            require(window.document_for_test().sheets.front().texts.size()==1,"Canvas could not place empty drawing text");
+            const auto text=window.document_for_test().sheets.front().texts.front();require(text.presentation.text.empty()&&window.title_field_center_for_test("text:"+text.id),"Empty text has no selectable dash");
+            window.document_for_test().save(directory/"empty-free-text.drwz");
+            require(zima::drawing::DrawingDocument::load(directory/"empty-free-text.drwz").sheets.front().texts.front().presentation.text.empty(),"Empty drawing text did not persist");
         }
         require(modal_error.isEmpty(),modal_error.toUtf8().constData());
         std::cout<<"Drawing placement, rectangular selection, projection, Cancel, MMB, persistence and global paths passed\n";

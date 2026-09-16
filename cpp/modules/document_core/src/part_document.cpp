@@ -1,4 +1,5 @@
 #include <zima/document/holes.hpp>
+#include <zima/document/bend.hpp>
 #include <zima/document/named_views.hpp>
 #include <zima/document/profile_serialization.hpp>
 #include <zima/document/cache_storage.hpp>
@@ -526,12 +527,12 @@ void add_json_parameters(
 
 nlohmann::json read_part_ini(const std::filesystem::path& path) {
     const auto ini = read_ini(path);
-    if (ini_value(ini, "Document", "format_version") != "27") {
+    if (ini_value(ini, "Document", "format_version") != "28") {
         throw std::runtime_error("Unsupported ZIMA-CAD Part document format");
     }
     nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 51},
+        {"format_version", 52},
         {"document_id", ini_required(ini, "Document", "document_id")},
         {"type", ini_value(ini, "Document", "type", "part")},
         {"name", ini_value(ini, "Document", "name", "Nový díl")},
@@ -685,7 +686,7 @@ void write_part_ini(
     const nlohmann::json& root, const std::filesystem::path& path) {
     IniSections ini;
     ini["Document"] = {
-        {"format_version", "27"},
+        {"format_version", "28"},
         {"type", "part"},
         {"document_id", root.at("document_id").get<std::string>()},
         {"name", root.at("name").get<std::string>()},
@@ -8263,7 +8264,11 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
             container.placement.rotation_x, container.placement.rotation_y,
             container.placement.rotation_z};
         zima::kernel::PrimitiveRequest primitive;
-        if (container.feature_kind == FeatureKind::Holes) {
+        if (container.feature_kind == FeatureKind::Bend) {
+            const auto sketch=std::ranges::find(sketches,container.bend.sketch_id,&zima::sketcher::Sketch::id);
+            if(sketch==sketches.end())throw std::runtime_error("Bend source Sketch is missing.");
+            primitive=bend_request(container,*sketch,sheet_metal_defaults(*this));
+        } else if (container.feature_kind == FeatureKind::Holes) {
             const auto sketch = std::ranges::find(sketches, container.holes.sketch_id, &zima::sketcher::Sketch::id);
             if (sketch == sketches.end()) throw std::runtime_error("Otvory nemají zdrojovou skicu.");
             primitive = holes_request(container, *sketch);
@@ -8894,7 +8899,7 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
             container.combine_mode == CombineMode::Subtract
                 ? zima::kernel::BooleanOperation::Subtract
                 : zima::kernel::BooleanOperation::Add,
-            container.suppressed,
+            container.suppressed || (container.feature_kind==FeatureKind::Bend && container.bend.angle_degrees==0),
             boolean_tolerance,
             feature_mesh_deflection,
         });
@@ -9501,7 +9506,7 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
             type != "imported_step" &&
             type != "fillet" && type != "chamfer" &&
             type != "shell" &&
-            type != "holes" && type != "hole" && type != "thread" && type != "shaft_thread" &&
+            type != "bend" && type != "holes" && type != "hole" && type != "thread" && type != "shaft_thread" &&
             type != "drill_point") {
             throw std::runtime_error("Unsupported history feature type");
         }
@@ -9521,6 +9526,7 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
             : type == "fillet" ? FeatureKind::Fillet
             : type == "chamfer" ? FeatureKind::Chamfer
             : type == "shell" ? FeatureKind::Shell
+            : type == "bend" ? FeatureKind::Bend
             : type == "holes" ? FeatureKind::Holes
             : type == "hole" ? FeatureKind::Hole
             : type == "shaft_thread" ? FeatureKind::ShaftThread
@@ -9578,6 +9584,12 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
         if (container.feature_kind == FeatureKind::Sketch) {
             // Sketch geometry is persisted in PartDocument::sketches and
             // linked through Sketch::owner_container_id.
+        } else if (container.feature_kind == FeatureKind::Bend) {
+            const auto& b=source.at("bend");auto& p=container.bend;
+            p.sketch_id=b.at("sketch_id");p.radius=b.at("radius");p.angle_degrees=b.at("angle");
+            p.thickness=b.at("thickness");p.k_factor=b.at("k_factor");
+            p.thickness_override=b.at("thickness_override");p.k_factor_override=b.at("k_factor_override");p.unbend=b.at("unbend");
+            static_cast<void>(resolved_bend_parameters(container,sheet_metal_defaults(document)));
         } else if (container.feature_kind == FeatureKind::Holes) {
             container.holes.sketch_id = source.at("sketch_id");
             container.holes.diameter = source.at("diameter");
@@ -10302,6 +10314,10 @@ nlohmann::json PartDocument::serialized(
                 })) {
                 throw std::runtime_error("Sketch container does not own a Sketch");
             }
+        } else if (container.feature_kind == FeatureKind::Bend) {
+            const auto sketch=std::ranges::find(sketches,container.bend.sketch_id,&zima::sketcher::Sketch::id);
+            if(sketch==sketches.end())throw std::runtime_error("Bend source Sketch is missing.");
+            static_cast<void>(bend_request(container,*sketch,sheet_metal_defaults(*this)));
         } else if (container.feature_kind == FeatureKind::Holes) {
             const auto sketch = std::ranges::find(sketches, container.holes.sketch_id, &zima::sketcher::Sketch::id);
             if (sketch == sketches.end()) throw std::runtime_error("Otvory nemají zdrojovou skicu.");
@@ -10566,7 +10582,8 @@ nlohmann::json PartDocument::serialized(
             {"id", container.id}, {"value_locks", container.value_locks},
             {"feature_id", container.feature_id},
             {"feature_parent_id", container.feature_parent_id},
-            {"type", container.feature_kind == FeatureKind::Holes ? "holes"
+            {"type", container.feature_kind == FeatureKind::Bend ? "bend"
+                : container.feature_kind == FeatureKind::Holes ? "holes"
                 : container.feature_kind == FeatureKind::Sketch ? "sketch"
                 : container.feature_kind == FeatureKind::Box ? "box"
                 : container.feature_kind == FeatureKind::Cylinder
@@ -10665,6 +10682,11 @@ nlohmann::json PartDocument::serialized(
         if (container.feature_kind == FeatureKind::Sketch) {
             // No additional feature parameters: the owned Sketch is stored
             // in the document sketch collection.
+        } else if (container.feature_kind == FeatureKind::Bend) {
+            const auto& p=container.bend;
+            serialized["bend"]={{"sketch_id",p.sketch_id},{"radius",p.radius},{"angle",p.angle_degrees},
+                {"thickness",p.thickness},{"k_factor",p.k_factor},{"thickness_override",p.thickness_override},
+                {"k_factor_override",p.k_factor_override},{"unbend",p.unbend}};
         } else if (container.feature_kind == FeatureKind::Holes) {
             serialized["sketch_id"] = container.holes.sketch_id;
             serialized["diameter"] = container.holes.diameter;
@@ -11066,7 +11088,7 @@ nlohmann::json PartDocument::serialized(
     static_cast<void>(zima::document::parse_named_views(named_views));
     nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 51},
+        {"format_version", 52},
         {"document_id", document_id},
         {"type", "part"},
         {"name", name},

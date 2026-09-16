@@ -806,7 +806,7 @@ private:
     [[nodiscard]] bool accept_origin_reference_value(
         const QString& owner_id, const QString& instance_path,
         const QString& semantic_key);
-    void show_sketch_properties(const std::string& sketch_id = {}, bool holes_mode = false);
+    void show_sketch_properties(const std::string& sketch_id = {}, bool holes_mode = false, bool bend_mode = false);
     void show_sweep_profile_sketch(
         ConstructionPropertiesDialog* sweep_dialog,
         std::size_t profile_index);

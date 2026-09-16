@@ -372,6 +372,12 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
                 connect(properties,&QAction::triggered,this,[this]{edit_file_settings(true);});
             }
             properties->setEnabled(!properties_dialog_);add_command(properties,false);add_green_separator();
+            auto* bend=findChild<QAction*>("bendAction");
+            if(!bend) {
+                bend=new QAction(resource_icon("bend"),tr("Ohyb"),this);bend->setObjectName("bendAction");
+                connect(bend,&QAction::triggered,this,[this]{show_sketch_properties({},false,true);});
+            }
+            bend->setEnabled(!properties_dialog_);add_command(bend);return;
         }
     }
     auto* placeholder = new QAction(

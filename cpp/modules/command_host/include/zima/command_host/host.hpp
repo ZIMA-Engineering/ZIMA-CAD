@@ -73,6 +73,7 @@ private:
     void register_primitive_commands();
     void register_profile_commands();
     void register_holes_commands();
+    void register_bend_commands();
     void register_assembly_cut_commands();
     void register_sweep_commands();
     void register_opening_commands();

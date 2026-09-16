@@ -69,6 +69,7 @@ QString feature_icon_name(zima::document::FeatureKind kind) {
         case FeatureKind::Chamfer: return QStringLiteral("chamfer");
         case FeatureKind::Shell: return QStringLiteral("shell");
         case FeatureKind::Hole: return QStringLiteral("cylinder");
+        case FeatureKind::Bend: return QStringLiteral("bend");
         case FeatureKind::Holes: return QStringLiteral("holes");
         case FeatureKind::Thread: return QStringLiteral("cylinder");
         case FeatureKind::ShaftThread: return QStringLiteral("thread");

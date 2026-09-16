@@ -1,4 +1,5 @@
 #include "sketch_text_properties_dialog.hpp"
+#include "annotation_symbols.hpp"
 #include <zima/sketcher/text_geometry.hpp>
 
 #include <QCheckBox>
@@ -6,6 +7,8 @@
 #include <QDoubleSpinBox>
 #include <QFormLayout>
 #include <QLabel>
+#include <QHBoxLayout>
+#include <QVBoxLayout>
 #include <QPlainTextEdit>
 
 #include <algorithm>
@@ -30,7 +33,13 @@ SketchTextPropertiesDialog::SketchTextPropertiesDialog(
     value_->setObjectName("sketchTextValue");
     value_->setPlainText(QString::fromStdString(initial_.value));
     value_->setFixedHeight(value_->fontMetrics().lineSpacing() * 5 + 16);
-    form->addRow(new QLabel(tr("Text"), this));
+    if(drawing_text_) {
+        auto* heading=new QHBoxLayout;heading->setContentsMargins(0,0,0,0);
+        heading->addWidget(new QLabel(tr("Text"),this));heading->addStretch();
+        auto* symbols=annotation_symbols(this,[this](const QString& value){value_->insertPlainText(value);value_->setFocus();});
+        symbols->setObjectName("drawingTextSymbols");heading->addWidget(symbols);form->addRow(heading);
+        form->setFormAlignment(Qt::AlignTop);form->setVerticalSpacing(6);
+    } else form->addRow(new QLabel(tr("Text"), this));
     form->addRow(value_);
     mode_ = new QComboBox(this);
     mode_->setObjectName("sketchTextMode");
@@ -39,7 +48,7 @@ SketchTextPropertiesDialog::SketchTextPropertiesDialog(
     mode_->setCurrentIndex(initial_.modeling_geometry ? 1 : 0);
     if(drawing_text_) {
         mode_->setCurrentIndex(0);mode_->hide();
-        value_->setFixedHeight(240);set_initial_size(QSize(760,700));setSizeGripEnabled(true);
+        value_->setFixedHeight(220);set_initial_size(QSize(650,590));setSizeGripEnabled(true);
     } else form->addRow(tr("Režim textu"), mode_);
     connect(mode_, &QComboBox::currentIndexChanged,
             this, &SketchTextPropertiesDialog::update_preview);
@@ -114,6 +123,7 @@ SketchTextPropertiesDialog::SketchTextPropertiesDialog(
     error_->setStyleSheet(QStringLiteral("color:#c64b4b;"));
     error_->setWordWrap(true);
     content_layout()->addWidget(error_);
+    if(drawing_text_)content_layout()->addStretch();
 
     connect(value_, &QPlainTextEdit::textChanged,
             this, &SketchTextPropertiesDialog::update_preview);
@@ -138,19 +148,25 @@ void SketchTextPropertiesDialog::set_anchor(double x, double y) {
     update_preview();
 }
 
+void SketchTextPropertiesDialog::set_preview_anchor(double x,double y) {
+    if(anchor_||!drawing_text_)return;
+    preview_anchor_=std::array{x,y};update_preview();
+}
+
 void rebuild_sketch_text_contours(zima::sketcher::SketchText& text, bool y_up) {
     zima::sketcher::rebuild_text_contours(text,y_up);
 }
 
-zima::sketcher::SketchText SketchTextPropertiesDialog::build_text() const {
-    if (!anchor_) throw std::runtime_error(drawing_text_ ? "Nejprve určete polohu textu na listu." : "Nejprve určete polohu textu ve skice.");
+zima::sketcher::SketchText SketchTextPropertiesDialog::build_text(bool preview) const {
+    const auto anchor=anchor_?anchor_:preview?preview_anchor_:std::nullopt;
+    if (!anchor) throw std::runtime_error(drawing_text_ ? "Nejprve určete polohu textu na listu." : "Nejprve určete polohu textu ve skice.");
     const QString value = value_->toPlainText();
-    if (value.isEmpty()) throw std::runtime_error("Text nesmí být prázdný.");
+    if (value.isEmpty()&&!drawing_text_) throw std::runtime_error("Text nesmí být prázdný.");
 
     auto text = initial_;
     text.value = value.toStdString();
     text.modeling_geometry = mode_->currentData().toBool();
-    text.anchor_x = (*anchor_)[0]; text.anchor_y = (*anchor_)[1];
+    text.anchor_x = (*anchor)[0]; text.anchor_y = (*anchor)[1];
     text.height = height_->value();
     text.horizontal = static_cast<zima::sketcher::TextHorizontalAlignment>(horizontal_->currentData().toInt());
     text.vertical = static_cast<zima::sketcher::TextVerticalAlignment>(vertical_->currentData().toInt());
@@ -165,7 +181,7 @@ void SketchTextPropertiesDialog::update_preview() {
     error_->clear();
     if (!preview_) return;
     try {
-        preview_(anchor_ ? std::optional{build_text()} : std::nullopt);
+        preview_(anchor_||preview_anchor_ ? std::optional{build_text(true)} : std::nullopt);
     } catch (const std::exception&) {
         preview_(std::nullopt);
     }

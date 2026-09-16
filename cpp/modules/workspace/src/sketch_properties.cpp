@@ -35,7 +35,7 @@ bool commit_part_sketch_properties(Workspace& live,const kernel::OcctKernel& ker
         if(existing->owner_container_id!=sketch.owner_container_id||!owner||new_container)
             reject("invalid_sketch_owner","Sketch owning container no longer exists");
         if(owner->feature_kind!=document::FeatureKind::Sketch&&owner->feature_kind!=document::FeatureKind::Extrusion&&
-            owner->feature_kind!=document::FeatureKind::Revolution&&owner->feature_kind!=document::FeatureKind::Holes)
+            owner->feature_kind!=document::FeatureKind::Revolution&&owner->feature_kind!=document::FeatureKind::Holes&&owner->feature_kind!=document::FeatureKind::Bend)
             reject("unsupported_sketch","Edit this Sketch through its owning section operation.");
     }
     const auto* body=create?before.body_history.find(before.body_history.active_body_id())

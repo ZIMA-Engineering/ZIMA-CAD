@@ -173,6 +173,7 @@ add_library(zima_document_core
     modules/document_core/src/part_document.cpp
     modules/document_core/src/hole_profiles.cpp
     modules/document_core/src/holes.cpp
+    modules/document_core/src/bend.cpp
     modules/document_core/src/profile_targets.cpp
     modules/document_core/src/appearance.cpp
     modules/document_core/src/body_history.cpp
@@ -279,6 +280,7 @@ add_library(zima_workspace modules/workspace/src/workspace.cpp
     modules/workspace/src/hole_operations.cpp
     modules/workspace/src/opening_operations.cpp
     modules/workspace/src/holes_operations.cpp
+    modules/workspace/src/bend_operations.cpp
     modules/workspace/src/opening_component_operations.cpp
     modules/workspace/src/template_operations.cpp modules/workspace/src/template_object_operations.cpp
     modules/workspace/src/opening_targets.cpp
@@ -315,6 +317,7 @@ add_library(zima_command_host
     modules/command_host/src/appearance_commands.cpp
     modules/command_host/src/hole_commands.cpp
     modules/command_host/src/holes_commands.cpp
+    modules/command_host/src/bend_commands.cpp
     modules/command_host/src/opening_commands.cpp
     modules/command_host/src/drill_point_commands.cpp
     modules/command_host/src/shell_commands.cpp
@@ -1272,6 +1275,11 @@ if(ZIMA_BUILD_TESTS)
     set_tests_properties(zima_cpp_work_plane_contract_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
 
     add_executable(zima_cpp_holes_command_tests tests/holes_command_tests.cpp)
+    add_executable(zima_cpp_bend_command_tests tests/bend_command_tests.cpp)
+    target_link_libraries(zima_cpp_bend_command_tests PRIVATE zima_command_host)
+    target_compile_options(zima_cpp_bend_command_tests PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
+    add_test(NAME zima_cpp_bend_command_tests COMMAND zima_cpp_bend_command_tests)
+    set_tests_properties(zima_cpp_bend_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     target_link_libraries(zima_cpp_holes_command_tests PRIVATE zima_command_host)
     target_compile_options(zima_cpp_holes_command_tests PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
     add_test(NAME zima_cpp_holes_command_tests COMMAND zima_cpp_holes_command_tests)

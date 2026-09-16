@@ -26,7 +26,7 @@
 namespace zima::document {
 
 enum class CombineMode { Add, Subtract };
-enum class FeatureKind { Sketch, Box, Cylinder, Sphere, Cone, Pyramid, Wedge, Extrusion, Revolution, Sweep3D, ImportedStep, Fillet, Chamfer, Shell, Hole, Thread, DrillPoint, ShaftThread, HelicalSweep, Sweep2D, Holes };
+enum class FeatureKind { Sketch, Box, Cylinder, Sphere, Cone, Pyramid, Wedge, Extrusion, Revolution, Sweep3D, ImportedStep, Fillet, Chamfer, Shell, Hole, Thread, DrillPoint, ShaftThread, HelicalSweep, Sweep2D, Holes, Bend };
 enum class ExtrusionDirection { Forward, Reverse, Symmetric };
 enum class ExtrusionExtent { Blind, UpToPlane, UpToSurface, ThroughAll };
 enum class ProfileSource { Internal, External };
@@ -567,6 +567,18 @@ struct HolesParameters {
     bool operator==(const HolesParameters&) const = default;
 };
 
+struct BendParameters {
+    std::string sketch_id;
+    double radius{5.0};
+    double angle_degrees{90.0};
+    double thickness{1.0};
+    double k_factor{0.5};
+    bool thickness_override{};
+    bool k_factor_override{};
+    bool unbend{};
+    bool operator==(const BendParameters&) const = default;
+};
+
 struct HistoryContainer {
     std::string id;
     std::string feature_id;
@@ -592,6 +604,7 @@ struct HistoryContainer {
     ShellParameters shell;
     HoleParameters hole;
     HolesParameters holes;
+    BendParameters bend;
     ThreadParameters thread;
     ShaftThreadParameters shaft_thread;
     DrillPointParameters drill_point;

@@ -14,6 +14,11 @@ using namespace workspace_detail;
 void AssemblyWorkspaceWindow::show_primitive_properties(
     zima::document::FeatureKind feature_kind,
     const std::string& container_id) {
+    if (feature_kind == zima::document::FeatureKind::Bend) {
+        const auto* part=workspace_.open_part(workspace_.active_document_id());
+        const auto* feature=part?part->session.document().find_container(container_id):nullptr;
+        show_sketch_properties(feature?feature->bend.sketch_id:std::string{},false,true);return;
+    }
     if (feature_kind == zima::document::FeatureKind::Holes) {
         const auto* part = workspace_.open_part(workspace_.active_document_id());
         const auto* feature = part ? part->session.document().find_container(container_id) : nullptr;

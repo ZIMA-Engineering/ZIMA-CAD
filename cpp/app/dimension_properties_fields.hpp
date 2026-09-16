@@ -1,4 +1,5 @@
 #pragma once
+#include "annotation_symbols.hpp"
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDoubleSpinBox>
@@ -97,22 +98,9 @@ class DimensionTextFields final : public QWidget {
         edit = new QLineEdit(QString::fromStdString(value), widget);
         edit->setObjectName(name);
         layout->addWidget(edit, 1);
-        auto *symbols = new QToolButton(widget);
-        symbols->setText(QStringLiteral("⌀"));
-        symbols->setPopupMode(QToolButton::InstantPopup);
-        auto *menu = new QMenu(symbols);
-        for (const auto &symbol :
-             {QStringLiteral("⌀"), QStringLiteral("○"), QStringLiteral("●"), QStringLiteral("R"),
-              QStringLiteral("SR"), QStringLiteral("S⌀"), QStringLiteral("□"), QStringLiteral("⌴"),
-              QStringLiteral("⌵"), QStringLiteral("↧"), QStringLiteral("⌒"), QStringLiteral("∠"),
-              QStringLiteral("°"), QStringLiteral("±"), QStringLiteral("×"), QStringLiteral("≈")}) {
-            auto *action = menu->addAction(symbol);
-            QObject::connect(action, &QAction::triggered, edit, [edit, symbol] {
-                edit->insert(symbol);
-                edit->setFocus();
-            });
-        }
-        symbols->setMenu(menu);
+        auto *symbols = annotation_symbols(widget,[edit](const QString& symbol) {
+            edit->insert(symbol);edit->setFocus();
+        });
         layout->addWidget(symbols);
         return widget;
     }

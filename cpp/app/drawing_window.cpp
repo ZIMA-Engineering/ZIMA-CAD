@@ -579,7 +579,13 @@ public:
     }
     void set_title_block_action(QAction* action) { title_action_=action; }
     void set_text_properties(std::function<void(const std::string&)> callback) {text_properties_=std::move(callback);}
-    void set_text_editor(SketchTextPropertiesDialog* dialog) {text_editor_=dialog;update();}
+    void set_text_editor(SketchTextPropertiesDialog* dialog) {
+        text_editor_=dialog;
+        if(dialog&&dialog->needs_anchor()&&sheet_) {
+            const auto point=paper_point(mapFromGlobal(QCursor::pos()));dialog->set_preview_anchor(point.x,point.y);
+        }
+        update();
+    }
     void set_text_preview(std::optional<drawing::DrawingText> text) {text_preview_=std::move(text);update();}
     drawing::DrawingText* editable_text(const std::string& field) {
         if(!sheet_||!field.starts_with("text:"))return nullptr;
@@ -825,6 +831,11 @@ protected:
     void paintEvent(QPaintEvent*) override {
         QPainter painter(this);painter.fillRect(rect(),QColor("#000000"));
         paint_sheet(painter,canvas_zoom(),canvas_origin(canvas_zoom()),false);
+        if(text_editor_&&text_editor_->needs_anchor()&&text_preview_&&underMouse()) {
+            const auto zoom=canvas_zoom();const auto p=text_preview_->presentation.position;const auto origin=canvas_origin(zoom);
+            const QPointF anchor(origin.x()+(sheet_->width_mm()-p.x)*zoom,origin.y()+(sheet_->height_mm()-p.y)*zoom);
+            painter.setPen(Qt::NoPen);painter.setBrush(QColor("#4DD811"));painter.drawEllipse(anchor,3.5,3.5);
+        }
     }
 public:
     void set_model_command(std::set<std::string> offered,std::function<void(const std::string&)> pick){model_offered_=std::move(offered);model_pick_=std::move(pick);selected_annotation_.reset();hovered_annotation_.reset();offered_annotations_.clear();update();}
@@ -955,6 +966,10 @@ protected:
         update();
     }
     void mouseMoveEvent(QMouseEvent* event) override {
+        if(text_editor_&&!view_panning_&&!(event->buttons()&Qt::MiddleButton)) {
+            if(text_editor_->needs_anchor()){const auto p=paper_point(event->position());text_editor_->set_preview_anchor(p.x,p.y);}
+            update();event->accept();return;
+        }
         if(balloon_move(event))return;
         if(text_drag_original_&&!view_panning_&&(event->buttons()&Qt::LeftButton)) {
             if(auto* text=editable_text("text:"+text_drag_original_->id)) {
@@ -1654,7 +1669,7 @@ void DrawingWindow::show_text_properties(const std::string& id) {
     const auto* sheet=active_sheet();if(!sheet)return;
     const auto sheet_id=sheet->id,drawing_id=document_.document_id;
     sketcher::SketchText initial;initial.id=id.empty()?"text-"+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()):id;
-    initial.value="";initial.height=3.5;initial.flipped=true;initial.color=sketcher::SketchTextColor::White;initial.modeling_geometry=false;
+    initial.value="";initial.height=2.5;initial.flipped=true;initial.color=sketcher::SketchTextColor::Green;initial.modeling_geometry=false;
     std::optional<std::array<double,2>> anchor;
     if(!id.empty()) {
         const auto found=std::ranges::find(sheet->texts,id,&drawing::DrawingText::id);if(found==sheet->texts.end())return;

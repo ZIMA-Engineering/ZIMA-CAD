@@ -23,6 +23,12 @@ inline QRectF dimension_text_box(const QFont& font, const QString& text, double 
     bounds.setRight(std::max(metrics.horizontalAdvance(text), bounds.right()));
     return bounds.adjusted(-padding, -padding, padding, padding);
 }
+// Keep the opaque label background clear of its own dimension stroke,
+// including descenders and font rounding at different paper zoom levels.
+inline double dimension_text_clearance(const QFont& font, const QString& text,
+                                       double padding, double stroke_width, double minimum_gap) {
+    return std::max(minimum_gap, dimension_text_box(font,text,padding).bottom()+stroke_width*.5+padding*.5);
+}
 // Stable input order is the annotation order: each later label masks earlier
 // labels as well as all geometry painted before this final text layer.
 template<class PaintBackground>

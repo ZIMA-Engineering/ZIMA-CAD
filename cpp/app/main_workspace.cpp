@@ -3615,14 +3615,14 @@ int verify_application_tools_ui(QApplication& application,const std::filesystem:
         const auto settings_dialog=[&]{return dynamic_cast<app::FileSettingsDialog*>(window.findChild<QDialog*>("fileSettingsDialog"));};
         sheet_properties->trigger();flush();auto* file=settings_dialog();
         check(file&&file->findChild<QTabWidget*>("fileSettingsPages")->currentIndex()==1,"Sheet shortcut did not open File Settings sheet page");
-        check(!file->findChild<QCheckBox*>("sheetMetalThicknessEnabled")->isChecked(),"Unset sheet thickness is enabled");
-        file->findChild<QCheckBox*>("sheetMetalThicknessEnabled")->setChecked(true);file->findChild<QDoubleSpinBox*>("sheetMetalThickness")->setValue(2.5);
+        check(file->findChild<QDoubleSpinBox*>("sheetMetalThickness")->isEnabled()&&file->findChild<QDoubleSpinBox*>("sheetMetalThickness")->value()==1.,"Sheet thickness must start at an editable 1 mm");
+        file->findChild<QDoubleSpinBox*>("sheetMetalThickness")->setValue(2.5);
         file->findChild<QDoubleSpinBox*>("sheetMetalKFactor")->setValue(.42);
         file->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
         window.findChild<QAction*>("fileSettingsAction")->trigger();flush();file=settings_dialog();
-        check(file&&file->findChild<QTabWidget*>("fileSettingsPages")->currentIndex()==0&&!file->findChild<QCheckBox*>("sheetMetalThicknessEnabled")->isChecked(),"Cancel committed pending sheet settings");
+        check(file&&file->findChild<QTabWidget*>("fileSettingsPages")->currentIndex()==0&&file->findChild<QDoubleSpinBox*>("sheetMetalThickness")->value()==1.,"Cancel committed pending sheet settings");
         sheet_properties->trigger();flush();check(file->findChild<QTabWidget*>("fileSettingsPages")->currentIndex()==1,"Shortcut did not reuse open File Settings");
-        file->findChild<QCheckBox*>("sheetMetalThicknessEnabled")->setChecked(true);file->findChild<QDoubleSpinBox*>("sheetMetalThickness")->setValue(2.5);file->findChild<QDoubleSpinBox*>("sheetMetalKFactor")->setValue(.42);
+        file->findChild<QDoubleSpinBox*>("sheetMetalThickness")->setValue(2.5);file->findChild<QDoubleSpinBox*>("sheetMetalKFactor")->setValue(.42);
         check(window.grab().save("build/sheet-metal-settings.png"),"Sheet properties screenshot failed");
         auto* model_view=window.findChild<QOpenGLWidget*>();const QPointF click(50,50);
         QMouseEvent middle(QEvent::MouseButtonDblClick,click,QPointF(model_view->mapToGlobal(click.toPoint())),Qt::MiddleButton,Qt::MiddleButton,Qt::NoModifier);
@@ -3630,7 +3630,7 @@ int verify_application_tools_ui(QApplication& application,const std::filesystem:
         window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
         check(document::sheet_metal_defaults(document::PartDocument::load(path))==document::SheetMetalDefaults{2.5,.42},"Sheet properties did not persist to the native Part");
         window.findChild<QAction*>("fileSettingsAction")->trigger();flush();file=settings_dialog();
-        check(file->findChild<QCheckBox*>("sheetMetalThicknessEnabled")->isChecked()&&file->findChild<QDoubleSpinBox*>("sheetMetalThickness")->value()==2.5&&file->findChild<QDoubleSpinBox*>("sheetMetalKFactor")->value()==.42,"File Settings disagrees with Sheet properties");
+        check(file->findChild<QDoubleSpinBox*>("sheetMetalThickness")->value()==2.5&&file->findChild<QDoubleSpinBox*>("sheetMetalKFactor")->value()==.42,"File Settings disagrees with Sheet properties");
         file->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
         window.findChild<QAction*>("regenerateDocumentAction")->trigger();flush();
         check(sheet->isChecked()&&selector()->currentData().toInt()==2,"Refresh lost Sheet Metal choice");
@@ -3664,6 +3664,29 @@ int verify_application_tools_ui(QApplication& application,const std::filesystem:
         check(menu->actions().contains(window.findChild<QAction*>("insertDrawingViewAction"))&&!menu->actions().contains(extrusion),"Drawing Insert contains wrong commands");
         check(window.open_document_path(QString::fromStdString(assembly_path.string())),"Assembly fixture failed to open");flush();
         check(menu->actions().contains(window.findChild<QAction*>("insertComponentAction")),"Assembly Insert lost component insertion");
+        // Exercise the actual Sheet Metal command on an otherwise empty Body.
+        auto bend_part=document::PartDocument::create_default();document::BodyHistoryGraph bend_graph;
+        const auto bend_body=bend_graph.create_body("Bend body");bend_part.set_body_history(bend_graph);
+        document::set_sheet_metal_defaults(bend_part,{2.,.4});const auto bend_path=directory/"bend-ui.prtz";bend_part.save(bend_path);
+        check(window.open_document_path(QString::fromStdString(bend_path.string())),"Bend fixture failed to open");flush();
+        check(activate_test_body(application,window,bend_body),"Cannot activate Bend body");sheet->trigger();flush();
+        auto* bend_action=window.findChild<QAction*>("bendAction");check(bend_action&&!bend_action->icon().isNull()&&menu->actions().contains(bend_action),"Bend missing from Sheet Metal toolbar/Insert");
+        const auto bend_dialog=[&]{return window.findChild<QDialog*>("bendPropertiesDialog");};
+        bend_action->trigger();flush();auto* bend=bend_dialog();check(bend&&bend->windowType()==Qt::SubWindow,"Bend properties did not open internally");
+        auto* thickness=bend->findChild<QDoubleSpinBox*>("bendThickness");auto* override=bend->findChild<QCheckBox*>("bendThicknessOverride");
+        check(thickness&&override&&!override->isChecked()&&!thickness->isEnabled()&&thickness->value()==2.,"Bend did not inherit Part thickness");
+        override->setChecked(true);thickness->setValue(3.);override->setChecked(false);check(thickness->value()==2.,"Disabling local thickness did not restore Part value");
+        bend->findChild<QDoubleSpinBox*>("bendRadius")->setValue(7.);bend->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
+        window.findChild<QAction*>("saveDocumentAction")->trigger();flush();check(document::PartDocument::load(bend_path).history.empty(),"Bend Cancel inserted history");
+        bend_action->trigger();flush();bend=bend_dialog();check(bend&&bend->findChild<QDoubleSpinBox*>("bendRadius")->value()==5.,"Bend Cancel retained radius");
+        bend->findChild<QComboBox*>("bendState")->setCurrentIndex(1);flush();window.grab().save("build/bend-properties.png");
+        bend->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();check(!bend_dialog(),"Bend OK failed to close");
+        window.findChild<QAction*>("saveDocumentAction")->trigger();flush();const auto saved_bend=document::PartDocument::load(bend_path);
+        check(saved_bend.history.size()==1&&saved_bend.history.front().feature_kind==document::FeatureKind::Bend&&saved_bend.history.front().bend.unbend,"Bend was not committed as one Unbend history feature");
+        QTreeWidgetItem* bend_row{};for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==saved_bend.history.front().id&&(*it)->data(0,Qt::UserRole+3)=="part-container"){bend_row=*it;break;}
+        check(bend_row,"Bend history row missing");window.show_tree_item_properties(bend_row);flush();bend=bend_dialog();check(bend,"First Bend history edit cannot enter rollback");
+        bend->findChild<QComboBox*>("bendState")->setCurrentIndex(0);QApplication::sendEvent(model_view,&middle);flush();check(!bend_dialog(),"Bend middle double-click did not confirm");
+        window.findChild<QAction*>("saveDocumentAction")->trigger();flush();check(!document::PartDocument::load(bend_path).history.front().bend.unbend,"Bend edit failed to persist state");
         std::cout<<"Application selector, per-document modes, contextual Insert, live profile status and stable Save tabs passed\n";return 0;
     }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
 }
