@@ -298,6 +298,17 @@ int main(int argc, char **argv) {
         }
         kernel::ModelEnvelope bounds;
         {
+            kernel::ViewerDimension label;label.label_only=true;
+            label.label_position=kernel::Vec3{12,18,9};label.display_text_override="Unbend";
+            for(double zoom:{0.1,1.0,20.0}) {
+                const auto project=[&](kernel::Vec3 p){return QPointF(p.x*zoom,p.y*zoom);};
+                const auto layout=viewer::dimension_presentation(label,project,40);
+                require(layout.valid&&layout.curves.empty()&&layout.arrows.empty(),"State label drew measuring geometry");
+                near(QLineF(layout.handles[0],project(*label.label_position)).length(),0);
+                near(layout.text_baseline.x(),12*zoom-20);
+            }
+        }
+        {
             kernel::ViewerDimension handle;
             handle.rotation_handle=true;handle.kind=kernel::ViewerDimensionKind::Angular;
             handle.witness_first={12,18,0};handle.line_second={42,58,0};

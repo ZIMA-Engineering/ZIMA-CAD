@@ -3,6 +3,8 @@
 #include <zima/workspace/family_operations.hpp>
 #include <zima/workspace/engineering_metadata_operations.hpp>
 #include <zima/document/physical_properties.hpp>
+#include <zima/document/bend.hpp>
+#include <zima/workspace/bend_operations.hpp>
 #include <zima/workspace/document_operations.hpp>
 #include <zima/workspace/drawing_operations.hpp>
 #include <zima/workspace/component_operations.hpp>
@@ -15,6 +17,39 @@ namespace fs=std::filesystem;
 namespace {
 void require(bool condition,const char* text){if(!condition)throw std::runtime_error(text);}
 double volume(const workspace::Workspace& live,const std::string& id){return live.open_part(id)->session.calculated_boundaries().back().volume;}
+void bend_state_test(const kernel::OcctKernel& kernel,const fs::path& directory) {
+    workspace::Workspace live;auto part=document::PartDocument::create_default();
+    auto bend=document::PartDocument::create_sketch_container();bend.feature_kind=document::FeatureKind::Bend;
+    auto start=sketcher::Sketch::create_default();start.owner_container_id=bend.id;
+    document::initialize_bend_start_profile(start,30);bend.bend.sketch_id=start.id;
+    part.history={bend};part.sketches={start};part.resolve_constructions();
+    const auto id=part.document_id;live.add_part(part,kernel.evaluate_history(part.kernel_operations()));
+    const auto references=workspace::family_references(live,id);
+    const auto state=std::ranges::find_if(references,[&](const auto& r){return r.binding.owner_id==bend.id&&r.binding.semantic_key=="parameter:unbend";});
+    require(state!=references.end()&&state->value=="0","Bend state is absent from Family references");
+    document::FamilyTable table;table.columns={state->name};table.bindings[state->name]=state->binding;
+    table.instances={{"Folded",{{state->name,"0"}}},{"Developed",{{state->name,"1"}}},{"Inherited",{}}};
+    static_cast<void>(workspace::set_family_table(live,id,table));
+    const auto folded=workspace::open_family_instance(live,kernel,id,"Folded",false);
+    const auto developed=workspace::open_family_instance(live,kernel,id,"Developed",false);
+    const auto inherited=workspace::open_family_instance(live,kernel,id,"Inherited",false);
+    const auto unbend=[&](const std::string& owner){return live.open_part(owner)->session.document().find_container(bend.id)->bend.unbend;};
+    require(!unbend(id)&&!unbend(folded)&&unbend(developed)&&!unbend(inherited),"Family Bend states were not independent");
+    auto* member=live.open_part(developed);auto edited=*member->session.document().find_container(bend.id);edited.bend.unbend=false;
+    static_cast<void>(workspace::commit_bend(live,kernel,developed,edited,member->session.document().sketches.front()));
+    require(!unbend(id)&&!unbend(developed),"Editing instance state changed the generic Bend");
+    auto* generic=live.open_part(id);edited=*generic->session.document().find_container(bend.id);edited.bend.unbend=true;
+    static_cast<void>(workspace::commit_bend(live,kernel,id,edited,generic->session.document().sketches.front()));
+    require(unbend(id)&&!unbend(folded)&&!unbend(developed)&&unbend(inherited),"Bend overrides or inheritance were lost");
+    const auto path=directory/"bend-state.prtz";generic=live.open_part(id);
+    generic->session.document().save(path,generic->session.calculated_boundaries());
+    std::vector<kernel::BodyResult> cache;auto cold=document::PartDocument::load(path,&cache);
+    const auto reopened=workspace::family_part_source(cold,cache,developed);
+    require(!reopened.find_container(bend.id)->bend.unbend&&cold.find_container(bend.id)->bend.unbend,"Cold Family state changed");
+    auto bad=table;bad.instances.front().values[state->name]="2";bool rejected=false;
+    try {static_cast<void>(workspace::set_family_table(live,id,bad));}catch(const std::exception&){rejected=true;}
+    require(rejected,"Invalid Bend state accepted");
+}
 void component_test(const kernel::OcctKernel& kernel,const fs::path& directory) {
     workspace::Workspace live;auto part=document::PartDocument::create_default();part.name="Family component";
     const auto root=part.document_id;auto box=document::PartDocument::create_box_container();box.box={10,8,6};part.history={box};
@@ -220,4 +255,4 @@ void test(const kernel::OcctKernel& kernel,const fs::path& directory) {
     auto opened=host.execute({{"command","document.family.open"},{"arguments",{{"document",id},{"instance","Long"}}}});if(!opened.ok)throw std::runtime_error(opened.code+": "+opened.message);require(opened.data.at("document")==variant,"CLI did not open the same family instance");
 }
 }
-int main(){try{kernel::OcctKernel kernel;const auto root=fs::canonical(fs::temp_directory_path());const auto dir=root/("zima-family-"+document::PartDocument::create_default().document_id);fs::create_directory(dir);test(kernel,dir);component_test(kernel,dir);require(dir.parent_path()==root,"Unsafe test cleanup");fs::remove_all(dir);std::cout<<"Linked Family Table, component insertion/replacement, cold nested sources, shared history, drawings and CLI passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
+int main(){try{kernel::OcctKernel kernel;const auto root=fs::canonical(fs::temp_directory_path());const auto dir=root/("zima-family-"+document::PartDocument::create_default().document_id);fs::create_directory(dir);test(kernel,dir);component_test(kernel,dir);bend_state_test(kernel,dir);require(dir.parent_path()==root,"Unsafe test cleanup");fs::remove_all(dir);std::cout<<"Linked Family Table, component insertion/replacement, cold nested sources, shared history, drawings and CLI passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

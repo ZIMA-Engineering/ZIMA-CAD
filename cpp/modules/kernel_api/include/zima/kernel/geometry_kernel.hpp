@@ -279,6 +279,8 @@ struct ViewerDimension {
     // Derived Assembly hinge control; edits the same persisted angle value.
     // Presentation only, with a screen-sized radial arm and endpoint grip.
     bool rotation_handle{};
+    // Selectable parameter annotation without measuring lines or arrows.
+    bool label_only{};
     bool operator==(const ViewerDimension&)const=default;
 };
 

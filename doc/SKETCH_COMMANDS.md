@@ -251,6 +251,11 @@ Lengths use **mm**, angles **degrees**; results report `unit`. References do not
 require mouse selection. The native solver checks suitability, solvability and
 duplicate driving dimensions.
 
+Coordinates from the built-in Sketch origin or X/Y axes display and accept
+signed absolute values, including `point_line` against a built-in axis. Repeating
+`value=-30` keeps that coordinate at -30. Other distances display magnitudes;
+negative input reverses their current direction. Limits use the displayed value.
+
 Create/set accept optional properties:
 
 - `value`, `driving`, `locked`: locks protect geometry from dragging. Intentional

@@ -99,7 +99,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     for(const char* kind:{"distance","point_line","line_distance"}) {
         create("CLI negative distance");Json a{{"kind",kind}};
         if(std::string(kind)=="distance")a["geometry"]={segment(1,2,4,6)};
-        else if(std::string(kind)=="point_line"){a["points"]={point(5,8)};a["geometry"]={"sketch_axis:x"};}
+        else if(std::string(kind)=="point_line"){a["points"]={point(5,8)};a["geometry"]={segment(-20,0,20,0)};}
         else a["geometry"]={"sketch_axis:x",segment(1,8,7,8)};
         const auto d=command("sketch.dimension.create",a);
         for(double value:{-10.,-15.})require(command("sketch.dimension.set",{{"dimension",d.at("dimension")},{"value",value}}).at("value")==std::abs(value),"Properties/CLI rejected an unsigned-distance branch flip");
@@ -129,43 +129,43 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
         run(host,"undo"); require(std::abs(delta()+sign*18)<1e-7,"Undo lost distance orientation"); run(host,"redo");
     }
     // Origin in either pick order, explicit coordinate axis, and Universal
-    // Dimension's point-line axis distance share the same user-facing policy.
+    // Dimension's point-line axis distance use signed absolute coordinates.
     for (const int reference : {0, 1, 2, 3}) for (const bool x_axis : {false, true})
         for (const double sign : {-1., 1.}) {
         create("Origin and axis distance"); const auto p = point(sign*12, sign*9);
         Json args{{"kind",reference==3?"point_line":x_axis?"distance_x":"distance_y"},
             {"points",reference>=2?Json::array({p}):reference==0?Json::array({"sketch_origin",p}):Json::array({p,"sketch_origin"})},
-            {"limits",{{"lower",1},{"upper",40}}}};
+            {"limits",{{"lower",-40},{"upper",40}}}};
         if(reference>=2) args["geometry"]={x_axis?"sketch_axis:y":"sketch_axis:x"};
         const auto d=command("sketch.dimension.create",args);
-        require(d.at("value")== (x_axis?12:9), "Origin or axis reference leaked its sign into the displayed distance");
-        for(const auto [input,expected]:std::vector<std::pair<double,double>>{{20,sign*20},{-30,-sign*30},{15,-sign*15},{-25,sign*25}}) {
+        require(d.at("value")== sign*(x_axis?12:9), "Origin/axis label is not the signed Sketch coordinate");
+        for(const double input:{20.,-30.,-30.,0.,15.,-25.}) {
             const auto result=command("sketch.dimension.set",{{"dimension",d.at("dimension")},{"value",input}});
             const auto s=current();
-            require(result.at("value")==std::abs(input) && std::abs((x_axis?s.find_point(p)->x:s.find_point(p)->y)-expected)<1e-7,
-                "Origin/axis distance did not preserve or reverse the current side");
-            require(s.viewer_mesh().dimensions.front().value==std::abs(input), "Origin and axis labels use different signs");
+            require(result.at("value")==input && std::abs((x_axis?s.find_point(p)->x:s.find_point(p)->y)-input)<1e-7,
+                "Origin/axis input is not an absolute coordinate");
+            require(s.viewer_mesh().dimensions.front().value==input, "Origin and axis labels use different signs");
             require(sketcher::Sketch::from_serialized(s.serialized()).serialized()==s.serialized(), "Native save/reload lost the distance direction");
         }
         auto edited=current();
         require(edited.set_dimension_value(d.at("dimension").get<std::string>(),-18) &&
-            std::abs((x_axis?edited.find_point(p)->x:edited.find_point(p)->y)+sign*18)<1e-7 &&
-            edited.viewer_mesh().dimensions.front().value==18, "Inline origin/axis input differs from CLI/Properties");
+            std::abs((x_axis?edited.find_point(p)->x:edited.find_point(p)->y)+18)<1e-7 &&
+            edited.viewer_mesh().dimensions.front().value==-18, "Inline origin/axis input differs from CLI/Properties");
         edited.set_point_fixed(p,true);const auto fixed=edited.serialized();
-        require(!edited.set_dimension_value(d.at("dimension").get<std::string>(),-18) && edited.serialized()==fixed,
+        require(!edited.set_dimension_value(d.at("dimension").get<std::string>(),18) && edited.serialized()==fixed,
             "Blocked origin/axis flip partially modified the Sketch");
         const auto before=current().serialized();const auto revision=state->session.revision();
         require(!host.execute({{"command","sketch.dimension.set"},{"arguments",{{"sketch",sketch},{"dimension",d.at("dimension")},{"value",-41}}}}).ok &&
             current().serialized()==before && state->session.revision()==revision, "Origin/axis magnitude limit was bypassed by negative input");
         run(host,"undo");const auto undone=current();
-        require(std::abs((x_axis?undone.find_point(p)->x:undone.find_point(p)->y)+sign*15)<1e-7,"Undo lost origin/axis direction");
+        require(std::abs((x_axis?undone.find_point(p)->x:undone.find_point(p)->y)-15)<1e-7,"Undo lost origin/axis direction");
         run(host,"redo");require(current().serialized()==before,"Redo lost origin/axis magnitude or direction");
         command("sketch.dimension.set",{{"dimension",d.at("dimension")},{"driving",false}});
-        require(command("sketch.dimension.get",{{"dimension",d.at("dimension")}}).at("value")==25 &&
-            current().viewer_mesh().dimensions.front().value==25,"Reference origin/axis dimension exposes a signed distance");
+        require(command("sketch.dimension.get",{{"dimension",d.at("dimension")}}).at("value")==-25 &&
+            current().viewer_mesh().dimensions.front().value==-25,"Reference coordinate lost its sign");
     }
     // The reported screenshot: two endpoints left of Y, one dimension from
-    // the origin and the other from the axis. Both labels must be positive.
+    // the origin and the other from the axis. Both labels must be negative.
     {
         auto s=sketcher::Sketch::create_default();static_cast<void>(s.add_segment(-40,-40,-35.414,-30));
         const auto first=s.segments.front().first_point_id,second=s.segments.front().second_point_id;
@@ -173,13 +173,13 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
         auto axis=s.create_point_line_dimension(first,"sketch_axis:y");
         s.apply_dimension(origin);s.apply_dimension(axis);
         const auto mesh=s.viewer_mesh();
-        require(mesh.dimensions.size()==2 && std::abs(mesh.dimensions[0].value-35.414)<1e-7 && mesh.dimensions[1].value==40,
+        require(mesh.dimensions.size()==2 && std::abs(mesh.dimensions[0].value+35.414)<1e-7 && mesh.dimensions[1].value==-40,
             "Origin and axis dimensions on the same side disagree in sign");
         for(const auto& id:{origin.id,axis.id}) {
             require(s.set_dimension_value(id,-50),"Screenshot distance cannot reverse");
         }
-        require(std::abs(s.find_point(first)->x-50)<1e-7 && std::abs(s.find_point(second)->x-50)<1e-7,
-            "Origin and axis edits did not both move to the opposite side");
+        require(std::abs(s.find_point(first)->x+50)<1e-7 && std::abs(s.find_point(second)->x+50)<1e-7,
+            "Origin and axis edits did not use the same signed coordinate");
     }
     create("four point angle");const auto a=point(0,0),b=point(10,0),e=point(0,10),f=point(10,20);
     require(std::abs(command("sketch.dimension.create",{{"kind","angle_between"},{"points",{a,b,e,f}},{"driving",false}}).at("value").get<double>()-45)<1e-7,"Four point angle factory failed");

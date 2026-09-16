@@ -470,9 +470,8 @@ void AssemblyWorkspaceWindow::add_pending_tree_item(QTreeWidgetItem* parent,
 void AssemblyWorkspaceWindow::add_part_tree_children(
     QTreeWidgetItem* parent,
     const zima::document::PartDocument& document) {
-    // A brand-new Extrusion/Revolution temporarily places its owned Sketch
-    // and draft owner in DocumentSession while the Sketcher sub-editor is
-    // active. Show it exactly once through the pending Tree projection below.
+    // A brand-new Extrusion/Revolution and its Sketch stay in the pending
+    // Properties transaction. Project the draft into the Tree exactly once.
     // Existing containers being edited remain visible at the rollback boundary.
     const std::string pending_creation_id =
         pending_profile_feature_ && !pending_profile_transform_original_

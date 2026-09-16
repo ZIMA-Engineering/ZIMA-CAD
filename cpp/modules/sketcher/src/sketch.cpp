@@ -972,13 +972,12 @@ bool refresh_reference_dimensions(Sketch& sketch) {
         const auto measured = measured_dimension_value(sketch, dimension);
         if (!measured) return false;
         dimension.value = *measured;
+        if (const auto side = measured_dimension_solution_side(sketch, dimension)) {
+            dimension.solution_side = *side;
+        }
         const auto displayed = dimension_display_value(dimension);
         if ((dimension.lower_limit && displayed < *dimension.lower_limit) ||
             (dimension.upper_limit && displayed > *dimension.upper_limit)) return false;
-        if (const auto side = measured_dimension_solution_side(
-                sketch, dimension)) {
-            dimension.solution_side = *side;
-        }
     }
     return true;
 }
@@ -2806,8 +2805,10 @@ bool Sketch::set_dimension_value(const std::string& dimension_id, double value) 
     auto updated = *found;
     updated.value = value;
     const bool unsigned_branch = uses_unsigned_distance_branch(found->kind);
-    const double checked_value = unsigned_branch || found->kind == DimensionKind::Distance
-        ? std::abs(value) : dimension_display_value(updated);
+    const double checked_value = is_coordinate_dimension(updated)
+        ? dimension_display_value(updated)
+        : unsigned_branch || found->kind == DimensionKind::Distance
+            ? std::abs(value) : dimension_display_value(updated);
     if (
         ((found->kind == DimensionKind::DistanceSymmetric ||
           found->kind == DimensionKind::DistanceLineSymmetric ||
@@ -2823,7 +2824,7 @@ bool Sketch::set_dimension_value(const std::string& dimension_id, double value) 
          (value < 0.0 || value > 180.0)) ||
         (found->lower_limit && checked_value < *found->lower_limit) ||
         (found->upper_limit && checked_value > *found->upper_limit)) return false;
-    updated.value = unsigned_branch ? checked_value : value;
+    updated.value = unsigned_branch ? std::abs(value) : value;
     if (unsigned_branch && value < 0.0) {
         updated.solution_side = -updated.solution_side;
     }
@@ -8014,13 +8015,35 @@ SketchDimension Sketch::create_ellipse_rotation_dimension(
     return result;
 }
 
+bool is_coordinate_dimension(const SketchDimension& dimension) noexcept {
+    const bool projected = dimension.kind == DimensionKind::DistanceX ||
+        dimension.kind == DimensionKind::DistanceY;
+    const bool axis = dimension.geometry_id == "sketch_axis:x" ||
+        dimension.geometry_id == "sketch_axis:y";
+    return (projected && (axis || dimension.first_point_id == "sketch_origin" ||
+        dimension.second_point_id == "sketch_origin")) ||
+        (dimension.kind == DimensionKind::DistancePointLine && axis);
+}
+
 double dimension_display_value(const SketchDimension& dimension) noexcept {
+    if (is_coordinate_dimension(dimension)) {
+        if (dimension.kind == DimensionKind::DistancePointLine)
+            return dimension.value * dimension.solution_side *
+                (dimension.geometry_id == "sketch_axis:y" ? -1.0 : 1.0);
+        return dimension.value * (dimension.second_point_id == "sketch_origin" ? -1.0 : 1.0);
+    }
     return (dimension.kind == DimensionKind::DistanceX ||
         dimension.kind == DimensionKind::DistanceY)
         ? std::abs(dimension.value) : dimension.value;
 }
 
 double dimension_value_from_input(const SketchDimension& dimension, double value) noexcept {
+    if (is_coordinate_dimension(dimension)) {
+        if (dimension.kind == DimensionKind::DistancePointLine)
+            return value * dimension.solution_side *
+                (dimension.geometry_id == "sketch_axis:y" ? -1.0 : 1.0);
+        return value * (dimension.second_point_id == "sketch_origin" ? -1.0 : 1.0);
+    }
     // The solver retains the signed coordinate difference. A positive input
     // changes its magnitude; a negative input reverses its current direction.
     return (dimension.kind == DimensionKind::DistanceX ||
@@ -12353,6 +12376,7 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
                 world_point(point->x + shift[0], point->y + shift[1]),
                 dimension.value, {id, "dimension:" + dimension.id, {}},
                 dimension.kind == DimensionKind::DistanceSymmetric ? "⌀" : ""});
+            result.dimensions.back().value = dimension_display_value(dimension);
             continue;
         }
         if (dimension.kind == DimensionKind::DistanceLine ||
@@ -12816,6 +12840,14 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
         const auto dimension = std::find_if(dimensions.begin(), dimensions.end(),
             [&](const auto& value) { return value.id == dimension_id; });
         if (dimension == dimensions.end()) continue;
+        // Linear and radius grips need the same plane as angular dimensions.
+        // Derive it from the actual Sketch frame, including default XY/XZ/YZ.
+        const auto origin = world_point(0, 0);
+        const auto x = world_point(1, 0), y = world_point(0, 1);
+        rendered.plane_normal = {
+            (x.y-origin.y)*(y.z-origin.z)-(x.z-origin.z)*(y.y-origin.y),
+            (x.z-origin.z)*(y.x-origin.x)-(x.x-origin.x)*(y.z-origin.z),
+            (x.x-origin.x)*(y.y-origin.y)-(x.y-origin.y)*(y.x-origin.x)};
         rendered.source_text_style=kernel::DimensionTextStyle{dimension->prefix,
             dimension->suffix.empty()?rendered.unit_suffix:dimension->suffix,dimension->display_text_override,3,
             dimension->tolerance_mode,dimension->symmetric_tolerance,dimension->single_tolerance,

@@ -3953,7 +3953,8 @@ int verify_sketch_dimension_entry_ui(QApplication& application,const std::filesy
             check(result.dimensions.size()==1&&result.dimensions.front().id==key.substr(10),"Editing replaced the dimension identity");
             check(std::abs(result.find_point(second)->x-result.find_point(first)->x+20)<1e-7,"Negative input did not reverse the segment; positive edit flipped it back");
         }
-        // Properties uses the same expression grammar and magnitude policy.
+        // Properties uses signed origin/axis coordinates and other distances
+        // use magnitudes, with the same expression grammar as inline entry.
         QWidget parent;parent.resize(1000,850);parent.show();
         for(const int reference:{0,1,2,3}) {
         auto sketch=sketcher::Sketch::create_default();const auto a=reference==0?sketch.add_point(30,5):std::string("sketch_origin");
@@ -3963,7 +3964,7 @@ int verify_sketch_dimension_entry_ui(QApplication& application,const std::filesy
             sketch.create_point_dimension(a,b,sketcher::DimensionKind::DistanceX);sketch.apply_dimension(dimension);
         const auto unchanged=sketch.serialized();
         auto* properties=new app::SketchDimensionPropertiesDialog(dimension,true,[&](auto d){sketch.apply_dimension(std::move(d));},&parent);properties->show();flush();
-        auto* value=properties->findChild<QDoubleSpinBox*>("sketchDimensionValue");check(value&&value->value()==20,"Properties exposes signed point/origin/axis distance");
+        auto* value=properties->findChild<QDoubleSpinBox*>("sketchDimensionValue");check(value&&value->value()==(reference==0?20:-20),"Properties coordinate/distance sign is incorrect");
         auto* input=value->findChild<QLineEdit*>();check(input,"Expression field missing");
         input->setFocus();input->selectAll();
         for(const QChar c:QStringLiteral("1/0")){QKeyEvent key(QEvent::KeyPress,0,Qt::NoModifier,QString(c));QApplication::sendEvent(input,&key);}flush();
@@ -3974,8 +3975,8 @@ int verify_sketch_dimension_entry_ui(QApplication& application,const std::filesy
         properties->buttons()->button(QDialogButtonBox::Ok)->click();flush();
         check(properties->isVisible()&&sketch.serialized()==unchanged,"Invalid Properties expression committed");
         input->setText("-(5+10)*2mm");properties->buttons()->button(QDialogButtonBox::Ok)->click();flush();
-        check(sketch.dimensions.front().value==30&&sketch.viewer_mesh().dimensions.front().value==30,"Properties arithmetic or side flip differs from inline entry");
-        if(reference!=0)check(std::abs(sketch.find_point(b)->x-30)<1e-7,"Origin/axis Properties edit did not reverse the point's side");
+        check(sketch.viewer_mesh().dimensions.front().value==(reference==0?30:-30),"Properties arithmetic or coordinate sign differs from inline entry");
+        if(reference!=0)check(std::abs(sketch.find_point(b)->x+30)<1e-7,"Origin/axis Properties edit did not use the absolute signed coordinate");
         }
         std::cout<<"Sketch dimension creation/editing, MMB finish, signed direction and arithmetic input passed\n";return 0;
     }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
@@ -4628,6 +4629,174 @@ int verify_inline_primitive_dimensions(QApplication& application, const std::fil
         }
         std::cout<<"Primitive View / Properties / Cancel / OK / persistence dimension matrix passed\n";return 0;
     }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
+}
+
+int verify_profile_on_sheet(QApplication& application, const std::filesystem::path& directory) {
+    using namespace zima;
+    try {
+        std::vector<kernel::BodyResult> cache;
+        auto part=document::PartDocument::create_default();
+        const auto fixture=qEnvironmentVariable("ZIMA_VERIFY_PROFILE_ON_SHEET_FILE");
+        if(!fixture.isEmpty())part=document::PartDocument::load(fixture.toStdWString(),&cache);
+        else {
+            auto sketch=sketcher::Sketch::create_default();
+            for(const auto& p:std::vector<std::array<double,4>>{{0,0,40,0},{40,0,40,30},{40,30,0,30},{0,30,0,0}})
+                static_cast<void>(sketch.add_segment(p[0],p[1],p[2],p[3]));
+            auto flat=document::PartDocument::create_sketch_container();
+            flat.feature_kind=document::FeatureKind::Flat;flat.flat.sketch_id=sketch.id;sketch.owner_container_id=flat.id;
+            auto bend=document::PartDocument::create_sketch_container();bend.feature_kind=document::FeatureKind::Bend;
+            auto start=sketcher::Sketch::create_default();start.owner_container_id=bend.id;
+            document::initialize_bend_start_profile(start,20);bend.bend.sketch_id=start.id;
+            bend.placement.x=45;bend.placement.absolute_rotation_x=31;bend.placement.absolute_rotation_z=53;
+            part.history={flat,bend};part.sketches={sketch,start};
+            document::BodyHistoryGraph graph;static_cast<void>(graph.create_body("Sheet"));
+            for(const auto& f:part.history)graph.insert({document::PartHistoryKind::Feature,f.id});part.set_body_history(graph);
+            part.resolve_constructions();kernel::OcctKernel kernel;cache=kernel.evaluate_history(part.kernel_operations());
+            document::FamilyTable family;family.columns={"Sheet"};family.bindings["Sheet"]={"feature",flat.id,{}};
+            family.instances={{"Variant",{{"Sheet","yes"}}}};
+            workspace::Workspace live;live.add_part(part,cache);
+            static_cast<void>(workspace::set_family_table(live,part.document_id,family));
+            static_cast<void>(workspace::open_family_instance(live,kernel,part.document_id,"Variant",false));
+            part=live.open_part(part.document_id)->session.document();
+        }
+        const auto path=directory/"profile-on-sheet.prtz";
+        part.save(path,cache);
+        for(const char* command:{"extrusionAction","revolutionAction"}) {
+            std::cout<<"Profile on sheet: "<<command<<std::endl;
+            app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));
+            window.resize(1200,850);window.show();
+            if(!window.open_document_path(QString::fromStdString(path.string())))throw std::runtime_error("Cannot open sheet fixture");
+            application.processEvents();
+            if(!part.body_history.active_body_id().empty() &&
+                !activate_test_body(application,window,part.body_history.active_body_id()))throw std::runtime_error("Cannot activate sheet body");
+            if(std::string_view(command)=="extrusionAction")for(const auto& bend:part.history) {
+                if(bend.feature_kind!=document::FeatureKind::Bend)continue;
+                std::cout<<"Checking Bend annotation planes "<<bend.id<<std::endl;
+                window.show_parameter_dimensions(bend.id);application.processEvents();
+                auto* bend_view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>());
+                const auto audit=[&] {
+                    std::vector<sketcher::Sketch> sketches;
+                    const auto start=std::ranges::find(part.sketches,bend.bend.sketch_id,&sketcher::Sketch::id);
+                    if(start!=part.sketches.end())sketches.push_back(*start);
+                    for(const auto& data:bend.bend.auxiliary_sketches)sketches.push_back(sketcher::Sketch::from_serialized(data));
+                    for(const auto& sketch:sketches) {
+                        auto expected=sketch.viewer_mesh();
+                        if(const auto* body=part.body_owner_for_object(bend.id))expected=part.place_body_mesh(std::move(expected),body->scope.id);
+                        for(const auto& dim:expected.dimensions) {
+                            const auto matches=[&](const auto& value){return value.reference==dim.reference;};
+                            const auto& shown=bend_view->mesh().dimensions;
+                            const auto count=std::ranges::count_if(shown,matches);
+                            if(count!=1)throw std::runtime_error("Bend annotation count "+std::to_string(count)+" for "+dim.reference.semantic_key);
+                            const auto& actual=*std::ranges::find_if(shown,matches);
+                            const auto a=actual.plane_normal,b=dim.plane_normal;
+                            if(std::hypot(a.x-b.x,a.y-b.y,a.z-b.z)>1e-6)throw std::runtime_error("Bend annotation has a different plane in the View");
+                        }
+                    }
+                };
+                audit();
+                std::cout<<"Bend View planes passed; opening Properties"<<std::endl;
+                auto* tree=window.findChild<QTreeWidget*>("documentTree");
+                QTreeWidgetItem* row{};
+                for(QTreeWidgetItemIterator i(tree);*i;++i)if((*i)->data(0,Qt::UserRole).toString().toStdString()==bend.id &&
+                    (*i)->data(0,Qt::UserRole+3)=="part-container") {row=*i;break;}
+                if(!row)throw std::runtime_error("Missing Bend tree row");
+                window.show_tree_item_properties(row);
+                application.processEvents();audit();
+                std::cout<<"Bend Properties planes passed; cancelling"<<std::endl;
+                for(auto* child:window.findChildren<QDialog*>())if(auto* d=dynamic_cast<app::SketchPropertiesDialog*>(child);d&&d->isVisible())
+                    d->buttons()->button(QDialogButtonBox::Cancel)->click();
+                application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+                std::cout<<"Bend Properties cancelled"<<std::endl;
+                window.findChild<QAction*>("familyTableAction")->trigger();application.processEvents();
+                auto* family=dynamic_cast<app::FamilyTableDialog*>(window.findChild<QDialog*>("familyTableDialog"));
+                if(!family)throw std::runtime_error("Family Table did not open for Bend state");
+                window.show_parameter_dimensions(bend.id);application.processEvents();
+                family->findChild<QPushButton*>("familyAddColumn")->click();application.processEvents();
+                const auto family_column=1+2*family->active_column();
+                viewer::ViewerCandidate state;state.kind=viewer::CandidateKind::Dimension;
+                state.owner_id=bend.id;state.semantic_key="parameter:unbend";
+                const auto& dimensions=bend_view->mesh().dimensions;
+                const auto state_dimension=std::ranges::find_if(dimensions,[&](const auto& d) {
+                    return d.reference.owner_id==bend.id&&d.reference.semantic_key==state.semantic_key;
+                });
+                if(state_dimension==dimensions.end())throw std::runtime_error("Bend state annotation is missing");
+                state.geometry_index=std::distance(dimensions.begin(),state_dimension);
+                state.instance_path=state_dimension->reference.instance_path;
+                const auto label=bend_view->candidate_dimension_label_position(state);
+                if(!label)throw std::runtime_error("Bend state label is missing");
+                const auto offered=bend_view->selection_candidates_at(*label);
+                if(offered.empty()||offered.front().owner_id!=bend.id||offered.front().semantic_key!=state.semantic_key)
+                    throw std::runtime_error("Common picker does not offer the Bend state label");
+                const QPointF global(bend_view->mapToGlobal(*label));
+                for(auto type:{QEvent::MouseMove,QEvent::MouseButtonPress,QEvent::MouseButtonRelease}) {
+                    QMouseEvent event(type,QPointF(*label),global,type==QEvent::MouseMove?Qt::NoButton:Qt::LeftButton,
+                        type==QEvent::MouseButtonPress?Qt::LeftButton:Qt::NoButton,Qt::NoModifier);
+                    QApplication::sendEvent(bend_view,&event);
+                }
+                application.processEvents();
+                auto* table=family->findChild<QTableWidget*>("familyTableTable");
+                auto* choice=qobject_cast<QComboBox*>(table->cellWidget(1,family_column));
+                if(!choice||choice->findText("Bend")<0||choice->findText("Unbend")<0)
+                    throw std::runtime_error("Bend state selection did not create the Family choice");
+                window.grab().save(QString::fromStdString((directory/"bend-family-state.png").string()));
+                family->reject();application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+            }
+            std::cout<<"Starting profile command"<<std::endl;
+            const auto revision=[&] {
+                const auto documents=window.execute_console_command("documents");
+                for(const auto& item:documents.data)if(item.value("active",false))return item.at("revision").get<std::uint64_t>();
+                throw std::runtime_error("No active Part for profile transaction");
+            };
+            const auto before_revision=revision();
+            window.findChild<QAction*>("applicationModeAction0")->trigger();
+            window.findChild<QAction*>(command)->trigger();
+            application.processEvents();
+            app::PrimitivePropertiesDialog* dialog{};
+            for(auto* child:window.findChildren<QDialog*>())
+                if(auto* d=dynamic_cast<app::PrimitivePropertiesDialog*>(child);d&&d->isVisible())dialog=d;
+            if(!dialog)throw std::runtime_error("Extrusion Properties did not open");
+            auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>());
+            view->fit_all();application.processEvents();
+            std::optional<QPointF> hit;
+            for(int y=20;y<view->height()&&!hit;y+=20)for(int x=20;x<view->width();x+=20) {
+                const auto candidates=view->selection_candidates_at(QPointF(x,y));
+                if(!candidates.empty()&&candidates.front().kind==viewer::CandidateKind::Face) {
+                    const auto* owner=part.find_container(candidates.front().owner_id);
+                    if(owner && owner->feature_kind==document::FeatureKind::Flat){hit=QPointF(x,y);break;}
+                }
+            }
+            if(!hit)throw std::runtime_error("No offered sheet face");
+            std::cout<<"Clicking offered face"<<std::endl;
+            const QPointF global(view->mapToGlobal(hit->toPoint()));
+            for(auto type:{QEvent::MouseMove,QEvent::MouseButtonPress,QEvent::MouseButtonRelease}) {
+                QMouseEvent event(type,*hit,global,type==QEvent::MouseMove?Qt::NoButton:Qt::LeftButton,
+                    type==QEvent::MouseButtonPress?Qt::LeftButton:Qt::NoButton,Qt::NoModifier);
+                QApplication::sendEvent(view,&event);
+            }
+            application.processEvents();
+            std::cout<<"Face preview survived"<<std::endl;
+            std::cout<<"Opening owned Sketch"<<std::endl;
+            dialog->findChild<QPushButton*>("primitiveOwnSketchButton")->click();
+            application.processEvents();
+            std::cout<<"Sketch opened"<<std::endl;
+            QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+            if(!window.findChild<QAction*>("finishSketchAction")->isEnabled())throw std::runtime_error("Owned Sketch did not open");
+            window.findChild<QAction*>("finishSketchAction")->trigger();application.processEvents();
+            dialog=nullptr;
+            for(auto* child:window.findChildren<QDialog*>())
+                if(auto* d=dynamic_cast<app::PrimitivePropertiesDialog*>(child);d&&d->isVisible())dialog=d;
+            if(!dialog)throw std::runtime_error("Sketch did not return to profile Properties");
+            if(revision()!=before_revision)throw std::runtime_error("Sketch transition committed the pending profile");
+            dialog->buttons()->button(QDialogButtonBox::Cancel)->click();application.processEvents();
+            QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+            if(revision()!=before_revision)throw std::runtime_error("Cancelling the pending profile changed history");
+            window.findChild<QAction*>("saveDocumentAction")->trigger();application.processEvents();
+            const auto saved=document::PartDocument::load(path);
+            if(saved.history!=part.history || saved.sketches.size()!=part.sketches.size())
+                throw std::runtime_error("Cancel retained the temporary owned Sketch in history");
+        }
+        return 0;
+    } catch(const std::exception& error) {std::cerr<<error.what()<<std::endl;return 1;}
 }
 
 int verify_sketch_return_frames(QApplication& application, const std::filesystem::path& directory) {
@@ -6378,6 +6547,7 @@ int verify_startup_contract(
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_PROFILE_DIMENSION_FILE")) return verify_property_sketch_dimensions(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_DIMENSION_EDITS_ONLY")) return verify_inline_primitive_dimensions(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_PROFILE_FRAMES_ONLY")) return verify_owned_profile_frames(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_PROFILE_ON_SHEET_FILE") || qEnvironmentVariableIsSet("ZIMA_VERIFY_PROFILE_ON_SHEET_ONLY")) return verify_profile_on_sheet(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_RETURN_FRAME_ONLY")) return verify_sketch_return_frames(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_ORIGIN_PICK_ONLY")) return verify_sketch_return_frames(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_BEND_ATTACHMENT_ONLY")) return verify_sketch_return_frames(application,test_directory);

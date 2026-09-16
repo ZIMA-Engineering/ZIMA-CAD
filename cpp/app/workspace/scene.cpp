@@ -259,6 +259,12 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                 if(active_sketch_id_.empty())zima::document::visit_feature_sketches(*container,[&](const auto& data,std::size_t stage){
                     if(container->feature_kind==zima::document::FeatureKind::Bend&&stage==0&&container->bend.angle_degrees==0)return;
                     const auto sketch=zima::sketcher::Sketch::from_serialized(data);
+                    // Properties already publishes these annotations in the
+                    // pending Sketch frame. Do not overlay the saved frame.
+                    if(primitive_origin_preview_mesh_ && std::ranges::any_of(
+                        primitive_origin_preview_mesh_->dimensions,[&](const auto& dimension) {
+                            return dimension.reference.owner_id==sketch.id;
+                        }))return;
                     auto display=sketch.viewer_mesh();
                     const auto* body=document.body_owner_for_object(container->id);
                     const auto body_id=body?body->scope.id:document.body_history.active_body_id();
@@ -315,7 +321,23 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                         zima::kernel::ViewerDimensionKind::Radius;
                 };
                 using zima::document::FeatureKind;
-                if (container->feature_kind == FeatureKind::Box) {
+                if (container->feature_kind == FeatureKind::Bend && active_sketch_id_.empty()) {
+                    const auto start=std::ranges::find(document.sketches,container->bend.sketch_id,&zima::sketcher::Sketch::id);
+                    if(start!=document.sketches.end()) {
+                        zima::kernel::ViewerDimension state;
+                        state.reference={container->id,"parameter:unbend",{}};
+                        state.value=container->bend.unbend?1:0;
+                        state.unit_suffix.clear();state.display_text_override=container->bend.unbend?"Unbend":"Bend";
+                        state.label_only=true;state.plane_normal=start->resolved_normal;
+                        const auto anchor=start->world_point(0,-8);
+                        state.witness_first=state.witness_second=state.line_first=state.line_second=anchor;
+                        state.label_position=anchor;
+                        zima::kernel::ViewerMesh display;display.dimensions.push_back(std::move(state));
+                        if(const auto* body=document.body_owner_for_object(container->id))
+                            display=document.place_body_mesh(std::move(display),body->scope.id);
+                        mesh.dimensions.insert(mesh.dimensions.end(),display.dimensions.begin(),display.dimensions.end());
+                    }
+                } else if (container->feature_kind == FeatureKind::Box) {
                     const double x = container->box.length * 0.5;
                     const double y = container->box.width * 0.5;
                     const double z = container->box.height * 0.5;

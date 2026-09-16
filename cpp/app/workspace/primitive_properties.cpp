@@ -65,9 +65,9 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
     if (assembly_cut && feature_kind != zima::document::FeatureKind::Extrusion &&
         feature_kind != zima::document::FeatureKind::Revolution) return;
     std::string source_sketch_id;
-    // A new Assembly cut reopens without a committed container ID. Its
+    // A new owned profile reopens without a committed container ID. Its
     // pending feature still owns the Sketch just edited in the Sketcher.
-    const auto profile_owner = assembly_cut && container_id.empty() &&
+    const auto profile_owner = container_id.empty() &&
             pending_profile_feature_ && pending_profile_feature_->feature_kind == feature_kind
         ? pending_profile_feature_->id : container_id;
     if (!property_owned_sketch_draft_ ||
@@ -75,23 +75,15 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         property_owned_sketch_draft_.reset();
         property_owned_feature_draft_.reset();
     }
-    const bool resuming_assembly_profile = assembly_cut && container_id.empty() &&
+    const bool resuming_profile = container_id.empty() &&
         pending_profile_feature_ &&
         pending_profile_feature_->feature_kind == feature_kind &&
-        std::any_of(assembly->session.document().sketches.begin(),
-            assembly->session.document().sketches.end(), [&](const auto& sketch) {
-                return sketch.owner_container_id == pending_profile_feature_->id;
-            });
+        property_owned_sketch_draft_ &&
+        property_owned_sketch_draft_->owner_container_id == pending_profile_feature_->id;
     if (container_id.empty() &&
         (feature_kind == zima::document::FeatureKind::Extrusion ||
          feature_kind == zima::document::FeatureKind::Revolution)) {
-        if (resuming_assembly_profile) {
-            const auto found = std::find_if(
-                assembly->session.document().sketches.begin(),
-                assembly->session.document().sketches.end(), [&](const auto& sketch) {
-                    return sketch.owner_container_id == pending_profile_feature_->id;
-                });
-            if (!property_owned_sketch_draft_) property_owned_sketch_draft_ = *found;
+        if (resuming_profile) {
             source_sketch_id = property_owned_sketch_draft_->id;
         } else {
             if (assembly_cut && !selected_sketch_id_.empty()) {
@@ -175,7 +167,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                        feature_kind == zima::document::FeatureKind::Chamfer ||
                        feature_kind == zima::document::FeatureKind::Shell ||
                        feature_kind == zima::document::FeatureKind::ImportedStep)) return;
-    auto initial = (resuming_assembly_profile || pending_profile_edit)
+    auto initial = (resuming_profile || pending_profile_edit)
         ? *pending_profile_feature_
         : edit_mode ? *edited
         : feature_kind == zima::document::FeatureKind::Cylinder
@@ -219,7 +211,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 });
         }
     }
-    if (assembly_cut && !edit_mode && !resuming_assembly_profile && property_owned_sketch_draft_ &&
+    if (assembly_cut && !edit_mode && !resuming_profile && property_owned_sketch_draft_ &&
         assembly->session.document().find_sketch_container(property_owned_sketch_draft_->owner_container_id))
         initial = workspace::profile_from_sketch(assembly->session.document(), source_sketch_id, feature_kind);
     if (property_owned_sketch_draft_) {
@@ -384,7 +376,10 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 } catch (const std::exception& error) {
                     throw std::runtime_error(tr(error.what()).toStdString());
                 }
-                if (completes_pending) pending_profile_feature_.reset();
+                if (completes_pending) {
+                    pending_profile_feature_.reset();
+                    pending_profile_transform_original_.reset();
+                }
                 return;
             }
             if (committed.feature_kind == zima::document::FeatureKind::Thread) {
@@ -1306,6 +1301,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                     zima::document::PartDocument::create_sketch_container();
                 draft_container.id = pending_feature.id;
                 draft_container.feature_id = pending_feature.feature_id;
+                draft_container.feature_parent_id = pending_feature.id;
                 draft_container.container_origin = pending_feature.container_origin;
                 draft_container.name = pending_feature.name;
                 draft_container.placement = pending_feature.placement;
@@ -1348,7 +1344,13 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                     append_reference_geometry(reference_geometry,
                         next.construction_viewer_mesh().original_references);
                     next.resolve_constructions(reference_geometry);
-                    workspace::commit_part_document(workspace_,target_part->session.document().document_id,std::move(next), calculated);
+                    // Entering Sketcher is not a document commit. Keep the
+                    // resolved frame in the draft; Family Table must never
+                    // receive this incomplete profile or evaluate its body.
+                    const auto resolved = std::ranges::find(next.sketches,
+                        sketch_id, &zima::sketcher::Sketch::id);
+                    if (resolved != next.sketches.end())
+                        property_owned_sketch_draft_ = *resolved;
                 } else {
                     auto* target_assembly = workspace_.open_assembly(owner_id);
                     if (target_assembly == nullptr) return;
@@ -1555,50 +1557,21 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             });
         refresh_shell_selection_ui();
     }
-    if (pending_profile_edit) {
-        connect(dialog, &QDialog::accepted, this, [this, dialog_container_id] {
-            if (pending_profile_feature_ &&
-                pending_profile_feature_->id == dialog_container_id) {
-                pending_profile_feature_.reset();
-            }
-            if (pending_profile_transform_original_ &&
-                pending_profile_transform_original_->id == dialog_container_id) {
-                pending_profile_transform_original_.reset();
-            }
-        });
-    }
     connect(dialog, &QDialog::rejected, this, [this, dialog_container_id] {
         if (!pending_profile_feature_ ||
             pending_profile_feature_->id != dialog_container_id) return;
         if (pending_profile_transform_original_ &&
             pending_profile_transform_original_->id == dialog_container_id) {
-            if (auto* target_part = workspace_.open_part(
-                    workspace_.active_document_id())) {
-                auto next = target_part->session.document();
-                if (auto* container = next.find_container(dialog_container_id)) {
-                    *container = *pending_profile_transform_original_;
-                }
-                workspace::commit_part_document(workspace_,target_part->session.document().document_id,std::move(next),
-                    target_part->session.calculated_boundaries());
-            }
+            // Conversion and its owned Sketch stayed in the Properties draft.
             pending_profile_feature_.reset();
             pending_profile_transform_original_.reset();
             return;
         }
         if (auto* target_part = workspace_.open_part(
                 workspace_.active_document_id())) {
-            auto next = target_part->session.document();
-            std::erase_if(next.sketches, [&](const auto& sketch) {
-                return sketch.owner_container_id == dialog_container_id;
-            });
-            std::erase_if(next.history, [&](const auto& container) {
-                return container.id == dialog_container_id;
-            });
-            std::erase_if(next.history_order, [&](const auto& entry) {
-                return entry.id == dialog_container_id;
-            });
-            workspace::commit_part_document(workspace_,target_part->session.document().document_id,std::move(next),
-                target_part->session.calculated_boundaries());
+            // New Part profiles have never entered the saved history.
+            pending_profile_feature_.reset();
+            return;
         } else if (auto* target_assembly = workspace_.open_assembly(
                        workspace_.active_document_id())) {
             auto next = target_assembly->session.document();
@@ -1627,8 +1600,10 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         // that exact owned Sketch is active; otherwise the teardown refresh
         // replaces the correct pre-feature/wire context with the calculated
         // final solid inside Sketcher.
-        bool entering_owned_profile_sketch = false;
-        if (!active_sketch_id_.empty()) {
+        bool entering_owned_profile_sketch = property_owned_sketch_draft_ &&
+            property_owned_sketch_draft_->id == active_sketch_id_ &&
+            property_owned_sketch_draft_->owner_container_id == dialog_container_id;
+        if (!entering_owned_profile_sketch && !active_sketch_id_.empty()) {
             if (const auto* active_part = workspace_.open_part(
                     workspace_.active_document_id())) {
                 entering_owned_profile_sketch = std::any_of(

@@ -38,6 +38,13 @@ DimensionPresentation dimension_presentation(const kernel::ViewerDimension &d, P
     DimensionPresentation out;
     auto a = project(d.line_first), b = project(d.line_second);
     const auto w1 = project(d.witness_first), w2 = project(d.witness_second);
+    if(d.label_only) {
+        const auto center=project(d.label_position.value_or(d.line_first));
+        if(!std::isfinite(center.x())||!std::isfinite(center.y()))return out;
+        out.handles={center,center,center};
+        out.text_baseline=center+QPointF(-text_width/2,-gap);
+        out.valid=true;return out;
+    }
     if (d.rotation_handle) {
         const auto radial = b - w1;
         const double size = std::hypot(radial.x(), radial.y());

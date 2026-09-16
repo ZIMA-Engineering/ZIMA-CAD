@@ -53,13 +53,17 @@ the positive magnitude again; entering another negative value reverses it
 again. Aligned segment lengths follow the same rule. Existing constraints must
 permit the reversal; a rejected edit leaves the Sketch unchanged.
 
-Dimensions measured from the Sketch origin or its X/Y axes follow the same
-rule, including point-to-axis distances. There is no origin/axis exception.
-For a point at X=-20, the displayed horizontal distance is 20. Entering 30
-moves it to X=-30; entering -30 instead moves it to X=+30 and displays 30.
-Signed coordinates and equation orientation remain internal solver data.
-View labels, Tree labels, Properties, CLI and Family Table expose magnitudes;
-limits apply to those magnitudes. Reference dimensions also display magnitudes.
+Horizontal/vertical coordinates measured from the Sketch origin or its X/Y axes
+are signed, including point-to-axis distances. For a point at X=-20, the
+horizontal coordinate displays -20. Entering -30 moves it to X=-30; entering
+-30 again keeps it there. Entering 30 moves it to X=+30. Picking the origin
+second does not reverse the displayed coordinate. This rule is shared by View,
+Tree, Properties, CLI, Family Table and measured reference dimensions. Limits
+apply to the signed coordinate; other distance limits apply to magnitudes.
+
+Sketch annotations carry their own work-plane normal into the model View,
+including the start, trajectory and end Sketches of a rotated Bend. Moving
+dimension grips therefore uses the same plane as the annotated geometry.
 
 The View's double-click value editor and Dimension Properties accept numeric
 expressions with `+`, `-`, `*`, `/` and parentheses. Multiplication/division take

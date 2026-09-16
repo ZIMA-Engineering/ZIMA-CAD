@@ -472,10 +472,12 @@ void FamilyTableDialog::refresh_references() {
     const QSignalBlocker blocker(table_);table_->clearSpans();
     for(int i=0;i<static_cast<int>(columns_.size());++i) {
         const int c=1+2*i;const auto& column=columns_[i];
+        const bool bend_state=column && column->binding.semantic_key=="parameter:unbend";
         table_->setColumnWidth(c,150);table_->setColumnWidth(c+1,30);
         table_->setHorizontalHeaderItem(c,new QTableWidgetItem(column?QString::fromStdString(column->name):QStringLiteral("+")));
         table_->setHorizontalHeaderItem(c+1,new QTableWidgetItem);
         auto* ref=new zima::ui::ReferenceCellItem(column?QString::fromStdString(column->binding.kind=="dimension"?column->value:column->owner_name):settings_.text("dialog.family_table.pick","Pick a solid or dimension"));
+        if(bend_state)ref->setText(column->value=="1"?"Unbend":"Bend");
         if(column) {
             ref->set_reference(QString::fromStdString(column->binding.owner_id+":"+column->binding.semantic_key));
             ref->setToolTip(QString::fromStdString(column->owner_name+" / "+column->binding.semantic_key));
@@ -490,13 +492,14 @@ void FamilyTableDialog::refresh_references() {
             if(!table_->item(row,c))table_->setItem(row,c,new QTableWidgetItem);
             const auto value=table_->item(row,c)->text();
             table_->setSpan(row,c,1,2);
-            if(column&&column->binding.kind!="dimension") {
+            if(column&&(column->binding.kind!="dimension" || bend_state)) {
                 auto* combo=new QComboBox(table_);combo->addItem(QString(),QString());
                 // The item retains the canonical yes/no value for persistence.
                 // Cover its text before painting the localized cell editor.
                 combo->setBackgroundRole(QPalette::Base);
                 combo->setAutoFillBackground(true);
-                combo->addItem(settings_.text("dialog.family_table.yes","Yes"),"yes");combo->addItem(settings_.text("dialog.family_table.no","No"),"no");
+                if(bend_state) {combo->addItem("Bend","0");combo->addItem("Unbend","1");}
+                else {combo->addItem(settings_.text("dialog.family_table.yes","Yes"),"yes");combo->addItem(settings_.text("dialog.family_table.no","No"),"no");}
                 combo->setToolTip(settings_.text("dialog.family_table.inherit","Empty = use the base value"));
                 combo->setCurrentIndex(std::max(0,combo->findData(value)));table_->setCellWidget(row,c,combo);
                 const QPersistentModelIndex index(table_->model()->index(row,c));

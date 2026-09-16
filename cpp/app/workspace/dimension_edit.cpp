@@ -67,6 +67,10 @@ QString AssemblyWorkspaceWindow::dimension_identifier(
 
 void AssemblyWorkspaceWindow::edit_dimension_inline(
     const zima::viewer::ViewerCandidate& candidate) {
+    if(candidate.semantic_key=="parameter:unbend") {
+        if(!properties_dialog_)show_primitive_properties(zima::document::FeatureKind::Bend,candidate.owner_id);
+        return;
+    }
     if (candidate.semantic_key.starts_with("measurement:")) return;
     if(parameter_value_locked(candidate.owner_id,candidate.semantic_key).value_or(false)){state_->setText(tr("Hodnota je zamčená. Nejprve ji odemkněte."));return;}
     const auto value = viewer_->candidate_dimension_value(candidate);

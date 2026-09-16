@@ -178,8 +178,8 @@ void orient_bend_start_toward_edge(sketcher::Sketch& sketch,const Placement& pla
     const auto middle=scale(add(edge->points.front(),edge->points.back()),.5);
     const bool reverse=dot(add(middle,scale(resolved.resolved_origin,-1)),resolved.resolved_x_axis)<-1e-7;
     first->x=reverse?-width:0;last->x=reverse?0:width;
-    first_dimension->value=std::abs(first->x);first_dimension->solution_side=reverse?-1:1;
-    last_dimension->value=std::abs(last->x);last_dimension->solution_side=1;
+    first_dimension->value=first->x;
+    last_dimension->value=last->x;
 }
 BendParameters resolved_bend_parameters(const HistoryContainer& feature,const SheetMetalDefaults& defaults) {
     auto p=feature.bend;

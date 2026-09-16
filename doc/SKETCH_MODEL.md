@@ -50,15 +50,17 @@ IDs.
   directed-line branch. For a supplementary display the solver keeps whichever
   of `alpha` and `180-alpha` matches the current persisted directions. This
   prevents editing an unrelated length from flipping the angular equation.
-- Point-to-line and line-to-line distances persist a non-negative magnitude
+- Distances to ordinary lines persist a non-negative magnitude
   and a separate normal-side branch. Entering a negative value flips the
   branch and stores the absolute magnitude.
-- All X/Y distances, including coordinates against Sketch axes or the Sketch
-  origin, retain signed values in solver storage. View, Tree, Properties, CLI
-  and Family Table expose their magnitude. Shared input conversion preserves
-  that internal sign for positive input and reverses it for negative input.
-  Limits use the displayed magnitude; measured reference values follow the same
-  display rule. Aligned distance reversal seeds the
+- X/Y coordinates against the built-in Sketch axes or origin display and accept
+  signed absolute coordinates, independent of origin pick order. Built-in-axis
+  point-line dimensions retain magnitude/side storage but convert it to the
+  signed coordinate at the shared input/display boundary. Other X/Y distances
+  retain signed solver values and display magnitudes; negative entry reverses
+  their current direction. View, Tree, Properties, CLI and Family Table share
+  this policy. Limits and measured reference values use the displayed value.
+  Aligned distance reversal seeds the
   opposite endpoint direction and checks both the normal solver constraints and
   the resulting direction before committing. Native identities and storage
   fields are unchanged.

@@ -69,6 +69,22 @@ void verify_attachment(const std::filesystem::path& directory) {
             first.placement.absolute_rotation_x=31;first.placement.absolute_rotation_y=22;first.placement.absolute_rotation_z=53;
         }
         source.history={first};source.sketches={initial};source.resolve_constructions();
+        // Each annotation and its grips must remain in its own Sketch plane,
+        // including profiles rotated away from the global XY plane.
+        auto dimension_feature=source.history.front();
+        for(bool unbend:{false,true}) {
+            dimension_feature.bend.unbend=unbend;
+            document::prepare_bend_sketches(dimension_feature,source.sketches.front(),document::sheet_metal_defaults(source));
+            std::vector<sketcher::Sketch> profiles{source.sketches.front()};
+            for(const auto& data:dimension_feature.bend.auxiliary_sketches)profiles.push_back(sketcher::Sketch::from_serialized(data));
+            for(const auto& sketch:profiles)for(const auto& dim:sketch.viewer_mesh().dimensions) {
+                check(close(dim.plane_normal,sketch.resolved_normal),"Bend dimension/grip normal left its Sketch plane");
+                for(const auto& point:{dim.witness_first,dim.witness_second,dim.line_first,dim.line_second}) {
+                    const auto o=sketch.resolved_origin,n=sketch.resolved_normal;
+                    near((point.x-o.x)*n.x+(point.y-o.y)*n.y+(point.z-o.z)*n.z,0);
+                }
+            }
+        }
         const auto body=kernel.evaluate_history(source.kernel_operations()).back();
         near(body.volume,40*(angle*std::numbers::pi/180)*(36-25)/2);
         std::cout<<"  Source End calculated"<<std::endl;
@@ -138,6 +154,11 @@ void verify_attachment(const std::filesystem::path& directory) {
                 close(line.world_point(line.find_point(s.second_point_id)->x,0),b),
                 "Prepared line points away from the selected edge at its opposite endpoint");
             check(close(line.resolved_y_axis,end.resolved_y_axis),"Reversing the initial span reversed the material side");
+            auto edited=line;
+            const double coordinate=line.find_point(s.first_point_id)->x;
+            check(edited.set_dimension_value(line.id+":position:first",coordinate),"Cannot re-enter the prepared Bend coordinate");
+            near(edited.find_point(s.first_point_id)->x,coordinate);
+            near(sketcher::dimension_display_value(edited.dimensions.front()),coordinate);
         }
         // Point-first remains coincidence: an off-edge point conflicts with
         // the selected edge, rather than silently acquiring projection meaning.

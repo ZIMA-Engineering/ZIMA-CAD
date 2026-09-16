@@ -99,6 +99,29 @@ plane, save/reopen, Undo/Redo, Family thickness and invalid-input rollback.
 The application-tools UI contract covers real toolbar/dialog/Sketcher transitions,
 empty-profile rejection, Cancel, middle-button OK and the application dropdown.
 
+Modeling Extrusion and Revolution can use a Flat face as their Sketch support,
+including in a Part with evaluated Family Table variants. A newly owned Sketch
+keeps the pending feature's complete parent/child identity and resolved frame in
+the Properties draft. Entering Sketcher or returning to Properties does not
+insert a placeholder into the Part or publish an incomplete profile to variants.
+Only OK commits the feature. The profile-on-sheet GUI regression exercises Flat
+face selection, Sketch entry/return and Cancel for both commands with a calculated
+family member.
+
+Bend annotations retain the plane of their individual start, trajectory or end
+Sketch. The rotated-frame tests check dimension witnesses and normals in Bend
+and Unbend; signed origin dimensions also remain valid at the opposite attachment
+endpoint when the prepared start span runs from `-width` to zero.
+Properties displays each auxiliary Sketch annotation once, using its pending
+frame instead of overlaying the saved and pending frames.
+
+When Bend dimensions are displayed, a selectable **Bend** or **Unbend** label
+shows the current state. Double-clicking this label opens Bend Properties. In
+Family Table, click the label to bind the active column to the state; each row
+offers **Bend**, **Unbend**, or an empty inherited value. The column uses the
+parameter's stable secondary identifier. The existing View state button remains
+available for directly toggling the feature outside Properties.
+
 The focused Windows run passes ten suites: Flat, Bend, Holes, application tools,
 Family Table, dimension identifiers, extrusion limits, profile commands, thin
 profiles and surface profiles. The separate monolithic `zima_cpp_contract_tests`
@@ -163,7 +186,7 @@ Editing evaluates the existing history boundary before the Bend.
   moves these reference points without replacing Sketch, curve or point IDs.
   During new GUI placement the initial span points toward the selected edge's
   other end: at the opposite corner its endpoint coordinates become `-width`
-  and `0`, with the usual nonnegative displayed dimensions. This preserves the
+  and `0`, shown as signed coordinates from the Sketch origin. This preserves the
   width, material side and outgoing tangent. Opening
   Sketcher or editing its geometry ends this automatic initial layout.
 - Set the inside radius (0–1,000,000 mm) and angle (0–180 degrees).
@@ -277,6 +300,24 @@ outside surface. At 1 mm thickness its corresponding inside radius is 4 mm.
 The native example was not modified or converted during development.
 
 ## Implemented Bend verification
+
+The 2026-09-16 profile/dimension repair passed twelve focused Windows contracts:
+owned-profile frames, profile-on-sheet GUI, Bend attachment GUI, Sketcher,
+Family Table, Sketch dimension commands, profile commands, dimension layout,
+application tools GUI, Sketch dimension entry GUI, Flat and Bend. The two updated
+GUI expectations were rerun after correcting the test family setup and replacing
+the former unsigned-coordinate expectation. Logs are
+`build/profile-bend-final-tests.log` and `build/profile-bend-final-retest.log`.
+The saved `part.prtz` reproduction also passed Flat-face selection, owned Sketch
+entry/return/Cancel, annotation-plane checks for both Bends, and common-picker
+selection of their state labels into Family Table. A separate corrected copy
+passed start-coordinate edits -45/-35/-40 mm and angle edits 60/120/90 degrees
+without changing its start frame. The source file's original SHA-256 was retained.
+
+The Family Table tests cover Bend/Unbend overrides, an inherited state, editing
+the state from an instance, generic changes, native save/cold reopen and rejection
+of invalid state values. State labels share the ordinary viewer candidate list;
+their presentation test verifies text-only geometry at three zoom levels.
 
 The Bend command contract checks analytical volumes for ordinary, variable-width,
 flat and zero-radius bends; actual Sketch radius/angle/difference edits; inherited

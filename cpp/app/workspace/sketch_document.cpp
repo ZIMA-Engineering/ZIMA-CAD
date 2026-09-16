@@ -505,39 +505,11 @@ void AssemblyWorkspaceWindow::finish_active_sketch() {
     std::string return_container_id;
     std::optional<zima::document::FeatureKind> return_feature_kind;
     if (auto* part = workspace_.open_part(workspace_.active_document_id())) {
-        if (pending_profile_feature_) {
-            auto next = part->session.document();
-            const auto draft_sketch = std::find_if(next.sketches.begin(),
-                next.sketches.end(), [&](const auto& value) {
-                    return value.id == finished_sketch_id &&
-                        value.owner_container_id == pending_profile_feature_->id;
-                });
-            if (draft_sketch != next.sketches.end()) {
-                auto* draft = next.find_container(pending_profile_feature_->id);
-                if (draft != nullptr) {
-                    auto feature = *pending_profile_feature_;
-                    feature.placement = draft->placement;
-                    const bool extrusion = feature.feature_kind ==
-                        zima::document::FeatureKind::Extrusion;
-                    draft_sketch->plane_offset = extrusion
-                        ? feature.extrusion.profile_plane_offset
-                        : feature.revolution.profile_plane_offset;
-                    *draft = std::move(feature);
-                    // Returning from the owned Sketch is still one pending
-                    // Properties transaction, so it must not run OCCT here.
-                    // It does, however, have to restore the same resolved
-                    // reference state the dialog had before entering
-                    // Sketcher. Otherwise a container attached to an earlier
-                    // container Origin reopens with stale reference_valid
-                    // flags and the UI incorrectly exposes all six absolute
-                    // placement dimensions.
-                    next.resolve_constructions(
-                        construction_reference_source_geometry(
-                            part->session.calculated_boundaries()));
-                    part->session.commit(std::move(next),
-                        part->session.calculated_boundaries());
-                }
-            }
+        if (pending_profile_feature_ && property_owned_sketch_draft_ &&
+            property_owned_sketch_draft_->id == finished_sketch_id &&
+            !part->session.document().find_container(pending_profile_feature_->id)) {
+            return_container_id = pending_profile_feature_->id;
+            return_feature_kind = pending_profile_feature_->feature_kind;
         }
         const auto sketch = std::find_if(part->session.document().sketches.begin(),
             part->session.document().sketches.end(), [&](const auto& value) {
@@ -547,7 +519,8 @@ void AssemblyWorkspaceWindow::finish_active_sketch() {
             return_container_id = sketch->owner_container_id;
             if (const auto* owner = part->session.document().find_container(
                     return_container_id)) {
-                return_feature_kind = owner->feature_kind;
+                return_feature_kind = pending_profile_feature_ && pending_profile_feature_->id == return_container_id
+                    ? pending_profile_feature_->feature_kind : owner->feature_kind;
             }
         }
     } else if (auto* assembly = workspace_.open_assembly(
@@ -596,9 +569,11 @@ void AssemblyWorkspaceWindow::finish_active_sketch() {
                                zima::document::FeatureKind::Revolution) {
                     const auto* assembly = workspace_.open_assembly(
                         workspace_.active_document_id());
-                    if (assembly != nullptr &&
-                        assembly->session.document().find_cut(return_container_id) ==
-                            nullptr) {
+                    const auto* part = workspace_.open_part(workspace_.active_document_id());
+                    if ((assembly != nullptr &&
+                         assembly->session.document().find_cut(return_container_id) == nullptr) ||
+                        (part != nullptr &&
+                         part->session.document().find_container(return_container_id) == nullptr)) {
                         show_primitive_properties(feature_kind);
                     } else {
                         show_primitive_properties(feature_kind, return_container_id);
