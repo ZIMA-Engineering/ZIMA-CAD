@@ -4,6 +4,7 @@
 #include <zima/workspace/component_properties.hpp>
 #include <zima/workspace/holes_operations.hpp>
 #include "workspace_internal.hpp"
+#include "../numeric_expression_edit.hpp"
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -137,6 +138,7 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
     auto* edit = new InlineDimensionEdit(viewer_);
     inline_dimension_edit_ = edit;
     edit->setObjectName("inlineDimensionValueEdit");
+    edit->setMaxLength(4096);
     const auto identifier = dimension_identifier(candidate.owner_id, candidate.semantic_key);
     edit->setProperty("dimensionIdentifier", identifier);
     edit->setToolTip(identifier);
@@ -160,8 +162,10 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
         guarded->setProperty("committed", true);
         QString text = guarded->text().trimmed();
         text.replace(',', '.');
-        bool valid{};
-        const double parsed_value = text.toDouble(&valid);
+        bool valid{true};
+        double parsed_value{};
+        try { parsed_value = numeric_expression_value(text); }
+        catch (const std::exception&) { valid = false; }
         if (!valid || !std::isfinite(parsed_value)) {
             guarded->setProperty("committed", false);
             guarded->setStyleSheet(guarded->styleSheet() +
@@ -214,7 +218,7 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
             const auto edit_sketch=[&](zima::sketcher::Sketch& sketch){
                 if(candidate.semantic_key.starts_with("dimension:")){
                     if(!sketch.set_dimension_value(candidate.semantic_key.substr(10),next_value))
-                        throw std::runtime_error("Dimension no longer exists");
+                        throw std::runtime_error("Zadanou hodnotu nelze použít: je mimo meze nebo odporuje vazbám skici.");
                 }else{
                     const auto radius=std::ranges::find(sketch.corner_radii,candidate.semantic_key.substr(17),&zima::sketcher::SketchCornerRadius::id);
                     if(radius==sketch.corner_radii.end())throw std::runtime_error("Corner radius no longer exists");

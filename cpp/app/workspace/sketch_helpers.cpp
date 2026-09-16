@@ -290,7 +290,7 @@ QIcon sketch_constraint_tree_icon(zima::sketcher::ConstraintKind kind) {
 
 QString sketch_dimension_label(const zima::sketcher::SketchDimension& dimension) {
     using Kind = zima::sketcher::DimensionKind;
-    const auto value = [value = dimension.value](const QString& pattern) {
+    const auto value = [value = zima::sketcher::dimension_display_value(dimension)](const QString& pattern) {
         return pattern.arg(value, 0, 'f', 3);
     };
     switch (dimension.kind) {

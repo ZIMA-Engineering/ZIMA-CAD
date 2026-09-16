@@ -306,6 +306,10 @@ struct SketchDimension {
 };
 
 // Numeric entry policy shared by the Properties dialog and command edits.
+// X/Y solver values retain orientation; user-facing point-pair distances are
+// magnitudes. Coordinates against the Sketch origin/axes remain signed.
+[[nodiscard]] double dimension_display_value(const SketchDimension&) noexcept;
+[[nodiscard]] double dimension_value_from_input(const SketchDimension&, double) noexcept;
 void validate_dimension_property_value(const SketchDimension&);
 
 struct SolveResult {

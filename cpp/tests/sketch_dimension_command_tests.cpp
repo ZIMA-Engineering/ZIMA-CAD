@@ -1,6 +1,7 @@
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/sketch_operations.hpp>
 #include <cmath>
+#include <zima/document/relations.hpp>
 #include <iostream>
 #include <stdexcept>
 using namespace zima;
@@ -74,6 +75,69 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
         create(kind);const auto p=point(3,4);const auto axis=std::string(kind)=="distance_x"?"sketch_axis:y":"sketch_axis:x";
         const auto value=command("sketch.dimension.create",{{"kind",kind},{"points",{p}},{"geometry",{axis}},{"value",8}});
         require(value.at("geometry")==axis && (std::string(kind)=="distance_x"?current().find_point(p)->x:current().find_point(p)->y)==8,"Coordinate-axis dimension lost its original axis");
+    }
+    for (const auto& [text, expected] : std::vector<std::pair<std::string,double>>{{"20+20-40*2/2",0},{"(20+20-40)*2/2",0},{"20+20/2",30},{"-(10+5)*2",-30},{"1e2/4 + .5",25.5},{"4/-2",-2}})
+        require(std::abs(document::evaluate_numeric_expression(text)-expected)<1e-10,"Arithmetic precedence, parentheses or sign failed");
+    for(const auto& text:std::vector<std::string>{"", "1/0", "1/(3-3)", "2+", "(2+3", "2 3", "nan", "1e999", "2**3", "x+1", std::string(300,'(')+"1"+std::string(300,')'),std::string(4097,'1')}) {
+        bool rejected=false;try {static_cast<void>(document::evaluate_numeric_expression(text));}catch(const std::exception&){rejected=true;}
+        require(rejected,"Malformed, non-finite or excessive arithmetic input was accepted");
+    }
+    for(const bool fixed_first:{false,true})for(const bool selected_segment:{false,true}) {
+        auto s=sketcher::Sketch::create_default();const auto line=s.add_segment(4,6,7,10);
+        const auto first=s.segments.front().first_point_id,second=s.segments.front().second_point_id;
+        s.find_point(fixed_first?first:second)->fixed=true;
+        auto d=selected_segment?s.create_segment_dimension(line):s.create_point_dimension(first,second);
+        s.apply_dimension(d);
+        for(const auto [input,dx,dy]:std::vector<std::tuple<double,double,double>>{{-10,-6,-8},{15,-9,-12},{-5,3,4}}) {
+            require(s.set_dimension_value(d.id,input),"Aligned distance refused a feasible direction change");
+            require(std::abs(s.find_point(second)->x-s.find_point(first)->x-dx)<1e-7&&std::abs(s.find_point(second)->y-s.find_point(first)->y-dy)<1e-7,"Aligned distance changed the wrong direction");
+            require(s.dimensions.front().value==std::abs(input),"Aligned distance retained a negative magnitude");
+        }
+        s.find_point(first)->fixed=true;s.find_point(second)->fixed=true;
+        const auto before=s.serialized();require(!s.set_dimension_value(d.id,-8)&&s.serialized()==before,"Rejected reversal damaged fixed geometry");
+    }
+    for(const char* kind:{"distance","point_line","line_distance"}) {
+        create("CLI negative distance");Json a{{"kind",kind}};
+        if(std::string(kind)=="distance")a["geometry"]={segment(1,2,4,6)};
+        else if(std::string(kind)=="point_line"){a["points"]={point(5,8)};a["geometry"]={"sketch_axis:x"};}
+        else a["geometry"]={"sketch_axis:x",segment(1,8,7,8)};
+        const auto d=command("sketch.dimension.create",a);
+        for(double value:{-10.,-15.})require(command("sketch.dimension.set",{{"dimension",d.at("dimension")},{"value",value}}).at("value")==std::abs(value),"Properties/CLI rejected an unsigned-distance branch flip");
+    }
+    // Reversing picks changes the solver orientation, never a distance's
+    // displayed sign. Repeated negative input flips the current side each time.
+    for (const bool x_axis : {true, false}) for (const bool reverse : {true, false}) {
+        create("Projected distance");
+        const auto a = point(12, 9), b = point(32, 39);
+        const auto first = reverse ? b : a, second = reverse ? a : b;
+        const auto kind = x_axis ? "distance_x" : "distance_y";
+        const auto d = command("sketch.dimension.create", {{"kind", kind}, {"points", {first, second}}, {"limits",{{"lower",1},{"upper",40}}}});
+        const auto id = d.at("dimension");
+        require(d.at("value") == (x_axis ? 20 : 30), "Pick order leaked into displayed distance");
+        const auto delta = [&] { const auto s = current(); const auto* p = s.find_point(first); const auto* q = s.find_point(second); return x_axis ? q->x-p->x : q->y-p->y; };
+        const double sign = reverse ? -1 : 1;
+        for (const auto [input, expected] : std::vector<std::pair<double,double>>{{25,sign*25},{-35,-sign*35},{18,-sign*18},{-24,sign*24}}) {
+            const auto result = command("sketch.dimension.set", {{"dimension", id}, {"value", input}});
+            require(result.at("value") == std::abs(input) && std::abs(delta()-expected)<1e-7, "Projected distance did not preserve/flip its current direction");
+            const auto mesh = current().viewer_mesh();
+            require(mesh.dimensions.size()==1 && mesh.dimensions.front().value==std::abs(input), "Viewer distance disagrees with input policy");
+        }
+        // The inline entry point uses the same policy as CLI/Properties.
+        auto edited = current();
+        require(edited.set_dimension_value(id.get<std::string>(), -17) && sketcher::dimension_display_value(edited.dimensions.front())==17, "Inline distance flip failed");
+        require(std::abs(edited.dimensions.front().value+sign*17)<1e-7, "Inline distance used a different orientation");
+        run(host,"undo"); require(std::abs(delta()+sign*18)<1e-7,"Undo lost distance orientation"); run(host,"redo");
+    }
+    for (const bool axis_reference : {false, true}) for (const bool x_axis : {false, true}) {
+        create("Signed origin coordinate"); const auto p = point(-12, -9);
+        Json args{{"kind",x_axis?"distance_x":"distance_y"}, {"points",axis_reference?Json::array({p}):Json::array({"sketch_origin",p})}};
+        if(axis_reference) args["geometry"]={x_axis?"sketch_axis:y":"sketch_axis:x"};
+        const auto d=command("sketch.dimension.create",args);
+        require(d.at("value")== (x_axis?-12:-9), "Origin coordinate lost its signed value");
+        for(double input:{-20.,-30.,15.}) {
+            const auto result=command("sketch.dimension.set",{{"dimension",d.at("dimension")},{"value",input}});
+            const auto s=current(); require(result.at("value")==input && std::abs((x_axis?s.find_point(p)->x:s.find_point(p)->y)-input)<1e-7,"Origin coordinate incorrectly flipped relative to its old side");
+        }
     }
     create("four point angle");const auto a=point(0,0),b=point(10,0),e=point(0,10),f=point(10,20);
     require(std::abs(command("sketch.dimension.create",{{"kind","angle_between"},{"points",{a,b,e,f}},{"driving",false}}).at("value").get<double>()-45)<1e-7,"Four point angle factory failed");

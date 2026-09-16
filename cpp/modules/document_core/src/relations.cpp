@@ -148,6 +148,15 @@ double numeric(const std::string& text, const std::string& name) {
 }
 }  // namespace
 
+double evaluate_numeric_expression(const std::string& expression) {
+    if (expression.empty() || expression.size() > 4096 ||
+        !std::ranges::all_of(expression, [](unsigned char c) {
+            return std::isdigit(c) || std::isspace(c) ||
+                std::string_view(".+-*/()eE").find(c) != std::string_view::npos;
+        })) throw std::invalid_argument("Invalid numeric expression.");
+    return Parser(expression, {}).parse();
+}
+
 void validate_model_relations(const std::vector<ModelRelation>& relations) {
     if (relations.size() > 4096) throw std::invalid_argument("A document supports at most 4096 relations.");
     const auto letter=[](unsigned char c){return (c>='a'&&c<='z')||(c>='A'&&c<='Z');};

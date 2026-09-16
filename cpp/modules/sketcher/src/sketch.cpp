@@ -970,12 +970,11 @@ bool refresh_reference_dimensions(Sketch& sketch) {
     for (auto& dimension : sketch.dimensions) {
         if (dimension.suppressed || dimension.driving) continue;
         const auto measured = measured_dimension_value(sketch, dimension);
-        if (!measured ||
-            (dimension.lower_limit && *measured < *dimension.lower_limit) ||
-            (dimension.upper_limit && *measured > *dimension.upper_limit)) {
-            return false;
-        }
+        if (!measured) return false;
         dimension.value = *measured;
+        const auto displayed = dimension_display_value(dimension);
+        if ((dimension.lower_limit && displayed < *dimension.lower_limit) ||
+            (dimension.upper_limit && displayed > *dimension.upper_limit)) return false;
         if (const auto side = measured_dimension_solution_side(
                 sketch, dimension)) {
             dimension.solution_side = *side;
@@ -2761,8 +2760,9 @@ void Sketch::validate() const {
             *dimension.lower_limit > *dimension.upper_limit) {
             throw std::runtime_error("Dimension limits are reversed");
         }
-        if ((dimension.lower_limit && dimension.value < *dimension.lower_limit) ||
-            (dimension.upper_limit && dimension.value > *dimension.upper_limit)) {
+        const auto displayed = dimension_display_value(dimension);
+        if ((dimension.lower_limit && displayed < *dimension.lower_limit) ||
+            (dimension.upper_limit && displayed > *dimension.upper_limit)) {
             throw std::runtime_error("Dimension value lies outside its absolute limits");
         }
     }
@@ -2802,11 +2802,14 @@ bool Sketch::set_dimension_value(const std::string& dimension_id, double value) 
     const auto found = std::find_if(dimensions.begin(), dimensions.end(),
         [&](const auto& dimension) { return dimension.id == dimension_id; });
     if (found == dimensions.end()) return false;
+    value = dimension_value_from_input(*found, value);
+    auto updated = *found;
+    updated.value = value;
     const bool unsigned_branch = uses_unsigned_distance_branch(found->kind);
-    const double checked_value = unsigned_branch ? std::abs(value) : value;
+    const double checked_value = unsigned_branch || found->kind == DimensionKind::Distance
+        ? std::abs(value) : dimension_display_value(updated);
     if (
-        ((found->kind == DimensionKind::Distance ||
-          found->kind == DimensionKind::DistanceSymmetric ||
+        ((found->kind == DimensionKind::DistanceSymmetric ||
           found->kind == DimensionKind::DistanceLineSymmetric ||
           found->kind == DimensionKind::Radius ||
           found->kind == DimensionKind::Diameter ||
@@ -2820,8 +2823,7 @@ bool Sketch::set_dimension_value(const std::string& dimension_id, double value) 
          (value < 0.0 || value > 180.0)) ||
         (found->lower_limit && checked_value < *found->lower_limit) ||
         (found->upper_limit && checked_value > *found->upper_limit)) return false;
-    auto updated = *found;
-    updated.value = checked_value;
+    updated.value = unsigned_branch ? checked_value : value;
     if (unsigned_branch && value < 0.0) {
         updated.solution_side = -updated.solution_side;
     }
@@ -8010,12 +8012,29 @@ SketchDimension Sketch::create_ellipse_rotation_dimension(
     return result;
 }
 
+double dimension_display_value(const SketchDimension& dimension) noexcept {
+    const bool coordinate = has_coordinate_axis_reference(dimension) ||
+        dimension.first_point_id == "sketch_origin" ||
+        dimension.second_point_id == "sketch_origin";
+    return !coordinate && (dimension.kind == DimensionKind::DistanceX ||
+        dimension.kind == DimensionKind::DistanceY)
+        ? std::abs(dimension.value) : dimension.value;
+}
+
+double dimension_value_from_input(const SketchDimension& dimension, double value) noexcept {
+    // The solver retains the signed coordinate difference. A positive input
+    // changes its magnitude; a negative input reverses its current direction.
+    const bool coordinate = has_coordinate_axis_reference(dimension) ||
+        dimension.first_point_id == "sketch_origin" ||
+        dimension.second_point_id == "sketch_origin";
+    return !coordinate && (dimension.kind == DimensionKind::DistanceX ||
+        dimension.kind == DimensionKind::DistanceY)
+        ? std::copysign(1.0, dimension.value) * value : value;
+}
+
 void validate_dimension_property_value(const SketchDimension& result) {
     require_finite(result.value,"dimension value");
-    if ((result.kind == DimensionKind::Distance ||
-         result.kind == DimensionKind::DistancePointLine ||
-         result.kind == DimensionKind::DistanceSymmetric ||
-         result.kind == DimensionKind::DistanceLine ||
+    if ((result.kind == DimensionKind::DistanceSymmetric ||
          result.kind == DimensionKind::DistanceLineSymmetric ||
          result.kind == DimensionKind::Radius ||
          result.kind == DimensionKind::Diameter ||
@@ -8051,6 +8070,43 @@ void Sketch::apply_dimension(SketchDimension dimension) {
     if (!dimension.driving && editing_existing_dimension) {
         dimension.value = existing->value;
         dimension.solution_side = existing->solution_side;
+    }
+    // Aligned distances have no scalar X/Y sign. Seed the opposite geometric
+    // branch and verify it with the normal transactional solver.
+    std::optional<std::array<double, 2>> reversed_distance;
+    const auto reversal_first_id = dimension.first_point_id;
+    const auto reversal_second_id = dimension.second_point_id;
+    const auto reversal_position = [&](const std::string& id) -> std::optional<std::array<double, 2>> {
+        if (const auto* p = next.find_point(id)) return std::array{p->x, p->y};
+        return external_point_position(next, id);
+    };
+    if (dimension.kind == DimensionKind::Distance && dimension.value < 0.0) {
+        dimension.value = -dimension.value;
+        if (dimension.driving) {
+            const auto a = reversal_position(reversal_first_id), b = reversal_position(reversal_second_id);
+            if (!a || !b) throw std::invalid_argument("Distance endpoints are missing");
+            const std::array direction{(*b)[0]-(*a)[0], (*b)[1]-(*a)[1]};
+            const double length = std::hypot(direction[0], direction[1]);
+            if (length <= 1e-12) throw std::invalid_argument("Zero distance has no direction to reverse");
+            const auto linked = externally_linked_point_ids(next);
+            const auto movable = [&](const SketchPoint* p) {
+                return p && !p->fixed && !linked.contains(p->id) &&
+                    !std::ranges::any_of(next.constraints, [&](const auto& c) {
+                        return !c.suppressed && c.kind == ConstraintKind::PointReference && c.first_point_id == p->id;
+                    });
+            };
+            const double scale = dimension.value / length;
+            auto* first = next.find_point(reversal_first_id);
+            auto* second = next.find_point(reversal_second_id);
+            if (movable(second)) {
+                second->x = (*a)[0] - direction[0]*scale;
+                second->y = (*a)[1] - direction[1]*scale;
+            } else if (movable(first)) {
+                first->x = (*b)[0] + direction[0]*scale;
+                first->y = (*b)[1] + direction[1]*scale;
+            } else throw std::invalid_argument("Distance endpoints cannot change sides");
+            reversed_distance = direction;
+        }
     }
     if (uses_unsigned_distance_branch(dimension.kind) &&
         dimension.value < 0.0) {
@@ -8304,6 +8360,12 @@ void Sketch::apply_dimension(SketchDimension dimension) {
     const auto result = next.solve_impl(100, needs_rank_for_redundancy);
     if (result.status == SolveStatus::Conflicting || result.status == SolveStatus::Invalid) {
         throw std::runtime_error("Sketch dimension conflicts with existing geometry");
+    }
+    if (reversed_distance) {
+        const auto a = reversal_position(reversal_first_id), b = reversal_position(reversal_second_id);
+        if (!a || !b || ((*b)[0]-(*a)[0])*(*reversed_distance)[0] +
+                ((*b)[1]-(*a)[1])*(*reversed_distance)[1] >= 0.0)
+            throw std::runtime_error("Distance cannot reverse with the existing constraints");
     }
     if (inserting_driving_dimension &&
         dimension_kind != DimensionKind::EllipseMajorRadius &&
@@ -12614,14 +12676,14 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
                 result.dimensions.push_back({
                     world_point(0.0, point->y), world_point(point->x, point->y),
                     world_point(0.0, line_y), world_point(point->x, line_y),
-                    dimension.value, {id, "dimension:" + dimension.id, {}}, {}});
+                    dimension_display_value(dimension), {id, "dimension:" + dimension.id, {}}, {}});
             } else {
                 const double line_x = dimension.placement
                     ? (*dimension.placement)[0] : point->x + offset;
                 result.dimensions.push_back({
                     world_point(point->x, 0.0), world_point(point->x, point->y),
                     world_point(line_x, 0.0), world_point(line_x, point->y),
-                    dimension.value, {id, "dimension:" + dimension.id, {}}, {}});
+                    dimension_display_value(dimension), {id, "dimension:" + dimension.id, {}}, {}});
             }
             continue;
         }
@@ -12653,7 +12715,7 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
                 world_point((*first)[0] + display_radius, (*first)[1]),
                 world_point((*first)[0] + display_radius * std::cos(radians),
                             (*first)[1] + display_radius * std::sin(radians)),
-                dimension.value, {id, "dimension:" + dimension.id, {}},
+                dimension_display_value(dimension), {id, "dimension:" + dimension.id, {}},
                 "∠ ", "°"});
             result.dimensions.back().kind =
                 zima::kernel::ViewerDimensionKind::Angular;
@@ -12669,7 +12731,7 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
                 world_point((*first)[0], (*first)[1]),
                 world_point((*second)[0], (*second)[1]),
                 world_point((*first)[0], line_y), world_point((*second)[0], line_y),
-                dimension.value, {id, "dimension:" + dimension.id, {}}, {}});
+                dimension_display_value(dimension), {id, "dimension:" + dimension.id, {}}, {}});
             continue;
         }
         if (dimension.kind == DimensionKind::DistanceY) {
@@ -12680,7 +12742,7 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
                 world_point((*first)[0], (*first)[1]),
                 world_point((*second)[0], (*second)[1]),
                 world_point(line_x, (*first)[1]), world_point(line_x, (*second)[1]),
-                dimension.value, {id, "dimension:" + dimension.id, {}}, {}});
+                dimension_display_value(dimension), {id, "dimension:" + dimension.id, {}}, {}});
             continue;
         }
         const double nx = magnitude > 1.0e-12 ? -dy / magnitude : 0.0;
@@ -12696,7 +12758,7 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
                         (*first)[1] + ny * placed_offset),
             world_point((*second)[0] + nx * placed_offset,
                         (*second)[1] + ny * placed_offset),
-            dimension.value, {id, "dimension:" + dimension.id, {}}});
+            dimension_display_value(dimension), {id, "dimension:" + dimension.id, {}}});
     }
     for (auto& rendered : result.dimensions) {
         if (!rendered.reference.semantic_key.starts_with("dimension:")) continue;

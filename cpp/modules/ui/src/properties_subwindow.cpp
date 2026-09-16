@@ -133,6 +133,11 @@ public:
         if (event->type() == QEvent::KeyPress) {
             const auto* key = static_cast<QKeyEvent*>(event);
             if (key->key() == Qt::Key_Return || key->key() == Qt::Key_Enter) {
+                if (spin->property("zimaExpressionInput").toBool() &&
+                    !spin->hasAcceptableInput()) {
+                    event->accept();
+                    return true;
+                }
                 const QPointer<QAbstractSpinBox> guarded(spin);
                 spin->interpretText();
                 if (guarded) QMetaObject::invokeMethod(guarded, "editingFinished",

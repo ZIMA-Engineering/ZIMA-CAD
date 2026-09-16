@@ -1,5 +1,6 @@
 #include "sketch_dimension_properties_dialog.hpp"
 #include "dimension_properties_fields.hpp"
+#include "numeric_expression_edit.hpp"
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -16,7 +17,7 @@ namespace zima::app {
 namespace {
 
 QDoubleSpinBox* dimension_field(double value, const char* name, QWidget* parent) {
-    auto* field = new QDoubleSpinBox(parent);
+    auto* field = new ExpressionDoubleSpinBox(parent);
     field->setObjectName(name);
     field->setRange(-1'000'000.0, 1'000'000.0);
     field->setDecimals(zima::ui::numeric_decimal_places(parent));
@@ -39,7 +40,7 @@ SketchDimensionPropertiesDialog::SketchDimensionPropertiesDialog(
     setMinimumWidth(340);
     setMinimumHeight(560);
     form_ = new QFormLayout;
-    value_ = dimension_field(initial_.value, "sketchDimensionValue", this);
+    value_ = dimension_field(zima::sketcher::dimension_display_value(initial_), "sketchDimensionValue", this);
     form_->addRow(tr("Jmenovitá hodnota"), value_);
     driving_ = new QCheckBox(tr("Řídicí kóta"), this);
     driving_->setObjectName("sketchDimensionDriving");
@@ -79,7 +80,7 @@ SketchDimensionPropertiesDialog::SketchDimensionPropertiesDialog(
         // A reference dimension is a measurement, not an editable command.
         // Restore the last measured value if the user first typed a new
         // number and only then changed the dimension to reference mode.
-        if (!driving) value_->setValue(initial_.value);
+        if (!driving) value_->setValue(zima::sketcher::dimension_display_value(initial_));
         if (!driving) locked_->setChecked(false);
         locked_->setEnabled(driving);
         value_->setEnabled(driving);
@@ -107,7 +108,6 @@ void SketchDimensionPropertiesDialog::set_dimension_identifier(const QString& id
 
 bool SketchDimensionPropertiesDialog::submit() {
     auto result = initial_;
-    result.value = value_->value();
     result.driving = driving_->isChecked();
     result.locked = locked_->isChecked();
     const auto style=text_fields_->value();
@@ -115,6 +115,8 @@ bool SketchDimensionPropertiesDialog::submit() {
     result.tolerance_mode=style.tolerance_mode;result.symmetric_tolerance=style.symmetric_tolerance;
     result.single_tolerance=style.single_tolerance;result.upper_tolerance=style.upper_tolerance;result.lower_tolerance=style.lower_tolerance;
     try {
+        result.value = zima::sketcher::dimension_value_from_input(initial_,
+            static_cast<ExpressionDoubleSpinBox*>(value_)->expression_value());
         zima::sketcher::validate_dimension_property_value(result);
         if(placement_fields_&&pending_layout_)pending_layout_(placement_fields_->value());
         commit_(std::move(result));

@@ -21,7 +21,16 @@ void AssemblyWorkspaceWindow::reset_sketch_universal_dimension(bool keep_active)
     universal_pending_dimension_.reset();
     universal_corner_radius_dimension_id_.clear();
     universal_dimension_cursor_.reset();
-    clear_sketch_confirmed_selection();
+    if (keep_active) {
+        clear_sketch_confirmed_selection();
+    } else {
+        // Returning to Selection may immediately confirm an existing dimension.
+        // A queued cleanup would erase that new confirmation before the second
+        // click of its value-edit gesture.
+        clear_selected_sketch_geometry();
+        tree_->clearSelection();
+        viewer_->clear_selection();
+    }
     if (!keep_active) {
         sketch_universal_dimension_active_ = false;
         viewer_->set_dimension_layout_editable((!properties_dialog_||!properties_dialog_->isVisible()));
@@ -215,6 +224,10 @@ void AssemblyWorkspaceWindow::accept_sketch_universal_dimension(
         candidate.semantic_key.starts_with("dimension:")) {
         const auto dimension_id = candidate.semantic_key.substr(10);
         reset_sketch_universal_dimension(false);
+        // Reset retires the command's picker. Restore ordinary Sketch selection
+        // before confirming the dimension, so later clicks remain editable too.
+        preserve_view_on_refresh_ = true;
+        refresh_scene();
         tree_->clearSelection();
         QTreeWidgetItemIterator iterator(tree_);
         while (*iterator != nullptr) {
@@ -231,7 +244,7 @@ void AssemblyWorkspaceWindow::accept_sketch_universal_dimension(
             ++iterator;
         }
         viewer_->confirm_reference(active_sketch_id_,
-            "dimension:" + dimension_id, {},
+            "dimension:" + dimension_id, candidate.instance_path,
             zima::viewer::CandidateKind::Dimension);
         state_->setText(tr("Vybrána kóta skici."));
         return;

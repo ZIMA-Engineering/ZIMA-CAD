@@ -57,7 +57,7 @@ template<class Doc> void add_sketch_references(std::vector<FamilyReference>& out
     for(const auto& dimension:sketch.dimensions) {
         const auto key="dimension:"+dimension.id;
         const auto name=doc.dimension_identifiers.identifier(sketch.id,key);
-        if(!name.empty() && dimension.driving && !dimension.suppressed && !dimension.locked)out.push_back({{"dimension",sketch.id,key},name,sketch.name,number(dimension.value)});
+        if(!name.empty() && dimension.driving && !dimension.suppressed && !dimension.locked)out.push_back({{"dimension",sketch.id,key},name,sketch.name,number(sketcher::dimension_display_value(dimension))});
     }
     for(const auto& radius:sketch.corner_radii) {
         const auto key="corner_dimension:"+radius.id;

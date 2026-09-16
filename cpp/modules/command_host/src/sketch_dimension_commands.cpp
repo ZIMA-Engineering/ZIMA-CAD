@@ -49,7 +49,7 @@ Dimension create_dimension(const Sketch& s,const Json& a) {
 }
 void patch(Dimension& d,const Json& a) {
     const double measurement=d.value;
-    if(a.contains("value"))d.value=number(a["value"]);
+    if(a.contains("value"))d.value=sketcher::dimension_value_from_input(d,number(a["value"]));
     if(a.contains("driving"))d.driving=a["driving"].get<bool>();
     if(a.contains("locked"))d.locked=a["locked"].get<bool>();
     if(!d.driving){d.locked=false;d.value=measurement;}
@@ -100,7 +100,7 @@ Json layout_data(const kernel::DimensionLayout* d) {
 Json data(const workspace::Workspace& live,const std::string& doc,const Sketch& sketch,const Dimension& d) {
     std::string kind;for(const auto& [key,value]:kinds)if(value==d.kind)kind=key;
     const kernel::EdgeReference reference{sketch.id,"dimension:"+d.id,{}};
-    return {{"dimension",d.id},{"kind",kind},{"value",d.value},{"unit",angular(d)?"deg":"mm"},{"driving",d.driving},{"locked",d.locked},{"suppressed",d.suppressed},
+    return {{"dimension",d.id},{"kind",kind},{"value",sketcher::dimension_display_value(d)},{"unit",angular(d)?"deg":"mm"},{"driving",d.driving},{"locked",d.locked},{"suppressed",d.suppressed},
         {"first_point",d.first_point_id},{"second_point",d.second_point_id},{"geometry",d.geometry_id},{"second_geometry",d.second_geometry_id},{"third_geometry",d.third_geometry_id},
         {"position",d.placement?Json(*d.placement):Json(nullptr)},{"solution_side",d.solution_side},{"angle_sector",d.angle_sector},
         {"limits",{{"lower",d.lower_limit?Json(*d.lower_limit):Json(nullptr)},{"upper",d.upper_limit?Json(*d.upper_limit):Json(nullptr)}}},

@@ -21,6 +21,43 @@ the selected tool remains active for another input. It does not automatically
 switch to **Select**. Finish with quick MMB double-click, explicit **Select** or
 canceling the associated dialog.
 
+### Dimension values and arithmetic
+
+Ordinary point-to-point distances, including horizontal/vertical projections,
+display a positive magnitude regardless of pick order. A positive edit keeps
+the current direction. A negative edit reverses that direction and displays
+the positive magnitude again; entering another negative value reverses it
+again. Aligned segment lengths follow the same rule. Existing constraints must
+permit the reversal; a rejected edit leaves the Sketch unchanged.
+
+Coordinate dimensions measured from the Sketch origin or its X/Y axes are
+the exception: their value remains signed and directly specifies the desired
+coordinate. For example, changing an origin coordinate from -20 to -30 keeps
+it on the negative side.
+
+The View's double-click value editor and Dimension Properties accept numeric
+expressions with `+`, `-`, `*`, `/` and parentheses. Multiplication/division take
+precedence, decimal points and decimal commas are accepted, and a negative
+result follows the same direction rule as a literal negative input. For example,
+`20+20-40*2/2` evaluates to zero, while `-(10+5)*2` evaluates to -30. The result
+still must satisfy the dimension's geometry and limits. Incomplete expressions,
+division by zero and non-finite results cannot commit or silently restore an
+old value. Only the numeric result is stored, not a persistent relation.
+
+Placing a dimension keeps Dimension active for another one. Quick MMB
+double-click returns to Select; double-clicking an existing dimension edits its
+value. Reopening the Dimension command is not needed to finish it.
+Selecting an existing dimension while Dimension is waiting for its next first
+reference restores the ordinary Sketch picker and keeps that exact dimension
+confirmed. Command cleanup must not clear this newer selection asynchronously.
+
+Regression coverage: `zima_cpp_sketch_dimension_entry_ui_contract` exercises
+both point-pick orders, immediate editing and MMB completion, repeated edits,
+expression errors on Enter/focus-out, Properties, and native save/reload.
+`zima_cpp_sketch_dimension_command_tests` additionally checks signed origin
+coordinates, aligned and projected direction reversal, magnitude limits,
+fixed-point rejection, Undo/Redo and arithmetic validation.
+
 ## Shared cancellation and Escape
 
 One central stateful **Cancel** action handles `Esc` and a future toolbar button.

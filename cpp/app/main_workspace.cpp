@@ -20,6 +20,7 @@
 #include "shaft_thread_dialog.hpp"
 #include "body_properties_dialog.hpp"
 #include "sketch_properties_dialog.hpp"
+#include "sketch_dimension_properties_dialog.hpp"
 #include "history_tree_widget.hpp"
 #include "helical_sweep_dialog.hpp"
 #include "sweep2d_dialog.hpp"
@@ -3747,6 +3748,101 @@ int verify_surface_profiles_ui(QApplication& application,const std::filesystem::
     }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
 }
 
+int verify_sketch_dimension_entry_ui(QApplication& application,const std::filesystem::path& directory) {
+    using namespace zima;
+    try {
+        const auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
+        const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
+        for(const bool reverse:{false,true})for(const bool finish:{false,true}) {
+            auto part=document::PartDocument::create_default();auto feature=document::PartDocument::create_sketch_container();
+            auto sketch=sketcher::Sketch::create_default();sketch.owner_container_id=feature.id;
+            static_cast<void>(sketch.add_segment(12,8,32,15));
+            const auto first=sketch.segments.front().first_point_id,second=sketch.segments.front().second_point_id;
+            part.history={feature};part.sketches={sketch};document::BodyHistoryGraph graph;
+            const auto body=graph.create_body("Dimension test");graph.insert({document::PartHistoryKind::Feature,feature.id});part.set_body_history(graph);part.resolve_constructions();
+            const auto path=directory/(std::string("dimension-entry-")+std::to_string(reverse)+std::to_string(finish)+".prtz");part.save(path);
+            app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));window.resize(1200,900);window.show();
+            check(window.open_document_path(QString::fromStdString(path.string())),"Dimension fixture failed to open");flush();
+            check(activate_test_body(application,window,body),"Cannot activate dimension fixture Body");flush();
+            auto* tree=window.findChild<QTreeWidget*>("documentTree");QTreeWidgetItem* row{};
+            for(QTreeWidgetItemIterator i(tree);*i;++i)if((*i)->data(0,Qt::UserRole).toString().toStdString()==sketch.id&&(*i)->data(0,Qt::UserRole+3)=="part-sketch"){row=*i;break;}
+            check(row,"Dimension Sketch row missing");window.show_tree_item_properties(row);flush();
+            window.findChild<QPushButton*>("sketchOpenButton")->click();flush();
+            QEventLoop animation;QTimer::singleShot(950,&animation,&QEventLoop::quit);animation.exec();
+            auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>());check(view,"Dimension View missing");
+            const auto mouse=[&](QPointF p,QEvent::Type type,Qt::MouseButton button){QMouseEvent event(type,p,QPointF(view->mapToGlobal(p.toPoint())),button,type==QEvent::MouseButtonPress?button:Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(view,&event);flush();};
+            const auto click=[&](QPointF p){mouse(p,QEvent::MouseMove,Qt::NoButton);mouse(p,QEvent::MouseButtonPress,Qt::LeftButton);mouse(p,QEvent::MouseButtonRelease,Qt::LeftButton);};
+            const auto find=[&](const std::string& key) {
+                for(int y=20;y<view->height()-20;y+=3)for(int x=20;x<view->width()-20;x+=3) {
+                    const auto candidates=view->selection_candidates_at(QPointF(x,y));
+                    if(!candidates.empty()&&candidates.front().owner_id==sketch.id&&candidates.front().semantic_key==key)return QPointF(x,y);
+                }
+                throw std::runtime_error("Dimension candidate missing: "+key);
+            };
+            auto* action=window.findChild<QAction*>("sketchUniversalDimensionAction");check(action&&action->isEnabled(),"Dimension command unavailable");
+            action->trigger();flush();click(find("point:"+(reverse?second:first)));click(find("point:"+(reverse?first:second)));
+            std::optional<QPointF> placement;
+            for(int y=40;y<view->height()-40&&!placement;y+=8)for(int x=40;x<view->width()-40;x+=8) {
+                const auto ray=view->ray_at(QPointF(x,y));if(!ray)continue;
+                const auto p=sketch.intersect_ray(ray->first,ray->second);
+                if(p&&(*p)[0]>16&&(*p)[0]<28&&(*p)[1]>22&&(*p)[1]<35&&view->selection_candidates_at(QPointF(x,y)).empty()){placement=QPointF(x,y);break;}
+            }
+            check(placement.has_value(),"No empty position for horizontal dimension");click(*placement);
+            check(view->mesh().dimensions.size()==1&&std::abs(view->mesh().dimensions.front().value-20)<1e-7,"Created point distance has wrong magnitude");
+            const auto key=view->mesh().dimensions.front().reference.semantic_key;
+            if(finish) {
+                mouse(QPointF(40,40),QEvent::MouseButtonPress,Qt::MiddleButton);mouse(QPointF(40,40),QEvent::MouseButtonRelease,Qt::MiddleButton);
+                mouse(QPointF(40,40),QEvent::MouseButtonDblClick,Qt::MiddleButton);mouse(QPointF(40,40),QEvent::MouseButtonRelease,Qt::MiddleButton);
+                check(!action->isChecked(),"MMB double-click left Dimension active");
+            }
+            const auto open_editor=[&] {
+                const auto hit=find(key);const auto offered=view->selection_candidates_at(hit).front();
+                const auto label=view->candidate_dimension_label_position(offered).value_or(hit.toPoint());
+                click(label);
+                check(view->confirmed_candidate()&&view->confirmed_candidate()->semantic_key==key,"Selecting a dimension lost its confirmed identity");
+                mouse(label,QEvent::MouseButtonDblClick,Qt::LeftButton);mouse(label,QEvent::MouseButtonRelease,Qt::LeftButton);
+                auto* editor=view->findChild<QLineEdit*>("inlineDimensionValueEdit");
+                check(editor&&editor->isVisible(),"Created dimension cannot be edited immediately");return editor;
+            };
+            const auto submit=[&](QLineEdit* editor,const QString& text) {
+                editor->setText(text);QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(editor,&enter);flush();
+            };
+            submit(open_editor(),"20+20-10*2/2");
+            check(view->mesh().dimensions.front().value==30,"Inline arithmetic did not evaluate precedence");
+            auto* invalid=open_editor();submit(invalid,"1/0");
+            check(invalid->isVisible()&&view->mesh().dimensions.front().value==30,"Invalid expression modified or dismissed the dimension");
+            submit(invalid,"-(10+5)*2");
+            check(view->mesh().dimensions.front().value==30,"Negative expression left a signed distance label");
+            submit(open_editor(),"2,5*8");
+            check(view->mesh().dimensions.front().value==20,"Decimal-comma expression failed");
+            window.findChild<QAction*>("finishSketchAction")->trigger();flush();
+            for(auto* d:window.findChildren<QDialog*>())if(auto* properties=dynamic_cast<app::SketchPropertiesDialog*>(d);properties&&properties->isVisible())properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+            window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+            const auto saved=document::PartDocument::load(path);const auto& result=saved.sketches.front();
+            check(result.dimensions.size()==1&&result.dimensions.front().id==key.substr(10),"Editing replaced the dimension identity");
+            check(std::abs(result.find_point(second)->x-result.find_point(first)->x+20)<1e-7,"Negative input did not reverse the segment; positive edit flipped it back");
+        }
+        // Properties uses the same expression grammar and magnitude policy.
+        QWidget parent;parent.resize(1000,850);parent.show();
+        auto sketch=sketcher::Sketch::create_default();const auto a=sketch.add_point(30,5),b=sketch.add_point(10,15);
+        auto dimension=sketch.create_point_dimension(a,b,sketcher::DimensionKind::DistanceX);sketch.apply_dimension(dimension);
+        auto* properties=new app::SketchDimensionPropertiesDialog(dimension,true,[&](auto d){sketch.apply_dimension(std::move(d));},&parent);properties->show();flush();
+        auto* value=properties->findChild<QDoubleSpinBox*>("sketchDimensionValue");check(value&&value->value()==20,"Properties exposes signed point distance");
+        auto* input=value->findChild<QLineEdit*>();check(input,"Expression field missing");
+        input->setFocus();input->selectAll();
+        for(const QChar c:QStringLiteral("1/0")){QKeyEvent key(QEvent::KeyPress,0,Qt::NoModifier,QString(c));QApplication::sendEvent(input,&key);}flush();
+        QKeyEvent invalid_enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(input,&invalid_enter);flush();
+        check(input->text().contains("1/0"),"Enter silently restored an invalid expression");
+        properties->buttons()->button(QDialogButtonBox::Ok)->setFocus();flush();
+        check(input->text().contains("1/0"),"Focus-out silently restored an invalid expression");
+        properties->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+        check(properties->isVisible()&&sketch.dimensions.front().value==-20,"Invalid Properties expression committed");
+        input->setText("-(5+10)*2mm");properties->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+        check(sketch.dimensions.front().value==30&&sketch.viewer_mesh().dimensions.front().value==30,"Properties arithmetic or side flip differs from inline entry");
+        std::cout<<"Sketch dimension creation/editing, MMB finish, signed direction and arithmetic input passed\n";return 0;
+    }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
+}
+
 int verify_sketch_coincident_ui(QApplication& application,const std::filesystem::path& directory) {
     using namespace zima;
     try {
@@ -5863,6 +5959,7 @@ int verify_startup_contract(
         return verify_owned_profile_external_reference(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_APPLICATION_TOOLS_ONLY")) return verify_application_tools_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SURFACE_ONLY")) return verify_surface_profiles_ui(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_DIMENSION_ENTRY_ONLY")) return verify_sketch_dimension_entry_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_COINCIDENT_ONLY")) return verify_sketch_coincident_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_OFFSET_ONLY"))
         return verify_sketch_offset_ui(application,test_directory);

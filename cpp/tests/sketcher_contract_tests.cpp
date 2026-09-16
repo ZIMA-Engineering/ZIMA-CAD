@@ -5000,8 +5000,8 @@ int main() {
         signed_x.value = -7.0;
         const auto signed_x_id = signed_x.id;
         signed_x_corner.apply_dimension(signed_x);
-        require(signed_x_corner.set_dimension_value(signed_x_id, -6.0),
-                "Negative visible X dimension did not accept an edit");
+        require(signed_x_corner.set_dimension_value(signed_x_id, 6.0),
+                "Positive magnitude did not retain the visible X dimension orientation");
         const auto signed_x_visible =
             signed_x_corner.visible_segment_endpoints(fillet_first);
         auto signed_y_corner = corner_fillet;
