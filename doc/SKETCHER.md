@@ -86,6 +86,12 @@ Connected segments share one actual endpoint. `C` at this stage is preview
 information; merging native points leaves no independent `C` constraint/marker.
 Persistent `C` means a point lies on other geometry.
 
+The explicit **Coincident (C)** command accepts a segment endpoint and either
+Sketch X/Y axis in both orders: point then axis, or axis then point. A point
+selected before starting C can also be constrained to an axis. The second pick
+uses the same offered candidates for hover and click, and creates a persisted
+point-on-line relation.
+
 A reversible shared-corner radius is created by selecting two connected
 segments and dragging their common point. This exact gesture takes precedence
 over ordinary point dragging. The initial implementation moved only the directly

@@ -3747,6 +3747,59 @@ int verify_surface_profiles_ui(QApplication& application,const std::filesystem::
     }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
 }
 
+int verify_sketch_coincident_ui(QApplication& application,const std::filesystem::path& directory) {
+    using namespace zima;
+    try {
+        const auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
+        const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
+        for(const bool x_axis:{true,false})for(int order:{0,1,2}) {
+            auto part=document::PartDocument::create_default();auto feature=document::PartDocument::create_sketch_container();
+            auto sketch=sketcher::Sketch::create_default();sketch.owner_container_id=feature.id;
+            static_cast<void>(sketch.add_segment(12,8,20,15));const auto point=sketch.segments.front().first_point_id;
+            part.history={feature};part.sketches={sketch};document::BodyHistoryGraph graph;
+            const auto body=graph.create_body("Coincident test");graph.insert({document::PartHistoryKind::Feature,feature.id});part.set_body_history(graph);part.resolve_constructions();
+            const auto path=directory/(std::string("coincident-")+(x_axis?"x-":"y-")+std::to_string(order)+".prtz");part.save(path);
+            app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));window.resize(1200,900);window.show();
+            check(window.open_document_path(QString::fromStdString(path.string())),"Coincident fixture failed to open");flush();
+            check(activate_test_body(application,window,body),"Cannot activate Coincident fixture Body");flush();
+            auto* tree=window.findChild<QTreeWidget*>("documentTree");QTreeWidgetItem* row{};
+            for(QTreeWidgetItemIterator i(tree);*i;++i)if((*i)->data(0,Qt::UserRole).toString().toStdString()==sketch.id&&(*i)->data(0,Qt::UserRole+3)=="part-sketch"){row=*i;break;}
+            check(row,"Coincident Sketch row missing");window.show_tree_item_properties(row);flush();
+            window.findChild<QPushButton*>("sketchOpenButton")->click();flush();
+            QEventLoop animation;QTimer::singleShot(950,&animation,&QEventLoop::quit);animation.exec();
+            auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>());check(view,"Coincident View missing");
+            const auto mouse=[&](QPointF p,QEvent::Type type,Qt::MouseButton button){QMouseEvent event(type,p,QPointF(view->mapToGlobal(p.toPoint())),button,type==QEvent::MouseButtonPress?button:Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(view,&event);flush();};
+            const auto pick=[&](const std::string& key) {
+                std::optional<QPointF> position;
+                for(int y=20;y<view->height()-20&&!position;y+=4)for(int x=20;x<view->width()-20;x+=4) {
+                    const auto candidates=view->selection_candidates_at(QPointF(x,y));
+                    if(!candidates.empty()&&candidates.front().owner_id==sketch.id&&candidates.front().semantic_key==key){position=QPointF(x,y);break;}
+                }
+                if(!position)throw std::runtime_error("Coincident candidate missing: "+key+"; order="+std::to_string(order));
+                mouse(*position,QEvent::MouseMove,Qt::NoButton);
+                check(view->hovered_candidate()&&view->hovered_candidate()->semantic_key==key,"Coincident hover disagrees with picker");
+                mouse(*position,QEvent::MouseButtonPress,Qt::LeftButton);mouse(*position,QEvent::MouseButtonRelease,Qt::LeftButton);
+            };
+            auto* action=window.findChild<QAction*>("sketchCoincidentAction");check(action&&action->isEnabled(),"Coincident command unavailable");
+            const std::string axis=x_axis?"sketch_axis:x":"sketch_axis:y",point_key="point:"+point;
+            if(order==2)pick(point_key); // A preselected endpoint is also valid input.
+            action->trigger();flush();
+            if(order==0){pick(point_key);pick(axis);}
+            else if(order==1){pick(axis);pick(point_key);}
+            else pick(axis);
+            const auto moved=std::ranges::find_if(view->mesh().points,[&](const auto& p){return p.reference.owner_id==sketch.id&&p.reference.semantic_key==point_key;});
+            check(moved!=view->mesh().points.end()&&std::abs(x_axis?moved->position.y:moved->position.x)<1e-7,"Coincident did not move the endpoint onto the axis");
+            window.findChild<QAction*>("finishSketchAction")->trigger();flush();
+            for(auto* d:window.findChildren<QDialog*>())if(auto* properties=dynamic_cast<app::SketchPropertiesDialog*>(d);properties&&properties->isVisible())properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+            window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+            const auto saved=document::PartDocument::load(path);const auto& result=saved.sketches.front();
+            check(result.constraints.size()==1&&result.constraints.front().kind==sketcher::ConstraintKind::PointOnLine&&result.constraints.front().first_point_id==point&&result.constraints.front().geometry_id==axis,"Coincident axis relation did not persist");
+            check(std::abs(x_axis?result.find_point(point)->y:result.find_point(point)->x)<1e-7,"Saved endpoint left its axis");
+        }
+        std::cout<<"Sketch C supports point/axis, axis/point and preselected endpoints on both axes\n";return 0;
+    }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
+}
+
 int verify_sketch_offset_ui(QApplication& application,const std::filesystem::path& directory) {
     using namespace zima::document;
     auto document=PartDocument::create_default();auto feature=PartDocument::create_sketch_container();
@@ -5810,6 +5863,7 @@ int verify_startup_contract(
         return verify_owned_profile_external_reference(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_APPLICATION_TOOLS_ONLY")) return verify_application_tools_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SURFACE_ONLY")) return verify_surface_profiles_ui(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_COINCIDENT_ONLY")) return verify_sketch_coincident_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_OFFSET_ONLY"))
         return verify_sketch_offset_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_TRIM_ONLY"))

@@ -729,6 +729,7 @@ void AssemblyWorkspaceWindow::accept_sketch_coincident_point(
         viewer_->set_selection_contract(pending_point_pair_constraint_kind_ ==
                 zima::sketcher::ConstraintKind::Coincident
             ? std::vector{zima::viewer::CandidateKind::SketchPoint,
+                          zima::viewer::CandidateKind::SketchAxis,
                           zima::viewer::CandidateKind::SketchSegment,
                           zima::viewer::CandidateKind::SketchCurve,
                           zima::viewer::CandidateKind::SketchExternalReference}
