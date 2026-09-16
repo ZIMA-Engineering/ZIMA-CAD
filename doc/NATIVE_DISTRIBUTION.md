@@ -188,7 +188,7 @@ switch selection after application exit and preserve all shared user data.
 - Build/verify the native Linux dependencies and launcher on the Linux host.
 - Platforms may publish independently. If combined, their commits must match;
   published archives are immutable and adding a platform later requires a new ID.
-- Signed Windows releases through `2026091604` are verified and public
+- Signed Windows releases through `2026091605` are verified and public
   (see below). Future publication remains an explicit release action.
 - Run the updater's Linux execution and desktop acceptance on Linux.
 - Binary rollback does not promise backward compatibility of native documents.
@@ -197,6 +197,25 @@ See [binding requirements](DISTRIBUTION_CLEANUP_PLAN.md) and
 [Linux handoff](LINUX_RELEASE_HANDOFF.md).
 
 ## Windows verification on 2026-09-16
+
+### Signed Windows build 2026091605
+
+This release adds Flat, three-Sketch Bend, width transitions, the optional
+radius/thickness link, zero inner radius for matching profiles, curve-based
+container references and Sketcher/annotation fixes. Clean source commit
+`19e92aa90ffd66ffdabe4db12b845634ac14fe25` supplied the signed Windows archive.
+All 48 targeted native/GUI regression suites and 14 packaging/publisher tests
+passed, followed by candidate and signed-archive smoke, archive checks,
+production bootstrap trust and public update discovery from signed `2026091604`.
+Remote asset hashes match local acceptance. See
+[release 2026091605](releases/2026091605.md#signed-windows-acceptance).
+
+Part format is now INI 30 / JSON 54. The documented Unbend conflict between an
+authored trajectory endpoint and the moved end profile remains unresolved;
+attachment through the end-profile endpoint works in both states. The user
+deferred that fix to the next session. This release does not claim a complete
+repository-wide test pass; its notes distinguish the targeted regression results
+from the known obsolete-fixture and Drawing BOM assertion gaps.
 
 ### Signed Windows build 2026091604
 
