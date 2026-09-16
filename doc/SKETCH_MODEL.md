@@ -52,12 +52,13 @@ IDs.
   prevents editing an unrelated length from flipping the angular equation.
 - Point-to-line and line-to-line distances persist a non-negative magnitude
   and a separate normal-side branch. Entering a negative value flips the
-  branch and stores the absolute magnitude. Genuine coordinate dimensions
-  against Sketch axes or the Sketch origin remain signed.
-- Projected point-pair X/Y distances retain signed coordinate differences in
-  solver storage, but View, Tree, Properties, CLI and Family Table expose their
-  magnitude. Shared input conversion preserves that internal sign for positive
-  input and reverses it for negative input. Aligned distance reversal seeds the
+  branch and stores the absolute magnitude.
+- All X/Y distances, including coordinates against Sketch axes or the Sketch
+  origin, retain signed values in solver storage. View, Tree, Properties, CLI
+  and Family Table expose their magnitude. Shared input conversion preserves
+  that internal sign for positive input and reverses it for negative input.
+  Limits use the displayed magnitude; measured reference values follow the same
+  display rule. Aligned distance reversal seeds the
   opposite endpoint direction and checks both the normal solver constraints and
   the resulting direction before committing. Native identities and storage
   fields are unchanged.

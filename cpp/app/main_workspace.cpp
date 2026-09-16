@@ -3824,10 +3824,15 @@ int verify_sketch_dimension_entry_ui(QApplication& application,const std::filesy
         }
         // Properties uses the same expression grammar and magnitude policy.
         QWidget parent;parent.resize(1000,850);parent.show();
-        auto sketch=sketcher::Sketch::create_default();const auto a=sketch.add_point(30,5),b=sketch.add_point(10,15);
-        auto dimension=sketch.create_point_dimension(a,b,sketcher::DimensionKind::DistanceX);sketch.apply_dimension(dimension);
+        for(const int reference:{0,1,2,3}) {
+        auto sketch=sketcher::Sketch::create_default();const auto a=reference==0?sketch.add_point(30,5):std::string("sketch_origin");
+        const auto b=sketch.add_point(reference==0?10:-20,15);
+        auto dimension=reference==3?sketch.create_point_line_dimension(b,"sketch_axis:y"):
+            reference==2?sketch.create_axis_dimension(b,"sketch_axis:y"):
+            sketch.create_point_dimension(a,b,sketcher::DimensionKind::DistanceX);sketch.apply_dimension(dimension);
+        const auto unchanged=sketch.serialized();
         auto* properties=new app::SketchDimensionPropertiesDialog(dimension,true,[&](auto d){sketch.apply_dimension(std::move(d));},&parent);properties->show();flush();
-        auto* value=properties->findChild<QDoubleSpinBox*>("sketchDimensionValue");check(value&&value->value()==20,"Properties exposes signed point distance");
+        auto* value=properties->findChild<QDoubleSpinBox*>("sketchDimensionValue");check(value&&value->value()==20,"Properties exposes signed point/origin/axis distance");
         auto* input=value->findChild<QLineEdit*>();check(input,"Expression field missing");
         input->setFocus();input->selectAll();
         for(const QChar c:QStringLiteral("1/0")){QKeyEvent key(QEvent::KeyPress,0,Qt::NoModifier,QString(c));QApplication::sendEvent(input,&key);}flush();
@@ -3836,9 +3841,11 @@ int verify_sketch_dimension_entry_ui(QApplication& application,const std::filesy
         properties->buttons()->button(QDialogButtonBox::Ok)->setFocus();flush();
         check(input->text().contains("1/0"),"Focus-out silently restored an invalid expression");
         properties->buttons()->button(QDialogButtonBox::Ok)->click();flush();
-        check(properties->isVisible()&&sketch.dimensions.front().value==-20,"Invalid Properties expression committed");
+        check(properties->isVisible()&&sketch.serialized()==unchanged,"Invalid Properties expression committed");
         input->setText("-(5+10)*2mm");properties->buttons()->button(QDialogButtonBox::Ok)->click();flush();
         check(sketch.dimensions.front().value==30&&sketch.viewer_mesh().dimensions.front().value==30,"Properties arithmetic or side flip differs from inline entry");
+        if(reference!=0)check(std::abs(sketch.find_point(b)->x-30)<1e-7,"Origin/axis Properties edit did not reverse the point's side");
+        }
         std::cout<<"Sketch dimension creation/editing, MMB finish, signed direction and arithmetic input passed\n";return 0;
     }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
 }

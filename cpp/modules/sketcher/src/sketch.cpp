@@ -8013,10 +8013,7 @@ SketchDimension Sketch::create_ellipse_rotation_dimension(
 }
 
 double dimension_display_value(const SketchDimension& dimension) noexcept {
-    const bool coordinate = has_coordinate_axis_reference(dimension) ||
-        dimension.first_point_id == "sketch_origin" ||
-        dimension.second_point_id == "sketch_origin";
-    return !coordinate && (dimension.kind == DimensionKind::DistanceX ||
+    return (dimension.kind == DimensionKind::DistanceX ||
         dimension.kind == DimensionKind::DistanceY)
         ? std::abs(dimension.value) : dimension.value;
 }
@@ -8024,10 +8021,7 @@ double dimension_display_value(const SketchDimension& dimension) noexcept {
 double dimension_value_from_input(const SketchDimension& dimension, double value) noexcept {
     // The solver retains the signed coordinate difference. A positive input
     // changes its magnitude; a negative input reverses its current direction.
-    const bool coordinate = has_coordinate_axis_reference(dimension) ||
-        dimension.first_point_id == "sketch_origin" ||
-        dimension.second_point_id == "sketch_origin";
-    return !coordinate && (dimension.kind == DimensionKind::DistanceX ||
+    return (dimension.kind == DimensionKind::DistanceX ||
         dimension.kind == DimensionKind::DistanceY)
         ? std::copysign(1.0, dimension.value) * value : value;
 }

@@ -30,10 +30,13 @@ the positive magnitude again; entering another negative value reverses it
 again. Aligned segment lengths follow the same rule. Existing constraints must
 permit the reversal; a rejected edit leaves the Sketch unchanged.
 
-Coordinate dimensions measured from the Sketch origin or its X/Y axes are
-the exception: their value remains signed and directly specifies the desired
-coordinate. For example, changing an origin coordinate from -20 to -30 keeps
-it on the negative side.
+Dimensions measured from the Sketch origin or its X/Y axes follow the same
+rule, including point-to-axis distances. There is no origin/axis exception.
+For a point at X=-20, the displayed horizontal distance is 20. Entering 30
+moves it to X=-30; entering -30 instead moves it to X=+30 and displays 30.
+Signed coordinates and equation orientation remain internal solver data.
+View labels, Tree labels, Properties, CLI and Family Table expose magnitudes;
+limits apply to those magnitudes. Reference dimensions also display magnitudes.
 
 The View's double-click value editor and Dimension Properties accept numeric
 expressions with `+`, `-`, `*`, `/` and parentheses. Multiplication/division take
@@ -54,9 +57,11 @@ confirmed. Command cleanup must not clear this newer selection asynchronously.
 Regression coverage: `zima_cpp_sketch_dimension_entry_ui_contract` exercises
 both point-pick orders, immediate editing and MMB completion, repeated edits,
 expression errors on Enter/focus-out, Properties, and native save/reload.
-`zima_cpp_sketch_dimension_command_tests` additionally checks signed origin
-coordinates, aligned and projected direction reversal, magnitude limits,
-fixed-point rejection, Undo/Redo and arithmetic validation.
+`zima_cpp_sketch_dimension_command_tests` additionally checks matching origin
+and axis distances on both sides of X/Y, both origin pick orders, aligned and
+projected direction reversal, magnitude limits, fixed-point rejection, native
+persistence, reference values, Undo/Redo and arithmetic validation. It includes
+the reported pair of 35.414 mm and 40 mm distances left of the Y axis.
 
 ## Shared cancellation and Escape
 

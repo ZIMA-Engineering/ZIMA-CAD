@@ -1798,9 +1798,10 @@ int main() {
         require(signed_coordinate.set_dimension_value(
                     signed_coordinate_dimension.id, -7.0) &&
                     std::abs(signed_coordinate.find_point(
-                        signed_coordinate_point)->x + 7.0) < 1.0e-8 &&
-                    signed_coordinate.dimensions.front().value == -7.0,
-                "Negative coordinate dimension was mistaken for a side flip");
+                        signed_coordinate_point)->x - 7.0) < 1.0e-8 &&
+                    signed_coordinate.dimensions.front().value == 7.0 &&
+                    signed_coordinate.viewer_mesh().dimensions.front().value == 7.0,
+                "Negative coordinate dimension input did not reverse its side");
         auto symmetric_dimensioned = zima::sketcher::Sketch::create_default();
         const auto symmetric_first = symmetric_dimensioned.add_point(0.0, 4.0);
         const auto symmetric_second = symmetric_dimensioned.add_point(10.0, 4.0);
