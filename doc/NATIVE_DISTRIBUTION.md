@@ -188,7 +188,7 @@ switch selection after application exit and preserve all shared user data.
 - Build/verify the native Linux dependencies and launcher on the Linux host.
 - Platforms may publish independently. If combined, their commits must match;
   published archives are immutable and adding a platform later requires a new ID.
-- Signed Windows releases through `2026091605` are verified and public
+- Signed Windows releases through `2026091606` are verified and public
   (see below). Future publication remains an explicit release action.
 - Run the updater's Linux execution and desktop acceptance on Linux.
 - Binary rollback does not promise backward compatibility of native documents.
@@ -197,6 +197,21 @@ See [binding requirements](DISTRIBUTION_CLEANUP_PLAN.md) and
 [Linux handoff](LINUX_RELEASE_HANDOFF.md).
 
 ## Windows verification on 2026-09-16
+
+### Signed Windows build 2026091606
+
+This release repairs shared container placement, Sketcher return frames and
+Body Origin selection, and adds oriented, constrained Bend attachment profiles.
+Matching circular sections retain analytic cylinders, including rotated
+180-degree bends. Clean source commit
+`28bc2e3e2cf2673bc36936196caf29aa82f66c17` supplied the signed Windows archive.
+All 25 focused native/GUI contracts and 14 packaging/publisher tests passed,
+followed by candidate and signed-archive smoke, integrity checks, production
+bootstrap trust and public update discovery from signed `2026091605`.
+Remote asset hashes match local acceptance. See
+[release 2026091606](releases/2026091606.md#signed-windows-acceptance).
+Native formats are unchanged; the documented authored trajectory-endpoint
+conflict during Unbend remains unresolved.
 
 ### Signed Windows build 2026091605
 
