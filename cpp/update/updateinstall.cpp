@@ -174,18 +174,15 @@ QProcessEnvironment environment(const QString &root, const QString &version)
     const auto runtime = child(root, platformDirectory() + '/' + version);
 #ifdef Q_OS_WIN
     env.insert("PATH", runtime + ';' + env.value("SystemRoot") + "/System32;" + env.value("SystemRoot"));
+#else
+    env.insert("LD_LIBRARY_PATH", runtime + "/lib");
+    env.insert("QT_PLUGIN_PATH", runtime + "/plugins");
+#endif
     const QMap<QString, QString> resources{{"CSF_ShadersDirectory", "Shaders"}, {"CSF_SHMessage", "SHMessage"},
         {"CSF_XSMessage", "XSMessage"}, {"CSF_STEPDefaults", "XSTEPResource"}, {"CSF_IGESDefaults", "XSTEPResource"},
         {"CSF_PluginDefaults", "StdResource"}, {"CSF_StandardDefaults", "StdResource"}, {"CSF_XCAFDefaults", "StdResource"},
         {"CSF_MDTVTexturesDirectory", "Textures"}, {"CSF_XmlOcafResource", "XmlOcafResource"}};
     for (auto it = resources.begin(); it != resources.end(); ++it) env.insert(it.key(), runtime + "/resources/occt/" + it.value());
-#else
-    env.insert("LD_LIBRARY_PATH", runtime + "/lib");
-    env.insert("QT_PLUGIN_PATH", runtime + "/plugins");
-    env.insert("CSF_ShadersDirectory", runtime + "/resources/occt/Shaders");
-    env.insert("CSF_XSMessage", runtime + "/resources/occt/XSMessage");
-    env.insert("CSF_SHMessage", runtime + "/resources/occt/SHMessage");
-#endif
     env.insert("CSF_XSTEPDefaults", runtime + "/resources/occt/XSTEPResource");
     env.insert("ZIMA_INSTALL_ROOT", root);
     return env;

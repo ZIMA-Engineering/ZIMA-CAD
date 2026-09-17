@@ -43,17 +43,23 @@ a standalone vcpkg checkout instead of Visual Studio's component.
 See [Windows runtime and build](../doc/WINDOWS_RUNTIME_AND_BUILD.md) for deployment
 plugins and local launchers. A successful local build is not a portable release.
 
-## Linux continuation
+## Linux build
 
-The old `linux-runtime-*` presets still refer to removed `runtime/linux/python`.
-They require a new native Qt/OCCT dependency setup before a fresh Linux build.
-The user will complete this on Linux; follow [the Linux handoff](../doc/LINUX_RELEASE_HANDOFF.md)
-and record real build/runtime checks there. Do not restore or distribute Conda.
+Use Debian 13 x86_64 with native Qt development packages and the pinned OCCT
+7.9.3 SDK. See [Native Debian build and release](../doc/LINUX_BUILD.md).
+
+```sh
+./tools/distribution/build-linux-sdk.sh
+cmake --preset linux-runtime-release -S cpp
+cmake --build build/cpp-release --parallel 12
+```
+
+The retained preset names now use `build/native-sdk/occt`, without Conda.
 CMake and Ninja remain build prerequisites, not application runtime components.
 
 ## Packaging
 
 [The distribution policy](../doc/DISTRIBUTION_CLEANUP_PLAN.md) defines build IDs,
 version directories, complete native dependencies, exact source export, user-data
-separation and validation gates. Its launcher, packager and signed updater remain
-future implementation work. Keep all project documentation in English.
+separation and validation gates. Native candidate builders, launchers and signing
+are described in [Native distribution](../doc/NATIVE_DISTRIBUTION.md). Keep all project documentation in English.

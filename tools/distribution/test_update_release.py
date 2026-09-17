@@ -14,6 +14,11 @@ VERSION = '2026091504'
 
 
 class PublisherInputs(unittest.TestCase):
+    folder = 'windows'
+    platform = 'windows-x64'
+    executable = 'zima-cad-cpp.exe'
+    launcher = 'ZIMA-CAD.exe'
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix='zima-signing-input-')
         self.root = Path(self.temp.name)
@@ -29,9 +34,10 @@ class PublisherInputs(unittest.TestCase):
         self.commit = git(self.repo, 'rev-parse', 'HEAD').decode().strip()
         self.package = self.root / 'candidate'; self.package.mkdir()
         PACKAGE['export_source'](self.repo, self.commit, self.package / 'source' / VERSION)
-        runtime = self.package / 'windows' / VERSION; runtime.mkdir(parents=True)
-        (runtime / 'zima-cad-cpp.exe').write_bytes(b'fixture runtime')
-        (self.package / 'ZIMA-CAD.exe').write_bytes(b'fixture launcher')
+        runtime = self.package / self.folder / VERSION; runtime.mkdir(parents=True)
+        (runtime / self.executable).parent.mkdir(parents=True, exist_ok=True)
+        (runtime / self.executable).write_bytes(b'fixture runtime')
+        (self.package / self.launcher).write_bytes(b'fixture launcher')
         sums = PACKAGE['inventory'](self.package)
         archive = self.root / ('ZIMA-CAD-' + VERSION + '.zip')
         with zipfile.ZipFile(archive, 'w') as zipped:
@@ -39,9 +45,9 @@ class PublisherInputs(unittest.TestCase):
             zipped.writestr('ZIMA-CAD/checksums.json', PACKAGE['canonical'](sums))
         self.report = self.root / 'candidate.validation.json'
         self.report.write_text(json.dumps({'archive': archive.name, 'version': VERSION,
-            'commit': self.commit, 'sha256': PACKAGE['sha'](archive), 'windows_smoke': 'passed'}))
+            'commit': self.commit, 'sha256': PACKAGE['sha'](archive), self.folder + '_smoke': 'passed'}))
         self.args = SimpleNamespace(repo=self.repo, validation=[self.report])
-        self.platforms = {'windows-x64': {'runtime': 'windows/' + VERSION}}
+        self.platforms = {self.platform: {'runtime': self.folder + '/' + VERSION}}
 
     def tearDown(self): self.temp.cleanup()
 
@@ -59,18 +65,18 @@ class PublisherInputs(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'Git bytes'): self.verify()
 
     def test_runtime_changed_after_smoke_is_rejected(self):
-        (self.package / 'windows' / VERSION / 'zima-cad-cpp.exe').write_bytes(b'changed runtime')
+        (self.package / self.folder / VERSION / self.executable).write_bytes(b'changed runtime')
         with self.assertRaisesRegex(ValueError, 'smoke-tested candidate'): self.verify()
 
     def test_launcher_changed_after_smoke_is_rejected(self):
-        (self.package / 'ZIMA-CAD.exe').write_bytes(b'changed launcher')
+        (self.package / self.launcher).write_bytes(b'changed launcher')
         with self.assertRaisesRegex(ValueError, 'launcher'): self.verify()
 
     def test_missing_or_failed_platform_smoke_is_rejected(self):
         self.args.validation = []
         with self.assertRaisesRegex(ValueError, 'validation report'): self.verify()
         self.args.validation = [self.report]
-        report = json.loads(self.report.read_text()); report['windows_smoke'] = 'not-run'
+        report = json.loads(self.report.read_text()); report[self.folder + '_smoke'] = 'not-run'
         self.report.write_text(json.dumps(report))
         with self.assertRaisesRegex(ValueError, 'validation report'): self.verify()
 
@@ -78,6 +84,13 @@ class PublisherInputs(unittest.TestCase):
         report = json.loads(self.report.read_text())
         archive = self.report.parent / report['archive']; archive.write_bytes(archive.read_bytes() + b'changed')
         with self.assertRaisesRegex(ValueError, 'hash mismatch'): self.verify()
+
+
+class LinuxPublisherInputs(PublisherInputs):
+    folder = 'linux'
+    platform = 'linux-x86_64'
+    executable = 'bin/zima-cad-cpp'
+    launcher = 'ZIMA-CAD.sh'
 
 
 if __name__ == '__main__': unittest.main(verbosity=2)

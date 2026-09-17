@@ -1,4 +1,4 @@
-"""Build and validate native Windows candidates from committed Git data.
+"""Build and validate native platform candidates from committed Git data.
 
 Run from a Visual Studio developer shell. Python is a build tool only.
 This tool never publishes, signs, updates an installation, or deletes versions.
@@ -190,24 +190,41 @@ def deploy_dependencies(runtime, installed, redist, dumpbin):
 
 def clean_environment(runtime):
     env = {k: v for k, v in os.environ.items() if not k.upper().startswith(('QT_', 'QML', 'CSF_', 'ZIMA_VERIFY', 'ZIMA_UPDATE', 'ZIMA_INSTALL'))}
+    if os.name != 'nt':
+        for key in ('LD_LIBRARY_PATH', 'LD_PRELOAD'):
+            env.pop(key, None)
+        env['PATH'] = '/usr/bin:/bin'
+        env['LD_LIBRARY_PATH'] = str(runtime / 'lib')
+        env['QT_PLUGIN_PATH'] = str(runtime / 'plugins')
+        for variable, directory in {'CSF_ShadersDirectory': 'Shaders', 'CSF_XSMessage': 'XSMessage',
+                                    'CSF_SHMessage': 'SHMessage', 'CSF_XSTEPDefaults': 'XSTEPResource',
+                                    'CSF_STEPDefaults': 'XSTEPResource', 'CSF_IGESDefaults': 'XSTEPResource',
+                                    'CSF_PluginDefaults': 'StdResource', 'CSF_StandardDefaults': 'StdResource',
+                                    'CSF_XCAFDefaults': 'StdResource', 'CSF_XmlOcafResource': 'XmlOcafResource'}.items():
+            env[variable] = str(runtime / 'resources/occt' / directory)
+        return env
     windows = Path(os.environ['SystemRoot'])
     env['PATH'] = os.pathsep.join(map(str, (runtime, windows / 'System32', windows)))
     return env
 
 
 def smoke(root, version, gui=True):
-    runtime = root / 'windows' / version
+    linux = os.name != 'nt'
+    runtime = root / ('linux' if linux else 'windows') / version
+    binary = runtime / 'bin' if linux else runtime
+    suffix = '' if linux else '.exe'
+    launcher = root / ('ZIMA-CAD.sh' if linux else 'ZIMA-CAD.exe')
     env = clean_environment(runtime)
     project = root / 'Projects' / 'package-smoke'
     project.mkdir(parents=True)
-    selected = run([root / 'ZIMA-CAD.exe', '-Check'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15).stdout
-    if Path(selected.decode('utf-8')) != runtime / 'zima-cad-cpp.exe':
+    selected = run([launcher, '-Check'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15).stdout
+    if Path(selected.decode('utf-8').strip()) != binary / ('zima-cad-cpp' + suffix):
         raise ValueError('Launcher selected an unexpected executable')
-    launched = run([root / 'ZIMA-CAD.exe', '-CLI', '--', '--build-info'], cwd=project, env=env,
+    launched = run([launcher, '-CLI', '--', '--build-info'], cwd=project, env=env,
                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
     if json.loads(launched.stdout)['version'] != version:
         raise ValueError('Launcher did not preserve the CLI protocol output')
-    launched = run([root / 'ZIMA-CAD.exe', '-CLI', '--', '--working-directory', project, '--stdin'],
+    launched = run([launcher, '-CLI', '--', '--working-directory', project, '--stdin'],
                    cwd=project, env=env, input=b'documents\n', stdout=subprocess.PIPE,
                    stderr=subprocess.PIPE, timeout=30)
     if not json.loads(launched.stdout)['ok']:
@@ -215,13 +232,13 @@ def smoke(root, version, gui=True):
     user_config = root / 'config/config.ini'
     user_config.write_text('[UserData]\nPreserve=package-smoke\n', encoding='utf-8')
     config_before = user_config.read_bytes()
-    for executable in ('zima-cad-cpp.exe', 'zima-cad-cli.exe'):
-        value = json.loads(run([runtime / executable, '--build-info'], cwd=project, env=env,
+    for executable in ('zima-cad-cpp' + suffix, 'zima-cad-cli' + suffix):
+        value = json.loads(run([binary / executable, '--build-info'], cwd=project, env=env,
                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30).stdout)
         if value['version'] != version or value['product'] != 'ZIMA-CAD':
             raise ValueError('Executable build identity mismatch')
     def commands(items):
-        args = [runtime / 'zima-cad-cli.exe', '--working-directory', project]
+        args = [binary / ('zima-cad-cli' + suffix), '--working-directory', project]
         for command in items:
             args += ['--command', json.dumps(command) if isinstance(command, dict) else command]
         output = run(args, cwd=project, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120)
@@ -244,7 +261,7 @@ def smoke(root, version, gui=True):
         raise ValueError('PDF/JPEG export failed')
     if gui:
         env['ZIMA_VERIFY_PACKAGE_ONLY'] = '1'
-        run([runtime / 'zima-cad-cpp.exe', '--working-directory', project, '--verify-startup'],
+        run([binary / ('zima-cad-cpp' + suffix), '--working-directory', project, '--verify-startup'],
             cwd=project, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=600)
     if user_config.read_bytes() != config_before:
         raise ValueError('Startup/smoke replaced shared user configuration')
@@ -294,6 +311,9 @@ def validate_archive(archive, destination=None):
                 target.parent.mkdir(parents=True, exist_ok=True)
                 with zipped.open(member) as source, target.open('xb') as output:
                     shutil.copyfileobj(source, output)
+                if os.name != 'nt':
+                    record = checksums.get(member.filename.removeprefix('ZIMA-CAD/'), {})
+                    target.chmod(0o755 if record.get('executable') else 0o644)
     return sha(archive)
 
 

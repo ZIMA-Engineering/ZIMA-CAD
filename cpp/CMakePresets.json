@@ -3,18 +3,18 @@
   "configurePresets": [
     {
       "name": "linux-runtime-debug",
-      "displayName": "Linux bundled runtime (Debug)",
+      "displayName": "Linux native SDK (Debug)",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/../build/cpp-debug",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
-        "CMAKE_PREFIX_PATH": "${sourceDir}/../runtime/linux/python"
+        "CMAKE_PREFIX_PATH": "${sourceDir}/../build/native-sdk/occt"
       }
     },
     {
       "name": "linux-runtime-release",
       "inherits": "linux-runtime-debug",
-      "displayName": "Linux bundled runtime (Release)",
+      "displayName": "Linux native SDK (Release)",
       "binaryDir": "${sourceDir}/../build/cpp-release",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release"

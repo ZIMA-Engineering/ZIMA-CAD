@@ -3,6 +3,8 @@ import json
 import os
 from pathlib import Path
 import tempfile
+import subprocess
+import shutil
 import unittest
 import zipfile
 import package
@@ -57,6 +59,55 @@ class PackageTests(unittest.TestCase):
                     zipped.writestr(bad_name, bad_bytes)
                     zipped.writestr('ZIMA-CAD/checksums.json', json.dumps(checksums))
                 with self.assertRaises(ValueError): package.validate_archive(bad)
+
+    @unittest.skipIf(os.name == 'nt', 'Unix permissions contract')
+    def test_linux_executable_modes_and_environment(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); content = root / 'content'; content.mkdir()
+            launcher = content / 'ZIMA-CAD.sh'
+            launcher.write_text('#!/bin/sh\nexit 0\n')
+            launcher.chmod(0o755)
+            (content / 'data.txt').write_text('read only data')
+            archive = root / 'linux.zip'
+            with zipfile.ZipFile(archive, 'w') as zipped:
+                for path in content.iterdir(): zipped.write(path, 'ZIMA-CAD/' + path.name)
+                zipped.writestr('ZIMA-CAD/checksums.json', package.canonical(package.inventory(content)))
+            package.validate_archive(archive, root / 'extract')
+            self.assertEqual((root / 'extract/ZIMA-CAD/ZIMA-CAD.sh').stat().st_mode & 0o777, 0o755)
+            self.assertEqual((root / 'extract/ZIMA-CAD/data.txt').stat().st_mode & 0o777, 0o644)
+            environment = package.clean_environment(root / 'runtime')
+            self.assertEqual(environment['PATH'], '/usr/bin:/bin')
+            self.assertEqual(environment['LD_LIBRARY_PATH'], str(root / 'runtime/lib'))
+            self.assertNotIn('LD_PRELOAD', environment)
+
+    @unittest.skipIf(os.name == 'nt', 'Linux shell launcher')
+    def test_linux_recovery_preserves_cli_output_and_user_data(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / 'installation with spaces'; root.mkdir()
+            version = '2026091701'; runtime = root / 'linux' / version
+            (runtime / 'bin').mkdir(parents=True)
+            (runtime / 'build.ini').write_text(f'[build]\nproduct=ZIMA-CAD\nversion={version}\n')
+            (root / 'launcher.ini').write_text(f'[launcher]\nlinux={version}\nlinux_custom=false\n')
+            (root / 'release-info').mkdir()
+            (root / 'release-info' / f'linux-x86_64-{version}.json').write_text('{}')
+            launcher = root / 'ZIMA-CAD.sh'
+            shutil.copy2(package.ROOT / 'tools/distribution/launcher-linux.sh', launcher)
+            launcher.chmod(0o755)
+            helper = runtime / 'bin/zima-cad-update'
+            helper.write_text("#!/bin/sh\necho '{\"status\":\"recovered\"}'\n")
+            helper.chmod(0o755)
+            cli = runtime / 'bin/zima-cad-cli'
+            cli.write_text('#!/bin/sh\ncat\n'); cli.chmod(0o755)
+            (root / 'config').mkdir(); settings = root / 'config/config.ini'
+            settings.write_text('[User]\nKeep=true\n')
+            reply = subprocess.run([launcher, '-CLI', '--'], input=b'command\n', capture_output=True, check=True)
+            self.assertEqual(reply.stdout, b'command\n')
+            self.assertEqual(settings.read_text(), '[User]\nKeep=true\n')
+            helper.write_text('#!/bin/sh\necho recovery-failed\nexit 1\n')
+            reply = subprocess.run([launcher, '-CLI', '--'], input=b'command\n', capture_output=True)
+            self.assertNotEqual(reply.returncode, 0)
+            self.assertEqual(reply.stdout, b'')
+            self.assertIn(b'recovery-failed', reply.stderr)
 
     def test_reuse_build_preserves_source_and_rejects_changes(self):
         with tempfile.TemporaryDirectory() as temp:

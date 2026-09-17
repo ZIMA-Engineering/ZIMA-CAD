@@ -18,7 +18,11 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(ZIMA_BUILD_TESTS "Build the C++ contract tests" ON)
 
-find_package(Qt6 6.5 REQUIRED COMPONENTS Core Gui Widgets OpenGL OpenGLWidgets Svg Network CorePrivate)
+find_package(Qt6 6.5 REQUIRED COMPONENTS Core Gui Widgets OpenGL OpenGLWidgets Svg Network)
+# Debian Qt 6.8 exports CorePrivate from Core; newer kits split its config.
+if(NOT TARGET Qt6::CorePrivate)
+    find_package(Qt6 REQUIRED COMPONENTS CorePrivate)
+endif()
 find_package(OpenSSL 3 REQUIRED COMPONENTS Crypto)
 find_package(OpenCASCADE REQUIRED)
 set(ZIMA_OCCT_VERSION

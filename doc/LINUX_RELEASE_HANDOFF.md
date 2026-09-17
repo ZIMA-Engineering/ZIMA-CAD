@@ -1,5 +1,12 @@
 # Linux build and distribution handoff — 2026-09-15
 
+## Native Linux follow-up (2026-09-17)
+
+The repository now has a pinned OCCT SDK builder and a committed-source Linux
+candidate builder. Follow [Native Debian build and release](LINUX_BUILD.md).
+The historical handoff below describes the starting state; actual acceptance
+results belong in the release notes, not inferred from implementation alone.
+
 ## Read first
 
 - [Binding distribution requirements](DISTRIBUTION_CLEANUP_PLAN.md)

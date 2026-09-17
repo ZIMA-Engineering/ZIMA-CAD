@@ -182,9 +182,9 @@ def verify_candidate_inputs(args, version, package, platforms, commit):
             for target, config in platforms.items():
                 folder = config['runtime'].split('/')[0]
                 if report.get(folder + '_smoke') != 'passed': continue
-                if folder == 'windows':
-                    if zipped.read('ZIMA-CAD/ZIMA-CAD.exe') != (package / 'ZIMA-CAD.exe').read_bytes():
-                        raise ValueError('Root launcher differs from the smoke-tested candidate')
+                launcher = 'ZIMA-CAD.exe' if folder == 'windows' else 'ZIMA-CAD.sh'
+                if zipped.read('ZIMA-CAD/' + launcher) != (package / launcher).read_bytes():
+                    raise ValueError('Root launcher differs from the smoke-tested candidate')
                 for relative in (config['runtime'], 'source/' + version):
                     prefix = 'ZIMA-CAD/' + relative + '/'
                     expected = inventory(package / relative)
@@ -336,7 +336,8 @@ def finalize(args):
                 if zipped.testzip():
                     raise ValueError('ZIP CRC verification failed')
             PACKAGE['validate_archive'](archive)
-            if not args.development and os.name == 'nt' and 'windows-x64' in platforms:
+            native_platform = 'windows-x64' if os.name == 'nt' else 'linux-x86_64'
+            if not args.development and native_platform in platforms:
                 checked = Path(tmp) / 'verified'
                 PACKAGE['validate_archive'](archive, checked)
                 PACKAGE['smoke'](checked / 'ZIMA-CAD', version)
@@ -344,7 +345,7 @@ def finalize(args):
                 'archive': archive.name, 'sha256': sha(archive), 'version': version,
                 'commit': manifest['commit'], 'signed': True,
                 'windows_smoke': 'passed' if not args.development and os.name == 'nt' and 'windows-x64' in platforms else 'not-run',
-                'linux_smoke': 'not-run'}))
+                'linux_smoke': 'passed' if not args.development and os.name != 'nt' and 'linux-x86_64' in platforms else 'not-run'}))
         print('Prepared signed assets (not published):', output)
     except Exception:
         # Keep failed output for inspection; never erase an arbitrary supplied path.

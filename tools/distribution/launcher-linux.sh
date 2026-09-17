@@ -1,5 +1,5 @@
 #!/bin/sh
-# Portable selection contract; Linux deployment must be verified on Linux.
+# Portable native Linux version selection.
 set -eu
 root=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
 read_setting() {
@@ -28,7 +28,11 @@ if [ -z "$version" ]; then
                 engine=$selected
                 if [ -f "$root/.updates/engine.ini" ]; then engine=$(read_setting "$root/.updates/engine.ini" updater linux); fi
                 case "$engine" in ''|*[!0-9]*) echo 'Invalid recovery engine' >&2; exit 2 ;; esac
-                LD_LIBRARY_PATH="$root/linux/$engine/lib" "$root/linux/$engine/bin/zima-cad-update" recover --root "$root"
+                # Recovery speaks JSON too; do not mix it into the CLI stream.
+                recovery=$(LD_LIBRARY_PATH="$root/linux/$engine/lib" "$root/linux/$engine/bin/zima-cad-update" recover --root "$root") || {
+                    printf '%s\n' "$recovery" >&2
+                    exit 1
+                }
             fi ;;
         esac
     fi
@@ -58,5 +62,11 @@ export CSF_ShadersDirectory="$runtime/resources/occt/Shaders"
 export CSF_XSMessage="$runtime/resources/occt/XSMessage"
 export CSF_SHMessage="$runtime/resources/occt/SHMessage"
 export CSF_XSTEPDefaults="$runtime/resources/occt/XSTEPResource"
+export CSF_STEPDefaults="$runtime/resources/occt/XSTEPResource"
+export CSF_IGESDefaults="$runtime/resources/occt/XSTEPResource"
+export CSF_PluginDefaults="$runtime/resources/occt/StdResource"
+export CSF_StandardDefaults="$runtime/resources/occt/StdResource"
+export CSF_XCAFDefaults="$runtime/resources/occt/StdResource"
+export CSF_XmlOcafResource="$runtime/resources/occt/XmlOcafResource"
 cd "$root"
 exec "$entry" "$@"
