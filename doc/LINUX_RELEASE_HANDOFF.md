@@ -145,3 +145,44 @@ configuration. Verify native executable discovery, the desktop sign-in browser,
 OS keyring, the private application-local profile and cancellation on Linux.
 Run `zima_ai_contract` without an account first; authenticated AI acceptance is a
 separate step. Windows results do not establish Linux authentication/runtime support.
+
+## Resume after switching to Windows (2026-09-17)
+
+The user will obtain the existing publisher key on Windows. Linux compilation
+is complete; GUI, CLI and updater all report `2026091701`. Repository-root
+`./zima-cad` selects `build/cpp-native-release/zima-cad-cpp`. Local build provenance
+includes the pre-existing untracked documentation files; those files are excluded
+from the committed-source candidate.
+
+The GitHub **draft**, tagged `ZIMA-CAD-2026091701`, holds the unsigned candidate
+ZIP and its validation report. Its source tag must remain at
+`48465a3fe34c5db3c2dc14cbf80a736b7b474fb1`; later documentation commits do not
+change the candidate identity. See [exact checks and hash](releases/2026091701.md).
+No Windows binary was added and no existing public release was replaced.
+
+To continue:
+
+1. Fetch the repository and tags. Download both draft assets together if working
+   on another machine; retain the candidate ZIP beside its validation report.
+2. Locate the existing protected publisher key described in
+   [Application updates](UPDATES.md#discovery-and-authentication). Do not generate
+   a replacement key. Windows DPAPI material cannot be directly decrypted on Linux;
+   use the existing interactive `export-key` command to create an encrypted PEM
+   outside repositories and distributable directories. Never send its contents or
+   password through conversation/logs.
+3. Prefer returning with that encrypted key to Linux for finalization. A clean
+   source checkout is already prepared at `/tmp/zima-1701-signing-repo` and a fresh
+   verified candidate extraction at `/tmp/zima-1701-signing/ZIMA-CAD`; these paths
+   are temporary and must be recreated after a reboot if absent. The durable
+   candidate is `.dist-output/linux-1701-candidate/` and on the GitHub draft.
+4. Run the documented `finalize` procedure with the exact candidate/report,
+   protected key, clean repository and a new output directory. It must produce
+   the signed ZIP, manifest and signature, and pass the finalized Linux smoke.
+   Signing on Windows alone does not run the Linux smoke; the signed archive
+   would still need fresh extraction and native verification on Linux.
+5. Verify production bootstrap trust and public manifest compatibility, update
+   acceptance notes, replace only the **unpublished draft** candidate assets with
+   the accepted signed assets, then publish. Published bytes remain immutable.
+
+The broad dialog width assertion and offscreen/OpenGL limitations are documented
+in the release notes. They must not be misreported as a complete GUI test pass.
