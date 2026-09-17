@@ -81,7 +81,7 @@ void Host::register_flat_commands() {
                     }
                 }
                 if(feature.flat.sheet_attachment&&(args.contains("thickness_mm")||args.value("thickness_override",false)))
-                    throw std::invalid_argument("Attached Flat inherits its Bend thickness.");
+                    throw std::invalid_argument("Attached Flat inherits its source sheet thickness.");
                 if(args.contains("thickness_mm")) {
                     const double next=args.at("thickness_mm");
                     if(feature.value_locks.contains("thickness")&&next!=feature.flat.thickness)throw std::invalid_argument("Unlock the thickness before changing it.");

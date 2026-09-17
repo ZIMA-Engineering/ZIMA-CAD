@@ -36,6 +36,11 @@
 #include <BRepOffsetAPI_ThruSections.hxx>
 #include <BRepOffsetAPI_MakePipeShell.hxx>
 #include <BRepOffsetAPI_MakeThickSolid.hxx>
+#include <BRepOffset_MakeSimpleOffset.hxx>
+#include <GeomLib_IsPlanarSurface.hxx>
+#include <Geom_Plane.hxx>
+#include <Geom_CylindricalSurface.hxx>
+#include <Geom_ConicalSurface.hxx>
 #include <BRepOffset_Mode.hxx>
 #include <BRepPrimAPI_MakePrism.hxx>
 #include <BRepPrimAPI_MakeHalfSpace.hxx>
@@ -44,6 +49,13 @@
 #include <BRepFilletAPI_MakeChamfer.hxx>
 #include <BRep_Builder.hxx>
 #include <BRepTools.hxx>
+#include <BRepTools_WireExplorer.hxx>
+#include <Geom2dConvert.hxx>
+#include <Geom2dConvert_CompCurveToBSplineCurve.hxx>
+#include <Geom2dAPI_Interpolate.hxx>
+#include <GCE2d_MakeSegment.hxx>
+#include <Geom2d_TrimmedCurve.hxx>
+#include <Geom2d_BSplineCurve.hxx>
 #include <BRepTools_ShapeSet.hxx>
 #include <BRepTools_History.hxx>
 #include <BRep_Tool.hxx>
@@ -105,6 +117,7 @@
 #include <TopoDS_Vertex.hxx>
 #include <TopoDS_Wire.hxx>
 #include <TopoDS_Compound.hxx>
+#include <TopoDS_Iterator.hxx>
 #include <TopLoc_Location.hxx>
 #include <gp_Ax1.hxx>
 #include <gp_Ax2.hxx>
@@ -252,6 +265,7 @@ struct PrimitiveData {
     std::vector<StepRequest::TopologyIdentity> imported_step_topology;
     // Full endpoint faces before intersecting sweep segments are united.
     std::vector<OwnedFace> source_caps;
+    std::vector<SheetCutRegion> sheet_cuts;
 };
 
 gp_Trsf primitive_transform(const Vec3& translation, const Vec3& rotation_degrees) {
@@ -3269,6 +3283,215 @@ std::vector<Owned> propagate_topology(
     return propagated;
 }
 
+std::vector<OwnedEdge> complete_boolean_edges(const TopoDS_Shape&,
+    const std::vector<OwnedFace>&,const std::vector<OwnedEdge>&,
+    const std::string&,std::string_view);
+
+#include "sheet_cut_clearance.inc"
+
+PrimitiveData select_sheet_clearance_projection(const TopoDS_Face& face,
+        const FaceReference& reference,const std::vector<OwnedEdge>& input_edges,
+        const std::vector<OwnedFace>& input_faces,const TopoDS_Shape& input_shape,
+        const PrimitiveData& requested,const PrimitiveData& full,double model_tolerance) {
+    const double tolerance=std::min(model_tolerance,1.e-7);
+    auto stock=sheet_cut_normal_volume(face,reference,input_edges,tolerance);
+    const auto intersect=[&](const PrimitiveData& a,const PrimitiveData& b) {
+        BRepAlgoAPI_Common common;set_sheet_cut_boolean_inputs(common,a.shape,b.shape);
+        common.SetToFillHistory(true);common.SetFuzzyValue(tolerance);common.Build();
+        if(!common.IsDone()||!BRepCheck_Analyzer(common.Shape()).IsValid())
+            throw std::runtime_error("Sheet Cut could not resolve a valid reached sheet region.");
+        PrimitiveData result;result.shape=common.Shape();
+        result.faces=propagate_topology(common,a.faces,b.faces);
+        result.edges=propagate_topology(common,a.edges,b.edges);
+        result.edges=complete_boolean_edges(result.shape,result.faces,result.edges,
+            reference.owner_id,"sheetcut-project");
+        return result;
+    };
+    PrimitiveData actual;actual.shape=input_shape;actual.faces=input_faces;actual.edges=input_edges;
+    stock=intersect(stock,actual);
+    auto passage=intersect(stock,full);
+    // Length selects the connected wall intersections it reaches. Once reached,
+    // that wall is cut through; another disconnected wall remains untouched.
+    TopoDS_Compound selected;BRep_Builder builder;builder.MakeCompound(selected);
+    Bnd_Box requested_bounds;BRepBndLib::Add(requested.shape,requested_bounds);
+    for(TopExp_Explorer solids(passage.shape,TopAbs_SOLID);solids.More();solids.Next()) {
+        Bnd_Box bounds;BRepBndLib::Add(solids.Current(),bounds);
+        if(bounds.IsOut(requested_bounds))continue;
+        BRepAlgoAPI_Common reached;set_sheet_cut_boolean_inputs(reached,solids.Current(),requested.shape);
+        reached.SetFuzzyValue(tolerance);reached.Build();
+        if(!reached.IsDone()||!BRepCheck_Analyzer(reached.Shape()).IsValid())
+            throw std::runtime_error("Sheet Cut could not resolve a valid projection range.");
+        GProp_GProps area;BRepGProp::SurfaceProperties(reached.Shape(),area);
+        if(area.Mass()>tolerance*tolerance)builder.Add(selected,solids.Current());
+    }
+    passage.shape=selected;
+    return passage;
+}
+
+// Project the authored cutting profile onto the actual sheet side, then carry
+// that trimmed domain through the thickness. A spatial prism alone would leave
+// non-normal walls on cylinders/cones. All OCCT work stays at calculation time.
+PrimitiveData make_sheet_cut_data(const PrimitiveData& projection,
+        const std::vector<OwnedFace>& input_faces,const std::vector<OwnedEdge>& input_edges,
+        const TopoDS_Shape& input_shape,const std::string& owner,double tolerance,
+        const PrimitiveData* clearance_projection=nullptr,double cut_tolerance=.05) {
+    PrimitiveData result;BRep_Builder builder;TopoDS_Compound compound;builder.MakeCompound(compound);
+    Bnd_Box projection_bounds;BRepBndLib::Add(projection.shape,projection_bounds);
+    const auto token=[](const std::string& text){return std::to_string(text.size())+":"+text;};
+    const auto vec=[](const auto& p)->Vec3{return {p.X(),p.Y(),p.Z()};};
+    for(const auto& source:input_faces) {
+        if(source.reference.sheet_role!=SheetFaceRole::SideA)continue;
+        Bnd_Box source_bounds;BRepBndLib::Add(source.shape,source_bounds);
+        source_bounds.Enlarge(source.reference.sheet_thickness);
+        if(source_bounds.IsOut(projection_bounds))continue;
+        auto face=TopoDS::Face(source.shape);
+        // Generator history may return a face with standalone orientation.
+        // Its occurrence in the real input solid defines the outward side.
+        bool found=false;
+        for(TopExp_Explorer faces(input_shape,TopAbs_FACE);faces.More();faces.Next())
+            if(faces.Current().IsSame(source.shape)){face=TopoDS::Face(faces.Current());found=true;break;}
+        if(!found)continue;
+        if(BRepAdaptor_Surface(face).GetType()!=GeomAbs_Plane&&
+           BRepAdaptor_Surface(face).GetType()!=GeomAbs_Cylinder&&BRepAdaptor_Surface(face).GetType()!=GeomAbs_Cone) {
+            GeomLib_IsPlanarSurface planar(BRep_Tool::Surface(face),tolerance);
+            if(!planar.IsPlanar())throw std::runtime_error("Sheet Cut supports planar, cylindrical and conical sheet regions.");
+            auto plane=planar.Plan();BRepAdaptor_Surface original(face);
+            gp_Pnt point;gp_Vec du,dv;original.D1((original.FirstUParameter()+original.LastUParameter())*.5,
+                (original.FirstVParameter()+original.LastVParameter())*.5,point,du,dv);
+            if(du.Crossed(dv).Dot(gp_Vec(plane.Axis().Direction()))<0)plane.UReverse();
+            const auto outer=BRepTools::OuterWire(face);
+            BRepBuilderAPI_MakeFace planar_face(plane,outer,true);
+            for(TopExp_Explorer wires(face,TopAbs_WIRE);wires.More();wires.Next())
+                if(!wires.Current().IsSame(outer))planar_face.Add(TopoDS::Wire(wires.Current()));
+            if(!planar_face.IsDone())throw std::runtime_error("Sheet Cut cannot resolve the planar source skin.");
+            const auto orientation=face.Orientation();face=planar_face.Face();face.Orientation(orientation);
+        }
+        BRepAlgoAPI_Common clip;
+        PrimitiveData domain;
+        if(clearance_projection) {
+            const auto selected=select_sheet_clearance_projection(face,source.reference,input_edges,
+                input_faces,input_shape,projection,*clearance_projection,tolerance);
+            if(!TopExp_Explorer(selected.shape,TopAbs_SOLID).More())continue;
+            domain=sheet_cut_clearance_domain(face,source.reference,input_edges,*clearance_projection,selected,tolerance,cut_tolerance);
+        } else {
+            set_boolean_inputs(clip,face,projection.shape);
+            clip.SetToFillHistory(true);clip.SetFuzzyValue(tolerance);clip.Build();
+            if(!clip.IsDone())throw std::runtime_error("Sheet Cut surface projection failed.");
+            domain.shape=clip.Shape();
+        }
+        for(TopExp_Explorer patches(domain.shape,TopAbs_FACE);patches.More();patches.Next()) {
+            auto patch=TopoDS::Face(patches.Current());patch.Orientation(face.Orientation());
+            GProp_GProps area;BRepGProp::SurfaceProperties(patch,area);
+            if(area.Mass()<=tolerance*tolerance)continue;
+            SheetCutRegion region;region.cut_owner=owner;region.source=source.reference;
+            region.thickness=source.reference.sheet_thickness;
+            if(!(region.thickness>0))throw std::runtime_error("Sheet Cut source has no thickness.");
+            BRepAdaptor_Surface surface(patch);gp_Ax3 frame;
+            switch(surface.GetType()) {
+            case GeomAbs_Plane: region.surface_type="plane";frame=surface.Plane().Position();break;
+            case GeomAbs_Cylinder: region.surface_type="cylinder";frame=surface.Cylinder().Position();region.radius=surface.Cylinder().Radius();break;
+            case GeomAbs_Cone: region.surface_type="cone";frame=surface.Cone().Position();region.radius=surface.Cone().RefRadius();region.semi_angle=surface.Cone().SemiAngle();break;
+            default: throw std::runtime_error("Sheet Cut supports planar, cylindrical and conical sheet regions.");
+            }
+            region.origin=vec(frame.Location());region.axis=vec(frame.Direction());
+            region.x_axis=vec(frame.XDirection());region.y_axis=vec(frame.YDirection());
+            auto surface_data=std::make_shared<SurfaceGeometry>();
+            surface_data->kind=region.surface_type=="plane"?SurfaceGeometry::Kind::Plane:
+                region.surface_type=="cylinder"?SurfaceGeometry::Kind::Cylinder:SurfaceGeometry::Kind::Cone;
+            surface_data->origin=region.origin;surface_data->axis=region.axis;surface_data->radial=region.x_axis;
+            surface_data->radius=region.radius;surface_data->semi_angle=region.semi_angle;
+            surface_data->reversed=patch.Orientation()==TopAbs_REVERSED;region.source.surface=surface_data;
+            const auto child=[&](std::string role,const std::string& parent_owner,const std::string& parent_key) {
+                return "sheetcut:"+role+":source:"+token(source.reference.owner_id)+":"+token(source.reference.semantic_key)+
+                    ":from:"+token(parent_owner)+":"+token(parent_key);
+            };
+            std::vector<OwnedEdge> patch_edges;
+            for(TopExp_Explorer wires(patch,TopAbs_WIRE);wires.More();wires.Next()) {
+                std::vector<SheetTrimCurve> loop;
+                for(BRepTools_WireExplorer edges(TopoDS::Wire(wires.Current()),patch);edges.More();edges.Next()) {
+                    const auto edge=edges.Current();
+                    std::set<std::pair<std::string,std::string>> parents;
+                    const auto descendant=[&](const auto& input) {
+                        if(input.shape.IsSame(edge))return true;
+                        if(clearance_projection)return false;
+                        for(const auto* list:{&clip.Generated(input.shape),&clip.Modified(input.shape)})
+                            for(TopTools_ListIteratorOfListOfShape it(*list);it.More();it.Next())
+                                if(it.Value().IsSame(edge))return true;
+                        return false;
+                    };
+                    if(clearance_projection) {
+                        for(const auto& e:domain.edges)if(descendant(e))parents.emplace(e.reference.owner_id,e.reference.semantic_key);
+                    } else for(const auto& f:projection.faces)if(descendant(f))parents.emplace(f.reference.owner_id,f.reference.semantic_key);
+                    for(const auto& e:input_edges)if(descendant(e))parents.emplace(e.reference.owner_id,e.reference.semantic_key);
+                    if(parents.empty())throw std::runtime_error("Sheet Cut cannot resolve a trim boundary's authored ancestry.");
+                    std::string parent_key;for(const auto& [po,pk]:parents)parent_key+=token(po)+":"+token(pk)+":";
+                    const auto key=child("boundary",owner,parent_key);
+                    patch_edges.push_back({edge,{owner,key}});
+                    double first{},last{};const auto curve=BRep_Tool::CurveOnSurface(edge,patch,first,last);
+                    if(curve.IsNull())throw std::runtime_error("Sheet Cut is missing its material-space boundary.");
+                    const auto spline=Geom2dConvert::CurveToBSplineCurve(new Geom2d_TrimmedCurve(curve,first,last));
+                    SheetTrimCurve trim;trim.parent_owner=owner;trim.parent_key=key;trim.degree=spline->Degree();trim.reversed=edge.Orientation()==TopAbs_REVERSED;
+                    for(int i=1;i<=spline->NbPoles();++i){const auto p=spline->Pole(i);trim.poles.push_back({p.X(),p.Y()});trim.weights.push_back(spline->Weight(i));}
+                    for(int i=1;i<=spline->NbKnots();++i){trim.knots.push_back(spline->Knot(i));trim.multiplicities.push_back(spline->Multiplicity(i));}
+                    loop.push_back(std::move(trim));
+                }
+                region.loops.push_back(std::move(loop));
+            }
+            // Offset the correctly oriented input skin into its material.
+            // The low-level simple builder exposes both wall and offset ancestry.
+            // OCCT's analytic cone offset uses the radial direction without
+            // accounting for an indirect UV frame (unlike its cylinder offset).
+            // Preserve the authored frame and compensate only the offset sign.
+            // Pass the opposite skin by the Boolean tolerance so a separately
+            // represented coincident cone cannot leave a zero-thickness cap.
+            // The walls follow the same normals; the real input body trims them.
+            const double tool_depth=region.thickness+
+                (surface.GetType()==GeomAbs_Cone?10*tolerance:0);
+            const double offset=surface.GetType()==GeomAbs_Cone&&!frame.Direct()
+                ? tool_depth : -tool_depth;
+            BRepOffset_MakeSimpleOffset thicken(patch,offset);
+            thicken.SetBuildSolidFlag(true);thicken.SetTolerance(tolerance);thicken.Perform();
+            if(!thicken.IsDone()||thicken.GetResultShape().IsNull()||!BRepCheck_Analyzer(thicken.GetResultShape()).IsValid())
+                throw std::runtime_error("Sheet Cut could not carry its boundary through the sheet thickness.");
+            bool solid_found=false;
+            for(TopExp_Explorer solids(thicken.GetResultShape(),TopAbs_SOLID);solids.More();solids.Next()) {
+                auto solid=TopoDS::Solid(solids.Current());
+                if(!BRepLib::OrientClosedSolid(solid))throw std::runtime_error("Sheet Cut could not orient its thickness volume.");
+                builder.Add(compound,solid);solid_found=true;
+            }
+            if(!solid_found)throw std::runtime_error("Sheet Cut thickness did not produce a solid.");
+            const auto add_face=[&](const TopoDS_Shape& shape,const std::string& key) {
+                if(shape.IsNull()||shape.ShapeType()!=TopAbs_FACE)return;
+                FaceReference ref{owner,key};ref.sheet_role=SheetFaceRole::ThicknessFace;ref.sheet_thickness=region.thickness;
+                result.faces.push_back({shape,ref});
+            };
+            // The two skins coincide with the source sheet. Their surviving
+            // faces retain the source identity through the subtraction history;
+            // assigning tool identities as well would make them ambiguous.
+            for(const auto& edge:patch_edges) {
+                // Generated reports the offset image, not the connecting wall.
+                // Locate the authored wall by its source boundary edge.
+                const auto offset_skin=thicken.Generated(patch);
+                for(TopExp_Explorer walls(thicken.GetResultShape(),TopAbs_FACE);walls.More();walls.Next()) {
+                    const auto& wall=walls.Current();
+                    if(wall.IsSame(patch)||(!offset_skin.IsNull()&&wall.IsSame(offset_skin)))continue;
+                    for(TopExp_Explorer rims(wall,TopAbs_EDGE);rims.More();rims.Next())
+                        if(rims.Current().IsSame(edge.shape)) {
+                            add_face(wall,child("wall",edge.reference.owner_id,edge.reference.semantic_key));break;
+                        }
+                }
+                result.edges.push_back(edge);
+                const auto offset_edge=thicken.Generated(edge.shape);
+                if(!offset_edge.IsNull()&&offset_edge.ShapeType()==TopAbs_EDGE)
+                    result.edges.push_back({offset_edge,{owner,child("offset-edge",owner,edge.reference.semantic_key)}});
+            }
+            result.sheet_cuts.push_back(std::move(region));
+        }
+    }
+    if(result.sheet_cuts.empty())throw std::runtime_error("Sheet Cut profile does not intersect a supported sheet side.");
+    result.shape=compound;return result;
+}
+
 template <typename Algorithm, typename Owned>
 std::vector<Owned> propagate_edge_treatment_topology(
     Algorithm& algorithm,
@@ -5905,6 +6128,7 @@ std::vector<BodyResult> OcctKernel::evaluate_body_histories(
         document.volume += output.volume;
         document.surface_area += output.surface_area;
         append_body_viewer(document.mesh, output.mesh);
+        document.sheet_cuts.insert(document.sheet_cuts.end(),output.sheet_cuts.begin(),output.sheet_cuts.end());
     }
     document.kernel_shape = serialize_kernel_shape(compound);
     if(document.volume>0) {
@@ -7619,7 +7843,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     const auto exact_reverse=primitive.reverse_limit?original_target(limit_view(*primitive.reverse_limit)):std::nullopt;
                     double through_all_forward_span = 2'000'000.0;
                     double through_all_reverse_span = 2'000'000.0;
-                    if ((primitive.extent == ExtrusionRequest::Extent::ThroughAll || primitive.through_all_reverse) &&
+                    if ((primitive.extent == ExtrusionRequest::Extent::ThroughAll || primitive.through_all_reverse || primitive.sheet_cut_clearance) &&
                         !result_shape.IsNull()) {
                         const Vec3 profile_origin = std::visit([](const auto& profile) {
                             using Profile = std::decay_t<decltype(profile)>;
@@ -7669,9 +7893,25 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                         through_all_reverse_span =
                             std::max(0.0, maximum_reverse_projection) + margin;
                     }
-                    return make_extrusion_data(
+                    auto extrusion_data = make_extrusion_data(
                         primitive, operation.owner_id, exact_target,
                         through_all_forward_span, through_all_reverse_span, std::nullopt, operation.boolean_tolerance, exact_reverse);
+                    if(primitive.sheet_cut) {
+                        if(operation.operation!=BooleanOperation::Subtract||primitive.surface_result)
+                            throw std::runtime_error("Sheet Cut must remove material from an existing sheet.");
+                        std::optional<PrimitiveData> full_projection;
+                        if(primitive.sheet_cut_clearance) {
+                            auto full=primitive;full.extent=ExtrusionRequest::Extent::ThroughAll;
+                            full.through_all_forward=true;full.through_all_reverse=true;
+                            full.reverse_limit.reset();full.symmetric_limit=false;
+                            full_projection=make_extrusion_data(full,operation.owner_id,std::nullopt,
+                                through_all_forward_span,through_all_reverse_span,std::nullopt,operation.boolean_tolerance);
+                        }
+                        return make_sheet_cut_data(extrusion_data,owned_topology->faces,owned_topology->edges,result_shape,
+                            operation.owner_id,std::max(1e-7,operation.boolean_tolerance),
+                            full_projection?&*full_projection:nullptr,primitive.sheet_cut_tolerance);
+                    }
+                    return extrusion_data;
                 } else if constexpr (std::is_same_v<Request, FeatureGroupRequest>) {
                     if (primitive.children.empty()) {
                         throw std::invalid_argument(
@@ -7756,9 +7996,9 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 std::get_if<ExtrusionRequest>(&operation.primitive);
             const bool cache_reference_mesh =
                 !imported_step && !std::holds_alternative<FeatureGroupRequest>(operation.primitive) &&
-                (extrusion_request == nullptr ||
+                (extrusion_request == nullptr || (!extrusion_request->sheet_cut &&
                  (extrusion_request->extent == ExtrusionRequest::Extent::Blind &&
-                  !extrusion_request->reverse_limit && !extrusion_request->through_all_reverse));
+                  !extrusion_request->reverse_limit && !extrusion_request->through_all_reverse)));
             const bool standalone_import = imported_step && result_shape.IsNull();
             std::optional<BodyResult> standalone_import_result;
             ViewerMesh operand_mesh;
@@ -7958,6 +8198,8 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     owned_topology->hidden_display_edges));
             }
             append_technological_surfaces(boundaries.back(), operation.mesh_deflection);
+            if(boundaries.size()>1)boundaries.back().sheet_cuts=boundaries[boundaries.size()-2].sheet_cuts;
+            boundaries.back().sheet_cuts.insert(boundaries.back().sheet_cuts.end(),operand.sheet_cuts.begin(),operand.sheet_cuts.end());
             if (imported_step) {
                 if (standalone_import && persist_boundary_shape) {
                     persist_imported_topology(operand, boundaries.back());
@@ -8049,7 +8291,15 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 }
             }
         }
+        std::vector<SheetCutRegion> material_cuts;
         for (auto& boundary : boundaries) {
+            // Treatments with their own calculation branch must retain the
+            // earlier cut definitions just like ordinary additive operations.
+            std::set<std::string> present_cut_owners;
+            for(const auto& cut:boundary.sheet_cuts)present_cut_owners.insert(cut.cut_owner);
+            for(const auto& cut:material_cuts)
+                if(!present_cut_owners.contains(cut.cut_owner))boundary.sheet_cuts.push_back(cut);
+            material_cuts=boundary.sheet_cuts;
             std::erase_if(boundary.mesh.edges, [](const auto& edge) {
                 return edge.reference.semantic_key == "seam" ||
                     edge.reference.semantic_key.starts_with("seam:");

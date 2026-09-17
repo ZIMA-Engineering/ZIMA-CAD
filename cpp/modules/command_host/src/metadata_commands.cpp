@@ -82,7 +82,9 @@ void Host::register_metadata_commands() {
             for(const auto& [key,value]:strings(args["units"]))data.units[key]=value;
         }
         if(args.contains("precision")) {
-            fields(args["precision"],{"linear_tolerance","angular_tolerance","mesh_deflection","decimal_places"});
+            fields(args["precision"],{"linear_tolerance","angular_tolerance","mesh_deflection","decimal_places","sheet_cut_tolerance"});
+            if(args["precision"].contains("sheet_cut_tolerance")&&!data.sheet_metal)
+                throw std::invalid_argument("Sheet Cut tolerance belongs to a Part document.");
             for(auto it=args["precision"].begin();it!=args["precision"].end();++it) {
                 if(!it.value().is_number() || !std::isfinite(it.value().get<double>()) ||
                    (it.key()=="decimal_places" && !it.value().is_number_integer()))

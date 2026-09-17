@@ -611,6 +611,27 @@ nlohmann::json serialize_body_result(const zima::kernel::BodyResult& result, boo
         }
     }
     packet["annotation_frames"]=annotation_frames_json(result.mesh.annotation_frames);
+    if(!result.sheet_cuts.empty()) {
+        auto regions=nlohmann::json::array();
+        for(const auto& region:result.sheet_cuts) {
+            auto loops=nlohmann::json::array();
+            for(const auto& loop:region.loops) {
+                auto curves=nlohmann::json::array();
+                for(const auto& curve:loop)curves.push_back({{"parent_owner",curve.parent_owner},{"parent_key",curve.parent_key},
+                    {"degree",curve.degree},{"poles",curve.poles},{"weights",curve.weights},{"knots",curve.knots},
+                    {"multiplicities",curve.multiplicities},{"reversed",curve.reversed}});
+                loops.push_back(std::move(curves));
+            }
+            regions.push_back({{"cut_owner",region.cut_owner},{"source_owner",region.source.owner_id},
+                {"source_key",region.source.semantic_key},{"source_path",region.source.instance_path},
+                {"surface_type",region.surface_type},{"origin",serialize_vec3(region.origin)},
+                {"surface_reversed",region.source.surface&&region.source.surface->reversed},
+                {"axis",serialize_vec3(region.axis)},{"x_axis",serialize_vec3(region.x_axis)},
+                {"y_axis",serialize_vec3(region.y_axis)},
+                {"radius",region.radius},{"semi_angle",region.semi_angle},{"thickness",region.thickness},{"loops",loops}});
+        }
+        packet["sheet_cuts"]=std::move(regions);
+    }
     // Part aggregates own branch caches; an Assembly occurrence stores its
     // calculated child packets by occurrence ID, without Part history rows.
     if (include_histories && (!result.body_boundaries.empty() || !result.body_inputs.empty() || !result.body_outputs.empty())) {
@@ -642,6 +663,31 @@ zima::kernel::ViewerReferenceGeometry load_viewer_reference_geometry(
 
 zima::kernel::BodyResult load_body_result(const nlohmann::json& source) {
     zima::kernel::BodyResult result;
+    for(const auto& row:source.value("sheet_cuts",nlohmann::json::array())) {
+        zima::kernel::SheetCutRegion region;region.cut_owner=row.at("cut_owner");
+        region.source={row.at("source_owner"),row.at("source_key"),row.at("source_path")};
+        region.source.sheet_role=zima::kernel::SheetFaceRole::SideA;
+        region.surface_type=row.at("surface_type");region.origin=load_vec3(row.at("origin"));
+        region.axis=load_vec3(row.at("axis"));region.x_axis=load_vec3(row.at("x_axis"));
+        region.y_axis=load_vec3(row.at("y_axis"));
+        region.radius=row.at("radius");region.semi_angle=row.at("semi_angle");region.thickness=row.at("thickness");
+        region.source.sheet_thickness=region.thickness;
+        auto geometry=std::make_shared<zima::kernel::SurfaceGeometry>();
+        geometry->kind=region.surface_type=="plane"?zima::kernel::SurfaceGeometry::Kind::Plane:
+            region.surface_type=="cylinder"?zima::kernel::SurfaceGeometry::Kind::Cylinder:zima::kernel::SurfaceGeometry::Kind::Cone;
+        geometry->origin=region.origin;geometry->axis=region.axis;geometry->radial=region.x_axis;
+        geometry->radius=region.radius;geometry->semi_angle=region.semi_angle;geometry->reversed=row.at("surface_reversed");
+        region.source.surface=std::move(geometry);
+        for(const auto& loop:row.at("loops")) {
+            std::vector<zima::kernel::SheetTrimCurve> curves;
+            for(const auto& curve:loop) {
+                zima::kernel::SheetTrimCurve c;c.parent_owner=curve.at("parent_owner");c.parent_key=curve.at("parent_key");
+                c.degree=curve.at("degree");c.poles=curve.at("poles").get<decltype(c.poles)>();c.weights=curve.at("weights").get<decltype(c.weights)>();
+                c.knots=curve.at("knots").get<decltype(c.knots)>();c.multiplicities=curve.at("multiplicities").get<decltype(c.multiplicities)>();c.reversed=curve.at("reversed");
+                curves.push_back(std::move(c));
+            }region.loops.push_back(std::move(curves));
+        }result.sheet_cuts.push_back(std::move(region));
+    }
     result.calculation_errors = source.value("calculation_errors", std::map<std::string, std::string>{});
     if (const auto caches = source.find("body_histories"); caches != source.end()) {
         for (const auto& [id, rows] : caches->at("boundaries").items())

@@ -8,6 +8,7 @@ enum class NativeDocumentType { Part, Assembly, Drawing };
 struct NativeTemplateSettings {
     std::filesystem::path directory, part_template, assembly_template;
     std::string first_body_name{"Body 1"};
+    double sheet_cut_tolerance{0.05};
 };
 // Uses the existing body-origin attachment contract unchanged.
 [[nodiscard]] document::PartDocument part_from_template(const NativeTemplateSettings& settings);

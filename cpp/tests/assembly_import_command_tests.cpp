@@ -4,6 +4,7 @@
 #include <zima/interchange/step_model.hpp>
 #include <zima/interchange/dxf.hpp>
 #include <zima/document/file_path.hpp>
+#include <zima/document/precision.hpp>
 #include <fstream>
 #include <cmath>
 #include <iostream>
@@ -17,7 +18,8 @@ commands::Result run(command_host::Host& host,const char* name,Json args=Json::o
 }
 void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     workspace::Workspace live;command_host::Options options;
-    options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"start_part.prtz","start_assembly.asmz","Body"},{{"Length","cm"}}};};
+    double configured_cut_tolerance=.025;
+    options.settings=[&] {return command_host::Settings{{fs::absolute("config/templates"),"start_part.prtz","start_assembly.asmz","Body",configured_cut_tolerance},{{"Length","cm"}}};};
     command_host::Host host(live,kernel,dir,options);
     kernel::StepProduct part;part.definition_id="part";part.name="Block";part.body=kernel.make_box({10,20,30});
     auto second=part;second.name="Block 2";second.translation={50,0,0};
@@ -44,6 +46,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
         if(file.extension()==".prtz") {
             const auto saved=document::PartDocument::load(file);
             require(live.open_part(saved.document_id)!=nullptr,"Saved STEP Part cannot be reopened with its source identity");
+            require(document::sheet_cut_tolerance(saved.document_precision)==.025,"Saved STEP Part lost its configured Sheet Cut tolerance");
         } else {
             const auto saved=assembly::AssemblyDocument::load(file);
             require(live.open_assembly(saved.document_id)!=nullptr,"Saved STEP subassembly cannot be reopened with its source identity");
@@ -52,6 +55,10 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     }
     const auto part_id=result.at("parts")[0].get<std::string>();
     auto* imported_part=live.open_part(part_id);require(imported_part->session.document().document_units.at("Length")=="cm","Imported Part lost owner units");
+    require(document::sheet_cut_tolerance(imported_part->session.document().document_precision)==.025,
+        "STEP Part did not snapshot the configured Sheet Cut tolerance");
+    for(const auto& [key,value]:target->session.document().document_precision)
+        require(imported_part->session.document().document_precision.at(key)==value,"STEP import changed inherited Assembly precision");
     for(const auto& operation:imported_part->session.document().kernel_operations())require(operation.mesh_deflection==2,"Import lost selected mesh precision");
     const auto* native_root=live.open_assembly(result.at("source_document").get<std::string>());
     require(native_root && native_root->session.document().components.size()==2,"STEP hierarchy was flattened");
@@ -101,12 +108,21 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     require(dxf_result.at("assemblies").empty() && dxf_result.at("imported_entities")==4 && dxf_state->session.document().sketches.back().segments.size()==4,"Assembly DXF did not create one Part with native sketch geometry");
     require(dxf_state->session.calculated_boundaries().empty(),"DXF unnecessarily calculated a solid");
     const auto iges=dir/fs::path(u8"kostka česká.igs");fs::copy_file("cpp/tests/fixtures/import/cube-10mm.igs",iges);
+    configured_cut_tolerance=.0125;
     const auto iges_result=run(host,"import.iges",{{"path",document::path_to_utf8(iges)},{"mesh_deflection_mm",1.5}}).data;
     require(iges_result.at("parts").size()==1 && iges_result.at("assemblies").empty(),"IGES did not create exactly one Part");
     require(iges_result.at("files").size()==1,"IGES did not report its native source file");
     const auto iges_native=fs::u8path(iges_result.at("files")[0].get<std::string>());
     require(fs::is_regular_file(iges_native) && iges_native.extension()==".prtz" && iges_native.parent_path()==dir,"IGES native Part was not saved directly in the working directory");
-    require(document::PartDocument::load(iges_native).document_id==iges_result.at("parts")[0].get<std::string>(),"Saved IGES Part cannot be reopened with its source identity");
+    const auto saved_iges=document::PartDocument::load(iges_native);
+    require(saved_iges.document_id==iges_result.at("parts")[0].get<std::string>(),"Saved IGES Part cannot be reopened with its source identity");
+    require(document::sheet_cut_tolerance(saved_iges.document_precision)==.0125&&
+        document::sheet_cut_tolerance(live.open_part(saved_iges.document_id)->session.document().document_precision)==.0125,
+        "IGES Part did not snapshot and save the changed Sheet Cut default");
+    require(document::sheet_cut_tolerance(live.open_part(part_id)->session.document().document_precision)==.025,
+        "Changing the import default rewrote an existing STEP Part");
+    for(const auto& [key,value]:live.open_assembly(owner)->session.document().document_precision)
+        require(saved_iges.document_precision.at(key)==value,"IGES import changed inherited Assembly precision");
     require(std::abs(live.open_part(iges_result.at("parts")[0].get<std::string>())->session.calculated_boundaries().back().volume-1000)<1e-4,"Assembly IGES changed source scale");
     require(live.open_assembly(parent_id)->session.revision()==parent_revision &&
         std::abs(live.open_assembly(parent_id)->session.document().components.front().calculated_source->volume-24000)<1e-5,

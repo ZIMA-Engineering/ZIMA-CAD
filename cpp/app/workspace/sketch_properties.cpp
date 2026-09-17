@@ -60,7 +60,7 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
             if(owner && owner->feature_kind!=zima::document::FeatureKind::Bend)return;
             auto value=owner?*owner:*new_sketch_container;
             if(!owner) {
-                value.feature_kind=zima::document::FeatureKind::Bend;value.name="Ohyb";value.bend.sketch_id=initial.id;
+                value.feature_kind=zima::document::FeatureKind::Bend;value.name=tr("Profil plechu").toStdString();value.bend.sketch_id=initial.id;
                 const auto defaults=zima::document::sheet_metal_defaults(part->session.document());
                 value.bend.thickness=defaults.thickness_mm.value_or(1);value.bend.k_factor=defaults.k_factor;
                 value.bend.radius_follows_thickness=true;

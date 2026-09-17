@@ -240,6 +240,7 @@ private:
     std::function<void(zima::sketcher::SketchPlane, bool)> profile_plane_changed_;
     QDoubleSpinBox* profile_plane_offset_{};
     QComboBox* result_type_{};
+    QComboBox* sheet_cut_method_{};
     QPushButton* result_type_switch_button_{};
     QDoubleSpinBox* thin_thickness_{};
     QComboBox* thin_mode_{};

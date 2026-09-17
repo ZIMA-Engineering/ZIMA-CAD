@@ -487,6 +487,13 @@ struct ExtrusionLimit {
 };
 
 struct ExtrusionRequest {
+    bool sheet_cut{};
+    // Both Sheet Cut methods retain normal walls. Clearance encloses the
+    // profile passage through the full thickness instead of its surface trim.
+    bool sheet_cut_clearance{};
+    // Persisted document calculation tolerance, in millimetres; never the
+    // current machine's application default or a Boolean sewing tolerance.
+    double sheet_cut_tolerance{0.05};
     enum class Extent { Blind, UpToPlane, UpToSurface, ThroughAll };
     struct PolygonProfile {
         std::vector<Vec3> vertices;
@@ -807,6 +814,26 @@ struct HistoryOperation {
     double sheet_thickness{};
 };
 
+// Calculated material-space trim, owned by the later cut, never by rewriting
+// the source feature. Curves are ordered rational B-splines in surface UV.
+struct SheetTrimCurve {
+    std::string parent_owner, parent_key;
+    int degree{};
+    std::vector<std::array<double,2>> poles;
+    std::vector<double> knots, weights;
+    std::vector<int> multiplicities;
+    bool reversed{};
+};
+struct SheetCutRegion {
+    std::string cut_owner;
+    FaceReference source;
+    std::string surface_type;
+    // Persist both in-surface directions: analytic frames may be left-handed.
+    // The surface UV mapping cannot recover Y from axis cross X in that case.
+    Vec3 origin, axis, x_axis, y_axis;
+    double radius{}, semi_angle{}, thickness{};
+    std::vector<std::vector<SheetTrimCurve>> loops;
+};
 struct BodyResult;
 // An immutable calculated revision. Copying a document/occurrence shares its
 // snapshot; a calculation or source-data update publishes a replacement value.
@@ -848,6 +875,7 @@ struct BodyResult {
     // Returned only by explicit STEP import so the owning Part container can
     // persist the source topology map with its parameters.
     std::vector<StepRequest::TopologyIdentity> imported_step_topology;
+    std::vector<SheetCutRegion> sheet_cuts;
     // Present on a document result only. Branch snapshots retain their own
     // fingerprints, so changing another body does not invalidate this cache.
     std::map<std::string, std::vector<BodyResult>> body_boundaries;
@@ -1028,6 +1056,9 @@ struct PlacedBody {
                     u64(std::bit_cast<std::uint64_t>(value));
                 }
             } else if constexpr (std::is_same_v<Request, ExtrusionRequest>) {
+                byte(primitive.sheet_cut);
+                byte(primitive.sheet_cut_clearance);
+                if(primitive.sheet_cut)u64(std::bit_cast<std::uint64_t>(primitive.sheet_cut_tolerance));
                 if(primitive.surface_result) {byte(0xf1);for(const auto c:primitive.open_profile_end_id)byte(c);}
                 // Exact profile bounds reject an inclined plane crossing away from seam vertices.
                 if (primitive.extent == ExtrusionRequest::Extent::UpToPlane) byte(2);

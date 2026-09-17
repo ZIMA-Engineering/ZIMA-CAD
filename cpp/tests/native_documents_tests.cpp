@@ -39,6 +39,19 @@ int main(){
         const auto second_id=insert_native_document(workspace,std::move(second));
         require(second_id!=first_id && workspace.open_part(second_id)->session.document().body_history.bodies().front().scope.id!=first_body.scope.id,"New Parts share persistent object IDs");
         require(workspace.active_document_id()==first_id && workspace.displayed_document_id()==first_id,"Creating another document switched context");
+        auto custom_settings=settings;custom_settings.sheet_cut_tolerance=.0125;
+        auto custom_part=part_from_template(custom_settings);custom_part.save(directory/"custom-tolerance.prtz");
+        require(std::stod(custom_part.document_precision.at("sheet_cut_tolerance"))==.0125,
+            "New Part did not snapshot the configured Sheet Cut tolerance");
+        custom_settings.sheet_cut_tolerance=.1;
+        require(std::stod(part_from_template(custom_settings).document_precision.at("sheet_cut_tolerance"))==.1,
+            "Changed global default did not affect the next new Part");
+        const auto custom_id=insert_native_document(workspace,read_native_document(directory/"custom-tolerance.prtz"));
+        require(std::stod(workspace.open_part(custom_id)->session.document().document_precision.at("sheet_cut_tolerance"))==.0125&&
+            std::stod(workspace.open_part(first_id)->session.document().document_precision.at("sheet_cut_tolerance"))==.05,
+            "A changed global default altered an existing or reopened Part");
+        custom_settings.sheet_cut_tolerance=0;
+        fails([&]{static_cast<void>(part_from_template(custom_settings));},"Invalid new-Part Sheet Cut tolerance accepted");
 
         auto group=prepare_new_native_document(NativeDocumentType::Assembly,"group",directory/"group.asmz",settings,{{"Length","cm"}});
         const auto group_id=insert_native_document(workspace,std::move(group));

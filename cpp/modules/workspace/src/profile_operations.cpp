@@ -46,6 +46,12 @@ bool is_profile(document::FeatureKind kind) {
 }
 }
 void validate_profile_definition(const document::HistoryContainer& value) {
+    if(value.feature_kind==document::FeatureKind::Extrusion&&value.extrusion.sheet_cut_clearance&&!value.extrusion.sheet_cut)
+        throw ProfileOperationError("invalid_arguments","Profile clearance is available only for Sheet Cut.");
+    if(value.feature_kind==document::FeatureKind::Extrusion&&value.extrusion.sheet_cut&&
+        (value.combine_mode!=document::CombineMode::Subtract||value.extrusion.result_type!=document::ProfileResultType::Solid||
+         value.extrusion.profile_source!=document::ProfileSource::Internal))
+        throw ProfileOperationError("invalid_arguments","Sheet Cut requires an owned closed profile projected through the sheet.");
     if(value.feature_kind==document::FeatureKind::Revolution&&value.revolution.sheet_metal&&
         (value.combine_mode!=document::CombineMode::Add||value.revolution.result_type!=document::ProfileResultType::Thin||
          value.revolution.profile_plane_offset!=0||value.revolution.profile_source!=document::ProfileSource::Internal||

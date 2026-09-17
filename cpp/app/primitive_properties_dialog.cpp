@@ -132,6 +132,8 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
           primitive_properties_title(initial.feature_kind), parent),
       initial_(initial), edit_mode_(edit_mode),
       accepted_target_baseline_(selected_targets), commit_(std::move(commit)) {
+    if(initial.extrusion.sheet_cut)set_internal_title(tr("Vlastnosti řezu plechem"));
+    else if(initial.revolution.sheet_metal)set_internal_title(tr("Vlastnosti rotačního plechu"));
     setAttribute(Qt::WA_DeleteOnClose, true);
     setMinimumWidth(340);
     auto* header_form = new QFormLayout;
@@ -769,9 +771,9 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
             [this] { notify_preview(); });
         result_type_ = new QComboBox(this);
         result_type_->addItem(tr("Těleso"), "solid");
-        result_type_->addItem(tr("Thin"), "thin");
+        if (!initial.extrusion.sheet_cut) result_type_->addItem(tr("Thin"), "thin");
         result_type_->setObjectName("profileResultType");
-        if(!assembly_cut_mode) result_type_->addItem(tr("Plocha"), "surface");
+        if(!assembly_cut_mode && !initial.extrusion.sheet_cut) result_type_->addItem(tr("Plocha"), "surface");
         result_type_->setCurrentIndex(result_type_->findData(
             result_type == zima::document::ProfileResultType::Thin
                 ? "thin" : result_type == zima::document::ProfileResultType::Surface ? "surface" : "solid"));
@@ -782,6 +784,15 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         result_layout->addWidget(result_type_, 1);
         result_layout->addWidget(result_type_switch_button_);
         form->addRow(tr("Typ výsledku"), result_row);
+        if(!revolve&&initial.extrusion.sheet_cut) {
+            sheet_cut_method_=new QComboBox(this);
+            sheet_cut_method_->setObjectName("sheetCutMethod");
+            sheet_cut_method_->addItem(tr("Podle povrchu"),"surface");
+            sheet_cut_method_->addItem(tr("Průchod profilu"),"clearance");
+            sheet_cut_method_->setCurrentIndex(initial.extrusion.sheet_cut_clearance?1:0);
+            form->addRow(tr("Způsob řezu"),sheet_cut_method_);
+            connect(sheet_cut_method_,&QComboBox::currentIndexChanged,this,[this]{notify_preview();});
+        }
         connect(result_type_switch_button_, &QPushButton::clicked, this,
             [result_type = result_type_, cycle_combo] { cycle_combo(result_type); });
         thin_thickness_ = dimension(
@@ -1054,6 +1065,14 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         thin_mode_->setVisible(initial_thin);
         if(revolve&&initial.revolution.sheet_metal)lock_sheet_attachment_fields();
         refresh_extent();
+        if(!revolve&&initial.extrusion.sheet_cut) {
+            form->setRowVisible(source_row,false);
+            form->setRowVisible(result_row,false);form->setRowVisible(thin_thickness_,false);
+            form->setRowVisible(thin_row,false);
+            const auto hint=tr("Směr a zakončení určují dosah promítnutí profilu. Zasažené plechy se proříznou kolmo celou tloušťkou.");
+            for(auto* field:{extent_mode_,extrusion_direction_,forward_end_condition_,reverse_end_condition_})
+                field->setToolTip(hint);
+        }
     } else if (initial.feature_kind == zima::document::FeatureKind::Shell) {
         shell_thickness_ = dimension(initial.shell.thickness, "shellThickness");
         form->addRow(tr("Tloušťka"), shell_thickness_);
@@ -1185,10 +1204,11 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
 
     content_layout()->addLayout(form);
 
-    // Shared bottom operation row, matching Python's _build_operation_form
-    // for primitives, Extrusion and Revolution. The hidden combo remains an
-    // internal value adapter only; it is no longer part of the visible UI.
-    if (operation_ != nullptr) {
+    // Sheet Cut always subtracts. Omitting its non-editable operation row also
+    // leaves room for both end conditions and the owned Sketch action.
+    // The hidden combo remains an internal value adapter for other features.
+    if (operation_ != nullptr && !(initial.feature_kind == zima::document::FeatureKind::Extrusion &&
+        initial.extrusion.sheet_cut)) {
         const auto operation_buttons = add_feature_operation_buttons(
             this, content_layout(), operation_->currentData() == "subtract",
             [this](bool subtract_selected) {
@@ -1471,6 +1491,11 @@ zima::document::HistoryContainer PrimitivePropertiesDialog::values() const {
                 zima::document::ProfileExtentMode::OneSide
             ? result.extrusion.length_forward
             : result.extrusion.length_forward + result.extrusion.length_reverse;
+        if (result.extrusion.sheet_cut) {
+            result.combine_mode = zima::document::CombineMode::Subtract;
+            result.extrusion.result_type = zima::document::ProfileResultType::Solid;
+            result.extrusion.sheet_cut_clearance = sheet_cut_method_->currentData()=="clearance";
+        }
     } else if (result.feature_kind == zima::document::FeatureKind::Revolution) {
         result.revolution.profile_plane_offset = profile_plane_offset_->value();
         result.revolution.profile_source =

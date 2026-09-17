@@ -3673,14 +3673,19 @@ int verify_application_tools_ui(QApplication& application,const std::filesystem:
         const auto settings_dialog=[&]{return dynamic_cast<app::FileSettingsDialog*>(window.findChild<QDialog*>("fileSettingsDialog"));};
         sheet_properties->trigger();flush();auto* file=settings_dialog();
         check(file&&file->findChild<QTabWidget*>("fileSettingsPages")->currentIndex()==1,"Sheet shortcut did not open File Settings sheet page");
+        auto* cut_tolerance=file->findChild<QDoubleSpinBox*>("sheetCutTolerance");
+        check(cut_tolerance&&cut_tolerance->value()==.05,"File Settings lost the document Sheet Cut tolerance");
+        cut_tolerance->setValue(.025);
         check(file->findChild<QDoubleSpinBox*>("sheetMetalThickness")->isEnabled()&&file->findChild<QDoubleSpinBox*>("sheetMetalThickness")->value()==1.,"Sheet thickness must start at an editable 1 mm");
         file->findChild<QDoubleSpinBox*>("sheetMetalThickness")->setValue(2.5);
         file->findChild<QDoubleSpinBox*>("sheetMetalKFactor")->setValue(.42);
         file->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
         window.findChild<QAction*>("fileSettingsAction")->trigger();flush();file=settings_dialog();
         check(file&&file->findChild<QTabWidget*>("fileSettingsPages")->currentIndex()==0&&file->findChild<QDoubleSpinBox*>("sheetMetalThickness")->value()==1.,"Cancel committed pending sheet settings");
+        check(file->findChild<QDoubleSpinBox*>("sheetCutTolerance")->value()==.05,"Cancel committed pending cut tolerance");
         sheet_properties->trigger();flush();check(file->findChild<QTabWidget*>("fileSettingsPages")->currentIndex()==1,"Shortcut did not reuse open File Settings");
         file->findChild<QDoubleSpinBox*>("sheetMetalThickness")->setValue(2.5);file->findChild<QDoubleSpinBox*>("sheetMetalKFactor")->setValue(.42);
+        file->findChild<QDoubleSpinBox*>("sheetCutTolerance")->setValue(.025);
         check(window.grab().save("build/sheet-metal-settings.png"),"Sheet properties screenshot failed");
         auto* model_view=window.findChild<QOpenGLWidget*>();const QPointF click(50,50);
         QMouseEvent middle(QEvent::MouseButtonDblClick,click,QPointF(model_view->mapToGlobal(click.toPoint())),Qt::MiddleButton,Qt::MiddleButton,Qt::NoModifier);
@@ -3691,6 +3696,8 @@ int verify_application_tools_ui(QApplication& application,const std::filesystem:
         sheet->trigger();flush();
         window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
         check(document::sheet_metal_defaults(document::PartDocument::load(path))==document::SheetMetalDefaults{2.5,.42},"Sheet properties did not persist to the native Part");
+        check(std::stod(document::PartDocument::load(path).document_precision.at("sheet_cut_tolerance"))==.025,
+            "File Settings did not persist the Sheet Cut tolerance");
         window.findChild<QAction*>("fileSettingsAction")->trigger();flush();file=settings_dialog();
         check(file->findChild<QDoubleSpinBox*>("sheetMetalThickness")->value()==2.5&&file->findChild<QDoubleSpinBox*>("sheetMetalKFactor")->value()==.42,"File Settings disagrees with Sheet properties");
         file->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
@@ -3815,6 +3822,254 @@ int verify_application_tools_ui(QApplication& application,const std::filesystem:
         window.findChild<QAction*>("saveDocumentAction")->trigger();flush();rotation_results.clear();
         static_cast<void>(document::PartDocument::load(rotation_path,&rotation_results));
         check(std::abs(rotation_results.back().volume-360*std::numbers::pi)<1e-5,"Sheet Revolution Cancel committed thickness");
+        auto* sheet_cut_action=window.findChild<QAction*>("sheetCutAction");
+        check(sheet_cut_action&&menu->actions().contains(sheet_cut_action),"Sheet Cut is missing from the Sheet Metal toolbar/Insert");
+        sheet_cut_action->trigger();flush();auto* sheet_cut=rotation_dialog();
+        check(sheet_cut&&sheet_cut->pending_value().extrusion.sheet_cut&&sheet_cut->windowType()==Qt::SubWindow,"Sheet Cut did not open its shared internal dialog");
+        auto* cut_extent=sheet_cut->findChild<QComboBox*>("extrusionExtentMode");
+        auto* cut_direction=sheet_cut->findChild<QComboBox*>("extrusionDirection");
+        auto* cut_forward=sheet_cut->findChild<QComboBox*>("extrusionForwardEndCondition");
+        auto* cut_reverse=sheet_cut->findChild<QComboBox*>("extrusionReverseEndCondition");
+        auto* cut_length=sheet_cut->findChild<QDoubleSpinBox*>("extrusionHeight");
+        auto* cut_reverse_length=sheet_cut->findChild<QDoubleSpinBox*>("extrusionReverseLength");
+        auto* cut_type=sheet_cut->findChild<QComboBox*>("profileResultType");
+        auto* cut_method=sheet_cut->findChild<QComboBox*>("sheetCutMethod");
+        check(cut_method&&cut_method->isVisible()&&cut_method->count()==2&&
+            cut_method->currentData()=="surface"&&!sheet_cut->pending_value().extrusion.sheet_cut_clearance,
+            "Sheet Cut must default to its existing surface calculation");
+        check(cut_extent&&cut_extent->isVisible()&&cut_direction&&cut_direction->isVisible()&&
+            cut_forward&&cut_forward->isVisible()&&cut_length&&cut_length->isVisible(),
+            "Sheet Cut hides ordinary Extrusion direction or extent controls");
+        check(cut_extent->currentData()=="one_side"&&cut_forward->currentData()=="length"&&
+            cut_direction->currentData()=="forward","Sheet Cut overrides ordinary Extrusion defaults");
+        check(cut_type&&cut_type->count()==1&&cut_type->currentData()=="solid"&&!cut_type->isVisible()&&
+            !sheet_cut->findChild<QDoubleSpinBox*>("extrusionThinThickness")->isVisible()&&
+            !sheet_cut->findChild<QPushButton*>("primitiveAddOperation")&&
+            !sheet_cut->findChild<QPushButton*>("primitiveSubtractOperation"),
+            "Sheet Cut exposes Surface, Thin or a fixed operation row");
+        const auto check_cut_dialog_layout=[&] {
+            auto* sketch=sheet_cut->findChild<QPushButton*>("primitiveOwnSketchButton");
+            auto* confirmation=sheet_cut->findChild<QDialogButtonBox*>();
+            check(sketch&&sketch->isVisible()&&confirmation&&confirmation->isVisible(),
+                "Sheet Cut lost its Sketch or confirmation controls");
+            check(sketch->mapTo(sheet_cut,sketch->rect().bottomLeft()).y()<
+                confirmation->mapTo(sheet_cut,confirmation->rect().topLeft()).y(),
+                "Sheet Cut Sketch action overlaps OK/Cancel");
+        };
+        cut_extent->setCurrentIndex(cut_extent->findData("two_sides"));flush();
+        check(cut_reverse->isVisible()&&cut_reverse->isEnabled()&&cut_reverse_length->isEnabled(),
+            "Sheet Cut two-sided reverse extent is unavailable");
+        check_cut_dialog_layout();
+        cut_length->setValue(12.);cut_reverse_length->setValue(7.);
+        cut_extent->setCurrentIndex(cut_extent->findData("symmetric"));flush();
+        check(!cut_reverse->isEnabled()&&cut_reverse_length->value()==12.&&
+            sheet_cut->pending_value().extrusion.extent_mode==document::ProfileExtentMode::Symmetric,
+            "Sheet Cut symmetric range does not follow the forward length");
+        cut_extent->setCurrentIndex(cut_extent->findData("one_side"));
+        auto* cut_view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>("modelWorkspace"));
+        check(cut_view,"Sheet Cut view missing");
+        cut_view->set_standard_view(viewer::StandardView::Isometric);cut_view->fit_all();flush();
+        // Standard views animate for 850 ms. Read-only rays and mouse events
+        // must use the same settled camera when testing a world-space grip.
+        {QEventLoop animation;QTimer::singleShot(950,&animation,&QEventLoop::quit);animation.exec();}
+        const auto purple_center=[&] {
+            const auto image=cut_view->grab().toImage();QPointF sum;int count=0;
+            for(int y=0;y<image.height();++y)for(int x=0;x<image.width();++x) {
+                const auto color=image.pixelColor(x,y);
+                if(std::abs(color.red()-208)<6&&std::abs(color.green()-92)<6&&std::abs(color.blue()-255)<6) {
+                    sum+=QPointF(x,y);++count;
+                }
+            }
+            check(count>40,"Sheet Cut direction/extent cue is not painted purple");
+            return sum/static_cast<double>(count);
+        };
+        const auto forward_cue=purple_center();
+        cut_direction->setCurrentIndex(cut_direction->findData("reverse"));flush();
+        check(QLineF(forward_cue,purple_center()).length()>5&&
+            sheet_cut->pending_value().extrusion.direction==document::ExtrusionDirection::Reverse,
+            "Sheet Cut reverse direction did not move its purple extent cue");
+        cut_direction->setCurrentIndex(cut_direction->findData("forward"));flush();
+        const auto world_pixel=[&](kernel::Vec3 target) {
+            QPointF best;double distance=1e100;
+            for(int y=10;y<cut_view->height()-10;y+=2)for(int x=10;x<cut_view->width()-10;x+=2) {
+                const auto ray=cut_view->ray_at(QPointF(x,y));if(!ray)continue;
+                const kernel::Vec3 delta{target.x-ray->first.x,target.y-ray->first.y,target.z-ray->first.z};
+                const auto& d=ray->second;const double norm=d.x*d.x+d.y*d.y+d.z*d.z;
+                const double along=(delta.x*d.x+delta.y*d.y+delta.z*d.z)/norm;
+                const double error=std::pow(delta.x-along*d.x,2)+std::pow(delta.y-along*d.y,2)+std::pow(delta.z-along*d.z,2);
+                if(error<distance){distance=error;best=QPointF(x,y);}
+            }
+            return best;
+        };
+        const auto handle_start=world_pixel({0,0,12.}),handle_finish=world_pixel({0,0,20.});
+        check(window.grab().save("build/sheet-cut-length-before-drag.png"),"Sheet Cut length screenshot failed");
+        for(const auto& [type,position]:std::array{
+                std::pair{QEvent::MouseButtonPress,handle_start},
+                std::pair{QEvent::MouseMove,handle_finish},
+                std::pair{QEvent::MouseButtonRelease,handle_finish}}) {
+            QMouseEvent event(type,position,QPointF(cut_view->mapToGlobal(position.toPoint())),
+                type==QEvent::MouseMove?Qt::NoButton:Qt::LeftButton,
+                type==QEvent::MouseButtonRelease?Qt::NoButton:Qt::LeftButton,Qt::NoModifier);
+            QApplication::sendEvent(cut_view,&event);flush();
+        }
+        if(cut_length->value()<=13.) {
+            std::cerr<<"Sheet Cut drag: start="<<handle_start.x()<<","<<handle_start.y()
+                <<" end="<<handle_finish.x()<<","<<handle_finish.y()<<" length="<<cut_length->value()
+                <<" offset="<<sheet_cut->profile_plane_offset()<<"\n";
+            window.grab().save("build/sheet-cut-length-drag-failure.png");
+        }
+        check(cut_length->value()>13.,"Dragging the Sheet Cut purple endpoint did not update its length");
+        cut_forward->setCurrentIndex(cut_forward->findData("up_to"));flush();
+        auto* cut_target=sheet_cut->findChild<QLineEdit*>("extrusionForwardEndTarget");
+        check(cut_target&&cut_target->isVisible()&&cut_target->styleSheet().contains("#42d66b")&&
+            !cut_length->isVisible(),"Sheet Cut Up-to does not arm the shared target reference field");
+        cut_forward->setCurrentIndex(cut_forward->findData("through_all"));
+        cut_extent->setCurrentIndex(cut_extent->findData("two_sides"));
+        cut_reverse->setCurrentIndex(cut_reverse->findData("through_all"));flush();
+        check(!cut_length->isVisible()&&!cut_reverse_length->isVisible(),
+            "Sheet Cut Through-all retains numeric length handles");
+        static_cast<void>(purple_center());
+        cut_method->setCurrentIndex(cut_method->findData("clearance"));
+        sheet_cut->findChild<QPushButton*>("primitiveOwnSketchButton")->click();flush();
+        {QEventLoop animation;QTimer::singleShot(950,&animation,&QEventLoop::quit);animation.exec();}
+        check(cut_view,"Sheet Cut Sketcher view missing");
+        const auto sketch_position=[&](double tx,double ty) {
+            QPointF best;double distance=1e100;auto plane=sketcher::Sketch::create_default();
+            for(int y=10;y<cut_view->height()-10;y+=3)for(int x=10;x<cut_view->width()-10;x+=3) {
+                const auto ray=cut_view->ray_at(QPointF(x,y));if(!ray)continue;
+                const auto point=plane.intersect_ray(ray->first,ray->second);if(!point)continue;
+                const auto delta=std::hypot((*point)[0]-tx,(*point)[1]-ty);
+                if(delta<distance){distance=delta;best=QPointF(x,y);}
+            }
+            check(distance<.5,"Sheet Cut profile point is outside the Sketcher view");return best;
+        };
+        window.findChild<QAction*>("sketchRectangleAction")->trigger();flush();
+        for(const auto& point:{sketch_position(10.7,1.3),sketch_position(20.3,4.7)}) {
+            for(auto type:{QEvent::MouseMove,QEvent::MouseButtonPress,QEvent::MouseButtonRelease}) {
+                QMouseEvent event(type,point,QPointF(cut_view->mapToGlobal(point.toPoint())),
+                    type==QEvent::MouseMove?Qt::NoButton:Qt::LeftButton,
+                    type==QEvent::MouseButtonPress?Qt::LeftButton:Qt::NoButton,Qt::NoModifier);
+                QApplication::sendEvent(cut_view,&event);flush();
+            }
+        }
+        window.findChild<QAction*>("finishSketchAction")->trigger();flush();sheet_cut=rotation_dialog();
+        check(sheet_cut&&sheet_cut->pending_value().extrusion.sheet_cut,"Sheet Cut lost its type on return from Sketcher");
+        cut_method=sheet_cut->findChild<QComboBox*>("sheetCutMethod");
+        check(cut_method&&cut_method->currentData()=="clearance"&&sheet_cut->pending_value().extrusion.sheet_cut_clearance,
+            "Sheet Cut lost its pending calculation method after Sketcher");
+        const auto check_cut_preview=[&] {
+            const auto& wire=cut_view->transient_edges();
+            check(std::ranges::any_of(wire,[](const auto& edge){return edge.reference.semantic_key=="preview:start";}),
+                "Sheet Cut lost the analytical extruded Sketch wire");
+            check(std::ranges::any_of(wire,[](const auto& edge){return edge.reference.semantic_key.starts_with("preview:sheetcut:");}),
+                "Sheet Cut did not offer its estimated cut boundaries before OK");
+            check(std::ranges::any_of(wire,[](const auto& edge){return edge.reference.semantic_key=="preview:sheetcut:thickness";}),
+                "Sheet Cut preview omitted the wall thickness connectors");
+            check(std::ranges::all_of(wire,[](const auto& edge){return edge.color.empty()&&!edge.filled_text;}),
+                "Sheet Cut preview replaced the shared azure wire style");
+        };
+        check_cut_preview();
+        cut_method->setCurrentIndex(cut_method->findData("surface"));flush();
+        check_cut_preview();
+        cut_view->set_standard_view(viewer::StandardView::Isometric);flush();
+        {QEventLoop animation;QTimer::singleShot(950,&animation,&QEventLoop::quit);animation.exec();}
+        check(window.grab().save("build/sheet-cut-properties.png"),"Sheet Cut Properties screenshot failed");
+        sheet_cut->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+        check(!rotation_dialog(),"Sheet Cut could not commit its drawn rectangle");
+        window.findChild<QAction*>("saveDocumentAction")->trigger();flush();rotation_results.clear();
+        const auto cut_document=document::PartDocument::load(rotation_path,&rotation_results);
+        check(cut_document.history.size()==2&&cut_document.history.back().extrusion.sheet_cut&&!rotation_results.back().sheet_cuts.empty(),"GUI Sheet Cut did not persist its operation and material regions");
+        check(rotation_results.back().volume>0&&rotation_results.back().volume<360*std::numbers::pi,"GUI Sheet Cut did not remove material from the Revolved Sheet");
+        check(window.grab().save("build/sheet-cut-view.png"),"Sheet Cut screenshot failed");
+        const auto cut_volume=rotation_results.back().volume;
+        QTreeWidgetItem* cut_row=nullptr;
+        for(QTreeWidgetItemIterator it(tree);*it;++it)
+            if((*it)->data(0,Qt::UserRole).toString().toStdString()==cut_document.history.back().id&&
+                (*it)->data(0,Qt::UserRole+3)=="part-container")cut_row=*it;
+        check(cut_row,"Sheet Cut tree row missing");
+        window.show_tree_item_properties(cut_row);flush();sheet_cut=rotation_dialog();
+        check(sheet_cut&&sheet_cut->pending_value().extrusion.sheet_cut,"Editing Sheet Cut lost its operation type");
+        check(sheet_cut->findChild<QComboBox*>("sheetCutMethod")->currentData()=="surface",
+            "Sheet Cut did not restore its saved calculation method");
+        sheet_cut->findChild<QComboBox*>("sheetCutMethod")->setCurrentIndex(1);
+        check(sheet_cut->findChild<QComboBox*>("extrusionExtentMode")->currentData()=="two_sides"&&
+            sheet_cut->findChild<QComboBox*>("extrusionForwardEndCondition")->currentData()=="through_all"&&
+            sheet_cut->findChild<QComboBox*>("extrusionReverseEndCondition")->currentData()=="through_all",
+            "Sheet Cut properties lost its saved two-sided Through-all range");
+        sheet_cut->findChild<QComboBox*>("extrusionExtentMode")->setCurrentIndex(0);
+        sheet_cut->findChild<QComboBox*>("extrusionDirection")->setCurrentIndex(1);
+        sheet_cut->findChild<QComboBox*>("extrusionForwardEndCondition")->setCurrentIndex(0);
+        sheet_cut->findChild<QDoubleSpinBox*>("extrusionHeight")->setValue(23.);
+        sheet_cut->findChild<QPushButton*>("primitiveOwnSketchButton")->click();flush();
+        window.findChild<QAction*>("finishSketchAction")->trigger();flush();sheet_cut=rotation_dialog();
+        check(sheet_cut&&sheet_cut->pending_value().extrusion.sheet_cut,"Editing Sheet Cut lost its type after Sketcher");
+        check(sheet_cut->pending_value().extrusion.sheet_cut_clearance&&
+            sheet_cut->pending_value().extrusion.extent_mode==document::ProfileExtentMode::OneSide&&
+            sheet_cut->pending_value().extrusion.direction==document::ExtrusionDirection::Reverse&&
+            sheet_cut->pending_value().extrusion.end_condition_forward==document::EndCondition::Length&&
+            sheet_cut->pending_value().extrusion.length_forward==23.,
+            "Sheet Cut lost its pending direction and range after Sketcher");
+        sheet_cut->findChild<QDoubleSpinBox*>("profilePlaneOffset")->setValue(5.);
+        sheet_cut->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
+        window.findChild<QAction*>("saveDocumentAction")->trigger();flush();rotation_results.clear();
+        const auto cancelled_cut=document::PartDocument::load(rotation_path,&rotation_results);
+        check(cancelled_cut.history.back().extrusion.profile_plane_offset==cut_document.history.back().extrusion.profile_plane_offset&&
+            !cancelled_cut.history.back().extrusion.sheet_cut_clearance&&
+            cancelled_cut.history.back().extrusion.extent_mode==document::ProfileExtentMode::TwoSides&&
+            cancelled_cut.history.back().extrusion.direction==document::ExtrusionDirection::Forward&&
+            cancelled_cut.history.back().extrusion.end_condition_forward==document::EndCondition::ThroughAll&&
+            std::abs(rotation_results.back().volume-cut_volume)<1e-5,"Sheet Cut Cancel committed a pending edit");
+        cut_row=nullptr;
+        for(QTreeWidgetItemIterator it(tree);*it;++it)
+            if((*it)->data(0,Qt::UserRole).toString().toStdString()==cut_document.history.back().id&&
+                (*it)->data(0,Qt::UserRole+3)=="part-container")cut_row=*it;
+        check(cut_row,"Sheet Cut row missing after Cancel");
+        window.show_tree_item_properties(cut_row);flush();sheet_cut=rotation_dialog();
+        check(sheet_cut,"Sheet Cut did not reopen for method editing");
+        sheet_cut->findChild<QComboBox*>("sheetCutMethod")->setCurrentIndex(1);flush();
+        check_cut_preview();
+        check_cut_dialog_layout();
+        check(window.grab().save("build/sheet-cut-clearance-properties.png"),"Sheet Cut clearance screenshot failed");
+        sheet_cut->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+        check(!rotation_dialog(),"Sheet Cut profile-clearance method failed to commit");
+        window.findChild<QAction*>("saveDocumentAction")->trigger();flush();rotation_results.clear();
+        const auto clearance_cut=document::PartDocument::load(rotation_path,&rotation_results);
+        check(clearance_cut.history.back().extrusion.sheet_cut_clearance&&
+            rotation_results.back().volume>0&&rotation_results.back().volume<360*std::numbers::pi,
+            "Sheet Cut profile-clearance method did not persist and remove material");
+        // A placed active Body has local cut data; another visible sheet must
+        // neither receive a cut estimate nor apply the placement a second time.
+        auto placed_cut=clearance_cut;placed_cut.document_id=document::PartDocument::create_default().document_id;
+        auto placed_graph=placed_cut.body_history;
+        auto placed_body=*placed_graph.find(rotation_body);placed_body.scope.placement.x=60;placed_graph.update_body(placed_body);
+        static_cast<void>(placed_graph.create_body("Unrelated sheet"));
+        for(const auto& container:saved_flat.history) {
+            placed_cut.history.push_back(container);placed_graph.insert({document::PartHistoryKind::Feature,container.id});
+        }
+        placed_cut.sketches.insert(placed_cut.sketches.end(),saved_flat.sketches.begin(),saved_flat.sketches.end());
+        placed_graph.activate(rotation_body);placed_cut.set_body_history(placed_graph);placed_cut.resolve_constructions();
+        check(std::abs(placed_cut.body_history.find(rotation_body)->scope.placement.x-60)<1.e-9,
+            "Placed Sheet Cut fixture lost its Body translation");
+        const auto placed_path=directory/"sheet-cut-placed-ui.prtz";
+        placed_cut.save(placed_path,kernel.evaluate_history(placed_cut.kernel_operations()));
+        check(window.open_document_path(QString::fromStdString(placed_path.string())),"Cannot open the placed Sheet Cut fixture");flush();
+        check(activate_test_body(application,window,rotation_body),"Cannot activate the placed sheet Body");sheet->trigger();flush();
+        cut_row=nullptr;
+        for(QTreeWidgetItemIterator it(tree);*it;++it)
+            if((*it)->data(0,Qt::UserRole).toString().toStdString()==clearance_cut.history.back().id&&
+                (*it)->data(0,Qt::UserRole+3)=="part-container")cut_row=*it;
+        check(cut_row,"Placed Sheet Cut tree row missing");window.show_tree_item_properties(cut_row);flush();sheet_cut=rotation_dialog();
+        check(sheet_cut,"Placed Sheet Cut properties did not open");
+        sheet_cut->findChild<QComboBox*>("sheetCutMethod")->setCurrentIndex(0);flush();check_cut_preview();
+        double preview_xmin=std::numeric_limits<double>::infinity(),preview_xmax=-preview_xmin;
+        for(const auto& edge:cut_view->transient_edges())if(edge.reference.semantic_key.starts_with("preview:sheetcut:"))
+            for(const auto p:edge.points){preview_xmin=std::min(preview_xmin,p.x);preview_xmax=std::max(preview_xmax,p.x);}
+        check(window.grab().save("build/sheet-cut-placed-properties.png"),"Placed Sheet Cut screenshot failed");
+        if(!(preview_xmin>60&&preview_xmax<95))
+            std::cerr<<"Sheet Cut expected Body X=60, preview X range="<<preview_xmin<<".."<<preview_xmax<<'\n';
+        check(preview_xmin>60&&preview_xmax<95,"Sheet Cut preview used another Body or applied its transform twice");
+        sheet_cut->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
+        check(cut_view->transient_edges().empty(),"Sheet Cut Cancel left transient boundaries behind");
         // Exercise edge attachment through the real dialog, including source thickness and endpoints.
         check(window.open_document_path(QString::fromStdString(flat_path.string())),"Cannot return to Flat for Sheet Revolution attachment");flush();
         check(activate_test_body(application,window,flat_body),"Cannot activate attachment body");sheet->trigger();flush();
@@ -3877,6 +4132,117 @@ int verify_application_tools_ui(QApplication& application,const std::filesystem:
         window.findChild<QAction*>("finishSketchAction")->trigger();flush();rotation=rotation_dialog();
         check(rotation,"Attached Sheet Revolution Sketcher did not return");
         rotation->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
+        // A Flat must continue a Revolved Sheet through the same offered edge
+        // and three automatic references used for a Sheet Profile end.
+        {
+            auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>("modelWorkspace"));
+            check(view,"Revolved Sheet attachment view missing");
+            const auto geometry=view->mesh().original_references;
+            const auto source_id=attached_rotation.history.back().id;
+            const auto terminal=std::ranges::find_if(geometry.edges,[&](const auto& edge) {
+                if(edge.reference.owner_id!=source_id)return false;
+                try {return document::flat_sheet_references(edge)[1].semantic_key.starts_with("end:from:");}
+                catch(const std::exception&){return false;}
+            });
+            check(terminal!=geometry.edges.end(),"Revolved Sheet has no outer terminal edge for Flat");
+            const auto expected_refs=document::flat_sheet_references(*terminal);
+            view->set_standard_view(viewer::StandardView::Isometric);view->fit_all();flush();
+            {QEventLoop animation;QTimer::singleShot(950,&animation,&QEventLoop::quit);animation.exec();}
+            flat_action->trigger();flush();flat=flat_dialog();check(flat,"Flat on Revolved Sheet did not open");
+            auto* references=flat->findChild<QTableWidget*>("sketchReferenceTable");
+            check(references,"Flat placement reference table missing");
+            references->cellClicked(0,1);view->set_selection_filter(viewer::SelectionFilter::Curves);flush();
+            const auto a=terminal->points.front(),b=terminal->points.back();
+            const kernel::Vec3 middle{(a.x+b.x)/2,(a.y+b.y)/2,(a.z+b.z)/2};
+            QPointF projected;double distance=1e100;
+            for(int y=10;y<view->height()-10;y+=2)for(int x=10;x<view->width()-10;x+=2) {
+                const auto ray=view->ray_at(QPointF(x,y));if(!ray)continue;
+                const kernel::Vec3 delta{middle.x-ray->first.x,middle.y-ray->first.y,middle.z-ray->first.z};
+                const auto d=ray->second;const double along=(delta.x*d.x+delta.y*d.y+delta.z*d.z)/(d.x*d.x+d.y*d.y+d.z*d.z);
+                const double error=std::pow(delta.x-along*d.x,2)+std::pow(delta.y-along*d.y,2)+std::pow(delta.z-along*d.z,2);
+                if(error<distance){distance=error;projected=QPointF(x,y);}
+            }
+            std::optional<QPointF> hit;std::size_t offered_index{};
+            for(int dy=-4;dy<=4&&!hit;++dy)for(int dx=-4;dx<=4&&!hit;++dx) {
+                const auto pixel=projected+QPointF(dx,dy);const auto candidates=view->selection_candidates_at(pixel);
+                for(std::size_t i=0;i<candidates.size();++i)if(candidates[i].kind==viewer::CandidateKind::Edge&&
+                    candidates[i].owner_id==source_id&&candidates[i].semantic_key==terminal->reference.semantic_key) {
+                    hit=pixel;offered_index=i;break;
+                }
+            }
+            check(hit.has_value(),"Common Flat hover list rejected the Revolved Sheet terminal edge");
+            const auto mouse=[&](QEvent::Type type,Qt::MouseButton button,Qt::MouseButtons buttons) {
+                QMouseEvent event(type,*hit,QPointF(view->mapToGlobal(hit->toPoint())),button,buttons,Qt::NoModifier);
+                QApplication::sendEvent(view,&event);flush();
+            };
+            mouse(QEvent::MouseMove,Qt::NoButton,Qt::NoButton);
+            for(std::size_t i=0;i<offered_index;++i) {
+                mouse(QEvent::MouseButtonPress,Qt::RightButton,Qt::RightButton);
+                mouse(QEvent::MouseButtonRelease,Qt::RightButton,Qt::NoButton);
+            }
+            check(view->hovered_candidate()&&view->hovered_candidate()->owner_id==source_id&&
+                view->hovered_candidate()->semantic_key==terminal->reference.semantic_key,
+                "Flat hover does not match its common Revolved Sheet candidate");
+            mouse(QEvent::MouseButtonPress,Qt::LeftButton,Qt::LeftButton);
+            mouse(QEvent::MouseButtonRelease,Qt::LeftButton,Qt::NoButton);
+            view->set_selection_filter(viewer::SelectionFilter::All);flush();
+            const auto pending=flat->pending_value();const auto& frame=pending.first;
+            check(pending.second.references.size()==3&&frame.external_references.size()==2,
+                "Revolved Sheet edge did not fill Flat references and external endpoints");
+            for(std::size_t i=0;i<expected_refs.size();++i)
+                check(pending.second.references[i].owner_id==expected_refs[i].owner_id&&
+                    pending.second.references[i].semantic_key==expected_refs[i].semantic_key,
+                    "Flat click confirmed different Revolved Sheet references");
+            check(!flat->findChild<QCheckBox*>("flatThicknessOverride")->isEnabled()&&
+                !flat->findChild<QDoubleSpinBox*>("flatThickness")->isEnabled()&&
+                flat->findChild<QDoubleSpinBox*>("flatThickness")->value()==2.,
+                "Flat did not inherit and protect Revolved Sheet thickness");
+            const auto near=[](const auto& p,const auto& q){return std::hypot(p.x-q.x,p.y-q.y,p.z-q.z)<1e-7;};
+            const auto cap=std::ranges::find_if(geometry.triangle_references,[&](const auto& face) {
+                return face.owner_id==source_id&&face.semantic_key==expected_refs[1].semantic_key;
+            });
+            check(cap!=geometry.triangle_references.end(),"Revolved Sheet cap has no persisted triangles");
+            const auto triangle=3*std::distance(geometry.triangle_references.begin(),cap);
+            const auto p=geometry.vertices[geometry.triangles[triangle]],q=geometry.vertices[geometry.triangles[triangle+1]],r=geometry.vertices[geometry.triangles[triangle+2]];
+            const kernel::Vec3 u{q.x-p.x,q.y-p.y,q.z-p.z},v{r.x-p.x,r.y-p.y,r.z-p.z};
+            kernel::Vec3 normal{u.y*v.z-u.z*v.y,u.z*v.x-u.x*v.z,u.x*v.y-u.y*v.x};
+            const double magnitude=std::hypot(normal.x,normal.y,normal.z);normal={normal.x/magnitude,normal.y/magnitude,normal.z/magnitude};
+            check(near(frame.resolved_y_axis,normal),"Flat Sketch does not continue out of the Revolved Sheet terminal cap");
+            const kernel::Vec3 interior{(p.x+q.x+r.x)/3-middle.x,(p.y+q.y+r.y)/3-middle.y,(p.z+q.z+r.z)/3-middle.z};
+            check(frame.resolved_normal.x*interior.x+frame.resolved_normal.y*interior.y+frame.resolved_normal.z*interior.z<0,
+                "Flat thickness points away from the Revolved Sheet material");
+            for(const auto& ref:frame.external_references) {
+                check(ref.cached_points.size()==1,"Flat external endpoint is unresolved");
+                const auto world=frame.world_point(ref.cached_points[0][0],ref.cached_points[0][1]);
+                check(near(world,a)||near(world,b),"Flat external point moved off its Revolved Sheet endpoint");
+            }
+            check(flat->mutate_sketch(frame.id,[](auto& s) {
+                const auto first=s.external_references[0].cached_points.front(),last=s.external_references[1].cached_points.front();
+                static_cast<void>(s.add_rectangle(std::min(first[0],last[0]),0,std::max(first[0],last[0]),12));
+            }),"Cannot draw Flat continuation from Revolved Sheet endpoints");
+            flat->findChild<QPushButton*>("sketchOpenButton")->click();flush();
+            for(bool x:{false,true}) {
+                const auto& axes=view->mesh().axes;
+                const auto axis=std::ranges::find_if(axes,[&](const auto& value){return value.reference.owner_id==frame.id&&
+                    value.reference.semantic_key==(x?"sketch_axis:x":"sketch_axis:y");});
+                check(axis!=axes.end()&&near(axis->point,frame.resolved_origin)&&
+                    near(axis->direction,x?frame.resolved_x_axis:frame.resolved_y_axis),
+                    "Flat on Revolved Sheet changed its frame in Sketcher");
+            }
+            window.findChild<QAction*>("finishSketchAction")->trigger();flush();
+            check(flat->isVisible()&&flat->pending_value().first.external_references.size()==2,
+                "Flat on Revolved Sheet lost its attachment after Sketcher");
+            check(window.grab().save("build/flat-revolved-sheet-attachment.png"),"Revolved Sheet Flat screenshot failed");
+            flat->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+            check(!flat_dialog(),"Flat continuation on Revolved Sheet failed to commit");
+            window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+            std::vector<kernel::BodyResult> continued_results;const auto continued=document::PartDocument::load(flat_path,&continued_results);
+            check(continued.history.size()==3&&continued.history.back().flat.sheet_attachment&&
+                continued.history.back().placement.references.front().owner_id==source_id,
+                "Flat on Revolved Sheet did not persist its source attachment");
+            check(std::abs(continued_results.back().volume-rotation_results.back().volume-40.*12.*2.)<1e-5,
+                "Flat on Revolved Sheet overlaps material or leaves its terminal cap");
+        }
         // Exercise the actual Sheet Metal command on an otherwise empty Body.
         auto bend_part=document::PartDocument::create_default();document::BodyHistoryGraph bend_graph;
         const auto bend_body=bend_graph.create_body("Bend body");bend_part.set_body_history(bend_graph);

@@ -10,6 +10,8 @@ void require_positive(double value, const char* field) {
 }
 void load_profile_parameters(HistoryContainer& container, const nlohmann::json& source) {
     if (container.feature_kind == FeatureKind::Extrusion) {
+            container.extrusion.sheet_cut = source.at("sheet_cut");
+            container.extrusion.sheet_cut_clearance = source.at("sheet_cut_clearance");
             container.extrusion.sketch_id = source.at("sketch_id").get<std::string>();
             container.extrusion.profile_source = source.at("profile_source") == "internal"
                 ? ProfileSource::Internal : source.at("profile_source") == "external"
@@ -211,6 +213,8 @@ void load_profile_parameters(HistoryContainer& container, const nlohmann::json& 
 void save_profile_parameters(const HistoryContainer& container, nlohmann::json& serialized) {
     if (container.feature_kind == FeatureKind::Extrusion) {
             serialized["sketch_id"] = container.extrusion.sketch_id;
+            serialized["sheet_cut"] = container.extrusion.sheet_cut;
+            serialized["sheet_cut_clearance"] = container.extrusion.sheet_cut_clearance;
             serialized["profile_source"] = container.extrusion.profile_source ==
                     ProfileSource::Internal ? "internal" : "external";
             serialized["result_type"] = container.extrusion.result_type ==

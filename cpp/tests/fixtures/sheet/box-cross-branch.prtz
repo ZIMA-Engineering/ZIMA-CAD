@@ -123,7 +123,7 @@ dimension_layouts=[]
 document_id=01a0af5d46a97ac7bdafefbc7c826e64
 family={"evaluated":{},"parent":"","row":""}
 family_table={"bindings":{},"columns":[],"instances":[]}
-format_version=36
+format_version=38
 history_cursor=5
 measurements=[]
 name=03
@@ -132,6 +132,7 @@ sections=[]
 type=part
 
 [DocumentPrecision]
+sheet_cut_tolerance=0.05
 angular_tolerance=0.001
 decimal_places=3
 linear_tolerance=0.001

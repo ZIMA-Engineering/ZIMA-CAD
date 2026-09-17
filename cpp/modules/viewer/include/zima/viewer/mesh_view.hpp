@@ -209,6 +209,7 @@ public:
     void set_transient_point_transform(
         std::function<zima::kernel::Vec3(const zima::kernel::Vec3&)> transform);
     void set_transient_edges(std::vector<zima::kernel::ViewerEdge> edges);
+    [[nodiscard]] const std::vector<zima::kernel::ViewerEdge>& transient_edges() const;
     // Live feature dimensions are a lightweight overlay. Updating them must
     // not invalidate or upload the (potentially very large) base body mesh.
     void set_transient_dimensions(

@@ -210,7 +210,7 @@ zima::workspace::NativeTemplateSettings native_template_settings(const Applicati
     return {std::filesystem::u8path(settings.resolved_paths.value("Templates").toStdString()),
         std::filesystem::u8path(settings.part_template.toStdString()),
         std::filesystem::u8path(settings.assembly_template.toStdString()),
-        QObject::tr("Těleso 1").toStdString()};
+        QObject::tr("Těleso 1").toStdString(),settings.sheet_cut_tolerance};
 }
 
 zima::document::PartDocument new_part_from_template(const ApplicationSettings& settings) {

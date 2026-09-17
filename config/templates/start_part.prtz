@@ -13,7 +13,7 @@ dimension_layouts=[]
 document_id=template-start-part
 family={"parent":"","row":"","evaluated":{}}
 family_table={"bindings":{},"columns":[],"instances":[]}
-format_version=36
+format_version=38
 history_cursor=0
 measurements=[]
 name=Startovací díl
@@ -22,6 +22,7 @@ sections=[]
 type=part
 
 [DocumentPrecision]
+sheet_cut_tolerance=0.05
 angular_tolerance=0.001
 decimal_places=3
 linear_tolerance=0.001

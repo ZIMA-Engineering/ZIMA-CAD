@@ -108,7 +108,19 @@ See [Drawings](doc/DRAWINGS.md), [Sketcher](doc/SKETCHER.md),
 
 ## Agreed next steps for Part (2026-09-06)
 
-**Next-session priority agreed on 2026-09-16:** finish the Bend trajectory-reference
+**Current sheet-metal checkpoint (2026-09-18):** Sheet Profile and Revolved Sheet
+creation, both Sheet Cut methods, lightweight cut previews, configurable cut
+tolerance and Flat attachment to Revolved Sheet end edges are implemented and
+verified. The next agreed direction is a pair of separate history operations,
+Unbend and Bend Back, developed together and carrying cuts between states.
+The proposed first milestone covers Flat, Sheet
+Profile and cylindrical Revolved Sheet, followed by conical regions. See the
+[Unbend development handoff](doc/SHEET_METAL.md#next-development-separate-unbend-2026-09-18).
+The current request is to document, commit and push the completed work; it does
+not start implementation of that pair. The general Part order below remains unchanged
+after the user's current sheet-metal work.
+
+**Earlier next-session priority agreed on 2026-09-16:** finish the Bend trajectory-reference
 behavior exposed by `Projects/03.prtz` before resuming the general Part sequence.
 The attached Flat stays at its last valid frame on Unbend because a reference to
 the authored arc endpoint conflicts with the moved End cap and end profile.

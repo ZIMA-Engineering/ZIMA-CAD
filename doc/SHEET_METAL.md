@@ -1,5 +1,11 @@
 # Sheet Metal
 
+The current material-creation commands are **Flat**, **Sheet Profile** and
+**Revolved Sheet**, followed by **Sheet Cut**. Earlier sections use Bend and
+Sheet Revolution for the latter two creators; their internal feature and CLI
+identifiers remain unchanged. See [Sheet Cut and material-space boundaries](#sheet-cut-and-material-space-boundaries-2026-09-17)
+for the new command and current naming.
+
 ## Implemented document defaults
 
 Select **Sheet Metal** in the application dropdown above the right-hand Part
@@ -15,6 +21,9 @@ File Settings from Tools accesses the same fields, dialog and transaction.
 - **Default K factor** is the Part's material property `SHEETMETAL_K_FACTOR`.
   It accepts finite numbers from 0 to 1. When the material has no value, the
   initial default is 0.5; it is not a material-specific manufacturing calibration.
+- **Sheet Cut tolerance** is the permitted calculation deviation, initially
+  **0.05 mm**. Its configuration and native document storage are described in
+  [Sheet Cut](#sheet-cut-and-material-space-boundaries-2026-09-17).
 
 Defaults are stored in the native Part. Thickness uses the shared document
 parameter `SHEETMETAL_THICKNESS`; K factor uses the existing material property,
@@ -22,10 +31,11 @@ with dimensionless unit `1`. These are existing native metadata stores; no file
 format change, sidecar, or template conversion is needed. Loading another material
 can change its K factor while leaving the document thickness intact.
 
-OK commits both defaults together. Cancel discards pending edits. The shared
+OK commits the settings together. Cancel discards pending edits. The shared
 properties-window behavior includes confirmation by middle-button double-click
 over the owning View. Undo/Redo and native save/reopen retain the settings.
-Changing these defaults calculates Parts containing Flat or Bend before committing
+Changing the material defaults calculates Parts containing Flat, Sheet Profile
+or Revolved Sheet before committing
 the settings and geometry together. Calculation errors leave the previous state
 intact. Parts without sheet features keep their calculated geometry. The settings
 belong to the active Part source, including while editing it inside an Assembly;
@@ -53,18 +63,21 @@ make openings. The feature uses the same exact profile extrusion calculation as
 Extrusion; an open or empty outline cannot be committed. The cyan wire previews
 the pending sheet without invoking the solid kernel.
 
-### Automatic Flat attachment to Bend
+### Automatic Flat attachment to sheet end faces
 
 Flat retains ordinary free placement. Selecting a straight outer boundary of a
-Bend Start or End cap in the first reference field activates automatic attachment.
-Inner boundaries, curved Bend edges and thickness edges are excluded from this
-shortcut. Hover and confirmation use the same eligibility check and still obey
-the user's selection filters.
+Sheet Profile or Revolved Sheet Start or End cap in the first reference field
+activates automatic attachment. The boundary must belong to the persisted
+Side A skin and a terminal thickness face. This includes straight generators
+at the ends of cylindrical and conical Revolved Sheets. Inner boundaries,
+curved rim edges and thickness edges are excluded from this shortcut. Hover
+and confirmation use the same eligibility check and still obey the user's
+selection filters.
 
 The edge, its joining cap and a native endpoint fill the placement references.
 The profile lies in the outer tangent plane and its positive Y direction leaves
 the cap. Thickness defaults to **Second side**, toward the inner radius, and
-inherits the source Bend thickness. The profile remains an ordinary editable
+inherits the source sheet thickness. The profile remains an ordinary editable
 closed Sketch; the command does not prescribe its outline. Direction remains
 editable, but changing it can intentionally remove the full-thickness connection.
 
@@ -149,6 +162,20 @@ elliptical openings and their axes, Sketch dimension changes, a changed work
 plane, save/reopen, Undo/Redo, Family thickness and invalid-input rollback.
 The application-tools UI contract covers real toolbar/dialog/Sketcher transitions,
 empty-profile rejection, Cancel, middle-button OK and the application dropdown.
+
+Flat attachment to Revolved Sheet is covered by cylinder/cone cases with both
+terminal caps, both axis orientations, both rotation directions and all three
+thickness modes. The checks change the source angle from 35 to 180 degrees,
+reverse the edge parameterization, retain endpoint identities through native
+save/reopen, and independently check the tangent frame and inward thickness.
+Inner and thickness edges remain rejected; a full 360-degree revolution has no
+terminal cap to attach to. The application-tools test also offers the actual
+terminal edge through the common hover list with the Curves filter, confirms
+it by LMB, enters and leaves Sketcher, commits and reloads the resulting Part.
+All 48 native combinations and existing Flat/Bend tests passed in
+`build/flat-revolution-attachment-tests.log`. The application-tools UI contract
+passed after the final GUI rebuild; `build/flat-revolved-sheet-attachment.png`
+was visually inspected.
 
 Modeling Extrusion and Revolution can use a Flat face as their Sketch support,
 including in a Part with evaluated Family Table variants. A newly owned Sketch
@@ -250,8 +277,8 @@ selects one of its two persisted endpoints. Geometry and validation use the same
 workspace transaction as GUI OK.
 
 Sheet metadata is stored in native documents, including saved original-reference
-packets and assembly/drawing copies. Current format versions are Part INI 36 /
-JSON 60, Assembly INI 30 / JSON 42, and Drawing INI 18 / JSON 10. The tracked start templates
+packets and assembly/drawing copies. Current format versions are Part INI 38 /
+JSON 62, Assembly INI 32 / JSON 44, and Drawing INI 18 / JSON 10. The tracked start templates
 use those versions; there is no legacy-format migration path.
 
 **Bend** is available in the Sheet Metal toolbar and contextual **Insert** menu.
@@ -678,7 +705,7 @@ the edited feature at their existing rollback boundary; later failures remain
 visible diagnostics. Regeneration retries failed references so that correcting
 an upstream parameter restores geometry and clears errors automatically.
 
-The current native format is Part INI 36 / JSON 60 and Assembly INI 30 / JSON 42.
+The current native format is Part INI 38 / JSON 62 and Assembly INI 32 / JSON 44.
 `reference_errors` is stored inside the native Part and participates in operation
 fingerprints. Failed states therefore reopen with their diagnostics and the
 correct valid-prefix geometry. Both start templates are updated.
@@ -772,7 +799,7 @@ ancestry; the viewer does not classify them through live kernel traversal.
 The CLI `revolution.create` and `revolution.set` expose `sheet_metal` and
 `thickness_override` alongside the existing profile/axis/angle arguments.
 
-Current native versions are Part INI 36 / JSON 60 and Assembly INI 30 / JSON 42.
+Current native versions are Part INI 38 / JSON 62 and Assembly INI 32 / JSON 44.
 Both start templates are updated. Drawing remains INI 18 / JSON 10. No required
 sidecar is introduced. Unfolding Sheet Revolution is deliberately not implemented
 in this step; cylindrical and conical developments need a separate design.
@@ -829,3 +856,319 @@ neutral-surface rule, seam for a complete revolution and behavior of attached
 downstream features require separate implementation and verification. No unfold
 result or manufacturing allowance for this feature is claimed by the current
 geometry-creation tests.
+
+## Sheet Cut and material-space boundaries (2026-09-17)
+
+The material-creating commands are now labelled **Sheet Profile** (formerly
+Bend) and **Revolved Sheet** (formerly Sheet Revolution). Their internal feature
+kinds and command identifiers remain unchanged. The existing folded-state
+control remains available until separate Unbend and Bend Back operations exist.
+
+**Sheet Cut** is a Part-owned history operation in the Sheet Metal toolbar and
+Insert menu. Create its placement, enter the owned Sketch, draw a closed profile,
+and confirm the shared properties window. As with subtractive Extrusion, choose
+the direction, one-sided/two-sided/symmetric extent, and Length, Up To or Through
+All ending. The profile is projected within that range onto the reference side
+(Side A) of intersected sheet regions
+in the current Body. Each projected domain is carried normally through the full
+local sheet thickness. It supports planar, cylindrical and conical source skins,
+including Sheet Profile and Revolved Sheet. A profile missing every supported
+sheet region is rejected without committing a history item.
+
+The **Cut method** selector provides two normal-through-thickness calculations:
+
+- **By surface** is the original method and the default. The authored footprint
+  belongs to Side A. Its continuation follows the local surface normal, so the
+  opening on the opposite skin need not admit the entire original Sketch prism.
+- **Profile clearance** removes the complete material fibres needed for the
+  original profile to pass through the opening. It includes intersections at
+  intermediate thickness depths, preserving islands where they still fit.
+  The calculated boundary is shared through thickness; the operation does not
+  substitute an ordinary oblique solid cut.
+
+In Profile clearance mode, the selected projection range identifies connected
+wall intersections. A reached wall is cut through its entire thickness even
+when the requested endpoint lies inside it or the projection approaches Side B.
+Disconnected wall intersections beyond that range remain untouched.
+
+The agreed default maximum calculation deviation for Sheet Cut is **0.05 mm**.
+This is a permitted geometric approximation, not a mandatory enlargement of
+every opening, a manufacturing guarantee, or a change to the modeler's general
+linear tolerance. The calculation should use the simplest construction that
+meets this bound and still produces a valid solid with the requested profile
+clearance. Tighter calculations are not required merely to pursue additional
+decimal places. Live wire estimates remain separate from the final body
+calculation and do not carry this accuracy guarantee.
+
+The application default is `SheetMetal/CutTolerance` in `config/config.ini`
+(millimetres, default `0.05`). A malformed application value logs a warning and
+uses `0.05` rather than preventing startup. A new Part, including a source Part
+generated by Assembly STEP/IGES import, copies it into its native document
+precision setting, `sheet_cut_tolerance`. Opening a Part uses its saved value;
+changing another computer's application config cannot silently change the
+Part's next calculation. The value is editable in File Settings on the Sheet
+Metal page, or through `document.settings.set` with
+`precision.sheet_cut_tolerance`. It must be finite and between `0.000001` and
+`1` mm; invalid document settings are rejected. Confirming a change recalculates
+affected Sheet Cut features; opening the dialog or cancelling does not
+calculate or change the document.
+
+The interactive performance target is **1–2 seconds for a typical individual
+Sheet Cut** on the development machine. Report that operation separately from
+file loading, saving, and regeneration of earlier history. This is a target,
+not a guarantee for arbitrarily complex profiles or bodies. The lightweight
+wire preview must not wait for the body calculation.
+
+The cyan wire preview shows both the profile projection range and the estimated
+cut boundaries on the reached sheet regions. Both use the ordinary cyan wire
+style; the preview does not calculate, replace, or shade a result solid.
+It consumes persisted surface and viewer data, caches its derived wire, and
+updates only when the pending geometry or parameters change. Hover and painting
+do not calculate cut geometry. The result body is calculated only after OK or
+explicit regeneration; there is no OCCT calculation in the live preview.
+The estimate uses the existing surface tessellation and at most five thickness
+samples for Profile clearance. A nonplanar Up To target uses its displayed
+envelope. Explicit facet, profile-point and interval-work limits bound the
+transient calculation, including meshes outside the cut footprint and densely
+slotted profiles parallel to the projection. An incomplete or excessively
+complex profile retains only the projection wire; partial or stale cut
+estimates are never shown. Empty estimates are cached as well, so repeated
+view updates do not retry an over-budget calculation. Existing calculated cut
+edges can be reused unchanged when opening Properties. Each dialog consumes the
+active Body's local input and the existing occurrence transform exactly once.
+The shared purple direction and extent controls support direction reversal and
+dragging a numeric length. Up To uses the ordinary target-reference picker. Creation
+and editing reuse the existing profile dialog, rollback and confirmation rules.
+Length limits which sheet regions the projection reaches; it does not create
+a partial-thickness pocket. There are no Surface, Thin or add-material modes.
+One operation can cut several disconnected sheets in the current Body.
+Assembly-owned cuts remain ordinary solid operations; activate a source Part to
+create a Sheet Cut.
+
+### Calculation and ownership
+
+1. Build an ordinary projection prism from the authored Sketch and its selected
+   direction, extent and end conditions.
+2. For By surface, intersect that prism with each actual input Side A face.
+   For Profile clearance, identify the connected wall passages reached by that
+   range, then determine the complete normal-fibre envelope of the profile
+   through those passages. Verify the envelope against the required passage
+   volume before accepting it.
+3. Record the trimmed surface domain and offset it into the material by the
+   source sheet thickness to create a closed cutting tool.
+4. Subtract the resulting tool collection from the current body.
+
+For a cylinder, the thickness traversal is radial, rather than parallel to the
+Sketch normal. Source skin orientation comes from its occurrence in the input
+solid, not the standalone generator face. A simple-offset wall is located through
+its source trim edge. Boolean history propagates these pre-authored references;
+OCCT face enumeration does not define persistent identity.
+
+Profile clearance uses direct constructions for common cases. A planar
+polygonal passage is the union of projected boundary faces. A convex polygonal
+prism on a cylinder or cone is evaluated as half-space constraints on axial
+position and normal depth at each angular coordinate. Analytic angular events
+split its boundary when the active constraints change; the prism may be oblique
+to the sheet axis. A circular passage
+perpendicular to a cylinder axis has two skin-envelope curves and two analytic
+tangency connectors. For a circular or elliptical profile on a cone, fixing the
+angular coordinate maps the profile's unit disk affinely into axial position
+and normal depth; its extrema inside the thickness strip come from a skin or a
+disk tangency. Ellipse axes may be rotated within the profile plane.
+These cases avoid repeated thickness-section Booleans. Other curved profiles
+use bounded refinement with a Sheet-Cut-tolerance-limited margin and must pass the
+same three-dimensional clearance check. Failure to establish clearance rejects
+the feature rather than accepting a narrowed opening. Numerical sections are
+calculation aids, never persisted topology identities.
+
+Before the sampled envelope is saved, contiguous boundary pieces with the same
+authored ancestry are consolidated into one rational B-spline edge. Its small
+join tolerance is expressed in physical units within the cut's deviation
+budget, and the resulting domain must still pass the clearance check. Separate
+runs are distinguished by their ordered neighboring semantic boundaries and
+outer/hole role; genuinely ambiguous identities are rejected. Sample depth or
+OCCT traversal position never distinguishes persisted cut boundaries.
+
+The analytic cone offset accounts for indirect surface frames explicitly: OCCT
+8's cone branch does not apply the handedness correction used by its cylinder
+branch. A conical tool crosses the opposite skin by ten Boolean tolerances so
+separately represented coincident cones cannot retain a zero-thickness closing
+face. Planar and cylindrical tools retain their exact depth at sheet junctions.
+This is numerical clearance of the derived tool; saved thickness and material
+domains retain their exact authored values.
+
+One cut owns all affected regions. Calculated native BodyResult packets retain
+`sheet_cuts`, including the cut owner, source face identity, analytic surface
+frame (including both X and Y to preserve handedness), thickness and oriented
+rational B-spline trimming loops in surface UV
+coordinates. Boundary identities encode their source face and authored projection
+or input-edge parents. Subsequent history operations preserve the earlier cut
+records. These are original cut definitions, not a second independently editable
+model or a promise that later arbitrary solid machining remains developable.
+
+The native Extrusion definition carries `sheet_cut`; the command host exposes it
+through `extrusion.create` and `extrusion.set`. Enabling it selects subtraction
+and a solid profile while retaining the ordinary Extrusion range parameters.
+The `sheet_cut_clearance` parameter selects Profile clearance; false selects
+By surface. The mode is persisted and included in the geometry fingerprint.
+Native versions are
+Part INI 38 / JSON 62 and Assembly INI 32 / JSON 44; both tracked start templates
+are updated. Drawing is unchanged. All required data lives in the native document.
+
+### Limits of this step
+
+The saved UV domains belong to the source skin. Mapping them onto the neutral
+surface using thickness and K factor, generating developed solids, and carrying
+cuts through future Unbend/Bend Back operations are separate work. The existing
+feature-local folded-state toggle still regenerates history; it is not that new
+material-transport operation. No flattening of arbitrary oblique or partial-depth
+solid cuts is claimed. Sheet Cut currently projects onto all intersected supported
+reference skins in the current Body; it has no individual region collector.
+
+### Sheet Cut verification
+
+All thirteen focused suites passed in
+`build/sheet-cut-preview-clearance-final-tests.log` (193.49 seconds), including
+the GUI, native geometry, wire preview, settings, document creation, and
+Assembly import tests. Both copied user-case modes then regenerated, saved,
+and reopened successfully. This is focused verification, not a full repository
+test run or a new portable release.
+
+The subsequent boundary-consolidation fix passed the complete native Bend
+suite in `build/sheet-cut-clearance-pass35-tests.log`. Its final endpoint
+preservation and physical metric bounds passed the focused clearance run in
+`build/sheet-cut-clearance-pass38-generic.log` and the actual three-cut case in
+`build/sheet-cut-clearance-pass38-actual-pins.log`. Consolidation reuses copied
+shared endpoints and their bounded tolerances, preserving the original wire
+connections without changing source geometry. The generic cylinder/ellipse
+case checks unique persisted boundary identities, identical identities after
+regeneration, the independent profile-prism test, and the physical-deviation
+volume band.
+
+The final GUI/CLI rebuild and the profile/application-tools suites passed in
+`build/sheet-cut-finishing-tests.log` (31.55 seconds). Both user-case copies then
+regenerated, saved and reopened successfully with the final implementation.
+The updated `build/sheet-cut-clearance-properties.png` was visually inspected:
+the fixed subtraction mode has no redundant Operation row, and SKETCH and
+OK/Cancel remain separate without overlap.
+
+The calculation regression checks independently derived removed volumes for a
+Flat, cylindrical Revolved Sheet, curved Sheet Profile and the same Profile with
+a tangent straight continuation. Eight cone cases combine positive/negative
+taper, reversed generator direction and reversed rotation axis, with exact
+independent volume expectations. Separate cases cut through a Flat and an
+attached Profile or conical Revolved Sheet with one operation and verify both
+source owners survive. Three disconnected Flats test forward/reverse, bounded,
+two-sided, symmetric, Through All and Up To ranges, including saved limits.
+Conical and circular cuts, consecutive cuts, a closed profile with a retained
+inner material island, rejection of a non-intersecting profile, native save/reopen,
+fresh recalculation and Undo/Redo are covered. Source surface frames, including
+both UV directions, and trimming loops round-trip through the native files.
+
+The application-tools test checks the visible range controls and forbidden
+result modes, reverses the purple cue, drags its length endpoint, arms an Up To
+reference, and draws and commits a Sheet Cut in the actual Sketcher. It reopens
+properties, enters and leaves the owned Sketch, and verifies Cancel does not
+commit pending range changes. The screenshots `build/sheet-cut-properties.png`
+and `build/sheet-cut-view.png` were visually inspected. The remaining suites cover Bend attachment, history recovery,
+general geometry, Assembly persistence, ordinary profile operations and Flat.
+
+Configuration tests cover GUI/CLI override layers, invalid-value warning and
+fallback, atomic saving, new-Part defaults, native save/reopen, and preserving
+an existing Part when the application default changes. STEP and IGES imports
+also save the configured tolerance in their newly created Parts. The Sheet
+Metal settings screenshot `build/sheet-metal-settings.png` was visually
+inspected; its tolerance field uses the existing internal dialog layout.
+
+The standalone wire-preview test deliberately does not link the OCCT kernel.
+It checks both sheet skins and thickness connectors, retained islands,
+disconnected sheets outside the range, cylinders and both cone slopes with
+reversed material sides, and walls parallel to the projection. It also checks
+that unchanged updates reuse the cached wire, changed geometry invalidates it,
+incomplete input clears it, and excessive mesh/profile/interval work falls back
+to the projection wire without repeated attempts. The GUI test checks both
+wires, mode persistence through Sketcher and Cancel, and a translated active
+Body next to unrelated visible geometry.
+
+A copied user case, `Projects/01.prtz`, reproduced an indirect conical skin with
+a cut domain but no corresponding cone material removal. After correction, a
+single operation cuts both the Flat and cone. Its one-sided Reverse projection
+matches both-direction Through All; Forward correctly misses the material.
+The copy was regenerated with complete face references and no calculation
+errors; the original project was not changed.
+
+The Profile clearance copy additionally passes an independent ordinary-prism
+check immediately after each of its three Sheet Cuts. Subtracting the original
+authored profile prism at a `0.0000001` mm Boolean tolerance changes the result
+volume by less than `0.000000688` mm³ in each case (test limit `0.00001` mm³).
+The same prisms intersect positive material volumes before their respective
+cuts, so these are not empty or misplaced probes. This volume check is not a
+measurement of maximum boundary displacement.
+
+The measured individual calculation times are **0.705 s, 0.653 s, and 1.128 s**
+with preceding history boundaries reused. A separate full regeneration took
+**2.299 s**. These measurements exclude file loading/saving and the additional
+verification operations. All three individual cuts meet the agreed 1–2 second
+target on the development machine. Evidence:
+`build/sheet-cut-clearance-pass38-actual-pins.log`. The final calculated volume
+is `170293.6812135352` mm³. The source project's SHA-256 remains
+`E141C4CC191DCB528A77F8126860ACF44B7AD73B70975ECC11F776B2B9DCE29C`.
+
+## Next development: separate Unbend (2026-09-18)
+
+Status: discussed next step, not implemented. The current checkpoint completes
+Sheet Cut and Flat attachment to Revolved Sheet; the user requested documentation,
+commit and push before further development. No new portable release is included
+in this checkpoint.
+
+The agreed direction is to develop two separate history commands together:
+**Unbend** (Czech UI: **Rozvinout**) and **Bend Back** (Czech UI: **Ohnout zpět**).
+Bend Back references a specific Unbend operation, restores its original selected
+bends, and carries cuts made in the developed state back into the folded result.
+It creates another history operation rather than undoing the Unbend transaction.
+A separate command for bending an existing flat sheet along an authored line
+remains subsequent work. These operations are distinct from the material-creating
+Sheet Profile and Revolved Sheet commands. Their current feature-local folded
+state control remains available until its replacement is implemented and verified.
+
+- **Input:** the calculated sheet at the operation's history boundary, including
+  its existing Sheet Cuts, persisted source ancestry, thickness and K factor.
+  The user chooses a fixed planar reference or an originating history feature,
+  then the regions to unfold, including an all-regions option.
+- **Means:** use the sheet regions' persisted material coordinates and cut
+  boundaries to select the appropriate neutral-surface mapping for each supported
+  region. Do not replay an ordinary world-space subtraction after unfolding or
+  infer ownership from result-body enumeration.
+- **Output:** a new calculated history result with the selected regions unfolded
+  and cuts carried into that result. The folded input remains preserved at its
+  history boundary and is hidden while displaying the new result. Derived faces,
+  edges and points retain explicit ancestry to their source entities.
+
+The proposed first implementation milestone covers Flat, Sheet Profile and
+cylindrical Revolved Sheet, with conical regions following in the same command.
+It must consume the existing container-placement and viewer-selection contracts.
+Picking and live previews use persisted document/viewer data; OCCT runs only
+after OK or explicit regeneration. Required definitions and results remain in
+the native document, without external sidecars.
+
+The first acceptance model should contain a cut crossing a Flat–Sheet Profile–Flat
+transition. Independently check the neutral developed length, matching cut
+boundaries at both transitions, retained material thickness, and absence of
+unintended gaps or overlaps. Follow with partial/all-region unfolding, source
+angle and radius edits, endpoint ancestry, native save/reopen and Undo/Redo.
+An uncut isolated bend alone is insufficient evidence for this operation.
+
+The user specifically requested coverage of edited Sheet Profile end segments:
+unequal start/end lengths and shifted endpoints where the sheet widens, narrows
+or transitions sideways between the profiles. Include independent edits of each
+endpoint, combined edits and a cut crossing the resulting transition. Verify
+the material mapping and endpoint ancestry, not only whether a flat solid can
+be produced. The existing two-section sweep and feature-local folded-state
+tests do not establish a valid separate Unbend mapping for these transitions;
+their developability and any deformation assumption must be checked explicitly.
+
+Conical neutral-surface mapping, a seam for a complete revolution, downstream
+feature behavior and transport back into the folded state still require design
+and verification. Return transport belongs to the paired Unbend/Bend Back
+implementation, including the variable-width cases above. The existing Sheet
+Cut tests do not establish those capabilities.

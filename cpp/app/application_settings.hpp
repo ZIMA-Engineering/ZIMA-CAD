@@ -29,6 +29,7 @@ struct ApplicationSettings {
     QString part_template{QStringLiteral("start_part.prtz")};
     QString assembly_template{QStringLiteral("start_assembly.asmz")};
     bool use_iso_application_font{true};
+    double sheet_cut_tolerance{0.05};
 
     [[nodiscard]] static ApplicationSettings load(
         const QString& working_directory = {}, const QString& executable = {});

@@ -4,6 +4,7 @@
 #include <zima/document/body_origin_attachment.hpp>
 #include <zima/document/component_source.hpp>
 #include <zima/document/physical_properties.hpp>
+#include <zima/document/precision.hpp>
 #include <zima/workspace/appearance_operations.hpp>
 #include <zima/assembly/physical_properties.hpp>
 #include <set>
@@ -32,6 +33,7 @@ NativeDocumentType native_document_type(const std::filesystem::path& path) {
 }
 
 document::PartDocument part_from_template(const NativeTemplateSettings& settings) {
+    document::validate_sheet_cut_tolerance(settings.sheet_cut_tolerance);
     auto document=document::PartDocument::load(template_path(settings.part_template,settings));
     if(!document.history.empty() || !document.sketches.empty() || !document.constructions.empty() ||
        !document.history_order.empty() || !document.body_history.bodies().empty() || !document.body_history.booleans().empty())
@@ -41,6 +43,9 @@ document::PartDocument part_from_template(const NativeTemplateSettings& settings
     document::BodyHistoryGraph bodies;
     static_cast<void>(document::create_origin_bound_body(bodies,document.document_id,settings.first_body_name));
     document.set_body_history(std::move(bodies));
+    char tolerance[64];const auto encoded=std::to_chars(tolerance,tolerance+sizeof(tolerance),settings.sheet_cut_tolerance);
+    if(encoded.ec!=std::errc{})throw std::invalid_argument("Cannot encode Sheet Cut tolerance.");
+    document.document_precision["sheet_cut_tolerance"]={tolerance,encoded.ptr};
     return document;
 }
 assembly::AssemblyDocument assembly_from_template(const NativeTemplateSettings& settings) {

@@ -382,16 +382,22 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
             flat->setEnabled(!properties_dialog_);add_command(flat);
             auto* bend=findChild<QAction*>("bendAction");
             if(!bend) {
-                bend=new QAction(resource_icon("bend"),tr("Ohyb"),this);bend->setObjectName("bendAction");
+                bend=new QAction(resource_icon("bend"),tr("Profil plechu"),this);bend->setObjectName("bendAction");
                 connect(bend,&QAction::triggered,this,[this]{show_sketch_properties({},false,true);});
             }
             bend->setEnabled(!properties_dialog_);add_command(bend);
             auto* rotation=findChild<QAction*>("sheetRevolutionAction");
             if(!rotation) {
-                rotation=new QAction(resource_icon("revolve"),tr("Rotace"),this);rotation->setObjectName("sheetRevolutionAction");
+                rotation=new QAction(resource_icon("revolve"),tr("Rotační plech"),this);rotation->setObjectName("sheetRevolutionAction");
                 connect(rotation,&QAction::triggered,this,[this]{show_primitive_properties(zima::document::FeatureKind::Revolution,{},true);});
             }
-            rotation->setEnabled(!properties_dialog_);add_command(rotation);return;
+            rotation->setEnabled(!properties_dialog_);add_command(rotation);
+            auto* cut=findChild<QAction*>("sheetCutAction");
+            if(!cut) {
+                cut=new QAction(resource_icon("protrusion"),tr("Řez plechem"),this);cut->setObjectName("sheetCutAction");
+                connect(cut,&QAction::triggered,this,[this]{show_primitive_properties(zima::document::FeatureKind::Extrusion,{},true);});
+            }
+            cut->setEnabled(!properties_dialog_);add_command(cut);return;
         }
     }
     auto* placeholder = new QAction(

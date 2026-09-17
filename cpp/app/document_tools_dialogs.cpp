@@ -237,6 +237,11 @@ FileSettingsDialog::FileSettingsDialog(
         k_factor_=new QDoubleSpinBox(sheet);k_factor_->setObjectName("sheetMetalKFactor");
         k_factor_->setDecimals(6);k_factor_->setRange(0,1);k_factor_->setSingleStep(.01);k_factor_->setValue(data_.sheet_metal->k_factor);
         sheet_form->addRow(tr("Výchozí K faktor"),k_factor_);
+        sheet_cut_tolerance_=new QDoubleSpinBox(sheet);sheet_cut_tolerance_->setObjectName("sheetCutTolerance");
+        sheet_cut_tolerance_->setDecimals(6);sheet_cut_tolerance_->setRange(.000001,1.);
+        sheet_cut_tolerance_->setSingleStep(.01);sheet_cut_tolerance_->setSuffix(" mm");
+        sheet_cut_tolerance_->setValue(value_or(data_.precision,"sheet_cut_tolerance","0.05").toDouble());
+        sheet_form->addRow(tr("Tolerance řezu plechem"),sheet_cut_tolerance_);
         auto* note=new QLabel(tr("Výchozí hodnoty jsou uložené v tomto dílu."),sheet);note->setWordWrap(true);sheet_form->addRow(note);
         pages_->addTab(sheet,tr("Plechy"));content_layout()->addWidget(pages_);
     } else content_layout()->addLayout(form);
@@ -254,6 +259,7 @@ bool FileSettingsDialog::submit() {
         if(data_.sheet_metal) {
             data_.sheet_metal->thickness_mm=thickness_->value();
             data_.sheet_metal->k_factor=k_factor_->value();
+            data_.precision["sheet_cut_tolerance"]=QString::number(sheet_cut_tolerance_->value(),'g',15).toStdString();
         }
         zima::document::validate_file_settings({data_.units,data_.precision,data_.sheet_metal});
         accepted_(data_);

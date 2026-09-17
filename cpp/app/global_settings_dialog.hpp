@@ -7,6 +7,7 @@
 #include <QMap>
 
 class QComboBox;
+class QDoubleSpinBox;
 class QLineEdit;
 class QTabWidget;
 class UpdatesPage;
@@ -34,6 +35,7 @@ private:
     QString ai_preferences_path_;
     QComboBox* language_{};
     QComboBox* application_font_{};
+    QDoubleSpinBox* sheet_cut_tolerance_{};
     QMap<QString, QComboBox*> unit_fields_;
     QMap<QString, QLineEdit*> path_fields_;
 };

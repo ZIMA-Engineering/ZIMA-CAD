@@ -358,9 +358,11 @@ void verify_ellipse_regions() {
     }
 }
 }
+#include "flat_revolution_attachment.inc"
+
 int main() {
     const auto directory=std::filesystem::temp_directory_path()/("zima-flat-"+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     std::filesystem::create_directories(directory);
-    try{verify_bend_attachment(directory);verify_attached_history(directory);verify(directory);verify_ellipse_regions();std::filesystem::remove_all(directory);std::cout<<"Flat geometry, directions, defaults, topology and history passed\n";return 0;}
+    try{verify_revolution_attachment(directory);verify_bend_attachment(directory);verify_attached_history(directory);verify(directory);verify_ellipse_regions();std::filesystem::remove_all(directory);std::cout<<"Flat geometry, directions, defaults, topology and history passed\n";return 0;}
     catch(const std::exception& e){std::cerr<<e.what()<<"; fixture: "<<directory<<'\n';return 1;}
 }

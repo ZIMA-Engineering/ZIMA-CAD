@@ -305,7 +305,7 @@ void initialize_bend_start_profile(sketcher::Sketch& sketch,double width) {
     sketch.validate();
 }
 void initialize_sheet_revolution(HistoryContainer& feature,sketcher::Sketch& sketch,const SheetMetalDefaults& defaults) {
-    feature.feature_kind=FeatureKind::Revolution;feature.name="Rotace plechu";
+    feature.feature_kind=FeatureKind::Revolution;feature.name="Rotační plech";
     auto& p=feature.revolution;p.sheet_metal=true;p.sketch_id=sketch.id;
     p.result_type=ProfileResultType::Thin;p.profile_source=ProfileSource::Internal;
     p.profile_plane_offset=0;p.angle_degrees=90;p.angle_reverse=90;

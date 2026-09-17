@@ -1341,6 +1341,13 @@ if(ZIMA_BUILD_TESTS)
     set_tests_properties(zima_cpp_work_plane_contract_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
 
     add_executable(zima_cpp_holes_command_tests tests/holes_command_tests.cpp)
+    add_executable(zima_cpp_sheet_cut_wire_preview_tests tests/sheet_cut_wire_preview_tests.cpp)
+    # This preview deliberately links no solid kernel: properties and pointer
+    # interaction must work exclusively from persisted display geometry.
+    target_link_libraries(zima_cpp_sheet_cut_wire_preview_tests PRIVATE zima_document_core Qt6::Gui)
+    target_compile_options(zima_cpp_sheet_cut_wire_preview_tests PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
+    add_test(NAME zima_cpp_sheet_cut_wire_preview_tests COMMAND zima_cpp_sheet_cut_wire_preview_tests)
+    set_tests_properties(zima_cpp_sheet_cut_wire_preview_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     add_executable(zima_cpp_bend_command_tests tests/bend_command_tests.cpp)
     add_executable(zima_cpp_flat_command_tests tests/flat_command_tests.cpp)
     target_link_libraries(zima_cpp_flat_command_tests PRIVATE zima_command_host)

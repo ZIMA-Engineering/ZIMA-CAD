@@ -63,6 +63,50 @@ void front_reference() {
         references[2].orientation_role=="top" && !references[2].orientation_only,
         "Profile normalization discarded a stored reference or changed FRONT/TOP order");
 }
+void sheet_cut_methods(const kernel::OcctKernel& kernel,fs::path directory) {
+    Fixture f(kernel,directory);f.run("new",{{"type","part"},{"name","sheet-cut-methods"}});
+    f.run("flat.create",{{"width_mm",40.},{"height_mm",30.},{"thickness_mm",1.}});
+    const auto sketch=f.rectangle(5,5,6,4);
+    const auto created=f.run("extrusion.create",{{"sketch",sketch},{"sheet_cut",true},
+        {"sheet_cut_clearance",true},{"extent","two_sides"},{"end_forward","through_all"},{"end_reverse","through_all"}});
+    const auto id=created.at("container").get<std::string>();
+    require(created.at("sheet_cut_clearance")==true,"Sheet Cut create lost profile-clearance mode");near(f.volume(),1176.);
+    const auto clearance_operations=f.doc().kernel_operations();
+    const auto clearance_fingerprint=kernel::history_fingerprint(clearance_operations,clearance_operations.size());
+    const auto surface=f.run("extrusion.set",{{"container",id},{"sheet_cut_clearance",false}});
+    require(surface.at("sheet_cut_clearance")==false,"Sheet Cut edit did not select surface mode");near(f.volume(),1176.);
+    const auto surface_operations=f.doc().kernel_operations();
+    require(clearance_fingerprint!=kernel::history_fingerprint(surface_operations,surface_operations.size()),
+        "Sheet Cut calculation method did not invalidate its geometry fingerprint");
+    f.run("undo");require(f.run("extrusion.get",{{"container",id}}).at("sheet_cut_clearance")==true,
+        "Undo did not restore Sheet Cut profile-clearance mode");
+    f.run("redo");require(f.run("extrusion.get",{{"container",id}}).at("sheet_cut_clearance")==false,
+        "Redo did not restore Sheet Cut surface mode");
+    f.reject("extrusion.set",{{"container",id},{"sheet_cut_clearance","invalid"}},"invalid_arguments");
+    for(const bool clearance:{false,true}) {
+        f.run("extrusion.set",{{"container",id},{"sheet_cut_clearance",clearance}});f.run("save");
+        std::vector<kernel::BodyResult> cache;const auto reopened=document::PartDocument::load(directory/"sheet-cut-methods.prtz",&cache);
+        require(reopened.find_container(id)->extrusion.sheet_cut_clearance==clearance,
+            "Native Sheet Cut calculation method was lost on reopen");near(cache.back().volume,1176.);
+    }
+    const auto before_tolerance=f.doc().kernel_operations();
+    const auto old_fingerprint=kernel::history_fingerprint(before_tolerance,before_tolerance.size());
+    const auto changed=f.run("document.settings.set",{{"precision",{{"sheet_cut_tolerance",.0125}}}});
+    require(changed.at("calculated")==true,"Changing Sheet Cut tolerance did not calculate the affected feature");
+    const auto requested=f.doc().kernel_operations();
+    const auto request=std::ranges::find(requested,id,&kernel::HistoryOperation::owner_id);
+    require(request!=requested.end()&&std::get<kernel::ExtrusionRequest>(request->primitive).sheet_cut_tolerance==.0125&&
+        old_fingerprint!=kernel::history_fingerprint(requested,requested.size()),
+        "Document Sheet Cut tolerance did not reach the kernel request/cache fingerprint");
+    const auto unchanged=f.run("document.settings.set",{{"precision",{{"sheet_cut_tolerance",.0125}}}});
+    require(unchanged.at("changed")==false&&unchanged.at("calculated")==false,"Unchanged cut tolerance rebuilt the model");
+    f.run("undo");require(std::stod(f.doc().document_precision.at("sheet_cut_tolerance"))==.05,"Tolerance Undo failed");
+    f.run("redo");f.run("save");
+    std::vector<kernel::BodyResult> tolerance_cache;
+    const auto reopened=document::PartDocument::load(directory/"sheet-cut-methods.prtz",&tolerance_cache);
+    require(std::stod(reopened.document_precision.at("sheet_cut_tolerance"))==.0125,"Native Part lost the Sheet Cut tolerance");
+    near(tolerance_cache.back().volume,1176.);
+}
 void extrusion(const kernel::OcctKernel& kernel,fs::path directory){
     Fixture f(kernel,directory);f.run("new",{{"type","part"},{"name","profile-extrusion"}});
     const auto sketch=f.rectangle(0,0,10,20);const auto profile=*std::ranges::find(f.doc().sketches,sketch,&sketcher::Sketch::id);
@@ -72,6 +116,7 @@ void extrusion(const kernel::OcctKernel& kernel,fs::path directory){
     require(id==source.id&&feature!=source.feature_id&&f.doc().history.size()==history_count,"Sketch conversion changed container or history position");
     require(f.doc().find_container(id)->container_origin==source.container_origin&&f.doc().find_container(id)->feature_parent_id==id,"Conversion lost native ancestry");
     require(created.at("sketch")==sketch&&created.at("profile_source")=="internal","Conversion lost owned profile");near(f.volume(),1000);
+    f.reject("extrusion.set",{{"container",id},{"sheet_cut_clearance",true}},"invalid_arguments");
     const auto get_revision=f.part().session.revision();const auto* get_cache=f.part().session.calculated_boundaries().data();f.run("extrusion.get",{{"container",id}});
     require(f.part().session.revision()==get_revision&&f.part().session.calculated_boundaries().data()==get_cache&&!f.host.change(),"Profile query changed state");
     f.run("undo");require(*f.doc().find_container(id)==source,"Conversion Undo lost original Sketch container");f.run("redo");near(f.volume(),1000);require(f.doc().find_container(id)->feature_id==feature,"Conversion Redo changed feature identity");
@@ -218,6 +263,6 @@ void revolution(const kernel::OcctKernel& kernel,fs::path directory){
 }
 }
 int main(){try{const auto root=fs::canonical(fs::temp_directory_path());const auto directory=root/("zima-profile-commands-"+document::PartDocument::create_default().document_id);
-    require(fs::create_directory(directory),"Cannot create fixture directory");kernel::OcctKernel kernel;front_reference();surfaces(kernel,directory);extrusion(kernel,directory);thin_and_cut(kernel,directory);end_targets(kernel,directory);original_body_target_commands(kernel,directory);revolution(kernel,directory);
+    require(fs::create_directory(directory),"Cannot create fixture directory");kernel::OcctKernel kernel;front_reference();surfaces(kernel,directory);sheet_cut_methods(kernel,directory);extrusion(kernel,directory);thin_and_cut(kernel,directory);end_targets(kernel,directory);original_body_target_commands(kernel,directory);revolution(kernel,directory);
     require(directory.parent_path()==root,"Unexpected cleanup path");fs::remove_all(directory);std::cout<<"Profile commands: native ownership, exact solid volumes, Thin walls, cuts, dimensions, locks, atomic errors and Undo/Redo passed\n";return 0;
 }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

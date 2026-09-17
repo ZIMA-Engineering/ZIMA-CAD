@@ -71,6 +71,7 @@ private:
     QTabWidget* pages_{};
     QDoubleSpinBox* thickness_{};
     QDoubleSpinBox* k_factor_{};
+    QDoubleSpinBox* sheet_cut_tolerance_{};
 };
 
 class RelationsDialog final : public zima::ui::PropertiesSubWindow {

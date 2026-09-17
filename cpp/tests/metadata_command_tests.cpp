@@ -43,6 +43,10 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     reject("document.settings.set",{{"units",{{"Length","yard"}}}});reject("document.settings.set",{{"units",{{"Lenght","cm"}}}});
     reject("document.settings.set",{{"precision",{{"mesh_deflection",0}}}});reject("document.settings.set",{{"precision",{{"decimal_places",2.5}}}});
     reject("document.settings.set",{{"precision",{{"linear_tolerance",-1}}}});reject("document.settings.set",{{"precision",{{"decimal_places",13}}}});
+    for(const double tolerance:{0.,-1.,1.e-7,1.01})reject("document.settings.set",{{"precision",{{"sheet_cut_tolerance",tolerance}}}});
+    const auto cut_precision=run(host,"document.settings.set",{{"precision",{{"sheet_cut_tolerance",.02}}}}).data;
+    require(cut_precision.at("precision").at("sheet_cut_tolerance")==.02&&!cut_precision.at("calculated").get<bool>()&&
+        part->session.calculated_boundaries().back().kernel_shape==cached,"Sheet Cut tolerance recalculated unrelated Box geometry");
     const auto settings=workspace::file_settings(live,id);run(host,"document.settings.set",{{"units",{{"Length","cm"}}},{"precision",{{"decimal_places",6}}}});
     require(part->session.document().document_units.at("Length")=="cm" && part->session.document().document_precision.at("decimal_places")=="6" &&
         part->session.calculated_boundaries().back().kernel_shape==cached && std::abs(part->session.calculated_boundaries().back().volume-6000)<1e-7,
@@ -80,6 +84,8 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     run(host,"new",{{"type","assembly"},{"name","metadata-assembly"}});const auto owner=live.active_document_id();static_cast<void>(live.insert_open_part(owner,id,"Part"));
     require(!run(host,"document.settings.get").data.contains("sheet_metal"),"Assembly exposed Part sheet defaults");
     require(!host.execute({{"command","document.settings.set"},{"arguments",{{"sheet_metal",sheet}}}}).ok,"Assembly accepted sheet defaults");
+    require(!host.execute({{"command","document.settings.set"},{"arguments",{{"precision",{{"sheet_cut_tolerance",.05}}}}}}).ok,
+        "Assembly accepted a Part Sheet Cut tolerance");
     auto parent=assembly::AssemblyDocument::create_default();const auto parent_id=parent.document_id;live.add_assembly(std::move(parent),dir/"metadata-parent.asmz");static_cast<void>(live.insert_open_assembly(parent_id,owner,"Assembly"));
     const auto parent_revision=live.open_assembly(parent_id)->session.revision();const auto snapshot=live.open_assembly(owner)->session.document().components.front().calculated_source;
     run(host,"document.parameters.set",{{"parameters",entries}});run(host,"document.settings.set",{{"units",{{"Length","m"}}},{"precision",{{"decimal_places",9}}}});

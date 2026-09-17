@@ -1,6 +1,7 @@
 #include <zima/workspace/imported_feature_operations.hpp>
 #include <zima/workspace/hole_operations.hpp>
 #include "workspace_internal.hpp"
+#include "sheet_cut_wire_preview.hpp"
 #include <zima/workspace/primitive_operations.hpp>
 #include <zima/workspace/opening_operations.hpp>
 #include <zima/workspace/drill_point_operations.hpp>
@@ -229,9 +230,15 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             property_owned_sketch_draft_->id = initial.revolution.sketch_id;
         }
     }
-    if(sheet_metal&&!edit_mode&&!resuming_profile&&property_owned_sketch_draft_) {
+    if(sheet_metal&&feature_kind==zima::document::FeatureKind::Revolution&&!edit_mode&&!resuming_profile&&property_owned_sketch_draft_) {
         zima::document::initialize_sheet_revolution(initial,*property_owned_sketch_draft_,zima::document::sheet_metal_defaults(part->session.document()));
-        initial.name=tr("Rotace plechu").toStdString();property_owned_sketch_draft_->name=initial.name;
+        initial.name=tr("Rotační plech").toStdString();property_owned_sketch_draft_->name=initial.name;
+    }
+    if(sheet_metal&&feature_kind==zima::document::FeatureKind::Extrusion&&!edit_mode&&!resuming_profile) {
+        initial.extrusion.sheet_cut=true;initial.combine_mode=zima::document::CombineMode::Subtract;
+        initial.extrusion.result_type=zima::document::ProfileResultType::Solid;
+        initial.name=tr("Řez plechem").toStdString();
+        if(property_owned_sketch_draft_)property_owned_sketch_draft_->name=initial.name;
     }
     if(initial.revolution.sheet_metal&&!initial.revolution.sheet_attachment&&!initial.revolution.thickness_override)
         initial.revolution.thin_thickness=zima::document::sheet_metal_defaults(part->session.document()).thickness_mm.value_or(1);
@@ -320,7 +327,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         if (edited_cut != nullptr) selected_targets = edited_cut->target_occurrence_ids;
     }
     auto* dialog = new PrimitivePropertiesDialog(
-        initial, edit_mode, allow_subtract&&!initial.revolution.sheet_metal,
+        initial, edit_mode, (allow_subtract||initial.extrusion.sheet_cut)&&!initial.revolution.sheet_metal,
         [this, owner_id, edit_mode, assembly_cut, container_id](
             zima::document::HistoryContainer committed,
             std::vector<std::string> target_occurrences) mutable {
@@ -1120,7 +1127,43 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         });
     }
     if (feature_kind == zima::document::FeatureKind::Extrusion) {
+        auto cut_wire_preview=std::make_shared<SheetCutWirePreview>();
+        std::shared_ptr<const zima::kernel::ViewerMesh> cut_preview_input;
+        if(part&&initial.extrusion.sheet_cut)
+            *cut_wire_preview=cached_sheet_cut_wire(part->session,initial.id);
+        if(part&&initial.extrusion.sheet_cut) {
+            // Sheet Cut consumes only the active Body's persisted local input.
+            // The document mesh may contain other Bodies and their placements;
+            // the common transient renderer applies our Body placement once.
+            auto mesh=std::make_shared<zima::kernel::ViewerMesh>();
+            const auto& document=part->session.document();
+            const auto* preview_body=document.body_owner_for_object(initial.id);
+            if(!preview_body)preview_body=document.body_history.find(document.body_history.active_body_id());
+            // Consume the same existing Body presentation context as Flat and
+            // Sheet Profile. refresh_scene installs its local-to-scene mapping
+            // before the first transient prism/rim submission (also in Assembly).
+            sketch_properties_body_id_=preview_body?preview_body->scope.id:std::string{};
+            if(rollback_boundary) {
+                if(rollback_boundary->input_body)*mesh=rollback_boundary->input_body->mesh;
+            } else {
+                const auto* body=document.body_history.find(document.body_history.active_body_id());
+                if(body) {
+                    std::size_t count{};
+                    for(std::size_t i=0;i<std::min(body->cursor,body->entries.size());++i) {
+                        const auto& entry=body->entries[i];
+                        const auto* container=entry.kind==zima::document::PartHistoryKind::Feature?document.find_container(entry.id):nullptr;
+                        if(container&&container->feature_kind!=zima::document::FeatureKind::Sketch)++count;
+                    }
+                    if(auto input=part->session.calculated_body_boundary(body->scope.id,count))
+                        *mesh=std::move(input->mesh);
+                }
+            }
+            cut_preview_input=std::move(mesh);
+            preserve_view_on_refresh_=true;
+            refresh_scene();
+        }
         dialog->set_preview_callback([this, owner_id, assembly_cut,
+                                      cut_wire_preview,cut_preview_input,
                                       placement_preview,
                                       prepare_owned_profile_preview,
                                       update_owned_profile_context_preview,
@@ -1191,33 +1234,41 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                         preview_document, resolved_preview);
                     publish_extrusion_extent(
                         preview_document, resolved_preview);
-                    if (extrusion_needs_input_bounds(resolved_preview)) {
-                        const zima::kernel::ViewerMesh* input_mesh = nullptr;
-                        if (part_rollback_ &&
-                            part_rollback_->part_document_id == owner_id &&
-                            part_rollback_->input_body) {
-                            input_mesh = &part_rollback_->input_body->mesh;
-                        } else {
-                            const auto& boundaries =
-                                owner->session.calculated_boundaries();
-                            if (!boundaries.empty()) {
-                                input_mesh = &boundaries.back().mesh;
-                            }
+                    std::vector<zima::kernel::ViewerEdge> profile_wire;
+                    const zima::kernel::ViewerMesh* input_mesh = nullptr;
+                    if(cut_preview_input)input_mesh=cut_preview_input.get();
+                    else if (part_rollback_ &&
+                        part_rollback_->part_document_id == owner_id &&
+                        part_rollback_->input_body) {
+                        input_mesh = &part_rollback_->input_body->mesh;
+                    } else {
+                        const auto& boundaries =
+                            owner->session.calculated_boundaries();
+                        if (!boundaries.empty()) {
+                            input_mesh = &boundaries.back().mesh;
                         }
-                        viewer_->set_transient_edges(input_mesh == nullptr
+                    }
+                    if (extrusion_needs_input_bounds(resolved_preview)) {
+                        profile_wire=input_mesh == nullptr
                             ? preview_document.extrusion_preview_edges(
                                 resolved_preview)
                             : preview_document.extrusion_preview_edges(
-                                resolved_preview, *input_mesh));
+                                resolved_preview, *input_mesh);
                     } else {
-                        viewer_->set_transient_edges(
-                            preview_document.extrusion_preview_edges(
-                                resolved_preview));
+                        profile_wire=preview_document.extrusion_preview_edges(resolved_preview);
                     }
+                    const auto profile=std::ranges::find(preview_document.sketches,resolved_preview.extrusion.sketch_id,
+                        &zima::sketcher::Sketch::id);
+                    if(profile!=preview_document.sketches.end())
+                        cut_wire_preview->append_estimate_or_current(resolved_preview,*profile,input_mesh,
+                            owner->session.data_generation(),profile_wire);
+                    viewer_->set_transient_edges(std::move(profile_wire));
                     publish_profile_preview_scene(
                         &preview_document, resolved_preview);
                 }
-                state_->setText(tr("Azurový drát zobrazuje náhled vytažení."));
+                state_->setText(resolved_preview.extrusion.sheet_cut
+                    ? tr("Azurový drát zobrazuje rozsah řezu a orientační hranice v plechu. Výsledné těleso se vypočítá až po OK.")
+                    : tr("Azurový drát zobrazuje náhled vytažení."));
             } catch (const std::exception& error) {
                 // An empty/incomplete owned Sketch prevents only the body
                 // wire calculation. The already prepared placement plane,
@@ -1610,7 +1661,8 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             rollback_boundary->history_index, rollback_boundary->input_body};
         refresh_scene();
     }
-    connect(dialog, &QObject::destroyed, this, [this, dialog_container_id] {
+    connect(dialog, &QObject::destroyed, this, [this, dialog_container_id,
+            sheet_cut_context=feature_kind==zima::document::FeatureKind::Extrusion&&initial.extrusion.sheet_cut] {
         // SKETCH is a transition into the profile sub-editor, not the end of
         // the container edit session. Keep the rollback input alive while
         // that exact owned Sketch is active; otherwise the teardown refresh
@@ -1644,6 +1696,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             property_owned_sketch_draft_.reset();
             property_owned_feature_draft_.reset();
         }
+        if(sheet_cut_context)sketch_properties_body_id_.clear();
         properties_dialog_ = nullptr;
         edge_treatment_dialog_ = nullptr;
         edge_treatment_selection_.reset();

@@ -32,6 +32,8 @@ void commit_assembly_profile(Workspace& live, const kernel::OcctKernel& kernel,
     auto* state = live.open_assembly(id);
     if (!state) throw ProfileOperationError("unsupported_document", "Cut operations require an open Assembly.");
     validate_profile_definition(value);
+    if(value.feature_kind==document::FeatureKind::Extrusion&&value.extrusion.sheet_cut)
+        throw ProfileOperationError("unsupported_document", "Sheet Cut belongs to a Part. Activate its source Part before cutting sheet material.");
     if (value.combine_mode != document::CombineMode::Subtract)
         throw ProfileOperationError("invalid_arguments", "An Assembly profile must subtract material.");
     const auto& before = state->session.document();

@@ -43,13 +43,14 @@ SettingsChange set_file_settings(Workspace& live,const kernel::OcctKernel& kerne
     const bool precision_changed=document::precision_value(before.precision,"linear_tolerance",.001)!=document::precision_value(values.precision,"linear_tolerance",.001) ||
         document::precision_value(before.precision,"mesh_deflection",.1)!=document::precision_value(values.precision,"mesh_deflection",.1);
     if(auto* part=live.open_part(id)) {
+        const bool cut_tolerance_changed=document::sheet_cut_tolerance(before.precision)!=document::sheet_cut_tolerance(values.precision);
         auto next=part->session.document();next.document_units=std::move(values.units);next.document_precision=std::move(values.precision);
         if(values.sheet_metal)document::set_sheet_metal_defaults(next,*values.sheet_metal);
         bool calculate=before.sheet_metal!=values.sheet_metal&&std::ranges::any_of(next.history,[](const auto& feature) {
             return feature.feature_kind==document::FeatureKind::Flat||feature.feature_kind==document::FeatureKind::Bend||
                 (feature.feature_kind==document::FeatureKind::Revolution&&feature.revolution.sheet_metal);
         });
-        if(precision_changed) {
+        if(precision_changed||cut_tolerance_changed) {
             const auto original=part->session.document().kernel_operations(false,true),requested=next.kernel_operations(false,true);
             calculate=calculate||kernel::history_fingerprint(original,original.size())!=kernel::history_fingerprint(requested,requested.size());
         }

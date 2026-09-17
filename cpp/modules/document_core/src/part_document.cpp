@@ -531,12 +531,12 @@ void add_json_parameters(
 
 nlohmann::json read_part_ini(const std::filesystem::path& path) {
     const auto ini = read_ini(path);
-    if (ini_value(ini, "Document", "format_version") != "36") {
+    if (ini_value(ini, "Document", "format_version") != "38") {
         throw std::runtime_error("Unsupported ZIMA-CAD Part document format");
     }
     nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 60},
+        {"format_version", 62},
         {"document_id", ini_required(ini, "Document", "document_id")},
         {"type", ini_value(ini, "Document", "type", "part")},
         {"name", ini_value(ini, "Document", "name", "Nový díl")},
@@ -692,7 +692,7 @@ void write_part_ini(
     const nlohmann::json& root, const std::filesystem::path& path) {
     IniSections ini;
     ini["Document"] = {
-        {"format_version", "36"},
+        {"format_version", "38"},
         {"type", "part"},
         {"document_id", root.at("document_id").get<std::string>()},
         {"name", root.at("name").get<std::string>()},
@@ -7328,14 +7328,14 @@ zima::kernel::ExtrusionRequest body_profile_request(
 std::vector<ConstructionReference> flat_sheet_references(const kernel::ViewerEdge& edge,
         const kernel::VertexReference& start) {
     const bool outer=std::ranges::any_of(edge.edge_treatment_side_references,[](const auto& face) {
-        return face.sheet_role==kernel::SheetFaceRole::SideA&&
-            face.semantic_key.find(":outer:from:")!=std::string::npos;
+        return face.sheet_role==kernel::SheetFaceRole::SideA;
     });
     const bool cap=std::ranges::any_of(edge.edge_treatment_side_references,[](const auto& face) {
         return face.sheet_role==kernel::SheetFaceRole::ThicknessFace&&
-            (face.semantic_key.starts_with("sweep:cap:end:from:")||face.semantic_key.starts_with("sweep:cap:start:from:"));
+            (face.semantic_key.starts_with("sweep:cap:end:from:")||face.semantic_key.starts_with("sweep:cap:start:from:")||
+             face.semantic_key.starts_with("end:from:")||face.semantic_key.starts_with("start:from:"));
     });
-    if(!outer||!cap)throw std::invalid_argument("Flat attachment requires a straight outer boundary of a Bend end face.");
+    if(!outer||!cap)throw std::invalid_argument("Flat attachment requires a straight Side A boundary of a sheet end face.");
     return bend_sheet_references(edge,start);
 }
 
@@ -7356,9 +7356,9 @@ void update_flat_sheet_attachment(HistoryContainer& feature,sketcher::Sketch& sk
         face.instance_path!=expected[1].instance_path||face.offset!=0||face.flip||source.flip||
         placement.orientation_back||placement.orientation_quarter_turns||
         placement.rotation_offset_x!=0||placement.rotation_offset_y!=0||placement.rotation_offset_z!=0)
-        throw std::invalid_argument("Flat attachment orientation is derived from its Bend edge.");
+        throw std::invalid_argument("Flat attachment orientation is derived from its sheet edge.");
     const auto side=bend_attachment_profile_direction(placement.references,geometry);
-    if(!side)throw std::invalid_argument("Flat requires a planar Bend joining face.");
+    if(!side)throw std::invalid_argument("Flat requires a planar sheet joining face.");
     feature.flat.thickness=edge->edge_treatment_side_references.front().sheet_thickness;
     const kernel::Vec3 rotation{placement.rotation_x,placement.rotation_y,placement.rotation_z};
     // Consume the ordinary reference frame: local Y is the edge, local Z
@@ -7386,7 +7386,7 @@ void update_flat_sheet_attachment(HistoryContainer& feature,sketcher::Sketch& sk
     }
     const auto solved=sketch.solve();
     if(solved.status==sketcher::SolveStatus::Conflicting||solved.status==sketcher::SolveStatus::Invalid)
-        throw std::invalid_argument("Flat profile conflicts with its Bend endpoint references.");
+        throw std::invalid_argument("Flat profile conflicts with its sheet endpoint references.");
 }
 
 double flat_thickness(const HistoryContainer& feature,const SheetMetalDefaults& defaults) {
@@ -8915,6 +8915,9 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
             if (sketch->owner_container_id != container.id) {
                 apply_container_placement(extrusion, container.placement);
             }
+            extrusion.sheet_cut = parameters.sheet_cut;
+            extrusion.sheet_cut_clearance = parameters.sheet_cut_clearance;
+            if(parameters.sheet_cut)extrusion.sheet_cut_tolerance=sheet_cut_tolerance(document_precision);
             primitive = std::move(extrusion);
         } else if (container.feature_kind == FeatureKind::Revolution) {
             const auto sketch = std::find_if(sketches.begin(), sketches.end(),
@@ -11315,7 +11318,7 @@ nlohmann::json PartDocument::serialized(
     static_cast<void>(zima::document::parse_named_views(named_views));
     nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 60},
+        {"format_version", 62},
         {"sheet_reference_state", nlohmann::json::parse(sheet_reference_state)},
         {"reference_errors", reference_errors},
         {"document_id", document_id},

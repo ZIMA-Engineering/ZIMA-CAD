@@ -58,6 +58,7 @@ const std::map<std::string,std::vector<std::string>>& file_unit_choices() {
 }
 void validate_file_settings(const FileSettingsData& data) {
     if(data.sheet_metal)validate_sheet_metal_defaults(*data.sheet_metal);
+    if(data.precision.contains("sheet_cut_tolerance"))static_cast<void>(sheet_cut_tolerance(data.precision));
     for(const auto& [name,choices]:file_unit_choices()) {
         const auto unit=data.units.find(name);
         if(unit==data.units.end() || std::ranges::find(choices,unit->second)==choices.end())

@@ -260,6 +260,8 @@ struct WedgeParameters {
 };
 
 struct ExtrusionParameters {
+    bool sheet_cut{};
+    bool sheet_cut_clearance{};
     std::string sketch_id;
     double profile_plane_offset{};
     ProfileSource profile_source{ProfileSource::Internal};
@@ -659,7 +661,7 @@ public:
         {"Time", "s"}, {"Temperature", "C"}, {"Stress", "MPa"}};
     std::map<std::string, std::string> document_precision{
         {"linear_tolerance", "0.001"}, {"angular_tolerance", "0.001"},
-        {"mesh_deflection", "0.1"}, {"decimal_places", "3"}};
+        {"mesh_deflection", "0.1"}, {"decimal_places", "3"}, {"sheet_cut_tolerance", "0.05"}};
     std::map<std::string, std::string> physical_parameters;
     std::map<std::string, std::string> physical_parameter_units;
     std::map<std::string, std::map<std::string, std::string>>

@@ -9,6 +9,7 @@
 #include <QDialogButtonBox>
 
 #include <QComboBox>
+#include <QDoubleSpinBox>
 #include <QDir>
 #include <QFileInfo>
 #include <QFormLayout>
@@ -102,6 +103,17 @@ GlobalSettingsDialog::GlobalSettingsDialog(
     auto* language_note = new QLabel(tr("Po změně jazyka restartujte aplikaci, aby se přeložily i všechny otevřené nabídky a panely."), this);
     language_note->setWordWrap(true);
     general_layout->addWidget(language_note);
+    auto* sheet_page=new QWidget(sections_);
+    auto* sheet_form=new QFormLayout(sheet_page);
+    sheet_cut_tolerance_=new QDoubleSpinBox(sheet_page);
+    sheet_cut_tolerance_->setObjectName("globalSheetCutTolerance");
+    sheet_cut_tolerance_->setDecimals(6);sheet_cut_tolerance_->setRange(.000001,1.);
+    sheet_cut_tolerance_->setSingleStep(.01);sheet_cut_tolerance_->setSuffix(" mm");
+    sheet_cut_tolerance_->setValue(settings_.sheet_cut_tolerance);
+    sheet_form->addRow(tr("Tolerance řezu plechem"),sheet_cut_tolerance_);
+    auto* sheet_note=new QLabel(tr("Výchozí hodnota pro nové díly. Otevřené a uložené díly používají své vlastní nastavení."),sheet_page);
+    sheet_note->setWordWrap(true);sheet_form->addRow(sheet_note);
+    sections_->addTab(sheet_page,tr("Plechy"));
     updates_ = new UpdatesPage([this](bool rollback) {
         auto* service = UpdateService::get();
         const auto blocker = service->restartBlocker();
@@ -153,6 +165,7 @@ void GlobalSettingsDialog::browse_path(const QString& key) {
 }
 
 bool GlobalSettingsDialog::submit() {
+    settings_.sheet_cut_tolerance=sheet_cut_tolerance_->value();
     settings_.language = language_->currentText();
     settings_.use_iso_application_font =
         application_font_->currentData().toBool();

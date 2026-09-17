@@ -1,6 +1,7 @@
 #include <zima/workspace/assembly_import_operations.hpp>
 #include <zima/interchange/interchange.hpp>
 #include <zima/document/file_path.hpp>
+#include <zima/document/precision.hpp>
 #include <set>
 #include <type_traits>
 
@@ -67,6 +68,11 @@ AssemblyImportReport import_assembly(Workspace& live,const std::string& owner,
     std::optional<interchange::StepAssemblyImport> imported;
     std::function<void()> calculate=[&,source=std::filesystem::absolute(source),precision=before.document_precision,
                                      units=before.document_units,geometry=options.geometry,templates=options.templates] {
+        const double cut_tolerance=templates?templates->sheet_cut_tolerance:.05;
+        document::validate_sheet_cut_tolerance(cut_tolerance);
+        char tolerance[64];const auto encoded=std::to_chars(tolerance,tolerance+sizeof(tolerance),cut_tolerance);
+        if(encoded.ec!=std::errc{})throw std::invalid_argument("Cannot encode Sheet Cut tolerance.");
+        const std::string cut_tolerance_text(tolerance,encoded.ptr);
         if(format==interchange::Format::Step) {
             imported=interchange::import_step_assembly(source,directory.path,precision,geometry.mesh_deflection);
             for(auto& part:imported->parts)part.document.document_units=units;
@@ -83,6 +89,10 @@ AssemblyImportReport import_assembly(Workspace& live,const std::string& owner,
             part.path=directory.path/"part-1.prtz";
             imported.emplace();imported->parts.push_back(std::move(part));
         }
+        // Imported definitions are new Parts; retain inherited precision while
+        // snapshotting the configured Part-only calculation default.
+        for(auto& part:imported->parts)
+            part.document.document_precision["sheet_cut_tolerance"]=cut_tolerance_text;
     };
     if(runner)runner(std::move(calculate));else calculate();
     if(!imported)throw ImportOperationError("incomplete_import","The import runner did not complete the calculation.");

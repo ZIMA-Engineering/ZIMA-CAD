@@ -1,7 +1,9 @@
 #include "settings.hpp"
+#include <zima/document/precision.hpp>
 #include "../common/installation.hpp"
 #include <algorithm>
 #include <fstream>
+#include <iostream>
 #include <stdexcept>
 
 namespace zima::cli {
@@ -48,7 +50,7 @@ Values read_ini(const fs::path& path,bool catalogue=false){
         if(!catalogue && full_key!="Application/Language" && full_key!="Paths/Templates" && full_key!="Paths/Localization" &&
             full_key!="Templates/Part" && full_key!="Templates/Assembly" && full_key!="Units/Length" &&
             full_key!="Units/Angle" && full_key!="Units/Mass" && full_key!="Units/Time" &&
-            full_key!="Units/Temperature" && full_key!="Units/Stress")continue;
+            full_key!="Units/Temperature" && full_key!="Units/Stress" && full_key!="SheetMetal/CutTolerance")continue;
         if(catalogue&&section!="QtTranslations")continue;
         values[section+"/"+key]=catalogue?trim(line.substr(equals+1)):value_text(line.substr(equals+1));
     }
@@ -98,6 +100,13 @@ Settings load_settings(const fs::path& executable,const fs::path& working,const 
     Settings result;
     result.documents.templates={configured_path("Paths/Templates","templates"),
         fs::u8path(value("Templates/Part","start_part.prtz")),fs::u8path(value("Templates/Assembly","start_assembly.asmz")),"Těleso 1"};
+    try {
+        result.documents.templates.sheet_cut_tolerance=document::sheet_cut_tolerance({
+            {"sheet_cut_tolerance",value("SheetMetal/CutTolerance","0.05")}});
+    } catch(const std::invalid_argument& error) {
+        result.documents.templates.sheet_cut_tolerance=.05;
+        std::cerr<<"Warning: invalid SheetMetal/CutTolerance; using 0.05 mm. "<<error.what()<<'\n';
+    }
     for(const auto& [key,fallback]:Values{{"Length","mm"},{"Angle","deg"},{"Mass","kg"},{"Time","s"},{"Temperature","C"},{"Stress","MPa"}})
         result.documents.units[key]=value(("Units/"+key).c_str(),fallback.c_str());
     const auto language=value("Application/Language","cs");

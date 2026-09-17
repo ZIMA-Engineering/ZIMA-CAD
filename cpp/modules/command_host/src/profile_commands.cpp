@@ -62,7 +62,7 @@ Json details(const workspace::Workspace& live, const std::string& id, const Feat
         result["profile_plane_auto"]=sketch->plane_auto;
         result["profile_plane"]=sketch->plane==sketcher::SketchPlane::XY?"XY":sketch->plane==sketcher::SketchPlane::XZ?"XZ":"YZ";
     }
-    if(extrusion) result.update({{"length_forward_mm",value.extrusion.length_forward},{"length_reverse_mm",value.extrusion.length_reverse},
+    if(extrusion) result.update({{"sheet_cut",value.extrusion.sheet_cut},{"sheet_cut_clearance",value.extrusion.sheet_cut_clearance},{"length_forward_mm",value.extrusion.length_forward},{"length_reverse_mm",value.extrusion.length_reverse},
         {"end_forward",condition(value.extrusion.end_condition_forward)},{"end_reverse",condition(value.extrusion.end_condition_reverse)},
         {"targets_forward",targets(value.extrusion.end_targets_forward)},{"targets_reverse",targets(value.extrusion.end_targets_reverse)}});
     else result.update({{"angle_degrees",value.revolution.angle_degrees},{"angle_reverse_degrees",value.revolution.angle_reverse},{"axis",value.revolution.axis_segment_id},
@@ -86,6 +86,15 @@ void properties(Feature& value, const Json& args, const workspace::Workspace& li
         const auto v=args.at(key).get<double>();if(!std::isfinite(v))throw Error("invalid_arguments","Profile dimensions must be finite JSON numbers.");field=v;
     };
     const auto previous=value;
+    if(extrusion&&args.contains("sheet_cut")) {
+        value.extrusion.sheet_cut=args.at("sheet_cut");
+        if(value.extrusion.sheet_cut) {
+            value.combine_mode=document::CombineMode::Subtract;
+            value.extrusion.result_type=document::ProfileResultType::Solid;
+        }
+    }
+    if(extrusion&&args.contains("sheet_cut_clearance"))
+        value.extrusion.sheet_cut_clearance=args.at("sheet_cut_clearance");
     if(!extrusion) {
         if(args.contains("sheet_metal")) {
             value.revolution.sheet_metal=args.at("sheet_metal");
@@ -242,7 +251,8 @@ void Host::register_profile_commands() {
                 {extrusion?"length_forward_mm":"angle_degrees",false,Type::Number},{extrusion?"length_reverse_mm":"angle_reverse_degrees",false,Type::Number},
                 {"profile_offset_mm",false,Type::Number},{"profile_plane",false},{"placement",false,Type::Object},{"targets",false,Type::Array},{"document",false}};
             if(extrusion){fields.push_back({"end_forward",false});fields.push_back({"end_reverse",false});fields.push_back({"targets_forward",false,Type::Array});fields.push_back({"targets_reverse",false,Type::Array});}else fields.push_back({"axis",false});
-            if(!extrusion){fields.push_back({"sheet_metal",false,Type::Boolean});fields.push_back({"thickness_override",false,Type::Boolean});}
+            if(extrusion){fields.push_back({"sheet_cut",false,Type::Boolean});fields.push_back({"sheet_cut_clearance",false,Type::Boolean});}
+            else {fields.push_back({"sheet_metal",false,Type::Boolean});fields.push_back({"thickness_override",false,Type::Boolean});}
             dispatcher_.add({prefix+(create?".create":".set"),create?tr("Convert a standalone Sketch to an Extrusion or Revolution in one transaction."):tr("Edit and calculate a profile feature through the shared Properties transaction."),std::move(fields),true},
                 [this,create,kind](const Json& args){
                     const auto check=target(args);if(!check.ok)return check;

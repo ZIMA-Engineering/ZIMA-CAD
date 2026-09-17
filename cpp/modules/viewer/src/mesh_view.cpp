@@ -1799,6 +1799,10 @@ void MeshView::set_transient_edges(std::vector<zima::kernel::ViewerEdge> edges) 
     update();
 }
 
+const std::vector<zima::kernel::ViewerEdge>& MeshView::transient_edges() const {
+    return impl_->transient_edges;
+}
+
 void MeshView::set_transient_dimensions(
     std::vector<zima::kernel::ViewerDimension> dimensions) {
     if (impl_->transient_point_transform) {

@@ -231,7 +231,7 @@ void SketchPropertiesDialog::set_bend_mode(zima::document::BendParameters initia
     const zima::document::SheetMetalDefaults& defaults,std::set<std::string>& locks,
     std::function<void(zima::document::BendParameters)> changed,std::function<void()> edit_sketch,
     std::function<void(std::size_t)> edit_bend_sketch) {
-    set_internal_title(tr("Vlastnosti ohybu"));setObjectName("bendPropertiesDialog");
+    set_internal_title(tr("Vlastnosti profilu plechu"));setObjectName("bendPropertiesDialog");
     auto pending=std::make_shared<zima::document::BendParameters>(initial);
     bend_pending_=pending;
     initial_.plane_auto=true;initial_.plane_offset=0;

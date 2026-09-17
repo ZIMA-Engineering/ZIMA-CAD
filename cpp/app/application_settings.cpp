@@ -1,6 +1,8 @@
 #include "application_settings.hpp"
+#include <zima/document/precision.hpp>
 #include "../common/installation.hpp"
 #include <memory>
+#include <iostream>
 #include <vector>
 
 #include <QCoreApplication>
@@ -131,6 +133,13 @@ ApplicationSettings ApplicationSettings::load(const QString& working_directory, 
     };
     result.language = value("Application/Language", "cs");
     result.use_iso_application_font = value("Application/UseISOFont", "true").toLower() != "false";
+    try {
+        result.sheet_cut_tolerance=zima::document::sheet_cut_tolerance({
+            {"sheet_cut_tolerance",value("SheetMetal/CutTolerance","0.05").toStdString()}});
+    } catch(const std::invalid_argument& error) {
+        result.sheet_cut_tolerance=.05;
+        std::cerr<<"Warning: invalid SheetMetal/CutTolerance; using 0.05 mm. "<<error.what()<<'\n';
+    }
     for (const auto& key : path_keys) {
         QString origin;
         const auto fallback = installed && key == "WorkingDirectory" ? qpath(installed->root / "Projects") : path_defaults.value(key);
@@ -272,8 +281,11 @@ static bool save_values(const QString& config_path, const QMap<QString, QVariant
 }
 
 bool ApplicationSettings::save(QString* error) const {
+    try {zima::document::validate_sheet_cut_tolerance(sheet_cut_tolerance);}
+    catch(const std::exception& issue){if(error)*error=QString::fromUtf8(issue.what());return false;}
     QMap<QString, QVariant> common{
         {"Application/Language", language}, {"Application/UseISOFont", use_iso_application_font},
+        {"SheetMetal/CutTolerance",sheet_cut_tolerance},
         {"Templates/Part", part_template}, {"Templates/Assembly", assembly_template}};
     for (auto it = units.cbegin(); it != units.cend(); ++it) common.insert("Units/" + it.key(), it.value());
     QMap<QString, QVariant> paths;

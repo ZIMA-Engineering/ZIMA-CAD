@@ -23,4 +23,14 @@ inline double precision_value(const std::map<std::string, std::string>& values,
     return value;
 }
 
+inline void validate_sheet_cut_tolerance(double value) {
+    if(!std::isfinite(value)||value<1.e-6||value>1.)
+        throw std::invalid_argument("Sheet Cut tolerance must be from 0.000001 to 1 mm.");
+}
+
+inline double sheet_cut_tolerance(const std::map<std::string,std::string>& values) {
+    const double value=precision_value(values,"sheet_cut_tolerance",.05);
+    validate_sheet_cut_tolerance(value);return value;
+}
+
 } // namespace zima::document
