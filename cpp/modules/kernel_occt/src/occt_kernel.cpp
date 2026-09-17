@@ -5446,6 +5446,7 @@ void OcctKernel::export_stl(
     }
     StlAPI_Writer writer;
     writer.ASCIIMode() = false;
+#ifdef _WIN32
     // OCCT's filename overload opens a narrow std::ofstream on Windows.
     // Open the UTF-8 path through filesystem instead and use its stream API.
     std::ofstream output(std::filesystem::u8path(path), std::ios::binary);
@@ -5454,6 +5455,12 @@ void OcctKernel::export_stl(
     }
     output.close();
     if (!output) throw std::runtime_error("STL export failed");
+#else
+    // POSIX filenames are UTF-8 bytes. OCCT 7.9 exposes the filename API only.
+    if (!writer.Write(shape, path.c_str())) {
+        throw std::runtime_error("STL export failed");
+    }
+#endif
 }
 
 std::vector<BodyResult> OcctKernel::evaluate_history(

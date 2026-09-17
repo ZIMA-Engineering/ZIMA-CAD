@@ -25,6 +25,7 @@ def baseline():
     if distro.get('ID') != 'debian' or distro.get('VERSION_ID') != '13' or platform.machine() != 'x86_64':
         raise ValueError('Linux candidates require Debian 13 x86_64')
     return dict(distro=distro, machine=platform.machine(), libc=platform.libc_ver(),
+                desktop=os.environ.get('XDG_CURRENT_DESKTOP', ''), session=os.environ.get('XDG_SESSION_TYPE', ''),
                 compiler=shared.run(['c++', '--version'], stdout=subprocess.PIPE).stdout.decode().splitlines()[0])
 
 

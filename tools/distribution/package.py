@@ -260,6 +260,10 @@ def smoke(root, version, gui=True):
     if not (project / 'smoke.pdf').read_bytes().startswith(b'%PDF-') or not (project / 'smoke.jpg').read_bytes().startswith(b'\xff\xd8'):
         raise ValueError('PDF/JPEG export failed')
     if gui:
+        if linux:
+            if os.environ.get('XDG_SESSION_TYPE') != 'wayland':
+                raise ValueError('Linux desktop acceptance requires a Wayland session')
+            env['QT_QPA_PLATFORM'] = 'wayland'
         env['ZIMA_VERIFY_PACKAGE_ONLY'] = '1'
         run([binary / ('zima-cad-cpp' + suffix), '--working-directory', project, '--verify-startup'],
             cwd=project, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=600)
