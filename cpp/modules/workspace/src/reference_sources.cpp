@@ -16,6 +16,8 @@ void append_original_reference_geometry(kernel::ViewerReferenceGeometry& target,
     };
     for(const auto& edge:source.edges)if(matches(OriginalReferenceKind::Edge,edge.reference)) {
         auto copy=edge;copy.reference.instance_path=frame.path(edge.reference.instance_path);
+        for(auto& reference:copy.edge_treatment_side_references)reference.instance_path=frame.path(reference.instance_path);
+        for(auto& reference:copy.edge_treatment_endpoint_references)reference.instance_path=frame.path(reference.instance_path);
         for(auto& point:copy.points)point=frame.point(point);
         if(copy.exact_spline)for(auto& point:copy.exact_spline->poles)point=frame.point(point);
         for(auto& side:copy.edge_treatment_side_directions)for(auto& direction:side)direction=frame.direction(direction);

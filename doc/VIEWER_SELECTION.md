@@ -1,5 +1,56 @@
 # Viewer Selection and Assembly Tree Identity
 
+## User selection filter (2026-09-17)
+
+The View toolbar filter is a persistent, independent restriction on the common
+3D candidate list. Every command intersects its own accepted kinds and ownership
+rules with this restriction. Opening, changing or closing a command never resets
+or broadens the user's filter. An incompatible choice deliberately produces no
+candidate; the user selects another type or **All**.
+
+Available types are All, Faces, Points, Axes, Planes, Edges/curves and Origins.
+Faces are solid/reference faces; Planes are explicit datum and Origin planes.
+Origins accepts only the origin point, not its axes or planes. Points also accepts
+origin points. Sketch points, axes, curves and projected references follow their
+corresponding types. All retains the existing ordinary leaf/container selection
+contract; it does not expose otherwise forbidden result-body references.
+
+The final user gate runs after command filtering, priorities and injected component
+origin handles. Hover, LMB confirmation and RMB cycling consume that same result.
+Changing the user filter clears stale View/Tree confirmation. Sketch rectangle
+selection also respects the user type restriction. Geometry visibility is separate:
+filtering a type out does not hide the model or show hidden Origins.
+
+The audit covers the shared picker used by Part/Assembly reference entry,
+component placement, construction and primitive properties, edge treatment,
+Shell/Drill Point, measurement, appearance, orientation, Family Table references,
+derived copies, sections, and Sketch selection/reference commands. Explicit Tree
+navigation and free coordinate construction are not hover candidate queries.
+The toolbar filter is disabled in Drawing, whose canvas has a separate 2D
+interaction contract.
+
+A separate Bodies filter is intentionally deferred: ordinary Part selection owns
+history containers and Assembly selection owns exact component occurrences.
+Neither is interchangeable with selecting an entire calculated result Body. Such
+an option needs its own explicit ownership/selection contract.
+
+Previously the toolbar index affected only ordinary scene selection; commands
+could replace that contract and bypass it. Planes also used the Faces branch.
+Regression coverage includes classification of every candidate kind, persistent
+filtering across command replacement, hover/LMB/RMB, transient origin handles,
+Sketch rectangle selection, and the actual toolbar and placement dialogs.
+
+Verification: the focused UI regression initially failed with `User Axes filter
+was bypassed by an active Face command`. After the repair, all ten targeted
+contracts passed: viewer core, shared UI, translations, toolbar/placement filter,
+Sketch origin picking, measurement inspector, component properties, edge treatment,
+Sketch Coincident and Sketch endpoint priority. The actual workspace test includes
+repeated Assembly occurrences and component-reference entry. Evidence:
+`build/selection-filter-repro-test.log`, `build/selection-filter-tests.log` and
+`build/selection-filter-regression-tests.log`. This follow-up is a development
+change made after publication of Windows 2026091702; that immutable archive does
+not contain this filter repair.
+
 ## Scope
 
 This document records the ordinary selection contract for Part and Assembly

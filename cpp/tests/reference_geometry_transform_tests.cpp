@@ -10,6 +10,11 @@ void verify() {
     kernel::ViewerReferenceGeometry source;
     kernel::ViewerEdge spline;spline.reference={"source","curve",""};spline.points={{1,0,0},{0,1,0}};
     spline.exact_spline=kernel::BSplineGeometry{2,{{1,0,0},{1,1,0},{0,1,0}},{0,0,0,1,1,1},{1,std::sqrt(.5),1}};
+    spline.edge_treatment_side_references={{"source","side",""},{"source","wall",""}};
+    spline.edge_treatment_side_references[0].sheet_role=kernel::SheetFaceRole::SideA;
+    spline.edge_treatment_side_references[1].sheet_role=kernel::SheetFaceRole::ThicknessFace;
+    for(auto& side:spline.edge_treatment_side_references)side.sheet_thickness=2;
+    spline.edge_treatment_endpoint_references={{"source","first",""},{"source","last",""}};
     source.edges.push_back(spline);
     source.points.push_back({{2,3,4},{"source","point",""}});
     source.axes.push_back({{2,3,4},{0,1,0},100,{"source","axis",""}});
@@ -29,6 +34,12 @@ void verify() {
         "Reference collection included unrelated geometry or lost selected primitives");
     const auto& actual=result.edges.front();require(actual.reference.owner_id=="source"&&actual.reference.semantic_key=="curve"&&actual.reference.instance_path==frame.instance_prefix,
         "Reference transformation replaced topology identity");
+    require(kernel::sheet_edge_role(actual)==kernel::SheetEdgeRole::Boundary,"Occurrence transform lost sheet roles");
+    for(const auto& reference:actual.edge_treatment_side_references) {
+        require(reference.instance_path==frame.instance_prefix,"Sheet adjacency points to a different occurrence");near(reference.sheet_thickness,2);
+    }
+    for(const auto& reference:actual.edge_treatment_endpoint_references)
+        require(reference.instance_path==frame.instance_prefix,"Sheet endpoint points to a different occurrence");
     near(actual.points.front(),{10,21,30});near(actual.points.back(),{9,20,30});
     require(actual.exact_spline&&actual.exact_spline->weights==spline.exact_spline->weights&&actual.exact_spline->knots==spline.exact_spline->knots,
         "Exact rational geometry was reconstructed from samples");

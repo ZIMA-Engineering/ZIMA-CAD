@@ -1313,8 +1313,12 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                 ? [this] {
                     switch (selection_filter_combo_->currentIndex()) {
                         case 1:
-                        case 4:
                             return std::vector{zima::viewer::CandidateKind::Face};
+                        case 4:
+                            return std::vector{zima::viewer::CandidateKind::Plane};
+                        case 5:
+                            return std::vector{zima::viewer::CandidateKind::Edge};
+                        case 6:
                         case 2:
                             return std::vector{zima::viewer::CandidateKind::Vertex};
                         case 3:
@@ -2118,8 +2122,12 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         : [this] {
             switch (selection_filter_combo_->currentIndex()) {
                 case 1:
-                case 4:
                     return std::vector{zima::viewer::CandidateKind::Face};
+                case 4:
+                    return std::vector{zima::viewer::CandidateKind::Plane};
+                case 5:
+                    return std::vector{zima::viewer::CandidateKind::Edge};
+                case 6:
                 case 2:
                     return std::vector{zima::viewer::CandidateKind::Vertex};
                 case 3:

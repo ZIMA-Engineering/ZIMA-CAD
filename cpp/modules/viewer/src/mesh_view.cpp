@@ -167,6 +167,7 @@ struct MeshView::Impl {
     };
     std::vector<SilhouetteCandidate> silhouette_candidates;
     std::vector<CandidateKind> allowed_kinds{CandidateKind::Container};
+    SelectionFilter selection_filter{SelectionFilter::All};
     std::function<bool(const ViewerCandidate&)> candidate_filter;
     bool offer_result_faces{};
     bool offer_original_containers{};
@@ -846,6 +847,13 @@ std::function<bool(const ViewerCandidate&)> MeshView::candidate_filter() const {
     return impl_->candidate_filter;
 }
 
+void MeshView::set_selection_filter(SelectionFilter filter) {
+    if (impl_->selection_filter == filter) return;
+    impl_->selection_filter = filter;
+    clear_selection();
+    if (impl_->empty_confirmation_callback) impl_->empty_confirmation_callback();
+}
+
 void MeshView::set_selection_contract(std::vector<CandidateKind> allowed_kinds) {
     impl_->allowed_kinds = std::move(allowed_kinds);
     impl_->candidate_filter = {};
@@ -1178,6 +1186,11 @@ std::vector<ViewerCandidate> MeshView::selection_candidates_at(
     // BOM regions stay above text/dimension hit boxes and Sketch drag priorities.
     // Apply this once to the final shared list used by hover, LMB and RMB.
     std::stable_partition(filtered.begin(),filtered.end(),[](const auto& candidate){return candidate.kind==CandidateKind::TemplateRegion;});
+    // Final user gate also covers command-injected origin handles. Commands
+    // may replace their own contract/filter, never this independent policy.
+    std::erase_if(filtered, [&](const auto& candidate) {
+        return !matches_selection_filter(candidate, impl_->selection_filter);
+    });
     return filtered;
 }
 
@@ -5554,6 +5567,9 @@ void MeshView::mouseReleaseEvent(QMouseEvent* event) {
         }
         impl_->sketch_box_start.reset();
         impl_->sketch_box_end.reset();
+        std::erase_if(selected, [&](const auto& candidate) {
+            return !matches_selection_filter(candidate, impl_->selection_filter);
+        });
         if (impl_->sketch_box_selection_callback) {
             const bool additive =
                 event->modifiers().testFlag(Qt::ControlModifier) ||

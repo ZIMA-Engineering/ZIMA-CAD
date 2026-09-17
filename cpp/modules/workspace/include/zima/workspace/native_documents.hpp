@@ -18,6 +18,8 @@ public:
     [[nodiscard]] NativeDocumentType type() const;
     [[nodiscard]] const std::string& id() const;
     [[nodiscard]] bool is_drawing_for(const std::string& source_document_id) const;
+    void set_drawing_source(const std::string& source_document_id,
+        const std::filesystem::path& source_path, const std::string& source_name);
     // Work only on this private, loaded snapshot; no Workspace or body calculation.
     bool rebase_native_files(std::span<const document::FileRelocation>);
     void write(const std::filesystem::path& target) const;

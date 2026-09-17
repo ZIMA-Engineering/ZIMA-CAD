@@ -4,12 +4,14 @@
 #include <QApplication>
 
 int verify_drawing_ui();
+int verify_drawing_source_picker();
 int verify_show_erase_ui();
 int verify_measurement_dimension_ui();
 int verify_drawing_balloon_ui();
 
 int main(int argc, char* argv[]) {
     QApplication application(argc, argv);
+    if (application.arguments().contains("--verify-source-picker")) return verify_drawing_source_picker();
     zima::app::apply_application_translations(
         application, zima::app::ApplicationSettings::load());
     if (application.arguments().contains("--verify-show-erase")) return verify_show_erase_ui();

@@ -25,8 +25,12 @@ can change its K factor while leaving the document thickness intact.
 OK commits both defaults together. Cancel discards pending edits. The shared
 properties-window behavior includes confirmation by middle-button double-click
 over the owning View. Undo/Redo and native save/reopen retain the settings.
-Changing these defaults preserves the calculated model geometry. The settings
-belong to the active Part source, including while editing it inside an Assembly.
+Changing these defaults calculates Parts containing Flat or Bend before committing
+the settings and geometry together. Calculation errors leave the previous state
+intact. Parts without sheet features keep their calculated geometry. The settings
+belong to the active Part source, including while editing it inside an Assembly;
+Assembly mate solving and Assembly-owned operations still require their own
+explicit regeneration.
 
 Sheet Metal Properties is an editing shortcut, so it is absent from **Insert**.
 Assembly file settings have no Sheet Metal page.
@@ -63,12 +67,18 @@ are used only for nesting and intersection validation.
 - **Symmetric:** put half of the total thickness on each side of the Sketch.
 - Thickness follows the Part's `SHEETMETAL_THICKNESS` default (1 mm initially).
   **Custom thickness** enables the local numeric field. Unchecking it restores
-  the inherited value. Changed document defaults take effect on explicit
-  regeneration, as for Bend.
+  the inherited value. Confirming changed document sheet defaults calculates
+  the Part immediately, including dependent Bends, in the same transaction.
 
-Creation and editing share one internal properties window. SKETCH edits a
+Creation and editing share one internal properties window. The **Switch** button
+beside **Direction** cycles First side, Second side and Symmetric through the same
+preview and parameter update as the dropdown. SKETCH edits a
 transient draft and returns to that window. OK validates, calculates and commits
-one history transaction; Cancel discards the pending changes. Editing rolls back
+one history transaction; Cancel discards the pending changes. Flat and Bend OK
+explicitly calculate the Part even when the parameters are unchanged, so
+confirming also restores missing
+calculated geometry. An unchanged definition adds no Undo entry. Cancel never
+triggers that calculation. Editing rolls back
 to the feature's input boundary. Native save/reopen and Undo/Redo preserve the
 feature, profile, thickness policy and extrusion side.
 
@@ -149,19 +159,73 @@ changing the document. Unchanged values do not create an Undo entry.
 
 ## Bend / Unbend
 
+### Persisted sheet topology and automatic attachment
+
+Flat and Bend remain ordinary solid features and can be mixed with Modeling
+operations in one Body history. Their calculated native face references also
+carry `SheetFaceRole` and material thickness. Flat labels its authored Start/End
+faces as SideA/SideB and its boundary walls as ThicknessFace. Bend labels the
+authored outer/inner surfaces as SideA/SideB and its end/side walls as
+ThicknessFace. Curvature does not imply Unknown: cylindrical Bend surfaces have
+known roles. New faces without a proven sheet role remain Unknown.
+
+Roles are attributes, not topology identities. Existing parent/child identities
+are unchanged. During explicit calculation the viewer packet stores adjacent
+face identities and endpoint identities for edges. Two thickness faces identify
+a thickness edge; one thickness face and one principal side identify a boundary
+edge. Classification uses that persisted adjacency, never relative edge length
+or an OCCT traversal during interaction. Flat and Bend placement do not offer
+thickness edges. Ordinary Modeling selection is unaffected.
+
+Selecting a straight sheet boundary edge for Bend fills its edge, joining face
+and endpoint references. The chosen edge starts the **outer radius**. The angle
+remains 0–180 degrees; selecting the corresponding opposite boundary edge changes
+the side. The joining face and orientation are derived and cannot be changed
+independently in automatic mode. The confirmed edge's nearer endpoint is the
+initial origin; **Other edge endpoint** switches that origin without reversing
+the material side. The edge and endpoint can also be replaced through the
+reference table. **Manual placement references** returns to ordinary placement.
+
+The start Sketch lies directly at the container origin. Bend has no additional
+profile-plane offset or manual Sketch plane selector. Its work plane derives
+from placement; the trajectory plane also passes through the origin, while the
+end Sketch follows the trajectory endpoint and tangent. Each start endpoint is
+referenced to a native edge endpoint and has an initially zero horizontal offset
+dimension. Both zero dimensions remain visible. Positive initial offsets shorten
+the span inward; a nonpositive resulting width is rejected. Automatic attachment
+follows the source sheet thickness on explicit regeneration.
+
+When the attachment edge changes, offset dimensions retain their point identities
+and source ancestry. Start/End vertices of Flat share the parent Sketch point;
+outer/inner vertices of Bend share the parent profile point. Selecting the
+opposite boundary therefore preserves asymmetric offsets on their corresponding
+ends, even if the new edge has the opposite tangent direction. Regression tests
+use 3 mm and 11 mm offsets, both origins, repeated opposite-edge replacements,
+reversed edge parameterization and persistent profile-point identities.
+
+Console attachment uses `bend.create edge_owner=<container> edge_key=<semantic>`.
+The same arguments on `bend.set` replace the edge; `origin_last=true/false`
+selects one of its two persisted endpoints. Geometry and validation use the same
+workspace transaction as GUI OK.
+
+Sheet metadata is stored in native documents, including saved original-reference
+packets and assembly/drawing copies. Current format versions are Part INI 32 /
+JSON 56, Assembly INI 26 / JSON 38, and Drawing INI 18 / JSON 10. The tracked start templates
+use those versions; there is no legacy-format migration path.
+
 **Bend** is available in the Sheet Metal toolbar and contextual **Insert** menu.
 Creation and editing use the same internal properties window, OK/Cancel and
 middle-button double-click confirmation. Changes remain transient until OK.
 Editing evaluates the existing history boundary before the Bend.
 
-- The command consumes ordinary container placement. With an automatic Base plane,
+- The command consumes ordinary container placement. In manual reference mode,
   selecting a straight outer edge and its narrow planar attachment face puts the
   start profile in that face, its segment along the edge, and thickness into the
   face. The initial sweep tangent leaves the face outwards. This also works on
   the End face of an existing Bend; another perpendicular face is not required.
-  Edge direction reversal does not reverse the material side. Base plane remains
-  available for an explicit manual choice; FRONT/BACK, rotation and offset remain
-  available. These are Bend profile frames, not a different container solver.
+  Edge direction reversal does not reverse the material side. The profile plane
+  is derived automatically and its offset is always zero. Manual container
+  placement retains its ordinary reference contract.
 - The ordered placement sequence **Edge, containing Plane, Point** uses the last
   point as a station along the edge: its perpendicular projection locates the
   origin, including when the point is the opposite corner of the attachment
@@ -179,7 +243,7 @@ Editing evaluates the existing history boundary before the Bend.
   side; negative entry reverses it, following the ordinary Sketch dimension rule.
   The initial positive direction widens each end. CLI extension arguments are
   signed: positive widens, negative shortens. End width must remain positive.
-- Both start endpoints have C constraints to the horizontal Sketch axis and
+- In manual reference mode both start endpoints have C constraints to the horizontal Sketch axis and
   separate horizontal dimensions from the Sketch origin (initially 0 and 40 mm).
   Both end endpoints have C constraints to their axis and difference dimensions
   from the corresponding transported start endpoints. Editing start dimensions
@@ -193,8 +257,14 @@ Editing evaluates the existing history boundary before the Bend.
   Material extends from the segment toward the rotation axis, at outside radius R+t.
 - The prepared path is the **outside** circular arc. Its Sketch radius dimension
   is R+t; editing that dimension updates the inside radius in Properties. The
-  **Radius follows thickness** checkbox continuously sets the inside R to t and
-  locks the path radius. Unchecking it retains the current effective inside radius.
+  **Custom radius** is unchecked by default: the inside R follows thickness t,
+  and both the radius field and path radius are locked. Checking it enables
+  manual radius editing, starting from the current effective inside radius.
+  Unchecking it restores thickness inheritance. Editing preserves the saved choice.
+  The properties preview remains hidden until valid references fix all three
+  rotations. Automatic sheet-edge selection supplies that attachment at once;
+  manual placement requires at least two independent references. A remaining
+  translation along the attachment edge may still be edited numerically.
 - Thickness and K factor follow the Part settings. **Local value** enables an
   override for each separately. A missing Part thickness evaluates as 1 mm.
 - **Bend** carries the section along the circular trajectory, interpolating the
@@ -381,3 +451,32 @@ attachment scenarios. The matrix covers rotated 180-degree geometry, both edge
 directions, off-edge point projection, start/end dimension edits, Bend/Unbend,
 Sketcher return and native persistence. See the final verification section in
 [Container Placement Analysis](CONTAINER_PLACEMENT_ANALYSIS.md#final-verification-of-the-combined-repair-2026-09-16).
+
+The 2026-09-17 sheet-role and automatic attachment implementation passed eleven
+distinct focused Windows contracts: Flat, Bend, Holes, Profile, Assembly, UI,
+translations, occurrence reference transforms, Bend attachment GUI, automatic
+attachment dialog and Drawing source picker. The rebuilt GUI tests exercise
+actual Flat-edge picking, creation/editing, all three Sketcher roundtrips and
+native reopen. Core tests cover all eight rectangular Flat boundary edges,
+both endpoints, 0/90/180-degree angles, inherited thickness, persisted topology
+parents, and unequal 3/11 mm offsets across edge and endpoint replacement and
+reversed parameterization. Automatic Bend-to-Bend attachment also checks both
+endpoints in sixteen rotated/unrotated and reversed-edge source cases.
+
+Logs: `build/sheet-drawing-ui-tests.log`, `build/sheet-drawing-regression.log`
+and `build/sheet-bend-final-tests.log`. The wider Drawing contract still fails
+its pre-existing shared title-block dimension check
+(`Shared 10mm master dimension cannot drive its equal lengths`); the new
+Drawing source-picker contract passes. This is focused verification, not a
+claim that the entire repository suite passes.
+
+The subsequent properties refinement passed six focused contracts across
+`build/sheet-preview-confirm-tests.log`, `build/sheet-settings-confirm-tests.log`
+and the corrected final rerun `build/sheet-settings-final-tests.log`: Bend
+attachment GUI, shared UI, Flat, Bend, metadata commands and application-tools
+GUI. Coverage includes the new inherited-radius default and Cancel reset,
+hidden unattached preview annotations, unchanged OK restoring missing body data
+without an extra Undo entry, and immediate thickness/K-factor calculation with
+atomic settings/geometry Undo and Redo. Earlier failed expectations for a 5 mm
+default radius and deferred sheet-settings calculation were updated to the
+requested behavior. The local Windows GUI was rebuilt successfully.

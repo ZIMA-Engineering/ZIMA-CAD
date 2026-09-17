@@ -2597,6 +2597,14 @@ int verify_save_copy_ui(QApplication& application, const std::filesystem::path& 
             dialog->findChild<QLineEdit*>("newDocumentFileName")->setText(QString::fromStdString(name));
             for (auto* radio : dialog->findChildren<QRadioButton*>())
                 radio->setChecked(radio->property("documentType").toString() == type);
+            QTimer drawing_source;
+            QObject::connect(&drawing_source,&QTimer::timeout,&window,[&] {
+                if(auto* picker=qobject_cast<QFileDialog*>(QApplication::activeModalWidget())) {
+                    drawing_source.stop();picker->selectFile(qpath(selected_directory/fs::u8path("nový-žluťoučký-part.prtz")));
+                    QMetaObject::invokeMethod(picker,"accept",Qt::QueuedConnection);
+                }
+            });
+            if(QString::fromLatin1(type)=="drawing")drawing_source.start(10);
             dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click(); flush();
             const auto original_id = run("context").at("active_document").get<std::string>();
             const auto original = selected_directory / fs::u8path(name + suffix);
@@ -3775,10 +3783,17 @@ int verify_application_tools_ui(QApplication& application,const std::filesystem:
         bend_action->trigger();flush();auto* bend=bend_dialog();check(bend&&bend->windowType()==Qt::SubWindow,"Bend properties did not open internally");
         auto* thickness=bend->findChild<QDoubleSpinBox*>("bendThickness");auto* override=bend->findChild<QCheckBox*>("bendThicknessOverride");
         check(thickness&&override&&!override->isChecked()&&!thickness->isEnabled()&&thickness->value()==2.,"Bend did not inherit Part thickness");
-        auto* radius_link=bend->findChild<QCheckBox*>("bendRadiusFollowsThickness");
-        check(radius_link,"Bend radius/thickness link missing");radius_link->setChecked(true);flush();
+        auto* radius_override=bend->findChild<QCheckBox*>("bendRadiusOverride");
+        check(radius_override&&!radius_override->isChecked(),"New Bend must inherit its radius by default");flush();
         check(!bend->findChild<QDoubleSpinBox*>("bendRadius")->isEnabled()&&bend->findChild<QDoubleSpinBox*>("bendRadius")->value()==2.,"Bend linked radius does not follow thickness");
-        radius_link->setChecked(false);flush();
+        radius_override->setChecked(true);flush();
+        check(bend->findChild<QDoubleSpinBox*>("bendRadius")->isEnabled(),"Custom radius did not enable editing");
+        bend->findChild<QDoubleSpinBox*>("bendRadius")->setValue(7.);
+        radius_override->setChecked(false);flush();
+        check(!bend->findChild<QDoubleSpinBox*>("bendRadius")->isEnabled()&&bend->findChild<QDoubleSpinBox*>("bendRadius")->value()==2.,
+            "Disabling custom radius did not restore thickness inheritance");
+        radius_override->setChecked(true);flush();
+        check(bend->findChild<QDoubleSpinBox*>("bendRadius")->value()==2.,"Enabling custom radius changed the effective radius");
         for(const auto* button_name:{"bendPathSketchButton","sketchOpenButton","bendEndSketchButton"}) {
             auto* button=bend->findChild<QPushButton*>(button_name);check(button,"One of the three Bend Sketch editors is missing");
             check(button->styleSheet().contains("#4DD811"),"Bend Sketch button does not use the shared green style");
@@ -3789,7 +3804,10 @@ int verify_application_tools_ui(QApplication& application,const std::filesystem:
         override->setChecked(true);thickness->setValue(3.);override->setChecked(false);check(thickness->value()==2.,"Disabling local thickness did not restore Part value");
         bend->findChild<QDoubleSpinBox*>("bendRadius")->setValue(7.);bend->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
         window.findChild<QAction*>("saveDocumentAction")->trigger();flush();check(document::PartDocument::load(bend_path).history.empty(),"Bend Cancel inserted history");
-        bend_action->trigger();flush();bend=bend_dialog();check(bend&&bend->findChild<QDoubleSpinBox*>("bendRadius")->value()==5.,"Bend Cancel retained radius");
+        bend_action->trigger();flush();bend=bend_dialog();check(bend&&bend->findChild<QDoubleSpinBox*>("bendRadius")->value()==2.&&
+            !bend->findChild<QCheckBox*>("bendRadiusOverride")->isChecked(),"Bend Cancel did not restore the inherited radius default");
+        // Remaining scenarios deliberately exercise independent radius editing.
+        bend->findChild<QCheckBox*>("bendRadiusOverride")->setChecked(true);flush();
         bend->findChild<QComboBox*>("bendState")->setCurrentIndex(1);flush();window.grab().save("build/bend-properties.png");
         bend->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();check(!bend_dialog(),"Bend OK failed to close");
         window.findChild<QAction*>("saveDocumentAction")->trigger();flush();const auto saved_bend=document::PartDocument::load(bend_path);
@@ -3827,6 +3845,57 @@ int verify_application_tools_ui(QApplication& application,const std::filesystem:
         window.grab().save("build/bend-three-sketch-view.png");
         check(window.finish_parameter_dimensions(),"Bend inspection did not finish");flush();
         check(!state_button->isVisible(),"Bend View action survived clearing inspection");
+        // Exercise the source-picker handoff inside the real tabbed workspace,
+        // including the outer window's properties and selection handlers.
+        window.findChild<QAction*>("newDocumentAction")->trigger();flush();
+        auto* new_drawing=window.findChild<QDialog*>("newDocumentDialog");check(new_drawing,"New Document did not open");
+        new_drawing->findChild<QLineEdit*>("newDocumentFileName")->setText("linked-drawing-ui");
+        for(auto* radio:new_drawing->findChildren<QRadioButton*>())
+            radio->setChecked(radio->property("documentType").toString()=="drawing");
+        bool source_requested=false,accept_source=false;QTimer source_picker;
+        QObject::connect(&source_picker,&QTimer::timeout,&window,[&] {
+            if(auto* picker=qobject_cast<QFileDialog*>(QApplication::activeModalWidget())) {
+                source_picker.stop();source_requested=true;
+                if(!accept_source){picker->reject();return;}
+                picker->selectFile(QString::fromStdString(bend_path.string()));
+                QMetaObject::invokeMethod(picker,"accept",Qt::QueuedConnection);
+            }
+        });
+        const auto tabs_before_new=tabs->count();
+        source_picker.start(10);new_drawing->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();source_picker.stop();flush();
+        check(source_requested&&new_drawing->isVisible()&&tabs->count()==tabs_before_new,
+            "Canceling Drawing source selection created a tab or closed New Document");
+        accept_source=true;source_requested=false;
+        source_picker.start(10);new_drawing->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();source_picker.stop();flush();
+        check(source_requested&&!window.findChild<QDialog*>("newDocumentDialog"),"New Drawing did not request and accept its source");
+        auto* drawing_window=dynamic_cast<app::DrawingWindow*>(window.findChild<QWidget*>("drawingWorkspace"));
+        auto* drawing_canvas=window.findChild<QWidget*>("drawingCanvas");
+        check(drawing_window&&drawing_canvas&&drawing_canvas->isVisible(),"Drawing canvas is not active");
+        check(drawing_window->document_for_test().source_document_id==saved_bend.document_id&&
+            drawing_window->document_for_test().sheets.front().views.empty(),"New Drawing did not store its source before inserting views");
+        source_requested=false;source_picker.start(10);
+        window.findChild<QAction*>("insertDrawingViewAction")->trigger();source_picker.stop();flush();
+        check(!source_requested,"Insert View unexpectedly requested a source");
+        const QPointF place=drawing_canvas->rect().center();
+        for(auto type:{QEvent::MouseMove,QEvent::MouseButtonPress,QEvent::MouseButtonRelease}) {
+            QMouseEvent event(type,place,drawing_canvas->mapToGlobal(place.toPoint()),
+                type==QEvent::MouseMove?Qt::NoButton:Qt::LeftButton,
+                type==QEvent::MouseButtonPress?Qt::LeftButton:Qt::NoButton,Qt::NoModifier);
+            QApplication::sendEvent(drawing_canvas,&event);
+        }
+        flush();auto* inserted=window.findChild<QDialog*>("drawingViewProperties");
+        check(inserted&&inserted->isVisible(),"Selected source did not continue to view placement in the workspace");
+        inserted->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+        check(drawing_window->document_for_test().sheets.front().views.size()==1,
+            "Workspace Insert View did not commit the selected source");
+        check(window.open_document_path(QString::fromStdString(bend_path.string())),"Cannot return to source Part");flush();
+        source_requested=false;accept_source=false;source_picker.start(10);
+        auto* drawing_shortcut=window.findChild<QToolButton*>("documentKindButton");
+        check(drawing_shortcut,"Part-to-Drawing shortcut is missing");
+        drawing_shortcut->click();source_picker.stop();flush();
+        check(!source_requested&&drawing_canvas->isVisible()&&
+            drawing_window->document_for_test().source_document_id==saved_bend.document_id,
+            "Part-to-Drawing shortcut prompted for an already known source");
         std::cout<<"Application selector, per-document modes, contextual Insert, live profile status and stable Save tabs passed\n";return 0;
     }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
 }
@@ -4903,7 +4972,7 @@ int verify_sketch_return_frames(QApplication& application, const std::filesystem
     try {
         for(const auto kind:{document::FeatureKind::Sketch,document::FeatureKind::Holes,
                 document::FeatureKind::Flat,document::FeatureKind::Bend})
-        for(const bool existing:{false,true}) for(int scenario=bend_attachment?9:origin_pick?6:0;scenario<(bend_attachment?17:origin_pick?9:6);++scenario) {
+        for(const bool existing:{false,true}) for(int scenario=bend_attachment?9:origin_pick?6:0;scenario<(bend_attachment?18:origin_pick?9:6);++scenario) {
             if(bend_attachment && kind!=document::FeatureKind::Bend)continue;
             std::cout<<"Sketch return frame: kind="<<int(kind)<<" existing="<<existing
                      <<" scenario="<<scenario<<std::endl;
@@ -4916,13 +4985,23 @@ int verify_sketch_return_frames(QApplication& application, const std::filesystem
             box.box.length=40;box.box.width=40;box.box.height=40;
             if(bend_attachment)box.box.height=1;
             part.history={source,box};part.sketches={source_sketch};
+            if(bend_attachment&&scenario==17) {
+                auto sheet=sketcher::Sketch::create_default();sheet.owner_container_id=box.id;
+                sheet.add_segment(0,0,40,0);sheet.add_segment(40,0,40,40);
+                sheet.add_segment(40,40,0,40);sheet.add_segment(0,40,0,0);
+                box.feature_kind=document::FeatureKind::Flat;box.flat.sketch_id=sheet.id;
+                part.history.back()=box;part.sketches.push_back(sheet);
+            }
             auto feature=document::PartDocument::create_sketch_container();feature.feature_kind=kind;
             auto sketch=sketcher::Sketch::create_default();sketch.owner_container_id=feature.id;
             const auto populate=[&](sketcher::Sketch& s) {
                 if(kind==document::FeatureKind::Flat) {
                     s.add_segment(2,3,12,3);s.add_segment(12,3,12,9);
                     s.add_segment(12,9,2,9);s.add_segment(2,9,2,3);
-                } else if(s.segments.empty())s.add_segment(0,0,15,0);
+                } else if(s.segments.empty()) {
+                    if(bend_attachment&&scenario==17)document::initialize_bend_start_profile(s,15);
+                    else s.add_segment(0,0,15,0);
+                }
             };
             populate(sketch);
             if(kind==document::FeatureKind::Holes) {
@@ -4968,6 +5047,15 @@ int verify_sketch_return_frames(QApplication& application, const std::filesystem
                     kind==document::FeatureKind::Bend?"bendAction":"holesAction";
                 auto* command=window.findChild<QAction*>(action);check(command,"Missing Sketch feature action");
                 command->trigger();flush();check(dialog(),"New Sketch feature Properties did not open");
+                if(kind==document::FeatureKind::Bend) {
+                    auto* custom=dialog()->findChild<QCheckBox*>("bendRadiusOverride");
+                    check(custom&&!custom->isChecked(),"New Bend radius does not follow thickness by default");
+                    check(!dialog()->findChild<QDoubleSpinBox*>("bendRadius")->isEnabled(),
+                        "Inherited Bend radius remains manually editable");
+                    const auto draft_owner=dialog()->pending_value().first.owner_container_id;
+                    check(std::ranges::none_of(view->mesh().dimensions,[&](const auto& d){return d.reference.owner_id==draft_owner;}),
+                        "Unattached Bend already displays preview dimensions");
+                }
                 const auto id=dialog()->pending_value().first.id;
                 check(dialog()->mutate_sketch(id,populate),"Cannot populate pending profile");flush();
             }
@@ -5032,6 +5120,33 @@ int verify_sketch_return_frames(QApplication& application, const std::filesystem
             }
             for(std::size_t i=0;i<refs.size();++i) {
                 if(origin_pick)break;
+                if(bend_attachment&&scenario==17) {
+                    auto* table=dialog()->findChild<QTableWidget*>("sketchReferenceTable");
+                    const QPointF cell=table->visualItemRect(table->item(0,1)).center();
+                    for(auto type:{QEvent::MouseButtonPress,QEvent::MouseButtonRelease}) {
+                        QMouseEvent event(type,cell,table->viewport()->mapToGlobal(cell.toPoint()),Qt::LeftButton,
+                            type==QEvent::MouseButtonPress?Qt::LeftButton:Qt::NoButton,Qt::NoModifier);
+                        QApplication::sendEvent(table->viewport(),&event);
+                    }
+                    view->set_selection_filter(viewer::SelectionFilter::Curves);flush();
+                    std::optional<QPointF> hit;
+                    for(int y=2;y<view->height()&&!hit;y+=3)for(int x=2;x<view->width();x+=3) {
+                        const auto offered=view->selection_candidates_at(QPointF(x,y));
+                        if(!offered.empty()&&offered.front().owner_id==box.id&&offered.front().semantic_key==refs.front().semantic_key) {hit=QPointF(x,y);break;}
+                    }
+                    check(hit.has_value(),"Sheet boundary absent from the common Bend picker");
+                    QMouseEvent move(QEvent::MouseMove,*hit,view->mapToGlobal(hit->toPoint()),Qt::NoButton,Qt::NoButton,Qt::NoModifier);
+                    QApplication::sendEvent(view,&move);
+                    for(auto type:{QEvent::MouseButtonPress,QEvent::MouseButtonRelease}) {
+                        QMouseEvent event(type,*hit,view->mapToGlobal(hit->toPoint()),Qt::LeftButton,
+                            type==QEvent::MouseButtonPress?Qt::LeftButton:Qt::NoButton,Qt::NoModifier);
+                        QApplication::sendEvent(view,&event);
+                    }
+                    flush();check(dialog()->pending_value().second.references.size()>=3,"One confirmed sheet edge did not populate Bend placement");
+                    feature.bend.sheet_attachment=true;
+                    view->set_selection_filter(viewer::SelectionFilter::All);
+                    break;
+                }
                 check(dialog()->set_reference(i,refs[i],QString::fromStdString(refs[i].semantic_key)),"Cannot set return-test reference");flush();
             }
             if(origin_pick) {
@@ -6653,11 +6768,86 @@ int verify_drawing_workspace(QApplication& application, zima::app::AssemblyWorks
     return 0;
 }
 
+int verify_selection_filter(QApplication& application,
+    zima::app::AssemblyWorkspaceWindow& window) {
+    using namespace zima;
+    const auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
+    const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);};
+    try {
+        window.resize(1100,800);window.show();
+        check(window.execute_console_command("new part selection-filter").ok,"Cannot create filter fixture");
+        check(window.execute_console_command("box.create 10 20 30").ok,"Cannot create filter solid");flush();
+        const auto source_id=window.execute_console_command("context").data.at("active_document");
+        auto* combo=window.findChild<QComboBox*>("selectionFilterCombo");
+        auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>("modelWorkspace"));
+        check(combo&&view&&combo->count()==7,"Missing user selection filters");
+        const auto assert_candidates=[&](int index,bool require_hit) {
+            combo->setCurrentIndex(index);flush();view->fit_all();flush();
+            std::size_t count=0;
+            for(int y=0;y<view->height();y+=13)for(int x=0;x<view->width();x+=13)
+                for(const auto& candidate:view->selection_candidates_at({double(x),double(y)})) {
+                    ++count;
+                    check(viewer::matches_selection_filter(candidate,static_cast<viewer::SelectionFilter>(index)),
+                        "Workspace command bypassed the toolbar filter");
+                }
+            check(!require_hit||count>0,"User filter removed all valid candidates");
+        };
+        for(int index=1;index<7;++index)assert_candidates(index,index==1||index==3||index==4);
+        combo->setCurrentIndex(0);flush();
+        window.findChild<QAction*>("boxAction")->trigger();flush();
+        app::PrimitivePropertiesDialog* dialog{};
+        for(auto* child:window.findChildren<QDialog*>())
+            if(auto* p=dynamic_cast<app::PrimitivePropertiesDialog*>(child);p&&p->isVisible())dialog=p;
+        check(dialog!=nullptr,"Cannot open actual Box placement dialog");
+        zima::ui::ContainerPlacementSection* placement{};
+        for(auto* child:dialog->findChildren<QObject*>())
+            if(auto* p=dynamic_cast<zima::ui::ContainerPlacementSection*>(child))placement=p;
+        check(placement!=nullptr,"Missing actual placement reference table");
+        placement->reference_table()->cellClicked(0,1);flush();
+        for(int index=1;index<7;++index)assert_candidates(index,index==3||index==4);
+        combo->setCurrentIndex(3);flush();
+        view->set_selection_contract({viewer::CandidateKind::Face});
+        view->set_candidate_filter([](const auto&){return true;});
+        bool offered=false;
+        for(int y=0;y<view->height();y+=17)for(int x=0;x<view->width();x+=17)
+            offered|=!view->selection_candidates_at({double(x),double(y)}).empty();
+        check(!offered,"Replacing a command contract erased the user filter");
+        dialog->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
+        combo->setCurrentIndex(0);flush();
+        check(window.execute_console_command("new assembly selection-filter-assembly").ok,
+            "Cannot create Assembly filter fixture");
+        const commands::Json insertion{{"command","component.insert"},{"arguments",{{"source",source_id}}}};
+        const auto inserted=window.execute_console_command(QString::fromStdString(insertion.dump()));
+        check(inserted.ok,"Cannot insert filter fixture Part");
+        check(window.execute_console_command(QString::fromStdString(insertion.dump())).ok,
+            "Cannot insert repeated filter fixture Part");flush();
+        for(int index=1;index<7;++index)assert_candidates(index,index==1||index==3||index==4);
+        combo->setCurrentIndex(0);flush();
+        auto* tree=window.findChild<QTreeWidget*>("documentTree");
+        QTreeWidgetItem* component{};
+        for(QTreeWidgetItemIterator it(tree);*it;++it)
+            if((*it)->data(0,Qt::UserRole).toString().toStdString()==inserted.data.at("occurrence").get<std::string>())component=*it;
+        check(component!=nullptr,"Cannot find Assembly filter fixture occurrence");
+        window.show_tree_item_properties(component);flush();
+        app::ComponentPropertiesDialog* component_dialog{};
+        for(auto* child:window.findChildren<QDialog*>())
+            if(auto* p=dynamic_cast<app::ComponentPropertiesDialog*>(child);p&&p->isVisible())component_dialog=p;
+        check(component_dialog!=nullptr,"Cannot open component reference entry");
+        component_dialog->findChild<QTableWidget*>("componentPlacementTable")->cellClicked(0,1);flush();
+        for(int index=1;index<7;++index)assert_candidates(index,false);
+        component_dialog->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
+        combo->setCurrentIndex(0);flush();
+        std::cout<<"Toolbar and actual placement selection filter contracts passed\n";return 0;
+    } catch(const std::exception& error) {std::cerr<<error.what()<<'\n';return 1;}
+}
+
 int verify_startup_contract(
     QApplication& application, zima::app::AssemblyWorkspaceWindow& window,
     const std::filesystem::path& initial_test_directory,
     const QString& part_capture_path = {}, const QString& drawing_capture_path = {}) {
     auto test_directory = initial_test_directory;
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SELECTION_FILTER_ONLY"))
+        return verify_selection_filter(application,window);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_UPDATES_ONLY"))
         return zima::app::verify_updates_ui(application, window, test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_PACKAGE_ONLY")) {
@@ -10018,6 +10208,15 @@ int verify_startup_contract(
         application.processEvents();
     }
 
+    const auto drawing_source_path=test_directory/"new-drawing-source.prtz";
+    zima::document::PartDocument::create_default().save(drawing_source_path);
+    QTimer drawing_source_picker;
+    QObject::connect(&drawing_source_picker,&QTimer::timeout,&window,[&] {
+        if(auto* picker=qobject_cast<QFileDialog*>(QApplication::activeModalWidget())) {
+            drawing_source_picker.stop();picker->selectFile(QString::fromStdString(drawing_source_path.string()));
+            QMetaObject::invokeMethod(picker,"accept",Qt::QueuedConnection);
+        }
+    });drawing_source_picker.start(10);
     if (!create_document(QStringLiteral("drawing"), drawing_name)) {
         return 1;
     }

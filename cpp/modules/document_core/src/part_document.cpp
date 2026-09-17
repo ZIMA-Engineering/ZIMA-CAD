@@ -531,12 +531,12 @@ void add_json_parameters(
 
 nlohmann::json read_part_ini(const std::filesystem::path& path) {
     const auto ini = read_ini(path);
-    if (ini_value(ini, "Document", "format_version") != "31") {
+    if (ini_value(ini, "Document", "format_version") != "32") {
         throw std::runtime_error("Unsupported ZIMA-CAD Part document format");
     }
     nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 55},
+        {"format_version", 56},
         {"document_id", ini_required(ini, "Document", "document_id")},
         {"type", ini_value(ini, "Document", "type", "part")},
         {"name", ini_value(ini, "Document", "name", "Nový díl")},
@@ -690,7 +690,7 @@ void write_part_ini(
     const nlohmann::json& root, const std::filesystem::path& path) {
     IniSections ini;
     ini["Document"] = {
-        {"format_version", "31"},
+        {"format_version", "32"},
         {"type", "part"},
         {"document_id", root.at("document_id").get<std::string>()},
         {"name", root.at("name").get<std::string>()},
@@ -5530,6 +5530,14 @@ void PartDocument::resolve_constructions(
             for (auto& construction : carrier.constructions)
                 *next.find_construction(construction.id) = std::move(construction);
             for (auto& sketch : carrier.sketches) {
+                if(const auto* owner=next.find_container(sketch.owner_container_id);
+                    owner&&owner->feature_kind==FeatureKind::Bend&&owner->bend.sheet_attachment) {
+                    // A Body-local calculation carrier is not a source file.
+                    // Attachment endpoints belong to the containing Part.
+                    for(auto& reference:sketch.external_references)
+                        if(reference.id.starts_with(sketch.id+":attachment:"))
+                            reference.source_document_id=next.document_id;
+                }
                 const auto target = std::ranges::find_if(next.sketches, [&](const auto& value) { return value.id == sketch.id; });
                 *target = std::move(sketch);
             }
@@ -5633,6 +5641,9 @@ void PartDocument::resolve_constructions(
             // keeps the complete last resolved section frame.
             if (owner->feature_kind == FeatureKind::Bend && !owner->placement.reference_valid)
                 continue;
+            if(owner->feature_kind==FeatureKind::Bend) {
+                sketch.plane_auto=true;sketch.plane_offset=0;sketch.plane=zima::sketcher::SketchPlane::XY;
+            }
             const auto bend_attachment = owner->feature_kind == FeatureKind::Bend &&
                 (sketch.plane_auto || sketch.plane == zima::sketcher::SketchPlane::XY)
                 ? bend_attachment_profile_direction(owner->placement.references, source_geometry)
@@ -5713,6 +5724,8 @@ void PartDocument::resolve_constructions(
             sketch.resolved_x_axis = rotated_vector(local_x, rotation);
             sketch.resolved_y_axis = rotated_vector(local_y, rotation);
             sketch.resolved_normal = rotated_vector(local_normal, rotation);
+            if(owner->feature_kind==FeatureKind::Bend)
+                update_bend_sheet_profile(*owner,sketch,source_geometry,document_id);
         }
     };
     const auto resolve_datum = [&](ConstructionObject& object) {
@@ -8980,6 +8993,13 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
             boolean_tolerance,
             feature_mesh_deflection,
         });
+        if(container.feature_kind==FeatureKind::Flat) {
+            operations.back().sheet_operation=kernel::SheetOperation::Flat;
+            operations.back().sheet_thickness=flat_thickness(container,sheet_metal_defaults(*this));
+        } else if(container.feature_kind==FeatureKind::Bend) {
+            operations.back().sheet_operation=kernel::SheetOperation::Bend;
+            operations.back().sheet_thickness=resolved_bend_parameters(container,sheet_metal_defaults(*this)).thickness;
+        }
         } catch (const std::exception& error) {
             if (!recover_errors) throw;
             zima::kernel::HistoryOperation failed{container.id,
@@ -9675,6 +9695,7 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
             p.thickness=b.at("thickness");p.k_factor=b.at("k_factor");
             p.thickness_override=b.at("thickness_override");p.k_factor_override=b.at("k_factor_override");p.unbend=b.at("unbend");
             p.radius_follows_thickness=b.at("radius_follows_thickness");
+            p.sheet_attachment=b.at("sheet_attachment");
             p.auxiliary_sketches=b.at("auxiliary_sketches").get<std::array<std::string,2>>();
             for(const auto& data:p.auxiliary_sketches) {
                 if(data.empty())throw std::runtime_error("Bend auxiliary Sketch is missing.");
@@ -10795,7 +10816,8 @@ nlohmann::json PartDocument::serialized(
             serialized["bend"]={{"sketch_id",p.sketch_id},{"radius",p.radius},{"angle",p.angle_degrees},
                 {"thickness",p.thickness},{"k_factor",p.k_factor},{"thickness_override",p.thickness_override},
                 {"k_factor_override",p.k_factor_override},{"radius_follows_thickness",p.radius_follows_thickness},
-                {"auxiliary_sketches",p.auxiliary_sketches},{"unbend",p.unbend}};
+                {"auxiliary_sketches",p.auxiliary_sketches},{"unbend",p.unbend},
+                {"sheet_attachment",p.sheet_attachment}};
         } else if (container.feature_kind == FeatureKind::Holes) {
             serialized["sketch_id"] = container.holes.sketch_id;
             serialized["diameter"] = container.holes.diameter;
@@ -11197,7 +11219,7 @@ nlohmann::json PartDocument::serialized(
     static_cast<void>(zima::document::parse_named_views(named_views));
     nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 55},
+        {"format_version", 56},
         {"document_id", document_id},
         {"type", "part"},
         {"name", name},

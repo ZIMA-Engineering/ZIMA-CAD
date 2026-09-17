@@ -803,6 +803,15 @@ void AssemblyWorkspaceWindow::start_primitive_reference_selection(
         auto candidate_reference = zima::document::ConstructionReference{
             std::move(local_path), candidate.owner_id, candidate.semantic_key, 0.0,
             candidate_supports_offset(candidate)};
+        if(const auto* sketch_dialog=dynamic_cast<const SketchPropertiesDialog*>(primitive_reference_dialog_)) {
+            if(!sketch_dialog->sheet_reference_allowed(index,candidate_reference))return false;
+            if(index==0&&properties_dialog_&&properties_dialog_->objectName()=="bendPropertiesDialog") {
+                const auto edge=std::ranges::find_if(primitive_reference_geometry_.edges,[&](const auto& e) {
+                    return e.reference.owner_id==candidate_reference.owner_id&&e.reference.semantic_key==candidate_reference.semantic_key&&e.reference.instance_path==candidate_reference.instance_path;
+                });
+                if(edge!=primitive_reference_geometry_.edges.end()&&zima::kernel::sheet_edge_role(*edge)==zima::kernel::SheetEdgeRole::Boundary)return true;
+            }
+        }
         if (orientation_reference || direction_reference) {
             if (direction_reference &&
                 !placement_reference_candidate_can_define_direction(candidate))
@@ -1100,11 +1109,30 @@ void AssemblyWorkspaceWindow::accept_primitive_reference(
     }
     committed_reference.measured_offset=zima::document::measure_placement_reference_offset(committed_reference,primitive_reference_geometry_,orientation_origin);
     const bool auto_advance = primitive_reference_auto_advance_;
+    const auto bend_edge=selected_index==0&&properties_dialog_&&properties_dialog_->objectName()=="bendPropertiesDialog"
+        ?viewer_->candidate_edge(candidate):std::optional<zima::kernel::ViewerEdge>{};
+    const auto bend_ray=bend_edge?viewer_->ray_at(viewer_->last_pointer_position()):std::nullopt;
     if (!primitive_reference_dialog_->set_reference(
         selected_index, std::move(committed_reference), reference_label)) {
         state_->setText(tr("Stejná reference už je pro toto umístění zadaná."));
         viewer_->clear_selection();
         return;
+    }
+    if(bend_edge&&bend_ray&&zima::kernel::sheet_edge_role(*bend_edge)==zima::kernel::SheetEdgeRole::Boundary&&
+        bend_edge->edge_treatment_endpoint_references.size()==2&&bend_edge->points.size()>=2) {
+        // Choose a station on the already confirmed edge. This is not another
+        // entity picker and cannot bypass the common selection filter.
+        const auto distance=[&](const auto& point) {
+            const auto [origin,direction]=*bend_ray;
+            const double x=point.x-origin.x,y=point.y-origin.y,z=point.z-origin.z;
+            const double projection=x*direction.x+y*direction.y+z*direction.z;
+            const double norm=direction.x*direction.x+direction.y*direction.y+direction.z*direction.z;
+            return x*x+y*y+z*z-projection*projection/norm;
+        };
+        if(distance(bend_edge->points.back())<distance(bend_edge->points.front())) {
+            const auto& endpoint=bend_edge->edge_treatment_endpoint_references.back();
+            primitive_reference_dialog_->set_reference(2,{local_path,endpoint.owner_id,endpoint.semantic_key},tr("Bod"));
+        }
     }
     if (auto_advance)
         primitive_reference_dialog_->set_reference_inspected(selected_index, true);

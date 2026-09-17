@@ -55,7 +55,8 @@ void AssemblyWorkspaceWindow::update_document_area_visibility() {
     regenerate_document_action_->setEnabled(has_document);
     fit_view_action_->setEnabled(has_document);
     selection_action_->setEnabled(has_document);
-    selection_filter_combo_->setEnabled(has_document);
+    selection_filter_combo_->setEnabled(has_document &&
+        !workspace_.open_drawing(workspace_.active_document_id()));
     export_action_->setEnabled(has_document);
     parameters_action_->setEnabled(has_document);
     const bool has_editable_model = has_document &&

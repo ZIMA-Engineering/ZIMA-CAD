@@ -63,6 +63,7 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
                 value.feature_kind=zima::document::FeatureKind::Bend;value.name="Ohyb";value.bend.sketch_id=initial.id;
                 const auto defaults=zima::document::sheet_metal_defaults(part->session.document());
                 value.bend.thickness=defaults.thickness_mm.value_or(1);value.bend.k_factor=defaults.k_factor;
+                value.bend.radius_follows_thickness=true;
                 zima::document::initialize_bend_start_profile(initial,40);
             }
             zima::document::prepare_bend_sketches(value,initial,zima::document::sheet_metal_defaults(part->session.document()));
@@ -149,6 +150,7 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
             }
             selected_sketch_id_ = selected_id;
         }, this);
+    dialog->set_reference_document_id(owner_id);
     if (sketch_feature) {
         const auto edit_owned_sketch=[this, dialog, prepared_sketch,sketch_feature,owner_id](std::optional<std::size_t> stage) {
                 const auto* source=workspace_.open_part(owner_id);
@@ -282,7 +284,7 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
                     sketch_offset_drag->baseline_offset + delta));
             }, [] {});
         const auto sheet_defaults=part?zima::document::sheet_metal_defaults(part->session.document()):zima::document::SheetMetalDefaults{};
-        dialog->set_preview_callback([this, sketch_offset_drag, prepared_sketch, sketch_feature, sheet_defaults](
+        dialog->set_preview_callback([this, owner_id, sketch_offset_drag, prepared_sketch, sketch_feature, sheet_defaults](
                 const zima::sketcher::Sketch& sketch,
                 const zima::document::Placement& pending_placement) {
             auto placement = pending_placement;
@@ -345,6 +347,7 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
             plane.offset = sketch.plane_offset;
             plane.reference_valid = true;
             zima::document::PartDocument preview_document;
+            preview_document.document_id=owner_id;
             preview_document.constructions.push_back(plane);
             if (!sketch.owner_container_id.empty()) {
                 auto preview_container =
@@ -370,6 +373,21 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
                 geometric_placement.z + resolved_sketch.resolved_normal.z *
                     resolved_sketch.plane_offset};
             *prepared_sketch = resolved_sketch;
+            // A Bend draft has no meaningful wire until its attachment frame
+            // is defined. Two independent manual references can fix rotation
+            // while leaving the station along the edge available for editing.
+            if(sketch_feature&&sketch_feature->feature_kind==zima::document::FeatureKind::Bend&&
+                (!placement_valid||placement.references.size()<2||
+                 zima::document::orientation_constraint_state(placement.references,
+                     primitive_reference_geometry_,true,{placement.x,placement.y,placement.z}).remaining_dof!=0)) {
+                primitive_origin_preview_mesh_.reset();
+                viewer_->set_transient_edges({});
+                viewer_->set_extent_manipulator(std::nullopt);
+                viewer_->set_feature_preview_owners({});
+                preserve_view_on_refresh_=true;
+                refresh_scene();
+                return;
+            }
             // The cyan rectangle represents the actual (possibly offset)
             // Sketch work plane, including an explicitly selected local plane.
             // Build this display-only Plane from the resolved Sketch frame so the rectangle,
@@ -481,7 +499,8 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
             preserve_view_on_refresh_ = true;
             refresh_scene();
             if (sketch_feature) viewer_->set_transient_edges(std::move(drilling_preview.edges));
-            if(sketch_feature&&sketch_feature->feature_kind==zima::document::FeatureKind::Flat)
+            if(sketch_feature&&(sketch_feature->feature_kind==zima::document::FeatureKind::Flat||
+                sketch_feature->feature_kind==zima::document::FeatureKind::Bend))
                 viewer_->set_extent_manipulator(std::nullopt);
             else viewer_->set_extent_manipulator(offset_manipulator);
             if (!pending_primitive_reference_index_) {

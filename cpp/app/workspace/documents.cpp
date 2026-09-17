@@ -144,6 +144,17 @@ QString AssemblyWorkspaceWindow::create_document(
                 units[it.key().toStdString()]=it.value().toStdString();
             auto prepared=workspace::prepare_new_native_document(type,name,path,
                 native_template_settings(application_settings_),units);
+            if(type==workspace::NativeDocumentType::Drawing) {
+                const auto selected=open_file(this,tr("Zdroj výkresu"),
+                    QString::fromStdString(zima::document::path_to_utf8(working_directory_)),
+                    tr("Model ZIMA-CAD (*.prtz *.asmz)"),application_settings_.translations);
+                if(selected.isEmpty())return tr("Vyberte zdrojový díl nebo sestavu pro nový výkres.");
+                const auto source_path=std::filesystem::u8path(selected.toStdString());
+                const auto source=workspace::read_native_document(source_path,workspace::native_source_resolver(workspace_));
+                if(source.type()==workspace::NativeDocumentType::Drawing)
+                    return tr("Vyberte zdrojový díl nebo sestavu pro nový výkres.");
+                prepared.set_drawing_source(source.id(),source_path,zima::document::path_to_utf8(source_path.stem()));
+            }
             id=workspace::insert_native_document(workspace_,std::move(prepared));
             switch(type) {
                 case workspace::NativeDocumentType::Part: active_application_=ApplicationMode::Modeling;break;

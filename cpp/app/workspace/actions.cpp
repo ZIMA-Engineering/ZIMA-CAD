@@ -996,11 +996,16 @@ void AssemblyWorkspaceWindow::create_actions() {
     selection_filter_combo_->setObjectName("selectionFilterCombo");
     selection_filter_combo_->setToolTip(tr("Filtr prvků vybíraných ve 3D pohledu"));
     for (const auto& filter : {tr("Vše"), tr("Plochy"), tr("Body"),
-                               tr("Osy"), tr("Roviny")}) {
+                               tr("Osy"), tr("Roviny"), tr("Hrany/křivky"), tr("Počátky")}) {
         selection_filter_combo_->addItem(filter);
     }
     connect(selection_filter_combo_, &QComboBox::currentIndexChanged, this,
-        [this] { if (viewer_ != nullptr && workspace_.size() != 0) refresh_scene(); });
+        [this] {
+            if (viewer_ == nullptr) return;
+            viewer_->set_selection_filter(static_cast<zima::viewer::SelectionFilter>(
+                selection_filter_combo_->currentIndex()));
+            if (workspace_.size() != 0) refresh_scene();
+        });
     view_toolbar_->addWidget(selection_filter_combo_);
     view_toolbar_->addSeparator();
     for (auto* action : {orthographic_camera_action_,

@@ -45,10 +45,12 @@ SettingsChange set_file_settings(Workspace& live,const kernel::OcctKernel& kerne
     if(auto* part=live.open_part(id)) {
         auto next=part->session.document();next.document_units=std::move(values.units);next.document_precision=std::move(values.precision);
         if(values.sheet_metal)document::set_sheet_metal_defaults(next,*values.sheet_metal);
-        bool calculate=false;
+        bool calculate=before.sheet_metal!=values.sheet_metal&&std::ranges::any_of(next.history,[](const auto& feature) {
+            return feature.feature_kind==document::FeatureKind::Flat||feature.feature_kind==document::FeatureKind::Bend;
+        });
         if(precision_changed) {
             const auto original=part->session.document().kernel_operations(false,true),requested=next.kernel_operations(false,true);
-            calculate=kernel::history_fingerprint(original,original.size())!=kernel::history_fingerprint(requested,requested.size());
+            calculate=calculate||kernel::history_fingerprint(original,original.size())!=kernel::history_fingerprint(requested,requested.size());
         }
         auto calculated=part->session.calculated_boundaries();
         if(calculate)calculated=calculate_part_with_resolved_references(kernel,next,&calculated,PartCalculationPolicy{true});

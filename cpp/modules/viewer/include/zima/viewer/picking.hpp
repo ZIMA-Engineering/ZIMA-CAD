@@ -57,6 +57,9 @@ enum class CandidateKind {
 
 enum class CandidateGeometry { Display, OriginalReference };
 
+// User filtering is independent of, and only narrows, a command's contract.
+enum class SelectionFilter { All, Faces, Points, Axes, Planes, Curves, Origins };
+
 struct ViewerCandidate {
     CandidateKind kind{CandidateKind::Container};
     double distance{};
@@ -68,6 +71,9 @@ struct ViewerCandidate {
 
     bool operator==(const ViewerCandidate&) const = default;
 };
+
+[[nodiscard]] bool matches_selection_filter(const ViewerCandidate& candidate,
+    SelectionFilter filter);
 
 // Stable identity for one topological edge, mirroring Python's
 // (owner_id, edge_index) TopologyKey used throughout zima_cad/viewer.py for

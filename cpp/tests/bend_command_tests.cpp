@@ -1,5 +1,6 @@
 #include <zima/command_host/host.hpp>
 #include <zima/document/bend.hpp>
+#include <zima/document/viewer_packet_json.hpp>
 #include <zima/drawing/measurement_dimension.hpp>
 #include <zima/workspace/bend_operations.hpp>
 #include <zima/workspace/family_operations.hpp>
@@ -53,6 +54,140 @@ void verify_sketches(document::HistoryContainer feature,const sketcher::Sketch& 
     near(document::bend_profile_extensions(feature)[0],3);near(document::bend_profile_extensions(feature)[1],10);
     const auto point=path.world_point(path.find_point(path.arcs.front().end_point_id)->x,path.find_point(path.arcs.front().end_point_id)->y);
     near(point.x,end.resolved_origin.x);near(point.y,end.resolved_origin.y);near(point.z,end.resolved_origin.z);
+}
+void verify_sheet_attachment(std::filesystem::path directory) {
+    kernel::OcctKernel kernel;workspace::Workspace live;command_host::Options options;
+    options.settings=[] {command_host::Settings s;s.templates={std::filesystem::absolute("config/templates"),"start_part.prtz","start_assembly.asmz","Body"};return s;};
+    command_host::Host host(live,kernel,directory,options);
+    run(host,"new",{{"type","part"},{"name","sheet-attachment"}});
+    run(host,"flat.create",{{"width_mm",40.},{"height_mm",30.},{"thickness_mm",2.}});
+    const auto* state=live.open_part(live.active_document_id());
+    const auto source=state->session.document();
+    const auto original=state->session.calculated_boundaries().back();
+    const auto restored=document::load_body_result(document::serialize_body_result(original));
+    const auto geometry=restored.mesh.original_references;
+    unsigned boundary_count=0;
+    for(const auto& edge:geometry.edges) {
+        if(kernel::sheet_edge_role(edge)==kernel::SheetEdgeRole::Thickness) {
+            bool rejected=false;try{static_cast<void>(document::bend_sheet_references(edge));}catch(const std::invalid_argument&){rejected=true;}
+            check(rejected,"Thickness edge accepted for Bend");continue;
+        }
+        if(kernel::sheet_edge_role(edge)!=kernel::SheetEdgeRole::Boundary)continue;
+        ++boundary_count;
+        std::optional<kernel::Vec3> previous_inward;
+        for(const auto& endpoint:edge.edge_treatment_endpoint_references)for(double angle:{0.,90.,180.}) {
+            auto feature=document::PartDocument::create_sketch_container();feature.feature_kind=document::FeatureKind::Bend;
+            auto sketch=sketcher::Sketch::create_default();sketch.owner_container_id=feature.id;
+            document::initialize_bend_start_profile(sketch,5);
+            feature.bend.sketch_id=sketch.id;feature.bend.sheet_attachment=true;feature.bend.angle_degrees=angle;
+            feature.placement.references=document::bend_sheet_references(edge,endpoint);
+            auto part=document::PartDocument::create_default();part.history={feature};part.sketches={sketch};
+            part.resolve_constructions(geometry);
+            const auto& resolved=part.sketches.front();
+            check(part.history.front().placement.reference_valid,"Automatic sheet placement is unresolved");
+            near(document::resolved_bend_parameters(part.history.front(),document::sheet_metal_defaults(part)).thickness,2);
+            check(resolved.external_references.size()==2,"Bend lacks native endpoint references");
+            for(const auto& dimension:resolved.dimensions)near(dimension.value,0);
+            check(resolved.viewer_mesh().dimensions.size()==2,"Zero Bend endpoint dimensions are hidden");
+            near(resolved.plane_offset,0);
+            near(resolved.resolved_origin.x,part.history.front().placement.x);
+            near(resolved.resolved_origin.y,part.history.front().placement.y);
+            near(resolved.resolved_origin.z,part.history.front().placement.z);
+            const auto& segment=resolved.segments.front();
+            const auto a=resolved.world_point(resolved.find_point(segment.first_point_id)->x,0);
+            const auto b=resolved.world_point(resolved.find_point(segment.second_point_id)->x,0);
+            const auto distance=[](kernel::Vec3 p,kernel::Vec3 q){return std::hypot(p.x-q.x,p.y-q.y,p.z-q.z);};
+            check((distance(a,edge.points.front())<1e-6&&distance(b,edge.points.back())<1e-6)||
+                (distance(b,edge.points.front())<1e-6&&distance(a,edge.points.back())<1e-6),"Bend span does not match the selected boundary");
+            if(previous_inward)check(distance(*previous_inward,resolved.resolved_y_axis)<1e-6,"Changing origin flipped the material side");
+            previous_inward=resolved.resolved_y_axis;
+            if(angle>0) {
+                const auto result=kernel.evaluate_history(part.kernel_operations()).back();
+                check(result.volume>0,"Automatic Bend produced no solid");
+                bool outer=false,inner=false;
+                for(const auto& face:result.mesh.original_references.triangle_references) {
+                    outer|=face.sheet_role==kernel::SheetFaceRole::SideA;inner|=face.sheet_role==kernel::SheetFaceRole::SideB;
+                    check(face.sheet_role!=kernel::SheetFaceRole::Unknown,"Bend face lost its sheet role");
+                }
+                check(outer&&inner,"Bend lacks outer/inner sheet faces");
+            }
+            auto edited=part;
+            check(edited.sketches.front().set_dimension_value(resolved.id+":position:first",2),"Cannot edit Bend endpoint offset");
+            edited.resolve_constructions(geometry);
+            near(edited.sketches.front().find_point(segment.first_point_id)->x,resolved.find_point(segment.first_point_id)->x+2);
+            part.save(directory/"sheet-attachment-check.prtz");
+            auto reopened=document::PartDocument::load(directory/"sheet-attachment-check.prtz");reopened.resolve_constructions(geometry);
+            check(reopened.history.front().bend.sheet_attachment,"Sheet attachment flag lost on reopen");
+            near(reopened.sketches.front().dimensions.front().value,0);
+        }
+    }
+    check(boundary_count==8,"Serialized Flat lost its boundary roles");
+    const auto selected=std::ranges::find_if(geometry.edges,[](const auto& e) {
+        return kernel::sheet_edge_role(e)==kernel::SheetEdgeRole::Boundary&&
+            std::ranges::all_of(e.points,[](const auto& p){return std::abs(p.y)<1e-7&&std::abs(p.z-2)<1e-7;});
+    });
+    check(selected!=geometry.edges.end(),"Missing top boundary in attachment transaction test");
+    const auto created=run(host,"bend.create",{{"edge_owner",selected->reference.owner_id},{"edge_key",selected->reference.semantic_key},
+        {"radius_mm",5.},{"angle_degrees",90.}}).data;
+    const auto owner=created.at("container").get<std::string>();
+    for(const auto& sketch:state->session.document().sketches)if(sketch.owner_container_id==owner)
+        for(const auto& reference:sketch.external_references)
+            check(reference.source_document_id==state->session.document().document_id,"Attachment points refer to a temporary Body document");
+    near(state->session.calculated_boundaries().back().volume,2400+40*std::numbers::pi/2*12);
+    run(host,"bend.set",{{"container",owner},{"origin_last",true}});
+    near(state->session.calculated_boundaries().back().volume,2400+40*std::numbers::pi/2*12);
+    const auto profile_id=state->session.document().find_container(owner)->bend.sketch_id;
+    check(workspace::mutate_document_sketch(live,live.active_document_id(),profile_id,[&](auto& sketch) {
+        check(sketch.set_dimension_value(profile_id+":position:first",3),"Cannot set first attachment offset");
+        check(sketch.set_dimension_value(profile_id+":position:last",11),"Cannot set last attachment offset");
+    }),"Asymmetric attachment offset edit was not committed");
+    run(host,"regenerate");
+    const auto locations=[&] {
+        const auto& sketch=*std::ranges::find(state->session.document().sketches,profile_id,&sketcher::Sketch::id);
+        std::array<double,2> result;
+        for(std::size_t i=0;i<2;++i) {
+            const auto& dimension=*std::ranges::find(sketch.dimensions,profile_id+(i?":position:last":":position:first"),&sketcher::SketchDimension::id);
+            near(sketcher::dimension_display_value(dimension),i?11:3);
+            const auto* point=sketch.find_point(dimension.second_point_id);
+            result[i]=sketch.world_point(point->x,point->y).x;
+        }
+        return result;
+    };
+    const auto before_switch=locations();
+    std::array<std::string,2> endpoint_ids;
+    {
+        const auto& sketch=*std::ranges::find(state->session.document().sketches,profile_id,&sketcher::Sketch::id);
+        for(std::size_t i=0;i<2;++i)endpoint_ids[i]=std::ranges::find(sketch.dimensions,profile_id+(i?":position:last":":position:first"),&sketcher::SketchDimension::id)->second_point_id;
+    }
+    const auto opposite=std::ranges::find_if(geometry.edges,[](const auto& e) {
+        return kernel::sheet_edge_role(e)==kernel::SheetEdgeRole::Boundary&&
+            std::ranges::all_of(e.points,[](const auto& p){return std::abs(p.y)<1e-7&&std::abs(p.z)<1e-7;});
+    });
+    check(opposite!=geometry.edges.end(),"Missing opposite attachment boundary");
+    for(const auto* edge:{&*opposite,&*selected,&*opposite})for(bool last:{false,true}) {
+        run(host,"bend.set",{{"container",owner},{"edge_owner",edge->reference.owner_id},{"edge_key",edge->reference.semantic_key},{"origin_last",last}});
+        const auto after=locations();near(after[0],before_switch[0]);near(after[1],before_switch[1]);
+        const auto& sketch=*std::ranges::find(state->session.document().sketches,profile_id,&sketcher::Sketch::id);
+        for(std::size_t i=0;i<2;++i)check(std::ranges::find(sketch.dimensions,profile_id+(i?":position:last":":position:first"),&sketcher::SketchDimension::id)->second_point_id==endpoint_ids[i],
+            "Changing the boundary exchanged profile point identities");
+    }
+    auto reversed_geometry=state->session.calculated_boundaries().back().mesh.original_references;
+    for(auto& edge:reversed_geometry.edges) {
+        std::ranges::reverse(edge.points);std::ranges::reverse(edge.edge_treatment_endpoint_references);
+        if(edge.exact_spline) {std::ranges::reverse(edge.exact_spline->poles);kernel::reverse_bspline_parameters(edge.exact_spline->knots,edge.exact_spline->weights);}
+    }
+    auto reversed_part=state->session.document();reversed_part.resolve_constructions(reversed_geometry);
+    const auto& reversed_sketch=*std::ranges::find(reversed_part.sketches,profile_id,&sketcher::Sketch::id);
+    for(std::size_t i=0;i<2;++i) {
+        const auto* point=reversed_sketch.find_point(endpoint_ids[i]);near(reversed_sketch.world_point(point->x,point->y).x,before_switch[i]);
+    }
+    near(std::abs(before_switch[1]-before_switch[0]),26);
+    run(host,"flat.set",{{"container",selected->reference.owner_id},{"thickness_mm",3.}});
+    near(state->session.document().find_container(owner)->bend.thickness,3);
+    run(host,"save");
+    const auto reopened=document::PartDocument::load(directory/"sheet-attachment.prtz");
+    check(reopened.find_container(owner)->bend.sheet_attachment,"Committed attachment lost on native reopen");
+    std::cout<<"Sheet attachment: eight edges, both endpoints, zero/90/180 degrees, offsets and persistence passed\n";
 }
 void verify_attachment(const std::filesystem::path& directory) {
     kernel::OcctKernel kernel;
@@ -115,6 +250,7 @@ void verify_attachment(const std::filesystem::path& directory) {
         check(vertex!=geometry.points.end(),"Calculated Bend has no End vertex");
         if(reversed) {
             std::ranges::reverse(edge->points);
+            std::ranges::reverse(edge->edge_treatment_endpoint_references);
             if(edge->exact_spline) {
                 std::ranges::reverse(edge->exact_spline->poles);
                 kernel::reverse_bspline_parameters(edge->exact_spline->knots,edge->exact_spline->weights);
@@ -142,6 +278,24 @@ void verify_attachment(const std::filesystem::path& directory) {
             "Bend outer start generatrix does not coincide with selected edge");
         check(close(resolved.resolved_y_axis,end.resolved_y_axis),"Bend material points outside the attachment face");
         check(close(resolved.resolved_normal,end.resolved_normal),"Bend does not leave the End face outwards");
+        for(const auto& endpoint:edge->edge_treatment_endpoint_references) {
+            auto automatic=part;
+            automatic.history.front().bend.sheet_attachment=true;
+            automatic.history.front().placement.references=document::bend_sheet_references(*edge,endpoint);
+            automatic.resolve_constructions(geometry);
+            const auto& profile=automatic.sketches.front();
+            check(automatic.history.front().placement.reference_valid&&profile.external_references.size()==2,
+                "Automatic Bend-to-Bend attachment did not bind both endpoints");
+            check(close(profile.resolved_y_axis,end.resolved_y_axis)&&close(profile.resolved_normal,end.resolved_normal),
+                "Automatic Bend-to-Bend attachment reversed the material or outgoing direction");
+            const auto& segment=profile.segments.front();
+            const auto* first=profile.find_point(segment.first_point_id);
+            const auto* last=profile.find_point(segment.second_point_id);
+            const auto first_world=profile.world_point(first->x,first->y);
+            const auto last_world=profile.world_point(last->x,last->y);
+            check((close(first_world,a)&&close(last_world,b))||(close(first_world,b)&&close(last_world,a)),
+                "Automatic Bend-to-Bend start profile left its selected edge");
+        }
         const auto refs=part.history.front().placement.references;
         for(bool last:{false,true}) {
             const auto inner=end.world_point(last?20:-20,1);
@@ -200,8 +354,8 @@ void verify_attachment(const std::filesystem::path& directory) {
         check(close(part.sketches.front().resolved_x_axis,resolved.resolved_x_axis),"Selecting explicit XY changed the automatic XY attachment axes");
         part.sketches.front().plane=sketcher::SketchPlane::YZ;
         part.resolve_constructions(geometry);
-        check(part.sketches.front().plane==sketcher::SketchPlane::YZ&&!part.sketches.front().plane_auto,
-            "Bend attachment replaced an explicit Base plane");
+        check(part.sketches.front().plane==sketcher::SketchPlane::XY&&part.sketches.front().plane_auto,
+            "Bend did not derive its profile plane from the attachment");
     }
     std::cout<<"16 Bend-to-Bend attachments: rotated frames, reversed edges, point anchor, state, persistence and missing references passed\n";
 }
@@ -244,12 +398,20 @@ void verify(std::filesystem::path directory) {
     const double pi=std::numbers::pi;
     const double initial_k=created.at("k_factor");
     near(volume(),40*pi/2*(36-25)/2); // Annular sector: width * angle * (Ro²-Ri²)/2.
+    {
+        const auto unchanged=*state->session.document().find_container(owner);
+        const auto unchanged_profile=workspace::document_sketch(live,id,unchanged.bend.sketch_id);
+        state->session.update_calculated_boundaries({});
+        static_cast<void>(workspace::commit_bend(live,kernel,id,unchanged,unchanged_profile));
+        check(!state->session.calculated_boundaries().empty(),"Bend OK left its body uncalculated");
+        near(volume(),40*pi/2*(36-25)/2);
+    }
     check(created.at("thickness_mm")==1.&&!created.at("thickness_override").get<bool>(),"Bend did not inherit default 1 mm");
     run(host,"bend.set",{{"container",owner},{"radius_follows_thickness",true}});
     near(volume(),40*pi/2*(4-1)/2);
     check(run(host,"bend.get",{{"container",owner}}).data.at("radius_mm")==1.,"Linked radius did not inherit thickness");
     run(host,"document.settings.set",{{"sheet_metal",{{"thickness_mm",1.5}}}});
-    run(host,"regenerate");near(volume(),40*pi/2*(9-2.25)/2);
+    near(volume(),40*pi/2*(9-2.25)/2);
     check(run(host,"bend.get",{{"container",owner}}).data.at("radius_mm")==1.5,"Linked radius did not follow regenerated Part thickness");
     run(host,"document.settings.set",{{"sheet_metal",{{"thickness_mm",1.}}}});run(host,"regenerate");
     check(!host.execute({{"command","bend.set"},{"arguments",{{"container",owner},{"radius_mm",8.}}}}).ok,
@@ -317,8 +479,9 @@ void verify(std::filesystem::path directory) {
     }
     check(state->session.revision()==revision,"Rejected Bend edit changed history");
     run(host,"document.settings.set",{{"sheet_metal",{{"thickness_mm",2.},{"k_factor",.4}}}});
-    near(volume(),40*pi/2*(5+initial_k)); // Defaults alone preserve calculated geometry until explicit regeneration.
-    run(host,"regenerate");near(volume(),40*2*pi/2*5.8);
+    near(volume(),40*2*pi/2*5.8); // Settings confirmation calculates inherited thickness and K together.
+    run(host,"undo");near(volume(),40*pi/2*(5+initial_k));
+    run(host,"redo");near(volume(),40*2*pi/2*5.8);
     run(host,"bend.set",{{"container",owner},{"thickness_mm",1.5},{"k_factor",.3}});near(volume(),40*1.5*pi/2*5.45);
     run(host,"bend.set",{{"container",owner},{"thickness_override",false},{"k_factor_override",false}});near(volume(),40*2*pi/2*5.8);
     run(host,"bend.set",{{"container",owner},{"state","bend"},{"angle_degrees",180.}});near(volume(),40*pi*(49-25)/2);
@@ -396,6 +559,6 @@ void verify(std::filesystem::path directory) {
 int main() {
     const auto directory=std::filesystem::temp_directory_path()/("zima-bend-"+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     std::filesystem::create_directories(directory);
-    try{verify_prepared_start();verify_attachment(directory);verify(directory);std::filesystem::remove_all(directory);std::cout<<"Bend geometry, identities, defaults, history and persistence passed\n";return 0;}
+    try{verify_sheet_attachment(directory);verify_prepared_start();verify_attachment(directory);verify(directory);std::filesystem::remove_all(directory);std::cout<<"Bend geometry, identities, defaults, history and persistence passed\n";return 0;}
     catch(const std::exception& e){std::cerr<<e.what()<<"; fixture: "<<directory<<'\n';return 1;}
 }

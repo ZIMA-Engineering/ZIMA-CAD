@@ -70,6 +70,39 @@ zima::kernel::SurfaceGeometry load_surface(const nlohmann::json& value) {
 constexpr std::string_view kBase64Alphabet =
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
+void load_sheet_face(zima::kernel::FaceReference& face,const nlohmann::json& value) {
+    const int role=value.at("sheet_role");const double thickness=value.at("sheet_thickness");
+    if(role<0||role>3||!std::isfinite(thickness)||thickness<0||
+        (role!=0&&thickness<=0))throw std::runtime_error("Invalid sheet face metadata");
+    face.sheet_role=static_cast<zima::kernel::SheetFaceRole>(role);face.sheet_thickness=thickness;
+}
+nlohmann::json sheet_edge_json(const zima::kernel::ViewerEdge& edge) {
+    if(zima::kernel::sheet_edge_role(edge)==zima::kernel::SheetEdgeRole::Unknown)return nullptr;
+    nlohmann::json sides=nlohmann::json::array(),ends=nlohmann::json::array();
+    for(const auto& r:edge.edge_treatment_side_references)
+        sides.push_back({{"owner",r.owner_id},{"key",r.semantic_key},{"instance_path",r.instance_path},
+            {"sheet_role",static_cast<int>(r.sheet_role)},{"sheet_thickness",r.sheet_thickness}});
+    for(const auto& r:edge.edge_treatment_endpoint_references)
+        ends.push_back({{"owner",r.owner_id},{"key",r.semantic_key},{"instance_path",r.instance_path}});
+    return {{"sides",sides},{"endpoints",ends}};
+}
+void load_sheet_edge(zima::kernel::ViewerEdge& edge,const nlohmann::json& value) {
+    if(value.is_null())return;
+    for(const auto& r:value.at("sides")) {
+        zima::kernel::FaceReference face{r.at("owner"),r.at("key"),r.at("instance_path")};
+        load_sheet_face(face,r);if(!face.valid())throw std::runtime_error("Invalid sheet side identity");
+        edge.edge_treatment_side_references.push_back(std::move(face));
+    }
+    for(const auto& r:value.at("endpoints")) {
+        zima::kernel::VertexReference point{r.at("owner"),r.at("key"),r.at("instance_path")};
+        if(!point.valid())throw std::runtime_error("Invalid sheet endpoint identity");
+        edge.edge_treatment_endpoint_references.push_back(std::move(point));
+    }
+    if(edge.edge_treatment_side_references.size()!=2||
+       (!edge.edge_treatment_endpoint_references.empty()&&edge.edge_treatment_endpoint_references.size()!=2))
+        throw std::runtime_error("Incomplete sheet edge metadata");
+}
+
 std::string base64_encode(const std::vector<std::uint8_t>& bytes) {
     std::string result;
     result.reserve((bytes.size() + 2) / 3 * 4);
@@ -224,9 +257,11 @@ nlohmann::json serialize_reference_geometry(
         reference_indices.emplace(key, index);
         references.push_back({{"owner", reference.owner_id},
             {"key", reference.semantic_key},
-            {"instance_path", reference.instance_path}});
+            {"instance_path", reference.instance_path},{"sheet_role",0},{"sheet_thickness",0.0}});
         if constexpr (requires { reference.surface; }) {
             references.back()["surface_result"]=reference.surface_result;
+            references.back()["sheet_role"]=static_cast<int>(reference.sheet_role);
+            references.back()["sheet_thickness"]=reference.sheet_thickness;
             if (reference.surface) references.back()["surface"]=serialize_surface(*reference.surface);
             if (reference.measured_area) references.back()["measured_area"]=*reference.measured_area;
         }
@@ -252,9 +287,11 @@ nlohmann::json serialize_reference_geometry(
     std::vector<std::uint32_t> edge_references;
     nlohmann::json edge_lengths = nlohmann::json::array();
     nlohmann::json edge_splines = nlohmann::json::array();
+    nlohmann::json edge_sheets = nlohmann::json::array();
     nlohmann::json edge_surfaces=nlohmann::json::array(),point_surfaces=nlohmann::json::array();
     for (const auto& edge : geometry.edges) {
         edge_surfaces.push_back(edge.surface_result);
+        edge_sheets.push_back(sheet_edge_json(edge));
         edge_splines.push_back(zima::kernel::spline_json(edge.exact_spline));
         edge_lengths.push_back(edge.measured_length ? nlohmann::json(*edge.measured_length) : nlohmann::json(nullptr));
         if (edge.points.size() < 2 ||
@@ -292,6 +329,7 @@ nlohmann::json serialize_reference_geometry(
         {"edge_offsets_binary", pack_indices(edge_offsets)},
         {"edge_lengths", std::move(edge_lengths)},
         {"edge_splines", std::move(edge_splines)},
+        {"edge_sheets", std::move(edge_sheets)},
         {"edge_surfaces",std::move(edge_surfaces)},{"point_surfaces",std::move(point_surfaces)},
         {"edge_references_binary", pack_indices(edge_references)},
         {"point_positions_binary", pack_vertices(point_positions)},
@@ -317,6 +355,7 @@ zima::kernel::ViewerReferenceGeometry load_reference_geometry(
         }
         if (value.contains("surface")) reference.surface=std::make_shared<const zima::kernel::SurfaceGeometry>(load_surface(value.at("surface")));
         reference.surface_result=value.value("surface_result",false);
+        load_sheet_face(reference,value);
         if (value.contains("measured_area")) {
             reference.measured_area = value.at("measured_area").get<double>();
             require_finite(*reference.measured_area, "measured area");
@@ -399,6 +438,7 @@ zima::kernel::ViewerReferenceGeometry load_reference_geometry(
             throw std::runtime_error("Invalid exact reference curves");
         edge.exact_spline = zima::kernel::spline_from_json(source.at("edge_splines").at(index));
         edge.surface_result=source.at("edge_surfaces").at(index).get<bool>();
+        load_sheet_edge(edge,source.at("edge_sheets").at(index));
         restore_reference_curve_style(edge);
         result.edges.push_back(std::move(edge));
     }
@@ -451,7 +491,8 @@ nlohmann::json serialize_body_result(const zima::kernel::BodyResult& result, boo
         for (const auto& reference : result.mesh.triangle_references) {
             faces.push_back({
                 {"owner", reference.owner_id}, {"key", reference.semantic_key},
-                {"instance_path", reference.instance_path},{"surface_result",reference.surface_result}});
+                {"instance_path", reference.instance_path},{"surface_result",reference.surface_result},
+                {"sheet_role",static_cast<int>(reference.sheet_role)},{"sheet_thickness",reference.sheet_thickness}});
         }
     }
     nlohmann::json edges = nlohmann::json::array();
@@ -471,7 +512,8 @@ nlohmann::json serialize_body_result(const zima::kernel::BodyResult& result, boo
             side_references.push_back({
                 {"owner", reference.owner_id},
                 {"key", reference.semantic_key},
-                {"instance_path", reference.instance_path}});
+                {"instance_path", reference.instance_path},
+                {"sheet_role",static_cast<int>(reference.sheet_role)},{"sheet_thickness",reference.sheet_thickness}});
         }
         nlohmann::json endpoint_references = nlohmann::json::array();
         for (const auto& reference :
@@ -652,6 +694,7 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source) {
             reference.at("instance_path").get<std::string>(),
         });
         result.mesh.triangle_references.back().surface_result=reference.at("surface_result").get<bool>();
+        load_sheet_face(result.mesh.triangle_references.back(),reference);
     }
     if (result.mesh.triangle_references.empty()) {
         result.mesh.triangle_references.resize(result.mesh.triangles.size() / 3);
@@ -707,6 +750,7 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source) {
                 throw std::runtime_error(
                     "Persisted viewer treatment side reference is invalid");
             }
+            load_sheet_face(loaded_reference,reference);
             loaded.edge_treatment_side_references.push_back(
                 std::move(loaded_reference));
         }

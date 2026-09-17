@@ -871,6 +871,33 @@ std::optional<ViewerCandidate> occurrence_candidate(
         CandidateGeometry::OriginalReference);
 }
 
+bool matches_selection_filter(const ViewerCandidate& candidate, SelectionFilter filter) {
+    const auto kind = candidate.kind;
+    switch (filter) {
+        case SelectionFilter::All: return true;
+        case SelectionFilter::Faces: return kind == CandidateKind::Face;
+        case SelectionFilter::Points:
+            return kind == CandidateKind::Vertex || kind == CandidateKind::SketchPoint ||
+                (kind == CandidateKind::SketchExternalReference &&
+                 candidate.semantic_key.starts_with("external_point:"));
+        case SelectionFilter::Axes:
+            return kind == CandidateKind::Axis || kind == CandidateKind::SketchAxis;
+        case SelectionFilter::Planes: return kind == CandidateKind::Plane;
+        case SelectionFilter::Curves:
+            return kind == CandidateKind::Edge || kind == CandidateKind::SketchSegment ||
+                kind == CandidateKind::SketchCurve || kind == CandidateKind::SketchTrimPiece ||
+                (kind == CandidateKind::SketchExternalReference &&
+                 !candidate.semantic_key.starts_with("external_point:"));
+        case SelectionFilter::Origins:
+            return (kind == CandidateKind::Vertex || kind == CandidateKind::SketchPoint ||
+                    kind == CandidateKind::SketchExternalReference) &&
+                (candidate.semantic_key == "origin" || candidate.semantic_key == "origin:point" ||
+                 candidate.semantic_key == "point:sketch_origin" ||
+                 candidate.semantic_key == "external_point:sketch_origin");
+    }
+    return false;
+}
+
 std::vector<ViewerCandidate> filter_candidates(
     const std::vector<ViewerCandidate>& candidates,
     const std::vector<CandidateKind>& allowed_kinds) {

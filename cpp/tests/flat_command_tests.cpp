@@ -41,8 +41,46 @@ void verify(std::filesystem::path directory) {
     const auto volume=[&]{return state->session.calculated_boundaries().back().volume;};
     const auto sketch=[&]{return workspace::document_sketch(live,id,sketch_id);};
     near(volume(),1200);check(!created.at("thickness_override").get<bool>(),"Flat did not inherit Part thickness");
+    {
+        const auto unchanged=*state->session.document().find_container(owner);
+        const auto unchanged_profile=sketch();
+        state->session.update_calculated_boundaries({});
+        static_cast<void>(workspace::commit_flat(live,kernel,id,unchanged,unchanged_profile));
+        check(!state->session.calculated_boundaries().empty(),"Flat OK left its body uncalculated");
+        near(volume(),1200);
+    }
     const auto identities=faces(state->session.calculated_boundaries().back(),owner);
     check(identities.size()==6,"Flat must expose six rectangle faces");
+    {
+        const auto& geometry=state->session.calculated_boundaries().back().mesh.original_references;
+        std::set<std::string> a,b,ends;
+        for(const auto& face:geometry.triangle_references) {
+            near(face.sheet_thickness,1);
+            if(face.sheet_role==kernel::SheetFaceRole::SideA)a.insert(face.semantic_key);
+            else if(face.sheet_role==kernel::SheetFaceRole::SideB)b.insert(face.semantic_key);
+            else if(face.sheet_role==kernel::SheetFaceRole::ThicknessFace)ends.insert(face.semantic_key);
+            else check(false,"Flat face has no sheet role");
+        }
+        check(a.size()==1&&b.size()==1&&ends.size()==4,"Flat sheet face roles are incorrect");
+        check(std::ranges::count_if(geometry.edges,[](const auto& e){return kernel::sheet_edge_role(e)==kernel::SheetEdgeRole::Boundary;})==8,"Flat needs eight boundary edges");
+        check(std::ranges::count_if(geometry.edges,[](const auto& e){return kernel::sheet_edge_role(e)==kernel::SheetEdgeRole::Thickness;})==4,"Flat needs four thickness edges");
+        std::map<std::string,unsigned> parent_counts;
+        for(const auto& point:geometry.points)if(point.reference.owner_id==owner) {
+            const auto& key=point.reference.semantic_key;
+            check(key.starts_with("start:")||key.starts_with("end:"),"Sheet endpoint has no authored Start/End role");
+            const auto parent=key.substr(key.find(':')+1);
+            check(sketch().find_point(parent)!=nullptr,"Sheet endpoint lost its source Sketch point");++parent_counts[parent];
+        }
+        check(parent_counts.size()==4&&std::ranges::all_of(parent_counts,[](const auto& pair){return pair.second==2;}),
+            "Opposite sheet endpoints do not share their source parents");
+        auto assembly=assembly::AssemblyDocument::create_default();
+        assembly.components.push_back(assembly::AssemblyDocument::create_part_occurrence("Sheet",id,{},state->session.calculated_boundaries().back()));
+        const auto scene=assembly.build_scene();
+        for(const auto& edge:scene.original_references.edges)if(kernel::sheet_edge_role(edge)!=kernel::SheetEdgeRole::Unknown) {
+            for(const auto& side:edge.edge_treatment_side_references)check(side.instance_path==edge.reference.instance_path,"Assembly sheet side lost occurrence ownership");
+            for(const auto& point:edge.edge_treatment_endpoint_references)check(point.instance_path==edge.reference.instance_path,"Assembly sheet endpoint lost occurrence ownership");
+        }
+    }
     for(const auto& segment:sketch().segments)
         check(identities.contains("generated:"+segment.id),"Flat side lost its source curve identity");
     check(std::ranges::count_if(identities,[](const auto& key){return key.starts_with("start:from:")||key.starts_with("end:from:");})==2,
@@ -59,7 +97,7 @@ void verify(std::filesystem::path directory) {
     }
     run(host,"document.settings.set",{{"sheet_metal",{{"thickness_mm",3.}}}});run(host,"regenerate");near(volume(),2400);
     run(host,"flat.set",{{"container",owner},{"thickness_override",false}});near(volume(),3600);
-    run(host,"document.settings.set",{{"sheet_metal",{{"thickness_mm",4.}}}});run(host,"regenerate");near(volume(),4800);
+    run(host,"document.settings.set",{{"sheet_metal",{{"thickness_mm",4.}}}});near(volume(),4800);
     // A circle in the closed profile makes a through hole; it is not filled.
     check(workspace::mutate_document_sketch(live,id,sketch_id,[](auto& s){
         static_cast<void>(s.add_circle(20,15,3));static_cast<void>(s.add_ellipse(8,15,12,15,8,17));

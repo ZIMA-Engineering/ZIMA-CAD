@@ -15,6 +15,42 @@ void require(bool condition, const char* message) {
 int main() {
     try {
         {
+            using namespace zima::viewer;
+            const std::vector<std::pair<ViewerCandidate, SelectionFilter>> examples{
+                {{CandidateKind::Face,0,0,"part","face"},SelectionFilter::Faces},
+                {{CandidateKind::Plane,0,0,"datum","plane"},SelectionFilter::Planes},
+                {{CandidateKind::Plane,0,0,"origin","origin:plane:xy"},SelectionFilter::Planes},
+                {{CandidateKind::Axis,0,0,"datum","axis"},SelectionFilter::Axes},
+                {{CandidateKind::SketchAxis,0,0,"sketch","sketch_axis:x"},SelectionFilter::Axes},
+                {{CandidateKind::Vertex,0,0,"part","vertex"},SelectionFilter::Points},
+                {{CandidateKind::SketchPoint,0,0,"sketch","point:one"},SelectionFilter::Points},
+                {{CandidateKind::SketchExternalReference,0,0,"sketch","external_point:one"},SelectionFilter::Points},
+                {{CandidateKind::Edge,0,0,"part","edge"},SelectionFilter::Curves},
+                {{CandidateKind::SketchSegment,0,0,"sketch","segment:one"},SelectionFilter::Curves},
+                {{CandidateKind::SketchCurve,0,0,"sketch","circle:one"},SelectionFilter::Curves},
+                {{CandidateKind::SketchExternalReference,0,0,"sketch","external:one"},SelectionFilter::Curves},
+                {{CandidateKind::SketchTrimPiece,0,0,"sketch","trim_piece:one"},SelectionFilter::Curves}};
+            for(const auto& [candidate,expected]:examples) {
+                require(matches_selection_filter(candidate,SelectionFilter::All),"All rejected a candidate");
+                for(const auto filter:{SelectionFilter::Faces,SelectionFilter::Planes,SelectionFilter::Axes,
+                        SelectionFilter::Points,SelectionFilter::Curves,SelectionFilter::Origins})
+                    require(matches_selection_filter(candidate,filter)==(filter==expected),
+                        "User filter classified a reference as the wrong entity type");
+            }
+            const ViewerCandidate origin{CandidateKind::Vertex,0,0,"origin","origin:point","a/b"};
+            require(matches_selection_filter(origin,SelectionFilter::Origins)&&
+                matches_selection_filter(origin,SelectionFilter::Points)&&
+                !matches_selection_filter(origin,SelectionFilter::Axes),"Origin point filter is incorrect");
+            for(const auto kind:{CandidateKind::Occurrence,CandidateKind::Container,CandidateKind::Dimension,
+                    CandidateKind::SketchConstraint,CandidateKind::SketchText,CandidateKind::TemplateRegion,
+                    CandidateKind::TemplateImage}) {
+                ViewerCandidate candidate;candidate.kind=kind;
+                for(const auto filter:{SelectionFilter::Faces,SelectionFilter::Planes,SelectionFilter::Axes,
+                        SelectionFilter::Points,SelectionFilter::Curves,SelectionFilter::Origins})
+                    require(!matches_selection_filter(candidate,filter),"Non-reference bypassed a type filter");
+            }
+        }
+        {
             zima::kernel::ViewerMesh imported;
             imported.vertices={{-2,-2,2},{2,-2,2},{0,2,2}, {-2,-2,5},{2,-2,5},{0,2,5}};
             imported.triangles={0,1,2,3,4,5};

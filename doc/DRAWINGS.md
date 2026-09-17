@@ -9,6 +9,33 @@ A `.drwz` Drawing references one source `.prtz` Part or `.asmz` Assembly and may
 contain multiple sheets. Each sheet stores its own format, frame, title block,
 views, dimensions and sheet-local field values.
 
+**New > Drawing** asks for its source native Part (`.prtz`) or Assembly (`.asmz`)
+before creating the Drawing tab. Canceling the source picker or selecting an
+invalid file leaves New Document open and creates no Drawing. The new Drawing
+stores its source link before any view exists; it does not open extra model tabs.
+
+**Insert View** directly starts transient placement using the linked model.
+Clicking the sheet opens the existing view properties; OK inserts the view and
+Cancel discards it. The command does not open a source file picker. An unlinked
+Drawing retains the original fallback to an open Part/Assembly; if neither is
+available, it reports the missing source without crashing. Source loading errors
+also leave the Drawing unchanged. `zima_cpp_drawing_source_picker_contract`
+checks missing-source safety and direct Part/Assembly placement with OK/Cancel;
+the application-tools GUI contract covers New Drawing and subsequent insertion
+inside the main tabbed workspace.
+
+Verification on 2026-09-17 passed four focused Windows contracts: translations,
+source insertion, Drawing UI and application-tools GUI. The main-window test
+covers canceling source selection without creating a tab, successful New Drawing
+linkage before any view exists, placement and OK, and the Part-to-Drawing shortcut
+without a source picker. Logs: `build/new-drawing-source-tests.log` and the final
+GUI rerun `build/new-drawing-workflow-tests.log`. The first run exposed an incorrect
+button type in the new test; the corrected test and rebuilt application passed.
+
+Deferred by user agreement on 2026-09-17: add Drawing settings for managing
+multiple source documents, including adding, replacing and disconnecting sources.
+This is future work; the current change only handles choosing the initial source.
+
 The **DRAWING** button in the source Part/Assembly tree header opens its existing
 Drawing, or creates a new Drawing file in another tab. Source linkage is stored
 before the first view exists. The reverse **PART**/**ASSEMBLY** button returns

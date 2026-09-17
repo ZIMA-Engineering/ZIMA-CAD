@@ -3,6 +3,11 @@
 #include <zima/document/metadata.hpp>
 
 namespace zima::document {
+// Native sheet attachment consumes persisted adjacency and endpoint identities.
+[[nodiscard]] std::vector<ConstructionReference> bend_sheet_references(
+    const kernel::ViewerEdge&, const kernel::VertexReference& start = {});
+void update_bend_sheet_profile(HistoryContainer&,sketcher::Sketch&,
+    const kernel::ViewerReferenceGeometry&,const std::string& document_id);
 // Edge-first attachment uses the narrow planar joining face as the start
 // profile plane (local XY). The sign aligns profile +Y into that face.
 // Consumes only persisted original viewer references; no kernel calculation.

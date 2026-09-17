@@ -27,6 +27,7 @@
 #include <QMouseEvent>
 #include <QPushButton>
 #include <QTimer>
+#include <QTemporaryDir>
 #include <filesystem>
 #include <iostream>
 #include <stdexcept>
@@ -44,6 +45,46 @@ void click(QWidget* widget,QPointF point) {
 }
 }
 
+int verify_drawing_source_picker() {
+    try {
+        QTemporaryDir temporary;require(temporary.isValid(),"Cannot create drawing source fixtures");
+        const auto directory=std::filesystem::u8path(temporary.path().toStdString());
+        auto part=zima::document::PartDocument::create_default();
+        part.history.push_back(zima::document::PartDocument::create_box_container());part.resolve_constructions();
+        zima::kernel::OcctKernel kernel;const auto calculated=kernel.evaluate_history(part.kernel_operations());
+        const auto part_path=directory/"source.prtz";part.save(part_path,calculated);
+        auto assembly=zima::assembly::AssemblyDocument::create_default();
+        assembly.components.push_back(zima::assembly::AssemblyDocument::create_part_occurrence("Source",part.document_id,part_path,calculated.back()));
+        const auto assembly_path=directory/"source.asmz";assembly.save(assembly_path);
+        for(const auto& source_path:{part_path,assembly_path}) {
+            zima::workspace::Workspace workspace;auto drawing=zima::drawing::DrawingDocument::create_default();
+            workspace.add_drawing(drawing);workspace.activate(drawing.document_id);workspace.display_top_level(drawing.document_id);
+            zima::app::DrawingWindow window(&workspace,false);window.edit_workspace_document(drawing.document_id);window.resize(1200,850);window.show();flush();
+            auto* insert=window.findChild<QAction*>("insertDrawingViewAction");require(insert,"Insert View missing");
+            auto* canvas=window.findChild<QWidget*>("drawingCanvas");require(canvas,"Drawing canvas missing");
+            bool unexpected_picker=false;QTimer guard;
+            QObject::connect(&guard,&QTimer::timeout,[&] {
+                if(auto* picker=qobject_cast<QFileDialog*>(QApplication::activeModalWidget())) {unexpected_picker=true;picker->reject();}
+            });guard.start(10);
+            insert->trigger();flush();
+            require(!unexpected_picker&&window.document_for_test().sheets.front().views.empty(),"Unlinked Drawing must safely reject insertion without a file picker");
+            drawing.source_path=source_path;
+            drawing.source_document_id=source_path==part_path?part.document_id:assembly.document_id;
+            workspace.open_drawing(drawing.document_id)->commit(drawing);window.edit_workspace_document(drawing.document_id);flush();
+            for(const bool accept:{false,true}) {
+                insert->trigger();flush();
+                require(!unexpected_picker,"Insert View must directly start placement for a linked Drawing");
+                click(canvas,canvas->rect().center());
+                auto* properties=window.findChild<QDialog*>("drawingViewProperties");
+                require(properties&&properties->isVisible(),"Insert View did not continue from placement to properties");
+                properties->findChild<QDialogButtonBox*>()->button(accept?QDialogButtonBox::Ok:QDialogButtonBox::Cancel)->click();flush();
+                require(window.document_for_test().sheets.front().views.size()==(accept?1u:0u),"View OK/Cancel did not preserve the insertion transaction");
+            }
+            require(workspace.documents().size()==1,"Drawing insertion opened extra model tabs");
+        }
+        std::cout<<"Drawing Insert View: no source picker, missing source safety, Part/Assembly placement and OK/Cancel passed\n";return 0;
+    } catch(const std::exception& error) {std::cerr<<error.what()<<'\n';return 1;}
+}
 int verify_drawing_ui() {
     try {
         QString modal_error;

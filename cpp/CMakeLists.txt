@@ -661,6 +661,9 @@ if(ZIMA_BUILD_TESTS)
     set_tests_properties(zima_cpp_ui_contract_tests PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT}")
     add_test(NAME zima_cpp_entry_tables_contract COMMAND zima_cpp_ui_contract_tests)
+    add_test(NAME zima_cpp_sheet_attachment_dialog_contract COMMAND zima_cpp_ui_contract_tests)
+    set_tests_properties(zima_cpp_sheet_attachment_dialog_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SHEET_ATTACHMENT_DIALOG_ONLY=1")
     add_test(NAME zima_cpp_sketch_line_styles_contract COMMAND zima_cpp_ui_contract_tests)
     set_tests_properties(zima_cpp_sketch_line_styles_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SKETCH_LINE_STYLES_ONLY=1")
@@ -1237,6 +1240,10 @@ if(ZIMA_BUILD_TESTS)
     set_tests_properties(zima_cpp_family_table_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_FAMILY_ONLY=1"
         TIMEOUT 120 WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
+    add_test(NAME zima_cpp_selection_filter_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_selection_filter_ui_contract PROPERTIES
+        ENVIRONMENT "ZIMA_VERIFY_SELECTION_FILTER_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120)
     add_test(NAME zima_cpp_family_rename_ui_contract COMMAND zima-cad-cpp --verify-startup)
     set_tests_properties(zima_cpp_family_rename_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_FAMILY_RENAME_ONLY=1"
@@ -1259,6 +1266,9 @@ if(ZIMA_BUILD_TESTS)
     set_tests_properties(zima_cpp_drawing_balloon_ui_contract PROPERTIES ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT}" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 90)
     set_tests_properties(zima_cpp_measurement_dimension_ui_contract PROPERTIES ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT}" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     add_test(NAME zima_cpp_drawing_ui_contract COMMAND zima-cad-drawing-harness --verify-ui)
+    add_test(NAME zima_cpp_drawing_source_picker_contract COMMAND zima-cad-drawing-harness --verify-source-picker)
+    set_tests_properties(zima_cpp_drawing_source_picker_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT}" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 90)
     set_tests_properties(zima_cpp_drawing_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT}"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")

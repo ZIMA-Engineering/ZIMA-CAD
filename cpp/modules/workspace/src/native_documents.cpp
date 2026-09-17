@@ -174,6 +174,15 @@ PreparedNativeDocument read_native_document(const std::filesystem::path& path, c
     }
     return prepared;
 }
+void PreparedNativeDocument::set_drawing_source(const std::string& id,
+    const std::filesystem::path& path,const std::string& name) {
+    auto* drawing=std::get_if<drawing::DrawingDocument>(&document_);
+    if(!drawing||id.empty()||path.empty())throw std::invalid_argument("A Drawing requires a native source document.");
+    const auto source_type=native_document_type(path);
+    if(source_type==NativeDocumentType::Drawing)throw std::invalid_argument("Drawing sources must be Parts or Assemblies.");
+    drawing->source_document_id=id;drawing->source_path=path;drawing->source_name=name;
+}
+
 PreparedNativeDocument prepare_new_native_document(NativeDocumentType type, const std::string& name,
     const std::filesystem::path& target, const NativeTemplateSettings& settings,
     const std::map<std::string,std::string>& units) {

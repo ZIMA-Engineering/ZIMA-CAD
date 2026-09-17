@@ -40,6 +40,10 @@ struct SurfaceGeometry {
     bool operator==(const SurfaceGeometry&) const = default;
 };
 
+enum class SheetFaceRole { Unknown, SideA, SideB, ThicknessFace };
+enum class SheetEdgeRole { Unknown, Boundary, Thickness, Junction };
+enum class SheetOperation { None, Flat, Bend };
+
 struct FaceReference {
     std::string owner_id;
     std::string semantic_key;
@@ -47,6 +51,8 @@ struct FaceReference {
     std::shared_ptr<const SurfaceGeometry> surface;
     std::optional<double> measured_area; // Captured only during explicit calculation.
     bool surface_result{}; // Non-volumetric modeling surface; not part of identity.
+    SheetFaceRole sheet_role{SheetFaceRole::Unknown};
+    double sheet_thickness{};
 
     [[nodiscard]] bool valid() const {
         return !owner_id.empty() && !semantic_key.empty();
@@ -206,6 +212,15 @@ struct ViewerEdge {
     std::optional<BSplineGeometry> exact_spline;
     bool surface_result{};
 };
+
+[[nodiscard]] inline SheetEdgeRole sheet_edge_role(const ViewerEdge& edge) {
+    const auto& sides=edge.edge_treatment_side_references;
+    if(sides.size()!=2)return SheetEdgeRole::Unknown;
+    const auto a=sides[0].sheet_role,b=sides[1].sheet_role;
+    if(a==SheetFaceRole::Unknown||b==SheetFaceRole::Unknown)return SheetEdgeRole::Unknown;
+    const bool x=a==SheetFaceRole::ThicknessFace,y=b==SheetFaceRole::ThicknessFace;
+    return x&&y?SheetEdgeRole::Thickness:x!=y?SheetEdgeRole::Boundary:SheetEdgeRole::Junction;
+}
 
 struct ViewerPoint {
     Vec3 position;
@@ -788,6 +803,8 @@ struct HistoryOperation {
     BodyHistoryScope body;
     // Document preparation failure, evaluated at this operation boundary.
     std::string input_error;
+    SheetOperation sheet_operation{SheetOperation::None};
+    double sheet_thickness{};
 };
 
 struct BodyResult;
@@ -929,6 +946,8 @@ struct PlacedBody {
         }
         u64(std::bit_cast<std::uint64_t>(operation.boolean_tolerance));
         u64(std::bit_cast<std::uint64_t>(operation.mesh_deflection));
+        u64(static_cast<std::uint64_t>(operation.sheet_operation));
+        u64(std::bit_cast<std::uint64_t>(operation.sheet_thickness));
         if (!operation.body.id.empty()) {
             for (const auto& text : {operation.body.id, operation.body.target_id, operation.body.source_id}) {
                 u64(text.size());

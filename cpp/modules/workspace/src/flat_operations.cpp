@@ -19,7 +19,7 @@ bool commit_flat(Workspace& live,const kernel::OcctKernel& kernel,const std::str
             existing->feature_parent_id!=feature.feature_parent_id||existing->container_origin!=feature.container_origin||
             existing->flat.sketch_id!=feature.flat.sketch_id||old==before.sketches.end()||old->owner_container_id!=feature.id)
             throw std::invalid_argument("Flat editing must preserve its container and Sketch identities.");
-        if(*existing==feature&&old->serialized()==sketch.serialized())return false;
+        // OK is an explicit calculation request even when parameters match.
     } else if(feature.id.empty()||feature.feature_id.empty()||old!=before.sketches.end())
         throw std::invalid_argument("A new Flat must own a new container and Sketch.");
     document::validate_native_metadata_text(feature.name);
@@ -42,6 +42,9 @@ bool commit_flat(Workspace& live,const kernel::OcctKernel& kernel,const std::str
     next.resolve_constructions(std::move(references));
     auto calculated=calculate_part_with_resolved_references(kernel,next,&state->session.calculated_boundaries(),policy);
     if(!next.find_container(container)->placement.reference_valid)throw std::invalid_argument("Flat placement references cannot be resolved.");
+    if(next.serialized()==before.serialized()) {
+        state->session.update_calculated_boundaries(std::move(calculated));return false;
+    }
     commit_part_document(live,id,std::move(next),std::move(calculated));return true;
 }
 }

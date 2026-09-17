@@ -1630,37 +1630,37 @@ void DrawingWindow::insert_view() {
     if (view_dialog_) { view_dialog_->raise(); return; }
     if (raise_open_properties(window())) return;
     const auto* sheet=active_sheet(); if (!sheet) return;
+    const auto sheet_id=sheet->id,drawing_id=document_.document_id;
     auto source_id=document_.source_document_id;
     auto source_path=document_.source_path;
-    if (source_id.empty() && source_path.empty() && workspace_) {
-        for (const auto& state : workspace_->documents()) {
-            std::visit([&](const auto& item) {
+    try {
+        if(source_id.empty()&&source_path.empty()&&workspace_) {
+            for(const auto& state:workspace_->documents())std::visit([&](const auto& item) {
                 using State=std::decay_t<decltype(item)>;
-                if constexpr (std::is_same_v<State,zima::workspace::PartState> ||
-                              std::is_same_v<State,zima::workspace::AssemblyState>) {
-                    if (source_id.empty()) { source_id=item.session.document().document_id; source_path=item.path; }
+                if constexpr(std::is_same_v<State,zima::workspace::PartState>||
+                             std::is_same_v<State,zima::workspace::AssemblyState>) {
+                    if(source_id.empty()) {source_id=item.session.document().document_id;source_path=item.path;}
                 }
             },state);
         }
-    }
-    if (!source_path.empty() && source_path.is_relative() && !path_.empty())
-        source_path=path_.parent_path()/source_path;
-    zima::kernel::ViewerMesh mesh;
-    try {
-        if (!source_id.empty() || !source_path.empty()) {
-            auto source=load_drawing_source(source_path,workspace_,source_id);
-            source_id=source.first; mesh=std::move(source.second);
+        if(source_id.empty()&&source_path.empty()) {
+            set_status_message(tr("Výkres nemá zdrojový díl ani sestavu."));return;
         }
-    } catch (const std::exception&) {
-        // The source can be replaced in the same Properties window after placement.
+        if (!source_path.empty() && source_path.is_relative() && !path_.empty())
+            source_path=path_.parent_path()/source_path;
+        auto source=load_drawing_source(source_path,workspace_,source_id);
+        if(document_.document_id!=drawing_id)return;
+        sheet=document_.find_sheet(sheet_id);if(!sheet)return;
+        auto view=zima::drawing::DrawingDocument::create_view(source.first,source_path,source.second,
+            zima::drawing::ViewOrientation::Isometric);
+        view.scale=sheet->default_scale; view.use_sheet_scale=true;
+        canvas_->begin_placement(std::move(view), [this](auto placed) {
+            show_view_properties(std::move(placed),true);
+        }, [this] { start_selection(); });
+        set_status_message(tr("Vložit pohled: klikněte na místo na listu. Esc zruší vložení."));
+    } catch (const std::exception& error) {
+        start_selection();set_status_message(QString::fromUtf8(error.what()));
     }
-    auto view=zima::drawing::DrawingDocument::create_view(source_id,source_path,mesh,
-        zima::drawing::ViewOrientation::Isometric);
-    view.scale=sheet->default_scale; view.use_sheet_scale=true;
-    canvas_->begin_placement(std::move(view), [this](auto placed) {
-        show_view_properties(std::move(placed),true);
-    }, [this] { start_selection(); });
-    set_status_message(tr("Vložit pohled: klikněte na místo na listu. Esc zruší vložení."));
 }
 
 void DrawingWindow::show_text_properties(const std::string& id) {

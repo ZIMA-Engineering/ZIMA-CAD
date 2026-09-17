@@ -1,4 +1,5 @@
 #include <limits>
+#include <zima/document/bend.hpp>
 #include "table_entry.hpp"
 #include "shaft_thread_dialog.hpp"
 #include "sweep2d_dialog.hpp"
@@ -389,6 +390,44 @@ void verify_sketch_endpoint_dialog(QWidget& parent) {
     }
 }
 
+void verify_sheet_attachment_dialog(QWidget& parent) {
+    using namespace zima;
+    auto part=document::PartDocument::create_default();
+    auto flat=document::PartDocument::create_sketch_container();flat.feature_kind=document::FeatureKind::Flat;
+    auto profile=sketcher::Sketch::create_default();profile.owner_container_id=flat.id;flat.flat.sketch_id=profile.id;
+    profile.add_segment(0,0,40,0);profile.add_segment(40,0,40,30);profile.add_segment(40,30,0,30);profile.add_segment(0,30,0,0);
+    part.history={flat};part.sketches={profile};part.resolve_constructions();
+    kernel::OcctKernel kernel;const auto result=kernel.evaluate_history(part.kernel_operations()).back();
+    const auto& geometry=result.mesh.original_references;
+    auto feature=document::PartDocument::create_sketch_container();feature.feature_kind=document::FeatureKind::Bend;
+    auto sketch=sketcher::Sketch::create_default();sketch.owner_container_id=feature.id;feature.bend.sketch_id=sketch.id;
+    document::initialize_bend_start_profile(sketch,5);
+    app::SketchPropertiesDialog dialog(sketch,{},false,{},[](auto,auto,bool){},&parent);
+    dialog.set_reference_geometry(geometry);
+    dialog.set_bend_mode(feature.bend,{},feature.value_locks,[&](auto p){feature.bend=p;},[]{},[](auto){});
+    dialog.set_preview_callback([](auto,auto){});dialog.show();QApplication::processEvents();
+    require(!dialog.findChild<QComboBox*>("sketchPlane")->isVisible(),"Bend still exposes manual profile plane");
+    require(!dialog.findChild<QDoubleSpinBox*>("sketchPlaneOffset")->isVisible(),"Bend still exposes plane offset");
+    for(const auto& edge:geometry.edges) {
+        const document::ConstructionReference reference{{},edge.reference.owner_id,edge.reference.semantic_key};
+        if(kernel::sheet_edge_role(edge)==kernel::SheetEdgeRole::Thickness) {
+            require(!dialog.sheet_reference_allowed(0,reference)&&!dialog.set_reference(0,reference,"Thickness"),"Bend offered thickness edge");continue;
+        }
+        if(kernel::sheet_edge_role(edge)!=kernel::SheetEdgeRole::Boundary)continue;
+        require(dialog.set_reference(0,reference,"Boundary"),"Bend rejected boundary edge");
+        auto pending=dialog.pending_value();
+        require(feature.bend.sheet_attachment&&pending.second.references.size()>=3,"One edge did not fill Bend references");
+        for(const auto& d:pending.first.dimensions)require(std::abs(d.value)<1e-9,"Initial Bend offset is not zero");
+        require(!dialog.set_reference(1,pending.second.references[1],"Face"),"Derived joining face remains editable");
+        require(!dialog.findChild<QTableWidget*>("sketchReferenceTable")->cellWidget(1,0)->isEnabled(),"Derived face can be removed");
+        const auto before=pending.second.references[2];
+        dialog.findChild<QPushButton*>("bendOtherEndpoint")->click();
+        const auto after=dialog.pending_value();
+        require(after.second.references[2].semantic_key!=before.semantic_key,"Origin endpoint button did not replace the origin");
+        require(std::hypot(pending.first.resolved_y_axis.x-after.first.resolved_y_axis.x,pending.first.resolved_y_axis.y-after.first.resolved_y_axis.y,
+            pending.first.resolved_y_axis.z-after.first.resolved_y_axis.z)<1e-6,"Origin switch flipped Bend side");
+    }
+}
 void verify_container_frame_dialog(QWidget& parent) {
     using namespace zima;
     auto doc=document::PartDocument::create_default();
@@ -470,6 +509,7 @@ int main(int argc, char* argv[]) {
     const auto initial = zima::document::PartDocument::create_box_container();
 
     try {
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SHEET_ATTACHMENT_DIALOG_ONLY")) {verify_sheet_attachment_dialog(parent);return 0;}
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_TRANSLATIONS_ONLY")) return verify_translations(application,parent);
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_VALUE_LOCKS_ONLY")) return verify_numeric_value_locks(application,parent);
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_ENTRY_TABLES_ONLY")) return verify_entry_tables(application,parent);
@@ -479,6 +519,7 @@ int main(int argc, char* argv[]) {
         verify_curve_placement_picker(application,parent);
         verify_sketch_endpoint_dialog(parent);
         verify_container_frame_dialog(parent);
+        verify_sheet_attachment_dialog(parent);
         verify_sketch_reference_tree();
         {
             using namespace zima::app;
@@ -1577,6 +1618,16 @@ int main(int argc, char* argv[]) {
         face_cycle_view.fit_all();
         application.processEvents();
         const QPointF face_pointer(250.0, 180.0);
+        face_cycle_view.set_selection_filter(zima::viewer::SelectionFilter::Axes);
+        face_cycle_view.set_selection_contract({zima::viewer::CandidateKind::Face});
+        face_cycle_view.set_candidate_filter([](const auto&) { return true; });
+        require(face_cycle_view.selection_candidates_at(face_pointer).empty(),
+            "User Axes filter was bypassed by an active Face command");
+        face_cycle_view.set_selection_filter(zima::viewer::SelectionFilter::All);
+        face_cycle_view.set_selection_filter(zima::viewer::SelectionFilter::Planes);
+        require(face_cycle_view.selection_candidates_at(face_pointer).empty(),
+            "Plane user filter offered a solid face");
+        face_cycle_view.set_selection_filter(zima::viewer::SelectionFilter::Faces);
         const auto face_candidates =
             face_cycle_view.selection_candidates_at(face_pointer);
         require(face_candidates.size() == 2,
@@ -1596,6 +1647,19 @@ int main(int argc, char* argv[]) {
                     first_face->owner_id != second_face->owner_id &&
                     second_face->owner_id == face_candidates[1].owner_id,
                 "RMB did not advance hover to the face behind the front face");
+        QMouseEvent confirm_face(QEvent::MouseButtonPress,face_pointer,face_pointer,face_pointer,
+            Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+        QApplication::sendEvent(&face_cycle_view,&confirm_face);
+        require(face_cycle_view.confirmed_candidate()==second_face,
+            "LMB did not confirm the filtered RMB candidate");
+        face_cycle_view.set_selection_filter(zima::viewer::SelectionFilter::Axes);
+        require(!face_cycle_view.hovered_candidate()&&!face_cycle_view.confirmed_candidate(),
+            "Changing the user filter retained stale hover or confirmation");
+        QApplication::sendEvent(&face_cycle_view,&face_hover);
+        QApplication::sendEvent(&face_cycle_view,&next_face);
+        QApplication::sendEvent(&face_cycle_view,&confirm_face);
+        require(!face_cycle_view.hovered_candidate()&&!face_cycle_view.confirmed_candidate(),
+            "Hover, RMB or LMB bypassed the user filter");
 
         {
             zima::kernel::ViewerMesh imported;
@@ -1729,6 +1793,23 @@ int main(int argc, char* argv[]) {
         require(pending_point_view.selection_candidates_at(QPointF(250,180)).empty(),
             "Finished spline retained a transient selectable start point");
         pending_point_view.hide();
+        {
+            zima::viewer::MeshView origin_filter_view(&parent);
+            origin_filter_view.setGeometry(0,0,500,360);
+            zima::kernel::ViewerMesh mesh;mesh.vertices={{-10,-10,0},{10,10,0}};
+            mesh.points.push_back({{0,0,0},{"component:origin","origin:point","nested/part"}});
+            origin_filter_view.set_mesh(mesh);origin_filter_view.set_view_direction({0,0,1});
+            origin_filter_view.set_component_origin_handle(zima::viewer::EdgeKey{
+                "component:origin","origin:point","nested/part"});
+            origin_filter_view.set_selection_contract({});origin_filter_view.show();application.processEvents();
+            origin_filter_view.set_selection_filter(zima::viewer::SelectionFilter::Origins);
+            const auto hits=origin_filter_view.selection_candidates_at({250,180});
+            require(hits.size()==1&&hits.front().instance_path=="nested/part",
+                "Origin filter lost the exact component-origin handle");
+            origin_filter_view.set_selection_filter(zima::viewer::SelectionFilter::Axes);
+            require(origin_filter_view.selection_candidates_at({250,180}).empty(),
+                "Injected component-origin handle bypassed the user Axes filter");
+        }
 
         zima::kernel::ViewerMesh zero_dimension_mesh;
         zero_dimension_mesh.axes.push_back({
@@ -4888,6 +4969,19 @@ int main(int argc, char* argv[]) {
                                 zima::viewer::CandidateKind::SketchSegment;
                         }) == 2,
                 "Sketch View drag rectangle did not select its enclosed geometry");
+        box_selection_view.set_selection_filter(zima::viewer::SelectionFilter::Points);
+        QApplication::sendEvent(&box_selection_view, &box_press);
+        QApplication::sendEvent(&box_selection_view, &box_move);
+        QApplication::sendEvent(&box_selection_view, &box_release);
+        require(box_selected.size() == 1 &&
+                box_selected.front().kind == zima::viewer::CandidateKind::SketchPoint,
+            "Rectangle selection bypassed the user Points filter");
+        box_selection_view.set_selection_filter(zima::viewer::SelectionFilter::Axes);
+        QApplication::sendEvent(&box_selection_view, &box_press);
+        QApplication::sendEvent(&box_selection_view, &box_move);
+        QApplication::sendEvent(&box_selection_view, &box_release);
+        require(box_selected.empty(), "Rectangle selection bypassed the user Axes filter");
+        box_selection_view.set_selection_filter(zima::viewer::SelectionFilter::All);
         box_selection_view.set_selection_contract({
             zima::viewer::CandidateKind::SketchSegment,
             zima::viewer::CandidateKind::SketchPoint});

@@ -26,6 +26,8 @@ namespace zima::app {
 class SketchPropertiesDialog final : public zima::ui::PropertiesSubWindow,
                                      public PlacementReferenceDialog {
 public:
+    [[nodiscard]] bool sheet_reference_allowed(std::size_t, const zima::document::ConstructionReference&) const;
+    void set_reference_document_id(std::string id) { reference_document_id_=std::move(id); }
     zima::document::Placement placement_seed() const override { return placement_->numeric_placement(); }
     using CommitCallback = std::function<void(
         zima::sketcher::Sketch, zima::document::Placement, bool)>;
@@ -118,12 +120,15 @@ private:
     QDoubleSpinBox* bend_radius_{};
     QDoubleSpinBox* bend_angle_{};
     bool bend_seed_from_edge_{};
+    std::shared_ptr<zima::document::BendParameters> bend_pending_;
+    void lock_bend_attachment_fields();
     std::function<void(zima::document::BendParameters)> set_bend_parameters_;
     QComboBox* plane_reference_{};
     QPushButton* sketch_button_{};
     QLabel* error_{};
     std::unique_ptr<zima::ui::ContainerPlacementSection> placement_;
     zima::kernel::ViewerReferenceGeometry reference_geometry_;
+    std::string reference_document_id_;
     PreviewCallback preview_;
     bool enter_sketch_after_commit_{};
     std::function<void()> edit_pending_sketch_;

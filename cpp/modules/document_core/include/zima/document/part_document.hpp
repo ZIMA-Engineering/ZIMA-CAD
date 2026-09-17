@@ -582,6 +582,7 @@ struct FlatParameters {
 
 struct BendParameters {
     std::string sketch_id;
+    bool sheet_attachment{};
     // Path and end profile; the start profile is the ordinary owned Sketch.
     std::array<std::string,2> auxiliary_sketches;
     double radius{5.0};

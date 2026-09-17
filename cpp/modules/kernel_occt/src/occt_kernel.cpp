@@ -7579,7 +7579,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 return make_drill_point_data(primitive, matches,
                     result_shape, operation.owner_id, sweep_ends);
             };
-            const PrimitiveData operand = std::visit([&](const auto& primitive)
+            PrimitiveData operand = std::visit([&](const auto& primitive)
                 -> PrimitiveData {
                 using Request = std::decay_t<decltype(primitive)>;
                 if constexpr (std::is_same_v<Request, BoxRequest>) {
@@ -7709,6 +7709,25 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     throw std::logic_error("Body treatment reached primitive builder");
                 }
             }, operation.primitive);
+            if(operation.sheet_operation!=SheetOperation::None) {
+                // Roles follow authored semantic ancestry. OCCT only locates
+                // the descendants; neither face order nor curvature names them.
+                const auto assign=[&](auto& faces) {
+                    for(auto& face:faces) {
+                        auto& reference=face.reference;const auto& key=reference.semantic_key;
+                        reference.sheet_thickness=operation.sheet_thickness;
+                        reference.sheet_role=SheetFaceRole::ThicknessFace;
+                        if(operation.sheet_operation==SheetOperation::Flat) {
+                            if(key.starts_with("start:from:"))reference.sheet_role=SheetFaceRole::SideA;
+                            if(key.starts_with("end:from:"))reference.sheet_role=SheetFaceRole::SideB;
+                        } else {
+                            if(key.find(":outer:from:")!=std::string::npos)reference.sheet_role=SheetFaceRole::SideA;
+                            if(key.find(":inner:from:")!=std::string::npos)reference.sheet_role=SheetFaceRole::SideB;
+                        }
+                    }
+                };
+                assign(operand.faces);assign(operand.source_caps);
+            }
             auto source_faces=operand.faces;
             if(!operand.source_caps.empty()) {
                 std::erase_if(source_faces,[&](const auto& face) {
