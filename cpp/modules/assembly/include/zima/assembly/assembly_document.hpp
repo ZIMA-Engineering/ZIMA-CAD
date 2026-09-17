@@ -12,6 +12,7 @@
 #include <zima/document/part_document.hpp>
 
 #include <filesystem>
+#include <functional>
 #include <map>
 #include <optional>
 #include <string>
@@ -60,6 +61,7 @@ struct OccurrenceSnapshot {
     std::vector<OccurrenceSnapshot> children;
     std::string derived_source_id;
     bool pattern_group{};
+    bool source_missing{}; // Runtime availability; not part of persisted hierarchy.
     bool operator==(const OccurrenceSnapshot&) const = default;
 };
 
@@ -109,6 +111,7 @@ struct ComponentConstraintState {
 };
 
 struct PartOccurrence {
+    // Source geometry is hydrated at Open; availability is runtime-only.
     std::string occurrence_id;
     std::string name;
     std::string source_document_id;
@@ -144,6 +147,7 @@ struct PartOccurrence {
     std::optional<double> density_kg_mm3;
     std::optional<double> nested_mass_kg;
     double mass_volume_mm3{};
+    bool source_missing{};
 };
 
 // Only explicit body operations may call this. Ordinary Assemblies retain
@@ -282,7 +286,13 @@ public:
     [[nodiscard]] zima::kernel::ViewerMesh build_scene_with_part_override(
         const std::string& occurrence_id,
         zima::kernel::BodySnapshot calculated_source) const;
-    [[nodiscard]] static AssemblyDocument load(const std::filesystem::path& path);
+    // A resolver supplies current open-document data without reading stale files.
+    using SourceResolver = std::function<bool(PartOccurrence&)>;
+    [[nodiscard]] static AssemblyDocument load(const std::filesystem::path& path,
+        const SourceResolver& resolver = {}, bool resolve_sources = true);
+    void hydrate_sources(const std::filesystem::path& path, const SourceResolver& resolver = {});
+    [[nodiscard]] bool owns_component_result(const std::string& occurrence_id) const;
+    std::filesystem::path native_source_path; // Runtime context for relative family dependencies.
     [[nodiscard]] nlohmann::json serialized(const zima::document::DocumentCopyIdentity& copy = {}) const;
     [[nodiscard]] static AssemblyDocument from_serialized(const nlohmann::json&);
     void save(const std::filesystem::path& path,

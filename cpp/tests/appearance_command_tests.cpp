@@ -75,6 +75,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     run(host,"new",{{"type","part"},{"name","paint-copies"}});
     run(host,"box.create",{{"length_mm","10"},{"width_mm","20"},{"height_mm","30"}});
     const auto copy_part=live.active_document_id();const auto source_body=live.open_part(copy_part)->session.document().body_history.active_body_id();
+    run(host,"body.activate"); // Whole-Body sources are offered at the Part boundary.
     const auto mirrored=run(host,"mirror.create",{{"source",source_body},{"local_plane","yz"},{"placement",{{"x",30}}}}).data.at("object").get<std::string>();
     const auto copied_faces=run(host,"appearance.faces",{{"body",mirrored}}).data;
     require(copied_faces.at("total")==6,"Mirrored Body appearance lost its result-face owners");

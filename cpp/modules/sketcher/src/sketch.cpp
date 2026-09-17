@@ -1,3 +1,4 @@
+#include <zima/kernel/dimension_layout.hpp>
 #include <zima/kernel/bspline_json.hpp>
 #include "rectilinear_template_solver.hpp"
 #include <zima/sketcher/template_image_json.hpp>
@@ -12844,6 +12845,29 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
         // Derive it from the actual Sketch frame, including default XY/XZ/YZ.
         const auto origin = world_point(0, 0);
         const auto x = world_point(1, 0), y = world_point(0, 1);
+        if(dimension->kind==DimensionKind::DistanceX || dimension->kind==DimensionKind::DistanceY) {
+            auto axis=dimension->kind==DimensionKind::DistanceX?x:y;
+            axis={axis.x-origin.x,axis.y-origin.y,axis.z-origin.z};
+            const auto span=kernel::dimension_sub(rendered.line_second,rendered.line_first);
+            if(kernel::dimension_dot(span,axis)<0)axis=kernel::dimension_scale(axis,-1);
+            rendered.measurement_direction=axis;
+        }
+        else if(rendered.kind==kernel::ViewerDimensionKind::Linear) {
+            const auto span=kernel::dimension_sub(rendered.line_second,rendered.line_first);
+            if(kernel::dimension_dot(span,span)>1e-18)
+                rendered.measurement_direction=kernel::dimension_unit(span);
+            else if(dimension->kind==DimensionKind::DistancePointLine ||
+                    dimension->kind==DimensionKind::DistanceSymmetric ||
+                    dimension->kind==DimensionKind::DistanceLine) {
+                const auto reference=sketch_axis_line(*this,dimension->geometry_id)
+                    ?sketch_axis_line(*this,dimension->geometry_id)
+                    :segment_or_external_line(*this,dimension->geometry_id);
+                if(reference) {
+                    const auto endpoint=world_point(-reference->second[1],reference->second[0]);
+                    rendered.measurement_direction=kernel::dimension_unit(kernel::dimension_sub(endpoint,origin));
+                }
+            }
+        }
         rendered.plane_normal = {
             (x.y-origin.y)*(y.z-origin.z)-(x.z-origin.z)*(y.y-origin.y),
             (x.z-origin.z)*(y.x-origin.x)-(x.x-origin.x)*(y.z-origin.z),

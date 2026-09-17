@@ -47,14 +47,28 @@ and regenerating therefore do not require the original STEP file.
 
 ## Import into an Assembly
 
+Import keeps the current tab and active editing occurrence. Imported Part and
+subassembly sources remain available in memory and in their native files, but
+do not create document tabs automatically. Explicitly opening an imported source
+reveals its tab. This also applies when importing into an activated subassembly:
+the top-level Assembly stays displayed. The tab policy is runtime UI state and
+does not change the persistent Assembly hierarchy.
+
+The 2026-09-17 Windows import and component-properties GUI contracts verify
+background source registration, unchanged tab count and displayed Assembly
+during import into an activated subassembly, and exactly one new tab when an
+imported source is explicitly opened. See `build/origin-depth-import-tabs-tests.log`.
+
 Import creates one inserted STEP Assembly, preserving its subassembly hierarchy,
 individual Parts and local placements. Each unique source Part has one `.prtz`
 file and each unique subassembly source one `.asmz` file. Repeated occurrences
 share their source. Each imported Part contains a Body with a STEP container.
 
-Files are created in a new `<STEP name>_zima` subdirectory beside the target
-Assembly, or in the working directory for an unsaved Assembly. Subsequent imports
-use a new numbered directory without overwriting previous imports. Files without
+Files are created directly in the working directory, including when the target
+Assembly is saved elsewhere. Names use the import filename stem followed by
+`_part-N.prtz` or `_assembly-N.asmz`; collisions receive a numeric suffix.
+Existing files are preserved and no automatic subdirectory is created. An explicit
+CLI `output_directory` still reserves the requested new directory. Files without
 an original hierarchy produce a flat Assembly. A standalone STEP Part is also
 inserted through a root STEP Assembly.
 

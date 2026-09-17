@@ -10,6 +10,30 @@ valid candidates.
 
 ## Ordinary selection contract
 
+### Assembly Origin depth (2026-09-17)
+
+The displayed top-level Assembly Origin remains eligible for display. Ordinary
+Origin visibility otherwise follows the exact active occurrence: the active
+component's Origin and the Origins of an active Assembly's immediate components
+are eligible. Deeper descendants and other branches remain hidden. Activating a
+Part does not reveal sibling component Origins. The global Origin visibility
+switch still applies.
+
+Painting and the common picker consume the same visibility policy. Repeated
+sources are distinguished by occurrence path. Feature dialogs using the shared
+Origin action retain their stricter policy: only the top-level Origin is exposed
+automatically, with other Origins revealed through explicit selection. Closing
+the dialog restores the active-level policy.
+
+Windows verification passed the component-properties GUI, Assembly refresh,
+Assembly import and common UI contracts. The GUI regression checks the root,
+active subassembly and active Part levels, rejects deeper and other-branch
+origins, and exercises the explicit Origin exception. The captures
+`Projects/test/origin-depth-top.png` and `Projects/test/origin-depth-active.png`
+were visually inspected. Logs: `build/origin-depth-import-tabs-tests.log` and
+`build/origin-depth-ui-retest.log` (after updating two synthetic dimension
+fixtures to supply their explicit measurement directions).
+
 - Part mode selects a complete historical container.
 - Assembly mode selects a complete component occurrence.
 - Hover, left-click confirmation and right-click cycling use the same ordered

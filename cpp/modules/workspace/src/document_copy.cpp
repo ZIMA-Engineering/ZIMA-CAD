@@ -198,6 +198,7 @@ std::vector<std::filesystem::path> Workspace::save_copy(
     const auto staging_path=target.parent_path()/(".zima-copy-"+new_id);
     if (!fs::create_directory(staging_path)) throw std::runtime_error("Nelze připravit adresář pro kopii.");
     StagingDirectory staging{staging_path};
+    for (const auto& file:pending) reserve_file(file.target);
     for (const auto& file:pending) file.write(staging.path/file.target.filename());
     std::vector<fs::path> published;
     try {

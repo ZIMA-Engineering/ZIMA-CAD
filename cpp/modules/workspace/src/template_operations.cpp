@@ -66,7 +66,7 @@ void save_drawing_template(Workspace& live,const std::string& id,const std::file
     const auto path=std::filesystem::absolute(target).lexically_normal(),source=std::filesystem::absolute(state->path).lexically_normal();
     if(title_path(path)!=(sketch.drawing_template->kind=="title_block"))throw TemplateOperationError("unsupported_format","The template kind does not match its extension.");
     if(copy&&same_path(path,source))throw TemplateOperationError("invalid_path","A template copy must use a different target path.");
-    check_target(live,path,id,overwrite||(!copy&&same_path(path,source)));drawing::save_template_sketch(sketch,path);
+    check_target(live,path,id,overwrite||(!copy&&same_path(path,source)));live.reserve_file(path);drawing::save_template_sketch(sketch,path);
     if(!copy){state->path=path;state->session.mark_saved();}
 }
 bool commit_template_sketch(Workspace& live,const std::string& id,sketcher::Sketch sketch) {

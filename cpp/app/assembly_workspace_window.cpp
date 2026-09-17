@@ -1,4 +1,5 @@
 #include <zima/command_host/host.hpp>
+#include <zima/document/file_path.hpp>
 #include "workspace/workspace_internal.hpp"
 #include "updateservice.h"
 #include <zima/workspace/document_operations.hpp>
@@ -23,6 +24,11 @@ AssemblyWorkspaceWindow::AssemblyWorkspaceWindow(const QString& working_director
             working_directory_ = std::filesystem::u8path(QFileInfo(configured).absoluteFilePath().toStdString());
         }
     }
+    instance_.set_directory(QString::fromStdString(document::path_to_utf8(working_directory_)));
+    setProperty("instanceWorkingDirectory",QString::fromStdString(document::path_to_utf8(working_directory_)));
+    workspace_.file_reservation=[this](const auto& path) {
+        instance_.reserve_file(QString::fromStdString(document::path_to_utf8(path)));
+    };
     apply_application_translations(*qApp, application_settings_);
     setWindowTitle(tr("ZIMA-CAD"));
     setWindowIcon(application_icon());

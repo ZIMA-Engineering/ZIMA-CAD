@@ -531,12 +531,12 @@ void add_json_parameters(
 
 nlohmann::json read_part_ini(const std::filesystem::path& path) {
     const auto ini = read_ini(path);
-    if (ini_value(ini, "Document", "format_version") != "30") {
+    if (ini_value(ini, "Document", "format_version") != "31") {
         throw std::runtime_error("Unsupported ZIMA-CAD Part document format");
     }
     nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 54},
+        {"format_version", 55},
         {"document_id", ini_required(ini, "Document", "document_id")},
         {"type", ini_value(ini, "Document", "type", "part")},
         {"name", ini_value(ini, "Document", "name", "Nový díl")},
@@ -690,7 +690,7 @@ void write_part_ini(
     const nlohmann::json& root, const std::filesystem::path& path) {
     IniSections ini;
     ini["Document"] = {
-        {"format_version", "30"},
+        {"format_version", "31"},
         {"type", "part"},
         {"document_id", root.at("document_id").get<std::string>()},
         {"name", root.at("name").get<std::string>()},
@@ -2728,6 +2728,7 @@ zima::kernel::ViewerMesh body_placed_mesh(zima::kernel::ViewerMesh mesh,
         point(dimension.witness_first); point(dimension.witness_second);
         point(dimension.line_first); point(dimension.line_second);
         dimension.plane_normal = placement_transform_direction(rotation, dimension.plane_normal);
+        if(dimension.measurement_direction)dimension.measurement_direction=placement_transform_direction(rotation,*dimension.measurement_direction);
         if (dimension.label_position) point(*dimension.label_position);
     }
     for (auto& marker : mesh.constraint_markers) point(marker.position);
@@ -11196,7 +11197,7 @@ nlohmann::json PartDocument::serialized(
     static_cast<void>(zima::document::parse_named_views(named_views));
     nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 54},
+        {"format_version", 55},
         {"document_id", document_id},
         {"type", "part"},
         {"name", name},

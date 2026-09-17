@@ -301,6 +301,37 @@ The native example was not modified or converted during development.
 
 ## Implemented Bend verification
 
+### Definition-derived dimension direction (2026-09-17)
+
+Linear Sketch dimensions publish their measurement direction separately from
+their value and annotation-plane normal. In particular, zero Bend start
+coordinates and end-profile differences retain their Sketch X/Y direction.
+The common presentation and drag paths consume this direction; Bend does not
+have a separate renderer. Existing visibility rules remain unchanged.
+Zero angular presentations use the tangent of their coincident rays in the
+annotation plane instead of a screen-axis substitute.
+
+Body placement, Assembly occurrences (including nested occurrences), transient
+View transforms and Drawing source transforms carry this direction as a vector.
+Native viewer packets and Drawing dimension geometry preserve it. The Part and
+Assembly format identities and their start templates were updated together.
+Focused verification covers zero/nonzero and signed coordinates in rotated
+planes, zero-angle presentation, layout dragging, packet persistence and repeated
+and nested Assembly occurrences.
+
+Windows GUI and CLI builds succeeded. All 21 selected contracts passed: ten
+core contracts (including Bend, Sketcher, Assembly, edge treatments, dimension
+layouts and Drawing annotations) and eleven View/layout contracts. The Assembly
+test's obsolete Python-format fixture was replaced with a current native nested
+Assembly, and its format assertion was updated. Logs are
+`build/dimension-direction-core-tests.log`,
+`build/dimension-direction-assembly-tests.log` (the corrected Assembly rerun),
+and `build/dimension-direction-view-tests.log`.
+The actual View captures `build/zero-dimension-planes.png`,
+`Projects/test/fillet-purple-grips.png` and
+`Projects/test/chamfer-purple-grips.png` were visually inspected.
+This is focused verification, not a full repository test-suite run.
+
 The 2026-09-16 profile/dimension repair passed twelve focused Windows contracts:
 owned-profile frames, profile-on-sheet GUI, Bend attachment GUI, Sketcher,
 Family Table, Sketch dimension commands, profile commands, dimension layout,

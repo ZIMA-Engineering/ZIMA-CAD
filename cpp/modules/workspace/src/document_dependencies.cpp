@@ -86,7 +86,7 @@ private:
             if(document.document_id!=id)throw DocumentDependencyError("dependency_identity","The component source file belongs to a different document.");
             loaded_.add_part(std::move(document),std::move(calculated),source.path);
         }else {
-            auto document=read_family_assembly(&live_,source.path,id);
+            auto document=read_family_assembly(&live_,source.path,id,false);
             if(document.document_id!=id)throw DocumentDependencyError("dependency_identity","The component source file belongs to a different document.");
             loaded_.add_assembly(std::move(document),source.path);
         }} catch(const DrawingOperationError&) {throw DocumentDependencyError("dependency_identity","The component source file belongs to a different document.");}

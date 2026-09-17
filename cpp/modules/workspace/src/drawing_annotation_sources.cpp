@@ -45,6 +45,7 @@ void transform_annotations(kernel::ViewerMesh &mesh,
     d.line_first = point(d.line_first);
     d.line_second = point(d.line_second);
     d.plane_normal = vector(d.plane_normal);
+    if(d.measurement_direction)d.measurement_direction=vector(*d.measurement_direction);
     if (transform.mirror)
       d.plane_normal = {-d.plane_normal.x, -d.plane_normal.y,
                         -d.plane_normal.z};

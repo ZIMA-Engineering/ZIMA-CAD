@@ -15,6 +15,22 @@ namespace {
 void require(bool condition, const char* message) {
     if (!condition) throw std::runtime_error(message);
 }
+// These unit fixtures use synthetic, unsaved sources. Supply them through the
+// same explicit resolver used for authoritative open documents. Disk-backed
+// dependency hydration is covered by Workspace and import contracts.
+zima::assembly::AssemblyDocument::SourceResolver fixture_sources(const zima::assembly::AssemblyDocument& document) {
+    return [components=document.components](auto& component) {
+        for(const auto& source:components)if(source.source_document_id==component.source_document_id && source.source_kind==component.source_kind) {
+            component.calculated_source=source.calculated_source;
+            component.nested_snapshot=source.nested_snapshot;
+            component.body_color=source.body_color;component.face_colors=source.face_colors;
+            component.appearance=source.appearance;component.density_kg_mm3=source.density_kg_mm3;
+            component.nested_mass_kg=source.nested_mass_kg;component.mass_volume_mm3=source.mass_volume_mm3;
+            return true;
+        }
+        return false;
+    };
+}
 }
 
 int main() {
@@ -36,17 +52,23 @@ int main() {
                     start_assembly_template.relations.front().expression ==
                         "model.mass",
                 "Start Assembly template is stale or incomplete");
-        const auto fixture_dir = std::filesystem::current_path() /
-            "tests/fixtures/cross_language";
-        const auto fixture_assembly = zima::assembly::AssemblyDocument::load(
-            fixture_dir / "nested.asmz");
+        zima::kernel::OcctKernel kernel;
+        const auto fixture_body=kernel.evaluate_history({
+            {"fixture-source",zima::kernel::BoxRequest{4,5,6},zima::kernel::BooleanOperation::Add}}).back();
+        auto fixture_inner=zima::assembly::AssemblyDocument::create_default();
+        fixture_inner.components.push_back(zima::assembly::AssemblyDocument::create_part_occurrence(
+            "Fixture Part","part-fixture-001",{},fixture_body));
+        auto fixture_assembly=zima::assembly::AssemblyDocument::create_default();
+        fixture_assembly.document_id="assembly-fixture-001";fixture_assembly.name="Fixture Assembly";
+        fixture_assembly.components.push_back(zima::assembly::AssemblyDocument::create_assembly_occurrence(
+            "Fixture Subassembly",fixture_inner.document_id,{},fixture_inner));
         require(fixture_assembly.document_id == "assembly-fixture-001" &&
                     fixture_assembly.name == "Fixture Assembly" &&
                     fixture_assembly.components.size() == 1 &&
                     fixture_assembly.components.front().nested_snapshot.size() == 1 &&
                     fixture_assembly.components.front().nested_snapshot.front()
                         .source_document_id == "part-fixture-001",
-                "Python nested Assembly fixture lost occurrence identity");
+                "Native nested Assembly fixture lost occurrence identity");
         const zima::assembly::InstancePath nested_path{{"top", "sub", "part"}};
         const auto parent_path = nested_path.parent();
         require(parent_path &&
@@ -57,10 +79,10 @@ int main() {
                         std::vector<std::string>{"top"} &&
                     !parent_path->parent()->parent(),
                 "Select Parent did not move exactly one instance-path level");
-        zima::kernel::OcctKernel kernel;
+
 
         // Edit/regenerate/reopen: append a new Part occurrence to the
-        // Python-produced nested Assembly fixture, save it, and reopen it to
+        // native nested Assembly fixture, save it, and reopen it to
         // prove the fixture also survives an explicit edit-regenerate-reopen
         // cycle, matching the Part-level coverage in contract_tests.cpp.
         auto edited_fixture_assembly = fixture_assembly;
@@ -83,7 +105,7 @@ int main() {
             "zima-cad-fixture-assembly-edit-regenerate-reopen-contract.asmz";
         edited_fixture_assembly.save(fixture_edit_assembly_path);
         const auto reopened_fixture_assembly =
-            zima::assembly::AssemblyDocument::load(fixture_edit_assembly_path);
+            zima::assembly::AssemblyDocument::load(fixture_edit_assembly_path,fixture_sources(edited_fixture_assembly));
         std::filesystem::remove(fixture_edit_assembly_path);
         require(reopened_fixture_assembly.document_id == "assembly-fixture-001" &&
                     reopened_fixture_assembly.components.size() == 2 &&
@@ -94,7 +116,7 @@ int main() {
                     reopened_fixture_assembly.components.back().placement.x == 12.0 &&
                     std::abs(reopened_fixture_assembly.components.back()
                         .calculated_source->volume - 216.0) < 1.0e-6,
-                "Edited Python Assembly fixture did not survive "
+                "Edited native Assembly fixture did not survive "
                 "regenerate/save/reopen");
 
         const auto source = kernel.evaluate_history({
@@ -246,7 +268,7 @@ int main() {
             "zima-cad-cpp-extruded-axis-assembly-contract.asmz";
         extruded_assembly.save(extruded_assembly_path);
         const auto loaded_extruded_assembly =
-            zima::assembly::AssemblyDocument::load(extruded_assembly_path);
+            zima::assembly::AssemblyDocument::load(extruded_assembly_path,fixture_sources(extruded_assembly));
         std::filesystem::remove(extruded_assembly_path);
         require(loaded_extruded_assembly.components.size() == 2 &&
                     loaded_extruded_assembly.resolve_axis(
@@ -333,7 +355,7 @@ int main() {
         const std::string assembly_text(
             std::istreambuf_iterator<char>(assembly_file), {});
         require(assembly_text.find("[Document]\n") != std::string::npos &&
-                    assembly_text.find("format_version=22\n") != std::string::npos &&
+                    assembly_text.find("format_version=25\n") != std::string::npos &&
                     assembly_text.find("[DocumentUnits]\n") != std::string::npos &&
                     assembly_text.find("[DocumentPrecision]\n") != std::string::npos &&
                     assembly_text.find("[Material]\n") != std::string::npos &&
@@ -354,8 +376,8 @@ int main() {
                     assembly_text.find("[Children." + cut_definition.id + "]\n") !=
                         std::string::npos &&
                     !assembly_text.empty() && assembly_text.front() == '[',
-                "Assembly save did not produce Python-compatible INI sections");
-        const auto loaded = zima::assembly::AssemblyDocument::load(assembly_path);
+                "Assembly save did not produce native INI sections");
+        const auto loaded = zima::assembly::AssemblyDocument::load(assembly_path,fixture_sources(assembly));
         assembly_file.close();
         const auto occurrence_section = assembly_text.find("[Container." + first_id + "]");
         require(occurrence_section != std::string::npos,"Occurrence metadata missing");
@@ -416,7 +438,7 @@ int main() {
         const std::string nested_text(
             std::istreambuf_iterator<char>(nested_file), {});
         const auto loaded_nested =
-            zima::assembly::AssemblyDocument::load(nested_file_path);
+            zima::assembly::AssemblyDocument::load(nested_file_path,fixture_sources(nested_parent));
         nested_file.close();
         std::filesystem::remove(nested_file_path);
         require(nested_text.find("[Container." + nested_occurrence_id + "]\n") !=
@@ -642,7 +664,7 @@ int main() {
             "zima-cad-cpp-placement-reference-contract.asmz";
         placement_reference_assembly.save(placement_reference_path);
         const auto loaded_placement_reference =
-            zima::assembly::AssemblyDocument::load(placement_reference_path);
+            zima::assembly::AssemblyDocument::load(placement_reference_path,fixture_sources(placement_reference_assembly));
         std::filesystem::remove(placement_reference_path);
         auto reloaded_placement_component_it = std::find_if(
             loaded_placement_reference.components.begin(),
@@ -815,7 +837,7 @@ int main() {
             "zima-cad-cpp-limited-mate-contract.asmz";
         angled_assembly.save(limited_mate_path);
         const auto loaded_limited_mate =
-            zima::assembly::AssemblyDocument::load(limited_mate_path);
+            zima::assembly::AssemblyDocument::load(limited_mate_path,fixture_sources(angled_assembly));
         std::filesystem::remove(limited_mate_path);
         const auto& loaded_limited_reference =
             loaded_limited_mate.components.back().placement_references.front();
@@ -1002,7 +1024,7 @@ int main() {
             "zima-cad-cpp-flipped-mate-contract.asmz";
         flipped_plane_assembly.save(flipped_mate_path);
         const auto loaded_flipped_mates =
-            zima::assembly::AssemblyDocument::load(flipped_mate_path);
+            zima::assembly::AssemblyDocument::load(flipped_mate_path,fixture_sources(flipped_plane_assembly));
         std::filesystem::remove(flipped_mate_path);
         require(loaded_flipped_mates.components.back().placement_references.front().flip,
                 "Placement reference Flip did not survive save/load");
@@ -1018,7 +1040,7 @@ int main() {
         const auto mate_path = std::filesystem::temp_directory_path() /
             "zima-cad-cpp-mate-contract.asmz";
         mated_assembly.save(mate_path);
-        const auto loaded_mates = zima::assembly::AssemblyDocument::load(mate_path);
+        const auto loaded_mates = zima::assembly::AssemblyDocument::load(mate_path,fixture_sources(mated_assembly));
         std::filesystem::remove(mate_path);
         require(loaded_mates.components.back().placement_references ==
                     mated_assembly.components.back().placement_references,
@@ -1145,7 +1167,7 @@ int main() {
             "zima-cad-cpp-rotated-mate-contract.asmz";
         rotated_axis_mate.save(rotated_mate_path);
         const auto loaded_rotated_mate =
-            zima::assembly::AssemblyDocument::load(rotated_mate_path);
+            zima::assembly::AssemblyDocument::load(rotated_mate_path,fixture_sources(rotated_axis_mate));
         std::filesystem::remove(rotated_mate_path);
         require(std::abs(loaded_rotated_mate.components.back().placement.rotation_x -
                          rotated_axis_placement.rotation_x) < 1.0e-7 &&
@@ -1449,7 +1471,7 @@ int main() {
         measured_row.offset_locked=true;drag_moving.placement_references={measured_row};
         drag_moving.value_locks={"placement:x","placement:rotation_y"};
         const auto lock_path=std::filesystem::current_path()/"Projects/test/assembly-value-locks.asmz";
-        drag_document.save(lock_path);const auto locked_assembly=zima::assembly::AssemblyDocument::load(lock_path);
+        drag_document.save(lock_path);const auto locked_assembly=zima::assembly::AssemblyDocument::load(lock_path,fixture_sources(drag_document));
         require(locked_assembly.components.back().value_locks==drag_moving.value_locks &&
             locked_assembly.components.back().placement_references.front().offset_locked,
             "Assembly save/load lost numeric or reference locks");
@@ -1469,7 +1491,7 @@ int main() {
         const auto state_path = std::filesystem::temp_directory_path() /
             "zima-cad-cpp-assembly-state-contract.asmz";
         state_document.save(state_path);
-        const auto loaded_state = zima::assembly::AssemblyDocument::load(state_path);
+        const auto loaded_state = zima::assembly::AssemblyDocument::load(state_path,fixture_sources(state_document));
         std::filesystem::remove(state_path);
         require(loaded_state.components.front().suppressed &&
                     loaded_state.components.front().grounded &&
@@ -1539,7 +1561,7 @@ int main() {
             "zima-cad-cpp-component-dependency-contract.asmz";
         dependent_assembly.save(dependency_path);
         const auto loaded_dependencies =
-            zima::assembly::AssemblyDocument::load(dependency_path);
+            zima::assembly::AssemblyDocument::load(dependency_path,fixture_sources(dependent_assembly));
         std::filesystem::remove(dependency_path);
         require(loaded_dependencies.dependencies.size() == 2 &&
                     loaded_dependencies.dependencies[0].kind ==
@@ -1670,7 +1692,7 @@ int main() {
             "zima-cad-cpp-assembly-curve3d-contract.asmz";
         curve_assembly.save(curve_assembly_path);
         auto loaded_curve_assembly =
-            zima::assembly::AssemblyDocument::load(curve_assembly_path);
+            zima::assembly::AssemblyDocument::load(curve_assembly_path,fixture_sources(curve_assembly));
         std::filesystem::remove(curve_assembly_path);
         loaded_curve_assembly.resolve_constructions();
         const auto* loaded_assembly_curve =
@@ -1736,7 +1758,7 @@ int main() {
             "zima-cad-cpp-associative-assembly-datum.asmz";
         associative_assembly.save(associative_path);
         auto loaded_associative =
-            zima::assembly::AssemblyDocument::load(associative_path);
+            zima::assembly::AssemblyDocument::load(associative_path,fixture_sources(associative_assembly));
         std::filesystem::remove(associative_path);
         loaded_associative.resolve_constructions();
         require(loaded_associative.constructions.size() == 2 &&
@@ -1760,7 +1782,7 @@ int main() {
             "zima-cad-cpp-assembly-datum-contract.asmz";
         datum_assembly.save(datum_path);
         const auto loaded_datum =
-            zima::assembly::AssemblyDocument::load(datum_path);
+            zima::assembly::AssemblyDocument::load(datum_path,fixture_sources(datum_assembly));
         std::filesystem::remove(datum_path);
         require(loaded_datum.constructions.size() == 3 &&
                     loaded_datum.constructions.back().id == datum_id &&

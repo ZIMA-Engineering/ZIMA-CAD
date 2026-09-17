@@ -660,11 +660,11 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         auto* parameter_action=window.findChild<QAction*>("documentParametersAction");check(parameter_action,"Parameters action missing");
         parameter_action->trigger();flush();auto* parameter_dialog=window.findChild<QDialog*>("documentParametersDialog");
         auto* parameter_table=parameter_dialog?parameter_dialog->findChild<QTableWidget*>("documentParametersTable"):nullptr;
-        check(parameter_table && parameter_table->rowCount()>=1 && parameter_table->item(0,0)->text()=="CLI_TEST","GUI did not read common parameter data");
-        parameter_table->item(0,3)->setText("after GUI");parameter_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+        check(parameter_table && parameter_table->rowCount()>=1 && parameter_table->item(0,1)->text()=="CLI_TEST","GUI did not read common parameter data");
+        parameter_table->item(0,4)->setText("after GUI");parameter_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
         check(!window.findChild<QDialog*>("documentParametersDialog") && run("document.parameters.get").data.at("parameters")[0].at("values").at("")=="after GUI","GUI parameter callback did not use shared transaction");
         parameter_action->trigger();flush();parameter_dialog=window.findChild<QDialog*>("documentParametersDialog");
-        parameter_dialog->findChild<QTableWidget*>("documentParametersTable")->item(0,3)->setText("cancelled");
+        parameter_dialog->findChild<QTableWidget*>("documentParametersTable")->item(0,4)->setText("cancelled");
         parameter_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
         check(run("document.parameters.get").data.at("parameters")[0].at("values").at("")=="after GUI","Parameter Cancel committed pending values");
         auto* settings_action=window.findChild<QAction*>("fileSettingsAction");check(settings_action,"File settings action missing");settings_action->trigger();flush();
@@ -1380,11 +1380,11 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         auto* material_action=window.findChild<QAction*>("materialAction");check(material_action,"Material action missing");material_action->trigger();flush();
         auto* material_dialog=window.findChild<QDialog*>("materialDialog");auto* material_table=material_dialog?material_dialog->findChild<QTableWidget*>("materialTable"):nullptr;
         check(material_table,"Material dialog missing");int density_row=-1;
-        for(int row=0;row<material_table->rowCount();++row)if(material_table->item(row,0) && material_table->item(row,0)->text()=="MASS_DENSITY")density_row=row;
-        check(density_row>=0,"GUI did not read CLI material");material_table->item(density_row,1)->setText("-1");
+        for(int row=0;row<material_table->rowCount();++row)if(material_table->item(row,1) && material_table->item(row,1)->text()=="MASS_DENSITY")density_row=row;
+        check(density_row>=0,"GUI did not read CLI material");material_table->item(density_row,2)->setText("-1");
         material_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
-        check(window.findChild<QDialog*>("materialDialog") && material_table->item(density_row,1)->text()=="-1" && QApplication::activeModalWidget()==nullptr,"Material validation lost pending data or closed the editor");
-        material_table->item(density_row,1)->setText("7800");material_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+        check(window.findChild<QDialog*>("materialDialog") && material_table->item(density_row,2)->text()=="-1" && QApplication::activeModalWidget()==nullptr,"Material validation lost pending data or closed the editor");
+        material_table->item(density_row,2)->setText("7800");material_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
         check(!window.findChild<QDialog*>("materialDialog") && std::abs(run("document.relations.get").data.at("model_values").at("model.mass").get<double>()-.0468)<1e-9,"Material GUI did not update cached physical mass");
         const auto library_source=std::filesystem::absolute(std::filesystem::path("config/materials/01_oceli/konstrukcni/S235JR.matz"));
         const auto load_gui_library=[&](bool confirm) {
@@ -1401,7 +1401,7 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
             QTimer timeout;timeout.setSingleShot(true);QObject::connect(&timeout,&QTimer::timeout,[&]{failed=true;if(auto* modal=qobject_cast<QDialog*>(QApplication::activeModalWidget()))modal->reject();});
             chooser.start();timeout.start(10000);load->click();chooser.stop();timeout.stop();flush();check(chosen && !failed,"GUI material library read failed");
             auto* table=dialog->findChild<QTableWidget*>("materialTable");bool found=false;
-            for(int row=0;row<table->rowCount();++row)if(table->item(row,0) && table->item(row,0)->text()=="MASS_DENSITY")found=table->item(row,3)->text()=="Hustota";
+            for(int row=0;row<table->rowCount();++row)if(table->item(row,1) && table->item(row,1)->text()=="MASS_DENSITY")found=table->item(row,4)->text()=="Hustota";
             check(found,"GUI library lost the Czech description");
             dialog->findChild<QDialogButtonBox*>()->button(confirm?QDialogButtonBox::Ok:QDialogButtonBox::Cancel)->click();flush();
         };
@@ -1410,8 +1410,8 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         json_run("document.relations.set",{{"relations",commands::Json::array({{{"target","double_volume"},{"expression","model.volume * 2"}}})}});
         auto* relations_action=window.findChild<QAction*>("relationsAction");check(relations_action,"Relations action missing");relations_action->trigger();flush();
         auto* relations_dialog=window.findChild<QDialog*>("relationsDialog");auto* relations_table=relations_dialog?relations_dialog->findChild<QTableWidget*>("relationsTable"):nullptr;
-        check(relations_table && relations_table->item(0,1)->text()=="model.volume * 2","GUI did not read CLI relations");
-        relations_table->item(0,1)->setText("model.volume * 3");relations_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+        check(relations_table && relations_table->item(0,2)->text()=="model.volume * 2","GUI did not read CLI relations");
+        relations_table->item(0,2)->setText("model.volume * 3");relations_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
         check(!window.findChild<QDialog*>("relationsDialog") && run("document.relations.get").data.at("parameters").at("double_volume")=="18.000000","Relations GUI did not use shared evaluation");
         json_run("document.relations.set",{{"relations",commands::Json::array()}});relations_action->trigger();flush();relations_dialog=window.findChild<QDialog*>("relationsDialog");
         relations_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
@@ -1419,10 +1419,10 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         const commands::Json family_table={{"columns",{"LENGTH"}},{"instances",commands::Json::array({{{"name","Varianta 10"},{"values",{{"LENGTH","10"}}}}})}};
         json_run("document.family.set",{{"table",family_table}});auto* family_action=window.findChild<QAction*>("familyTableAction");check(family_action,"Family action missing");family_action->trigger();flush();
         auto* family_dialog=window.findChild<QDialog*>("familyTableDialog");auto* family_widget=family_dialog?family_dialog->findChild<QTableWidget*>("familyTableTable"):nullptr;
-        check(family_widget && family_widget->item(1,1)->text()=="10","GUI did not read native family table");family_widget->item(1,1)->setText("20");
+        check(family_widget && family_widget->item(1,2)->text()=="10","GUI did not read native family table");family_widget->item(1,2)->setText("20");
         family_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
         check(!window.findChild<QDialog*>("familyTableDialog") && run("document.family.get").data.at("table").at("instances")[0].at("values").at("LENGTH")=="20","Family GUI did not commit common data");
-        family_action->trigger();flush();family_dialog=window.findChild<QDialog*>("familyTableDialog");family_dialog->findChild<QTableWidget*>("familyTableTable")->item(1,1)->setText("999");
+        family_action->trigger();flush();family_dialog=window.findChild<QDialog*>("familyTableDialog");family_dialog->findChild<QTableWidget*>("familyTableTable")->item(1,2)->setText("999");
         family_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
         check(run("document.family.get").data.at("table").at("instances")[0].at("values").at("LENGTH")=="20","Family Cancel committed pending values");
         run("save");const auto engineering_saved=document::PartDocument::load(directory/(stem+"-metadata.prtz"));

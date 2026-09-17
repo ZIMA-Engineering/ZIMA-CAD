@@ -48,7 +48,8 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     fs::remove(dir/"component-part.prtz");fs::remove(dir/"component-subassembly.asmz");
     require(run(host,"component.get",{{"instance_path",path1}}).data.at("name")=="component-part" && run(host,"component.list",{{"recursive",true}}).data.at("total")==7,"Snapshot queries loaded closed source files");
     require(live.open_assembly(owner)->session.revision()==before && live.open_assembly(owner)->session.data_generation()==generation,"Queries changed revision or generation");
-    const auto loaded=assembly::AssemblyDocument::load(dir/"component-owner.asmz");require(loaded.find_occurrence(sub1)->nested_snapshot.front().occurrence_id==leaf,"Native save lost the nested occurrence identity");
+    const auto loaded=assembly::AssemblyDocument::load(dir/"component-owner.asmz");
+    require(loaded.find_occurrence(sub1)->source_missing && loaded.find_occurrence(sub1)->nested_snapshot.empty(),"Reopened Assembly retained embedded children of a deleted source file");
     const auto target=assembly::InstancePath{}.child(sub1);const auto other=second.at("occurrence").get<std::string>();
     require(run(host,"component.dependencies",{{"instance_path",target.encoded()}}).data.at("blocked")==false,"Unreferenced component reported blockers");
     auto referenced=live.open_assembly(owner)->session.document();assembly::ComponentPlacementReference placement;

@@ -18,6 +18,7 @@ DocumentSave prepare_document_save(const Workspace& workspace,
     const auto* state=workspace.find(id);
     if(!state)throw std::invalid_argument("Document is not open");
     if(target.empty())throw std::invalid_argument("Save path is empty");
+    workspace.reserve_file(target);
     DocumentSave job;
     job.receipt_.id_=id;job.receipt_.target_=target;job.receipt_.kind_=state->index();
     std::visit([&](const auto& value) {

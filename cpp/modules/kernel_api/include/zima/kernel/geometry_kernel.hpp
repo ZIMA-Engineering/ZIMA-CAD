@@ -281,6 +281,9 @@ struct ViewerDimension {
     bool rotation_handle{};
     // Selectable parameter annotation without measuring lines or arrows.
     bool label_only{};
+    // Definition-derived linear measurement axis, independent of value or
+    // coincident witnesses. Transform as a vector with the annotation plane.
+    std::optional<Vec3> measurement_direction;
     bool operator==(const ViewerDimension&)const=default;
 };
 

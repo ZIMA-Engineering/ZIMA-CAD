@@ -70,9 +70,7 @@ DimensionPresentation dimension_presentation(const kernel::ViewerDimension &d, P
     }
     auto normal = kernel::dimension_unit(d.plane_normal);
     const auto projected_normal = project(kernel::dimension_add(d.witness_first, normal)) - w1;
-    auto model_u = kernel::dimension_unit(kernel::dimension_sub(d.witness_second, d.witness_first));
-    if (d.kind == kernel::ViewerDimensionKind::Angular)
-        model_u = kernel::dimension_unit(kernel::dimension_sub(d.line_first, d.witness_first));
+    auto model_u = kernel::dimension_measurement_direction(d);
     const auto model_v = kernel::dimension_cross(normal, model_u);
     const double scale =
         std::max(QLineF(w1, project(kernel::dimension_add(d.witness_first, model_u))).length(),
@@ -121,12 +119,20 @@ DimensionPresentation dimension_presentation(const kernel::ViewerDimension &d, P
     // An edge-on dimension plane alone is not a reason to hide a readable line.
     double projected_span=0;
     for(auto p:line)projected_span=std::max(projected_span,QLineF(line.front(),p).length());
-    const auto model_line=kernel::dimension_sub(angular?d.line_first:d.witness_second,d.witness_first);
-    if(kernel::dimension_dot(model_line,model_line)>1e-18 && projected_span<=std::max(1e-7,scale*std::sqrt(kernel::dimension_dot(model_line,model_line))*1e-6))
+    const bool zero_angular=angular && std::abs(d.sweep_degrees)<1e-9;
+    const auto model_line=d.kind==kernel::ViewerDimensionKind::Linear
+        ?kernel::dimension_sub(d.line_second,d.line_first)
+        :kernel::dimension_sub(angular?d.line_first:d.witness_second,d.witness_first);
+    if(!zero_angular && kernel::dimension_dot(model_line,model_line)>1e-18 && projected_span<=std::max(1e-7,scale*std::sqrt(kernel::dimension_dot(model_line,model_line))*1e-6))
         return out;
     const auto middle = angular ? line[line.size() / 2] : (a + b) * .5;
+    const bool collapsed_measure=(zero_angular || d.kind==kernel::ViewerDimensionKind::Linear) &&
+        kernel::dimension_dot(kernel::dimension_sub(d.line_second,d.line_first),
+                              kernel::dimension_sub(d.line_second,d.line_first))<1e-18;
+    const auto projected_direction=project(kernel::dimension_add(d.line_first,zero_angular?model_v:model_u))-a;
+    if(collapsed_measure && QLineF(QPointF{},projected_direction).length()<1e-7)return out;
     auto along = dimension_screen_unit(
-        angular ? line[line.size() / 2 + 1] - line[line.size() / 2 - 1] : b - a);
+        collapsed_measure?projected_direction:angular ? line[line.size() / 2 + 1] - line[line.size() / 2 - 1] : b-a);
     auto requested = label_position ? project(*label_position) : middle;
     if (!std::isfinite(requested.x()) || !std::isfinite(requested.y()))
         return out;
@@ -184,7 +190,7 @@ DimensionPresentation dimension_presentation(const kernel::ViewerDimension &d, P
             attachment = (a.x() * side > b.x() * side) ? a : b;
             // The leader is an extension of the dimension, never a free diagonal
             // to the requested text position. An arc continues along its end tangent.
-            const auto outward = dimension_screen_unit(
+            const auto outward = collapsed_measure?along*(along.x()*side<0?-1.:1.):dimension_screen_unit(
                 attachment == a ? a - line[1] : b - line[line.size() - 2]);
             const auto half_label = QPointF(side * text_width / 2, 0);
             const double extension = std::max(
@@ -207,8 +213,8 @@ DimensionPresentation dimension_presentation(const kernel::ViewerDimension &d, P
     }
     out.curves.push_back({start, end});
     const bool external = out.outside != d.arrows_reversed;
-    auto first_dir = dimension_screen_unit(line[1] - a),
-         last_dir = dimension_screen_unit(b - line[line.size() - 2]);
+    auto first_dir = collapsed_measure?along:dimension_screen_unit(line[1] - a),
+         last_dir = collapsed_measure?along:dimension_screen_unit(b - line[line.size() - 2]);
     if (!radial || d.kind == kernel::ViewerDimensionKind::Diameter)
         out.arrows.push_back({a, external ? first_dir : -first_dir});
     out.arrows.push_back({b, external ? -last_dir : last_dir});

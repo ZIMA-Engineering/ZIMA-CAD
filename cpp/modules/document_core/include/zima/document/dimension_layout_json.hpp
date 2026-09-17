@@ -113,6 +113,7 @@ inline nlohmann::json dimension_geometry_json(const kernel::ViewerDimension &d) 
             {"line_first", dimension_vec_json(d.line_first)},
             {"line_second", dimension_vec_json(d.line_second)},
             {"normal", dimension_vec_json(d.plane_normal)},
+            {"measurement_direction",d.measurement_direction?dimension_vec_json(*d.measurement_direction):nlohmann::json(nullptr)},
             {"label",
              d.label_position ? dimension_vec_json(*d.label_position) : nlohmann::json(nullptr)},
             {"value", d.value},
@@ -137,6 +138,7 @@ inline kernel::ViewerDimension dimension_geometry_from_json(const nlohmann::json
     d.line_first = dimension_vec_from_json(j.at("line_first"));
     d.line_second = dimension_vec_from_json(j.at("line_second"));
     d.plane_normal = dimension_vec_from_json(j.at("normal"));
+    if(!j.at("measurement_direction").is_null())d.measurement_direction=dimension_vec_from_json(j.at("measurement_direction"));
     if (!j.at("label").is_null())
         d.label_position = dimension_vec_from_json(j.at("label"));
     d.value = j.at("value");

@@ -23,6 +23,7 @@ struct PartState {
     mutable std::uint64_t source_generation{};
     // Runtime identity distinguishes closing/reopening the same native document.
     std::shared_ptr<const int> runtime_identity=std::make_shared<const int>(0);
+    bool background_import_source{};
 
 };
 
@@ -30,6 +31,7 @@ struct AssemblyState {
     zima::assembly::AssemblySession session;
     std::filesystem::path path;
     std::shared_ptr<const int> runtime_identity=std::make_shared<const int>(0);
+    bool background_import_source{};
 };
 
 class DrawingState {
@@ -85,6 +87,11 @@ struct OccurrenceAddress {
 
 class Workspace {
 public:
+    // The desktop host reserves writable native paths across processes.
+    std::function<void(const std::filesystem::path&)> file_reservation;
+    void reserve_file(const std::filesystem::path& path) const {
+        if(file_reservation && !path.empty())file_reservation(path);
+    }
     // Internal recursion guard for an explicitly committed family transaction.
     bool family_transaction_active{};
     void add_part(

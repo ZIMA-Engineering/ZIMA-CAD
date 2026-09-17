@@ -11,6 +11,7 @@
 #include <QStyledItemDelegate>
 #include <QTableWidget>
 #include <QTimer>
+#include <QToolButton>
 #include <functional>
 #include <map>
 
@@ -46,6 +47,14 @@ public:
     void clear_actions() {
         for(auto& [row,widget]:actions_) if(widget) {widget->setObjectName({});widget->hide();widget->deleteLater();}
         actions_.clear();
+    }
+    void set_open_action(int row,const QIcon& icon,std::function<void()> open) {
+        auto* button=new QToolButton(viewport());button->setAutoRaise(true);
+        button->setIcon(icon);button->setFixedSize(28,28);
+        button->setObjectName(QString("tableRowOpen%1").arg(row));
+        button->setToolTip(tr("Otevřít instanci"));
+        connect(button,&QToolButton::clicked,this,[open=std::move(open)]{open();});
+        actions_[row]=button;position_actions();
     }
 protected:
     void paintSection(QPainter*,const QRect&,int) const override {}
@@ -109,12 +118,20 @@ inline void edit_table_cell(QTableWidget* table,int row,int column) {
 // an earlier deletion cannot redirect a later action to a different entry.
 class TableEntryRows final : public QObject {
 public:
-    TableEntryRows(QTableWidget* table,std::function<void()> append,int protected_rows=0)
-        : QObject(table),table_(table),append_(std::move(append)),protected_rows_(protected_rows) {
-        entry_row_header(table_);
+    TableEntryRows(QTableWidget* table,std::function<void()> append,int protected_rows=0,
+                  std::function<void(int)> open_row={},QIcon open_icon={})
+        : QObject(table),table_(table),append_(std::move(append)),protected_rows_(protected_rows),
+          open_row_(std::move(open_row)),open_icon_(std::move(open_icon)) {
+        table_->verticalHeader()->show();
+        table_->verticalHeader()->setMinimumSectionSize(32);table_->verticalHeader()->setDefaultSectionSize(32);
+        table_->horizontalHeader()->setSectionResizeMode(0,QHeaderView::Fixed);table_->setColumnWidth(0,34);
+        if(open_row_)entry_row_header(table_);
         connect(table_,&QTableWidget::itemChanged,this,[this]{schedule();});
         connect(table_->model(),&QAbstractItemModel::rowsInserted,this,[this]{schedule();});
         connect(table_->model(),&QAbstractItemModel::rowsRemoved,this,[this]{schedule();});
+        connect(table_->model(),&QAbstractItemModel::rowsAboutToBeRemoved,this,[this](const QModelIndex&,int first,int last){
+            for(int row=first;row<=last;++row)if(auto* widget=table_->cellWidget(row,0))widget->hide();
+        });
         connect(table_->model(),&QAbstractItemModel::modelReset,this,[this]{schedule();});
         refresh();
     }
@@ -122,20 +139,35 @@ public:
         if(refreshing_) return;
         refreshing_=true;
         if(table_->rowCount()<=protected_rows_ || table_row_has_text(table_,table_->rowCount()-1)) append_();
-        auto* header=entry_row_header(table_);header->clear_actions();
+        auto* header=open_row_?entry_row_header(table_):nullptr;if(header)header->clear_actions();
         for(int row=protected_rows_;row<table_->rowCount();++row) {
-            const QPersistentModelIndex index(table_->model()->index(row,0));
+            const QPersistentModelIndex index(table_->model()->index(row,1));
             const bool populated=row<table_->rowCount()-1||table_row_has_text(table_,row);
-            header->set_action(row,populated,[this,index] {
+            auto* indicator=zima::ui::build_reference_row_indicator([this,index] {
                 if(index.isValid()) table_->removeRow(index.row());
                 refresh();
-            },[this,index]{if(index.isValid())edit_table_cell(table_,index.row(),0);});
+            });
+            indicator->setObjectName(QString("tableRowAction%1").arg(row));
+            zima::ui::set_reference_row_populated(indicator,populated);
+            auto* arrow=indicator->property("_arrowWidget").value<QObject*>();
+            arrow->setProperty("entryRow",QVariant::fromValue(index));arrow->installEventFilter(this);
+            if(auto* old=table_->cellWidget(row,0))old->hide();
+            table_->setCellWidget(row,0,zima::ui::centered_cell_widget(indicator));
+            if(header&&populated)header->set_open_action(row,open_icon_,[this,index]{if(index.isValid())open_row_(index.row());});
         }
         for(auto* combo:table_->findChildren<QComboBox*>()) if(!combo->property("entryRowsBound").toBool()) {
             combo->setProperty("entryRowsBound",true);
             connect(combo,&QComboBox::currentTextChanged,this,[this]{schedule();});
         }
         refreshing_=false;
+    }
+protected:
+    bool eventFilter(QObject* object,QEvent* event) override {
+        if(event->type()==QEvent::MouseButtonRelease&&static_cast<QMouseEvent*>(event)->button()==Qt::LeftButton) {
+            const auto index=object->property("entryRow").value<QPersistentModelIndex>();
+            if(index.isValid()){edit_table_cell(table_,index.row(),1);return true;}
+        }
+        return QObject::eventFilter(object,event);
     }
 private:
     void schedule() {
@@ -146,6 +178,8 @@ private:
     QTableWidget* table_;
     std::function<void()> append_;
     int protected_rows_{};
+    std::function<void(int)> open_row_;
+    QIcon open_icon_;
     bool pending_{},refreshing_{};
 };
 

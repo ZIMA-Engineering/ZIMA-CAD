@@ -1,11 +1,13 @@
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/assembly_import_operations.hpp>
+#include <zima/workspace/component_source_operations.hpp>
 #include <zima/interchange/step_model.hpp>
 #include <zima/interchange/dxf.hpp>
 #include <zima/document/file_path.hpp>
 #include <fstream>
 #include <cmath>
 #include <iostream>
+#include <set>
 using namespace zima;using commands::Json;namespace fs=std::filesystem;
 namespace {
 void require(bool yes,const char* message){if(!yes)throw std::runtime_error(message);}
@@ -29,11 +31,24 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     require(live.size()==before_size+3 && result.at("parts").size()==1 && result.at("assemblies").size()==2,"STEP import duplicated repeated source definitions");
     auto* target=live.open_assembly(owner);require(target->session.revision()==revision+1 && target->session.document().components.size()==1,"Import did not produce one owner transaction");
     const auto occurrence=target->session.document().components.front();
+    const auto owner_packet=target->session.document().serialized();
+    require(owner_packet.at("operation_geometries").empty() && !owner_packet.contains("source_geometries") && owner_packet.at("components")[0].at("operation_geometry").is_null() && owner_packet.at("components")[0].at("nested_snapshot").empty(),"Plain Assembly persisted imported source geometry or nested structure");
     require(std::abs(occurrence.calculated_source->volume-24000)<1e-5 && occurrence.calculated_source->kernel_shape.empty(),"Assembly import duplicated a compound or lost exact volume");
     require(live.active_document_id()==owner && live.displayed_document_id()==owner,"Import switched the editing/displayed document");
+    require(!target->background_import_source,"Import hid its owning Assembly tab");
+    for(const auto& id:result.at("parts"))require(live.open_part(id.get<std::string>())->background_import_source,"Imported Part requested an automatic tab");
+    for(const auto& id:result.at("assemblies"))require(live.open_assembly(id.get<std::string>())->background_import_source,"Imported subassembly requested an automatic tab");
     for(const auto& path:result.at("files")) {
         const auto file=fs::u8path(path.get<std::string>());require(fs::is_regular_file(file),"Imported source was not saved");
         require(file.extension()==".prtz" || file.extension()==".asmz","Import introduced a sidecar format");
+        if(file.extension()==".prtz") {
+            const auto saved=document::PartDocument::load(file);
+            require(live.open_part(saved.document_id)!=nullptr,"Saved STEP Part cannot be reopened with its source identity");
+        } else {
+            const auto saved=assembly::AssemblyDocument::load(file);
+            require(live.open_assembly(saved.document_id)!=nullptr,"Saved STEP subassembly cannot be reopened with its source identity");
+            require(saved.serialized().at("operation_geometries").empty(),"Imported subassembly duplicates native source geometry");
+        }
     }
     const auto part_id=result.at("parts")[0].get<std::string>();
     auto* imported_part=live.open_part(part_id);require(imported_part->session.document().document_units.at("Length")=="cm","Imported Part lost owner units");
@@ -46,6 +61,26 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     run(host,"redo");require(target->session.document().components.front().occurrence_id==occurrence.occurrence_id,"Redo changed occurrence identity");
     run(host,"save");fs::remove(source);const auto restored=assembly::AssemblyDocument::load(dir/"owner.asmz");
     require(restored.components.front().occurrence_id==occurrence.occurrence_id && std::abs(restored.components.front().calculated_source->volume-24000)<1e-5,"Native Assembly depends on the deleted STEP");
+    const auto root_source=fs::u8path(result.at("files").back().get<std::string>());
+    // A missing dependency retains its tree occurrence, with no embedded fallback.
+    const auto hidden=root_source.string()+".missing";fs::rename(root_source,hidden);
+    const auto missing=assembly::AssemblyDocument::load(dir/"owner.asmz");
+    require(missing.components.front().source_missing && missing.components.front().calculated_source->mesh.triangles.empty() && missing.components.front().occurrence_id==occurrence.occurrence_id,"Missing source did not retain an unresolved tree occurrence");
+    const auto from_open=assembly::AssemblyDocument::load(dir/"owner.asmz",workspace::native_source_resolver(live));
+    require(std::abs(from_open.components.front().calculated_source->volume-24000)<1e-5,"Open source document was not authoritative over a missing disk file");
+    workspace::Workspace repair;repair.add_assembly(missing,dir/"owner.asmz");
+    const auto wrong_path=dir/"wrong-source.asmz";assembly::AssemblyDocument::create_default().save(wrong_path);
+    bool wrong=false;
+    try {workspace::relink_component_source(repair,owner,occurrence.occurrence_id,wrong_path);}catch(const workspace::ComponentOperationError& error){wrong=std::string(error.code)=="source_identity";}
+    require(wrong && repair.open_assembly(owner)->session.revision()==0,"Source repair accepted a different document or changed history on failure");
+    const auto relocated_dir=dir/"relocated";fs::create_directory(relocated_dir);
+    const auto relocated=relocated_dir/root_source.filename();fs::rename(hidden,relocated);
+    workspace::relink_component_source(repair,owner,occurrence.occurrence_id,relocated);
+    const auto& repaired=repair.open_assembly(owner)->session.document().components.front();
+    require(!repaired.source_missing && repaired.source_path==relocated && repaired.occurrence_id==occurrence.occurrence_id && std::abs(repaired.calculated_source->volume-24000)<1e-5,"Source relocation lost geometry or occurrence identity");
+    require(repair.open_assembly(owner)->session.undo() && repair.open_assembly(owner)->session.document().components.front().source_missing,"Source relocation Undo lost unresolved state");
+    require(repair.open_assembly(owner)->session.redo() && !repair.open_assembly(owner)->session.document().components.front().source_missing,"Source relocation Redo failed");
+    fs::rename(relocated,root_source);
     run(host,"regenerate");require(std::abs(live.open_assembly(owner)->session.document().components.front().calculated_source->volume-24000)<1e-5,"Explicit regeneration lost native imported sources");
     auto parent_document=assembly::AssemblyDocument::create_default();const auto parent_id=parent_document.document_id;
     live.add_assembly(std::move(parent_document),dir/"parent.asmz");static_cast<void>(live.insert_open_assembly(parent_id,owner,"Passive owner"));
@@ -68,6 +103,10 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     const auto iges=dir/fs::path(u8"kostka česká.igs");fs::copy_file("cpp/tests/fixtures/import/cube-10mm.igs",iges);
     const auto iges_result=run(host,"import.iges",{{"path",document::path_to_utf8(iges)},{"mesh_deflection_mm",1.5}}).data;
     require(iges_result.at("parts").size()==1 && iges_result.at("assemblies").empty(),"IGES did not create exactly one Part");
+    require(iges_result.at("files").size()==1,"IGES did not report its native source file");
+    const auto iges_native=fs::u8path(iges_result.at("files")[0].get<std::string>());
+    require(fs::is_regular_file(iges_native) && iges_native.extension()==".prtz" && iges_native.parent_path()==dir,"IGES native Part was not saved directly in the working directory");
+    require(document::PartDocument::load(iges_native).document_id==iges_result.at("parts")[0].get<std::string>(),"Saved IGES Part cannot be reopened with its source identity");
     require(std::abs(live.open_part(iges_result.at("parts")[0].get<std::string>())->session.calculated_boundaries().back().volume-1000)<1e-4,"Assembly IGES changed source scale");
     require(live.open_assembly(parent_id)->session.revision()==parent_revision &&
         std::abs(live.open_assembly(parent_id)->session.document().components.front().calculated_source->volume-24000)<1e-5,
@@ -98,6 +137,36 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     require(rejected && fs::is_regular_file(foreign.output_directory/"foreign.txt") &&
         std::distance(fs::directory_iterator(foreign.output_directory),fs::directory_iterator{})==1,
         "Failed import recursively removed a foreign file");
+
+    // Default destination follows the working directory even for an owner saved elsewhere.
+    kernel.export_step(root,document::path_to_utf8(source));
+    workspace::Workspace direct;
+    auto owner_doc=assembly::AssemblyDocument::create_default();const auto direct_id=owner_doc.document_id;
+    direct.add_assembly(std::move(owner_doc),dir/"elsewhere"/"owner.asmz");
+    workspace::AssemblyImportOptions direct_options;direct_options.working_directory=dir;
+    std::set<fs::path> saved_paths;
+    for(int pass=0;pass<2;++pass) {
+        const auto report=workspace::import_assembly(direct,direct_id,source,direct_options);
+        require(report.directory==dir && report.files.size()==3,"Default STEP import created an unexpected destination");
+        for(const auto& file:report.files) {
+            require(file.parent_path()==dir && fs::is_regular_file(file) && saved_paths.insert(file).second,"Repeated STEP import overwrote a source or created a subdirectory");
+            if(file.extension()==".asmz") {
+                const auto saved=assembly::AssemblyDocument::load(file);
+                for(const auto& component:saved.components)
+                    require(component.source_path.parent_path()==dir && fs::is_regular_file(component.source_path),"Saved STEP dependency points outside the working directory or to a missing file");
+            }
+        }
+    }
+    for(const auto& file:saved_paths)require(fs::is_regular_file(file),"Repeated import removed an earlier native source");
+    auto cycle_a=assembly::AssemblyDocument::create_default(),cycle_b=assembly::AssemblyDocument::create_default();
+    const auto cycle_a_path=dir/"cycle-a.asmz",cycle_b_path=dir/"cycle-b.asmz";
+    cycle_a.components.push_back(assembly::AssemblyDocument::create_assembly_occurrence("B",cycle_b.document_id,cycle_b_path,cycle_b));
+    cycle_b.components.push_back(assembly::AssemblyDocument::create_assembly_occurrence("A",cycle_a.document_id,cycle_a_path,cycle_a));
+    cycle_a.save(cycle_a_path);cycle_b.save(cycle_b_path);
+    bool cyclic=false;
+    try {static_cast<void>(assembly::AssemblyDocument::load(cycle_a_path));}
+    catch(const std::exception& error){cyclic=std::string(error.what()).find("Cyclic")!=std::string::npos;}
+    require(cyclic,"Recursive native dependency cycle was not rejected");
 
 }
 }

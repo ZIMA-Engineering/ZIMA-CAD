@@ -175,6 +175,11 @@ inline void validate_dimension_layout(const DimensionLayout &layout) {
         !std::isfinite(layout.text_along) || !std::isfinite(layout.text_outward) || !std::isfinite(layout.line_offset) || !std::isfinite(layout.radius_rotation_degrees))
         throw std::invalid_argument("Invalid dimension presentation");
 }
+inline Vec3 dimension_measurement_direction(const ViewerDimension& d) {
+    if(d.kind==ViewerDimensionKind::Linear && d.measurement_direction)
+        return dimension_unit(*d.measurement_direction);
+    return dimension_unit(dimension_sub(d.kind==ViewerDimensionKind::Angular?d.line_first:d.witness_second,d.witness_first));
+}
 inline ViewerDimension layout_dimension(ViewerDimension d, const ModelEnvelope &bounds,
                                         const DimensionLayout &layout) {
     validate_dimension_layout(layout);
@@ -183,8 +188,7 @@ inline ViewerDimension layout_dimension(ViewerDimension d, const ModelEnvelope &
     d.radius_center_line_hidden = layout.radius_center_line_hidden;
     auto normal = dimension_unit(d.plane_normal);
     const bool angular = d.kind == ViewerDimensionKind::Angular;
-    const auto direction =
-        dimension_unit(dimension_sub(angular ? d.line_first : d.witness_second, d.witness_first));
+    const auto direction = dimension_measurement_direction(d);
     auto outward = dimension_unit(dimension_cross(normal, direction));
     if (dimension_dot(direction, direction) < .5 || dimension_dot(outward, outward) < .5)
         return d;
@@ -314,8 +318,7 @@ inline DimensionLayout dragged_dimension_layout(const ViewerDimension &shown,
         return initial;
     }
     const bool angular = shown.kind == ViewerDimensionKind::Angular;
-    const auto direction = dimension_unit(
-        dimension_sub(angular ? shown.line_first : shown.witness_second, shown.witness_first));
+    const auto direction = dimension_measurement_direction(shown);
     const auto normal = dimension_unit(shown.plane_normal),
                side = dimension_unit(dimension_cross(normal, direction));
     double support = angular ? 0 : -std::numeric_limits<double>::infinity();

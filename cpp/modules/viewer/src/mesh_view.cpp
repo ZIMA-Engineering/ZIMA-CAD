@@ -1801,6 +1801,10 @@ void MeshView::set_transient_dimensions(
                 dimension.label_position =
                     impl_->transient_point_transform(*dimension.label_position);
             }
+            if(dimension.measurement_direction) {
+                const auto endpoint=impl_->transient_point_transform(*dimension.measurement_direction);
+                dimension.measurement_direction=kernel::Vec3{endpoint.x-origin.x,endpoint.y-origin.y,endpoint.z-origin.z};
+            }
             const auto normal_endpoint =
                 impl_->transient_point_transform(dimension.plane_normal);
             dimension.plane_normal = {
@@ -5259,7 +5263,7 @@ void MeshView::mouseMoveEvent(QMouseEvent* event) {
         if(!drag.moved&&delta.manhattanLength()<QApplication::startDragDistance()){event->accept();return;}
         const auto& d=drag.shown;
         const bool angular=d.kind==kernel::ViewerDimensionKind::Angular;
-        const auto u=kernel::dimension_unit(kernel::dimension_sub(angular?d.line_first:d.witness_second,d.witness_first));
+        const auto u=kernel::dimension_measurement_direction(d);
         const auto v=kernel::dimension_unit(kernel::dimension_cross(d.plane_normal,u));
         const auto mvp=impl_->projection(width(),height())*impl_->view();
         const auto project=[&](kernel::Vec3 p){auto q=mvp*QVector4D(p.x,p.y,p.z,1);if(std::abs(q.w())>1e-9)q/=q.w();return QPointF((q.x()+1)*width()/2.,(1-q.y())*height()/2.);};

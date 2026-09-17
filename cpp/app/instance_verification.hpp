@@ -13,6 +13,8 @@
 #include <QSaveFile>
 #include <QTabBar>
 #include <QTimer>
+#include <QFileDialog>
+#include <QApplication>
 
 namespace zima::app {
 
@@ -23,14 +25,27 @@ inline void install_instance_verification(AssemblyWorkspaceWindow& window,
     const auto prefix = QDir(report_directory).filePath(
         QString::number(QCoreApplication::applicationPid()));
     auto* timer = new QTimer(&window);
-    QObject::connect(timer, &QTimer::timeout, &window, [&window, prefix, directory] {
+    QObject::connect(timer, &QTimer::timeout, &window, [&window, prefix, report_directory] {
         if (QFile::remove(prefix + ".quit")) { window.close(); return; }
         if (QFile::remove(prefix + ".close-document"))
             window.findChild<QAction*>("closeDocumentAction")->trigger();
         if (QFile::remove(prefix + ".new-window")) {
+            QTimer::singleShot(100,&window,[report_directory] {
+                if(auto* dialog=qobject_cast<QFileDialog*>(QApplication::activeModalWidget())) {
+                    dialog->setDirectory(QDir(report_directory).filePath("Project four"));
+                    QMetaObject::invokeMethod(dialog,"accept",Qt::DirectConnection);
+                }
+            });
             auto* menu = window.findChild<QMenu*>("windowMenu");
             QMetaObject::invokeMethod(menu, "aboutToShow", Qt::DirectConnection);
             window.findChild<QAction*>("newWindowAction")->trigger();
+        }
+        QFile request(prefix+".command");
+        if(request.open(QIODevice::ReadOnly)) {
+            const auto data=QJsonDocument::fromJson(request.readAll()).object();request.close();request.remove();
+            const auto result=window.execute_console_command(QString::fromUtf8(QJsonDocument(data["request"].toObject()).toJson(QJsonDocument::Compact)));
+            window.setProperty("instanceProbeRequest",data["id"].toInt());
+            window.setProperty("instanceProbeSuccess",result.ok);
         }
         QJsonArray documents;
         if (const auto* tabs = window.findChild<QTabBar*>("documentTabs"))
@@ -39,7 +54,9 @@ inline void install_instance_verification(AssemblyWorkspaceWindow& window,
         QJsonObject report{{"pid", QCoreApplication::applicationPid()},
             {"instance", window.property("applicationInstance").toInt()},
             {"title", window.windowTitle()}, {"documents", documents},
-            {"directory", directory}};
+            {"directory",window.property("instanceWorkingDirectory").toString()},
+            {"request",window.property("instanceProbeRequest").toInt()},
+            {"success",window.property("instanceProbeSuccess").toBool()}};
         QSaveFile file(prefix + ".json");
         if (file.open(QIODevice::WriteOnly)) {
             file.write(QJsonDocument(report).toJson());

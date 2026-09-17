@@ -28,9 +28,14 @@ inline StlGeometry read_stl(const std::filesystem::path& path) {
     return result;
 }
 inline assembly::AssemblyDocument nested_stl_fixture(const kernel::OcctKernel& kernel,const std::filesystem::path& directory) {
-    const kernel::BodySnapshot body=kernel.make_box({10,20,30});
+    auto source=document::PartDocument::create_default();
+    auto box=document::PartDocument::create_box_container();box.box={10,20,30};
+    box.placement.x=5;box.placement.y=10;box.placement.z=15;source.history.push_back(box);
+    const auto calculated=kernel.evaluate_history(source.kernel_operations());
+    const kernel::BodySnapshot body=calculated.back();
+    source.save(directory/"source.prtz",calculated);
     auto leaf=assembly::AssemblyDocument::create_default();leaf.name="STL leaf assembly";
-    auto part=assembly::AssemblyDocument::create_part_occurrence("Box",document::PartDocument::create_default().document_id,directory/"absent-source.prtz",body);
+    auto part=assembly::AssemblyDocument::create_part_occurrence("Box",source.document_id,directory/"source.prtz",body);
     part.placement={7,11,13,90,0,0};leaf.components.push_back(part);
     // An unavailable hidden/suppressed body must never enter export or be required.
     auto hidden=assembly::AssemblyDocument::create_part_occurrence("Hidden",part.source_document_id,part.source_path,{});hidden.visible=false;
@@ -38,11 +43,13 @@ inline assembly::AssemblyDocument nested_stl_fixture(const kernel::OcctKernel& k
     auto dependent=assembly::AssemblyDocument::create_part_occurrence("Dependency suppressed",part.source_document_id,part.source_path,{});
     leaf.dependencies.push_back({"stl-dependency",dependent.occurrence_id,suppressed.occurrence_id,assembly::ComponentDependencyKind::DerivedCopyReference});
     leaf.components.insert(leaf.components.end(),{hidden,suppressed,dependent});
+    leaf.save(directory/"leaf.asmz");
     auto middle=assembly::AssemblyDocument::create_default();middle.name="STL middle assembly";
-    auto inner=assembly::AssemblyDocument::create_assembly_occurrence("Inner",leaf.document_id,directory/"absent-leaf.asmz",leaf);
+    auto inner=assembly::AssemblyDocument::create_assembly_occurrence("Inner",leaf.document_id,directory/"leaf.asmz",leaf);
     inner.placement={100,200,300,0,90,0};middle.components.push_back(inner);
+    middle.save(directory/"middle.asmz");
     auto top=assembly::AssemblyDocument::create_default();top.name="STL repeated hierarchy";
-    auto first=assembly::AssemblyDocument::create_assembly_occurrence("First",middle.document_id,directory/"absent-middle.asmz",middle);
+    auto first=assembly::AssemblyDocument::create_assembly_occurrence("First",middle.document_id,directory/"middle.asmz",middle);
     first.placement={1000,2000,3000,0,0,90};
     auto second=first;second.occurrence_id=assembly::AssemblyDocument::create_default().document_id;second.name="Second";second.placement={-1000,-2000,-3000,0,0,0};
     top.components={first,second};return top;

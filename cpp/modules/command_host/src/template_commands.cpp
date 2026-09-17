@@ -29,14 +29,14 @@ void Host::register_template_commands() {
     });
     add({"template.open",tr("Open a native drawing template while preserving any open edits."),{{"path",true}},true},[this](const Json& args){
         const auto target=path(args,directory_);if(options_.progress)options_.progress(Activity::Read,target);
-        const auto id=workspace::open_drawing_template(workspace_,target);activate(id);directory_=target.parent_path();change_=Change{ChangeKind::Open,id};return Result::success(data(workspace_,id));
+        const auto id=workspace::open_drawing_template(workspace_,target);activate(id);change_directory(target.parent_path());change_=Change{ChangeKind::Open,id};return Result::success(data(workspace_,id));
     });
     add({"template.save",tr("Save a drawing template or an independent copy."),{{"path",false},{"copy",false,Type::Boolean},{"overwrite",false,Type::Boolean},{"document",false}},true},[this](const Json& args){
         const auto checked=target(args);if(!checked.ok)return checked;const auto id=workspace_.active_document_id();
         static_cast<void>(workspace::drawing_template_sketch(workspace_,id));const auto target=args.contains("path")?path(args,directory_):workspace_.open_part(id)->path;
         if(options_.progress)options_.progress(Activity::Write,target);
         const bool copy=args.value("copy",false);workspace::save_drawing_template(workspace_,id,target,copy,args.value("overwrite",false));
-        directory_=target.parent_path();change_=Change{copy?ChangeKind::Copy:ChangeKind::Save,id};auto result=data(workspace_,id);result["paths"]=Json::array({path_text(target)});result["copy"]=copy;return Result::success(std::move(result));
+        change_directory(target.parent_path());change_=Change{copy?ChangeKind::Copy:ChangeKind::Save,id};auto result=data(workspace_,id);result["paths"]=Json::array({path_text(target)});result["copy"]=copy;return Result::success(std::move(result));
     });
     add({"template.sketch.edit",tr("Edit template geometry in one atomic Sketch batch."),{{"operations",true,Type::Array},{"document",false}},true},[this](const Json& args){
         const auto checked=target(args);if(!checked.ok)return checked;const auto id=workspace_.active_document_id();const auto& operations=args.at("operations");

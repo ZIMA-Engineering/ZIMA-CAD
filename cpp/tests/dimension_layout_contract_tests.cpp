@@ -46,6 +46,55 @@ void mouse(QWidget *w, QEvent::Type type, QPointF p, Qt::MouseButton button,
 int main(int argc, char **argv) {
     QApplication app(argc, argv);
     try {
+        // Zero coordinates retain the same definition plane and projected
+        // measurement direction as nonzero coordinates, including in assemblies.
+        QImage zero_proof(1200,1200,QImage::Format_ARGB32);zero_proof.fill(Qt::white);
+        QPainter zero_painter(&zero_proof);int zero_cell=0;
+        for(const auto rotation:{kernel::Vec3{0,0,37},kernel::Vec3{90,0,23},kernel::Vec3{25,40,61}}) {
+            const auto frame=kernel::annotation_frame({3,7,11},rotation);
+            for(int axis:{0,1})for(double value:{0.,12.,-12.}) {
+                kernel::ViewerDimension d;
+                d.reference={"zero","dimension:coordinate",{}};
+                d.measurement_direction=kernel::dimension_scale(frame.axes[axis],value<0?-1.:1.);
+                d.plane_normal=frame.axes[2];d.witness_first=frame.origin;
+                d.witness_second=kernel::dimension_add(frame.origin,kernel::dimension_scale(frame.axes[axis],value));
+                const auto side=kernel::dimension_cross(d.plane_normal,*d.measurement_direction);
+                d.line_first=kernel::dimension_add(d.witness_first,kernel::dimension_scale(side,8));
+                d.line_second=kernel::dimension_add(d.witness_second,kernel::dimension_scale(side,8));d.value=std::abs(value);
+                const auto project=[&](kernel::Vec3 p){const auto delta=kernel::dimension_sub(p,frame.origin);return QPointF(kernel::dimension_dot(delta,frame.axes[0])*5,-kernel::dimension_dot(delta,frame.axes[1])*5);};
+                const auto shown=viewer::dimension_presentation(d,project,30);
+                require(shown.valid,"Zero coordinate disappeared in its own plane");
+                for(const auto& arrow:shown.arrows)near(axis==0?arrow.second.y():arrow.second.x(),0);
+                auto layout=kernel::dragged_dimension_layout(d,{}, {},0,3,4);
+                const auto moved=kernel::layout_dimension(d,{},layout);
+                near(kernel::dimension_dot(kernel::dimension_sub(moved.line_first,d.line_first),side),4);
+                near(kernel::dimension_dot(kernel::dimension_sub(*moved.label_position,d.line_first),*d.measurement_direction),std::abs(value)/2+3);
+                near(kernel::dimension_dot(kernel::dimension_sub(*moved.label_position,frame.origin),d.plane_normal),0);
+                require(document::dimension_geometry_from_json(document::dimension_geometry_json(d)).measurement_direction==d.measurement_direction,"Drawing lost measurement direction");
+                kernel::BodyResult packet;packet.mesh.dimensions={d};
+                const auto loaded=document::load_body_result(document::serialize_body_result(packet));
+                require(loaded.mesh.dimensions.front().measurement_direction==d.measurement_direction,"Snapshot lost measurement direction");
+                if(value==0) {
+                    viewer::MeshView view;view.resize(600,400);view.show();flush();
+                    kernel::ViewerMesh mesh;mesh.dimensions={d};
+                    mesh.edges.push_back({{frame.world({-15,-15,0}),frame.world({15,-15,0}),frame.world({15,15,0}),frame.world({-15,15,0}),frame.world({-15,-15,0})},{"frame","edge",{}}});
+                    view.set_mesh(mesh);view.set_view_direction(d.plane_normal);
+                    for(auto* animation:view.findChildren<QVariantAnimation*>())animation->setCurrentTime(animation->duration());
+                    view.fit_all();flush();view.confirm_reference(d.reference.owner_id,d.reference.semantic_key,{},viewer::CandidateKind::Dimension);
+                    const auto selected=view.confirmed_candidate();require(selected.has_value(),"Zero dimension cannot be confirmed in View");
+                    require(view.dimension_handle_position(*selected,0).has_value(),"Zero dimension has no View text grip");
+                    zero_painter.drawImage(QRect((zero_cell%2)*600,(zero_cell/2)*400,600,400),view.grabFramebuffer());++zero_cell;
+                }
+            }
+        }
+        zero_painter.end();require(zero_proof.save("build/zero-dimension-planes.png"),"Cannot save zero-dimension proof");
+        {
+            kernel::ViewerDimension angle;angle.kind=kernel::ViewerDimensionKind::Angular;
+            angle.line_first=angle.line_second={10,0,0};angle.sweep_degrees=0;
+            const auto shown=viewer::dimension_presentation(angle,[](kernel::Vec3 p){return QPointF(p.x*5,-p.y*5);},25);
+            require(shown.valid,"Zero angle disappeared");
+            for(const auto& arrow:shown.arrows)near(arrow.second.x(),0);
+        }
         {
             viewer::MeshView view;view.resize(900,700);view.show();flush();
             // Exercise the real View paint path, including Sketcher, instead of
@@ -372,6 +421,7 @@ int main(int argc, char **argv) {
         mesh.annotation_frames[{}] = frame;
         mesh.annotation_frames[{"feature", {}}] = frame;
         mesh.dimensions = {source};
+        mesh.dimensions.front().measurement_direction=kernel::Vec3{1,0,0};
         mesh.dimensions[0].line_second = {1e6, 1e6, 1e6};
         auto geometric = kernel::model_envelope(mesh);
         require(geometric.maximum.x < 100 && geometric.maximum.y < 100,
@@ -399,6 +449,20 @@ int main(int argc, char **argv) {
         second.placement.x = 100;
         assembly.components.push_back(second);
         auto scene = assembly.build_scene();
+        require(scene.dimensions.size()==2,"Assembly lost occurrence dimensions");
+        for(const auto& d:scene.dimensions) {
+            require(d.measurement_direction.has_value(),"Assembly lost measurement direction");
+            near(d.measurement_direction->x,0);near(d.measurement_direction->y,1);
+        }
+        auto parent=assembly::AssemblyDocument::create_default();
+        auto nested=assembly::AssemblyDocument::create_assembly_occurrence("Nested",assembly.document_id,{},assembly);
+        nested.placement.rotation_x=90;parent.components.push_back(nested);
+        const auto nested_scene=parent.build_scene();
+        require(nested_scene.dimensions.size()==2,"Nested Assembly lost dimensions");
+        for(const auto& d:nested_scene.dimensions) {
+            require(d.measurement_direction.has_value(),"Nested Assembly lost direction");
+            near(d.measurement_direction->x,0);near(d.measurement_direction->y,0);near(d.measurement_direction->z,1);
+        }
         const auto first_path = assembly::InstancePath{}.child(occurrence.occurrence_id).encoded(),
                    second_path = assembly::InstancePath{}.child(second.occurrence_id).encoded();
         const auto a = scene.annotation_frames.at({"feature", first_path}),

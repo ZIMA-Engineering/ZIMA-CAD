@@ -79,6 +79,13 @@ void verify_attachment(const std::filesystem::path& directory) {
             for(const auto& data:dimension_feature.bend.auxiliary_sketches)profiles.push_back(sketcher::Sketch::from_serialized(data));
             for(const auto& sketch:profiles)for(const auto& dim:sketch.viewer_mesh().dimensions) {
                 check(close(dim.plane_normal,sketch.resolved_normal),"Bend dimension/grip normal left its Sketch plane");
+                if(dim.kind==kernel::ViewerDimensionKind::Linear) {
+                    check(dim.measurement_direction.has_value(),"Bend coordinate lost its explicit measurement direction");
+                    const auto axis=*dim.measurement_direction;
+                    near(axis.x*axis.x+axis.y*axis.y+axis.z*axis.z,1);
+                    near(axis.x*sketch.resolved_normal.x+axis.y*sketch.resolved_normal.y+axis.z*sketch.resolved_normal.z,0);
+                    near(std::abs(axis.x*sketch.resolved_x_axis.x+axis.y*sketch.resolved_x_axis.y+axis.z*sketch.resolved_x_axis.z),1);
+                }
                 for(const auto& point:{dim.witness_first,dim.witness_second,dim.line_first,dim.line_second}) {
                     const auto o=sketch.resolved_origin,n=sketch.resolved_normal;
                     near((point.x-o.x)*n.x+(point.y-o.y)*n.y+(point.z-o.z)*n.z,0);

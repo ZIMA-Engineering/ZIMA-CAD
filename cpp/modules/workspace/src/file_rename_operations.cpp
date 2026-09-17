@@ -1,5 +1,6 @@
 #include <zima/workspace/file_rename_operations.hpp>
 #include <zima/workspace/native_documents.hpp>
+#include <zima/workspace/family_operations.hpp>
 #include <zima/document/file_path.hpp>
 #include <algorithm>
 #include <cctype>
@@ -130,6 +131,8 @@ FileRenameJob prepare_document_file_rename(const Workspace& live, const std::str
         const std::string& filename, const fs::path& working_directory) {
     const auto* state = live.find(id);
     if (!state) throw FileRenameError("document_not_found", "The document is not open.");
+    if(family_owner(live,id)!=id)
+        throw FileRenameError("family_instance", "Rename the family instance through its name, not its owning native file.");
     if (filename.empty() || filename == "." || filename == ".." || filename.back() == '.' || filename.back() == ' ' ||
         filename.find_first_of("\\/:*?\"<>|") != std::string::npos ||
         std::ranges::any_of(filename, [](unsigned char c) { return c < 32; }))
@@ -180,7 +183,7 @@ void FileRenameJob::stage() {
     std::set<fs::path> targets;
     for (const auto& input : job.candidates) {
         const auto before = stamp(input);
-        auto loaded = read_native_document(input);
+        auto loaded = read_native_document(input,{},false);
         if (input == job.from && loaded.id() != job.id)
             throw FileRenameError("stale_document", "The saved native file has a different document identity.");
         for (const auto& state : job.open)
@@ -204,7 +207,7 @@ void FileRenameJob::stage() {
         const auto staged = scratch / "new" / target.filename();
         const auto backup = scratch / "original" / input.filename();
         loaded.write(staged);
-        if (read_native_document(staged).id() != loaded.id())
+        if (read_native_document(staged,{},false).id() != loaded.id())
             throw FileRenameError("staging_failed", "Staged native document identity does not match its source.");
         job.files.push_back({input, target, staged, backup});
     }
@@ -224,6 +227,7 @@ FileRenameResult FileRenameJob::commit(Workspace& live) {
     if (receipts(live) != job.open)
         return fail("stale_document", "Open documents changed before native file rename.", job.from);
     if (job.from == job.to) { job.finished = true; return result; }
+    for(const auto& file:job.files) {live.reserve_file(file.source);live.reserve_file(file.target);}
     try {
         for (const auto& before : job.observed)
             if (stamp(before.path) != before)

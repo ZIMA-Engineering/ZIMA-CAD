@@ -1,5 +1,6 @@
 #include <zima/workspace/part_transactions.hpp>
 #include <zima/workspace/sketch_reference_operations.hpp>
+#include <zima/workspace/native_documents.hpp>
 #include <zima/workspace/workspace.hpp>
 #include <zima/assembly/physical_properties.hpp>
 #include <zima/kernel/occt_kernel.hpp>
@@ -793,7 +794,7 @@ int main() {
         workspace.open_assembly(topassembly_id)->session.document().save(
             nested_save_path);
         const auto loaded_nested = zima::assembly::AssemblyDocument::load(
-            nested_save_path);
+            nested_save_path,zima::workspace::native_source_resolver(workspace));
         std::filesystem::remove(nested_save_path);
         require(loaded_nested.find_occurrence(subassembly_occurrence)
                     ->nested_snapshot.front().name ==
@@ -1095,6 +1096,18 @@ int main() {
             top.components.push_back(zima::assembly::AssemblyDocument::create_assembly_occurrence(
                 "Second",nested.document_id,nested_file,nested));
             top.components[1].placement.x=1000;
+            const auto top_file=directory/"top.asmz";
+            top.save(top_file);
+            const auto cold=zima::assembly::AssemblyDocument::load(top_file);
+            require(cold.components[0].calculated_source.shares_with(cold.components[1].calculated_source),
+                "Reopened repeated source geometry is not shared");
+            nested.components.front().source_path=part_file.filename();nested.save(nested_file);
+            auto relative_top=top;
+            for(auto& component:relative_top.components)component.source_path=nested_file.filename();
+            relative_top.save(directory/"relative.asmz");
+            const auto relative_loaded=zima::assembly::AssemblyDocument::load(directory/"relative.asmz");
+            require(std::abs(relative_loaded.components.front().calculated_source->body_outputs.at(leaf)->volume-bodies.back().volume)<1e-6,
+                "Nested relative native sources were not resolved against their owning files");
             zima::workspace::Workspace live;live.add_assembly(top,directory/"top.asmz");
             live.refresh_source_geometry();
             const auto verify_current=[&](double expected) {
@@ -1114,6 +1127,9 @@ int main() {
             live.refresh_source_geometry();verify_current(bodies.back().volume);
             source.history.front().box.length*=1.5;
             bodies=kernel.evaluate_history(source.kernel_operations());source.save(part_file,bodies);
+            const auto current_disk=zima::assembly::AssemblyDocument::load(top_file);
+            require(std::abs(current_disk.components[0].calculated_source->body_outputs.at(leaf)->volume-bodies.back().volume)<1e-6,
+                "Reopened Assembly used an embedded old source instead of the current native Part");
             static_cast<void>(live.remove(source.document_id));
             live.refresh_source_geometry();verify_current(bodies.back().volume);
             const auto shared=live.open_assembly(top.document_id)->session.document().components[0].calculated_source;

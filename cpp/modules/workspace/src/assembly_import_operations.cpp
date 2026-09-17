@@ -10,22 +10,19 @@ struct ImportDirectory {
     std::filesystem::path path;
     std::vector<std::filesystem::path> files;
     bool keep{};
-    ImportDirectory(const std::filesystem::path& requested,const std::filesystem::path& base,
-                    const std::filesystem::path& source) {
+    bool created{};
+    ImportDirectory(const std::filesystem::path& requested,const std::filesystem::path& base) {
         if(!requested.empty()) {
             path=std::filesystem::absolute(requested).lexically_normal();
             if(!std::filesystem::is_directory(path.parent_path()))
                 throw ImportOperationError("invalid_directory","The import destination parent directory does not exist.");
             if(!std::filesystem::create_directory(path))
                 throw ImportOperationError("file_exists","Assembly import requires a new destination directory.");
+            created=true;
         } else {
             if(!std::filesystem::is_directory(base))
                 throw ImportOperationError("invalid_directory","The import destination parent directory does not exist.");
-            const auto stem=document::path_to_utf8(source.stem())+"_zima";
-            for(std::size_t suffix=0;;++suffix) {
-                path=std::filesystem::absolute(base/std::filesystem::u8path(stem+(suffix?"_"+std::to_string(suffix):""))).lexically_normal();
-                if(std::filesystem::create_directory(path))break;
-            }
+            path=std::filesystem::absolute(base).lexically_normal();
         }
     }
     ImportDirectory(const ImportDirectory&)=delete;
@@ -33,7 +30,7 @@ struct ImportDirectory {
         if(keep)return;
         std::error_code error;
         for(const auto& file:files)std::filesystem::remove(file,error);
-        std::filesystem::remove(path,error); // Never recursively remove foreign files.
+        if(created)std::filesystem::remove(path,error); // Never remove a pre-existing directory.
     }
     void track(const std::filesystem::path& file) {
         if(file.lexically_normal().parent_path()!=path)
@@ -64,8 +61,8 @@ AssemblyImportReport import_assembly(Workspace& live,const std::string& owner,
            current->session.data_generation()!=generation)
             throw ImportOperationError("document_changed","The target Assembly changed while importing; its current data was preserved.");
     };
-    const auto base=target->path.empty()?options.working_directory:target->path.parent_path();
-    ImportDirectory directory(options.output_directory,base.empty()?std::filesystem::current_path():base,source);
+    const auto base=options.working_directory;
+    ImportDirectory directory(options.output_directory,base.empty()?std::filesystem::current_path():base);
     AssemblyImportReport report;report.directory=directory.path;
     std::optional<interchange::StepAssemblyImport> imported;
     std::function<void()> calculate=[&,source=std::filesystem::absolute(source),precision=before.document_precision,
@@ -90,6 +87,27 @@ AssemblyImportReport import_assembly(Workspace& live,const std::string& owner,
     if(runner)runner(std::move(calculate));else calculate();
     if(!imported)throw ImportOperationError("incomplete_import","The import runner did not complete the calculation.");
     unchanged();
+    // Remap every definition before insertion so all dependency links point to
+    // collision-free native files in the selected working directory.
+    if(options.output_directory.empty()) {
+        std::map<std::string,std::filesystem::path> paths;
+        std::set<std::filesystem::path> reserved;
+        const auto allocate=[&](const std::string& id,const std::filesystem::path& original) {
+            const auto stem=document::path_to_utf8(source.stem())+"_"+document::path_to_utf8(original.stem());
+            for(std::size_t suffix=0;;++suffix) {
+                auto candidate=directory.path/std::filesystem::u8path(stem+(suffix?"_"+std::to_string(suffix):"")+document::path_to_utf8(original.extension()));
+                auto temporary=candidate;temporary += ".tmp";
+                if(std::filesystem::exists(candidate)||std::filesystem::exists(temporary)||live.document_id_for_path(candidate)||reserved.contains(candidate))continue;
+                reserved.insert(candidate);paths.emplace(id,candidate);return candidate;
+            }
+        };
+        for(auto& part:imported->parts)part.path=allocate(part.document.document_id,part.path);
+        for(auto& assembly:imported->assemblies)assembly.path=allocate(assembly.document.document_id,assembly.path);
+        for(auto& assembly:imported->assemblies)for(auto& component:assembly.document.components)
+            component.source_path=paths.at(component.source_document_id);
+        if(format==interchange::Format::Step)
+            imported->root_occurrence.source_path=paths.at(imported->root_occurrence.source_document_id);
+    }
     // Build the complete insertion privately through existing model contracts.
     Workspace prepared;prepared.add_assembly(before);
     std::set<std::string> ids{owner};
@@ -101,10 +119,12 @@ AssemblyImportReport import_assembly(Workspace& live,const std::string& owner,
     for(auto& part:imported->parts) {
         check_source(part.document.document_id,part.path);report.part_ids.push_back(part.document.document_id);
         prepared.add_part(std::move(part.document),std::move(part.calculated),part.path);
+        prepared.open_part(report.part_ids.back())->background_import_source=true;
     }
     for(auto& assembly:imported->assemblies) {
         check_source(assembly.document.document_id,assembly.path);report.assembly_ids.push_back(assembly.document.document_id);
         prepared.add_assembly(std::move(assembly.document),assembly.path);
+        prepared.open_assembly(report.assembly_ids.back())->background_import_source=true;
     }
     if(format==interchange::Format::Step) {
         auto next=before;report.occurrence_id=imported->root_occurrence.occurrence_id;

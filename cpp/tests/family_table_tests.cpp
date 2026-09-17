@@ -112,6 +112,8 @@ void component_test(const kernel::OcctKernel& kernel,const fs::path& directory) 
     require(nested_cold.resolve_occurrence(top_id,nested_path)->source_document_id==short_id&&nested_cold.occurrence_source_file(top_id,nested_path)==file,"Nested member lost its occurrence or native path");
     const auto opened_nested=workspace::open_component_source(nested_cold,top_id,assembly::InstancePath{}.child(nested));
     require(opened_nested.document_id==assembly_variant&&nested_cold.open_assembly(owner),"Cold Assembly member did not open with its parent");
+    require(std::abs(nested_cold.open_assembly(assembly_variant)->session.document().find_occurrence(first)->calculated_source->volume-960)<1e-8,
+        "Opening a cached Assembly family member did not hydrate its native Part source");
     nested_cold.activate(top_id);static_cast<void>(workspace::replace_component(nested_cold,kernel,top_id,nested,owner));
     require(nested_cold.open_assembly(top_id)->session.document().find_occurrence(native_nested)->source_document_id==owner,"Nested replacement changed its sibling");
     bool cycle=false;try{nested_cold.activate(owner);static_cast<void>(workspace::insert_component(nested_cold,owner,assembly_variant));}catch(const std::exception&){cycle=true;}
@@ -217,6 +219,11 @@ void test(const kernel::OcctKernel& kernel,const fs::path& directory) {
     static_cast<void>(workspace::set_user_parameters(live,variant,std::move(parameters)));
     require(workspace::family_table(live,id).instances.front().name=="Long renamed"&&live.open_part(variant)->session.document().name=="Long renamed","Instance rename did not update its stable row");
     require(live.open_part(variant)->session.calculated_boundaries().back().kernel_shape==shape,"Renaming a family member recalculated geometry");
+    auto renamed_rows=workspace::family_table(live,id);const auto stable_row=renamed_rows.instances.front().id;
+    renamed_rows.instances.front().name="Renamed in table";static_cast<void>(workspace::set_family_table(live,id,renamed_rows));
+    require(live.open_part(variant)->session.document().name=="Renamed in table"&&live.open_part(variant)->session.document().family.row_id==stable_row&&
+        live.open_part(variant)->session.calculated_boundaries().back().kernel_shape==shape,"Part table rename lost the open member identity or recalculated geometry");
+    renamed_rows.instances.front().name="Long renamed";static_cast<void>(workspace::set_family_table(live,id,renamed_rows));
     require(workspace::open_family_instance(live,kernel,variant,"No cut")==no_cut,"Opening a sibling from an instance created a nested family");
     const auto rename_saved=workspace::prepare_document_save(live,id,directory/"base.prtz").write();require(workspace::complete_document_save(live,rename_saved),"Rename Save failed");
     const auto renamed=workspace::build_title_block_context_for_source(drw.source_document_id,drw.source_path,nullptr);
@@ -241,6 +248,10 @@ void test(const kernel::OcctKernel& kernel,const fs::path& directory) {
     auto* held_assembly=live.open_assembly(av);
     for(const auto& name:{"First Assembly rename","Second Assembly rename"}) {auto model=held_assembly->session.document();model.name=name;held_assembly->session.commit(std::move(model));}
     require(workspace::family_table(live,aid).instances.front().name=="Second Assembly rename","Repeated Assembly edits lost family ownership");
+    auto assembly_rows=workspace::family_table(live,aid);const auto assembly_row=assembly_rows.instances.front().id;
+    assembly_rows.instances.front().name="Assembly table rename";static_cast<void>(workspace::set_family_table(live,aid,assembly_rows));
+    require(live.open_assembly(av)->session.document().name=="Assembly table rename"&&live.open_assembly(av)->session.document().family.row_id==assembly_row,
+        "Assembly table rename did not update the existing open member by stable row ID");
     auto changed_assembly=live.open_assembly(av)->session.document();changed_assembly.find_occurrence(component)->name="Shared component";
     live.open_assembly(av)->session.commit(std::move(changed_assembly));
     require(live.open_assembly(aid)->session.document().find_occurrence(component)->name=="Shared component","Assembly member edit did not propagate to parent");

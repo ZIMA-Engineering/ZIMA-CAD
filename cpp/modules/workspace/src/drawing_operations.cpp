@@ -79,7 +79,7 @@ std::pair<std::string,kernel::ViewerMesh> read_drawing_source(const Workspace* l
         Workspace source;source.add_part(std::move(part),std::move(boundaries),path);
         return checked(id,source.authoritative_viewer_mesh(id));
     }
-    if(ext==".asmz"){const auto assembly=family_assembly_source(assembly::AssemblyDocument::load(path),expected);return checked(assembly.document_id,assembly.build_scene());}
+    if(ext==".asmz"){const auto assembly=read_family_assembly(live,path,expected);return checked(assembly.document_id,assembly.build_scene());}
     throw DrawingOperationError("unsupported_format","Drawing sources must be native prtz or asmz files.");
 }
 }

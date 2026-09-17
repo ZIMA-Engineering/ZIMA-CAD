@@ -5520,6 +5520,7 @@ void place_body_result(BodyResult& result, const gp_Trsf& placement) {
         point(dimension.line_first);
         point(dimension.line_second);
         direction(dimension.plane_normal);
+        if(dimension.measurement_direction)direction(*dimension.measurement_direction);
         if (dimension.label_position) point(*dimension.label_position);
     }
     for (auto& marker : mesh.constraint_markers) point(marker.position);

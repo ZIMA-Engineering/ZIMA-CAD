@@ -103,12 +103,19 @@ void AssemblyWorkspaceWindow::create_layout() {
     viewer_ = new zima::viewer::MeshView;
     viewer_->setObjectName("modelViewer");
     viewer_->set_origin_visibility_filter([this](const auto& reference) {
-        if (!properties_dialog_ || !properties_dialog_->property("originSelectionBound").toBool() ||
-            !workspace_.open_assembly(workspace_.displayed_document_id())) return true;
-        return reference.instance_path.empty() ||
+        if (!workspace_.open_assembly(workspace_.displayed_document_id())) return true;
+        if (reference.instance_path.empty() ||
             visible_occurrence_origin_paths_.contains(reference.instance_path) ||
             (reference.instance_path == workspace_.active_occurrence_path() &&
-             visible_local_origin_ids_.contains(reference.owner_id));
+             visible_local_origin_ids_.contains(reference.owner_id))) return true;
+        if(properties_dialog_ && properties_dialog_->property("originSelectionBound").toBool())return false;
+        const auto& active=workspace_.active_occurrence_path();
+        if(reference.instance_path==active)return true;
+        if(!workspace_.open_assembly(workspace_.active_document_id()))return false;
+        const auto path=zima::assembly::InstancePath::decode(reference.instance_path);
+        if(active.empty())return path.occurrence_ids.size()==1;
+        const auto parent=path.parent();
+        return parent && parent->encoded()==active;
     });
     viewer_->set_selection_contract({zima::viewer::CandidateKind::Dimension,
                                      zima::viewer::CandidateKind::Occurrence});

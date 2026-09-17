@@ -172,6 +172,8 @@ private:
 
     zima::workspace::Workspace workspace_;
     ApplicationInstance instance_;
+    void change_working_directory(const std::filesystem::path& path, bool required = false);
+    void synchronize_instance_files();
     zima::kernel::OcctKernel kernel_;
     ApplicationSettings application_settings_;
     std::filesystem::path working_directory_{std::filesystem::current_path()};

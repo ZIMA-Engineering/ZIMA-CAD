@@ -1,4 +1,5 @@
 #include <zima/workspace/family_operations.hpp>
+#include <zima/workspace/metadata_operations.hpp>
 #include "workspace_internal.hpp"
 #include <zima_build_info.hpp>
 #include <zima/workspace/document_operations.hpp>
@@ -125,6 +126,7 @@ void AssemblyWorkspaceWindow::update_status_operation(
 
 void AssemblyWorkspaceWindow::finish_status_operation(
     const QString& message, bool success) {
+    synchronize_instance_files();
     operation_progress_->setRange(0, 100);
     operation_progress_->setValue(success ? 100 : 0);
     operation_progress_->setFormat(message);
@@ -165,7 +167,7 @@ void AssemblyWorkspaceWindow::save_active_assembly() {
         const auto saved = run_background_task([job = std::move(job)] { return job.write(); });
         if (!workspace::complete_document_save(workspace_, saved))
             throw std::runtime_error(tr("Uložený dokument byl mezitím zavřen nebo změnil cestu.").toStdString());
-        working_directory_ = workspace_.open_assembly(id)->path.parent_path();
+        change_working_directory(workspace_.open_assembly(id)->path.parent_path());
         update_status_operation(tr("Aktualizuji stav dokumentu…"));
         refresh_tabs();
         finish_status_operation(tr("Sestava uložena: %1").arg(
@@ -204,7 +206,7 @@ void AssemblyWorkspaceWindow::save_active_document() {
             const auto saved = run_background_task([job = std::move(job)] { return job.write(); });
             if (!workspace::complete_document_save(workspace_, saved))
                 throw std::runtime_error(tr("Uložený dokument byl mezitím zavřen nebo změnil cestu.").toStdString());
-            working_directory_ = workspace_.open_drawing(id)->path.parent_path();
+            change_working_directory(workspace_.open_drawing(id)->path.parent_path());
             drawing_workspace_->edit_workspace_document(id);
             update_status_operation(tr("Aktualizuji stav dokumentu…"));
             refresh_tabs();
@@ -249,7 +251,7 @@ void AssemblyWorkspaceWindow::save_active_document() {
         const auto saved = run_background_task([job = std::move(job)] { return job.write(); });
         if (!workspace::complete_document_save(workspace_, saved))
             throw std::runtime_error(tr("Uložený dokument byl mezitím zavřen nebo změnil cestu.").toStdString());
-        working_directory_ = workspace_.open_part(id)->path.parent_path();
+        change_working_directory(workspace_.open_part(id)->path.parent_path());
         update_status_operation(tr("Aktualizuji stav dokumentu…"));
         refresh_tabs();
         // Saving changes persistence state and the tab's dirty marker only.
@@ -347,13 +349,20 @@ void AssemblyWorkspaceWindow::save_active_document_as() {
              search_directory = working_directory_] {
                 return snapshot.save_copy(document_id, target, search_directory);
             });
-        if (!target.parent_path().empty()) working_directory_ = target.parent_path();
+        if (!target.parent_path().empty()) change_working_directory(target.parent_path());
         finish_status_operation(tr("Uložena kopie: %1 (%2 souborů)").arg(
             QString::fromStdString(zima::document::path_to_utf8(target.filename()))).arg(files.size()));
     } catch (const std::exception& error) {
         finish_status_operation(tr("Vytvoření kopie selhalo"), false);
         QMessageBox::critical(this, tr("Uložení kopie se nezdařilo"), error.what());
     }
+}
+
+void AssemblyWorkspaceWindow::change_working_directory(const std::filesystem::path& path,bool required) {
+    try {instance_.set_directory(QString::fromStdString(document::path_to_utf8(path)));}
+    catch(const std::exception&) {if(required)throw;return;}
+    working_directory_=path;
+    setProperty("instanceWorkingDirectory",QString::fromStdString(document::path_to_utf8(path)));
 }
 
 void AssemblyWorkspaceWindow::set_working_directory() {
@@ -369,7 +378,8 @@ void AssemblyWorkspaceWindow::set_working_directory() {
             tr("Vybraná cesta není existující adresář."));
         return;
     }
-    working_directory_ = target;
+    try {change_working_directory(target,true);}
+    catch(const std::exception& error) {report_operation_error(tr("Pracovní adresář je obsazený"),QString::fromUtf8(error.what()));return;}
     state_->setText(tr("Pracovní adresář: %1").arg(selected));
 }
 
@@ -397,7 +407,8 @@ void AssemblyWorkspaceWindow::refresh_delete_file_actions() {
     const bool has_saved_document = target.has_value() && std::filesystem::is_regular_file(*target);
     const auto archives = has_saved_document
         ? document_archive_paths(*target) : std::vector<std::filesystem::path>{};
-    rename_document_action_->setEnabled(has_saved_document);
+    const auto active=workspace_.active_document_id();
+    rename_document_action_->setEnabled(has_saved_document||(!active.empty()&&workspace::family_owner(workspace_,active)!=active));
     delete_old_versions_action_->setEnabled(!archives.empty());
     delete_old_versions_keep_latest_action_->setEnabled(archives.size() > 1);
     delete_current_file_action_->setEnabled(has_saved_document);
@@ -440,16 +451,28 @@ bool AssemblyWorkspaceWindow::native_file_operation_ready(QDialog* own_dialog) {
 void AssemblyWorkspaceWindow::rename_document_file() {
     if (rename_document_dialog_) { rename_document_dialog_->raise(); return; }
     if (!native_file_operation_ready()) return;
-    const auto target = active_document_file_path();
-    if (!target) return;
     const auto id = workspace_.active_document_id();
-    const auto old_path = std::filesystem::absolute(*target).lexically_normal();
+    const bool family_instance=!id.empty()&&workspace::family_owner(workspace_,id)!=id;
+    const auto target = active_document_file_path();
+    if (!target&&!family_instance) return;
+    const auto old_path = target?std::filesystem::absolute(*target).lexically_normal():std::filesystem::path{};
     const auto text_path = [](const auto& path) { return QString::fromStdString(document::path_to_utf8(path)); };
-    auto* dialog = new RenameDocumentDialog(text_path(old_path.filename()),
-        [this, id, old_path, text_path](QString name) -> QString {
+    const auto initial=family_instance?QString::fromStdString(workspace::user_parameters(workspace_,id).flat.at("name")):text_path(old_path.filename());
+    auto* dialog = new RenameDocumentDialog(initial,
+        [this, id, old_path, text_path, family_instance](QString name) -> QString {
             if (!native_file_operation_ready(rename_document_dialog_))
                 return tr("Nejprve dokončete nebo zrušte otevřené vlastnosti.");
             const auto* current = workspace_.find(id);
+            if(family_instance) {
+                if(!current)return tr("Dokument již není otevřený.");
+                try {
+                    auto values=workspace::user_parameters(workspace_,id);
+                    values.flat["name"]=name.toStdString();values.values["name"][""]=name.toStdString();
+                    static_cast<void>(workspace::set_user_parameters(workspace_,id,std::move(values)));
+                    apply_console_change({command_host::ChangeKind::Rename,id});
+                    return {};
+                }catch(const std::exception& error){return tr(error.what());}
+            }
             if (!current || std::visit([](const auto& state) {
                     return std::filesystem::absolute(state.path).lexically_normal();
                 }, *current) != old_path)
@@ -586,12 +609,20 @@ void AssemblyWorkspaceWindow::prune_file_archives(bool whole_directory, std::siz
 }
 
 void AssemblyWorkspaceWindow::open_new_window() {
+    const auto selected=choose_directory(this,tr("Pracovní adresář nové instance"),
+        QString::fromStdString(document::path_to_utf8(working_directory_)),application_settings_.translations);
+    if(selected.isEmpty())return;
+    if(ApplicationInstance::path_key(selected)==ApplicationInstance::path_key(QString::fromStdString(document::path_to_utf8(working_directory_)))) {
+        report_operation_error(tr("Pracovní adresář je obsazený"),tr("Vyberte jiný pracovní adresář než používá tato instance."));return;
+    }
+    try {const auto reservation=instance_.reserve_directory(selected);}
+    catch(const std::exception& error) {report_operation_error(tr("Pracovní adresář je obsazený"),QString::fromUtf8(error.what()));return;}
     // Isolate application-wide translations/settings as well as documents.
     QProcess process;
     process.setProgram(QCoreApplication::applicationFilePath());
     process.setArguments({QStringLiteral("--working-directory"),
-        QString::fromStdString(working_directory_.string())});
-    process.setWorkingDirectory(QString::fromStdString(working_directory_.string()));
+        selected});
+    process.setWorkingDirectory(selected);
     if (!process.startDetached())
         state_->setText(tr("Novou instanci ZIMA-CAD se nepodařilo spustit."));
 }
@@ -613,7 +644,8 @@ void AssemblyWorkspaceWindow::show_global_settings() {
         const QString configured =
             application_settings_.resolved_paths.value("WorkingDirectory");
         if (!configured.trimmed().isEmpty() && QFileInfo(configured).isDir()) {
-            working_directory_ = QFileInfo(configured).absoluteFilePath().toStdString();
+            try {change_working_directory(std::filesystem::u8path(QFileInfo(configured).absoluteFilePath().toStdString()),true);}
+            catch(const std::exception& error) {report_operation_error(tr("Pracovní adresář je obsazený"),QString::fromUtf8(error.what()));}
             refresh_delete_file_actions();
         }
     });

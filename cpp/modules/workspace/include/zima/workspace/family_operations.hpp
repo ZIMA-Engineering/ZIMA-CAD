@@ -25,11 +25,11 @@ void restore_family_tabs(Workspace&, const std::string& generic);
 document::PartDocument family_part_source(document::PartDocument,
     std::vector<kernel::BodyResult>&, const std::string& expected);
 assembly::AssemblyDocument family_assembly_source(assembly::AssemblyDocument,
-    const std::string& expected);
+    const std::string& expected,bool resolve_sources=true);
 document::PartDocument read_family_part(const Workspace*,const std::filesystem::path&,
     const std::string&,std::vector<kernel::BodyResult>&);
 assembly::AssemblyDocument read_family_assembly(const Workspace*,const std::filesystem::path&,
-    const std::string&);
+    const std::string&,bool resolve_sources=true);
 // Explicit Drawing variant change; project the draft and commit only on success.
 void select_family_drawing_source(drawing::DrawingDocument&, const Workspace&,
     const std::string& source, const std::filesystem::path& drawing_path);

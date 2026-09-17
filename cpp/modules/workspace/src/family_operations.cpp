@@ -1,4 +1,5 @@
 #include <zima/workspace/family_operations.hpp>
+#include <zima/workspace/native_documents.hpp>
 #include <zima/workspace/engineering_metadata_operations.hpp>
 #include <zima/workspace/primitive_operations.hpp>
 #include <zima/workspace/profile_operations.hpp>
@@ -386,10 +387,21 @@ document::PartDocument family_part_source(document::PartDocument base,std::vecto
         return document::PartDocument::from_serialized(*packet,&calculated);
     throw DrawingOperationError("source_identity","The source file does not contain the requested model or evaluated family instance.");
 }
-assembly::AssemblyDocument family_assembly_source(assembly::AssemblyDocument base,const std::string& expected) {
+assembly::AssemblyDocument family_assembly_source(assembly::AssemblyDocument base,const std::string& expected,bool resolve_sources) {
     if(expected.empty()||expected==base.document_id)return base;
-    for(const auto& [id,packet]:base.family.evaluated)if(packet->at("document_id")==expected)
-        return assembly::AssemblyDocument::from_serialized(*packet);
+    for(const auto& [id,packet]:base.family.evaluated)if(packet->at("document_id")==expected) {
+        auto member=assembly::AssemblyDocument::from_serialized(*packet);
+        if(resolve_sources)member.hydrate_sources(base.native_source_path,[&](auto& component) {
+            for(const auto& source:base.components)if(source.source_document_id==component.source_document_id && !base.owns_component_result(source.occurrence_id)) {
+                component.calculated_source=source.calculated_source;component.nested_snapshot=source.nested_snapshot;
+                component.body_color=source.body_color;component.face_colors=source.face_colors;component.appearance=source.appearance;
+                component.density_kg_mm3=source.density_kg_mm3;component.nested_mass_kg=source.nested_mass_kg;
+                component.mass_volume_mm3=source.mass_volume_mm3;component.source_missing=source.source_missing;return true;
+            }
+            return false;
+        });
+        return member;
+    }
     throw DrawingOperationError("source_identity","The source file does not contain the requested model or evaluated family instance.");
 }
 void restore_family_tabs(Workspace& live,const std::string& owner) {
@@ -424,10 +436,14 @@ document::PartDocument read_family_part(const Workspace* live,const std::filesys
     auto base=document::PartDocument::load(path,&cache);return family_part_source(std::move(base),cache,expected);
 }
 assembly::AssemblyDocument read_family_assembly(const Workspace* live,const std::filesystem::path& path,
-    const std::string& expected) {
-    if(live)if(const auto* source=live->open_assembly(expected.substr(0,expected.find(":family:"))))
-        return family_assembly_source(source->session.document(),expected);
-    return family_assembly_source(assembly::AssemblyDocument::load(path),expected);
+    const std::string& expected,bool resolve_sources) {
+    if(live)if(const auto* source=live->open_assembly(expected.substr(0,expected.find(":family:")))) {
+        auto member=family_assembly_source(source->session.document(),expected,false);
+        if(resolve_sources && member.document_id!=source->session.document().document_id)
+            member.hydrate_sources(source->path,native_source_resolver(*live));
+        return member;
+    }
+    return family_assembly_source(assembly::AssemblyDocument::load(path,live&&resolve_sources?native_source_resolver(*live):assembly::AssemblyDocument::SourceResolver{},resolve_sources),expected,resolve_sources);
 }
 std::string open_family_instance(Workspace& live,const kernel::OcctKernel& kernel,const std::string& requested,const std::string& name,bool activate) {
     const auto id=family_owner(live,requested);
@@ -455,6 +471,7 @@ std::string open_family_instance(Workspace& live,const kernel::OcctKernel& kerne
             next=member(source->session.document(),table,*row);evaluate_assembly(next,nullptr,kernel);
             family.evaluated[row->id]=std::make_shared<const nlohmann::json>(next.serialized());source->session.update_family_evaluated(std::move(family));
         }
+        next.hydrate_sources(path,native_source_resolver(live));
         live.add_assembly(std::move(next),path);
     } else throw std::invalid_argument("Family Table requires a Part or Assembly.");
     if(activate){live.display_top_level(instance_id);live.activate(instance_id);}return instance_id;

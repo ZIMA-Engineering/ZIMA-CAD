@@ -279,6 +279,44 @@ int verify_history_tree_drag(QApplication& application,const std::filesystem::pa
     return 0;
 }
 
+int verify_family_rename(QApplication& application,zima::app::AssemblyWorkspaceWindow& window) {
+    using namespace zima;
+    const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
+    const auto run=[&](const std::string& command,commands::Json args=commands::Json::object()) {
+        auto result=window.execute_console_command(QString::fromStdString(commands::Json{{"command",command},{"arguments",args}}.dump()));
+        if(!result.ok)throw std::runtime_error(command+": "+result.message);flush();return result.data;
+    };
+    for(const auto* kind:{"part","assembly"}) {
+        run("new",{{"type",kind},{"name",std::string("Rename ")+kind+" "+document::PartDocument::create_default().document_id}});
+        const auto owner=run("context").at("active_document").get<std::string>();
+        run("document.family.set",{{"table",{{"columns",commands::Json::array()},{"bindings",commands::Json::object()},
+            {"instances",commands::Json::array({{{"id",""},{"name","Original"},{"values",commands::Json::object()}}})}}}});
+        run("save");run("document.family.open",{{"instance","Original"}});
+        const auto member=run("context").at("active_document").get<std::string>();
+        const auto original_table=run("document.family.get").at("table");
+        const auto row_id=original_table.at("instances")[0].at("id");
+        const auto source_path=run("documents");
+        window.findChild<QAction*>("renameDocumentAction")->trigger();flush();
+        auto* rename=window.findChild<QDialog*>("renameDocumentDialog");
+        if(!verify(rename&&rename->findChild<QLineEdit*>("renameDocumentName")->text()=="Original","Family Rename must edit the instance name without a file extension"))return 1;
+        rename->findChild<QLineEdit*>("renameDocumentName")->setText("From tab");
+        rename->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+        if(!verify(!window.findChild<QDialog*>("renameDocumentDialog")&&run("document.family.get").at("table").at("instances")[0].at("name")=="From tab","Tab rename did not update its owner table"))return 1;
+        window.findChild<QAction*>("familyTableAction")->trigger();flush();
+        auto* family=window.findChild<QDialog*>("familyTableDialog");auto* table=family->findChild<QTableWidget*>("familyTableTable");
+        if(!verify(table->item(1,1)->text()=="From tab","Family GUI did not display the tab rename"))return 1;
+        table->item(1,1)->setText("From table");family->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+        auto* tabs=window.findChild<QTabBar*>("documentTabs");
+        if(!verify(tabs->tabText(tabs->currentIndex())=="From table"&&run("context").at("active_document")==member&&
+            run("document.family.get").at("table").at("instances")[0].at("id")==row_id,"Table rename replaced the open instance or failed to update its tab"))return 1;
+        const auto after=run("documents");
+        for(const auto& before:source_path)for(const auto& item:after)if(item.at("id")==before.at("id"))
+            if(!verify(item.at("path")==before.at("path"),"Instance rename changed a native source path"))return 1;
+        run("save");
+    }
+    std::cout<<"Part and Assembly tab/table names synchronize through stable IDs without file renames\n";return 0;
+}
+
 int verify_family_table(QApplication& application,zima::app::AssemblyWorkspaceWindow& window,const std::filesystem::path& directory) {
     QTimer watchdog;watchdog.setInterval(12000);QObject::connect(&watchdog,&QTimer::timeout,&window,[&]{
         for(auto* widget:QApplication::topLevelWidgets())if(auto* message=qobject_cast<QMessageBox*>(widget);message&&message->isVisible()){std::cerr<<"Family modal: "<<message->text().toStdString()<<"\n";message->reject();}
@@ -295,36 +333,37 @@ int verify_family_table(QApplication& application,zima::app::AssemblyWorkspaceWi
     view->fit_all();action->trigger();flush();auto* dialog=dynamic_cast<app::FamilyTableDialog*>(window.findChild<QDialog*>("familyTableDialog"));
     if(!verify(dialog&&dialog->width()>1000&&dialog->windowFlags().testFlag(Qt::SubWindow),"Family dialog width or internal presentation is wrong"))return 1;
     auto* table=dialog->findChild<QTableWidget*>("familyTableTable");
-    if(!verify(table&&dynamic_cast<ui::ReferenceCellItem*>(table->item(0,1))->is_active_input(),"Family base cell is not armed"))return 1;
+    if(!verify(table&&dynamic_cast<ui::ReferenceCellItem*>(table->item(0,2))->is_active_input(),"Family base cell is not armed"))return 1;
     const auto mouse=[&](QWidget* target,QEvent::Type type,QPointF p,Qt::MouseButton button){QMouseEvent e(type,p,p,QPointF(target->mapToGlobal(p.toPoint())),button,type==QEvent::MouseButtonPress?button:Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(target,&e);flush();};
     const auto click=[&](QWidget* target,QPointF p){mouse(target,QEvent::MouseMove,p,Qt::NoButton);mouse(target,QEvent::MouseButtonPress,p,Qt::LeftButton);mouse(target,QEvent::MouseButtonRelease,p,Qt::LeftButton);};
     std::optional<QPointF> hit;
     for(int y=5;y<view->height()&&!hit;y+=8)for(int x=5;x<view->width();x+=8){const auto candidates=view->selection_candidates_at({double(x),double(y)});if(!candidates.empty()&&candidates[0].kind==viewer::CandidateKind::Container&&candidates[0].owner_id==box.id){hit=QPointF(x,y);break;}}
     if(!verify(hit.has_value(),"Family original solid is absent from the common picker"))return 1;
-    click(view,*hit);if(!verify(table->horizontalHeaderItem(1)->text()=="Block","Family LMB did not bind solid name"))return 1;
+    click(view,*hit);if(!verify(table->horizontalHeaderItem(2)->text()=="Block","Family LMB did not bind solid name"))return 1;
     mouse(view,QEvent::MouseButtonDblClick,*hit,Qt::LeftButton);mouse(view,QEvent::MouseButtonRelease,*hit,Qt::LeftButton);
     viewer::ViewerCandidate dimension;dimension.kind=viewer::CandidateKind::Dimension;dimension.owner_id=box.id;dimension.semantic_key="parameter:length";
     const auto position=view->candidate_dimension_label_position(dimension);
     if(!verify(position.has_value(),"Family double click did not expose source dimensions"))return 1;
     click(view,*position);
     const auto name=part.dimension_identifiers.identifier(box.id,"parameter:length");
-    if(!verify(table->horizontalHeaderItem(1)->text().toStdString()==name,"Family dimension did not bind secondary identifier"))return 1;
-    table->item(1,0)->setText("Long");table->item(1,1)->setText("20");flush();
+    if(!verify(table->horizontalHeaderItem(2)->text().toStdString()==name,"Family dimension did not bind secondary identifier"))return 1;
+    table->item(1,1)->setText("Long");table->item(1,2)->setText("20");flush();
     dialog->findChild<QPushButton*>("familyAddColumn")->click();flush();
     auto* tree=window.findChild<QTreeWidget*>("documentTree");QTreeWidgetItem* body_row=nullptr;
     for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==body&&(*it)->data(0,Qt::UserRole+3).toString()=="part-body")body_row=*it;
     if(!verify(body_row!=nullptr,"Family Body source missing from Tree"))return 1;
     tree->setCurrentItem(body_row);flush();
-    auto* presence=qobject_cast<QComboBox*>(table->cellWidget(1,3));
+    auto* presence=qobject_cast<QComboBox*>(table->cellWidget(1,4));
     if(!verify(presence&&presence->findData("yes")>0&&presence->findData("no")>0,"Family Body column lacks Yes/No values"))return 1;
     presence->setCurrentIndex(presence->findData("yes"));flush();
-    auto* eye=table->cellWidget(0,2)->findChild<QToolButton*>();eye->click();flush();
-    if(!verify(dynamic_cast<ui::ReferenceCellItem*>(table->item(0,1))->is_inspected(),"Family inspection lost its independent azure state"))return 1;
+    auto* eye=table->cellWidget(0,3)->findChild<QToolButton*>();eye->click();flush();
+    if(!verify(dynamic_cast<ui::ReferenceCellItem*>(table->item(0,2))->is_inspected(),"Family inspection lost its independent azure state"))return 1;
     mouse(view,QEvent::MouseButtonPress,*position,Qt::MiddleButton);mouse(view,QEvent::MouseButtonRelease,*position,Qt::MiddleButton);
-    if(!verify(dialog->active_column()==-1&&!dynamic_cast<ui::ReferenceCellItem*>(table->item(0,1))->is_inspected(),"Family short MMB did not end reference entry"))return 1;
+    if(!verify(dialog->active_column()==-1&&!dynamic_cast<ui::ReferenceCellItem*>(table->item(0,2))->is_inspected(),"Family short MMB did not end reference entry"))return 1;
     window.grab().save(QString::fromStdString((directory/"family-table-ui.png").string()));
-    const auto row_position=table->visualItemRect(table->item(1,0)).center();
-    click(table->viewport(),row_position);mouse(table->viewport(),QEvent::MouseButtonDblClick,row_position,Qt::LeftButton);flush();
+    auto* open_row=table->verticalHeader()->findChild<QToolButton*>("tableRowOpen1");
+    if(!verify(open_row&&open_row->isVisible()&&table->cellWidget(1,0),"Family row lacks its separate Open and first-cell delete actions"))return 1;
+    open_row->click();flush();
     const auto documents=window.execute_console_command("documents");
     if(!verify(documents.ok&&documents.data.dump().find("Long")!=std::string::npos&&!window.findChild<QDialog*>("familyTableDialog"),"Family instance did not open in a new tab"))return 1;
     const auto result_path=directory/std::filesystem::u8path("family-ui-result-"+part.document_id+".prtz");
@@ -4762,7 +4801,7 @@ int verify_profile_on_sheet(QApplication& application, const std::filesystem::pa
                 if(!family)throw std::runtime_error("Family Table did not open for Bend state");
                 window.show_parameter_dimensions(bend.id);application.processEvents();
                 family->findChild<QPushButton*>("familyAddColumn")->click();application.processEvents();
-                const auto family_column=1+2*family->active_column();
+                const auto family_column=2+2*family->active_column();
                 viewer::ViewerCandidate state;state.kind=viewer::CandidateKind::Dimension;
                 state.owner_id=bend.id;state.semantic_key="parameter:unbend";
                 const auto& dimensions=bend_view->mesh().dimensions;
@@ -6457,17 +6496,10 @@ int verify_component_references(QApplication& application, const std::filesystem
     if(!verify(window.open_document_path(QString::fromStdString(top_path.string())),
         "Cannot reopen Assembly for feature-origin visibility"))return 1;
     window.deactivate_active_occurrence_for_test();flush();
-    for(const char* action_name:{"extrusionAction","mirrorAction"}) {
-        auto* action=window.findChild<QAction*>(action_name);
-        if(!verify(action && action->isEnabled(),"Feature origin fixture action is disabled"))return 1;
-        action->trigger();flush();
-        QDialog* feature=nullptr;
-        for(auto* candidate:window.findChildren<QDialog*>())
-            if(candidate->isVisible() && candidate->property("originSelectionBound").toBool())feature=candidate;
-        if(!verify(feature,"Feature did not use shared Origin selection"))return 1;
         const auto offered_origins=[&] {
             kernel::ViewerMesh packet;
-            for(const auto& path:{std::string{},outer_path,nested_path,passive_path})
+            for(const auto& path:{std::string{},outer_path,nested_path,passive_path,
+                assembly::InstancePath{{passive,second}}.encoded(),assembly::InstancePath{{outer,second,"deeper"}}.encoded()})
                 packet.points.push_back({{0,0,0},{path.empty()?top_id+":origin":origin,"origin:point",path}});
             view->set_mesh(std::move(packet));
             view->set_selection_contract({viewer::CandidateKind::Vertex});view->set_candidate_filter({});
@@ -6476,6 +6508,26 @@ int verify_component_references(QApplication& application, const std::filesystem
                 if(candidate.semantic_key=="origin:point")paths.insert(candidate.instance_path);
             return paths;
         };
+    view->set_reference_visibility(viewer::ReferenceVisibility::Origins,true);flush();
+    window.grab().save(QString::fromStdString((directory/"origin-depth-top.png").string()));
+    if(!verify(offered_origins()==std::set<std::string>{"",outer_path,passive_path},
+        "Top Assembly exposed nested component origins"))return 1;
+    if(!verify(window.activate_occurrence_for_test(outer_path),"Cannot activate origin-policy subassembly"))return 1;flush();
+    window.grab().save(QString::fromStdString((directory/"origin-depth-active.png").string()));
+    if(!verify(offered_origins()==std::set<std::string>{"",outer_path,nested_path},
+        "Active subassembly did not expose exactly its immediate origins"))return 1;
+    if(!verify(window.activate_occurrence_for_test(nested_path),"Cannot activate origin-policy Part"))return 1;flush();
+    if(!verify(offered_origins()==std::set<std::string>{"",nested_path},
+        "Active Part exposed sibling or ancestor component origins"))return 1;
+    window.deactivate_active_occurrence_for_test();flush();
+    for(const char* action_name:{"extrusionAction","mirrorAction"}) {
+        auto* action=window.findChild<QAction*>(action_name);
+        if(!verify(action && action->isEnabled(),"Feature origin fixture action is disabled"))return 1;
+        action->trigger();flush();
+        QDialog* feature=nullptr;
+        for(auto* candidate:window.findChildren<QDialog*>())
+            if(candidate->isVisible() && candidate->property("originSelectionBound").toBool())feature=candidate;
+        if(!verify(feature,"Feature did not use shared Origin selection"))return 1;
         if(!verify(offered_origins()==std::set<std::string>{""},
             "Feature automatically exposed component and subassembly origins"))return 1;
         auto* origins_button=feature->findChild<QPushButton*>("containerOriginSelectionButton");
@@ -6488,10 +6540,51 @@ int verify_component_references(QApplication& application, const std::filesystem
         if(!verify(offered_origins()==std::set<std::string>{"",outer_path},
             "Origin button did not reveal exactly the requested subassembly"))return 1;
         feature->reject();flush();
-        if(!verify(offered_origins()==std::set<std::string>{"",outer_path,nested_path,passive_path},
+        if(!verify(offered_origins()==std::set<std::string>{"",outer_path,passive_path},
             "Cancel did not restore ordinary component origin visibility"))return 1;
     }
-    std::cout<<"Component origin, axis, freedom and source opening UI contracts passed\n";return 0;
+    // Import keeps its owning Assembly tab, even when editing a nested source.
+    kernel::StepProduct imported_part;imported_part.definition_id="import-tab-part";
+    imported_part.name="Imported Part";imported_part.body=kernel.make_box({4,5,6});
+    kernel::StepProduct imported_group;imported_group.definition_id="import-tab-assembly";
+    imported_group.name="Imported Assembly";imported_group.children={imported_part};
+    const auto import_path=directory/"assembly-import-tabs.step";
+    kernel.export_step(imported_group,document::path_to_utf8(import_path));
+    if(!verify(window.activate_occurrence_for_test(outer_path),"Cannot activate STEP import owner"))return 1;flush();
+    auto* import_tabs=window.findChild<QTabBar*>("documentTabs");
+    const auto count_before_import=import_tabs->count();
+    const auto displayed_before_import=import_tabs->tabData(import_tabs->currentIndex());
+    const auto imported=component_command("import.step",{{"path",document::path_to_utf8(import_path)},
+        {"output_directory",document::path_to_utf8(directory/("import-tabs-"+document::PartDocument::create_default().document_id))}});flush();
+    if(!verify(imported.ok && import_tabs->count()==count_before_import &&
+        import_tabs->tabData(import_tabs->currentIndex())==displayed_before_import &&
+        window.active_occurrence_path_for_test()==outer_path,"STEP import opened source tabs or changed the active Assembly"))return 1;
+    if(!verify(window.open_document_path(QString::fromStdString(imported.data.at("files").at(0).get<std::string>())),
+        "Cannot explicitly open an imported source"))return 1;flush();
+    if(!verify(import_tabs->count()==count_before_import+1,"Explicit source opening did not reveal exactly one tab"))return 1;
+    auto missing_assembly=assembly::AssemblyDocument::create_default();
+    const auto missing_source=document::PartDocument::create_default().document_id;
+    auto missing_component=assembly::AssemblyDocument::create_part_occurrence("Missing source",missing_source,directory/(missing_source+".prtz"),{});
+    const auto missing_id=missing_component.occurrence_id;
+    missing_assembly.components.push_back(std::move(missing_component));
+    const auto missing_file=directory/"missing-component-ui.asmz";missing_assembly.save(missing_file);
+    if(!verify(window.open_document_path(QString::fromStdString(missing_file.string())),"Missing component prevented Assembly opening"))return 1;flush();
+    const auto missing_path=assembly::InstancePath{}.child(missing_id).encoded();
+    auto* missing_item=find(missing_id,missing_path);
+    if(!verify(missing_item && missing_item->text(0).contains(QStringLiteral("chybí zdrojový soubor")),"Missing source is not identified in the tree"))return 1;
+    tree->setCurrentItem(missing_item);tree->scrollToItem(missing_item);flush();
+    bool source_action=false;
+    QTimer::singleShot(0,[&] {
+        auto* menu=qobject_cast<QMenu*>(QApplication::activePopupWidget());
+        if(!menu)return;
+        auto* action=menu->findChild<QAction*>("componentSourceFileAction");
+        source_action=action && action->isEnabled() && action->text()==QStringLiteral("Zdrojový soubor…");
+        menu->close();
+    });
+    tree->customContextMenuRequested(tree->visualItemRect(missing_item).center());flush();
+    if(!verify(source_action,"Missing component context menu has no enabled Source file action"))return 1;
+    window.grab().save(QString::fromStdString((directory/"missing-component-source.png").string()));
+    std::cout<<"Component origin depth, axis, freedom, source opening and import tabs UI contracts passed\n";return 0;
 }
 
 int verify_drawing_workspace(QApplication& application, zima::app::AssemblyWorkspaceWindow& window,
@@ -6722,6 +6815,8 @@ int verify_startup_contract(
         return verify_body_history_ui(application, test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_PENDING_TREE_ONLY"))
         return verify_pending_container_tree(application, test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_FAMILY_RENAME_ONLY"))
+        return verify_family_rename(application,window);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_FAMILY_ONLY"))
         return verify_family_table(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_DERIVED_COPY_ONLY"))
@@ -7116,7 +7211,7 @@ int verify_startup_contract(
     if (!verify(parameters->isEnabled() && parameters_dialog != nullptr &&
                     parameters_dialog->windowFlags().testFlag(Qt::SubWindow) &&
                     parameters_table != nullptr && parameters_table->rowCount() >= 12 &&
-                    parameters_table->columnCount() == 4 &&
+                    parameters_table->columnCount() == 5 &&
                     parameter_language != nullptr && parameter_language->count() >= 4 &&
                     parameters_dialog->findChild<QTableWidget*>(
                         "documentRelationsTable") == nullptr,
@@ -10901,6 +10996,7 @@ int main(int argc, char* argv[]) {
         std::cerr << installation_error.toStdString() << '\n';
         return 2;
     }
+    try {
     zima::app::AssemblyWorkspaceWindow window(startup_directory);
     QString part_capture_path;
     QString drawing_capture_path;
@@ -10932,4 +11028,10 @@ int main(int argc, char* argv[]) {
     UpdateService::get()->acknowledgeStartup();
     UpdateService::get()->scheduleStartupCheck();
     return application.exec();
+    } catch(const std::exception& error) {
+        std::cerr<<error.what()<<'\n';
+        if(!runs_startup_contract && qEnvironmentVariableIsEmpty("ZIMA_VERIFY_INSTANCE_DIRECTORY"))
+            QMessageBox::critical(nullptr,QStringLiteral("ZIMA-CAD"),QString::fromUtf8(error.what()));
+        return 2;
+    }
 }

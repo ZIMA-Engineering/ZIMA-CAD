@@ -185,8 +185,9 @@ int verify_entry_tables(QApplication& application,QWidget& parent) {
     dialog->show();flush();
     auto* table=dialog->findChild<QTableWidget*>("documentParametersTable");
     require(table&&table->rowCount()==3,"Parameters did not offer one empty row");
-    require(dialog->width()<760&&table->columnWidth(2)<=170,"Parameters name column or dialog stayed too wide");
-    require(dynamic_cast<EntryRowHeader*>(table->verticalHeader()),"Parameters lack shared row indicators");
+    require(dialog->width()<760&&table->columnWidth(3)<=170,"Parameters name column or dialog stayed too wide");
+    require(!dynamic_cast<EntryRowHeader*>(table->verticalHeader())&&table->verticalHeader()->isVisible()&&
+        table->model()->headerData(0,Qt::Vertical).toString()=="1"&&table->cellWidget(0,0),"Parameters lack numbered rows and first-cell actions");
     const auto enter=[&](const QString& value,int expected_row) {
         auto* editor=qobject_cast<QLineEdit*>(application.focusWidget());
         require(editor,"Enter navigation did not leave a text editor ready");editor->setText(value);
@@ -195,14 +196,14 @@ int verify_entry_tables(QApplication& application,QWidget& parent) {
         require(table->currentRow()==expected_row&&qobject_cast<QLineEdit*>(application.focusWidget()),"Enter did not move down and start editing");
         require(!committed&&dialog->isVisible(),"Enter submitted the Parameters dialog");
     };
-    edit_table_cell(table,0,3);flush();enter("first",1);enter("second",2);
-    require(table->item(0,3)->text()=="first"&&table->item(1,3)->text()=="second","Enter lost the edited cell values");
-    table->setFocus();flush();edit_table_cell(table,2,0);flush();enter("c",3);
+    edit_table_cell(table,0,4);flush();enter("first",1);enter("second",2);
+    require(table->item(0,4)->text()=="first"&&table->item(1,4)->text()=="second","Enter lost the edited cell values");
+    table->setFocus();flush();edit_table_cell(table,2,1);flush();enter("c",3);
     require(table->rowCount()==4,"Entering the offered row did not offer a fresh row");
-    table->setFocus();flush();table->item(2,3)->setText("third");flush();
-    auto* remove=table->verticalHeader()->findChild<QWidget*>("tableRowAction0")->findChild<QPushButton*>();
+    table->setFocus();flush();table->item(2,4)->setText("third");flush();
+    auto* remove=table->cellWidget(0,0)->findChild<QPushButton*>();
     require(remove&&remove->isVisible(),"Populated row has no visible red delete action");remove->click();flush();
-    require(table->item(0,0)->text()=="b"&&table->rowCount()==3,"Row delete removed the wrong entry");
+    require(table->item(0,1)->text()=="b"&&table->rowCount()==3,"Row delete removed the wrong entry");
     const auto directory=std::filesystem::path(__FILE__).parent_path().parent_path().parent_path()/"Projects/test/entry-tables";
     std::filesystem::create_directories(directory);
     dialog->grab().save(QString::fromStdString((directory/"parameters.png").string()));
@@ -212,16 +213,28 @@ int verify_entry_tables(QApplication& application,QWidget& parent) {
     auto* material=new MaterialDialog({},[](auto){},settings,&parent);material->show();flush();
     auto* materials=material->findChild<QTableWidget*>("materialTable");
     require(materials->rowCount()==1,"Material lacks its offered row");
-    materials->item(0,0)->setText("DENSITY");materials->item(0,1)->setText("7.85");flush();
+    materials->item(0,1)->setText("DENSITY");materials->item(0,2)->setText("7.85");flush();
     require(materials->rowCount()==2,"Material did not extend after text entry");
+    require(materials->cellWidget(0,0)&&materials->model()->headerData(0,Qt::Vertical).toString()=="1","Material row actions or numbering are misplaced");
+    material->grab().save(QString::fromStdString((directory/"material.png").string()));
     material->buttons()->button(QDialogButtonBox::Ok)->click();flush();
     require(!material->isVisible(),"Material tried to save the empty offered row");delete material;
-    bool family_committed=false;
-    auto* family=new FamilyTableDialog("generic",{},[&](auto){family_committed=true;},settings,&parent);family->show();flush();
+    bool relations_committed=false;
+    auto* relations=new RelationsDialog({{"length","10"}},{{"length","20"}},[&](auto rows){relations_committed=rows.size()==1&&rows[0].expression=="30";},settings,&parent);
+    relations->show();flush();auto* relation_table=relations->findChild<QTableWidget*>("relationsTable");
+    require(relation_table->cellWidget(0,0)&&relation_table->model()->headerData(0,Qt::Vertical).toString()=="1","Relations row actions or numbering are misplaced");
+    relation_table->item(0,2)->setText("30");flush();relations->grab().save(QString::fromStdString((directory/"relations.png").string()));
+    relations->buttons()->button(QDialogButtonBox::Ok)->click();flush();require(relations_committed,"Relations shifted columns lost their values");delete relations;
+    bool family_committed=false;std::string opened;
+    auto* family=new FamilyTableDialog("generic",{},[&](auto value){family_committed=zima::document::parse_family_table(value.family_table).instances.front().name=="Variant";},settings,&parent);
+    family->open_instance=[&](const auto& name){opened=name;};family->show();flush();
     auto* family_table=family->findChild<QTableWidget*>("familyTableTable");
-    require(family_table->rowCount()==2&&!family_table->verticalHeader()->findChild<QWidget*>("tableRowAction0"),"Family generic row can be deleted");
-    family->buttons()->button(QDialogButtonBox::Ok)->click();flush();
-    require(family_committed,"Family Table attempted to persist the empty offered instance");delete family;
+    require(family_table->rowCount()==2&&!family_table->cellWidget(0,0)&&family_table->cellWidget(1,0),"Family generic row can be deleted or offered row lacks its first-cell action");
+    family_table->item(1,1)->setText("Variant");flush();
+    auto* open=family_table->verticalHeader()->findChild<QToolButton*>("tableRowOpen1");
+    require(open&&open->isVisible()&&family_table->cellWidget(1,0)->findChild<QPushButton*>(),"Family Open and delete controls are not separate");
+    family->grab().save(QString::fromStdString((directory/"family.png").string()));open->click();flush();
+    require(family_committed&&opened=="Variant","Family header Open did not commit and open the requested row");delete family;
     std::cout<<"Entry rows, Enter-down editing, delete, blank-row persistence and compact Parameters passed\n";
     return 0;
 }
@@ -1730,6 +1743,7 @@ int main(int argc, char* argv[]) {
             {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0},
             {15.0, 0.0, 0.0}, {15.0, 0.0, 0.0}, 0.0,
             {"sketch", "dimension:zero-y", {}}, "Y "});
+        zero_dimension_mesh.dimensions.back().measurement_direction=zima::kernel::Vec3{0,1,0};
         zero_dimension_mesh.dimensions.back().participant_semantic_keys =
             {"point:dimension-owner", "sketch_axis:y"};
         zima::viewer::MeshView zero_dimension_view(&parent);
@@ -4570,7 +4584,7 @@ int main(int argc, char* argv[]) {
                     value.flat["name"] == "Bracket";
             }, tool_settings, &parent);
         require(user_parameters_dialog->findChild<QTableWidget*>(
-                    "documentParametersTable")->columnCount() == 4 &&
+                    "documentParametersTable")->columnCount() == 5 &&
                     user_parameters_dialog->findChild<QComboBox*>(
                         "parameterLanguage") != nullptr,
                 "User Parameters does not expose the Python language/table contract");
@@ -4747,6 +4761,7 @@ int main(int argc, char* argv[]) {
         live_dimension.reference = {
             "preview-container", "parameter:length_forward", {}};
         live_dimension.value = 25.0;
+        live_dimension.measurement_direction=zima::kernel::Vec3{1,0,0};
         // A degenerate anchor at the view centre isolates the picker
         // contract from camera scale; the production treatment dimension is
         // non-degenerate and uses the same combined persistent/transient list.

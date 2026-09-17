@@ -1,3 +1,4 @@
+#include <zima/document/component_source.hpp>
 #include <zima/workspace/assembly_scene.hpp>
 #include <zima/workspace/appearance_operations.hpp>
 #include <zima/workspace/part_transactions.hpp>
@@ -47,36 +48,7 @@ void append_mesh(zima::kernel::ViewerMesh& target,
 }
 
 zima::kernel::BodyResult part_result(const PartState& part) {
-    auto result = part.session.calculated_boundaries().empty() ? zima::kernel::BodyResult{}
-        : part.session.calculated_boundaries().back();
-    const auto& document = part.session.document();
-    for (const auto& sketch : document.sketches) {
-        if (sketch.suppressed) continue;
-        const auto owner = std::ranges::find(document.history, sketch.owner_container_id,
-            &zima::document::HistoryContainer::id);
-        if (owner != document.history.end() && (owner->suppressed ||
-            owner->feature_kind != zima::document::FeatureKind::Sketch)) continue;
-        auto mesh = sketch.viewer_mesh();
-        if (const auto* body = document.body_owner_for_object(sketch.id)) {
-            if (!body->visible) continue;
-            mesh = document.place_body_mesh(std::move(mesh),body->scope.id);
-        }
-        append_mesh(result.mesh,mesh);
-    }
-    append_mesh(result.mesh, document.construction_viewer_mesh());
-    zima::kernel::ViewerMesh sketch_references;
-    sketch_references.original_references=document.sketch_placement_reference_geometry();
-    append_mesh(result.mesh,sketch_references);
-    // Publish the persisted datum frames in the component snapshot when it
-    // is explicitly inserted or regenerated. Display visibility stays local
-    // to the editing View; mate resolution uses this reference packet.
-    zima::kernel::ViewerMesh origins;
-    origins.original_references = document.body_origin_reference_geometry();
-    append_mesh(result.mesh, origins);
-    origins.original_references = document.history_origin_reference_geometry_before({});
-    append_mesh(result.mesh, origins);
-    result.mesh.annotation_frames=zima::document::part_annotation_envelopes(document,result.mesh);
-    return result;
+    return zima::document::component_source(part.session.document(),part.session.calculated_boundaries());
 }
 
 zima::kernel::BodySnapshot part_snapshot(const PartState& part) {
@@ -205,6 +177,7 @@ void Workspace::add_part(
         throw std::invalid_argument("Workspace document ID must be non-empty and unique");
     }
     const std::string id = document.document_id;
+    reserve_file(path);
     documents_.push_back(PartState{
         zima::document::DocumentSession(
             std::move(document), std::move(calculated_boundaries)),
@@ -220,6 +193,7 @@ void Workspace::add_assembly(
         throw std::invalid_argument("Workspace document ID must be non-empty and unique");
     }
     const std::string id = document.document_id;
+    reserve_file(path);
     documents_.push_back(AssemblyState{
         zima::assembly::AssemblySession(std::move(document)), std::move(path)});
     if (active_document_id_.empty()) active_document_id_ = id;
@@ -232,6 +206,7 @@ void Workspace::add_drawing(
         throw std::invalid_argument("Workspace document ID must be non-empty and unique");
     }
     const std::string id = document.document_id;
+    reserve_file(path);
     documents_.push_back(DrawingState{std::move(document), std::move(path)});
     if (active_document_id_.empty()) active_document_id_ = id;
     if (displayed_document_id_.empty()) displayed_document_id_ = id;
@@ -362,15 +337,17 @@ void Workspace::refresh_source_geometry() {
         for (auto& component:document.components) {
             // Assembly-owned operations keep their calculated result until the
             // user explicitly regenerates that operation.
-            if (component.derived_copy || std::ranges::any_of(document.cuts,[&](const auto& cut) {
-                return !cut.definition.suppressed && std::ranges::find(cut.target_occurrence_ids,
-                    component.occurrence_id)!=cut.target_occurrence_ids.end();
-            })) continue;
             auto file=component.source_path;
             if(file.is_relative())file=owner_file.parent_path()/file;
             if(!file.empty())file=std::filesystem::absolute(file).lexically_normal();
             const NativeSourceKey source_key{file,component.source_document_id};
             const auto parent_id=component.source_document_id.substr(0,component.source_document_id.find(":family:"));
+            if(document.owns_component_result(component.occurrence_id)) {
+                const bool missing=!component.derived_copy && !open_part(component.source_document_id) && !open_assembly(component.source_document_id) &&
+                    !open_part(parent_id) && !open_assembly(parent_id) && (file.empty() || !std::filesystem::is_regular_file(file));
+                if(component.source_missing!=missing){component.source_missing=missing;changed=true;}
+                continue;
+            }
             if (component.source_kind==zima::assembly::ComponentSourceKind::Part) {
                 const auto* part=open_part(component.source_document_id);
                 const auto* parent=open_part(parent_id);
@@ -387,6 +364,7 @@ void Workspace::refresh_source_geometry() {
                     }
                     part=&cached->second.part;
                 }
+                if(component.source_missing!=(part==nullptr)){component.source_missing=part==nullptr;changed=true;}
                 if (part) {
                     if(part->session.document().document_id!=component.source_document_id)
                         throw std::runtime_error("Part source document identity mismatch");
@@ -414,7 +392,10 @@ void Workspace::refresh_source_geometry() {
                 if(self(self,nested,file))open->session.update_source_geometry(nested);
             } else {
                 const auto* parent=open_assembly(parent_id);
-                if(!parent&&(file.empty()||!std::filesystem::is_regular_file(file)))continue;
+                if(!parent&&(file.empty()||!std::filesystem::is_regular_file(file))) {
+                    if(!component.source_missing){component.source_missing=true;changed=true;}
+                    continue;
+                }
                 const auto generation=parent?std::optional{parent->session.data_generation()}:std::nullopt;
                 const auto modified=parent?std::filesystem::file_time_type{}:std::filesystem::last_write_time(file);
                 auto cached=native_assembly_cache_.find(source_key);
@@ -429,6 +410,7 @@ void Workspace::refresh_source_geometry() {
             }
             if(nested.document_id!=component.source_document_id)
                 throw std::runtime_error("Assembly source document identity mismatch");
+            if(component.source_missing){component.source_missing=false;changed=true;}
             bool same=component.calculated_source->source_fingerprint==source_stamp &&
                 component.nested_snapshot==nested.occurrence_snapshot() &&
                 component.calculated_source->body_outputs.size()==nested.components.size();
@@ -528,7 +510,7 @@ std::optional<std::filesystem::path> Workspace::occurrence_source_file(
             document = &open->session.document();
             owner_file = open->path.empty() ? source_file : open->path;
         } else {
-            loaded = read_family_assembly(this,source_file,source_id);
+            loaded = read_family_assembly(this,source_file,source_id,false);
             if (loaded->document_id != source_id) return std::nullopt;
             document = &*loaded;
             owner_file = source_file;

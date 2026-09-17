@@ -168,7 +168,7 @@ void Host::register_document_commands() {
     dispatcher_.add({"cd",tr("Změnit pracovní adresář: cd cesta."),{{"path",true}},true},[this](const Json& args) {
         const auto path=resolve(args["path"].get<std::string>(),directory_);
         if(!std::filesystem::is_directory(path))return Result::failure("invalid_directory",tr("Pracovní adresář neexistuje."));
-        directory_=path;change_=Change{ChangeKind::Directory,{}};
+        change_directory(path,true);change_=Change{ChangeKind::Directory,{}};
         return Result::success({{"path",path_text(directory_)}});
     });
     dispatcher_.add({"activate",tr("Zobrazit otevřený dokument podle jeho ID."),{{"document",true}},true},[this](const Json& args) {
@@ -199,7 +199,7 @@ void Host::register_document_commands() {
             files=snapshot.save_copy(id,path,directory);finished=true;
         });
         if(!finished)throw std::runtime_error("I/O runner did not complete native copying");
-        directory_=path.parent_path();change_=Change{ChangeKind::Copy,id};
+        change_directory(path.parent_path());change_=Change{ChangeKind::Copy,id};
         Json paths=Json::array();for(const auto& file:files)paths.push_back(path_text(file));
         return Result::success({{"paths",std::move(paths)},{"document",id}});
     });

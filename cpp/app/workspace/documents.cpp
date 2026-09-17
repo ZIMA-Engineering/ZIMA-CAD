@@ -236,6 +236,7 @@ bool AssemblyWorkspaceWindow::open_document_path(const QString& path) {
     begin_status_operation(tr("Otevírám %1…").arg(
         QString::fromStdString(zima::document::path_to_utf8(opened_path.filename()))));
     try {
+        workspace_.reserve_file(opened_path);
         std::string id;
         if (const auto already_open = workspace_.document_id_for_path(opened_path)) {
             update_status_operation(tr("Aktivuji již otevřený dokument…"));
@@ -252,7 +253,8 @@ bool AssemblyWorkspaceWindow::open_document_path(const QString& path) {
                 case workspace::NativeDocumentType::Drawing:
                     update_status_operation(tr("Čtu výkres, listy a pohledy…"),-1,0);break;
             }
-            auto loaded=run_background_task([opened_path] { return workspace::read_native_document(opened_path); });
+            const auto sources=type==workspace::NativeDocumentType::Assembly ? workspace::native_source_resolver(workspace_) : zima::assembly::AssemblyDocument::SourceResolver{};
+            auto loaded=run_background_task([opened_path,sources] { return workspace::read_native_document(opened_path,sources); });
             switch(type) {
                 case workspace::NativeDocumentType::Part:
                     update_status_operation(tr("Vkládám Part do pracovního prostoru…"));break;
@@ -271,7 +273,7 @@ bool AssemblyWorkspaceWindow::open_document_path(const QString& path) {
         return false;
     }
     if (!opened_path.parent_path().empty()) {
-        working_directory_ = opened_path.parent_path();
+        change_working_directory(opened_path.parent_path());
     }
     update_status_operation(tr("Připravuji strom a View…"));
     finish_document_switch(true);
@@ -296,13 +298,21 @@ void AssemblyWorkspaceWindow::finish_document_switch(bool opening) {
     refresh_tabs();refresh_scene();
 }
 
+void AssemblyWorkspaceWindow::synchronize_instance_files() {
+    QStringList reserved_paths;
+    for(const auto& state:workspace_.documents())std::visit([&](const auto& value) {
+        if(!value.path.empty())reserved_paths.push_back(QString::fromStdString(document::path_to_utf8(value.path)));
+    },state);
+    instance_.retain_files(reserved_paths);
+}
 void AssemblyWorkspaceWindow::refresh_tabs() {
+    synchronize_instance_files();
     tabs_->blockSignals(true);
     while (tabs_->count() > 0) tabs_->removeTab(0);
     int displayed_index = -1;
     QString displayed_label = tr("Bez dokumentu");
-    for (const auto& state : workspace_.documents()) {
-        std::visit([&](const auto& document) {
+    for (auto& state : workspace_.documents()) {
+        std::visit([&](auto& document) {
             using State = std::decay_t<decltype(document)>;
             if constexpr(std::is_same_v<State,zima::workspace::DrawingState>) {
                 const QString label = document.path.empty()
@@ -317,6 +327,8 @@ void AssemblyWorkspaceWindow::refresh_tabs() {
                 }
             } else {
                 const auto& model = document.session.document();
+                if(model.document_id==workspace_.displayed_document_id())document.background_import_source=false;
+                if(document.background_import_source)return;
                 const QString label = document.path.empty()||!model.family.parent_id.empty()
                     ? QString::fromStdString(model.name)
                     : QString::fromStdString(zima::document::path_to_utf8(document.path.filename()));

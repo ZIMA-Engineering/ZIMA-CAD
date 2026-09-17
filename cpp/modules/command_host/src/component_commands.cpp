@@ -107,7 +107,7 @@ void Host::register_component_commands() {
         try {
             const auto opened=workspace::open_component_source(workspace_,top,assembly::InstancePath::decode(args["instance_path"].get<std::string>()),
                 [this](auto task){io(std::move(task));},[this](const auto& path){if(options_.progress)options_.progress(Activity::Read,path);});
-            activate(opened.document_id);if(!opened.path.empty())directory_=opened.path.parent_path();
+            activate(opened.document_id);if(!opened.path.empty())change_directory(opened.path.parent_path());
             change_=Change{ChangeKind::Open,opened.document_id,true};
             return Result::success({{"document",opened.document_id},{"path",document::path_to_utf8(opened.path)},{"source_instance_path",opened.source_instance_path.encoded()},{"opened",opened.opened}});
         }catch(const workspace::ComponentOperationError& e){return Result::failure(e.code,tr(e.what()));}

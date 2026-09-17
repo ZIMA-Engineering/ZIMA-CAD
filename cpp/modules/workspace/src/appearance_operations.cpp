@@ -1,5 +1,6 @@
 #include <zima/workspace/appearance_operations.hpp>
 #include <zima/document/metadata.hpp>
+#include <zima/document/component_source.hpp>
 #include <algorithm>
 namespace zima::workspace {
 namespace {
@@ -53,10 +54,7 @@ void validate_edit(const Workspace& live,const AppearanceEdit& edit,const kernel
 }
 }
 kernel::Appearance part_appearance(const document::PartDocument& doc) {
-    auto a=doc.appearance;original_colors(a,doc.body_color,doc.face_colors);a.owner_bodies.clear();
-    for(const auto& feature:doc.history)if(const auto* body=doc.body_history.owner(feature.id))a.owner_bodies[feature.id]=body->scope.id;
-    for(const auto& body:doc.body_history.bodies())if(body.derived_copy)a.owner_bodies[body.scope.id]=body.scope.id;
-    return a;
+    return document::component_appearance(doc);
 }
 kernel::Appearance occurrence_appearance(const Workspace& live,const assembly::PartOccurrence& component) {
     auto value=component.appearance;

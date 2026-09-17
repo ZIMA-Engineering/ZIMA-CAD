@@ -22,7 +22,7 @@ public:
     bool rebase_native_files(std::span<const document::FileRelocation>);
     void write(const std::filesystem::path& target) const;
 private:
-    friend PreparedNativeDocument read_native_document(const std::filesystem::path&);
+    friend PreparedNativeDocument read_native_document(const std::filesystem::path&, const assembly::AssemblyDocument::SourceResolver&, bool);
     friend PreparedNativeDocument prepare_new_native_document(NativeDocumentType, const std::string&,
         const std::filesystem::path&, const NativeTemplateSettings&, const std::map<std::string,std::string>&);
     friend std::string insert_native_document(Workspace&, PreparedNativeDocument);
@@ -33,7 +33,10 @@ private:
     PreparedNativeDocument() = default;
 };
 // Read/preparation can run without Workspace or Qt. Neither writes a file.
-[[nodiscard]] PreparedNativeDocument read_native_document(const std::filesystem::path& path);
+// Captures immutable open-document data on the owner thread for background reads.
+[[nodiscard]] assembly::AssemblyDocument::SourceResolver native_source_resolver(const Workspace&);
+[[nodiscard]] PreparedNativeDocument read_native_document(const std::filesystem::path& path,
+    const assembly::AssemblyDocument::SourceResolver& resolver = {}, bool resolve_sources = true);
 [[nodiscard]] PreparedNativeDocument prepare_new_native_document(NativeDocumentType type,
     const std::string& name, const std::filesystem::path& target,
     const NativeTemplateSettings& settings, const std::map<std::string,std::string>& units = {});

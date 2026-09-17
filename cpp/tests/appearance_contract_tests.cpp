@@ -1,4 +1,5 @@
 #include "appearance_dialog.hpp"
+#include <zima/document/component_source.hpp>
 #include <QApplication>
 #include <QDialogButtonBox>
 #include <QElapsedTimer>
@@ -78,13 +79,14 @@ int main(int argc, char **argv) {
     occurrence.occurrence_id = "instance";
     occurrence.name = "Part";
     occurrence.source_document_id=part.document_id;
+    occurrence.source_path="appearance.prtz";
     occurrence.appearance = a;
     occurrence.appearance_override = a;
     assembly.components.push_back(occurrence);
     assembly.save((dir.path() + "/appearance.asmz").toStdString());
     auto loaded = assembly::AssemblyDocument::load(
         (dir.path() + "/appearance.asmz").toStdString());
-    require(loaded.components.at(0).appearance == a &&
+    require(loaded.components.at(0).appearance == document::component_appearance(part) &&
                 loaded.components.at(0).appearance_override == a,
             "Occurrence persistence");
     QWidget owner;

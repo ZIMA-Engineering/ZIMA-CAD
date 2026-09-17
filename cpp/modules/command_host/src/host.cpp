@@ -146,15 +146,17 @@ void Host::register_commands(){
         try{static_cast<void>(workspace::native_document_type(path));}
         catch(const std::invalid_argument&){return Result::failure("unsupported_format",tr("Konzole otevírá soubory prtz, asmz a drwz."));}
         if(options_.progress)options_.progress(Activity::Read,path);
+        workspace_.reserve_file(path);
         std::string id;
         if(const auto opened=workspace_.document_id_for_path(path))id=*opened;
         else {
             std::optional<workspace::PreparedNativeDocument> prepared;
-            io([&]{prepared=workspace::read_native_document(path);});
+            const auto sources=workspace::native_document_type(path)==workspace::NativeDocumentType::Assembly ? workspace::native_source_resolver(workspace_) : assembly::AssemblyDocument::SourceResolver{};
+            io([&]{prepared=workspace::read_native_document(path,sources);});
             if(!prepared)throw std::runtime_error("I/O runner did not complete native reading");
             id=workspace::insert_native_document(workspace_,std::move(*prepared));
         }
-        activate(id);directory_=path.parent_path();change_=Change{ChangeKind::Open,id};
+        activate(id);change_directory(path.parent_path());change_=Change{ChangeKind::Open,id};
         return Result::success(documents(workspace_));
     });
     dispatcher_.add({"new",tr("Nový dokument: new part|assembly|drawing název."),{{"type",true},{"name",true}},true},[this](const Json& args){
@@ -183,7 +185,7 @@ void Host::register_commands(){
         if(!saved)throw std::runtime_error("I/O runner did not complete native writing");
         if(!workspace::complete_document_save(workspace_,*saved))
             throw std::runtime_error(tr("Uložený dokument byl mezitím zavřen nebo změnil cestu."));
-        directory_=path.parent_path();change_=Change{ChangeKind::Save,id};
+        change_directory(path.parent_path());change_=Change{ChangeKind::Save,id};
         return Result::success(documents(workspace_));
     });
     dispatcher_.add({"regenerate",tr("Výslovně regenerovat aktivní model."),{{"document",false}},true},[this](const Json& args){

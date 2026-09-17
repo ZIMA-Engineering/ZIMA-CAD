@@ -5,8 +5,8 @@
 namespace zima::workspace {
 struct AssemblyImportOptions {
     PartImportOptions geometry;
-    // Empty output_directory selects a new unique source-name directory next
-    // to the owner, or under working_directory for an unsaved owner.
+    // Empty output_directory writes collision-free source-prefixed files directly
+    // in working_directory. An explicit output_directory reserves a new directory.
     std::filesystem::path output_directory, working_directory;
     std::optional<NativeTemplateSettings> templates;
 };
@@ -17,7 +17,7 @@ struct AssemblyImportReport {
     std::vector<std::filesystem::path> files;
     interchange::DxfImportResult dxf;
 };
-// Creates native source files in a newly reserved directory, then inserts one
+// Creates native source files in the destination directory, then inserts one
 // occurrence into the immediate owner. Failure removes only this operation's
 // files. The runner completes synchronously and never accesses the live Workspace.
 [[nodiscard]] AssemblyImportReport import_assembly(Workspace&, const std::string& owner,

@@ -2,6 +2,12 @@
 #include <zima/assembly/file_relocation.hpp>
 #include <zima/drawing/file_relocation.hpp>
 #include <zima/document/body_origin_attachment.hpp>
+#include <zima/document/component_source.hpp>
+#include <zima/document/physical_properties.hpp>
+#include <zima/workspace/appearance_operations.hpp>
+#include <zima/assembly/physical_properties.hpp>
+#include <set>
+#include <nlohmann/json.hpp>
 #include <algorithm>
 #include <cctype>
 #include <stdexcept>
@@ -82,7 +88,80 @@ void PreparedNativeDocument::write(const std::filesystem::path& target) const {
         else value.save(target);
     }, document_);
 }
-PreparedNativeDocument read_native_document(const std::filesystem::path& path) {
+assembly::AssemblyDocument::SourceResolver native_source_resolver(const Workspace& live) {
+    struct Sources {
+        std::map<std::string,assembly::PartOccurrence> parts;
+        std::map<std::string,document::FamilyDocument> part_families;
+        std::map<std::string,std::pair<assembly::AssemblyDocument,std::filesystem::path>> assemblies;
+        std::set<std::string> visiting;
+        bool resolve(assembly::PartOccurrence& component) {
+            const auto separator=component.source_document_id.find(":family:");
+            if(separator!=std::string::npos && !parts.contains(component.source_document_id) && !assemblies.contains(component.source_document_id)) {
+                const auto parent=component.source_document_id.substr(0,separator);
+                if(const auto family=part_families.find(parent);family!=part_families.end()) {
+                    for(const auto& [row,packet]:family->second.evaluated)if(packet->at("document_id")==component.source_document_id) {
+                        std::vector<kernel::BodyResult> cache;
+                        const auto doc=document::PartDocument::from_serialized(*packet,&cache);
+                        auto source=assembly::AssemblyDocument::create_part_occurrence(doc.name,doc.document_id,component.source_path,document::component_source(doc,cache));
+                        source.body_color=doc.body_color;source.face_colors=doc.face_colors;source.appearance=part_appearance(doc);
+                        source.density_kg_mm3=document::material_density_kg_mm3(doc);source.mass_volume_mm3=std::abs(source.calculated_source->volume);
+                        parts.emplace(doc.document_id,std::move(source));break;
+                    }
+                    if(!parts.contains(component.source_document_id))throw std::runtime_error("Open Part family has no requested evaluated member");
+                } else if(const auto base=assemblies.find(parent);base!=assemblies.end()) {
+                    for(const auto& [row,packet]:base->second.first.family.evaluated)if(packet->at("document_id")==component.source_document_id) {
+                        assemblies.emplace(component.source_document_id,std::pair{assembly::AssemblyDocument::from_serialized(*packet),base->second.second});break;
+                    }
+                    if(!assemblies.contains(component.source_document_id))throw std::runtime_error("Open Assembly family has no requested evaluated member");
+                }
+            }
+            if(const auto found=parts.find(component.source_document_id);found!=parts.end()) {
+                if(component.source_kind!=assembly::ComponentSourceKind::Part)throw std::runtime_error("Component source type mismatch");
+                const auto& source=found->second;
+                component.calculated_source=source.calculated_source;
+                component.body_color=source.body_color;component.face_colors=source.face_colors;
+                component.appearance=source.appearance;component.density_kg_mm3=source.density_kg_mm3;
+                component.mass_volume_mm3=source.mass_volume_mm3;
+                return true;
+            }
+            const auto found=assemblies.find(component.source_document_id);
+            if(found==assemblies.end())return false;
+            if(component.source_kind!=assembly::ComponentSourceKind::Assembly)throw std::runtime_error("Component source type mismatch");
+            if(!visiting.insert(component.source_document_id).second)throw std::runtime_error("Cyclic open Assembly source dependency");
+            auto nested=found->second.first;
+            try {nested.hydrate_sources(found->second.second,[this](auto& value){return resolve(value);});}
+            catch(...) {visiting.erase(component.source_document_id);throw;}
+            visiting.erase(component.source_document_id);
+            const auto source=assembly::AssemblyDocument::create_assembly_occurrence(component.name,component.source_document_id,found->second.second,nested);
+            component.calculated_source=source.calculated_source;component.nested_snapshot=source.nested_snapshot;
+            assembly::capture_nested_mass(component,nested);
+            return true;
+        }
+    };
+    auto sources=std::make_shared<Sources>();
+    for(const auto& state:live.documents())std::visit([&](const auto& value) {
+        using T=std::decay_t<decltype(value)>;
+        if constexpr(std::is_same_v<T,PartState>) {
+            const auto& doc=value.session.document();
+            sources->part_families.emplace(doc.document_id,doc.family);
+            kernel::BodySnapshot snapshot;
+            if(value.source_geometry && value.source_generation==value.session.data_generation())snapshot=*value.source_geometry;
+            else {
+                auto body=document::component_source(doc,value.session.calculated_boundaries());
+                body.body_boundaries.clear();body.body_inputs.clear();snapshot=std::move(body);
+            }
+            auto source=assembly::AssemblyDocument::create_part_occurrence(doc.name,doc.document_id,value.path,std::move(snapshot));
+            source.body_color=doc.body_color;source.face_colors=doc.face_colors;source.appearance=part_appearance(doc);
+            source.density_kg_mm3=document::material_density_kg_mm3(doc);source.mass_volume_mm3=std::abs(source.calculated_source->volume);
+            sources->parts.emplace(doc.document_id,std::move(source));
+        } else if constexpr(std::is_same_v<T,AssemblyState>) {
+            sources->assemblies.emplace(value.session.document().document_id,std::pair{value.session.document(),value.path});
+        }
+    },state);
+    return [sources](auto& component){return sources->resolve(component);};
+}
+
+PreparedNativeDocument read_native_document(const std::filesystem::path& path, const assembly::AssemblyDocument::SourceResolver& resolver, bool resolve_sources) {
     PreparedNativeDocument prepared;prepared.path_=path;
     switch(native_document_type(path)) {
         case NativeDocumentType::Part: {
@@ -90,7 +169,7 @@ PreparedNativeDocument read_native_document(const std::filesystem::path& path) {
             part.document=document::PartDocument::load(path,&part.boundaries);
             prepared.document_=std::move(part);break;
         }
-        case NativeDocumentType::Assembly: prepared.document_=assembly::AssemblyDocument::load(path);break;
+        case NativeDocumentType::Assembly: prepared.document_=assembly::AssemblyDocument::load(path,resolver,resolve_sources);break;
         case NativeDocumentType::Drawing: prepared.document_=drawing::DrawingDocument::load(path);break;
     }
     return prepared;

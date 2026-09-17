@@ -1,8 +1,129 @@
 # Assembly and Drawing geometry sharing
 
-Current native versions after [exact spline projections](SKETCH_EXACT_PROJECTION.md)
-are Part 18, Assembly 15 and Drawing 14. The version numbers in the
-implementation history below identify the earlier sharing changes.
+The version numbers in the implementation history below identify historical
+sharing changes; the serializers and start templates define current versions.
+
+## Source storage audit (2026-09-17)
+
+The audit below records the previous implementation. The subsequent implementation
+uses Assembly INI version 25 / payload version 37 and the updated start template.
+Ordinary components persist source paths and IDs, occurrence placement, references
+and properties. Their `operation_geometry` is null and their nested snapshot is
+empty. `operation_geometries` contains only results owned by Assembly cuts or
+derived-copy operations. Cut inputs remain persisted for rollback/editing without
+recalculation. No source revision/cache sidecars are introduced.
+
+`AssemblyDocument::load` hydrates ordinary components from native dependencies,
+recursively and with sharing between repeated sources. Hydration uses saved Part
+calculation packets and builds viewer scenes; it never invokes OCCT, solves mates
+or regenerates operations. It checks native source identity and dependency cycles.
+Missing files retain an unresolved occurrence in the tree instead of loading an
+embedded fallback or preventing the entire Assembly from opening. GUI/CLI Open
+captures an immutable source resolver so open
+unsaved documents take precedence over disk. Metadata-only rename staging reads
+definitions without hydrating dependency paths that have not moved yet.
+
+The source snapshot remains an in-memory display/calculation handle. It is not
+serialized for ordinary occurrences. Assembly-owned results retain their last
+explicit calculation while source-only occurrences display current native data.
+The required native dependency files must accompany a shared/moved project.
+Legacy Assembly payloads are intentionally unsupported.
+
+The component context menu exposes **Source file…** (`Zdrojový soubor…`). Activate
+the immediate owning Assembly first, then select the relocated native document.
+The command validates its document identity, updates repeated references to that
+source in the owner, and preserves occurrence IDs, placement, mates and calculated
+Assembly-owned results. It is one undoable owner transaction, opens no additional
+tabs and performs no modeling calculation. A different source identity is rejected;
+replacing a component is a separate command. Save the owner to persist repaired
+paths. A missing subassembly exposes its own unresolved row; its children become
+available after its source has been located.
+
+### Verification of reference-only storage
+
+The regression coverage checks native STEP/IGES file creation and independent
+reload, repeated-source sharing, nested relative paths, open unsaved source
+authority, Assembly-owned cut persistence, missing-source recovery, identity
+rejection, Undo/Redo, family-member hydration and dependency-cycle rejection.
+The GUI component-properties contract also checks the unresolved tree row and
+the enabled localized **Source file…** context action. Import source documents
+remain hidden from the tab bar until explicitly opened.
+
+The broad Windows CTest audit exercised all 190 registered tests. Stale fixtures
+that expected embedded component geometry were changed to save real native
+dependencies. The audit is not an all-green certification: remaining failures
+include a bounded construction Axis, a shared title-block dimension, a
+Universal Dimension two-segment interaction and parallel application-instance
+numbering (also reproduced in isolation, then resolved by the instance-isolation
+change described in `MULTIPLE_INSTANCES.md`). After the STL fixture was repaired,
+the comprehensive console GUI contract progressed to a Family Table fixture
+failure (`LENGTH`: invalid family column reference). The other four failures remain
+open; their causes have not all been established. The dedicated Sketch dimension-entry,
+Bend attachment and edge-treatment GUI contracts passed. Detailed build/test logs
+are retained locally under `build/assembly-storage-*` and
+`build/assembly-reference-*`; they are generated artifacts, not native document
+dependencies.
+
+After the final source/family changes, all 33 selected console regression tests
+passed (`build/assembly-storage-completion-tests.log`). The Windows Release build
+and the additional cached-family hydration assertion also built successfully.
+The final component-properties and Assembly-refresh GUI reruns passed; the
+console GUI rerun failed at the Family Table case described above
+(`build/assembly-storage-completion-gui-tests.log`).
+
+Scope: distinguish authoritative native sources, derived display data and
+Assembly-owned operation boundaries before changing persistence.
+
+Verified baseline before the reference-only change:
+
+- `AssemblyDocument::serialized` stores component source paths and identities,
+  placements and occurrence properties, plus a `source_geometries` table.
+  Table entries are deduplicated by shared `BodyResult` address within this
+  document, not across native files. Their packets include `kernel_shape`,
+  viewer geometry and original references. Part history is excluded, but
+  nested `body_outputs` are recursively included as table references.
+- `calculated_source` currently serves two roles: current source geometry for
+  ordinary occurrences and the calculated result of Assembly-owned operations.
+  Removing the table indiscriminately would lose those operation results.
+- Cuts persist their definitions, target occurrence IDs and
+  `input_component_bodies`. These inputs capture every component at the operation
+  boundary and support Properties rollback without OCCT. They cannot simply be
+  replaced with the latest source data: that would change the historical input
+  shown while editing an already calculated operation.
+- `Workspace::refresh_source_geometry` consumes open source documents first,
+  otherwise native files. It deliberately skips cut targets and derived copies,
+  retaining calculated operation results until explicit regeneration. Missing
+  ordinary source files currently leave embedded geometry available; changing to
+  references-only storage therefore also requires explicit missing-source handling.
+- `CachedBodies.data` in Assembly INI is empty; actual packets are in the packed
+  Assembly document payload. Looking at that INI section alone does not establish
+  that an Assembly contains references only.
+
+Redesign recommended by the audit and subsequently implemented above: represent source handles
+and Assembly operation results separately; hydrate ordinary source geometry from
+native dependencies without OCCT; retain Assembly-owned results and the input
+boundaries needed for rollback. Audit nested snapshots and derived copies under
+the same ownership rule. Resolve dependencies for all document consumers, not
+only GUI refresh. Keep open unsaved source documents authoritative, stable
+occurrence paths, explicit regeneration and native-only persistence. Update
+format versions and start templates together when implementing this change.
+
+### Import files and discoverability
+
+`import_assembly` saves native Parts and subassemblies before publishing the
+insertion. Following the user's correction during this audit, the default now
+writes directly in the working directory regardless of the owner's save path.
+STEP preserves unique definitions and repeated occurrences; IGES creates a native
+Part. Filenames use the import stem and `part-N` / `assembly-N`, with collision
+suffixes. Explicit CLI output directories retain their existing contract.
+Suppressing automatic tabs does not suppress these writes. Existing imports in
+subdirectories are not moved, so their persisted references remain valid.
+
+The Open dialog accepts native Part and Assembly extensions and does not list
+subdirectory contents recursively. Its current import completion message reports
+counts but not the destination directory, which makes these files less obvious.
+The import regression checks file existence and independently reloads every STEP
+source and the IGES source, verifying their document identities.
 
 ## Verified baseline, 2026-09-11
 

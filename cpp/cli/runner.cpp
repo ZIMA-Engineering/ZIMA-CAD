@@ -1,5 +1,7 @@
 #include "runner.hpp"
 #include "settings.hpp"
+#include "../app/application_instance.hpp"
+#include <zima/document/file_path.hpp>
 #include <QGuiApplication>
 #include <memory>
 #include <fstream>
@@ -94,8 +96,12 @@ int run(const std::vector<std::string>& arguments,const fs::path& executable,
         char* graphics_argv[]={app_name,platform_option,platform_name,nullptr};
         std::unique_ptr<QGuiApplication> graphics;
         if(!QCoreApplication::instance())graphics=std::make_unique<QGuiApplication>(graphics_argc,graphics_argv);
+        app::ApplicationInstance instance;
+        instance.set_directory(QString::fromStdString(document::path_to_utf8(options.working)));
         workspace::Workspace workspace;kernel::OcctKernel kernel;
+        workspace.file_reservation=[&](const auto& path){instance.reserve_file(QString::fromStdString(document::path_to_utf8(path)));};
         command_host::Options adapters;
+        adapters.reserve_directory=[&](const auto& path){instance.set_directory(QString::fromStdString(document::path_to_utf8(path)));};
         adapters.settings=[&]{return settings.documents;};
         adapters.translate=[&](const char* source){return settings.translate(source);};
         command_host::Host host(workspace,kernel,options.working,std::move(adapters));
@@ -110,6 +116,11 @@ int run(const std::vector<std::string>& arguments,const fs::path& executable,
                 catch(const commands::Json::exception&){result=Result::failure("invalid_utf8","Command must be UTF-8.");}
                 if(result.code.empty())result=host.execute_text(text);
             }
+            QStringList paths;
+            for(const auto& state:workspace.documents())std::visit([&](const auto& value){
+                if(!value.path.empty())paths.push_back(QString::fromStdString(document::path_to_utf8(value.path)));
+            },state);
+            instance.retain_files(paths);
             std::string record;
             try{record=result.json().dump();}
             catch(const commands::Json::exception&){

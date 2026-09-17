@@ -860,6 +860,7 @@ void AssemblyWorkspaceWindow::add_snapshot_tree_children(
         const bool suppressed = ancestor_suppressed ||
             component.manually_suppressed || component.dependency_suppressed;
         QString label = QString::fromStdString(component.name);
+        if(component.source_missing)label+=tr(" [chybí zdrojový soubor]");
         if (component.manually_suppressed) label += tr(" [potlačeno]");
         else if (suppressed) {
             label += tr(" [potlačeno závislostí]");
@@ -867,6 +868,7 @@ void AssemblyWorkspaceWindow::add_snapshot_tree_children(
         else if (!component.visible) label += tr(" [skryto]");
         if (component.grounded && component.derived_source_id.empty()) label += tr(" [uzemněno]");
         auto* item = new QTreeWidgetItem(parent, {label});
+        if(component.source_missing)item->setToolTip(0,tr("Zdrojový soubor nebyl nalezen. Použijte příkaz Zdrojový soubor… v kontextovém menu komponenty."));
         item->setIcon(0, resource_icon(component.source_kind == zima::assembly::ComponentSourceKind::Assembly
             ? "assembly" : "part"));
         const auto path = parent_path.child(component.occurrence_id);

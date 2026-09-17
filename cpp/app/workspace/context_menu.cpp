@@ -3,6 +3,7 @@
 #include <zima/workspace/component_source_operations.hpp>
 #include <zima/workspace/component_operations.hpp>
 #include <zima/document/file_path.hpp>
+#include "../file_dialog.hpp"
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -212,6 +213,9 @@ void AssemblyWorkspaceWindow::show_component_context_menu(
         QMenu menu(this);
         auto* open=menu.addAction(resource_icon("open"),tr("Otevřít"));
         open->setObjectName("openComponentSourceAction");
+        auto* locate=menu.addAction(tr("Zdrojový soubor…"));
+        locate->setObjectName("componentSourceFileAction");locate->setEnabled(false);
+        locate->setToolTip(tr("Nejprve aktivujte sestavu, která tuto komponentu vlastní."));
         auto* properties=source!=path?menu.addAction(tr("Vlastnosti zdroje")):nullptr;
         auto* parent=menu.addAction(tr("Vybrat rodiče"));
         parent->setObjectName("selectParentOccurrenceAction");
@@ -232,6 +236,10 @@ void AssemblyWorkspaceWindow::show_component_context_menu(
     QMenu menu(this);
     auto* open = menu.addAction(resource_icon("open"),tr("Otevřít"));
     open->setObjectName("openComponentSourceAction");
+    auto* source_file=menu.addAction(tr("Zdrojový soubor…"));
+    source_file->setObjectName("componentSourceFileAction");
+    source_file->setEnabled(!occurrence->derived_copy && address->owner_assembly_document_id==workspace_.active_document_id());
+    source_file->setToolTip(tr("Vyhledejte původní zdrojový soubor. Pro jiný díl použijte Replace."));
     auto* select_parent = menu.addAction(tr("Vybrat rodiče"));
     select_parent->setObjectName("selectParentOccurrenceAction");
     auto* activate_or_deactivate = is_active_occurrence
@@ -256,6 +264,17 @@ void AssemblyWorkspaceWindow::show_component_context_menu(
     auto* remove = menu.addAction(tr("Odstranit"));
     remove->setObjectName("removeComponentAction");
     const QAction* selected = menu.exec(global_position);
+    if(selected==source_file) {
+        const auto path=open_file(this,tr("Zdrojový soubor"),QString::fromStdString(zima::document::path_to_utf8(working_directory_)),
+            source_is_assembly?tr("Sestavy ZIMA-CAD (*.asmz)"):tr("Díly ZIMA-CAD (*.prtz)"));
+        if(path.isEmpty())return;
+        try {
+            zima::workspace::relink_component_source(workspace_,address->owner_assembly_document_id,address->occurrence_id,
+                std::filesystem::u8path(path.toStdString()),[](auto task){run_background_task(std::move(task));});
+            refresh_scene();
+        } catch(const std::exception& error){QMessageBox::warning(this,tr("Zdrojový soubor"),tr(error.what()));}
+        return;
+    }
     if(selected==open) {
         if(!open_component_source(instance_path)) state_->setText(tr("Zdrojový dokument komponenty nelze otevřít."));
         return;

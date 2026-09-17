@@ -41,18 +41,37 @@ Body or component. Suppressing a subtractive feature removes its cut. Columns
 cannot independently control both a Body's presence and presence of its own
 features, which would make the result depend on column order.
 
-Double-click an instance name (or use its **Open instance** context action) to
+Use the Open icon in an instance's row header (or its **Open instance** context action) to
 commit the table and open the calculated variant in a separate tab. Generation
 uses a private draft and validates the resulting history before inserting or
 updating that tab. Invalid dimensions, unsolved Sketches and unavailable required
 references leave the generic geometry and existing variant unchanged.
 
+Row delete/entry indicators occupy the first table cell, using the same indicator
+widgets as Container Placement. The row header is reserved for Open; double-click
+the instance name to edit it normally. The generic row cannot be deleted and one
+blank instance row remains available. Material, Parameters and Relations use the
+same first-cell actions with numbered row headers.
+
 ## Linked models, saving and drawings
+
+The 2026-09-17 row-layout change was verified with the entry-table and general UI
+contracts, Family Table data and GUI contracts, native file-rename contract, and a
+dedicated GUI rename contract covering Part and Assembly instances. The latter
+uses the actual Rename dialog and Family Table editor, checks tab labels and
+stable row/document IDs, and verifies that native file paths do not change.
+Screenshots of all four entry tables were inspected after the first-cell controls
+were moved; superseded cell widgets are hidden immediately during refresh.
 
 Each instance is a linked view of one row in its parent Part or Assembly. Its
 stable identity is the parent document ID plus the row ID. Renaming a row changes
 its display name, never its identity. An instance cannot own another family;
 opening Family Table from an instance edits the parent's table and opens siblings.
+**Rename** on an open instance edits that row's name and immediately updates the
+tab; it does not rename the parent's native file. Editing the name in Family Table
+updates any already open instance tab after OK. Both directions preserve the row
+and document IDs and reuse calculated geometry. Native `rename_file` rejects a
+family member; use its name or rename the generic file explicitly.
 
 Corresponding features, Sketch curves and their semantic topology ancestry retain
 their identities across variants, qualified by the instance document identity.

@@ -94,7 +94,7 @@ void AssemblyWorkspaceWindow::insert_component_from_file() {
             throw std::runtime_error("Komponenta musí být Part nebo sestava.");
         }
         if (!source_path.parent_path().empty()) {
-            working_directory_ = source_path.parent_path();
+            change_working_directory(source_path.parent_path());
         }
         choose_component_variant(source_id);
     } catch (const std::exception& error) {

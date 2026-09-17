@@ -536,6 +536,7 @@ nlohmann::json serialize_body_result(const zima::kernel::BodyResult& result, boo
                     : dimension.kind == zima::kernel::ViewerDimensionKind::Diameter
                         ? "diameter" : "linear"},
             {"plane_normal", serialize_vec3(dimension.plane_normal)},
+            {"measurement_direction",dimension.measurement_direction?serialize_vec3(*dimension.measurement_direction):nlohmann::json(nullptr)},
             {"sweep_degrees", dimension.sweep_degrees},
             {"arrows_reversed", dimension.arrows_reversed},
             {"radius_center_line_hidden", dimension.radius_center_line_hidden},
@@ -802,6 +803,7 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source) {
             : kind == "diameter" ? zima::kernel::ViewerDimensionKind::Diameter
                                  : zima::kernel::ViewerDimensionKind::Linear;
         loaded.plane_normal = load_vec3(dimension.at("plane_normal"));
+        if(!dimension.at("measurement_direction").is_null())loaded.measurement_direction=load_vec3(dimension.at("measurement_direction"));
         loaded.sweep_degrees = dimension.at("sweep_degrees").get<double>();
         loaded.arrows_reversed = dimension.value("arrows_reversed", false);
         loaded.radius_center_line_hidden = dimension.value("radius_center_line_hidden", false);

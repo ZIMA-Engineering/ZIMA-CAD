@@ -195,15 +195,18 @@ int main() {
                     start_part_template.physical_parameters.contains(
                         "STRESS_LIMIT_FOR_TENSION"),
                 "Start Part template is stale or has no complete S235JR assignment");
-        const auto fixture_dir = std::filesystem::current_path() /
-            "tests/fixtures/cross_language";
+        const auto fixture_file = std::filesystem::temp_directory_path() / "zima-native-part-fixture.prtz";
+        auto native_fixture=zima::document::PartDocument::create_default();
+        native_fixture.document_id="part-fixture-001";native_fixture.name="Fixture Part";
+        native_fixture.save(fixture_file);
         std::vector<zima::kernel::BodyResult> fixture_boundaries;
         const auto fixture_part = zima::document::PartDocument::load(
-            fixture_dir / "part.prtz", &fixture_boundaries);
+            fixture_file, &fixture_boundaries);
+        std::filesystem::remove(fixture_file);
         require(fixture_part.document_id == "part-fixture-001" &&
                     fixture_part.name == "Fixture Part" &&
                     fixture_boundaries.empty(),
-                "Python Part fixture identity or cache boundary is invalid");
+                "Native Part fixture identity or cache boundary is invalid");
         zima::kernel::OcctKernel kernel;
         {
             const auto path = std::filesystem::temp_directory_path() / "zima-step-precision.step";
@@ -1918,10 +1921,10 @@ int main() {
             (std::istreambuf_iterator<char>(empty_serialized)),
             std::istreambuf_iterator<char>());
         require(empty_text.find("[Document]\n") != std::string::npos &&
-                    empty_text.find("format_version=26\n") != std::string::npos &&
+                    empty_text.find("format_version=31\n") != std::string::npos &&
                     empty_text.find("[DocumentUnits]\n") != std::string::npos &&
                     empty_text.find("[UserParameterValues]\n") != std::string::npos,
-                "Part persistence did not write the Python-compatible INI sections");
+                "Part persistence did not write the current native INI sections");
         const auto empty_loaded = zima::document::PartDocument::load(empty_path);
         empty_serialized.close();
         std::filesystem::remove(empty_path);

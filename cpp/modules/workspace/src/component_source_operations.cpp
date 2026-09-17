@@ -2,6 +2,38 @@
 #include <zima/workspace/native_documents.hpp>
 #include <zima/workspace/family_operations.hpp>
 namespace zima::workspace {
+void relink_component_source(Workspace& live,const std::string& owner,const std::string& occurrence,
+    const std::filesystem::path& requested,const std::function<void(std::function<void()>)>& runner) {
+    const auto* state=live.open_assembly(owner);
+    if(!state || live.active_document_id()!=owner)throw ComponentOperationError("inactive_owner","Activate the owning Assembly before changing a source file.");
+    const auto* selected=state->session.document().find_occurrence(occurrence);
+    if(!selected || selected->derived_copy)throw ComponentOperationError("invalid_occurrence","Select an original immediate component.");
+    const auto source_id=selected->source_document_id;
+    const auto parent_id=source_id.substr(0,source_id.find(":family:"));
+    const auto expected=selected->source_kind==assembly::ComponentSourceKind::Part?NativeDocumentType::Part:NativeDocumentType::Assembly;
+    const auto path=std::filesystem::absolute(requested).lexically_normal();
+    const auto identity=state->runtime_identity;
+    const auto revision=state->session.revision(),generation=state->session.data_generation();
+    auto candidate=state->session.document();const auto owner_path=state->path;
+    const auto sources=native_source_resolver(live);
+    std::optional<PreparedNativeDocument> prepared;
+    const auto read=[&] {
+        prepared=read_native_document(path,sources);
+        if(prepared->type()!=expected || prepared->id()!=parent_id)
+            throw ComponentOperationError("source_identity","The selected file is not the original source document. Use Replace to choose a different component.");
+        for(auto& component:candidate.components)if(component.source_document_id==source_id)component.source_path=path;
+        candidate.hydrate_sources(owner_path,sources);
+    };
+    if(runner)runner(read);else read();
+    const auto* current=live.open_assembly(owner);
+    if(!prepared || !current || current->runtime_identity!=identity || current->session.revision()!=revision || current->session.data_generation()!=generation || live.active_document_id()!=owner)
+        throw ComponentOperationError("document_changed","The owning Assembly changed while locating its source file.");
+    if(live.open_part(parent_id)||live.open_assembly(parent_id))live.reserve_file(path);
+    live.open_assembly(owner)->session.commit(std::move(candidate));
+    // The same open native document follows its explicitly selected location.
+    if(auto* part=live.open_part(parent_id))part->path=path;
+    if(auto* assembly=live.open_assembly(parent_id))assembly->path=path;
+}
 namespace {
 std::filesystem::path source_path(const Workspace& workspace,const std::string& id) {
     if(const auto* part=workspace.open_part(id))return part->path;
@@ -57,7 +89,8 @@ ComponentSourceOpen open_component_source(Workspace& workspace,const std::string
     const auto runtime=top->runtime_identity;const auto revision=top->session.revision(),generation=top->session.data_generation();
     if(before_read)before_read(path);
     std::optional<PreparedNativeDocument> prepared;
-    const auto read=[&]{prepared=read_native_document(path);};if(runner)runner(read);else read();
+    const auto sources=expected==NativeDocumentType::Assembly ? native_source_resolver(workspace) : assembly::AssemblyDocument::SourceResolver{};
+    const auto read=[&]{prepared=read_native_document(path,sources);};if(runner)runner(read);else read();
     const auto* current=workspace.open_assembly(top_id);
     if(workspace.active_document_id()!=active || workspace.displayed_document_id()!=displayed || workspace.active_occurrence_path()!=active_path || !current || current->runtime_identity!=runtime || current->session.revision()!=revision || current->session.data_generation()!=generation)
         throw ComponentOperationError("document_changed","The owning Assembly changed while its component source was being opened.");

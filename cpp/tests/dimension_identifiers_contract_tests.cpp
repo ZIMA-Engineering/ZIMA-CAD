@@ -91,8 +91,10 @@ int main() {
         zima::kernel::OcctKernel kernel;
         auto part=zima::document::PartDocument::create_default();
         part.history.push_back(zima::document::PartDocument::create_box_container());
+        const auto source_bodies=kernel.evaluate_history(part.kernel_operations());
+        part.save(directory/"source.prtz",source_bodies);
         auto occurrence=zima::assembly::AssemblyDocument::create_part_occurrence(
-            "Part",part.document_id,"part.prtz",kernel.evaluate_history(part.kernel_operations()).back());
+            "Part",part.document_id,"source.prtz",source_bodies.back());
         occurrence.placement_references.emplace_back();
         occurrence.placement_references.front().offset=0;
         occurrence.placement_references.front().lower_limit=0;

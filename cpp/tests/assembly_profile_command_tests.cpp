@@ -16,6 +16,10 @@ void extrusion(const kernel::OcctKernel& kernel,const fs::path& directory) {
     const auto made=f.run("extrusion.create",{{"sketch",sketch},{"length_forward_mm",4},{"targets",{f.first}}});
     const std::string cut=made.at("container");near(f.volume(f.first),976);near(f.volume(f.second),1000);
     near(f.doc().find_cut(cut)->input_component_bodies.at(f.first).volume,1000);
+    const auto packet=f.doc().serialized();
+    require(!packet.at("components")[0].at("operation_geometry").is_null() && packet.at("components")[1].at("operation_geometry").is_null(),
+        "Assembly did not separate its cut result from the untouched source occurrence");
+    require(!packet.at("operation_geometries").empty() && !packet.contains("source_geometries"),"Assembly cut result was not persisted in its own geometry table");
     require(f.doc().sketches.front().owner_container_id==cut,"Cut did not acquire its own Sketch");
     require(f.live.open_part(f.source)->session.revision()==source_revision,"Assembly cut changed source Part history");
     near(f.live.open_part(f.source)->session.calculated_boundaries().back().volume,1000);

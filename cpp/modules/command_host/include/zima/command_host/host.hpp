@@ -26,6 +26,7 @@ enum class ChangeKind { Open, New, Save, Regenerate, History, Model, Activate, O
 struct Change { ChangeKind kind; std::string document_id; bool clear_selection{}; };
 enum class Activity { Read, Write, Export, Rename };
 struct Options {
+    std::function<void(const std::filesystem::path&)> reserve_directory;
     std::function<Settings()> settings;
     std::function<Interaction()> interaction;
     std::function<std::string(const char*)> translate;
@@ -57,6 +58,11 @@ private:
     const kernel::OcctKernel& kernel_;
     std::filesystem::path& directory_;
     Options options_;
+    void change_directory(const std::filesystem::path& path,bool required=false) {
+        try {if(options_.reserve_directory)options_.reserve_directory(path);}
+        catch(const std::exception&) {if(required)throw;return;}
+        directory_=path;
+    }
     commands::Dispatcher dispatcher_;
     struct SketchEditCommand {
         commands::Command declaration;

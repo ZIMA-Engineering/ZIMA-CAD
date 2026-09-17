@@ -1,5 +1,6 @@
 #include "workspace_internal.hpp"
 #include <zima/command_host/host.hpp>
+#include <zima/document/file_path.hpp>
 #include "command_console.hpp"
 #include "global_settings_dialog.hpp"
 #include <QJsonDocument>
@@ -70,6 +71,7 @@ Result AssemblyWorkspaceWindow::execute_console_command(const QString& text) {
         }
         finish_status_operation(message,result.ok);
     }
+    synchronize_instance_files();
     return result;
 }
 void AssemblyWorkspaceWindow::apply_console_change(const command_host::Change& change){
@@ -102,6 +104,10 @@ void AssemblyWorkspaceWindow::apply_console_change(const command_host::Change& c
 }
 void AssemblyWorkspaceWindow::create_command_console() {
     command_host::Options options;
+    options.reserve_directory=[this](const auto& path) {
+        instance_.set_directory(QString::fromStdString(document::path_to_utf8(path)));
+        setProperty("instanceWorkingDirectory",QString::fromStdString(document::path_to_utf8(path)));
+    };
     options.translate=[this](const char* text){return tr(text).toStdString();};
     options.settings=[this]{
         command_host::Settings result;result.templates=native_template_settings(application_settings_);
