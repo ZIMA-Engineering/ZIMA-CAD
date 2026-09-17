@@ -9,9 +9,10 @@ The approved layout uses a shared root `config/`, replacing the earlier
 Qt/OCCT versions and compiler without creating a window or reading settings.
 The CLI also supports `--version`. The About window displays the same ID.
 
-Windows has a native launcher and a committed-source candidate builder. Linux
-has the equivalent launcher source; its runtime and execution must be completed
-and verified on Linux. Signed updates, restart coordination, startup
+Windows and Linux have native launchers and committed-source candidate builders.
+The unsigned Debian 13 Linux candidate 2026091701 passed native packaging and
+KDE/Wayland smoke; production signing remains pending. See the exact
+[acceptance scope and limitations](releases/2026091701.md). Signed updates, restart coordination, startup
 acknowledgement, recovery and two-version retention are implemented; see
 [Application updates](UPDATES.md) for the UI, signing and acceptance procedure.
 Neither the scripts nor a successful local build publish a release.
@@ -185,12 +186,14 @@ switch selection after application exit and preserve all shared user data.
 
 ## Remaining update and Linux acceptance
 
-- Build/verify the native Linux dependencies and launcher on the Linux host.
+- Native Linux dependencies and launcher are verified in unsigned candidate
+  2026091701; production signing and signed-archive verification remain pending.
 - Platforms may publish independently. If combined, their commits must match;
   published archives are immutable and adding a platform later requires a new ID.
 - Signed Windows releases through `2026091606` are verified and public
   (see below). Future publication remains an explicit release action.
-- Run the updater's Linux execution and desktop acceptance on Linux.
+- Linux updater lifecycle tests and desktop Updates UI passed; production
+  bootstrap trust and public discovery require the signed Linux artifact.
 - Binary rollback does not promise backward compatibility of native documents.
 
 See [binding requirements](DISTRIBUTION_CLEANUP_PLAN.md) and
