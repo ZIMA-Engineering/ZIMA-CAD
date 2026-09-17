@@ -531,12 +531,12 @@ void add_json_parameters(
 
 nlohmann::json read_part_ini(const std::filesystem::path& path) {
     const auto ini = read_ini(path);
-    if (ini_value(ini, "Document", "format_version") != "35") {
+    if (ini_value(ini, "Document", "format_version") != "36") {
         throw std::runtime_error("Unsupported ZIMA-CAD Part document format");
     }
     nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 59},
+        {"format_version", 60},
         {"document_id", ini_required(ini, "Document", "document_id")},
         {"type", ini_value(ini, "Document", "type", "part")},
         {"name", ini_value(ini, "Document", "name", "Nový díl")},
@@ -692,7 +692,7 @@ void write_part_ini(
     const nlohmann::json& root, const std::filesystem::path& path) {
     IniSections ini;
     ini["Document"] = {
-        {"format_version", "35"},
+        {"format_version", "36"},
         {"type", "part"},
         {"document_id", root.at("document_id").get<std::string>()},
         {"name", root.at("name").get<std::string>()},
@@ -5536,7 +5536,8 @@ void PartDocument::resolve_constructions(
             for (auto& sketch : carrier.sketches) {
                 if(const auto* owner=next.find_container(sketch.owner_container_id);
                     owner&&((owner->feature_kind==FeatureKind::Bend&&owner->bend.sheet_attachment)||
-                        (owner->feature_kind==FeatureKind::Flat&&owner->flat.sheet_attachment))) {
+                        (owner->feature_kind==FeatureKind::Flat&&owner->flat.sheet_attachment)||
+                        (owner->feature_kind==FeatureKind::Revolution&&owner->revolution.sheet_attachment))) {
                     // A Body-local calculation carrier is not a source file.
                     // Attachment endpoints belong to the containing Part.
                     for(auto& reference:sketch.external_references)
@@ -5640,6 +5641,10 @@ void PartDocument::resolve_constructions(
                     return container.id == sketch.owner_container_id;
                 });
             if (owner == history.end()) continue;
+            const bool sheet_rotation=owner->feature_kind==FeatureKind::Revolution&&owner->revolution.sheet_metal;
+            const bool sheet_section=owner->feature_kind==FeatureKind::Bend||sheet_rotation;
+            if(sheet_rotation&&!owner->revolution.sheet_attachment&&!owner->revolution.thickness_override)
+                owner->revolution.thin_thickness=sheet_metal_defaults(*this).thickness_mm.value_or(1);
             if(owner->feature_kind==FeatureKind::Flat&&owner->flat.sheet_attachment) {
                 if(!owner->placement.reference_valid)continue;
                 update_flat_sheet_attachment(*owner,sketch,source_geometry,document_id);
@@ -5649,12 +5654,12 @@ void PartDocument::resolve_constructions(
             // TOP: its start section lies in the narrow attachment face, with
             // the outer generatrix along the picked edge. A missing reference
             // keeps the complete last resolved section frame.
-            if (owner->feature_kind == FeatureKind::Bend && !owner->placement.reference_valid)
+            if (sheet_section && !owner->placement.reference_valid)
                 continue;
-            if(owner->feature_kind==FeatureKind::Bend) {
+            if(sheet_section) {
                 sketch.plane_auto=true;sketch.plane_offset=0;sketch.plane=zima::sketcher::SketchPlane::XY;
             }
-            const auto bend_attachment = owner->feature_kind == FeatureKind::Bend &&
+            const auto bend_attachment = sheet_section &&
                 (sketch.plane_auto || sketch.plane == zima::sketcher::SketchPlane::XY)
                 ? bend_attachment_profile_direction(owner->placement.references, source_geometry)
                 : std::nullopt;
@@ -5736,6 +5741,10 @@ void PartDocument::resolve_constructions(
             sketch.resolved_normal = rotated_vector(local_normal, rotation);
             if(owner->feature_kind==FeatureKind::Bend)
                 update_bend_sheet_profile(*owner,sketch,source_geometry,document_id);
+            if(sheet_rotation&&owner->revolution.sheet_attachment) {
+                update_sheet_edge_profile(owner->placement,owner->revolution.thin_thickness,sketch,source_geometry,document_id);
+                owner->revolution.thin_mode=ThinMode::OneSide;
+            }
         }
     };
     const auto resolve_datum = [&](ConstructionObject& object) {
@@ -6834,6 +6843,7 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::revolution_preview_edges(
         [&](const auto& value) { return value.id == container.revolution.sketch_id; });
     if (sketch == sketches.end()) return {};
     const auto& parameters = container.revolution;
+    validate_sheet_revolution(container,*sketch);
     const double reverse = parameters.extent_mode == ProfileExtentMode::OneSide
         ? 0.0 : parameters.extent_mode == ProfileExtentMode::Symmetric
             ? parameters.angle_degrees : parameters.angle_reverse;
@@ -8915,6 +8925,7 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                 throw std::runtime_error("Revolution references a missing Sketch");
             }
             const auto& parameters = container.revolution;
+            validate_sheet_revolution(container,*sketch);
             const double reverse = parameters.extent_mode ==
                     ProfileExtentMode::OneSide
                 ? 0.0
@@ -9068,7 +9079,7 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
             container.combine_mode == CombineMode::Subtract
                 ? zima::kernel::BooleanOperation::Subtract
                 : zima::kernel::BooleanOperation::Add,
-            container.suppressed || (container.feature_kind==FeatureKind::Bend && container.bend.angle_degrees==0),
+            container.suppressed || (container.feature_kind==FeatureKind::Bend && container.bend.angle_degrees==0 && bend_straight_length(container)==0),
             boolean_tolerance,
             feature_mesh_deflection,
         });
@@ -9078,6 +9089,9 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
         } else if(container.feature_kind==FeatureKind::Bend) {
             operations.back().sheet_operation=kernel::SheetOperation::Bend;
             operations.back().sheet_thickness=resolved_bend_parameters(container,sheet_metal_defaults(*this)).thickness;
+        } else if(container.feature_kind==FeatureKind::Revolution&&container.revolution.sheet_metal) {
+            operations.back().sheet_operation=kernel::SheetOperation::Revolution;
+            operations.back().sheet_thickness=container.revolution.thin_thickness;
         }
         } catch (const std::exception& error) {
             if (!recover_errors) throw;
@@ -11301,7 +11315,7 @@ nlohmann::json PartDocument::serialized(
     static_cast<void>(zima::document::parse_named_views(named_views));
     nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 59},
+        {"format_version", 60},
         {"sheet_reference_state", nlohmann::json::parse(sheet_reference_state)},
         {"reference_errors", reference_errors},
         {"document_id", document_id},

@@ -6,6 +6,7 @@
 #include <zima/workspace/drill_point_operations.hpp>
 #include <zima/workspace/shell_operations.hpp>
 #include <zima/workspace/edge_treatment_operations.hpp>
+#include <zima/document/bend.hpp>
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -13,7 +14,7 @@ using namespace workspace_detail;
 
 void AssemblyWorkspaceWindow::show_primitive_properties(
     zima::document::FeatureKind feature_kind,
-    const std::string& container_id) {
+    const std::string& container_id, bool sheet_metal) {
     if (feature_kind == zima::document::FeatureKind::Flat) {
         const auto* part=workspace_.open_part(workspace_.active_document_id());
         const auto* feature=part?part->session.document().find_container(container_id):nullptr;
@@ -44,6 +45,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
     if (properties_dialog_ != nullptr) return;
     auto* part = workspace_.open_part(workspace_.active_document_id());
     auto* assembly = workspace_.open_assembly(workspace_.active_document_id());
+    if(sheet_metal&&!part)return;
     if (part == nullptr && assembly == nullptr) return;
     // Sketch is a HistoryContainer kind, but it is not a primitive body.
     // Keep this guard at the common entry point as well as in Tree dispatch,
@@ -227,6 +229,12 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             property_owned_sketch_draft_->id = initial.revolution.sketch_id;
         }
     }
+    if(sheet_metal&&!edit_mode&&!resuming_profile&&property_owned_sketch_draft_) {
+        zima::document::initialize_sheet_revolution(initial,*property_owned_sketch_draft_,zima::document::sheet_metal_defaults(part->session.document()));
+        initial.name=tr("Rotace plechu").toStdString();property_owned_sketch_draft_->name=initial.name;
+    }
+    if(initial.revolution.sheet_metal&&!initial.revolution.sheet_attachment&&!initial.revolution.thickness_override)
+        initial.revolution.thin_thickness=zima::document::sheet_metal_defaults(part->session.document()).thickness_mm.value_or(1);
     if (!edit_mode && (feature_kind == zima::document::FeatureKind::Extrusion ||
                        feature_kind == zima::document::FeatureKind::Revolution)) {
         const auto source = zima::document::ProfileSource::Internal;
@@ -312,7 +320,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         if (edited_cut != nullptr) selected_targets = edited_cut->target_occurrence_ids;
     }
     auto* dialog = new PrimitivePropertiesDialog(
-        initial, edit_mode, allow_subtract,
+        initial, edit_mode, allow_subtract&&!initial.revolution.sheet_metal,
         [this, owner_id, edit_mode, assembly_cut, container_id](
             zima::document::HistoryContainer committed,
             std::vector<std::string> target_occurrences) mutable {
@@ -559,6 +567,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             // Keep its frame in sync with the same resolved profile used by
             // the wire preview, while preserving pending local 2D geometry.
             auto& draft = *property_owned_sketch_draft_;
+            if(preview.revolution.sheet_metal&&preview.revolution.sheet_attachment)draft=*sketch;
             draft.plane = sketch->plane;
             draft.plane_offset = sketch->plane_offset;
             draft.resolved_origin = sketch->resolved_origin;
@@ -853,6 +862,8 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 document.construction_viewer_mesh().original_references);
         }
         primitive_reference_geometry_ = reference_geometry;
+        dialog->set_sheet_reference_geometry(reference_geometry);
+        if(part)dialog->set_sheet_default_thickness(zima::document::sheet_metal_defaults(part->session.document()).thickness_mm.value_or(1));
         dialog->set_reference_request_callback(
             [this](std::size_t index) { start_primitive_reference_selection(index); });
         dialog->set_reference_highlights_changed_callback([this, dialog] {
@@ -1305,6 +1316,11 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 draft_container.container_origin = pending_feature.container_origin;
                 draft_container.name = pending_feature.name;
                 draft_container.placement = pending_feature.placement;
+                // Sheet Revolution resolves its profile from the sheet edge and
+                // material side. A generic Sketch carrier loses that policy and
+                // opens Sketcher in a different plane from the rotation preview.
+                if (!extrusion && pending_feature.revolution.sheet_metal)
+                    draft_container = pending_feature;
                 auto draft_sketch = *property_owned_sketch_draft_;
                 draft_sketch.owner_container_id = draft_container.id;
                 const auto first_reference = std::find_if(

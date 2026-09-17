@@ -1,4 +1,5 @@
 #include "workspace/workspace_internal.hpp"
+#include <numbers>
 #include <zima/workspace/model_calculation.hpp>
 #include <zima/workspace/document_operations.hpp>
 #include <zima_build_info.hpp>
@@ -3775,6 +3776,107 @@ int verify_application_tools_ui(QApplication& application,const std::filesystem:
         check(std::abs(flat_results.back().volume-flat_volume)<1e-5,"Flat Cancel committed pending thickness");
         flat_action->trigger();flush();flat=flat_dialog();flat->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
         window.findChild<QAction*>("saveDocumentAction")->trigger();flush();check(document::PartDocument::load(flat_path).history.size()==1,"Flat Cancel inserted a new feature");
+        // Sheet Revolution owns one Sketch and reuses the Revolution dialog.
+        auto rotation_part=document::PartDocument::create_default();document::BodyHistoryGraph rotation_graph;
+        const auto rotation_body=rotation_graph.create_body("Sheet rotation");rotation_part.set_body_history(rotation_graph);
+        document::set_sheet_metal_defaults(rotation_part,{2.,.4});const auto rotation_path=directory/"sheet-rotation-ui.prtz";rotation_part.save(rotation_path);
+        check(window.open_document_path(QString::fromStdString(rotation_path.string())),"Sheet rotation fixture failed to open");flush();
+        check(activate_test_body(application,window,rotation_body),"Cannot activate sheet rotation body");sheet->trigger();flush();
+        auto* rotation_action=window.findChild<QAction*>("sheetRevolutionAction");
+        check(rotation_action&&menu->actions().contains(rotation_action),"Sheet Revolution command missing from Insert");
+        const auto rotation_dialog=[&]() -> app::PrimitivePropertiesDialog* {
+            for(auto* d:window.findChildren<QDialog*>())if(auto* p=dynamic_cast<app::PrimitivePropertiesDialog*>(d);p&&p->isVisible())return p;
+            return nullptr;
+        };
+        rotation_action->trigger();flush();auto* rotation=rotation_dialog();
+        check(rotation&&rotation->pending_value().revolution.sheet_metal&&rotation->windowType()==Qt::SubWindow,"Sheet Revolution did not open its shared internal dialog");
+        check(!rotation->findChild<QCheckBox*>("sheetRevolutionThicknessOverride")->isChecked()&&
+            rotation->findChild<QDoubleSpinBox*>("extrusionThinThickness")->value()==2.,"Sheet Revolution did not inherit thickness");
+        check(!rotation->findChild<QDoubleSpinBox*>("profilePlaneOffset")->isVisible(),"Sheet Revolution exposed an extra offset plane");
+        rotation->findChild<QPushButton*>("primitiveOwnSketchButton")->click();flush();
+        window.findChild<QAction*>("finishSketchAction")->trigger();flush();rotation=rotation_dialog();
+        check(rotation&&rotation->pending_value().revolution.sheet_metal,"Returning from the one Sketch lost sheet mode");
+        rotation->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();check(!rotation_dialog(),"Sheet Revolution OK failed");
+        window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+        std::vector<kernel::BodyResult> rotation_results;const auto saved_rotation=document::PartDocument::load(rotation_path,&rotation_results);
+        check(saved_rotation.history.size()==1&&saved_rotation.sketches.size()==1&&saved_rotation.history.front().revolution.sheet_metal,"Sheet Revolution saved the wrong feature structure");
+        check(!rotation_results.empty()&&std::abs(rotation_results.back().volume-360*std::numbers::pi)<1e-5,"GUI Sheet Revolution volume is incorrect");
+        check(window.grab().save("build/sheet-revolution-view.png"),"Sheet Revolution screenshot failed");
+        QTreeWidgetItem* rotation_row=nullptr;
+        for(QTreeWidgetItemIterator it(tree);*it;++it)
+            if((*it)->data(0,Qt::UserRole).toString().toStdString()==saved_rotation.history.front().id&&
+                (*it)->data(0,Qt::UserRole+3)=="part-container")rotation_row=*it;
+        check(rotation_row,"Sheet Revolution tree row missing");
+        window.show_tree_item_properties(rotation_row);flush();rotation=rotation_dialog();
+        check(rotation&&rotation->is_sheet_revolution(),"Sheet Revolution properties lost sheet mode on reopen");
+        rotation->findChild<QCheckBox*>("sheetRevolutionThicknessOverride")->setChecked(true);
+        rotation->findChild<QDoubleSpinBox*>("extrusionThinThickness")->setValue(3.);
+        rotation->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
+        window.findChild<QAction*>("saveDocumentAction")->trigger();flush();rotation_results.clear();
+        static_cast<void>(document::PartDocument::load(rotation_path,&rotation_results));
+        check(std::abs(rotation_results.back().volume-360*std::numbers::pi)<1e-5,"Sheet Revolution Cancel committed thickness");
+        // Exercise edge attachment through the real dialog, including source thickness and endpoints.
+        check(window.open_document_path(QString::fromStdString(flat_path.string())),"Cannot return to Flat for Sheet Revolution attachment");flush();
+        check(activate_test_body(application,window,flat_body),"Cannot activate attachment body");sheet->trigger();flush();
+        rotation_action->trigger();flush();rotation=rotation_dialog();check(rotation,"Attached Sheet Revolution dialog missing");
+        const auto& flat_geometry=flat_results.back().mesh.original_references;
+        const auto boundary=std::ranges::find_if(flat_geometry.edges,[](const auto& edge) {
+            return kernel::sheet_edge_role(edge)==kernel::SheetEdgeRole::Boundary&&
+                std::ranges::all_of(edge.points,[](const auto& p){return std::abs(p.y)<1e-7&&std::abs(p.z-1.)<1e-7;});
+        });
+        check(boundary!=flat_geometry.edges.end(),"Attachment test boundary missing");
+        const auto sheet_refs=document::bend_sheet_references(*boundary);
+        check(rotation->set_reference(0,sheet_refs.front(),"Sheet boundary"),"Dialog rejected a native sheet boundary");flush();
+        check(rotation->pending_value().revolution.sheet_attachment&&
+            !rotation->findChild<QCheckBox*>("sheetRevolutionThicknessOverride")->isEnabled()&&
+            !rotation->findChild<QDoubleSpinBox*>("extrusionThinThickness")->isEnabled(),"Attached Sheet Revolution did not protect inherited thickness");
+        auto expected_rotation=rotation->pending_value();
+        auto expected_rotation_sketch=sketcher::Sketch::create_default();
+        expected_rotation_sketch.id=expected_rotation.revolution.sketch_id;
+        document::initialize_sheet_revolution(expected_rotation,expected_rotation_sketch,{2.,.4});
+        auto expected_rotation_document=saved_flat;
+        expected_rotation_document.sketches.push_back(expected_rotation_sketch);
+        expected_rotation_document.insert_history_entry(document::PartHistoryKind::Feature,expected_rotation.id);
+        expected_rotation_document.history.push_back(expected_rotation);
+        expected_rotation_document.resolve_constructions(flat_geometry);
+        expected_rotation_sketch=*std::ranges::find(expected_rotation_document.sketches,expected_rotation_sketch.id,&sketcher::Sketch::id);
+        rotation->findChild<QPushButton*>("primitiveOwnSketchButton")->click();flush();
+        const auto verify_rotation_sketch_frame=[&] {
+            const auto near=[](const auto& a,const auto& b){return std::hypot(a.x-b.x,a.y-b.y,a.z-b.z)<1e-7;};
+            auto* rotation_view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>("modelWorkspace"));
+            check(rotation_view,"Sheet Revolution viewer missing");
+            for(bool x:{false,true}) {
+                const auto& axes=rotation_view->mesh().axes;
+                const auto axis=std::ranges::find_if(axes,[&](const auto& a){return a.reference.owner_id==expected_rotation_sketch.id&&
+                    a.reference.semantic_key==(x?"sketch_axis:x":"sketch_axis:y");});
+                check(axis!=axes.end()&&near(axis->point,expected_rotation_sketch.resolved_origin)&&
+                    near(axis->direction,x?expected_rotation_sketch.resolved_x_axis:expected_rotation_sketch.resolved_y_axis),
+                    "Attached Sheet Revolution Sketcher frame differs from its calculated profile");
+            }
+        };
+        verify_rotation_sketch_frame();
+        window.findChild<QAction*>("finishSketchAction")->trigger();flush();rotation=rotation_dialog();
+        check(rotation&&rotation->pending_value().revolution.sheet_attachment,"Sketcher lost Sheet Revolution attachment");
+        rotation->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+        check(!rotation_dialog(),"Attached Sheet Revolution OK failed");
+        window.findChild<QAction*>("saveDocumentAction")->trigger();flush();rotation_results.clear();
+        const auto attached_rotation=document::PartDocument::load(flat_path,&rotation_results);
+        check(attached_rotation.history.size()==2&&attached_rotation.history.back().revolution.sheet_attachment,"GUI attachment was not persisted");
+        check(std::abs(rotation_results.back().volume-flat_volume-360*std::numbers::pi)<1e-5,"GUI attached Sheet Revolution volume is incorrect");
+        const auto attached_sketch=std::ranges::find(attached_rotation.sketches,attached_rotation.history.back().revolution.sketch_id,&sketcher::Sketch::id);
+        check(attached_sketch!=attached_rotation.sketches.end()&&attached_sketch->external_references.size()==2,"GUI attachment lost inherited endpoints");
+        QTreeWidgetItem* attached_rotation_row=nullptr;
+        for(QTreeWidgetItemIterator it(tree);*it;++it)
+            if((*it)->data(0,Qt::UserRole).toString().toStdString()==attached_rotation.history.back().id&&
+                (*it)->data(0,Qt::UserRole+3)=="part-container")attached_rotation_row=*it;
+        check(attached_rotation_row,"Attached Sheet Revolution tree row missing");
+        window.show_tree_item_properties(attached_rotation_row);flush();rotation=rotation_dialog();
+        check(rotation,"Attached Sheet Revolution properties did not reopen");
+        rotation->findChild<QPushButton*>("primitiveOwnSketchButton")->click();flush();
+        verify_rotation_sketch_frame();
+        window.findChild<QAction*>("finishSketchAction")->trigger();flush();rotation=rotation_dialog();
+        check(rotation,"Attached Sheet Revolution Sketcher did not return");
+        rotation->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
         // Exercise the actual Sheet Metal command on an otherwise empty Body.
         auto bend_part=document::PartDocument::create_default();document::BodyHistoryGraph bend_graph;
         const auto bend_body=bend_graph.create_body("Bend body");bend_part.set_body_history(bend_graph);
@@ -3883,6 +3985,24 @@ int verify_application_tools_ui(QApplication& application,const std::filesystem:
         check(std::abs(definition.bend.radius-8)<1e-6&&std::abs(definition.bend.angle_degrees-45)<1e-6,"Bend inline dimensions did not update feature parameters");
         const auto extensions=document::bend_profile_extensions(definition);
         check(std::abs(extensions[0]-3)<1e-6&&std::abs(extensions[1]-10)<1e-6,"Endpoint difference edits did not persist");
+        check(window.finish_parameter_dimensions(),"Bend inspection did not finish before continuation edit");flush();
+        bend_row=nullptr;for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==bend_id&&(*it)->data(0,Qt::UserRole+3)=="part-container"){bend_row=*it;break;}
+        check(bend_row,"Bend row missing before continuation edit");window.show_tree_item_properties(bend_row);flush();bend=bend_dialog();
+        const auto trajectory_id=sketcher::Sketch::from_serialized(definition.bend.auxiliary_sketches[0]).id;
+        check(bend&&dynamic_cast<app::SketchPropertiesDialog*>(bend)->mutate_sketch(trajectory_id,[](auto& path) {
+            const auto arc=path.arcs.front();const auto p=*path.find_point(arc.end_point_id);
+            const double a=arc.end_angle+std::numbers::pi/2;
+            static_cast<void>(path.add_segment(p.x,p.y,p.x+20*std::cos(a),p.y+20*std::sin(a)));
+        }),"Properties rejected tangent continuation");
+        bend->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();check(!bend_dialog(),"Continuation OK failed");
+        window.show_parameter_dimensions(bend_id);flush();inline_edit(":length","30");
+        window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+        check(std::abs(document::bend_straight_length(document::PartDocument::load(bend_path).history.front())-30)<1e-6,"View continuation length did not persist");
+        window.grab().save("build/bend-continuation-view.png");
+        check(window.finish_parameter_dimensions(),"Continuation inspection did not finish");flush();
+        window.findChild<QAction*>("undoAction")->trigger();flush();
+        window.findChild<QAction*>("undoAction")->trigger();flush();
+        window.show_parameter_dimensions(bend_id);flush();
         window.grab().save("build/bend-three-sketch-view.png");
         check(window.finish_parameter_dimensions(),"Bend inspection did not finish");flush();
         check(!state_button->isVisible(),"Bend View action survived clearing inspection");

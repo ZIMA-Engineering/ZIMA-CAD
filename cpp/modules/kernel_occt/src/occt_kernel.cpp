@@ -7701,6 +7701,9 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                             fuse, grouped->edges, child_data.edges);
                         grouped->vertices = propagate_topology(
                             fuse, grouped->vertices, child_data.vertices);
+                        // Authored section caps remain original references even
+                        // when the union makes their shared boundary internal.
+                        grouped->source_caps.insert(grouped->source_caps.end(),child_data.source_caps.begin(),child_data.source_caps.end());
                         grouped->shape = fuse.Shape();
                     }
                     return std::move(*grouped);
@@ -7727,6 +7730,9 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                         if(operation.sheet_operation==SheetOperation::Flat) {
                             if(key.starts_with("start:from:"))reference.sheet_role=SheetFaceRole::SideA;
                             if(key.starts_with("end:from:"))reference.sheet_role=SheetFaceRole::SideB;
+                        } else if(operation.sheet_operation==SheetOperation::Revolution) {
+                            if(key.find("thin:first:from:")!=std::string::npos)reference.sheet_role=SheetFaceRole::SideA;
+                            if(key.find("thin:second:from:")!=std::string::npos)reference.sheet_role=SheetFaceRole::SideB;
                         } else {
                             if(key.find(":outer:from:")!=std::string::npos)reference.sheet_role=SheetFaceRole::SideA;
                             if(key.find(":inner:from:")!=std::string::npos)reference.sheet_role=SheetFaceRole::SideB;

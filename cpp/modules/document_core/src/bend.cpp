@@ -67,6 +67,30 @@ V path_point(const BendFrame& f,const BendParameters& p,double fraction) {
     return add(add(f.anchor,scale(f.inward,(p.radius+p.thickness)*(1-std::cos(angle*fraction)))),
         scale(f.normal,(p.radius+p.thickness)*std::sin(angle*fraction)));
 }
+const sketcher::SketchSegment* continuation(const sketcher::Sketch& path) {
+    const sketcher::SketchSegment* result=nullptr;
+    for(const auto& segment:path.segments)if(!segment.construction) {
+        if(result)throw std::invalid_argument("Bend path allows one optional tangent continuation.");
+        result=&segment;
+    }
+    return result;
+}
+double continuation_length(const sketcher::Sketch& path) {
+    const auto* segment=continuation(path);if(!segment)return 0;
+    const auto& arc=path.arcs.at(0);
+    if(segment->first_point_id!=arc.end_point_id&&segment->second_point_id!=arc.end_point_id)
+        throw std::invalid_argument("Bend continuation must share the arc end point.");
+    const auto* first=path.find_point(segment->first_point_id);const auto* last=path.find_point(segment->second_point_id);
+    if(!first||!last)throw std::invalid_argument("Bend continuation endpoint is missing.");
+    const double length=std::hypot(last->x-first->x,last->y-first->y);
+    if(!std::isfinite(length)||length<.001||length>1e6)
+        throw std::invalid_argument("Bend continuation length must be between 0.001 and 1000000 mm.");
+    return length;
+}
+}
+double bend_straight_length(const HistoryContainer& feature) {
+    if(feature.bend.auxiliary_sketches[0].empty())return 0;
+    return continuation_length(sketcher::Sketch::from_serialized(feature.bend.auxiliary_sketches[0]));
 }
 std::optional<double> bend_attachment_profile_direction(
         const std::vector<ConstructionReference>& references,
@@ -161,20 +185,24 @@ std::vector<ConstructionReference> bend_sheet_references(const kernel::ViewerEdg
 void update_bend_sheet_profile(HistoryContainer& feature,sketcher::Sketch& sketch,
         const kernel::ViewerReferenceGeometry& geometry,const std::string& document_id) {
     if(!feature.bend.sheet_attachment)return;
-    if(feature.placement.references.size()<3||sketch.segments.size()!=1)
+    update_sheet_edge_profile(feature.placement,feature.bend.thickness,sketch,geometry,document_id);
+}
+void update_sheet_edge_profile(const Placement& placement,double& thickness,sketcher::Sketch& sketch,
+        const kernel::ViewerReferenceGeometry& geometry,const std::string& document_id) {
+    if(placement.references.size()<3||std::ranges::count_if(sketch.segments,[](const auto& s){return !s.construction;})!=1)
         throw std::invalid_argument("Incomplete Bend sheet attachment.");
-    const auto& source=feature.placement.references.front();
-    if(!bend_attachment_profile_direction(feature.placement.references,geometry))
+    const auto& source=placement.references.front();
+    if(!bend_attachment_profile_direction(placement.references,geometry))
         throw std::invalid_argument("Bend requires a straight boundary with a planar joining face.");
     const auto edge=std::ranges::find_if(geometry.edges,[&](const auto& e) {
         return e.reference.owner_id==source.owner_id&&e.reference.semantic_key==source.semantic_key&&
             e.reference.instance_path==source.instance_path;
     });
     if(edge==geometry.edges.end())throw std::invalid_argument("Missing Bend sheet edge.");
-    feature.bend.thickness=edge->edge_treatment_side_references.front().sheet_thickness;
-    const auto& anchor=feature.placement.references[2];
+    thickness=edge->edge_treatment_side_references.front().sheet_thickness;
+    const auto& anchor=placement.references[2];
     const auto expected=bend_sheet_references(*edge,{anchor.owner_id,anchor.semantic_key,anchor.instance_path});
-    const auto& face=feature.placement.references[1];
+    const auto& face=placement.references[1];
     if(face.owner_id!=expected[1].owner_id||face.semantic_key!=expected[1].semantic_key||
         face.instance_path!=expected[1].instance_path||face.offset!=0||face.flip||source.flip)
         throw std::invalid_argument("The Bend joining face and direction are derived from its sheet edge.");
@@ -190,7 +218,7 @@ void update_bend_sheet_profile(HistoryContainer& feature,sketcher::Sketch& sketc
         ends[i]={dot(local,sketch.resolved_x_axis),reference};
     }
     if(ends[1].first<ends[0].first)std::swap(ends[0],ends[1]);
-    const auto segment=sketch.segments.front();
+    const auto segment=*std::ranges::find_if(sketch.segments,[](const auto& s){return !s.construction;});
     // Offset identities follow source-point ancestry across the sheet thickness.
     // They must not follow the incidental tangent direction of a picked edge.
     const auto parent=[](const std::string& key) {
@@ -254,7 +282,7 @@ void update_bend_sheet_profile(HistoryContainer& feature,sketcher::Sketch& sketc
         auto* point=sketch.find_point(target);
         point->x=end.first+dimension->value;point->y=0;
     }
-    auto& directed_segment=sketch.segments.front();
+    auto& directed_segment=*std::ranges::find_if(sketch.segments,[](const auto& s){return !s.construction;});
     directed_segment.first_point_id=std::ranges::find(sketch.dimensions,sketch.id+(reversed?":position:last":":position:first"),&sketcher::SketchDimension::id)->second_point_id;
     directed_segment.second_point_id=std::ranges::find(sketch.dimensions,sketch.id+(reversed?":position:first":":position:last"),&sketcher::SketchDimension::id)->second_point_id;
     if(sketch.find_point(directed_segment.second_point_id)->x-sketch.find_point(directed_segment.first_point_id)->x<.001)
@@ -275,6 +303,46 @@ void initialize_bend_start_profile(sketcher::Sketch& sketch,double width) {
         sketch.dimensions.push_back(std::move(dimension));
     }
     sketch.validate();
+}
+void initialize_sheet_revolution(HistoryContainer& feature,sketcher::Sketch& sketch,const SheetMetalDefaults& defaults) {
+    feature.feature_kind=FeatureKind::Revolution;feature.name="Rotace plechu";
+    auto& p=feature.revolution;p.sheet_metal=true;p.sketch_id=sketch.id;
+    p.result_type=ProfileResultType::Thin;p.profile_source=ProfileSource::Internal;
+    p.profile_plane_offset=0;p.angle_degrees=90;p.angle_reverse=90;
+    p.thin_thickness=defaults.thickness_mm.value_or(1);
+    sketch.owner_container_id=feature.id;sketch.name=feature.name;
+    initialize_bend_start_profile(sketch,40);
+    const auto axis=sketch.add_segment(40,10,0,10,1e-6,true);
+    sketch.set_segment_centerline(axis,true);p.axis_segment_id=axis;
+}
+void validate_sheet_revolution(const HistoryContainer& feature,const sketcher::Sketch& sketch) {
+    const auto& p=feature.revolution;if(!p.sheet_metal)return;
+    if(feature.combine_mode!=CombineMode::Add||p.result_type!=ProfileResultType::Thin||
+        p.profile_source!=ProfileSource::Internal||p.profile_plane_offset!=0||sketch.plane_offset!=0)
+        throw std::invalid_argument("Sheet Revolution requires an additive owned thin profile without plane offset.");
+    const auto unsupported=[](const auto& curves){return std::ranges::any_of(curves,[](const auto& c){return !c.construction;});};
+    if(std::ranges::count_if(sketch.segments,[](const auto& s){return !s.construction;})!=1||
+        unsupported(sketch.arcs)||unsupported(sketch.circles)||unsupported(sketch.ellipses)||
+        unsupported(sketch.elliptical_arcs)||unsupported(sketch.bsplines)||!sketch.texts.empty())
+        throw std::invalid_argument("Sheet Revolution requires one profile segment and a construction centerline.");
+    const auto axis=std::ranges::find(sketch.segments,p.axis_segment_id,&sketcher::SketchSegment::id);
+    if(axis==sketch.segments.end()||!axis->construction||!axis->centerline)
+        throw std::invalid_argument("Sheet Revolution axis must be an oriented construction centerline.");
+    const auto& profile=*std::ranges::find_if(sketch.segments,[](const auto& s){return !s.construction;});
+    const auto* a=sketch.find_point(axis->first_point_id);const auto* b=sketch.find_point(axis->second_point_id);
+    const auto* c=sketch.find_point(profile.first_point_id);const auto* d=sketch.find_point(profile.second_point_id);
+    const double axis_length=std::hypot(b->x-a->x,b->y-a->y),length=std::hypot(d->x-c->x,d->y-c->y);
+    if(axis_length<.001||length<.001||!std::isfinite(p.thin_thickness)||p.thin_thickness<=0)
+        throw std::invalid_argument("Sheet Revolution profile, axis and thickness must be positive.");
+    const double first=p.thin_mode==ThinMode::OneSide?0:p.thin_mode==ThinMode::OtherSide?-p.thin_thickness:-p.thin_thickness/2;
+    const double second=first+p.thin_thickness;double sign=0;
+    for(const auto* point:{c,d})for(double offset:{first,second}) {
+        const double x=point->x-(d->y-c->y)/length*offset,y=point->y+(d->x-c->x)/length*offset;
+        const double side=((b->x-a->x)*(y-a->y)-(b->y-a->y)*(x-a->x))/axis_length;
+        if(std::abs(side)<1e-7||(sign!=0&&sign*side<0))
+            throw std::invalid_argument("Sheet Revolution thickness must stay on one side of its axis.");
+        sign=side;
+    }
 }
 void orient_bend_start_toward_edge(sketcher::Sketch& sketch,const Placement& placement,
         const kernel::ViewerReferenceGeometry& geometry) {
@@ -341,9 +409,9 @@ void prepare_bend_sketches(HistoryContainer& feature,const sketcher::Sketch& sta
         path.dimensions={std::move(radius),std::move(turn)};
     }
     if(path.arcs.size()!=1||path.arcs.front().construction||
-        std::ranges::any_of(path.segments,[](const auto& c){return !c.construction;})||
         !path.circles.empty()||!path.ellipses.empty()||!path.elliptical_arcs.empty()||!path.bsplines.empty()||!path.texts.empty())
         throw std::invalid_argument("Bend path requires one circular arc.");
+    const double straight_length=continuation_length(path);
     if(p.angle_degrees>0) {
         auto& arc=path.arcs.front();const double a=p.angle_degrees*std::numbers::pi/180,r=p.radius+p.thickness;
         arc.radius=r;arc.start_angle=-std::numbers::pi/2;arc.end_angle=arc.start_angle+a;
@@ -354,6 +422,27 @@ void prepare_bend_sketches(HistoryContainer& feature,const sketcher::Sketch& sta
             if(d.id==path.id+":radius"){d.value=r;d.locked=p.radius_follows_thickness||feature.value_locks.contains("radius");}
             if(d.id==path.id+":angle"){d.value=p.angle_degrees;d.locked=feature.value_locks.contains("angle");}
         }
+    }
+    if(const auto* segment=continuation(path)) {
+        const auto& arc=path.arcs.front();
+        const auto* join=path.find_point(arc.end_point_id);
+        auto* tip=path.find_point(segment->first_point_id==arc.end_point_id?segment->second_point_id:segment->first_point_id);
+        const double a=arc.end_angle+std::numbers::pi/2;
+        tip->x=join->x+straight_length*std::cos(a);tip->y=join->y+straight_length*std::sin(a);
+        const auto dimension=std::ranges::find_if(path.dimensions,[&](const auto& d) {
+            return d.kind==sketcher::DimensionKind::Distance&&d.driving&&!d.suppressed&&
+                ((d.first_point_id==segment->first_point_id&&d.second_point_id==segment->second_point_id)||
+                 (d.first_point_id==segment->second_point_id&&d.second_point_id==segment->first_point_id));
+        });
+        if(dimension==path.dimensions.end()) {
+            auto d=path.create_segment_dimension(segment->id);d.id=segment->id+":length";
+            d.placement=std::array{tip->x+8.,tip->y+8.};path.dimensions.push_back(std::move(d));
+        } else dimension->value=straight_length;
+        if(!std::ranges::any_of(path.constraints,[&](const auto& c) {
+            return !c.suppressed&&c.kind==sketcher::ConstraintKind::Tangent&&
+                ((c.geometry_id==arc.id&&c.second_geometry_id==segment->id)||
+                 (c.geometry_id==segment->id&&c.second_geometry_id==arc.id));
+        }))static_cast<void>(path.add_tangent_constraint(arc.id,segment->id,arc.end_point_id));
     }
     path.validate();data[0]=path.serialized();
     auto end=data[1].empty()?sketcher::Sketch::create_default():sketcher::Sketch::from_serialized(data[1]);
@@ -428,6 +517,24 @@ void accept_bend_sketch(HistoryContainer& feature,const sketcher::Sketch& start,
             throw std::invalid_argument("Bend angle is locked.");
         next.bend.radius=arc.radius-p.thickness;
         next.bend.angle_degrees=(arc.end_angle-arc.start_angle)*180/std::numbers::pi;
+        if(std::abs(next.bend.radius-p.radius)<1e-9)next.bend.radius=p.radius;
+        if(std::abs(next.bend.angle_degrees-p.angle_degrees)<1e-9)next.bend.angle_degrees=p.angle_degrees;
+        if(const auto* segment=continuation(edited)) {
+            static_cast<void>(continuation_length(edited));
+            const auto* join=edited.find_point(arc.end_point_id);
+            const auto* tip=edited.find_point(segment->first_point_id==arc.end_point_id?segment->second_point_id:segment->first_point_id);
+            const double a=arc.end_angle+std::numbers::pi/2;
+            if(!continuation(before)&&(tip->x-join->x)*std::cos(a)+(tip->y-join->y)*std::sin(a)<=0)
+                throw std::invalid_argument("Bend continuation must extend forward from the arc end.");
+            if(!continuation(before)) {
+                // A newly drawn line may carry H/V inference. Its feature-owned
+                // direction is the outgoing tangent, not a fixed Sketch axis.
+                std::erase_if(edited.constraints,[&](const auto& c) {
+                    return (c.kind==sketcher::ConstraintKind::Horizontal||c.kind==sketcher::ConstraintKind::Vertical)&&
+                        c.geometry_id==segment->id;
+                });
+            }
+        }
     } else {
         if(std::ranges::count_if(edited.segments,[](const auto& s){return !s.construction;})!=1||
             !edited.arcs.empty()||!edited.circles.empty()||!edited.bsplines.empty()||!edited.ellipses.empty()||!edited.elliptical_arcs.empty())
@@ -451,8 +558,9 @@ kernel::FeatureGroupRequest bend_request(const HistoryContainer& input,const ske
     const auto axis_start=add(f.first,p.unbend?scale(f.normal,length*.5):scale(f.inward,p.radius+p.thickness));
     group.axes.push_back({add(axis_start,scale(f.along,f.width*.5)),f.along,f.width+2,
         {feature.id,child(feature,"axis",f.segment),{}},p.unbend?"Osa ohybu":"Osa rotace ohybu"});
-    if(p.angle_degrees==0)return group; // Explicit zero-material history boundary.
-    if(p.unbend&&length<=0)throw std::invalid_argument("Unbend requires a positive developed length (R + K*t).");
+    const double straight_length=bend_straight_length(feature);
+    if(p.angle_degrees==0&&straight_length==0)return group; // Explicit zero-material history boundary.
+    if(p.unbend&&p.angle_degrees>0&&length<=0)throw std::invalid_argument("Unbend requires a positive developed length (R + K*t).");
     const auto extension=bend_profile_extensions(feature);
     if(!p.unbend&&p.radius==0&&(std::abs(extension[0])>1e-9||std::abs(extension[1])>1e-9))
         throw std::invalid_argument("Zero inner radius currently requires matching start and end profiles.");
@@ -480,7 +588,24 @@ kernel::FeatureGroupRequest bend_request(const HistoryContainer& input,const ske
         section.profile.outer_vertex_source_ids=std::move(source.outer_vertex_source_ids);
         request.sections.push_back(std::move(section));
     }
-    group.children.emplace_back(std::move(request));
+    if(straight_length>0) {
+        const auto* segment=continuation(path);const auto& join=arc.end_point_id;
+        const auto tip=segment->first_point_id==join?segment->second_point_id:segment->first_point_id;
+        const double a=p.unbend?0:p.angle_degrees*std::numbers::pi/180;
+        const auto delta=scale(add(scale(f.normal,std::cos(a)),scale(f.inward,std::sin(a))),straight_length);
+        kernel::Sweep3DRequest straight;straight.linear_tolerance=request.linear_tolerance;
+        straight.path_points={request.path_points.back(),add(request.path_points.back(),delta)};
+        straight.path_point_ids={join,tip};
+        kernel::Sweep3DRequest::PathSegment line;line.source_id=segment->id;
+        line.start=straight.path_points.front();line.end=straight.path_points.back();straight.path_segments.push_back(line);
+        auto first=request.sections.back();first.point_index=0;straight.sections.push_back(first);
+        auto last=first;last.point_id=tip;last.point_index=1;
+        auto& polygon=std::get<kernel::ExtrusionRequest::PolygonProfile>(last.profile.outer_profile);
+        for(auto& vertex:polygon.vertices)vertex=add(vertex,delta);
+        straight.sections.push_back(std::move(last));
+        if(p.angle_degrees>0)group.children.emplace_back(std::move(request));
+        group.children.emplace_back(std::move(straight));
+    } else group.children.emplace_back(std::move(request));
     return group;
 }
 kernel::ViewerMesh bend_preview(const HistoryContainer& input,const sketcher::Sketch& sketch,const SheetMetalDefaults& defaults) {
@@ -513,6 +638,20 @@ kernel::ViewerMesh bend_preview(const HistoryContainer& input,const sketcher::Sk
         if(stage==0&&p.angle_degrees==0)continue;
         const auto source=sketcher::Sketch::from_serialized(feature.bend.auxiliary_sketches[stage]).viewer_mesh();
         mesh.dimensions.insert(mesh.dimensions.end(),source.dimensions.begin(),source.dimensions.end());
+    }
+    const double straight_length=bend_straight_length(feature);
+    if(straight_length>0) {
+        const double a=p.unbend?0:angle;
+        const auto delta=scale(add(scale(f.normal,std::cos(a)),scale(f.inward,std::sin(a))),straight_length);
+        for(bool inner:{false,true}) {
+            for(bool last:{false,true}) {
+                const auto start=point(last?f.width:0,inner,1);
+                edge(std::string("straight-")+(inner?"inner-":"outer-")+(last?"last":"first"),{start,add(start,delta)});
+            }
+            edge(inner?"straight-inner-end":"straight-outer-end",{add(point(0,inner,1),delta),add(point(f.width,inner,1),delta)});
+        }
+        for(bool last:{false,true})edge(last?"straight-last-end":"straight-first-end",
+            {add(point(last?f.width:0,false,1),delta),add(point(last?f.width:0,true,1),delta)});
     }
     return mesh;
 }

@@ -149,6 +149,9 @@ void load_profile_parameters(HistoryContainer& container, const nlohmann::json& 
                 throw std::runtime_error("Through-all Extrusion must subtract");
             }
         } else if (container.feature_kind == FeatureKind::Revolution) {
+            container.revolution.sheet_metal=source.at("sheet_metal");
+            container.revolution.sheet_attachment=source.at("sheet_attachment");
+            container.revolution.thickness_override=source.at("thickness_override");
             container.revolution.sketch_id =
                 source.at("sketch_id").get<std::string>();
             container.revolution.profile_source = source.at("profile_source") == "internal"
@@ -285,6 +288,9 @@ void save_profile_parameters(const HistoryContainer& container, nlohmann::json& 
             }
         } else if (container.feature_kind == FeatureKind::Revolution) {
             serialized["sketch_id"] = container.revolution.sketch_id;
+            serialized["sheet_metal"]=container.revolution.sheet_metal;
+            serialized["sheet_attachment"]=container.revolution.sheet_attachment;
+            serialized["thickness_override"]=container.revolution.thickness_override;
             serialized["profile_source"] = container.revolution.profile_source ==
                     ProfileSource::Internal ? "internal" : "external";
             serialized["result_type"] = container.revolution.result_type ==

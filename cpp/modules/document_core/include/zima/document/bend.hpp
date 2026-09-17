@@ -8,6 +8,10 @@ namespace zima::document {
     const kernel::ViewerEdge&, const kernel::VertexReference& start = {});
 void update_bend_sheet_profile(HistoryContainer&,sketcher::Sketch&,
     const kernel::ViewerReferenceGeometry&,const std::string& document_id);
+void update_sheet_edge_profile(const Placement&,double& thickness,sketcher::Sketch&,
+    const kernel::ViewerReferenceGeometry&,const std::string& document_id);
+void initialize_sheet_revolution(HistoryContainer&,sketcher::Sketch&,const SheetMetalDefaults&);
+void validate_sheet_revolution(const HistoryContainer&,const sketcher::Sketch&);
 // Edge-first attachment uses the narrow planar joining face as the start
 // profile plane (local XY). The sign aligns profile +Y into that face.
 // Consumes only persisted original viewer references; no kernel calculation.
@@ -18,6 +22,7 @@ void initialize_bend_start_profile(sketcher::Sketch&, double width);
 void orient_bend_start_toward_edge(sketcher::Sketch&, const Placement&, const kernel::ViewerReferenceGeometry&);
 [[nodiscard]] BendParameters resolved_bend_parameters(const HistoryContainer&, const SheetMetalDefaults&);
 void prepare_bend_sketches(HistoryContainer&,const sketcher::Sketch&,const SheetMetalDefaults&);
+[[nodiscard]] double bend_straight_length(const HistoryContainer&);
 void accept_bend_sketch(HistoryContainer&,const sketcher::Sketch&,std::size_t,sketcher::Sketch,const SheetMetalDefaults&);
 [[nodiscard]] std::array<double,2> bend_profile_extensions(const HistoryContainer&);
 void set_bend_profile_extensions(HistoryContainer&,double first,double last);

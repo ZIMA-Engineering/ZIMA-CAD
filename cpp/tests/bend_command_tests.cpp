@@ -3,6 +3,7 @@
 #include <zima/document/viewer_packet_json.hpp>
 #include <zima/drawing/measurement_dimension.hpp>
 #include <zima/workspace/bend_operations.hpp>
+#include <zima/workspace/profile_operations.hpp>
 #include <zima/workspace/placement_edit.hpp>
 #include <zima/workspace/family_operations.hpp>
 #include <zima/workspace/engineering_metadata_operations.hpp>
@@ -666,9 +667,132 @@ void verify(std::filesystem::path directory) {
     check(!host.execute({{"command","bend.create"},{"arguments",Json::object()}}).ok,"Assembly accepted Bend");
 }
 }
+void verify_continuation(std::filesystem::path directory) {
+    kernel::OcctKernel kernel;workspace::Workspace live;command_host::Options options;
+    options.settings=[] {command_host::Settings s;s.templates={std::filesystem::absolute("config/templates"),"start_part.prtz","start_assembly.asmz","Body"};return s;};
+    command_host::Host host(live,kernel,directory,options);
+    run(host,"new",{{"type","part"},{"name","bend-continuation"}});
+    const auto owner=run(host,"bend.create",{{"width_mm",40.},{"radius_mm",5.},{"angle_degrees",90.}}).data.at("container").get<std::string>();
+    const auto id=live.active_document_id();auto* state=live.open_part(id);
+    auto feature=*state->session.document().find_container(owner);
+    const auto start=workspace::document_sketch(live,id,feature.bend.sketch_id);
+    const auto arc_faces=faces(state->session.calculated_boundaries().back(),owner);
+    const auto end_before=feature.bend.auxiliary_sketches[1];
+    auto path=sketcher::Sketch::from_serialized(feature.bend.auxiliary_sketches[0]);
+    const auto arc=path.arcs.front();const auto join=*path.find_point(arc.end_point_id);
+    const auto line=path.add_segment(join.x,join.y,join.x,join.y+20.);
+    static_cast<void>(path.add_segment_constraint(line,sketcher::ConstraintKind::Vertical));
+    document::accept_bend_sketch(feature,start,0,path,document::sheet_metal_defaults(state->session.document()));
+    check(feature.bend.auxiliary_sketches[1]==end_before,"Continuation moved or replaced the arc end profile");
+    static_cast<void>(workspace::commit_bend(live,kernel,id,feature,start));
+    const auto volume=[&]{return state->session.calculated_boundaries().back().volume;};
+    near(volume(),40*std::numbers::pi/2*(36-25)/2+800);
+    const auto folded_faces=faces(state->session.calculated_boundaries().back(),owner);
+    for(const auto& key:arc_faces)check(folded_faces.contains(key),"Continuation replaced an original arc face reference");
+    const auto& continued_body=state->session.calculated_boundaries().back();
+    check(std::ranges::any_of(continued_body.mesh.original_references.edges,[&](const auto& edge) {
+        return edge.reference.owner_id==owner&&kernel::sheet_edge_role(edge)==kernel::SheetEdgeRole::Boundary&&
+            edge.reference.semantic_key.find(path.segments.back().second_point_id)!=std::string::npos;
+    }),"Continuation end has no persisted sheet boundary edge");
+    feature=*state->session.document().find_container(owner);
+    path=sketcher::Sketch::from_serialized(feature.bend.auxiliary_sketches[0]);
+    auto length_dimension=*std::ranges::find(path.dimensions,line+":length",&sketcher::SketchDimension::id);
+    length_dimension.value=30.;path.apply_dimension(length_dimension);
+    document::accept_bend_sketch(feature,start,0,path,document::sheet_metal_defaults(state->session.document()));
+    static_cast<void>(workspace::commit_bend(live,kernel,id,feature,start));
+    near(document::bend_straight_length(*state->session.document().find_container(owner)),30.);
+    near(volume(),40*std::numbers::pi/2*(36-25)/2+1200);
+    feature=*state->session.document().find_container(owner);
+    path=sketcher::Sketch::from_serialized(feature.bend.auxiliary_sketches[0]);
+    check(path.set_dimension_value(path.id+":angle",180.),"Angle dimension rejected continuation at 180 degrees");
+    document::accept_bend_sketch(feature,start,0,path,document::sheet_metal_defaults(state->session.document()));
+    static_cast<void>(workspace::commit_bend(live,kernel,id,feature,start));
+    near(volume(),40*std::numbers::pi*(36-25)/2+1200);
+    for(double angle:{45.,180.,0.,90.}) {
+        run(host,"bend.set",{{"container",owner},{"angle_degrees",angle}});
+        near(volume(),40*angle*std::numbers::pi/180*(36-25)/2+1200);
+        near(document::bend_straight_length(*state->session.document().find_container(owner)),30.);
+    }
+    run(host,"bend.set",{{"container",owner},{"state","unbend"}});
+    near(volume(),40*std::numbers::pi/2*(5+state->session.document().find_container(owner)->bend.k_factor)+1200);
+    check(faces(state->session.calculated_boundaries().back(),owner)==folded_faces,"Unbend replaced continuation face identities");
+    run(host,"save");
+    const auto saved=document::PartDocument::load(directory/"bend-continuation.prtz");
+    near(document::bend_straight_length(*saved.find_container(owner)),30.);
+    run(host,"bend.set",{{"container",owner},{"state","bend"},{"radius_mm",0.},{"angle_degrees",180.}});
+    near(volume(),40*std::numbers::pi/2+1200);
+    feature=*state->session.document().find_container(owner);
+    path=sketcher::Sketch::from_serialized(feature.bend.auxiliary_sketches[0]);
+    path.remove_geometry(line);
+    document::accept_bend_sketch(feature,start,0,path,document::sheet_metal_defaults(state->session.document()));
+    static_cast<void>(workspace::commit_bend(live,kernel,id,feature,start));
+    near(document::bend_straight_length(*state->session.document().find_container(owner)),0.);
+    near(volume(),40*std::numbers::pi/2);
+    run(host,"undo");near(volume(),40*std::numbers::pi/2+1200);
+    run(host,"redo");near(volume(),40*std::numbers::pi/2);
+}
+void verify_sheet_revolution(std::filesystem::path directory) {
+    kernel::OcctKernel kernel;workspace::Workspace live;command_host::Options options;
+    options.settings=[] {command_host::Settings s;s.templates={std::filesystem::absolute("config/templates"),"start_part.prtz","start_assembly.asmz","Body"};return s;};
+    command_host::Host host(live,kernel,directory,options);
+    run(host,"new",{{"type","part"},{"name","sheet-revolution"}});
+    const auto id=live.active_document_id();auto* state=live.open_part(id);
+    auto sketch=sketcher::Sketch::create_default();auto feature=document::PartDocument::create_revolution_container(sketch.id);
+    document::initialize_sheet_revolution(feature,sketch,document::sheet_metal_defaults(state->session.document()));
+    workspace::commit_profile(live,kernel,id,feature,workspace::ProfileEditMode::Create,sketch);
+    const auto volume=[&]{return state->session.calculated_boundaries().back().volume;};
+    const auto owner=feature.id;const double pi=std::numbers::pi;
+    near(volume(),190*pi);
+    check(state->session.document().sketches.size()==1,"Sheet Revolution created auxiliary Sketches");
+    bool first=false,second=false,cap=false;
+    for(const auto& face:state->session.calculated_boundaries().back().mesh.original_references.triangle_references) {
+        first|=face.sheet_role==kernel::SheetFaceRole::SideA;second|=face.sheet_role==kernel::SheetFaceRole::SideB;cap|=face.sheet_role==kernel::SheetFaceRole::ThicknessFace;
+        check(face.sheet_role!=kernel::SheetFaceRole::Unknown,"Sheet Revolution lost a sheet face role");
+    }
+    check(first&&second&&cap,"Sheet Revolution has no principal sides or caps");
+    for(double angle:{180.,360.,90.}) {
+        run(host,"revolution.set",{{"container",owner},{"angle_degrees",angle}});
+        near(volume(),190*pi*angle/90.);
+    }
+    run(host,"document.settings.set",{{"sheet_metal",{{"thickness_mm",2.}}}});near(volume(),360*pi);
+    run(host,"revolution.set",{{"container",owner},{"thin_mode","other_side"}});near(volume(),440*pi);
+    run(host,"revolution.set",{{"container",owner},{"thin_mode","symmetric"}});near(volume(),400*pi);
+    run(host,"revolution.set",{{"container",owner},{"extent","two_sides"},{"angle_degrees",30.},{"angle_reverse_degrees",60.}});near(volume(),400*pi);
+    run(host,"revolution.set",{{"container",owner},{"extent","symmetric"},{"angle_degrees",45.},{"direction","reverse"}});near(volume(),400*pi);
+    run(host,"revolution.set",{{"container",owner},{"extent","one_side"},{"angle_degrees",90.},{"thin_mode","one_side"},{"direction","forward"}});
+    feature=*state->session.document().find_container(owner);sketch=workspace::document_sketch(live,id,feature.revolution.sketch_id);
+    const auto axis=*std::ranges::find(sketch.segments,feature.revolution.axis_segment_id,&sketcher::SketchSegment::id);
+    sketch.find_point(axis.second_point_id)->y=20;
+    workspace::commit_profile(live,kernel,id,feature,workspace::ProfileEditMode::Replace,sketch);
+    near(volume(),pi/2*80*560/std::sqrt(1700.));
+    run(host,"save");const auto saved=document::PartDocument::load(directory/"sheet-revolution.prtz");
+    check(saved.history.front().revolution.sheet_metal&&saved.sketches.size()==1,"Sheet Revolution did not persist its single Sketch and sheet mode");
+    const auto before=state->session.document().serialized();
+    check(!host.execute({{"command","revolution.set"},{"arguments",{{"container",owner},{"combine","subtract"}}}}).ok,"Sheet Revolution accepted subtraction");
+    check(state->session.document().serialized()==before,"Rejected Sheet Revolution changed the document");
+    run(host,"new",{{"type","part"},{"name","sheet-revolution-attached"}});
+    run(host,"flat.create",{{"width_mm",40.},{"height_mm",30.},{"thickness_mm",2.}});
+    const auto attached_id=live.active_document_id();state=live.open_part(attached_id);
+    const auto geometry=state->session.calculated_boundaries().back().mesh.original_references;
+    const auto edge=std::ranges::find_if(geometry.edges,[](const auto& e){return kernel::sheet_edge_role(e)==kernel::SheetEdgeRole::Boundary&&
+        std::ranges::all_of(e.points,[](const auto& p){return std::abs(p.y)<1e-7&&std::abs(p.z-2)<1e-7;});});
+    check(edge!=geometry.edges.end(),"Sheet Revolution attachment edge missing");
+    sketch=sketcher::Sketch::create_default();feature=document::PartDocument::create_revolution_container(sketch.id);
+    document::initialize_sheet_revolution(feature,sketch,document::sheet_metal_defaults(state->session.document()));
+    feature.revolution.sheet_attachment=true;feature.placement.references=document::bend_sheet_references(*edge);
+    workspace::commit_profile(live,kernel,attached_id,feature,workspace::ProfileEditMode::Create,sketch);
+    near(volume(),2400+360*pi);
+    const auto attached=workspace::document_sketch(live,attached_id,sketch.id);
+    check(attached.external_references.size()==2,"Sheet Revolution lost attached endpoint references");
+    near(state->session.document().find_container(feature.id)->revolution.thin_thickness,2.);
+    for(const auto& ref:attached.external_references)check(ref.source_document_id==attached_id,"Sheet Revolution references a temporary carrier document");
+    run(host,"save");
+    run(host,"undo");near(volume(),2400);
+    run(host,"redo");near(volume(),2400+360*pi);
+}
 int main() {
     const auto directory=std::filesystem::temp_directory_path()/("zima-bend-"+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     std::filesystem::create_directories(directory);
-    try{verify_cross_branch_box(directory);verify_sheet_attachment(directory);verify_prepared_start();verify_attachment(directory);verify(directory);std::filesystem::remove_all(directory);std::cout<<"Bend geometry, identities, defaults, history and persistence passed\n";return 0;}
+    try{verify_sheet_revolution(directory);verify_continuation(directory);verify_cross_branch_box(directory);verify_sheet_attachment(directory);verify_prepared_start();verify_attachment(directory);verify(directory);std::filesystem::remove_all(directory);std::cout<<"Bend geometry, identities, defaults, history and persistence passed\n";return 0;}
     catch(const std::exception& e){std::cerr<<e.what()<<"; fixture: "<<directory<<'\n';return 1;}
 }

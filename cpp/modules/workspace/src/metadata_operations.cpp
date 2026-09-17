@@ -46,7 +46,8 @@ SettingsChange set_file_settings(Workspace& live,const kernel::OcctKernel& kerne
         auto next=part->session.document();next.document_units=std::move(values.units);next.document_precision=std::move(values.precision);
         if(values.sheet_metal)document::set_sheet_metal_defaults(next,*values.sheet_metal);
         bool calculate=before.sheet_metal!=values.sheet_metal&&std::ranges::any_of(next.history,[](const auto& feature) {
-            return feature.feature_kind==document::FeatureKind::Flat||feature.feature_kind==document::FeatureKind::Bend;
+            return feature.feature_kind==document::FeatureKind::Flat||feature.feature_kind==document::FeatureKind::Bend||
+                (feature.feature_kind==document::FeatureKind::Revolution&&feature.revolution.sheet_metal);
         });
         if(precision_changed) {
             const auto original=part->session.document().kernel_operations(false,true),requested=next.kernel_operations(false,true);

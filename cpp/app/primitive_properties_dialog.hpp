@@ -36,6 +36,10 @@ namespace zima::app {
 class PrimitivePropertiesDialog final : public zima::ui::PropertiesSubWindow,
                                         public PlacementReferenceDialog {
 public:
+    void set_sheet_default_thickness(double value) { sheet_default_thickness_=value; }
+    void set_sheet_reference_geometry(zima::kernel::ViewerReferenceGeometry value) { sheet_reference_geometry_=std::move(value); }
+    bool sheet_reference_allowed(std::size_t,const zima::document::ConstructionReference&) const;
+    bool is_sheet_revolution() const { return initial_.revolution.sheet_metal; }
     zima::document::Placement placement_seed() const override { return placement_->numeric_placement(); }
     using LegacyCommitCallback =
         std::function<void(zima::document::HistoryContainer)>;
@@ -171,6 +175,10 @@ protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
 
 private:
+    zima::kernel::ViewerReferenceGeometry sheet_reference_geometry_;
+    QCheckBox* sheet_thickness_override_{};
+    double sheet_default_thickness_{1};
+    void lock_sheet_attachment_fields();
     void show_thread_catalog_after_release();
     bool thread_catalog_pending_{};
     zima::document::HistoryContainer initial_;

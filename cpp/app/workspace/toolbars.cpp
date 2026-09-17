@@ -385,7 +385,13 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
                 bend=new QAction(resource_icon("bend"),tr("Ohyb"),this);bend->setObjectName("bendAction");
                 connect(bend,&QAction::triggered,this,[this]{show_sketch_properties({},false,true);});
             }
-            bend->setEnabled(!properties_dialog_);add_command(bend);return;
+            bend->setEnabled(!properties_dialog_);add_command(bend);
+            auto* rotation=findChild<QAction*>("sheetRevolutionAction");
+            if(!rotation) {
+                rotation=new QAction(resource_icon("revolve"),tr("Rotace"),this);rotation->setObjectName("sheetRevolutionAction");
+                connect(rotation,&QAction::triggered,this,[this]{show_primitive_properties(zima::document::FeatureKind::Revolution,{},true);});
+            }
+            rotation->setEnabled(!properties_dialog_);add_command(rotation);return;
         }
     }
     auto* placeholder = new QAction(

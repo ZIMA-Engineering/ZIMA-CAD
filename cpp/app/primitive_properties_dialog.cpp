@@ -4,6 +4,7 @@
 #include "feature_operation_buttons.hpp"
 #include "primitive_properties_dialog.hpp"
 #include <zima/document/profile_status.hpp>
+#include <zima/document/bend.hpp>
 #include "thread_catalog.hpp"
 
 #include <zima/ui/reference_cell.hpp>
@@ -786,6 +787,19 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         thin_thickness_ = dimension(
             thin_thickness, "extrusionThinThickness");
         form->addRow(tr("Tloušťka"), thin_thickness_);
+        if(revolve&&initial.revolution.sheet_metal) {
+            sheet_default_thickness_=initial.revolution.thin_thickness;
+            sheet_thickness_override_=new QCheckBox(tr("Vlastní tloušťka"),this);
+            sheet_thickness_override_->setObjectName("sheetRevolutionThicknessOverride");
+            sheet_thickness_override_->setChecked(initial.revolution.thickness_override);
+            form->addRow(sheet_thickness_override_);
+            form->setRowVisible(profile_plane_,false);form->setRowVisible(profile_plane_offset_,false);
+            form->setRowVisible(result_row,false);
+            connect(sheet_thickness_override_,&QCheckBox::toggled,this,[this](bool checked) {
+                if(!checked)thin_thickness_->setValue(sheet_default_thickness_);
+                lock_sheet_attachment_fields();notify_preview();
+            });
+        }
         thin_mode_ = new QComboBox(this);
         thin_mode_->addItem(tr("Jedna strana"), "one_side");
         thin_mode_->addItem(tr("Na druhou stranu"), "other_side");
@@ -1038,6 +1052,7 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         const bool initial_thin = result_type_->currentData() == "thin";
         thin_thickness_->setVisible(initial_thin);
         thin_mode_->setVisible(initial_thin);
+        if(revolve&&initial.revolution.sheet_metal)lock_sheet_attachment_fields();
         refresh_extent();
     } else if (initial.feature_kind == zima::document::FeatureKind::Shell) {
         shell_thickness_ = dimension(initial.shell.thickness, "shellThickness");
@@ -1518,6 +1533,12 @@ zima::document::HistoryContainer PrimitivePropertiesDialog::values() const {
             ? placement_->combined_references(3)
             : std::vector<zima::document::ConstructionReference>{};
         result.placement.references = placement_references;
+    }
+    if(result.feature_kind==zima::document::FeatureKind::Revolution&&result.revolution.sheet_metal) {
+        result.combine_mode=zima::document::CombineMode::Add;
+        result.revolution.thickness_override=sheet_thickness_override_->isChecked();
+        result.revolution.result_type=zima::document::ProfileResultType::Thin;
+        result.revolution.profile_plane_offset=0;
     }
     return result;
 }
@@ -2192,9 +2213,66 @@ PrimitivePropertiesDialog::highlighted_reference_entries() const {
     return result;
 }
 
+void PrimitivePropertiesDialog::lock_sheet_attachment_fields() {
+    if(!sheet_thickness_override_)return;
+    const bool attached=initial_.revolution.sheet_attachment;
+    sheet_thickness_override_->setEnabled(!attached);
+    thin_thickness_->setEnabled(!attached&&sheet_thickness_override_->isChecked());
+    if(thin_mode_)thin_mode_->setEnabled(!attached);
+    if(thin_mode_switch_button_)thin_mode_switch_button_->setEnabled(!attached);
+    if(!attached||!placement_)return;
+    for(const auto* name:{"containerOrientationFlipButton","containerOrientationRotateButton"})
+        if(auto* button=findChild<QPushButton*>(name))button->setEnabled(false);
+    for(auto* field:placement_->rotation_offset_fields())if(field)field->setEnabled(false);
+    auto* table=placement_->reference_table();
+    for(int row=0;row<table->rowCount();++row) {
+        for(int column:{0,2})if(auto* widget=table->cellWidget(row,column))widget->setEnabled(false);
+        if(row==1)if(auto* item=table->item(row,1))item->setFlags(item->flags()&~Qt::ItemIsEnabled);
+    }
+    if(auto* orientation=placement_->orientation_table())for(int row=0;row<orientation->rowCount();++row) {
+        for(int column:{0,2,4})if(auto* widget=orientation->cellWidget(row,column))widget->setEnabled(false);
+        if(auto* item=orientation->item(row,1))item->setFlags(item->flags()&~Qt::ItemIsEnabled);
+    }
+}
+bool PrimitivePropertiesDialog::sheet_reference_allowed(std::size_t index,const zima::document::ConstructionReference& reference) const {
+    if(!initial_.revolution.sheet_metal)return true;
+    const auto& geometry=sheet_reference_geometry_;
+    const auto edge=std::ranges::find_if(geometry.edges,[&](const auto& e) {
+        return e.reference.owner_id==reference.owner_id&&e.reference.semantic_key==reference.semantic_key&&e.reference.instance_path==reference.instance_path;
+    });
+    if(edge!=geometry.edges.end()) {
+        if(zima::kernel::sheet_edge_role(*edge)==zima::kernel::SheetEdgeRole::Thickness)return false;
+        if(index==0&&zima::kernel::sheet_edge_role(*edge)==zima::kernel::SheetEdgeRole::Boundary) {
+            try{return zima::document::bend_attachment_profile_direction(zima::document::bend_sheet_references(*edge),geometry).has_value();}
+            catch(const std::exception&){return false;}
+        }
+    }
+    if(!initial_.revolution.sheet_attachment)return true;
+    if(index!=2)return false;
+    const auto refs=placement_->combined_references(3);if(refs.empty())return false;
+    for(const auto& e:geometry.edges)if(e.reference.owner_id==refs[0].owner_id&&e.reference.semantic_key==refs[0].semantic_key&&e.reference.instance_path==refs[0].instance_path)
+        return std::ranges::any_of(e.edge_treatment_endpoint_references,[&](const auto& p){return p.owner_id==reference.owner_id&&p.semantic_key==reference.semantic_key&&p.instance_path==reference.instance_path;});
+    return false;
+}
 bool PrimitivePropertiesDialog::set_reference(std::size_t index,
     zima::document::ConstructionReference reference, const QString& label) {
     if (!placement_) return false;
+    if(!sheet_reference_allowed(index,reference))return false;
+    if(initial_.revolution.sheet_metal&&index==0) {
+        const auto edge=std::ranges::find_if(sheet_reference_geometry_.edges,[&](const auto& e) {
+            return e.reference.owner_id==reference.owner_id&&e.reference.semantic_key==reference.semantic_key&&e.reference.instance_path==reference.instance_path;
+        });
+        if(edge!=sheet_reference_geometry_.edges.end()&&zima::kernel::sheet_edge_role(*edge)==zima::kernel::SheetEdgeRole::Boundary) {
+            const auto refs=zima::document::bend_sheet_references(*edge);
+            initial_.revolution.sheet_attachment=true;initial_.revolution.thickness_override=false;
+            initial_.revolution.thin_thickness=edge->edge_treatment_side_references.front().sheet_thickness;
+            {const QSignalBlocker a(sheet_thickness_override_),b(thin_thickness_),c(thin_mode_);
+                sheet_thickness_override_->setChecked(false);thin_thickness_->setValue(initial_.revolution.thin_thickness);
+                thin_mode_->setCurrentIndex(thin_mode_->findData("one_side"));}
+            placement_->initialize_from_references(refs,[](const auto& key){return QString::fromStdString(key);});
+            lock_sheet_attachment_fields();notify_preview();return true;
+        }
+    }
     const bool first_plane = index == 0 && reference.supports_offset;
     QString error;
     if (!placement_->set_reference(index, std::move(reference), label, &error)) {

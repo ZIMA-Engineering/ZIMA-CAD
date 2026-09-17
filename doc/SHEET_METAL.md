@@ -230,7 +230,7 @@ reference table. **Manual placement references** returns to ordinary placement.
 The start Sketch lies directly at the container origin. Bend has no additional
 profile-plane offset or manual Sketch plane selector. Its work plane derives
 from placement; the trajectory plane also passes through the origin, while the
-end Sketch follows the trajectory endpoint and tangent. Each start endpoint is
+end Sketch follows the circular arc endpoint and tangent. Each start endpoint is
 referenced to a native edge endpoint and has an initially zero horizontal offset
 dimension. Both zero dimensions remain visible. Positive initial offsets shorten
 the span inward; a nonpositive resulting width is rejected. Automatic attachment
@@ -250,8 +250,8 @@ selects one of its two persisted endpoints. Geometry and validation use the same
 workspace transaction as GUI OK.
 
 Sheet metadata is stored in native documents, including saved original-reference
-packets and assembly/drawing copies. Current format versions are Part INI 35 /
-JSON 59, Assembly INI 29 / JSON 41, and Drawing INI 18 / JSON 10. The tracked start templates
+packets and assembly/drawing copies. Current format versions are Part INI 36 /
+JSON 60, Assembly INI 30 / JSON 42, and Drawing INI 18 / JSON 10. The tracked start templates
 use those versions; there is no legacy-format migration path.
 
 **Bend** is available in the Sheet Metal toolbar and contextual **Insert** menu.
@@ -275,9 +275,21 @@ Editing evaluates the existing history boundary before the Bend.
   origin directly to that point. Reference order and identity are persisted in
   the native document; no additional geometry file or cache is required.
 - One history container owns three prepared Sketches: the start profile (initially
-  a 40 mm segment from 0 to +40), a circular trajectory, and the end profile. Their editors are
+  a 40 mm segment from 0 to +40), a circular trajectory with an optional tangent
+  continuation, and the end profile. Their editors are
   available in the same properties window. The end frame follows the path tangent
-  automatically; it has no independent twist.
+  automatically at the end of the arc; it has no independent twist.
+- To add a straight continuation, draw one non-construction segment from the
+  arc's end in the trajectory Sketch. It must share that endpoint and extend
+  forward. OK aligns it with the outgoing tangent, stores a tangent constraint
+  and adds an editable length dimension unless the segment already has one.
+  Initial H/V inference on that new segment is replaced by its feature-owned
+  tangent direction, so a later angle edit does not pin it to a Sketch axis.
+  Deleting the segment restores an ordinary Bend. The command remains **Bend**.
+  Both original profile Sketches remain at the ends of the arc; the continuation
+  uses the end profile's width without further taper. Its length is unchanged by
+  angle/radius edits and Unbend. The native auxiliary Sketch stores the segment,
+  its endpoints, constraint and dimension; no new format field is required.
 - Each profile has one non-construction straight segment. The end editor includes
   a fixed construction copy of the start segment and two endpoint difference
   dimensions. Their initial values are zero. Positive entry preserves the current
@@ -314,15 +326,16 @@ Editing evaluates the existing history boundary before the Bend.
   along `angle_radians * (R + K*t)`. It shows an axis at the developed region's
   midpoint. K is a manufacturing input, not inferred from the geometry. The bent
   and flat simplified solids need not have equal volume when K differs from 0.5.
-- At exactly zero degrees the feature contributes no material, keeps its history
+- At exactly zero degrees an arc-only feature contributes no material, keeps its history
   identity and can be edited back to a positive angle. It has no selectable faces
   at that boundary. This avoids a degenerate OCCT solid.
+  If a continuation exists, its straight material remains at zero degrees.
   The trajectory editor is disabled at zero angle; change the property angle to
   restore it. The last nondegenerate path retains its curve and point identities.
 - An inside radius of zero is supported for **matching profiles**, including a
   180-degree fold. The inner cylindrical face collapses and is absent; surviving
-  faces retain their identities. This is the geometric foundation for a future
-  Hem command. Variable-width R=0 bends and zero-length developments are rejected
+  faces retain their identities. The Hem preset selects this configuration.
+  Variable-width R=0 bends and zero-length developments are rejected
   atomically. Contact between attached sheet legs is not handled by this command.
 - The cyan wire preview is generated analytically without OCCT. OK and explicit
   Regenerate calculate the solid. Document default changes affect existing Bends
@@ -665,7 +678,7 @@ the edited feature at their existing rollback boundary; later failures remain
 visible diagnostics. Regeneration retries failed references so that correcting
 an upstream parameter restores geometry and clears errors automatically.
 
-The current native format is Part INI 35 / JSON 59 and Assembly INI 29 / JSON 41.
+The current native format is Part INI 36 / JSON 60 and Assembly INI 30 / JSON 42.
 `reference_errors` is stored inside the native Part and participates in operation
 fingerprints. Failed states therefore reopen with their diagnostics and the
 correct valid-prefix geometry. Both start templates are updated.
@@ -696,3 +709,123 @@ across `build/release-1704-recovery-tests.log` and
 `build/release-1704-final-check-tests.log`. This includes actual View editing,
 Tree diagnostics, regeneration recovery, saved failed states and kernel prefix
 reference retention. Earlier failed attempts remain diagnostic logs only.
+
+## Tangent continuation verification (after Windows 2026091704)
+
+The optional straight continuation is a local development change after the
+published 2026091704 package. The existing root `zima-cad.bat` launches the rebuilt
+development application; the published archive remains unchanged.
+
+Eight distinct focused suites passed across
+`build/bend-continuation-final-tests.log` (six suites, 105.61 seconds) and
+`build/bend-continuation-final-tests2.log` (four suites, 70.72 seconds, two repeated).
+The latter run verifies the final direction and inference handling. Coverage
+includes actual Properties acceptance and View length editing, Flat attachment,
+Sketcher, recovering history, general kernel contracts and 3D sweeps.
+
+The Bend regression checks analytic volumes at 0, 45, 90 and 180 degrees,
+180-degree entry through the actual Sketch angle dimension, unchanged continuation
+length through property/state changes, Unbend, zero-inner-radius Hem, native
+save/reopen, deletion and Undo/Redo. Original arc face identities remain present;
+the new end exposes a native sheet boundary edge. Both arc profile Sketches keep
+their original placement and identity. New H/V line inference is replaced by T;
+the prepared forward direction resolves the tangent solver's opposite branch
+when changing angle. An existing authored length dimension is reused.
+
+The GUI acceptance screenshot is `build/bend-continuation-view.png` and was
+visually inspected. Earlier failed exploratory test logs are superseded by the
+final passing runs. This is focused verification, not a full repository test run.
+
+
+## Sheet Revolution
+
+The Sheet Metal toolbar and Insert menu expose **Revolution** (`Rotace`). It
+uses one owned Sketch containing one non-construction profile segment and an
+oriented construction centerline. The initial profile is 40 mm long, with a
+parallel axis 10 mm away. Edit the same Sketch to reposition or incline the axis;
+there is no circular trajectory Sketch, end-profile Sketch or offset plane.
+A parallel profile/axis produces a cylindrical sheet; an inclined pair produces
+a conical sheet. The complete section, including thickness, must remain on one
+side of the axis. The initial 1 mm, 90-degree cylinder has volume `190*pi mm^3`;
+this independent analytical measure is covered by regression tests.
+
+Free placement inherits Part sheet thickness unless **Custom thickness** is
+checked. The existing Revolution controls select the first side, opposite side
+or symmetric thickness, independently from the forward/reverse rotation and
+one-sided, two-sided or symmetric angular extent. Angle limits match Modeling
+Revolution, including a 360-degree total maximum.
+
+Selecting a straight native sheet boundary in the first placement reference
+uses the same edge, joining face and endpoint contract as Bend. The profile's
+endpoints become inherited external point references with editable end offsets.
+Thickness and its material side follow the selected sheet. The axis remains
+editable in the one Sketch. Thickness edges are excluded from both offering and
+confirmation. Derived joining-face/orientation controls cannot be independently
+replaced in attached mode.
+
+The operation reuses the native Revolution definition and calculation, with
+explicit `sheet_metal`, `sheet_attachment` and `thickness_override` fields. It is
+additive and Part-owned, including when editing a Part within an Assembly.
+Assembly cutter creation cannot reinterpret it as a subtraction. Principal
+faces and thickness faces carry sheet roles derived from authored thin-profile
+ancestry; the viewer does not classify them through live kernel traversal.
+The CLI `revolution.create` and `revolution.set` expose `sheet_metal` and
+`thickness_override` alongside the existing profile/axis/angle arguments.
+
+Current native versions are Part INI 36 / JSON 60 and Assembly INI 30 / JSON 42.
+Both start templates are updated. Drawing remains INI 18 / JSON 10. No required
+sidecar is introduced. Unfolding Sheet Revolution is deliberately not implemented
+in this step; cylindrical and conical developments need a separate design.
+
+### Sheet Revolution verification
+
+The Windows native build and ten focused suites passed. The initial three-suite
+run is recorded in `build/sheet-revolution-tests.log`; seven additional suites
+are recorded in `build/sheet-revolution-regression-tests.log`. After extending
+GUI coverage, the application-tools suite passed again in
+`build/sheet-revolution-ui-tests.log`.
+
+Checks cover analytical cylinder/cone volumes, 90/180/360-degree rotation,
+angular extent modes, thickness sides and inheritance, persisted sheet face
+roles, attachment to a Flat boundary, inherited endpoint references, native
+save/reopen, rejection of subtraction and Undo/Redo. The actual application
+dialog additionally exercises free creation, edge attachment, entering and
+leaving the owned Sketch, property reopening and Cancel without committing
+pending thickness. The acceptance image `build/sheet-revolution-view.png` was
+visually inspected. Regression coverage includes Bend attachment, Flat,
+Sketcher, history recovery, general geometry, sweeps and Assembly persistence.
+This is focused verification, not a full repository test run.
+
+### Attached Revolution Sketcher frame correction
+
+The initial Sheet Revolution implementation calculated the attached profile and
+wire preview correctly but entered its new owned Sketch through a generic Sketch
+history carrier. That carrier discarded the sheet-specific edge/material-side
+frame policy and resolved a different editing plane. Free creation did not expose
+the discrepancy.
+
+Entering the owned Sketch now retains the pending Sheet Revolution as its
+transient owner. Its existing document resolver supplies the same frame as the
+rotation calculation. This is a feature-specific carrier correction; it does not
+change the shared placement solver or commit model geometry on Sketcher entry.
+The GUI regression compares the displayed X/Y axes and their origin against the
+resolved attached profile both during creation and after reopening Properties.
+It reproduced the defect before the fix in
+`build/sheet-rotation-frame-before.log`.
+After correction, all five suites in
+`build/sheet-rotation-frame-fixed-tests.log` passed (212.39 seconds): Sketcher
+return frames, Bend attachment, profile commands, application tools with the new
+creation/reopening frame assertions, and Bend/Sheet Revolution calculations.
+The local Windows executable was rebuilt successfully; this verification does
+not constitute a new portable release.
+
+### Subsequent unfolding design
+
+The next design should derive a neutral surface from the authored profile, axis
+and sheet thickness, and distinguish cylindrical and conical cases. Flat output
+must retain explicit ancestry to the same profile endpoints and sheet sides;
+changing folded state must not substitute unrelated reference owners. The
+neutral-surface rule, seam for a complete revolution and behavior of attached
+downstream features require separate implementation and verification. No unfold
+result or manufacturing allowance for this feature is claimed by the current
+geometry-creation tests.

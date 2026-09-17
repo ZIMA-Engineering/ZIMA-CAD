@@ -42,7 +42,7 @@ struct SurfaceGeometry {
 
 enum class SheetFaceRole { Unknown, SideA, SideB, ThicknessFace };
 enum class SheetEdgeRole { Unknown, Boundary, Thickness, Junction };
-enum class SheetOperation { None, Flat, Bend };
+enum class SheetOperation { None, Flat, Bend, Revolution };
 
 struct FaceReference {
     std::string owner_id;

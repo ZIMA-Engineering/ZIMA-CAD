@@ -448,6 +448,15 @@ void AssemblyWorkspaceWindow::start_construction_reference_selection(
         auto candidate_reference = zima::document::ConstructionReference{
             std::move(local_path), candidate.owner_id, candidate.semantic_key, 0.0,
             candidate_supports_offset(candidate)};
+        if(const auto* profile_dialog=dynamic_cast<const PrimitivePropertiesDialog*>(primitive_reference_dialog_)) {
+            if(!profile_dialog->sheet_reference_allowed(index,candidate_reference))return false;
+            if(index==0&&profile_dialog->is_sheet_revolution()) {
+                const auto edge=std::ranges::find_if(primitive_reference_geometry_.edges,[&](const auto& e) {
+                    return e.reference.owner_id==candidate_reference.owner_id&&e.reference.semantic_key==candidate_reference.semantic_key&&e.reference.instance_path==candidate_reference.instance_path;
+                });
+                if(edge!=primitive_reference_geometry_.edges.end()&&zima::kernel::sheet_edge_role(*edge)==zima::kernel::SheetEdgeRole::Boundary)return true;
+            }
+        }
         if (orientation_reference || direction_reference) {
             candidate_reference.orientation_drives_rotation = true;
             candidate_reference.orientation_role = direction_reference

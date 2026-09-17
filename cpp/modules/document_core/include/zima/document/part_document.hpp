@@ -293,6 +293,9 @@ struct ExtrusionParameters {
 };
 
 struct RevolutionParameters {
+    bool sheet_metal{};
+    bool sheet_attachment{};
+    bool thickness_override{};
     std::string sketch_id;
     // Stable ZIMA Sketch segment used as the unbounded revolution axis.
     // It must identify a green construction centerline in the owned Sketch.

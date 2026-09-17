@@ -46,6 +46,11 @@ bool is_profile(document::FeatureKind kind) {
 }
 }
 void validate_profile_definition(const document::HistoryContainer& value) {
+    if(value.feature_kind==document::FeatureKind::Revolution&&value.revolution.sheet_metal&&
+        (value.combine_mode!=document::CombineMode::Add||value.revolution.result_type!=document::ProfileResultType::Thin||
+         value.revolution.profile_plane_offset!=0||value.revolution.profile_source!=document::ProfileSource::Internal||
+         (value.revolution.sheet_attachment&&(value.revolution.thickness_override||value.revolution.thin_mode!=document::ThinMode::OneSide))))
+        throw ProfileOperationError("invalid_arguments","Sheet Revolution requires an additive owned thin profile without plane offset.");
     if (!is_profile(value.feature_kind)) throw ProfileOperationError("wrong_feature", "This container is not an Extrusion or Revolution.");
     const bool extrusion = value.feature_kind == document::FeatureKind::Extrusion;
     if ((extrusion ? value.extrusion.result_type : value.revolution.result_type) == document::ProfileResultType::Surface &&
