@@ -925,7 +925,7 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
                 throw std::runtime_error("Sketch Properties missing");
             };
             for(const bool commit:{false,true}){
-                auto* dialog=edit();
+                SketchPropertiesDialog* dialog=edit();
                 dialog->findChild<QLineEdit*>("sketchName")->setText("GUI properties");
                 dialog->findChild<QComboBox*>("sketchPlane")->setCurrentIndex(
                     dialog->findChild<QComboBox*>("sketchPlane")->findData(static_cast<int>(sketcher::SketchPlane::YZ)));
@@ -943,7 +943,7 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
                 "GUI and CLI Sketch Properties differ");
             json_run("sketch.reference.set",{{"sketch",sid},{"index",0},{"reference",{{"owner",origin},{"key","origin:plane:xy"}}},{"offset_mm",4}});flush();
             for(const bool commit:{false,true}){
-                auto* dialog=edit();auto* table=dialog->findChild<QTableWidget*>("sketchReferenceTable");
+                SketchPropertiesDialog* dialog=edit();auto* table=dialog->findChild<QTableWidget*>("sketchReferenceTable");
                 auto* value=table?qobject_cast<QDoubleSpinBox*>(table->cellWidget(0,2)):nullptr;
                 check(value&&value->isEnabled()&&std::abs(value->value()-4)<1e-7,"Sketch Properties lost CLI reference offset");
                 value->setValue(7);
@@ -962,7 +962,7 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
             check(*container_of(gui_reference,owner)==*container_of(cli_reference,owner)&&
                 gui_reference.sketches.front().serialized()==cli_reference.sketches.front().serialized(),"GUI and CLI referenced Sketch differ");
             run("undo");run("undo"); // Return to a Sketch without positional sources.
-            auto* orientation_dialog=edit();
+            SketchPropertiesDialog* orientation_dialog=edit();
             document::ConstructionReference front;front.owner_id=origin;front.semantic_key="origin:plane:xy";front.supports_offset=true;
             check(orientation_dialog->set_reference(3,front,QString{}),"Sketch rejected independent FRONT");
             orientation_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();

@@ -14,7 +14,7 @@ cmake -S "$sdk_root/OCCT-7_9_3" -B "$sdk_root/occt-build" -G Ninja \
     -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$sdk_root/occt" \
     -DBUILD_MODULE_Draw=OFF -DBUILD_MODULE_Visualization=OFF \
     -DUSE_TCL=OFF -DUSE_TK=OFF -DUSE_TBB=OFF -DUSE_FREETYPE=OFF \
-    -DBUILD_DOC_Overview=OFF -DINSTALL_DIR_LAYOUT=Unix -DCMAKE_EXPORT_NO_PACKAGE_REGISTRY=ON
+    -DBUILD_DOC_Overview=OFF -DCMAKE_INSTALL_RPATH='$ORIGIN' -DINSTALL_DIR_LAYOUT=Unix -DCMAKE_EXPORT_NO_PACKAGE_REGISTRY=ON
 cmake --build "$sdk_root/occt-build" --parallel "${ZIMA_BUILD_JOBS:-12}"
 cmake --install "$sdk_root/occt-build"
 cat > "$sdk_root/occt/sdk.json" <<'JSON'
