@@ -6,8 +6,9 @@ The repository now has a pinned OCCT SDK builder and a committed-source Linux
 candidate builder. Follow [Native Debian build and release](LINUX_BUILD.md).
 The historical handoff below describes the starting state; actual acceptance
 results are recorded in [Linux candidate 2026091701](releases/2026091701.md).
-The unsigned package passed native smoke on KDE/Wayland; the publisher key is
-still needed before signed finalization and public release.
+The signed 2026091701 package is now public. Finalized native smoke, production
+bootstrap trust and public update discovery passed. The key-transfer and signing
+steps below are historical; do not repeat them for the immutable published archive.
 
 ## Read first
 

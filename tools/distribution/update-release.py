@@ -226,7 +226,9 @@ def finalize(args):
         metadata = json.loads((runtime / 'version.json').read_text(encoding='utf-8'))
         if metadata.get('version') != version or metadata.get('platform') != platform:
             raise ValueError('Platform manifest mismatch')
-        if not args.development and (metadata.get('source_modified') is not False or metadata.get('origin') not in ('release-candidate', 'official')):
+        # A committed candidate can be tagged after packaging. The exact tag,
+        # source bytes and smoke-tested archive are verified below before signing.
+        if not args.development and (metadata.get('source_modified') is not False or metadata.get('origin') not in ('committed-candidate', 'release-candidate', 'official')):
             raise ValueError('Release requires clean, verified platform candidates')
         if not re.fullmatch('[0-9a-f]{40}', metadata.get('commit', '')):
             raise ValueError('Missing source commit')

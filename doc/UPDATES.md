@@ -146,8 +146,12 @@ python tools/distribution/update-release.py finalize --version <build> --package
 
 The finalizer requires a clean repository, exact tag/VERSION/commit, byte-identical
 Git-exported sources and runtimes/root launcher matching the smoke-tested candidate.
-Its key must already be trusted by the packaged source. It creates bootstrap
-attestations and signed assets, revalidates archive paths/CRC/SHA-256 and, on Windows,
+Its key must already be trusted by the packaged source. It accepts
+`release-candidate` and `committed-candidate` inputs alike:
+a candidate tagged after packaging must pass the same exact source, tag,
+archive and native smoke-report checks. The candidate metadata is not rewritten
+to bypass those checks. It creates bootstrap attestations and signed assets,
+revalidates archive paths/CRC/SHA-256 and, on Windows,
 smokes the finalized signed archive from a fresh extraction. Existing output is
 never replaced. `--development` creates isolated test assets that production
 discovery rejects; it is not a release shortcut.

@@ -10,8 +10,8 @@ Qt/OCCT versions and compiler without creating a window or reading settings.
 The CLI also supports `--version`. The About window displays the same ID.
 
 Windows and Linux have native launchers and committed-source candidate builders.
-The unsigned Debian 13 Linux candidate 2026091701 passed native packaging and
-KDE/Wayland smoke; production signing remains pending. See the exact
+The signed Debian 13 Linux release 2026091701 passed native packaging,
+KDE/Wayland smoke, production bootstrap trust and public update discovery. See the exact
 [acceptance scope and limitations](releases/2026091701.md). Signed updates, restart coordination, startup
 acknowledgement, recovery and two-version retention are implemented; see
 [Application updates](UPDATES.md) for the UI, signing and acceptance procedure.

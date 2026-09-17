@@ -5,6 +5,7 @@ import runpy
 import tempfile
 from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -55,6 +56,29 @@ class PublisherInputs(unittest.TestCase):
         PUBLISH['verify_candidate_inputs'](self.args, VERSION, self.package, self.platforms, self.commit)
 
     def test_exact_candidate_and_clean_tag_pass(self): self.verify()
+
+    def test_committed_candidate_requires_full_provenance_verification(self):
+        runtime = self.package / self.folder / VERSION
+        metadata = {'version': VERSION, 'platform': self.platform,
+                    'commit': self.commit, 'source_modified': False,
+                    'origin': 'committed-candidate'}
+        (runtime / 'version.json').write_text(json.dumps(metadata))
+        helper = 'zima-cad-update.exe' if self.folder == 'windows' else 'bin/zima-cad-update'
+        (runtime / helper).write_bytes(b'fixture updater')
+        (self.package / 'LICENSE').write_text('fixture license')
+        args = SimpleNamespace(version=VERSION, package=self.package,
+            output=self.root / 'signed', development=False)
+        globals_ = PUBLISH['finalize'].__globals__
+        with patch.dict(globals_, verify_candidate_inputs=unittest.mock.Mock(
+                side_effect=ValueError('provenance gate reached'))):
+            with self.assertRaisesRegex(ValueError, 'provenance gate reached'):
+                PUBLISH['finalize'](args)
+            globals_['verify_candidate_inputs'].assert_called_once()
+            metadata['source_modified'] = True
+            (runtime / 'version.json').write_text(json.dumps(metadata))
+            with self.assertRaisesRegex(ValueError, 'clean, verified platform candidates'):
+                PUBLISH['finalize'](args)
+            self.assertEqual(globals_['verify_candidate_inputs'].call_count, 1)
 
     def test_untracked_or_dirty_source_is_rejected(self):
         (self.repo / 'private.txt').write_text('not distributable')
