@@ -574,6 +574,7 @@ struct HolesParameters {
 
 struct FlatParameters {
     std::string sketch_id;
+    bool sheet_attachment{};
     double thickness{1.0};
     bool thickness_override{};
     ExtrusionDirection direction{ExtrusionDirection::Forward};
@@ -691,6 +692,11 @@ public:
     void erase_history_object(const std::string& id);
     std::vector<HistoryContainer> history;
     std::vector<zima::sketcher::Sketch> sketches;
+    // Calculated folded-state reference geometry and Sketch frames. Persisted
+    // inside the Part so editing an unfolded sheet never needs kernel work.
+    std::string sheet_reference_state{"{}"};
+    // Persisted diagnostics from reference evaluation, keyed by history owner.
+    std::map<std::string,std::string> reference_errors;
     std::vector<ConstructionObject> constructions;
     std::vector<PartHistoryEntry> history_order;
     std::size_t history_cursor{std::numeric_limits<std::size_t>::max()};

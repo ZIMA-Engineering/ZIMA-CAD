@@ -854,6 +854,8 @@ void MeshView::set_selection_filter(SelectionFilter filter) {
     if (impl_->empty_confirmation_callback) impl_->empty_confirmation_callback();
 }
 
+SelectionFilter MeshView::selection_filter() const { return impl_->selection_filter; }
+
 void MeshView::set_selection_contract(std::vector<CandidateKind> allowed_kinds) {
     impl_->allowed_kinds = std::move(allowed_kinds);
     impl_->candidate_filter = {};

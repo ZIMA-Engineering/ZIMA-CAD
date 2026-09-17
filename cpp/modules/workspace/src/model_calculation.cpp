@@ -3,20 +3,16 @@
 #include <zima/workspace/opening_operations.hpp>
 #include <zima/workspace/part_transactions.hpp>
 #include <zima/workspace/sketch_operations.hpp>
+#include <zima/document/viewer_packet_json.hpp>
+#include <nlohmann/json.hpp>
 #include <algorithm>
 #include <functional>
 #include <stdexcept>
 
 namespace zima::workspace {
 
-std::vector<zima::kernel::BodyResult> calculate_part(
-    const zima::kernel::OcctKernel& kernel,
-    const zima::document::PartDocument& document,
-    const std::vector<zima::kernel::BodyResult>* previous,
-    const PartCalculationPolicy& policy) {
-    const auto operations = document.kernel_operations(false, true);
-    auto calculated = kernel.evaluate_history_recovering(operations,
-        previous == nullptr ? std::vector<zima::kernel::BodyResult>{} : *previous);
+static void validate_part_calculation(const document::PartDocument& document,
+    const std::vector<kernel::BodyResult>& calculated,const PartCalculationPolicy& policy) {
     if (policy.reject_errors && !calculated.empty()) {
         const auto& errors = calculated.back().calculation_errors;
         if (policy.edited_history_limit && policy.edited_document_id == document.document_id &&
@@ -30,11 +26,22 @@ std::vector<zima::kernel::BodyResult> calculate_part(
             throw std::runtime_error(errors.begin()->second);
         }
     }
+}
+
+std::vector<zima::kernel::BodyResult> calculate_part(
+    const zima::kernel::OcctKernel& kernel,
+    const zima::document::PartDocument& document,
+    const std::vector<zima::kernel::BodyResult>* previous,
+    const PartCalculationPolicy& policy) {
+    const auto operations = document.kernel_operations(false, true);
+    auto calculated = kernel.evaluate_history_recovering(operations,
+        previous == nullptr ? std::vector<zima::kernel::BodyResult>{} : *previous);
+    validate_part_calculation(document,calculated,policy);
     return calculated;
 }
 
-std::vector<zima::kernel::BodyResult>
-calculate_part_with_resolved_references(
+static std::vector<zima::kernel::BodyResult>
+calculate_part_reference_state(
     const zima::kernel::OcctKernel& kernel,
     zima::document::PartDocument& document,
     const std::vector<zima::kernel::BodyResult>* previous,
@@ -46,14 +53,28 @@ calculate_part_with_resolved_references(
     // downstream container.  Each pass advances that dependency chain by one
     // history boundary; the final unchanged pass proves that the calculated
     // body and all persisted placements describe the same state.
-    const auto pass_limit = document.history.size() + 2;
+    const auto pass_limit = 2 * document.history.size() + 3;
+    const auto attached_flat_profiles=[&] {
+        std::map<std::string,std::string> profiles;
+        for(const auto& feature:document.history)if(feature.feature_kind==document::FeatureKind::Flat&&feature.flat.sheet_attachment)
+            for(const auto& sketch:document.sketches)if(sketch.id==feature.flat.sketch_id)profiles.emplace(sketch.id,sketch.serialized());
+        return profiles;
+    };
     for (std::size_t pass = 0; pass < pass_limit; ++pass) {
-        calculated = calculate_part(kernel, document, incremental_source, policy);
+        calculated = calculate_part(kernel, document, incremental_source, {});
         const auto history_before = document.history;
         const auto constructions_before = document.constructions;
         const auto bodies_before = document.body_history.bodies();
+        const auto flat_profiles_before=attached_flat_profiles();
         document.resolve_constructions(
             construction_reference_source_geometry(calculated));
+        // A changed placement describes the next geometry pass. Projecting
+        // this pass's old source mesh into that new Sketch frame can create
+        // a false constraint conflict while the dependency chain is settling.
+        if(document.history!=history_before||document.constructions!=constructions_before||
+            document.body_history.bodies()!=bodies_before||attached_flat_profiles()!=flat_profiles_before) {
+            incremental_source=&calculated;continue;
+        }
         const bool external_references_changed =
             refresh_sketch_external_references(document, calculated);
         const bool drill_points_changed =
@@ -61,6 +82,7 @@ calculate_part_with_resolved_references(
         const bool profile_targets_changed=refresh_profile_end_targets(document,calculated);
         const bool opening_targets_changed=refresh_opening_end_targets(document,calculated);
         if (!external_references_changed && !drill_points_changed && !profile_targets_changed && !opening_targets_changed &&
+            attached_flat_profiles()==flat_profiles_before &&
             document.history == history_before &&
             document.constructions == constructions_before &&
             document.body_history.bodies() == bodies_before) {
@@ -71,12 +93,42 @@ calculate_part_with_resolved_references(
                 append_reference_geometry(geometry,document.history_origin_reference_geometry_before({}));
                 zima::document::resolve_section_placements(document.sections,geometry);
             }
+            validate_part_calculation(document,calculated,policy);
             return calculated;
         }
         incremental_source = &calculated;
     }
     throw std::runtime_error(
         "Part placement references did not converge during regeneration");
+}
+
+std::vector<kernel::BodyResult> calculate_part_with_resolved_references(
+    const kernel::OcctKernel& kernel,document::PartDocument& document,
+    const std::vector<kernel::BodyResult>* previous,const PartCalculationPolicy& policy) {
+    const bool unfolded=std::ranges::any_of(document.history,[](const auto& feature) {
+        return feature.feature_kind==document::FeatureKind::Bend&&feature.bend.unbend&&!feature.suppressed;
+    });
+    document.sheet_reference_state="{}";
+    if(unfolded) {
+        // State changes do not redefine material-space design relationships.
+        // Calculate the authored folded geometry first, then use its reference
+        // data to solve the same Sketch identities in the displayed state.
+        auto design=document;
+        for(auto& feature:design.history)if(feature.feature_kind==document::FeatureKind::Bend)feature.bend.unbend=false;
+        const auto design_bodies=calculate_part_reference_state(kernel,design,nullptr,{});
+        auto frames=nlohmann::json::array();
+        const auto vector=[](const kernel::Vec3& v){return nlohmann::json::array({v.x,v.y,v.z});};
+        visit_document_sketches(design,[&](const auto& sketch) {
+            frames.push_back({{"sketch",sketch.id},{"origin",vector(sketch.resolved_origin)},
+                {"x",vector(sketch.resolved_x_axis)},{"y",vector(sketch.resolved_y_axis)},
+                {"normal",vector(sketch.resolved_normal)}});return true;
+        });
+        document.sheet_reference_state=nlohmann::json{{"frames",std::move(frames)},
+            {"body_history",nlohmann::json::parse(design.body_history.serialized())},
+            {"geometry",document::serialize_viewer_reference_geometry(sketch_external_reference_source_geometry(design,design_bodies))}}.dump();
+        static_cast<void>(refresh_sketch_external_references(document,design_bodies));
+    }
+    return calculate_part_reference_state(kernel,document,previous,policy);
 }
 
 void calculate_resolved_assembly_cuts(
@@ -176,6 +228,7 @@ PartRegenerationResult regenerate_part(Workspace& workspace,
             [](const auto& left, const auto& right) { return left.serialized() == right.serialized(); });
     if (references_changed || sketches_changed ||
         zima::document::serialize_sections(next.sections)!=zima::document::serialize_sections(previous.sections) || next.history != previous.history ||
+        next.reference_errors != previous.reference_errors ||
         next.constructions != previous.constructions ||
         next.body_history.bodies() != previous.body_history.bodies()) {
         part->session.commit(std::move(next), std::move(calculated));

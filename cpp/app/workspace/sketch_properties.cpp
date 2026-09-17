@@ -351,7 +351,8 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
             preview_document.constructions.push_back(plane);
             if (!sketch.owner_container_id.empty()) {
                 auto preview_container =
-                    sketch_feature && sketch_feature->feature_kind == zima::document::FeatureKind::Bend
+                    sketch_feature && (sketch_feature->feature_kind == zima::document::FeatureKind::Bend||
+                        sketch_feature->feature_kind == zima::document::FeatureKind::Flat)
                     ? *sketch_feature : zima::document::PartDocument::create_sketch_container();
                 preview_container.id = sketch.owner_container_id;
                 preview_container.placement = geometric_placement;

@@ -121,6 +121,9 @@ private:
     QDoubleSpinBox* bend_angle_{};
     bool bend_seed_from_edge_{};
     std::shared_ptr<zima::document::BendParameters> bend_pending_;
+    std::shared_ptr<zima::document::FlatParameters> flat_pending_;
+    std::function<void(zima::document::FlatParameters)> flat_changed_;
+    void lock_flat_attachment_fields();
     void lock_bend_attachment_fields();
     std::function<void(zima::document::BendParameters)> set_bend_parameters_;
     QComboBox* plane_reference_{};

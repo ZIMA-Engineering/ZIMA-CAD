@@ -4747,6 +4747,23 @@ std::vector<std::array<double, 2>> Sketch::curve_line_intersections(
     return result;
 }
 
+std::string Sketch::add_external_point_segment_constraint(const std::string& reference_id,
+        const std::string& segment_id,bool midpoint) {
+    const auto position=external_point_position(*this,reference_id);
+    const auto source=std::ranges::find(external_references,reference_id,&SketchExternalReference::id);
+    if(!position||source==external_references.end()||source->broken)throw std::invalid_argument("External point is missing or broken");
+    auto next=*this;
+    const auto count=next.points.size();
+    const auto point=next.add_point((*position)[0],(*position)[1],0);
+    if(next.points.size()!=count)next.find_point(point)->construction=true;
+    const bool bound=std::ranges::any_of(next.constraints,[&](const auto& c) {
+        return !c.suppressed&&c.kind==ConstraintKind::PointReference&&c.first_point_id==point&&c.second_point_id==reference_id;
+    });
+    if(!bound)static_cast<void>(next.add_point_reference_constraint(point,reference_id));
+    const auto id=midpoint?next.add_midpoint_constraint(point,segment_id):next.add_point_on_line_constraint(point,segment_id);
+    *this=std::move(next);return id;
+}
+
 std::string Sketch::add_point_on_line_constraint(
     const std::string& point_id, const std::string& line_id) {
     const auto* point = find_point(point_id);
@@ -5509,18 +5526,26 @@ std::vector<std::string> Sketch::add_rectangle(
     const auto first = segment_by_id(ids[0]);
     const auto second = segment_by_id(ids[1]);
     const auto third = segment_by_id(ids[2]);
-    static_cast<void>(next.add_point_pair_constraint(
+    const auto direction=[&](const auto& reference,const auto& driven,ConstraintKind kind) {
+        try {static_cast<void>(next.add_point_pair_constraint(reference,driven,kind));}
+        catch(const RedundantConstraint&) {
+            // Snapping both corners to external points can already determine
+            // this relation. Preserve those source bindings; only omit the
+            // redundant automatic relation, never swallow a conflict.
+        }
+    };
+    direction(
         first.first_point_id, first.second_point_id,
-        ConstraintKind::Horizontal));
-    static_cast<void>(next.add_point_pair_constraint(
+        ConstraintKind::Horizontal);
+    direction(
         first.second_point_id, second.second_point_id,
-        ConstraintKind::Vertical));
-    static_cast<void>(next.add_point_pair_constraint(
+        ConstraintKind::Vertical);
+    direction(
         second.second_point_id, third.second_point_id,
-        ConstraintKind::Horizontal));
-    static_cast<void>(next.add_point_pair_constraint(
+        ConstraintKind::Horizontal);
+    direction(
         first.first_point_id, third.second_point_id,
-        ConstraintKind::Vertical));
+        ConstraintKind::Vertical);
     next.validate();
     *this = std::move(next);
     return ids;
@@ -8489,6 +8514,13 @@ SolveResult Sketch::solve_impl(
         return point.fixed || linked_points.contains(point.id) ||
             preferred_points.contains(point.id);
     };
+    std::unordered_set<std::string> point_reference_anchors;
+    for(const auto& constraint:constraints)
+        if(!constraint.suppressed&&constraint.kind==ConstraintKind::PointReference)
+            point_reference_anchors.insert(constraint.first_point_id);
+    const auto contact_immutable=[&](const SketchPoint& point) {
+        return immutable(point)||point_reference_anchors.contains(point.id);
+    };
     std::unordered_set<std::string> centerline_points;
     for (const auto& segment : segments) {
         if (!segment.centerline) continue;
@@ -9749,21 +9781,21 @@ SolveResult Sketch::solve_impl(
                 maximum_residual = std::max(maximum_residual, residual);
                 if (residual > tolerance) {
                     double denominator{};
-                    if (!immutable(*point)) denominator += 1.0;
-                    if (!immutable(*first)) denominator += 0.25;
-                    if (!immutable(*second)) denominator += 0.25;
+                    if (!contact_immutable(*point)) denominator += 1.0;
+                    if (!contact_immutable(*first)) denominator += 0.25;
+                    if (!contact_immutable(*second)) denominator += 0.25;
                     if (denominator <= 0.0) {
                         immovable_conflict = true;
                     } else {
-                        if (!immutable(*point)) {
+                        if (!contact_immutable(*point)) {
                             point->x -= residual_x / denominator;
                             point->y -= residual_y / denominator;
                         }
-                        if (!immutable(*first)) {
+                        if (!contact_immutable(*first)) {
                             first->x += 0.5 * residual_x / denominator;
                             first->y += 0.5 * residual_y / denominator;
                         }
-                        if (!immutable(*second)) {
+                        if (!contact_immutable(*second)) {
                             second->x += 0.5 * residual_x / denominator;
                             second->y += 0.5 * residual_y / denominator;
                         }
@@ -9846,7 +9878,20 @@ SolveResult Sketch::solve_impl(
                     point->x - (*target)[0], point->y - (*target)[1]);
                 maximum_residual = std::max(maximum_residual, residual);
                 if (residual > tolerance) {
-                    if (immutable(*point) || !translate_point_closure(
+                    if(contact_immutable(*point)) {
+                        const auto segment=std::ranges::find(segments,constraint.geometry_id,&SketchSegment::id);
+                        if(segment==segments.end()){immovable_conflict=true;continue;}
+                        auto* a=find_point(segment->first_point_id);auto* b=find_point(segment->second_point_id);
+                        const double dx=b->x-a->x,dy=b->y-a->y,squared=dx*dx+dy*dy;
+                        if(squared<=1e-18){immovable_conflict=true;continue;}
+                        const double t=((point->x-a->x)*dx+(point->y-a->y)*dy)/squared;
+                        const double wa=contact_immutable(*a)?0:1-t,wb=contact_immutable(*b)?0:t;
+                        const double denominator=wa*wa+wb*wb;
+                        if(denominator<=1e-18){immovable_conflict=true;continue;}
+                        const double rx=point->x-(*target)[0],ry=point->y-(*target)[1];
+                        a->x+=rx*wa/denominator;a->y+=ry*wa/denominator;
+                        b->x+=rx*wb/denominator;b->y+=ry*wb/denominator;
+                    } else if (!translate_point_closure(
                             point->id, (*target)[0] - point->x,
                             (*target)[1] - point->y)) {
                         immovable_conflict = true;

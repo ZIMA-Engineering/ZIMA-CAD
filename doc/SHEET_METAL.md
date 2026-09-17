@@ -53,6 +53,45 @@ make openings. The feature uses the same exact profile extrusion calculation as
 Extrusion; an open or empty outline cannot be committed. The cyan wire previews
 the pending sheet without invoking the solid kernel.
 
+### Automatic Flat attachment to Bend
+
+Flat retains ordinary free placement. Selecting a straight outer boundary of a
+Bend Start or End cap in the first reference field activates automatic attachment.
+Inner boundaries, curved Bend edges and thickness edges are excluded from this
+shortcut. Hover and confirmation use the same eligibility check and still obey
+the user's selection filters.
+
+The edge, its joining cap and a native endpoint fill the placement references.
+The profile lies in the outer tangent plane and its positive Y direction leaves
+the cap. Thickness defaults to **Second side**, toward the inner radius, and
+inherits the source Bend thickness. The profile remains an ordinary editable
+closed Sketch; the command does not prescribe its outline. Direction remains
+editable, but changing it can intentionally remove the full-thickness connection.
+
+Both edge endpoints are supplied as external Point references in the owned
+Sketch. Their stable IDs can be used by Sketch constraints and dimensions;
+source geometry updates their cached positions. **Other edge endpoint** changes
+the placement origin without reversing the material side. The derived face,
+orientation and profile plane cannot be overridden while attached. **Manual
+placement references** returns to ordinary placement and retains the external
+points as explicit Sketch references.
+
+Drawing a rectangle snapped to both external points preserves the endpoint
+bindings. Its automatic directional constraints omit only a redundant relation;
+conflicting constraints are still rejected. Regeneration compares attached Flat
+profiles as well as placements, so changed source width recalculates the body
+after the endpoint-driven Sketch changes.
+
+Attachment consumes persisted original topology and the existing container
+placement solver. Preview, picking and opening Properties do not traverse OCCT.
+Explicit source recalculation updates the attachment frame and inherited
+thickness. Missing source geometry leaves an unresolved reference, never a
+nearest-edge substitution. A zero-angle Bend has no solid boundary to attach to.
+
+The attachment flag is stored in Part JSON 58 / INI 34; Assembly JSON 40 / INI 28
+and both tracked start templates accompany this format update. Legacy native
+documents are unsupported.
+
 Circular and elliptical profile loops publish their extrusion axes, including
 inner openings, with the same View display, axis filter and tree controls as
 Extrusion. These axes are persisted with the calculated native geometry.
@@ -95,6 +134,8 @@ flat.create width_mm=40 height_mm=30 direction=symmetric
 flat.get container=<id>
 flat.set container=<id> thickness_mm=2
 flat.set container=<id> thickness_override=false direction=reverse
+flat.create edge_owner=<bend-id> edge_key=<outer-cap-edge-key> height_mm=30
+flat.set container=<id> origin_last=true
 ```
 
 `flat.create` supplies a rectangular initial profile for console use; the GUI
@@ -209,8 +250,8 @@ selects one of its two persisted endpoints. Geometry and validation use the same
 workspace transaction as GUI OK.
 
 Sheet metadata is stored in native documents, including saved original-reference
-packets and assembly/drawing copies. Current format versions are Part INI 32 /
-JSON 56, Assembly INI 26 / JSON 38, and Drawing INI 18 / JSON 10. The tracked start templates
+packets and assembly/drawing copies. Current format versions are Part INI 35 /
+JSON 59, Assembly INI 29 / JSON 41, and Drawing INI 18 / JSON 10. The tracked start templates
 use those versions; there is no legacy-format migration path.
 
 **Bend** is available in the Sheet Metal toolbar and contextual **Insert** menu.
@@ -480,3 +521,178 @@ without an extra Undo entry, and immediate thickness/K-factor calculation with
 atomic settings/geometry Undo and Redo. Earlier failed expectations for a 5 mm
 default radius and deferred sheet-settings calculation were updated to the
 requested behavior. The local Windows GUI was rebuilt successfully.
+
+The subsequent Flat-to-Bend attachment change passed ten focused Windows
+contracts in 88.55 seconds (`build/flat-attachment-final-tests.log`): Flat,
+Bend, automatic attachment dialog, shared UI, Sketcher, Assembly, Sketch
+references, profiles, application tools and Bend attachment GUI. The final
+profile-plane visibility refinement passed both affected GUI contracts again
+in 12.15 seconds (`build/flat-attachment-ui-final-tests.log`).
+
+Coverage includes 35/90/180-degree source bends, both folded and unfolded
+states, 1/2 mm thickness, rotated source frames and reversed edge
+parameterization. Native endpoint identities survive save/reopen. Full history
+tests switch an attached Bend between the two opposite edges of a Flat, extend
+its width from 40 to 52 mm and check the endpoint-driven Flat and resulting
+volume. A zero-angle source correctly breaks the solid-edge attachment and
+restoring 90 degrees resolves it again. Independent attached thickness is
+rejected without changing history; Undo/Redo restores calculated geometry.
+
+The real application test selects a Bend End boundary, draws the attached
+rectangle, enters and leaves Sketcher, confirms Flat and reopens its native
+definition. The capture `build/flat-bend-attachment.png` was visually inspected.
+Windows GUI and CLI builds succeeded; the normal development launcher remains
+`zima-cad.bat`. This is focused verification, not a complete repository suite.
+
+### External point contacts and localized Bend state (2026-09-17)
+
+Sketch creation preserves complete external reference identifiers, including
+colon-separated attachment endpoint IDs. Endpoint/corner snapping uses the native
+point reference relation. A segment or rectangle side can infer C (incidence)
+or M (midpoint) against an external point. These relations retain an associative
+construction point and follow refreshed source coordinates. Broken references,
+disabled inference relations and the viewer selection filter exclude candidates.
+
+Double-clicking the Bend state annotation opens an inline choice between the
+localized bent and unbent states. Choosing a state calculates and commits it;
+dismissing the selector leaves the state unchanged. The View annotation,
+Properties and Family Table use the same localized state names without English
+parentheses in Czech.
+
+### Initial 03.prtz constraint diagnosis (resolved below) (2026-09-17)
+
+The five-feature example is distinct from the earlier trajectory issue.
+Before the material-state fix below, the second Bend could unfold, while unfolding the first Bend conflicted with a C relation
+in the last Flat: its rectangle corner references a side face of the Flat after
+the first Bend. That face intersection changes from the horizontal line Y=150 mm
+to the vertical line X=360.808873 mm. The rectangle's attached edge fixes the
+corner's X coordinate at 204.384094 mm, so both requirements cannot hold.
+Removing only this C relation in a disposable copy allows the first Bend to
+unfold. The original document is unchanged; the application must not silently
+remove a user's geometric constraint to force a state change.
+
+The subsequent identity audit confirms that all five Sketch IDs, native segment
+IDs and point IDs remain unchanged across the diagnostic state change. Both
+Bends reference distinct base edges; each edge occurs exactly once in persisted
+original reference geometry. The C source face retains its owner and semantic
+key, and its original rectangle-side ancestry. Its evaluated world plane rotates
+from Y=159 mm to X=275.248936748 mm. `project_external_face_plane` intersects that
+current world plane with the consuming Sketch, which changes the effective C
+condition from a free height coordinate to the attachment-controlled width.
+This is a state-evaluation limitation, not evidence that the user's box design
+or its cross-branch design relationship is wrong. A systematic solution must
+preserve that design relationship across folded/unfolded states.
+
+The box requirement also distinguishes intended attachment through the base
+from unintended joining between neighboring free walls. Current additive solid
+operations use general OCCT Fuse; there is no dedicated free-corner joining
+policy. Original reference meshes are captured from each feature operand before
+that fuse, so this particular C failure is not caused by fused result topology
+being mistaken for the source face. The material-state regression below now checks free-wall corner separation for
+this box; it does not establish a general corner-contact policy.
+
+### Material-state reference evaluation (2026-09-17)
+
+An unfolded Part first calculates its folded design reference state during the
+explicit calculation transaction. The same native Sketches, constraints and
+source identities are evaluated against this design state, then used by the
+requested Bend states. Unfolding does not replace the referenced rectangles or
+silently remove their cross-branch relations. Changing a source dimension still
+updates dependent Sketch geometry; reference coordinates are not frozen values.
+
+The Part persists `sheet_reference_state` with original design reference geometry,
+Sketch frames and the owning Body frames. Reference creation for existing Sketches
+and refreshing their reference snapshots consume this native data without OCCT.
+No required sidecar or external geometry cache is introduced. Fully folded Parts
+store an empty snapshot. Part JSON 59 / INI 35 and Assembly JSON 41 / INI 29 are the
+current schemas; both tracked start templates have been updated.
+
+Regeneration does not project an old calculated source mesh into a newly resolved
+Sketch frame. It advances the geometry pass first. Equivalent projections within
+the Sketch solver tolerance do not oscillate between folded and displayed frame
+rounding differences. The shared container placement solver is unchanged.
+
+`cpp/tests/fixtures/sheet/box-cross-branch.prtz` retains the five-feature box and
+its cross-branch C constraint, without cached bodies. The Bend regression checks
+all four state combinations, repeated regeneration, stable corner/segment/reference
+identities, unchanged constraints, source wall height changing from 150 to 175 mm
+while unfolded, native save/reopen, reference refresh/recreation and Undo/Redo.
+It also rejects a result edge joining faces belonging to both free walls.
+
+Verification: the 11 selected suites passed after updating the general bounded-axis
+fixture to supply its persisted axis explicitly. The production placement solver
+was not changed for that fixture. See `build/sheet-state-final-tests.log` (10 passing
+suites and the old fixture failure) and `build/sheet-state-contract-test.log` (the
+corrected general contract suite passing). Windows GUI and CLI were rebuilt.
+
+A separate native review copy, `Projects/03-overeno.prtz`, was saved through the
+CLI after toggling both Bends and returning them to the folded state. At that checkpoint it used INI 34 and an independent document namespace; local reference document
+IDs were remapped by the native Save As operation. The original `Projects/03.prtz`
+remains unchanged. `build/03-unbend-check/verified-results.txt` records the actual
+state-change commands and their successful results.
+
+
+### Hem preset and the 180-degree View edit check (2026-09-17)
+
+Bend Properties exposes a localized **Hem** checkbox. It sets the existing
+parameters to 180 degrees, zero inner radius, and an independent radius. The
+outer radius remains the material thickness. Angle and radius controls are
+unavailable while this preset is active. Disabling it restores the previous
+pending settings; reopening a saved hem and disabling it starts from 90 degrees
+with the radius linked to thickness. No extra persistent mode or format change
+is needed. Cancel retains the stored feature.
+
+The GUI regression covers the preset, confirmation, reopening, and direct View
+angle editing to 180 degrees. Existing geometry tests cover a zero-radius hem,
+its developed state, and rejection of unsupported unequal start/end widths.
+The three Bend, Flat, and application-tools suites passed in
+`build/bend-hem-tests3.log`.
+
+### Reference failures belong to their history owner
+
+External-reference refresh follows the same recovery contract as body calculation.
+A later Sketch constraint conflict no longer rolls back an earlier valid feature
+edit. Reference refresh retains the authored Sketch and constraints, records a
+persisted diagnostic on its history owner, and emits an errored kernel operation.
+The normal recovering history evaluation retains the valid preceding geometry
+and removes the failed feature contribution. The existing Tree error presentation
+marks the feature red and exposes its diagnostic. No placement contract changes
+or automatic constraint deletion are involved.
+
+Validation of an edited feature occurs after reference/placement convergence,
+not against an intermediate geometry pass. Property edits continue to validate
+the edited feature at their existing rollback boundary; later failures remain
+visible diagnostics. Regeneration retries failed references so that correcting
+an upstream parameter restores geometry and clears errors automatically.
+
+The current native format is Part INI 35 / JSON 59 and Assembly INI 29 / JSON 41.
+`reference_errors` is stored inside the native Part and participates in operation
+fingerprints. Failed states therefore reopen with their diagnostics and the
+correct valid-prefix geometry. Both start templates are updated.
+
+Regression coverage uses the original box's cross-branch C reference, including
+180-degree View-style edits, unchanged attachment identities, disappearance of
+the failed wall, native cache reload, recovery at 90 degrees, and Undo/Redo. GUI
+coverage checks the actual inline edit and the red Tree row. The contact is never
+removed or converted to a height relation in the user document.
+
+
+Recovery also restores the original reference packet when the kernel reuses a
+shorter prefix from a compacted full-history cache. Only owners in that prefix
+are exposed. This prevents a valid preceding attachment from losing its source
+references while repairing a later failure; the shared placement solver remains
+unchanged. A separate kernel regression covers this compacted-prefix case.
+
+
+The updated local review copy is `Projects/03-overeno-1704.prtz`, created through
+native Save As after the current user's source passed 90 -> 180 -> 90 degree
+changes. It has its own document identity and current format. The original
+`03.prtz` and the user's `03-overeno.prtz` remain unchanged. Evidence is in
+`build/review-1704/results.txt`.
+
+
+Final verification for Windows 2026091704: all thirteen selected suites passed
+across `build/release-1704-recovery-tests.log` and
+`build/release-1704-final-check-tests.log`. This includes actual View editing,
+Tree diagnostics, regeneration recovery, saved failed states and kernel prefix
+reference retention. Earlier failed attempts remain diagnostic logs only.

@@ -2,6 +2,8 @@
 items=
 
 [Document]
+reference_errors={}
+sheet_reference_state={}
 body_properties=[]
 appearance={"bodies":{},"body":{"color":"#B9C2CC","metallic":0.0,"roughness":0.55},"groups":[],"owners":{}}
 body_color=#B9C2CC
@@ -11,7 +13,7 @@ dimension_layouts=[]
 document_id=template-start-part
 family={"parent":"","row":"","evaluated":{}}
 family_table={"bindings":{},"columns":[],"instances":[]}
-format_version=32
+format_version=35
 history_cursor=0
 measurements=[]
 name=Startovací díl

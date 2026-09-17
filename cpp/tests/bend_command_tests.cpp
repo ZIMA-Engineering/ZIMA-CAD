@@ -3,10 +3,12 @@
 #include <zima/document/viewer_packet_json.hpp>
 #include <zima/drawing/measurement_dimension.hpp>
 #include <zima/workspace/bend_operations.hpp>
+#include <zima/workspace/placement_edit.hpp>
 #include <zima/workspace/family_operations.hpp>
 #include <zima/workspace/engineering_metadata_operations.hpp>
 #include <zima/workspace/drawing_sources.hpp>
 #include <zima/workspace/sketch_operations.hpp>
+#include <zima/workspace/sketch_reference_operations.hpp>
 #include <cmath>
 #include <algorithm>
 #include <chrono>
@@ -27,6 +29,114 @@ std::set<std::string> faces(const kernel::BodyResult& body,const std::string& ow
     std::set<std::string> result;
     for(const auto& face:body.mesh.original_references.triangle_references)if(face.owner_id==owner)result.insert(face.semantic_key);
     return result;
+}
+void verify_cross_branch_box(std::filesystem::path directory) {
+    const auto path=directory/"box-state.prtz";
+    std::filesystem::copy_file("cpp/tests/fixtures/sheet/box-cross-branch.prtz",path);
+    kernel::OcctKernel kernel;workspace::Workspace live;command_host::Host host(live,kernel,directory);
+    run(host,"open",{{"path",path.string()}});
+    const auto id=live.active_document_id();
+    const std::string first="01a0af5d46a97ac7bdafefbc7c826e7d",second="01a0af5d46a97ac7bdafefbc7c826ecb";
+    const std::string profile="01a0af5d46a97ac7bdafefbc7c826ef6",source_profile="01a0af5d46a97ac7bdafefbc7c826ea3";
+    // Earlier edits commit. Only the later owner of the conflicting C loses
+    // its geometry, with a persisted diagnostic and automatic recovery.
+    {
+        auto* part=live.open_part(id);
+        const auto wall_before=workspace::document_sketch(live,id,source_profile);
+        const auto contacts_before=workspace::document_sketch(live,id,profile).constraints;
+        auto next=part->session.document();auto* feature=next.find_container(first);
+        auto trajectory=sketcher::Sketch::from_serialized(feature->bend.auxiliary_sketches[0]);
+        check(trajectory.set_dimension_value(trajectory.id+":angle",180.),"First box Bend angle solver rejected 180 degrees");
+        const auto& start=*std::ranges::find(next.sketches,feature->bend.sketch_id,&sketcher::Sketch::id);
+        document::accept_bend_sketch(*feature,start,0,trajectory,document::sheet_metal_defaults(next));
+        workspace::commit_part_parameter_edit(*part,kernel,std::move(next),trajectory.id,false,{});
+        near(part->session.document().find_container(first)->bend.angle_degrees,180.);
+        const auto wall_after=workspace::document_sketch(live,id,source_profile);
+        const auto a=wall_before.resolved_normal,b=wall_after.resolved_normal;
+        near(a.x*b.x+a.y*b.y+a.z*b.z,0.);
+        check(wall_before.id==wall_after.id&&wall_before.segments==wall_after.segments,
+            "Rotating Bend replaced its attached wall identity");
+        for(std::size_t i=0;i<wall_before.external_references.size();++i)
+            check(wall_before.external_references[i].source_semantic_key==wall_after.external_references[i].source_semantic_key,
+                "Rotating Bend changed its wall attachment endpoint identities");
+        const auto failed=std::string("01a0af5d46a97ac7bdafefbc7c826ef7");
+        const auto verify_failure=[&](const auto& body) {
+            check(body.calculation_errors.size()==1&&body.calculation_errors.contains(failed),"Reference failure was not isolated to the later wall");
+            check(faces(body,failed).empty()&&!faces(body,first).empty(),"Failed wall stayed visible or preceding Bend disappeared");
+        };
+        verify_failure(part->session.calculated_boundaries().back());
+        check(workspace::document_sketch(live,id,profile).constraints==contacts_before,"Recovery removed the C constraint");
+        check(!host.execute({{"command","regenerate"}}).ok,"Regenerate did not report the retained failed feature");
+        verify_failure(part->session.calculated_boundaries().back());
+        run(host,"save");std::vector<kernel::BodyResult> cache;
+        const auto saved=document::PartDocument::load(path,&cache);
+        check(saved.reference_errors.contains(failed)&&!cache.empty(),"Native save lost the failing reference diagnostic");
+        verify_failure(cache.back());
+        run(host,"bend.set",{{"container",first},{"angle_degrees",90.}});
+        check(part->session.document().reference_errors.empty()&&part->session.calculated_boundaries().back().calculation_errors.empty(),"Returning to 90 degrees did not recover references");
+        check(!faces(part->session.calculated_boundaries().back(),failed).empty(),"Recovered wall geometry was not restored");
+        run(host,"undo");verify_failure(part->session.calculated_boundaries().back());
+        run(host,"redo");
+    }
+    for(const auto& owner:{second}) {
+        auto* part=live.open_part(id);auto next=part->session.document();auto* feature=next.find_container(owner);
+        auto trajectory=sketcher::Sketch::from_serialized(feature->bend.auxiliary_sketches[0]);
+        std::cout<<"Box View angle 180: "<<owner<<std::endl;
+        check(trajectory.set_dimension_value(trajectory.id+":angle",180.),"Box View angle solver rejected 180 degrees");
+        const auto& start=*std::ranges::find(next.sketches,feature->bend.sketch_id,&sketcher::Sketch::id);
+        document::accept_bend_sketch(*feature,start,0,trajectory,document::sheet_metal_defaults(next));
+        workspace::commit_part_parameter_edit(*part,kernel,std::move(next),trajectory.id,false,{});
+        near(part->session.document().find_container(owner)->bend.angle_degrees,180.);
+        run(host,"undo");
+    }
+    const auto original=workspace::document_sketch(live,id,profile);
+    const auto check_profile=[&](double height) {
+        const auto sketch=workspace::document_sketch(live,id,profile);
+        check(sketch.id==original.id&&sketch.segments==original.segments,"State change replaced rectangle identities");
+        check(sketch.constraints==original.constraints,"State change removed or replaced a box constraint");
+        for(std::size_t i=0;i<sketch.points.size();++i)check(sketch.points[i].id==original.points[i].id,"State change replaced a rectangle corner");
+        for(std::size_t i=0;i<sketch.external_references.size();++i) {
+            check(sketch.external_references[i].id==original.external_references[i].id&&
+                sketch.external_references[i].source_semantic_key==original.external_references[i].source_semantic_key&&
+                !sketch.external_references[i].broken,"State change lost a box reference");
+        }
+        near(sketch.points[2].y,height);near(sketch.points[3].y,height);
+        check(live.open_part(id)->session.calculated_boundaries().back().calculation_errors.empty(),"Box state has a calculation error");
+        for(const auto& edge:live.open_part(id)->session.calculated_boundaries().back().mesh.edges) {
+            bool first_wall=false,second_wall=false;
+            for(const auto& face:edge.edge_treatment_side_references) {
+                first_wall=first_wall||face.owner_id=="01a0af5d46a97ac7bdafefbc7c826ea4";
+                second_wall=second_wall||face.owner_id=="01a0af5d46a97ac7bdafefbc7c826ef7";
+            }
+            check(!(first_wall&&second_wall),"Free box walls acquired a shared joined edge");
+        }
+    };
+    for(const auto states:{std::pair{true,false},std::pair{true,true},std::pair{false,true},std::pair{false,false}}) {
+        run(host,"bend.set",{{"container",first},{"state",states.first?"unbend":"bend"}});
+        run(host,"bend.set",{{"container",second},{"state",states.second?"unbend":"bend"}});
+        check_profile(150.);run(host,"regenerate");check_profile(150.);
+    }
+    run(host,"bend.set",{{"container",first},{"state","unbend"}});
+    check(workspace::mutate_document_sketch(live,id,source_profile,[](auto& sketch) {
+        const auto dimension=std::ranges::find_if(sketch.dimensions,[](const auto& d){return d.driving&&std::abs(d.value-150.)<1e-8;});
+        check(dimension!=sketch.dimensions.end(),"Source wall height dimension is missing");
+        const auto dimension_id=dimension->id;
+        check(sketch.set_dimension_value(dimension_id,175.),"Source wall height edit failed");
+    }),"Cannot change the source wall height in the unfolded state");
+    run(host,"regenerate");check_profile(175.);
+    run(host,"save");
+    const auto reopened=document::PartDocument::load(path);
+    check(reopened.sheet_reference_state!="{}","Unfolded Part lost its design reference snapshot");
+    run(host,"close",{{"document",id},{"discard",true}});
+    run(host,"open",{{"path",path.string()}});check_profile(175.);
+    auto sketch=workspace::document_sketch(live,id,profile);
+    static_cast<void>(workspace::refresh_sketch_reference_snapshot(live,id,sketch));
+    near(sketch.points[2].y,175.);
+    const auto& face=original.external_references.back();
+    const auto recreated=workspace::prepare_sketch_external_reference(live,id,sketch,face.kind,face.source_owner_id,face.source_semantic_key,{});
+    near(recreated.cached_points.front()[1],175.);
+    run(host,"bend.set",{{"container",first},{"state","bend"}});check_profile(175.);
+    run(host,"undo");check_profile(175.);run(host,"redo");check_profile(175.);
 }
 void verify_sketches(document::HistoryContainer feature,const sketcher::Sketch& start,document::SheetMetalDefaults defaults) {
     auto path=sketcher::Sketch::from_serialized(feature.bend.auxiliary_sketches[0]);
@@ -559,6 +669,6 @@ void verify(std::filesystem::path directory) {
 int main() {
     const auto directory=std::filesystem::temp_directory_path()/("zima-bend-"+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     std::filesystem::create_directories(directory);
-    try{verify_sheet_attachment(directory);verify_prepared_start();verify_attachment(directory);verify(directory);std::filesystem::remove_all(directory);std::cout<<"Bend geometry, identities, defaults, history and persistence passed\n";return 0;}
+    try{verify_cross_branch_box(directory);verify_sheet_attachment(directory);verify_prepared_start();verify_attachment(directory);verify(directory);std::filesystem::remove_all(directory);std::cout<<"Bend geometry, identities, defaults, history and persistence passed\n";return 0;}
     catch(const std::exception& e){std::cerr<<e.what()<<"; fixture: "<<directory<<'\n';return 1;}
 }

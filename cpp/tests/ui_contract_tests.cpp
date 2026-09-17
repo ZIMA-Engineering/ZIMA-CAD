@@ -1,5 +1,6 @@
 #include <limits>
 #include <zima/document/bend.hpp>
+#include <zima/document/flat.hpp>
 #include "table_entry.hpp"
 #include "shaft_thread_dialog.hpp"
 #include "sweep2d_dialog.hpp"
@@ -428,6 +429,47 @@ void verify_sheet_attachment_dialog(QWidget& parent) {
             pending.first.resolved_y_axis.z-after.first.resolved_y_axis.z)<1e-6,"Origin switch flipped Bend side");
     }
 }
+void verify_flat_attachment_dialog(QWidget& parent) {
+    using namespace zima;
+    auto source=document::PartDocument::create_default();
+    auto bend=document::PartDocument::create_sketch_container();bend.feature_kind=document::FeatureKind::Bend;
+    auto section=sketcher::Sketch::create_default();section.owner_container_id=bend.id;
+    section.add_segment(0,0,40,0);bend.bend.sketch_id=section.id;
+    source.history={bend};source.sketches={section};source.resolve_constructions();
+    kernel::OcctKernel kernel;const auto body=kernel.evaluate_history(source.kernel_operations()).back();
+    auto flat=document::PartDocument::create_sketch_container();flat.feature_kind=document::FeatureKind::Flat;
+    auto sketch=sketcher::Sketch::create_default();sketch.owner_container_id=flat.id;flat.flat.sketch_id=sketch.id;
+    app::SketchPropertiesDialog dialog(sketch,{},false,{},[](auto,auto,bool){},&parent);
+    dialog.set_reference_document_id(source.document_id);
+    dialog.set_reference_geometry(body.mesh.original_references);
+    dialog.set_flat_mode(flat.flat,{},flat.value_locks,[&](auto p){flat.flat=p;},[]{});
+    dialog.set_preview_callback([](auto,auto){});dialog.show();QApplication::processEvents();
+    int accepted=0,rejected=0;
+    for(const auto& edge:body.mesh.original_references.edges) {
+        const document::ConstructionReference reference{{},edge.reference.owner_id,edge.reference.semantic_key};
+        bool allowed=false;try {document::flat_sheet_references(edge);allowed=true;}catch(const std::exception&){}
+        require(dialog.sheet_reference_allowed(0,reference)==allowed,"Flat hover contract accepts an invalid Bend edge");
+        if(!allowed){require(!dialog.set_reference(0,reference,"Rejected"),"Flat click bypassed edge filter");++rejected;continue;}
+        require(dialog.set_reference(0,reference,"Outer"),"Flat rejected outer Bend boundary");++accepted;
+        auto pending=dialog.pending_value();
+        require(flat.flat.sheet_attachment&&flat.flat.direction==document::ExtrusionDirection::Reverse,"Flat did not default to inward thickness");
+        require(pending.second.references.size()==3&&pending.first.external_references.size()==2,"Flat did not derive references and external endpoints");
+        require(!dialog.findChild<QComboBox*>("sketchPlane")->isEnabled(),"Attached Flat plane is editable");
+        require(!dialog.findChild<QComboBox*>("sketchPlane")->isVisible(),"Attached Flat exposes an unrelated automatic plane label");
+        require(!dialog.findChild<QDoubleSpinBox*>("flatThickness")->isEnabled(),"Attached thickness is editable");
+        require(!dialog.set_reference(1,pending.second.references[1],"Face"),"Flat derived face can be replaced");
+        dialog.findChild<QPushButton*>("flatOtherEndpoint")->click();
+        const auto other=dialog.pending_value();
+        require(other.second.references[2].semantic_key!=pending.second.references[2].semantic_key,"Flat endpoint switch failed");
+        require(other.first.external_references[0].id==pending.first.external_references[0].id,"Flat endpoint switch replaced external identity");
+        dialog.set_pending_sketch(other.first);
+        require(dialog.pending_value().first.external_references.size()==2,"Sketch return lost Flat endpoints");
+    }
+    require(accepted==2&&rejected>0,"Flat must offer only two straight outer Bend cap boundaries");
+    dialog.findChild<QPushButton*>("flatManualPlacement")->click();
+    require(!flat.flat.sheet_attachment&&dialog.findChild<QComboBox*>("sketchPlane")->isEnabled(),"Flat manual placement did not restore controls");
+}
+
 void verify_container_frame_dialog(QWidget& parent) {
     using namespace zima;
     auto doc=document::PartDocument::create_default();
@@ -509,7 +551,7 @@ int main(int argc, char* argv[]) {
     const auto initial = zima::document::PartDocument::create_box_container();
 
     try {
-        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SHEET_ATTACHMENT_DIALOG_ONLY")) {verify_sheet_attachment_dialog(parent);return 0;}
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SHEET_ATTACHMENT_DIALOG_ONLY")) {verify_sheet_attachment_dialog(parent);verify_flat_attachment_dialog(parent);return 0;}
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_TRANSLATIONS_ONLY")) return verify_translations(application,parent);
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_VALUE_LOCKS_ONLY")) return verify_numeric_value_locks(application,parent);
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_ENTRY_TABLES_ONLY")) return verify_entry_tables(application,parent);
@@ -520,6 +562,7 @@ int main(int argc, char* argv[]) {
         verify_sketch_endpoint_dialog(parent);
         verify_container_frame_dialog(parent);
         verify_sheet_attachment_dialog(parent);
+        verify_flat_attachment_dialog(parent);
         verify_sketch_reference_tree();
         {
             using namespace zima::app;
@@ -611,6 +654,19 @@ int main(int argc, char* argv[]) {
             require(!settings.enabled(K::PointOnLine) && !settings.enabled(K::PointReference) && !settings.enabled(K::EqualRadius),
                 "Automatic relation aliases ignored their activity toggle");
             settings={};
+            auto external=zima::sketcher::Sketch::create_external_reference(zima::sketcher::ExternalReferenceKind::Point);
+            external.id="sketch:flat-attachment:last";external.cached_points={{5.,0.}};
+            sketch.external_references.push_back(external);
+            auto contacts=infer_external_point_contacts(sketch,{0.,0.},{10.,.02},.1,settings);
+            require(contacts.size()==2&&contacts.front().midpoint&&contacts.front().reference_id==external.id,
+                "External point midpoint and incidence were not offered");
+            settings.disabled.insert(K::Midpoint);
+            contacts=infer_external_point_contacts(sketch,{0.,0.},{10.,.02},.1,settings);
+            require(contacts.size()==1&&!contacts.front().midpoint,"Disabled M still offered external midpoint");
+            settings.disabled.insert(K::Coincident);
+            require(infer_external_point_contacts(sketch,{0.,0.},{10.,.02},.1,settings).empty(),"Disabled C still offered incidence");
+            settings={};sketch.external_references.back().broken=true;
+            require(infer_external_point_contacts(sketch,{0.,0.},{10.,.02},.1,settings).empty(),"Broken external point offered for inference");
             QAction horizontal_action("Vodorovnost",&parent);
             horizontal_action.setObjectName("testHorizontal");
             int manual=0,commits=0;

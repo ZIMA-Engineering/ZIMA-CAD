@@ -327,7 +327,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                         zima::kernel::ViewerDimension state;
                         state.reference={container->id,"parameter:unbend",{}};
                         state.value=container->bend.unbend?1:0;
-                        state.unit_suffix.clear();state.display_text_override=container->bend.unbend?"Unbend":"Bend";
+                        state.unit_suffix.clear();state.display_text_override=(container->bend.unbend?tr("Rozvinutý"):tr("Ohnutý")).toStdString();
                         state.label_only=true;state.plane_normal=start->resolved_normal;
                         const auto anchor=start->world_point(0,-8);
                         state.witness_first=state.witness_second=state.line_first=state.line_second=anchor;

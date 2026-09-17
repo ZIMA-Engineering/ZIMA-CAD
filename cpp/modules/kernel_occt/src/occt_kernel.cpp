@@ -6008,8 +6008,8 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                    fingerprint(operations, matching_prefix + 1)) {
             ++matching_prefix;
         }
-        const auto complete_live=matching_prefix==operations.size()
-            ? live_cache_->boundaries.find(previous_boundaries.back().source_fingerprint)
+        const auto complete_live=matching_prefix>0&&matching_prefix==operations.size()
+            ? live_cache_->boundaries.find(previous_boundaries[matching_prefix-1].source_fingerprint)
             : live_cache_->boundaries.end();
         if (matching_prefix == operations.size() &&
             (!context.require_original_faces || complete_live!=live_cache_->boundaries.end())) {
@@ -6018,6 +6018,13 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 previous_boundaries.begin(),
                     previous_boundaries.begin() +
                         static_cast<std::ptrdiff_t>(matching_prefix)};
+            // A recovering evaluation asks for shorter prefixes of the saved
+            // history. Earlier packets were compacted; recover their original
+            // references from the final packet, restricted to prefix owners.
+            std::unordered_set<std::string> owners;
+            for(const auto& operation:operations)if(!operation.suppressed)owners.insert(operation.owner_id);
+            if(!reused.empty())reused.back().mesh.original_references=reference_geometry_for_owners(
+                previous_boundaries.back().mesh.original_references,owners);
             compact_history_reference_geometry(reused);
             return reused;
         }

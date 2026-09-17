@@ -129,6 +129,7 @@ public:
     void set_component_origin_handle(std::optional<EdgeKey> reference);
     void set_selection_contract(std::vector<CandidateKind> allowed_kinds);
     void set_selection_filter(SelectionFilter filter);
+    [[nodiscard]] SelectionFilter selection_filter() const;
     [[nodiscard]] std::vector<CandidateKind> selection_contract() const;
     [[nodiscard]] std::function<bool(const ViewerCandidate&)> candidate_filter() const;
     [[nodiscard]] bool advances_selection_on_hover() const;

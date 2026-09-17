@@ -566,6 +566,7 @@ bool AssemblyWorkspaceWindow::accept_sketch_segment_ray(
         inferred_end.perpendicular_reference_id.clear();
         inferred_end.parallel_reference_id.clear();
         inferred_end.midpoint_line_reference_id.clear();
+        inferred_end.external_point_reference_id.clear();
         // Candidate snapping and directional inference are independent. A
         // line endpoint confirmed on a curve/line owns both its support
         // relation and the natural tangent/perpendicular relation.
@@ -905,6 +906,11 @@ bool AssemblyWorkspaceWindow::accept_sketch_segment_ray(
                     static_cast<void>(target.add_midpoint_on_line_constraint(
                         created_geometry_id,
                         inferred_end.midpoint_line_reference_id));
+                }
+                if(!inferred_end.external_point_reference_id.empty()) {
+                    try {static_cast<void>(target.add_external_point_segment_constraint(
+                        inferred_end.external_point_reference_id,created_geometry_id,inferred_end.external_point_midpoint));}
+                    catch(const zima::sketcher::RedundantConstraint&) {}
                 }
                 if (direction_inference) {
                     try {
@@ -1288,6 +1294,14 @@ AssemblyWorkspaceWindow::inferred_sketch_segment_end(
     };
     std::vector<SketchSegmentInference> variants;
     const auto* current_sketch = active_sketch();
+    if(current_sketch&&!sketch_polyline_arc_mode_&&zima::viewer::matches_selection_filter(
+        {zima::viewer::CandidateKind::SketchExternalReference,0,0,active_sketch_id_,"external_point:contact"},viewer_->selection_filter())) {
+        for(const auto& contact:infer_external_point_contacts(*current_sketch,*pending_segment_start_,position,tolerance,sketch_inference_settings_)) {
+            SketchSegmentInference candidate{contact.end,std::nullopt,{}};
+            candidate.external_point_reference_id=contact.reference_id;candidate.external_point_midpoint=contact.midpoint;
+            variants.push_back(std::move(candidate));
+        }
+    }
     variants.reserve(point_alignments.size() + directions.size() +
         tangencies.size() + perpendiculars.size() + symmetries.size() +
         parallels.size() + midpoint_lines.size() +

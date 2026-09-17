@@ -1,5 +1,6 @@
 #include <zima/command_host/host.hpp>
 #include <zima/document/flat.hpp>
+#include <zima/document/bend.hpp>
 #include <zima/workspace/flat_operations.hpp>
 #include <zima/workspace/sketch_operations.hpp>
 #include <zima/workspace/family_operations.hpp>
@@ -30,6 +31,166 @@ std::pair<double,double> span(const std::vector<kernel::Vec3>& vertices,const sk
         lo=std::min(lo,distance);hi=std::max(hi,distance);
     }return {lo,hi};
 }
+void verify_bend_attachment(const std::filesystem::path& directory) {
+    kernel::OcctKernel kernel;
+    const auto close=[](kernel::Vec3 a,kernel::Vec3 b){return std::hypot(a.x-b.x,a.y-b.y,a.z-b.z)<1e-6;};
+    auto source=document::PartDocument::create_default();
+    auto bend=document::PartDocument::create_sketch_container();bend.feature_kind=document::FeatureKind::Bend;
+    auto section=sketcher::Sketch::create_default();section.owner_container_id=bend.id;
+    section.add_segment(0,0,40,0);bend.bend.sketch_id=section.id;bend.bend.thickness_override=true;
+    source.history={bend};source.sketches={section};
+    auto target=document::PartDocument::create_default();
+    auto flat=document::PartDocument::create_sketch_container();flat.feature_kind=document::FeatureKind::Flat;
+    auto outline=sketcher::Sketch::create_default();outline.owner_container_id=flat.id;flat.flat.sketch_id=outline.id;
+    flat.flat.sheet_attachment=true;flat.flat.direction=document::ExtrusionDirection::Reverse;
+    target.history={flat};target.sketches={outline};
+    std::string edge_key;std::vector<sketcher::SketchExternalReference> previous;
+    for(double angle:{35.,90.,180.})for(bool unbend:{false,true})for(double thickness:{1.,2.})for(bool flipped:{false,true}) {
+        std::cout<<"Flat attachment angle="<<angle<<" unbend="<<unbend<<" thickness="<<thickness<<" flipped="<<flipped<<std::endl;
+        auto& feature=source.history.front();feature.bend.angle_degrees=angle;feature.bend.unbend=unbend;
+        feature.bend.thickness=thickness;feature.placement.absolute_rotation_x=flipped?180:0;
+        feature.placement.absolute_rotation_z=23;feature.placement.x=17;feature.placement.y=-11;
+        source.resolve_constructions();
+        const auto body=kernel.evaluate_history(source.kernel_operations()).back();
+        auto geometry=body.mesh.original_references;
+        const auto end=sketcher::Sketch::from_serialized(source.history.front().bend.auxiliary_sketches[1]);
+        const auto edge=std::ranges::find_if(geometry.edges,[&](const auto& e) {
+            if(!edge_key.empty())return e.reference.semantic_key==edge_key;
+            try {const auto refs=document::flat_sheet_references(e);
+                return refs[1].semantic_key.starts_with("sweep:cap:end:from:");}
+            catch(const std::exception&){return false;}
+        });
+        check(edge!=geometry.edges.end(),"Bend lost its stable outer End boundary");edge_key=edge->reference.semantic_key;
+        if(target.history.front().placement.references.empty())target.history.front().placement.references=document::flat_sheet_references(*edge);
+        const auto original_points=edge->points;
+        for(bool reversed:{false,true}) {
+            if(reversed){
+                std::ranges::reverse(edge->points);std::ranges::reverse(edge->edge_treatment_endpoint_references);
+                if(edge->exact_spline) {
+                    std::ranges::reverse(edge->exact_spline->poles);
+                    kernel::reverse_bspline_parameters(edge->exact_spline->knots,edge->exact_spline->weights);
+                }
+            }
+            target.resolve_constructions(geometry);
+            const auto& profile=target.sketches.front();
+            check(target.history.front().placement.reference_valid,"Attached Flat placement is invalid");
+            near(document::flat_thickness(target.history.front(),{}),thickness);
+            check(close(profile.resolved_y_axis,end.resolved_normal),"Flat does not leave the Bend tangentially");
+            const auto n=profile.resolved_normal;
+            if(!close({-n.x,-n.y,-n.z},end.resolved_y_axis))std::cerr<<"reversed="<<reversed<<" inward "<<-n.x<<","<<-n.y<<","<<-n.z<<" expected "<<end.resolved_y_axis.x<<","<<end.resolved_y_axis.y<<","<<end.resolved_y_axis.z<<'\n';
+            check(close({-n.x,-n.y,-n.z},end.resolved_y_axis),"Flat thickness points outside the Bend radius");
+            check(profile.external_references.size()==2,"Flat did not publish both external endpoints");
+            for(const auto& reference:profile.external_references) {
+                check(!reference.broken&&reference.cached_points.size()==1,"Flat endpoint is broken");
+                const auto p=reference.cached_points.front();const auto world=profile.world_point(p[0],p[1]);
+                check(close(world,original_points.front())||close(world,original_points.back()),"External endpoint left its source edge");
+            }
+            if(!previous.empty())for(std::size_t i=0;i<2;++i) {
+                check(previous[i].id==profile.external_references[i].id&&previous[i].source_semantic_key==profile.external_references[i].source_semantic_key,
+                    "Bend change replaced Flat endpoint identity");
+            }
+            previous=profile.external_references;
+            auto closed=profile;const auto a=closed.local_point(original_points.front()),b=closed.local_point(original_points.back());
+            closed.points.clear();closed.segments.clear();closed.constraints.clear();closed.dimensions.clear();
+            closed.add_rectangle(std::min(a[0],b[0]),0,std::max(a[0],b[0]),12);
+            auto calculated=target;calculated.sketches.front()=closed;
+            near(kernel.evaluate_history(calculated.kernel_operations()).back().volume,40*12*thickness);
+            target.sketches.front()=closed;
+        }
+        for(const auto& e:geometry.edges) {
+            const bool inner=std::ranges::any_of(e.edge_treatment_side_references,[](const auto& f){return f.sheet_role==kernel::SheetFaceRole::SideB;});
+            if(!inner&&kernel::sheet_edge_role(e)!=kernel::SheetEdgeRole::Thickness)continue;
+            bool rejected=false;try{document::flat_sheet_references(e);}catch(const std::exception&){rejected=true;}
+            check(rejected,"Flat accepted inner or thickness edge");
+        }
+        target.save(directory/"attached-flat.prtz");target=document::PartDocument::load(directory/"attached-flat.prtz");
+        check(target.history.front().flat.sheet_attachment,"Native reopen lost Flat attachment");
+    }
+    auto missing=target;missing.resolve_constructions();
+    check(!missing.history.front().placement.reference_valid,"Missing source silently resolved Flat attachment");
+    std::cout<<"Flat/Bend attachment: angles, flip, Unbend, thickness, parameter reversal and persistence passed\n";
+}
+void verify_attached_history(std::filesystem::path directory) {
+    kernel::OcctKernel kernel;workspace::Workspace live;command_host::Options options;
+    options.settings=[] {command_host::Settings s;s.templates={std::filesystem::absolute("config/templates"),"start_part.prtz","start_assembly.asmz","Body"};return s;};
+    command_host::Host host(live,kernel,directory,options);run(host,"new",{{"type","part"},{"name","attached-history"}});
+    const auto id=live.active_document_id();
+    const auto bend=run(host,"bend.create",{{"width_mm",40.},{"radius_mm",5.}}).data.at("container").get<std::string>();
+    auto* state=live.open_part(id);std::string edge_key;
+    for(const auto& edge:state->session.calculated_boundaries().back().mesh.original_references.edges) {
+        try {auto refs=document::flat_sheet_references(edge);
+            if(refs[1].semantic_key.starts_with("sweep:cap:end:from:")){edge_key=edge.reference.semantic_key;break;}}
+        catch(const std::exception&){}
+    }
+    check(!edge_key.empty(),"No Bend End boundary for history test");
+    const auto created=run(host,"flat.create",{{"edge_owner",bend},{"edge_key",edge_key},{"height_mm",12.}}).data;
+    const auto flat=created.at("container").get<std::string>(),sketch_id=created.at("sketch").get<std::string>();
+    check(created.at("sheet_attachment").get<bool>(),"Console Flat did not attach");
+    check(workspace::mutate_document_sketch(live,id,sketch_id,[](auto& s) {
+        s.points.clear();s.segments.clear();s.constraints.clear();s.dimensions.clear();
+        const auto a=s.external_references[0].cached_points.front(),b=s.external_references[1].cached_points.front();
+        s.add_rectangle(std::min(a[0],b[0]),0,std::max(a[0],b[0]),12);
+    }),"Cannot create rectangle snapped to attached endpoints");
+    run(host,"regenerate");
+    for(double thickness:{1.,2.})for(bool unbend:{false,true}) {
+        run(host,"bend.set",{{"container",bend},{"thickness_mm",thickness},{"state",unbend?"unbend":"bend"}});
+        const auto& profile=workspace::document_sketch(live,id,sketch_id);
+        for(const auto& ref:profile.external_references)check(ref.source_document_id==id&&!ref.broken,"Body-local Flat reference lost its Part source");
+        const auto defaults=document::sheet_metal_defaults(state->session.document());
+        const auto expected=40*std::numbers::pi/2*(5+thickness*(unbend?defaults.k_factor:.5))*thickness+40*12*thickness;
+        near(state->session.calculated_boundaries().back().volume,expected);
+        near(state->session.document().find_container(flat)->flat.thickness,thickness);
+    }
+    run(host,"save");std::vector<kernel::BodyResult> cached;
+    const auto loaded=document::PartDocument::load(directory/"attached-history.prtz",&cached);
+    check(loaded.find_container(flat)->flat.sheet_attachment&&!cached.empty(),"Attached history did not reopen");
+    const auto revision=state->session.revision();
+    check(!host.execute({{"command","flat.set"},{"arguments",{{"container",flat},{"thickness_mm",3.}}}}).ok,"Attached Flat accepted independent thickness");
+    check(state->session.revision()==revision,"Rejected Flat edit changed history");
+    run(host,"undo");run(host,"redo");
+    near(state->session.calculated_boundaries().back().volume,cached.back().volume);
+    const auto bend_sketch=state->session.document().find_container(bend)->bend.sketch_id;
+    check(workspace::mutate_document_sketch(live,id,bend_sketch,[&](auto& s) {
+        check(s.set_dimension_value(s.id+":position:last",52.),"Cannot lengthen source Bend");
+    }),"Bend width edit was ignored");
+    run(host,"regenerate");
+    near(state->session.calculated_boundaries().back().volume,52*std::numbers::pi/2*(5+2*document::sheet_metal_defaults(state->session.document()).k_factor)*2+52*12*2);
+    run(host,"new",{{"type","part"},{"name","opposite-bend-edge"}});
+    const auto flip_id=live.active_document_id();
+    const auto base=run(host,"flat.create",{{"width_mm",40.},{"height_mm",30.}}).data.at("container").get<std::string>();
+    state=live.open_part(flip_id);std::vector<kernel::ViewerEdge> sides;
+    for(const auto& e:state->session.calculated_boundaries().back().mesh.original_references.edges)
+        if(kernel::sheet_edge_role(e)==kernel::SheetEdgeRole::Boundary&&e.points.size()>=2&&
+            std::abs(e.points.front().y)<1e-7&&std::abs(e.points.back().y)<1e-7)sides.push_back(e);
+    check(sides.size()==2,"Cannot find opposite sheet boundary edges");
+    const auto attached_bend=run(host,"bend.create",{{"edge_owner",base},{"edge_key",sides[0].reference.semantic_key}}).data.at("container").get<std::string>();
+    edge_key.clear();
+    for(const auto& e:state->session.calculated_boundaries().back().mesh.original_references.edges) {
+        if(e.reference.owner_id!=attached_bend)continue;
+        try {const auto refs=document::flat_sheet_references(e);if(refs[1].semantic_key.starts_with("sweep:cap:end:from:")){edge_key=e.reference.semantic_key;break;}}
+        catch(const std::exception&){}
+    }
+    check(!edge_key.empty(),"Attached Bend lost its outer End");
+    const auto attached_flat=run(host,"flat.create",{{"edge_owner",attached_bend},{"edge_key",edge_key},{"height_mm",12.}}).data;
+    const auto attached_sketch=attached_flat.at("sketch").get<std::string>();
+    const auto initial_refs=workspace::document_sketch(live,flip_id,attached_sketch).external_references;
+    for(int side:{1,0,1}) {
+        run(host,"bend.set",{{"container",attached_bend},{"edge_owner",base},{"edge_key",sides[side].reference.semantic_key}});
+        check(state->session.calculated_boundaries().back().calculation_errors.empty(),"Switching source Bend side broke Flat calculation");
+        const auto& profile=workspace::document_sketch(live,flip_id,attached_sketch);
+        const auto& bend_feature=*state->session.document().find_container(attached_bend);
+        const auto end=sketcher::Sketch::from_serialized(bend_feature.bend.auxiliary_sketches[1]);
+        near(profile.resolved_normal.x*end.resolved_y_axis.x+profile.resolved_normal.y*end.resolved_y_axis.y+profile.resolved_normal.z*end.resolved_y_axis.z,-1);
+        for(std::size_t i=0;i<2;++i)check(profile.external_references[i].id==initial_refs[i].id&&
+            profile.external_references[i].source_semantic_key==initial_refs[i].source_semantic_key,"Switching Bend side replaced Flat endpoint links");
+    }
+    const auto attached_flat_id=attached_flat.at("container").get<std::string>();
+    run(host,"bend.set",{{"container",attached_bend},{"angle_degrees",0.}});
+    check(!state->session.document().find_container(attached_flat_id)->placement.reference_valid,"Zero-angle Bend silently retained a valid solid-edge attachment");
+    run(host,"bend.set",{{"container",attached_bend},{"angle_degrees",90.}});
+    check(state->session.document().find_container(attached_flat_id)->placement.reference_valid,"Flat did not recover its restored Bend boundary");
+}
+
 void verify(std::filesystem::path directory) {
     kernel::OcctKernel kernel;workspace::Workspace live;command_host::Options options;
     options.settings=[] {command_host::Settings s;s.templates={std::filesystem::absolute("config/templates"),"start_part.prtz","start_assembly.asmz","Body"};return s;};
@@ -200,6 +361,6 @@ void verify_ellipse_regions() {
 int main() {
     const auto directory=std::filesystem::temp_directory_path()/("zima-flat-"+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     std::filesystem::create_directories(directory);
-    try{verify(directory);verify_ellipse_regions();std::filesystem::remove_all(directory);std::cout<<"Flat geometry, directions, defaults, topology and history passed\n";return 0;}
+    try{verify_bend_attachment(directory);verify_attached_history(directory);verify(directory);verify_ellipse_regions();std::filesystem::remove_all(directory);std::cout<<"Flat geometry, directions, defaults, topology and history passed\n";return 0;}
     catch(const std::exception& e){std::cerr<<e.what()<<"; fixture: "<<directory<<'\n';return 1;}
 }

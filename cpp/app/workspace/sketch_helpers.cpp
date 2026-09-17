@@ -173,9 +173,8 @@ std::optional<std::string> sketch_external_reference_id_from_key(
         : key.starts_with(axis_prefix) ? axis_prefix
         : key.starts_with(face_prefix) ? face_prefix : std::string_view{};
     if (prefix.empty() || key.size() == prefix.size()) return std::nullopt;
-    const auto suffix = key.find(':', prefix.size());
-    return key.substr(prefix.size(), suffix == std::string::npos
-        ? std::string::npos : suffix - prefix.size());
+    if(key.ends_with(":broken"))return std::nullopt;
+    return key.substr(prefix.size());
 }
 
 std::optional<std::string> sketch_keypoint_curve_id(

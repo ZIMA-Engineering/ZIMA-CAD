@@ -60,6 +60,12 @@ bool refresh_sketch_external_references(
     zima::document::PartDocument& document,
     const std::vector<zima::kernel::BodyResult>& calculated_boundaries);
 
+// Read-only material-state reference evaluation. Returns the same Sketch in
+// its calculated design frame, paired with persisted design reference data.
+std::optional<std::pair<sketcher::Sketch,kernel::ViewerReferenceGeometry>>
+sheet_reference_evaluation(const document::PartDocument&,const sketcher::Sketch&);
+bool refresh_sheet_sketch_references(const document::PartDocument&,sketcher::Sketch&);
+
 bool prune_missing_drill_point_references(
     zima::document::PartDocument& document,
     const std::vector<zima::kernel::BodyResult>& boundaries);

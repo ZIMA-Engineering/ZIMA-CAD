@@ -133,6 +133,7 @@ void AssemblyWorkspaceWindow::preview_sketch_segment_ray(
         inference.perpendicular_reference_id.clear();
         inference.parallel_reference_id.clear();
         inference.midpoint_line_reference_id.clear();
+        inference.external_point_reference_id.clear();
     }
     if (endpoint_snap && endpoint_snap->relation ==
             zima::sketcher::ConstraintKind::PointOnLine &&
@@ -158,6 +159,7 @@ void AssemblyWorkspaceWindow::preview_sketch_segment_ray(
         inference.perpendicular_reference_id.clear();
         inference.parallel_reference_id.clear();
         inference.midpoint_line_reference_id.clear();
+        inference.external_point_reference_id.clear();
         inference.position = *position;
         if (automatic_constraint_enabled(vertical ? zima::sketcher::ConstraintKind::Vertical : zima::sketcher::ConstraintKind::Horizontal) && direction_error <= intent_tolerance) {
             inference.kind = vertical
@@ -187,6 +189,7 @@ void AssemblyWorkspaceWindow::preview_sketch_segment_ray(
         inference.perpendicular_reference_id.clear();
         inference.parallel_reference_id.clear();
         inference.midpoint_line_reference_id.clear();
+        inference.external_point_reference_id.clear();
         if (automatic_constraint_enabled(zima::sketcher::ConstraintKind::Horizontal) && dy <= intent_tolerance) {
             inference.kind = zima::sketcher::ConstraintKind::Horizontal;
             inference.position = *position;
@@ -261,6 +264,7 @@ void AssemblyWorkspaceWindow::preview_sketch_segment_ray(
         inference.perpendicular_reference_id.clear();
         inference.parallel_reference_id.clear();
         inference.midpoint_line_reference_id.clear();
+        inference.external_point_reference_id.clear();
         inference.tangent_reference_id = *endpoint_tangent_curve;
         inference.tangent_at_start = false;
     } else if (endpoint_perpendicular) {
@@ -481,6 +485,13 @@ void AssemblyWorkspaceWindow::preview_sketch_segment_ray(
     // Publish the complete inference state on every mouse move, including
     // the empty state. Leaving the previous labels installed made a stale C
     // survive a small cursor movement and appear beside the current C H/C V.
+    if(!inference.external_point_reference_id.empty()) {
+        const auto reference=std::ranges::find(sketch->external_references,inference.external_point_reference_id,&zima::sketcher::SketchExternalReference::id);
+        if(reference!=sketch->external_references.end()) {
+            const auto p=reference->cached_points.front();
+            markers.push_back({sketch->world_point(p[0],p[1]),inference.external_point_midpoint?"M":"C"});
+        }
+    }
     viewer_->set_transient_labels(std::move(markers));
 }
 
@@ -637,9 +648,12 @@ bool AssemblyWorkspaceWindow::accept_sketch_rectangle_ray(
                     opposite_snap_geometry_id, opposite_snap_kind);
                 if (midpoint_snap) {
                     for (const auto& constraint : midpoint_snap->constraints) {
-                        static_cast<void>(target.add_midpoint_on_line_constraint(
-                            rectangle_ids[constraint.side_index],
-                            constraint.axis_id));
+                        try {
+                            if(constraint.external_point)static_cast<void>(target.add_external_point_segment_constraint(
+                                constraint.axis_id,rectangle_ids[constraint.side_index],constraint.midpoint));
+                            else static_cast<void>(target.add_midpoint_on_line_constraint(
+                                rectangle_ids[constraint.side_index],constraint.axis_id));
+                        } catch(const zima::sketcher::RedundantConstraint&) {}
                     }
                 }
             } else {
@@ -762,6 +776,14 @@ void AssemblyWorkspaceWindow::preview_sketch_rectangle_ray(
         std::vector<std::pair<zima::kernel::Vec3, std::string>> labels;
         labels.reserve(midpoint_snap->constraints.size());
         for (const auto& constraint : midpoint_snap->constraints) {
+            if(constraint.external_point) {
+                const auto ref=std::ranges::find(sketch->external_references,constraint.axis_id,&zima::sketcher::SketchExternalReference::id);
+                if(ref!=sketch->external_references.end()) {
+                    const auto p=ref->cached_points.front();
+                    labels.emplace_back(sketch->world_point(p[0],p[1]),constraint.midpoint?"M":"C");
+                }
+                continue;
+            }
             const std::array midpoint = constraint.side_index == 0
                 ? std::array{(x0 + x1) * 0.5, y0}
                 : std::array{x1, (y0 + y1) * 0.5};
@@ -775,7 +797,9 @@ void AssemblyWorkspaceWindow::preview_sketch_rectangle_ray(
 std::optional<AssemblyWorkspaceWindow::SketchRectangleMidpointSnap>
 AssemblyWorkspaceWindow::inferred_sketch_rectangle_midpoint_snap(
     const std::array<double, 2>& opposite) const {
-    if (!automatic_constraint_enabled(zima::sketcher::ConstraintKind::Midpoint)) return std::nullopt;
+    const bool midpoint_enabled=automatic_constraint_enabled(zima::sketcher::ConstraintKind::Midpoint);
+    const bool contact_enabled=automatic_constraint_enabled(zima::sketcher::ConstraintKind::Coincident);
+    if(!midpoint_enabled&&!contact_enabled)return std::nullopt;
     const auto* sketch = active_sketch();
     if (sketch == nullptr || viewer_ == nullptr || !pending_rectangle_corner_) {
         return std::nullopt;
@@ -783,6 +807,40 @@ AssemblyWorkspaceWindow::inferred_sketch_rectangle_midpoint_snap(
     const auto& first = *pending_rectangle_corner_;
     const double tolerance = viewer_->world_tolerance_for_pixels(
         10.0 * viewer_->devicePixelRatioF());
+    if(pending_sketch_snap_kind_)return std::nullopt;
+    if(const auto candidate=viewer_->hovered_candidate();candidate&&
+        (candidate->kind==zima::viewer::CandidateKind::SketchPoint||candidate->semantic_key.starts_with("external_point:")))return std::nullopt;
+    if(zima::viewer::matches_selection_filter(
+        {zima::viewer::CandidateKind::SketchExternalReference,0,0,active_sketch_id_,"external_point:contact"},viewer_->selection_filter())) {
+        for(bool midpoint:{true,false}) {
+            if(midpoint?!midpoint_enabled:!contact_enabled)continue;
+            std::optional<SketchRectangleMidpointSnap> chosen;double best_distance=2*tolerance;
+            for(const auto& ref:sketch->external_references) {
+                if(ref.kind!=zima::sketcher::ExternalReferenceKind::Point||ref.broken||ref.cached_points.size()!=1)continue;
+                const auto p=ref.cached_points.front();
+                for(std::size_t side=0;side<4;++side) {
+                    auto proposed=opposite;
+                    if(midpoint) {
+                        if(side==0||side==2)proposed[0]=2*p[0]-first[0];
+                        else proposed[1]=2*p[1]-first[1];
+                    }
+                    if(side==1)proposed[0]=p[0];
+                    if(side==2)proposed[1]=p[1];
+                    const std::array<std::array<double,2>,4> corners{{first,{proposed[0],first[1]},proposed,{first[0],proposed[1]}}};
+                    const auto a=corners[side],b=corners[(side+1)%4];
+                    const double dx=b[0]-a[0],dy=b[1]-a[1],squared=dx*dx+dy*dy;
+                    if(squared<1e-16)continue;
+                    const double t=((p[0]-a[0])*dx+(p[1]-a[1])*dy)/squared;
+                    if(t<=1e-6||t>=1-1e-6||std::abs((p[0]-a[0])*dy-(p[1]-a[1])*dx)>1e-7*std::sqrt(squared))continue;
+                    const double distance=std::hypot(proposed[0]-opposite[0],proposed[1]-opposite[1]);
+                    if(distance>best_distance||std::abs(proposed[0]-first[0])<1e-9||std::abs(proposed[1]-first[1])<1e-9)continue;
+                    best_distance=distance;chosen=SketchRectangleMidpointSnap{proposed,{{ref.id,side,true,midpoint}}};
+                }
+            }
+            if(chosen)return chosen;
+        }
+    }
+    if(!midpoint_enabled)return std::nullopt;
     struct AxisCandidate {
         std::string axis_id;
         double coordinate{};

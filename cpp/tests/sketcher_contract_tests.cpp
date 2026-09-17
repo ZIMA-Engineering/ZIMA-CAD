@@ -24,6 +24,44 @@ void require(bool condition, const char* message) {
 int main() {
     try {
         using zima::sketcher::DimensionKind;
+        for(bool midpoint:{false,true}) {
+            using namespace zima::sketcher;
+            auto s=Sketch::create_default();
+            auto ref=Sketch::create_external_reference(ExternalReferenceKind::Point);
+            ref.id="profile:flat-attachment:first";
+            ref.source_document_id="source";ref.source_owner_id="feature";ref.source_semantic_key="vertex:source";
+            ref.cached_points={{5.,0.}};
+            s.add_external_reference(ref);
+            const auto segment=s.add_segment(0.,0.,10.,0.);
+            static_cast<void>(s.add_external_point_segment_constraint(ref.id,segment,midpoint));
+            s=Sketch::from_serialized(s.serialized());
+            s.external_references.front().cached_points={{6.,3.}};
+            const auto result=s.solve();
+            if(result.status==SolveStatus::Invalid||result.status==SolveStatus::Conflicting)
+                std::cerr<<"External contact midpoint="<<midpoint<<" status="<<static_cast<int>(result.status)<<" residual="<<result.maximum_residual<<'\n';
+            require(result.status!=SolveStatus::Invalid&&result.status!=SolveStatus::Conflicting,
+                "External point C/M failed after source movement and reopen");
+            const auto* a=s.find_point(s.segments.front().first_point_id);
+            const auto* b=s.find_point(s.segments.front().second_point_id);
+            if(midpoint)require(std::hypot((a->x+b->x)*.5-6.,(a->y+b->y)*.5-3.)<1e-6,
+                "External point M did not move the segment midpoint");
+            else require(std::abs((6.-a->x)*(b->y-a->y)-(3.-a->y)*(b->x-a->x))<1e-5,
+                "External point C did not retain incidence");
+            require(std::ranges::any_of(s.constraints,[&](const auto& c){return c.kind==ConstraintKind::PointReference&&c.second_point_id==ref.id;}),
+                "External contact lost its full source identity");
+            auto broken=s;broken.external_references.front().broken=true;
+            bool rejected=false;try{static_cast<void>(broken.add_external_point_segment_constraint(ref.id,segment,midpoint));}
+            catch(const std::invalid_argument&){rejected=true;}
+            require(rejected,"Broken external point accepted for C/M");
+            auto rectangle=Sketch::create_default();
+            ref.cached_points={{10.,5.}};rectangle.add_external_reference(ref);
+            const auto sides=rectangle.add_rectangle(0.,0.,10.,10.);
+            static_cast<void>(rectangle.add_external_point_segment_constraint(ref.id,sides[1],midpoint));
+            rectangle.external_references.front().cached_points={{12.,6.}};
+            const auto rectangular=rectangle.solve();
+            require(rectangular.status!=SolveStatus::Invalid&&rectangular.status!=SolveStatus::Conflicting,
+                "Rectangle C/M could not follow an external point");
+        }
         {
             // Screenshot 2026-09-16: a dimensioned rectangle left of the Y
             // axis. Editing either signed coordinate must translate the full

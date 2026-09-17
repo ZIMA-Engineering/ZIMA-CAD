@@ -478,7 +478,7 @@ void FamilyTableDialog::refresh_references() {
         table_->setHorizontalHeaderItem(c,new QTableWidgetItem(column?QString::fromStdString(column->name):QStringLiteral("+")));
         table_->setHorizontalHeaderItem(c+1,new QTableWidgetItem);
         auto* ref=new zima::ui::ReferenceCellItem(column?QString::fromStdString(column->binding.kind=="dimension"?column->value:column->owner_name):settings_.text("dialog.family_table.pick","Pick a solid or dimension"));
-        if(bend_state)ref->setText(column->value=="1"?"Unbend":"Bend");
+        if(bend_state)ref->setText(column->value=="1"?tr("Rozvinutý"):tr("Ohnutý"));
         if(column) {
             ref->set_reference(QString::fromStdString(column->binding.owner_id+":"+column->binding.semantic_key));
             ref->setToolTip(QString::fromStdString(column->owner_name+" / "+column->binding.semantic_key));
@@ -501,7 +501,7 @@ void FamilyTableDialog::refresh_references() {
                 // Cover its text before painting the localized cell editor.
                 combo->setBackgroundRole(QPalette::Base);
                 combo->setAutoFillBackground(true);
-                if(bend_state) {combo->addItem("Bend","0");combo->addItem("Unbend","1");}
+                if(bend_state) {combo->addItem(tr("Ohnutý"),"0");combo->addItem(tr("Rozvinutý"),"1");}
                 else {combo->addItem(settings_.text("dialog.family_table.yes","Yes"),"yes");combo->addItem(settings_.text("dialog.family_table.no","No"),"no");}
                 combo->setToolTip(settings_.text("dialog.family_table.inherit","Empty = use the base value"));
                 combo->setCurrentIndex(std::max(0,combo->findData(value)));table_->setCellWidget(row,c,combo);

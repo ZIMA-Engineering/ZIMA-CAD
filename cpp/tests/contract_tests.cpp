@@ -1921,7 +1921,7 @@ int main() {
             (std::istreambuf_iterator<char>(empty_serialized)),
             std::istreambuf_iterator<char>());
         require(empty_text.find("[Document]\n") != std::string::npos &&
-                    empty_text.find("format_version=32\n") != std::string::npos &&
+                    empty_text.find("format_version=35\n") != std::string::npos &&
                     empty_text.find("[DocumentUnits]\n") != std::string::npos &&
                     empty_text.find("[UserParameterValues]\n") != std::string::npos,
                 "Part persistence did not write the current native INI sections");
@@ -2884,6 +2884,10 @@ int main() {
         bounded_axis_geometry.edges.push_back({{{5.0, 0.0, 0.0},
             {0.0, 5.0, 0.0}, {-5.0, 0.0, 0.0}, {0.0, -5.0, 0.0},
             {5.0, 0.0, 0.0}}, {"radius-owner", "circle", {}}});
+        // The reference model supplies the authored axis explicitly; a
+        // display polyline must not reconstruct a circular source identity.
+        bounded_axis_geometry.axes.push_back({{0,0,0},{0,0,1},10,
+            {"radius-owner","axis:circle",{}},{}});
         const auto append_limit_plane = [&](const std::string& owner, double z) {
             const auto offset = static_cast<std::uint32_t>(
                 bounded_axis_geometry.vertices.size());
@@ -2904,7 +2908,7 @@ int main() {
             zima::document::PartDocument::create_construction(
                 zima::document::ConstructionKind::Axis);
         bounded_datum_axis.references = {
-            {{}, "radius-owner", "circle"},
+            {{}, "radius-owner", "axis:circle"},
             {{}, "limit-start", "surface"},
             {{}, "limit-end", "surface"}};
         require(zima::document::resolve_construction(
@@ -2912,7 +2916,7 @@ int main() {
                     std::abs(bounded_datum_axis.origin.z - 5.0) < 1.0e-8 &&
                     std::abs(bounded_datum_axis.direction.z - 1.0) < 1.0e-8 &&
                     std::abs(bounded_datum_axis.display_size - 20.0) < 1.0e-8,
-                "Circular edge plus from/to faces did not define a bounded Axis");
+                "Persisted circular Axis plus from/to faces did not define a bounded Axis");
         auto referenced_plane = zima::document::PartDocument::create_construction(
             zima::document::ConstructionKind::Plane);
         referenced_plane.definition =

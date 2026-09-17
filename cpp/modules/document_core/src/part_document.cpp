@@ -531,12 +531,12 @@ void add_json_parameters(
 
 nlohmann::json read_part_ini(const std::filesystem::path& path) {
     const auto ini = read_ini(path);
-    if (ini_value(ini, "Document", "format_version") != "32") {
+    if (ini_value(ini, "Document", "format_version") != "35") {
         throw std::runtime_error("Unsupported ZIMA-CAD Part document format");
     }
     nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 56},
+        {"format_version", 59},
         {"document_id", ini_required(ini, "Document", "document_id")},
         {"type", ini_value(ini, "Document", "type", "part")},
         {"name", ini_value(ini, "Document", "name", "Nový díl")},
@@ -549,6 +549,8 @@ nlohmann::json read_part_ini(const std::filesystem::path& path) {
         {"body_properties", nlohmann::json::parse(ini_value(ini,"Document","body_properties"))},
         {"dimension_layouts", nlohmann::json::parse(ini_value(ini,"Document","dimension_layouts","[]"))},
         {"dimension_identifiers", nlohmann::json::parse(ini_required(ini, "Document", "dimension_identifiers"))},
+        {"sheet_reference_state", nlohmann::json::parse(ini_required(ini,"Document","sheet_reference_state"))},
+        {"reference_errors", nlohmann::json::parse(ini_required(ini,"Document","reference_errors"))},
         {"body_history", nlohmann::json::parse(ini_required(ini, "Document", "body_history"))},
         {"body_color", ini_value(ini, "Document", "body_color", "#B9C2CC")},
         {"face_colors", nlohmann::json::object()},
@@ -690,7 +692,7 @@ void write_part_ini(
     const nlohmann::json& root, const std::filesystem::path& path) {
     IniSections ini;
     ini["Document"] = {
-        {"format_version", "32"},
+        {"format_version", "35"},
         {"type", "part"},
         {"document_id", root.at("document_id").get<std::string>()},
         {"name", root.at("name").get<std::string>()},
@@ -702,6 +704,8 @@ void write_part_ini(
         {"body_properties", root.at("body_properties").dump()},
         {"dimension_layouts", root.value("dimension_layouts",nlohmann::json::array()).dump()},
         {"dimension_identifiers", root.at("dimension_identifiers").dump()},
+        {"sheet_reference_state",root.at("sheet_reference_state").dump()},
+        {"reference_errors",root.at("reference_errors").dump()},
         {"body_history", root.at("body_history").dump()},
         {"body_color", root.value("body_color", std::string("#B9C2CC"))},
         {"appearance", root.value("appearance", std::string("{}"))},
@@ -5531,11 +5535,12 @@ void PartDocument::resolve_constructions(
                 *next.find_construction(construction.id) = std::move(construction);
             for (auto& sketch : carrier.sketches) {
                 if(const auto* owner=next.find_container(sketch.owner_container_id);
-                    owner&&owner->feature_kind==FeatureKind::Bend&&owner->bend.sheet_attachment) {
+                    owner&&((owner->feature_kind==FeatureKind::Bend&&owner->bend.sheet_attachment)||
+                        (owner->feature_kind==FeatureKind::Flat&&owner->flat.sheet_attachment))) {
                     // A Body-local calculation carrier is not a source file.
                     // Attachment endpoints belong to the containing Part.
                     for(auto& reference:sketch.external_references)
-                        if(reference.id.starts_with(sketch.id+":attachment:"))
+                        if(reference.id.starts_with(sketch.id+":attachment:")||reference.id.starts_with(sketch.id+":flat-attachment:"))
                             reference.source_document_id=next.document_id;
                 }
                 const auto target = std::ranges::find_if(next.sketches, [&](const auto& value) { return value.id == sketch.id; });
@@ -5635,6 +5640,11 @@ void PartDocument::resolve_constructions(
                     return container.id == sketch.owner_container_id;
                 });
             if (owner == history.end()) continue;
+            if(owner->feature_kind==FeatureKind::Flat&&owner->flat.sheet_attachment) {
+                if(!owner->placement.reference_valid)continue;
+                update_flat_sheet_attachment(*owner,sketch,source_geometry,document_id);
+                continue;
+            }
             // Bend consumes the shared placement without redefining FRONT or
             // TOP: its start section lies in the narrow attachment face, with
             // the outer generatrix along the picked edge. A missing reference
@@ -7305,10 +7315,74 @@ zima::kernel::ExtrusionRequest body_profile_request(
 }
 }
 
+std::vector<ConstructionReference> flat_sheet_references(const kernel::ViewerEdge& edge,
+        const kernel::VertexReference& start) {
+    const bool outer=std::ranges::any_of(edge.edge_treatment_side_references,[](const auto& face) {
+        return face.sheet_role==kernel::SheetFaceRole::SideA&&
+            face.semantic_key.find(":outer:from:")!=std::string::npos;
+    });
+    const bool cap=std::ranges::any_of(edge.edge_treatment_side_references,[](const auto& face) {
+        return face.sheet_role==kernel::SheetFaceRole::ThicknessFace&&
+            (face.semantic_key.starts_with("sweep:cap:end:from:")||face.semantic_key.starts_with("sweep:cap:start:from:"));
+    });
+    if(!outer||!cap)throw std::invalid_argument("Flat attachment requires a straight outer boundary of a Bend end face.");
+    return bend_sheet_references(edge,start);
+}
+
+void update_flat_sheet_attachment(HistoryContainer& feature,sketcher::Sketch& sketch,
+        const kernel::ViewerReferenceGeometry& geometry,const std::string& document_id) {
+    auto& placement=feature.placement;
+    if(placement.references.size()!=3)throw std::invalid_argument("Incomplete Flat sheet attachment.");
+    const auto& source=placement.references.front();
+    const auto edge=std::ranges::find_if(geometry.edges,[&](const auto& e) {
+        return e.reference.owner_id==source.owner_id&&e.reference.semantic_key==source.semantic_key&&
+            e.reference.instance_path==source.instance_path;
+    });
+    if(edge==geometry.edges.end())throw std::invalid_argument("Missing Flat attachment edge.");
+    const auto& point=placement.references[2];
+    const auto expected=flat_sheet_references(*edge,{point.owner_id,point.semantic_key,point.instance_path});
+    const auto& face=placement.references[1];
+    if(face.owner_id!=expected[1].owner_id||face.semantic_key!=expected[1].semantic_key||
+        face.instance_path!=expected[1].instance_path||face.offset!=0||face.flip||source.flip||
+        placement.orientation_back||placement.orientation_quarter_turns||
+        placement.rotation_offset_x!=0||placement.rotation_offset_y!=0||placement.rotation_offset_z!=0)
+        throw std::invalid_argument("Flat attachment orientation is derived from its Bend edge.");
+    const auto side=bend_attachment_profile_direction(placement.references,geometry);
+    if(!side)throw std::invalid_argument("Flat requires a planar Bend joining face.");
+    feature.flat.thickness=edge->edge_treatment_side_references.front().sheet_thickness;
+    const kernel::Vec3 rotation{placement.rotation_x,placement.rotation_y,placement.rotation_z};
+    // Consume the ordinary reference frame: local Y is the edge, local Z
+    // leaves the joining cap. The thickness runs opposite the Sketch normal.
+    sketch.plane=sketcher::SketchPlane::YZ;sketch.plane_auto=true;sketch.plane_offset=0;
+    sketch.resolved_origin={placement.x,placement.y,placement.z};
+    sketch.resolved_x_axis=rotated_vector({0,*side,0},rotation);
+    sketch.resolved_y_axis=rotated_vector({0,0,1},rotation);
+    sketch.resolved_normal=rotated_vector({*side,0,0},rotation);
+    auto endpoints=edge->edge_treatment_endpoint_references;
+    std::ranges::sort(endpoints,{},&kernel::VertexReference::semantic_key);
+    for(std::size_t i=0;i<endpoints.size();++i) {
+        const auto& endpoint=endpoints[i];
+        const auto point=std::ranges::find_if(geometry.points,[&](const auto& p){return p.reference==endpoint;});
+        if(point==geometry.points.end())throw std::invalid_argument("Missing Flat attachment endpoint.");
+        const auto id=sketch.id+(i?":flat-attachment:last":":flat-attachment:first");
+        auto existing=std::ranges::find(sketch.external_references,id,&sketcher::SketchExternalReference::id);
+        if(existing==sketch.external_references.end()) {
+            sketch.external_references.push_back({});existing=std::prev(sketch.external_references.end());
+        }
+        existing->id=id;existing->kind=sketcher::ExternalReferenceKind::Point;
+        existing->source_document_id=document_id;existing->source_owner_id=endpoint.owner_id;
+        existing->source_semantic_key=endpoint.semantic_key;existing->source_instance_path=endpoint.instance_path;
+        existing->cached_points={sketch.local_point(point->position)};existing->broken=false;
+    }
+    const auto solved=sketch.solve();
+    if(solved.status==sketcher::SolveStatus::Conflicting||solved.status==sketcher::SolveStatus::Invalid)
+        throw std::invalid_argument("Flat profile conflicts with its Bend endpoint references.");
+}
+
 double flat_thickness(const HistoryContainer& feature,const SheetMetalDefaults& defaults) {
     if(feature.feature_kind!=FeatureKind::Flat || feature.combine_mode!=CombineMode::Add)
         throw std::invalid_argument("Flat must be an additive sheet metal feature.");
-    const double thickness=feature.flat.thickness_override?feature.flat.thickness:defaults.thickness_mm.value_or(1.0);
+    const double thickness=feature.flat.thickness_override||feature.flat.sheet_attachment?feature.flat.thickness:defaults.thickness_mm.value_or(1.0);
     if(!std::isfinite(thickness)||thickness<.001||thickness>1000000)
         throw std::invalid_argument("Sheet thickness must be between 0.001 and 1000000 mm.");
     validate_extrusion_direction(feature.flat.direction);
@@ -8325,6 +8399,11 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
     for (const auto* ordered_container : ordered_history) {
         const auto& container = *ordered_container;
         if (container.feature_kind == FeatureKind::Sketch) continue;
+        if(!container.suppressed)if(const auto error=reference_errors.find(container.id);error!=reference_errors.end()) {
+            zima::kernel::HistoryOperation failed{container.id,zima::kernel::FeatureGroupRequest{},
+                zima::kernel::BooleanOperation::Add,false,boolean_tolerance,mesh_deflection};
+            failed.input_error=error->second;operations.push_back(std::move(failed));continue;
+        }
         try {
         if(container.is_surface_result() && container.combine_mode==CombineMode::Subtract)
             throw std::runtime_error("A surface cannot subtract material.");
@@ -9557,6 +9636,8 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
     PartDocument document;
     document.document_id = root.at("document_id").get<std::string>();
     document.name = root.at("name").get<std::string>();
+    document.sheet_reference_state=root.at("sheet_reference_state").dump();
+    document.reference_errors=root.at("reference_errors").get<decltype(document.reference_errors)>();
     document.body_history = BodyHistoryGraph::from_serialized(root.at("body_history").dump());
     document.user_parameters =
         root.at("user_parameters").get<std::map<std::string, std::string>>();
@@ -9684,6 +9765,7 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
             // linked through Sketch::owner_container_id.
         } else if (container.feature_kind == FeatureKind::Flat) {
             const auto& f=source.at("flat");auto& p=container.flat;
+            p.sheet_attachment=f.at("sheet_attachment");
             p.sketch_id=f.at("sketch_id");p.thickness=f.at("thickness");p.thickness_override=f.at("thickness_override");
             const auto direction=f.at("direction").get<std::string>();
             if(direction!="forward"&&direction!="reverse"&&direction!="symmetric")throw std::runtime_error("Invalid Flat direction.");
@@ -10809,7 +10891,7 @@ nlohmann::json PartDocument::serialized(
             // in the document sketch collection.
         } else if (container.feature_kind == FeatureKind::Flat) {
             const auto& p=container.flat;
-            serialized["flat"]={{"sketch_id",p.sketch_id},{"thickness",p.thickness},{"thickness_override",p.thickness_override},
+            serialized["flat"]={{"sketch_id",p.sketch_id},{"sheet_attachment",p.sheet_attachment},{"thickness",p.thickness},{"thickness_override",p.thickness_override},
                 {"direction",p.direction==ExtrusionDirection::Forward?"forward":p.direction==ExtrusionDirection::Reverse?"reverse":"symmetric"}};
         } else if (container.feature_kind == FeatureKind::Bend) {
             const auto& p=container.bend;
@@ -11219,7 +11301,9 @@ nlohmann::json PartDocument::serialized(
     static_cast<void>(zima::document::parse_named_views(named_views));
     nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 56},
+        {"format_version", 59},
+        {"sheet_reference_state", nlohmann::json::parse(sheet_reference_state)},
+        {"reference_errors", reference_errors},
         {"document_id", document_id},
         {"type", "part"},
         {"name", name},

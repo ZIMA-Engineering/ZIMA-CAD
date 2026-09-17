@@ -5,6 +5,7 @@
 #include <zima/workspace/holes_operations.hpp>
 #include "workspace_internal.hpp"
 #include <zima/document/bend.hpp>
+#include <zima/workspace/bend_operations.hpp>
 #include "../numeric_expression_edit.hpp"
 
 namespace zima::app {
@@ -68,7 +69,36 @@ QString AssemblyWorkspaceWindow::dimension_identifier(
 void AssemblyWorkspaceWindow::edit_dimension_inline(
     const zima::viewer::ViewerCandidate& candidate) {
     if(candidate.semantic_key=="parameter:unbend") {
-        if(!properties_dialog_)show_primitive_properties(zima::document::FeatureKind::Bend,candidate.owner_id);
+        if(properties_dialog_||candidate.instance_path!=workspace_.active_occurrence_path())return;
+        if(parameter_value_locked(candidate.owner_id,candidate.semantic_key).value_or(false))return;
+        const auto id=workspace_.active_document_id();
+        const auto* part=workspace_.open_part(id);
+        const auto* feature=part?part->session.document().find_container(candidate.owner_id):nullptr;
+        if(!feature||feature->feature_kind!=document::FeatureKind::Bend)return;
+        if(!sketch_drag_dimension_id_.empty())end_sketch_dimension_drag();
+        auto* selector=new InlineThreadSizeEdit(viewer_);
+        selector->setObjectName("inlineBendStateEdit");
+        selector->addItem(tr("Ohnutý"),false);selector->addItem(tr("Rozvinutý"),true);
+        selector->setCurrentIndex(feature->bend.unbend?1:0);
+        const auto position=viewer_->candidate_dimension_label_position(candidate).value_or(viewer_->last_pointer_position());
+        selector->setFixedWidth(180);
+        selector->move(std::clamp(position.x(),0,std::max(0,viewer_->width()-180)),
+            std::clamp(position.y(),0,std::max(0,viewer_->height()-30)));
+        connect(selector,&QComboBox::activated,this,[this,id,owner=candidate.owner_id](int index) {
+            if(index<0||index>1||workspace_.active_document_id()!=id)return;
+            auto* state=workspace_.open_part(id);
+            const auto* stored=state?state->session.document().find_container(owner):nullptr;
+            if(!stored||stored->feature_kind!=document::FeatureKind::Bend||stored->bend.unbend==(index==1))return;
+            const auto& sketches=state->session.document().sketches;
+            const auto sketch=std::ranges::find(sketches,stored->bend.sketch_id,&sketcher::Sketch::id);
+            if(sketch==sketches.end())return;
+            try {
+                auto pending=*stored;pending.bend.unbend=index==1;
+                static_cast<void>(workspace::commit_bend(workspace_,kernel_,id,std::move(pending),*sketch));
+                preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();
+            }catch(const std::exception& error){state_->setText(QString::fromUtf8(error.what()));}
+        });
+        selector->open_after_release();
         return;
     }
     if (candidate.semantic_key.starts_with("measurement:")) return;

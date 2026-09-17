@@ -4,6 +4,7 @@
 #include <nlohmann/json.hpp>
 #include <iostream>
 #include <cmath>
+#include <algorithm>
 using namespace zima;
 static void require(bool value, const char* message) {
     if (!value) throw std::runtime_error(message);
@@ -34,6 +35,13 @@ int main(int argc, char** argv) {
         auto recalculated = kernel.evaluate_history_recovering(repaired, results);
         require(recalculated.back().calculation_errors.empty(), "Repair reused failed cache");
         require(recalculated[1].volume < 1000, "Repaired fillet was not calculated");
+        const std::vector<kernel::HistoryOperation> prefix(repaired.begin(),repaired.begin()+2);
+        const auto reused_prefix=kernel.evaluate_history_incremental(prefix,recalculated);
+        const auto& prefix_references=reused_prefix.back().mesh.original_references;
+        require(std::ranges::any_of(prefix_references.edges,[](const auto& e){return e.reference.owner_id=="first";}),
+            "Reusing a compacted history prefix lost its source references");
+        require(std::ranges::none_of(prefix_references.edges,[](const auto& e){return e.reference.owner_id=="later";}),
+            "Reusing an earlier prefix exposed later reference geometry");
         kernel::OcctKernel reopened_kernel;
         const auto failed_again = reopened_kernel.evaluate_history_recovering(operations, recalculated);
         require(!failed_again.back().kernel_shape.empty(), "Recovery retained a viewer-only intermediate cache");

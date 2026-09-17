@@ -130,7 +130,7 @@ void AssemblyWorkspaceWindow::update_bend_view_action() {
             } catch(const std::exception& error){state_->setText(QString::fromUtf8(error.what()));}
         });
     }
-    button->setText(feature->bend.unbend?tr("Ohnout (Bend)"):tr("Rozvinout (Unbend)"));
+    button->setText(feature->bend.unbend?tr("Ohnout"):tr("Rozvinout"));
     button->setToolTip(QString::fromStdString(feature->name));
     button->adjustSize();button->move(12,12);button->show();button->raise();
 }

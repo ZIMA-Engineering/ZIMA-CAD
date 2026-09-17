@@ -151,7 +151,11 @@ void end_targets(const kernel::OcctKernel& kernel,fs::path directory) {
     const auto later=f.run("construction.create",{{"kind","plane"},{"name","Later"},{"base_plane","xy"},{"offset_mm",12}});
     f.reject("extrusion.set",{{"container",id},{"targets_forward",Json::array({{{"owner",later.at("entity")},{"key","plane"}}})}},"invalid_reference_source");
     f.reject("history.move",{{"object",id},{"before",upper.at("construction")}},"history_dependency");
-    f.reject("history.delete",{{"object",upper.at("construction")}},"history_rejected");
+    const auto removed=f.host.execute({{"command","history.delete"},{"arguments",{{"object",upper.at("construction")}}}});
+    require(!removed.ok&&removed.code=="calculation_errors"&&f.doc().find_construction(upper.at("construction"))==nullptr,
+        "Deleting an earlier reference did not preserve the edit with downstream diagnostics");
+    require(f.part().session.calculated_boundaries().back().calculation_errors.contains(id),"Dependent profile has no missing-target diagnostic");
+    f.run("undo");near(f.volume(),300*std::numbers::pi);
     f.run("save");std::vector<kernel::BodyResult> cache;const auto reopened=document::PartDocument::load(directory/"profile-targets.prtz",&cache);
     require(reopened.find_container(id)->extrusion==f.doc().find_container(id)->extrusion,"End target native data changed on reopen");near(cache.back().volume,300*std::numbers::pi);
     f.run("extrusion.set",{{"container",id},{"extent","one_side"},{"end_forward","length"},{"end_reverse","length"},

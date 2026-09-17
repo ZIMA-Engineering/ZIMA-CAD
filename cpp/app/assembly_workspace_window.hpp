@@ -906,6 +906,8 @@ private:
         std::string perpendicular_reference_id;
         std::string parallel_reference_id;
         std::string midpoint_line_reference_id;
+        std::string external_point_reference_id;
+        bool external_point_midpoint{};
         std::size_t variant_count{1};
     };
     [[nodiscard]] SketchSegmentInference inferred_sketch_segment_end(
@@ -924,6 +926,8 @@ private:
         struct Constraint {
             std::string axis_id;
             std::size_t side_index{};
+            bool external_point{};
+            bool midpoint{true};
         };
         std::array<double, 2> opposite;
         std::vector<Constraint> constraints;

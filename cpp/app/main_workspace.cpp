@@ -1,3 +1,5 @@
+#include "workspace/workspace_internal.hpp"
+#include <zima/workspace/model_calculation.hpp>
 #include <zima/workspace/document_operations.hpp>
 #include <zima_build_info.hpp>
 #include "installationclient.h"
@@ -5,6 +7,7 @@
 #include "updates_ui_verification.hpp"
 #include <zima/document/file_path.hpp>
 #include <zima/document/bend.hpp>
+#include <zima/document/flat.hpp>
 #include <zima/workspace/native_documents.hpp>
 #include <zima/interchange/dxf.hpp>
 #include "console_ui_verification.hpp"
@@ -3794,6 +3797,12 @@ int verify_application_tools_ui(QApplication& application,const std::filesystem:
             "Disabling custom radius did not restore thickness inheritance");
         radius_override->setChecked(true);flush();
         check(bend->findChild<QDoubleSpinBox*>("bendRadius")->value()==2.,"Enabling custom radius changed the effective radius");
+        auto* hem=bend->findChild<QCheckBox*>("bendHem");check(hem&&!hem->isChecked(),"New Bend unexpectedly starts as a hem");
+        hem->setChecked(true);flush();
+        check(bend->findChild<QDoubleSpinBox*>("bendAngle")->value()==180.&&bend->findChild<QDoubleSpinBox*>("bendRadius")->value()==0.&&
+            !bend->findChild<QDoubleSpinBox*>("bendAngle")->isEnabled()&&!radius_override->isEnabled(),"Hem must set and protect 180 degrees / zero inner radius");
+        hem->setChecked(false);flush();
+        check(bend->findChild<QDoubleSpinBox*>("bendAngle")->value()==90.&&bend->findChild<QDoubleSpinBox*>("bendRadius")->value()==2.&&radius_override->isEnabled(),"Disabling hem must restore pending Bend parameters");
         for(const auto* button_name:{"bendPathSketchButton","sketchOpenButton","bendEndSketchButton"}) {
             auto* button=bend->findChild<QPushButton*>(button_name);check(button,"One of the three Bend Sketch editors is missing");
             check(button->styleSheet().contains("#4DD811"),"Bend Sketch button does not use the shared green style");
@@ -3816,6 +3825,18 @@ int verify_application_tools_ui(QApplication& application,const std::filesystem:
         check(bend_row,"Bend history row missing");window.show_tree_item_properties(bend_row);flush();bend=bend_dialog();check(bend,"First Bend history edit cannot enter rollback");
         bend->findChild<QComboBox*>("bendState")->setCurrentIndex(0);QApplication::sendEvent(model_view,&middle);flush();check(!bend_dialog(),"Bend middle double-click did not confirm");
         window.findChild<QAction*>("saveDocumentAction")->trigger();flush();check(!document::PartDocument::load(bend_path).history.front().bend.unbend,"Bend edit failed to persist state");
+        bend_row=nullptr;for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==saved_bend.history.front().id&&(*it)->data(0,Qt::UserRole+3)=="part-container"){bend_row=*it;break;}
+        check(bend_row,"Bend history row missing before hem edit");window.show_tree_item_properties(bend_row);flush();bend=bend_dialog();
+        bend->findChild<QCheckBox*>("bendHem")->setChecked(true);
+        bend->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();check(!bend_dialog(),"Hem OK failed");
+        window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+        const auto saved_hem=document::PartDocument::load(bend_path).history.front().bend;
+        check(saved_hem.angle_degrees==180.&&saved_hem.radius==0.&&!saved_hem.radius_follows_thickness,"Hem parameters did not persist");
+        bend_row=nullptr;for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==saved_bend.history.front().id&&(*it)->data(0,Qt::UserRole+3)=="part-container"){bend_row=*it;break;}
+        check(bend_row,"Hem history row missing");window.show_tree_item_properties(bend_row);flush();bend=bend_dialog();
+        check(bend->findChild<QCheckBox*>("bendHem")->isChecked(),"Reopened hem lost its mode");
+        bend->findChild<QCheckBox*>("bendHem")->setChecked(false);bend->findChild<QCheckBox*>("bendRadiusOverride")->setChecked(true);
+        bend->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();check(!bend_dialog(),"Leaving hem failed");
         const auto bend_id=saved_bend.history.front().id;
         window.show_parameter_dimensions(bend_id);flush();
         auto* state_button=model_view->findChild<QPushButton*>("bendViewStateButton");
@@ -3823,6 +3844,23 @@ int verify_application_tools_ui(QApplication& application,const std::filesystem:
         state_button->click();flush();window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
         check(document::PartDocument::load(bend_path).history.front().bend.unbend,"View Unbend did not commit");
         state_button->click();flush();
+        for(int state:{1,0}) {
+            auto* view=dynamic_cast<viewer::MeshView*>(model_view);
+            const auto& dimensions=view->mesh().dimensions;
+            const auto found=std::ranges::find_if(dimensions,[](const auto& d){return d.reference.semantic_key=="parameter:unbend";});
+            check(found!=dimensions.end()&&found->display_text_override!="Bend"&&found->display_text_override!="Unbend","Bend label is not localized");
+            viewer::ViewerCandidate candidate;candidate.kind=viewer::CandidateKind::Dimension;
+            candidate.owner_id=found->reference.owner_id;candidate.semantic_key=found->reference.semantic_key;
+            candidate.instance_path=found->reference.instance_path;candidate.geometry_index=std::distance(dimensions.begin(),found);
+            const auto label=view->candidate_dimension_label_position(candidate);check(label.has_value(),"Bend state label position missing");
+            QMouseEvent double_click(QEvent::MouseButtonDblClick,*label,QPointF(view->mapToGlobal(*label)),Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+            QApplication::sendEvent(view,&double_click);flush();
+            auto* choice=view->findChild<QComboBox*>("inlineBendStateEdit");
+            check(choice&&!bend_dialog()&&choice->count()==2,"Bend label double-click did not offer inline state choice");
+            choice->setCurrentIndex(state);choice->activated(state);choice->hidePopup();flush();
+            window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+            check(document::PartDocument::load(bend_path).history.front().bend.unbend==(state==1),"Inline Bend state choice did not persist");
+        }
         const auto inline_edit=[&](const std::string& suffix,const QString& value) {
             const auto& dimensions=dynamic_cast<viewer::MeshView*>(model_view)->mesh().dimensions;
             const auto found=std::ranges::find_if(dimensions,[&](const auto& d){return d.reference.semantic_key.ends_with(suffix);});
@@ -3835,7 +3873,10 @@ int verify_application_tools_ui(QApplication& application,const std::filesystem:
             editor->setText(value);QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(editor,&enter);flush();
             check(!editor||!editor->isVisible(),"Bend inline dimension edit failed");
         };
-        inline_edit(":radius","10");inline_edit(":angle","45");
+        inline_edit(":radius","10");inline_edit(":angle","180");
+        window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+        check(std::abs(document::PartDocument::load(bend_path).history.front().bend.angle_degrees-180.)<1e-8,"View angle edit rejected 180 degrees");
+        inline_edit(":angle","45");
         inline_edit(":difference:first","3");inline_edit(":difference:last","10");
         window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
         const auto edited_bend=document::PartDocument::load(bend_path);const auto& definition=edited_bend.history.front();
@@ -3845,6 +3886,41 @@ int verify_application_tools_ui(QApplication& application,const std::filesystem:
         window.grab().save("build/bend-three-sketch-view.png");
         check(window.finish_parameter_dimensions(),"Bend inspection did not finish");flush();
         check(!state_button->isVisible(),"Bend View action survived clearing inspection");
+        // Exercise attached Flat through the real preview/Sketcher/commit path.
+        std::optional<kernel::ViewerEdge> flat_edge;
+        for(const auto& edge:dynamic_cast<viewer::MeshView*>(model_view)->mesh().original_references.edges) {
+            if(edge.reference.owner_id!=bend_id)continue;
+            try {const auto refs=document::flat_sheet_references(edge);
+                if(refs[1].semantic_key.starts_with("sweep:cap:end:from:")){flat_edge=edge;break;}}
+            catch(const std::exception&){}
+        }
+        check(flat_edge.has_value(),"View has no outer Bend End boundary for Flat");
+        flat_action->trigger();flush();flat=flat_dialog();check(flat,"Attached Flat properties did not open");
+        check(flat->set_reference(0,{flat_edge->reference.instance_path,flat_edge->reference.owner_id,
+            flat_edge->reference.semantic_key},"Bend End"),"Workspace Flat rejected outer End edge");flush();
+        const auto attached=flat->pending_value();
+        check(attached.first.external_references.size()==2,"Workspace Flat lost external endpoints");
+        check(flat->mutate_sketch(attached.first.id,[](auto& s) {
+            const auto a=s.external_references[0].cached_points.front(),b=s.external_references[1].cached_points.front();
+            static_cast<void>(s.add_rectangle(std::min(a[0],b[0]),0,std::max(a[0],b[0]),12));
+        }),"Cannot draw attached Flat rectangle");
+        flat->findChild<QPushButton*>("sketchOpenButton")->click();flush();
+        check(!flat->isVisible(),"Attached Flat did not enter Sketcher");
+        for(const auto& ref:attached.first.external_references) {
+            check(app::workspace_detail::sketch_external_reference_id_from_key("external_point:"+ref.id)==ref.id,
+                "External Flat endpoint key was truncated during snapping");
+            check(!app::workspace_detail::sketch_external_reference_id_from_key("external_point:"+ref.id+":broken"),
+                "Broken external endpoint was offered for snapping");
+        }
+        window.findChild<QAction*>("finishSketchAction")->trigger();flush();
+        check(flat->isVisible()&&flat->pending_value().first.external_references.size()==2,"Attached Flat Sketcher return lost endpoints");
+        check(window.grab().save("build/flat-bend-attachment.png"),"Attached Flat screenshot failed");
+        flat->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+        check(!flat_dialog(),"Attached Flat did not commit");
+        window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+        const auto attached_part=document::PartDocument::load(bend_path);
+        check(attached_part.history.size()==2&&attached_part.history.back().flat.sheet_attachment,
+            "Workspace did not persist attached Flat");
         // Exercise the source-picker handoff inside the real tabbed workspace,
         // including the outer window's properties and selection handlers.
         window.findChild<QAction*>("newDocumentAction")->trigger();flush();
@@ -3896,6 +3972,28 @@ int verify_application_tools_ui(QApplication& application,const std::filesystem:
         check(!source_requested&&drawing_canvas->isVisible()&&
             drawing_window->document_for_test().source_document_id==saved_bend.document_id,
             "Part-to-Drawing shortcut prompted for an already known source");
+        // A later cross-branch reference failure must not reject an earlier
+        // View angle edit. The failed wall is red and its geometry is absent.
+        auto box=document::PartDocument::load("cpp/tests/fixtures/sheet/box-cross-branch.prtz");
+        kernel::OcctKernel box_kernel;
+        const auto box_cache=workspace::calculate_part_with_resolved_references(box_kernel,box);
+        const auto box_path=directory/"box-reference-recovery.prtz";box.save(box_path,box_cache);
+        check(window.open_document_path(QString::fromStdString(box_path.string())),"Cannot open box reference fixture");flush();
+        check(activate_test_body(application,window,box.body_history.active_body_id()),"Cannot activate box Body");
+        const std::string box_bend="01a0af5d46a97ac7bdafefbc7c826e7d",box_wall="01a0af5d46a97ac7bdafefbc7c826ef7";
+        window.show_parameter_dimensions(box_bend);flush();inline_edit(":angle","180");
+        const auto wall_row=[&]() -> QTreeWidgetItem* {
+            for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==box_wall&&(*it)->data(0,Qt::UserRole+3)=="part-container")return *it;
+            return nullptr;
+        };
+        check(wall_row()&&wall_row()->foreground(0).color()==QColor(210,75,65)&&!wall_row()->toolTip(0).isEmpty(),"Reference failure did not mark the later wall red");
+        const auto& failed_mesh=dynamic_cast<viewer::MeshView*>(model_view)->mesh();
+        check(std::ranges::none_of(failed_mesh.original_references.triangle_references,[&](const auto& r){return r.owner_id==box_wall;}),"Failed wall retained View geometry");
+        window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+        check(document::PartDocument::load(box_path).find_container(box_bend)->bend.angle_degrees==180.,"Later reference failure rejected the earlier View edit");
+        inline_edit(":angle","90");
+        check(wall_row()&&wall_row()->foreground(0).color()!=QColor(210,75,65),"Repairing the earlier angle left the wall red");
+        window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
         std::cout<<"Application selector, per-document modes, contextual Insert, live profile status and stable Save tabs passed\n";return 0;
     }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
 }
@@ -4894,7 +4992,7 @@ int verify_profile_on_sheet(QApplication& application, const std::filesystem::pa
                 application.processEvents();
                 auto* table=family->findChild<QTableWidget*>("familyTableTable");
                 auto* choice=qobject_cast<QComboBox*>(table->cellWidget(1,family_column));
-                if(!choice||choice->findText("Bend")<0||choice->findText("Unbend")<0)
+                if(!choice||choice->findData("0")<0||choice->findData("1")<0)
                     throw std::runtime_error("Bend state selection did not create the Family choice");
                 window.grab().save(QString::fromStdString((directory/"bend-family-state.png").string()));
                 family->reject();application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
