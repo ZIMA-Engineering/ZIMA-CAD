@@ -639,9 +639,12 @@ dependency paths. A same-named linked Drawing is renamed with its model. See
 
 ## Basic Drawing workflow
 
-Create a `.drwz` through **File → New → Drawing**, or use **Drawing** in the source
-Part/Assembly Tree header. It opens an existing same-named Drawing before creating
-a new one. The source link exists even before the first view. The opposite
+Create a `.drwz` through **File → New → Drawing** and select its source `.prtz`
+Part or `.asmz` Assembly. Canceling source selection creates no Drawing tab or
+file. Alternatively, use **Drawing** in the source Part/Assembly Tree header:
+the source is already known, so no file picker opens. That shortcut opens an
+existing same-named Drawing before creating a new one. The source link exists
+even before the first view. The opposite
 **Part/Assembly** header action opens the exact source. Renaming the model updates
 its stored Drawing link.
 
