@@ -72,7 +72,8 @@ def deploy(runtime, sdk):
     packages = {}
     for path in origins.values():
         if sdk in path.resolve().parents: continue
-        ownership = shared.run(['dpkg-query', '-S', str(path)], stdout=subprocess.PIPE).stdout.decode().splitlines()[0]
+        # Debian's merged /usr layout reports canonical package-owned paths.
+        ownership = shared.run(['dpkg-query', '-S', str(path.resolve())], stdout=subprocess.PIPE).stdout.decode().splitlines()[0]
         package = ownership.rsplit(': ', 1)[0]
         name = package.split(':')[0]
         notice = Path('/usr/share/doc') / name / 'copyright'
