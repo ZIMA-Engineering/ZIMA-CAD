@@ -124,12 +124,7 @@ void verify_cross_branch_box(std::filesystem::path directory) {
             check(!(first_wall&&second_wall),"Free box walls acquired a shared joined edge");
         }
     };
-    for(const auto states:{std::pair{true,false},std::pair{true,true},std::pair{false,true},std::pair{false,false}}) {
-        run(host,"bend.set",{{"container",first},{"state",states.first?"unbend":"bend"}});
-        run(host,"bend.set",{{"container",second},{"state",states.second?"unbend":"bend"}});
-        check_profile(150.);run(host,"regenerate");check_profile(150.);
-    }
-    run(host,"bend.set",{{"container",first},{"state","unbend"}});
+    check_profile(150.);
     check(workspace::mutate_document_sketch(live,id,source_profile,[](auto& sketch) {
         const auto dimension=std::ranges::find_if(sketch.dimensions,[](const auto& d){return d.driving&&std::abs(d.value-150.)<1e-8;});
         check(dimension!=sketch.dimensions.end(),"Source wall height dimension is missing");
@@ -139,7 +134,6 @@ void verify_cross_branch_box(std::filesystem::path directory) {
     run(host,"regenerate");check_profile(175.);
     run(host,"save");
     const auto reopened=document::PartDocument::load(path);
-    check(reopened.sheet_reference_state!="{}","Unfolded Part lost its design reference snapshot");
     run(host,"close",{{"document",id},{"discard",true}});
     run(host,"open",{{"path",path.string()}});check_profile(175.);
     auto sketch=workspace::document_sketch(live,id,profile);
@@ -148,8 +142,7 @@ void verify_cross_branch_box(std::filesystem::path directory) {
     const auto& face=original.external_references.back();
     const auto recreated=workspace::prepare_sketch_external_reference(live,id,sketch,face.kind,face.source_owner_id,face.source_semantic_key,{});
     near(recreated.cached_points.front()[1],175.);
-    run(host,"bend.set",{{"container",first},{"state","bend"}});check_profile(175.);
-    run(host,"undo");check_profile(175.);run(host,"redo");check_profile(175.);
+    check_profile(175.);
 }
 void verify_sketches(document::HistoryContainer feature,const sketcher::Sketch& start,document::SheetMetalDefaults defaults) {
     auto path=sketcher::Sketch::from_serialized(feature.bend.auxiliary_sketches[0]);
@@ -169,8 +162,7 @@ void verify_sketches(document::HistoryContainer feature,const sketcher::Sketch& 
     check(end.set_dimension_value(end.id+":difference:last",10),"Cannot edit last endpoint difference");
     document::accept_bend_sketch(feature,start,1,end,defaults);
     const auto extensions=document::bend_profile_extensions(feature);near(extensions[0],3);near(extensions[1],10);
-    feature.bend.unbend=true;document::prepare_bend_sketches(feature,start,defaults);
-    feature.bend.unbend=false;document::prepare_bend_sketches(feature,start,defaults);
+    document::prepare_bend_sketches(feature,start,defaults);
     path=sketcher::Sketch::from_serialized(feature.bend.auxiliary_sketches[0]);
     end=sketcher::Sketch::from_serialized(feature.bend.auxiliary_sketches[1]);
     check(path.id==path_id&&end.id==end_id&&path.arcs.front().id==arc_id,"Reframing replaced Bend Sketch identities");
@@ -330,8 +322,7 @@ void verify_attachment(const std::filesystem::path& directory) {
         // Each annotation and its grips must remain in its own Sketch plane,
         // including profiles rotated away from the global XY plane.
         auto dimension_feature=source.history.front();
-        for(bool unbend:{false,true}) {
-            dimension_feature.bend.unbend=unbend;
+        {
             document::prepare_bend_sketches(dimension_feature,source.sketches.front(),document::sheet_metal_defaults(source));
             std::vector<sketcher::Sketch> profiles{source.sketches.front()};
             for(const auto& data:dimension_feature.bend.auxiliary_sketches)profiles.push_back(sketcher::Sketch::from_serialized(data));
@@ -451,14 +442,9 @@ void verify_attachment(const std::filesystem::path& directory) {
         check(!document::resolve_placement(coincident,geometry),"Point-first anchor was silently projected");
         part.history.front().placement.references=refs;part.resolve_constructions(geometry);
         const auto start_id=resolved.segments.front().id;
-        for(bool unbend:{false,true,false}) {
-            std::cout<<"  Attached state "<<(unbend?"unbend":"bend")<<std::endl;
-            part.history.front().bend.unbend=unbend;part.resolve_constructions(geometry);
-            check(close(part.sketches.front().resolved_x_axis,resolved.resolved_x_axis)&&
-                close(part.sketches.front().resolved_normal,resolved.resolved_normal),"Bend/Unbend moved the attached start profile");
-            const auto result=kernel.evaluate_history(part.kernel_operations()).back();
-            near(result.volume,40*std::numbers::pi/2*5.5);
-        }
+        part.resolve_constructions(geometry);
+        check(close(part.sketches.front().resolved_x_axis,resolved.resolved_x_axis),"Regeneration moved the attached start profile");
+        near(kernel.evaluate_history(part.kernel_operations()).back().volume,40*std::numbers::pi/2*5.5);
         part.save(directory/"bend-attachment.prtz");
         auto reopened=document::PartDocument::load(directory/"bend-attachment.prtz");reopened.resolve_constructions(geometry);
         check(close(reopened.sketches.front().resolved_y_axis,resolved.resolved_y_axis),"Reopening changed Bend material side");
@@ -579,35 +565,22 @@ void verify(std::filesystem::path directory) {
     edit_path_radius(6.);near(volume(),40*pi/2*(36-25)/2);
     check(bent_faces.size()==6,"Bend must have six authored faces");
     check(std::ranges::count_if(bent_faces,[](const auto& s){return s.starts_with("sweep:cap:start:from:")||s.starts_with("sweep:cap:end:from:");})==2,"Start/End cap ancestry missing");
-    run(host,"bend.set",{{"container",owner},{"state","unbend"}});near(volume(),40*pi/2*(5+initial_k));
-    check(faces(state->session.calculated_boundaries().back(),owner)==bent_faces,"Bend/Unbend changed face identities");
-    for(const auto& key:bent_faces)if(key.starts_with("sweep:cap:start:from:")||key.starts_with("sweep:cap:end:from:")) {
-        auto plane=document::PartDocument::create_construction(document::ConstructionKind::Plane);
-        plane.definition=document::ConstructionDefinition::PlaneReference;plane.references={{{},owner,key}};
-        check(document::resolve_construction(plane,bent_body.mesh.original_references),"Cannot attach a plane to bent cap");
-        const auto direction=plane.direction;
-        check(document::resolve_construction(plane,state->session.calculated_boundaries().back().mesh.original_references),"Cap reference did not survive Unbend");
-        const auto dot=direction.x*plane.direction.x+direction.y*plane.direction.y+direction.z*plane.direction.z;
-        near(std::abs(dot),key.starts_with("sweep:cap:start:")?1.:0.);
-    }
     const auto& saved=state->session.document();const auto* feature=saved.find_container(owner);
     const auto sketch=*std::ranges::find(saved.sketches,feature->bend.sketch_id,&sketcher::Sketch::id);
     const auto preview=document::bend_preview(*feature,sketch,document::sheet_metal_defaults(saved));
-    check(preview.edges.size()==12&&preview.axes.size()==1,"Unbend preview or bend axis missing");
-    run(host,"undo");near(volume(),40*pi/2*(36-25)/2);run(host,"redo");near(volume(),40*pi/2*(5+initial_k));
+    check(preview.edges.size()==12&&preview.axes.size()==1,"Sheet Profile preview or axis missing");
     const auto revision=state->session.revision();
-    check(!run(host,"bend.set",{{"container",owner},{"state","unbend"}}).data.at("changed").get<bool>(),"No-op Bend edit changed history");
     for(auto bad: {Json{{"radius_mm",-1}},Json{{"angle_degrees",181}},Json{{"angle_degrees",-1}},Json{{"thickness_mm",0}},Json{{"k_factor",1.1}},Json{{"state","unknown"}}}) {
         bad["container"]=owner;check(!host.execute({{"command","bend.set"},{"arguments",bad}}).ok,"Invalid Bend parameters accepted");
     }
     check(state->session.revision()==revision,"Rejected Bend edit changed history");
     run(host,"document.settings.set",{{"sheet_metal",{{"thickness_mm",2.},{"k_factor",.4}}}});
-    near(volume(),40*2*pi/2*5.8); // Settings confirmation calculates inherited thickness and K together.
-    run(host,"undo");near(volume(),40*pi/2*(5+initial_k));
-    run(host,"redo");near(volume(),40*2*pi/2*5.8);
-    run(host,"bend.set",{{"container",owner},{"thickness_mm",1.5},{"k_factor",.3}});near(volume(),40*1.5*pi/2*5.45);
-    run(host,"bend.set",{{"container",owner},{"thickness_override",false},{"k_factor_override",false}});near(volume(),40*2*pi/2*5.8);
-    run(host,"bend.set",{{"container",owner},{"state","bend"},{"angle_degrees",180.}});near(volume(),40*pi*(49-25)/2);
+    near(volume(),40*pi/2*(49-25)/2); // Settings confirmation calculates inherited thickness and K together.
+    run(host,"undo");near(volume(),40*pi/2*(36-25)/2);
+    run(host,"redo");near(volume(),40*pi/2*(49-25)/2);
+    run(host,"bend.set",{{"container",owner},{"thickness_mm",1.5},{"k_factor",.3}});near(volume(),40*pi/2*(6.5*6.5-25)/2);
+    run(host,"bend.set",{{"container",owner},{"thickness_override",false},{"k_factor_override",false}});near(volume(),40*pi/2*(49-25)/2);
+    run(host,"bend.set",{{"container",owner},{"angle_degrees",180.}});near(volume(),40*pi*(49-25)/2);
     check(faces(state->session.calculated_boundaries().back(),owner)==bent_faces,"180-degree Bend changed face identity");
     run(host,"bend.set",{{"container",owner},{"angle_degrees",0.}});near(volume(),0);
     check(state->session.calculated_boundaries().back().calculation_errors.empty(),"Zero angle produced a calculation error");
@@ -624,15 +597,13 @@ void verify(std::filesystem::path directory) {
         "Variable-width Bend lost its authored Drawing radius annotation");
     near(radius_annotation->value,7.);
     check(faces(state->session.calculated_boundaries().back(),owner)==bent_faces,"End profile widths changed face identity");
-    run(host,"bend.set",{{"container",owner},{"state","unbend"}});
-    near(volume(),46.5*2*pi/2*5.8);
     run(host,"bend.set",{{"container",owner},{"first_extension_mm",-3.},{"last_extension_mm",-10.}});
-    near(volume(),33.5*2*pi/2*5.8);
+    near(volume(),33.5*pi/2*(49-25)/2);
     const auto rejected_revision=state->session.revision();
     check(!host.execute({{"command","bend.set"},{"arguments",{{"container",owner},{"first_extension_mm",-40.},{"last_extension_mm",0.}}}}).ok,
         "Collapsed end profile was accepted");
     check(state->session.revision()==rejected_revision,"Rejected end profile changed history");
-    run(host,"bend.set",{{"container",owner},{"first_extension_mm",0.},{"last_extension_mm",0.},{"state","bend"}});
+    run(host,"bend.set",{{"container",owner},{"first_extension_mm",0.},{"last_extension_mm",0.}});
     run(host,"bend.set",{{"container",owner},{"radius_mm",0.},{"angle_degrees",180.}});
     near(volume(),40*pi*4/2);
     const auto zero_faces=faces(state->session.calculated_boundaries().back(),owner);
@@ -646,10 +617,7 @@ void verify(std::filesystem::path directory) {
         run(host,"bend.set",{{"container",owner},{"angle_degrees",angle}});near(volume(),40*angle*pi/180*4/2);
         check(faces(state->session.calculated_boundaries().back(),owner)==zero_faces,"Zero-radius angle changed surviving face identities");
     }
-    run(host,"bend.set",{{"container",owner},{"state","unbend"}});near(volume(),40*2*pi*.8);
-    check(!host.execute({{"command","bend.set"},{"arguments",{{"container",owner},{"k_factor",0.}}}}).ok,
-        "Zero developed length created a degenerate solid");
-    run(host,"bend.set",{{"container",owner},{"radius_mm",5.},{"angle_degrees",90.},{"state","bend"}});
+    run(host,"bend.set",{{"container",owner},{"radius_mm",5.},{"angle_degrees",90.}});
     run(host,"save");std::vector<kernel::BodyResult> cached;
     const auto loaded=document::PartDocument::load(directory/"bend-test.prtz",&cached);
     check(loaded.find_container(owner)->bend==state->session.document().find_container(owner)->bend,"Native Bend parameters changed on reload");
@@ -725,13 +693,10 @@ void verify_continuation(std::filesystem::path directory) {
         near(volume(),40*angle*std::numbers::pi/180*(36-25)/2+1200);
         near(document::bend_straight_length(*state->session.document().find_container(owner)),30.);
     }
-    run(host,"bend.set",{{"container",owner},{"state","unbend"}});
-    near(volume(),40*std::numbers::pi/2*(5+state->session.document().find_container(owner)->bend.k_factor)+1200);
-    check(faces(state->session.calculated_boundaries().back(),owner)==folded_faces,"Unbend replaced continuation face identities");
     run(host,"save");
     const auto saved=document::PartDocument::load(directory/"bend-continuation.prtz");
     near(document::bend_straight_length(*saved.find_container(owner)),30.);
-    run(host,"bend.set",{{"container",owner},{"state","bend"},{"radius_mm",0.},{"angle_degrees",180.}});
+    run(host,"bend.set",{{"container",owner},{"radius_mm",0.},{"angle_degrees",180.}});
     near(volume(),40*std::numbers::pi/2+1200);
     feature=*state->session.document().find_container(owner);
     path=sketcher::Sketch::from_serialized(feature.bend.auxiliary_sketches[0]);

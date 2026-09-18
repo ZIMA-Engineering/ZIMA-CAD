@@ -9,45 +9,6 @@
 
 namespace zima::workspace {
 
-std::optional<std::pair<sketcher::Sketch,kernel::ViewerReferenceGeometry>>
-sheet_reference_evaluation(const document::PartDocument& document,const sketcher::Sketch& sketch) {
-    if(document.sheet_reference_state=="{}")return std::nullopt;
-    const auto state=nlohmann::json::parse(document.sheet_reference_state);
-    for(const auto& frame:state.at("frames"))if(frame.at("sketch")==sketch.id) {
-        auto evaluated=sketch;
-        const auto vector=[](const auto& value){return kernel::Vec3{value.at(0).template get<double>(),value.at(1).template get<double>(),value.at(2).template get<double>()};};
-        evaluated.resolved_origin=vector(frame.at("origin"));evaluated.resolved_x_axis=vector(frame.at("x"));
-        evaluated.resolved_y_axis=vector(frame.at("y"));evaluated.resolved_normal=vector(frame.at("normal"));
-        auto geometry=document::load_viewer_reference_geometry(state.at("geometry"));
-        auto design=document;
-        design.body_history=document::BodyHistoryGraph::from_serialized(state.at("body_history").dump());
-        geometry=design.sketch_reference_geometry_for(evaluated,std::move(geometry));
-        return std::pair{std::move(evaluated),std::move(geometry)};
-    }
-    return std::nullopt;
-}
-
-bool refresh_sheet_sketch_references(const document::PartDocument& document,sketcher::Sketch& sketch) {
-    auto evaluation=sheet_reference_evaluation(document,sketch);
-    if(!evaluation)return false;
-    auto& evaluated=evaluation->first;
-    if(!evaluated.refresh_external_references(document.document_id,evaluation->second))return false;
-    evaluated.resolved_origin=sketch.resolved_origin;evaluated.resolved_x_axis=sketch.resolved_x_axis;
-    evaluated.resolved_y_axis=sketch.resolved_y_axis;evaluated.resolved_normal=sketch.resolved_normal;
-    // Equivalent rigid-frame projections can differ below the Sketch solver's
-    // tolerance. Do not oscillate between those values on every regeneration.
-    const auto before=nlohmann::json::parse(sketch.serialized());
-    const auto after=nlohmann::json::parse(evaluated.serialized());
-    const auto difference=nlohmann::json::diff(before,after);
-    const bool equivalent=std::ranges::all_of(difference,[&](const auto& change) {
-        if(change.at("op")!="replace"||!change.at("value").is_number())return false;
-        const auto& previous=before.at(nlohmann::json::json_pointer(change.at("path").template get<std::string>()));
-        return previous.is_number()&&std::abs(previous.template get<double>()-change.at("value").template get<double>())<=1e-8;
-    });
-    if(equivalent)return false;
-    sketch=std::move(evaluated);return true;
-}
-
 void append_reference_geometry(
     zima::kernel::ViewerReferenceGeometry& target,
     zima::kernel::ViewerReferenceGeometry source) {
@@ -176,7 +137,6 @@ bool refresh_sketch_external_references(
     const auto source = sketch_external_reference_source_geometry(
         document, calculated_boundaries);
     const auto refresh=[&](zima::sketcher::Sketch& sketch) {
-        if(sheet_reference_evaluation(document,sketch))return refresh_sheet_sketch_references(document,sketch);
         const auto allowed_owners = sketch_external_reference_source_owners(
             document, sketch.id);
         zima::kernel::ViewerReferenceGeometry allowed_source;

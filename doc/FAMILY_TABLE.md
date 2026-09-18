@@ -17,12 +17,11 @@ Presence cells display the localized Yes/No label on an opaque editor background
 the canonical `yes`/`no` value remains internal and does not paint beneath it.
 
 Double-click a Part feature in View to show its dimensions, then click a dimension
-to bind the active column. For an Ohyb/Bend, the selectable **Bend / Unbend**
-state label is available alongside its dimensions. Its column offers the two
-named states and an empty value that inherits the generic state. The native
-binding is `dimension` with key `parameter:unbend`; `0` means Bend and `1` means
-Unbend. Other values are rejected. Instance edits update their row override,
-while the generic state and sibling overrides remain independent.
+to bind the active column. Sheet state is controlled by the presence of the
+separate **Unbend** or **Bend Back** history feature, using the ordinary Yes/No
+binding. An empty value inherits the generic presence. The obsolete per-profile
+numeric state parameter has been removed. Instance edits update their override,
+while generic presence and sibling overrides remain independent.
 
 For numeric parameters, click a dimension
 to bind the active column. Its header uses the existing stable secondary name

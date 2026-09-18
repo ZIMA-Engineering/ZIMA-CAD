@@ -397,7 +397,17 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
                 cut=new QAction(resource_icon("protrusion"),tr("Řez plechem"),this);cut->setObjectName("sheetCutAction");
                 connect(cut,&QAction::triggered,this,[this]{show_primitive_properties(zima::document::FeatureKind::Extrusion,{},true);});
             }
-            cut->setEnabled(!properties_dialog_);add_command(cut);return;
+            cut->setEnabled(!properties_dialog_);add_command(cut);
+            for(const bool unfold:{true,false}) {
+                const char* object=unfold?"unbendAction":"bendBackAction";
+                auto* action=findChild<QAction*>(object);
+                if(!action) {
+                    action=new QAction(resource_icon(unfold?"flat":"bend"),unfold?tr("Rozvinout"):tr("Ohnout zpět"),this);
+                    action->setObjectName(object);connect(action,&QAction::triggered,this,[this,unfold]{show_sheet_state_properties(unfold);});
+                }
+                action->setEnabled(!properties_dialog_);add_command(action);
+            }
+            return;
         }
     }
     auto* placeholder = new QAction(

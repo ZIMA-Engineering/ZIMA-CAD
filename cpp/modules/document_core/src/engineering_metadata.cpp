@@ -78,8 +78,6 @@ void validate_family_table(const FamilyTable& table,const std::string& generic_n
             if(table.bindings.at(column).kind=="dimension") {
                 double number{};auto [end,error]=std::from_chars(value.data(),value.data()+value.size(),number);
                 if(error!=std::errc{} || end!=value.data()+value.size() || !std::isfinite(number))throw std::invalid_argument("Family dimensions must be finite numbers.");
-                if(table.bindings.at(column).semantic_key=="parameter:unbend" && number!=0 && number!=1)
-                    throw std::invalid_argument("Bend state must be 0 (Bend) or 1 (Unbend).");
             } else if(value!="yes" && value!="no")throw std::invalid_argument("Family presence must be yes or no.");
         }
     }

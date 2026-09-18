@@ -26,7 +26,7 @@
 namespace zima::document {
 
 enum class CombineMode { Add, Subtract };
-enum class FeatureKind { Sketch, Box, Cylinder, Sphere, Cone, Pyramid, Wedge, Extrusion, Revolution, Sweep3D, ImportedStep, Fillet, Chamfer, Shell, Hole, Thread, DrillPoint, ShaftThread, HelicalSweep, Sweep2D, Holes, Bend, Flat };
+enum class FeatureKind { Sketch, Box, Cylinder, Sphere, Cone, Pyramid, Wedge, Extrusion, Revolution, Sweep3D, ImportedStep, Fillet, Chamfer, Shell, Hole, Thread, DrillPoint, ShaftThread, HelicalSweep, Sweep2D, Holes, Bend, Flat, Unbend, BendBack };
 enum class ExtrusionDirection { Forward, Reverse, Symmetric };
 enum class ExtrusionExtent { Blind, UpToPlane, UpToSurface, ThroughAll };
 enum class ProfileSource { Internal, External };
@@ -598,10 +598,14 @@ struct BendParameters {
     bool thickness_override{};
     bool k_factor_override{};
     bool radius_follows_thickness{};
-    bool unbend{};
     bool operator==(const BendParameters&) const = default;
 };
 
+struct SheetStateParameters {
+    bool all{true};
+    std::vector<std::string> owners;
+    bool operator==(const SheetStateParameters&) const = default;
+};
 struct HistoryContainer {
     std::string id;
     std::string feature_id;
@@ -629,6 +633,7 @@ struct HistoryContainer {
     HolesParameters holes;
     BendParameters bend;
     FlatParameters flat;
+    SheetStateParameters sheet_state;
     ThreadParameters thread;
     ShaftThreadParameters shaft_thread;
     DrillPointParameters drill_point;
@@ -697,9 +702,6 @@ public:
     void erase_history_object(const std::string& id);
     std::vector<HistoryContainer> history;
     std::vector<zima::sketcher::Sketch> sketches;
-    // Calculated folded-state reference geometry and Sketch frames. Persisted
-    // inside the Part so editing an unfolded sheet never needs kernel work.
-    std::string sheet_reference_state{"{}"};
     // Persisted diagnostics from reference evaluation, keyed by history owner.
     std::map<std::string,std::string> reference_errors;
     std::vector<ConstructionObject> constructions;

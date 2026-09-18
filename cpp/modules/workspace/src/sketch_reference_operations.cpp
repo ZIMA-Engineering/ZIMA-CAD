@@ -164,10 +164,6 @@ sketcher::SketchExternalReference prepare_sketch_external_reference(const Worksp
     const auto source=source_document(live,doc,sketch,reference,nullptr,draft_body_id);
     if(!source)throw SketchOperationError("invalid_reference_source","The reference must identify an earlier Part object or an exact Assembly occurrence.");
     reference.source_document_id=*source;
-    if(const auto* part=live.open_part(doc))
-        if(auto evaluation=sheet_reference_evaluation(part->session.document(),sketch)) {
-            populate_external_reference_cache(evaluation->first,reference,evaluation->second);return reference;
-        }
     const auto geometry=collect(live,doc,sketch,{reference},draft_body_id);
     populate_external_reference_cache(sketch,reference,geometry);
     return reference;
@@ -199,12 +195,7 @@ bool refresh_sketch_reference_snapshot(const Workspace& live,const std::string& 
         if(source && *source==reference.source_document_id)wanted.push_back(reference);
     }
     const auto geometry=collect(live,doc,sketch,wanted);bool changed=false;
-    for(const auto& source:documents) {
-        const auto* part=live.open_part(doc);
-        if(part&&source==doc&&sheet_reference_evaluation(part->session.document(),sketch))
-            changed=refresh_sheet_sketch_references(part->session.document(),sketch)||changed;
-        else changed=sketch.refresh_external_references(source,geometry)||changed;
-    }
+    for(const auto& source:documents)changed=sketch.refresh_external_references(source,geometry)||changed;
     for(const auto& [context,references]:contexts) {
         const auto& [top,dependent,source]=context;std::set<Key> keys;
         for(const auto& reference:references) {

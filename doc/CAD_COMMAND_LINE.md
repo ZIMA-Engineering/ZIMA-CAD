@@ -6,7 +6,7 @@ QApplication or a main window. Shared PDF export uses QGuiApplication in `offscr
 mode, Qt Gui/Svg, and the corresponding platform plugin. Each invocation has its
 own Workspace; it does not connect to an already running CAD window.
 
-Current coverage of 299 commands and verification results are documented in
+Current command coverage and verification results are documented in
 [CAD_COMMAND_COVERAGE.md](CAD_COMMAND_COVERAGE.md); the GUI adapter boundary is
 summarized in [CLI_GUI_AUDIT.md](CLI_GUI_AUDIT.md).
 
@@ -14,6 +14,12 @@ The new [Holes](HOLES.md) feature shares `holes.create/get/set` with GUI for fin
 cylindrical channels defined by owned Sketch segments. [Work planes](WORK_PLANES.md)
 describes shared automatic/manual plane selection for Sketches, profiles, and
 construction Planes, including CLI.
+
+Sheet state operations share their GUI workspace transaction:
+`unbend.create`, `unbend.set`, `bend_back.create`, and `bend_back.set`.
+Use `all: true` or an `owners` array of original sheet creator IDs; edit commands
+also require `container`. See [Sheet state operations](SHEET_STATE_DEVELOPMENT.md).
+The Sheet Profile commands no longer accept the former `state` argument.
 
 ## Build and first run
 

@@ -9,7 +9,6 @@ using namespace workspace_detail;
 
 
 void AssemblyWorkspaceWindow::refresh_scene() {
-    update_bend_view_action();
     workspace_.refresh_source_geometry();
     if(measure_action_)measure_action_->setEnabled(workspace_.open_part(workspace_.displayed_document_id())||workspace_.open_assembly(workspace_.displayed_document_id()));
     viewer_->set_dimension_layout_editable((!properties_dialog_||!properties_dialog_->isVisible())&&!sketch_universal_dimension_active_);
@@ -321,23 +320,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                         zima::kernel::ViewerDimensionKind::Radius;
                 };
                 using zima::document::FeatureKind;
-                if (container->feature_kind == FeatureKind::Bend && active_sketch_id_.empty()) {
-                    const auto start=std::ranges::find(document.sketches,container->bend.sketch_id,&zima::sketcher::Sketch::id);
-                    if(start!=document.sketches.end()) {
-                        zima::kernel::ViewerDimension state;
-                        state.reference={container->id,"parameter:unbend",{}};
-                        state.value=container->bend.unbend?1:0;
-                        state.unit_suffix.clear();state.display_text_override=(container->bend.unbend?tr("Rozvinutý"):tr("Ohnutý")).toStdString();
-                        state.label_only=true;state.plane_normal=start->resolved_normal;
-                        const auto anchor=start->world_point(0,-8);
-                        state.witness_first=state.witness_second=state.line_first=state.line_second=anchor;
-                        state.label_position=anchor;
-                        zima::kernel::ViewerMesh display;display.dimensions.push_back(std::move(state));
-                        if(const auto* body=document.body_owner_for_object(container->id))
-                            display=document.place_body_mesh(std::move(display),body->scope.id);
-                        mesh.dimensions.insert(mesh.dimensions.end(),display.dimensions.begin(),display.dimensions.end());
-                    }
-                } else if (container->feature_kind == FeatureKind::Box) {
+                if (container->feature_kind == FeatureKind::Box) {
                     const double x = container->box.length * 0.5;
                     const double y = container->box.width * 0.5;
                     const double z = container->box.height * 0.5;

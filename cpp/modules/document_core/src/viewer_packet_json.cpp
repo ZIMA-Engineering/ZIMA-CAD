@@ -75,13 +75,14 @@ void load_sheet_face(zima::kernel::FaceReference& face,const nlohmann::json& val
     if(role<0||role>3||!std::isfinite(thickness)||thickness<0||
         (role!=0&&thickness<=0))throw std::runtime_error("Invalid sheet face metadata");
     face.sheet_role=static_cast<zima::kernel::SheetFaceRole>(role);face.sheet_thickness=thickness;
+    face.sheet_owner=value.at("sheet_owner");
 }
 nlohmann::json sheet_edge_json(const zima::kernel::ViewerEdge& edge) {
     if(zima::kernel::sheet_edge_role(edge)==zima::kernel::SheetEdgeRole::Unknown)return nullptr;
     nlohmann::json sides=nlohmann::json::array(),ends=nlohmann::json::array();
     for(const auto& r:edge.edge_treatment_side_references)
         sides.push_back({{"owner",r.owner_id},{"key",r.semantic_key},{"instance_path",r.instance_path},
-            {"sheet_role",static_cast<int>(r.sheet_role)},{"sheet_thickness",r.sheet_thickness}});
+            {"sheet_role",static_cast<int>(r.sheet_role)},{"sheet_thickness",r.sheet_thickness},{"sheet_owner",r.sheet_owner}});
     for(const auto& r:edge.edge_treatment_endpoint_references)
         ends.push_back({{"owner",r.owner_id},{"key",r.semantic_key},{"instance_path",r.instance_path}});
     return {{"sides",sides},{"endpoints",ends}};
@@ -257,11 +258,12 @@ nlohmann::json serialize_reference_geometry(
         reference_indices.emplace(key, index);
         references.push_back({{"owner", reference.owner_id},
             {"key", reference.semantic_key},
-            {"instance_path", reference.instance_path},{"sheet_role",0},{"sheet_thickness",0.0}});
+            {"instance_path", reference.instance_path},{"sheet_role",0},{"sheet_thickness",0.0},{"sheet_owner",""}});
         if constexpr (requires { reference.surface; }) {
             references.back()["surface_result"]=reference.surface_result;
             references.back()["sheet_role"]=static_cast<int>(reference.sheet_role);
             references.back()["sheet_thickness"]=reference.sheet_thickness;
+            references.back()["sheet_owner"]=reference.sheet_owner;
             if (reference.surface) references.back()["surface"]=serialize_surface(*reference.surface);
             if (reference.measured_area) references.back()["measured_area"]=*reference.measured_area;
         }
@@ -492,7 +494,7 @@ nlohmann::json serialize_body_result(const zima::kernel::BodyResult& result, boo
             faces.push_back({
                 {"owner", reference.owner_id}, {"key", reference.semantic_key},
                 {"instance_path", reference.instance_path},{"surface_result",reference.surface_result},
-                {"sheet_role",static_cast<int>(reference.sheet_role)},{"sheet_thickness",reference.sheet_thickness}});
+                {"sheet_role",static_cast<int>(reference.sheet_role)},{"sheet_thickness",reference.sheet_thickness},{"sheet_owner",reference.sheet_owner}});
         }
     }
     nlohmann::json edges = nlohmann::json::array();
@@ -513,7 +515,7 @@ nlohmann::json serialize_body_result(const zima::kernel::BodyResult& result, boo
                 {"owner", reference.owner_id},
                 {"key", reference.semantic_key},
                 {"instance_path", reference.instance_path},
-                {"sheet_role",static_cast<int>(reference.sheet_role)},{"sheet_thickness",reference.sheet_thickness}});
+                {"sheet_role",static_cast<int>(reference.sheet_role)},{"sheet_thickness",reference.sheet_thickness},{"sheet_owner",reference.sheet_owner}});
         }
         nlohmann::json endpoint_references = nlohmann::json::array();
         for (const auto& reference :
@@ -623,6 +625,7 @@ nlohmann::json serialize_body_result(const zima::kernel::BodyResult& result, boo
                 loops.push_back(std::move(curves));
             }
             regions.push_back({{"cut_owner",region.cut_owner},{"source_owner",region.source.owner_id},
+                {"sheet_owner",region.source.sheet_owner},
                 {"source_key",region.source.semantic_key},{"source_path",region.source.instance_path},
                 {"surface_type",region.surface_type},{"origin",serialize_vec3(region.origin)},
                 {"surface_reversed",region.source.surface&&region.source.surface->reversed},
@@ -666,6 +669,7 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source) {
     for(const auto& row:source.value("sheet_cuts",nlohmann::json::array())) {
         zima::kernel::SheetCutRegion region;region.cut_owner=row.at("cut_owner");
         region.source={row.at("source_owner"),row.at("source_key"),row.at("source_path")};
+        region.source.sheet_owner=row.at("sheet_owner");
         region.source.sheet_role=zima::kernel::SheetFaceRole::SideA;
         region.surface_type=row.at("surface_type");region.origin=load_vec3(row.at("origin"));
         region.axis=load_vec3(row.at("axis"));region.x_axis=load_vec3(row.at("x_axis"));

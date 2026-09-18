@@ -13,6 +13,7 @@
 #include <zima/interchange/dxf.hpp>
 #include "console_ui_verification.hpp"
 #include "sketch_offset_dialog.hpp"
+#include "sheet_state_dialog.hpp"
 #include <zima/drawing/drawing_template.hpp>
 #include "sketch_text_properties_dialog.hpp"
 #include <nlohmann/json.hpp>
@@ -4285,14 +4286,14 @@ int verify_application_tools_ui(QApplication& application,const std::filesystem:
             !bend->findChild<QCheckBox*>("bendRadiusOverride")->isChecked(),"Bend Cancel did not restore the inherited radius default");
         // Remaining scenarios deliberately exercise independent radius editing.
         bend->findChild<QCheckBox*>("bendRadiusOverride")->setChecked(true);flush();
-        bend->findChild<QComboBox*>("bendState")->setCurrentIndex(1);flush();window.grab().save("build/bend-properties.png");
+        check(!bend->findChild<QComboBox*>("bendState"),"Obsolete profile state control is still present");flush();window.grab().save("build/bend-properties.png");
         bend->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();check(!bend_dialog(),"Bend OK failed to close");
         window.findChild<QAction*>("saveDocumentAction")->trigger();flush();const auto saved_bend=document::PartDocument::load(bend_path);
-        check(saved_bend.history.size()==1&&saved_bend.history.front().feature_kind==document::FeatureKind::Bend&&saved_bend.history.front().bend.unbend,"Bend was not committed as one Unbend history feature");
+        check(saved_bend.history.size()==1&&saved_bend.history.front().feature_kind==document::FeatureKind::Bend,"Sheet Profile was not committed as one history feature");
         QTreeWidgetItem* bend_row{};for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==saved_bend.history.front().id&&(*it)->data(0,Qt::UserRole+3)=="part-container"){bend_row=*it;break;}
         check(bend_row,"Bend history row missing");window.show_tree_item_properties(bend_row);flush();bend=bend_dialog();check(bend,"First Bend history edit cannot enter rollback");
-        bend->findChild<QComboBox*>("bendState")->setCurrentIndex(0);QApplication::sendEvent(model_view,&middle);flush();check(!bend_dialog(),"Bend middle double-click did not confirm");
-        window.findChild<QAction*>("saveDocumentAction")->trigger();flush();check(!document::PartDocument::load(bend_path).history.front().bend.unbend,"Bend edit failed to persist state");
+        QApplication::sendEvent(model_view,&middle);flush();check(!bend_dialog(),"Bend middle double-click did not confirm");
+        window.findChild<QAction*>("saveDocumentAction")->trigger();flush();check(document::PartDocument::load(bend_path).history.size()==1,"Sheet Profile edit inserted another feature");
         bend_row=nullptr;for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==saved_bend.history.front().id&&(*it)->data(0,Qt::UserRole+3)=="part-container"){bend_row=*it;break;}
         check(bend_row,"Bend history row missing before hem edit");window.show_tree_item_properties(bend_row);flush();bend=bend_dialog();
         bend->findChild<QCheckBox*>("bendHem")->setChecked(true);
@@ -4307,28 +4308,7 @@ int verify_application_tools_ui(QApplication& application,const std::filesystem:
         bend->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();check(!bend_dialog(),"Leaving hem failed");
         const auto bend_id=saved_bend.history.front().id;
         window.show_parameter_dimensions(bend_id);flush();
-        auto* state_button=model_view->findChild<QPushButton*>("bendViewStateButton");
-        check(state_button&&state_button->isVisible()&&!bend_dialog(),"Bend/Unbend View action requires Properties");
-        state_button->click();flush();window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
-        check(document::PartDocument::load(bend_path).history.front().bend.unbend,"View Unbend did not commit");
-        state_button->click();flush();
-        for(int state:{1,0}) {
-            auto* view=dynamic_cast<viewer::MeshView*>(model_view);
-            const auto& dimensions=view->mesh().dimensions;
-            const auto found=std::ranges::find_if(dimensions,[](const auto& d){return d.reference.semantic_key=="parameter:unbend";});
-            check(found!=dimensions.end()&&found->display_text_override!="Bend"&&found->display_text_override!="Unbend","Bend label is not localized");
-            viewer::ViewerCandidate candidate;candidate.kind=viewer::CandidateKind::Dimension;
-            candidate.owner_id=found->reference.owner_id;candidate.semantic_key=found->reference.semantic_key;
-            candidate.instance_path=found->reference.instance_path;candidate.geometry_index=std::distance(dimensions.begin(),found);
-            const auto label=view->candidate_dimension_label_position(candidate);check(label.has_value(),"Bend state label position missing");
-            QMouseEvent double_click(QEvent::MouseButtonDblClick,*label,QPointF(view->mapToGlobal(*label)),Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
-            QApplication::sendEvent(view,&double_click);flush();
-            auto* choice=view->findChild<QComboBox*>("inlineBendStateEdit");
-            check(choice&&!bend_dialog()&&choice->count()==2,"Bend label double-click did not offer inline state choice");
-            choice->setCurrentIndex(state);choice->activated(state);choice->hidePopup();flush();
-            window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
-            check(document::PartDocument::load(bend_path).history.front().bend.unbend==(state==1),"Inline Bend state choice did not persist");
-        }
+        check(!model_view->findChild<QPushButton*>("bendViewStateButton"),"Obsolete per-profile View state button is still present");
         const auto inline_edit=[&](const std::string& suffix,const QString& value) {
             const auto& dimensions=dynamic_cast<viewer::MeshView*>(model_view)->mesh().dimensions;
             const auto found=std::ranges::find_if(dimensions,[&](const auto& d){return d.reference.semantic_key.ends_with(suffix);});
@@ -4371,7 +4351,7 @@ int verify_application_tools_ui(QApplication& application,const std::filesystem:
         window.show_parameter_dimensions(bend_id);flush();
         window.grab().save("build/bend-three-sketch-view.png");
         check(window.finish_parameter_dimensions(),"Bend inspection did not finish");flush();
-        check(!state_button->isVisible(),"Bend View action survived clearing inspection");
+        check(!model_view->findChild<QPushButton*>("bendViewStateButton"),"Obsolete Bend state button appeared after inspection");
         // Exercise attached Flat through the real preview/Sketcher/commit path.
         std::optional<kernel::ViewerEdge> flat_edge;
         for(const auto& edge:dynamic_cast<viewer::MeshView*>(model_view)->mesh().original_references.edges) {
@@ -5449,39 +5429,6 @@ int verify_profile_on_sheet(QApplication& application, const std::filesystem::pa
                     d->buttons()->button(QDialogButtonBox::Cancel)->click();
                 application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
                 std::cout<<"Bend Properties cancelled"<<std::endl;
-                window.findChild<QAction*>("familyTableAction")->trigger();application.processEvents();
-                auto* family=dynamic_cast<app::FamilyTableDialog*>(window.findChild<QDialog*>("familyTableDialog"));
-                if(!family)throw std::runtime_error("Family Table did not open for Bend state");
-                window.show_parameter_dimensions(bend.id);application.processEvents();
-                family->findChild<QPushButton*>("familyAddColumn")->click();application.processEvents();
-                const auto family_column=2+2*family->active_column();
-                viewer::ViewerCandidate state;state.kind=viewer::CandidateKind::Dimension;
-                state.owner_id=bend.id;state.semantic_key="parameter:unbend";
-                const auto& dimensions=bend_view->mesh().dimensions;
-                const auto state_dimension=std::ranges::find_if(dimensions,[&](const auto& d) {
-                    return d.reference.owner_id==bend.id&&d.reference.semantic_key==state.semantic_key;
-                });
-                if(state_dimension==dimensions.end())throw std::runtime_error("Bend state annotation is missing");
-                state.geometry_index=std::distance(dimensions.begin(),state_dimension);
-                state.instance_path=state_dimension->reference.instance_path;
-                const auto label=bend_view->candidate_dimension_label_position(state);
-                if(!label)throw std::runtime_error("Bend state label is missing");
-                const auto offered=bend_view->selection_candidates_at(*label);
-                if(offered.empty()||offered.front().owner_id!=bend.id||offered.front().semantic_key!=state.semantic_key)
-                    throw std::runtime_error("Common picker does not offer the Bend state label");
-                const QPointF global(bend_view->mapToGlobal(*label));
-                for(auto type:{QEvent::MouseMove,QEvent::MouseButtonPress,QEvent::MouseButtonRelease}) {
-                    QMouseEvent event(type,QPointF(*label),global,type==QEvent::MouseMove?Qt::NoButton:Qt::LeftButton,
-                        type==QEvent::MouseButtonPress?Qt::LeftButton:Qt::NoButton,Qt::NoModifier);
-                    QApplication::sendEvent(bend_view,&event);
-                }
-                application.processEvents();
-                auto* table=family->findChild<QTableWidget*>("familyTableTable");
-                auto* choice=qobject_cast<QComboBox*>(table->cellWidget(1,family_column));
-                if(!choice||choice->findData("0")<0||choice->findData("1")<0)
-                    throw std::runtime_error("Bend state selection did not create the Family choice");
-                window.grab().save(QString::fromStdString((directory/"bend-family-state.png").string()));
-                family->reject();application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
             }
             std::cout<<"Starting profile command"<<std::endl;
             const auto revision=[&] {
@@ -7425,6 +7372,8 @@ int verify_selection_filter(QApplication& application,
     } catch(const std::exception& error) {std::cerr<<error.what()<<'\n';return 1;}
 }
 
+#include "sheet_state_ui_verification.inc"
+
 int verify_startup_contract(
     QApplication& application, zima::app::AssemblyWorkspaceWindow& window,
     const std::filesystem::path& initial_test_directory,
@@ -7458,6 +7407,7 @@ int verify_startup_contract(
             return 1;
         }
     }
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SHEET_STATE_ONLY")) return verify_sheet_state_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_CONSOLE_ONLY")) return zima::app::verify_command_console(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_PROFILE_OFFSET_PLANE_ONLY")) return verify_profile_offset_dimension_plane(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_BODY_REFERENCE_DIMENSION_ONLY")) return verify_body_reference_dimension_edit(application,test_directory);

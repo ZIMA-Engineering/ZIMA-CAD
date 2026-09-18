@@ -1,5 +1,6 @@
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/bend_operations.hpp>
+#include <zima/workspace/sheet_state_operations.hpp>
 #include <zima/document/bend.hpp>
 #include <algorithm>
 #include <cmath>
@@ -22,11 +23,33 @@ Json details(const workspace::PartState& state,const document::HistoryContainer&
         {"first_extension_mm",extensions[0]},{"last_extension_mm",extensions[1]},
         {"thickness_mm",p.thickness},{"k_factor",p.k_factor},{"thickness_override",p.thickness_override},
         {"k_factor_override",p.k_factor_override},{"radius_follows_thickness",p.radius_follows_thickness},
-        {"state",p.unbend?"unbend":"bend"},{"revision",state.session.revision()}};
+        {"revision",state.session.revision()}};
 }
 }
 void Host::register_bend_commands() {
     using Type=commands::ArgumentType;
+    for(bool unfold:{true,false})for(bool create:{true,false}) {
+        const std::string name=std::string(unfold?"unbend":"bend_back")+(create?".create":".set");
+        dispatcher_.add({name,tr("Change selected sheet regions at this history boundary; preserve intervening material edits."),
+            {{"container",!create},{"all",false,Type::Boolean},{"owners",false,Type::Array},{"name",false},{"document",false}},true},
+            [this,unfold,create](const Json& args) {
+                if(auto result=target(args);!result.ok)return result;
+                try {
+                    const auto id=workspace_.active_document_id();const auto* part=workspace_.open_part(id);
+                    if(!part||interaction().template_document)throw std::invalid_argument("Sheet state requires an open Part.");
+                    const auto* stored=create?nullptr:part->session.document().find_container(args.at("container"));
+                    const auto kind=unfold?document::FeatureKind::Unbend:document::FeatureKind::BendBack;
+                    if(!create&&(!stored||stored->feature_kind!=kind))throw std::invalid_argument("Sheet state container does not exist.");
+                    auto feature=stored?*stored:document::PartDocument::create_sketch_container();feature.feature_kind=kind;
+                    feature.name=args.value("name",stored?stored->name:tr(unfold?"Rozvinout":"Ohnout zpět"));
+                    if(args.contains("owners"))feature.sheet_state.owners=args.at("owners").get<std::vector<std::string>>();
+                    feature.sheet_state.all=args.value("all",args.contains("owners")?false:feature.sheet_state.all);
+                    const auto owner=feature.id;const bool changed=workspace::commit_sheet_state(workspace_,kernel_,id,std::move(feature));
+                    if(changed)change_=Change{ChangeKind::Model,id};
+                    return Result::success({{"document",id},{"container",owner},{"changed",changed}});
+                }catch(const std::exception& error){return Result::failure("sheet_state_rejected",tr(error.what()));}
+            });
+    }
     dispatcher_.add({"bend.get",tr("Read a Bend and its effective document defaults without calculation."),
         {{"container",true},{"document",false}},false},[this](const Json& args){
         try{const auto* state=workspace_.open_part(args.value("document",workspace_.active_document_id()));const auto& feature=bend(state,args.at("container"));return Result::success(details(*state,feature));}
@@ -39,8 +62,8 @@ void Host::register_bend_commands() {
         if(create)arguments.push_back({"width_mm",false,Type::Number});
         for(const auto* key:{"radius_mm","angle_degrees","thickness_mm","k_factor","first_extension_mm","last_extension_mm"})arguments.push_back({key,false,Type::Number});
         for(const auto* key:{"thickness_override","k_factor_override","radius_follows_thickness","origin_last"})arguments.push_back({key,false,Type::Boolean});
-        for(const auto* key:{"state","name","document","edge_owner","edge_key"})arguments.push_back({key,false});
-        dispatcher_.add({create?"bend.create":"bend.set",tr("Create or edit a sketch-based sheet metal Bend/Unbend."),arguments,true},[this,create](const Json& args){
+        for(const auto* key:{"name","document","edge_owner","edge_key"})arguments.push_back({key,false});
+        dispatcher_.add({create?"bend.create":"bend.set",tr("Create or edit a Sheet Profile."),arguments,true},[this,create](const Json& args){
             if(auto result=target(args);!result.ok)return result;
             try {
                 const auto id=workspace_.active_document_id();const auto* state=workspace_.open_part(id);
@@ -76,8 +99,6 @@ void Host::register_bend_commands() {
                 }
                 if(args.contains("radius_mm")&&feature.bend.radius_follows_thickness)
                     throw std::invalid_argument("Disable radius linked to thickness before editing the radius.");
-                if(args.contains("state")){const auto value=args.at("state").get<std::string>();
-                    if(value!="bend"&&value!="unbend")throw std::invalid_argument("Bend state must be bend or unbend.");feature.bend.unbend=value=="unbend";}
                 if(args.contains("name"))feature.name=args.at("name");sketch.name=feature.name;
                 if(args.contains("edge_owner")||args.contains("edge_key")||args.contains("origin_last")) {
                     auto owner=args.value("edge_owner",std::string{}),key=args.value("edge_key",std::string{});

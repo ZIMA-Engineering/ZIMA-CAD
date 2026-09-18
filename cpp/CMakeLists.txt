@@ -178,6 +178,7 @@ add_library(zima_document_core
     modules/document_core/src/hole_profiles.cpp
     modules/document_core/src/holes.cpp
     modules/document_core/src/bend.cpp
+    modules/document_core/src/sheet_state.cpp
     modules/document_core/src/profile_targets.cpp
     modules/document_core/src/appearance.cpp
     modules/document_core/src/body_history.cpp
@@ -285,6 +286,7 @@ add_library(zima_workspace modules/workspace/src/workspace.cpp
     modules/workspace/src/opening_operations.cpp
     modules/workspace/src/holes_operations.cpp
     modules/workspace/src/bend_operations.cpp
+    modules/workspace/src/sheet_state_operations.cpp
     modules/workspace/src/flat_operations.cpp
     modules/workspace/src/opening_component_operations.cpp
     modules/workspace/src/template_operations.cpp modules/workspace/src/template_object_operations.cpp
@@ -1349,6 +1351,25 @@ if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_cpp_sheet_cut_wire_preview_tests COMMAND zima_cpp_sheet_cut_wire_preview_tests)
     set_tests_properties(zima_cpp_sheet_cut_wire_preview_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     add_executable(zima_cpp_bend_command_tests tests/bend_command_tests.cpp)
+    add_executable(zima_cpp_sheet_state_tests tests/sheet_state_tests.cpp)
+    add_executable(zima_cpp_sheet_state_command_tests tests/sheet_state_command_tests.cpp)
+    target_link_libraries(zima_cpp_sheet_state_command_tests PRIVATE zima_command_host)
+    add_test(NAME zima_cpp_sheet_state_command_tests COMMAND zima_cpp_sheet_state_command_tests)
+    set_tests_properties(zima_cpp_sheet_state_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
+    add_executable(zima_cpp_sheet_state_dialog_tests tests/sheet_state_dialog_tests.cpp)
+    target_link_libraries(zima_cpp_sheet_state_dialog_tests PRIVATE zima_ui zima_document_core zima_viewer Qt6::Widgets)
+    target_compile_options(zima_cpp_sheet_state_dialog_tests PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
+    add_test(NAME zima_cpp_sheet_state_dialog_tests COMMAND zima_cpp_sheet_state_dialog_tests)
+    set_tests_properties(zima_cpp_sheet_state_dialog_tests PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    target_link_libraries(zima_cpp_sheet_state_tests PRIVATE zima_document_core zima_kernel_occt)
+    add_test(NAME zima_cpp_sheet_state_tests COMMAND zima_cpp_sheet_state_tests)
+    set_tests_properties(zima_cpp_sheet_state_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
+    file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/sheet-state-ui-contract")
+    add_test(NAME zima_cpp_sheet_state_ui_contract COMMAND zima-cad-cpp --verify-startup
+        --working-directory "${CMAKE_BINARY_DIR}/sheet-state-ui-contract")
+    set_tests_properties(zima_cpp_sheet_state_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SHEET_STATE_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120 RUN_SERIAL TRUE)
     add_executable(zima_cpp_flat_command_tests tests/flat_command_tests.cpp)
     target_link_libraries(zima_cpp_flat_command_tests PRIVATE zima_command_host)
     target_compile_options(zima_cpp_flat_command_tests PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)

@@ -1,10 +1,12 @@
 # Sheet Metal
 
 The current material-creation commands are **Flat**, **Sheet Profile** and
-**Revolved Sheet**, followed by **Sheet Cut**. Earlier sections use Bend and
+**Revolved Sheet**, followed by **Sheet Cut**, **Unbend** and **Bend Back**. Earlier sections use Bend and
 Sheet Revolution for the latter two creators; their internal feature and CLI
 identifiers remain unchanged. See [Sheet Cut and material-space boundaries](#sheet-cut-and-material-space-boundaries-2026-09-17)
-for the new command and current naming.
+for Sheet Cut and current naming. The separate state operations are described in
+[Sheet state history operations](SHEET_STATE_DEVELOPMENT.md). They replace the
+former per-profile folded-state switch throughout the GUI, CLI and native model.
 
 ## Implemented document defaults
 
@@ -312,7 +314,7 @@ Editing evaluates the existing history boundary before the Bend.
   and adds an editable length dimension unless the segment already has one.
   Initial H/V inference on that new segment is replaced by its feature-owned
   tangent direction, so a later angle edit does not pin it to a Sketch axis.
-  Deleting the segment restores an ordinary Bend. The command remains **Bend**.
+  Deleting the segment restores an arc-only Sheet Profile.
   Both original profile Sketches remain at the ends of the arc; the continuation
   uses the end profile's width without further taper. Its length is unchanged by
   angle/radius edits and Unbend. The native auxiliary Sketch stores the segment,
@@ -347,12 +349,12 @@ Editing evaluates the existing history boundary before the Bend.
   translation along the attachment edge may still be edited numerically.
 - Thickness and K factor follow the Part settings. **Local value** enables an
   override for each separately. A missing Part thickness evaluates as 1 mm.
-- **Bend** carries the section along the circular trajectory, interpolating the
-  endpoint differences across the sweep. Matching profiles use exact revolution;
-  a width transition uses a two-section sweep. **Unbend** connects the profiles
-  along `angle_radians * (R + K*t)`. It shows an axis at the developed region's
-  midpoint. K is a manufacturing input, not inferred from the geometry. The bent
-  and flat simplified solids need not have equal volume when K differs from 0.5.
+- **Sheet Profile** carries the section along the circular trajectory,
+  interpolating endpoint differences across the sweep. Matching profiles use
+  exact revolution; a width transition uses a two-section sweep. Separate
+  **Unbend** uses `angle_radians * (R + K*t)` for its material coordinate map.
+  K is a manufacturing input. Simplified bent and flat solids need not have
+  equal volume when K differs from 0.5.
 - At exactly zero degrees an arc-only feature contributes no material, keeps its history
   identity and can be edited back to a positive angle. It has no selectable faces
   at that boundary. This avoids a degenerate OCCT solid.
@@ -368,24 +370,22 @@ Editing evaluates the existing history boundary before the Bend.
   Regenerate calculate the solid. Document default changes affect existing Bends
   on the next calculation; switching tabs does not regenerate them.
 
-Start and End retain their respective semantic face identities across Bend and
-Unbend. Face and rim identities derive from the feature, section, source segment
-and endpoints. Their geometry changes while their persisted ancestry stays stable.
+Start and End face/rim identities derive from the feature, section, source
+segment and endpoints. Sheet Profile always retains its original authored
+geometry. Unbend and Bend Back publish new original children with explicit
+ancestry; they do not overwrite that source geometry or its placement.
 Neither OCCT traversal order nor preview edges define persistent references.
-Calculated station rims and vertices carry Start/End ancestry from the authored
-path point, profile, curve and point. Their persisted original references are
-available for subsequent Bend placement, including after Bend/Unbend.
-Double-click the Bend in View to inspect its dimensions. **Unbend/Bend** appears
-in the View and calculates one undoable state change without opening Properties.
-Radius, angle and endpoint differences also support inline dimension editing.
-All three Sketch editors remain pending until the owning properties window is
-confirmed. Cancel discards them together.
+
+Double-click the Sheet Profile in View to inspect its dimensions. Radius, angle
+and endpoint differences support inline editing. All three Sketch editors remain
+pending until the owning properties window is confirmed. Cancel discards them
+together. State changes use separate history commands, with their own OK/Cancel
+transaction and selected-region list.
 
 Ordinary circular body edges remain available to the Drawing radius-measurement
 command. For a width transition, the side edges need not be circles: the authored
 outside path radius and the endpoint dimensions are available through Drawing
-Show/Erase model dimensions. The path radius annotation is omitted in Unbend and
-at zero angle. Do not interpret a width-transition edge as a circular arc.
+Show/Erase model dimensions. The original path radius annotation is omitted at zero angle. Do not interpret a width-transition edge as a circular arc.
 
 A circular Bend with matching start/end sections retains analytic lines and
 cylindrical surfaces throughout the exact revolution calculation. Converting
@@ -402,53 +402,24 @@ Console commands `bend.create`, `bend.get` and `bend.set` use the same workspace
 transaction as the GUI. Creation accepts `width_mm` (default 40), `radius_mm`,
 `angle_degrees`, `thickness_mm`, `k_factor`, `thickness_override`,
 `k_factor_override`, `radius_follows_thickness`, `first_extension_mm`,
-`last_extension_mm`, `state` (`bend` or `unbend`), `name` and `document`.
+`last_extension_mm`, `name` and `document`.
 Editing uses `container` and the same parameters except width; edit the owned
 Sketch to change width. Supplying thickness or K enables its override unless the
 corresponding override flag explicitly says false. Readback reports effective values.
 
 ```json
 {"command":"bend.create","arguments":{"width_mm":40,"radius_mm":5,"angle_degrees":90}}
-{"command":"bend.set","arguments":{"container":"<id>","state":"unbend"}}
+{"command":"unbend.create","arguments":{"owners":["<profile-id>"]}}
+{"command":"bend_back.create","arguments":{"all":true}}
 ```
 
 ## Reference study (2026-09-16)
 
-### Open issue: trajectory endpoint references during Unbend
-
-The user's `Projects/03.prtz` contains Flat, Bend, and a second Flat. The second
-Flat references the Bend End cap, the end-profile segment, and the circular
-trajectory's end point. Switching to Unbend moves the cap and the end profile,
-but the authored circular trajectory remains in its bent frame. Its endpoint
-therefore conflicts with the other two placement references. The Flat correctly
-retains its last valid placement and reports an invalid reference set; the
-identities themselves are still present.
-
-Reproduced through the native CLI on 2026-09-16. In a disposable copy, replacing
-only that third reference with the end profile's first endpoint keeps placement
-valid through Unbend and back to Bend. The original user document was not changed.
-This is a verified workaround, not a trajectory-reference fix. Release 2026091605
-retains this limitation. The user deferred its resolution to the next session.
-
-Next work must define how the Bend's evaluated trajectory references follow the
-developed state while retaining the editable authored arc, radius/angle dimensions,
-and stable source identities. View, picking and downstream reference geometry
-must agree. Do not weaken the general placement solver to accept contradictory
-references. Verify both state changes, end-profile/trajectory attachments,
-Undo/Redo, regeneration and native save/reopen.
-
-### Three-Sketch study
-
-The user's saved `Projects/01.prtz` example has a circular path of radius 5 mm
-and sweep 45 degrees. Its parallel profiles span -2 to 40 mm (42 mm total) and
--5 to 50 mm (55 mm total), giving endpoint extensions of 3 and 10 mm. Their
-directions have no twist. The arc starts at (50, 40, 0.5) and ends at
-(50, 43.535534, -0.964466) mm. Its geometric length is 3.926991 mm.
-These values were read from persisted Sketch geometry, without changing the file.
-
-With material extending toward the arc centre, this R5 trajectory describes the
-outside surface. At 1 mm thickness its corresponding inside radius is 4 mm.
-The native example was not modified or converted during development.
+The earlier per-profile switch exposed conflicting cross-branch Sketch
+references when it moved original geometry. The replacement state operations
+preserve original geometry and references, transport derived material regions,
+and restore authored frames from their source values. The detailed current
+contract and precision checks are in [Sheet state history operations](SHEET_STATE_DEVELOPMENT.md).
 
 ## Implemented Bend verification
 
@@ -496,10 +467,10 @@ selection of their state labels into Family Table. A separate corrected copy
 passed start-coordinate edits -45/-35/-40 mm and angle edits 60/120/90 degrees
 without changing its start frame. The source file's original SHA-256 was retained.
 
-The Family Table tests cover Bend/Unbend overrides, an inherited state, editing
-the state from an instance, generic changes, native save/cold reopen and rejection
-of invalid state values. State labels share the ordinary viewer candidate list;
-their presentation test verifies text-only geometry at three zoom levels.
+Family Table selects the presence of the separate Unbend feature through the
+ordinary yes/no feature binding. Tests cover independent instances, inheritance,
+instance edits, generic changes and cold native reopening. The old numeric
+per-profile state parameter and its special cell editor have been removed.
 
 The Bend command contract checks analytical volumes for ordinary, variable-width,
 flat and zero-radius bends; actual Sketch radius/angle/difference edits; inherited
@@ -511,9 +482,9 @@ as its plane, including when the R=0 caps touch along the fold axis.
 
 The application-tools GUI contract opens all three editors, returns to pending
 Properties, checks Cancel and OK, edits the first history feature, confirms with
-middle-button double-click, changes state in View and edits radius, angle and both
-endpoint dimensions inline. It also verifies that leaving inspection hides the
-state button. Captures: `build/bend-properties.png` and
+middle-button double-click and edits radius, angle and both
+endpoint dimensions inline. Separate state-command interaction has its own GUI
+contract, including repeated Part occurrences in an Assembly. Captures: `build/bend-properties.png` and
 `build/bend-three-sketch-view.png`.
 
 Windows Release verification on 2026-09-16 passed twelve distinct focused
@@ -584,7 +555,7 @@ definition. The capture `build/flat-bend-attachment.png` was visually inspected.
 Windows GUI and CLI builds succeeded; the normal development launcher remains
 `zima-cad.bat`. This is focused verification, not a complete repository suite.
 
-### External point contacts and localized Bend state (2026-09-17)
+### External point contacts (2026-09-17)
 
 Sketch creation preserves complete external reference identifiers, including
 colon-separated attachment endpoint IDs. Endpoint/corner snapping uses the native
@@ -593,84 +564,9 @@ or M (midpoint) against an external point. These relations retain an associative
 construction point and follow refreshed source coordinates. Broken references,
 disabled inference relations and the viewer selection filter exclude candidates.
 
-Double-clicking the Bend state annotation opens an inline choice between the
-localized bent and unbent states. Choosing a state calculates and commits it;
-dismissing the selector leaves the state unchanged. The View annotation,
-Properties and Family Table use the same localized state names without English
-parentheses in Czech.
-
-### Initial 03.prtz constraint diagnosis (resolved below) (2026-09-17)
-
-The five-feature example is distinct from the earlier trajectory issue.
-Before the material-state fix below, the second Bend could unfold, while unfolding the first Bend conflicted with a C relation
-in the last Flat: its rectangle corner references a side face of the Flat after
-the first Bend. That face intersection changes from the horizontal line Y=150 mm
-to the vertical line X=360.808873 mm. The rectangle's attached edge fixes the
-corner's X coordinate at 204.384094 mm, so both requirements cannot hold.
-Removing only this C relation in a disposable copy allows the first Bend to
-unfold. The original document is unchanged; the application must not silently
-remove a user's geometric constraint to force a state change.
-
-The subsequent identity audit confirms that all five Sketch IDs, native segment
-IDs and point IDs remain unchanged across the diagnostic state change. Both
-Bends reference distinct base edges; each edge occurs exactly once in persisted
-original reference geometry. The C source face retains its owner and semantic
-key, and its original rectangle-side ancestry. Its evaluated world plane rotates
-from Y=159 mm to X=275.248936748 mm. `project_external_face_plane` intersects that
-current world plane with the consuming Sketch, which changes the effective C
-condition from a free height coordinate to the attachment-controlled width.
-This is a state-evaluation limitation, not evidence that the user's box design
-or its cross-branch design relationship is wrong. A systematic solution must
-preserve that design relationship across folded/unfolded states.
-
-The box requirement also distinguishes intended attachment through the base
-from unintended joining between neighboring free walls. Current additive solid
-operations use general OCCT Fuse; there is no dedicated free-corner joining
-policy. Original reference meshes are captured from each feature operand before
-that fuse, so this particular C failure is not caused by fused result topology
-being mistaken for the source face. The material-state regression below now checks free-wall corner separation for
-this box; it does not establish a general corner-contact policy.
-
-### Material-state reference evaluation (2026-09-17)
-
-An unfolded Part first calculates its folded design reference state during the
-explicit calculation transaction. The same native Sketches, constraints and
-source identities are evaluated against this design state, then used by the
-requested Bend states. Unfolding does not replace the referenced rectangles or
-silently remove their cross-branch relations. Changing a source dimension still
-updates dependent Sketch geometry; reference coordinates are not frozen values.
-
-The Part persists `sheet_reference_state` with original design reference geometry,
-Sketch frames and the owning Body frames. Reference creation for existing Sketches
-and refreshing their reference snapshots consume this native data without OCCT.
-No required sidecar or external geometry cache is introduced. Fully folded Parts
-store an empty snapshot. Part JSON 59 / INI 35 and Assembly JSON 41 / INI 29 are the
-current schemas; both tracked start templates have been updated.
-
-Regeneration does not project an old calculated source mesh into a newly resolved
-Sketch frame. It advances the geometry pass first. Equivalent projections within
-the Sketch solver tolerance do not oscillate between folded and displayed frame
-rounding differences. The shared container placement solver is unchanged.
-
-`cpp/tests/fixtures/sheet/box-cross-branch.prtz` retains the five-feature box and
-its cross-branch C constraint, without cached bodies. The Bend regression checks
-all four state combinations, repeated regeneration, stable corner/segment/reference
-identities, unchanged constraints, source wall height changing from 150 to 175 mm
-while unfolded, native save/reopen, reference refresh/recreation and Undo/Redo.
-It also rejects a result edge joining faces belonging to both free walls.
-
-Verification: the 11 selected suites passed after updating the general bounded-axis
-fixture to supply its persisted axis explicitly. The production placement solver
-was not changed for that fixture. See `build/sheet-state-final-tests.log` (10 passing
-suites and the old fixture failure) and `build/sheet-state-contract-test.log` (the
-corrected general contract suite passing). Windows GUI and CLI were rebuilt.
-
-A separate native review copy, `Projects/03-overeno.prtz`, was saved through the
-CLI after toggling both Bends and returning them to the folded state. At that checkpoint it used INI 34 and an independent document namespace; local reference document
-IDs were remapped by the native Save As operation. The original `Projects/03.prtz`
-remains unchanged. `build/03-unbend-check/verified-results.txt` records the actual
-state-change commands and their successful results.
-
+State changes now use **Unbend / Rozvinout** and **Bend Back / Ohnout zpět**.
+The per-profile state annotation, inline state chooser and Family state parameter
+have been removed. They no longer mutate earlier geometry.
 
 ### Hem preset and the 180-degree View edit check (2026-09-17)
 
@@ -846,23 +742,18 @@ creation/reopening frame assertions, and Bend/Sheet Revolution calculations.
 The local Windows executable was rebuilt successfully; this verification does
 not constitute a new portable release.
 
-### Subsequent unfolding design
+### Revolved Sheet development
 
-The next design should derive a neutral surface from the authored profile, axis
-and sheet thickness, and distinguish cylindrical and conical cases. Flat output
-must retain explicit ancestry to the same profile endpoints and sheet sides;
-changing folded state must not substitute unrelated reference owners. The
-neutral-surface rule, seam for a complete revolution and behavior of attached
-downstream features require separate implementation and verification. No unfold
-result or manufacturing allowance for this feature is claimed by the current
-geometry-creation tests.
+The separate Unbend/Bend Back operations support open cylindrical and conical
+regions. Cones use an annular neutral-surface sector. Closed 360-degree regions
+need a seam definition and are rejected. See [the state-operation contract](SHEET_STATE_DEVELOPMENT.md).
 
 ## Sheet Cut and material-space boundaries (2026-09-17)
 
 The material-creating commands are now labelled **Sheet Profile** (formerly
 Bend) and **Revolved Sheet** (formerly Sheet Revolution). Their internal feature
-kinds and command identifiers remain unchanged. The existing folded-state
-control remains available until separate Unbend and Bend Back operations exist.
+kinds and command identifiers remain unchanged. State changes are separate
+Unbend and Bend Back history operations.
 
 **Sheet Cut** is a Part-owned history operation in the Sheet Metal toolbar and
 Insert menu. Create its placement, enter the owned Sketch, draw a closed profile,
@@ -1017,13 +908,11 @@ are updated. Drawing is unchanged. All required data lives in the native documen
 
 ### Limits of this step
 
-The saved UV domains belong to the source skin. Mapping them onto the neutral
-surface using thickness and K factor, generating developed solids, and carrying
-cuts through future Unbend/Bend Back operations are separate work. The existing
-feature-local folded-state toggle still regenerates history; it is not that new
-material-transport operation. No flattening of arbitrary oblique or partial-depth
-solid cuts is claimed. Sheet Cut currently projects onto all intersected supported
-reference skins in the current Body; it has no individual region collector.
+The saved UV domains belong to the source skin. Separate Unbend/Bend Back
+transport actual material contributions in their authored state, including Sheet
+Cuts and ordinary additive/subtractive operations. Their limitations and
+verification are documented separately. Sheet Cut projects onto all intersected
+supported reference skins in the current Body; it has no individual region collector.
 
 ### Sheet Cut verification
 
@@ -1114,61 +1003,17 @@ target on the development machine. Evidence:
 is `170293.6812135352` mm³. The source project's SHA-256 remains
 `E141C4CC191DCB528A77F8126860ACF44B7AD73B70975ECC11F776B2B9DCE29C`.
 
-## Next development: separate Unbend (2026-09-18)
+## Separate Unbend and Bend Back (2026-09-18)
 
-Status: discussed next step, not implemented. The current checkpoint completes
-Sheet Cut and Flat attachment to Revolved Sheet; the user requested documentation,
-commit and push before further development. No new portable release is included
-in this checkpoint.
+**Unbend / Rozvinout** and **Bend Back / Ohnout zpět** are separate history
+operations. Each offers all eligible regions or a manual list selected through
+the common View picker or Tree. No fixed-plane placement reference is required:
+authored feature history determines attachments. Later cuts and additions remain
+part of forward history, and returning to a known authored state does not
+repeatedly transform an approximated result.
 
-The agreed direction is to develop two separate history commands together:
-**Unbend** (Czech UI: **Rozvinout**) and **Bend Back** (Czech UI: **Ohnout zpět**).
-Bend Back references a specific Unbend operation, restores its original selected
-bends, and carries cuts made in the developed state back into the folded result.
-It creates another history operation rather than undoing the Unbend transaction.
-A separate command for bending an existing flat sheet along an authored line
-remains subsequent work. These operations are distinct from the material-creating
-Sheet Profile and Revolved Sheet commands. Their current feature-local folded
-state control remains available until its replacement is implemented and verified.
-
-- **Input:** the calculated sheet at the operation's history boundary, including
-  its existing Sheet Cuts, persisted source ancestry, thickness and K factor.
-  The user chooses a fixed planar reference or an originating history feature,
-  then the regions to unfold, including an all-regions option.
-- **Means:** use the sheet regions' persisted material coordinates and cut
-  boundaries to select the appropriate neutral-surface mapping for each supported
-  region. Do not replay an ordinary world-space subtraction after unfolding or
-  infer ownership from result-body enumeration.
-- **Output:** a new calculated history result with the selected regions unfolded
-  and cuts carried into that result. The folded input remains preserved at its
-  history boundary and is hidden while displaying the new result. Derived faces,
-  edges and points retain explicit ancestry to their source entities.
-
-The proposed first implementation milestone covers Flat, Sheet Profile and
-cylindrical Revolved Sheet, with conical regions following in the same command.
-It must consume the existing container-placement and viewer-selection contracts.
-Picking and live previews use persisted document/viewer data; OCCT runs only
-after OK or explicit regeneration. Required definitions and results remain in
-the native document, without external sidecars.
-
-The first acceptance model should contain a cut crossing a Flat–Sheet Profile–Flat
-transition. Independently check the neutral developed length, matching cut
-boundaries at both transitions, retained material thickness, and absence of
-unintended gaps or overlaps. Follow with partial/all-region unfolding, source
-angle and radius edits, endpoint ancestry, native save/reopen and Undo/Redo.
-An uncut isolated bend alone is insufficient evidence for this operation.
-
-The user specifically requested coverage of edited Sheet Profile end segments:
-unequal start/end lengths and shifted endpoints where the sheet widens, narrows
-or transitions sideways between the profiles. Include independent edits of each
-endpoint, combined edits and a cut crossing the resulting transition. Verify
-the material mapping and endpoint ancestry, not only whether a flat solid can
-be produced. The existing two-section sweep and feature-local folded-state
-tests do not establish a valid separate Unbend mapping for these transitions;
-their developability and any deformation assumption must be checked explicitly.
-
-Conical neutral-surface mapping, a seam for a complete revolution, downstream
-feature behavior and transport back into the folded state still require design
-and verification. Return transport belongs to the paired Unbend/Bend Back
-implementation, including the variable-width cases above. The existing Sheet
-Cut tests do not establish those capabilities.
+See [Sheet state history operations](SHEET_STATE_DEVELOPMENT.md) for ownership,
+cylindrical/conical maps, zero-radius hems, tolerance, commands and verification.
+The old per-profile state switch and folded-reference snapshot implementation
+have been removed. A future command for bending an existing flat sheet along a
+line remains separate work. Closed full-circle regions still need seam support.

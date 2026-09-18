@@ -1,8 +1,8 @@
 # CAD command coverage
 
-## Current scope — 2026-09-15
+## Current scope — 2026-09-18
 
-The command layer covers the currently supported CAD operations with **314
+The command layer covers the currently supported CAD operations with **324
 commands**. GUI and CLI use shared model operations; the audit of remaining
 direct GUI writes is complete. [Holes](HOLES.md) adds `holes.create/get/set`,
 using finite Sketch segments and a common diameter for Part subtraction.
@@ -12,6 +12,12 @@ Historical [Body measurement](BODY_PROPERTIES.md) adds five commands sharing the
 GUI's cached geometry, history-boundary and transaction contracts.
 [Drawing balloons](DRAWING_BALLOONS.md) adds seven commands for first-level BOM
 positions, reference repair and visibility through the same GUI transaction.
+
+[Sheet state operations](SHEET_STATE_DEVELOPMENT.md) add `unbend.create/set`
+and `bend_back.create/set` through the same workspace transaction as GUI OK.
+They support all or selected source regions, intervening material edits, native
+reopening and Undo/Redo. The former `bend.create/set` state argument is removed.
+The count above was checked against the native CLI `help` catalog.
 
 The GUI does not launch the CLI executable for each action. Both applications
 call the same command/model layer. Mouse picking, camera movement and transient
@@ -52,6 +58,7 @@ parameters, detailed limits and the verification evidence for each stage.
 | Regenerate and Undo/Redo | Shared Part/Assembly/Drawing operations; regressions accompany each changed transaction | [Part transactions](PART_SESSION_TRANSACTIONS.md), [state publication](WORKSPACE_STATE_PUBLICATION.md) |
 | Primitives | Box, cylinder, sphere, cone, pyramid and wedge creation, queries and parameter changes, including locks and precision | [Placement](PLACEMENT_COMMANDS.md), [value locks](VALUE_LOCK_COMMANDS.md) |
 | Sketch-driven Holes | Finite cylinders along non-construction segments, common diameter, Part subtraction, shared GUI/CLI commit | [Holes](HOLES.md) |
+| Sheet Metal | Flat, Sheet Profile, Revolved Sheet, Sheet Cut; Unbend/Bend Back for all or selected material regions with intervening cuts and additions | [Sheet Metal](SHEET_METAL.md), [state operations](SHEET_STATE_DEVELOPMENT.md) |
 | Part history | Dependency-valid movement, suppression, deletion and insertion cursor, including bodies and Booleans | [History commands](HISTORY_COMMANDS.md), [reordering](HISTORY_TREE_REORDER.md) |
 | Bodies and Booleans | Create/query/activate, name, visibility, body/global cursors, Boolean operations, order and deletion; original placement references | [Body commands](BODY_COMMANDS.md), [multibody model](MULTIBODY_AND_BOOLEANS.md) |
 | Placement | `placement.get/set`, locks, shared reference entry/removal for bodies, constructions, six primitives, Part profiles and other supported containers; component placement through `component.set` | [Placement references](PLACEMENT_REFERENCE_COMMANDS.md), [removal](PLACEMENT_REFERENCE_REMOVAL.md), [work planes](WORK_PLANES.md) |

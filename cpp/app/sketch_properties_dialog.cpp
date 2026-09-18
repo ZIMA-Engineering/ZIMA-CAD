@@ -240,9 +240,6 @@ void SketchPropertiesDialog::set_bend_mode(zima::document::BendParameters initia
         plane_form->setRowVisible(plane_,false);plane_form->setRowVisible(offset_,false);
     }
     auto* form=new QFormLayout;
-    auto* mode=new QComboBox(this);mode->setObjectName("bendState");
-    mode->addItem(tr("Ohnutý"),false);mode->addItem(tr("Rozvinutý"),true);mode->setCurrentIndex(initial.unbend?1:0);
-    form->addRow(tr("Stav"),mode);
     const auto field=[&](const char* name,double value,double minimum,double maximum,const QString& suffix) {
         auto* spin=new QDoubleSpinBox(this);spin->setObjectName(name);spin->setDecimals(6);spin->setRange(minimum,maximum);spin->setSuffix(suffix);spin->setValue(value);return spin;
     };
@@ -320,7 +317,6 @@ void SketchPropertiesDialog::set_bend_mode(zima::document::BendParameters initia
         placement_->initialize_from_references(placement_->combined_references(3),[](const auto& key){return QString::fromStdString(key);});
         refresh_resolved_placement();notify_preview();
     });
-    connect(mode,&QComboBox::currentIndexChanged,this,[pending,publish](int index){pending->unbend=index==1;publish();});
     connect(bend_radius_,&QDoubleSpinBox::valueChanged,this,[pending,publish](double v){pending->radius=v;publish();});
     connect(bend_angle_,&QDoubleSpinBox::valueChanged,this,[pending,publish](double v){pending->angle_degrees=v;publish();});
     const auto override_field=[&](bool thickness) {
@@ -354,10 +350,10 @@ void SketchPropertiesDialog::set_bend_mode(zima::document::BendParameters initia
         content_layout()->insertWidget(content_layout()->indexOf(sketch_button_)+(stage?1:0),button);
         connect(button,&QPushButton::clicked,this,[edit_bend_sketch,stage]{if(edit_bend_sketch)edit_bend_sketch(stage);});
     }
-    set_bend_parameters_=[this,pending,changed,mode,custom_radius,refresh_radius](auto value) {
+    set_bend_parameters_=[this,pending,changed,custom_radius,refresh_radius](auto value) {
         *pending=std::move(value);
-        const QSignalBlocker angle(bend_angle_),state(mode),linked(custom_radius);
-        bend_angle_->setValue(pending->angle_degrees);mode->setCurrentIndex(pending->unbend?1:0);
+        const QSignalBlocker angle(bend_angle_),linked(custom_radius);
+        bend_angle_->setValue(pending->angle_degrees);
         custom_radius->setChecked(!pending->radius_follows_thickness);refresh_radius();changed(*pending);
     };
     refresh_radius();

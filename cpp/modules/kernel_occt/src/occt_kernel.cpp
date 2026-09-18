@@ -98,6 +98,15 @@
 #include <GeomConvert_CompCurveToBSplineCurve.hxx>
 #include <Geom_Surface.hxx>
 #include <GeomAPI_Interpolate.hxx>
+#include <GeomAPI_PointsToBSplineSurface.hxx>
+#include <GeomProjLib.hxx>
+#include <Geom_BSplineSurface.hxx>
+#include <BRepTools_Modification.hxx>
+#include <BRepTools_Modifier.hxx>
+#include <BRepAlgoAPI_Splitter.hxx>
+#include <TColgp_Array2OfPnt.hxx>
+#include <TColStd_HArray1OfReal.hxx>
+#include <zima/kernel/sheet_material.hpp>
 #include <GeomAPI_ProjectPointOnSurf.hxx>
 #include <TColgp_HArray1OfPnt.hxx>
 #include <TColgp_Array1OfPnt.hxx>
@@ -3286,8 +3295,13 @@ std::vector<Owned> propagate_topology(
 std::vector<OwnedEdge> complete_boolean_edges(const TopoDS_Shape&,
     const std::vector<OwnedFace>&,const std::vector<OwnedEdge>&,
     const std::string&,std::string_view);
+std::vector<OwnedVertex> complete_boolean_vertices(const TopoDS_Shape&,
+    const std::vector<OwnedFace>&,const std::vector<OwnedEdge>&,
+    const std::vector<OwnedVertex>&,const std::string&,std::string_view);
 
 #include "sheet_cut_clearance.inc"
+#include "sheet_state_geometry.inc"
+#include "sheet_state_sources.inc"
 
 PrimitiveData select_sheet_clearance_projection(const TopoDS_Face& face,
         const FaceReference& reference,const std::vector<OwnedEdge>& input_edges,
@@ -3462,7 +3476,7 @@ PrimitiveData make_sheet_cut_data(const PrimitiveData& projection,
             if(!solid_found)throw std::runtime_error("Sheet Cut thickness did not produce a solid.");
             const auto add_face=[&](const TopoDS_Shape& shape,const std::string& key) {
                 if(shape.IsNull()||shape.ShapeType()!=TopAbs_FACE)return;
-                FaceReference ref{owner,key};ref.sheet_role=SheetFaceRole::ThicknessFace;ref.sheet_thickness=region.thickness;
+                FaceReference ref{owner,key};ref.sheet_role=SheetFaceRole::ThicknessFace;ref.sheet_thickness=region.thickness;ref.sheet_owner=region.source.sheet_owner;
                 result.faces.push_back({shape,ref});
             };
             // The two skins coincide with the source sheet. Their surviving
@@ -5405,6 +5419,7 @@ struct OcctKernel::LiveCache {
         TopoDS_Shape shape;
         std::shared_ptr<const Topology> topology;
         std::shared_ptr<const OriginalFaces> original_faces;
+        sheet_state_sources::Sources sheet_sources;
     };
 
     std::unordered_map<std::string, Boundary> boundaries;
@@ -6205,13 +6220,27 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
         std::unordered_map<std::string, StepDocumentCache> step_documents;
         std::vector<BodyResult> boundaries;
         boundaries.reserve(operations.size());
-        const auto remember_live_boundary = [this,&context](
+        const bool retain_sheet_sources=std::ranges::any_of(operations,[](const auto& operation){return std::holds_alternative<SheetStateRequest>(operation.primitive);});
+        double sheet_state_tolerance=1.;
+        for(const auto& operation:operations)if(const auto* state=std::get_if<SheetStateRequest>(&operation.primitive))
+            sheet_state_tolerance=std::min(sheet_state_tolerance,state->tolerance);
+        sheet_state_sources::Sources sheet_sources;
+        PrimitiveData sheet_input;
+        std::size_t current_operation{};
+        const auto remember_live_boundary = [&](
                 const std::string& fingerprint, const TopoDS_Shape& shape,
                 std::shared_ptr<const LiveCache::Topology> topology) {
             if (fingerprint.empty() || shape.IsNull()) return;
+            if(retain_sheet_sources) {
+                PrimitiveData output;output.shape=shape;output.faces=topology->faces;
+                output.edges=topology->edges;output.vertices=topology->vertices;
+                const auto regions=sheet_material::regions_before(operations,current_operation+1);
+                sheet_sources=sheet_state_sources::capture(sheet_sources,sheet_input,output,
+                    regions.regions,operations[current_operation],sheet_state_tolerance);
+            }
             auto [iterator, inserted] =
                 live_cache_->boundaries.insert_or_assign(fingerprint,
-                    LiveCache::Boundary{shape, std::move(topology),context.original_faces});
+                    LiveCache::Boundary{shape, std::move(topology),context.original_faces,sheet_sources});
             static_cast<void>(iterator);
             if (!inserted) return;
             live_cache_->insertion_order.push_back(fingerprint);
@@ -6282,6 +6311,13 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
         if (reusable_prefix > 0 && !reusable_prefix_has_live_ancestry) {
             reusable_prefix = 0;
         }
+        if(retain_sheet_sources&&reusable_prefix>0&&
+            !live_cache_->boundaries.at(previous_boundaries[reusable_prefix-1].source_fingerprint).sheet_sources) {
+            // A fused boundary does not retain the separate authored material
+            // regions. Reconstruct them once when the first state operation
+            // is added to a previously calculated ordinary feature history.
+            reusable_prefix=0;
+        }
         if (reusable_prefix > 0) {
             const auto& prefix_boundary =
                 previous_boundaries[reusable_prefix - 1];
@@ -6293,6 +6329,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 result_shape = cached->second.shape;
                 owned_topology = cached->second.topology;
                 context.original_faces = cached->second.original_faces;
+                sheet_sources = cached->second.sheet_sources;
             }
             std::unordered_set<std::string> prefix_owners;
             for (std::size_t index = 0; index < reusable_prefix; ++index) {
@@ -6321,6 +6358,11 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
         for (std::size_t operation_index = reusable_prefix;
              operation_index < operations.size(); ++operation_index) {
             const auto& operation = operations[operation_index];
+            current_operation=operation_index;
+            if(retain_sheet_sources) {
+                sheet_input.shape=result_shape;sheet_input.faces=owned_topology->faces;
+                sheet_input.edges=owned_topology->edges;sheet_input.vertices=owned_topology->vertices;
+            }
             const bool surface_operand=std::visit([](const auto& request){
                 if constexpr(requires{request.surface_result;})return request.surface_result;
                 else return false;
@@ -6365,6 +6407,34 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 remember_live_boundary(boundary.source_fingerprint, result_shape,
                     owned_topology);
                 boundaries.push_back(std::move(boundary));
+                continue;
+            }
+            if(const auto* state=std::get_if<SheetStateRequest>(&operation.primitive)) {
+                auto regions=sheet_material::regions_before(operations,operation_index);
+                static_cast<void>(sheet_material::change(regions,*state));
+                auto changed=sheet_state_sources::calculate(sheet_sources,
+                    regions.regions,state->tolerance,operation.owner_id);
+                // A state feature owns a new original solid. Earlier source
+                // objects remain immutable; every new child carries its input
+                // identity in its semantic key. Later placement uses the same
+                // original-object contract as any other authored feature.
+                retain_originals(changed.faces);
+                retain_copy_solid(changed);
+                auto source=make_operation_result(changed.shape,changed.faces,
+                    changed.edges,changed.vertices,true,false,true);
+                append_reference_geometry(original_references,
+                    std::move(source.mesh.original_references));
+                result_shape=changed.shape;
+                auto topology=std::make_shared<LiveCache::Topology>();
+                topology->faces=std::move(changed.faces);topology->edges=std::move(changed.edges);topology->vertices=std::move(changed.vertices);
+                owned_topology=std::move(topology);
+                auto boundary=make_operation_result(result_shape,owned_topology->faces,
+                    owned_topology->edges,owned_topology->vertices,true,persist_boundary_shape);
+                boundary.source_fingerprint=fingerprint(operations,operation_index+1);
+                boundary.mesh.original_references=original_references;
+                if(!boundaries.empty())boundary.sheet_cuts=boundaries.back().sheet_cuts;
+                boundaries.push_back(std::move(boundary));
+                remember_live_boundary(boundaries.back().source_fingerprint,result_shape,owned_topology);
                 continue;
             }
             const auto make_group_child = [&](const FeatureGroupRequest::Child& child) {
@@ -7966,6 +8036,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     for(auto& face:faces) {
                         auto& reference=face.reference;const auto& key=reference.semantic_key;
                         reference.sheet_thickness=operation.sheet_thickness;
+                        reference.sheet_owner=operation.owner_id;
                         reference.sheet_role=SheetFaceRole::ThicknessFace;
                         if(operation.sheet_operation==SheetOperation::Flat) {
                             if(key.starts_with("start:from:"))reference.sheet_role=SheetFaceRole::SideA;

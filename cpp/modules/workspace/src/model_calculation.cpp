@@ -105,29 +105,6 @@ calculate_part_reference_state(
 std::vector<kernel::BodyResult> calculate_part_with_resolved_references(
     const kernel::OcctKernel& kernel,document::PartDocument& document,
     const std::vector<kernel::BodyResult>* previous,const PartCalculationPolicy& policy) {
-    const bool unfolded=std::ranges::any_of(document.history,[](const auto& feature) {
-        return feature.feature_kind==document::FeatureKind::Bend&&feature.bend.unbend&&!feature.suppressed;
-    });
-    document.sheet_reference_state="{}";
-    if(unfolded) {
-        // State changes do not redefine material-space design relationships.
-        // Calculate the authored folded geometry first, then use its reference
-        // data to solve the same Sketch identities in the displayed state.
-        auto design=document;
-        for(auto& feature:design.history)if(feature.feature_kind==document::FeatureKind::Bend)feature.bend.unbend=false;
-        const auto design_bodies=calculate_part_reference_state(kernel,design,nullptr,{});
-        auto frames=nlohmann::json::array();
-        const auto vector=[](const kernel::Vec3& v){return nlohmann::json::array({v.x,v.y,v.z});};
-        visit_document_sketches(design,[&](const auto& sketch) {
-            frames.push_back({{"sketch",sketch.id},{"origin",vector(sketch.resolved_origin)},
-                {"x",vector(sketch.resolved_x_axis)},{"y",vector(sketch.resolved_y_axis)},
-                {"normal",vector(sketch.resolved_normal)}});return true;
-        });
-        document.sheet_reference_state=nlohmann::json{{"frames",std::move(frames)},
-            {"body_history",nlohmann::json::parse(design.body_history.serialized())},
-            {"geometry",document::serialize_viewer_reference_geometry(sketch_external_reference_source_geometry(design,design_bodies))}}.dump();
-        static_cast<void>(refresh_sketch_external_references(document,design_bodies));
-    }
     return calculate_part_reference_state(kernel,document,previous,policy);
 }
 

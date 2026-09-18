@@ -43,8 +43,8 @@ std::string child(const HistoryContainer& feature,const std::string& role,const 
 template<class Request> void profile(Request& request,const HistoryContainer& feature,const BendFrame& f,double thickness) {
     request.outer_profile=kernel::ExtrusionRequest::PolygonProfile{{f.first,f.last,
         add(f.last,scale(f.inward,thickness)),add(f.first,scale(f.inward,thickness))}};
-    // The same authored section and ancestry are used in both states. OCCT
-    // only locates these identities, including the Start/End region children.
+    // The authored section defines ancestry; OCCT only locates these
+    // identities, including the Start/End region children.
     request.profile_region_id=child(feature,"section",f.segment);
     request.outer_boundary_id=child(feature,"boundary",f.segment);
     request.outer_edge_source_ids={child(feature,"outer",f.segment),child(feature,"last",f.last_point),
@@ -63,7 +63,6 @@ double extension(const sketcher::SketchDimension& dimension,bool last) {
 }
 V path_point(const BendFrame& f,const BendParameters& p,double fraction) {
     const double angle=p.angle_degrees*std::numbers::pi/180;
-    if(p.unbend)return add(f.anchor,scale(f.normal,angle*(p.radius+p.k_factor*p.thickness)*fraction));
     return add(add(f.anchor,scale(f.inward,(p.radius+p.thickness)*(1-std::cos(angle*fraction)))),
         scale(f.normal,(p.radius+p.thickness)*std::sin(angle*fraction)));
 }
@@ -448,7 +447,7 @@ void prepare_bend_sketches(HistoryContainer& feature,const sketcher::Sketch& sta
     auto end=data[1].empty()?sketcher::Sketch::create_default():sketcher::Sketch::from_serialized(data[1]);
     end.owner_container_id=feature.id;end.name="Koncový profil ohybu";
     end.plane_reference_owner_id=feature.id+":bend:end";end.plane_offset=0;
-    const double a=p.unbend?0:p.angle_degrees*std::numbers::pi/180;
+    const double a=p.angle_degrees*std::numbers::pi/180;
     end.resolved_origin=path_point(f,p,1);end.resolved_x_axis=f.along;
     end.resolved_y_axis=add(scale(f.inward,std::cos(a)),scale(f.normal,-std::sin(a)));
     end.resolved_normal=cross(end.resolved_x_axis,end.resolved_y_axis);
@@ -553,16 +552,14 @@ void accept_bend_sketch(HistoryContainer& feature,const sketcher::Sketch& start,
 kernel::FeatureGroupRequest bend_request(const HistoryContainer& input,const sketcher::Sketch& sketch,const SheetMetalDefaults& defaults) {
     auto feature=input;prepare_bend_sketches(feature,sketch,defaults);
     const auto p=resolved_bend_parameters(feature,defaults);const auto f=frame(feature,sketch);
-    const double length=p.angle_degrees*std::numbers::pi/180*(p.radius+p.k_factor*p.thickness);
     kernel::FeatureGroupRequest group;
-    const auto axis_start=add(f.first,p.unbend?scale(f.normal,length*.5):scale(f.inward,p.radius+p.thickness));
+    const auto axis_start=add(f.first,scale(f.inward,p.radius+p.thickness));
     group.axes.push_back({add(axis_start,scale(f.along,f.width*.5)),f.along,f.width+2,
-        {feature.id,child(feature,"axis",f.segment),{}},p.unbend?"Osa ohybu":"Osa rotace ohybu"});
+        {feature.id,child(feature,"axis",f.segment),{}},"Osa rotace ohybu"});
     const double straight_length=bend_straight_length(feature);
     if(p.angle_degrees==0&&straight_length==0)return group; // Explicit zero-material history boundary.
-    if(p.unbend&&p.angle_degrees>0&&length<=0)throw std::invalid_argument("Unbend requires a positive developed length (R + K*t).");
     const auto extension=bend_profile_extensions(feature);
-    if(!p.unbend&&p.radius==0&&(std::abs(extension[0])>1e-9||std::abs(extension[1])>1e-9))
+    if(p.radius==0&&(std::abs(extension[0])>1e-9||std::abs(extension[1])>1e-9))
         throw std::invalid_argument("Zero inner radius currently requires matching start and end profiles.");
     const auto path=sketcher::Sketch::from_serialized(feature.bend.auxiliary_sketches[0]);
     const auto& arc=path.arcs.front();kernel::Sweep3DRequest request;
@@ -571,10 +568,10 @@ kernel::FeatureGroupRequest bend_request(const HistoryContainer& input,const ske
     request.path_point_ids={arc.start_point_id,arc.end_point_id};
     kernel::Sweep3DRequest::PathSegment route;route.source_id=arc.id;
     route.start=request.path_points.front();route.end=request.path_points.back();
-    if(!p.unbend)route.arc_midpoint=path_point(f,p,.5);
+    route.arc_midpoint=path_point(f,p,.5);
     request.path_segments.push_back(std::move(route));
     for(bool last:{false,true}) {
-        const double a=last&&!p.unbend?p.angle_degrees*std::numbers::pi/180:0;
+        const double a=last?p.angle_degrees*std::numbers::pi/180:0;
         const auto inward=add(scale(f.inward,std::cos(a)),scale(f.normal,-std::sin(a)));
         const auto normal=cross(f.along,inward);const auto origin=request.path_points[last?1:0];
         const double x1=f.first_coordinate-(last?extension[0]:0),x2=f.first_coordinate+f.width+(last?extension[1]:0);
@@ -591,7 +588,7 @@ kernel::FeatureGroupRequest bend_request(const HistoryContainer& input,const ske
     if(straight_length>0) {
         const auto* segment=continuation(path);const auto& join=arc.end_point_id;
         const auto tip=segment->first_point_id==join?segment->second_point_id:segment->first_point_id;
-        const double a=p.unbend?0:p.angle_degrees*std::numbers::pi/180;
+        const double a=p.angle_degrees*std::numbers::pi/180;
         const auto delta=scale(add(scale(f.normal,std::cos(a)),scale(f.inward,std::sin(a))),straight_length);
         kernel::Sweep3DRequest straight;straight.linear_tolerance=request.linear_tolerance;
         straight.path_points={request.path_points.back(),add(request.path_points.back(),delta)};
@@ -608,17 +605,29 @@ kernel::FeatureGroupRequest bend_request(const HistoryContainer& input,const ske
     } else group.children.emplace_back(std::move(request));
     return group;
 }
+kernel::SheetMaterialDefinition bend_material_definition(const HistoryContainer& input,const sketcher::Sketch& sketch,const SheetMetalDefaults& defaults) {
+    auto feature=input;prepare_bend_sketches(feature,sketch,defaults);
+    const auto p=resolved_bend_parameters(feature,defaults);const auto f=frame(feature,sketch);
+    kernel::SheetMaterialDefinition definition;
+    definition.kind=kernel::SheetMaterialDefinition::Kind::Cylinder;definition.owner_id=feature.id;
+    definition.origin=f.anchor;definition.along=f.along;definition.tangent=f.normal;definition.radial=scale(f.inward,-1);
+    definition.radius=p.radius+p.thickness;definition.neutral_radius=p.radius+p.k_factor*p.thickness;
+    definition.angle=p.angle_degrees*std::numbers::pi/180;definition.thickness=p.thickness;
+    definition.continuation=bend_straight_length(feature);
+    const auto path=sketcher::Sketch::from_serialized(feature.bend.auxiliary_sketches[0]);
+    definition.curved_source_id=path.arcs.front().id;
+    if(const auto* segment=continuation(path))definition.continuation_source_id=segment->id;
+    return definition;
+}
 kernel::ViewerMesh bend_preview(const HistoryContainer& input,const sketcher::Sketch& sketch,const SheetMetalDefaults& defaults) {
     auto feature=input;prepare_bend_sketches(feature,sketch,defaults);
     const auto request=bend_request(feature,sketch,defaults);const auto p=resolved_bend_parameters(feature,defaults);const auto f=frame(feature,sketch);
     const auto extension=bend_profile_extensions(feature);
     kernel::ViewerMesh mesh;mesh.axes=request.axes;
     const double angle=p.angle_degrees*std::numbers::pi/180;
-    const double developed=angle*(p.radius+p.k_factor*p.thickness);
     const auto point=[&](double along,bool inner,double fraction) {
         along+=(along==0?-extension[0]:extension[1])*fraction;
         auto result=add(f.first,scale(f.along,along));
-        if(p.unbend)return add(add(result,scale(f.inward,inner?p.thickness:0)),scale(f.normal,developed*fraction));
         const double r=p.radius+(inner?0:p.thickness),a=angle*fraction;
         return add(add(result,scale(f.inward,p.radius+p.thickness-r*std::cos(a))),scale(f.normal,r*std::sin(a)));
     };
@@ -627,7 +636,7 @@ kernel::ViewerMesh bend_preview(const HistoryContainer& input,const sketcher::Sk
         edge(inner?"inner-start":"outer-start",{point(0,inner,0),point(f.width,inner,0)});
         edge(inner?"inner-end":"outer-end",{point(0,inner,1),point(f.width,inner,1)});
         for(bool last:{false,true}) {
-            std::vector<V> points;const int samples=p.unbend?1:std::max(1,static_cast<int>(std::ceil(p.angle_degrees/3)));
+            std::vector<V> points;const int samples=std::max(1,static_cast<int>(std::ceil(p.angle_degrees/3)));
             for(int i=0;i<=samples;++i)points.push_back(point(last?f.width:0,inner,static_cast<double>(i)/samples));
             edge(std::string(inner?"inner-":"outer-")+(last?"last":"first"),std::move(points));
         }
@@ -641,7 +650,7 @@ kernel::ViewerMesh bend_preview(const HistoryContainer& input,const sketcher::Sk
     }
     const double straight_length=bend_straight_length(feature);
     if(straight_length>0) {
-        const double a=p.unbend?0:angle;
+        const double a=angle;
         const auto delta=scale(add(scale(f.normal,std::cos(a)),scale(f.inward,std::sin(a))),straight_length);
         for(bool inner:{false,true}) {
             for(bool last:{false,true}) {

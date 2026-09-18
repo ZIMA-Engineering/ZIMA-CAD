@@ -53,6 +53,8 @@ struct FaceReference {
     bool surface_result{}; // Non-volumetric modeling surface; not part of identity.
     SheetFaceRole sheet_role{SheetFaceRole::Unknown};
     double sheet_thickness{};
+    // Source material region, independent of the later feature owning this face.
+    std::string sheet_owner;
 
     [[nodiscard]] bool valid() const {
         return !owner_id.empty() && !semantic_key.empty();
@@ -791,11 +793,33 @@ struct BoxOperation {
     BooleanOperation operation{BooleanOperation::Add};
 };
 
+// Authored material coordinates of a sheet creator. They are independent of
+// OCCT face enumeration and survive cuts and later state operations.
+struct SheetMaterialDefinition {
+    enum class Kind { Plane, Cylinder, Cone };
+    Kind kind{Kind::Plane};
+    std::string owner_id, parent_owner_id;
+    Vec3 origin, along{1,0,0}, tangent{0,1,0}, radial{0,0,1};
+    double radius{}, neutral_radius{}, angle{}, thickness{}, continuation{}, cone_half_angle{};
+    double thickness_sign{-1};
+    bool unfolded{};
+    std::string curved_source_id, continuation_source_id;
+    bool operator==(const SheetMaterialDefinition&) const = default;
+};
+
+struct SheetStateRequest {
+    bool unfold{true};
+    bool all{true};
+    std::vector<std::string> owners;
+    double tolerance{0.05};
+    bool operator==(const SheetStateRequest&) const = default;
+};
+
 using PrimitiveRequest = std::variant<
     BoxRequest, CylinderRequest, SphereRequest, ConeRequest, PyramidRequest, WedgeRequest,
     ExtrusionRequest, RevolutionRequest, FeatureGroupRequest,
     Sweep3DRequest, StepRequest, FilletRequest, ChamferRequest, ShellRequest,
-    ThreadSurfaceRequest, DrillPointRequest>;
+    ThreadSurfaceRequest, DrillPointRequest, SheetStateRequest>;
 
 struct HistoryOperation {
     std::string owner_id;
@@ -812,6 +836,7 @@ struct HistoryOperation {
     std::string input_error;
     SheetOperation sheet_operation{SheetOperation::None};
     double sheet_thickness{};
+    std::optional<SheetMaterialDefinition> sheet_material;
 };
 
 // Calculated material-space trim, owned by the later cut, never by rewriting
@@ -976,6 +1001,17 @@ struct PlacedBody {
         u64(std::bit_cast<std::uint64_t>(operation.mesh_deflection));
         u64(static_cast<std::uint64_t>(operation.sheet_operation));
         u64(std::bit_cast<std::uint64_t>(operation.sheet_thickness));
+        if(operation.sheet_material) {
+            const auto& material=*operation.sheet_material;u64(1);u64(static_cast<unsigned>(material.kind));
+            for(const auto* text:{&material.owner_id,&material.parent_owner_id,&material.curved_source_id,&material.continuation_source_id}) {
+                u64(text->size());for(unsigned char c:*text)byte(c);
+            }
+            for(const auto vector:{material.origin,material.along,material.tangent,material.radial})
+                for(double v:{vector.x,vector.y,vector.z})u64(std::bit_cast<std::uint64_t>(v));
+            for(double v:{material.radius,material.neutral_radius,material.angle,material.thickness,material.continuation,material.cone_half_angle,material.thickness_sign})
+                u64(std::bit_cast<std::uint64_t>(v));
+            byte(material.unfolded);
+        }
         if (!operation.body.id.empty()) {
             for (const auto& text : {operation.body.id, operation.body.target_id, operation.body.source_id}) {
                 u64(text.size());
@@ -1616,6 +1652,10 @@ struct PlacedBody {
                     u64(fingerprint.size());
                     for (const unsigned char value : fingerprint) byte(value);
                 }
+            } else if constexpr (std::is_same_v<Request, SheetStateRequest>) {
+                u64(1);byte(primitive.unfold);byte(primitive.all);
+                u64(std::bit_cast<std::uint64_t>(primitive.tolerance));
+                u64(primitive.owners.size());for(const auto& owner:primitive.owners){u64(owner.size());for(unsigned char c:owner)byte(c);}
             } else if constexpr (std::is_same_v<Request, DrillPointRequest>) {
                 // Source-parent topology replaces selection-order identities.
                 // Explicit calculation must not reuse the former derived cache.

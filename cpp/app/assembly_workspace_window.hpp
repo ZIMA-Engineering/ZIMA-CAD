@@ -80,7 +80,6 @@ public:
     void show_dimension_layout_properties(const zima::viewer::ViewerCandidate&);
     void commit_dimension_layout(const zima::kernel::EdgeReference&,zima::kernel::DimensionLayout);
     void update_assembly_dimension_visibility();
-    void update_bend_view_action();
     void show_parameter_dimensions(const std::string& owner_id,
         const std::string& component = {});
     // Exposed for regression coverage of nested Assembly occurrence
@@ -681,6 +680,7 @@ private:
     void update_family_selection();
     bool accept_family_reference(const zima::viewer::ViewerCandidate&, bool show_dimensions = false);
     void edit_file_settings(bool sheet_metal = false);
+    void show_sheet_state_properties(bool unfold,const std::string& container_id={});
     void regenerate_assembly();
     void start_edge_treatment(zima::document::FeatureKind kind);
     [[nodiscard]] bool is_edge_treatment_feature(

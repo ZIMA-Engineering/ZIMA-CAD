@@ -45,9 +45,9 @@ void verify_bend_attachment(const std::filesystem::path& directory) {
     flat.flat.sheet_attachment=true;flat.flat.direction=document::ExtrusionDirection::Reverse;
     target.history={flat};target.sketches={outline};
     std::string edge_key;std::vector<sketcher::SketchExternalReference> previous;
-    for(double angle:{35.,90.,180.})for(bool unbend:{false,true})for(double thickness:{1.,2.})for(bool flipped:{false,true}) {
-        std::cout<<"Flat attachment angle="<<angle<<" unbend="<<unbend<<" thickness="<<thickness<<" flipped="<<flipped<<std::endl;
-        auto& feature=source.history.front();feature.bend.angle_degrees=angle;feature.bend.unbend=unbend;
+    for(double angle:{35.,90.,180.})for(double thickness:{1.,2.})for(bool flipped:{false,true}) {
+        std::cout<<"Flat attachment angle="<<angle<<" thickness="<<thickness<<" flipped="<<flipped<<std::endl;
+        auto& feature=source.history.front();feature.bend.angle_degrees=angle;
         feature.bend.thickness=thickness;feature.placement.absolute_rotation_x=flipped?180:0;
         feature.placement.absolute_rotation_z=23;feature.placement.x=17;feature.placement.y=-11;
         source.resolve_constructions();
@@ -108,7 +108,7 @@ void verify_bend_attachment(const std::filesystem::path& directory) {
     }
     auto missing=target;missing.resolve_constructions();
     check(!missing.history.front().placement.reference_valid,"Missing source silently resolved Flat attachment");
-    std::cout<<"Flat/Bend attachment: angles, flip, Unbend, thickness, parameter reversal and persistence passed\n";
+    std::cout<<"Flat/Sheet Profile attachment: angles, flip, thickness, parameter reversal and persistence passed\n";
 }
 void verify_attached_history(std::filesystem::path directory) {
     kernel::OcctKernel kernel;workspace::Workspace live;command_host::Options options;
@@ -132,12 +132,12 @@ void verify_attached_history(std::filesystem::path directory) {
         s.add_rectangle(std::min(a[0],b[0]),0,std::max(a[0],b[0]),12);
     }),"Cannot create rectangle snapped to attached endpoints");
     run(host,"regenerate");
-    for(double thickness:{1.,2.})for(bool unbend:{false,true}) {
-        run(host,"bend.set",{{"container",bend},{"thickness_mm",thickness},{"state",unbend?"unbend":"bend"}});
+    for(double thickness:{1.,2.}) {
+        run(host,"bend.set",{{"container",bend},{"thickness_mm",thickness}});
         const auto& profile=workspace::document_sketch(live,id,sketch_id);
         for(const auto& ref:profile.external_references)check(ref.source_document_id==id&&!ref.broken,"Body-local Flat reference lost its Part source");
         const auto defaults=document::sheet_metal_defaults(state->session.document());
-        const auto expected=40*std::numbers::pi/2*(5+thickness*(unbend?defaults.k_factor:.5))*thickness+40*12*thickness;
+        const auto expected=40*std::numbers::pi/2*(5+thickness*.5)*thickness+40*12*thickness;
         near(state->session.calculated_boundaries().back().volume,expected);
         near(state->session.document().find_container(flat)->flat.thickness,thickness);
     }
@@ -154,7 +154,7 @@ void verify_attached_history(std::filesystem::path directory) {
         check(s.set_dimension_value(s.id+":position:last",52.),"Cannot lengthen source Bend");
     }),"Bend width edit was ignored");
     run(host,"regenerate");
-    near(state->session.calculated_boundaries().back().volume,52*std::numbers::pi/2*(5+2*document::sheet_metal_defaults(state->session.document()).k_factor)*2+52*12*2);
+    near(state->session.calculated_boundaries().back().volume,52*std::numbers::pi/2*6*2+52*12*2);
     run(host,"new",{{"type","part"},{"name","opposite-bend-edge"}});
     const auto flip_id=live.active_document_id();
     const auto base=run(host,"flat.create",{{"width_mm",40.},{"height_mm",30.}}).data.at("container").get<std::string>();

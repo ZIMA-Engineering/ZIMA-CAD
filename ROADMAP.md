@@ -108,26 +108,21 @@ See [Drawings](doc/DRAWINGS.md), [Sketcher](doc/SKETCHER.md),
 
 ## Agreed next steps for Part (2026-09-06)
 
-**Current sheet-metal checkpoint (2026-09-18):** Sheet Profile and Revolved Sheet
-creation, both Sheet Cut methods, lightweight cut previews, configurable cut
-tolerance and Flat attachment to Revolved Sheet end edges are implemented and
-verified. The next agreed direction is a pair of separate history operations,
-Unbend and Bend Back, developed together and carrying cuts between states.
-The proposed first milestone covers Flat, Sheet
-Profile and cylindrical Revolved Sheet, followed by conical regions. See the
-[Unbend development handoff](doc/SHEET_METAL.md#next-development-separate-unbend-2026-09-18).
-The current request is to document, commit and push the completed work; it does
-not start implementation of that pair. The general Part order below remains unchanged
-after the user's current sheet-metal work.
+**Current sheet-metal checkpoint (2026-09-18):** separate Unbend and Bend Back
+history operations now cover cylindrical/conical sheet regions, attached planar
+material, and material edits between states. Original geometry and shared
+container placement remain unchanged. See the [state-operation implementation
+and verification status](doc/SHEET_STATE_DEVELOPMENT.md). The old per-profile
+state toggle is removed. Closed 360-degree regions still need an explicit seam;
+bending an existing flat sheet along a line is a separate future command.
+The user requested documentation, commit and push after verification. The general
+Part order below remains unchanged after this sheet-metal work.
 
-**Earlier next-session priority agreed on 2026-09-16:** finish the Bend trajectory-reference
-behavior exposed by `Projects/03.prtz` before resuming the general Part sequence.
-The attached Flat stays at its last valid frame on Unbend because a reference to
-the authored arc endpoint conflicts with the moved End cap and end profile.
-Attachment through the end-profile endpoint was verified in both states. See
-[the diagnosis and acceptance scope](doc/SHEET_METAL.md#open-issue-trajectory-endpoint-references-during-unbend).
-The user deferred this fix until the next session and requested documentation,
-commit, push and a Windows release of today's completed work.
+**Earlier sheet reference issue:** the trajectory/cross-branch behavior exposed
+by `Projects/03.prtz` is superseded by derived state geometry with immutable
+original references. Source features continue to evaluate forward in history;
+their authored placement is not rewritten by state operations. See
+[Sheet Metal](doc/SHEET_METAL.md#reference-study-2026-09-16).
 
 Briefly remind the user of this plan when development next resumes. This is a work
 order, not authorization to implement every feature immediately. Newer user

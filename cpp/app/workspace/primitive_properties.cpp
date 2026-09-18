@@ -8,6 +8,7 @@
 #include <zima/workspace/shell_operations.hpp>
 #include <zima/workspace/edge_treatment_operations.hpp>
 #include <zima/document/bend.hpp>
+#include <zima/document/sheet_state.hpp>
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -16,6 +17,9 @@ using namespace workspace_detail;
 void AssemblyWorkspaceWindow::show_primitive_properties(
     zima::document::FeatureKind feature_kind,
     const std::string& container_id, bool sheet_metal) {
+    if(zima::document::is_sheet_state(feature_kind)) {
+        show_sheet_state_properties(feature_kind==zima::document::FeatureKind::Unbend,container_id);return;
+    }
     if (feature_kind == zima::document::FeatureKind::Flat) {
         const auto* part=workspace_.open_part(workspace_.active_document_id());
         const auto* feature=part?part->session.document().find_container(container_id):nullptr;

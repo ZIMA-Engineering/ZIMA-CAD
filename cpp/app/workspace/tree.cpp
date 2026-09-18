@@ -1,4 +1,5 @@
 #include "workspace_internal.hpp"
+#include "../sheet_state_dialog.hpp"
 #include "../part_reference_index.hpp"
 
 namespace zima::app {
@@ -368,6 +369,8 @@ void AssemblyWorkspaceWindow::add_pending_tree_item(QTreeWidgetItem* parent,
             feature = dialog->pending;
         else if (auto* dialog = dynamic_cast<ShaftThreadDialog*>(tree_edit_dialog_.data()))
             feature = dialog->pending();
+        else if (auto* dialog = dynamic_cast<SheetStateDialog*>(tree_edit_dialog_.data()))
+            feature = dialog->pending_value();
         else if (auto* dialog = dynamic_cast<SketchPropertiesDialog*>(tree_edit_dialog_.data())) {
             auto value = dialog->pending_value();
             pending_sketch = std::move(value.first);

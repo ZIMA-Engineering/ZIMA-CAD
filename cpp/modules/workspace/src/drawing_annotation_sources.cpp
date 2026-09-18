@@ -164,7 +164,7 @@ drawing_annotation_sources(const Workspace *workspace,
         document::visit_feature_sketches(feature,[&](const auto& data,std::size_t stage) {
           // The circular path dimension remains an authored radius reference
           // even when the two physical side edges are width-transition curves.
-          if(stage==0&&(feature.bend.unbend||feature.bend.angle_degrees==0))return;
+          if(stage==0&&feature.bend.angle_degrees==0)return;
           const auto sketch=sketcher::Sketch::from_serialized(data);
           auto packet=sketch.viewer_mesh();
           if(const auto* body=part.body_owner_for_object(feature.id))packet=part.place_body_mesh(std::move(packet),body->scope.id);

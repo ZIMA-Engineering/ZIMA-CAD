@@ -1,9 +1,70 @@
 #include "workspace_internal.hpp"
 #include <zima/workspace/metadata_operations.hpp>
 #include <zima/workspace/engineering_metadata_operations.hpp>
+#include <zima/workspace/sheet_state_operations.hpp>
+#include <zima/workspace/operation_input.hpp>
+#include "../sheet_state_dialog.hpp"
+#include "../sheet_state_selection.hpp"
 
 namespace zima::app {
 using namespace workspace_detail;
+
+void AssemblyWorkspaceWindow::show_sheet_state_properties(bool unfold,const std::string& container_id) {
+    if(properties_dialog_)return;
+    auto* part=workspace_.open_part(workspace_.active_document_id());if(!part)return;
+    try {
+        const auto document_id=workspace_.active_document_id();
+        const auto occurrence=resolve_active_occurrence(document_id);
+        if(!occurrence)throw std::invalid_argument("Activate the exact Part occurrence first.");
+        const auto* input=workspace::calculated_operation_input(part->session,container_id);
+        if(!input)throw std::invalid_argument("Sheet state requires a calculated input body.");
+        const auto* stored=part->session.document().find_container(container_id);
+        auto feature=stored?*stored:document::PartDocument::create_sketch_container();
+        feature.feature_kind=unfold?document::FeatureKind::Unbend:document::FeatureKind::BendBack;
+        if(!stored)feature.name=(unfold?tr("Rozvinout"):tr("Ohnout zpět")).toStdString();
+        std::map<std::string,QString> available;
+        for(const auto& region:workspace::sheet_state_regions(part->session.document(),container_id))
+            if(kernel::sheet_material::eligible(region,unfold))
+                if(const auto* source=part->session.document().find_container(region.owner_id))available.emplace(region.owner_id,QString::fromStdString(source->name));
+        const auto rollback=stored?part->session.rollback_boundary(container_id):std::optional<document::HistoryRollbackBoundary>{};
+        if(stored&&!rollback)throw std::invalid_argument("Regenerate the Part before editing this feature.");
+        auto* dialog=new SheetStateDialog(feature,available,[this,document_id](auto pending){
+            static_cast<void>(workspace::commit_sheet_state(workspace_,kernel_,document_id,std::move(pending)));
+        },this);
+        properties_dialog_=dialog;properties_dialog_instance_path_=*occurrence;track_tree_edit(dialog);
+        if(rollback)part_rollback_=PartRollbackContext{document_id,*occurrence,rollback->history_index,rollback->input_body};
+        tree_->setProperty("commandSelectionActive",true);
+        const auto selection=std::make_shared<SheetStateSelection>(input->mesh);
+        const auto update=[this,dialog,selection,path=*occurrence] {
+            viewer_->set_original_container_selection(false);
+            viewer_->set_result_face_selection(true);
+            viewer_->set_selection_contract({viewer::CandidateKind::Container,viewer::CandidateKind::Face,viewer::CandidateKind::Edge});
+            viewer_->set_candidate_filter([dialog,selection,path](const auto& candidate){return dialog->selecting()&&
+                candidate.instance_path==path&&dialog->available(selection->resolve(candidate));},false);
+            viewer_->set_feature_selected_edges(selection->wire(dialog->highlighted(),path));
+        };
+        feature_reference_pick_=[this,dialog,selection,path=*occurrence](const auto& candidate) {
+            if(!dialog->selecting()||candidate.instance_path!=path||
+                !viewer::matches_selection_filter(candidate,viewer_->selection_filter()))return;
+            auto region=selection->resolve(candidate);
+            // Tree rows address source features directly; View candidates
+            // have already passed the calculated-input candidate filter.
+            if(region.empty()&&candidate.kind==viewer::CandidateKind::Container&&dialog->available(candidate.owner_id))region=candidate.owner_id;
+            if(!dialog->available(region))return;
+            dialog->toggle(region);viewer_->clear_selection();
+        };
+        feature_reference_end_=[dialog]{dialog->end_entry();};
+        dialog->selection_changed=update;
+        connect(dialog,&QDialog::finished,this,[this,dialog] {
+            dialog->selection_changed={};feature_reference_pick_={};feature_reference_end_={};properties_dialog_=nullptr;
+            part_rollback_.reset();properties_dialog_instance_path_.clear();
+            viewer_->set_original_container_selection(false);viewer_->set_candidate_filter({});viewer_->set_selection_contract({});
+            viewer_->set_result_face_selection(false);viewer_->set_feature_selected_edges({});viewer_->clear_selection();
+            tree_->setProperty("commandSelectionActive",false);preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();
+        });
+        preserve_view_on_refresh_=true;refresh_scene();dialog->show();update();
+    }catch(const std::exception& error){state_->setText(tr(error.what()));}
+}
 
 
 void AssemblyWorkspaceWindow::regenerate_active_document() {

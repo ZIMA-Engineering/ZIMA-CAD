@@ -57,7 +57,6 @@ template<class Doc> void add_feature_references(std::vector<FamilyReference>& ou
     };
     if(primitive_definition(f.feature_kind))for(const auto& [key,value]:primitive_dimensions(f))add(key,value);
     else for(const auto& [key,value]:feature_slots(f))add(key,*value);
-    if(f.feature_kind==FeatureKind::Bend)add("unbend",f.bend.unbend?1:0);
     if(f.feature_kind==FeatureKind::Sketch || f.feature_kind==FeatureKind::Holes || f.feature_kind==FeatureKind::Bend)
         for(const auto& sketch:doc.sketches)if(sketch.owner_container_id==f.id)add("profile_offset",sketch.plane_offset);
 }
@@ -75,10 +74,6 @@ template<class Doc> void add_sketch_references(std::vector<FamilyReference>& out
 }
 void assign_feature(document::HistoryContainer& f,const std::string& key,double value) {
     if(f.value_locks.contains(key))throw std::invalid_argument("The family dimension is locked.");
-    if(f.feature_kind==FeatureKind::Bend && key=="unbend") {
-        if(value!=0 && value!=1)throw std::invalid_argument("Bend state must be 0 (Bend) or 1 (Unbend).");
-        f.bend.unbend=value==1;return;
-    }
     if(primitive_definition(f.feature_kind)){assign_primitive_dimensions(f,{{key,value}});return;}
     auto slots=feature_slots(f);const auto found=slots.find(key);
     if(found==slots.end())throw std::invalid_argument("The family dimension is not editable.");
