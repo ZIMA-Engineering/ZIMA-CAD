@@ -29,6 +29,23 @@ int verify_sheet_state_ui(QApplication& application,const std::filesystem::path&
             check(activate_test_body(application,window,body),"Cannot activate the sheet state body.");flush();
             auto* sheet_mode=window.findChild<QAction*>("applicationModeAction2");
             check(sheet_mode,"Missing Sheet Metal application mode.");sheet_mode->trigger();flush();
+            auto* sheet_toolbar=window.findChild<QToolBar*>("toolsToolbar");
+            check(sheet_toolbar&&sheet_toolbar->findChildren<QWidget*>("greenToolbarSeparator",Qt::FindDirectChildrenOnly).size()==5,
+                "Sheet Metal toolbar does not separate Properties, Revolved Sheet, Sheet Cut and Bend Back.");
+            if(!context) {
+                QImage icons(720,135,QImage::Format_ARGB32);icons.fill(window.palette().color(QPalette::Window));
+                QPainter painter(&icons);painter.setPen(window.palette().color(QPalette::WindowText));
+                int column=0;
+                for(const auto* name:{"flatAction","bendAction","sheetRevolutionAction","sheetCutAction","unbendAction","bendBackAction"}) {
+                    const auto* action=window.findChild<QAction*>(name);check(action&&!action->icon().isNull(),"Sheet command icon is missing.");
+                    painter.drawPixmap(column*120+36,5,action->icon().pixmap(48,48));
+                    painter.drawPixmap(column*120+48,65,action->icon().pixmap(24,24));
+                    painter.drawText(QRect(column*120,100,120,28),Qt::AlignCenter,action->text());++column;
+                }
+                painter.end();icons.save(QString::fromStdString((directory/"sheet-command-icons.png").string()));
+                auto* piping=window.findChild<QAction*>("applicationModeAction4");
+                check(piping&&!piping->isVisible(),"Retired Piping mode is still visible.");
+            }
             auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>("modelWorkspace"));
             auto* tree=window.findChild<QTreeWidget*>("documentTree");check(view&&tree,"Missing sheet state workspace.");
             const auto tree_path=[](QTreeWidgetItem* row) {
@@ -60,7 +77,7 @@ int verify_sheet_state_ui(QApplication& application,const std::filesystem::path&
             unfold_action->trigger();flush();check(dialog(),"Unbend did not open its internal dialog.");
             check(dialog()->parentWidget()==&window&&dialog()->windowFlags().testFlag(Qt::SubWindow),"Unbend opened outside the internal properties contract.");
             check(!dialog()->findChild<QPushButton*>("containerOriginSelectionButton"),"Sheet state incorrectly requested an Origin placement reference.");
-            dialog()->findChild<QCheckBox*>("sheetStateAll")->setChecked(false);flush();
+            dialog()->findChild<QCheckBox*>("sheetStateIndividual")->setChecked(true);flush();
             view->set_selection_filter(viewer::SelectionFilter::Axes);check(!hit(),"Unbend bypassed the axes-only user filter.");
             view->set_selection_filter(viewer::SelectionFilter::All);view->fit_all();flush();
             QTreeWidgetItem* source_row{};
@@ -78,23 +95,73 @@ int verify_sheet_state_ui(QApplication& application,const std::filesystem::path&
             dialog()->reject();flush();check(!dialog(),"Cancel left the sheet state command active.");
             unfold_action->trigger();flush();check(dialog(),"Cannot restart Unbend after Cancel.");
             dialog()->buttons()->button(QDialogButtonBox::Ok)->click();flush();check(!dialog(),"Unbend OK failed to commit.");
+            check(std::ranges::any_of(view->mesh().axes,[&](const auto& axis){return axis.reference.instance_path==active_path&&axis.reference.semantic_key.starts_with("sheet-bend-line:from:");}),"View did not receive the active bend line.");
+            window.grab().save(QString::fromStdString((fixture/"sheet-state-bend-line.png").string()));
+            auto* selection_action=window.findChild<QAction*>("viewSelectionAction");
+            check(selection_action,"Missing ordinary View Selection action.");
+            check(selection_action->isChecked(),"Unbend did not restore ordinary View Selection.");
+            view->fit_all();flush();
             QTreeWidgetItem* edited{};
             for(QTreeWidgetItemIterator item(tree);*item;++item)if((*item)->data(0,Qt::UserRole+3)=="part-container"&&
                 tree_path(*item)==active_path&&(*item)->text(0).contains(unfold_action->text())) {edited=*item;break;}
-            check(edited,"Unbend has no editable history row.");window.show_tree_item_properties(edited);flush();
+            check(edited,"Unbend has no editable history row.");
+            const auto state_id=edited->data(0,Qt::UserRole).toString().toStdString();
+            check(std::ranges::any_of(view->mesh().triangle_references,[&](const auto& face) {
+                    return face.instance_path==active_path&&face.owner_id==state_id&&
+                        face.display_owner_id==feature.id;
+                }),"Unbend View geometry lost its authored display owner.");
+            bool authored_offered=false;
+            for(int y=5;y<view->height();y+=7)for(int x=5;x<view->width();x+=7)
+                for(const auto& candidate:view->selection_candidates_at({double(x),double(y)}))
+                    if(candidate.kind==viewer::CandidateKind::Container&&candidate.instance_path==active_path) {
+                        check(candidate.owner_id!=state_id,"Unbend is selectable as an ordinary View Container.");
+                        authored_offered|=candidate.owner_id==feature.id;
+                    }
+            check(authored_offered,"The authored sheet feature is not selectable through Unbend geometry.");
+            window.show_tree_item_properties(edited);flush();
             check(dialog(),"Unbend editing did not reopen the shared dialog.");
             check(std::ranges::any_of(view->mesh().triangle_references,[&](const auto& face){return face.instance_path==active_path&&face.owner_id==feature.id;}),
                 "Unbend editing did not display the real folded input.");
             dialog()->reject();flush();
             back_action->trigger();flush();check(dialog(),"Bend Back did not open.");
-            dialog()->findChild<QCheckBox*>("sheetStateAll")->setChecked(false);flush();
+            dialog()->findChild<QCheckBox*>("sheetStateIndividual")->setChecked(true);flush();
             const auto unfolded_hit=hit();check(unfolded_hit.has_value(),"Derived Unbend geometry cannot select its source for Bend Back.");
             click(*unfolded_hit,Qt::LeftButton);check(dialog()->selected()==std::vector<std::string>{feature.id},"Derived source ancestry was lost in View selection.");
             window.grab().save(QString::fromStdString((fixture/"sheet-state-properties.png").string()));
             QMouseEvent middle(QEvent::MouseButtonDblClick,*unfolded_hit,QPointF(view->mapToGlobal(unfolded_hit->toPoint())),Qt::MiddleButton,Qt::MiddleButton,Qt::NoModifier);
             QApplication::sendEvent(view,&middle);flush();check(!dialog(),"Bend Back middle-button double-click did not commit.");
+            check(std::ranges::none_of(view->mesh().axes,[&](const auto& axis){return axis.reference.instance_path==active_path&&axis.reference.semantic_key.starts_with("sheet-bend-line:from:");}),"View retained a flat bend line after Bend Back.");
             check(window.active_occurrence_path_for_test()==active_path,"Sheet state changed the active occurrence.");
             if(context)check(std::ranges::any_of(view->mesh().triangle_references,[&](const auto& face){return face.instance_path==passive_path;}),"Sheet state hid the passive Assembly context.");
+            window.close();flush();
+        }
+        {
+            auto part=document::PartDocument::load("cpp/tests/fixtures/sheet/tilted-cone-with-bends.prtz");
+            auto unbend=document::PartDocument::create_sketch_container();unbend.feature_kind=document::FeatureKind::Unbend;unbend.name="Rozvinout";
+            part.insert_history_entry(document::PartHistoryKind::Feature,unbend.id);part.history.push_back(unbend);
+            kernel::OcctKernel kernel;const auto calculated=workspace::calculate_part_with_resolved_references(kernel,part);
+            check(!calculated.empty()&&calculated.back().calculation_errors.empty(),"Cannot calculate the tilted-cone GUI fixture.");
+            const auto rotation=std::ranges::find_if(part.history,[](const auto& f){return f.revolution.sheet_metal;});
+            check(rotation!=part.history.end(),"Tilted cone has no source feature.");
+            const auto fixture=directory/"sheet-state-cone";std::filesystem::create_directories(fixture);
+            const auto path=fixture/"tilted-cone.prtz";part.save(path,calculated);
+            app::AssemblyWorkspaceWindow window(QString::fromStdString(fixture.string()));window.resize(1200,850);window.show();
+            check(window.open_document_path(QString::fromStdString(path.string())),"Cannot open the tilted-cone GUI fixture.");flush();
+            check(activate_test_body(application,window,part.body_history.bodies().front().scope.id),"Cannot activate the tilted-cone body.");flush();
+            window.findChild<QAction*>("applicationModeAction2")->trigger();flush();
+            auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>("modelWorkspace"));check(view,"Missing tilted-cone View.");
+            view->fit_all();flush();
+            const auto rotation_visible=[&] {return std::ranges::any_of(view->mesh().axes,[&](const auto& a){return a.reference.owner_id==rotation->id&&a.reference.semantic_key=="axis:primary";});};
+            check(!rotation_visible(),"Unfolded cone displays its rotation axis.");
+            check(std::ranges::count_if(view->mesh().axes,[](const auto& a){return a.reference.semantic_key.starts_with("sheet-bend-line:from:");})==3,"Unfolded model is missing one of its three bend lines.");
+            window.grab().save(QString::fromStdString((fixture/"tilted-cone-unfolded.png").string()));
+            window.findChild<QAction*>("bendBackAction")->trigger();flush();
+            app::SheetStateDialog* dialog{};
+            for(auto* item:window.findChildren<QDialog*>())if(auto* candidate=dynamic_cast<app::SheetStateDialog*>(item);candidate&&candidate->isVisible())dialog=candidate;
+            check(dialog&&!dialog->findChild<QCheckBox*>("sheetStateIndividual")->isChecked(),"Bend Back did not default to processing all regions.");
+            dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+            check(rotation_visible(),"Bend Back did not restore the cone rotation axis in View.");
+            view->fit_all();flush();window.grab().save(QString::fromStdString((fixture/"tilted-cone-folded.png").string()));
             window.close();flush();
         }
         std::cout<<"Sheet state GUI: Part and repeated Assembly occurrences, common picking/filter, toggle, MMB, Cancel and OK passed\n";

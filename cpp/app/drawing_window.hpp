@@ -56,6 +56,7 @@ public:
     void load_frame_for_test(const std::filesystem::path& path);
     void load_title_block_for_test(const std::filesystem::path& path);
     std::optional<QPointF> title_field_center_for_test(const std::string& id) const;
+    std::optional<std::string> title_field_text_for_test(const std::string& id) const;
 
 private:
     zima::drawing::DrawingDocument document_;

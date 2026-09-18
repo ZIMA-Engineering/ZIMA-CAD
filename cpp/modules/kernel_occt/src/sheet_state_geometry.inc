@@ -232,12 +232,24 @@ PrimitiveData transform(const PrimitiveData& original_input,const std::vector<Tr
         double tolerance,const std::string& owner,const std::string& created_region={}) {
     if(transitions.empty())return original_input;
     auto input=original_input;
-    for(const auto& transition:transitions)if(transition.before.unfolded!=transition.after.unfolded)
+    const auto applies=[&](const Transition& transition) {
+        return created_region.empty()||transition.before.owner_id==created_region;
+    };
+    if(std::ranges::none_of(transitions,applies))return input;
+    if(!created_region.empty()) {
+        const auto& transition=*std::ranges::find_if(transitions,applies);
+        if(transition.before.unfolded==transition.after.unfolded)
+            return deform(input,transition,false,tolerance);
+    }
+    for(const auto& transition:transitions)if(applies(transition)&&transition.before.unfolded!=transition.after.unfolded)
         input=regularize_hem(input,transition,tolerance,owner);
     if(input.shape.IsNull())throw std::invalid_argument("Sheet state requires an input body.");
     TopTools_ListOfShape arguments,tools;arguments.Append(input.shape);
     std::vector<OwnedFace> partition_faces;
     for(const auto& transition:transitions) {
+        // Authored contributions already have an explicit material owner.
+        // Foreign bends must not introduce unrelated cuts into that domain.
+        if(!applies(transition))continue;
         const auto& region=transition.before;
         if(region.kind==SheetMaterialDefinition::Kind::Plane)continue;
         for(const bool end:{false,true}) {
@@ -277,7 +289,10 @@ PrimitiveData transform(const PrimitiveData& original_input,const std::vector<Tr
             GProp_GProps properties;BRepGProp::VolumeProperties(piece.shape,properties);
             const auto center=properties.CentreOfMass();
             const bool continuation=sheet_material::on_continuation(transition->before,{center.X(),center.Y(),center.Z()});
-            piece=deform(piece,*transition,continuation,tolerance);
+            try {piece=deform(piece,*transition,continuation,tolerance);}
+            catch(const std::exception& error) {
+                throw std::runtime_error("Sheet region "+transition->before.owner_id+": "+error.what());
+            }
         }
         if(result.shape.IsNull())result=std::move(piece);
         else {
@@ -295,8 +310,30 @@ PrimitiveData transform(const PrimitiveData& original_input,const std::vector<Tr
     return result;
 }
 void identify(PrimitiveData& result,const std::string& owner) {
-    // New original children keep recoverable ancestry and canonical material ownership.
-    const auto identify=[&](auto& entries){for(auto& item:entries){auto& r=item.reference;r.semantic_key="sheet-state:from:"+r.owner_id+":"+r.semantic_key;r.owner_id=owner;}};
-    identify(result.faces);identify(result.edges);identify(result.vertices);
+    // The state operation still owns the derived topology identity needed by
+    // later references.  Ordinary View selection, however, must pass through
+    // to the authored feature.  Preserve the first non-state owner across any
+    // number of Unbend/Bend Back cycles as separate presentation metadata.
+    const auto identify_face=[&](auto& item) {
+        auto& reference=item.reference;
+        if(reference.display_owner_id.empty()&&reference.owner_id!=owner)
+            reference.display_owner_id=reference.owner_id;
+        reference.semantic_key="sheet-state:from:"+reference.owner_id+":"+reference.semantic_key;
+        reference.owner_id=owner;
+    };
+    const auto identify_edge=[&](auto& item) {
+        auto& reference=item.reference;
+        if(reference.display_owner_id.empty()&&reference.owner_id!=owner)
+            reference.display_owner_id=reference.owner_id;
+        reference.semantic_key="sheet-state:from:"+reference.owner_id+":"+reference.semantic_key;
+        reference.owner_id=owner;
+    };
+    for(auto& item:result.faces)identify_face(item);
+    for(auto& item:result.edges)identify_edge(item);
+    for(auto& item:result.vertices) {
+        auto& reference=item.reference;
+        reference.semantic_key="sheet-state:from:"+reference.owner_id+":"+reference.semantic_key;
+        reference.owner_id=owner;
+    }
 }
 } // namespace sheet_state_geometry

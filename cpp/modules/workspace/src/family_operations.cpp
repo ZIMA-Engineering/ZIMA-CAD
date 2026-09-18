@@ -3,7 +3,8 @@
 #include <zima/workspace/engineering_metadata_operations.hpp>
 #include <zima/workspace/primitive_operations.hpp>
 #include <zima/workspace/profile_operations.hpp>
-#include <zima/workspace/drawing_view_operations.hpp>
+#include <zima/workspace/drawing_operations.hpp>
+#include <zima/workspace/drawing_sources.hpp>
 #include <zima/document/feature_sketches.hpp>
 #include <zima/document/bend.hpp>
 #include <zima/document/document_copy_json.hpp>
@@ -216,10 +217,10 @@ template<class Doc> Doc member(const Doc& base,const document::FamilyTable& tabl
 }
 template<class Doc> Doc merge_member(const Doc& base,const Doc& before,Doc next) {
     const auto nested=document::parse_family_table(next.family_table);
-    if(!nested.columns.empty()||!nested.instances.empty())throw std::invalid_argument("An instance cannot own a nested Family Table. Edit the parent table instead.");
+    if(!nested.columns.empty()||!nested.instances.empty())throw std::invalid_argument("A variant cannot own a nested Family Table. Edit the parent table instead.");
     auto table=document::parse_family_table(base.family_table);
     auto row=std::ranges::find(table.instances,before.family.row_id,&document::FamilyInstance::id);
-    if(row==table.instances.end())throw std::invalid_argument("Family instance no longer exists.");
+    if(row==table.instances.end())throw std::invalid_argument("Family variant no longer exists.");
     const auto old_values=catalog(before),new_values=catalog(next),base_values=catalog(base);
     std::vector<std::string> removed;
     for(const auto& [name,binding]:table.bindings) {
@@ -308,7 +309,7 @@ bool commit_family_part(Workspace& live,const std::string& id,document::PartDocu
         if constexpr(requires{value.session;}) {
             const auto& doc=value.session.document();
             if(doc.family.parent_id==owner&&std::ranges::none_of(table.instances,[&](const auto& row){return row.id==doc.family.row_id;}))
-                throw std::invalid_argument("Close the instance tab before deleting its Family Table row.");
+                throw std::invalid_argument("Close the variant tab before deleting its Family Table row.");
         }
     },state);
     const kernel::OcctKernel kernel;
@@ -351,7 +352,7 @@ bool commit_family_assembly(Workspace& live,const std::string& id,assembly::Asse
         if constexpr(requires{value.session;}) {
             const auto& doc=value.session.document();
             if(doc.family.parent_id==owner&&std::ranges::none_of(table.instances,[&](const auto& row){return row.id==doc.family.row_id;}))
-                throw std::invalid_argument("Close the instance tab before deleting its Family Table row.");
+                throw std::invalid_argument("Close the variant tab before deleting its Family Table row.");
         }
     },state);
     const kernel::OcctKernel kernel;
@@ -380,7 +381,7 @@ document::PartDocument family_part_source(document::PartDocument base,std::vecto
     if(expected.empty()||expected==base.document_id)return base;
     for(const auto& [id,packet]:base.family.evaluated)if(packet->at("document_id")==expected)
         return document::PartDocument::from_serialized(*packet,&calculated);
-    throw DrawingOperationError("source_identity","The source file does not contain the requested model or evaluated family instance.");
+    throw DrawingOperationError("source_identity","The source file does not contain the requested model or evaluated family variant.");
 }
 assembly::AssemblyDocument family_assembly_source(assembly::AssemblyDocument base,const std::string& expected,bool resolve_sources) {
     if(expected.empty()||expected==base.document_id)return base;
@@ -397,7 +398,7 @@ assembly::AssemblyDocument family_assembly_source(assembly::AssemblyDocument bas
         });
         return member;
     }
-    throw DrawingOperationError("source_identity","The source file does not contain the requested model or evaluated family instance.");
+    throw DrawingOperationError("source_identity","The source file does not contain the requested model or evaluated family variant.");
 }
 void restore_family_tabs(Workspace& live,const std::string& owner) {
     FamilyTransaction transaction(live);
@@ -444,7 +445,7 @@ std::string open_family_instance(Workspace& live,const kernel::OcctKernel& kerne
     const auto id=family_owner(live,requested);
     const auto table=family_table(live,id);validate_family_references(live,id,table);
     const auto row=std::ranges::find(table.instances,name,&document::FamilyInstance::name);
-    if(row==table.instances.end()||row->id.empty())throw std::invalid_argument("Family instance no longer exists.");
+    if(row==table.instances.end()||row->id.empty())throw std::invalid_argument("Family variant no longer exists.");
     const auto instance_id=id+":family:"+row->id;
     if(live.find(instance_id)){if(activate){live.display_top_level(instance_id);live.activate(instance_id);}return instance_id;}
     FamilyTransaction transaction(live);
@@ -472,18 +473,21 @@ std::string open_family_instance(Workspace& live,const kernel::OcctKernel& kerne
     if(activate){live.display_top_level(instance_id);live.activate(instance_id);}return instance_id;
 }
 void select_family_drawing_source(drawing::DrawingDocument& drawing,const Workspace& live,
-    const std::string& source,const std::filesystem::path& drawing_path) {
+    const std::string& sheet_id,const std::string& source) {
     const auto generic=drawing.source_document_id.substr(0,drawing.source_document_id.find(":family:"));
     if(!generic.empty()&&source!=generic&&!source.starts_with(generic+":family:"))throw std::invalid_argument("The model does not belong to this Drawing family.");
     std::filesystem::path path;std::string name;
     if(const auto* part=live.open_part(source)){path=part->path;name=part->session.document().name;}
     else if(const auto* assembly=live.open_assembly(source)){path=assembly->path;name=assembly->session.document().name;}
-    else throw std::invalid_argument("Open the family instance before selecting it in the Drawing.");
+    else throw std::invalid_argument("Open the family variant before selecting it in the Drawing.");
     if(path.empty()||!std::filesystem::is_regular_file(path))throw std::invalid_argument("Save the owning family document before using it as a Drawing source.");
-    auto next=drawing;const auto old=next.source_document_id;
-    next.source_document_id=source;next.source_path=path;next.source_name=name;
-    for(auto& sheet:next.sheets)for(auto& view:sheet.views)if(view.source_document_id==old){view.source_document_id=source;view.source_path=path;}
-    static_cast<void>(regenerate_drawing_views(next,&live,drawing_path));
+    auto next=drawing;auto* sheet=next.find_sheet(sheet_id);
+    if(!sheet)throw std::invalid_argument("The Drawing sheet no longer exists.");
+    if(next.source_document_id.empty()) {
+        next.source_document_id=source;next.source_path=path;next.source_name=name;
+    }
+    sheet->bom_source_document_id=source;
+    sheet->bom_rows=build_bom_rows_for_source(source,path,&live);
     drawing=std::move(next);
 }
 }

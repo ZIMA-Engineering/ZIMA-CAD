@@ -677,6 +677,7 @@ private:
     void edit_material();
     void edit_relations();
     void edit_family_table();
+    void edit_family_table_for_document(std::string document_id);
     void update_family_selection();
     bool accept_family_reference(const zima::viewer::ViewerCandidate&, bool show_dimensions = false);
     void edit_file_settings(bool sheet_metal = false);

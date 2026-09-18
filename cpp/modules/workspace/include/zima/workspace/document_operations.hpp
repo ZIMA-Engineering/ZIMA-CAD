@@ -32,6 +32,11 @@ private:
 
 [[nodiscard]] DocumentSave prepare_document_save(const Workspace& workspace,
     const std::string& document_id, const std::filesystem::path& target);
+// Normal Save is a no-op for an unchanged document whose native destination
+// still exists. Save As deliberately uses prepare_document_save() directly.
+[[nodiscard]] std::optional<DocumentSave> prepare_document_save_if_needed(
+    const Workspace& workspace, const std::string& document_id,
+    const std::filesystem::path& target);
 // False if the document was closed or retargeted while writing. Never calculates
 // geometry or changes active/displayed document. Newer edits remain dirty.
 [[nodiscard]] bool complete_document_save(Workspace& workspace, const SavedDocument& saved);

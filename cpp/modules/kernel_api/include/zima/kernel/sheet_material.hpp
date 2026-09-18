@@ -186,4 +186,52 @@ inline History regions_before(const std::vector<HistoryOperation>& operations,st
     }
     return history;
 }
+inline bool is_bend_line(const AxisReference& reference) {
+    return reference.semantic_key.starts_with("sheet-bend-line:from:");
+}
+// A development centerline is halfway through the angular material span,
+// on the inner skin. Cones use the generator of the annular-sector midpoint.
+inline std::vector<ViewerAxis> bend_lines(const std::vector<HistoryOperation>& operations,
+        std::size_t limit,const History& history,const std::string& owner) {
+    std::vector<ViewerAxis> result;
+    for(const auto& region:history.regions) {
+        if(!region.unfolded||region.kind==SheetMaterialDefinition::Kind::Plane)continue;
+        const auto source=std::ranges::find_if(operations.begin(),operations.begin()+std::min(limit,operations.size()),
+            [&](const auto& op){return op.owner_id==region.owner_id&&op.sheet_material;});
+        if(source==operations.begin()+std::min(limit,operations.size()))
+            throw std::runtime_error("Bend line source is missing.");
+        if(const auto* revolve=std::get_if<RevolutionRequest>(&source->primitive)) {
+            const auto* profile=std::get_if<ExtrusionRequest::CurvedProfile>(&revolve->outer_profile);
+            const auto* generator=profile&&profile->curves.size()==1?std::get_if<ExtrusionRequest::LineCurve>(&profile->curves.front()):nullptr;
+            if(!generator||revolve->outer_edge_source_ids.size()!=1)
+                throw std::runtime_error("Revolved sheet bend line requires its authored generator.");
+            const double first=coordinates(*source->sheet_material,generator->start).along;
+            const double last=coordinates(*source->sheet_material,generator->end).along;
+            const Coordinate middle{(first+last)/2,region.angle*region.neutral_radius/2,
+                region.thickness_sign<0?-region.thickness:0};
+            result.push_back({point(region,middle),basis(region,middle)[0],std::abs(last-first),
+                {owner,"sheet-bend-line:from:"+region.owner_id+":"+revolve->outer_edge_source_ids.front(),{}},"Osa ohybu"});
+            continue;
+        }
+        const auto* group=std::get_if<FeatureGroupRequest>(&source->primitive);
+        const Sweep3DRequest* sweep=nullptr;
+        if(group)for(const auto& child:group->children)if(const auto* candidate=std::get_if<Sweep3DRequest>(&child))
+            if(std::ranges::any_of(candidate->path_segments,[&](const auto& segment){return segment.source_id==region.curved_source_id;}))sweep=candidate;
+        if(!sweep||sweep->sections.size()!=2)throw std::runtime_error("Bend line requires its authored start and end sections.");
+        double low=0,high=0;
+        for(const auto& section:sweep->sections) {
+            const auto* polygon=std::get_if<ExtrusionRequest::PolygonProfile>(&section.profile.outer_profile);
+            if(!polygon||polygon->vertices.empty())throw std::runtime_error("Bend line section is missing.");
+            double a=INFINITY,b=-INFINITY;
+            for(const auto& p:polygon->vertices) {
+                const double u=dot(sub(p,source->sheet_material->origin),source->sheet_material->along);
+                a=std::min(a,u);b=std::max(b,u);
+            }
+            low+=a*.5;high+=b*.5;
+        }
+        result.push_back({point(region,{(low+high)/2,region.angle*region.neutral_radius/2,-region.thickness}),
+            region.along,high-low,{owner,"sheet-bend-line:from:"+region.owner_id+":"+region.curved_source_id,{}},"Osa ohybu"});
+    }
+    return result;
+}
 } // namespace zima::kernel::sheet_material

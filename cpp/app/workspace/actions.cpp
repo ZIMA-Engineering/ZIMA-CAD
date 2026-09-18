@@ -348,7 +348,10 @@ void AssemblyWorkspaceWindow::create_actions() {
         t("application.piping", "Potrubí"),
         t("application.drawing", "Výkres")};
     for (std::size_t index = 0; index < application_actions_.size(); ++index) {
-        auto* action = applications->addAction(application_names[index]);
+        auto* action = new QAction(application_names[index],this);
+        if(static_cast<ApplicationMode>(index)!=ApplicationMode::Piping)
+            applications->addAction(action);
+        else action->setVisible(false);
         action->setObjectName(
             QStringLiteral("applicationModeAction%1").arg(index));
         action->setCheckable(true);
@@ -376,6 +379,7 @@ void AssemblyWorkspaceWindow::create_actions() {
     connect(relations_action_, &QAction::triggered, this, &AssemblyWorkspaceWindow::edit_relations);
     family_table_action_ = tools->addAction(t("menu.tools.family_table", "Family Table..."));
     family_table_action_->setObjectName("familyTableAction");
+    family_table_action_->setIcon(resource_icon("family-table"));
     connect(family_table_action_, &QAction::triggered, this, &AssemblyWorkspaceWindow::edit_family_table);
     tools->addSeparator();
     file_settings_action_ = tools->addAction(
@@ -949,6 +953,7 @@ void AssemblyWorkspaceWindow::create_actions() {
     view_toolbar_->addAction(regenerate_document_action_);
     view_toolbar_->addAction(custom_body_color_action_);
     view_toolbar_->addAction(parameters_action_);
+    view_toolbar_->addAction(family_table_action_);
     measure_action_=view_toolbar_->addAction(resource_icon("measure"),tr("Měření…"));
     measure_action_->setObjectName("measureAction");
     connect(measure_action_,&QAction::triggered,this,[this]{show_measurement();});

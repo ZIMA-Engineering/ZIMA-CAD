@@ -11,6 +11,7 @@
 #include <optional>
 #include <memory>
 #include <map>
+#include <set>
 #include <type_traits>
 #include <utility>
 #include <stdexcept>
@@ -55,6 +56,11 @@ struct FaceReference {
     double sheet_thickness{};
     // Source material region, independent of the later feature owning this face.
     std::string sheet_owner;
+    // Ordinary View selection may present a calculated derivative as the
+    // authored Container that produced it.  This is presentation metadata;
+    // owner_id/semantic_key remain the persisted topology identity used by
+    // references and commands.
+    std::string display_owner_id;
 
     [[nodiscard]] bool valid() const {
         return !owner_id.empty() && !semantic_key.empty();
@@ -76,10 +82,16 @@ struct EdgeReference {
     std::string owner_id;
     std::string semantic_key;
     std::string instance_path;
+    // See FaceReference::display_owner_id.  It is deliberately excluded from
+    // topology identity comparisons.
+    std::string display_owner_id;
     [[nodiscard]] bool valid() const {
         return !owner_id.empty() && !semantic_key.empty();
     }
-    bool operator==(const EdgeReference&) const = default;
+    bool operator==(const EdgeReference& other) const {
+        return owner_id==other.owner_id && semantic_key==other.semantic_key &&
+            instance_path==other.instance_path;
+    }
 };
 
 struct VertexReference {
@@ -672,6 +684,9 @@ struct Sweep3DRequest {
     };
     std::vector<Vec3> path_points;
     std::vector<std::string> path_point_ids;
+    // Station points shared by separate primitives of one semantic feature
+    // use one identity without a local start/end role.
+    std::set<std::string> canonical_station_ids;
     std::vector<PathSegment> path_segments;
     std::vector<Section> sections;
     bool make_solid{true};
@@ -1653,7 +1668,7 @@ struct PlacedBody {
                     for (const unsigned char value : fingerprint) byte(value);
                 }
             } else if constexpr (std::is_same_v<Request, SheetStateRequest>) {
-                u64(1);byte(primitive.unfold);byte(primitive.all);
+                u64(2);byte(primitive.unfold);byte(primitive.all);
                 u64(std::bit_cast<std::uint64_t>(primitive.tolerance));
                 u64(primitive.owners.size());for(const auto& owner:primitive.owners){u64(owner.size());for(unsigned char c:owner)byte(c);}
             } else if constexpr (std::is_same_v<Request, DrillPointRequest>) {

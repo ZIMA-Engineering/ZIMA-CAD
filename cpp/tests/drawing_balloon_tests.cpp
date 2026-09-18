@@ -33,6 +33,15 @@ void verify(std::filesystem::path dir) {
     check(!drawing::balloon_bom_row(sheet,view,{"leaf-solid","edge","1:x4:leaf"}),"Unknown occurrence resolved to another item");
     auto unrelated=view;unrelated.source_document_id="other";
     check(!drawing::balloon_bom_row(sheet,unrelated,pin),"Unrelated view reused the sheet BOM");
+    auto family_variant=view;family_variant.source_document_id=assembly.document_id+":family:row";
+    check(drawing::balloon_bom_row(sheet,family_variant,pin)==&sheet.bom_rows[0],
+        "Assembly variant view did not resolve the sheet BOM occurrence");
+    auto component_view=view;component_view.source_document_id=part.document_id;
+    check(drawing::balloon_bom_row(sheet,component_view,{"pin-solid","edge",{}})==&sheet.bom_rows[0],
+        "Independent component view did not resolve its sheet BOM row");
+    auto absent=sheet;absent.bom_rows.erase(absent.bom_rows.begin());
+    check(!drawing::balloon_bom_row(absent,component_view,{"pin-solid","edge",{}}),
+        "Component absent from the selected sheet variant received a position");
     const auto document_id=doc.document_id,view_id=view.id,sheet_id=sheet.id;
     live.add_drawing(doc);live.display_top_level(doc.document_id);live.activate(doc.document_id);command_host::Host host(live,kernel,dir);
     auto args=Json{{"view",view_id},{"reference",{{"owner",pin.owner_id},{"key",pin.semantic_key},{"instance_path",pin.instance_path}}},{"parameter",.25},{"position",{30,25}}};

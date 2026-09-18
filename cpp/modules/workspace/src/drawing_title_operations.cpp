@@ -48,8 +48,9 @@ DrawingTitleEdit prepare_drawing_title_edit(const drawing::DrawingDocument& doc,
     const Workspace* live,const std::filesystem::path& path,const std::string& bom_row) {
     const auto* sheet=doc.find_sheet(sheet_id);if(!sheet)throw DrawingOperationError("sheet_not_found","The drawing sheet does not exist.");
     DrawingTitleEdit edit;edit.sheet=sheet_id;edit.drawing_path=path;edit.bom_row=bom_row;
-    edit.source_document=sheet->views.empty()?doc.source_document_id:sheet->views.front().source_document_id;
-    edit.source_path=sheet->views.empty()?doc.source_path:sheet->views.front().source_path;
+    edit.source_document=sheet->bom_source_document_id.empty()?doc.source_document_id:sheet->bom_source_document_id;
+    edit.source_path=doc.source_path;
+    if(edit.source_path.empty()&&!sheet->views.empty())edit.source_path=sheet->views.front().source_path;
     if(!edit.source_path.empty()&&edit.source_path.is_relative()&&!path.empty())edit.source_path=path.parent_path()/edit.source_path;
     if(edit.source_document.empty()&&live&&!live->find(edit.source_document)&&!edit.source_path.empty())if(const auto open=live->document_id_for_path(edit.source_path))edit.source_document=*open;
     if(!bom_row.empty()) {

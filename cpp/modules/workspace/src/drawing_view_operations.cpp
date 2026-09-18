@@ -1,5 +1,6 @@
 #include <zima/workspace/drawing_view_operations.hpp>
 #include <zima/workspace/drawing_projection.hpp>
+#include <zima/workspace/drawing_sources.hpp>
 #include <zima/drawing/measurement_dimension.hpp>
 #include <zima/drawing/balloon.hpp>
 #include <algorithm>
@@ -50,11 +51,6 @@ void edit_drawing_view(drawing::DrawingDocument& document,const std::string& she
     if(creating?next.find_view(accepted.id)!=nullptr:found==sheet->views.end())
         throw DrawingOperationError("view_not_found","The drawing view does not exist.");
     if(!creating&&found->parent_view_id!=accepted.parent_view_id)invalid_view();
-    const drawing::DrawingView* primary=nullptr;
-    for(const auto& candidate_sheet:next.sheets)for(const auto& candidate:candidate_sheet.views)
-        if(!primary&&candidate.parent_view_id.empty())primary=&candidate;
-    const bool changes_primary=primary&&primary->id==accepted.id&&
-        (primary->source_document_id!=accepted.source_document_id||primary->source_path!=accepted.source_path);
     if(accepted.use_sheet_scale)accepted.scale=sheet->default_scale;
     validate_drawing_view(accepted);
     if(!accepted.parent_view_id.empty()) {
@@ -88,7 +84,17 @@ void edit_drawing_view(drawing::DrawingDocument& document,const std::string& she
         }
     };
     children(children,*next.find_view(id),0);
-    sheet->bom_rows=projection.source(accepted).bom;sheet->bom_source_document_id=accepted.source_document_id;
+    if(next.source_document_id.empty()) {
+        next.source_document_id=accepted.source_document_id;next.source_path=accepted.source_path;
+        next.source_name=document::path_to_utf8(accepted.source_path.stem());
+    }
+    if(sheet->bom_source_document_id.empty()) {
+        sheet->bom_source_document_id=next.source_document_id;
+        auto source_view=accepted;source_view.source_document_id=next.source_document_id;
+        source_view.source_path=next.source_path;
+        sheet->bom_rows=projection.source(source_view).bom;
+        if(next.source_name.empty()&&!sheet->bom_rows.empty())next.source_name=sheet->bom_rows.front().name;
+    }
     if(accepted.section_snapshot)for(auto& s:next.sheets)for(auto& other:s.views)
         if(other.source_document_id==accepted.source_document_id&&other.section_id==accepted.section_id) {
             other.section_snapshot=accepted.section_snapshot;
@@ -96,11 +102,6 @@ void edit_drawing_view(drawing::DrawingDocument& document,const std::string& she
         }
     for(auto& s:next.sheets)for(auto& dimension:s.dimensions)if(refreshed.contains(dimension.view_id))
         drawing::refresh_drawing_dimension(*next.find_view(dimension.view_id),dimension);
-    if(next.source_document_id.empty()||changes_primary) {
-        next.source_document_id=accepted.source_document_id;next.source_path=accepted.source_path;
-        next.source_name=document::path_to_utf8(accepted.source_path.stem());
-        if(next.source_name.empty()&&!sheet->bom_rows.empty())next.source_name=sheet->bom_rows.front().name;
-    }
     for(auto& s:next.sheets)drawing::refresh_balloons(s);
     document=std::move(next);
 }
@@ -109,7 +110,6 @@ std::size_t regenerate_drawing_views(drawing::DrawingDocument& document,const Wo
     DrawingProjection projection(live,document_path);
     std::size_t count=0;
     for(auto& sheet:next.sheets) {
-        std::optional<std::vector<drawing::BomRow>> sheet_bom;
         // Parent-first, independent of file order, with an explicit cycle guard.
         std::map<std::string,int> visit;
         const auto refresh=[&](const auto& self,drawing::DrawingView& view,std::size_t depth)->void {
@@ -129,8 +129,18 @@ std::size_t regenerate_drawing_views(drawing::DrawingDocument& document,const Wo
             state=2;++count;
         };
         for(auto& view:sheet.views)refresh(refresh,view,0);
-        for(const auto& view:sheet.views)if(!sheet_bom||view.source_document_id==next.source_document_id){sheet_bom=projection.source(view).bom;sheet.bom_source_document_id=view.source_document_id;}
-        if(sheet_bom)sheet.bom_rows=std::move(*sheet_bom);
+        if(!sheet.bom_source_document_id.empty()) {
+            auto source_path=next.source_path;
+            if(!source_path.empty()&&source_path.is_relative()&&!document_path.empty())
+                source_path=document_path.parent_path()/source_path;
+            sheet.bom_rows=build_bom_rows_for_source(
+                sheet.bom_source_document_id,source_path,live);
+        } else if(!sheet.views.empty()) {
+            // A source-less in-memory Drawing may still be initialized by its
+            // first view. Normal document creation assigns this before views.
+            sheet.bom_source_document_id=sheet.views.front().source_document_id;
+            sheet.bom_rows=projection.source(sheet.views.front()).bom;
+        }
     }
     for(auto& s:next.sheets)drawing::refresh_balloons(s);
     document=std::move(next);return count;

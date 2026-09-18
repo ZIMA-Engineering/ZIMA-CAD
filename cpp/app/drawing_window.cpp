@@ -1,5 +1,6 @@
 #include "sketch_text_properties_dialog.hpp"
 #include <zima/workspace/family_operations.hpp>
+#include <zima/workspace/engineering_metadata_operations.hpp>
 #include <zima/workspace/native_documents.hpp>
 #include <zima/workspace/drawing_label_operations.hpp>
 #include <zima/workspace/drawing_projection.hpp>
@@ -138,10 +139,10 @@ std::function<void()> prepare_drawing_family_variant(zima::workspace::Workspace*
     }
     const auto family=draft.open_part(root)?draft.open_part(root)->session.document().family:draft.open_assembly(root)->session.document().family;
     if(family.evaluated.contains(row_id))return []{};
-    if(!live)throw std::runtime_error("Open the family instance before selecting it in the Drawing.");
+    if(!live)throw std::runtime_error("Open the Family Table variant before selecting it in the Drawing.");
     const auto table=zima::document::parse_family_table(draft.open_part(root)?draft.open_part(root)->session.document().family_table:draft.open_assembly(root)->session.document().family_table);
     const auto row=std::ranges::find(table.instances,row_id,&zima::document::FamilyInstance::id);
-    if(row==table.instances.end())throw std::runtime_error("Family instance no longer exists.");
+    if(row==table.instances.end())throw std::runtime_error("Family Table variant no longer exists.");
     zima::kernel::OcctKernel kernel;
     static_cast<void>(zima::workspace::open_family_instance(draft,kernel,root,row->name,false));
     if(const auto* part=draft.open_part(root)) {
@@ -608,6 +609,12 @@ public:
     std::optional<QPointF> title_field_center(const std::string& id) const {
         for(const auto& [key,polygon]:field_regions_)if(key==id)return polygon.boundingRect().center();
         return {};
+    }
+    std::optional<std::string> title_field_text(const std::string& id) const {
+        if(!sheet_||!title_block_context_)return {};
+        const auto field=std::ranges::find(sheet_->title_block_fields,id,&zima::drawing::TitleBlockField::id);
+        if(field==sheet_->title_block_fields.end())return {};
+        return zima::drawing::resolve_title_block_text(*field,*title_block_context_,*sheet_);
     }
     std::string field_at(QPointF point) const {
         for(auto it=field_regions_.rbegin();it!=field_regions_.rend();++it)
@@ -1405,11 +1412,25 @@ void DrawingWindow::create_layout() {
     source_variant_->setObjectName("drawingSourceVariant");
     source_variant_->setMinimumContentsLength(14);
     source_variant_->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
-    source_variant_->setToolTip(tr("Zdrojový díl nebo sestava a otevřené instance Family Table."));
+    source_variant_->setToolTip(tr("Zdrojový díl nebo sestava a jeho varianty Family Table."));
     connect(source_variant_,&QComboBox::activated,this,[this](int index){
         if(!workspace_||view_dialog_)return;
-        const auto source=source_variant_->itemData(index).toString().toStdString();if(source==document_.source_document_id)return;
-        try{zima::workspace::select_family_drawing_source(document_,*workspace_,source,path_);refresh();}
+        const auto* sheet=active_sheet();if(!sheet)return;
+        const auto source=source_variant_->itemData(index).toString().toStdString();
+        const auto current=sheet->bom_source_document_id.empty()?document_.source_document_id:sheet->bom_source_document_id;
+        if(source==current)return;
+        try {
+            const auto separator=source.find(":family:");
+            if(separator!=std::string::npos&&!workspace_->find(source)) {
+                const auto owner=source.substr(0,separator),row_id=source.substr(separator+8);
+                const auto table=zima::workspace::family_table(*workspace_,owner);
+                const auto row=std::ranges::find(table.instances,row_id,&zima::document::FamilyInstance::id);
+                if(row==table.instances.end())throw std::runtime_error("Family Table variant no longer exists.");
+                zima::kernel::OcctKernel kernel;
+                static_cast<void>(zima::workspace::open_family_instance(*workspace_,kernel,owner,row->name,false));
+            }
+            zima::workspace::select_family_drawing_source(document_,*workspace_,sheet->id,source);refresh();
+        }
         catch(const std::exception& error){update_source_variant();set_status_message(tr(error.what()));}
     });
     bottom->addWidget(new QLabel(tr("Varianta:"), central));
@@ -1503,6 +1524,9 @@ std::optional<QPointF> DrawingWindow::view_rectangle_center_for_test(const std::
 std::optional<QPointF> DrawingWindow::title_field_center_for_test(const std::string& id) const {
     return canvas_->title_field_center(id);
 }
+std::optional<std::string> DrawingWindow::title_field_text_for_test(const std::string& id) const {
+    return canvas_->title_field_text(id);
+}
 void DrawingWindow::load_title_block_for_test(const std::filesystem::path& path) {
     auto* sheet = active_sheet(); if (sheet == nullptr) return;
     zima::workspace::load_drawing_template(document_,sheet->id,path,true); refresh();
@@ -1550,7 +1574,10 @@ void DrawingWindow::save_document() {
     if (!path.endsWith(".drwz", Qt::CaseInsensitive)) path += ".drwz";
     try {
         if(workspace_ && workspace_->open_drawing(workspace_document_id_)) {
-            const auto saved=zima::workspace::prepare_document_save(*workspace_,workspace_document_id_,path.toStdString()).write();
+            auto pending=zima::workspace::prepare_document_save_if_needed(
+                *workspace_,workspace_document_id_,path.toStdString());
+            if(!pending)return;
+            const auto saved=pending->write();
             if(!zima::workspace::complete_document_save(*workspace_,saved))
                 throw std::runtime_error("Drawing was closed or retargeted during saving");
             const auto* state=workspace_->open_drawing(workspace_document_id_);
@@ -1561,8 +1588,17 @@ void DrawingWindow::save_document() {
     catch (const std::exception& error) { QMessageBox::warning(this, tr("Nelze uložit výkres"), error.what()); }
 }
 void DrawingWindow::add_sheet() {
+    const auto inherited=active_sheet()&&!active_sheet()->bom_source_document_id.empty()
+        ?active_sheet()->bom_source_document_id:document_.source_document_id;
     zima::workspace::SheetSettings settings;settings.name=tr("List %1").arg(document_.sheets.size()+1).toStdString();
-    zima::workspace::create_drawing_sheet(document_,settings);refresh();sheets_->setCurrentIndex(static_cast<int>(document_.sheets.size()-1));
+    zima::workspace::create_drawing_sheet(document_,settings);
+    auto& added=document_.sheets.back();added.bom_source_document_id=inherited;
+    if(!inherited.empty()) {
+        auto source_path=document_.source_path;
+        if(source_path.is_relative()&&!path_.empty())source_path=path_.parent_path()/source_path;
+        added.bom_rows=zima::workspace::build_bom_rows_for_source(inherited,source_path,workspace_);
+    }
+    refresh();sheets_->setCurrentIndex(static_cast<int>(document_.sheets.size()-1));
 }
 void DrawingWindow::remove_sheet() {
     const auto* sheet=active_sheet();if(!sheet||document_.sheets.size()<=1)return;
@@ -1949,25 +1985,32 @@ void DrawingWindow::update_action_states() {
 }
 void DrawingWindow::update_source_variant() {
     QSignalBlocker blocker(source_variant_);source_variant_->clear();
-    auto label=QString::fromStdString(document_.source_name);
-    try {auto source_path=document_.source_path;if(source_path.is_relative()&&!path_.empty())source_path=path_.parent_path()/source_path;
-        const auto context=build_title_block_context_for_source(document_.source_document_id,source_path,workspace_);
-        if(context.parameters.contains("name"))label=QString::fromStdString(context.parameters.at("name"));
-    } catch(const std::exception&) {}
-    if(label.isEmpty())label=QString::fromStdString(document_.source_path.filename().string());
-    if(label.isEmpty())label=tr("Bez zdroje");
-    source_variant_->addItem(label,QString::fromStdString(document_.source_document_id));
-    if(workspace_)for(const auto& state:workspace_->documents())std::visit([&](const auto& value){
-        if constexpr(requires{value.session;}) {
-            const auto& doc=value.session.document();
-            if(doc.document_id==document_.source_document_id)source_variant_->setItemText(0,QString::fromStdString(doc.name));
-            else {
-                const auto generic=document_.source_document_id.substr(0,document_.source_document_id.find(":family:"));
-                if(generic.empty()||doc.document_id==generic||doc.family.parent_id==generic)
-                    source_variant_->addItem(QString::fromStdString(doc.name),QString::fromStdString(doc.document_id));
+    if(document_.source_document_id.empty()&&workspace_) {
+        source_variant_->addItem(tr("Bez zdroje"),QString{});
+        for(const auto& state:workspace_->documents())std::visit([&](const auto& value) {
+            if constexpr(requires{value.session;}) {
+                const auto& model=value.session.document();
+                source_variant_->addItem(QString::fromStdString(model.name),QString::fromStdString(model.document_id));
             }
-        }
-    },state);
+        },state);
+        source_variant_->setEnabled(!view_dialog_&&source_variant_->count()>1);return;
+    }
+    auto source_path=document_.source_path;
+    if(source_path.is_relative()&&!path_.empty())source_path=path_.parent_path()/source_path;
+    try {
+        const auto choices=family_source_choices(workspace_,document_.source_document_id,source_path);
+        for(const auto& choice:choices)source_variant_->addItem(choice.name,QString::fromStdString(choice.id));
+        const auto* sheet=active_sheet();
+        const auto source=sheet&&!sheet->bom_source_document_id.empty()?sheet->bom_source_document_id:document_.source_document_id;
+        const auto selected=source_variant_->findData(QString::fromStdString(source));
+        if(selected>=0)source_variant_->setCurrentIndex(selected);
+    } catch(const std::exception&) {}
+    if(source_variant_->count()==0) {
+        auto label=QString::fromStdString(document_.source_name);
+        if(label.isEmpty())label=QString::fromStdString(document_.source_path.filename().string());
+        if(label.isEmpty())label=tr("Bez zdroje");
+        source_variant_->addItem(label,QString::fromStdString(document_.source_document_id));
+    }
     source_variant_->setEnabled(!view_dialog_&&source_variant_->count()>1);
 }
 void DrawingWindow::refresh(bool changed) {
@@ -1998,16 +2041,16 @@ void DrawingWindow::refresh(bool changed) {
 }
 
 void DrawingWindow::refresh_title_block_context() {
-    // Matches Python's App._refresh_drawing_title_block_context: the
-    // title-block tokens resolve against the currently displayed sheet's
-    // primary (first-inserted) view's source document.
+    // Title-block tokens resolve against the variant selected for the active
+    // sheet, independently of view insertion order and other sheets.
     const auto* sheet = active_sheet();
     if (!sheet) {canvas_->set_title_block_context(std::nullopt);return;}
-    auto source_id=sheet->views.empty()?document_.source_document_id:sheet->views.front().source_document_id;
-    auto source_path=sheet->views.empty()?document_.source_path:sheet->views.front().source_path;
+    auto source_id=sheet->bom_source_document_id.empty()?document_.source_document_id:sheet->bom_source_document_id;
+    auto source_path=document_.source_path;
+    if(source_path.empty()&&!sheet->views.empty())source_path=sheet->views.front().source_path;
     if(!source_path.empty() && source_path.is_relative() && !path_.empty())
         source_path=path_.parent_path()/source_path;
-    if(source_id.empty() && workspace_ && !workspace_->find(source_id))
+    if(source_id.empty() && workspace_)
         if(const auto open=workspace_->document_id_for_path(source_path))source_id=*open;
     auto context=build_title_block_context_for_source(source_id,source_path,workspace_);
     context.sheet_index=sheets_->currentIndex();context.sheet_count=static_cast<int>(document_.sheets.size());

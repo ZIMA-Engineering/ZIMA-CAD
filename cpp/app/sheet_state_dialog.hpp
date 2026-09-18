@@ -27,8 +27,8 @@ public:
         setProperty("originSelectionBound",true);
         auto* form=new QFormLayout;
         name_=new QLineEdit(QString::fromStdString(initial_.name),this);name_->setObjectName("sheetStateName");form->addRow(tr("Název"),name_);
-        all_=new QCheckBox(initial_.feature_kind==document::FeatureKind::Unbend?tr("Rozvinout vše"):tr("Ohnout zpět vše"),this);
-        all_->setObjectName("sheetStateAll");all_->setChecked(initial_.sheet_state.all);form->addRow(all_);content_layout()->addLayout(form);
+        individual_=new QCheckBox(tr("Vybrat jednotlivé prvky"),this);
+        individual_->setObjectName("sheetStateIndividual");individual_->setChecked(!initial_.sheet_state.all);form->addRow(individual_);content_layout()->addLayout(form);
         table_=new QTableWidget(0,3,this);table_->setObjectName("sheetStateElements");
         table_->setHorizontalHeaderLabels({QString{},tr("Prvek"),QString{}});table_->setColumnWidth(0,32);table_->setColumnWidth(2,32);
         table_->horizontalHeader()->setSectionResizeMode(1,QHeaderView::Stretch);
@@ -37,13 +37,13 @@ public:
         content_layout()->addWidget(table_);set_initial_size({365,310});
         inspected_.insert(initial_.sheet_state.owners.begin(),initial_.sheet_state.owners.end());
         connect(table_,&QTableWidget::cellClicked,this,[this](int,int column){if(column==1){entering_=true;refresh();}});
-        connect(all_,&QCheckBox::toggled,this,[this]{entering_=!all_->isChecked();highlight_all_=true;refresh();});refresh();
+        connect(individual_,&QCheckBox::toggled,this,[this]{entering_=individual_->isChecked();highlight_all_=true;refresh();});refresh();
     }
     std::function<void()> selection_changed;
     document::HistoryContainer pending_value()const {
-        auto value=initial_;value.name=name_->text().trimmed().toStdString();value.sheet_state.all=all_->isChecked();return value;
+        auto value=initial_;value.name=name_->text().trimmed().toStdString();value.sheet_state.all=!individual_->isChecked();return value;
     }
-    bool selecting()const{return !all_->isChecked()&&entering_;}
+    bool selecting()const{return individual_->isChecked()&&entering_;}
     void end_entry(){entering_=false;highlight_all_=false;inspected_.clear();refresh();}
     bool available(const std::string& id)const{return available_.contains(id);}
     void toggle(const std::string& id) {
@@ -54,17 +54,17 @@ public:
         refresh();
     }
     std::vector<std::string> selected()const {
-        if(!all_->isChecked())return initial_.sheet_state.owners;
+        if(individual_->isChecked())return initial_.sheet_state.owners;
         std::vector<std::string> owners;for(const auto& [id,label]:available_)owners.push_back(id);return owners;
     }
     std::vector<std::string> highlighted()const {
-        if(all_->isChecked())return highlight_all_?selected():std::vector<std::string>{};
+        if(!individual_->isChecked())return highlight_all_?selected():std::vector<std::string>{};
         return {inspected_.begin(),inspected_.end()};
     }
 private:
     bool submit()override {commit_(pending_value());return true;}
     void refresh() {
-        table_->setEnabled(!all_->isChecked());table_->setRowCount(0);
+        table_->setEnabled(individual_->isChecked());table_->setRowCount(0);
         for(const auto& id:initial_.sheet_state.owners) {
             const int row=table_->rowCount();table_->insertRow(row);
             auto* indicator=ui::build_reference_row_indicator([this,id]{std::erase(initial_.sheet_state.owners,id);inspected_.erase(id);refresh();});
@@ -83,7 +83,7 @@ private:
         if(selection_changed)selection_changed();
     }
     document::HistoryContainer initial_;std::map<std::string,QString> available_;Commit commit_;
-    QLineEdit* name_{};QCheckBox* all_{};QTableWidget* table_{};
+    QLineEdit* name_{};QCheckBox* individual_{};QTableWidget* table_{};
     bool entering_{true},highlight_all_{true};std::set<std::string> inspected_;
 };
 }

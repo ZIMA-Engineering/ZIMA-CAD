@@ -132,7 +132,7 @@ FileRenameJob prepare_document_file_rename(const Workspace& live, const std::str
     const auto* state = live.find(id);
     if (!state) throw FileRenameError("document_not_found", "The document is not open.");
     if(family_owner(live,id)!=id)
-        throw FileRenameError("family_instance", "Rename the family instance through its name, not its owning native file.");
+        throw FileRenameError("family_instance", "Rename the family variant through its name, not its owning native file.");
     if (filename.empty() || filename == "." || filename == ".." || filename.back() == '.' || filename.back() == ' ' ||
         filename.find_first_of("\\/:*?\"<>|") != std::string::npos ||
         std::ranges::any_of(filename, [](unsigned char c) { return c < 32; }))

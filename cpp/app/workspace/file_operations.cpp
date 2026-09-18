@@ -157,13 +157,21 @@ void AssemblyWorkspaceWindow::save_active_assembly() {
         normalized.replace_extension(".asmz");
         path = QString::fromStdString(zima::document::path_to_utf8(normalized));
     }
+    const auto id = assembly->session.document().document_id;
+    std::optional<workspace::DocumentSave> pending;
+    try {pending=workspace::prepare_document_save_if_needed(
+        workspace_,id,std::filesystem::u8path(path.toStdString()));}
+    catch(const std::exception& error) {
+        report_operation_error(application_settings_.text("message.save_failed",
+            tr("Uložení se nezdařilo")),error.what());return;
+    }
+    if(!pending)return;
     begin_status_operation(tr("Ukládám sestavu %1…").arg(
         QFileInfo(path).fileName()));
     try {
         update_status_operation(
             tr("Zapisuji komponenty, vazby a uloženou geometrii…"), -1, 0);
-        const auto id = assembly->session.document().document_id;
-        auto job = workspace::prepare_document_save(workspace_, id, std::filesystem::u8path(path.toStdString()));
+        auto job = std::move(*pending);
         const auto saved = run_background_task([job = std::move(job)] { return job.write(); });
         if (!workspace::complete_document_save(workspace_, saved))
             throw std::runtime_error(tr("Uložený dokument byl mezitím zavřen nebo změnil cestu.").toStdString());
@@ -196,13 +204,21 @@ void AssemblyWorkspaceWindow::save_active_document() {
             normalized.replace_extension(".drwz");
             path = QString::fromStdString(zima::document::path_to_utf8(normalized));
         }
+        const auto id = drawing->document().document_id;
+        std::optional<workspace::DocumentSave> pending;
+        try {pending=workspace::prepare_document_save_if_needed(
+            workspace_,id,std::filesystem::u8path(path.toStdString()));}
+        catch(const std::exception& error) {
+            report_operation_error(application_settings_.text("message.save_failed",
+                tr("Uložení se nezdařilo")),error.what());return;
+        }
+        if(!pending)return;
         begin_status_operation(tr("Ukládám výkres %1…").arg(
             QFileInfo(path).fileName()));
         try {
             update_status_operation(
                 tr("Zapisuji listy, pohledy a popisové pole…"), -1, 0);
-            const auto id = drawing->document().document_id;
-            auto job = workspace::prepare_document_save(workspace_, id, std::filesystem::u8path(path.toStdString()));
+            auto job = std::move(*pending);
             const auto saved = run_background_task([job = std::move(job)] { return job.write(); });
             if (!workspace::complete_document_save(workspace_, saved))
                 throw std::runtime_error(tr("Uložený dokument byl mezitím zavřen nebo změnil cestu.").toStdString());
@@ -239,13 +255,21 @@ void AssemblyWorkspaceWindow::save_active_document() {
         normalized.replace_extension(".prtz");
         path = QString::fromStdString(zima::document::path_to_utf8(normalized));
     }
+    const auto id = part->session.document().document_id;
+    std::optional<workspace::DocumentSave> pending;
+    try {pending=workspace::prepare_document_save_if_needed(
+        workspace_,id,std::filesystem::u8path(path.toStdString()));}
+    catch(const std::exception& error) {
+        report_operation_error(application_settings_.text("message.save_failed",
+            tr("Uložení se nezdařilo")),error.what());return;
+    }
+    if(!pending)return;
     begin_status_operation(tr("Ukládám Part %1…").arg(
         QFileInfo(path).fileName()));
     try {
         update_status_operation(
             tr("Připravuji neměnný snímek dokumentu…"));
-        const auto id = part->session.document().document_id;
-        auto job = workspace::prepare_document_save(workspace_, id, std::filesystem::u8path(path.toStdString()));
+        auto job = std::move(*pending);
         update_status_operation(
             tr("Zapisuji parametry, B-Rep a data pro View…"), -1, 0);
         const auto saved = run_background_task([job = std::move(job)] { return job.write(); });

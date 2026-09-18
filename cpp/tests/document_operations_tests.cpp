@@ -1,6 +1,7 @@
 #include <zima/workspace/document_operations.hpp>
 #include <zima/kernel/occt_kernel.hpp>
 #include <filesystem>
+#include <fstream>
 #include <future>
 #include <iostream>
 #include <stdexcept>
@@ -9,6 +10,10 @@ namespace {
 void require(bool condition,const char* message) { if(!condition)throw std::runtime_error(message); }
 template<class Function> void fails(Function&& function,const char* message) {
     bool failed=false;try{function();}catch(const std::exception&){failed=true;}require(failed,message);
+}
+std::string bytes(const std::filesystem::path& path) {
+    std::ifstream input(path,std::ios::binary);
+    return {std::istreambuf_iterator<char>(input),{}};
 }
 }
 int main() {
@@ -49,9 +54,17 @@ int main() {
                 original_faces[i].semantic_key==saved_faces[i].semantic_key &&
                 original_faces[i].instance_path==saved_faces[i].instance_path,"Original face identity changed during save");
         require(workspace.active_document_id()==id && workspace.displayed_document_id()==id,"Save switched documents");
+        const auto saved_bytes=bytes(part_path);
+        const auto saved_time=fs::last_write_time(part_path);
+        require(!prepare_document_save_if_needed(workspace,id,part_path),
+            "Unchanged Part scheduled another native write");
+        require(bytes(part_path)==saved_bytes&&fs::last_write_time(part_path)==saved_time,
+            "No-op Part Save changed the native file");
 
         job=prepare_document_save(workspace,id,part_path);
         edited=state->session.document();edited.name="newer edit";state->session.commit(edited,boundaries);
+        require(prepare_document_save_if_needed(workspace,id,part_path).has_value(),
+            "Changed Part was skipped by normal Save");
         saved=job.write();require(complete_document_save(workspace,saved),"Save of older snapshot failed");
         require(state->session.is_dirty() && state->session.document().name=="newer edit" &&
             document::PartDocument::load(part_path).name=="saved snapshot","Background save lost a newer edit");
@@ -81,6 +94,8 @@ int main() {
         assembly.name="edited assembly";group->session.commit(assembly);
         auto assembly_job=prepare_document_save(workspace,assembly_id,assembly_path);
         require(complete_document_save(workspace,assembly_job.write()) && !group->session.is_dirty(),"Assembly save failed");
+        require(!prepare_document_save_if_needed(workspace,assembly_id,assembly_path),
+            "Unchanged Assembly scheduled another native write");
         auto loaded_assembly=assembly::AssemblyDocument::load(assembly_path);
         require(loaded_assembly.document_id==assembly_id && loaded_assembly.components.front().source_document_id==id &&
             loaded_assembly.components.front().occurrence_id==leaf.occurrence_id,"Assembly reference identity lost");
@@ -105,6 +120,8 @@ int main() {
         require(workspace.open_drawing(drawing_id)->is_dirty(),"Old Drawing save cleared newer edit");
         drawing_job=prepare_document_save(workspace,drawing_id,drawing_path);
         require(complete_document_save(workspace,drawing_job.write()) && !workspace.open_drawing(drawing_id)->is_dirty(),"Current Drawing save did not clear dirty state");
+        require(!prepare_document_save_if_needed(workspace,drawing_id,drawing_path),
+            "Unchanged Drawing scheduled another native write");
         const auto drawing_revision=workspace.open_drawing(drawing_id)->revision();
         auto wrong_drawing=workspace.open_drawing(drawing_id)->document();wrong_drawing.document_id="wrong-id";
         fails([&]{workspace.open_drawing(drawing_id)->commit(wrong_drawing);},"Drawing identity could be overwritten");

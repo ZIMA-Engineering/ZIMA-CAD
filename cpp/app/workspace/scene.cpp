@@ -2102,7 +2102,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                           zima::viewer::CandidateKind::SketchCurve,
                           zima::viewer::CandidateKind::SketchText,
                           zima::viewer::CandidateKind::SketchExternalReference}
-        : [this] {
+        : [this, active_part] {
             switch (selection_filter_combo_->currentIndex()) {
                 case 1:
                     return std::vector{zima::viewer::CandidateKind::Face};
@@ -2116,8 +2116,14 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                 case 3:
                     return std::vector{zima::viewer::CandidateKind::Axis};
                 default:
-                    return std::vector{zima::viewer::CandidateKind::Dimension,
-                                       zima::viewer::CandidateKind::Occurrence};
+                    if (active_part != nullptr) {
+                        return std::vector{
+                            zima::viewer::CandidateKind::Dimension,
+                            zima::viewer::CandidateKind::Container};
+                    }
+                    return std::vector{
+                        zima::viewer::CandidateKind::Dimension,
+                        zima::viewer::CandidateKind::Occurrence};
             }
         }());
     if (active_assembly_sketch && sketch_external_reference_active_) {
@@ -2164,6 +2170,18 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                     return false;
                 }
             });
+    } else if (active_part != nullptr && active_part_occurrence &&
+        !active_part_occurrence->empty() && active_sketch_id_.empty() &&
+        properties_dialog_ == nullptr) {
+        // Activating a Part occurrence changes ordinary View selection to
+        // that Part's authored history containers while the complete top
+        // Assembly remains visible as passive context.  Sheet-state geometry
+        // can therefore present its original authored owner without exposing
+        // Unbend/Bend Back as selectable modeling features.
+        const auto path = *active_part_occurrence;
+        viewer_->set_candidate_filter([path](const auto& candidate) {
+            return candidate.instance_path == path;
+        }, false);
     }
     const bool fit_assembly_view = !preserve_view_on_refresh_ && active_sketch_id_.empty();
     preserve_view_on_refresh_ = false;

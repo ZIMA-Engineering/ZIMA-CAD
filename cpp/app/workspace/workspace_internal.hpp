@@ -359,6 +359,7 @@ QTreeWidgetItem* add_construction_origin_tree_item(QTreeWidgetItem* parent,
     bool point_kind_container = false);
 
 QString feature_icon_name(zima::document::FeatureKind kind);
+QString feature_icon_name(const zima::document::HistoryContainer& feature);
 
 void add_construction_tree_children(QTreeWidgetItem* parent,
     const zima::document::ConstructionObject& object,

@@ -533,11 +533,15 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
             constexpr std::string_view entity_suffix{":entity"};
             const bool datum_entity = face.reference.owner_id.ends_with(entity_suffix) &&
                 face.reference.semantic_key == "plane";
+            const bool transparent_sheet_state =
+                face.reference.semantic_key.starts_with("sheet-state:from:");
             const std::string container_owner = datum_entity
                 ? face.reference.owner_id.substr(0,
                     face.reference.owner_id.size() - entity_suffix.size())
-                : face.reference.owner_id;
-            if (!origin_reference && !persisted_container &&
+                : !face.reference.display_owner_id.empty()
+                    ? face.reference.display_owner_id
+                    : transparent_sheet_state ? std::string{} : face.reference.owner_id;
+            if (!container_owner.empty() && !origin_reference && !persisted_container &&
                 std::none_of(result.begin(), result.end(), [&](const ViewerCandidate& item) {
                     return item.kind == CandidateKind::Container &&
                         item.owner_id == container_owner &&

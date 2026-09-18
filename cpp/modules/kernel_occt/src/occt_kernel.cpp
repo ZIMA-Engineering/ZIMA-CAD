@@ -2214,9 +2214,22 @@ PrimitiveData make_sweep3d_data(
                     if(e<station.point_ids.size()) {
                         const auto authored=TopExp::FirstVertex(station.edges[e],true);
                         const auto position=BRep_Tool::Pnt(authored);
-                        const auto vertex_semantic="sweep:vertex:"+std::string(start?"start":"end")+
-                            ":at:"+request.path_point_ids[index]+":profile:"+station.profile_id+
-                            ":from:"+station.point_ids[e];
+                        // A station shared by consecutive path segments is one
+                        // persisted topology point.  Do not encode its local
+                        // start/end role: doing so gives the same fused OCCT
+                        // vertex two identities and makes every longitudinal
+                        // rail incident to that station lose its selectable
+                        // endpoint pair. Keep the established terminal identity
+                        // because it is not duplicated and existing downstream
+                        // attachments legitimately reference it.
+                        const auto canonical_station=request.canonical_station_ids.contains(
+                            request.path_point_ids[index]);
+                        const auto vertex_semantic=!canonical_station
+                            ? "sweep:vertex:"+std::string(start?"start":"end")+
+                                ":at:"+request.path_point_ids[index]+":profile:"+station.profile_id+
+                                ":from:"+station.point_ids[e]
+                            : "sweep:vertex:at:"+request.path_point_ids[index]+":profile:"+station.profile_id+
+                                ":from:"+station.point_ids[e];
                         for(TopExp_Explorer vertices(builder.Shape(),TopAbs_VERTEX);vertices.More();vertices.Next()) {
                             const auto candidate=TopoDS::Vertex(vertices.Current());
                             if(position.Distance(BRep_Tool::Pnt(candidate))<=request.linear_tolerance) {
@@ -5060,7 +5073,8 @@ BodyResult make_result(
         ViewerEdge viewer_edge;
         viewer_edge.reference = original_reference_geometry
             ? reference : EdgeReference{};
-        viewer_edge.display_owner_id = reference.owner_id;
+        viewer_edge.display_owner_id = reference.display_owner_id.empty()
+            ? reference.owner_id : reference.display_owner_id;
         if (original_reference_geometry)
             viewer_edge.exact_spline = capture_bspline_geometry(curve);
         GProp_GProps measured_edge;
@@ -6383,11 +6397,12 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
             };
             const bool persist_boundary_shape =
                 operation_index + 1 == operations.size();
-            const auto retain_copy_solid=[&](const PrimitiveData& operand) {
+            const auto retain_copy_solid=[&](const PrimitiveData& operand,const std::vector<ViewerAxis>& additional_axes=std::vector<ViewerAxis>{}) {
                 if(!context.requested_solids.contains(operation.owner_id))return;
                 auto solid=make_operation_result(operand.shape,operand.faces,operand.edges,operand.vertices,true,true,true);
                 const auto centerlines=centerlines_for_operation(operation);
                 solid.mesh.axes=axes_for_operation(operation,operand.shape,centerlines);
+                solid.mesh.axes.insert(solid.mesh.axes.end(),additional_axes.begin(),additional_axes.end());
                 solid.mesh.original_references.axes=solid.mesh.axes;
                 solid.source_fingerprint=fingerprint(operations,operation_index+1)+":solid:"+operation.owner_id;
                 context.source_solids.insert_or_assign(operation.owner_id,std::move(solid));
@@ -6414,14 +6429,16 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 static_cast<void>(sheet_material::change(regions,*state));
                 auto changed=sheet_state_sources::calculate(sheet_sources,
                     regions.regions,state->tolerance,operation.owner_id);
+                const auto bend_lines=sheet_material::bend_lines(operations,operation_index,regions,operation.owner_id);
                 // A state feature owns a new original solid. Earlier source
                 // objects remain immutable; every new child carries its input
                 // identity in its semantic key. Later placement uses the same
                 // original-object contract as any other authored feature.
                 retain_originals(changed.faces);
-                retain_copy_solid(changed);
+                retain_copy_solid(changed,bend_lines);
                 auto source=make_operation_result(changed.shape,changed.faces,
                     changed.edges,changed.vertices,true,false,true);
+                source.mesh.original_references.axes=bend_lines;
                 append_reference_geometry(original_references,
                     std::move(source.mesh.original_references));
                 result_shape=changed.shape;
@@ -6432,6 +6449,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                     owned_topology->edges,owned_topology->vertices,true,persist_boundary_shape);
                 boundary.source_fingerprint=fingerprint(operations,operation_index+1);
                 boundary.mesh.original_references=original_references;
+                boundary.mesh.axes=bend_lines;
                 if(!boundaries.empty())boundary.sheet_cuts=boundaries.back().sheet_cuts;
                 boundaries.push_back(std::move(boundary));
                 remember_live_boundary(boundaries.back().source_fingerprint,result_shape,owned_topology);
@@ -8363,7 +8381,35 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
             }
         }
         std::vector<SheetCutRegion> material_cuts;
-        for (auto& boundary : boundaries) {
+        std::vector<ViewerAxis> active_bend_lines;
+        std::map<std::string,ViewerAxis> rotation_sources;
+        if(!boundaries.empty())for(const auto& axis:boundaries.back().mesh.original_references.axes)
+            if(axis.reference.semantic_key=="axis:primary"&&std::ranges::any_of(operations,[&](const auto& op) {
+                return op.owner_id==axis.reference.owner_id&&op.sheet_material&&std::holds_alternative<RevolutionRequest>(op.primitive);
+            }))rotation_sources[axis.reference.owner_id]=axis;
+        sheet_material::History display_material;
+        for (std::size_t index=0;index<boundaries.size();++index) {
+            auto& boundary=boundaries[index];
+            if(!operations[index].suppressed&&std::holds_alternative<SheetStateRequest>(operations[index].primitive)) {
+                display_material=sheet_material::regions_before(operations,index+1);
+                active_bend_lines.clear();
+                for(const auto& axis:boundary.mesh.axes)if(sheet_material::is_bend_line(axis.reference))active_bend_lines.push_back(axis);
+            }
+            std::erase_if(boundary.mesh.axes,[](const auto& axis){return sheet_material::is_bend_line(axis.reference);});
+            boundary.mesh.axes.insert(boundary.mesh.axes.end(),active_bend_lines.begin(),active_bend_lines.end());
+            for(std::size_t i=0;i<display_material.regions.size();++i) {
+                const auto& region=display_material.regions[i];const auto source=rotation_sources.find(region.owner_id);
+                if(source==rotation_sources.end())continue;
+                std::erase_if(boundary.mesh.axes,[&](const auto& axis){return axis.reference==source->second.reference;});
+                if(!region.unfolded) {
+                    auto axis=source->second;
+                    if(region!=display_material.sources[i]) {
+                        const sheet_material::Transition transition{display_material.sources[i],region};
+                        axis.point=transition.map(axis.point);axis.direction=transition.rigid_vector(axis.direction);
+                    }
+                    boundary.mesh.axes.push_back(std::move(axis));
+                }
+            }
             // Treatments with their own calculation branch must retain the
             // earlier cut definitions just like ordinary additive operations.
             std::set<std::string> present_cut_owners;

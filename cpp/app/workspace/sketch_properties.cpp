@@ -7,6 +7,8 @@
 #include <zima/workspace/bend_operations.hpp>
 #include <zima/document/flat.hpp>
 #include <zima/workspace/flat_operations.hpp>
+#include <cmath>
+#include <numbers>
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -66,7 +68,16 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
                 value.bend.radius_follows_thickness=true;
                 zima::document::initialize_bend_start_profile(initial,40);
             }
-            zima::document::prepare_bend_sketches(value,initial,zima::document::sheet_metal_defaults(part->session.document()));
+            const auto defaults=zima::document::sheet_metal_defaults(part->session.document());
+            zima::document::prepare_bend_sketches(value,initial,defaults);
+            if(!owner) {
+                auto path=zima::sketcher::Sketch::from_serialized(value.bend.auxiliary_sketches[0]);
+                const auto arc=path.arcs.front();const auto join=*path.find_point(arc.end_point_id);
+                const double direction=arc.end_angle+std::numbers::pi/2;
+                static_cast<void>(path.add_segment(join.x,join.y,
+                    join.x+20*std::cos(direction),join.y+20*std::sin(direction)));
+                zima::document::accept_bend_sketch(value,initial,0,std::move(path),defaults);
+            }
             initial.name=value.name;sketch_feature=std::make_shared<zima::document::HistoryContainer>(std::move(value));
         }
         if(sketch_feature) {

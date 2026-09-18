@@ -13,7 +13,7 @@ DocumentSave prepare_document_save(const Workspace& workspace,
         if(!parent)throw std::invalid_argument("The owning family document is not open.");
         const auto path=std::visit([](const auto& value){return value.path;},*parent);
         if(!path.empty()&&std::filesystem::absolute(path).lexically_normal()!=std::filesystem::absolute(target).lexically_normal())
-            throw std::invalid_argument("A family instance must be saved in its owning file.");
+            throw std::invalid_argument("A family variant must be saved in its owning file.");
     }
     const auto* state=workspace.find(id);
     if(!state)throw std::invalid_argument("Document is not open");
@@ -38,6 +38,13 @@ DocumentSave prepare_document_save(const Workspace& workspace,
         }
     },*state);
     return job;
+}
+
+std::optional<DocumentSave> prepare_document_save_if_needed(
+    const Workspace& workspace,const std::string& document_id,
+    const std::filesystem::path& target) {
+    if(!document_needs_save(workspace,document_id))return std::nullopt;
+    return prepare_document_save(workspace,document_id,target);
 }
 
 SavedDocument DocumentSave::write() const {

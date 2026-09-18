@@ -102,8 +102,7 @@ void AssemblyWorkspaceWindow::update_application_actions() {
         }
     } else if (workspace_.open_assembly(workspace_.active_document_id()) != nullptr) {
         for (const auto mode : {ApplicationMode::Modeling, ApplicationMode::Assembly,
-                                ApplicationMode::SheetMetal, ApplicationMode::Surface,
-                                ApplicationMode::Piping}) {
+                                ApplicationMode::SheetMetal, ApplicationMode::Surface}) {
             application_actions_[static_cast<std::size_t>(mode)]->setEnabled(true);
         }
         if (!application_actions_[static_cast<std::size_t>(active_application_)]
@@ -388,24 +387,25 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
             bend->setEnabled(!properties_dialog_);add_command(bend);
             auto* rotation=findChild<QAction*>("sheetRevolutionAction");
             if(!rotation) {
-                rotation=new QAction(resource_icon("revolve"),tr("Rotační plech"),this);rotation->setObjectName("sheetRevolutionAction");
+                rotation=new QAction(resource_icon("sheet-revolve"),tr("Rotační plech"),this);rotation->setObjectName("sheetRevolutionAction");
                 connect(rotation,&QAction::triggered,this,[this]{show_primitive_properties(zima::document::FeatureKind::Revolution,{},true);});
             }
-            rotation->setEnabled(!properties_dialog_);add_command(rotation);
+            rotation->setEnabled(!properties_dialog_);add_command(rotation);add_green_separator();
             auto* cut=findChild<QAction*>("sheetCutAction");
             if(!cut) {
-                cut=new QAction(resource_icon("protrusion"),tr("Řez plechem"),this);cut->setObjectName("sheetCutAction");
+                cut=new QAction(resource_icon("sheet-cut"),tr("Řez plechem"),this);cut->setObjectName("sheetCutAction");
                 connect(cut,&QAction::triggered,this,[this]{show_primitive_properties(zima::document::FeatureKind::Extrusion,{},true);});
             }
-            cut->setEnabled(!properties_dialog_);add_command(cut);
+            cut->setEnabled(!properties_dialog_);add_command(cut);add_green_separator();
             for(const bool unfold:{true,false}) {
                 const char* object=unfold?"unbendAction":"bendBackAction";
                 auto* action=findChild<QAction*>(object);
                 if(!action) {
-                    action=new QAction(resource_icon(unfold?"flat":"bend"),unfold?tr("Rozvinout"):tr("Ohnout zpět"),this);
+                    action=new QAction(resource_icon(unfold?"unbend":"bend-back"),unfold?tr("Rozvinout"):tr("Ohnout zpět"),this);
                     action->setObjectName(object);connect(action,&QAction::triggered,this,[this,unfold]{show_sheet_state_properties(unfold);});
                 }
                 action->setEnabled(!properties_dialog_);add_command(action);
+                if(!unfold)add_green_separator();
             }
             return;
         }

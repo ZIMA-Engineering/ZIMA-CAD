@@ -58,7 +58,9 @@ void verify_editing(const kernel::OcctKernel& kernel,fs::path dir) {
     auto second=part;second.document_id=document::PartDocument::create_default().document_id;second.history.front().box={7,7,7};auto small=kernel.evaluate_history(second.kernel_operations());live.add_part(second,small,{});
     const auto unsaved_view=run(host,"drawing.view.create",{{"sheet",sheet},{"source",second.document_id}}).data.at("view").get<std::string>();
     near(width(*live.open_drawing(id)->document().find_view(unsaved_view)),7);
-    require(live.open_drawing(id)->document().sheets.front().bom_rows.front().name==second.name,"Unsaved source lost its BOM name");
+    require(live.open_drawing(id)->document().sheets.front().bom_rows.front().source_document_id==part.document_id&&
+        live.open_drawing(id)->document().sheets.front().bom_source_document_id==part.document_id,
+        "Independent view source changed the sheet title-block and BOM variant");
     workspace::DrawingProjection projection(&live,{});auto a=drawing::DrawingDocument::create_view(part.document_id,{},{}),b=drawing::DrawingDocument::create_view(second.document_id,{},{});
     projection.project(a,{});projection.project(b,{});near(width(a),20);near(width(b),7);a.camera=drawing::standard_camera(drawing::ViewOrientation::Right);projection.project(a,{});near(width(a),10);
     const auto section_view=run(host,"drawing.view.create",{{"sheet",sheet},{"source",part.document_id},{"section",section.id},{"scale",2}}).data.at("view").get<std::string>();

@@ -79,6 +79,46 @@ int main() {
             require(container,"Boolean copy has no View container candidate");
         }
         {
+            // Sheet state operations own the derived topology used by exact
+            // references, but ordinary View selection passes through to the
+            // authored feature. Tree selection can still address the state
+            // history row by its true owner.
+            zima::kernel::ViewerMesh state;
+            state.vertices={{-1,-1,5},{1,-1,5},{0,1,5}};
+            state.triangles={0,1,2};
+            zima::kernel::FaceReference face{
+                "unbend","sheet-state:from:bend:side",{}};
+            face.display_owner_id="bend";
+            state.triangle_references={face};
+            zima::kernel::ViewerEdge edge;
+            edge.points={{-1,-1,5},{1,-1,5}};
+            edge.reference={"unbend","sheet-state:from:bend:edge",{},"bend"};
+            edge.display_owner_id="bend";
+            state.edges.push_back(edge);
+            const auto offered=zima::viewer::ordered_viewer_candidates(
+                state,{0,0,0},{0,0,1},.01);
+            const auto containers=zima::viewer::filter_candidates(offered,
+                {zima::viewer::CandidateKind::Container});
+            const auto faces=zima::viewer::filter_candidates(offered,
+                {zima::viewer::CandidateKind::Face});
+            require(containers.size()==1&&containers.front().owner_id=="bend"&&
+                    faces.size()==1&&faces.front().owner_id=="unbend",
+                "Sheet state did not separate ordinary Container selection from exact topology identity");
+            require(zima::viewer::container_candidate(state,"unbend").has_value(),
+                "Sheet state history row cannot still be selected from Tree");
+            require(zima::viewer::candidate_recolors_wire_edge(containers.front(),edge),
+                "Original sheet feature does not highlight its transformed wire");
+
+            auto generated=state;
+            generated.triangle_references.front().display_owner_id.clear();
+            const auto generated_containers=zima::viewer::filter_candidates(
+                zima::viewer::ordered_viewer_candidates(generated,
+                    {0,0,0},{0,0,1},.01),
+                {zima::viewer::CandidateKind::Container});
+            require(generated_containers.empty(),
+                "State-only helper topology became selectable as Unbend/Bend Back");
+        }
+        {
             // A planar quad touches a shallow sloping face. Smoothing across
             // that CAD edge used to reveal a diagonal across the planar quad.
             zima::kernel::ViewerMesh shading_mesh;

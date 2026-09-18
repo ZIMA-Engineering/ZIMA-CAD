@@ -126,7 +126,7 @@ void Host::register_component_commands() {
         const auto occurrence=workspace::insert_component(workspace_,id,args["source"].get<std::string>(),args.contains("name")?std::optional<std::string>(args["name"].get<std::string>()):std::nullopt);
         return Json{{"occurrence",occurrence},{"instance_path",assembly::InstancePath{}.child(occurrence).encoded()},{"source_document",args["source"]},{"changed",true}};
     });
-    add({"component.replace",tr("Replace one component with its native model or a Family Table instance."),{{"instance_path",true},{"source",true},{"document",false}},true},[this](const auto& state,const Json& args){
+    add({"component.replace",tr("Replace one component with its native model or a Family Table variant."),{{"instance_path",true},{"source",true},{"document",false}},true},[this](const auto& state,const Json& args){
         const auto path=assembly::InstancePath::decode(args.at("instance_path").get<std::string>());
         if(path.occurrence_ids.size()!=1)throw workspace::ComponentOperationError("unsupported_context","Edit a component only in its immediate owning Assembly.");
         const auto changed=workspace::replace_component(workspace_,kernel_,state.session.document().document_id,

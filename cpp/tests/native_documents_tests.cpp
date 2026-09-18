@@ -88,6 +88,16 @@ int main(){
         const auto model_id=loaded.id();require(model_id==model.document_id,"Read changed document identity");
         require(workspace.size()==count,"Read inserted a document");
         require(insert_native_document(workspace,std::move(loaded))==model_id,"Open insert changed identity");
+        auto linked_drawing=prepare_new_native_document(
+            NativeDocumentType::Drawing,"linked drawing",directory/"linked-drawing.drwz",{});
+        linked_drawing.set_drawing_source(model_id,model_path,model.name);
+        const auto linked_drawing_id=insert_native_document(workspace,std::move(linked_drawing));
+        const auto& linked=workspace.open_drawing(linked_drawing_id)->document();
+        require(linked.source_document_id==model_id&&!linked.sheets.empty()&&
+            linked.sheets.front().bom_source_document_id==model_id&&
+            linked.sheets.front().bom_rows.size()==1&&
+            linked.sheets.front().bom_rows.front().source_document_id==model_id,
+            "New Drawing did not initialize its independent sheet BOM source");
         const auto& loaded_part=*workspace.open_part(model_id);
         require(!loaded_part.session.is_dirty() && !loaded_part.session.can_undo() && loaded_part.session.calculated_boundaries().size()==boundaries.size(),"Open calculated or edited a Part");
         require(loaded_part.session.calculated_boundaries().back().volume==boundaries.back().volume,"Open lost calculated geometry");

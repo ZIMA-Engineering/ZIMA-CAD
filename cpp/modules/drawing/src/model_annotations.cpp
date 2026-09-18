@@ -157,6 +157,28 @@ void refresh_model_annotations(DrawingView &view,
   for (auto &item : next)
     item.unresolved = true;
   std::set<ModelAnnotationReference> incoming;
+  const auto family_owner = [](const std::string &document_id) {
+    const auto separator = document_id.find(":family:");
+    return separator == std::string::npos ? document_id
+                                         : document_id.substr(0, separator);
+  };
+  const auto canonical_owner = [&](const ModelAnnotationReference &reference) {
+    const auto root = family_owner(reference.document_id);
+    if (reference.owner_id == reference.document_id)
+      return root;
+    if (reference.owner_id == reference.document_id + ":origin")
+      return root + ":origin";
+    return reference.owner_id;
+  };
+  const auto same_family_annotation = [&](const ModelAnnotation &stored,
+                                          const ModelAnnotation &current) {
+    return stored.kind == current.kind &&
+           family_owner(stored.source.document_id) ==
+               family_owner(current.source.document_id) &&
+           canonical_owner(stored.source) == canonical_owner(current.source) &&
+           stored.source.semantic_id == current.source.semantic_id &&
+           stored.source.instance_path == current.source.instance_path;
+  };
   const auto project = [&](kernel::Vec3 p) {
     return Point2{dot(p, view.camera.horizontal), dot(p, view.camera.vertical)};
   };
@@ -166,9 +188,17 @@ void refresh_model_annotations(DrawingView &view,
           "Ambiguous model annotation source: " + item.source.document_id +
           "/" + item.source.instance_path + "/" + item.source.owner_id + "/" +
           item.source.semantic_id);
-    const auto old = std::find_if(next.begin(), next.end(), [&](const auto &x) {
+    auto old = std::find_if(next.begin(), next.end(), [&](const auto &x) {
       return x.source == item.source;
     });
+    // A Family Table member is another calculated state of the same authored
+    // model.  Its document namespace changes, while feature semantics and
+    // occurrence ownership remain stable.  Carry the Drawing presentation to
+    // the corresponding member annotation and project its current geometry.
+    if (old == next.end())
+      old = std::find_if(next.begin(), next.end(), [&](const auto &x) {
+        return same_family_annotation(x, item);
+      });
     if (old != next.end()) {
       if (old->kind != item.kind)
         throw std::invalid_argument("Annotation source changed kind");

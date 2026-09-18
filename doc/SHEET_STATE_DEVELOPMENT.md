@@ -68,13 +68,73 @@ bridge spanning regions that cannot be separated is rejected instead of being
 assigned to an arbitrary region. Cuts are explicitly divided by positive material
 domains and can cross a joint between regions.
 
+An authored contribution with a known material owner is partitioned only by that
+region's own start/end planes. Other selected bends must not cut this already
+attributed material. This fixes a tilted cone that unfolded individually but
+failed the surface-fit tolerance check during Unbend All alongside adjacent
+Sheet Profiles. The fitting tolerance is unchanged; avoiding unrelated partitions
+also avoids unnecessary Boolean work.
+
+## Bend lines in developed material
+
+Each unfolded Sheet Profile publishes a persisted axis on its inner skin at
+half its developed curved length: `theta * (R + K*t) / 2`. The axis runs across
+the sheet width. Its endpoints interpolate the authored start/end sections at
+that midpoint, so changed profile widths are respected. A straight continuation
+does not move the bend line. A Revolved Sheet also receives an inner-skin
+centerline halfway through its developed angular span. On a cone this follows
+the annular sector's middle generator. It identifies the development midpoint,
+not a claim that the rolled surface is manufactured with one press-brake stroke.
+The inner skin respects the region's thickness sign and inherited orientation.
+
+The axis belongs to the derived state feature and its semantic identity records
+the source Sheet Profile/arc or Revolved Sheet/generator. Viewer and Drawing consume the
+already calculated axis packet; displaying, picking and dimensioning it require
+no OCCT work. Native viewer/reference serialization already stores these axes,
+so no new document schema or template revision is needed.
+
+Subsequent cuts retain the currently active bend lines. Selective Bend Back
+removes only lines belonging to regions that become folded. Historical axes
+remain original references, but Drawing Show/Erase offers bend lines only for
+the current material state. They use the ordinary Axis annotation and dimension
+attachment mechanism, with an individual width envelope rather than the bounds
+of the whole part. Assembly occurrences transform them through the existing
+source/occurrence path.
+
+Unbend hides the original Revolved Sheet rotation axis from the active Viewer
+and Drawing annotations. Bend Back restores that axis, copying its original
+coordinates exactly when its attachment returns to the authored state. Original
+reference packets remain intact throughout this visibility change.
+
 ## Interaction and persistence
 
 Unbend and Bend Back use one shared internal properties dialog with OK/Cancel,
-an all-regions checkbox, and a manual region list. Manual values survive toggling
-the all-regions checkbox. Common View candidates resolve to source material
+an individual-selection checkbox, and a manual region list. With
+**Select individual features** unchecked (the default), all eligible regions
+are processed. Checking it enables manual View/Tree selection. Manual values
+survive switching between these modes, and editing restores the saved mode.
+Common View candidates resolve to source material
 regions through calculated metadata; no second picker or OCCT traversal is
 introduced. The user's selection filter remains active.
+
+Unbend and Bend Back remain editable history rows, but they are transparent to
+ordinary View container selection. Their calculated faces keep state-owned
+topology identities for later references while carrying the first authored sheet
+feature as a separate display owner. Hover, confirmation and cyan highlighting
+therefore select the original Sheet Profile, Revolved Sheet or attached sheet
+feature through the currently displayed developed/refolded geometry. Geometry
+created only by a state operation has no ordinary container candidate. Repeated
+state cycles preserve the same authored display owner. When a Part occurrence is
+active inside an Assembly, ordinary selection is restricted to authored
+containers of that exact occurrence; the other occurrences remain visible as
+passive context.
+
+The Sheet Metal toolbar and history tree use six distinct, theme-aware SVG
+symbols for Sheet Blank, Sheet Profile, Revolved Sheet, Sheet Cut, Unbend and
+Bend Back. Unbend/Bend Back no longer reuse their creator's icons. The inactive
+Piping entry is omitted from the Applications menu. Green separators after
+Sheet Metal Properties, Revolved Sheet, Sheet Cut and Bend Back divide the
+right-hand command panel into its functional groups.
 
 Clicking a region again removes it. Stored list rows have a red cross in the
 first cell and a separate inspection eye. Selected inspected regions use cyan
@@ -121,7 +181,9 @@ The geometry test covers cylindrical profiles at 30, 90 and 180
 degrees, changed end widths, cylindrical and conical Revolved Sheet in both
 directions, a zero-radius hem, straight continuations at 45/90/180 degrees,
 selective/all independent regions, attached Flats, and material edits between
-states. Through holes, pockets, bosses and enclosed voids are covered. Cuts in
+states. Through holes, pockets, bosses and enclosed voids are covered. Both an
+ordinary subtractive Extrusion and Sheet Cut are authored after Unbend, carried
+through Bend Back, and compared again after a second Unbend. Cuts in
 variable-width profiles and across Sheet Profile–Flat joints are also covered. Removed
 material is attributed by intersection with authored positive material domains,
 so a void need not retain an original skin face to follow its sheet.
@@ -140,8 +202,11 @@ common picking, user filter enforcement, View and Tree selection/removal,
 short-MMB, Cancel, OK, editing rollback and MMB double-click confirmation over
 the View. Active Part container rows inherit their occurrence path from the
 component ancestor; the new command resolves that path without changing general
-placement or Tree ownership. Both dialog screenshots were inspected, including
-cyan region wires and the passive Assembly context.
+placement or Tree ownership. The same check confirms that state rows are not
+ordinary View candidates, that the authored feature is offered through state
+geometry, and that this display ownership survives native serialization and
+repeated state cycles. Both dialog screenshots were inspected, including cyan
+region wires and the passive Assembly context.
 
 The complete Windows C++ target build succeeded. Across the final focused runs,
 **27 distinct CTest contracts passed**: the four new sheet-state contracts plus
@@ -161,3 +226,44 @@ suite or a new portable release was validated.
 Local evidence: `build/sheet-state-regression.log`,
 `build/sheet-state-fixes.log`, and
 `build/cpp-windows-release/sheet-state-ui-contract/sheet-state-{part,context}/sheet-state-properties.png`.
+
+## Bend-line and tilted-cone follow-up — 2026-09-18
+
+The reported `04.prtz` failure was reproduced before the partition fix. The
+cache-free `tilted-cone-with-bends.prtz` regression fixture preserves its authored
+geometry. Unbend All and individual region selection now pass without relaxing
+the 0.05 mm document tolerance. Known rigid material contributions bypass the
+splitter entirely, which also preserves attached Flats during state changes.
+
+Five sheet-state CTest contracts passed in 52.24 seconds. Coverage includes:
+
+- Twenty cylinder/cone combinations of generator slope, axis endpoint order
+  and revolution direction; eight also cut the developed cone, fold it and
+  develop it again. Source-state cut vertices are checked within 0.000001 mm.
+- Midpoint station, inner-skin depth, section-width interpolation, persistence
+  through later material edits, selective visibility, and exact restoration of
+  the source rotation axis.
+- Actual Drawing annotation discovery, line picking and an edge-to-bend-line
+  dimension with the expected numerical value, including serialized references.
+- Cold native regeneration and save/reopen of the attached tilted-cone model,
+  as well as Unbend/Bend Back history cycles.
+- Unchecked all-region behavior, checked individual selection, restoration on
+  Properties editing, View/Tree picking, MMB confirmation, and repeated Assembly
+  occurrences.
+
+The GUI verification also opens the tilted-cone model, checks its three developed
+bend lines and hidden rotation axis, then folds it and checks restoration.
+Screenshots of both states, the Assembly dialog and the six icons at 24/48 px
+were visually inspected. Evidence is under
+`build/cpp-windows-release/sheet-state-ui-contract/`; the focused test log is
+`build/sheet-lines-tests.log`. Windows desktop and CLI targets were rebuilt for
+the normal local launcher. This is local-build verification, not a new portable
+release.
+
+The follow-up regression run passed another **13 contracts in 159.22 seconds**:
+Sheet Profile and Flat commands, profile creation, model calculation, native
+documents, Viewer and context references, Drawing annotation commands, Show/Erase,
+measurement dimensions, profile-on-sheet GUI, bend attachment GUI and application
+tools GUI. Together the final runs passed **18 distinct contracts**. The regression
+log is `build/sheet-lines-regression-tests.log`; no full-suite or release-signing
+claim is implied.

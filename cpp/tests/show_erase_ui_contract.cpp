@@ -82,6 +82,30 @@ int verify_show_erase_ui() {
                                                    "source.prtz");
     require(!sources.empty() && !sources[0].dimensions.empty(),
             "Sketch dimensions not collected");
+    // A feature axis derived from a Sketch centerline owns the same persisted
+    // reference as that construction segment.  It is one selectable Drawing
+    // annotation, represented by the axis rather than two ambiguous entries.
+    auto axis_part=part;
+    axis_part.document_id="axis-source";
+    const auto centerline=axis_part.sketches.front().add_segment(0,-25,0,25,true);
+    auto axis_body=body;
+    axis_body.mesh.axes.push_back({{0,-25,0},{0,1,0},50,
+        {axis_part.sketches.front().id,centerline,{}}});
+    workspace.add_part(axis_part,{axis_body},"axis-source.prtz");
+    const auto axis_sources=workspace::drawing_annotation_sources(
+        &workspace,axis_part.document_id,"axis-source.prtz");
+    require(axis_sources.size()==1&&
+        std::ranges::count_if(axis_sources.front().axes,[&](const auto& axis) {
+          return axis.reference.owner_id==axis_part.sketches.front().id&&
+              axis.reference.semantic_key==centerline;
+        })==1&&
+        std::ranges::none_of(axis_sources.front().construction,[&](const auto& edge) {
+          return edge.reference.owner_id==axis_part.sketches.front().id&&
+              edge.reference.semantic_key==centerline;
+        }),"Feature axis and its source centerline remained ambiguous");
+    zima::drawing::DrawingView axis_annotation_view;
+    axis_annotation_view.camera={{1,0,0},{0,1,0},{0,0,1}};
+    zima::drawing::refresh_model_annotations(axis_annotation_view,axis_sources);
     auto assembly = assembly::AssemblyDocument::create_default();
     for (int i = 0; i < 2; ++i) {
       assembly::PartOccurrence c;

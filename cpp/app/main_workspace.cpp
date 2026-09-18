@@ -335,7 +335,20 @@ int verify_family_table(QApplication& application,zima::app::AssemblyWorkspaceWi
     const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
     window.resize(1800,1000);window.show();if(!verify(window.open_document_path(QString::fromStdString(path.string())),"Family fixture did not open"))return 1;flush();
     auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>("modelWorkspace"));auto* action=window.findChild<QAction*>("familyTableAction");
-    view->fit_all();action->trigger();flush();auto* dialog=dynamic_cast<app::FamilyTableDialog*>(window.findChild<QDialog*>("familyTableDialog"));
+    auto* tree=window.findChild<QTreeWidget*>("documentTree");auto* view_toolbar=window.findChild<QToolBar*>("viewToolbar");
+    const auto toolbar_actions=view_toolbar?view_toolbar->actions():QList<QAction*>{};
+    const auto parameters_index=toolbar_actions.indexOf(window.findChild<QAction*>("documentParametersAction"));
+    if(!verify(action&&!action->icon().isNull()&&parameters_index>=0&&parameters_index+1<toolbar_actions.size()&&toolbar_actions[parameters_index+1]==action,
+        "Family Table icon is missing or is not immediately after Parameters in the View toolbar"))return 1;
+    bool root_family=false;
+    QTimer::singleShot(0,&window,[&]{if(auto* menu=qobject_cast<QMenu*>(QApplication::activePopupWidget())){
+        for(auto* entry:menu->actions())if(entry->objectName()=="treeFamilyTableAction"){
+            root_family=!entry->icon().isNull();menu->setActiveAction(entry);
+            QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(menu,&enter);return;
+        }menu->close();}});
+    tree->customContextMenuRequested(tree->visualItemRect(tree->topLevelItem(0)).center());flush();
+    if(!verify(root_family,"Part root context menu lacks the Family Table icon/action"))return 1;
+    view->fit_all();auto* dialog=dynamic_cast<app::FamilyTableDialog*>(window.findChild<QDialog*>("familyTableDialog"));
     if(!verify(dialog&&dialog->width()>1000&&dialog->windowFlags().testFlag(Qt::SubWindow),"Family dialog width or internal presentation is wrong"))return 1;
     auto* table=dialog->findChild<QTableWidget*>("familyTableTable");
     if(!verify(table&&dynamic_cast<ui::ReferenceCellItem*>(table->item(0,2))->is_active_input(),"Family base cell is not armed"))return 1;
@@ -354,7 +367,7 @@ int verify_family_table(QApplication& application,zima::app::AssemblyWorkspaceWi
     if(!verify(table->horizontalHeaderItem(2)->text().toStdString()==name,"Family dimension did not bind secondary identifier"))return 1;
     table->item(1,1)->setText("Long");table->item(1,2)->setText("20");flush();
     dialog->findChild<QPushButton*>("familyAddColumn")->click();flush();
-    auto* tree=window.findChild<QTreeWidget*>("documentTree");QTreeWidgetItem* body_row=nullptr;
+    QTreeWidgetItem* body_row=nullptr;
     for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==body&&(*it)->data(0,Qt::UserRole+3).toString()=="part-body")body_row=*it;
     if(!verify(body_row!=nullptr,"Family Body source missing from Tree"))return 1;
     tree->setCurrentItem(body_row);flush();
@@ -384,7 +397,12 @@ int verify_family_table(QApplication& application,zima::app::AssemblyWorkspaceWi
     workspace::Workspace drawing_models;drawing_models.add_part(part,cache,path);
     const auto stored_table=window.execute_console_command(QString::fromStdString(commands::Json{{"command","document.family.get"},{"arguments",{{"document",part.document_id}}}}.dump()));
     if(!verify(stored_table.ok,"Cannot read GUI-created Family Table"))return 1;
-    static_cast<void>(workspace::set_family_table(drawing_models,part.document_id,document::parse_family_table(stored_table.data.at("table").dump())));
+    auto drawing_source_table=document::parse_family_table(stored_table.data.at("table").dump());
+    auto unopened_variant=drawing_source_table.instances.front();unopened_variant.name="Unopened";unopened_variant.id.clear();
+    drawing_source_table.instances.push_back(std::move(unopened_variant));
+    static_cast<void>(workspace::set_family_table(drawing_models,part.document_id,drawing_source_table));
+    drawing_source_table=workspace::family_table(drawing_models,part.document_id);
+    const auto unopened_id=part.document_id+":family:"+drawing_source_table.instances.back().id;
     const auto family_id=workspace::open_family_instance(drawing_models,kernel,part.document_id,"Long");
     const auto family_saved=workspace::prepare_document_save(drawing_models,family_id,path).write();
     if(!verify(workspace::complete_document_save(drawing_models,family_saved),"Drawing family fixture did not save"))return 1;
@@ -393,12 +411,28 @@ int verify_family_table(QApplication& application,zima::app::AssemblyWorkspaceWi
     drawing_models.add_drawing(drawing,directory/"family.drwz");
     app::DrawingWindow drawing_window(&drawing_models,false);drawing_window.edit_workspace_document(drawing.document_id);
     auto* variants=drawing_window.findChild<QComboBox*>("drawingSourceVariant");
+    const int unopened_index=variants?variants->findData(QString::fromStdString(unopened_id)):-1;
+    if(!verify(unopened_index>=0&&variants->isEnabled(),"Drawing Variant selector omitted a closed Family Table variant"))return 1;
+    variants->setCurrentIndex(unopened_index);QMetaObject::invokeMethod(variants,"activated",Qt::DirectConnection,Q_ARG(int,unopened_index));flush();
+    if(!verify(drawing_window.document_for_test().source_document_id==part.document_id&&
+        drawing_window.document_for_test().sheets.front().bom_source_document_id==unopened_id&&
+        drawing_window.document_for_test().sheets.front().views.front().source_document_id==part.document_id&&
+        drawing_models.find(unopened_id),
+        "Drawing Variant selector did not calculate a closed Family Table variant or changed an independent view"))return 1;
+    drawing_models.open_drawing(drawing.document_id)->undo();drawing_window.edit_workspace_document(drawing.document_id);flush();
+    static_cast<void>(drawing_models.remove(unopened_id));
+    variants=drawing_window.findChild<QComboBox*>("drawingSourceVariant");
     const int variant_index=variants?variants->findData(QString::fromStdString(family_id)):-1;
     if(!verify(variant_index>=0,"Drawing Variant selector omitted the open family instance"))return 1;
     variants->setCurrentIndex(variant_index);QMetaObject::invokeMethod(variants,"activated",Qt::DirectConnection,Q_ARG(int,variant_index));flush();
-    if(!verify(drawing_window.document_for_test().source_document_id==family_id&&drawing_models.open_drawing(drawing.document_id)->can_undo(),"Drawing Variant selector did not commit the selected source"))return 1;
+    if(!verify(drawing_window.document_for_test().source_document_id==part.document_id&&
+        drawing_window.document_for_test().sheets.front().bom_source_document_id==family_id&&
+        drawing_models.open_drawing(drawing.document_id)->can_undo(),
+        "Drawing Variant selector did not commit the selected sheet source"))return 1;
     drawing_models.open_drawing(drawing.document_id)->undo();
-    if(!verify(drawing_models.open_drawing(drawing.document_id)->document().source_document_id==part.document_id,"Drawing family selection is not undoable"))return 1;
+    if(!verify(drawing_models.open_drawing(drawing.document_id)->document().source_document_id==part.document_id&&
+        drawing_models.open_drawing(drawing.document_id)->document().sheets.front().bom_source_document_id.empty(),
+        "Drawing sheet family selection is not undoable"))return 1;
     auto assembly_model=assembly::AssemblyDocument::create_default();const auto assembly_id=assembly_model.document_id;
     const auto assembly_path=directory/"family-drawing-assembly.asmz";drawing_models.add_assembly(assembly_model,assembly_path);
     const auto occurrence=drawing_models.insert_open_part(assembly_id,part.document_id,"Block");
@@ -426,7 +460,10 @@ int verify_family_table(QApplication& application,zima::app::AssemblyWorkspaceWi
     view_properties=edit_view(assembly_view);auto* view_source=view_properties->findChild<QComboBox*>("drawingViewSource");
     if(!verify(view_source->currentData().toString().toStdString()==assembly_variant&&view_source->findData(QString::fromStdString(assembly_id))==0,"View source confused variants sharing the same native file"))return 1;
     view_source->setCurrentIndex(0);view_properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
-    if(!verify(drawing_window.document_for_test().find_view(assembly_view)->source_document_id==assembly_id&&drawing_window.document_for_test().source_document_id==assembly_id,"Assembly main view Replace did not update Drawing source"))return 1;
+    if(!verify(drawing_window.document_for_test().find_view(assembly_view)->source_document_id==assembly_id&&
+        drawing_window.document_for_test().source_document_id==assembly_variant&&
+        drawing_window.document_for_test().sheets.front().bom_source_document_id==assembly_variant,
+        "Assembly view source replacement changed the independent sheet variant"))return 1;
     auto drawing_table=document::parse_family_table(stored_table.data.at("table").dump());std::string length_column;
     for(const auto& [column,binding]:drawing_table.bindings)if(binding.kind=="dimension")length_column=column;
     drawing_table.instances.push_back({"Short",{{length_column,"5"}}});
@@ -457,7 +494,10 @@ int verify_family_table(QApplication& application,zima::app::AssemblyWorkspaceWi
     drawing_window.grab().save(QString::fromStdString((directory/"family-drawing-replace.png").string()));
     view_properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
     for(const auto& id:{main_view,child.id,grand.id})if(!verify(drawing_window.document_for_test().find_view(id)->source_document_id==short_id,"A descendant view retained the former variant"))return 1;
-    if(!verify(drawing_window.document_for_test().find_view(other.id)->source_document_id==part.document_id&&drawing_window.document_for_test().source_document_id==short_id&&drawing_models.open_part(part.document_id)->session.document().family.evaluated.contains(short_row),"Drawing Replace changed an independent root or failed to publish the native row packet"))return 1;
+    if(!verify(drawing_window.document_for_test().find_view(other.id)->source_document_id==part.document_id&&
+        drawing_window.document_for_test().source_document_id==part.document_id&&
+        drawing_models.open_part(part.document_id)->session.document().family.evaluated.contains(short_row),
+        "Drawing view source replacement changed an independent root or failed to publish the native row packet"))return 1;
     double low=1e100,high=-1e100;for(const auto& triangle:drawing_window.document_for_test().find_view(main_view)->projected_triangles)for(const auto& point:triangle.points){low=std::min(low,point.x);high=std::max(high,point.x);}
     if(!verify(std::abs(high-low-5)<1e-8,"Drawing Replace did not project the short variant's geometry"))return 1;
     drawing_models.open_drawing(drawing.document_id)->undo();drawing_window.edit_workspace_document(drawing.document_id);flush();
@@ -566,6 +606,19 @@ int verify_family_table(QApplication& application,zima::app::AssemblyWorkspaceWi
     if(!verify(choices->rowCount()==2&&choices->item(0,0)->data(Qt::UserRole).toString().isEmpty(),"Assembly picker omitted native or variant"))return 1;
     choices->selectRow(1);chooser->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();finish_properties();
     if(!verify(rows().size()==1&&rows()[0].at("source_document")==assembly_variant,"Assembly chooser inserted the generic instead of the selected member"))return 1;
+    root_family=false;
+    QTimer::singleShot(0,&window,[&]{if(auto* menu=qobject_cast<QMenu*>(QApplication::activePopupWidget())){
+        for(auto* entry:menu->actions())if(entry->objectName()=="treeFamilyTableAction"){
+            root_family=!entry->icon().isNull();menu->setActiveAction(entry);
+            QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(menu,&enter);return;
+        }menu->close();}});
+    tree->customContextMenuRequested(tree->visualItemRect(tree->topLevelItem(0)).center());flush();
+    if(!verify(root_family,"Assembly root context menu lacks the Family Table icon/action"))return 1;
+    dialog=dynamic_cast<app::FamilyTableDialog*>(window.findChild<QDialog*>("familyTableDialog"));
+    const auto active_root=window.execute_console_command("context").data.at("active_document").get<std::string>();
+    if(!verify(dialog&&dialog->property("familyDocumentId").toString().toStdString()==active_root,
+        "Assembly root Family Table action opened a different document"))return 1;
+    dialog->reject();flush();
     std::cout<<"Family Table, native/member insertion, context Replace, Cancel, MMB, Undo and Part/Assembly Drawing sources passed\n";return 0;
 }
 
@@ -4290,6 +4343,8 @@ int verify_application_tools_ui(QApplication& application,const std::filesystem:
         bend->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();check(!bend_dialog(),"Bend OK failed to close");
         window.findChild<QAction*>("saveDocumentAction")->trigger();flush();const auto saved_bend=document::PartDocument::load(bend_path);
         check(saved_bend.history.size()==1&&saved_bend.history.front().feature_kind==document::FeatureKind::Bend,"Sheet Profile was not committed as one history feature");
+        check(std::abs(document::bend_straight_length(saved_bend.history.front())-20)<1e-6,
+            "New Sheet Profile lacks its default tangent continuation");
         QTreeWidgetItem* bend_row{};for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==saved_bend.history.front().id&&(*it)->data(0,Qt::UserRole+3)=="part-container"){bend_row=*it;break;}
         check(bend_row,"Bend history row missing");window.show_tree_item_properties(bend_row);flush();bend=bend_dialog();check(bend,"First Bend history edit cannot enter rollback");
         QApplication::sendEvent(model_view,&middle);flush();check(!bend_dialog(),"Bend middle double-click did not confirm");
@@ -4338,7 +4393,9 @@ int verify_application_tools_ui(QApplication& application,const std::filesystem:
         check(bend&&dynamic_cast<app::SketchPropertiesDialog*>(bend)->mutate_sketch(trajectory_id,[](auto& path) {
             const auto arc=path.arcs.front();const auto p=*path.find_point(arc.end_point_id);
             const double a=arc.end_angle+std::numbers::pi/2;
-            static_cast<void>(path.add_segment(p.x,p.y,p.x+20*std::cos(a),p.y+20*std::sin(a)));
+            const auto segment=std::ranges::find_if(path.segments,[](const auto& value){return !value.construction;});
+            auto* tip=path.find_point(segment->first_point_id==arc.end_point_id?segment->second_point_id:segment->first_point_id);
+            tip->x=p.x+20*std::cos(a);tip->y=p.y+20*std::sin(a);
         }),"Properties rejected tangent continuation");
         bend->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();check(!bend_dialog(),"Continuation OK failed");
         window.show_parameter_dimensions(bend_id);flush();inline_edit(":length","30");

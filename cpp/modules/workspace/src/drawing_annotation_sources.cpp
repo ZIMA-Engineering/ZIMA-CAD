@@ -9,6 +9,7 @@
 #include <zima/assembly/assembly_document.hpp>
 #include <zima/document/part_document.hpp>
 #include <zima/document/feature_sketches.hpp>
+#include <zima/kernel/sheet_material.hpp>
 #include <zima/workspace/workspace.hpp>
 namespace zima::workspace {
 namespace {
@@ -98,11 +99,26 @@ drawing_annotation_sources(const Workspace *workspace,
         if(auto found=frames.find({body.scope.id,{}});found!=frames.end())
             frames[{body.origin().id,{}}]=found->second;
       }
-      mesh.axes.insert(mesh.axes.end(),
-                       calculated.original_references.axes.begin(),
-                       calculated.original_references.axes.end());
+      for(const auto& axis:calculated.original_references.axes) {
+        const auto* owner=part.find_container(axis.reference.owner_id);
+        if(axis.reference.semantic_key=="axis:primary"&&owner&&owner->revolution.sheet_metal)continue;
+        mesh.axes.push_back(axis);
+      }
       mesh.axes.insert(mesh.axes.end(), calculated.axes.begin(),
                        calculated.axes.end());
+      // Historical flat axes remain valid original references, but only the
+      // current material state offers bend lines in this Drawing source.
+      std::erase_if(mesh.axes,[&](const auto& axis) {
+        return kernel::sheet_material::is_bend_line(axis.reference)&&
+            std::ranges::none_of(calculated.axes,[&](const auto& active){return active.reference==axis.reference;});
+      });
+      for(const auto& axis:calculated.axes)if(kernel::sheet_material::is_bend_line(axis.reference)) {
+        using namespace kernel::sheet_material;
+        kernel::ModelEnvelope frame;frame.origin=axis.point;
+        const auto x=unit(axis.direction),y=unit(cross(x,std::abs(x.z)<.9?kernel::Vec3{0,0,1}:kernel::Vec3{0,1,0}));
+        frame.axes={x,y,cross(x,y)};frame.minimum={-axis.display_length/2,0,0};frame.maximum={axis.display_length/2,0,0};frame.valid=true;
+        axis_frames[{axis.reference.owner_id,axis.reference.semantic_key}]=frame;
+      }
       mesh.dimensions.insert(mesh.dimensions.end(),
                              calculated.dimensions.begin(),
                              calculated.dimensions.end());
@@ -273,6 +289,23 @@ drawing_annotation_sources(const Workspace *workspace,
     unique(mesh.axes);
     unique(mesh.dimensions);
     unique(mesh.edges);
+    // A Sketch centerline used as a Revolution axis is present twice in the
+    // persisted source packet: once as its authored construction segment and
+    // once as the calculated axis.  Both deliberately keep the same ZIMA
+    // reference because they are the same object.  Drawing annotations must
+    // expose that object once; the axis carries the useful finite extent and
+    // is therefore the canonical presentation.
+    const auto axis_references = [&] {
+      std::set<std::pair<std::string, std::string>> result;
+      for (const auto &axis : mesh.axes)
+        result.emplace(axis.reference.owner_id,
+                       axis.reference.semantic_key);
+      return result;
+    }();
+    std::erase_if(mesh.edges, [&](const auto &edge) {
+      return axis_references.contains(
+          {edge.reference.owner_id, edge.reference.semantic_key});
+    });
     // Consume the existing Assembly display transformation. Extra vertices
     // carry optional text anchors through exactly the same placement, without
     // solving.

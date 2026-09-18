@@ -27,7 +27,7 @@ void vertices_close(const kernel::BodyResult& source,const kernel::BodyResult& r
     }
 }
 kernel::HistoryOperation cut_at(const kernel::SheetMaterialDefinition& frame,double along,double length,
-        double half_width,double half_length,const std::string& owner) {
+        double half_width,double half_length,const std::string& owner,bool sheet_cut=false) {
     using namespace kernel::sheet_material;
     const Coordinate station{along,length,0};const auto center=point(frame,station);const auto axes=basis(frame,station);
     kernel::ExtrusionRequest cutter;kernel::ExtrusionRequest::PolygonProfile rectangle;
@@ -36,6 +36,7 @@ kernel::HistoryOperation cut_at(const kernel::SheetMaterialDefinition& frame,dou
         rectangle.vertices.push_back(add(center,add(mul(axes[0],xy.first),mul(axes[1],xy.second))));
     cutter.outer_profile=std::move(rectangle);cutter.direction=mul(axes[2],8);cutter.start_offset=-4;
     cutter.profile_region_id=owner+"-profile";cutter.outer_boundary_id=owner+"-boundary";
+    cutter.sheet_cut=sheet_cut;cutter.sheet_cut_tolerance=.05;
     for(const auto* key:{"a","b","c","d"})cutter.outer_edge_source_ids.push_back(owner+"-edge-"+key);
     for(const auto* key:{"p","q","r","s"})cutter.outer_vertex_source_ids.push_back(owner+"-point-"+key);
     kernel::HistoryOperation cut;cut.owner_id=owner;cut.primitive=std::move(cutter);cut.operation=kernel::BooleanOperation::Subtract;
@@ -84,10 +85,28 @@ int main(){try {
         kernel::HistoryOperation unbend;unbend.owner_id="unbend";unbend.primitive=kernel::SheetStateRequest{};
         operations.push_back(unbend);
         auto unfolded=kernel.evaluate_history(operations).back();
+        const auto authored_owner=operations.front().owner_id;
+        check(std::ranges::any_of(unfolded.mesh.triangle_references,[&](const auto& reference) {
+                return reference.owner_id==unbend.owner_id&&
+                    reference.display_owner_id==authored_owner;
+            }),"Unbend does not expose its transformed faces through the authored feature.");
+        const auto line=std::ranges::find_if(unfolded.mesh.axes,[](const auto& axis){return kernel::sheet_material::is_bend_line(axis.reference);});
+        check(line!=unfolded.mesh.axes.end(),"Unbend did not display a bend line.");
+        const auto station=kernel::sheet_material::coordinates(flat,line->point);
+        close(station.along,20,1e-9);close(station.length,frame.neutral_radius*frame.angle/2,1e-9);
+        close(station.depth,-2,1e-9);close(line->display_length,40,1e-9);
+        check(line->reference.owner_id=="unbend","Bend line is not owned by the derived state.");
+        const auto reopened_flat=document::load_body_result(document::serialize_body_result(unfolded));
+        check(std::ranges::any_of(reopened_flat.mesh.triangle_references,[&](const auto& reference) {
+                return reference.owner_id==unbend.owner_id&&
+                    reference.display_owner_id==authored_owner;
+            }),"Native cache lost transparent sheet-state View ownership.");
+        check(std::ranges::any_of(reopened_flat.mesh.original_references.axes,[&](const auto& axis){return axis.reference==line->reference&&axis.point==line->point;}),"Native cache lost the bend line reference.");
         std::cout<<"Flat volume "<<unfolded.volume<<std::endl;
         close(unfolded.volume,40*2*frame.neutral_radius*frame.angle,.05);
         kernel::HistoryOperation back;back.owner_id="back";back.primitive=kernel::SheetStateRequest{false,true,{}};
         operations.push_back(back);auto boundaries=kernel.evaluate_history(operations);auto restored=boundaries.back();
+        check(std::ranges::none_of(restored.mesh.axes,[](const auto& axis){return kernel::sheet_material::is_bend_line(axis.reference);}),"Bend Back left a flat bend line visible.");
         close(restored.volume,before.volume,.1);
         vertices_close(before,restored,1e-9);
         references_close(before,restored);
@@ -106,9 +125,14 @@ int main(){try {
             kernel::HistoryOperation cut;cut.owner_id="material-edit";cut.primitive=box;
             cut.operation=mode==2?kernel::BooleanOperation::Add:kernel::BooleanOperation::Subtract;
             edited.push_back(cut);auto changed=kernel.evaluate_history(edited).back();
+            check(std::ranges::any_of(changed.mesh.axes,[&](const auto& axis){return axis.reference==line->reference;}),"Material edit lost the active bend line.");
             edited.push_back(back);auto refolded=kernel.evaluate_history(edited).back();
             auto second=unbend;second.owner_id="second-unbend";edited.push_back(second);
             auto second_flat=kernel.evaluate_history(edited).back();
+            check(std::ranges::any_of(second_flat.mesh.triangle_references,[&](const auto& reference) {
+                    return reference.owner_id==second.owner_id&&
+                        reference.display_owner_id==authored_owner;
+                }),"Repeated Unbend/Bend Back replaced the original View owner with a state feature.");
             std::cout<<"Edit "<<mode<<" flat volume "<<changed.volume<<" round trip "<<second_flat.volume<<std::endl;
             close(second_flat.volume,changed.volume,.05);
             vertices_close(changed,second_flat,1e-6);
@@ -119,6 +143,10 @@ int main(){try {
                 auto next_back=back;next_back.owner_id="repeat-back-"+std::to_string(repeat);edited.push_back(next_back);
                 auto next_flat=unbend;next_flat.owner_id="repeat-flat-"+std::to_string(repeat);edited.push_back(next_flat);
                 const auto repeated=kernel.evaluate_history(edited).back();
+                check(std::ranges::none_of(repeated.mesh.triangle_references,[&](const auto& reference) {
+                        return reference.display_owner_id==next_back.owner_id||
+                            reference.display_owner_id==next_flat.owner_id;
+                    }),"Repeated state cycle became selectable instead of the authored feature.");
                 vertices_close(changed,repeated,1e-6);close(repeated.volume,changed.volume,1e-6);
             }
         }
@@ -132,7 +160,12 @@ int main(){try {
         const auto restored=kernel.evaluate_history(operations).back();references_close(before,restored);
         close(restored.volume,before.volume,.1);
         operations.pop_back();auto frame=*operations.front().sheet_material;frame.unfolded=true;
-        operations.push_back(cut_at(frame,20,frame.angle*frame.neutral_radius/2,3,2,"width-cut"));
+        const auto flat_width=kernel.evaluate_history(operations).back();
+        const auto line=std::ranges::find_if(flat_width.mesh.axes,[](const auto& axis){return kernel::sheet_material::is_bend_line(axis.reference);});
+        check(line!=flat_width.mesh.axes.end(),"Variable-width Unbend lost its bend line.");
+        close(line->display_length,40+(extensions.first+extensions.second)/2,1e-8);
+        close(kernel::sheet_material::coordinates(frame,line->point).along,20+(extensions.second-extensions.first)/4,1e-8);
+        operations.push_back(cut_at(frame,20,frame.angle*frame.neutral_radius/2,3,2,"width-cut",true));
         const auto cut_flat=kernel.evaluate_history(operations).back();operations.push_back(back);
         check(kernel.evaluate_history(operations).back().volume<before.volume-1,"Variable-width Bend Back lost its cut.");
         unbend.owner_id="width-flat-again";operations.push_back(unbend);
@@ -160,13 +193,16 @@ int main(){try {
         auto operations=document.kernel_operations();const auto before=kernel.evaluate_history(operations).back();
         const auto first_id=document.history.front().id,second_id=document.history.back().id;
         kernel::HistoryOperation unbend;unbend.owner_id="selective-first";unbend.primitive=kernel::SheetStateRequest{true,false,{first_id}};operations.push_back(unbend);
-        static_cast<void>(kernel.evaluate_history(operations));
+        const auto selective_first=kernel.evaluate_history(operations).back();
+        check(std::ranges::count_if(selective_first.mesh.axes,[](const auto& axis){return kernel::sheet_material::is_bend_line(axis.reference);})==1,"Selective Unbend has the wrong bend lines.");
         auto state=kernel::sheet_material::regions_before(operations,operations.size());
         check(state.regions.front().unfolded&&!state.regions.back().unfolded,"Selective Unbend changed an unselected region.");
         unbend.owner_id="selective-second";unbend.primitive=kernel::SheetStateRequest{};operations.push_back(unbend);
-        static_cast<void>(kernel.evaluate_history(operations));
+        const auto selective_both=kernel.evaluate_history(operations).back();
+        check(std::ranges::count_if(selective_both.mesh.axes,[](const auto& axis){return kernel::sheet_material::is_bend_line(axis.reference);})==2,"Second Unbend lost the earlier bend line.");
         auto back=unbend;back.owner_id="selective-back";back.primitive=kernel::SheetStateRequest{false,false,{second_id}};operations.push_back(back);
-        static_cast<void>(kernel.evaluate_history(operations));
+        const auto selective_back=kernel.evaluate_history(operations).back();
+        check(std::ranges::count_if(selective_back.mesh.axes,[](const auto& axis){return kernel::sheet_material::is_bend_line(axis.reference);})==1,"Selective Bend Back did not retire only its own line.");
         state=kernel::sheet_material::regions_before(operations,operations.size());
         check(state.regions.front().unfolded&&!state.regions.back().unfolded,"Selective Bend Back changed an unselected region.");
         back.owner_id="selective-back-all";back.primitive=kernel::SheetStateRequest{false,true,{}};operations.push_back(back);

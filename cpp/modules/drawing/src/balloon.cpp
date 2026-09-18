@@ -7,16 +7,29 @@
 #include <stdexcept>
 namespace zima::drawing {
 DrawingBalloon make_drawing_balloon() {DrawingBalloon result;result.id=kernel::make_stable_id();return result;}
+namespace {
+std::string family_root(const std::string& id) {return id.substr(0,id.find(":family:"));}
+}
 const BomRow* balloon_bom_row(const DrawingSheet& sheet,const DrawingView& view,const kernel::EdgeReference& ref) {
-    if(!ref.valid()||sheet.bom_source_document_id.empty()||sheet.bom_source_document_id!=view.source_document_id)return nullptr;
+    if(!ref.valid()||sheet.bom_source_document_id.empty())return nullptr;
     const BomRow* result=nullptr;
-    for(const auto& row:sheet.bom_rows)for(const auto& path:row.occurrence_paths)
-        // Encoding includes each segment's length. A full immediate path can
-        // only prefix itself or its descendants, never a similar sibling ID.
-        if(path.empty()?ref.instance_path.empty():ref.instance_path.starts_with(path)) {
-            if(result&&result!=&row)return nullptr;
-            result=&row;
-        }
+    if(family_root(sheet.bom_source_document_id)==family_root(view.source_document_id)) {
+        for(const auto& row:sheet.bom_rows)for(const auto& path:row.occurrence_paths)
+            // Encoding includes each segment's length. A full immediate path can
+            // only prefix itself or its descendants, never a similar sibling ID.
+            if(path.empty()?ref.instance_path.empty():ref.instance_path.starts_with(path)) {
+                if(result&&result!=&row)return nullptr;
+                result=&row;
+            }
+    } else if(ref.instance_path.empty()) {
+        // A separately inserted component view has no Assembly occurrence path.
+        // Resolve it only when its source family identifies exactly one BOM row.
+        for(const auto& row:sheet.bom_rows)
+            if(family_root(row.source_document_id)==family_root(view.source_document_id)) {
+                if(result&&result!=&row)return nullptr;
+                result=&row;
+            }
+    }
     return result;
 }
 BalloonEvaluation evaluate_balloon(const DrawingSheet& sheet,const DrawingBalloon& value) {

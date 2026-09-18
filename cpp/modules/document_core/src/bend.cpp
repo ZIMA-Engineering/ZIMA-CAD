@@ -593,6 +593,8 @@ kernel::FeatureGroupRequest bend_request(const HistoryContainer& input,const ske
         kernel::Sweep3DRequest straight;straight.linear_tolerance=request.linear_tolerance;
         straight.path_points={request.path_points.back(),add(request.path_points.back(),delta)};
         straight.path_point_ids={join,tip};
+        request.canonical_station_ids.insert(join);
+        straight.canonical_station_ids.insert(join);
         kernel::Sweep3DRequest::PathSegment line;line.source_id=segment->id;
         line.start=straight.path_points.front();line.end=straight.path_points.back();straight.path_segments.push_back(line);
         auto first=request.sections.back();first.point_index=0;straight.sections.push_back(first);

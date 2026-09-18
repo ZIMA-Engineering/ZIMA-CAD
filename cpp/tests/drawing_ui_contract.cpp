@@ -5,6 +5,8 @@
 #include <QToolBar>
 #include <fstream>
 #include <zima/workspace/document_operations.hpp>
+#include <zima/workspace/family_operations.hpp>
+#include <zima/workspace/engineering_metadata_operations.hpp>
 #include <zima/command_host/host.hpp>
 #include <zima/drawing/measurement_dimension.hpp>
 #include "drawing_shading.hpp"
@@ -80,9 +82,72 @@ int verify_drawing_source_picker() {
                 properties->findChild<QDialogButtonBox*>()->button(accept?QDialogButtonBox::Ok:QDialogButtonBox::Cancel)->click();flush();
                 require(window.document_for_test().sheets.front().views.size()==(accept?1u:0u),"View OK/Cancel did not preserve the insertion transaction");
             }
+            insert->trigger();flush();
+            click(canvas,canvas->rect().center()+QPoint(180,0));
+            auto* front=window.findChild<QDialog*>("drawingViewProperties");
+            require(front&&front->isVisible(),"Second independent Drawing view has no properties");
+            front->findChild<QComboBox*>("drawingViewOrientation")->setCurrentIndex(0);
+            front->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+            const auto& views=window.document_for_test().sheets.front().views;
+            require(views.size()==2&&views.front().orientation==zima::drawing::ViewOrientation::Isometric&&
+                views.back().orientation==zima::drawing::ViewOrientation::Front,
+                "Front view was rejected after an isometric view");
             require(workspace.documents().size()==1,"Drawing insertion opened extra model tabs");
         }
-        std::cout<<"Drawing Insert View: no source picker, missing source safety, Part/Assembly placement and OK/Cancel passed\n";return 0;
+        {
+            zima::workspace::Workspace workspace;
+            auto family_part=part;
+            family_part.name="Generic model";
+            family_part.user_parameters["name"]="Generic parameter";
+            family_part.user_parameter_values["name"][""]="Generic parameter";
+            family_part.user_parameter_labels["name"]["cs"]="Název";
+            workspace.add_part(family_part,calculated,part_path);
+            zima::document::FamilyTable table;table.instances.push_back({"Variant",{}});
+            static_cast<void>(zima::workspace::set_family_table(workspace,family_part.document_id,table));
+            const auto variant=zima::workspace::open_family_instance(
+                workspace,kernel,family_part.document_id,"Variant",false);
+            auto drawing=zima::drawing::DrawingDocument::create_default();
+            drawing.source_document_id=family_part.document_id;drawing.source_path=part_path;
+            drawing.sheets.front().title_block_fields.push_back({
+                .id="NAME",.expression="&Název",.value="-"});
+            drawing.sheets.front().views.push_back(zima::drawing::DrawingDocument::create_view(
+                family_part.document_id,part_path,calculated.back().mesh,zima::drawing::ViewOrientation::Isometric));
+            workspace.add_drawing(drawing,directory/"variants.drwz");
+            workspace.activate(drawing.document_id);workspace.display_top_level(drawing.document_id);
+            zima::app::DrawingWindow window(&workspace,false);window.edit_workspace_document(drawing.document_id);
+            window.resize(1200,850);window.show();flush();
+            auto* choices=window.findChild<QComboBox*>("drawingSourceVariant");
+            auto* tabs=window.findChild<QTabBar*>("drawingSheetTabs");
+            auto* add=window.findChild<QAction*>("addDrawingSheetAction");
+            require(choices&&tabs&&add&&choices->count()==2,"Per-sheet Variant controls are unavailable");
+            require(window.title_field_text_for_test("NAME")==std::optional<std::string>{"Generic parameter"},
+                "Native Drawing title did not resolve the source Parameters name");
+            const auto variant_index=choices->findData(QString::fromStdString(variant));
+            require(variant_index>=0,"Drawing Variant list does not contain the Family Table row");
+            choices->setCurrentIndex(variant_index);choices->activated(variant_index);flush();
+            require(window.document_for_test().sheets.front().bom_source_document_id==variant&&
+                window.document_for_test().sheets.front().views.front().source_document_id==family_part.document_id,
+                "Sheet Variant selection changed an independent Drawing view");
+            require(window.title_field_text_for_test("NAME")==std::optional<std::string>{"Variant"},
+                "Drawing title used the source filename instead of the selected variant Parameters");
+            add->trigger();flush();
+            require(window.document_for_test().sheets.size()==2&&
+                window.document_for_test().sheets.back().bom_source_document_id==variant,
+                "New Drawing sheet did not inherit the active variant");
+            const auto generic_index=choices->findData(QString::fromStdString(family_part.document_id));
+            require(generic_index>=0,"Drawing Variant list does not contain the native model");
+            choices->setCurrentIndex(generic_index);choices->activated(generic_index);flush();
+            require(window.document_for_test().sheets.front().bom_source_document_id==variant&&
+                window.document_for_test().sheets.back().bom_source_document_id==family_part.document_id,
+                "Changing one Drawing sheet changed another sheet's variant");
+            tabs->setCurrentIndex(0);flush();
+            require(choices->currentData().toString().toStdString()==variant,
+                "Drawing Variant dropdown did not restore the first sheet selection");
+            tabs->setCurrentIndex(1);flush();
+            require(choices->currentData().toString().toStdString()==family_part.document_id,
+                "Drawing Variant dropdown did not restore the second sheet selection");
+        }
+        std::cout<<"Drawing Insert View: source safety, Part/Assembly placement, OK/Cancel and isometric plus Front passed\n";return 0;
     } catch(const std::exception& error) {std::cerr<<error.what()<<'\n';return 1;}
 }
 int verify_drawing_ui() {
@@ -122,7 +187,8 @@ int verify_drawing_ui() {
         const auto& state=window.document_for_test();
         const auto count=[&]{return state.sheets.front().views.size();};
         auto* variants=window.findChild<QComboBox*>("drawingSourceVariant");
-        require(variants && variants->count()==1 && variants->currentText()=="Drawing source","Source variant does not show the model name");
+        require(variants && variants->count()==1 && variants->currentText().startsWith("Drawing source"),
+            "Source variant does not show the model name");
         const QPointF center=canvas->rect().center();
         action("insertDrawingViewAction")->trigger(); flush();
         require(!dialog() && count()==0,"Insert View opened a dialog or persisted before placement");

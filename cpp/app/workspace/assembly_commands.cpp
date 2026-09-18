@@ -127,7 +127,7 @@ void AssemblyWorkspaceWindow::choose_component_variant(const std::string& reques
             if(!row_id.empty()) {
                 const auto current_table=zima::workspace::family_table(workspace_,generic);
                 const auto row=std::ranges::find(current_table.instances,row_id,&zima::document::FamilyInstance::id);
-                if(row==current_table.instances.end())throw std::runtime_error(tr("Family instance no longer exists.").toStdString());
+                if(row==current_table.instances.end())throw std::runtime_error(tr("Family variant no longer exists.").toStdString());
                 source=zima::workspace::open_family_instance(workspace_,kernel_,generic,row->name,false);
             }
             if(replaced_path.empty()) {

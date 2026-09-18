@@ -1,7 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-labelledby="title">
-  <title id="title">Bend</title>
-  <g stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" fill="none">
-    <path d="M3 19h7a8 8 0 0 0 8-8V3h-3v8a5 5 0 0 1-5 5H3z"/>
-    <path d="M4 5a9 9 0 0 1 7 5m-1-4 1 4-4-1" stroke="#ae75d6" stroke-linecap="round"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <title>Sheet profile</title>
+  <path d="M3 17h6a6 6 0 0 0 6-6V6l5-3v8a8 8 0 0 1-8 8H6Z" fill="#80aa1a" fill-opacity=".18"/>
+  <g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M3 17h6a6 6 0 0 0 6-6V6l5-3v8a8 8 0 0 1-8 8H6Z"/>
+    <path d="M3 17v3h6a9 9 0 0 0 9-9V5M20 3l-2 2-3 1"/>
+    <path d="M9 17a6 6 0 0 0 6-6" stroke="#80aa1a" stroke-width="2"/>
   </g>
 </svg>

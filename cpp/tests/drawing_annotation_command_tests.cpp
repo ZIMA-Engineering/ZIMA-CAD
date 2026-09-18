@@ -94,6 +94,43 @@ void verify_layouts(const kernel::OcctKernel& kernel,fs::path directory) {
     auto* refreshed=next.find_view(view.id);drawing::refresh_model_annotations(*refreshed,std::span(&packet,1));
     const auto& renewed=workspace::drawing_annotation(next,view.id,source);
     require(renewed.value==12&&!renewed.unresolved&&renewed.view_layout==changed.view_layout&&renewed.text.find("12")!=std::string::npos,"Source refresh discarded local layout or froze measurement");
+    {
+        drawing::DrawingView family_view;
+        family_view.source_document_id="family-part";
+        drawing::ModelAnnotation shown_axis;
+        shown_axis.source={"family-part","family-part:origin","axis:x",{}};
+        shown_axis.kind=drawing::ModelAnnotationKind::Axis;
+        shown_axis.visible=true;
+        shown_axis.paper_handles["first"]={3,4};
+        family_view.model_annotations={shown_axis};
+        drawing::ModelAnnotationSource member_packet;
+        member_packet.document_id="family-part:family:long";
+        kernel::ViewerAxis member_axis;
+        member_axis.reference={"family-part:family:long:origin","axis:x",{}};
+        member_axis.point={12,0,0};member_axis.direction={0,0,1};member_axis.display_length=20;
+        member_packet.axes={member_axis};
+        drawing::refresh_model_annotations(family_view,std::span(&member_packet,1));
+        require(family_view.model_annotations.size()==1&&family_view.model_annotations.front().visible&&
+            !family_view.model_annotations.front().unresolved&&
+            family_view.model_annotations.front().source.document_id==member_packet.document_id&&
+            family_view.model_annotations.front().source.owner_id==member_axis.reference.owner_id&&
+            family_view.model_annotations.front().paper_handles==shown_axis.paper_handles&&
+            family_view.model_annotations.front().curves.front().front().x==-12,
+            "Family variant refresh lost a shown axis or retained its old projection");
+        drawing::refresh_model_annotations(family_view,{});
+        require(family_view.model_annotations.front().visible&&family_view.model_annotations.front().unresolved,
+            "A missing Family variant axis did not retain its Show intent while hidden");
+        drawing::ModelAnnotationSource generic_packet;
+        generic_packet.document_id="family-part";
+        auto generic_axis=member_axis;generic_axis.reference.owner_id="family-part:origin";generic_axis.point={5,0,0};
+        generic_packet.axes={generic_axis};
+        drawing::refresh_model_annotations(family_view,std::span(&generic_packet,1));
+        require(family_view.model_annotations.size()==1&&family_view.model_annotations.front().visible&&
+            !family_view.model_annotations.front().unresolved&&
+            family_view.model_annotations.front().source.document_id==generic_packet.document_id&&
+            family_view.model_annotations.front().curves.front().front().x==-5,
+            "Returning to the generic Family source did not restore and reproject its axis");
+    }
     const auto invalid_before=annotation_layout_test::snapshot(next);auto invalid=renewed.view_layout.value();invalid.text_along=std::numeric_limits<double>::infinity();
     try{workspace::set_drawing_annotation_layout(next,view.id,source,invalid);throw std::logic_error("Infinite layout accepted");}catch(const workspace::DrawingOperationError&){}
     require(annotation_layout_test::snapshot(next)==invalid_before,"Shared GUI operation changed data before validation");

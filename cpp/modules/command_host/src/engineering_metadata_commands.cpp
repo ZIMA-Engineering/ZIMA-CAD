@@ -74,7 +74,7 @@ void Host::register_engineering_metadata_commands() {
         auto result=Json::array();for(const auto& r:workspace::family_references(workspace_,id))result.push_back({{"name",r.name},{"owner_name",r.owner_name},{"kind",r.binding.kind},{"owner",r.binding.owner_id},{"key",r.binding.semantic_key},{"value",r.value}});
         return Json{{"references",std::move(result)}};
     });
-    dispatcher_.add({"document.family.open",tr("Calculate a Family Table instance and open its document."),{{"instance",true},{"document",false}},true},[this](const Json& args){
+    dispatcher_.add({"document.family.open",tr("Calculate a Family Table variant and open its document."),{{"instance",true},{"document",false}},true},[this](const Json& args){
         const auto check=target(args);if(!check.ok)return check;
         try {
             const auto generic=args.value("document",workspace_.active_document_id());

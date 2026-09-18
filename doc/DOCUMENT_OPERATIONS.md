@@ -14,6 +14,13 @@ localized messages and status panels remain in the application.
 
 ## Saving
 
+Normal **Save** first asks the shared workspace whether the open document has
+changed. The action remains enabled, but a clean Part, Assembly or Drawing whose
+native target still exists produces no save job: it is not serialized, rewritten
+or given a new file timestamp. A changed, unsaved or missing-target document
+still uses the complete atomic native write below. **Save As** always writes the
+requested independent copy.
+
 1. On the Workspace-owning thread, `prepare_document_save` snapshots the document
    and already calculated data without writing or changing dirty state.
 2. `DocumentSave::write` uses only the snapshot, either on a worker thread or
@@ -63,6 +70,7 @@ core. This extraction is not a comprehensive Undo/Redo transaction audit.
 - rejection of missing documents and empty paths;
 - Part/Assembly Undo/Redo, empty history and unsupported types;
 - path changes and close/reopen during saving;
+- clean Save as a byte- and timestamp-preserving no-op for all three native types;
 - unchanged active and displayed documents.
 
 Console integration still checks GUI editing, console saving and Undo/Redo against

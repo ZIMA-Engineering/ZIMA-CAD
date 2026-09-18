@@ -113,12 +113,14 @@ private:
             QSignalBlocker block(eyes_[row]);eyes_[row]->setEnabled(present);eyes_[row]->setChecked(present&&inspected_[row]);
         }
         item_->setText(b?QString::number(drawing::evaluate_balloon(sheet_,*b).item_number):QStringLiteral("—"));
-        const bool source=v&&v->source_document_id==sheet_.bom_source_document_id;
+        const bool source=v&&std::ranges::any_of(v->projected_edges,[&](const auto& edge){
+            return drawing::balloon_bom_row(sheet_,*v,edge.source)!=nullptr;
+        });
         show_->setEnabled(source);erase_->setEnabled(v);add_->setEnabled(source);
         diameter_->setEnabled(b||(new_balloon_&&entering()));height_->setEnabled(b||(new_balloon_&&entering()));
         if(b&&fields){for(auto [field,value]:{std::pair{diameter_,b->diameter},std::pair{height_,b->text_height},std::pair{x_,b->position.x},std::pair{y_,b->position.y}}){QSignalBlocker block(field);field->setValue(value);}}
         x_->setEnabled(b);y_->setEnabled(b);
-        status_->setText(!v?tr("Vyberte pohled"):!source?tr("Pohled nepatří ke kusovníku tohoto listu."):b&&drawing::evaluate_balloon(sheet_,*b).unresolved?tr("Uchycení pozice chybí. Vyberte novou referenci."):placing_?tr("Kliknutím umístěte balónek."):entering()?tr("Vyberte hranu dílu nebo podsestavy."):tr("Pozice: %1").arg(std::count_if(sheet_.balloons.begin(),sheet_.balloons.end(),[&](const auto& item){return item.view_id==view_&&item.visible;})));
+        status_->setText(!v?tr("Vyberte pohled"):!source?tr("Pohled neobsahuje položku z kusovníku tohoto listu."):b&&drawing::evaluate_balloon(sheet_,*b).unresolved?tr("Položka kusovníku nebo uchycení pozice chybí. Vyberte novou referenci."):placing_?tr("Kliknutím umístěte balónek."):entering()?tr("Vyberte hranu dílu nebo podsestavy."):tr("Pozice: %1").arg(std::count_if(sheet_.balloons.begin(),sheet_.balloons.end(),[&](const auto& item){return item.view_id==view_&&item.visible;})));
         references_->viewport()->update();if(changed_)changed_();
     }
     drawing::DrawingSheet sheet_;

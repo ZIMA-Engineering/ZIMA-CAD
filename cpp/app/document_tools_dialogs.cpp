@@ -384,7 +384,7 @@ FamilyInstanceDialog::FamilyInstanceDialog(QString generic_name,const zima::docu
     const std::string& selected_row,bool replacing,std::function<void(const std::string&)> accepted,QWidget* parent)
     : PropertiesSubWindow(replacing?tr("Replace — vybrat variantu"):tr("Vložit — vybrat variantu"),parent),accepted_(std::move(accepted)) {
     setObjectName("componentFamilyDialog");setMinimumSize(430,240);set_initial_size(QSize(620,380));
-    content_layout()->addWidget(new QLabel(tr("Vyberte výchozí model nebo instanci Family Table."),this));
+    content_layout()->addWidget(new QLabel(tr("Vyberte výchozí model nebo variantu Family Table."),this));
     table_=new QTableWidget(static_cast<int>(model.instances.size()+1),2,this);
     table_->setObjectName("componentFamilyTable");
     table_->setHorizontalHeaderLabels({tr("Název"),tr("Typ")});
@@ -400,7 +400,7 @@ FamilyInstanceDialog::FamilyInstanceDialog(QString generic_name,const zima::docu
         const auto& row=model.instances[i];const auto index=static_cast<int>(i+1);
         table_->setItem(index,0,new QTableWidgetItem(QString::fromStdString(row.name)));
         table_->item(index,0)->setData(Qt::UserRole,QString::fromStdString(row.id));
-        table_->setItem(index,1,new QTableWidgetItem(tr("Instance")));
+        table_->setItem(index,1,new QTableWidgetItem(tr("Varianta")));
         if(row.id==selected_row)selected=index;
     }
     table_->selectRow(selected);content_layout()->addWidget(table_);
@@ -425,7 +425,7 @@ FamilyTableDialog::FamilyTableDialog(
     // The shared reference delegate uses the established light reference text.
     auto palette=table_->palette();palette.setColor(QPalette::Base,QColor("#20252b"));
     palette.setColor(QPalette::Text,QColor("#e6edf3"));table_->setPalette(palette);
-    table_->setHorizontalHeaderItem(1,new QTableWidgetItem(settings.text("dialog.family_table.instance","Instance")));
+    table_->setHorizontalHeaderItem(1,new QTableWidgetItem(settings.text("dialog.family_table.instance","Variant")));
     table_->setColumnWidth(1,200);table_->setItem(0,1,new QTableWidgetItem(generic_name_));
     table_->item(0,1)->setFlags(Qt::ItemIsEnabled);zima::ui::install_reference_cell_delegate(table_);
     table_->setContextMenuPolicy(Qt::CustomContextMenu);
@@ -441,7 +441,7 @@ FamilyTableDialog::FamilyTableDialog(
             table_->item(r,2+2*i)->setText(QString::fromStdString(found->second));
     }
     content_layout()->addWidget(new QLabel(settings.text("dialog.family_table.hint",
-        "Click a base cell, then pick a solid in View. Double-click the solid to show its dimensions. Use the row header icon to open an instance."),this));
+        "Click a base cell, then pick a solid in View. Double-click the solid to show its dimensions. Use the row header icon to open a variant."),this));
     content_layout()->addWidget(table_);
     auto* actions=new QHBoxLayout;
     auto* add=new QPushButton(settings.text("dialog.family_table.add_column","Add column"),this);add->setObjectName("familyAddColumn");
@@ -461,7 +461,7 @@ FamilyTableDialog::FamilyTableDialog(
     };
     connect(table_,&QWidget::customContextMenuRequested,this,[this,open_row](const QPoint& point){
         const auto item=table_->itemAt(point);if(!item||item->row()<=0)return;
-        QMenu menu(this);auto* action=menu.addAction(settings_.text("dialog.family_table.open","Open instance"));
+        QMenu menu(this);auto* action=menu.addAction(settings_.text("dialog.family_table.open","Open variant"));
         if(menu.exec(table_->viewport()->mapToGlobal(point))==action)open_row(item->row());
     });
     if(columns_.empty())add_column();else refresh_references();

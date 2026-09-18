@@ -43,10 +43,10 @@ tables allocate sufficient value width by reducing the reference column.
 
 In **Parameters**, Enter commits the cell and starts editing the next row in the
 same column; it does not accept the window. Parameters, Relations, Material and
-Family Table instance lists offer one empty row with a green arrow. Filling it
+Family Table variant lists offer one empty row with a green arrow. Filling it
 creates another empty row; a red cross deletes a filled entry. The empty offer is
-not saved. The Family Table base row selects original elements or dimensions. Instance rows
-override dimensions or presence; double-click an instance name to generate its
+not saved. The Family Table base row selects original elements or dimensions. Variant rows
+override dimensions or presence; double-click a variant name to generate its
 own tab. See [Family Table](FAMILY_TABLE.md).
 
 3D Curve points, Sweep profiles, thread references and individual face colors use
@@ -717,11 +717,11 @@ moves its children; an individual child stays on its projection ray.
 
 A sheet-scale view follows later sheet scale changes; a custom-scale view stays
 independent. Tab changes display the stored projection. **Regenerate** explicitly
-loads current source data and updates the view. The **Variant** control offers the generic and its open Family Table instances.
-Save the owning family before selecting an instance: the Drawing stores its stable
-row identity and the common parent file path. Renaming the instance preserves this
+loads current source data and updates the view. The **Variant** control offers the generic and every Family Table variant, including closed variants.
+Selecting a closed variant is the explicit action that calculates it. Save the owning family before selecting a variant: the Drawing stores its stable
+row identity and the common parent file path. Renaming the variant preserves this
 link. Changing the variant reprojects the Drawing in one Undo transaction. An empty
-Drawing offers open Part/Assembly instances before Insert View.
+Drawing offers open Part/Assembly variants before Insert View.
 
 ### Text
 

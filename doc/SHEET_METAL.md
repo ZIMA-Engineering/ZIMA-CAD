@@ -8,6 +8,15 @@ for Sheet Cut and current naming. The separate state operations are described in
 [Sheet state history operations](SHEET_STATE_DEVELOPMENT.md). They replace the
 former per-profile folded-state switch throughout the GUI, CLI and native model.
 
+Unbend and Bend Back process all eligible regions by default. Check **Select
+individual features** to pick a subset in the View or Tree; a second click
+removes that feature from the list. The developed result displays a bend axis
+on the inner skin of each Sheet Profile and Revolved Sheet, halfway through its
+angular span. Use Drawing **Show/Erase > Axes** to display the line and attach a
+drawing dimension to it. A cone's line follows the middle generator of its
+developed sector. The original rotation axis is hidden while the Revolved Sheet
+is developed and restored by Bend Back.
+
 ## Implemented document defaults
 
 Select **Sheet Metal** in the application dropdown above the right-hand Part
@@ -304,14 +313,15 @@ Editing evaluates the existing history boundary before the Bend.
   origin directly to that point. Reference order and identity are persisted in
   the native document; no additional geometry file or cache is required.
 - One history container owns three prepared Sketches: the start profile (initially
-  a 40 mm segment from 0 to +40), a circular trajectory with an optional tangent
-  continuation, and the end profile. Their editors are
+  a 40 mm segment from 0 to +40), a circular trajectory with a tangent straight
+  continuation, and the end profile. A new Sheet Profile starts with a 20 mm
+  continuation, its tangent constraint and a driving length dimension. Their editors are
   available in the same properties window. The end frame follows the path tangent
   automatically at the end of the arc; it has no independent twist.
-- To add a straight continuation, draw one non-construction segment from the
-  arc's end in the trajectory Sketch. It must share that endpoint and extend
-  forward. OK aligns it with the outgoing tangent, stores a tangent constraint
-  and adds an editable length dimension unless the segment already has one.
+- To restore a deleted straight continuation, draw one non-construction segment
+  from the arc's end in the trajectory Sketch. It must share that endpoint and
+  extend forward. OK aligns it with the outgoing tangent, stores a tangent
+  constraint and adds an editable length dimension unless the segment already has one.
   Initial H/V inference on that new segment is replaced by its feature-owned
   tangent direction, so a later angle edit does not pin it to a Sketch axis.
   Deleting the segment restores an arc-only Sheet Profile.
@@ -319,6 +329,11 @@ Editing evaluates the existing history boundary before the Bend.
   uses the end profile's width without further taper. Its length is unchanged by
   angle/radius edits and Unbend. The native auxiliary Sketch stores the segment,
   its endpoints, constraint and dimension; no new format field is required.
+  Either long boundary edge of that tangent continuation is a valid automatic
+  attachment for another Sheet Profile. The shared arc-to-line station has one
+  persisted point identity, so both longitudinal edges retain unambiguous endpoint
+  references. A downstream profile follows continuation-length and angle edits,
+  native save/reopen and fresh regeneration without rebinding its selected edge.
 - Each profile has one non-construction straight segment. The end editor includes
   a fixed construction copy of the start segment and two endpoint difference
   dimensions. Their initial values are zero. Positive entry preserves the current
@@ -765,6 +780,12 @@ in the current Body. Each projected domain is carried normally through the full
 local sheet thickness. It supports planar, cylindrical and conical source skins,
 including Sheet Profile and Revolved Sheet. A profile missing every supported
 sheet region is rejected without committing a history item.
+
+Sheet Cut is valid after **Unbend**. The cut is authored in the developed
+material state, retained as a subtractive material contribution, and mapped back
+by a later **Bend Back**. Repeating Unbend returns the same developed cut within
+the configured sheet-state tolerance. This follows the same history contract as
+an ordinary subtractive Extrusion while preserving Sheet Cut material metadata.
 
 The **Cut method** selector provides two normal-through-thickness calculations:
 

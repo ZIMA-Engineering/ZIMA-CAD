@@ -194,8 +194,13 @@ void AssemblyWorkspaceWindow::edit_relations() {
 }
 
 void AssemblyWorkspaceWindow::edit_family_table() {
+    edit_family_table_for_document(workspace_.active_document_id());
+}
+
+void AssemblyWorkspaceWindow::edit_family_table_for_document(std::string document_id) {
     if (properties_dialog_ != nullptr) { properties_dialog_->raise(); return; }
-    const auto id = workspace::family_owner(workspace_,workspace_.active_document_id()); DocumentToolData data; QString name;
+    const auto active_owner=workspace::family_owner(workspace_,workspace_.active_document_id());
+    const auto id = workspace::family_owner(workspace_,document_id); DocumentToolData data; QString name;
     if (const auto* part = workspace_.open_part(id)) { const auto& d = part->session.document(); name = QString::fromStdString(d.name); data.family_table = d.family_table; }
     else if (const auto* assembly = workspace_.open_assembly(id)) { const auto& d = assembly->session.document(); name = QString::fromStdString(d.name); data.family_table = d.family_table; }
     else return;
@@ -203,6 +208,9 @@ void AssemblyWorkspaceWindow::edit_family_table() {
         static_cast<void>(zima::workspace::set_family_table(workspace_,id,zima::document::parse_family_table(values.family_table)));
         refresh_tabs();
     }, application_settings_, this);
+    dialog->setProperty("familyDocumentId",QString::fromStdString(id));
+    dialog->setProperty("familyInstancePath",QString::fromStdString(
+        id==active_owner ? workspace_.active_occurrence_path() : std::string{}));
     dialog->set_references(workspace::family_references(workspace_,id));
     dialog->setAttribute(Qt::WA_DeleteOnClose);properties_dialog_=dialog;
     const auto previous_dimensions=construction_dimension_object_id_;
@@ -229,8 +237,10 @@ void AssemblyWorkspaceWindow::edit_family_table() {
 
 void AssemblyWorkspaceWindow::update_family_selection() {
     auto* dialog=dynamic_cast<FamilyTableDialog*>(properties_dialog_);if(!dialog)return;
-    const auto references=workspace::family_references(workspace_,workspace_.active_document_id());
-    const auto prefix=workspace_.active_occurrence_path();const bool part=workspace_.open_part(workspace_.active_document_id());
+    const auto document_id=dialog->property("familyDocumentId").toString().toStdString();
+    const auto prefix=dialog->property("familyInstancePath").toString().toStdString();
+    const auto references=workspace::family_references(workspace_,document_id);
+    const bool part=workspace_.open_part(document_id);
     viewer_->set_original_container_selection(part);
     viewer_->set_selection_contract({viewer::CandidateKind::Dimension,viewer::CandidateKind::Container,viewer::CandidateKind::Occurrence});
     viewer_->set_candidate_filter([dialog,references,prefix,part](const auto& candidate){
@@ -247,7 +257,7 @@ void AssemblyWorkspaceWindow::update_family_selection() {
     viewer_->set_candidate_priority([](const auto& c){return c.kind==viewer::CandidateKind::Dimension?0:1;});
     viewer_->set_dimension_layout_editable(false);
     std::set<viewer::EdgeKey> highlights;
-    const auto mesh=workspace_.authoritative_viewer_mesh(workspace_.active_document_id());
+    const auto mesh=workspace_.authoritative_viewer_mesh(document_id);
     for(const auto& binding:dialog->inspected_references()) {
         if(binding.kind=="dimension")highlights.insert({binding.owner_id,binding.semantic_key,prefix});
         else if(binding.kind=="component") {
@@ -255,7 +265,7 @@ void AssemblyWorkspaceWindow::update_family_selection() {
             for(const auto& edge:mesh.edges)if(edge.reference.instance_path==assembly::InstancePath{}.child(binding.owner_id).encoded())highlights.insert({edge.reference.owner_id,edge.reference.semantic_key,path});
         } else for(const auto& edge:mesh.original_references.edges) {
             bool match=edge.reference.owner_id==binding.owner_id;
-            if(binding.kind=="body")if(const auto* state=workspace_.open_part(workspace_.active_document_id()))
+            if(binding.kind=="body")if(const auto* state=workspace_.open_part(document_id))
                 if(const auto* owner=state->session.document().body_history.owner(edge.reference.owner_id))match=owner->scope.id==binding.owner_id;
             if(match)highlights.insert({edge.reference.owner_id,edge.reference.semantic_key,prefix});
         }
@@ -271,7 +281,8 @@ bool AssemblyWorkspaceWindow::accept_family_reference(const viewer::ViewerCandid
     if(dimensions&&candidate.kind==viewer::CandidateKind::Container) {
         viewer_->set_reference_visibility(viewer::ReferenceVisibility::Dimensions,true);show_parameter_dimensions(owner);update_family_selection();return true;
     }
-    const auto references=workspace::family_references(workspace_,workspace_.active_document_id());
+    const auto document_id=dialog->property("familyDocumentId").toString().toStdString();
+    const auto references=workspace::family_references(workspace_,document_id);
     for(const auto& r:references)if(r.binding.owner_id==owner &&
         (candidate.kind==viewer::CandidateKind::Dimension?r.binding.kind=="dimension"&&r.binding.semantic_key==candidate.semantic_key:r.binding.kind!="dimension")) {
         dialog->choose_reference(r);

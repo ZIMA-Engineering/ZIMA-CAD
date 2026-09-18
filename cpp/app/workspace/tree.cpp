@@ -448,7 +448,7 @@ void AssemblyWorkspaceWindow::add_pending_tree_item(QTreeWidgetItem* parent,
     font.setStrikeOut(false);
     row->setFont(0, font);
     if (feature) {
-        row->setIcon(0, resource_icon(feature_icon_name(feature->feature_kind),feature->is_surface_result()));
+        row->setIcon(0, resource_icon(feature_icon_name(*feature),feature->is_surface_result()));
         const zima::sketcher::Sketch* sketch = nullptr;
         const auto find_sketch = [&](const auto& document) {
             const auto found = std::ranges::find(document.sketches, id,
@@ -501,7 +501,7 @@ void AssemblyWorkspaceWindow::add_part_tree_children(
         item->setData(0, Qt::UserRole, QString::fromStdString(container.id));
         item->setData(0, Qt::UserRole + 3, "part-container");
         item->setIcon(0, resource_icon(container.feature_kind==zima::document::FeatureKind::Thread &&
-            !container.thread.enabled ? QStringLiteral("cylinder") : feature_icon_name(container.feature_kind),container.is_surface_result()));
+            !container.thread.enabled ? QStringLiteral("cylinder") : feature_icon_name(container),container.is_surface_result()));
         const auto owned_sketch = std::find_if(document.sketches.begin(),
             document.sketches.end(), [&](const auto& sketch) {
                 return sketch.owner_container_id == container.id;
@@ -773,7 +773,7 @@ void AssemblyWorkspaceWindow::add_assembly_tree_children(
             item->setData(0, Qt::UserRole, QString::fromStdString(container.id));
             item->setData(0, Qt::UserRole + 1, QString::fromStdString(parent_path.encoded()));
             item->setData(0, Qt::UserRole + 3, "assembly-sketch-container");
-            item->setIcon(0, resource_icon(feature_icon_name(container.feature_kind),container.is_surface_result()));
+            item->setIcon(0, resource_icon(feature_icon_name(container),container.is_surface_result()));
             const auto& sketches = assembly->session.document().sketches;
             const auto sketch = std::ranges::find(sketches, container.id, &zima::sketcher::Sketch::owner_container_id);
             add_history_container_tree_children(item, container, parent_path,
@@ -794,7 +794,7 @@ void AssemblyWorkspaceWindow::add_assembly_tree_children(
             item->setData(0, Qt::UserRole + 1, QString::fromStdString(parent_path.encoded()));
             item->setData(0, Qt::UserRole + 3, "assembly-cut");
             item->setIcon(0, resource_icon(
-                feature_icon_name(cut.definition.feature_kind)));
+                feature_icon_name(cut.definition)));
             const auto owned_sketch = std::find_if(
                 assembly->session.document().sketches.begin(),
                 assembly->session.document().sketches.end(),

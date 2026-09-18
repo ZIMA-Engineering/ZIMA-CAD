@@ -70,8 +70,8 @@ QString feature_icon_name(zima::document::FeatureKind kind) {
         case FeatureKind::Shell: return QStringLiteral("shell");
         case FeatureKind::Hole: return QStringLiteral("cylinder");
         case FeatureKind::Bend: return QStringLiteral("bend");
-        case FeatureKind::Unbend: return QStringLiteral("flat");
-        case FeatureKind::BendBack: return QStringLiteral("bend");
+        case FeatureKind::Unbend: return QStringLiteral("unbend");
+        case FeatureKind::BendBack: return QStringLiteral("bend-back");
         case FeatureKind::Flat: return QStringLiteral("flat");
         case FeatureKind::Holes: return QStringLiteral("holes");
         case FeatureKind::Thread: return QStringLiteral("cylinder");
@@ -79,6 +79,14 @@ QString feature_icon_name(zima::document::FeatureKind kind) {
         case FeatureKind::DrillPoint: return QStringLiteral("drill-point");
     }
     return {};
+}
+
+QString feature_icon_name(const zima::document::HistoryContainer& feature) {
+    if(feature.feature_kind==zima::document::FeatureKind::Revolution&&feature.revolution.sheet_metal)
+        return QStringLiteral("sheet-revolve");
+    if(feature.feature_kind==zima::document::FeatureKind::Extrusion&&feature.extrusion.sheet_cut)
+        return QStringLiteral("sheet-cut");
+    return feature_icon_name(feature.feature_kind);
 }
 
 void add_history_container_tree_children(QTreeWidgetItem* parent,
@@ -235,7 +243,7 @@ void add_history_container_tree_children(QTreeWidgetItem* parent,
         : operation + QString::fromStdString(container.name);
     auto* feature = new QTreeWidgetItem(parent, {feature_label});
     feature->setIcon(0, resource_icon(container.feature_kind==zima::document::FeatureKind::Thread &&
-            !container.thread.enabled ? QStringLiteral("cylinder") : feature_icon_name(container.feature_kind)));
+            !container.thread.enabled ? QStringLiteral("cylinder") : feature_icon_name(container)));
     feature->setData(0, Qt::UserRole, QString::fromStdString(
         assembly_owned ? container.id : container.feature_id));
     feature->setData(0, Qt::UserRole + 1,

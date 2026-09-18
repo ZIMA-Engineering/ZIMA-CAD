@@ -2113,8 +2113,11 @@ void AssemblyWorkspaceWindow::create_layout() {
                 create_body->setObjectName("createBodyFromPartAction");
                 auto* parameters = menu.addAction(resource_icon("parameters"), tr("Parametry…"));
                 parameters->setObjectName("treeDocumentParametersAction");
+                auto* family = menu.addAction(resource_icon("family-table"), family_table_action_->text());
+                family->setObjectName("treeFamilyTableAction");
                 const auto selected=menu.exec(tree_->viewport()->mapToGlobal(position));
                 if (selected==parameters) edit_parameters_for_document(workspace_.displayed_document_id());
+                else if (selected==family) edit_family_table_for_document(workspace_.displayed_document_id());
                 else if (selected==activate) activate_body({});
                 else if (selected==create_body) { activate_body({});show_body_properties(); }
                 return;
@@ -2133,8 +2136,17 @@ void AssemblyWorkspaceWindow::create_layout() {
                 QMenu menu(this);
                 auto* parameters = menu.addAction(resource_icon("parameters"), tr("Parametry…"));
                 parameters->setObjectName("treeDocumentParametersAction");
-                if (menu.exec(tree_->viewport()->mapToGlobal(position)) == parameters)
+                QAction* family{};
+                if(workspace_.open_part(workspace_.displayed_document_id()) ||
+                   workspace_.open_assembly(workspace_.displayed_document_id())) {
+                    family=menu.addAction(resource_icon("family-table"),family_table_action_->text());
+                    family->setObjectName("treeFamilyTableAction");
+                }
+                const auto* selected=menu.exec(tree_->viewport()->mapToGlobal(position));
+                if (selected == parameters)
                     edit_parameters_for_document(workspace_.displayed_document_id());
+                else if(selected==family)
+                    edit_family_table_for_document(workspace_.displayed_document_id());
                 return;
             }
             if (step_kind == "part-body" || step_kind == "part-body-boolean") {

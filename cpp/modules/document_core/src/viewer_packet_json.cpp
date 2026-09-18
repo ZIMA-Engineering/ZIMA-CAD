@@ -76,13 +76,15 @@ void load_sheet_face(zima::kernel::FaceReference& face,const nlohmann::json& val
         (role!=0&&thickness<=0))throw std::runtime_error("Invalid sheet face metadata");
     face.sheet_role=static_cast<zima::kernel::SheetFaceRole>(role);face.sheet_thickness=thickness;
     face.sheet_owner=value.at("sheet_owner");
+    face.display_owner_id=value.value("display_owner",std::string{});
 }
 nlohmann::json sheet_edge_json(const zima::kernel::ViewerEdge& edge) {
     if(zima::kernel::sheet_edge_role(edge)==zima::kernel::SheetEdgeRole::Unknown)return nullptr;
     nlohmann::json sides=nlohmann::json::array(),ends=nlohmann::json::array();
     for(const auto& r:edge.edge_treatment_side_references)
         sides.push_back({{"owner",r.owner_id},{"key",r.semantic_key},{"instance_path",r.instance_path},
-            {"sheet_role",static_cast<int>(r.sheet_role)},{"sheet_thickness",r.sheet_thickness},{"sheet_owner",r.sheet_owner}});
+            {"sheet_role",static_cast<int>(r.sheet_role)},{"sheet_thickness",r.sheet_thickness},{"sheet_owner",r.sheet_owner},
+            {"display_owner",r.display_owner_id}});
     for(const auto& r:edge.edge_treatment_endpoint_references)
         ends.push_back({{"owner",r.owner_id},{"key",r.semantic_key},{"instance_path",r.instance_path}});
     return {{"sides",sides},{"endpoints",ends}};
@@ -258,7 +260,10 @@ nlohmann::json serialize_reference_geometry(
         reference_indices.emplace(key, index);
         references.push_back({{"owner", reference.owner_id},
             {"key", reference.semantic_key},
-            {"instance_path", reference.instance_path},{"sheet_role",0},{"sheet_thickness",0.0},{"sheet_owner",""}});
+            {"instance_path", reference.instance_path},{"sheet_role",0},{"sheet_thickness",0.0},{"sheet_owner",""},
+            {"display_owner",""}});
+        if constexpr (requires { reference.display_owner_id; })
+            references.back()["display_owner"]=reference.display_owner_id;
         if constexpr (requires { reference.surface; }) {
             references.back()["surface_result"]=reference.surface_result;
             references.back()["sheet_role"]=static_cast<int>(reference.sheet_role);
@@ -422,7 +427,8 @@ zima::kernel::ViewerReferenceGeometry load_reference_geometry(
         const auto& reference = reference_at(edge_references[index]);
         zima::kernel::ViewerEdge edge;
         edge.reference = {reference.owner_id, reference.semantic_key,
-            reference.instance_path};
+            reference.instance_path,reference.display_owner_id};
+        edge.display_owner_id=reference.display_owner_id;
         edge.points.insert(edge.points.end(),
             edge_points.begin() + edge_offsets[index],
             edge_points.begin() + edge_offsets[index + 1]);
@@ -494,7 +500,8 @@ nlohmann::json serialize_body_result(const zima::kernel::BodyResult& result, boo
             faces.push_back({
                 {"owner", reference.owner_id}, {"key", reference.semantic_key},
                 {"instance_path", reference.instance_path},{"surface_result",reference.surface_result},
-                {"sheet_role",static_cast<int>(reference.sheet_role)},{"sheet_thickness",reference.sheet_thickness},{"sheet_owner",reference.sheet_owner}});
+                {"sheet_role",static_cast<int>(reference.sheet_role)},{"sheet_thickness",reference.sheet_thickness},{"sheet_owner",reference.sheet_owner},
+                {"display_owner",reference.display_owner_id}});
         }
     }
     nlohmann::json edges = nlohmann::json::array();
@@ -515,7 +522,8 @@ nlohmann::json serialize_body_result(const zima::kernel::BodyResult& result, boo
                 {"owner", reference.owner_id},
                 {"key", reference.semantic_key},
                 {"instance_path", reference.instance_path},
-                {"sheet_role",static_cast<int>(reference.sheet_role)},{"sheet_thickness",reference.sheet_thickness},{"sheet_owner",reference.sheet_owner}});
+                {"sheet_role",static_cast<int>(reference.sheet_role)},{"sheet_thickness",reference.sheet_thickness},{"sheet_owner",reference.sheet_owner},
+                {"display_owner",reference.display_owner_id}});
         }
         nlohmann::json endpoint_references = nlohmann::json::array();
         for (const auto& reference :
@@ -762,7 +770,8 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source) {
         zima::kernel::ViewerEdge loaded;
         loaded.reference = {
             edge.at("owner").get<std::string>(), edge.at("key").get<std::string>(),
-            edge.at("instance_path").get<std::string>()};
+            edge.at("instance_path").get<std::string>(),
+            edge.value("display_owner",std::string{})};
         loaded.display_owner_id =
             edge.at("display_owner").get<std::string>();
         loaded.color=edge.value("color",std::string{});

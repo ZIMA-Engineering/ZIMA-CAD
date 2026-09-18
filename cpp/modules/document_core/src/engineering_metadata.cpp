@@ -70,9 +70,9 @@ void validate_family_table(const FamilyTable& table,const std::string& generic_n
             throw std::invalid_argument("A family reference may only occur once.");
     }
     for(const auto& instance:table.instances) {
-        if(!instance.id.empty()&&!ids.insert(instance.id).second)throw std::invalid_argument("Family instance identities must be unique.");
+        if(!instance.id.empty()&&!ids.insert(instance.id).second)throw std::invalid_argument("Family variant identities must be unique.");
         nonempty(instance.name);
-        if(instance.name==generic_name || !names.insert(instance.name).second)throw std::invalid_argument("Family instance names must be unique and different from the generic document name.");
+        if(instance.name==generic_name || !names.insert(instance.name).second)throw std::invalid_argument("Family variant names must be unique and different from the generic document name.");
         for(const auto& [column,value]:instance.values){if(!columns.contains(column))throw std::invalid_argument("A family value refers to an unknown column.");text(value);
             if(value.empty())continue;
             if(table.bindings.at(column).kind=="dimension") {
@@ -95,7 +95,7 @@ FamilyTable parse_family_table(const std::string& text) {
     }
     for(const auto& row:data["instances"]) {
         if(!row.is_object() || !row.contains("name") || !row.contains("values") || row.size()!=3 || !row["values"].is_object())
-            throw std::invalid_argument("Invalid native family instance structure.");
+            throw std::invalid_argument("Invalid native family variant structure.");
         result.instances.push_back({row["name"].get<std::string>(),row["values"].get<std::map<std::string,std::string>>(),row.at("id").get<std::string>()});
     }
     return result;

@@ -55,8 +55,8 @@ zima::drawing::TitleBlockContext build_title_block_context_for_source(
 
 // Builds BOM rows from the current state of an Assembly source (by open
 // workspace document if available, otherwise by loading the .asmz file),
-// so both initial view insertion and later view regeneration can rebuild
-// the BOM from the assembly's up-to-date component list.
+// so initial Drawing creation, per-sheet variant selection and explicit
+// Drawing regeneration can rebuild the BOM independently of its views.
 std::vector<zima::drawing::BomRow> build_bom_rows_for_source(
     const std::string& source_id, const std::filesystem::path& source_path,
     const Workspace* workspace) {
@@ -97,7 +97,7 @@ zima::drawing::TitleBlockContext build_title_block_context_for_source(
     const Workspace* workspace) {
     zima::drawing::TitleBlockContext context;
     context.file_stem = zima::document::path_to_utf8(source_path.stem());
-    if(source_id.empty() && workspace && !workspace->find(source_id))if(const auto id=workspace->document_id_for_path(source_path))
+    if(source_id.empty() && workspace)if(const auto id=workspace->document_id_for_path(source_path))
         return build_title_block_context_for_source(*id,source_path,workspace);
     const zima::document::PartDocument* part{};
     std::optional<zima::document::PartDocument> loaded_part;

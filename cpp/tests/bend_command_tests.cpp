@@ -708,6 +708,74 @@ void verify_continuation(std::filesystem::path directory) {
     run(host,"undo");near(volume(),40*std::numbers::pi/2+1200);
     run(host,"redo");near(volume(),40*std::numbers::pi/2);
 }
+void verify_continuation_side_attachment(std::filesystem::path directory) {
+    kernel::OcctKernel kernel;workspace::Workspace live;command_host::Options options;
+    options.settings=[] {command_host::Settings s;s.templates={std::filesystem::absolute("config/templates"),"start_part.prtz","start_assembly.asmz","Body"};return s;};
+    command_host::Host host(live,kernel,directory,options);
+    run(host,"new",{{"type","part"},{"name","bend-continuation-side"}});
+    const auto first=run(host,"bend.create",{{"width_mm",40.},{"radius_mm",5.},{"angle_degrees",90.}}).data.at("container").get<std::string>();
+    const auto id=live.active_document_id();auto* state=live.open_part(id);
+    auto source=*state->session.document().find_container(first);
+    const auto start=workspace::document_sketch(live,id,source.bend.sketch_id);
+    auto path=sketcher::Sketch::from_serialized(source.bend.auxiliary_sketches[0]);
+    const auto arc=path.arcs.front();const auto join=*path.find_point(arc.end_point_id);
+    const auto continuation=path.add_segment(join.x,join.y,join.x,join.y+20.);
+    static_cast<void>(path.add_segment_constraint(continuation,sketcher::ConstraintKind::Vertical));
+    document::accept_bend_sketch(source,start,0,path,document::sheet_metal_defaults(state->session.document()));
+    static_cast<void>(workspace::commit_bend(live,kernel,id,source,start));
+    const auto edge_length=[](const auto& edge) {
+        double value{};for(std::size_t i=1;i<edge.points.size();++i)value+=std::hypot(
+            edge.points[i].x-edge.points[i-1].x,edge.points[i].y-edge.points[i-1].y,
+            edge.points[i].z-edge.points[i-1].z);return value;
+    };
+    const auto& geometry=state->session.calculated_boundaries().back().mesh.original_references;
+    const auto side=std::ranges::find_if(geometry.edges,[&](const auto& edge) {
+        return edge.reference.owner_id==first&&kernel::sheet_edge_role(edge)==kernel::SheetEdgeRole::Boundary&&
+            edge.edge_treatment_endpoint_references.size()==2&&std::abs(edge_length(edge)-20.)<1e-5;
+    });
+    check(side!=geometry.edges.end(),"Sheet Profile tangent continuation has no selectable longitudinal boundary edge");
+    const auto second=run(host,"bend.create",{{"edge_owner",side->reference.owner_id},{"edge_key",side->reference.semantic_key},
+        {"radius_mm",3.},{"angle_degrees",60.}}).data.at("container").get<std::string>();
+    const auto& attached=*state->session.document().find_container(second);
+    const auto attached_sketch_id=attached.bend.sketch_id;
+    check(attached.bend.sheet_attachment,"Sheet Profile did not attach to the tangent continuation side edge");
+    const auto attached_start=workspace::document_sketch(live,id,attached.bend.sketch_id);
+    const auto& attached_segment=*std::ranges::find_if(attached_start.segments,[](const auto& segment){return !segment.construction;});
+    const auto* attached_first=attached_start.find_point(attached_segment.first_point_id);
+    const auto* attached_last=attached_start.find_point(attached_segment.second_point_id);
+    near(std::hypot(attached_last->x-attached_first->x,attached_last->y-attached_first->y),20.);
+    check(state->session.calculated_boundaries().back().calculation_errors.empty(),
+        "Sheet Profile attached to a tangent continuation side edge did not calculate");
+    source=*state->session.document().find_container(first);
+    path=sketcher::Sketch::from_serialized(source.bend.auxiliary_sketches[0]);
+    check(path.set_dimension_value(continuation+":length",30.),
+        "Tangent continuation length could not be edited");
+    document::accept_bend_sketch(source,workspace::document_sketch(live,id,source.bend.sketch_id),0,path,
+        document::sheet_metal_defaults(state->session.document()));
+    static_cast<void>(workspace::commit_bend(live,kernel,id,source,
+        workspace::document_sketch(live,id,source.bend.sketch_id)));
+    const auto resized=workspace::document_sketch(live,id,attached_sketch_id);
+    const auto& resized_segment=*std::ranges::find_if(resized.segments,[](const auto& segment){return !segment.construction;});
+    const auto* resized_first=resized.find_point(resized_segment.first_point_id);
+    const auto* resized_last=resized.find_point(resized_segment.second_point_id);
+    near(std::hypot(resized_last->x-resized_first->x,resized_last->y-resized_first->y),30.);
+    const auto origin_before=resized.resolved_origin;
+    run(host,"bend.set",{{"container",first},{"angle_degrees",45.}});
+    const auto reframed=workspace::document_sketch(live,id,attached_sketch_id);
+    check(std::hypot(reframed.resolved_origin.x-origin_before.x,reframed.resolved_origin.y-origin_before.y,
+        reframed.resolved_origin.z-origin_before.z)>1e-4,
+        "Downstream Sheet Profile did not follow the edited tangent continuation");
+    check(state->session.calculated_boundaries().back().calculation_errors.empty(),
+        "Editing the upstream Sheet Profile invalidated its side attachment");
+    run(host,"save");std::vector<kernel::BodyResult> restored;
+    const auto saved=document::PartDocument::load(directory/"bend-continuation-side.prtz",&restored);
+    check(saved.find_container(first)&&saved.find_container(second)&&!restored.empty()&&
+        restored.back().calculation_errors.empty(),
+        "Tangent continuation side attachment did not survive save and reload");
+    const auto recalculated=kernel.evaluate_history(saved.kernel_operations());
+    check(!recalculated.empty()&&recalculated.back().calculation_errors.empty(),
+        "Fresh regeneration lost the tangent continuation side attachment");
+}
 void verify_sheet_cut(std::filesystem::path directory) {
     kernel::OcctKernel kernel;workspace::Workspace live;command_host::Options options;
     options.settings=[] {command_host::Settings s;s.templates={std::filesystem::absolute("config/templates"),"start_part.prtz","start_assembly.asmz","Body"};return s;};
@@ -1324,10 +1392,14 @@ int main(int argc,char** argv) {
     }
     const auto directory=std::filesystem::temp_directory_path()/("zima-bend-"+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     std::filesystem::create_directories(directory);
+    if(argc==2&&std::string_view(argv[1])=="--verify-continuation-side") {
+        try{verify_continuation_side_attachment(directory);std::filesystem::remove_all(directory);return 0;}
+        catch(const std::exception& e){std::cerr<<e.what()<<"; fixture: "<<directory<<'\n';return 1;}
+    }
     if(argc==2&&std::string_view(argv[1])=="--verify-generic-sheet-cut") {
         try{verify_sheet_cut_clearance(directory);std::filesystem::remove_all(directory);return 0;}
         catch(const std::exception& e){std::cerr<<e.what()<<"; fixture: "<<directory<<'\n';return 1;}
     }
-    try{verify_sheet_cut_clearance(directory);verify_sheet_cut_tilted_cone_attachment(directory);verify_sheet_cut_cone_orientation(directory);verify_sheet_cut_projection_extent(directory);verify_sheet_cut_bounded_bend_thickness(directory);verify_sheet_cut_cone_orientation(directory,true);verify_sheet_cut_projection_extent(directory,true);verify_sheet_cut(directory);verify_sheet_cut_across_attachment(directory);verify_sheet_revolution(directory);verify_continuation(directory);verify_cross_branch_box(directory);verify_sheet_attachment(directory);verify_prepared_start();verify_attachment(directory);verify(directory);std::filesystem::remove_all(directory);std::cout<<"Bend geometry, identities, defaults, history and persistence passed\n";return 0;}
+    try{verify_sheet_cut_clearance(directory);verify_sheet_cut_tilted_cone_attachment(directory);verify_sheet_cut_cone_orientation(directory);verify_sheet_cut_projection_extent(directory);verify_sheet_cut_bounded_bend_thickness(directory);verify_sheet_cut_cone_orientation(directory,true);verify_sheet_cut_projection_extent(directory,true);verify_sheet_cut(directory);verify_sheet_cut_across_attachment(directory);verify_sheet_revolution(directory);verify_continuation(directory);verify_continuation_side_attachment(directory);verify_cross_branch_box(directory);verify_sheet_attachment(directory);verify_prepared_start();verify_attachment(directory);verify(directory);std::filesystem::remove_all(directory);std::cout<<"Bend geometry, identities, defaults, history and persistence passed\n";return 0;}
     catch(const std::exception& e){std::cerr<<e.what()<<"; fixture: "<<directory<<'\n';return 1;}
 }

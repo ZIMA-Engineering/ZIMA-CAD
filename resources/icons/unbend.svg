@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <title>Unbend</title>
+  <path d="m3 15 6-5 12 5-6 5Z" fill="#80aa1a" fill-opacity=".18"/>
+  <g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round">
+    <path d="m3 15 6-5 12 5-6 5Zm0 0v2l12 5 6-5v-2M15 20v2"/>
+    <path d="m9 17.5 6-5" stroke="#56c7ed" stroke-dasharray="3 2"/>
+    <path d="M5 8a7 7 0 0 1 13-2m-3-1 3 1 1-3" stroke="#80aa1a" stroke-width="1.8"/>
+  </g>
+</svg>

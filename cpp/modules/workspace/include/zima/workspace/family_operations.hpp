@@ -30,7 +30,7 @@ document::PartDocument read_family_part(const Workspace*,const std::filesystem::
     const std::string&,std::vector<kernel::BodyResult>&);
 assembly::AssemblyDocument read_family_assembly(const Workspace*,const std::filesystem::path&,
     const std::string&,bool resolve_sources=true);
-// Explicit Drawing variant change; project the draft and commit only on success.
+// Explicit per-sheet Drawing variant change; project the draft and commit only on success.
 void select_family_drawing_source(drawing::DrawingDocument&, const Workspace&,
-    const std::string& source, const std::filesystem::path& drawing_path);
+    const std::string& sheet, const std::string& source);
 }

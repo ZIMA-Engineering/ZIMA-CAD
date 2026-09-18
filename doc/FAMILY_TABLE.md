@@ -5,10 +5,14 @@
 Open **Tools > Family Table** in a Part or Assembly. The internal properties
 window requests 2280 px width (three times its former width) and stays inside the
 main window. Horizontal scrolling accommodates additional columns.
+The same command and icon sit immediately after **Parameters** in the View toolbar
+and in the context menu of a Part or Assembly filename at the root of Tree. A
+root command always edits that root document even while a nested component is
+active; the toolbar command follows the active Part or Assembly.
 
 The first row represents the generic document. Click its reference cell, then
 click an original solid in View or an owned item in Tree. The column uses the
-element name and instance cells offer **Yes / No**. In Part, original feature
+element name and variant cells offer **Yes / No**. In Part, original feature
 presence and whole independent Body presence are supported. In Assembly, select
 an immediate owned component. A component column refers to that occurrence,
 including when another occurrence uses the same source file.
@@ -20,7 +24,7 @@ Double-click a Part feature in View to show its dimensions, then click a dimensi
 to bind the active column. Sheet state is controlled by the presence of the
 separate **Unbend** or **Bend Back** history feature, using the ordinary Yes/No
 binding. An empty value inherits the generic presence. The obsolete per-profile
-numeric state parameter has been removed. Instance edits update their override,
+numeric state parameter has been removed. Variant edits update their override,
 while generic presence and sibling overrides remain independent.
 
 For numeric parameters, click a dimension
@@ -40,7 +44,7 @@ Body or component. Suppressing a subtractive feature removes its cut. Columns
 cannot independently control both a Body's presence and presence of its own
 features, which would make the result depend on column order.
 
-Use the Open icon in an instance's row header (or its **Open instance** context action) to
+Use the Open icon in a variant's row header (or its **Open variant** context action) to
 commit the table and open the calculated variant in a separate tab. Generation
 uses a private draft and validates the resulting history before inserting or
 updating that tab. Invalid dimensions, unsolved Sketches and unavailable required
@@ -48,76 +52,97 @@ references leave the generic geometry and existing variant unchanged.
 
 Row delete/entry indicators occupy the first table cell, using the same indicator
 widgets as Container Placement. The row header is reserved for Open; double-click
-the instance name to edit it normally. The generic row cannot be deleted and one
-blank instance row remains available. Material, Parameters and Relations use the
+the variant name to edit it normally. The generic row cannot be deleted and one
+blank variant row remains available. Material, Parameters and Relations use the
 same first-cell actions with numbered row headers.
 
 ## Linked models, saving and drawings
 
 The 2026-09-17 row-layout change was verified with the entry-table and general UI
 contracts, Family Table data and GUI contracts, native file-rename contract, and a
-dedicated GUI rename contract covering Part and Assembly instances. The latter
+dedicated GUI rename contract covering Part and Assembly variants. The latter
 uses the actual Rename dialog and Family Table editor, checks tab labels and
 stable row/document IDs, and verifies that native file paths do not change.
 Screenshots of all four entry tables were inspected after the first-cell controls
 were moved; superseded cell widgets are hidden immediately during refresh.
 
-Each instance is a linked view of one row in its parent Part or Assembly. Its
+Each variant is a linked view of one row in its parent Part or Assembly. Its
 stable identity is the parent document ID plus the row ID. Renaming a row changes
-its display name, never its identity. An instance cannot own another family;
-opening Family Table from an instance edits the parent's table and opens siblings.
-**Rename** on an open instance edits that row's name and immediately updates the
+its display name, never its identity. A variant cannot own another family;
+opening Family Table from a variant edits the parent's table and opens siblings.
+**Rename** on an open variant edits that row's name and immediately updates the
 tab; it does not rename the parent's native file. Editing the name in Family Table
-updates any already open instance tab after OK. Both directions preserve the row
+updates any already open variant tab after OK. Both directions preserve the row
 and document IDs and reuse calculated geometry. Native `rename_file` rejects a
 family member; use its name or rename the generic file explicitly.
 
 Corresponding features, Sketch curves and their semantic topology ancestry retain
-their identities across variants, qualified by the instance document identity.
+their identities across variants, qualified by the variant document identity.
 This does not guarantee identical resulting topology: dimensions and suppression
 can remove or split geometry. An unavailable reference must remain unresolved
 rather than silently binding to a different edge or face.
 
-- Editing a dimension or presence controlled by a column changes that instance's
+Drawing model annotations follow that same authored identity. When a view source
+is switched between the generic and a Family Table member, shown dimensions,
+axes and construction geometry retain their visibility and local layout, then
+reproject from the selected member's current calculated geometry. An annotation
+absent from that member is hidden as unresolved; its display intent is retained
+and restored if a later selected member supplies the same authored annotation.
+
+- Editing a dimension or presence controlled by a column changes that variant's
   row. The generic baseline and other rows retain their values.
 - Editing a parameter outside the columns, adding/removing a feature, or changing
   common model data updates the parent and every evaluated variant. Missing bound
-  references removed from an instance are also removed from the table.
+  references removed from a variant are also removed from the table.
 - Undo/Redo from any member operates on the same parent history and restores open
   variants together. Calculations and validation finish before publication.
 - Ordinary **Save** from a member saves the entire family into the parent's one
-  `.prtz` or `.asmz` file. Closing an instance closes its tab; unsaved changes
-  remain owned by the parent. Closing the parent also closes its instance tabs.
-- **Save As** from an instance writes a new, independent native document containing
+  `.prtz` or `.asmz` file. Closing a variant closes its tab; unsaved changes
+  remain owned by the parent. Closing the parent also closes its variant tabs.
+- **Save As** from a variant writes a new, independent native document containing
   that variant's current model and geometry. It creates exactly one model file,
   without copying companion Drawings. The original family remains linked.
   A copy of the generic retains its table definitions with a fresh identity;
   its derived variants are calculated when explicitly opened.
 
 The parent file contains shared history, the table and evaluated native packets
-for opened variants. No instance sidecar files are required. Unopened rows inherit
+for opened variants. No variant sidecar files are required. Unopened rows inherit
 future shared edits when calculated. Opening an already evaluated row, switching
 tabs and reading a saved Drawing source use persisted calculated data. Name-only
 changes reuse geometry. Changing numeric or presence values is an explicit model
-transaction that recalculates affected evaluated variants. Close an instance tab
+transaction that recalculates affected evaluated variants. Close a variant tab
 before deleting its table row.
 
 In an empty Drawing, **Variant** offers open Parts and Assemblies, including their
-instances, before **Insert View**. Once a source is assigned, it offers that generic
-and its open variants. Save the owning family first. The Drawing stores the stable
-instance identity and the common parent file path. Choosing another row reprojects
-related views in one Drawing Undo transaction, preserving unrelated view sources.
+variants, before **Insert View**. Once a source is assigned, it offers that generic
+and every Family Table variant. A closed row is calculated only when the user
+selects it. Save the owning family first. The Drawing stores the stable variant
+identity for each sheet and the common parent file path. A sheet's selection
+supplies its title-block parameters, BOM and item balloons. An Assembly BOM
+therefore reflects the actual component presence and quantities of that sheet's
+variant. View insertion and view-source editing are independent of this
+selection. One sheet may contain views of several native models or variants
+while its title block, BOM and item balloons continue to use the one variant
+selected in the sheet bar. A balloon resolves in one direction only: its view
+geometry must identify an unambiguous row in that selected BOM. The BOM never
+changes or selects a view.
 
-A renamed instance remains the same Drawing source. Open-source metadata is
-authoritative; otherwise the Drawing reads the evaluated instance from its parent
+A renamed variant remains the same Drawing source. Open-source metadata is
+authoritative; otherwise the Drawing reads the evaluated variant from its parent
 file. Names and title-block values refresh on opening/displaying the Drawing;
 closed Drawing files are not rewritten. Geometry changes still require explicit
 Drawing **Regenerate**. Moving the parent file uses the existing file relocation
 workflow; renaming a row does not move any file.
 
+One evaluated variant can supply any number of independent Drawing views. A
+Revolved Sheet centerline used as its feature axis is presented as one axis
+annotation, because the authored centerline and calculated axis intentionally
+share one persistent reference. This prevents an isometric view from blocking a
+later Front, side or top view of the same variant.
+
 ## Assembly insertion and Replace
 
-Inserting a Part or Assembly with at least one Family Table instance opens an
+Inserting a Part or Assembly with at least one Family Table variant opens an
 internal variant chooser. An empty Family Table skips the chooser and inserts
 the native model directly, then opens component Properties. The first chooser
 row is the native/generic model; the remaining rows use stable
@@ -128,7 +153,7 @@ only after confirmation. Middle-button double-click over View confirms the choos
 a short middle click does not.
 
 Use **Replace…** in an immediate component's context menu to switch between its
-generic model and family instances. Activate the component's owning subassembly
+generic model and family variants. Activate the component's owning subassembly
 before replacing one of its children. Replace preselects the current row and
 preserves the occurrence ID, placement, flags, locks, custom name and stored mates.
 It updates only that occurrence; other insertions of the same file are independent.
@@ -148,15 +173,15 @@ Refreshing already calculated source display does not solve mates or run OCCT.
 ## Replace in Drawing view Properties
 
 The first field in a main view's **Properties** is the source dropdown. It offers
-the native model and every family row, including closed and unevaluated instances.
+the native model and every family row, including closed and unevaluated variants.
 Identity is matched by document/row ID; the shared native file path does not select
-a different instance. The source file button also lists the chosen file's family.
+a different variant. The source file button also lists the chosen file's family.
 
 Selecting an evaluated row previews its persisted geometry. An unevaluated row
 shows an explicit notice and is calculated in a private workspace only on OK.
 Cancel and failed calculation publish neither the row packet nor a Drawing edit.
 Successful evaluation becomes part of the owning family's native data; save that
-parent model to persist the newly evaluated row. No extra instance file is created.
+parent model to persist the newly evaluated row. No extra variant file is created.
 
 OK reprojects the main view and its projected descendants in one Drawing Undo
 transaction. Independent main views retain their own sources. Projected views
@@ -234,14 +259,14 @@ All selected contracts ultimately passed. The multiline Drawing capture was
 visually inspected and its PDF text was independently extracted.
 
 Follow-up session checks cover consecutive edits through the same open Part or
-Assembly instance, monotonic document revisions/viewer generations, and refreshed
+Assembly variant, monotonic document revisions/viewer generations, and refreshed
 Assembly occurrence geometry without Assembly regeneration. Evidence:
 `build/family-session-generation-tests.log` and `build/family-final-gui-tests.log`.
 
 ### Insertion and replacement acceptance (development 2026091509)
 
 The component fixture independently checks 480, 960 and 240 mm³ variants,
-two occurrences sharing one parent file, native/instance replacement, preserved
+two occurrences sharing one parent file, native/variant replacement, preserved
 mates and locks, a suppressed source with unresolved mates, Undo/Redo, CLI,
 unsaved-parent updates, cold nested sources and family dependency cycles.
 The GUI scenario exercises the actual insertion menu and Replace context action,

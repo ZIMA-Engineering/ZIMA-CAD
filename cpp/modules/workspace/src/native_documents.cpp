@@ -6,6 +6,7 @@
 #include <zima/document/physical_properties.hpp>
 #include <zima/document/precision.hpp>
 #include <zima/workspace/appearance_operations.hpp>
+#include <zima/workspace/drawing_sources.hpp>
 #include <zima/assembly/physical_properties.hpp>
 #include <set>
 #include <nlohmann/json.hpp>
@@ -186,6 +187,10 @@ void PreparedNativeDocument::set_drawing_source(const std::string& id,
     const auto source_type=native_document_type(path);
     if(source_type==NativeDocumentType::Drawing)throw std::invalid_argument("Drawing sources must be Parts or Assemblies.");
     drawing->source_document_id=id;drawing->source_path=path;drawing->source_name=name;
+    if(!drawing->sheets.empty()) {
+        drawing->sheets.front().bom_source_document_id=id;
+        drawing->sheets.front().bom_rows=build_bom_rows_for_source(id,path,nullptr);
+    }
 }
 
 PreparedNativeDocument prepare_new_native_document(NativeDocumentType type, const std::string& name,
@@ -225,7 +230,15 @@ std::string insert_native_document(Workspace& workspace, PreparedNativeDocument 
             workspace.add_part(std::move(value.document),std::move(value.boundaries),prepared.path_);
         else if constexpr(std::is_same_v<std::decay_t<decltype(value)>,assembly::AssemblyDocument>)
             workspace.add_assembly(std::move(value),prepared.path_);
-        else workspace.add_drawing(std::move(value),prepared.path_);
+        else {
+            if(!value.sheets.empty()&&!value.source_document_id.empty()) {
+                auto& sheet=value.sheets.front();
+                sheet.bom_source_document_id=value.source_document_id;
+                sheet.bom_rows=build_bom_rows_for_source(
+                    value.source_document_id,value.source_path,&workspace);
+            }
+            workspace.add_drawing(std::move(value),prepared.path_);
+        }
     },prepared.document_);
     return id;
 }

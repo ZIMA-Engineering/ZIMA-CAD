@@ -2,6 +2,7 @@
 #include "workspace_internal.hpp"
 #include <zima/workspace/template_operations.hpp>
 #include <zima/workspace/document_operations.hpp>
+#include <zima/workspace/drawing_sources.hpp>
 #include <zima/document/file_path.hpp>
 
 namespace zima::app {
@@ -520,6 +521,11 @@ void AssemblyWorkspaceWindow::navigate_document_kind() {
     drawing.source_document_id = displayed;
     drawing.source_path = source_path;
     drawing.source_name = source_name.toStdString();
+    if (!drawing.sheets.empty()) {
+        drawing.sheets.front().bom_source_document_id = displayed;
+        drawing.sheets.front().bom_rows =
+            zima::workspace::build_bom_rows_for_source(displayed, source_path, &workspace_);
+    }
     const std::string drawing_id = drawing.document_id;
     workspace_.add_drawing(std::move(drawing), drawing_path);
     workspace_.activate(drawing_id);
