@@ -17,9 +17,9 @@ acknowledgement, recovery and two-version retention are implemented; see
 [Application updates](UPDATES.md) for the UI, signing and acceptance procedure.
 Neither the scripts nor a successful local build publish a release.
 
-Windows build **2026091704** is signed and published. Its committed-source
+Windows build **2026091801** is signed and published. Its committed-source
 candidate, finalized archive, production bootstrap trust and public discovery
-passed acceptance. See [the release record](releases/2026091704.md) for source
+passed acceptance. See [the release record](releases/2026091801.md) for source
 identity, hashes, format changes and the explicitly retained test limitations.
 
 ## Installed layout
