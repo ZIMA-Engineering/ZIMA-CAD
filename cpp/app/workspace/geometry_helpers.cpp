@@ -124,16 +124,8 @@ ContainerDimensionFrame container_dimension_frame(
     }}};
 }
 
-// Every primitive solid shares the universal container placement UI
-// (position/orientation reference tables) wired in PrimitivePropertiesDialog.
 bool supports_placement_reference_picking(zima::document::FeatureKind kind) {
-    using zima::document::FeatureKind;
-    return kind == FeatureKind::Box || kind == FeatureKind::Cylinder ||
-        kind == FeatureKind::Sphere || kind == FeatureKind::Cone ||
-        kind == FeatureKind::Pyramid || kind == FeatureKind::Wedge ||
-        kind == FeatureKind::Extrusion || kind == FeatureKind::Revolution ||
-        kind == FeatureKind::ImportedStep || kind == FeatureKind::Hole ||
-        kind == FeatureKind::Thread;
+    return uses_container_placement(kind);
 }
 
 bool sketch_visible_outside_sketcher(

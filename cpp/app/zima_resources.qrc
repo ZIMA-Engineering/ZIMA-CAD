@@ -3,6 +3,7 @@
     <file alias="icons/bend.svg">../../resources/icons/bend.svg</file>
     <file alias="icons/flat.svg">../../resources/icons/flat.svg</file>
     <file alias="icons/sheet-revolve.svg">../../resources/icons/sheet-revolve.svg</file>
+    <file alias="icons/sheet-twist.svg">../../resources/icons/sheet-twist.svg</file>
     <file alias="icons/sheet-cut.svg">../../resources/icons/sheet-cut.svg</file>
     <file alias="icons/unbend.svg">../../resources/icons/unbend.svg</file>
     <file alias="icons/bend-back.svg">../../resources/icons/bend-back.svg</file>

@@ -1492,6 +1492,28 @@ int main(int argc, char* argv[]) {
             "Tree component selection remained hidden inside the solid");
         internal_wire_view.hide();
 
+        // Unbend keeps the authored feature as the selectable display owner,
+        // but the wire itself belongs to the current derived sheet state.
+        // A stale authored wire is deliberately present at another position:
+        // inspection must use the visible unfolded geometry.
+        zima::kernel::ViewerMesh unfolded_owner_mesh;
+        zima::kernel::ViewerEdge unfolded_wire;
+        unfolded_wire.points={{10,0,0},{20,0,0}};
+        unfolded_wire.reference={"unbend-state","sheet-state:edge",{}};
+        unfolded_wire.display_owner_id="sheet-profile";
+        unfolded_owner_mesh.edges.push_back(unfolded_wire);
+        zima::kernel::ViewerEdge formed_wire;
+        formed_wire.points={{0,0,0},{0,10,0}};
+        formed_wire.reference={"sheet-profile","formed-edge",{}};
+        unfolded_owner_mesh.original_references.edges.push_back(formed_wire);
+        zima::viewer::MeshView unfolded_owner_view(&parent);
+        unfolded_owner_view.set_mesh(unfolded_owner_mesh);
+        unfolded_owner_view.set_container_inspection("sheet-profile");
+        require(unfolded_owner_view.container_inspection_wire().size()==1&&
+            unfolded_owner_view.container_inspection_wire().front().reference.owner_id=="unbend-state"&&
+            unfolded_owner_view.container_inspection_wire().front().points.front().x==10,
+            "Unfolded sheet inspection used the authored formed wire instead of current geometry");
+
         // A rounding edge is an overlay, so it must be painted even when no
         // straight route segment is present and the solid edge pass skips it.
         zima::kernel::ViewerMesh rounded_route_mesh;
@@ -2174,6 +2196,69 @@ int main(int argc, char* argv[]) {
                         "part-origin",
                 "Cylinder Properties did not commit exact parameters or its "
                 "universal placement reference");
+
+        require(zima::app::uses_container_placement(
+                    zima::document::FeatureKind::TwistedSheet),
+                "Twisted Sheet is not enrolled in the shared container placement contract");
+        auto twisted_initial =
+            zima::document::PartDocument::create_twisted_sheet_container();
+        int twisted_commits = 0;
+        int twisted_preview_updates = 0;
+        zima::document::HistoryContainer committed_twisted;
+        auto* twisted_dialog = new zima::app::PrimitivePropertiesDialog(
+            twisted_initial, false, false,
+            [&](zima::document::HistoryContainer value) {
+                ++twisted_commits;
+                committed_twisted = std::move(value);
+            }, &parent);
+        twisted_dialog->set_preview_callback(
+            [&](const auto&) { ++twisted_preview_updates; });
+        twisted_dialog->show();
+        application.processEvents();
+        auto* twisted_references = twisted_dialog->findChild<QTableWidget*>(
+            "primitiveReferenceTable");
+        auto* twisted_orientation = twisted_dialog->findChild<QTableWidget*>(
+            "primitiveOrientationTable");
+        auto* twisted_origin = twisted_dialog->findChild<QPushButton*>(
+            "containerOriginSelectionButton");
+        require(twisted_references != nullptr && twisted_orientation != nullptr &&
+                    twisted_origin != nullptr && twisted_origin->isCheckable(),
+                "Twisted Sheet lacks the complete shared container placement UI");
+        const char* twisted_origin_planes[] = {
+            "origin:plane:yz", "origin:plane:xz", "origin:plane:xy"};
+        for (std::size_t index = 0; index < 3; ++index) {
+            require(twisted_dialog->set_reference(index,
+                        {{}, "part-origin", twisted_origin_planes[index], 0.0, true},
+                        QStringLiteral("Počátek dílu")),
+                    "Twisted Sheet rejected a whole-Origin placement reference");
+        }
+        require(twisted_dialog->first_empty_position_index() == 3 &&
+                    twisted_preview_updates >= 3,
+                "Twisted Sheet did not update its wire preview from whole-Origin placement");
+        twisted_dialog->buttons()->button(QDialogButtonBox::Ok)->click();
+        application.processEvents();
+        const auto twisted_position_references=std::ranges::count_if(
+            committed_twisted.placement.references,
+            [](const auto& reference){return !reference.orientation_only;});
+        require(twisted_commits == 1 && twisted_position_references == 3,
+                "Twisted Sheet did not persist its whole-Origin placement");
+
+        bool twisted_edit_committed = false;
+        auto* twisted_edit = new zima::app::PrimitivePropertiesDialog(
+            committed_twisted, true, false,
+            [&](zima::document::HistoryContainer) {
+                twisted_edit_committed = true;
+            }, &parent);
+        twisted_edit->show();
+        application.processEvents();
+        require(twisted_edit->first_empty_position_index() == 3 &&
+                    twisted_edit->findChild<QTableWidget*>(
+                        "primitiveOrientationTable") != nullptr,
+                "Editing Twisted Sheet lost its persisted placement contract");
+        twisted_edit->buttons()->button(QDialogButtonBox::Cancel)->click();
+        application.processEvents();
+        require(!twisted_edit_committed,
+                "Cancel committed edited Twisted Sheet placement");
 
         auto hole_initial =
             zima::document::PartDocument::create_hole_container();

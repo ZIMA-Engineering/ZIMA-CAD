@@ -73,6 +73,7 @@ QString feature_icon_name(zima::document::FeatureKind kind) {
         case FeatureKind::Unbend: return QStringLiteral("unbend");
         case FeatureKind::BendBack: return QStringLiteral("bend-back");
         case FeatureKind::Flat: return QStringLiteral("flat");
+        case FeatureKind::TwistedSheet: return QStringLiteral("sheet-twist");
         case FeatureKind::Holes: return QStringLiteral("holes");
         case FeatureKind::Thread: return QStringLiteral("cylinder");
         case FeatureKind::ShaftThread: return QStringLiteral("thread");

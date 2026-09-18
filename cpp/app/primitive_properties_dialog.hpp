@@ -33,6 +33,11 @@ class ReferenceCellItem;
 
 namespace zima::app {
 
+// Single source of truth for history features that consume the complete
+// shared container-placement contract in both Properties and the View.
+[[nodiscard]] bool uses_container_placement(
+    zima::document::FeatureKind kind);
+
 class PrimitivePropertiesDialog final : public zima::ui::PropertiesSubWindow,
                                         public PlacementReferenceDialog {
 public:
@@ -40,6 +45,8 @@ public:
     void set_sheet_reference_geometry(zima::kernel::ViewerReferenceGeometry value) { sheet_reference_geometry_=std::move(value); }
     bool sheet_reference_allowed(std::size_t,const zima::document::ConstructionReference&) const;
     bool is_sheet_revolution() const { return initial_.revolution.sheet_metal; }
+    bool is_sheet_edge_feature() const { return initial_.revolution.sheet_metal ||
+        initial_.feature_kind==zima::document::FeatureKind::TwistedSheet; }
     zima::document::Placement placement_seed() const override { return placement_->numeric_placement(); }
     using LegacyCommitCallback =
         std::function<void(zima::document::HistoryContainer)>;
@@ -199,6 +206,9 @@ private:
     QDoubleSpinBox* radius_{};
     QDoubleSpinBox* top_radius_{};
     QDoubleSpinBox* top_offset_{};
+    QDoubleSpinBox* twist_developed_correction_{};
+    QLabel* twist_developed_length_{};
+    QComboBox* twist_direction_{};
     QComboBox* hole_type_{};
     QDoubleSpinBox* hole_diameter_{};
     QComboBox* hole_bore_end_{};

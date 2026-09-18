@@ -1389,10 +1389,18 @@ void MeshView::set_container_inspection(const std::string& owner_id,
         const auto key = std::make_pair(owner_id, instance_path);
         const auto treatment = impl_->edge_treatment_boundary_edge_indices.find(key);
         const auto original = impl_->original_container_edge_indices.find(key);
+        const bool transformed_display = std::any_of(
+            impl_->mesh.edges.begin(), impl_->mesh.edges.end(),
+            [&](const auto& edge) {
+                return !edge.construction && !edge.overlay &&
+                    edge.display_owner_id == owner_id &&
+                    edge.reference.instance_path == instance_path &&
+                    edge.reference.owner_id != owner_id;
+            });
         if (treatment != impl_->edge_treatment_boundary_edge_indices.end()) {
             for (const auto index : treatment->second)
                 if (index < impl_->mesh.edges.size()) wire.push_back(impl_->mesh.edges[index]);
-        } else if (original != impl_->original_container_edge_indices.end()) {
+        } else if (!transformed_display && original != impl_->original_container_edge_indices.end()) {
             for (const auto index : original->second)
                 if (index < impl_->mesh.original_references.edges.size())
                     wire.push_back(impl_->mesh.original_references.edges[index]);
@@ -3071,6 +3079,17 @@ if (impl_->show_origins) {
             (!highlighted->semantic_key.empty() &&
              highlighted->semantic_key != "solid")) return nullptr;
         if (exact_edge_treatment_wire(highlighted) != nullptr) return nullptr;
+        // Unbend/Bend Back keep the authored feature as the ordinary View
+        // identity through display_owner_id, while the visible wire belongs
+        // to the derived sheet-state topology.  Prefer that current display
+        // geometry over the authored feature's historical original wire.
+        if (std::any_of(impl_->mesh.edges.begin(), impl_->mesh.edges.end(),
+                [&](const auto& edge) {
+                    return !edge.construction && !edge.overlay &&
+                        edge.display_owner_id == highlighted->owner_id &&
+                        edge.reference.instance_path == highlighted->instance_path &&
+                        edge.reference.owner_id != highlighted->owner_id;
+                })) return nullptr;
         const auto found = impl_->original_container_edge_indices.find(
             {highlighted->owner_id, highlighted->instance_path});
         return found == impl_->original_container_edge_indices.end()

@@ -532,12 +532,12 @@ void add_json_parameters(
 
 nlohmann::json read_part_ini(const std::filesystem::path& path) {
     const auto ini = read_ini(path);
-    if (ini_value(ini, "Document", "format_version") != "39") {
+    if (ini_value(ini, "Document", "format_version") != "40") {
         throw std::runtime_error("Unsupported ZIMA-CAD Part document format");
     }
     nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 63},
+        {"format_version", 64},
         {"document_id", ini_required(ini, "Document", "document_id")},
         {"type", ini_value(ini, "Document", "type", "part")},
         {"name", ini_value(ini, "Document", "name", "Nový díl")},
@@ -692,7 +692,7 @@ void write_part_ini(
     const nlohmann::json& root, const std::filesystem::path& path) {
     IniSections ini;
     ini["Document"] = {
-        {"format_version", "39"},
+        {"format_version", "40"},
         {"type", "part"},
         {"document_id", root.at("document_id").get<std::string>()},
         {"name", root.at("name").get<std::string>()},
@@ -3366,6 +3366,45 @@ HistoryContainer PartDocument::create_wedge_container() {
     return container;
 }
 
+HistoryContainer PartDocument::create_twisted_sheet_container() {
+    HistoryContainer container;
+    container.id = make_id();
+    container.feature_id = make_id();
+    container.feature_parent_id = container.id;
+    container.container_origin = create_container_origin(container.id);
+    container.name = "Kroucený plech";
+    container.feature_kind = FeatureKind::TwistedSheet;
+    return container;
+}
+
+double twisted_sheet_developed_length(const TwistedSheetParameters& p) {
+    if(!std::isfinite(p.width)||!std::isfinite(p.length)||
+        !std::isfinite(p.angle_degrees)||
+        !std::isfinite(p.developed_length_correction)||
+        p.width<=0||p.length<=0)
+        throw std::invalid_argument("Invalid Twisted Sheet development parameters.");
+    const double half=p.width/2;
+    const double angle=std::abs(p.angle_degrees)*std::numbers::pi/180;
+    // Average the neutral-surface fibre length across the rectangular blank.
+    // The twist-rate ramps are integrated analytically across width and by a
+    // fixed Simpson rule along the inexpensive authored material law.
+    constexpr int intervals=128;
+    const auto density=[&](double t) {
+        const double q=angle*half/p.length*
+            zima::kernel::sheet_material::twist_progress_derivative(t);
+        if(std::abs(q)<1e-12)return 1.0;
+        return .5*(std::sqrt(1+q*q)+std::asinh(q)/q);
+    };
+    double sum=density(0)+density(1);
+    for(int i=1;i<intervals;++i)sum+=(i%2?4.0:2.0)*density(
+        static_cast<double>(i)/intervals);
+    const double calculated=p.length*sum/(3*intervals);
+    const double result=calculated+p.developed_length_correction;
+    if(!std::isfinite(result)||result<=0)
+        throw std::invalid_argument("Twisted Sheet developed length must be positive.");
+    return result;
+}
+
 HistoryContainer PartDocument::create_hole_container() {
     HistoryContainer container;
     container.id = make_id();
@@ -5436,7 +5475,8 @@ zima::kernel::ViewerMesh PartDocument::construction_viewer_mesh(
             container.feature_kind == FeatureKind::Sphere ||
             container.feature_kind == FeatureKind::Cone ||
             container.feature_kind == FeatureKind::Pyramid ||
-            container.feature_kind == FeatureKind::Wedge;
+            container.feature_kind == FeatureKind::Wedge ||
+            container.feature_kind == FeatureKind::TwistedSheet;
         const bool profile_feature =
             container.feature_kind == FeatureKind::Extrusion ||
             container.feature_kind == FeatureKind::Revolution;
@@ -5832,6 +5872,47 @@ void PartDocument::resolve_constructions(
         if (container.suppressed) return;
         static_cast<void>(resolve_placement(container.placement, source_geometry));
         if (!container.placement.reference_valid) return;
+        if(container.feature_kind==FeatureKind::TwistedSheet&&
+            container.twisted_sheet.sheet_attachment) {
+            if(container.placement.references.size()!=3)
+                throw std::invalid_argument("Incomplete Twisted Sheet attachment.");
+            const auto& source=container.placement.references[0];
+            const auto edge=std::ranges::find_if(source_geometry.edges,[&](const auto& value) {
+                return value.reference.owner_id==source.owner_id&&
+                    value.reference.semantic_key==source.semantic_key&&
+                    value.reference.instance_path==source.instance_path;
+            });
+            if(edge==source_geometry.edges.end())
+                throw std::invalid_argument("Missing Twisted Sheet attachment edge.");
+            auto& anchor=container.placement.references[2];
+            const auto expected=bend_sheet_references(*edge,
+                {anchor.owner_id,anchor.semantic_key,anchor.instance_path});
+            const auto& last=edge->edge_treatment_endpoint_references.back();
+            // Endpoint identity, rather than a stale UI flag, is the source
+            // of truth for which direction the strip spans along the edge.
+            anchor.flip=anchor.owner_id==last.owner_id&&
+                anchor.semantic_key==last.semantic_key&&
+                anchor.instance_path==last.instance_path;
+            const auto& face=container.placement.references[1];
+            if(face.owner_id!=expected[1].owner_id||
+                face.semantic_key!=expected[1].semantic_key||
+                face.instance_path!=expected[1].instance_path||face.offset!=0||
+                face.flip!=expected[1].flip||source.offset!=0||source.flip||
+                container.placement.orientation_back||
+                container.placement.orientation_quarter_turns||
+                container.placement.rotation_offset_x!=0||
+                container.placement.rotation_offset_y!=0||
+                container.placement.rotation_offset_z!=0)
+                throw std::invalid_argument(
+                    "Twisted Sheet attachment orientation is derived from its sheet edge.");
+            container.twisted_sheet.width=edge->measured_length.value_or(
+                std::hypot(std::hypot(edge->points.back().x-edge->points.front().x,
+                    edge->points.back().y-edge->points.front().y),
+                    edge->points.back().z-edge->points.front().z));
+            container.twisted_sheet.thickness=
+                edge->edge_treatment_side_references.front().sheet_thickness;
+            container.twisted_sheet.thickness_override=false;
+        }
 
         PartDocument origin_carrier;
         origin_carrier.document_id = container.id;
@@ -6441,6 +6522,51 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::primitive_preview_edges(
         append({p[4],p[5],p[6],p[7],p[4]}, "wedge:back");
         for (std::size_t index = 0; index < 4; ++index) {
             append({p[index], p[index + 4]}, "wedge:cross:" + std::to_string(index));
+        }
+    } else if (container.feature_kind == FeatureKind::TwistedSheet) {
+        const auto& p=container.twisted_sheet;
+        const double width_sign=p.sheet_attachment&&container.placement.references.size()>=3&&
+            container.placement.references[2].flip?-1.0:1.0;
+        const double total=(p.reverse?-1.0:1.0)*p.angle_degrees*
+            std::numbers::pi/180.0;
+        const double across_center=p.sheet_attachment?p.width/2.0:0.0;
+        const double through_center=p.sheet_attachment?p.thickness/2.0:0.0;
+        constexpr int samples=48;
+        const auto local=[&](double across,double through,double fraction) {
+            across-=across_center;through-=through_center;
+            const double angle=total*zima::kernel::sheet_material::twist_progress(fraction),
+                c=std::cos(angle),s=std::sin(angle);
+            const double twisted_across=across*c-through*s;
+            const double twisted_through=across*s+through*c;
+            // The universal sheet-edge frame is Y = selected boundary edge,
+            // Z = continuation from the joining cap and -X = material
+            // thickness.  A free Twisted Sheet retains its ordinary
+            // X=width/Y=thickness/Z=length frame.
+            return p.sheet_attachment
+                ? zima::kernel::Vec3{-through_center-twisted_through,
+                    width_sign*(across_center+twisted_across),p.length*fraction}
+                : zima::kernel::Vec3{across_center+twisted_across,
+                    through_center+twisted_through,p.length*fraction};
+        };
+        for(const double through:{p.sheet_attachment?0.0:-p.thickness/2,
+                                  p.sheet_attachment?p.thickness:p.thickness/2}) {
+            for(const double across:{p.sheet_attachment?0.0:-p.width/2,
+                                     p.sheet_attachment?p.width:p.width/2}) {
+                std::vector<zima::kernel::Vec3> rail;
+                for(int i=0;i<=samples;++i)
+                    rail.push_back(local(across,through,static_cast<double>(i)/samples));
+                append(std::move(rail),"twist:rail");
+            }
+        }
+        for(const auto [fraction,label]:std::array<std::pair<double,const char*>,2>{{
+                {0.0,"twist:start"},{1.0,"twist:end"}}}) {
+            const double left=p.sheet_attachment?0.0:-p.width/2;
+            const double right=p.sheet_attachment?p.width:p.width/2;
+            const double low=p.sheet_attachment?0.0:-p.thickness/2;
+            const double high=p.sheet_attachment?p.thickness:p.thickness/2;
+            append({local(left,low,fraction),local(right,low,fraction),
+                    local(right,high,fraction),local(left,high,fraction),
+                    local(left,low,fraction)},label);
         }
     }
     return result;
@@ -8383,6 +8509,109 @@ ExtrusionParameters::EndTarget resolved_extrusion_end_target(const PartDocument&
     if(!resolved)throw std::runtime_error("Extrusion end reference is missing.");
     return *resolved;
 }
+
+zima::kernel::Sweep3DRequest twisted_sheet_request(
+        const HistoryContainer& container, double tolerance) {
+    const auto& p = container.twisted_sheet;
+    const double width_sign=p.sheet_attachment&&container.placement.references.size()>=3&&
+        container.placement.references[2].flip?-1.0:1.0;
+    require_positive(p.width, "Twisted sheet width");
+    require_positive(p.length, "Twisted sheet length");
+    require_positive(p.thickness, "Twisted sheet thickness");
+    if (!std::isfinite(p.angle_degrees) || p.angle_degrees <= 0.0 ||
+        p.angle_degrees > 36000.0)
+        throw std::invalid_argument("Twisted sheet angle must be between 0 and 36000 degrees.");
+
+    zima::kernel::Sweep3DRequest request;
+    request.linear_tolerance = tolerance;
+    request.separate_segments = false;
+    request.smooth_loft = true;
+    const double signed_angle = (p.reverse ? -1.0 : 1.0) *
+        p.angle_degrees * std::numbers::pi / 180.0;
+    const double across_center=p.sheet_attachment?p.width/2.0:0.0;
+    const double through_center=p.sheet_attachment?p.thickness/2.0:0.0;
+    // A fixed angular ceiling keeps the approximation identities stable for
+    // ordinary parameter edits.  It also limits the chord deviation of a
+    // 100 mm strip to about 0.05 mm without asking OCCT to solve one large
+    // highly twisted ruled face.
+    const int stations = std::clamp(
+        static_cast<int>(std::ceil(std::abs(p.angle_degrees) / 5.0)), 1, 720);
+    const zima::kernel::Vec3 translation{container.placement.x,
+        container.placement.y, container.placement.z};
+    const zima::kernel::Vec3 rotation{container.placement.rotation_x,
+        container.placement.rotation_y, container.placement.rotation_z};
+    const auto world = [&](zima::kernel::Vec3 point) {
+        point = rotated_vector(point, rotation);
+        return zima::kernel::Vec3{point.x + translation.x,
+            point.y + translation.y, point.z + translation.z};
+    };
+    const auto station_id = [&](int index) {
+        if (index == 0) return std::string("twist:path:start");
+        if (index == stations) return std::string("twist:path:end");
+        // Every transient approximation station belongs to the same authored
+        // interior material region. Never turn a sample index into persistent
+        // topology identity.
+        return std::string("twist:path:interior");
+    };
+    for (int index = 0; index <= stations; ++index) {
+        const double fraction = static_cast<double>(index) / stations;
+        const double angle = signed_angle *
+            zima::kernel::sheet_material::twist_progress(fraction);
+        const double c = std::cos(angle), s = std::sin(angle);
+        const auto point = [&](double across, double through) {
+            across-=across_center;through-=through_center;
+            const double twisted_across=across*c-through*s;
+            const double twisted_through=across*s+through*c;
+            return world(p.sheet_attachment
+                ? zima::kernel::Vec3{-through_center-twisted_through,
+                    width_sign*(across_center+twisted_across),p.length*fraction}
+                : zima::kernel::Vec3{across_center+twisted_across,
+                    through_center+twisted_through,p.length*fraction});
+        };
+        const auto center = world(p.sheet_attachment
+            ? zima::kernel::Vec3{-through_center,width_sign*across_center,p.length*fraction}
+            : zima::kernel::Vec3{across_center,through_center,p.length*fraction});
+        const auto point_id = station_id(index);
+        request.path_points.push_back(center);
+        request.path_point_ids.push_back(point_id);
+        if (index > 0 && index < stations)
+            request.canonical_station_ids.insert(point_id);
+
+        zima::kernel::Sweep3DRequest::Section section;
+        section.profile_id = "twist:profile";
+        section.point_id = point_id;
+        section.point_index = static_cast<std::size_t>(index);
+        section.profile_normal = rotated_vector({0.0, 0.0, 1.0}, rotation);
+        section.profile.region_id = "twist:region";
+        section.profile.outer_boundary_id = "twist:boundary";
+        section.profile.outer_edge_source_ids = {
+            "twist:outer:from:width", "twist:thickness:from:right",
+            "twist:inner:from:width", "twist:thickness:from:left"};
+        section.profile.outer_vertex_source_ids = {
+            "twist:point:left:outer", "twist:point:right:outer",
+            "twist:point:right:inner", "twist:point:left:inner"};
+        section.profile.outer_profile =
+            zima::kernel::ExtrusionRequest::PolygonProfile{{
+                point(p.sheet_attachment?0:-p.width/2,
+                    p.sheet_attachment?p.thickness:p.thickness/2),
+                point(p.sheet_attachment?p.width:p.width/2,
+                    p.sheet_attachment?p.thickness:p.thickness/2),
+                point(p.sheet_attachment?p.width:p.width/2,
+                    p.sheet_attachment?0:-p.thickness/2),
+                point(p.sheet_attachment?0:-p.width/2,
+                    p.sheet_attachment?0:-p.thickness/2)}};
+        request.sections.push_back(std::move(section));
+        if (index < stations) {
+            const double next_fraction=static_cast<double>(index+1)/stations;
+            const auto next_center=world(p.sheet_attachment
+                ?zima::kernel::Vec3{-through_center,width_sign*across_center,p.length*next_fraction}
+                :zima::kernel::Vec3{across_center,through_center,p.length*next_fraction});
+            request.path_segments.push_back({
+                "twist:path:span", center,next_center});
+        }
+    }
+    return request;
+}
 }
 
 std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
@@ -8951,6 +9180,8 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                 apply_container_placement(revolution, container.placement);
             }
             primitive = std::move(revolution);
+        } else if (container.feature_kind == FeatureKind::TwistedSheet) {
+            primitive = twisted_sheet_request(container, boolean_tolerance);
         } else if (container.feature_kind == FeatureKind::Sweep2D) {
             if(!container.sweep2d.reference_valid)throw std::runtime_error("Neplatné reference 2D tažení");
             primitive = sweep2d_request(container, boolean_tolerance);
@@ -9102,15 +9333,47 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
         } else if(container.feature_kind==FeatureKind::Revolution&&container.revolution.sheet_metal) {
             operations.back().sheet_operation=kernel::SheetOperation::Revolution;
             operations.back().sheet_thickness=container.revolution.thin_thickness;
+        } else if(container.feature_kind==FeatureKind::TwistedSheet) {
+            // The generated broad faces carry explicit outer/inner semantic
+            // ancestry, so the kernel can classify boundary edges without
+            // inferring them from OCCT face order.
+            operations.back().sheet_operation=kernel::SheetOperation::Bend;
+            operations.back().sheet_thickness=container.twisted_sheet.thickness;
         }
         if(operations.back().sheet_operation!=kernel::SheetOperation::None) {
-            const auto sketch_id=container.feature_kind==FeatureKind::Flat?container.flat.sketch_id:
-                container.feature_kind==FeatureKind::Bend?container.bend.sketch_id:container.revolution.sketch_id;
-            const auto sketch=std::ranges::find(sketches,sketch_id,&sketcher::Sketch::id);
-            auto material=sheet_material_definition(container,*sketch,operations.back().primitive,sheet_metal_defaults(*this));
+            kernel::SheetMaterialDefinition material;
+            if(container.feature_kind==FeatureKind::TwistedSheet) {
+                const auto& p=container.twisted_sheet;
+                const double width_sign=p.sheet_attachment&&container.placement.references.size()>=3&&
+                    container.placement.references[2].flip?-1.0:1.0;
+                material.kind=kernel::SheetMaterialDefinition::Kind::Twist;
+                material.owner_id=container.id;material.thickness=p.thickness;
+                material.formed_length=p.length;
+                material.developed_length=twisted_sheet_developed_length(p);
+                material.angle=std::abs(p.angle_degrees)*std::numbers::pi/180;
+                material.signed_twist_angle=(p.reverse?-1.0:1.0)*material.angle;
+                const kernel::Vec3 rotation{container.placement.rotation_x,
+                    container.placement.rotation_y,container.placement.rotation_z};
+                material.along=rotated_vector(
+                    p.sheet_attachment?kernel::Vec3{0,width_sign,0}:kernel::Vec3{1,0,0},rotation);
+                material.tangent=rotated_vector({0,0,1},rotation);
+                material.radial=rotated_vector(
+                    p.sheet_attachment?kernel::Vec3{-1,0,0}:kernel::Vec3{0,1,0},rotation);
+                const auto center=rotated_vector(p.sheet_attachment
+                    ?kernel::Vec3{-p.thickness/2,width_sign*p.width/2,0}
+                    :kernel::Vec3{0,0,0},rotation);
+                material.origin={center.x+container.placement.x,
+                    center.y+container.placement.y,center.z+container.placement.z};
+            } else {
+                const auto sketch_id=container.feature_kind==FeatureKind::Flat?container.flat.sketch_id:
+                    container.feature_kind==FeatureKind::Bend?container.bend.sketch_id:container.revolution.sketch_id;
+                const auto sketch=std::ranges::find(sketches,sketch_id,&sketcher::Sketch::id);
+                material=sheet_material_definition(container,*sketch,operations.back().primitive,sheet_metal_defaults(*this));
+            }
             for(const auto& reference:container.placement.references) {
                 const auto* parent=find_container(reference.owner_id);
                 if(parent&&(parent->feature_kind==FeatureKind::Flat||parent->feature_kind==FeatureKind::Bend||
+                        parent->feature_kind==FeatureKind::TwistedSheet||
                         (parent->feature_kind==FeatureKind::Revolution&&parent->revolution.sheet_metal))) {
                     material.parent_owner_id=parent->id;break;
                 }
@@ -9730,7 +9993,7 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
             type != "revolution" && type != "sweep3d" && type != "helical_sweep" && type != "sweep2d" &&
             type != "imported_step" &&
             type != "fillet" && type != "chamfer" &&
-            type != "shell" && type != "unbend" && type != "bend_back" &&
+            type != "shell" && type != "twisted_sheet" && type != "unbend" && type != "bend_back" &&
             type != "flat" && type != "bend" && type != "holes" && type != "hole" && type != "thread" && type != "shaft_thread" &&
             type != "drill_point") {
             throw std::runtime_error("Unsupported history feature type");
@@ -9751,6 +10014,7 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
             : type == "fillet" ? FeatureKind::Fillet
             : type == "chamfer" ? FeatureKind::Chamfer
             : type == "shell" ? FeatureKind::Shell
+            : type == "twisted_sheet" ? FeatureKind::TwistedSheet
             : type == "flat" ? FeatureKind::Flat
             : type == "unbend" ? FeatureKind::Unbend
             : type == "bend_back" ? FeatureKind::BendBack
@@ -10090,6 +10354,19 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
                 container.wedge.top_offset > container.wedge.length) {
                 throw std::runtime_error("Invalid Wedge top offset");
             }
+        } else if (container.feature_kind == FeatureKind::TwistedSheet) {
+            const auto& data=source.at("twisted_sheet");auto& p=container.twisted_sheet;
+            p.width=data.at("width");p.length=data.at("length");
+            p.angle_degrees=data.at("angle_degrees");p.thickness=data.at("thickness");
+            p.developed_length_correction=data.at("developed_length_correction");
+            p.reverse=data.at("reverse");p.sheet_attachment=data.at("sheet_attachment");
+            p.thickness_override=data.at("thickness_override");
+            require_positive(p.width,"Twisted sheet width");
+            require_positive(p.length,"Twisted sheet length");
+            require_positive(p.thickness,"Twisted sheet thickness");
+            if(!std::isfinite(p.angle_degrees)||p.angle_degrees<=0||p.angle_degrees>36000)
+                throw std::runtime_error("Invalid Twisted Sheet angle");
+            static_cast<void>(twisted_sheet_developed_length(p));
         } else if (container.feature_kind == FeatureKind::Extrusion || container.feature_kind == FeatureKind::Revolution) {
             load_profile_parameters(container, source);
         } else if (container.feature_kind == FeatureKind::Sweep2D) {
@@ -10715,6 +10992,14 @@ nlohmann::json PartDocument::serialized(
                 container.wedge.top_offset > container.wedge.length) {
                 throw std::runtime_error("Invalid Wedge top offset");
             }
+        } else if (container.feature_kind == FeatureKind::TwistedSheet) {
+            const auto& p=container.twisted_sheet;
+            require_positive(p.width,"Twisted sheet width");
+            require_positive(p.length,"Twisted sheet length");
+            require_positive(p.thickness,"Twisted sheet thickness");
+            if(!std::isfinite(p.angle_degrees)||p.angle_degrees<=0||p.angle_degrees>36000)
+                throw std::runtime_error("Invalid Twisted Sheet angle");
+            static_cast<void>(twisted_sheet_developed_length(p));
         } else if (container.feature_kind == FeatureKind::Extrusion) {
             if (!std::isfinite(container.extrusion.profile_plane_offset) ||
                 container.extrusion.sketch_id.empty()) {
@@ -10863,6 +11148,8 @@ nlohmann::json PartDocument::serialized(
                     ? "pyramid"
                 : container.feature_kind == FeatureKind::Wedge
                     ? "wedge"
+                : container.feature_kind == FeatureKind::TwistedSheet
+                    ? "twisted_sheet"
                 : container.feature_kind == FeatureKind::Extrusion
                     ? "extrusion"
                 : container.feature_kind == FeatureKind::Revolution
@@ -11146,6 +11433,19 @@ nlohmann::json PartDocument::serialized(
             serialized["width"] = container.wedge.width;
             serialized["height"] = container.wedge.height;
             serialized["top_offset"] = container.wedge.top_offset;
+        } else if (container.feature_kind == FeatureKind::TwistedSheet) {
+            const auto& p=container.twisted_sheet;
+            require_positive(p.width,"Twisted sheet width");
+            require_positive(p.length,"Twisted sheet length");
+            require_positive(p.thickness,"Twisted sheet thickness");
+            if(!std::isfinite(p.angle_degrees)||p.angle_degrees<=0||p.angle_degrees>36000)
+                throw std::runtime_error("Invalid Twisted Sheet angle");
+            static_cast<void>(twisted_sheet_developed_length(p));
+            serialized["twisted_sheet"]={{"width",p.width},{"length",p.length},
+                {"angle_degrees",p.angle_degrees},{"thickness",p.thickness},
+                {"developed_length_correction",p.developed_length_correction},
+                {"reverse",p.reverse},{"sheet_attachment",p.sheet_attachment},
+                {"thickness_override",p.thickness_override}};
         } else if (container.feature_kind == FeatureKind::Extrusion || container.feature_kind == FeatureKind::Revolution) {
             save_profile_parameters(container, serialized);
         } else if (container.feature_kind == FeatureKind::Sweep2D) {
@@ -11363,7 +11663,7 @@ nlohmann::json PartDocument::serialized(
     static_cast<void>(zima::document::parse_named_views(named_views));
     nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 63},
+        {"format_version", 64},
         {"reference_errors", reference_errors},
         {"document_id", document_id},
         {"type", "part"},

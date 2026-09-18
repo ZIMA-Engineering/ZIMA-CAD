@@ -27,6 +27,9 @@ class SketchPropertiesDialog final : public zima::ui::PropertiesSubWindow,
                                      public PlacementReferenceDialog {
 public:
     [[nodiscard]] bool sheet_reference_allowed(std::size_t, const zima::document::ConstructionReference&) const;
+    [[nodiscard]] bool is_sheet_edge_feature() const {
+        return static_cast<bool>(bend_pending_)||static_cast<bool>(flat_pending_);
+    }
     void set_reference_document_id(std::string id) { reference_document_id_=std::move(id); }
     zima::document::Placement placement_seed() const override { return placement_->numeric_placement(); }
     using CommitCallback = std::function<void(

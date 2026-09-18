@@ -110,14 +110,24 @@ int verify_sheet_state_ui(QApplication& application,const std::filesystem::path&
                     return face.instance_path==active_path&&face.owner_id==state_id&&
                         face.display_owner_id==feature.id;
                 }),"Unbend View geometry lost its authored display owner.");
-            bool authored_offered=false;
+            bool authored_offered=false;std::optional<QPointF> authored_hit;
             for(int y=5;y<view->height();y+=7)for(int x=5;x<view->width();x+=7)
                 for(const auto& candidate:view->selection_candidates_at({double(x),double(y)}))
                     if(candidate.kind==viewer::CandidateKind::Container&&candidate.instance_path==active_path) {
                         check(candidate.owner_id!=state_id,"Unbend is selectable as an ordinary View Container.");
                         authored_offered|=candidate.owner_id==feature.id;
+                        if(candidate.owner_id==feature.id&&!authored_hit)authored_hit=QPointF(x,y);
                     }
             check(authored_offered,"The authored sheet feature is not selectable through Unbend geometry.");
+            check(authored_hit.has_value(),"Cannot locate the unfolded authored feature for double-click.");
+            QMouseEvent unfolded_double_click(QEvent::MouseButtonDblClick,*authored_hit,
+                *authored_hit,QPointF(view->mapToGlobal(authored_hit->toPoint())),
+                Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+            QApplication::sendEvent(view,&unfolded_double_click);flush();
+            check(std::ranges::none_of(view->mesh().dimensions,[&](const auto& dimension) {
+                    return dimension.reference.owner_id==feature.id&&
+                        dimension.reference.semantic_key.starts_with("parameter:");
+                }),"Double-click displayed formed dimensions over an unfolded sheet feature.");
             window.show_tree_item_properties(edited);flush();
             check(dialog(),"Unbend editing did not reopen the shared dialog.");
             check(std::ranges::any_of(view->mesh().triangle_references,[&](const auto& face){return face.instance_path==active_path&&face.owner_id==feature.id;}),

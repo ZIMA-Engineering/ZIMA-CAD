@@ -253,7 +253,9 @@ PrimitiveData transform(const PrimitiveData& original_input,const std::vector<Tr
         const auto& region=transition.before;
         if(region.kind==SheetMaterialDefinition::Kind::Plane)continue;
         for(const bool end:{false,true}) {
-            const sheet_material::Coordinate station{0,end?region.angle*region.neutral_radius:0,0,false};
+            const double material_length=region.kind==SheetMaterialDefinition::Kind::Twist?
+                region.developed_length:region.angle*region.neutral_radius;
+            const sheet_material::Coordinate station{0,end?material_length:0,0,false};
             const auto p=sheet_material::point(region,station),n=sheet_material::basis(region,station)[1];
             const auto plane=BRepBuilderAPI_MakeFace(gp_Pln(gp_Pnt(p.x,p.y,p.z),gp_Dir(n.x,n.y,n.z))).Face();
             tools.Append(plane);

@@ -75,6 +75,16 @@
 
 ## Container placement protection
 
+- Every placed history container must opt into the complete shared placement
+  contract through the single common capability predicate used by both its
+  Properties dialog and the View. Do not maintain separate feature lists for
+  the dialog and viewer. The contract includes position and FRONT/TOP
+  orientation references, whole-Origin entry, reference inspection and
+  replacement, degrees-of-freedom state, numeric correction, persisted
+  placement, and the shared cyan wire preview without an OCCT calculation.
+- A new placed container is incomplete until GUI tests cover creation,
+  reference and whole-Origin placement, OK persistence, reopening for edit,
+  and Cancel restoration.
 - Do not modify the shared container-placement code or its general placement,
   reference-solving, orientation, offset, preview, or persistence contracts
   without first asking the user and receiving explicit approval.
@@ -132,6 +142,11 @@
 - Keep the existing document extensions. Every format change must update the
   corresponding start Part and Assembly templates under `config`; keep all of
   `config`, including those templates, tracked in Git.
+- A native Part or Assembly format change is incomplete until the corresponding
+  start template has been regenerated with the changed code and an automated
+  GUI check has created a new document from that template, confirmed its first
+  editable Body/component context is active, and confirmed its normal commands
+  are enabled. Do not rely only on direct `create_default()` or load/save tests.
 
 - Backward compatibility with legacy Part and Assembly files is not required.
   This includes old `.prt`, `.prtz`, `.asm`, and `.asmz` documents.

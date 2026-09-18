@@ -26,7 +26,7 @@
 namespace zima::document {
 
 enum class CombineMode { Add, Subtract };
-enum class FeatureKind { Sketch, Box, Cylinder, Sphere, Cone, Pyramid, Wedge, Extrusion, Revolution, Sweep3D, ImportedStep, Fillet, Chamfer, Shell, Hole, Thread, DrillPoint, ShaftThread, HelicalSweep, Sweep2D, Holes, Bend, Flat, Unbend, BendBack };
+enum class FeatureKind { Sketch, Box, Cylinder, Sphere, Cone, Pyramid, Wedge, Extrusion, Revolution, Sweep3D, ImportedStep, Fillet, Chamfer, Shell, Hole, Thread, DrillPoint, ShaftThread, HelicalSweep, Sweep2D, Holes, Bend, Flat, TwistedSheet, Unbend, BendBack };
 enum class ExtrusionDirection { Forward, Reverse, Symmetric };
 enum class ExtrusionExtent { Blind, UpToPlane, UpToSurface, ThroughAll };
 enum class ProfileSource { Internal, External };
@@ -586,6 +586,27 @@ struct FlatParameters {
     bool operator==(const FlatParameters&) const = default;
 };
 
+// A direct sheet-metal strip whose neutral surface rotates uniformly along a
+// straight axis.  The authored identities below are semantic prefixes used by
+// the generated profiles; sampling density is calculation data and never part
+// of persistent topology identity.
+struct TwistedSheetParameters {
+    double width{50.0};
+    double length{100.0};
+    double angle_degrees{90.0};
+    double thickness{1.0};
+    // Empirical manufacturing correction added to the calculated neutral-
+    // surface development. It may be positive or negative.
+    double developed_length_correction{};
+    bool reverse{};
+    bool sheet_attachment{};
+    bool thickness_override{};
+    bool operator==(const TwistedSheetParameters&) const = default;
+};
+
+[[nodiscard]] double twisted_sheet_developed_length(
+    const TwistedSheetParameters& parameters);
+
 struct BendParameters {
     std::string sketch_id;
     bool sheet_attachment{};
@@ -633,6 +654,7 @@ struct HistoryContainer {
     HolesParameters holes;
     BendParameters bend;
     FlatParameters flat;
+    TwistedSheetParameters twisted_sheet;
     SheetStateParameters sheet_state;
     ThreadParameters thread;
     ShaftThreadParameters shaft_thread;
@@ -721,6 +743,7 @@ public:
     [[nodiscard]] static HistoryContainer create_cone_container();
     [[nodiscard]] static HistoryContainer create_pyramid_container();
     [[nodiscard]] static HistoryContainer create_wedge_container();
+    [[nodiscard]] static HistoryContainer create_twisted_sheet_container();
     [[nodiscard]] static HistoryContainer create_hole_container();
     [[nodiscard]] static HistoryContainer create_thread_container();
     [[nodiscard]] static HistoryContainer create_shaft_thread_container();

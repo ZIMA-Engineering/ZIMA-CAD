@@ -684,12 +684,14 @@ zima::kernel::BodyResult load_body_result(const nlohmann::json& source) {
         region.y_axis=load_vec3(row.at("y_axis"));
         region.radius=row.at("radius");region.semi_angle=row.at("semi_angle");region.thickness=row.at("thickness");
         region.source.sheet_thickness=region.thickness;
-        auto geometry=std::make_shared<zima::kernel::SurfaceGeometry>();
-        geometry->kind=region.surface_type=="plane"?zima::kernel::SurfaceGeometry::Kind::Plane:
-            region.surface_type=="cylinder"?zima::kernel::SurfaceGeometry::Kind::Cylinder:zima::kernel::SurfaceGeometry::Kind::Cone;
-        geometry->origin=region.origin;geometry->axis=region.axis;geometry->radial=region.x_axis;
-        geometry->radius=region.radius;geometry->semi_angle=region.semi_angle;geometry->reversed=row.at("surface_reversed");
-        region.source.surface=std::move(geometry);
+        if(region.surface_type!="twist") {
+            auto geometry=std::make_shared<zima::kernel::SurfaceGeometry>();
+            geometry->kind=region.surface_type=="plane"?zima::kernel::SurfaceGeometry::Kind::Plane:
+                region.surface_type=="cylinder"?zima::kernel::SurfaceGeometry::Kind::Cylinder:zima::kernel::SurfaceGeometry::Kind::Cone;
+            geometry->origin=region.origin;geometry->axis=region.axis;geometry->radial=region.x_axis;
+            geometry->radius=region.radius;geometry->semi_angle=region.semi_angle;geometry->reversed=row.at("surface_reversed");
+            region.source.surface=std::move(geometry);
+        }
         for(const auto& loop:row.at("loops")) {
             std::vector<zima::kernel::SheetTrimCurve> curves;
             for(const auto& curve:loop) {

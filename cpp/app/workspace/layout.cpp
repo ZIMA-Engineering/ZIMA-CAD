@@ -4,6 +4,7 @@
 #include "workspace_internal.hpp"
 #include "tool_button_style.hpp"
 #include <zima/workspace/body_operations.hpp>
+#include <zima/workspace/sheet_state_operations.hpp>
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -956,6 +957,11 @@ void AssemblyWorkspaceWindow::create_layout() {
                 QAction* remove_curve{};
                 if (const auto* part = workspace_.open_part(
                         workspace_.active_document_id())) {
+                    if(std::ranges::any_of(
+                            zima::workspace::sheet_state_regions(part->session.document()),
+                            [&](const auto& region) {
+                                return region.owner_id==candidate.owner_id&&region.unfolded;
+                            })) edit->setEnabled(false);
                     const auto* container =
                         part->session.document().find_container(candidate.owner_id);
                     if (container != nullptr && container->feature_kind ==
@@ -1433,7 +1439,24 @@ void AssemblyWorkspaceWindow::create_layout() {
             const auto* part=workspace_.open_part(workspace_.active_document_id());
             const auto* body=part?part->session.document().body_history.find(candidate.owner_id):nullptr;
             if(body&&body->derived_copy)show_derived_source_properties(candidate.owner_id);
-            else show_parameter_dimensions(candidate.owner_id);
+            else {
+                // A sheet-state feature keeps ordinary View selection on the
+                // authored container, but its stored bend dimensions still
+                // belong to the formed historical geometry.  Do not draw
+                // those dimensions over a currently unfolded region.
+                const bool unfolded=part&&std::ranges::any_of(
+                    zima::workspace::sheet_state_regions(part->session.document()),
+                    [&](const auto& region) {
+                        return region.owner_id==candidate.owner_id&&region.unfolded;
+                    });
+                if(unfolded) {
+                    if(!construction_dimension_object_id_.empty())
+                        static_cast<void>(finish_parameter_dimensions());
+                    state_->setText(tr("Kóty rozvinutého prvku se zobrazí ve vlastnostech jeho historického prvku."));
+                    return;
+                }
+                show_parameter_dimensions(candidate.owner_id);
+            }
         } else if (candidate.kind == zima::viewer::CandidateKind::Vertex) {
             const auto show_point_dimensions = [&](const auto& document) {
                 const auto found = std::find_if(document.constructions.begin(),
@@ -2405,6 +2428,11 @@ void AssemblyWorkspaceWindow::create_layout() {
                 menu.setObjectName("partHistoryMenu");
                 auto* edit = menu.addAction(tr("Upravit"));
                 auto* properties = menu.addAction(tr("Vlastnosti…"));
+                if(std::ranges::any_of(
+                        zima::workspace::sheet_state_regions(part->session.document()),
+                        [&](const auto& region) {
+                            return region.owner_id==id&&region.unfolded;
+                        })) edit->setEnabled(false);
                 QAction* transform_extrusion{};
                 QAction* transform_revolution{};
                 if (container->feature_kind ==

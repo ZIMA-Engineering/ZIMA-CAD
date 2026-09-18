@@ -693,6 +693,9 @@ struct Sweep3DRequest {
     // A smooth, single-section sweep with a transported normal frame.
     // Sampling indices are transient approximation data, never topology IDs.
     bool transported{};
+    // Interpolate every authored section as one smooth loft. Longitudinal
+    // boundaries are BSplines instead of one edge per sampling interval.
+    bool smooth_loft{};
     // Unrounded polyline: each segment owns two endpoint stations and
     // perpendicular caps. No corner projection or transition joins segments.
     bool separate_segments{};
@@ -811,11 +814,13 @@ struct BoxOperation {
 // Authored material coordinates of a sheet creator. They are independent of
 // OCCT face enumeration and survive cuts and later state operations.
 struct SheetMaterialDefinition {
-    enum class Kind { Plane, Cylinder, Cone };
+    enum class Kind { Plane, Cylinder, Cone, Twist };
     Kind kind{Kind::Plane};
     std::string owner_id, parent_owner_id;
     Vec3 origin, along{1,0,0}, tangent{0,1,0}, radial{0,0,1};
     double radius{}, neutral_radius{}, angle{}, thickness{}, continuation{}, cone_half_angle{};
+    // Twist uses an authored axial length and the corrected flat development.
+    double formed_length{}, developed_length{}, signed_twist_angle{};
     double thickness_sign{-1};
     bool unfolded{};
     std::string curved_source_id, continuation_source_id;

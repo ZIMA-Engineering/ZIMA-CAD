@@ -390,7 +390,15 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
                 rotation=new QAction(resource_icon("sheet-revolve"),tr("Rotační plech"),this);rotation->setObjectName("sheetRevolutionAction");
                 connect(rotation,&QAction::triggered,this,[this]{show_primitive_properties(zima::document::FeatureKind::Revolution,{},true);});
             }
-            rotation->setEnabled(!properties_dialog_);add_command(rotation);add_green_separator();
+            rotation->setEnabled(!properties_dialog_);add_command(rotation);
+            auto* twist=findChild<QAction*>("twistedSheetAction");
+            if(!twist) {
+                twist=new QAction(resource_icon("sheet-twist"),tr("Kroucený plech"),this);
+                twist->setObjectName("twistedSheetAction");
+                connect(twist,&QAction::triggered,this,[this]{
+                    show_primitive_properties(zima::document::FeatureKind::TwistedSheet,{},true);});
+            }
+            twist->setEnabled(!properties_dialog_);add_command(twist);add_green_separator();
             auto* cut=findChild<QAction*>("sheetCutAction");
             if(!cut) {
                 cut=new QAction(resource_icon("sheet-cut"),tr("Řez plechem"),this);cut->setObjectName("sheetCutAction");

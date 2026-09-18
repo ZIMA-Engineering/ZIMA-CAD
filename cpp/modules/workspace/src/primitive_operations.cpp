@@ -13,7 +13,9 @@ const std::vector<PrimitiveDefinition>& primitive_definitions() {
         {Kind::Sphere,"sphere","Sphere",&Part::create_sphere_container},
         {Kind::Cone,"cone","Cone",&Part::create_cone_container},
         {Kind::Pyramid,"pyramid","Pyramid",&Part::create_pyramid_container},
-        {Kind::Wedge,"wedge","Wedge",&Part::create_wedge_container}};
+        {Kind::Wedge,"wedge","Wedge",&Part::create_wedge_container},
+        {Kind::TwistedSheet,"twisted_sheet","Twisted Sheet",
+            &Part::create_twisted_sheet_container}};
     return definitions;
 }
 const PrimitiveDefinition* primitive_definition(document::FeatureKind kind) {
@@ -32,17 +34,28 @@ template<class Container> auto dimension_slots(Container& container) {
     case Kind::Cone: return Slots{{"bottom_radius",&container.cone.bottom_radius},{"top_radius",&container.cone.top_radius},{"height",&container.cone.height}};
     case Kind::Pyramid: return Slots{{"length",&container.pyramid.length},{"width",&container.pyramid.width},{"height",&container.pyramid.height}};
     case Kind::Wedge: return Slots{{"length",&container.wedge.length},{"width",&container.wedge.width},{"height",&container.wedge.height},{"top_offset",&container.wedge.top_offset}};
+    case Kind::TwistedSheet: return Slots{{"width",&container.twisted_sheet.width},
+        {"length",&container.twisted_sheet.length},
+        {"angle",&container.twisted_sheet.angle_degrees},
+        {"thickness",&container.twisted_sheet.thickness},
+        {"developed_length_correction",&container.twisted_sheet.developed_length_correction}};
     default: throw PrimitiveOperationError("wrong_feature", "This container is not a supported primitive.");
     }
 }
 void validate_dimensions(const document::HistoryContainer& container) {
     for(const auto& [name,value] : dimension_slots(container)) {
-        const double minimum = name == "top_radius" || name == "top_offset" ? 0.0 : 0.001;
-        if(!std::isfinite(*value) || *value < minimum || *value > 1000000.0)
-            throw PrimitiveOperationError("invalid_arguments", "Primitive dimensions must be between 0.001 and 1000000 mm; top radius and top offset may be zero.");
+        const double minimum = name == "developed_length_correction" ? -1000000.0 :
+            name == "top_radius" || name == "top_offset" ? 0.0 : 0.001;
+        const double maximum = name == "angle" ? 36000.0 : 1000000.0;
+        if(!std::isfinite(*value) || *value < minimum || *value > maximum)
+            throw PrimitiveOperationError("invalid_arguments", "Primitive dimension is outside its supported range.");
     }
     if(container.feature_kind == document::FeatureKind::Wedge && container.wedge.top_offset > container.wedge.length)
         throw PrimitiveOperationError("invalid_arguments", "Wedge top offset cannot exceed its length.");
+    if(container.feature_kind==document::FeatureKind::TwistedSheet) {
+        try {static_cast<void>(document::twisted_sheet_developed_length(container.twisted_sheet));}
+        catch(const std::exception& error) {throw PrimitiveOperationError("invalid_arguments",error.what());}
+    }
 }
 }
 std::vector<std::pair<std::string,double>> primitive_dimensions(const document::HistoryContainer& container) {

@@ -43,6 +43,19 @@
 #include <limits>
 
 namespace zima::app {
+// Every primitive solid shares one universal placement contract (origin +
+// FRONT/TOP orientation references, manual RX/RY/RZ correction on top).
+bool uses_container_placement(zima::document::FeatureKind kind) {
+    using zima::document::FeatureKind;
+    return kind == FeatureKind::Box || kind == FeatureKind::Cylinder ||
+        kind == FeatureKind::Sphere || kind == FeatureKind::Cone ||
+        kind == FeatureKind::Pyramid || kind == FeatureKind::Wedge ||
+        kind == FeatureKind::Extrusion || kind == FeatureKind::Revolution ||
+        kind == FeatureKind::TwistedSheet ||
+        kind == FeatureKind::ImportedStep || kind == FeatureKind::Hole ||
+        kind == FeatureKind::Thread;
+}
+
 namespace {
 
 // Mirrors ConstructionPropertiesDialog's readable_reference_kind() so a
@@ -65,18 +78,6 @@ QString readable_placement_reference_kind(const std::string& semantic) {
     return QObject::tr("Geometrická reference");
 }
 
-// Every primitive solid shares one universal placement contract (origin +
-// FRONT/TOP orientation references, manual RX/RY/RZ correction on top).
-bool supports_placement_reference_table(zima::document::FeatureKind kind) {
-    using zima::document::FeatureKind;
-    return kind == FeatureKind::Box || kind == FeatureKind::Cylinder ||
-        kind == FeatureKind::Sphere || kind == FeatureKind::Cone ||
-        kind == FeatureKind::Pyramid || kind == FeatureKind::Wedge ||
-        kind == FeatureKind::Extrusion || kind == FeatureKind::Revolution ||
-        kind == FeatureKind::ImportedStep || kind == FeatureKind::Hole ||
-        kind == FeatureKind::Thread;
-}
-
 QString primitive_properties_title(zima::document::FeatureKind kind) {
     using zima::document::FeatureKind;
     switch (kind) {
@@ -87,6 +88,7 @@ QString primitive_properties_title(zima::document::FeatureKind kind) {
         case FeatureKind::Cone: return QObject::tr("Vlastnosti kužele");
         case FeatureKind::Pyramid: return QObject::tr("Vlastnosti jehlanu");
         case FeatureKind::Wedge: return QObject::tr("Vlastnosti klínu");
+        case FeatureKind::TwistedSheet: return QObject::tr("Vlastnosti krouceného plechu");
         case FeatureKind::Extrusion: return QObject::tr("Vlastnosti vytažení");
         case FeatureKind::Revolution: return QObject::tr("Vlastnosti rotace");
         case FeatureKind::Sweep3D: return QObject::tr("Vlastnosti 3D tažení");
@@ -165,7 +167,7 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
     // kontejneru) is shown immediately below the name/operation header, in
     // the same position as ConstructionPropertiesDialog's Point/Axis/Plane
     // dialogs, before any shape-specific dimension fields.
-    if (supports_placement_reference_table(initial.feature_kind)) {
+    if (uses_container_placement(initial.feature_kind)) {
         placement_ = std::make_unique<zima::ui::ContainerPlacementSection>(
             this, content_layout(), /*with_orientation=*/true,
             /*position_rows_can_define_rotation=*/true, zima::ui::numeric_decimal_places(this));
@@ -692,6 +694,53 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         form->addRow(tr("Šířka"), width_);
         form->addRow(tr("Výška"), height_);
         form->addRow(tr("Odsazení horní hrany"), top_offset_);
+    } else if (initial.feature_kind == zima::document::FeatureKind::TwistedSheet) {
+        width_ = dimension(initial.twisted_sheet.width, "twistedSheetWidth");
+        length_ = dimension(initial.twisted_sheet.length, "twistedSheetLength");
+        radius_ = dimension(initial.twisted_sheet.angle_degrees, "twistedSheetAngle");
+        radius_->setRange(0.001, 36000.0);
+        radius_->setSuffix(QStringLiteral(" °"));
+        height_ = dimension(initial.twisted_sheet.thickness, "twistedSheetThickness");
+        twist_developed_correction_=dimension(
+            initial.twisted_sheet.developed_length_correction,
+            "twistedSheetDevelopedLengthCorrection");
+        twist_developed_correction_->setRange(-1'000'000.0,1'000'000.0);
+        twist_developed_correction_->setValue(
+            initial.twisted_sheet.developed_length_correction);
+        twist_developed_length_=new QLabel(this);
+        twist_developed_length_->setObjectName("twistedSheetDevelopedLength");
+        twist_direction_ = new QComboBox(this);
+        twist_direction_->setObjectName("twistedSheetDirection");
+        twist_direction_->addItem(tr("Doprava"), false);
+        twist_direction_->addItem(tr("Doleva"), true);
+        twist_direction_->setCurrentIndex(initial.twisted_sheet.reverse ? 1 : 0);
+        form->addRow(tr("Šířka"), width_);
+        form->addRow(tr("Délka kroucení"), length_);
+        form->addRow(tr("Úhel kroucení"), radius_);
+        form->addRow(tr("Směr kroucení"), twist_direction_);
+        form->addRow(tr("Tloušťka"), height_);
+        form->addRow(tr("Korekce rozvinu"),twist_developed_correction_);
+        form->addRow(tr("Výsledná délka rozvinu"),twist_developed_length_);
+        const auto update_development=[this] {
+            auto parameters=initial_.twisted_sheet;
+            parameters.width=width_->value();parameters.length=length_->value();
+            parameters.angle_degrees=radius_->value();
+            parameters.developed_length_correction=twist_developed_correction_->value();
+            try {
+                twist_developed_length_->setText(
+                    QString::number(zima::document::twisted_sheet_developed_length(parameters),'f',3)+QStringLiteral(" mm"));
+            } catch(...) {twist_developed_length_->setText(QStringLiteral("—"));}
+        };
+        for(auto* field:{width_,length_,radius_,height_,twist_developed_correction_})
+            connect(field,qOverload<double>(&QDoubleSpinBox::valueChanged),this,
+                [this](double){notify_preview();});
+        for(auto* field:{width_,length_,radius_,twist_developed_correction_})
+            connect(field,qOverload<double>(&QDoubleSpinBox::valueChanged),this,
+                [update_development](double){update_development();});
+        update_development();
+        connect(twist_direction_,&QComboBox::currentIndexChanged,this,
+            [this](int){notify_preview();});
+        lock_sheet_attachment_fields();
     } else if (initial.feature_kind == zima::document::FeatureKind::Extrusion ||
                initial.feature_kind == zima::document::FeatureKind::Revolution) {
         const bool revolve = initial.feature_kind ==
@@ -1314,6 +1363,11 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
     case Kind::Cone: remember(radius_,initial_.cone.bottom_radius);remember(top_radius_,initial_.cone.top_radius);remember(height_,initial_.cone.height);break;
     case Kind::Pyramid: remember(length_,initial_.pyramid.length);remember(width_,initial_.pyramid.width);remember(height_,initial_.pyramid.height);break;
     case Kind::Wedge: remember(length_,initial_.wedge.length);remember(width_,initial_.wedge.width);remember(height_,initial_.wedge.height);remember(top_offset_,initial_.wedge.top_offset);break;
+    case Kind::TwistedSheet: remember(width_,initial_.twisted_sheet.width);
+        remember(length_,initial_.twisted_sheet.length);
+        remember(radius_,initial_.twisted_sheet.angle_degrees);
+        remember(height_,initial_.twisted_sheet.thickness);
+        remember(twist_developed_correction_,initial_.twisted_sheet.developed_length_correction);break;
     default: break;
     }
     setProperty("zimaValueLockOwner",QString::fromStdString(initial_.id));
@@ -1323,6 +1377,7 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
     lock(height_,"height");
     lock(top_radius_,"top_radius");
     lock(top_offset_,"top_offset");
+    lock(twist_developed_correction_,"developed_length_correction");
     lock(profile_plane_offset_,"profile_offset");
     lock(thin_thickness_,"thin_thickness");
     lock(reverse_length_,"length_reverse");
@@ -1340,7 +1395,8 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
     lock(treatment_secondary_,"secondary");
     lock(treatment_angle_,"treatment_angle");
     lock(shell_thickness_,"thickness");
-    lock(radius_,initial_.feature_kind==zima::document::FeatureKind::Cone?"bottom_radius":"radius");
+    lock(radius_,initial_.feature_kind==zima::document::FeatureKind::Cone?"bottom_radius":
+        initial_.feature_kind==zima::document::FeatureKind::TwistedSheet?"angle":"radius");
     lock(forward_length_,initial_.feature_kind==zima::document::FeatureKind::Revolution?"angle":"length_forward");
     lock(hole_entrance_chamfer_,initial_.feature_kind==zima::document::FeatureKind::Thread?"chamfer_depth":"entrance_chamfer");
     lock(hole_thread_nominal_diameter_,initial_.feature_kind==zima::document::FeatureKind::Thread?"nominal_diameter":"thread_diameter");
@@ -1452,6 +1508,15 @@ zima::document::HistoryContainer PrimitivePropertiesDialog::values() const {
     } else if (result.feature_kind == zima::document::FeatureKind::Wedge) {
         result.wedge = {primitive_value(length_), primitive_value(width_), primitive_value(height_),
                         primitive_value(top_offset_)};
+    } else if (result.feature_kind == zima::document::FeatureKind::TwistedSheet) {
+        result.twisted_sheet.width=primitive_value(width_);
+        result.twisted_sheet.length=primitive_value(length_);
+        result.twisted_sheet.angle_degrees=primitive_value(radius_);
+        result.twisted_sheet.thickness=primitive_value(height_);
+        result.twisted_sheet.developed_length_correction=
+            primitive_value(twist_developed_correction_);
+        result.twisted_sheet.reverse=twist_direction_->currentData().toBool();
+        result.combine_mode=zima::document::CombineMode::Add;
     } else if (result.feature_kind == zima::document::FeatureKind::Extrusion) {
         result.extrusion.profile_plane_offset = profile_plane_offset_->value();
         result.extrusion.profile_source =
@@ -1542,17 +1607,7 @@ zima::document::HistoryContainer PrimitivePropertiesDialog::values() const {
         result.edge_treatment.flip = treatment_flip_->isChecked();
         result.edge_treatment.reverse = treatment_reverse_->isChecked();
     }
-    if (result.feature_kind == zima::document::FeatureKind::Box ||
-        result.feature_kind == zima::document::FeatureKind::Cylinder ||
-        result.feature_kind == zima::document::FeatureKind::Hole ||
-        result.feature_kind == zima::document::FeatureKind::Thread ||
-        result.feature_kind == zima::document::FeatureKind::Sphere ||
-        result.feature_kind == zima::document::FeatureKind::Cone ||
-        result.feature_kind == zima::document::FeatureKind::Pyramid ||
-        result.feature_kind == zima::document::FeatureKind::Wedge ||
-        result.feature_kind == zima::document::FeatureKind::Extrusion ||
-        result.feature_kind == zima::document::FeatureKind::Revolution ||
-        result.feature_kind == zima::document::FeatureKind::ImportedStep) {
+    if (uses_container_placement(result.feature_kind)) {
         result.placement = placement_->numeric_placement();
         const auto placement_references = placement_
             ? placement_->combined_references(3)
@@ -2239,6 +2294,28 @@ PrimitivePropertiesDialog::highlighted_reference_entries() const {
 }
 
 void PrimitivePropertiesDialog::lock_sheet_attachment_fields() {
+    if(initial_.feature_kind==zima::document::FeatureKind::TwistedSheet) {
+        const bool attached=initial_.twisted_sheet.sheet_attachment;
+        if(width_)width_->setEnabled(!attached);
+        if(height_)height_->setEnabled(!attached);
+        if(!attached||!placement_)return;
+        for(const auto* name:{"containerOrientationFlipButton","containerOrientationRotateButton"})
+            if(auto* button=findChild<QPushButton*>(name))button->setEnabled(false);
+        for(auto* field:placement_->rotation_offset_fields())if(field)field->setEnabled(false);
+        auto* table=placement_->reference_table();
+        for(int row=0;row<table->rowCount();++row) {
+            // Edge and endpoint remain replaceable.  The joining face in row
+            // 1 is an invariant derived from the selected sheet edge.
+            if(row!=1)continue;
+            for(int column:{0,2})if(auto* widget=table->cellWidget(row,column))widget->setEnabled(false);
+            if(auto* item=table->item(row,1))item->setFlags(item->flags()&~Qt::ItemIsEnabled);
+        }
+        if(auto* orientation=placement_->orientation_table())for(int row=0;row<orientation->rowCount();++row) {
+            for(int column:{0,2,4})if(auto* widget=orientation->cellWidget(row,column))widget->setEnabled(false);
+            if(auto* item=orientation->item(row,1))item->setFlags(item->flags()&~Qt::ItemIsEnabled);
+        }
+        return;
+    }
     if(!sheet_thickness_override_)return;
     const bool attached=initial_.revolution.sheet_attachment;
     sheet_thickness_override_->setEnabled(!attached);
@@ -2260,7 +2337,9 @@ void PrimitivePropertiesDialog::lock_sheet_attachment_fields() {
     }
 }
 bool PrimitivePropertiesDialog::sheet_reference_allowed(std::size_t index,const zima::document::ConstructionReference& reference) const {
-    if(!initial_.revolution.sheet_metal)return true;
+    const bool sheet_feature=initial_.revolution.sheet_metal||
+        initial_.feature_kind==zima::document::FeatureKind::TwistedSheet;
+    if(!sheet_feature)return true;
     const auto& geometry=sheet_reference_geometry_;
     const auto edge=std::ranges::find_if(geometry.edges,[&](const auto& e) {
         return e.reference.owner_id==reference.owner_id&&e.reference.semantic_key==reference.semantic_key&&e.reference.instance_path==reference.instance_path;
@@ -2272,7 +2351,9 @@ bool PrimitivePropertiesDialog::sheet_reference_allowed(std::size_t index,const 
             catch(const std::exception&){return false;}
         }
     }
-    if(!initial_.revolution.sheet_attachment)return true;
+    const bool attached=initial_.feature_kind==zima::document::FeatureKind::TwistedSheet
+        ? initial_.twisted_sheet.sheet_attachment:initial_.revolution.sheet_attachment;
+    if(!attached)return true;
     if(index!=2)return false;
     const auto refs=placement_->combined_references(3);if(refs.empty())return false;
     for(const auto& e:geometry.edges)if(e.reference.owner_id==refs[0].owner_id&&e.reference.semantic_key==refs[0].semantic_key&&e.reference.instance_path==refs[0].instance_path)
@@ -2283,19 +2364,48 @@ bool PrimitivePropertiesDialog::set_reference(std::size_t index,
     zima::document::ConstructionReference reference, const QString& label) {
     if (!placement_) return false;
     if(!sheet_reference_allowed(index,reference))return false;
-    if(initial_.revolution.sheet_metal&&index==0) {
+    if((initial_.revolution.sheet_metal||
+        initial_.feature_kind==zima::document::FeatureKind::TwistedSheet)&&index==0) {
         const auto edge=std::ranges::find_if(sheet_reference_geometry_.edges,[&](const auto& e) {
             return e.reference.owner_id==reference.owner_id&&e.reference.semantic_key==reference.semantic_key&&e.reference.instance_path==reference.instance_path;
         });
         if(edge!=sheet_reference_geometry_.edges.end()&&zima::kernel::sheet_edge_role(*edge)==zima::kernel::SheetEdgeRole::Boundary) {
-            const auto refs=zima::document::bend_sheet_references(*edge);
-            initial_.revolution.sheet_attachment=true;initial_.revolution.thickness_override=false;
-            initial_.revolution.thin_thickness=edge->edge_treatment_side_references.front().sheet_thickness;
-            {const QSignalBlocker a(sheet_thickness_override_),b(thin_thickness_),c(thin_mode_);
-                sheet_thickness_override_->setChecked(false);thin_thickness_->setValue(initial_.revolution.thin_thickness);
-                thin_mode_->setCurrentIndex(thin_mode_->findData("one_side"));}
+            auto refs=zima::document::bend_sheet_references(*edge);
+            if(initial_.feature_kind==zima::document::FeatureKind::TwistedSheet) {
+                initial_.twisted_sheet.sheet_attachment=true;
+                initial_.twisted_sheet.thickness_override=false;
+                initial_.twisted_sheet.thickness=edge->edge_treatment_side_references.front().sheet_thickness;
+                initial_.twisted_sheet.width=edge->measured_length.value_or(
+                    edge->points.size()>1?std::sqrt(
+                        std::pow(edge->points.back().x-edge->points.front().x,2)+
+                        std::pow(edge->points.back().y-edge->points.front().y,2)+
+                        std::pow(edge->points.back().z-edge->points.front().z,2)):initial_.twisted_sheet.width);
+                {const QSignalBlocker a(width_),b(height_);
+                    width_->setValue(initial_.twisted_sheet.width);
+                    height_->setValue(initial_.twisted_sheet.thickness);}
+            } else {
+                initial_.revolution.sheet_attachment=true;initial_.revolution.thickness_override=false;
+                initial_.revolution.thin_thickness=edge->edge_treatment_side_references.front().sheet_thickness;
+                {const QSignalBlocker a(sheet_thickness_override_),b(thin_thickness_),c(thin_mode_);
+                    sheet_thickness_override_->setChecked(false);thin_thickness_->setValue(initial_.revolution.thin_thickness);
+                    thin_mode_->setCurrentIndex(thin_mode_->findData("one_side"));}
+            }
             placement_->initialize_from_references(refs,[](const auto& key){return QString::fromStdString(key);});
             lock_sheet_attachment_fields();notify_preview();return true;
+        }
+    }
+    if(initial_.feature_kind==zima::document::FeatureKind::TwistedSheet&&index==2) {
+        const auto refs=placement_->combined_references(3);
+        if(!refs.empty()) {
+            const auto edge=std::ranges::find_if(sheet_reference_geometry_.edges,[&](const auto& e) {
+                return e.reference.owner_id==refs[0].owner_id&&e.reference.semantic_key==refs[0].semantic_key&&
+                    e.reference.instance_path==refs[0].instance_path;
+            });
+            if(edge!=sheet_reference_geometry_.edges.end()&&edge->edge_treatment_endpoint_references.size()==2) {
+                const auto& last=edge->edge_treatment_endpoint_references.back();
+                reference.flip=reference.owner_id==last.owner_id&&reference.semantic_key==last.semantic_key&&
+                    reference.instance_path==last.instance_path;
+            }
         }
     }
     const bool first_plane = index == 0 && reference.supports_offset;

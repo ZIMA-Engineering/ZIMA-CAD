@@ -533,7 +533,7 @@ void SketchPropertiesDialog::lock_flat_attachment_fields() {
 }
 
 bool SketchPropertiesDialog::sheet_reference_allowed(std::size_t index,const zima::document::ConstructionReference& reference) const {
-    if(!bend_pending_&&objectName()!="flatPropertiesDialog")return true;
+    if(!is_sheet_edge_feature())return true;
     const auto edge=std::ranges::find_if(reference_geometry_.edges,[&](const auto& e) {
         return e.reference.owner_id==reference.owner_id&&e.reference.semantic_key==reference.semantic_key&&e.reference.instance_path==reference.instance_path;
     });

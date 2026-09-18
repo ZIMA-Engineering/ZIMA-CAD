@@ -174,6 +174,8 @@ std::vector<ConstructionReference> bend_sheet_references(const kernel::ViewerEdg
     const auto face=std::ranges::find_if(edge.edge_treatment_side_references,[](const auto& r) {
         return r.sheet_role==kernel::SheetFaceRole::ThicknessFace;
     });
+    if(face==edge.edge_treatment_side_references.end())
+        throw std::invalid_argument("Sheet attachment edge has no joining thickness face.");
     const auto point=start.valid()?start:edge.edge_treatment_endpoint_references.front();
     if(std::ranges::find(edge.edge_treatment_endpoint_references,point)==edge.edge_treatment_endpoint_references.end())
         throw std::invalid_argument("Bend origin must be an endpoint of its attachment edge.");

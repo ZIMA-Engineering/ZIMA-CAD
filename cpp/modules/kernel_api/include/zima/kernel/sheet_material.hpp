@@ -12,6 +12,30 @@ inline double dot(Vec3 a,Vec3 b){return a.x*b.x+a.y*b.y+a.z*b.z;}
 inline Vec3 cross(Vec3 a,Vec3 b){return {a.y*b.z-a.z*b.y,a.z*b.x-a.x*b.z,a.x*b.y-a.y*b.x};}
 inline Vec3 unit(Vec3 a){const double n=std::sqrt(dot(a,a));if(n<1e-12)throw std::invalid_argument("Degenerate sheet material frame.");return mul(a,1/n);}
 
+// A manufactured twist has clamped, untwisted ends.  The middle keeps a
+// constant twist rate while equal fifth-order transition ramps bring that
+// rate smoothly from/to zero.  This is the authored material law used by
+// body creation, preview and both sheet-state directions.
+inline constexpr double twist_transition_fraction=0.2;
+inline double twist_progress(double t) {
+    if(t<=0)return 0;if(t>=1)return 1;
+    constexpr double a=twist_transition_fraction;
+    constexpr double scale=1.0/(1.0-a);
+    const auto integral=[](double u){return u*u*u-.5*u*u*u*u;};
+    if(t<a)return a*integral(t/a)*scale;
+    if(t>1-a)return 1-a*integral((1-t)/a)*scale;
+    return (t-a*.5)*scale;
+}
+inline double twist_progress_derivative(double t) {
+    if(t<=0||t>=1)return 0;
+    constexpr double a=twist_transition_fraction;
+    constexpr double scale=1.0/(1.0-a);
+    const auto ramp=[](double u){return u*u*(3-2*u);};
+    if(t<a)return ramp(t/a)*scale;
+    if(t>1-a)return ramp((1-t)/a)*scale;
+    return scale;
+}
+
 struct Coordinate {double along{},length{},depth{};bool continuation{};};
 inline double positive_angle(double y,double x) {
     const double angle=std::atan2(y,x);
@@ -27,6 +51,17 @@ inline Coordinate coordinates(const SheetMaterialDefinition& frame,Vec3 point,
         bool continuation=false) {
     const auto delta=sub(point,frame.origin);
     Coordinate value{dot(delta,frame.along),dot(delta,frame.tangent),dot(delta,frame.radial),continuation};
+    if(frame.kind==SheetMaterialDefinition::Kind::Twist) {
+        if(frame.unfolded)return value;
+        const double station=dot(delta,frame.tangent);
+        const double angle=frame.signed_twist_angle*
+            twist_progress(station/frame.formed_length);
+        const double s=std::sin(angle),c=std::cos(angle);
+        const auto across=add(mul(frame.along,c),mul(frame.radial,s));
+        const auto depth=add(mul(frame.along,-s),mul(frame.radial,c));
+        return {dot(delta,across),station*frame.developed_length/frame.formed_length,
+            dot(delta,depth),false};
+    }
     if(frame.kind==SheetMaterialDefinition::Kind::Cone) {
         const double s=std::sin(frame.cone_half_angle),c=std::cos(frame.cone_half_angle);
         if(frame.unfolded) {
@@ -55,6 +90,19 @@ inline Coordinate coordinates(const SheetMaterialDefinition& frame,Vec3 point,
     return value;
 }
 inline Vec3 point(const SheetMaterialDefinition& frame,const Coordinate& value) {
+    if(frame.kind==SheetMaterialDefinition::Kind::Twist) {
+        if(frame.unfolded)
+            return add(frame.origin,add(mul(frame.along,value.along),
+                add(mul(frame.tangent,value.length),mul(frame.radial,value.depth))));
+        const double station=value.length*frame.formed_length/frame.developed_length;
+        const double angle=frame.signed_twist_angle*
+            twist_progress(station/frame.formed_length);
+        const double s=std::sin(angle),c=std::cos(angle);
+        const auto across=add(mul(frame.along,c),mul(frame.radial,s));
+        const auto depth=add(mul(frame.along,-s),mul(frame.radial,c));
+        return add(frame.origin,add(mul(frame.tangent,station),
+            add(mul(across,value.along),mul(depth,value.depth))));
+    }
     if(frame.kind==SheetMaterialDefinition::Kind::Cone) {
         const double s=std::sin(frame.cone_half_angle),c=std::cos(frame.cone_half_angle);
         const double angle=value.length/frame.neutral_radius;
@@ -77,6 +125,15 @@ inline Vec3 point(const SheetMaterialDefinition& frame,const Coordinate& value) 
     return add(frame.origin,add(mul(frame.along,value.along),add(mul(frame.tangent,y),mul(frame.radial,z))));
 }
 inline std::array<Vec3,3> basis(const SheetMaterialDefinition& frame,const Coordinate& coordinate) {
+    if(frame.kind==SheetMaterialDefinition::Kind::Twist) {
+        if(frame.unfolded)return {frame.along,frame.tangent,frame.radial};
+        const double station=coordinate.length*frame.formed_length/frame.developed_length;
+        const double angle=frame.signed_twist_angle*
+            twist_progress(station/frame.formed_length);
+        const double s=std::sin(angle),c=std::cos(angle);
+        return {add(mul(frame.along,c),mul(frame.radial,s)),frame.tangent,
+            add(mul(frame.along,-s),mul(frame.radial,c))};
+    }
     if(frame.kind==SheetMaterialDefinition::Kind::Cone) {
         const double angle=coordinate.length/frame.neutral_radius;
         if(frame.unfolded) {
@@ -149,6 +206,11 @@ inline std::vector<Transition> change(History& history,
         const auto found=std::ranges::find(regions,id,&SheetMaterialDefinition::owner_id);
         if(found==regions.end()||!eligible(*found,request.unfold))
             throw std::invalid_argument("Selected sheet region is missing or already in the requested state.");
+        if(found->kind==SheetMaterialDefinition::Kind::Twist) {
+            if(found->formed_length<=1e-7||found->developed_length<=1e-7)
+                throw std::invalid_argument("Twisted Sheet unfolding requires positive formed and developed lengths.");
+            continue;
+        }
         if(found->kind==SheetMaterialDefinition::Kind::Cone&&
             (found->cone_half_angle<=1e-9||found->cone_half_angle>=std::numbers::pi/2-1e-9))
             throw std::invalid_argument("Sheet unfolding requires a nondegenerate cone angle.");
@@ -195,7 +257,8 @@ inline std::vector<ViewerAxis> bend_lines(const std::vector<HistoryOperation>& o
         std::size_t limit,const History& history,const std::string& owner) {
     std::vector<ViewerAxis> result;
     for(const auto& region:history.regions) {
-        if(!region.unfolded||region.kind==SheetMaterialDefinition::Kind::Plane)continue;
+        if(!region.unfolded||region.kind==SheetMaterialDefinition::Kind::Plane||
+            region.kind==SheetMaterialDefinition::Kind::Twist)continue;
         const auto source=std::ranges::find_if(operations.begin(),operations.begin()+std::min(limit,operations.size()),
             [&](const auto& op){return op.owner_id==region.owner_id&&op.sheet_material;});
         if(source==operations.begin()+std::min(limit,operations.size()))

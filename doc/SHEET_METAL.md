@@ -1,7 +1,8 @@
 # Sheet Metal
 
-The current material-creation commands are **Flat**, **Sheet Profile** and
-**Revolved Sheet**, followed by **Sheet Cut**, **Unbend** and **Bend Back**. Earlier sections use Bend and
+The current material-creation commands are **Flat**, **Sheet Profile**,
+**Revolved Sheet** and **Twisted Sheet**, followed by **Sheet Cut**, **Unbend**
+and **Bend Back**. Earlier sections use Bend and
 Sheet Revolution for the latter two creators; their internal feature and CLI
 identifiers remain unchanged. See [Sheet Cut and material-space boundaries](#sheet-cut-and-material-space-boundaries-2026-09-17)
 for Sheet Cut and current naming. The separate state operations are described in
@@ -55,6 +56,76 @@ explicit regeneration.
 
 Sheet Metal Properties is an editing shortcut, so it is absent from **Insert**.
 Assembly file settings have no Sheet Metal page.
+
+## Twisted Sheet
+
+**Twisted Sheet** is a direct parametric sheet feature and does not open
+Sketcher. Free placement uses the ordinary container placement contract. The
+feature creates a rectangular strip centered on its local axis from width,
+twist length, total twist angle, twist direction and thickness. Thickness is
+symmetric about the neutral surface.
+
+Selecting a straight sheet boundary edge in the first placement row switches
+to attached mode. Thickness and width are inherited from the source edge and
+become read-only. The selected physical edge is offset to the middle of the
+source thickness, so the twist axis passes through the neutral start line. The
+edge, its joining thickness face and one persisted endpoint provide the same
+unmodified placement references used by the other sheet attachment commands.
+Thickness edges are rejected.
+
+The cyan preview is analytical and never invokes OCCT. A real strip must be
+clamped at both ends, so its longitudinal boundaries leave and enter the end
+faces tangent to the straight twist axis. The authored twist law uses equal
+smooth transition zones at the start and end, a constant-rate middle zone and
+zero twist rate and acceleration at both clamps. OK interpolates the sampled
+sections as one smooth loft; its longitudinal boundaries are BSplines rather
+than a chain of short edges. Sampling remains bounded by the document's sheet
+tolerance. The authored start/end profiles, their four points and the output
+boundary edges have semantic ZIMA identities; sample indices and OCCT traversal
+order do not define persistent identity. The output boundary can therefore
+drive another sheet feature.
+
+Unbend flattens Twisted Sheet using a documented manufacturing approximation.
+A twisted planar strip is not an exactly developable cylinder or cone, so the
+initial developed length is the mean longitudinal-fibre length on the neutral
+surface across the complete strip width and through the authored transition
+law. **Flat pattern correction**
+is a signed millimetre value stored directly in Twisted Sheet and added to that
+calculated length. The properties window displays the resulting developed
+length. This lets a measured trial part correct the next flat pattern without a
+hidden material coefficient. Bend Back rebuilds the authored formed feature,
+so repeated state changes do not accumulate the correction or numerical drift.
+
+For formed axial length `L`, width `W`, half-width `h = W/2`, total twist in
+radians `a` and normalized authored angle progress `p(t)`, the neutral-fibre
+rate at width coordinate `x` is
+`sqrt(1 + (x a p'(t) / L)²)`. The implementation integrates this expression
+analytically across the width and with a fixed Simpson rule along the length;
+its zero-angle limit is `L`. The signed flat-pattern correction is added after
+this calculation. Unbend still produces a rectangular blank. Sheet Cut accepts
+the formed BSpline skins as well as the flat state, and Bend Back maps complete
+intervening cut boundaries through the same forward material law.
+
+## Edge attachment and unfolded presentation
+
+Flat, Sheet Profile, Revolved Sheet and Twisted Sheet consume an eligible sheet
+boundary through the common View candidate stream. Hover and LMB therefore use
+the active selection filter and confirm the same edge. One confirmed edge is an
+atomic attachment input: the feature derives and persists the boundary edge,
+joining thickness face and selected endpoint together. The generic container
+degrees-of-freedom filter must not reject that edge before the sheet command can
+construct this complete reference set. Changing the endpoint reverses the span
+along the same physical edge without changing the joining plane.
+
+Unbend and Bend Back remain history-state operations rather than ordinary
+selectable model features. Their calculated topology carries the authored sheet
+feature as its display owner, so ordinary hover, LMB confirmation and cyan
+inspection continue to select the original feature while drawing its current
+formed or unfolded wire. When that feature is unfolded, View double-click and
+the **Edit** dimension action are disabled because its stored dimensions belong
+to the formed historical geometry. **Properties** remains available and uses
+the normal history rollback to display and edit the feature at its authored
+boundary.
 
 Closing File Settings restores the application dropdown immediately, after OK,
 Cancel or middle-button confirmation. Switching back to Modeling does not require

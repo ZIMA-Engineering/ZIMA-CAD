@@ -2122,6 +2122,116 @@ PrimitiveData make_sweep3d_data(
         }
         stations.push_back(std::move(station));
     }
+    if(request.smooth_loft) {
+        BRepOffsetAPI_ThruSections builder(request.make_solid,false,
+            request.linear_tolerance);
+        builder.CheckCompatibility(false);
+        for(const auto& station:stations)builder.AddWire(station.wire);
+        builder.Build();
+        if(!builder.IsDone()||builder.Shape().IsNull()||
+            !BRepCheck_Analyzer(builder.Shape()).IsValid())
+            throw std::runtime_error("Plynulý loft nevytvořil platný plech.");
+        PrimitiveData smooth{builder.Shape(),{},{},{}};
+        const auto source_id=request.path_segments.front().source_id;
+        const auto& first=stations.front();const auto& last=stations.back();
+        for(std::size_t e=0;e<first.edges.size();++e) {
+            const auto semantic="sweep:"+source_id+":profile:"+
+                first.profile_id+":from:"+first.curve_ids[e];
+            const auto& generated=builder.Generated(first.edges[e]);
+            for(TopTools_ListIteratorOfListOfShape it(generated);it.More();it.Next())
+                if(it.Value().ShapeType()==TopAbs_FACE)
+                    smooth.faces.push_back({it.Value(),{owner_id,semantic}});
+        }
+        const auto lies_on=[](const TopoDS_Edge& source,const TopoDS_Edge& target,
+                double tolerance) {
+            BRepAdaptor_Curve curve(source);
+            for(double f:{0.,.25,.5,.75,1.}) {
+                const auto p=curve.Value(curve.FirstParameter()+
+                    (curve.LastParameter()-curve.FirstParameter())*f);
+                BRepExtrema_DistShapeShape distance(
+                    BRepBuilderAPI_MakeVertex(p).Vertex(),target);
+                if(!distance.IsDone()||distance.Value()>tolerance)return false;
+            }
+            return true;
+        };
+        for(const auto endpoint:{std::pair{std::size_t{0},true},
+                                 std::pair{stations.size()-1,false}}) {
+            const auto index=endpoint.first;const bool start=endpoint.second;
+            const auto& station=stations[index];
+            const auto& location=request.path_points[index];
+            const auto normal=start?tangent(0,false):
+                tangent(spine_edges.size()-1,true);
+            for(TopExp_Explorer faces(builder.Shape(),TopAbs_FACE);
+                    faces.More();faces.Next()) {
+                const auto face=TopoDS::Face(faces.Current());
+                BRepAdaptor_Surface surface(face);
+                if(surface.GetType()!=GeomAbs_Plane)continue;
+                const auto plane=surface.Plane();
+                if(std::abs(plane.Axis().Direction().Dot(gp_Dir(normal)))<1-1e-8||
+                    plane.Distance(gp_Pnt(location.x,location.y,location.z))>
+                        request.linear_tolerance)continue;
+                BRepExtrema_DistShapeShape distance(station.wire,face);
+                if(!distance.IsDone()||distance.Value()>request.linear_tolerance)continue;
+                FaceReference reference{owner_id,"sweep:cap:"+
+                    std::string(start?"start:from:":"end:from:")+source_id,{}};
+                smooth.faces.push_back({face,reference});
+                smooth.source_caps.push_back({face,reference});
+            }
+            for(std::size_t e=0;e<station.edges.size();++e) {
+                const auto rim_semantic="sweep:rim:"+
+                    std::string(start?"start":"end")+":at:"+
+                    request.path_point_ids[index]+":profile:"+
+                    station.profile_id+":from:"+station.curve_ids[e];
+                for(TopExp_Explorer edges(builder.Shape(),TopAbs_EDGE);
+                        edges.More();edges.Next()) {
+                    const auto candidate=TopoDS::Edge(edges.Current());
+                    if(BRep_Tool::Degenerated(candidate))continue;
+                    if(lies_on(station.edges[e],candidate,request.linear_tolerance)&&
+                       lies_on(candidate,station.edges[e],request.linear_tolerance)) {
+                        smooth.edges.push_back({candidate,{owner_id,rim_semantic}});
+                        break;
+                    }
+                }
+                if(e>=station.point_ids.size())continue;
+                const auto authored=TopExp::FirstVertex(station.edges[e],true);
+                const auto position=BRep_Tool::Pnt(authored);
+                const auto vertex_semantic="sweep:vertex:"+
+                    std::string(start?"start":"end")+":at:"+
+                    request.path_point_ids[index]+":profile:"+
+                    station.profile_id+":from:"+station.point_ids[e];
+                for(TopExp_Explorer vertices(builder.Shape(),TopAbs_VERTEX);
+                        vertices.More();vertices.Next()) {
+                    const auto candidate=TopoDS::Vertex(vertices.Current());
+                    if(position.Distance(BRep_Tool::Pnt(candidate))<=
+                            request.linear_tolerance) {
+                        smooth.vertices.push_back({candidate,{owner_id,vertex_semantic}});
+                        break;
+                    }
+                }
+            }
+        }
+        // Each corresponding profile point generates one longitudinal spline.
+        // Locate it by its authored endpoint pair rather than OCCT enumeration.
+        for(std::size_t p=0;p<first.point_ids.size();++p) {
+            const auto a=BRep_Tool::Pnt(TopExp::FirstVertex(first.edges[p],true));
+            const auto b=BRep_Tool::Pnt(TopExp::FirstVertex(last.edges[p],true));
+            for(TopExp_Explorer edges(builder.Shape(),TopAbs_EDGE);
+                    edges.More();edges.Next()) {
+                const auto candidate=TopoDS::Edge(edges.Current());
+                if(BRep_Tool::Degenerated(candidate))continue;
+                const auto c=BRep_Tool::Pnt(TopExp::FirstVertex(candidate,true));
+                const auto d=BRep_Tool::Pnt(TopExp::LastVertex(candidate,true));
+                if(!((a.Distance(c)<=request.linear_tolerance&&
+                      b.Distance(d)<=request.linear_tolerance)||
+                     (a.Distance(d)<=request.linear_tolerance&&
+                      b.Distance(c)<=request.linear_tolerance)))continue;
+                smooth.edges.push_back({candidate,{owner_id,"sweep:"+source_id+
+                    ":profile:"+first.profile_id+":from:"+first.point_ids[p]}});
+                break;
+            }
+        }
+        return smooth;
+    }
     PrimitiveData result;
     for(std::size_t i=0;i<spine_edges.size();++i) {
         const auto& segment=request.path_segments[i];
@@ -3378,10 +3488,16 @@ PrimitiveData make_sheet_cut_data(const PrimitiveData& projection,
         for(TopExp_Explorer faces(input_shape,TopAbs_FACE);faces.More();faces.Next())
             if(faces.Current().IsSame(source.shape)){face=TopoDS::Face(faces.Current());found=true;break;}
         if(!found)continue;
+        const bool twisted_source=source.reference.semantic_key.find("twist:")!=
+            std::string::npos;
         if(BRepAdaptor_Surface(face).GetType()!=GeomAbs_Plane&&
-           BRepAdaptor_Surface(face).GetType()!=GeomAbs_Cylinder&&BRepAdaptor_Surface(face).GetType()!=GeomAbs_Cone) {
+           BRepAdaptor_Surface(face).GetType()!=GeomAbs_Cylinder&&
+           BRepAdaptor_Surface(face).GetType()!=GeomAbs_Cone&&
+           !(twisted_source&&BRepAdaptor_Surface(face).GetType()==
+                GeomAbs_BSplineSurface)) {
             GeomLib_IsPlanarSurface planar(BRep_Tool::Surface(face),tolerance);
-            if(!planar.IsPlanar())throw std::runtime_error("Sheet Cut supports planar, cylindrical and conical sheet regions.");
+            if(!planar.IsPlanar())throw std::runtime_error(
+                "Sheet Cut supports planar, cylindrical, conical and twisted sheet regions.");
             auto plane=planar.Plan();BRepAdaptor_Surface original(face);
             gp_Pnt point;gp_Vec du,dv;original.D1((original.FirstUParameter()+original.LastUParameter())*.5,
                 (original.FirstVParameter()+original.LastVParameter())*.5,point,du,dv);
@@ -3418,16 +3534,31 @@ PrimitiveData make_sheet_cut_data(const PrimitiveData& projection,
             case GeomAbs_Plane: region.surface_type="plane";frame=surface.Plane().Position();break;
             case GeomAbs_Cylinder: region.surface_type="cylinder";frame=surface.Cylinder().Position();region.radius=surface.Cylinder().Radius();break;
             case GeomAbs_Cone: region.surface_type="cone";frame=surface.Cone().Position();region.radius=surface.Cone().RefRadius();region.semi_angle=surface.Cone().SemiAngle();break;
-            default: throw std::runtime_error("Sheet Cut supports planar, cylindrical and conical sheet regions.");
+            case GeomAbs_BSplineSurface: {
+                if(!twisted_source)throw std::runtime_error(
+                    "Sheet Cut received an unrelated spline sheet region.");
+                region.surface_type="twist";
+                const double u=(surface.FirstUParameter()+surface.LastUParameter())*.5;
+                const double v=(surface.FirstVParameter()+surface.LastVParameter())*.5;
+                gp_Pnt point;gp_Vec du,dv;surface.D1(u,v,point,du,dv);
+                const auto normal=du.Crossed(dv);
+                if(du.SquareMagnitude()<1e-20||normal.SquareMagnitude()<1e-20)
+                    throw std::runtime_error("Sheet Cut found a degenerate twisted sheet region.");
+                frame=gp_Ax3(point,gp_Dir(normal),gp_Dir(du));break;
+            }
+            default: throw std::runtime_error(
+                "Sheet Cut supports planar, cylindrical, conical and twisted sheet regions.");
             }
             region.origin=vec(frame.Location());region.axis=vec(frame.Direction());
             region.x_axis=vec(frame.XDirection());region.y_axis=vec(frame.YDirection());
-            auto surface_data=std::make_shared<SurfaceGeometry>();
-            surface_data->kind=region.surface_type=="plane"?SurfaceGeometry::Kind::Plane:
-                region.surface_type=="cylinder"?SurfaceGeometry::Kind::Cylinder:SurfaceGeometry::Kind::Cone;
-            surface_data->origin=region.origin;surface_data->axis=region.axis;surface_data->radial=region.x_axis;
-            surface_data->radius=region.radius;surface_data->semi_angle=region.semi_angle;
-            surface_data->reversed=patch.Orientation()==TopAbs_REVERSED;region.source.surface=surface_data;
+            if(region.surface_type!="twist") {
+                auto surface_data=std::make_shared<SurfaceGeometry>();
+                surface_data->kind=region.surface_type=="plane"?SurfaceGeometry::Kind::Plane:
+                    region.surface_type=="cylinder"?SurfaceGeometry::Kind::Cylinder:SurfaceGeometry::Kind::Cone;
+                surface_data->origin=region.origin;surface_data->axis=region.axis;surface_data->radial=region.x_axis;
+                surface_data->radius=region.radius;surface_data->semi_angle=region.semi_angle;
+                surface_data->reversed=patch.Orientation()==TopAbs_REVERSED;region.source.surface=surface_data;
+            } else region.source.surface.reset();
             const auto child=[&](std::string role,const std::string& parent_owner,const std::string& parent_key) {
                 return "sheetcut:"+role+":source:"+token(source.reference.owner_id)+":"+token(source.reference.semantic_key)+
                     ":from:"+token(parent_owner)+":"+token(parent_key);

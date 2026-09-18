@@ -450,7 +450,7 @@ void AssemblyWorkspaceWindow::start_construction_reference_selection(
             candidate_supports_offset(candidate)};
         if(const auto* profile_dialog=dynamic_cast<const PrimitivePropertiesDialog*>(primitive_reference_dialog_)) {
             if(!profile_dialog->sheet_reference_allowed(index,candidate_reference))return false;
-            if(index==0&&profile_dialog->is_sheet_revolution()) {
+            if(index==0&&profile_dialog->is_sheet_edge_feature()) {
                 const auto edge=std::ranges::find_if(primitive_reference_geometry_.edges,[&](const auto& e) {
                     return e.reference.owner_id==candidate_reference.owner_id&&e.reference.semantic_key==candidate_reference.semantic_key&&e.reference.instance_path==candidate_reference.instance_path;
                 });
@@ -814,12 +814,28 @@ void AssemblyWorkspaceWindow::start_primitive_reference_selection(
             candidate_supports_offset(candidate)};
         if(const auto* sketch_dialog=dynamic_cast<const SketchPropertiesDialog*>(primitive_reference_dialog_)) {
             if(!sketch_dialog->sheet_reference_allowed(index,candidate_reference))return false;
-            if(index==0&&properties_dialog_&&properties_dialog_->objectName()=="bendPropertiesDialog") {
+            // Sheet Profile and Flat consume one boundary edge as an atomic
+            // attachment bundle (edge + derived joining face + endpoint).
+            // Testing the edge as an ordinary single placement row here can
+            // reject it before the dialog gets a chance to create that full
+            // bundle.  Once the sheet-specific contract above accepted the
+            // edge, offer it directly; set_reference() performs the same
+            // persisted validation again before committing the bundle.
+            if(index==0&&sketch_dialog->is_sheet_edge_feature()) {
                 const auto edge=std::ranges::find_if(primitive_reference_geometry_.edges,[&](const auto& e) {
                     return e.reference.owner_id==candidate_reference.owner_id&&e.reference.semantic_key==candidate_reference.semantic_key&&e.reference.instance_path==candidate_reference.instance_path;
                 });
                 if(edge!=primitive_reference_geometry_.edges.end()&&zima::kernel::sheet_edge_role(*edge)==zima::kernel::SheetEdgeRole::Boundary)return true;
             }
+        }
+        if(const auto* primitive_dialog=dynamic_cast<const PrimitivePropertiesDialog*>(primitive_reference_dialog_);
+            primitive_dialog&&index==0&&primitive_dialog->is_sheet_edge_feature()&&
+            primitive_dialog->sheet_reference_allowed(index,candidate_reference)) {
+            const auto edge=std::ranges::find_if(primitive_reference_geometry_.edges,[&](const auto& e) {
+                return e.reference.owner_id==candidate_reference.owner_id&&e.reference.semantic_key==candidate_reference.semantic_key&&e.reference.instance_path==candidate_reference.instance_path;
+            });
+            if(edge!=primitive_reference_geometry_.edges.end()&&
+                zima::kernel::sheet_edge_role(*edge)==zima::kernel::SheetEdgeRole::Boundary)return true;
         }
         if (orientation_reference || direction_reference) {
             if (direction_reference &&

@@ -193,6 +193,8 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             ? zima::document::PartDocument::create_pyramid_container()
         : feature_kind == zima::document::FeatureKind::Wedge
             ? zima::document::PartDocument::create_wedge_container()
+        : feature_kind == zima::document::FeatureKind::TwistedSheet
+            ? zima::document::PartDocument::create_twisted_sheet_container()
         : feature_kind == zima::document::FeatureKind::Extrusion
             ? zima::document::PartDocument::create_extrusion_container(source_sketch_id)
         : feature_kind == zima::document::FeatureKind::Revolution
@@ -243,6 +245,11 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         initial.extrusion.result_type=zima::document::ProfileResultType::Solid;
         initial.name=tr("Řez plechem").toStdString();
         if(property_owned_sketch_draft_)property_owned_sketch_draft_->name=initial.name;
+    }
+    if(feature_kind==zima::document::FeatureKind::TwistedSheet&&!edit_mode) {
+        initial.name=tr("Kroucený plech").toStdString();
+        initial.twisted_sheet.thickness=
+            zima::document::sheet_metal_defaults(part->session.document()).thickness_mm.value_or(1);
     }
     if(initial.revolution.sheet_metal&&!initial.revolution.sheet_attachment&&!initial.revolution.thickness_override)
         initial.revolution.thin_thickness=zima::document::sheet_metal_defaults(part->session.document()).thickness_mm.value_or(1);

@@ -3235,8 +3235,10 @@ int verify_body_history_ui(QApplication& application, const std::filesystem::pat
     if (!verify(fresh.body_history.bodies().size()==1 &&
             fresh.body_history.active_body_id()==fresh.body_history.bodies().front().scope.id &&
             row("part-body",fresh.body_history.active_body_id()) && row("part-insert-here") &&
-            window.findChild<QAction*>("sketchAction")->isEnabled(),
-            "New Part did not start with its first Body active and Sketch available")) return 1;
+            window.findChild<QAction*>("sketchAction")->isEnabled() &&
+            window.findChild<QAction*>("extrusionAction")->isEnabled() &&
+            window.findChild<QAction*>("boxAction")->isEnabled(),
+            "New Part did not start with its first Body active and Modeling commands available")) return 1;
     if(!verify(!row("part-body-insert-here") &&
             activate_from_tree(tree->topLevelItem(0),"activatePartAction"),
             "New Part exposes duplicate cursor or cannot activate its root"))return 1;
@@ -4419,10 +4421,63 @@ int verify_application_tools_ui(QApplication& application,const std::filesystem:
         }
         check(flat_edge.has_value(),"View has no outer Bend End boundary for Flat");
         flat_action->trigger();flush();flat=flat_dialog();check(flat,"Attached Flat properties did not open");
-        check(flat->set_reference(0,{flat_edge->reference.instance_path,flat_edge->reference.owner_id,
-            flat_edge->reference.semantic_key},"Bend End"),"Workspace Flat rejected outer End edge");flush();
+        // Exercise the common viewer candidate stream.  Calling
+        // SketchPropertiesDialog::set_reference() directly would miss a
+        // regression where the generic placement DOF filter rejects the
+        // boundary edge before Flat can expand it into edge + cap + endpoint.
+        auto* flat_references=flat->findChild<QTableWidget*>("sketchReferenceTable");
+        check(flat_references,"Attached Flat placement reference table missing");
+        flat_references->cellClicked(0,1);
+        auto* flat_view=dynamic_cast<viewer::MeshView*>(model_view);
+        flat_view->set_selection_filter(viewer::SelectionFilter::Curves);flush();
+        const auto edge_a=flat_edge->points.front(),edge_b=flat_edge->points.back();
+        const kernel::Vec3 edge_middle{(edge_a.x+edge_b.x)/2,
+            (edge_a.y+edge_b.y)/2,(edge_a.z+edge_b.z)/2};
+        QPointF projected;double closest=std::numeric_limits<double>::infinity();
+        for(int y=10;y<flat_view->height()-10;y+=2)for(int x=10;x<flat_view->width()-10;x+=2) {
+            const auto ray=flat_view->ray_at(QPointF(x,y));if(!ray)continue;
+            const kernel::Vec3 delta{edge_middle.x-ray->first.x,
+                edge_middle.y-ray->first.y,edge_middle.z-ray->first.z};
+            const auto direction=ray->second;
+            const double along=(delta.x*direction.x+delta.y*direction.y+
+                delta.z*direction.z)/(direction.x*direction.x+
+                direction.y*direction.y+direction.z*direction.z);
+            const double error=std::pow(delta.x-along*direction.x,2)+
+                std::pow(delta.y-along*direction.y,2)+
+                std::pow(delta.z-along*direction.z,2);
+            if(error<closest){closest=error;projected=QPointF(x,y);}
+        }
+        std::optional<QPointF> flat_hit;std::size_t flat_offered_index{};
+        for(int dy=-4;dy<=4&&!flat_hit;++dy)for(int dx=-4;dx<=4&&!flat_hit;++dx) {
+            const auto pixel=projected+QPointF(dx,dy);
+            const auto candidates=flat_view->selection_candidates_at(pixel);
+            for(std::size_t i=0;i<candidates.size();++i)
+                if(candidates[i].kind==viewer::CandidateKind::Edge&&
+                   candidates[i].owner_id==flat_edge->reference.owner_id&&
+                   candidates[i].semantic_key==flat_edge->reference.semantic_key) {
+                    flat_hit=pixel;flat_offered_index=i;break;
+                }
+        }
+        check(flat_hit.has_value(),"Common Flat hover list rejected the Sheet Profile terminal edge");
+        const auto flat_mouse=[&](QEvent::Type type,Qt::MouseButton button,Qt::MouseButtons buttons) {
+            QMouseEvent event(type,*flat_hit,QPointF(flat_view->mapToGlobal(flat_hit->toPoint())),
+                button,buttons,Qt::NoModifier);QApplication::sendEvent(flat_view,&event);flush();
+        };
+        flat_mouse(QEvent::MouseMove,Qt::NoButton,Qt::NoButton);
+        for(std::size_t i=0;i<flat_offered_index;++i) {
+            flat_mouse(QEvent::MouseButtonPress,Qt::RightButton,Qt::RightButton);
+            flat_mouse(QEvent::MouseButtonRelease,Qt::RightButton,Qt::NoButton);
+        }
+        check(flat_view->hovered_candidate()&&
+            flat_view->hovered_candidate()->owner_id==flat_edge->reference.owner_id&&
+            flat_view->hovered_candidate()->semantic_key==flat_edge->reference.semantic_key,
+            "Flat hover and common candidate disagree on the Sheet Profile edge");
+        flat_mouse(QEvent::MouseButtonPress,Qt::LeftButton,Qt::LeftButton);
+        flat_mouse(QEvent::MouseButtonRelease,Qt::LeftButton,Qt::NoButton);
+        flat_view->set_selection_filter(viewer::SelectionFilter::All);flush();
         const auto attached=flat->pending_value();
-        check(attached.first.external_references.size()==2,"Workspace Flat lost external endpoints");
+        check(attached.second.references.size()==3&&attached.first.external_references.size()==2,
+            "Sheet Profile edge did not auto-fill Flat references and external endpoints");
         check(flat->mutate_sketch(attached.first.id,[](auto& s) {
             const auto a=s.external_references[0].cached_points.front(),b=s.external_references[1].cached_points.front();
             static_cast<void>(s.add_rectangle(std::min(a[0],b[0]),0,std::max(a[0],b[0]),12));
