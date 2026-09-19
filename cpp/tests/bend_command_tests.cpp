@@ -788,7 +788,8 @@ void verify_continuation_side_attachment(std::filesystem::path directory) {
     check(!recalculated.empty()&&recalculated.back().calculation_errors.empty(),
         "Fresh regeneration lost the tangent continuation side attachment");
 }
-void verify_sheet_cut(std::filesystem::path directory) {
+void verify_sheet_cut(std::filesystem::path directory,bool rotated=false) {
+    if(rotated) {directory/="rotated-origin";std::filesystem::create_directories(directory);}
     kernel::OcctKernel kernel;workspace::Workspace live;command_host::Options options;
     options.settings=[] {command_host::Settings s;s.templates={std::filesystem::absolute("config/templates"),"start_part.prtz","start_assembly.asmz","Body"};return s;};
     command_host::Host host(live,kernel,directory,options);
@@ -796,9 +797,16 @@ void verify_sheet_cut(std::filesystem::path directory) {
     const auto id=live.active_document_id();auto* state=live.open_part(id);
     auto source_sketch=sketcher::Sketch::create_default();auto source=document::PartDocument::create_revolution_container(source_sketch.id);
     document::initialize_sheet_revolution(source,source_sketch,document::sheet_metal_defaults(state->session.document()));
+    if(rotated) {
+        source.placement.rotation_x=source.placement.absolute_rotation_x=23;
+        source.placement.rotation_y=source.placement.absolute_rotation_y=31;
+        source.placement.rotation_z=source.placement.absolute_rotation_z=47;
+        source.placement.x=12;source.placement.y=18;source.placement.z=23;
+    }
     workspace::commit_profile(live,kernel,id,source,workspace::ProfileEditMode::Create,source_sketch);
     auto sketch=sketcher::Sketch::create_default();static_cast<void>(sketch.add_rectangle(10,1,20,5));
     auto cut=document::PartDocument::create_extrusion_container(sketch.id);cut.name="Sheet Cut";
+    if(rotated)cut.placement=source.placement;
     cut.combine_mode=document::CombineMode::Subtract;cut.extrusion.sheet_cut=true;
     cut.extrusion.end_condition_forward=document::EndCondition::ThroughAll;
     cut.extrusion.end_condition_reverse=document::EndCondition::ThroughAll;
@@ -824,6 +832,20 @@ void verify_sheet_cut(std::filesystem::path directory) {
     const auto recalculated=fresh_kernel.evaluate_history(reopened.kernel_operations()).back();
     near(recalculated.volume,result.volume);
     check(recalculated.calculation_errors.empty()&&!recalculated.sheet_cuts.empty(),"Fresh calculation lost the sheet cut");
+    if(rotated) {
+        const double volume=result.volume;
+        run(host,"unbend.create");
+        check(state->session.calculated_boundaries().back().calculation_errors.empty()&&
+            !state->session.calculated_boundaries().back().sheet_cuts.empty(),"Rotated cut was lost during unfolding");
+        run(host,"save");
+        auto unfolded=document::PartDocument::load(directory/"sheet-cut-cylinder.prtz");
+        const auto cold=workspace::calculate_part_with_resolved_references(fresh_kernel,unfolded);
+        check(cold.back().calculation_errors.empty(),"Unfolded rotated cut failed after reopen");
+        run(host,"bend_back.create");
+        check(state->session.calculated_boundaries().back().calculation_errors.empty(),"Rotated cut cannot bend back");
+        near(state->session.calculated_boundaries().back().volume,volume);
+        return;
+    }
     run(host,"undo");near(state->session.calculated_boundaries().back().volume,190*std::numbers::pi);
     run(host,"redo");near(state->session.calculated_boundaries().back().volume,190*std::numbers::pi-removed);
     // A normal cut differs from a spatial prism, including on the inner skin.
@@ -1146,6 +1168,44 @@ void verify_sheet_cut_projection_extent(std::filesystem::path directory,bool cle
         verify({sheets[1]});
     }
 }
+void verify_sheet_cut_rotated_origin(std::filesystem::path directory) {
+    for(const bool tilted:{false,true})for(const bool reverse:{false,true}) {
+        kernel::OcctKernel kernel;workspace::Workspace live;
+        auto part=document::PartDocument::create_default();const auto id=part.document_id;live.add_part(part);
+        auto flat=document::PartDocument::create_sketch_container();flat.feature_kind=document::FeatureKind::Flat;
+        auto outline=sketcher::Sketch::create_default();outline.owner_container_id=flat.id;flat.flat.sketch_id=outline.id;
+        flat.flat.thickness=2;flat.flat.thickness_override=true;static_cast<void>(outline.add_rectangle(0,0,100,100));
+        check(workspace::commit_flat(live,kernel,id,flat,outline),"Cannot create rotated cut source");
+        auto sketch=sketcher::Sketch::create_default();static_cast<void>(sketch.add_rectangle(-3,-2,3,2));
+        auto cut=document::PartDocument::create_extrusion_container(sketch.id);
+        cut.combine_mode=document::CombineMode::Subtract;cut.extrusion.sheet_cut=true;
+        cut.extrusion.end_condition_forward=document::EndCondition::ThroughAll;
+        cut.extrusion.direction=reverse?document::ExtrusionDirection::Reverse:document::ExtrusionDirection::Forward;
+        const double rx=tilted?25:0,ry=tilted?35:0,rz=37,k=std::numbers::pi/180;
+        const double nx=std::cos(rz*k)*std::sin(ry*k)*std::cos(rx*k)+std::sin(rz*k)*std::sin(rx*k);
+        const double ny=std::sin(rz*k)*std::sin(ry*k)*std::cos(rx*k)-std::cos(rz*k)*std::sin(rx*k);
+        const double nz=std::cos(ry*k)*std::cos(rx*k),side=reverse?1:-1;
+        cut.placement.x=50+side*10*nx;cut.placement.y=50+side*10*ny;cut.placement.z=1+side*10*nz;
+        cut.placement.rotation_x=cut.placement.absolute_rotation_x=rx;
+        cut.placement.rotation_y=cut.placement.absolute_rotation_y=ry;
+        cut.placement.rotation_z=cut.placement.absolute_rotation_z=rz;
+        workspace::commit_profile(live,kernel,id,cut,workspace::ProfileEditMode::Create,sketch);
+        const auto* state=live.open_part(id);const auto& result=state->session.calculated_boundaries().back();
+        check(result.calculation_errors.empty(),"Sheet Cut with rotated Origin failed");
+        near(result.volume,20000-48/nz);
+        check(!result.sheet_cuts.empty(),"Rotated cut lost persisted trim regions");
+        const auto path=directory/(std::string("rotated-cut-")+(tilted?"xyz-":"z-")+(reverse?"reverse":"forward")+".prtz");
+        state->session.document().save(path,state->session.calculated_boundaries());
+        auto reopened=document::PartDocument::load(path);
+        const auto* stored=reopened.find_container(cut.id);
+        check(stored&&stored->placement.absolute_rotation_x==rx&&stored->placement.absolute_rotation_y==ry&&
+            stored->placement.absolute_rotation_z==rz,"Native file changed the rotated cut Origin");
+        kernel::OcctKernel cold;
+        const auto regenerated=workspace::calculate_part_with_resolved_references(cold,reopened);
+        check(regenerated.back().calculation_errors.empty(),"Rotated cut failed cold regeneration");
+        near(regenerated.back().volume,result.volume);
+    }
+}
 void verify_sheet_cut_clearance(std::filesystem::path directory) {
     kernel::OcctKernel kernel;workspace::Workspace live;command_host::Options options;
     options.settings=[] {command_host::Settings s;s.templates={std::filesystem::absolute("config/templates"),"start_part.prtz","start_assembly.asmz","Body"};return s;};
@@ -1409,9 +1469,9 @@ int main(int argc,char** argv) {
         catch(const std::exception& e){std::cerr<<e.what()<<"; fixture: "<<directory<<'\n';return 1;}
     }
     if(argc==2&&std::string_view(argv[1])=="--verify-generic-sheet-cut") {
-        try{verify_sheet_cut_clearance(directory);std::filesystem::remove_all(directory);return 0;}
+        try{verify_sheet_cut(directory,true);verify_sheet_cut_rotated_origin(directory);verify_sheet_cut_clearance(directory);std::filesystem::remove_all(directory);return 0;}
         catch(const std::exception& e){std::cerr<<e.what()<<"; fixture: "<<directory<<'\n';return 1;}
     }
-    try{verify_sheet_cut_clearance(directory);verify_sheet_cut_tilted_cone_attachment(directory);verify_sheet_cut_cone_orientation(directory);verify_sheet_cut_projection_extent(directory);verify_sheet_cut_bounded_bend_thickness(directory);verify_sheet_cut_cone_orientation(directory,true);verify_sheet_cut_projection_extent(directory,true);verify_sheet_cut(directory);verify_sheet_cut_across_attachment(directory);verify_sheet_revolution(directory);verify_continuation(directory);verify_continuation_side_attachment(directory);verify_cross_branch_box(directory);verify_sheet_attachment(directory);verify_prepared_start();verify_attachment(directory);verify(directory);std::filesystem::remove_all(directory);std::cout<<"Bend geometry, identities, defaults, history and persistence passed\n";return 0;}
+    try{verify_sheet_cut(directory,true);verify_sheet_cut_rotated_origin(directory);verify_sheet_cut_clearance(directory);verify_sheet_cut_tilted_cone_attachment(directory);verify_sheet_cut_cone_orientation(directory);verify_sheet_cut_projection_extent(directory);verify_sheet_cut_bounded_bend_thickness(directory);verify_sheet_cut_cone_orientation(directory,true);verify_sheet_cut_projection_extent(directory,true);verify_sheet_cut(directory);verify_sheet_cut_across_attachment(directory);verify_sheet_revolution(directory);verify_continuation(directory);verify_continuation_side_attachment(directory);verify_cross_branch_box(directory);verify_sheet_attachment(directory);verify_prepared_start();verify_attachment(directory);verify(directory);std::filesystem::remove_all(directory);std::cout<<"Bend geometry, identities, defaults, history and persistence passed\n";return 0;}
     catch(const std::exception& e){std::cerr<<e.what()<<"; fixture: "<<directory<<'\n';return 1;}
 }

@@ -29,6 +29,35 @@ int verify_sheet_state_ui(QApplication& application,const std::filesystem::path&
             check(activate_test_body(application,window,body),"Cannot activate the sheet state body.");flush();
             auto* sheet_mode=window.findChild<QAction*>("applicationModeAction2");
             check(sheet_mode,"Missing Sheet Metal application mode.");sheet_mode->trigger();flush();
+            {
+                auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>("modelWorkspace"));
+                check(view,"Missing sheet View for Twisted Sheet creation.");
+                window.findChild<QAction*>("twistedSheetAction")->trigger();flush();
+                app::PrimitivePropertiesDialog* twist{};
+                for(auto* item:window.findChildren<QDialog*>())if(auto* candidate=dynamic_cast<app::PrimitivePropertiesDialog*>(item);candidate&&candidate->isVisible())twist=candidate;
+                check(twist&&view->transient_edges().empty(),"Twisted Sheet appears before the first entity.");
+                auto* width=twist->findChild<QDoubleSpinBox*>("twistedSheetWidth");check(width,"Missing twist width.");
+                width->setValue(35);flush();
+                check(view->transient_edges().empty(),"Editing a number displayed an unplaced Twisted Sheet.");
+                auto geometry=calculated.back().mesh.original_references;
+                twist->set_sheet_reference_geometry(geometry);
+                const auto edge=std::ranges::find_if(geometry.edges,[&](const auto& e) {
+                    document::ConstructionReference reference{e.reference.instance_path,e.reference.owner_id,e.reference.semantic_key};
+                    return kernel::sheet_edge_role(e)==kernel::SheetEdgeRole::Boundary&&twist->sheet_reference_allowed(0,reference);
+                });
+                check(edge!=geometry.edges.end(),"No eligible profile edge for Twisted Sheet GUI test.");
+                check(twist->set_reference(0,{edge->reference.instance_path,edge->reference.owner_id,edge->reference.semantic_key},"Profile edge"),"Twisted Sheet rejected its first edge.");flush();
+                check(!view->transient_edges().empty(),"Twisted Sheet did not appear after the first entity.");
+                const auto start=std::ranges::find_if(view->transient_edges(),[](const auto& e){return e.reference.semantic_key=="preview:twist:start";});
+                const auto axis=std::ranges::find_if(view->mesh().axes,[&](const auto& a){return a.reference.owner_id==twist->pending_value().feature_id&&a.reference.semantic_key=="axis";});
+                check(start!=view->transient_edges().end()&&axis!=view->mesh().axes.end(),"Twist preview has no operation axis.");
+                const auto a=start->points[0],b=start->points[2];
+                check(std::hypot(std::hypot(axis->point.x-(a.x+b.x)/2,axis->point.y-(a.y+b.y)/2),axis->point.z-(a.z+b.z)/2)<1e-7,
+                    "Twist axis misses the centre of its starting section.");
+                window.grab().save(QString::fromStdString((directory/(context?"twist-attached-context.png":"twist-attached-profile.png")).string()));
+                twist->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
+                check(view->transient_edges().empty(),"Cancel retained the Twisted Sheet preview.");
+            }
             auto* sheet_toolbar=window.findChild<QToolBar*>("toolsToolbar");
             check(sheet_toolbar&&sheet_toolbar->findChildren<QWidget*>("greenToolbarSeparator",Qt::FindDirectChildrenOnly).size()==5,
                 "Sheet Metal toolbar does not separate Properties, Revolved Sheet, Sheet Cut and Bend Back.");

@@ -6,6 +6,8 @@
 #include <zima/kernel/sheet_material.hpp>
 #include <zima/workspace/flat_operations.hpp>
 #include <zima/workspace/primitive_operations.hpp>
+#include <zima/workspace/bend_operations.hpp>
+#include <zima/workspace/sheet_state_operations.hpp>
 #include <zima/workspace/workspace.hpp>
 #include <algorithm>
 #include <chrono>
@@ -28,6 +30,82 @@ kernel::Vec3 unit(kernel::Vec3 value) {
 }
 double dot(kernel::Vec3 a,kernel::Vec3 b) {
     return a.x*b.x+a.y*b.y+a.z*b.z;
+}
+void verify_join(const document::PartDocument& part,const document::HistoryContainer& feature,
+        const kernel::ViewerReferenceGeometry& geometry) {
+    const auto preview=part.primitive_preview_edges(feature);
+    const auto start=std::ranges::find_if(preview,[](const auto& edge){return edge.reference.semantic_key=="preview:twist:start";});
+    check(start!=preview.end(),"Missing twist joining outline");
+    const auto& face=feature.placement.references.at(1);
+    using namespace kernel::sheet_material;
+    for(const auto point:start->points) {
+        bool inside=false;
+        for(std::size_t i=0;i<geometry.triangle_references.size();++i) {
+            const auto& r=geometry.triangle_references[i];
+            if(r.owner_id!=face.owner_id||r.semantic_key!=face.semantic_key||r.instance_path!=face.instance_path)continue;
+            const auto a=geometry.vertices[geometry.triangles[3*i]],b=geometry.vertices[geometry.triangles[3*i+1]],c=geometry.vertices[geometry.triangles[3*i+2]];
+            const auto v0=sub(b,a),v1=sub(c,a),v2=sub(point,a);
+            const double d00=::dot(v0,v0),d01=::dot(v0,v1),d11=::dot(v1,v1),denom=d00*d11-d01*d01;
+            if(denom<1e-14)continue;
+            const double u=(d11*::dot(v2,v0)-d01*::dot(v2,v1))/denom;
+            const double v=(d00*::dot(v2,v1)-d01*::dot(v2,v0))/denom;
+            inside=inside||(u>=-1e-7&&v>=-1e-7&&u+v<=1+1e-7&&
+                distance(point,add(a,add(mul(v0,u),mul(v1,v))))<1e-7);
+        }
+        check(inside,"Twisted Sheet starts outside the joining thickness face");
+    }
+}
+void verify_chain() {
+    kernel::OcctKernel kernel;workspace::Workspace live;
+    auto part=document::PartDocument::create_default();const auto id=part.document_id;live.add_part(part);
+    auto flat=document::PartDocument::create_sketch_container();flat.feature_kind=document::FeatureKind::Flat;
+    auto outline=sketcher::Sketch::create_default();outline.owner_container_id=flat.id;flat.flat.sketch_id=outline.id;
+    flat.flat.thickness=1;flat.flat.thickness_override=true;static_cast<void>(outline.add_rectangle(0,0,40,30));
+    check(workspace::commit_flat(live,kernel,id,flat,outline),"Cannot create chain source");
+    auto* state=live.open_part(id);
+    std::string parent=flat.id,end_key;
+    for(int depth=0;depth<4;++depth) {
+        const auto geometry=state->session.calculated_boundaries().back().mesh.original_references;
+        const auto edge=std::ranges::find_if(geometry.edges,[&](const auto& e) {
+            return e.reference.owner_id==parent&&kernel::sheet_edge_role(e)==kernel::SheetEdgeRole::Boundary&&
+                e.measured_length&&std::abs(*e.measured_length-40)<1e-6&&
+                (end_key.empty()||e.reference.semantic_key.find(end_key)!=std::string::npos);
+        });
+        check(edge!=geometry.edges.end(),"Chain has no continuation boundary");
+        for(const bool last:{false,true}) {
+            std::cout<<"Twist chain depth="<<depth<<" last="<<last<<std::endl;
+            auto candidate=state->session.document();
+            auto twist=document::PartDocument::create_twisted_sheet_container();twist.twisted_sheet.sheet_attachment=true;
+            twist.twisted_sheet.length=30;twist.twisted_sheet.angle_degrees=45;
+            twist.placement.references=document::bend_sheet_references(*edge,edge->edge_treatment_endpoint_references[last?1:0]);
+            candidate.insert_history_entry(document::PartHistoryKind::Feature,twist.id);candidate.history.push_back(twist);
+            candidate.resolve_constructions(geometry);
+            verify_join(candidate,*candidate.find_container(twist.id),geometry);
+            const auto formed=workspace::calculate_part_with_resolved_references(kernel,candidate);
+            check(formed.back().calculation_errors.empty(),"Chained twist failed calculation");
+            auto unbend=document::PartDocument::create_sketch_container();unbend.feature_kind=document::FeatureKind::Unbend;
+            candidate.insert_history_entry(document::PartHistoryKind::Feature,unbend.id);candidate.history.push_back(unbend);
+            auto unfolded=workspace::calculate_part_with_resolved_references(kernel,candidate);
+            check(unfolded.back().calculation_errors.empty(),"Chained twist cannot unfold");
+            std::vector<kernel::BodyResult> restored;
+            candidate=document::PartDocument::from_serialized(candidate.serialized(unfolded),&restored);
+            auto back=document::PartDocument::create_sketch_container();back.feature_kind=document::FeatureKind::BendBack;
+            candidate.insert_history_entry(document::PartHistoryKind::Feature,back.id);candidate.history.push_back(back);
+            const auto folded=workspace::calculate_part_with_resolved_references(kernel,candidate);
+            check(folded.back().calculation_errors.empty()&&std::abs(folded.back().volume-formed.back().volume)<.05,
+                "Chained twist Bend Back changed formed material after persistence");
+        }
+        if(depth==3)break;
+        auto bend=document::PartDocument::create_sketch_container();bend.feature_kind=document::FeatureKind::Bend;
+        auto profile=sketcher::Sketch::create_default();profile.owner_container_id=bend.id;
+        document::initialize_bend_start_profile(profile,40);bend.bend.sketch_id=profile.id;
+        bend.bend.sheet_attachment=true;bend.bend.angle_degrees=30;bend.bend.radius=5;bend.bend.radius_follows_thickness=false;
+        bend.placement.references=document::bend_sheet_references(*edge);
+        check(workspace::commit_bend(live,kernel,id,bend,profile),"Cannot attach next sheet profile");
+        const auto* saved=state->session.document().find_container(bend.id);
+        const auto path=sketcher::Sketch::from_serialized(saved->bend.auxiliary_sketches[0]);
+        end_key=path.arcs.back().end_point_id;parent=bend.id;
+    }
 }
 kernel::Vec3 rotated(kernel::Vec3 value,kernel::Vec3 degrees) {
     constexpr double radians=std::numbers::pi/180.0;
@@ -295,6 +373,26 @@ void verify() {
 }
 }
 int main() {
-    try { verify();std::cout<<"Twisted Sheet geometry, roles and persistence passed\n";return 0; }
-    catch(const std::exception& error) { std::cerr<<error.what()<<'\n';return 1; }
+    try {
+        verify();verify_chain();
+        kernel::OcctKernel kernel;
+        auto part=document::PartDocument::load("cpp/tests/fixtures/sheet/profile-side-twist.prtz");
+        const auto formed=workspace::calculate_part_with_resolved_references(kernel,part);
+        check(formed.back().calculation_errors.empty(),"Profile-side fixture cannot calculate");
+        const auto twist=std::ranges::find_if(part.history,[](const auto& f){return f.feature_kind==document::FeatureKind::TwistedSheet;});
+        check(twist!=part.history.end()&&twist->twisted_sheet.attachment_material_side==-1,
+            "Profile-side fixture lost its opposite material side");
+        verify_join(part,*twist,formed.back().mesh.original_references);
+        auto unfold=document::PartDocument::create_sketch_container();unfold.feature_kind=document::FeatureKind::Unbend;
+        part.insert_history_entry(document::PartHistoryKind::Feature,unfold.id);part.history.push_back(unfold);
+        const auto flat=workspace::calculate_part_with_resolved_references(kernel,part);
+        check(flat.back().calculation_errors.empty(),"Profile-side twist cannot unfold");
+        part=document::PartDocument::from_serialized(part.serialized(flat));
+        auto back=document::PartDocument::create_sketch_container();back.feature_kind=document::FeatureKind::BendBack;
+        part.insert_history_entry(document::PartHistoryKind::Feature,back.id);part.history.push_back(back);
+        const auto folded=workspace::calculate_part_with_resolved_references(kernel,part);
+        check(folded.back().calculation_errors.empty()&&std::abs(folded.back().volume-formed.back().volume)<.05,
+            "Profile-side twist did not fold back after persistence");
+        std::cout<<"Twisted Sheet geometry, chained attachment, sides, unfolding and persistence passed\n";return 0;
+    } catch(const std::exception& error) { std::cerr<<error.what()<<'\n';return 1; }
 }

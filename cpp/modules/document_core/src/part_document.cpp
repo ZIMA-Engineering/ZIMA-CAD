@@ -533,12 +533,12 @@ void add_json_parameters(
 
 nlohmann::json read_part_ini(const std::filesystem::path& path) {
     const auto ini = read_ini(path);
-    if (ini_value(ini, "Document", "format_version") != "40") {
+    if (ini_value(ini, "Document", "format_version") != "41") {
         throw std::runtime_error("Unsupported ZIMA-CAD Part document format");
     }
     nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 64},
+        {"format_version", 65},
         {"document_id", ini_required(ini, "Document", "document_id")},
         {"type", ini_value(ini, "Document", "type", "part")},
         {"name", ini_value(ini, "Document", "name", "Nový díl")},
@@ -693,7 +693,7 @@ void write_part_ini(
     const nlohmann::json& root, const std::filesystem::path& path) {
     IniSections ini;
     ini["Document"] = {
-        {"format_version", "40"},
+        {"format_version", "41"},
         {"type", "part"},
         {"document_id", root.at("document_id").get<std::string>()},
         {"name", root.at("name").get<std::string>()},
@@ -3379,6 +3379,8 @@ HistoryContainer PartDocument::create_twisted_sheet_container() {
 }
 
 double twisted_sheet_developed_length(const TwistedSheetParameters& p) {
+    if(p.attachment_material_side!=1&&p.attachment_material_side!=-1)
+        throw std::invalid_argument("Invalid Twisted Sheet attachment material side.");
     if(!std::isfinite(p.width)||!std::isfinite(p.length)||
         !std::isfinite(p.angle_degrees)||
         !std::isfinite(p.developed_length_correction)||
@@ -5913,6 +5915,10 @@ void PartDocument::resolve_constructions(
             container.twisted_sheet.thickness=
                 edge->edge_treatment_side_references.front().sheet_thickness;
             container.twisted_sheet.thickness_override=false;
+            const auto side=bend_attachment_profile_direction(
+                container.placement.references,source_geometry);
+            if(!side)throw std::invalid_argument("Missing Twisted Sheet joining material side.");
+            container.twisted_sheet.attachment_material_side=static_cast<int>(*side);
         }
 
         PartDocument origin_carrier;
@@ -6544,7 +6550,7 @@ std::vector<zima::kernel::ViewerEdge> PartDocument::primitive_preview_edges(
             // thickness.  A free Twisted Sheet retains its ordinary
             // X=width/Y=thickness/Z=length frame.
             return p.sheet_attachment
-                ? zima::kernel::Vec3{-through_center-twisted_through,
+                ? zima::kernel::Vec3{p.attachment_material_side*(-through_center-twisted_through),
                     width_sign*(across_center+twisted_across),p.length*fraction}
                 : zima::kernel::Vec3{across_center+twisted_across,
                     through_center+twisted_through,p.length*fraction};
@@ -8584,13 +8590,13 @@ zima::kernel::Sweep3DRequest twisted_sheet_request(
             const double twisted_across=across*c-through*s;
             const double twisted_through=across*s+through*c;
             return world(p.sheet_attachment
-                ? zima::kernel::Vec3{-through_center-twisted_through,
+                ? zima::kernel::Vec3{p.attachment_material_side*(-through_center-twisted_through),
                     width_sign*(across_center+twisted_across),p.length*fraction}
                 : zima::kernel::Vec3{across_center+twisted_across,
                     through_center+twisted_through,p.length*fraction});
         };
         const auto center = world(p.sheet_attachment
-            ? zima::kernel::Vec3{-through_center,width_sign*across_center,p.length*fraction}
+            ? zima::kernel::Vec3{-p.attachment_material_side*through_center,width_sign*across_center,p.length*fraction}
             : zima::kernel::Vec3{across_center,through_center,p.length*fraction});
         const auto point_id = station_id(index);
         request.path_points.push_back(center);
@@ -8625,7 +8631,7 @@ zima::kernel::Sweep3DRequest twisted_sheet_request(
         if (index < stations) {
             const double next_fraction=static_cast<double>(index+1)/stations;
             const auto next_center=world(p.sheet_attachment
-                ?zima::kernel::Vec3{-through_center,width_sign*across_center,p.length*next_fraction}
+                ?zima::kernel::Vec3{-p.attachment_material_side*through_center,width_sign*across_center,p.length*next_fraction}
                 :zima::kernel::Vec3{across_center,through_center,p.length*next_fraction});
             request.path_segments.push_back({
                 "twist:path:span", center,next_center});
@@ -9390,9 +9396,9 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
                     p.sheet_attachment?kernel::Vec3{0,width_sign,0}:kernel::Vec3{1,0,0},rotation);
                 material.tangent=rotated_vector({0,0,1},rotation);
                 material.radial=rotated_vector(
-                    p.sheet_attachment?kernel::Vec3{-1,0,0}:kernel::Vec3{0,1,0},rotation);
+                    p.sheet_attachment?kernel::Vec3{-static_cast<double>(p.attachment_material_side),0,0}:kernel::Vec3{0,1,0},rotation);
                 const auto center=rotated_vector(p.sheet_attachment
-                    ?kernel::Vec3{-p.thickness/2,width_sign*p.width/2,0}
+                    ?kernel::Vec3{-p.attachment_material_side*p.thickness/2,width_sign*p.width/2,0}
                     :kernel::Vec3{0,0,0},rotation);
                 material.origin={center.x+container.placement.x,
                     center.y+container.placement.y,center.z+container.placement.z};
@@ -10397,6 +10403,7 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
             p.developed_length_correction=data.at("developed_length_correction");
             p.reverse=data.at("reverse");p.sheet_attachment=data.at("sheet_attachment");
             p.thickness_override=data.at("thickness_override");
+            p.attachment_material_side=data.at("attachment_material_side");
             require_positive(p.width,"Twisted sheet width");
             require_positive(p.length,"Twisted sheet length");
             require_positive(p.thickness,"Twisted sheet thickness");
@@ -11488,7 +11495,8 @@ nlohmann::json PartDocument::serialized(
                 {"angle_degrees",p.angle_degrees},{"thickness",p.thickness},
                 {"developed_length_correction",p.developed_length_correction},
                 {"reverse",p.reverse},{"sheet_attachment",p.sheet_attachment},
-                {"thickness_override",p.thickness_override}};
+                {"thickness_override",p.thickness_override},
+                {"attachment_material_side",p.attachment_material_side}};
         } else if (container.feature_kind == FeatureKind::Extrusion || container.feature_kind == FeatureKind::Revolution) {
             save_profile_parameters(container, serialized);
         } else if (container.feature_kind == FeatureKind::Sweep2D) {
@@ -11706,7 +11714,7 @@ nlohmann::json PartDocument::serialized(
     static_cast<void>(zima::document::parse_named_views(named_views));
     nlohmann::json root = {
         {"format", "zima-cad-cpp"},
-        {"format_version", 64},
+        {"format_version", 65},
         {"reference_errors", reference_errors},
         {"document_id", document_id},
         {"type", "part"},

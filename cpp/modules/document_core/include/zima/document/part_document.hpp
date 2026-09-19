@@ -601,6 +601,9 @@ struct TwistedSheetParameters {
     bool reverse{};
     bool sheet_attachment{};
     bool thickness_override{};
+    // Joining-face material lies on this side of local -X. Independent of
+    // the selected endpoint and the authored direction of the twist.
+    int attachment_material_side{1};
     bool operator==(const TwistedSheetParameters&) const = default;
 };
 

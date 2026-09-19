@@ -19,6 +19,11 @@ distinction, including at zero offset. This requirement was reaffirmed on
   side. `ExpressionDoubleSpinBox` explicitly preserves authored `-0` during
   focus-out and Enter handling because Qt's default formatter displays it as
   `0` before the properties transaction reads the value.
+- Attached Twisted Sheet stores `attachment_material_side` independently of
+  its selected endpoint and twist direction. It is derived from the persisted
+  joining-face triangles and boundary direction, so the complete starting
+  section occupies the parent's thickness face on either side of the edge.
+  Preview, calculated loft and unfolded material frame consume the same side.
 - Assembly `ComponentPlacementReference` stores a signed `offset` and a
   separate `flip` choice. For plane coincidence, `flip` controls parallel or
   opposite normals, including at zero separation. The offset controls signed

@@ -109,9 +109,11 @@ reference packets remain intact throughout this visibility change.
 ## Interaction and persistence
 
 Unbend and Bend Back use one shared internal properties dialog with OK/Cancel,
-an individual-selection checkbox, and a manual region list. With
-**Select individual features** unchecked (the default), all eligible regions
-are processed. Checking it enables manual View/Tree selection. Manual values
+two exclusive checkboxes, and a manual region list. **Unbend all** or
+**Bend back all** is visibly checked by default. Clicking **Select individual
+features** enables manual View/Tree selection and unchecks All. Clicking All
+switches back in one click. Clicking the already selected mode cannot uncheck
+it: exactly one mode is always active. Manual values
 survive switching between these modes, and editing restores the saved mode.
 Common View candidates resolve to source material
 regions through calculated metadata; no second picker or OCCT traversal is
@@ -247,7 +249,7 @@ Five sheet-state CTest contracts passed in 52.24 seconds. Coverage includes:
   dimension with the expected numerical value, including serialized references.
 - Cold native regeneration and save/reopen of the attached tilted-cone model,
   as well as Unbend/Bend Back history cycles.
-- Unchecked all-region behavior, checked individual selection, restoration on
+- Default all-region behavior, checked individual selection, restoration on
   Properties editing, View/Tree picking, MMB confirmation, and repeated Assembly
   occurrences.
 

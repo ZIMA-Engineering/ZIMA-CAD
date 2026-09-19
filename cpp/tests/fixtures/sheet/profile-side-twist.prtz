@@ -1,0 +1,358 @@
+[Children.01a0b9cea24a7c489f4558625b5eb764]
+items=01a0b9cea24a7c489f4558625b5eb765
+
+[Children.01a0b9cea24a7c489f4558625b5eb778]
+items=01a0b9cea24a7c489f4558625b5eb779
+
+[Children.01a0b9cea24a7c489f4558625b5eb7a7]
+items=01a0b9cea24a7c489f4558625b5eb7a8
+
+[Container.01a0b9cea24a7c489f4558625b5eb764]
+TYPE=FLAT
+combine_mode=+
+id=01a0b9cea24a7c489f4558625b5eb764
+kind=container
+name=Tabule
+param.cpp_history={"combine":"add","container_origin":{"children":[{"id":"01a0b9cea24a7c489f4558625b5eb764:origin:point","key":"point","kind":"point","locked":true,"name":"Point 0,0,0","parent_id":"01a0b9cea24a7c489f4558625b5eb764:origin"},{"id":"01a0b9cea24a7c489f4558625b5eb764:origin:axis:x","key":"axis:x","kind":"axis","locked":true,"name":"X Axis","parent_id":"01a0b9cea24a7c489f4558625b5eb764:origin"},{"id":"01a0b9cea24a7c489f4558625b5eb764:origin:axis:y","key":"axis:y","kind":"axis","locked":true,"name":"Y Axis","parent_id":"01a0b9cea24a7c489f4558625b5eb764:origin"},{"id":"01a0b9cea24a7c489f4558625b5eb764:origin:axis:z","key":"axis:z","kind":"axis","locked":true,"name":"Z Axis","parent_id":"01a0b9cea24a7c489f4558625b5eb764:origin"},{"id":"01a0b9cea24a7c489f4558625b5eb764:origin:plane:xy","key":"plane:xy","kind":"plane","locked":true,"name":"XY Plane","parent_id":"01a0b9cea24a7c489f4558625b5eb764:origin"},{"id":"01a0b9cea24a7c489f4558625b5eb764:origin:plane:yz","key":"plane:yz","kind":"plane","locked":true,"name":"YZ Plane","parent_id":"01a0b9cea24a7c489f4558625b5eb764:origin"},{"id":"01a0b9cea24a7c489f4558625b5eb764:origin:plane:xz","key":"plane:xz","kind":"plane","locked":true,"name":"XZ Plane","parent_id":"01a0b9cea24a7c489f4558625b5eb764:origin"}],"id":"01a0b9cea24a7c489f4558625b5eb764:origin","locked":true,"name":"Container Origin","parent_id":"01a0b9cea24a7c489f4558625b5eb764"},"feature_id":"01a0b9cea24a7c489f4558625b5eb765","feature_parent_id":"01a0b9cea24a7c489f4558625b5eb764","flat":{"direction":"forward","sheet_attachment":false,"sketch_id":"01a0b9cea24a7c489f4558625b5eb763","thickness":1.0,"thickness_override":false},"id":"01a0b9cea24a7c489f4558625b5eb764","name":"Tabule","placement":{"absolute_rotation_x":0.0,"absolute_rotation_y":0.0,"absolute_rotation_z":0.0,"orientation_back":false,"orientation_quarter_turns":0,"reference_valid":true,"references":[],"rotation_offset_x":0.0,"rotation_offset_y":0.0,"rotation_offset_z":0.0,"rotation_x":0.0,"rotation_y":-0.0,"rotation_z":0.0,"value_locks":[],"x":0.0,"y":0.0,"z":0.0},"suppressed":false,"type":"flat","value_locks":[]}
+param.cpp_kind=history
+rx=0.000000
+ry=-0.000000
+rz=0.000000
+show_auxiliary_geometry=false
+suppressed=false
+tree_exposure=public
+user_visible=true
+x=0.000000
+y=0.000000
+z=0.000000
+
+[Container.01a0b9cea24a7c489f4558625b5eb778]
+TYPE=BEND
+combine_mode=+
+id=01a0b9cea24a7c489f4558625b5eb778
+kind=container
+name=Profil plechu
+param.cpp_history={"bend":{"angle":90.0,"auxiliary_sketches":["{\n  \"arcs\": [\n    {\n      \"center\": \"01a0b9cea24a7c489f4558625b5eb782\",\n      \"construction\": false,\n      \"end\": \"01a0b9cea24a7c489f4558625b5eb784\",\n      \"end_angle\": 0.0,\n      \"id\": \"01a0b9cea24a7c489f4558625b5eb785\",\n      \"radius\": 2.0,\n      \"start\": \"01a0b9cea24a7c489f4558625b5eb783\",\n      \"start_angle\": -1.5707963267948966\n    }\n  ],\n  \"bsplines\": [],\n  \"circles\": [],\n  \"constraints\": [\n    {\n      \"first\": \"01a0b9cea24a7c489f4558625b5eb782\",\n      \"geometry\": \"sketch_axis:y\",\n      \"id\": \"01a0b9cea24a7c489f4558625b5eb786\",\n      \"kind\": \"point_on_line\",\n      \"second\": \"\",\n      \"second_geometry\": \"\",\n      \"suppressed\": false,\n      \"tangent_internal\": false\n    },\n    {\n      \"first\": \"01a0b9cea24a7c489f4558625b5eb784\",\n      \"geometry\": \"01a0b9cea24a7c489f4558625b5eb785\",\n      \"id\": \"01a0b9cea24a7c489f4558625b5eb797\",\n      \"kind\": \"tangent\",\n      \"second\": \"\",\n      \"second_geometry\": \"01a0b9cea24a7c489f4558625b5eb795\",\n      \"suppressed\": false,\n      \"tangent_internal\": false\n    }\n  ],\n  \"corner_radii\": [],\n  \"curve_supports\": [],\n  \"curve_trims\": [],\n  \"dimension_layouts\": [],\n  \"dimensions\": [\n    {\n      \"angle_presentation_reversed\": false,\n      \"angle_sector\": -1,\n      \"display_text_override\": \"\",\n      \"driving\": true,\n      \"first\": \"\",\n      \"geometry\": \"01a0b9cea24a7c489f4558625b5eb785\",\n      \"id\": \"01a0b9cea24a7c489f4558625b5eb781:radius\",\n      \"kind\": \"radius\",\n      \"locked\": true,\n      \"lower_tolerance\": \"\",\n      \"placement\": [\n        1.0,\n        1.0\n      ],\n      \"prefix\": \"\",\n      \"second\": \"\",\n      \"second_geometry\": \"\",\n      \"single_tolerance\": \"\",\n      \"solution_side\": 1,\n      \"suffix\": \"\",\n      \"suppressed\": false,\n      \"symmetric_tolerance\": \"\",\n      \"third_geometry\": \"\",\n      \"tolerance_mode\": \"\",\n      \"upper_tolerance\": \"\",\n      \"value\": 2.0\n    },\n    {\n      \"angle_presentation_reversed\": false,\n      \"angle_sector\": -1,\n      \"display_text_override\": \"\",\n      \"driving\": true,\n      \"first\": \"01a0b9cea24a7c489f4558625b5eb783\",\n      \"geometry\": \"01a0b9cea24a7c489f4558625b5eb784\",\n      \"id\": \"01a0b9cea24a7c489f4558625b5eb781:angle\",\n      \"kind\": \"angle_three_point\",\n      \"locked\": false,\n      \"lower_tolerance\": \"\",\n      \"placement\": [\n        2.6,\n        1.6\n      ],\n      \"prefix\": \"\",\n      \"second\": \"01a0b9cea24a7c489f4558625b5eb782\",\n      \"second_geometry\": \"\",\n      \"single_tolerance\": \"\",\n      \"solution_side\": 1,\n      \"suffix\": \"\",\n      \"suppressed\": false,\n      \"symmetric_tolerance\": \"\",\n      \"third_geometry\": \"\",\n      \"tolerance_mode\": \"\",\n      \"upper_tolerance\": \"\",\n      \"value\": 90.0\n    },\n    {\n      \"angle_presentation_reversed\": false,\n      \"angle_sector\": -1,\n      \"display_text_override\": \"\",\n      \"driving\": true,\n      \"first\": \"01a0b9cea24a7c489f4558625b5eb784\",\n      \"geometry\": \"\",\n      \"id\": \"01a0b9cea24a7c489f4558625b5eb795:length\",\n      \"kind\": \"distance\",\n      \"locked\": false,\n      \"lower_tolerance\": \"\",\n      \"placement\": [\n        10.000000000000002,\n        30.0\n      ],\n      \"prefix\": \"\",\n      \"second\": \"01a0b9cea24a7c489f4558625b5eb794\",\n      \"second_geometry\": \"\",\n      \"single_tolerance\": \"\",\n      \"solution_side\": 1,\n      \"suffix\": \"\",\n      \"suppressed\": false,\n      \"symmetric_tolerance\": \"\",\n      \"third_geometry\": \"\",\n      \"tolerance_mode\": \"\",\n      \"upper_tolerance\": \"\",\n      \"value\": 20.0\n    }\n  ],\n  \"ellipses\": [],\n  \"elliptical_arcs\": [],\n  \"external_references\": [],\n  \"format\": \"zima-cad-cpp-sketch\",\n  \"id\": \"01a0b9cea24a7c489f4558625b5eb781\",\n  \"import_blocks\": [],\n  \"name\": \"Trajektorie ohybu\",\n  \"offsets\": [],\n  \"owner_container_id\": \"01a0b9cea24a7c489f4558625b5eb778\",\n  \"plane\": \"xy\",\n  \"plane_auto\": true,\n  \"plane_offset\": 0.0,\n  \"plane_reference_owner_id\": \"01a0b9cea24a7c489f4558625b5eb778:bend:path\",\n  \"points\": [\n    {\n      \"construction\": false,\n      \"fixed\": false,\n      \"id\": \"01a0b9cea24a7c489f4558625b5eb782\",\n      \"x\": 0.0,\n      \"y\": 2.0\n    },\n    {\n      \"construction\": false,\n      \"fixed\": true,\n      \"id\": \"01a0b9cea24a7c489f4558625b5eb783\",\n      \"x\": 0.0,\n      \"y\": 0.0\n    },\n    {\n      \"construction\": false,\n      \"fixed\": false,\n      \"id\": \"01a0b9cea24a7c489f4558625b5eb784\",\n      \"x\": 2.0,\n      \"y\": 1.9999999999999998\n    },\n    {\n      \"construction\": false,\n      \"fixed\": false,\n      \"id\": \"01a0b9cea24a7c489f4558625b5eb794\",\n      \"x\": 2.0000000000000013,\n      \"y\": 22.0\n    }\n  ],\n  \"resolved_normal\": [\n    1.0,\n    -6.123233995736766e-17,\n    6.123233995736766e-17\n  ],\n  \"resolved_origin\": [\n    -89.44373321533203,\n    0.0,\n    0.0\n  ],\n  \"resolved_x_axis\": [\n    6.123233995736766e-17,\n    1.0,\n    3.749399456654644e-33\n  ],\n  \"resolved_y_axis\": [\n    -6.123233995736766e-17,\n    0.0,\n    1.0\n  ],\n  \"segments\": [\n    {\n      \"centerline\": false,\n      \"construction\": false,\n      \"first\": \"01a0b9cea24a7c489f4558625b5eb784\",\n      \"id\": \"01a0b9cea24a7c489f4558625b5eb795\",\n      \"second\": \"01a0b9cea24a7c489f4558625b5eb794\"\n    }\n  ],\n  \"suppressed\": false,\n  \"texts\": [],\n  \"version\": 34\n}","{\n  \"arcs\": [],\n  \"bsplines\": [],\n  \"circles\": [],\n  \"constraints\": [\n    {\n      \"first\": \"01a0b9cea24a7c489f4558625b5eb789:endpoint:first\",\n      \"geometry\": \"sketch_axis:x\",\n      \"id\": \"01a0b9cea24a7c489f4558625b5eb78c\",\n      \"kind\": \"point_on_line\",\n      \"second\": \"\",\n      \"second_geometry\": \"\",\n      \"suppressed\": false,\n      \"tangent_internal\": false\n    },\n    {\n      \"first\": \"01a0b9cea24a7c489f4558625b5eb789:endpoint:last\",\n      \"geometry\": \"sketch_axis:x\",\n      \"id\": \"01a0b9cea24a7c489f4558625b5eb790\",\n      \"kind\": \"point_on_line\",\n      \"second\": \"\",\n      \"second_geometry\": \"\",\n      \"suppressed\": false,\n      \"tangent_internal\": false\n    }\n  ],\n  \"corner_radii\": [],\n  \"curve_supports\": [],\n  \"curve_trims\": [],\n  \"dimension_layouts\": [],\n  \"dimensions\": [\n    {\n      \"angle_presentation_reversed\": false,\n      \"angle_sector\": -1,\n      \"display_text_override\": \"\",\n      \"driving\": true,\n      \"first\": \"01a0b9cea24a7c489f4558625b5eb789:reference:first\",\n      \"geometry\": \"\",\n      \"id\": \"01a0b9cea24a7c489f4558625b5eb789:difference:first\",\n      \"kind\": \"distance_x\",\n      \"locked\": false,\n      \"lower_tolerance\": \"\",\n      \"placement\": [\n        0.0,\n        -8.0\n      ],\n      \"prefix\": \"\",\n      \"second\": \"01a0b9cea24a7c489f4558625b5eb789:endpoint:first\",\n      \"second_geometry\": \"\",\n      \"single_tolerance\": \"\",\n      \"solution_side\": -1,\n      \"suffix\": \"\",\n      \"suppressed\": false,\n      \"symmetric_tolerance\": \"\",\n      \"third_geometry\": \"\",\n      \"tolerance_mode\": \"\",\n      \"upper_tolerance\": \"\",\n      \"value\": 0.0\n    },\n    {\n      \"angle_presentation_reversed\": false,\n      \"angle_sector\": -1,\n      \"display_text_override\": \"\",\n      \"driving\": true,\n      \"first\": \"01a0b9cea24a7c489f4558625b5eb789:reference:last\",\n      \"geometry\": \"\",\n      \"id\": \"01a0b9cea24a7c489f4558625b5eb789:difference:last\",\n      \"kind\": \"distance_x\",\n      \"locked\": false,\n      \"lower_tolerance\": \"\",\n      \"placement\": [\n        40.0,\n        8.0\n      ],\n      \"prefix\": \"\",\n      \"second\": \"01a0b9cea24a7c489f4558625b5eb789:endpoint:last\",\n      \"second_geometry\": \"\",\n      \"single_tolerance\": \"\",\n      \"solution_side\": 1,\n      \"suffix\": \"\",\n      \"suppressed\": false,\n      \"symmetric_tolerance\": \"\",\n      \"third_geometry\": \"\",\n      \"tolerance_mode\": \"\",\n      \"upper_tolerance\": \"\",\n      \"value\": 0.0\n    }\n  ],\n  \"ellipses\": [],\n  \"elliptical_arcs\": [],\n  \"external_references\": [],\n  \"format\": \"zima-cad-cpp-sketch\",\n  \"id\": \"01a0b9cea24a7c489f4558625b5eb789\",\n  \"import_blocks\": [],\n  \"name\": \"Koncový profil ohybu\",\n  \"offsets\": [],\n  \"owner_container_id\": \"01a0b9cea24a7c489f4558625b5eb778\",\n  \"plane\": \"xy\",\n  \"plane_auto\": true,\n  \"plane_offset\": 0.0,\n  \"plane_reference_owner_id\": \"01a0b9cea24a7c489f4558625b5eb778:bend:end\",\n  \"points\": [\n    {\n      \"construction\": true,\n      \"fixed\": true,\n      \"id\": \"01a0b9cea24a7c489f4558625b5eb789:reference:first\",\n      \"x\": -89.44373321533203,\n      \"y\": 0.0\n    },\n    {\n      \"construction\": false,\n      \"fixed\": false,\n      \"id\": \"01a0b9cea24a7c489f4558625b5eb789:endpoint:first\",\n      \"x\": -89.44373321533203,\n      \"y\": 0.0\n    },\n    {\n      \"construction\": true,\n      \"fixed\": true,\n      \"id\": \"01a0b9cea24a7c489f4558625b5eb789:reference:last\",\n      \"x\": 0.0,\n      \"y\": 0.0\n    },\n    {\n      \"construction\": false,\n      \"fixed\": false,\n      \"id\": \"01a0b9cea24a7c489f4558625b5eb789:endpoint:last\",\n      \"x\": 0.0,\n      \"y\": 0.0\n    }\n  ],\n  \"resolved_normal\": [\n    -6.123233995736766e-17,\n    6.123233995736766e-17,\n    1.0\n  ],\n  \"resolved_origin\": [\n    -89.44373321533203,\n    2.0,\n    1.9999999999999998\n  ],\n  \"resolved_x_axis\": [\n    -1.0,\n    6.123233995736766e-17,\n    -6.123233995736766e-17\n  ],\n  \"resolved_y_axis\": [\n    -6.123233995736766e-17,\n    -1.0,\n    6.123233995736766e-17\n  ],\n  \"segments\": [\n    {\n      \"centerline\": false,\n      \"construction\": false,\n      \"first\": \"01a0b9cea24a7c489f4558625b5eb789:endpoint:first\",\n      \"id\": \"01a0b9cea24a7c489f4558625b5eb792\",\n      \"second\": \"01a0b9cea24a7c489f4558625b5eb789:endpoint:last\"\n    },\n    {\n      \"centerline\": false,\n      \"construction\": true,\n      \"first\": \"01a0b9cea24a7c489f4558625b5eb789:reference:first\",\n      \"id\": \"01a0b9cea24a7c489f4558625b5eb793\",\n      \"second\": \"01a0b9cea24a7c489f4558625b5eb789:reference:last\"\n    }\n  ],\n  \"suppressed\": false,\n  \"texts\": [],\n  \"version\": 34\n}"],"k_factor":0.318309886184,"k_factor_override":false,"radius":1.0,"radius_follows_thickness":true,"sheet_attachment":true,"sketch_id":"01a0b9cea24a7c489f4558625b5eb777","thickness":1.0,"thickness_override":false},"combine":"add","container_origin":{"children":[{"id":"01a0b9cea24a7c489f4558625b5eb778:origin:point","key":"point","kind":"point","locked":true,"name":"Point 0,0,0","parent_id":"01a0b9cea24a7c489f4558625b5eb778:origin"},{"id":"01a0b9cea24a7c489f4558625b5eb778:origin:axis:x","key":"axis:x","kind":"axis","locked":true,"name":"X Axis","parent_id":"01a0b9cea24a7c489f4558625b5eb778:origin"},{"id":"01a0b9cea24a7c489f4558625b5eb778:origin:axis:y","key":"axis:y","kind":"axis","locked":true,"name":"Y Axis","parent_id":"01a0b9cea24a7c489f4558625b5eb778:origin"},{"id":"01a0b9cea24a7c489f4558625b5eb778:origin:axis:z","key":"axis:z","kind":"axis","locked":true,"name":"Z Axis","parent_id":"01a0b9cea24a7c489f4558625b5eb778:origin"},{"id":"01a0b9cea24a7c489f4558625b5eb778:origin:plane:xy","key":"plane:xy","kind":"plane","locked":true,"name":"XY Plane","parent_id":"01a0b9cea24a7c489f4558625b5eb778:origin"},{"id":"01a0b9cea24a7c489f4558625b5eb778:origin:plane:yz","key":"plane:yz","kind":"plane","locked":true,"name":"YZ Plane","parent_id":"01a0b9cea24a7c489f4558625b5eb778:origin"},{"id":"01a0b9cea24a7c489f4558625b5eb778:origin:plane:xz","key":"plane:xz","kind":"plane","locked":true,"name":"XZ Plane","parent_id":"01a0b9cea24a7c489f4558625b5eb778:origin"}],"id":"01a0b9cea24a7c489f4558625b5eb778:origin","locked":true,"name":"Container Origin","parent_id":"01a0b9cea24a7c489f4558625b5eb778"},"feature_id":"01a0b9cea24a7c489f4558625b5eb779","feature_parent_id":"01a0b9cea24a7c489f4558625b5eb778","id":"01a0b9cea24a7c489f4558625b5eb778","name":"Profil plechu","placement":{"absolute_rotation_x":-90.0,"absolute_rotation_y":90.0,"absolute_rotation_z":0.0,"orientation_back":false,"orientation_quarter_turns":0,"reference_valid":true,"references":[{"flip":false,"instance_path":"","offset":0.0,"offset_locked":false,"orientation_drives_rotation":true,"orientation_only":false,"orientation_role":"front","owner_id":"01a0b9cea24a7c489f4558625b5eb764","semantic_key":"start:01a0b9cea24a7c489f4558625b5eb769","supports_offset":false},{"flip":false,"instance_path":"","offset":0.0,"offset_locked":false,"orientation_drives_rotation":true,"orientation_only":false,"orientation_role":"top","owner_id":"01a0b9cea24a7c489f4558625b5eb764","semantic_key":"generated:01a0b9cea24a7c489f4558625b5eb769","supports_offset":true},{"flip":false,"instance_path":"","offset":0.0,"offset_locked":true,"orientation_drives_rotation":false,"orientation_only":false,"orientation_role":"none","owner_id":"01a0b9cea24a7c489f4558625b5eb764","semantic_key":"start:01a0b9cea24a7c489f4558625b5eb768","supports_offset":false}],"rotation_offset_x":0.0,"rotation_offset_y":0.0,"rotation_offset_z":0.0,"rotation_x":-90.0,"rotation_y":90.0,"rotation_z":0.0,"value_locks":[],"x":-89.44373321533203,"y":0.0,"z":0.0},"suppressed":false,"type":"bend","value_locks":[]}
+param.cpp_kind=history
+rx=-90.000000
+ry=90.000000
+rz=0.000000
+show_auxiliary_geometry=false
+suppressed=false
+tree_exposure=public
+user_visible=true
+x=-89.443733
+y=0.000000
+z=0.000000
+
+[Container.01a0b9cea24a7c489f4558625b5eb7a7]
+TYPE=TWISTED_SHEET
+combine_mode=+
+id=01a0b9cea24a7c489f4558625b5eb7a7
+kind=container
+name=Kroucený plech
+param.cpp_history={"combine":"add","container_origin":{"children":[{"id":"01a0b9cea24a7c489f4558625b5eb7a7:origin:point","key":"point","kind":"point","locked":true,"name":"Point 0,0,0","parent_id":"01a0b9cea24a7c489f4558625b5eb7a7:origin"},{"id":"01a0b9cea24a7c489f4558625b5eb7a7:origin:axis:x","key":"axis:x","kind":"axis","locked":true,"name":"X Axis","parent_id":"01a0b9cea24a7c489f4558625b5eb7a7:origin"},{"id":"01a0b9cea24a7c489f4558625b5eb7a7:origin:axis:y","key":"axis:y","kind":"axis","locked":true,"name":"Y Axis","parent_id":"01a0b9cea24a7c489f4558625b5eb7a7:origin"},{"id":"01a0b9cea24a7c489f4558625b5eb7a7:origin:axis:z","key":"axis:z","kind":"axis","locked":true,"name":"Z Axis","parent_id":"01a0b9cea24a7c489f4558625b5eb7a7:origin"},{"id":"01a0b9cea24a7c489f4558625b5eb7a7:origin:plane:xy","key":"plane:xy","kind":"plane","locked":true,"name":"XY Plane","parent_id":"01a0b9cea24a7c489f4558625b5eb7a7:origin"},{"id":"01a0b9cea24a7c489f4558625b5eb7a7:origin:plane:yz","key":"plane:yz","kind":"plane","locked":true,"name":"YZ Plane","parent_id":"01a0b9cea24a7c489f4558625b5eb7a7:origin"},{"id":"01a0b9cea24a7c489f4558625b5eb7a7:origin:plane:xz","key":"plane:xz","kind":"plane","locked":true,"name":"XZ Plane","parent_id":"01a0b9cea24a7c489f4558625b5eb7a7:origin"}],"id":"01a0b9cea24a7c489f4558625b5eb7a7:origin","locked":true,"name":"Container Origin","parent_id":"01a0b9cea24a7c489f4558625b5eb7a7"},"feature_id":"01a0b9cea24a7c489f4558625b5eb7a8","feature_parent_id":"01a0b9cea24a7c489f4558625b5eb7a7","id":"01a0b9cea24a7c489f4558625b5eb7a7","name":"Kroucený plech","placement":{"absolute_rotation_x":90.0,"absolute_rotation_y":-3.81666561775622e-15,"absolute_rotation_z":-90.0,"orientation_back":false,"orientation_quarter_turns":0,"reference_valid":true,"references":[{"flip":false,"instance_path":"","offset":0.0,"offset_locked":false,"orientation_drives_rotation":true,"orientation_only":false,"orientation_role":"front","owner_id":"01a0b9cea24a7c489f4558625b5eb778","semantic_key":"sweep:01a0b9cea24a7c489f4558625b5eb795:profile:bend:01a0b9cea24a7c489f4558625b5eb779:section:from:32:01a0b9cea24a7c489f4558625b5eb77c:from:bend:01a0b9cea24a7c489f4558625b5eb779:outer:from:32:01a0b9cea24a7c489f4558625b5eb77b","supports_offset":false},{"flip":false,"instance_path":"","offset":0.0,"offset_locked":false,"orientation_drives_rotation":true,"orientation_only":false,"orientation_role":"top","owner_id":"01a0b9cea24a7c489f4558625b5eb778","semantic_key":"sweep:01a0b9cea24a7c489f4558625b5eb795:profile:bend:01a0b9cea24a7c489f4558625b5eb779:section:from:32:01a0b9cea24a7c489f4558625b5eb77c:from:bend:01a0b9cea24a7c489f4558625b5eb779:last:from:32:01a0b9cea24a7c489f4558625b5eb77b","supports_offset":true},{"flip":false,"instance_path":"","offset":0.0,"offset_locked":false,"orientation_drives_rotation":false,"orientation_only":false,"orientation_role":"none","owner_id":"01a0b9cea24a7c489f4558625b5eb778","semantic_key":"sweep:vertex:at:01a0b9cea24a7c489f4558625b5eb784:profile:bend:01a0b9cea24a7c489f4558625b5eb779:section:from:32:01a0b9cea24a7c489f4558625b5eb77c:from:bend:01a0b9cea24a7c489f4558625b5eb779:outer:from:32:01a0b9cea24a7c489f4558625b5eb77b","supports_offset":false}],"rotation_offset_x":0.0,"rotation_offset_y":0.0,"rotation_offset_z":0.0,"rotation_x":90.0,"rotation_y":-3.81666561775622e-15,"rotation_z":-90.0,"value_locks":[],"x":-89.44373321533203,"y":2.0,"z":1.9999999999999998},"suppressed":false,"twisted_sheet":{"angle_degrees":90.0,"attachment_material_side":-1,"developed_length_correction":0.0,"length":100.0,"reverse":false,"sheet_attachment":true,"thickness":1.0,"thickness_override":false,"width":20.0},"type":"twisted_sheet","value_locks":[]}
+param.cpp_kind=history
+rx=90.000000
+ry=-0.000000
+rz=-90.000000
+show_auxiliary_geometry=false
+suppressed=false
+tree_exposure=public
+user_visible=true
+x=-89.443733
+y=2.000000
+z=2.000000
+
+[Containers]
+items=01a0b9cea24a7c489f4558625b5eb764,01a0b9cea24a7c489f4558625b5eb778,01a0b9cea24a7c489f4558625b5eb7a7
+
+[Document]
+appearance={"bodies":{},"body":{"color":"#B9C2CC","metallic":0.0,"roughness":0.55},"groups":[],"owners":{}}
+body_color=#B9C2CC
+body_history={"active":"01a0b9cea24a7c489f4558625b5eb762","bodies":[{"cursor":3,"dependencies":[],"derived_copy":null,"entries":[{"id":"01a0b9cea24a7c489f4558625b5eb764","kind":0},{"id":"01a0b9cea24a7c489f4558625b5eb778","kind":0},{"id":"01a0b9cea24a7c489f4558625b5eb7a7","kind":0}],"id":"01a0b9cea24a7c489f4558625b5eb762","name":"Těleso 1","placement":{"absolute_rotation_x":0.0,"absolute_rotation_y":0.0,"absolute_rotation_z":0.0,"orientation_back":false,"orientation_quarter_turns":0,"reference_valid":true,"references":[{"flip":false,"instance_path":"","offset":0.0,"offset_locked":false,"orientation_drives_rotation":false,"orientation_only":false,"orientation_role":"none","owner_id":"01a0b9cea24a7c489f4558625b5eb761:origin","semantic_key":"origin:plane:xy","supports_offset":true},{"flip":false,"instance_path":"","offset":0.0,"offset_locked":false,"orientation_drives_rotation":false,"orientation_only":false,"orientation_role":"none","owner_id":"01a0b9cea24a7c489f4558625b5eb761:origin","semantic_key":"origin:plane:xz","supports_offset":true},{"flip":false,"instance_path":"","offset":0.0,"offset_locked":false,"orientation_drives_rotation":false,"orientation_only":false,"orientation_role":"none","owner_id":"01a0b9cea24a7c489f4558625b5eb761:origin","semantic_key":"origin:plane:yz","supports_offset":true},{"flip":false,"instance_path":"","offset":0.0,"offset_locked":false,"orientation_drives_rotation":true,"orientation_only":true,"orientation_role":"front","owner_id":"01a0b9cea24a7c489f4558625b5eb761:origin","semantic_key":"origin:plane:xz","supports_offset":false},{"flip":false,"instance_path":"","offset":0.0,"offset_locked":false,"orientation_drives_rotation":true,"orientation_only":true,"orientation_role":"top","owner_id":"01a0b9cea24a7c489f4558625b5eb761:origin","semantic_key":"origin:plane:xy","supports_offset":false}],"rotation_offset_x":0.0,"rotation_offset_y":0.0,"rotation_offset_z":0.0,"rotation_x":0.0,"rotation_y":-0.0,"rotation_z":0.0,"value_locks":[],"x":0.0,"y":0.0,"z":0.0},"visible":true}],"booleans":[],"cursor":1,"order":["01a0b9cea24a7c489f4558625b5eb762"]}
+body_properties=[]
+dimension_identifiers={"entries":[{"key":"parameter:placement:rotation_x","number":4,"owner":"01a0b9cea24a7c489f4558625b5eb764"},{"key":"parameter:placement:rotation_y","number":5,"owner":"01a0b9cea24a7c489f4558625b5eb764"},{"key":"parameter:placement:rotation_z","number":6,"owner":"01a0b9cea24a7c489f4558625b5eb764"},{"key":"parameter:placement:x","number":1,"owner":"01a0b9cea24a7c489f4558625b5eb764"},{"key":"parameter:placement:y","number":2,"owner":"01a0b9cea24a7c489f4558625b5eb764"},{"key":"parameter:placement:z","number":3,"owner":"01a0b9cea24a7c489f4558625b5eb764"},{"key":"dimension:01a0b9cea24a7c489f4558625b5eb777:position:first","number":7,"owner":"01a0b9cea24a7c489f4558625b5eb777"},{"key":"dimension:01a0b9cea24a7c489f4558625b5eb777:position:last","number":8,"owner":"01a0b9cea24a7c489f4558625b5eb777"},{"key":"parameter:angle","number":19,"owner":"01a0b9cea24a7c489f4558625b5eb778"},{"key":"parameter:placement:reference_offset:0","number":15,"owner":"01a0b9cea24a7c489f4558625b5eb778"},{"key":"parameter:placement:reference_offset:1","number":16,"owner":"01a0b9cea24a7c489f4558625b5eb778"},{"key":"parameter:placement:reference_offset:2","number":17,"owner":"01a0b9cea24a7c489f4558625b5eb778"},{"key":"parameter:placement:rotation_x","number":12,"owner":"01a0b9cea24a7c489f4558625b5eb778"},{"key":"parameter:placement:rotation_y","number":13,"owner":"01a0b9cea24a7c489f4558625b5eb778"},{"key":"parameter:placement:rotation_z","number":14,"owner":"01a0b9cea24a7c489f4558625b5eb778"},{"key":"parameter:placement:x","number":9,"owner":"01a0b9cea24a7c489f4558625b5eb778"},{"key":"parameter:placement:y","number":10,"owner":"01a0b9cea24a7c489f4558625b5eb778"},{"key":"parameter:placement:z","number":11,"owner":"01a0b9cea24a7c489f4558625b5eb778"},{"key":"parameter:profile_offset","number":20,"owner":"01a0b9cea24a7c489f4558625b5eb778"},{"key":"parameter:radius","number":18,"owner":"01a0b9cea24a7c489f4558625b5eb778"},{"key":"dimension:01a0b9cea24a7c489f4558625b5eb781:angle","number":22,"owner":"01a0b9cea24a7c489f4558625b5eb781"},{"key":"dimension:01a0b9cea24a7c489f4558625b5eb781:radius","number":21,"owner":"01a0b9cea24a7c489f4558625b5eb781"},{"key":"dimension:01a0b9cea24a7c489f4558625b5eb795:length","number":23,"owner":"01a0b9cea24a7c489f4558625b5eb781"},{"key":"dimension:01a0b9cea24a7c489f4558625b5eb789:difference:first","number":24,"owner":"01a0b9cea24a7c489f4558625b5eb789"},{"key":"dimension:01a0b9cea24a7c489f4558625b5eb789:difference:last","number":25,"owner":"01a0b9cea24a7c489f4558625b5eb789"},{"key":"parameter:placement:reference_offset:0","number":32,"owner":"01a0b9cea24a7c489f4558625b5eb7a7"},{"key":"parameter:placement:reference_offset:1","number":33,"owner":"01a0b9cea24a7c489f4558625b5eb7a7"},{"key":"parameter:placement:reference_offset:2","number":34,"owner":"01a0b9cea24a7c489f4558625b5eb7a7"},{"key":"parameter:placement:rotation_x","number":29,"owner":"01a0b9cea24a7c489f4558625b5eb7a7"},{"key":"parameter:placement:rotation_y","number":30,"owner":"01a0b9cea24a7c489f4558625b5eb7a7"},{"key":"parameter:placement:rotation_z","number":31,"owner":"01a0b9cea24a7c489f4558625b5eb7a7"},{"key":"parameter:placement:x","number":26,"owner":"01a0b9cea24a7c489f4558625b5eb7a7"},{"key":"parameter:placement:y","number":27,"owner":"01a0b9cea24a7c489f4558625b5eb7a7"},{"key":"parameter:placement:z","number":28,"owner":"01a0b9cea24a7c489f4558625b5eb7a7"}],"next":35}
+dimension_layouts=[]
+document_id=01a0b9cea24a7c489f4558625b5eb761
+family={"evaluated":{},"parent":"","row":""}
+family_table={"bindings":{},"columns":[],"instances":[]}
+format_version=41
+history_cursor=3
+measurements=[]
+name=01
+named_views=[]
+reference_errors={}
+sections=[]
+type=part
+
+[DocumentPrecision]
+angular_tolerance=0.001
+decimal_places=3
+linear_tolerance=0.001
+mesh_deflection=0.1
+sheet_cut_tolerance=0.05
+
+[DocumentUnits]
+Angle=deg
+Length=mm
+Mass=kg
+Stress=MPa
+Temperature=C
+Time=s
+
+[Entity.01a0b9cea24a7c489f4558625b5eb765]
+combine_mode=+
+id=01a0b9cea24a7c489f4558625b5eb765
+kind=flat
+name=Tabule
+param.cpp_feature_id=01a0b9cea24a7c489f4558625b5eb765
+param.feature_id=01a0b9cea24a7c489f4558625b5eb765
+param.feature_parent_id=01a0b9cea24a7c489f4558625b5eb764
+param.flat={"direction":"forward","sheet_attachment":false,"sketch_id":"01a0b9cea24a7c489f4558625b5eb763","thickness":1.0,"thickness_override":false}
+param.operation=add
+param.unit=mm
+param.value_locks=[]
+rx=0.000000
+ry=0.000000
+rz=0.000000
+show_auxiliary_geometry=false
+suppressed=false
+tree_exposure=internal
+user_visible=true
+x=0.000000
+y=0.000000
+z=0.000000
+
+[Entity.01a0b9cea24a7c489f4558625b5eb779]
+combine_mode=+
+id=01a0b9cea24a7c489f4558625b5eb779
+kind=bend
+name=Profil plechu
+param.bend={"angle":90.0,"auxiliary_sketches":["{\n  \"arcs\": [\n    {\n      \"center\": \"01a0b9cea24a7c489f4558625b5eb782\",\n      \"construction\": false,\n      \"end\": \"01a0b9cea24a7c489f4558625b5eb784\",\n      \"end_angle\": 0.0,\n      \"id\": \"01a0b9cea24a7c489f4558625b5eb785\",\n      \"radius\": 2.0,\n      \"start\": \"01a0b9cea24a7c489f4558625b5eb783\",\n      \"start_angle\": -1.5707963267948966\n    }\n  ],\n  \"bsplines\": [],\n  \"circles\": [],\n  \"constraints\": [\n    {\n      \"first\": \"01a0b9cea24a7c489f4558625b5eb782\",\n      \"geometry\": \"sketch_axis:y\",\n      \"id\": \"01a0b9cea24a7c489f4558625b5eb786\",\n      \"kind\": \"point_on_line\",\n      \"second\": \"\",\n      \"second_geometry\": \"\",\n      \"suppressed\": false,\n      \"tangent_internal\": false\n    },\n    {\n      \"first\": \"01a0b9cea24a7c489f4558625b5eb784\",\n      \"geometry\": \"01a0b9cea24a7c489f4558625b5eb785\",\n      \"id\": \"01a0b9cea24a7c489f4558625b5eb797\",\n      \"kind\": \"tangent\",\n      \"second\": \"\",\n      \"second_geometry\": \"01a0b9cea24a7c489f4558625b5eb795\",\n      \"suppressed\": false,\n      \"tangent_internal\": false\n    }\n  ],\n  \"corner_radii\": [],\n  \"curve_supports\": [],\n  \"curve_trims\": [],\n  \"dimension_layouts\": [],\n  \"dimensions\": [\n    {\n      \"angle_presentation_reversed\": false,\n      \"angle_sector\": -1,\n      \"display_text_override\": \"\",\n      \"driving\": true,\n      \"first\": \"\",\n      \"geometry\": \"01a0b9cea24a7c489f4558625b5eb785\",\n      \"id\": \"01a0b9cea24a7c489f4558625b5eb781:radius\",\n      \"kind\": \"radius\",\n      \"locked\": true,\n      \"lower_tolerance\": \"\",\n      \"placement\": [\n        1.0,\n        1.0\n      ],\n      \"prefix\": \"\",\n      \"second\": \"\",\n      \"second_geometry\": \"\",\n      \"single_tolerance\": \"\",\n      \"solution_side\": 1,\n      \"suffix\": \"\",\n      \"suppressed\": false,\n      \"symmetric_tolerance\": \"\",\n      \"third_geometry\": \"\",\n      \"tolerance_mode\": \"\",\n      \"upper_tolerance\": \"\",\n      \"value\": 2.0\n    },\n    {\n      \"angle_presentation_reversed\": false,\n      \"angle_sector\": -1,\n      \"display_text_override\": \"\",\n      \"driving\": true,\n      \"first\": \"01a0b9cea24a7c489f4558625b5eb783\",\n      \"geometry\": \"01a0b9cea24a7c489f4558625b5eb784\",\n      \"id\": \"01a0b9cea24a7c489f4558625b5eb781:angle\",\n      \"kind\": \"angle_three_point\",\n      \"locked\": false,\n      \"lower_tolerance\": \"\",\n      \"placement\": [\n        2.6,\n        1.6\n      ],\n      \"prefix\": \"\",\n      \"second\": \"01a0b9cea24a7c489f4558625b5eb782\",\n      \"second_geometry\": \"\",\n      \"single_tolerance\": \"\",\n      \"solution_side\": 1,\n      \"suffix\": \"\",\n      \"suppressed\": false,\n      \"symmetric_tolerance\": \"\",\n      \"third_geometry\": \"\",\n      \"tolerance_mode\": \"\",\n      \"upper_tolerance\": \"\",\n      \"value\": 90.0\n    },\n    {\n      \"angle_presentation_reversed\": false,\n      \"angle_sector\": -1,\n      \"display_text_override\": \"\",\n      \"driving\": true,\n      \"first\": \"01a0b9cea24a7c489f4558625b5eb784\",\n      \"geometry\": \"\",\n      \"id\": \"01a0b9cea24a7c489f4558625b5eb795:length\",\n      \"kind\": \"distance\",\n      \"locked\": false,\n      \"lower_tolerance\": \"\",\n      \"placement\": [\n        10.000000000000002,\n        30.0\n      ],\n      \"prefix\": \"\",\n      \"second\": \"01a0b9cea24a7c489f4558625b5eb794\",\n      \"second_geometry\": \"\",\n      \"single_tolerance\": \"\",\n      \"solution_side\": 1,\n      \"suffix\": \"\",\n      \"suppressed\": false,\n      \"symmetric_tolerance\": \"\",\n      \"third_geometry\": \"\",\n      \"tolerance_mode\": \"\",\n      \"upper_tolerance\": \"\",\n      \"value\": 20.0\n    }\n  ],\n  \"ellipses\": [],\n  \"elliptical_arcs\": [],\n  \"external_references\": [],\n  \"format\": \"zima-cad-cpp-sketch\",\n  \"id\": \"01a0b9cea24a7c489f4558625b5eb781\",\n  \"import_blocks\": [],\n  \"name\": \"Trajektorie ohybu\",\n  \"offsets\": [],\n  \"owner_container_id\": \"01a0b9cea24a7c489f4558625b5eb778\",\n  \"plane\": \"xy\",\n  \"plane_auto\": true,\n  \"plane_offset\": 0.0,\n  \"plane_reference_owner_id\": \"01a0b9cea24a7c489f4558625b5eb778:bend:path\",\n  \"points\": [\n    {\n      \"construction\": false,\n      \"fixed\": false,\n      \"id\": \"01a0b9cea24a7c489f4558625b5eb782\",\n      \"x\": 0.0,\n      \"y\": 2.0\n    },\n    {\n      \"construction\": false,\n      \"fixed\": true,\n      \"id\": \"01a0b9cea24a7c489f4558625b5eb783\",\n      \"x\": 0.0,\n      \"y\": 0.0\n    },\n    {\n      \"construction\": false,\n      \"fixed\": false,\n      \"id\": \"01a0b9cea24a7c489f4558625b5eb784\",\n      \"x\": 2.0,\n      \"y\": 1.9999999999999998\n    },\n    {\n      \"construction\": false,\n      \"fixed\": false,\n      \"id\": \"01a0b9cea24a7c489f4558625b5eb794\",\n      \"x\": 2.0000000000000013,\n      \"y\": 22.0\n    }\n  ],\n  \"resolved_normal\": [\n    1.0,\n    -6.123233995736766e-17,\n    6.123233995736766e-17\n  ],\n  \"resolved_origin\": [\n    -89.44373321533203,\n    0.0,\n    0.0\n  ],\n  \"resolved_x_axis\": [\n    6.123233995736766e-17,\n    1.0,\n    3.749399456654644e-33\n  ],\n  \"resolved_y_axis\": [\n    -6.123233995736766e-17,\n    0.0,\n    1.0\n  ],\n  \"segments\": [\n    {\n      \"centerline\": false,\n      \"construction\": false,\n      \"first\": \"01a0b9cea24a7c489f4558625b5eb784\",\n      \"id\": \"01a0b9cea24a7c489f4558625b5eb795\",\n      \"second\": \"01a0b9cea24a7c489f4558625b5eb794\"\n    }\n  ],\n  \"suppressed\": false,\n  \"texts\": [],\n  \"version\": 34\n}","{\n  \"arcs\": [],\n  \"bsplines\": [],\n  \"circles\": [],\n  \"constraints\": [\n    {\n      \"first\": \"01a0b9cea24a7c489f4558625b5eb789:endpoint:first\",\n      \"geometry\": \"sketch_axis:x\",\n      \"id\": \"01a0b9cea24a7c489f4558625b5eb78c\",\n      \"kind\": \"point_on_line\",\n      \"second\": \"\",\n      \"second_geometry\": \"\",\n      \"suppressed\": false,\n      \"tangent_internal\": false\n    },\n    {\n      \"first\": \"01a0b9cea24a7c489f4558625b5eb789:endpoint:last\",\n      \"geometry\": \"sketch_axis:x\",\n      \"id\": \"01a0b9cea24a7c489f4558625b5eb790\",\n      \"kind\": \"point_on_line\",\n      \"second\": \"\",\n      \"second_geometry\": \"\",\n      \"suppressed\": false,\n      \"tangent_internal\": false\n    }\n  ],\n  \"corner_radii\": [],\n  \"curve_supports\": [],\n  \"curve_trims\": [],\n  \"dimension_layouts\": [],\n  \"dimensions\": [\n    {\n      \"angle_presentation_reversed\": false,\n      \"angle_sector\": -1,\n      \"display_text_override\": \"\",\n      \"driving\": true,\n      \"first\": \"01a0b9cea24a7c489f4558625b5eb789:reference:first\",\n      \"geometry\": \"\",\n      \"id\": \"01a0b9cea24a7c489f4558625b5eb789:difference:first\",\n      \"kind\": \"distance_x\",\n      \"locked\": false,\n      \"lower_tolerance\": \"\",\n      \"placement\": [\n        0.0,\n        -8.0\n      ],\n      \"prefix\": \"\",\n      \"second\": \"01a0b9cea24a7c489f4558625b5eb789:endpoint:first\",\n      \"second_geometry\": \"\",\n      \"single_tolerance\": \"\",\n      \"solution_side\": -1,\n      \"suffix\": \"\",\n      \"suppressed\": false,\n      \"symmetric_tolerance\": \"\",\n      \"third_geometry\": \"\",\n      \"tolerance_mode\": \"\",\n      \"upper_tolerance\": \"\",\n      \"value\": 0.0\n    },\n    {\n      \"angle_presentation_reversed\": false,\n      \"angle_sector\": -1,\n      \"display_text_override\": \"\",\n      \"driving\": true,\n      \"first\": \"01a0b9cea24a7c489f4558625b5eb789:reference:last\",\n      \"geometry\": \"\",\n      \"id\": \"01a0b9cea24a7c489f4558625b5eb789:difference:last\",\n      \"kind\": \"distance_x\",\n      \"locked\": false,\n      \"lower_tolerance\": \"\",\n      \"placement\": [\n        40.0,\n        8.0\n      ],\n      \"prefix\": \"\",\n      \"second\": \"01a0b9cea24a7c489f4558625b5eb789:endpoint:last\",\n      \"second_geometry\": \"\",\n      \"single_tolerance\": \"\",\n      \"solution_side\": 1,\n      \"suffix\": \"\",\n      \"suppressed\": false,\n      \"symmetric_tolerance\": \"\",\n      \"third_geometry\": \"\",\n      \"tolerance_mode\": \"\",\n      \"upper_tolerance\": \"\",\n      \"value\": 0.0\n    }\n  ],\n  \"ellipses\": [],\n  \"elliptical_arcs\": [],\n  \"external_references\": [],\n  \"format\": \"zima-cad-cpp-sketch\",\n  \"id\": \"01a0b9cea24a7c489f4558625b5eb789\",\n  \"import_blocks\": [],\n  \"name\": \"Koncový profil ohybu\",\n  \"offsets\": [],\n  \"owner_container_id\": \"01a0b9cea24a7c489f4558625b5eb778\",\n  \"plane\": \"xy\",\n  \"plane_auto\": true,\n  \"plane_offset\": 0.0,\n  \"plane_reference_owner_id\": \"01a0b9cea24a7c489f4558625b5eb778:bend:end\",\n  \"points\": [\n    {\n      \"construction\": true,\n      \"fixed\": true,\n      \"id\": \"01a0b9cea24a7c489f4558625b5eb789:reference:first\",\n      \"x\": -89.44373321533203,\n      \"y\": 0.0\n    },\n    {\n      \"construction\": false,\n      \"fixed\": false,\n      \"id\": \"01a0b9cea24a7c489f4558625b5eb789:endpoint:first\",\n      \"x\": -89.44373321533203,\n      \"y\": 0.0\n    },\n    {\n      \"construction\": true,\n      \"fixed\": true,\n      \"id\": \"01a0b9cea24a7c489f4558625b5eb789:reference:last\",\n      \"x\": 0.0,\n      \"y\": 0.0\n    },\n    {\n      \"construction\": false,\n      \"fixed\": false,\n      \"id\": \"01a0b9cea24a7c489f4558625b5eb789:endpoint:last\",\n      \"x\": 0.0,\n      \"y\": 0.0\n    }\n  ],\n  \"resolved_normal\": [\n    -6.123233995736766e-17,\n    6.123233995736766e-17,\n    1.0\n  ],\n  \"resolved_origin\": [\n    -89.44373321533203,\n    2.0,\n    1.9999999999999998\n  ],\n  \"resolved_x_axis\": [\n    -1.0,\n    6.123233995736766e-17,\n    -6.123233995736766e-17\n  ],\n  \"resolved_y_axis\": [\n    -6.123233995736766e-17,\n    -1.0,\n    6.123233995736766e-17\n  ],\n  \"segments\": [\n    {\n      \"centerline\": false,\n      \"construction\": false,\n      \"first\": \"01a0b9cea24a7c489f4558625b5eb789:endpoint:first\",\n      \"id\": \"01a0b9cea24a7c489f4558625b5eb792\",\n      \"second\": \"01a0b9cea24a7c489f4558625b5eb789:endpoint:last\"\n    },\n    {\n      \"centerline\": false,\n      \"construction\": true,\n      \"first\": \"01a0b9cea24a7c489f4558625b5eb789:reference:first\",\n      \"id\": \"01a0b9cea24a7c489f4558625b5eb793\",\n      \"second\": \"01a0b9cea24a7c489f4558625b5eb789:reference:last\"\n    }\n  ],\n  \"suppressed\": false,\n  \"texts\": [],\n  \"version\": 34\n}"],"k_factor":0.318309886184,"k_factor_override":false,"radius":1.0,"radius_follows_thickness":true,"sheet_attachment":true,"sketch_id":"01a0b9cea24a7c489f4558625b5eb777","thickness":1.0,"thickness_override":false}
+param.cpp_feature_id=01a0b9cea24a7c489f4558625b5eb779
+param.feature_id=01a0b9cea24a7c489f4558625b5eb779
+param.feature_parent_id=01a0b9cea24a7c489f4558625b5eb778
+param.operation=add
+param.unit=mm
+param.value_locks=[]
+rx=0.000000
+ry=0.000000
+rz=0.000000
+show_auxiliary_geometry=false
+suppressed=false
+tree_exposure=internal
+user_visible=true
+x=0.000000
+y=0.000000
+z=0.000000
+
+[Entity.01a0b9cea24a7c489f4558625b5eb7a8]
+combine_mode=+
+id=01a0b9cea24a7c489f4558625b5eb7a8
+kind=twisted_sheet
+name=Kroucený plech
+param.cpp_feature_id=01a0b9cea24a7c489f4558625b5eb7a8
+param.feature_id=01a0b9cea24a7c489f4558625b5eb7a8
+param.feature_parent_id=01a0b9cea24a7c489f4558625b5eb7a7
+param.operation=add
+param.twisted_sheet={"angle_degrees":90.0,"attachment_material_side":-1,"developed_length_correction":0.0,"length":100.0,"reverse":false,"sheet_attachment":true,"thickness":1.0,"thickness_override":false,"width":20.0}
+param.unit=mm
+param.value_locks=[]
+rx=0.000000
+ry=0.000000
+rz=0.000000
+show_auxiliary_geometry=false
+suppressed=false
+tree_exposure=internal
+user_visible=true
+x=0.000000
+y=0.000000
+z=0.000000
+
+[Material]
+Name=S235JR
+
+[MaterialDescriptions]
+CONDITION\cs=Stav materiálu
+CONDITION\de=Materialzustand
+CONDITION\en=Material condition
+CONDITION\fr=État du matériau
+CONDITION\ru=Состояние материала
+EMISSIVITY\cs=Emisivita
+EMISSIVITY\en=Emissivity
+EMISSIVITY\ru=Степень черноты
+HARDNESS\cs=Tvrdost
+HARDNESS\en=Hardness
+HARDNESS\ru=Твёрдость
+MASS_DENSITY\cs=Hustota
+MASS_DENSITY\de=Massendichte
+MASS_DENSITY\en=Mass density
+MASS_DENSITY\fr=Masse volumique
+MASS_DENSITY\ru=Плотность
+MATERIAL_NAME\cs=Materiál
+MATERIAL_NAME\de=Material
+MATERIAL_NAME\en=Material
+MATERIAL_NAME\fr=Matériau
+MATERIAL_NAME\ru=Материал
+POISSON_RATIO\cs=Poissonovo číslo
+POISSON_RATIO\en=Poisson ratio
+POISSON_RATIO\ru=Коэффициент Пуассона
+SHEAR_MODULUS\cs=Modul pružnosti ve smyku
+SHEAR_MODULUS\en=Shear modulus
+SHEAR_MODULUS\ru=Модуль сдвига
+SHEETMETAL_K_FACTOR\cs=K-faktor plechu
+SHEETMETAL_K_FACTOR\en=Sheet-metal K-factor
+SHEETMETAL_K_FACTOR\ru=Коэффициент K листового металла
+SPECIFIC_HEAT\cs=Měrná tepelná kapacita
+SPECIFIC_HEAT\en=Specific heat
+SPECIFIC_HEAT\ru=Удельная теплоёмкость
+STRESS_LIMIT_FOR_COMPRESSION\cs=Mez napětí v tlaku
+STRESS_LIMIT_FOR_COMPRESSION\en=Compressive stress limit
+STRESS_LIMIT_FOR_COMPRESSION\ru=Предел прочности при сжатии
+STRESS_LIMIT_FOR_SHEAR\cs=Mez smykového napětí
+STRESS_LIMIT_FOR_SHEAR\en=Shear stress limit
+STRESS_LIMIT_FOR_SHEAR\ru=Предел прочности при сдвиге
+STRESS_LIMIT_FOR_TENSION\cs=Mez napětí v tahu
+STRESS_LIMIT_FOR_TENSION\en=Tensile stress limit
+STRESS_LIMIT_FOR_TENSION\ru=Предел прочности при растяжении
+STRUCTURAL_DAMPING_COEFFICIENT\cs=Součinitel konstrukčního tlumení
+STRUCTURAL_DAMPING_COEFFICIENT\en=Structural damping coefficient
+STRUCTURAL_DAMPING_COEFFICIENT\ru=Коэффициент конструкционного демпфирования
+THERMAL_CONDUCTIVITY\cs=Tepelná vodivost
+THERMAL_CONDUCTIVITY\en=Thermal conductivity
+THERMAL_CONDUCTIVITY\ru=Теплопроводность
+THERMAL_EXPANSION_COEFFICIENT\cs=Součinitel teplotní roztažnosti
+THERMAL_EXPANSION_COEFFICIENT\en=Thermal expansion coefficient
+THERMAL_EXPANSION_COEFFICIENT\ru=Коэффициент теплового расширения
+THERM_EXPANSION_REF_TEMPERATURE\cs=Referenční teplota roztažnosti
+THERM_EXPANSION_REF_TEMPERATURE\en=Thermal expansion reference temperature
+THERM_EXPANSION_REF_TEMPERATURE\ru=Опорная температура расширения
+YOUNG_MODULUS\cs=Youngův modul
+YOUNG_MODULUS\en=Young's modulus
+YOUNG_MODULUS\ru=Модуль Юнга
+
+[MaterialProperties]
+CONDITION=EN 10025-2, válcovaný stav, reprezentativní hodnoty při 20 °C
+EMISSIVITY=7.000000E-01
+HARDNESS=120 HB
+MASS_DENSITY=7.850000E-06
+POISSON_RATIO=3.000000E-01
+SHEAR_MODULUS=8.076923E+04
+SHEETMETAL_K_FACTOR=0.318309886184
+SPECIFIC_HEAT=4.700000E+08
+STRESS_LIMIT_FOR_COMPRESSION=2.350000E+02
+STRESS_LIMIT_FOR_SHEAR=1.360000E+02
+STRESS_LIMIT_FOR_TENSION=2.350000E+02
+STRUCTURAL_DAMPING_COEFFICIENT=2.000000E-03
+THERMAL_CONDUCTIVITY=5.000000E+04
+THERMAL_EXPANSION_COEFFICIENT=1.200000E-05
+THERM_EXPANSION_REF_TEMPERATURE=20
+YOUNG_MODULUS=2.100000E+05
+
+[MaterialUnits]
+EMISSIVITY=1
+MASS_DENSITY=kg/mm^3
+POISSON_RATIO=1
+SHEAR_MODULUS=MPa
+SHEETMETAL_K_FACTOR=1
+SPECIFIC_HEAT=mm^2/(s^2*C)
+STRESS_LIMIT_FOR_COMPRESSION=MPa
+STRESS_LIMIT_FOR_SHEAR=MPa
+STRESS_LIMIT_FOR_TENSION=MPa
+STRUCTURAL_DAMPING_COEFFICIENT=1
+THERMAL_CONDUCTIVITY=mm*kg/(s^3*C)
+THERMAL_EXPANSION_COEFFICIENT=1/C
+THERM_EXPANSION_REF_TEMPERATURE=C
+YOUNG_MODULUS=MPa
+
+[Relations]
+Data=[{"expression":"model.mass","target":"mass"}]
+
+[Sketch.01a0b9cea24a7c489f4558625b5eb763]
+data={"arcs":[],"bsplines":[],"circles":[],"constraints":[{"first":"01a0b9cea24a7c489f4558625b5eb767","geometry":"","id":"01a0b9cea24a7c489f4558625b5eb76f","kind":"horizontal","second":"01a0b9cea24a7c489f4558625b5eb768","second_geometry":"","suppressed":false,"tangent_internal":false},{"first":"01a0b9cea24a7c489f4558625b5eb768","geometry":"","id":"01a0b9cea24a7c489f4558625b5eb770","kind":"vertical","second":"01a0b9cea24a7c489f4558625b5eb76a","second_geometry":"","suppressed":false,"tangent_internal":false},{"first":"01a0b9cea24a7c489f4558625b5eb76a","geometry":"","id":"01a0b9cea24a7c489f4558625b5eb771","kind":"horizontal","second":"01a0b9cea24a7c489f4558625b5eb76c","second_geometry":"","suppressed":false,"tangent_internal":false},{"first":"01a0b9cea24a7c489f4558625b5eb767","geometry":"","id":"01a0b9cea24a7c489f4558625b5eb772","kind":"vertical","second":"01a0b9cea24a7c489f4558625b5eb76c","second_geometry":"","suppressed":false,"tangent_internal":false},{"first":"01a0b9cea24a7c489f4558625b5eb767","geometry":"","id":"01a0b9cea24a7c489f4558625b5eb773","kind":"point_reference","second":"sketch_origin","second_geometry":"","suppressed":false,"tangent_internal":false}],"corner_radii":[],"curve_supports":[],"curve_trims":[],"dimension_layouts":[],"dimensions":[],"ellipses":[],"elliptical_arcs":[],"external_references":[],"format":"zima-cad-cpp-sketch","id":"01a0b9cea24a7c489f4558625b5eb763","import_blocks":[],"name":"Tabule","offsets":[],"owner_container_id":"01a0b9cea24a7c489f4558625b5eb764","plane":"xy","plane_auto":true,"plane_offset":0.0,"plane_reference_owner_id":"","points":[{"construction":false,"fixed":false,"id":"01a0b9cea24a7c489f4558625b5eb767","x":0.0,"y":0.0},{"construction":false,"fixed":false,"id":"01a0b9cea24a7c489f4558625b5eb768","x":-89.44373321533203,"y":0.0},{"construction":false,"fixed":false,"id":"01a0b9cea24a7c489f4558625b5eb76a","x":-89.44373321533203,"y":-62.87860870361389},{"construction":false,"fixed":false,"id":"01a0b9cea24a7c489f4558625b5eb76c","x":0.0,"y":-62.87860870361389}],"resolved_normal":[0.0,0.0,1.0],"resolved_origin":[0.0,0.0,0.0],"resolved_x_axis":[1.0,0.0,0.0],"resolved_y_axis":[0.0,1.0,0.0],"segments":[{"centerline":false,"construction":false,"first":"01a0b9cea24a7c489f4558625b5eb767","id":"01a0b9cea24a7c489f4558625b5eb769","second":"01a0b9cea24a7c489f4558625b5eb768"},{"centerline":false,"construction":false,"first":"01a0b9cea24a7c489f4558625b5eb768","id":"01a0b9cea24a7c489f4558625b5eb76b","second":"01a0b9cea24a7c489f4558625b5eb76a"},{"centerline":false,"construction":false,"first":"01a0b9cea24a7c489f4558625b5eb76a","id":"01a0b9cea24a7c489f4558625b5eb76d","second":"01a0b9cea24a7c489f4558625b5eb76c"},{"centerline":false,"construction":false,"first":"01a0b9cea24a7c489f4558625b5eb76c","id":"01a0b9cea24a7c489f4558625b5eb76e","second":"01a0b9cea24a7c489f4558625b5eb767"}],"suppressed":false,"texts":[],"version":34}
+
+[Sketch.01a0b9cea24a7c489f4558625b5eb777]
+data={"arcs":[],"bsplines":[],"circles":[],"constraints":[{"first":"01a0b9cea24a7c489f4558625b5eb77a","geometry":"sketch_axis:x","id":"01a0b9cea24a7c489f4558625b5eb77d","kind":"point_on_line","second":"","second_geometry":"","suppressed":false,"tangent_internal":false},{"first":"01a0b9cea24a7c489f4558625b5eb77b","geometry":"sketch_axis:x","id":"01a0b9cea24a7c489f4558625b5eb77f","kind":"point_on_line","second":"","second_geometry":"","suppressed":false,"tangent_internal":false}],"corner_radii":[],"curve_supports":[],"curve_trims":[],"dimension_layouts":[],"dimensions":[{"angle_presentation_reversed":false,"angle_sector":-1,"display_text_override":"","driving":true,"first":"01a0b9cea24a7c489f4558625b5eb777:attachment:first","geometry":"","id":"01a0b9cea24a7c489f4558625b5eb777:position:first","kind":"distance_x","locked":false,"lower_tolerance":"","placement":[-5.0,-8.0],"prefix":"","second":"01a0b9cea24a7c489f4558625b5eb77a","second_geometry":"","single_tolerance":"","solution_side":1,"suffix":"","suppressed":false,"symmetric_tolerance":"","third_geometry":"","tolerance_mode":"","upper_tolerance":"","value":0.0},{"angle_presentation_reversed":false,"angle_sector":-1,"display_text_override":"","driving":true,"first":"01a0b9cea24a7c489f4558625b5eb777:attachment:last","geometry":"","id":"01a0b9cea24a7c489f4558625b5eb777:position:last","kind":"distance_x","locked":false,"lower_tolerance":"","placement":[20.0,8.0],"prefix":"","second":"01a0b9cea24a7c489f4558625b5eb77b","second_geometry":"","single_tolerance":"","solution_side":-1,"suffix":"","suppressed":false,"symmetric_tolerance":"","third_geometry":"","tolerance_mode":"","upper_tolerance":"","value":-0.0}],"ellipses":[],"elliptical_arcs":[],"external_references":[{"broken":false,"cached_paths":[],"cached_points":[[-89.44373321533203,-5.476849079297309e-15]],"context_assembly_document_id":"","context_instance_path":"","exact_spline":null,"id":"01a0b9cea24a7c489f4558625b5eb777:attachment:first","infinite":false,"kind":"point","source_document_id":"01a0b9cea24a7c489f4558625b5eb761","source_instance_path":"","source_owner_id":"01a0b9cea24a7c489f4558625b5eb764","source_semantic_key":"start:01a0b9cea24a7c489f4558625b5eb767"},{"broken":false,"cached_paths":[],"cached_points":[[0.0,0.0]],"context_assembly_document_id":"","context_instance_path":"","exact_spline":null,"id":"01a0b9cea24a7c489f4558625b5eb777:attachment:last","infinite":false,"kind":"point","source_document_id":"01a0b9cea24a7c489f4558625b5eb761","source_instance_path":"","source_owner_id":"01a0b9cea24a7c489f4558625b5eb764","source_semantic_key":"start:01a0b9cea24a7c489f4558625b5eb768"}],"format":"zima-cad-cpp-sketch","id":"01a0b9cea24a7c489f4558625b5eb777","import_blocks":[],"name":"Profil plechu","offsets":[],"owner_container_id":"01a0b9cea24a7c489f4558625b5eb778","plane":"xy","plane_auto":true,"plane_offset":0.0,"plane_reference_owner_id":"","points":[{"construction":false,"fixed":false,"id":"01a0b9cea24a7c489f4558625b5eb77a","x":-89.44373321533203,"y":0.0},{"construction":false,"fixed":false,"id":"01a0b9cea24a7c489f4558625b5eb77b","x":0.0,"y":0.0}],"resolved_normal":[6.123233995736766e-17,1.0,3.749399456654644e-33],"resolved_origin":[-89.44373321533203,0.0,0.0],"resolved_x_axis":[-1.0,6.123233995736766e-17,-6.123233995736766e-17],"resolved_y_axis":[-6.123233995736766e-17,0.0,1.0],"segments":[{"centerline":false,"construction":false,"first":"01a0b9cea24a7c489f4558625b5eb77a","id":"01a0b9cea24a7c489f4558625b5eb77c","second":"01a0b9cea24a7c489f4558625b5eb77b"}],"suppressed":false,"texts":[],"version":34}
+
+[Sketches]
+items=01a0b9cea24a7c489f4558625b5eb763,01a0b9cea24a7c489f4558625b5eb777
+
+[UserParameterLabels]
+approved_by\cs=schvalil
+approved_by\de=Genehmigt von
+approved_by\en=Approved
+approved_by\fr=Approuvé par
+approved_by\ru=Утвердил
+date\cs=datum
+date\de=Datum
+date\en=Date
+date\fr=Date
+date\ru=Дата
+drawn_by\cs=kreslil
+drawn_by\de=Gezeichnet von
+drawn_by\en=Drew
+drawn_by\fr=Dessiné par
+drawn_by\ru=Разработал
+general_tolerance\cs=presnost
+general_tolerance\de=Genauigkeit
+general_tolerance\en=Accuracy
+general_tolerance\fr=Précision
+general_tolerance\ru=Общие допуски
+mass\cs=hmotnost
+mass\de=Gewicht
+mass\en=Weight
+mass\fr=Masse
+mass\ru=Масса
+material\cs=material
+material\de=Material
+material\en=Material
+material\fr=Matériau
+material\ru=Материал
+name\cs=nazev
+name\de=Name
+name\en=Name
+name\fr=Nom
+name\ru=Наименование
+quantity\cs=mnozstvi
+quantity\de=Menge
+quantity\en=Quantity
+quantity\fr=Quantité
+quantity\ru=Количество
+revision\cs=verze
+revision\de=Version
+revision\en=Version
+revision\fr=Version
+revision\ru=Версия
+standard\cs=norma
+standard\de=Norm
+standard\en=Standard
+standard\fr=Norme
+standard\ru=Стандарт
+stock\cs=polotovar
+stock\de=Rohteil
+stock\en=Stock
+stock\fr=Ébauche
+stock\ru=Заготовка
+tolerancing\cs=tolerovani
+tolerancing\de=Tolerierung
+tolerancing\en=Tolerancing
+tolerancing\fr=Tolérancement
+tolerancing\ru=Назначение допусков
+
+[UserParameterValues]
+approved_by=
+date=
+drawn_by=
+general_tolerance=ISO 2768-mK
+mass=0.076
+material=S235JR
+name=
+quantity=1
+revision=00
+standard=
+stock=
+tolerancing=ISO 8015
+
+[UserParameters]
+Order=name, standard, stock, material, quantity, drawn_by, approved_by, revision, date, general_tolerance, tolerancing, mass

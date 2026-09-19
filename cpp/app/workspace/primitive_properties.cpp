@@ -894,6 +894,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         primitive_reference_dialog_ = dialog;
         // Opening edits (including View dimensions) keep the user's camera.
         const bool fit_new_basic_preview = !edit_mode &&
+            feature_kind != zima::document::FeatureKind::TwistedSheet &&
             feature_kind != zima::document::FeatureKind::Thread &&
             feature_kind != zima::document::FeatureKind::Extrusion &&
             feature_kind != zima::document::FeatureKind::Revolution &&
@@ -902,11 +903,22 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         const bool defer_profile_scene_refresh =
             feature_kind == zima::document::FeatureKind::Extrusion ||
             feature_kind == zima::document::FeatureKind::Revolution;
-        placement_preview = [this, fit_new_basic_preview,
+        placement_preview = [this, fit_new_basic_preview, edit_mode,
                              defer_profile_scene_refresh](
                 const zima::document::HistoryContainer& preview)
                 -> zima::document::HistoryContainer {
             if (primitive_reference_dialog_ == nullptr) return preview;
+            if (!edit_mode && preview.feature_kind ==
+                    zima::document::FeatureKind::TwistedSheet &&
+                preview.placement.references.empty()) {
+                viewer_->set_transient_edges({});
+                primitive_origin_preview_mesh_.reset();
+                parameter_dimension_preview_.reset();
+                viewer_->set_feature_preview_owners({});
+                preserve_view_on_refresh_ = true;
+                refresh_scene();
+                return preview;
+            }
             auto resolved_preview = preview;
             auto& placement = resolved_preview.placement;
             // Creation and later Properties editing must resolve the same
@@ -997,6 +1009,22 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
             preview_geometry.constructions.push_back(std::move(origin_preview));
             primitive_origin_preview_mesh_ =
                 preview_geometry.construction_viewer_mesh(resolved_preview.id);
+            if (resolved_preview.feature_kind == zima::document::FeatureKind::TwistedSheet) {
+                // The operation axis passes through the strip centre, while
+                // the placed Origin remains at the selected attachment point.
+                const auto& wire=viewer_->transient_edges();
+                const auto start=std::ranges::find_if(wire,[](const auto& edge) {
+                    return edge.reference.semantic_key=="preview:twist:start";
+                });
+                if(start!=wire.end()&&start->points.size()==5) {
+                    const auto a=start->points[0],b=start->points[2];
+                    const zima::kernel::Vec3 center{(a.x+b.x)/2,(a.y+b.y)/2,(a.z+b.z)/2};
+                    for(auto* axes:{&primitive_origin_preview_mesh_->axes,
+                                   &primitive_origin_preview_mesh_->original_references.axes})
+                        for(auto& axis:*axes)if(axis.reference.owner_id==resolved_preview.feature_id&&
+                            axis.reference.semantic_key=="axis")axis.point=center;
+                }
+            }
             if (resolved_preview.feature_kind == zima::document::FeatureKind::Thread) {
                 const auto placeholder_axis = [&](const auto& axis) {
                     return axis.reference.owner_id == resolved_preview.feature_id &&

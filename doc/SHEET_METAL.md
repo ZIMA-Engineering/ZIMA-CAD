@@ -11,7 +11,9 @@ former per-profile folded-state switch throughout the GUI, CLI and native model.
 
 Unbend and Bend Back process all eligible regions by default. Check **Select
 individual features** to pick a subset in the View or Tree; a second click
-removes that feature from the list. The developed result displays a bend axis
+on a selected feature removes it from the list. All and individual selection
+are mutually exclusive checkboxes; the active mode cannot be unchecked without
+selecting the other mode. The developed result displays a bend axis
 on the inner skin of each Sheet Profile and Revolved Sheet, halfway through its
 angular span. Use Drawing **Show/Erase > Axes** to display the line and attach a
 drawing dimension to it. A cone's line follows the middle generator of its
@@ -59,6 +61,34 @@ Assembly file settings have no Sheet Metal page.
 
 ## Twisted Sheet
 
+The 2026-09-19 attachment correction stores `attachment_material_side` in the
+native feature. The joining face determines this side independently of endpoint
+selection and twist direction. Preview, solid loft and material-space mapping
+use the same side. The native Part format is now INI **41** / JSON **65**;
+the start Part was regenerated with the current serializer and verified through
+the GUI New-document path. Assembly and Drawing formats are unchanged.
+Earlier Part formats are unsupported; no migration branch was added.
+
+The reported profile-side example is retained as
+`cpp/tests/fixtures/sheet/profile-side-twist.prtz`. Its starting section now
+occupies Y=1..2, matching the parent thickness face, instead of Y=2..3.
+Regression checks cover both endpoints, zero through three preceding Sheet
+Profiles, Unbend, Bend Back and persisted state restoration. The source project
+was left unchanged; a calculated repair is available locally at
+`Projects/test/01-twist-repaired.prtz`.
+
+Rotated Sheet Cut tests independently verify the removed volume of a rectangular
+projection through a plane as profile area times thickness divided by the
+absolute direction/normal dot product. Cases include a Z rotation, combined XYZ
+rotation, both projection directions, saved placement and cold regeneration.
+A jointly rotated cylindrical sheet/cut also passes Unbend, native reopen,
+cold calculation and Bend Back. These checks required no Sheet Cut product-code
+change. Fifteen distinct focused native/GUI contracts passed. Evidence:
+`build/twist-final-native.log`, `build/twist-cut-final-tests.log`,
+`build/twist-final-regressions.log` and `build/twist-final-ui-cut.log` (its GUI
+case passed; its earlier test-fixture filename collision is superseded by the
+separate passing final cut log).
+
 **Twisted Sheet** is a direct parametric sheet feature and does not open
 Sketcher. Free placement uses the ordinary container placement contract. The
 feature creates a rectangular strip centered on its local axis from width,
@@ -72,6 +102,12 @@ source thickness, so the twist axis passes through the neutral start line. The
 edge, its joining thickness face and one persisted endpoint provide the same
 unmodified placement references used by the other sheet attachment commands.
 Thickness edges are rejected.
+
+Creation shows no strip or operation-axis preview until the first placement
+entity is entered. Changing dimensions alone does not reveal an unplaced strip.
+Editing an existing feature displays its preview immediately. The operation
+axis runs through the starting section's centre; the placed Origin stays on
+the selected source endpoint.
 
 The cyan preview is analytical and never invokes OCCT. A real strip must be
 clamped at both ends, so its longitudinal boundaries leave and enter the end

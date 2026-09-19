@@ -1,5 +1,30 @@
 # Development handoff — 2026-09-15
 
+## Sheet follow-up verified on 2026-09-19
+
+Twisted Sheet creation waits for the first reference before showing its wire
+and operation axis. The axis is centred on the starting section. Attached
+geometry persists its independently derived material side; the user-provided
+profile-side case reproduced a one-thickness shift and is now a native fixture.
+Both endpoints and chains of up to three Sheet Profiles pass calculation,
+Unbend, Bend Back and persistence. The shared placement solver was not changed.
+Part INI 41 / JSON 65 and the regenerated start Part carry the side property.
+The GUI New-document contract passes; Assembly/Drawing formats are unchanged.
+
+Unbend/Bend Back expose exclusive All and individual-selection checkboxes;
+All is checked by default and the active choice cannot be unchecked in place.
+Rotated Sheet Cut checks pass on planar and cylindrical material, including
+both directions, analytic removed-volume checks, native persistence, cold
+regeneration and state changes. No Sheet Cut implementation repair was needed.
+Fifteen distinct focused contracts passed; see [Sheet Metal](doc/SHEET_METAL.md)
+for evidence. The local GUI/CLI are rebuilt. This follow-up is not a new release.
+The original `Projects/01.prtz` is unchanged; the calculated repair is
+`Projects/test/01-twist-repaired.prtz`.
+
+Next authorized task: add ZIMA-CAD parameter import to the sibling
+ZIMA-CAD-Parts repository, following its existing Pro/E metadata mapping,
+then test, document, commit and push that repository separately.
+
 ## Windows release published on 2026-09-19
 
 Signed Windows build 2026091901 is published as the latest stable release at

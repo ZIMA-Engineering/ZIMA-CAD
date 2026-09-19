@@ -3,10 +3,12 @@
 #include <zima/ui/reference_cell.hpp>
 #include <zima/document/part_document.hpp>
 #include <QCheckBox>
+#include <QButtonGroup>
 #include <QFormLayout>
 #include <QHeaderView>
 #include <QLineEdit>
 #include <QPushButton>
+#include <QSignalBlocker>
 #include <QTableWidget>
 #include <QToolButton>
 #include <QVBoxLayout>
@@ -27,8 +29,13 @@ public:
         setProperty("originSelectionBound",true);
         auto* form=new QFormLayout;
         name_=new QLineEdit(QString::fromStdString(initial_.name),this);name_->setObjectName("sheetStateName");form->addRow(tr("Název"),name_);
+        all_=new QCheckBox(initial_.feature_kind==document::FeatureKind::Unbend?
+            tr("Rozvinout vše"):tr("Ohnout zpět vše"),this);
+        all_->setObjectName("sheetStateAll");all_->setChecked(initial_.sheet_state.all);form->addRow(all_);
         individual_=new QCheckBox(tr("Vybrat jednotlivé prvky"),this);
         individual_->setObjectName("sheetStateIndividual");individual_->setChecked(!initial_.sheet_state.all);form->addRow(individual_);content_layout()->addLayout(form);
+        auto* modes=new QButtonGroup(this);modes->setExclusive(true);
+        modes->addButton(all_);modes->addButton(individual_);
         table_=new QTableWidget(0,3,this);table_->setObjectName("sheetStateElements");
         table_->setHorizontalHeaderLabels({QString{},tr("Prvek"),QString{}});table_->setColumnWidth(0,32);table_->setColumnWidth(2,32);
         table_->horizontalHeader()->setSectionResizeMode(1,QHeaderView::Stretch);
@@ -37,7 +44,13 @@ public:
         content_layout()->addWidget(table_);set_initial_size({365,310});
         inspected_.insert(initial_.sheet_state.owners.begin(),initial_.sheet_state.owners.end());
         connect(table_,&QTableWidget::cellClicked,this,[this](int,int column){if(column==1){entering_=true;refresh();}});
-        connect(individual_,&QCheckBox::toggled,this,[this]{entering_=individual_->isChecked();highlight_all_=true;refresh();});refresh();
+        const auto mode=[this](bool all) {
+            const QSignalBlocker a(all_),b(individual_);
+            all_->setChecked(all);individual_->setChecked(!all);
+            entering_=!all;highlight_all_=true;refresh();
+        };
+        connect(all_,&QCheckBox::toggled,this,[mode](bool checked){if(checked)mode(true);});
+        connect(individual_,&QCheckBox::toggled,this,[mode](bool checked){if(checked)mode(false);});refresh();
     }
     std::function<void()> selection_changed;
     document::HistoryContainer pending_value()const {
@@ -83,7 +96,7 @@ private:
         if(selection_changed)selection_changed();
     }
     document::HistoryContainer initial_;std::map<std::string,QString> available_;Commit commit_;
-    QLineEdit* name_{};QCheckBox* individual_{};QTableWidget* table_{};
+    QLineEdit* name_{};QCheckBox* all_{};QCheckBox* individual_{};QTableWidget* table_{};
     bool entering_{true},highlight_all_{true};std::set<std::string> inspected_;
 };
 }

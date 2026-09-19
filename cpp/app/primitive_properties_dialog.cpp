@@ -2373,6 +2373,8 @@ bool PrimitivePropertiesDialog::set_reference(std::size_t index,
             auto refs=zima::document::bend_sheet_references(*edge);
             if(initial_.feature_kind==zima::document::FeatureKind::TwistedSheet) {
                 initial_.twisted_sheet.sheet_attachment=true;
+                initial_.twisted_sheet.attachment_material_side=static_cast<int>(
+                    *zima::document::bend_attachment_profile_direction(refs,sheet_reference_geometry_));
                 initial_.twisted_sheet.thickness_override=false;
                 initial_.twisted_sheet.thickness=edge->edge_treatment_side_references.front().sheet_thickness;
                 initial_.twisted_sheet.width=edge->measured_length.value_or(

@@ -28,10 +28,15 @@ int main(int argc,char** argv) {
             dialog->show();application.processEvents();
             check(dialog->windowFlags().testFlag(Qt::SubWindow),"Sheet state did not use the internal properties presentation.");
             auto* individual=dialog->findChild<QCheckBox*>("sheetStateIndividual");auto* table=dialog->findChild<QTableWidget*>("sheetStateElements");
+            auto* all=dialog->findChild<QCheckBox*>("sheetStateAll");
+            check(all&&all->isChecked(),"All mode is not explicitly checked by default.");
+            all->click();check(all->isChecked()&&!individual->isChecked(),"Clicking the active mode left neither mode selected.");
             check(individual&&table&&!individual->isChecked()&&!table->isEnabled()&&dialog->pending_value().sheet_state.all,"Unchecked individual selection must process all elements.");
-            individual->setChecked(true);dialog->toggle("a");dialog->toggle("b");dialog->toggle("a");
+            individual->click();check(!all->isChecked()&&individual->isChecked()&&table->isEnabled(),"One click did not enter individual mode.");
+            individual->click();check(individual->isChecked()&&!all->isChecked(),"Individual mode was unchecked without selecting All.");
+            dialog->toggle("a");dialog->toggle("b");dialog->toggle("a");
             check(dialog->selected()==std::vector<std::string>{"b"}&&table->rowCount()==2,"Second click did not remove the exact selected element.");
-            individual->setChecked(false);check(dialog->selected().size()==2,"All did not select all eligible regions.");
+            all->click();check(dialog->selected().size()==2&&!individual->isChecked()&&!table->isEnabled(),"All did not select all eligible regions.");
             dialog->end_entry();check(dialog->highlighted().empty()&&dialog->selected().size()==2,"Ending all-region inspection erased selection or retained highlights.");
             individual->setChecked(true);check(dialog->selected()==std::vector<std::string>{"b"},"All erased the manual selection.");
             auto* remove=table->cellWidget(0,0)->findChild<QPushButton*>();check(remove,"Remove control is not in the first cell.");remove->click();
@@ -40,7 +45,7 @@ int main(int argc,char** argv) {
             check(!dialog->selecting()&&dialog->highlighted().empty()&&dialog->selected()==std::vector<std::string>{"b"},"Ending reference entry changed pending values or kept picking active.");
             dialog->toggle("a");check(dialog->selected()==std::vector<std::string>{"b"},"Inactive entry accepted a View pick.");
             table->cellWidget(0,0)->findChild<QPushButton*>()->click();
-            individual->setChecked(false);individual->setChecked(true);
+            all->click();individual->click();
             dialog->toggle("a");dialog->buttons()->button(QDialogButtonBox::Ok)->click();
             check(commits==1&&!committed.sheet_state.all&&committed.sheet_state.owners==std::vector<std::string>{"a"},"OK lost the pending selection.");
             application.processEvents();
