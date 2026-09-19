@@ -12,10 +12,14 @@ See [the lifecycle contract](doc/APPLICATION_LIFECYCLE.md).
 
 Seven targeted native/GUI contracts passed; final lifecycle and Updates UI
 checks passed again after the update-handoff guard. Evidence is in
-`build/lifecycle-*.log`. Windows release 2026091903 is prepared separately from
-the already published CAD/Parts 2026091902; consult its release acceptance record
-before claiming publication. Local GUI testing used the `lifecycle-test` output
-directory because the user's normal development executable was still running.
+`build/lifecycle-*.log`. Signed Windows release 2026091903 is published and
+verified; see [acceptance](doc/releases/2026091903.md). The lifecycle GUI
+contract also passed from the final package. Public hashes, production trust
+and update discovery from 2026091902 passed. Parts 2026091902 is also published
+with native ZIMA-CAD parameter import; that earlier authorized follow-up is done.
+Local GUI testing used the `lifecycle-test` output directory because the user's
+normal development executable was still running. The CMake output override is
+removed; rebuild the normal development executable after the user closes it.
 
 ## Sheet follow-up verified on 2026-09-19
 
@@ -38,9 +42,10 @@ for evidence. The local GUI/CLI are rebuilt. This follow-up is not a new release
 The original `Projects/01.prtz` is unchanged; the calculated repair is
 `Projects/test/01-twist-repaired.prtz`.
 
-Next authorized task: add ZIMA-CAD parameter import to the sibling
-ZIMA-CAD-Parts repository, following its existing Pro/E metadata mapping,
-then test, document, commit and push that repository separately.
+The subsequent ZIMA-CAD parameter import task in the sibling ZIMA-CAD-Parts
+repository is complete, following its existing Pro/E metadata mapping.
+Tests, documentation, commit and push are complete; Windows 2026091902 is
+published in that repository.
 
 ## Windows release published on 2026-09-19
 
