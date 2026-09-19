@@ -109,6 +109,7 @@
 #include <zima/kernel/sheet_material.hpp>
 #include <GeomAPI_ProjectPointOnSurf.hxx>
 #include <TColgp_HArray1OfPnt.hxx>
+#include <TColgp_HArray1OfPnt2d.hxx>
 #include <TColgp_Array1OfPnt.hxx>
 #include <TColStd_Array1OfInteger.hxx>
 #include <TColStd_Array1OfReal.hxx>

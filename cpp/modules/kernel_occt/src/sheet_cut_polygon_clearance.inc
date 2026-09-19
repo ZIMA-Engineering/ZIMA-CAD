@@ -219,8 +219,8 @@ PrimitiveData sheet_cut_convex_prism_domain(const TopoDS_Face& source,
                 };
                 Handle(Geom2d_BSplineCurve) accepted;
                 for(int count=16;count<=512;count*=2) {
-                    Handle(NCollection_HArray1<gp_Pnt2d>) points=new NCollection_HArray1<gp_Pnt2d>(1,count+1);
-                    Handle(NCollection_HArray1<double>) parameters=new NCollection_HArray1<double>(1,count+1);
+                    Handle(TColgp_HArray1OfPnt2d) points=new TColgp_HArray1OfPnt2d(1,count+1);
+                    Handle(TColStd_HArray1OfReal) parameters=new TColStd_HArray1OfReal(1,count+1);
                     for(int i=0;i<=count;++i) {
                         const double p=double(i)/count;const auto sample=point(p);
                         if(!std::isfinite(sample.Y()))return std::vector<Boundary>{};
