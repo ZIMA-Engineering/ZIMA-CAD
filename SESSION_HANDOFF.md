@@ -1,5 +1,19 @@
 # Development handoff — 2026-09-15
 
+## Windows release published on 2026-09-19
+
+Signed Windows build 2026091901 is published as the latest stable release at
+[GitHub](https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026091901).
+The immutable tag identifies source commit
+`45f1eb05c2bfeb2619dd9719a3b0583da830beac`. Candidate and signed-archive smoke,
+fresh bootstrap trust, all three public asset digests, and production update
+discovery passed. A disposable 2026091704 installation offers 2026091901 as
+installable, and 2026091901 reports current. The user's installation was not
+updated. See [acceptance and known limitations](doc/releases/2026091901.md).
+The development BAT still launches the current local build. User-owned
+untracked `config/config.ini.3`, `config/config.ini.4` and
+`sketch-offset-view.png` were preserved and excluded from the release.
+
 ## Local changes verified on 2026-09-19
 
 The follow-up Body ownership work adds a native `DerivedCopy` history feature:
