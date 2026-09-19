@@ -3,11 +3,14 @@
 #include "workspace/workspace_internal.hpp"
 #include "updateservice.h"
 #include <zima/workspace/document_operations.hpp>
+#include <zima/workspace/family_operations.hpp>
+#include <QCloseEvent>
+#include <QScopedValueRollback>
 #include <QStatusBar>
 
 namespace zima::app {
 using namespace workspace_detail;
-AssemblyWorkspaceWindow::AssemblyWorkspaceWindow(const QString& working_directory) {
+AssemblyWorkspaceWindow::AssemblyWorkspaceWindow(const QString& working_directory, const QString& settings_directory) {
     setProperty("applicationInstance", instance_.number());
     const bool has_explicit_working_directory =
         !working_directory.trimmed().isEmpty();
@@ -16,7 +19,8 @@ AssemblyWorkspaceWindow::AssemblyWorkspaceWindow(const QString& working_director
             std::filesystem::u8path(QFileInfo(working_directory).absoluteFilePath().toStdString());
     }
     application_settings_ = ApplicationSettings::load(
-        has_explicit_working_directory ? working_directory : QString{});
+        !settings_directory.isEmpty() ? settings_directory :
+            has_explicit_working_directory ? working_directory : QString{});
     if (!has_explicit_working_directory) {
         const QString configured =
             application_settings_.resolved_paths.value("WorkingDirectory");
@@ -92,6 +96,103 @@ AssemblyWorkspaceWindow::~AssemblyWorkspaceWindow() {
     delete orientation_dialog_;
     delete rename_document_dialog_;
     delete global_settings_dialog_;
+}
+
+bool AssemblyWorkspaceWindow::confirm_application_close() {
+    if (properties_dialog_) {
+        properties_dialog_->show();
+        properties_dialog_->raise();
+        properties_dialog_->activateWindow();
+        return false;
+    }
+    for (auto* dialog : findChildren<QDialog*>()) {
+        if (!dialog->isVisible()) continue;
+        dialog->raise();
+        dialog->activateWindow();
+        return false;
+    }
+    if ((!active_sketch_id_.empty() && !template_sketch()) ||
+        (inline_dimension_edit_ && inline_dimension_edit_->isVisible())) {
+        QMessageBox::information(this, tr("Neuložené změny"),
+            tr("Nejprve dokončete nebo zrušte otevřenou úpravu modelu."));
+        return false;
+    }
+    std::vector<std::string> dirty;
+    QStringList names;
+    for (const auto& state : workspace_.documents()) {
+        const auto id = std::visit([](const auto& value) {
+            if constexpr (std::is_same_v<std::decay_t<decltype(value)>, workspace::DrawingState>)
+                return value.document().document_id;
+            else return value.session.document().document_id;
+        }, state);
+        if (workspace::family_owner(workspace_, id) != id ||
+            !workspace::document_needs_save(workspace_, id)) continue;
+        dirty.push_back(id);
+        names.push_back(std::visit([](const auto& value) {
+            return QString::fromStdString(document::path_to_utf8(value.path.filename()));
+        }, state));
+        if (names.back().isEmpty()) names.back() = QString::fromStdString(id);
+    }
+    if (dirty.empty()) return true;
+    QMessageBox prompt(QMessageBox::Warning, tr("Neuložené změny"),
+        tr("Před zavřením aplikace uložit změny v těchto dokumentech?") +
+            QStringLiteral("\n\n") + names.join('\n'),
+        QMessageBox::SaveAll | QMessageBox::Discard | QMessageBox::Cancel, this);
+    prompt.setObjectName("applicationCloseConfirmation");
+    prompt.setDefaultButton(QMessageBox::Cancel);
+    const auto answer = prompt.exec();
+    if (answer == QMessageBox::Discard) return true;
+    if (answer != QMessageBox::SaveAll) return false;
+    const auto active = workspace_.active_document_id();
+    const auto displayed = workspace_.displayed_document_id();
+    const auto occurrence = workspace_.active_occurrence_path();
+    for (const auto& id : dirty) {
+        workspace_.activate(id);
+        workspace_.display_top_level(id);
+        save_active_document();
+        if (workspace::document_needs_save(workspace_, id)) {
+            if (workspace_.find(displayed)) workspace_.display_top_level(displayed);
+            if (!occurrence.empty()) static_cast<void>(workspace_.activate_occurrence(displayed, assembly::InstancePath::decode(occurrence)));
+            else if (workspace_.find(active)) workspace_.activate(active);
+            refresh_tabs();
+            preserve_view_on_refresh_ = true;
+            refresh_scene();
+            return false;
+        }
+    }
+    return true;
+}
+
+void AssemblyWorkspaceWindow::closeEvent(QCloseEvent* event) {
+    event->ignore();
+    if (closing_) return;
+    QScopedValueRollback<bool> closing(closing_, true);
+    if (!confirm_application_close()) return;
+    if (restart_requested_) {
+        RestartState next;
+        next.working_directory = QString::fromStdString(document::path_to_utf8(working_directory_));
+        next.settings_directory = QFileInfo(application_settings_.config_path).absolutePath();
+        for (int index = 0; index < tabs_->count(); ++index) {
+            const auto id = workspace::family_owner(workspace_, tabs_->tabData(index).toString().toStdString());
+            const auto* state = workspace_.find(id);
+            if (!state) continue;
+            const auto path = std::visit([](const auto& value) { return value.path; }, *state);
+            std::error_code error;
+            if (path.empty() || !std::filesystem::is_regular_file(path, error)) continue;
+            const auto file = QString::fromStdString(document::path_to_utf8(path));
+            if (!next.documents.contains(file)) next.documents.push_back(file);
+        }
+        restart_state_ = std::move(next);
+    }
+    event->accept();
+}
+
+void AssemblyWorkspaceWindow::request_language_restart() {
+    if (QMessageBox::question(this, tr("Změna jazyka"),
+        tr("Pro sjednocení všech nabídek a panelů je nutné znovu otevřít aplikaci. Restartovat nyní?"),
+        QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes) != QMessageBox::Yes) return;
+    QScopedValueRollback<bool> requested(restart_requested_, true);
+    close();
 }
 
 } // namespace zima::app

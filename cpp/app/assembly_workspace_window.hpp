@@ -32,6 +32,7 @@ class QColor;
 class QDialog;
 class QLabel;
 class QKeyEvent;
+class QCloseEvent;
 class QLineEdit;
 class QMenu;
 class QProgressBar;
@@ -67,8 +68,10 @@ class SketchOffsetDialog;
 class AssemblyWorkspaceWindow final : public QMainWindow {
 public:
     explicit AssemblyWorkspaceWindow(
-        const QString& working_directory = {});
+        const QString& working_directory = {}, const QString& settings_directory = {});
     ~AssemblyWorkspaceWindow() override;
+    struct RestartState { QString working_directory; QString settings_directory; QStringList documents; };
+    [[nodiscard]] const std::optional<RestartState>& restart_state() const { return restart_state_; }
     [[nodiscard]] zima::commands::Result execute_console_command(const QString& text);
     [[nodiscard]] bool open_document_path(const QString& path);
     void show_tree_item_properties(QTreeWidgetItem* item);
@@ -92,6 +95,11 @@ public:
     }
 
 private:
+    bool closing_{};
+    bool restart_requested_{};
+    std::optional<RestartState> restart_state_;
+    bool confirm_application_close();
+    void request_language_restart();
     QDialog* mass_properties_dialog_{};
     bool mass_properties_origin_inspected_{};
     QAction* mass_properties_action_{};
@@ -1141,6 +1149,7 @@ private:
         const std::string& part_document_id) const;
 
 protected:
+    void closeEvent(QCloseEvent* event) override;
     void keyPressEvent(QKeyEvent* event) override;
 };
 

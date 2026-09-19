@@ -1206,6 +1206,10 @@ if(ZIMA_BUILD_TESTS)
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120)
     add_test(NAME zima_cpp_console_ui_contract COMMAND zima-cad-cpp --verify-startup)
     add_test(NAME zima_cpp_updates_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_application_lifecycle_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_application_lifecycle_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_APPLICATION_LIFECYCLE_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120)
     set_tests_properties(zima_cpp_updates_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_UPDATES_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 90)

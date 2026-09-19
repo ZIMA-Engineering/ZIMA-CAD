@@ -1,5 +1,22 @@
 # Development handoff — 2026-09-15
 
+## Application lifecycle follow-up, 2026-09-19
+
+The main workspace now protects application exit with one Save All / Discard /
+Cancel confirmation for all unsaved owners, including source documents and
+drawing templates. Pending edits and failed saves keep the window open.
+Language changes offer a complete workspace restart, retain the old translator
+until restart, and reopen saved documents using the same configuration source.
+Update installation retains exclusive ownership of its own restart.
+See [the lifecycle contract](doc/APPLICATION_LIFECYCLE.md).
+
+Seven targeted native/GUI contracts passed; final lifecycle and Updates UI
+checks passed again after the update-handoff guard. Evidence is in
+`build/lifecycle-*.log`. Windows release 2026091903 is prepared separately from
+the already published CAD/Parts 2026091902; consult its release acceptance record
+before claiming publication. Local GUI testing used the `lifecycle-test` output
+directory because the user's normal development executable was still running.
+
 ## Sheet follow-up verified on 2026-09-19
 
 Twisted Sheet creation waits for the first reference before showing its wire

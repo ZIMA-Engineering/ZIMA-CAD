@@ -7760,12 +7760,15 @@ int verify_selection_filter(QApplication& application,
 }
 
 #include "sheet_state_ui_verification.inc"
+#include "application_lifecycle_ui_verification.inc"
 
 int verify_startup_contract(
     QApplication& application, zima::app::AssemblyWorkspaceWindow& window,
     const std::filesystem::path& initial_test_directory,
     const QString& part_capture_path = {}, const QString& drawing_capture_path = {}) {
     auto test_directory = initial_test_directory;
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_APPLICATION_LIFECYCLE_ONLY"))
+        return verify_application_lifecycle_ui(application);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SELECTION_FILTER_ONLY"))
         return verify_selection_filter(application,window);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_UPDATES_ONLY"))
@@ -12110,8 +12113,9 @@ int main(int argc, char* argv[]) {
     application.setDesktopFileName("zima-cad");
     application.setWindowIcon(zima::app::application_icon());
     const auto arguments = application.arguments();
-    const auto startup = zima::app::parse_startup_arguments(arguments);
+    auto startup = zima::app::parse_startup_arguments(arguments);
     QString startup_directory = startup.working_directory;
+    QString restart_settings_directory;
     // Keep automated UI artifacts out of the repository root and out of the
     // user's configured project directory.  The contract intentionally uses
     // one stable, user-approved test workspace so interrupted runs are easy
@@ -12137,7 +12141,8 @@ int main(int argc, char* argv[]) {
         return 2;
     }
     try {
-    zima::app::AssemblyWorkspaceWindow window(startup_directory);
+    for (;;) {
+    zima::app::AssemblyWorkspaceWindow window(startup_directory, restart_settings_directory);
     QString part_capture_path;
     QString drawing_capture_path;
     const QString part_capture_prefix = QStringLiteral("--capture-part=");
@@ -12167,7 +12172,15 @@ int main(int argc, char* argv[]) {
     zima::app::install_instance_verification(window, startup_directory);
     UpdateService::get()->acknowledgeStartup();
     UpdateService::get()->scheduleStartupCheck();
-    return application.exec();
+    const int result = application.exec();
+    if (!window.restart_state()) return result;
+    startup_directory = window.restart_state()->working_directory;
+    restart_settings_directory = window.restart_state()->settings_directory;
+    startup.documents = window.restart_state()->documents;
+    // Destruction releases this window's document/directory reservations.
+    // Recreate every widget with the saved language, then reopen only saved
+    // documents. No old translated actions or panel captions survive.
+    }
     } catch(const std::exception& error) {
         std::cerr<<error.what()<<'\n';
         if(!runs_startup_contract && qEnvironmentVariableIsEmpty("ZIMA_VERIFY_INSTANCE_DIRECTORY"))

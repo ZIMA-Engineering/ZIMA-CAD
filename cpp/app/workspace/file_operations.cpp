@@ -1,6 +1,7 @@
 #include <zima/workspace/family_operations.hpp>
 #include <zima/workspace/metadata_operations.hpp>
 #include "workspace_internal.hpp"
+#include "updateservice.h"
 #include <zima_build_info.hpp>
 #include <zima/workspace/document_operations.hpp>
 #include <zima/workspace/archive_operations.hpp>
@@ -657,13 +658,25 @@ void AssemblyWorkspaceWindow::show_global_settings() {
         global_settings_dialog_->activateWindow();
         return;
     }
-    auto* dialog = new GlobalSettingsDialog(application_settings_, this);
+    auto pending = application_settings_;
+    pending.language = ApplicationSettings::load(
+        QFileInfo(application_settings_.config_path).absolutePath()).language;
+    auto* dialog = new GlobalSettingsDialog(std::move(pending), this);
     global_settings_dialog_ = dialog;
     connect(dialog, &QDialog::accepted, this, [this] {
-        application_settings_ = ApplicationSettings::load(
+        auto next = ApplicationSettings::load(
             QFileInfo(application_settings_.config_path).absolutePath());
+        const bool language_changed = next.language != application_settings_.language;
+        if (language_changed) {
+            // Keep every existing and newly opened surface in the current
+            // language until the complete workspace window is reconstructed.
+            next.language = application_settings_.language;
+            next.translations = application_settings_.translations;
+            next.qt_translations = application_settings_.qt_translations;
+        }
+        application_settings_ = std::move(next);
         drawing_workspace_->set_formats_directory(application_settings_.resolved_paths.value("Formats"));
-        apply_application_translations(*qApp, application_settings_);
+        if (!language_changed) apply_application_translations(*qApp, application_settings_);
         apply_application_font(*qApp, application_settings_);
         const QString configured =
             application_settings_.resolved_paths.value("WorkingDirectory");
@@ -672,6 +685,10 @@ void AssemblyWorkspaceWindow::show_global_settings() {
             catch(const std::exception& error) {report_operation_error(tr("Pracovní adresář je obsazený"),QString::fromUtf8(error.what()));}
             refresh_delete_file_actions();
         }
+        if (language_changed) QTimer::singleShot(0, this, [this] {
+            // Update installation already owns process shutdown and restart.
+            if (UpdateService::get()->phase() != "waiting") request_language_restart();
+        });
     });
     connect(dialog, &QObject::destroyed, this, [this] {
         global_settings_dialog_ = nullptr;
