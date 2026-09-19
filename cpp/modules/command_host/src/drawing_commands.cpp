@@ -323,10 +323,10 @@ void Host::register_drawing_commands(){
     for(bool title:{false,true})for(bool remove:{false,true}){
         const auto name=std::string("drawing.")+(title?"title_block.":"frame.")+(remove?"clear":"load");
         std::vector<commands::Argument> args={{"sheet",true}};if(!remove)args.push_back({"path",true});args.push_back({"document",false});
-        add({name,remove?tr("Remove the embedded drawing template geometry."):tr("Load and embed a native drawing template."),std::move(args),true},[this,title,remove](auto& doc,const Json& args,const auto&){
+        add({name,remove?tr("Remove the embedded drawing template geometry."):tr("Load and embed a native drawing template."),std::move(args),true},[this,title,remove](auto& doc,const Json& args,const auto& document_path){
             const auto id=args["sheet"].get<std::string>();bool changed=true;
             if(remove)changed=workspace::clear_drawing_template(doc,id,title);
-            else{auto path=std::filesystem::u8path(args["path"].get<std::string>());if(path.is_relative())path=directory_/path;workspace::load_drawing_template(doc,id,path,title);}
+            else{auto path=std::filesystem::u8path(args["path"].get<std::string>());if(path.is_relative())path=directory_/path;workspace::load_drawing_template(doc,id,path,title,&workspace_,document_path);}
             auto result=sheet_json(*doc.find_sheet(id));result["changed"]=changed;return result;
         });
     }

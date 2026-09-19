@@ -1,4 +1,5 @@
 #include "sketch_text_properties_dialog.hpp"
+#include <zima/document/file_path.hpp>
 #include <zima/workspace/family_operations.hpp>
 #include <zima/workspace/engineering_metadata_operations.hpp>
 #include <zima/workspace/native_documents.hpp>
@@ -40,6 +41,11 @@
 #include <zima/assembly/assembly_document.hpp>
 #include <zima/document/part_document.hpp>
 #include <zima/ui/properties_subwindow.hpp>
+#include <zima/ui/reference_cell.hpp>
+#include <QTableWidget>
+#include <QHeaderView>
+#include <QDialogButtonBox>
+#include <QToolButton>
 #include <zima/workspace/workspace.hpp>
 
 #include <QAction>
@@ -101,6 +107,105 @@ struct DrawingSourceChoice {
     std::filesystem::path path;
     QString name;
     bool evaluated{true};
+};
+std::vector<DrawingSourceChoice> family_source_choices(const zima::workspace::Workspace*,
+    const std::string&,const std::filesystem::path&);
+
+class SourceRemovalConfirmation final : public zima::ui::PropertiesSubWindow {
+public:
+    SourceRemovalConfirmation(QWidget* owner,const QString& message,std::function<void()> confirm)
+        :PropertiesSubWindow(QObject::tr("Odebrat zdroj výkresu"),owner),confirm_(std::move(confirm)) {
+        setObjectName("drawingSourceRemovalConfirmation");setAttribute(Qt::WA_DeleteOnClose);
+        auto* label=new QLabel(message,this);label->setWordWrap(true);label->setTextFormat(Qt::PlainText);
+        content_layout()->addWidget(label);set_initial_size({560,300});
+    }
+private:
+    bool submit() override {confirm_();return true;}
+    std::function<void()> confirm_;
+};
+
+class DrawingSettingsDialog final : public zima::ui::PropertiesSubWindow {
+public:
+    DrawingSettingsDialog(QWidget* owner,zima::drawing::DrawingDocument document,
+        std::filesystem::path drawing_path,const zima::workspace::Workspace* live,
+        std::function<void(zima::drawing::DrawingDocument)> commit,std::function<void(QDialog*)> focus)
+        :PropertiesSubWindow(QObject::tr("Nastavení výkresu"),owner),pending_(std::move(document)),
+         drawing_path_(std::move(drawing_path)),live_(live),commit_(std::move(commit)),focus_(std::move(focus)) {
+        setObjectName("drawingSettingsDialog");setAttribute(Qt::WA_DeleteOnClose);set_initial_size({720,440});
+        content_layout()->addWidget(new QLabel(QObject::tr("Zdroje dat — díly a sestavy"),this));
+        table_=new QTableWidget(this);table_->setObjectName("drawingDataSources");
+        table_->setColumnCount(2);table_->setHorizontalHeaderLabels({QString{},QObject::tr("Soubor")});
+        table_->verticalHeader()->hide();table_->setSelectionMode(QAbstractItemView::NoSelection);
+        table_->setStyleSheet("QTableWidget{background:#20252b;color:#e6edf3;gridline-color:#47515c;}");
+        table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
+        table_->horizontalHeader()->setSectionResizeMode(0,QHeaderView::Fixed);table_->setColumnWidth(0,30);
+        table_->horizontalHeader()->setSectionResizeMode(1,QHeaderView::Stretch);
+        zima::ui::install_reference_cell_delegate(table_);content_layout()->addWidget(table_);
+        connect(table_,&QTableWidget::cellClicked,this,[this](int row,int){
+            if(row==table_->rowCount()-1)add_source();
+        });
+        refresh_rows();
+        connect(this,&QDialog::finished,this,[this]{if(confirmation_)confirmation_->reject();});
+    }
+private:
+    zima::drawing::DrawingDocument pending_;
+    std::filesystem::path drawing_path_;
+    const zima::workspace::Workspace* live_{};
+    std::function<void(zima::drawing::DrawingDocument)> commit_;
+    std::function<void(QDialog*)> focus_;
+    QTableWidget* table_{};
+    QPointer<QDialog> confirmation_;
+    bool changed_{};
+    bool selecting_file_{};
+    bool submit() override {if(confirmation_||selecting_file_)return false;if(changed_)commit_(pending_);return true;}
+    void refresh_rows() {
+        const auto sources=pending_.data_sources();table_->setRowCount(0);
+        table_->setRowCount(static_cast<int>(sources.size())+1);
+        for(int row=0;row<static_cast<int>(sources.size());++row) {
+            const auto& source=sources[row];
+            auto* indicator=zima::ui::build_reference_row_indicator([this,id=source.document_id]{remove_source(id);});
+            zima::ui::set_reference_row_populated(indicator,true);table_->setCellWidget(row,0,indicator);
+            const auto text=QString::fromStdString(zima::document::path_to_utf8(source.source_path));
+            auto* item=new zima::ui::ReferenceCellItem(text);item->set_reference(QString::fromStdString(source.document_id));
+            item->setToolTip(text);table_->setItem(row,1,item);
+        }
+        const auto row=static_cast<int>(sources.size());
+        table_->setCellWidget(row,0,zima::ui::build_reference_row_indicator([]{}));
+        auto* item=new zima::ui::ReferenceCellItem(QObject::tr("Přidat zdroj…"));
+        item->set_placeholder_style(QColor("#999999"));table_->setItem(row,1,item);
+    }
+    void add_source() {
+        auto* item=static_cast<zima::ui::ReferenceCellItem*>(table_->item(table_->rowCount()-1,1));
+        item->set_active_input(true);table_->viewport()->update();
+        selecting_file_=true;buttons()->button(QDialogButtonBox::Ok)->setEnabled(false);
+        const auto file=open_file(this,QObject::tr("Přidat zdroj výkresu"),
+            QString::fromStdString(zima::document::path_to_utf8(drawing_path_.parent_path())),
+            QObject::tr("Díly a sestavy ZIMA-CAD (*.prtz *.asmz)"));
+        selecting_file_=false;buttons()->button(QDialogButtonBox::Ok)->setEnabled(true);
+        item->set_active_input(false);
+        if(file.isEmpty())return;
+        const auto path=std::filesystem::u8path(file.toStdString());
+        try {
+            if(file.endsWith(".prtz",Qt::CaseInsensitive)==false&&file.endsWith(".asmz",Qt::CaseInsensitive)==false)throw std::runtime_error("Vyberte soubor .prtz nebo .asmz.");
+            const auto choices=family_source_choices(live_,{},path);
+            if(choices.empty())throw std::runtime_error("Zdrojový dokument nelze načíst.");
+            pending_.add_data_source({choices.front().id,path,zima::document::path_to_utf8(path.stem())});changed_=true;refresh_rows();
+        } catch(const std::exception& error) {table_->item(table_->rowCount()-1,1)->setText(QObject::tr(error.what()));}
+    }
+    void remove_source(const std::string& id) {
+        if(confirmation_)return;
+        auto next=pending_;const auto removed=next.remove_data_source(id);
+        QStringList names;
+        for(const auto& view_id:removed)if(const auto* view=pending_.find_view(view_id))names<<QString::fromStdString(view->name);
+        QString message=QObject::tr("Odebrat zdroj %1?\n\nZ výkresu budou odebrány všechny varianty tohoto zdroje a %2 pohledů včetně jejich kót a pozic.")
+            .arg(QString::fromStdString(zima::document::path_to_utf8(pending_.data_source_path(id).filename()))).arg(removed.size());
+        if(!names.isEmpty())message+="\n"+names.mid(0,10).join(", ")+(names.size()>10?QStringLiteral("…"):QString{});
+        message+=QObject::tr("\nÚdaje razítka a kusovníku navázané na tento zdroj budou odpojeny. Zdrojový soubor zůstane zachovaný.\n\nZměny se provedou až tlačítkem OK v Nastavení výkresu.");
+        auto* dialog=new SourceRemovalConfirmation(parentWidget(),message,[this,next=std::move(next)]()mutable{pending_=std::move(next);changed_=true;refresh_rows();});
+        confirmation_=dialog;setEnabled(false);if(focus_)focus_(dialog);
+        connect(dialog,&QDialog::finished,this,[this]{confirmation_.clear();setEnabled(true);if(focus_)focus_(this);raise();});
+        dialog->show();
+    }
 };
 
 // Reading the chooser and its previews consumes only persisted model data.
@@ -1417,9 +1522,24 @@ void DrawingWindow::create_layout() {
         if(!workspace_||view_dialog_)return;
         const auto* sheet=active_sheet();if(!sheet)return;
         const auto source=source_variant_->itemData(index).toString().toStdString();
-        const auto current=sheet->bom_source_document_id.empty()?document_.source_document_id:sheet->bom_source_document_id;
+        const auto current=selected_source_id();
         if(source==current)return;
         try {
+            const auto root=source.substr(0,source.find(":family:"));
+            if(!workspace_->find(root)) {
+                auto path=document_.data_source_path(root);
+                if(path.is_relative()&&!path_.empty())path=path_.parent_path()/path;
+                if(QString::fromStdWString(path.extension().wstring()).compare(".prtz",Qt::CaseInsensitive)==0) {
+                    std::vector<zima::kernel::BodyResult> cache;
+                    auto model=zima::document::PartDocument::load(path,&cache);
+                    if(model.document_id!=root)throw std::runtime_error("Zdrojový soubor patří jinému dokumentu.");
+                    workspace_->add_part(std::move(model),std::move(cache),path);
+                } else {
+                    auto model=zima::assembly::AssemblyDocument::load(path);
+                    if(model.document_id!=root)throw std::runtime_error("Zdrojový soubor patří jinému dokumentu.");
+                    workspace_->add_assembly(std::move(model),path);
+                }
+            }
             const auto separator=source.find(":family:");
             if(separator!=std::string::npos&&!workspace_->find(source)) {
                 const auto owner=source.substr(0,separator),row_id=source.substr(separator+8);
@@ -1433,7 +1553,10 @@ void DrawingWindow::create_layout() {
         }
         catch(const std::exception& error){update_source_variant();set_status_message(tr(error.what()));}
     });
-    bottom->addWidget(new QLabel(tr("Varianta:"), central));
+    auto* settings=new QToolButton(central);settings->setObjectName("drawingSettingsButton");
+    settings->setIcon(resource_icon("settings"));settings->setToolTip(tr("Nastavení výkresu"));
+    connect(settings,&QToolButton::clicked,this,[this]{show_drawing_settings();});bottom->addWidget(settings);
+    bottom->addWidget(new QLabel(tr("Zdroj:"), central));
     bottom->addWidget(source_variant_);
     bottom->addWidget(sheets_, 1); bottom->addWidget(remove_sheet);
     bottom->addWidget(add_sheet); bottom->addSpacing(16);
@@ -1529,7 +1652,7 @@ std::optional<std::string> DrawingWindow::title_field_text_for_test(const std::s
 }
 void DrawingWindow::load_title_block_for_test(const std::filesystem::path& path) {
     auto* sheet = active_sheet(); if (sheet == nullptr) return;
-    zima::workspace::load_drawing_template(document_,sheet->id,path,true); refresh();
+    zima::workspace::load_drawing_template(document_,sheet->id,path,true,workspace_,path_); refresh();
 }
 void DrawingWindow::open_document() {
     const auto path = open_file(this, tr("Otevřít výkres"), {}, tr("Výkres ZIMA-CAD (*.drwz)"));
@@ -1588,16 +1711,10 @@ void DrawingWindow::save_document() {
     catch (const std::exception& error) { QMessageBox::warning(this, tr("Nelze uložit výkres"), error.what()); }
 }
 void DrawingWindow::add_sheet() {
-    const auto inherited=active_sheet()&&!active_sheet()->bom_source_document_id.empty()
-        ?active_sheet()->bom_source_document_id:document_.source_document_id;
+    const auto inherited=selected_source_id();
     zima::workspace::SheetSettings settings;settings.name=tr("List %1").arg(document_.sheets.size()+1).toStdString();
     zima::workspace::create_drawing_sheet(document_,settings);
-    auto& added=document_.sheets.back();added.bom_source_document_id=inherited;
-    if(!inherited.empty()) {
-        auto source_path=document_.source_path;
-        if(source_path.is_relative()&&!path_.empty())source_path=path_.parent_path()/source_path;
-        added.bom_rows=zima::workspace::build_bom_rows_for_source(inherited,source_path,workspace_);
-    }
+    auto& added=document_.sheets.back();added.selected_source_document_id=inherited;
     refresh();sheets_->setCurrentIndex(static_cast<int>(document_.sheets.size()-1));
 }
 void DrawingWindow::remove_sheet() {
@@ -1636,7 +1753,7 @@ void DrawingWindow::load_title_block() {
     const auto path=open_file(this,tr("Načíst razítko"),formats_directory_,
                                                  tr("Razítko výkresu (*.tblz)"));
     if(path.isEmpty()) return;
-    try { zima::workspace::load_drawing_template(document_,sheet->id,std::filesystem::u8path(path.toStdString()),true); refresh(); }
+    try { zima::workspace::load_drawing_template(document_,sheet->id,std::filesystem::u8path(path.toStdString()),true,workspace_,path_); refresh(); }
     catch(const std::exception& error) { QMessageBox::warning(this,tr("Nelze načíst razítko"),error.what()); }
 }
 void DrawingWindow::edit_title_block() {
@@ -1667,18 +1784,9 @@ void DrawingWindow::insert_view() {
     if (raise_open_properties(window())) return;
     const auto* sheet=active_sheet(); if (!sheet) return;
     const auto sheet_id=sheet->id,drawing_id=document_.document_id;
-    auto source_id=document_.source_document_id;
-    auto source_path=document_.source_path;
+    auto source_id=selected_source_id();
+    auto source_path=document_.data_source_path(source_id);
     try {
-        if(source_id.empty()&&source_path.empty()&&workspace_) {
-            for(const auto& state:workspace_->documents())std::visit([&](const auto& item) {
-                using State=std::decay_t<decltype(item)>;
-                if constexpr(std::is_same_v<State,zima::workspace::PartState>||
-                             std::is_same_v<State,zima::workspace::AssemblyState>) {
-                    if(source_id.empty()) {source_id=item.session.document().document_id;source_path=item.path;}
-                }
-            },state);
-        }
         if(source_id.empty()&&source_path.empty()) {
             set_status_message(tr("Výkres nemá zdrojový díl ani sestavu."));return;
         }
@@ -1754,6 +1862,7 @@ void DrawingWindow::show_view_properties(zima::drawing::DrawingView view, bool c
         for(const auto& choice:choices)if(std::ranges::none_of(sources,[&](const auto& item){return item.id==choice.id;}))sources.push_back(choice);
     };
     try{if(!view.source_document_id.empty()||!view.source_path.empty())add_family(view.source_document_id,view.source_path);}catch(const std::exception&){}
+    for(const auto& source:document_.data_sources())try{auto path=source.source_path;if(path.is_relative()&&!path_.empty())path=path_.parent_path()/path;add_family(source.document_id,path);}catch(const std::exception&){}
     if(creating&&workspace_)for(const auto& state:workspace_->documents())std::visit([&](const auto& item){
         if constexpr(requires{item.session;})if(item.session.document().family.parent_id.empty())add_family(item.session.document().document_id,item.path);
     },state);
@@ -1961,6 +2070,7 @@ void DrawingWindow::update_action_states() {
     const auto* sheet = active_sheet();
     const bool has_sheet = sheet != nullptr && !view_dialog_;
     sheet_controls_->setEnabled(!view_dialog_);
+    source_variant_->setEnabled(!view_dialog_&&source_variant_->count()>1);
     const bool has_view = has_sheet && !sheet->views.empty();
     const bool selected_view = has_sheet &&
         document_.find_view(canvas_->selected_view_id()) != nullptr;
@@ -1970,7 +2080,7 @@ void DrawingWindow::update_action_states() {
     edit_sheet_action_->setEnabled(has_sheet);
     edit_title_block_action_->setEnabled(
         has_sheet && (!sheet->title_block_fields.empty() || !sheet->title_block_texts.empty()));
-    insert_view_action_->setEnabled(has_sheet);
+    insert_view_action_->setEnabled(has_sheet&&!selected_source_id().empty());
     projected_view_action_->setEnabled(selected_view);
     edit_view_action_->setEnabled(selected_view);
     regenerate_view_action_->setEnabled(!view_dialog_&&std::ranges::any_of(document_.sheets,[](const auto& sheet){return !sheet.views.empty();}));
@@ -1983,42 +2093,51 @@ void DrawingWindow::update_action_states() {
     selection_action_->setEnabled(has_sheet);
     selection_action_->setChecked(!canvas_->dimension_mode());
 }
+std::string DrawingWindow::selected_source_id() const {
+    const int index=sheets_?sheets_->currentIndex():-1;
+    if(index>=0&&index<static_cast<int>(document_.sheets.size())) {
+        const auto& selected=document_.sheets[index].selected_source_document_id;
+        if(!selected.empty())return selected;
+    }
+    return document_.source_document_id;
+}
+void DrawingWindow::show_drawing_settings() {
+    if(view_dialog_){view_dialog_->raise();return;}
+    if(raise_open_properties(window()))return;
+    auto* dialog=new DrawingSettingsDialog(window(),document_,path_,workspace_,[this](auto next) {
+        document_=std::move(next);canvas_->select_view_for_test({});refresh();
+    },properties_handler_);
+    view_dialog_=dialog;if(properties_handler_)properties_handler_(dialog);
+    connect(dialog,&QDialog::finished,this,[this,dialog] {
+        if(view_dialog_==dialog){view_dialog_.clear();if(properties_handler_)properties_handler_(nullptr);}
+        update_action_states();update_source_variant();
+    });
+    dialog->show();update_action_states();update_source_variant();
+}
 void DrawingWindow::update_source_variant() {
     QSignalBlocker blocker(source_variant_);source_variant_->clear();
-    if(document_.source_document_id.empty()&&workspace_) {
-        source_variant_->addItem(tr("Bez zdroje"),QString{});
-        for(const auto& state:workspace_->documents())std::visit([&](const auto& value) {
-            if constexpr(requires{value.session;}) {
-                const auto& model=value.session.document();
-                source_variant_->addItem(QString::fromStdString(model.name),QString::fromStdString(model.document_id));
-            }
-        },state);
-        source_variant_->setEnabled(!view_dialog_&&source_variant_->count()>1);return;
+    for(const auto& source:document_.data_sources()) {
+        auto path=source.source_path;
+        if(path.is_relative()&&!path_.empty())path=path_.parent_path()/path;
+        try {
+            for(const auto& choice:family_source_choices(workspace_,source.document_id,path))
+                source_variant_->addItem(resource_icon(QString::fromStdWString(path.extension().wstring()).compare(".asmz",Qt::CaseInsensitive)==0?"assembly":"part"),choice.name,QString::fromStdString(choice.id));
+        } catch(const std::exception&) {
+            source_variant_->addItem(QString::fromStdString(source.name.empty()?zima::document::path_to_utf8(path.filename()):source.name)+tr(" (nedostupný)"),QString::fromStdString(source.document_id));
+        }
     }
-    auto source_path=document_.source_path;
-    if(source_path.is_relative()&&!path_.empty())source_path=path_.parent_path()/source_path;
-    try {
-        const auto choices=family_source_choices(workspace_,document_.source_document_id,source_path);
-        for(const auto& choice:choices)source_variant_->addItem(choice.name,QString::fromStdString(choice.id));
-        const auto* sheet=active_sheet();
-        const auto source=sheet&&!sheet->bom_source_document_id.empty()?sheet->bom_source_document_id:document_.source_document_id;
-        const auto selected=source_variant_->findData(QString::fromStdString(source));
-        if(selected>=0)source_variant_->setCurrentIndex(selected);
-    } catch(const std::exception&) {}
-    if(source_variant_->count()==0) {
-        auto label=QString::fromStdString(document_.source_name);
-        if(label.isEmpty())label=QString::fromStdString(document_.source_path.filename().string());
-        if(label.isEmpty())label=tr("Bez zdroje");
-        source_variant_->addItem(label,QString::fromStdString(document_.source_document_id));
-    }
+    if(source_variant_->count()==0)source_variant_->addItem(tr("Bez zdroje"),QString{});
+    auto selected=source_variant_->findData(QString::fromStdString(selected_source_id()));
+    if(selected<0&&!selected_source_id().empty()){source_variant_->addItem(tr("Nedostupná varianta"),QString::fromStdString(selected_source_id()));selected=source_variant_->count()-1;}
+    if(selected>=0)source_variant_->setCurrentIndex(selected);
     source_variant_->setEnabled(!view_dialog_&&source_variant_->count()>1);
 }
 void DrawingWindow::refresh(bool changed) {
-    update_source_variant();
     const int wanted = std::clamp(sheets_ ? sheets_->currentIndex() : 0, 0, static_cast<int>(document_.sheets.size() - 1));
     sheets_->blockSignals(true); while (sheets_->count()) sheets_->removeTab(0);
     for (const auto& sheet : document_.sheets) sheets_->addTab(QString::fromStdString(sheet.name));
     sheets_->setCurrentIndex(wanted); sheets_->blockSignals(false); canvas_->set_sheet(active_sheet());
+    update_source_variant();
     if (const auto* sheet = active_sheet()) {
         const QSignalBlocker format_blocker(sheet_format_);
         const QSignalBlocker projection_blocker(projection_method_);
@@ -2041,18 +2160,21 @@ void DrawingWindow::refresh(bool changed) {
 }
 
 void DrawingWindow::refresh_title_block_context() {
-    // Title-block tokens resolve against the variant selected for the active
-    // sheet, independently of view insertion order and other sheets.
+    // The title block retains the source captured on insertion, independently
+    // of subsequent chooser changes and view insertion order.
     const auto* sheet = active_sheet();
     if (!sheet) {canvas_->set_title_block_context(std::nullopt);return;}
-    auto source_id=sheet->bom_source_document_id.empty()?document_.source_document_id:sheet->bom_source_document_id;
-    auto source_path=document_.source_path;
-    if(source_path.empty()&&!sheet->views.empty())source_path=sheet->views.front().source_path;
+    auto source_id=sheet->bom_source_document_id;
+    auto source_path=document_.data_source_path(source_id);
     if(!source_path.empty() && source_path.is_relative() && !path_.empty())
         source_path=path_.parent_path()/source_path;
     if(source_id.empty() && workspace_)
         if(const auto open=workspace_->document_id_for_path(source_path))source_id=*open;
-    auto context=build_title_block_context_for_source(source_id,source_path,workspace_);
+    zima::drawing::TitleBlockContext context;
+    try {context=build_title_block_context_for_source(source_id,source_path,workspace_);}
+    catch(const std::exception& error) {
+        set_status_message(tr("Zdroj razítka není dostupný: %1").arg(QString::fromUtf8(error.what())));
+    }
     context.sheet_index=sheets_->currentIndex();context.sheet_count=static_cast<int>(document_.sheets.size());
     canvas_->set_title_block_context(std::move(context));
 }

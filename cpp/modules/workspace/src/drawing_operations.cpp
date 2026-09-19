@@ -1,5 +1,7 @@
 #include <zima/workspace/drawing_operations.hpp>
 #include <zima/workspace/family_operations.hpp>
+#include <zima/workspace/drawing_sources.hpp>
+#include <zima/drawing/balloon.hpp>
 #include <zima/drawing/measurement_dimension.hpp>
 #include <algorithm>
 #include <cmath>
@@ -31,6 +33,7 @@ void delete_drawing_sheet(drawing::DrawingDocument& doc,const std::string& id){
     std::set<std::string> views;for(const auto& view:target.views)views.insert(view.id);
     for(const auto& other:doc.sheets)if(other.id!=id)for(const auto& view:other.views)if(views.contains(view.parent_view_id)||views.contains(view.section_parent_id))
         throw DrawingOperationError("dependent_view","Another drawing sheet contains a dependent view.");
+    doc.sources=doc.data_sources();
     std::erase_if(doc.sheets,[&](const auto& s){return s.id==id;});
 }
 bool set_drawing_sheet(drawing::DrawingDocument& doc,const std::string& id,const SheetSettings& settings,const DrawingSourceReader& source){
@@ -47,11 +50,18 @@ bool set_drawing_sheet(drawing::DrawingDocument& doc,const std::string& id,const
     target=std::move(next);return true;
 }
 bool clear_drawing_template(drawing::DrawingDocument& doc,const std::string& id,bool title){return clear(sheet(doc,id),title);}
-void load_drawing_template(drawing::DrawingDocument& doc,const std::string& id,const std::filesystem::path& path,bool title){
+void load_drawing_template(drawing::DrawingDocument& doc,const std::string& id,const std::filesystem::path& path,bool title,const Workspace* live,const std::filesystem::path& drawing_path){
     auto& target=sheet(doc,id);auto next=target;
     auto ext=path.extension().string();std::ranges::transform(ext,ext.begin(),[](unsigned char c){return static_cast<char>(std::tolower(c));});
     if(ext!=(title?".tblz":".frmz"))throw DrawingOperationError("unsupported_format","Use a native frmz frame or tblz title-block template.");
-    if(title)drawing::load_title_block_template(next,path);else drawing::load_frame_template(next,path);
+    if(title) {
+        drawing::load_title_block_template(next,path);
+        next.bom_source_document_id=next.selected_source_document_id.empty()?doc.source_document_id:next.selected_source_document_id;
+        auto source_path=doc.data_source_path(next.bom_source_document_id);
+        if(source_path.is_relative()&&!drawing_path.empty())source_path=drawing_path.parent_path()/source_path;
+        next.bom_rows=build_bom_rows_for_source(next.bom_source_document_id,source_path,live);
+        drawing::refresh_balloons(next);
+    } else drawing::load_frame_template(next,path);
     validate_sheet_settings(sheet_settings(next));target=std::move(next);
 }
 std::pair<std::string,kernel::ViewerMesh> read_drawing_source(const Workspace* live,const std::filesystem::path& path,const std::string& expected){

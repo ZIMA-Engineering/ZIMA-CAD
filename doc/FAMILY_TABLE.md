@@ -113,19 +113,16 @@ changes reuse geometry. Changing numeric or presence values is an explicit model
 transaction that recalculates affected evaluated variants. Close a variant tab
 before deleting its table row.
 
-In an empty Drawing, **Variant** offers open Parts and Assemblies, including their
-variants, before **Insert View**. Once a source is assigned, it offers that generic
-and every Family Table variant. A closed row is calculated only when the user
-selects it. Save the owning family first. The Drawing stores the stable variant
-identity for each sheet and the common parent file path. A sheet's selection
-supplies its title-block parameters, BOM and item balloons. An Assembly BOM
-therefore reflects the actual component presence and quantities of that sheet's
-variant. View insertion and view-source editing are independent of this
-selection. One sheet may contain views of several native models or variants
-while its title block, BOM and item balloons continue to use the one variant
-selected in the sheet bar. A balloon resolves in one direction only: its view
-geometry must identify an unambiguous row in that selected BOM. The BOM never
-changes or selects a view.
+Drawing Settings registers the source files. The bottom **Source** selector
+includes their native models and Family Table variants, including evaluated
+Assembly variants with suppressed components. An empty source list disables the
+selector and hides Part/Assembly navigation. Each sheet retains its own selected
+source for navigation and new views; existing views are independent.
+
+A title block captures its source and variant on insertion. Later chooser changes
+do not change its title metadata or BOM. Balloons resolve only against this bound
+BOM. Removing the source clears the binding without selecting another model.
+See [Drawing sources](DRAWING_SOURCES.md).
 
 A renamed variant remains the same Drawing source. Open-source metadata is
 authoritative; otherwise the Drawing reads the evaluated variant from its parent
@@ -185,8 +182,8 @@ parent model to persist the newly evaluated row. No extra variant file is create
 
 OK reprojects the main view and its projected descendants in one Drawing Undo
 transaction. Independent main views retain their own sources. Projected views
-cannot select a source independently. Replacing the first main view also updates
-the Drawing's primary source and title-block context. View IDs and annotation
+cannot select a source independently. Replacing a view leaves the sheet chooser
+and title-block binding unchanged. View IDs and annotation
 references remain stable; missing geometry follows the existing unresolved
 annotation behavior. Source selection is also available after reopening a Drawing
 with its parent model closed.

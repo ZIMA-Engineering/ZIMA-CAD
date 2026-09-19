@@ -857,6 +857,8 @@ struct HistoryOperation {
     SheetOperation sheet_operation{SheetOperation::None};
     double sheet_thickness{};
     std::optional<SheetMaterialDefinition> sheet_material;
+    // A copy operand within the same Body, applied by the ordinary Boolean chain.
+    std::optional<BodyHistoryScope> feature_copy;
 };
 
 // Calculated material-space trim, owned by the later cut, never by rewriting
@@ -1005,10 +1007,20 @@ struct PlacedBody {
             byte(static_cast<std::uint8_t>((value >> shift) & 0xffU));
         }
     };
+    // Only rigid-frame coordinates/angles normalize signed zero. Do not use
+    // this for authored dimensional parameters: a signed zero can encode a side.
+    const auto number_bits=[](double value) {
+        return std::bit_cast<std::uint64_t>(value==0.0?0.0:value);
+    };
     operation_count = std::min(operation_count, operations.size());
     u64(operation_count);
     for (std::size_t index = 0; index < operation_count; ++index) {
         const auto& operation = operations[index];
+        if(operation.feature_copy) {
+            HistoryOperation key;key.body=*operation.feature_copy;
+            const auto copy_key=history_fingerprint({key},1);
+            byte(0xc7);u64(copy_key.size());for(unsigned char c:copy_key)byte(c);
+        }
         u64(operation.owner_id.size());
         for (const unsigned char value : operation.owner_id) byte(value);
         byte(static_cast<std::uint8_t>(operation.operation));
@@ -1041,23 +1053,25 @@ struct PlacedBody {
             for (const auto value : {operation.body.translation.x, operation.body.translation.y,
                     operation.body.translation.z, operation.body.rotation_degrees.x,
                     operation.body.rotation_degrees.y, operation.body.rotation_degrees.z})
-                u64(std::bit_cast<std::uint64_t>(value));
+                u64(number_bits(value));
         }
         if(operation.body.combination==BodyCombination::Mirror)
             for(double v:{operation.body.mirror_plane.point.x,operation.body.mirror_plane.point.y,operation.body.mirror_plane.point.z,
                     operation.body.mirror_plane.normal.x,operation.body.mirror_plane.normal.y,operation.body.mirror_plane.normal.z})
-                u64(std::bit_cast<std::uint64_t>(v));
+                u64(number_bits(v));
         if(!operation.body.source_feature_id.empty()) {
             u64(operation.body.source_feature_id.size());
             for(const unsigned char value:operation.body.source_feature_id)byte(value);
         }
         if(operation.body.combination==BodyCombination::Pattern) {
             const auto& p=operation.body.pattern;u64(p.count);byte(p.circular);byte(p.full_circle);
-            for(double v:{p.angle_degrees,p.origin.x,p.origin.y,p.origin.z,p.axis.x,p.axis.y,p.axis.z})
-                u64(std::bit_cast<std::uint64_t>(v));
+            u64(std::bit_cast<std::uint64_t>(p.angle_degrees));
+            for(double v:{p.origin.x,p.origin.y,p.origin.z,p.axis.x,p.axis.y,p.axis.z})
+                u64(number_bits(v));
             for (const auto& d : p.linear) {
                 u64(d.local_axis + 1);u64(d.count);u64(d.reverse_count);byte(static_cast<std::uint8_t>(d.distribution));
-                for (double v : {d.spacing,d.direction.x,d.direction.y,d.direction.z}) u64(std::bit_cast<std::uint64_t>(v));
+                u64(std::bit_cast<std::uint64_t>(d.spacing));
+                for (double v : {d.direction.x,d.direction.y,d.direction.z}) u64(number_bits(v));
             }
         }
         byte(static_cast<std::uint8_t>(operation.primitive.index()));
@@ -1065,11 +1079,13 @@ struct PlacedBody {
             using Request = std::decay_t<decltype(primitive)>;
             if constexpr (std::is_same_v<Request, BoxRequest>) {
                 for (const double value : {
-                        primitive.length, primitive.width, primitive.height,
+                        primitive.length, primitive.width, primitive.height})
+                    u64(std::bit_cast<std::uint64_t>(value));
+                for (const double value : {
                         primitive.translation.x, primitive.translation.y,
                         primitive.translation.z, primitive.rotation_degrees.x,
                         primitive.rotation_degrees.y, primitive.rotation_degrees.z}) {
-                    u64(std::bit_cast<std::uint64_t>(value));
+                    u64(number_bits(value));
                 }
             } else if constexpr (std::is_same_v<Request, CylinderRequest>) {
                 for (const double value : {

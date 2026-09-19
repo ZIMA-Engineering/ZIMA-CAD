@@ -2,6 +2,7 @@
 #include <zima/kernel/occt_kernel.hpp>
 #include <filesystem>
 #include <fstream>
+#include <algorithm>
 #include <future>
 #include <iostream>
 #include <stdexcept>
@@ -19,6 +20,14 @@ int main(){
         const auto assembly_template_bytes=bytes(template_root/settings.assembly_template);
         const auto template_part=document::PartDocument::load(template_root/settings.part_template);
         const auto template_assembly=assembly::AssemblyDocument::load(template_root/settings.assembly_template);
+        const auto check_labels=[](const auto& model) {
+            for(const auto& [key,labels]:model.user_parameter_labels)if(labels.contains("cs")) {
+                const auto& label=labels.at("cs");
+                require(!label.empty()&&std::ranges::all_of(label,[](unsigned char c){return c<128&&!(c>='A'&&c<='Z');}),
+                    "Czech template parameter labels must be lowercase without diacritics");
+            }
+        };
+        check_labels(template_part);check_labels(template_assembly);
         const auto directory=fs::canonical(fs::temp_directory_path())/("zima-native-documents-"+document::PartDocument::create_default().document_id);
         fs::create_directory(directory);
         Workspace workspace;
@@ -31,6 +40,7 @@ int main(){
         require(first_document.name=="díl 1" && first_document.document_units.at("Length")=="cm" &&
             first_document.document_precision==template_part.document_precision,"Part ignored config parameters");
         require(first_document.body_history.bodies().size()==1,"New Part body missing");
+        check_labels(first_document);
         const auto first_body=first_document.body_history.bodies().front();
         require(first_body.name=="Těleso 1" && first_body.scope.placement.references.size()==5,"Body name or origin attachment changed");
         for(const auto& reference:first_body.scope.placement.references)
@@ -56,6 +66,7 @@ int main(){
         auto group=prepare_new_native_document(NativeDocumentType::Assembly,"group",directory/"group.asmz",settings,{{"Length","cm"}});
         const auto group_id=insert_native_document(workspace,std::move(group));
         const auto& group_document=workspace.open_assembly(group_id)->session.document();
+        check_labels(group_document);
         require(group_id!=template_assembly.document_id && group_document.document_units.at("Length")=="cm" &&
             group_document.document_precision==template_assembly.document_precision && group_document.components.empty(),"Assembly template/config contract changed");
         const auto drawing_id=insert_native_document(workspace,prepare_new_native_document(NativeDocumentType::Drawing,"drawing",directory/"drawing.drwz",{}));
@@ -98,6 +109,15 @@ int main(){
             linked.sheets.front().bom_rows.size()==1&&
             linked.sheets.front().bom_rows.front().source_document_id==model_id,
             "New Drawing did not initialize its independent sheet BOM source");
+        auto independent=linked;
+        independent.add_data_source({group_id,directory/"group.asmz","Group"});
+        independent.sheets.front().selected_source_document_id=group_id;
+        independent.sheets.front().bom_source_document_id.clear();independent.sheets.front().bom_rows.clear();
+        independent.save(directory/"independent.drwz");
+        Workspace reopened;insert_native_document(reopened,read_native_document(directory/"independent.drwz"));
+        const auto& checked=reopened.open_drawing(independent.document_id)->document();
+        require(checked.sheets.front().selected_source_document_id==group_id&&checked.sheets.front().bom_source_document_id.empty()&&checked.data_sources().size()==2,
+            "Opening Drawing reset its chooser or rebound an explicitly disconnected title");
         const auto& loaded_part=*workspace.open_part(model_id);
         require(!loaded_part.session.is_dirty() && !loaded_part.session.can_undo() && loaded_part.session.calculated_boundaries().size()==boundaries.size(),"Open calculated or edited a Part");
         require(loaded_part.session.calculated_boundaries().back().volume==boundaries.back().volume,"Open lost calculated geometry");

@@ -1,5 +1,12 @@
 # Sketcher offset
 
+## Agreed scope (2026-09-19)
+
+Native Sketch curve offsets are implemented. The user confirmed that offsets
+from ZIMA geometry are the required scope; STEP-derived offsets are not required
+and must not be scheduled as remaining work. Existing projection support and
+historical STEP verification below do not create a development requirement.
+
 ## Interaction
 
 **Offset** is in the right-hand menu beside Trim and Mirror. It opens **Offset

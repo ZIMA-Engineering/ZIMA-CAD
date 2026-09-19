@@ -15,6 +15,8 @@ struct CopySource {
 };
 struct CopySources {
     std::size_t boundary{};
+    std::string body_id;
+    std::size_t body_cursor{};
     std::vector<CopySource> items;
     std::vector<std::string> context_bodies;
 };
@@ -25,8 +27,8 @@ struct DerivedCopyDefinition {
     document::DerivedCopyParameters parameters;
     bool operator==(const DerivedCopyDefinition&) const = default;
 };
-// Read persisted data only. The boundary matches Properties: immediately after
-// the active Body, otherwise the root cursor; immediately before an edited copy.
+// Read persisted data only. body_cursor is inside the active owning Body;
+// boundary limits the surrounding Part context. Editing stops before the copy.
 // Assembly sources are preceding, unsuppressed immediate occurrences.
 // An active Part Body offers only its own solid features before its cursor.
 // At Part level both available Bodies and their solid features are offered.

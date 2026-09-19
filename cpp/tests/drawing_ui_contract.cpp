@@ -29,6 +29,8 @@
 #include <QMouseEvent>
 #include <QPushButton>
 #include <QTimer>
+#include <QTableWidget>
+#include <QToolButton>
 #include <QTemporaryDir>
 #include <filesystem>
 #include <iostream>
@@ -100,7 +102,7 @@ int verify_drawing_source_picker() {
             family_part.name="Generic model";
             family_part.user_parameters["name"]="Generic parameter";
             family_part.user_parameter_values["name"][""]="Generic parameter";
-            family_part.user_parameter_labels["name"]["cs"]="Název";
+            family_part.user_parameter_labels["name"]["cs"]="nazev";
             workspace.add_part(family_part,calculated,part_path);
             zima::document::FamilyTable table;table.instances.push_back({"Variant",{}});
             static_cast<void>(zima::workspace::set_family_table(workspace,family_part.document_id,table));
@@ -108,8 +110,9 @@ int verify_drawing_source_picker() {
                 workspace,kernel,family_part.document_id,"Variant",false);
             auto drawing=zima::drawing::DrawingDocument::create_default();
             drawing.source_document_id=family_part.document_id;drawing.source_path=part_path;
+            drawing.sheets.front().bom_source_document_id=family_part.document_id;
             drawing.sheets.front().title_block_fields.push_back({
-                .id="NAME",.expression="&Název",.value="-"});
+                .id="NAME",.expression="&nazev",.value="-"});
             drawing.sheets.front().views.push_back(zima::drawing::DrawingDocument::create_view(
                 family_part.document_id,part_path,calculated.back().mesh,zima::drawing::ViewOrientation::Isometric));
             workspace.add_drawing(drawing,directory/"variants.drwz");
@@ -125,20 +128,32 @@ int verify_drawing_source_picker() {
             const auto variant_index=choices->findData(QString::fromStdString(variant));
             require(variant_index>=0,"Drawing Variant list does not contain the Family Table row");
             choices->setCurrentIndex(variant_index);choices->activated(variant_index);flush();
-            require(window.document_for_test().sheets.front().bom_source_document_id==variant&&
+            require(window.document_for_test().sheets.front().selected_source_document_id==variant&&
                 window.document_for_test().sheets.front().views.front().source_document_id==family_part.document_id,
                 "Sheet Variant selection changed an independent Drawing view");
-            require(window.title_field_text_for_test("NAME")==std::optional<std::string>{"Variant"},
-                "Drawing title used the source filename instead of the selected variant Parameters");
+            require(window.title_field_text_for_test("NAME")==std::optional<std::string>{"Generic parameter"},
+                "Changing the chooser rebound the title block");
+            window.load_title_block_for_test(std::filesystem::absolute("config/formats/ZE-RAZITKO.tblz"));flush();
+            require(window.document_for_test().sheets.front().bom_source_document_id==variant&&
+                window.title_field_text_for_test("NAME")==std::optional<std::string>{"Variant"},"Inserted title did not capture the selected variant");
+            const int native_index=choices->findData(QString::fromStdString(family_part.document_id));
+            choices->setCurrentIndex(native_index);choices->activated(native_index);flush();
+            require(window.title_field_text_for_test("NAME")==std::optional<std::string>{"Variant"}&&
+                window.document_for_test().sheets.front().bom_source_document_id==variant,"Changing Source rebound an inserted title");
+            window.document_for_test().save(directory/"bound-title.drwz");
+            const auto bound=zima::drawing::DrawingDocument::load(directory/"bound-title.drwz");
+            require(bound.sheets.front().bom_source_document_id==variant&&bound.sheets.front().selected_source_document_id==family_part.document_id,
+                "Reopening collapsed the independent title and chooser identities");
+            choices->setCurrentIndex(variant_index);choices->activated(variant_index);flush();
             add->trigger();flush();
             require(window.document_for_test().sheets.size()==2&&
-                window.document_for_test().sheets.back().bom_source_document_id==variant,
+                window.document_for_test().sheets.back().selected_source_document_id==variant,
                 "New Drawing sheet did not inherit the active variant");
             const auto generic_index=choices->findData(QString::fromStdString(family_part.document_id));
             require(generic_index>=0,"Drawing Variant list does not contain the native model");
             choices->setCurrentIndex(generic_index);choices->activated(generic_index);flush();
-            require(window.document_for_test().sheets.front().bom_source_document_id==variant&&
-                window.document_for_test().sheets.back().bom_source_document_id==family_part.document_id,
+            require(window.document_for_test().sheets.front().selected_source_document_id==variant&&
+                window.document_for_test().sheets.back().selected_source_document_id==family_part.document_id,
                 "Changing one Drawing sheet changed another sheet's variant");
             tabs->setCurrentIndex(0);flush();
             require(choices->currentData().toString().toStdString()==variant,
@@ -146,6 +161,81 @@ int verify_drawing_source_picker() {
             tabs->setCurrentIndex(1);flush();
             require(choices->currentData().toString().toStdString()==family_part.document_id,
                 "Drawing Variant dropdown did not restore the second sheet selection");
+        }
+        {
+            zima::workspace::Workspace workspace;
+            auto drawing=zima::drawing::DrawingDocument::create_default();
+            drawing.add_data_source({part.document_id,part_path,"Part"});
+            drawing.add_data_source({assembly.document_id,assembly_path,"Assembly"});
+            auto first=zima::drawing::DrawingDocument::create_view(part.document_id,part_path,calculated.back().mesh);
+            auto child=first;child.id+="-child";child.parent_view_id=first.id;
+            auto independent=zima::drawing::DrawingDocument::create_view(assembly.document_id,assembly_path,calculated.back().mesh);
+            drawing.sheets.front().views={first,child,independent};
+            drawing.sheets.front().bom_source_document_id=part.document_id;
+            drawing.sheets.front().selected_source_document_id=assembly.document_id;
+            const auto path=directory/"settings.drwz";
+            workspace.add_drawing(drawing,path);workspace.activate(drawing.document_id);workspace.display_top_level(drawing.document_id);
+            zima::app::DrawingWindow window(&workspace,false);window.resize(1200,850);
+            window.edit_workspace_document(drawing.document_id);window.show();flush();
+            auto* settings=window.findChild<QToolButton*>("drawingSettingsButton");
+            auto* choices=window.findChild<QComboBox*>("drawingSourceVariant");
+            auto* canvas=window.findChild<QWidget*>("drawingCanvas");
+            require(settings&&!settings->icon().isNull()&&choices->count()==2,"Drawing Settings controls missing");
+            auto* state=workspace.open_drawing(drawing.document_id);const auto revision=state->revision();
+            const auto open=[&] {
+                settings->click();flush();auto* dialog=window.findChild<QDialog*>("drawingSettingsDialog");
+                require(dialog&&dialog->isVisible()&&(dialog->windowFlags()&Qt::SubWindow),"Settings are not an internal properties window");
+                return dialog;
+            };
+            const auto remove=[&](QDialog* dialog,int row,bool accept) {
+                auto* table=dialog->findChild<QTableWidget*>("drawingDataSources");require(table,"Source table missing");
+                auto* cross=table->cellWidget(row,0)->findChild<QPushButton*>();require(cross,"Source remove cross missing");
+                cross->click();flush();auto* confirmation=window.findChild<QDialog*>("drawingSourceRemovalConfirmation");
+                require(confirmation&&confirmation->isVisible()&&!dialog->isEnabled(),"Source removal bypassed confirmation");
+                confirmation->findChild<QDialogButtonBox*>()->button(accept?QDialogButtonBox::Ok:QDialogButtonBox::Cancel)->click();flush();
+                require(dialog->isEnabled(),"Confirmation left Settings disabled");
+            };
+            auto* dialog=open();window.grab().save("build/drawing-settings-preview.png");remove(dialog,0,false);
+            require(dialog->findChild<QTableWidget*>()->rowCount()==3&&state->revision()==revision,"Cancelled removal changed sources");
+            remove(dialog,0,true);
+            require(dialog->findChild<QTableWidget*>()->rowCount()==2&&state->document().sheets.front().views.size()==3,"Pending removal leaked before OK");
+            dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
+            require(state->revision()==revision&&state->document().data_sources().size()==2,"Settings Cancel mutated history");
+            dialog=open();remove(dialog,0,true);
+            dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+            require(state->document().sheets.front().views.size()==1&&state->document().sheets.front().bom_source_document_id.empty()&&
+                window.selected_source_id()==assembly.document_id,"Source cascade removed unrelated views or rebound title");
+            require(state->undo(),"Source removal has no Undo");window.edit_workspace_document(drawing.document_id);flush();
+            require(state->document().sheets.front().views.size()==3&&choices->count()==2,"Undo did not restore sources and views");
+            require(state->redo(),"Source removal has no Redo");window.edit_workspace_document(drawing.document_id);flush();
+            dialog=open();remove(dialog,0,true);
+            // The shared middle-double-click confirmation must also work over the sheet.
+            mouse(canvas,QEvent::MouseButtonDblClick,canvas->rect().center(),Qt::MiddleButton,Qt::MiddleButton);
+            require(state->document().data_sources().empty()&&state->document().sheets.front().views.empty()&&
+                window.selected_source_id().empty()&&!choices->isEnabled()&&choices->currentData().toString().isEmpty(),"Last source left stale state");
+            state->document().save(path);const auto empty=zima::drawing::DrawingDocument::load(path);
+            require(empty.data_sources().empty()&&empty.source_document_id.empty(),"Empty sources did not survive reopen");
+            dialog=open();auto* table=dialog->findChild<QTableWidget*>();
+            QTimer pick;QObject::connect(&pick,&QTimer::timeout,[&] {
+                if(auto* file=qobject_cast<QFileDialog*>(QApplication::activeModalWidget())) {
+                    file->selectFile(QString::fromStdWString(part_path.wstring()));QMetaObject::invokeMethod(file,"accept",Qt::DirectConnection);pick.stop();
+                }
+            });pick.start(20);
+            table->cellClicked(0,1);flush();
+            require(table->rowCount()==2,"Cannot add a source to an empty Drawing");
+            dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+            require(window.selected_source_id()==part.document_id&&state->document().sheets.front().views.empty()&&
+                state->document().sheets.front().bom_source_document_id.empty(),"Adding a source recreated removed views or rebound title");
+            state->document().save(path);require(zima::drawing::DrawingDocument::load(path).data_sources().size()==1,"Unused registered source was not persisted");
+            auto missing=zima::drawing::DrawingDocument::create_default();
+            missing.add_data_source({"missing-source",directory/"missing.asmz","Missing assembly"});
+            missing.sheets.front().bom_source_document_id="missing-source";
+            workspace.add_drawing(missing,directory/"missing-source.drwz");window.edit_workspace_document(missing.document_id);flush();
+            require(choices->currentText().contains("nedostupný")&&window.selected_source_id()=="missing-source",
+                "Missing file lost its registered source or prevented opening Drawing");
+            dialog=open();remove(dialog,0,true);dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+            require(window.document_for_test().data_sources().empty(),"A missing source cannot be removed through Settings");
+
         }
         std::cout<<"Drawing Insert View: source safety, Part/Assembly placement, OK/Cancel and isometric plus Front passed\n";return 0;
     } catch(const std::exception& error) {std::cerr<<error.what()<<'\n';return 1;}
@@ -354,13 +444,13 @@ int verify_drawing_ui() {
         {
             auto model=workspace.open_part(part.document_id)->session.document();
             model.user_parameter_order={"stock","name","drawn_by","standard","revision"};
-            model.user_parameter_labels["stock"]["cs"]="Polotovar";
+            model.user_parameter_labels["stock"]["cs"]="polotovar";
             model.user_parameters["name"]="First component";
             model.user_parameter_values["name"][""]="First component";
-            model.user_parameter_labels["name"]["cs"]="Název";
+            model.user_parameter_labels["name"]["cs"]="nazev";
             model.user_parameters["drawn_by"]="Original author";
             model.user_parameter_values["drawn_by"][""]="Original author";
-            model.user_parameter_labels["drawn_by"]["cs"]="Kreslil";
+            model.user_parameter_labels["drawn_by"]["cs"]="kreslil";
             workspace.open_part(part.document_id)->session.commit(model,{cache});
             const auto revision=workspace.open_part(part.document_id)->session.revision();
             const auto library=std::filesystem::path(__FILE__).parent_path().parent_path().parent_path()/"config/formats/ZE-RAZITKO.tblz";
@@ -375,7 +465,7 @@ int verify_drawing_ui() {
             auto* author=d->findChild<QLineEdit*>("titleBlockField:DRAWN_BY");
             require(author && author->text()=="Original author"&&!author->isReadOnly(),"Title block did not read model Parameters");
             const auto editor_y=[](QDialog* props,const char* id){auto* editor=props->findChild<QLineEdit*>(id);require(editor,"Missing ordered title editor");return editor->mapTo(props,QPoint{}).y();};
-            require(editor_y(d,"titleBlockField:parameter:Polotovar")<editor_y(d,"titleBlockField:NAME")&&editor_y(d,"titleBlockField:NAME")<editor_y(d,"titleBlockField:DRAWN_BY"),"Title block ignored source Parameters order");
+            require(editor_y(d,"titleBlockField:parameter:polotovar")<editor_y(d,"titleBlockField:NAME")&&editor_y(d,"titleBlockField:NAME")<editor_y(d,"titleBlockField:DRAWN_BY"),"Title block ignored source Parameters order");
             window.grab().save(QString::fromStdString((directory/"drawing-title-properties.png").string()));
             author->setText("Discard");d->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
             require(workspace.open_part(part.document_id)->session.revision()==revision,"Title block Cancel changed model");
@@ -393,7 +483,7 @@ int verify_drawing_ui() {
             second.user_parameter_labels=model.user_parameter_labels;
             second.user_parameters["name"]="Second component";
             second.user_parameter_values["name"][""]="Second component";
-            second.user_parameter_labels["name"]["cs"]="Název";
+            second.user_parameter_labels["name"]["cs"]="nazev";
             workspace.add_part(second,{cache},"second.prtz");
             auto repeated=zima::assembly::AssemblyDocument::create_part_occurrence("First",part.document_id,"source.prtz",cache);
             assembly.components.push_back(repeated);
@@ -402,7 +492,7 @@ int verify_drawing_ui() {
             repeated.occurrence_id="suppressed-tool";repeated.suppressed=true;assembly.components.push_back(repeated);
             workspace.add_assembly(assembly,std::filesystem::absolute(directory/"source.asmz"));
             auto assembly_drawing=zima::drawing::DrawingDocument::create_default();
-            assembly_drawing.source_path="source.asmz";
+            assembly_drawing.add_data_source({assembly.document_id,"source.asmz",assembly.name});
             workspace.add_drawing(assembly_drawing,std::filesystem::absolute(directory/"source.drwz"));
             window.edit_workspace_document(assembly_drawing.document_id);
             window.load_title_block_for_test(library);edit->trigger();flush();
@@ -431,10 +521,10 @@ int verify_drawing_ui() {
             click(canvas,*row_center);mouse(canvas,QEvent::MouseButtonDblClick,*row_center,Qt::LeftButton,Qt::LeftButton);flush();
             d=window.findChild<QDialog*>("drawingTitleBlockProperties");require(d,"BOM row editor missing");
             auto* row_name=d->findChild<QLineEdit*>("titleBlockField:NAME");
-            require(d->findChild<QLineEdit*>("titleBlockField:DRAWN_BY")&&d->findChild<QLineEdit*>("titleBlockField:parameter:Polotovar"),"BOM cell did not open the complete title-block table");
+            require(d->findChild<QLineEdit*>("titleBlockField:DRAWN_BY")&&d->findChild<QLineEdit*>("titleBlockField:parameter:polotovar"),"BOM cell did not open the complete title-block table");
             require(row_name&&row_name->selectedText()==row_name->text(),"BOM cell did not focus its parameter in the complete table");
             require(row_name&&!row_name->isReadOnly()&&row_name->text()=="Second component","BOM edit did not resolve its exact source Part");
-            require(editor_y(d,"titleBlockField:DRAWN_BY")<editor_y(d,"titleBlockField:NAME")&&editor_y(d,"titleBlockField:NAME")<editor_y(d,"titleBlockField:parameter:Polotovar"),"BOM table used parent order instead of its source Part order");
+            require(editor_y(d,"titleBlockField:DRAWN_BY")<editor_y(d,"titleBlockField:NAME")&&editor_y(d,"titleBlockField:NAME")<editor_y(d,"titleBlockField:parameter:polotovar"),"BOM table used parent order instead of its source Part order");
             row_name->setText("Second revised");d->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
             require(workspace.open_part(second.document_id)->session.document().user_parameters.at("name")=="Second revised","BOM name did not write back to its Part");
             require(workspace.open_part(part.document_id)->session.document().user_parameters.at("name")=="First component"&&workspace.open_assembly(assembly.document_id)->session.document().user_parameters.at("name")=="First component","BOM edit modified another Part or its parent Assembly");

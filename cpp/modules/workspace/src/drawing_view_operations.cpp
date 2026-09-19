@@ -88,7 +88,7 @@ void edit_drawing_view(drawing::DrawingDocument& document,const std::string& she
         next.source_document_id=accepted.source_document_id;next.source_path=accepted.source_path;
         next.source_name=document::path_to_utf8(accepted.source_path.stem());
     }
-    if(sheet->bom_source_document_id.empty()) {
+    if(sheet->bom_source_document_id.empty()&&sheet->title_block_fields.empty()&&sheet->title_block_texts.empty()&&sheet->title_block_lines.empty()) {
         sheet->bom_source_document_id=next.source_document_id;
         auto source_view=accepted;source_view.source_document_id=next.source_document_id;
         source_view.source_path=next.source_path;
@@ -103,6 +103,7 @@ void edit_drawing_view(drawing::DrawingDocument& document,const std::string& she
     for(auto& s:next.sheets)for(auto& dimension:s.dimensions)if(refreshed.contains(dimension.view_id))
         drawing::refresh_drawing_dimension(*next.find_view(dimension.view_id),dimension);
     for(auto& s:next.sheets)drawing::refresh_balloons(s);
+    next.sources=next.data_sources();
     document=std::move(next);
 }
 std::size_t regenerate_drawing_views(drawing::DrawingDocument& document,const Workspace* live,const std::filesystem::path& document_path) {
@@ -130,23 +131,20 @@ std::size_t regenerate_drawing_views(drawing::DrawingDocument& document,const Wo
         };
         for(auto& view:sheet.views)refresh(refresh,view,0);
         if(!sheet.bom_source_document_id.empty()) {
-            auto source_path=next.source_path;
+            auto source_path=next.data_source_path(sheet.bom_source_document_id);
             if(!source_path.empty()&&source_path.is_relative()&&!document_path.empty())
                 source_path=document_path.parent_path()/source_path;
             sheet.bom_rows=build_bom_rows_for_source(
                 sheet.bom_source_document_id,source_path,live);
-        } else if(!sheet.views.empty()) {
-            // A source-less in-memory Drawing may still be initialized by its
-            // first view. Normal document creation assigns this before views.
-            sheet.bom_source_document_id=sheet.views.front().source_document_id;
-            sheet.bom_rows=projection.source(sheet.views.front()).bom;
         }
     }
     for(auto& s:next.sheets)drawing::refresh_balloons(s);
+    next.sources=next.data_sources();
     document=std::move(next);return count;
 }
 std::vector<std::string> delete_drawing_view(drawing::DrawingDocument& document,const std::string& id) {
     if(!document.find_view(id))throw DrawingOperationError("view_not_found","The drawing view does not exist.");
+    document.sources=document.data_sources();
     std::set<std::string> removed{id};std::vector<std::string> order{id};
     for(std::size_t i=0;i<order.size();++i)for(const auto& sheet:document.sheets)for(const auto& view:sheet.views)
         if(view.parent_view_id==order[i]&&removed.insert(view.id).second)order.push_back(view.id);

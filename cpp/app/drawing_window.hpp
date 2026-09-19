@@ -45,6 +45,7 @@ public:
     void set_document_changed_handler(std::function<void()> handler) { changed_handler_=std::move(handler); }
     void set_selection_handler(std::function<void(const std::string&)> handler) { selection_handler_=std::move(handler); }
     void set_properties_handler(std::function<void(QDialog*)> handler) { properties_handler_=std::move(handler); }
+    [[nodiscard]] std::string selected_source_id() const;
     void select_view(const std::string& view_id);
     void select_view_for_test(const std::string& view_id);
     std::optional<QPointF> view_rectangle_center_for_test(const std::string& id) const;
@@ -114,6 +115,7 @@ private:
     void insert_view();
     void show_view_properties(zima::drawing::DrawingView view, bool creating);
     void update_source_variant();
+    void show_drawing_settings();
     void create_projected_view();
     void edit_selected_view();
     void regenerate_selected_view();

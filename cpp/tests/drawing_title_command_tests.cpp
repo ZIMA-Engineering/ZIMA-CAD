@@ -27,7 +27,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     run(host,"component.insert",{{"source",first}});run(host,"component.insert",{{"source",first}});run(host,"component.insert",{{"source",second}});run(host,"save");
     const auto parent_revision=live.open_assembly(owner)->session.revision();
     auto doc=drawing::DrawingDocument::create_default();doc.source_document_id=owner;doc.source_path=directory/"title-owner.asmz";
-    auto& sheet=doc.sheets.front();const auto sheet_id=sheet.id;
+    auto& sheet=doc.sheets.front();sheet.bom_source_document_id=owner;const auto sheet_id=sheet.id;
     const auto field=[](std::string id,std::string text,bool back){drawing::TitleBlockField f;f.id=std::move(id);f.expression=std::move(text);f.editable=true;f.write_back=back;return f;};
     sheet.title_block_fields={field("NAME","&Název",true),field("LOCAL","&drawing.note",false),field("LITERAL","Plain",false),field("SYSTEM","&sheet.number",false),field("COMPOUND","&name / &revision",true)};
     drawing::TemplateText raw;raw.text="&revision";sheet.title_block_texts.push_back(raw);sheet.local_parameters["note"]="Before";

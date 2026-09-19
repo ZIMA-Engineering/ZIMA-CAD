@@ -44,6 +44,8 @@ kernel::ViewerReferenceGeometry references(const Workspace& live,const std::stri
     std::erase_if(geometry.edges,[&](const auto& edge){return unavailable(edge.reference);});
     std::erase_if(geometry.points,[&](const auto& point){return unavailable(point.reference);});
     std::erase_if(geometry.axes,[&](const auto& axis){return unavailable(axis.reference);});
+    if(part&&!sources.body_id.empty())
+        geometry=part->session.document().construction_reference_geometry_for(sources.body_id,std::move(geometry));
     return geometry;
 }
 void validate(const DerivedCopyEdit& edit,const DerivedCopyDefinition& value) {
@@ -116,6 +118,23 @@ bool commit_derived_copy(Workspace& live,const kernel::OcctKernel& kernel,const 
     if(!edit.creating&&value==edit.initial)return false;
     if(auto* part=live.open_part(edit.document_id)) {
         auto next=part->session.document();auto graph=next.body_history;document::BodyHistory body;
+        if(!edit.sources.body_id.empty()) {
+            auto feature=edit.creating?document::PartDocument::create_box_container():*next.find_container(value.id);
+            feature.id=value.id;feature.feature_id=value.id+":entity";feature.feature_parent_id=value.id;
+            feature.container_origin=document::create_container_origin(value.id);
+            feature.feature_kind=document::FeatureKind::DerivedCopy;feature.name=value.name;
+            feature.placement=value.placement;feature.derived_copy=value.parameters;feature.suppressed=!value.visible;
+            feature.combine_mode=value.parameters.subtract_source?document::CombineMode::Subtract:document::CombineMode::Add;
+            if(edit.creating) {
+                graph.activate(edit.sources.body_id);graph.set_history_cursor(edit.sources.body_id,edit.sources.body_cursor);
+                graph.insert({document::PartHistoryKind::Feature,value.id});next.history.push_back(std::move(feature));
+            }else *next.find_container(value.id)=std::move(feature);
+            next.set_body_history(std::move(graph));
+            auto calculated=calculate_part_with_resolved_references(kernel,next,&part->session.calculated_boundaries());
+            if(calculated.empty()||calculated.back().calculation_errors.contains(value.id))
+                throw DerivedCopyError("calculation_failed","The in-Body copy could not be calculated.");
+            part->session.commit(std::move(next),std::move(calculated));return true;
+        }
         if(edit.creating)graph.set_insertion_cursor(edit.sources.boundary);else body=*graph.find(value.id);
         body.scope.id=value.id;body.scope.placement=value.placement;body.name=value.name;body.derived_copy=value.parameters;body.visible=value.visible;
         if(edit.creating)static_cast<void>(graph.create_derived_copy(std::move(body)));else graph.update_body(std::move(body));

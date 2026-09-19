@@ -1194,7 +1194,9 @@ int main(int argc,char** argv){
         auto title_doc=drawing::DrawingDocument::create_default();title_doc.source_document_id=drawing_source.document_id;title_doc.source_path=project/"cli-step.prtz";
         drawing::TitleBlockField title_name;title_name.id="NAME";title_name.expression="&name";title_name.editable=true;title_name.write_back=true;
         auto title_local=title_name;title_local.id="LOCAL";title_local.expression="&drawing.note";title_local.write_back=false;
-        title_doc.sheets.front().title_block_fields={title_name,title_local};title_doc.save(project/"cli-title.drwz");
+        title_doc.sheets.front().title_block_fields={title_name,title_local};
+        title_doc.sheets.front().bom_source_document_id=title_doc.source_document_id;
+        title_doc.save(project/"cli-title.drwz");
         const auto title_sheet=title_doc.sheets.front().id;
         const auto get_title=command({{"command","drawing.title.get"},{"arguments",{{"sheet",title_sheet}}}});
         const auto set_title=command({{"command","drawing.title.set"},{"arguments",{{"sheet",title_sheet},{"values",{{"NAME","CLI český název"},{"LOCAL","Poznámka"}}}}}});

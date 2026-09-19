@@ -3,7 +3,9 @@
 Both commands create referenced copies with their own Origin and standard container
 placement. Select a source before starting or through the green Source field in View/Tree.
 
-- **Mirror** uses a plane or planar face. XY/YZ/XZ buttons choose planes of its own Origin.
+- **Mirror Properties** offers only XY/YZ/XZ planes of its own Origin for the
+  reflection plane, through both the View and Tree. Other Origins and planar
+  solid faces are rejected. The XY/YZ/XZ buttons select the same local planes.
 - **Linear Pattern** uses one to three distinct own-Origin axes. Clicking a direction
   reference offers Pattern X/Y/Z axes under the pointer. Each direction has positive
   spacing and its own count. Two directions form a grid; three form a spatial pattern.
@@ -12,12 +14,23 @@ placement. Select a source before starting or through the green Source field in 
   Count includes the source; Both Sides has an independent backward-copy count.
   Symmetric count is odd (3, 5, 7…) with source centered. A 3 × 2 × 2 pattern means
   12 occurrences total: source plus 11 copies. Maximum is 1000 occurrences.
-- **Circular Pattern** uses an axis, straight edge, or circular edge. Divide a full
+- **Circular Pattern** uses only X/Y/Z axes of its own Origin. Divide a full
   circle or specify angle between occurrences. Axis/reference survives switching to
   linear mode, where its control is hidden. Linear directions likewise survive
   switching to circular mode.
 - Pattern counts include the source; its container adds remaining copies while the
   original remains independent.
+
+Place the copy container first, then select its own local plane or axis. The same
+rule applies in Part, Assembly, and an active nested occurrence. GUI selection,
+command validation and reference resolution reject foreign Origins, source faces,
+source edges, other occurrence paths, and separate plane/axis offsets. Use the
+container's shared placement controls to locate and orient the Origin.
+
+Double-clicking a derived child in the View shows the original source's edit
+dimensions without opening Properties. In Assembly it resolves the exact source
+occurrence, including Pattern children and repeated nested Assemblies. Explicit
+source Properties remains a separate context-menu action.
 
 In Part, source selection follows the editing scope. With a Body active, the
 Source field offers only that Body's solid features before its insertion cursor.
@@ -26,26 +39,34 @@ Assembly offers immediate owned components. Linear and circular Pattern use the
 same source contract, including Tree selection, View hover/click and preselection.
 A selected solid keeps its own identity; it is never promoted to its owning Body.
 
-Mirror and Pattern remain independent history results, selectable, hideable and
-usable as Boolean tools/targets. A positive source creates a combined result of
-its additional copies. A subtractive source repeats the cut in its source Body;
-the resulting history step replaces that Body in the displayed Part result.
-Pattern counts include the original, already applied source. Copy geometry has
-no independent editable history; edit dimensions and Add/Subtract at the source.
+Creation preserves the active editing scope:
 
-Solid sources use the original feature operand, including its Body transform and
-resolved extrusion limits, rather than the accumulated body at that feature's
-history boundary. Sketches, construction objects, surface threads and body
-treatments (Fillet, Chamfer, Shell) do not define independent source solids.
-The inherited subtraction state is stored in the native document and refreshed
-during explicit calculation. Native Part INI version 23 and Assembly payload
-version 31 include this state; the tracked start templates use these versions.
+- Inside an active Body, Mirror/Pattern is a normal owned history feature at that
+  Body's insertion cursor. It keeps the Body active and adds or subtracts copied
+  source operands in the same Boolean chain. Later features can follow it.
+- At Part level, copying a whole Body creates an independent history result,
+  selectable, hideable and usable as a Boolean tool or target. Root-level solid
+  copies also remain independent results.
+- Assembly copies remain immediate components of the active Assembly.
 
-Starting from an active Body inserts Mirror/Pattern immediately after it. Sources
-must precede that boundary; later Bodies are suppressed in View and gray in Tree from
-Properties opening, even before choosing a source. Cancel restores original history.
-In the active-Body menu, Mirror/Pattern follows Drill Point and precedes the green
-separator and Box.
+The source is the original feature operand, not the accumulated Body at the
+source boundary. A subtractive source repeats its cut; it never creates positive
+cutter solids. The source must precede its copy in the same Body. Native files
+persist both ownership and copy parameters. Editing, Cancel, Undo/Redo and
+regeneration preserve that ownership. Removing or moving a source cannot silently
+orphan its copies.
+
+Copy placement and directions inside a Body are Body-local; the Body transform
+is applied once to the final result. The common placement implementation is
+unchanged. Properties displays the copy Origin immediately on opening, before
+pressing a plane or axis shortcut. Closing the dialog retires this temporary
+display state. A green check beside Active in Tree context menus identifies
+the current Body or occurrence.
+
+Sketches, construction objects, surface threads and body treatments (Fillet,
+Chamfer, Shell) do not define independent source solids. Copy operations inherit
+the source's Add/Subtract state during explicit calculation. Later Bodies remain
+outside the active editing context.
 
 In Assembly, containers reference immediate owned components. Each Pattern copy has
 its own occurrence path, including subassembly copies. Linear identity derives from
@@ -69,6 +90,22 @@ Verification: `zima_cpp_derived_copy_contract_tests`; GUI
 The command/query regressions also cover independent solid volume, placed Bodies,
 linear and circular subtraction, source changes, native reload, cold regeneration,
 Undo/Redo and rejection of foreign or downstream sources.
+
+### Body ownership regression coverage
+
+The command tests distinguish an active Body from the Part root explicitly.
+An in-Body copy must have a preceding source in the same Body, remain an owned
+history entry, preserve the active Body and support later ordinary features.
+Tests cover Mirror and Pattern, Add and Subtract, overlapping copies, source
+edits, source-deletion rejection, native save/reopen, cold regeneration,
+Undo/Redo and a translated/rotated owning Body. Root-level tests continue to
+exercise independent copied Bodies and their downstream Boolean chain.
+
+The GUI test verifies owned Tree placement, Mirror/Pattern creation and
+reopening, source picking, Cancel restoration, active context indication and
+the operation's own Origin. Existing Assembly coverage includes nested and
+repeated occurrences. Side preservation is governed separately by the
+[geometry side contract](GEOMETRY_SIDE_CONTRACT.md).
 
 ### Acceptance on 2026-09-15
 

@@ -38,7 +38,7 @@ void AssemblyWorkspaceWindow::show_tree_item_properties(QTreeWidgetItem* item) {
     if (item == nullptr) return;
     const auto kind = item->data(0, Qt::UserRole + 3).toString();
     const auto id = item->data(0, Qt::UserRole).toString().toStdString();
-    if(kind=="mirror-source"){show_derived_source_properties(id);return;}
+    if(kind=="mirror-source"){show_derived_source(id,true);return;}
     if(kind=="part-occurrence"||kind=="assembly-occurrence") {
         const auto* owner=workspace_.open_assembly(item->data(0,Qt::UserRole+4).toString().toStdString());
         const auto* occurrence=owner?owner->session.document().find_occurrence(id):nullptr;
@@ -87,6 +87,8 @@ void AssemblyWorkspaceWindow::show_tree_item_properties(QTreeWidgetItem* item) {
             if (sketch != part->session.document().sketches.end()) {
                 show_sketch_properties(sketch->id);
             }
+        } else if(container&&container->feature_kind==zima::document::FeatureKind::DerivedCopy) {
+            show_derived_copy_properties(id);
         } else if (container != nullptr) {
             show_primitive_properties(container->feature_kind, id);
         }
@@ -242,6 +244,7 @@ void AssemblyWorkspaceWindow::show_component_context_menu(
     source_file->setToolTip(tr("Vyhledejte původní zdrojový soubor. Pro jiný díl použijte Replace."));
     auto* select_parent = menu.addAction(tr("Vybrat rodiče"));
     select_parent->setObjectName("selectParentOccurrenceAction");
+    if(is_active_occurrence)menu.addAction(resource_icon("active-check"),tr("Aktivní"));
     auto* activate_or_deactivate = is_active_occurrence
         ? menu.addAction(tr("Zpět do sestavy"))
         : menu.addAction(tr("Aktivní"));

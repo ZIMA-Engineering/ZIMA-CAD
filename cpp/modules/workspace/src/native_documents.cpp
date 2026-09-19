@@ -231,7 +231,7 @@ std::string insert_native_document(Workspace& workspace, PreparedNativeDocument 
         else if constexpr(std::is_same_v<std::decay_t<decltype(value)>,assembly::AssemblyDocument>)
             workspace.add_assembly(std::move(value),prepared.path_);
         else {
-            if(!value.sheets.empty()&&!value.source_document_id.empty()) {
+            if(prepared.new_document_&&!value.sheets.empty()&&!value.source_document_id.empty()) {
                 auto& sheet=value.sheets.front();
                 sheet.bom_source_document_id=value.source_document_id;
                 sheet.bom_rows=build_bom_rows_for_source(

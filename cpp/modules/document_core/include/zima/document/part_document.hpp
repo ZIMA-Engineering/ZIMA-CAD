@@ -26,7 +26,7 @@
 namespace zima::document {
 
 enum class CombineMode { Add, Subtract };
-enum class FeatureKind { Sketch, Box, Cylinder, Sphere, Cone, Pyramid, Wedge, Extrusion, Revolution, Sweep3D, ImportedStep, Fillet, Chamfer, Shell, Hole, Thread, DrillPoint, ShaftThread, HelicalSweep, Sweep2D, Holes, Bend, Flat, TwistedSheet, Unbend, BendBack };
+enum class FeatureKind { Sketch, Box, Cylinder, Sphere, Cone, Pyramid, Wedge, Extrusion, Revolution, Sweep3D, ImportedStep, Fillet, Chamfer, Shell, Hole, Thread, DrillPoint, ShaftThread, HelicalSweep, Sweep2D, Holes, Bend, Flat, TwistedSheet, Unbend, BendBack, DerivedCopy };
 enum class ExtrusionDirection { Forward, Reverse, Symmetric };
 enum class ExtrusionExtent { Blind, UpToPlane, UpToSurface, ThroughAll };
 enum class ProfileSource { Internal, External };
@@ -636,6 +636,7 @@ struct HistoryContainer {
     ContainerOrigin container_origin;
     CombineMode combine_mode{CombineMode::Add};
     Placement placement;
+    DerivedCopyParameters derived_copy;
     BoxParameters box;
     CylinderParameters cylinder;
     SphereParameters sphere;

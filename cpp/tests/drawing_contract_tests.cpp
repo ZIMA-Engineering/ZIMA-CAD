@@ -4,6 +4,7 @@
 #include <zima/drawing/drawing_document.hpp>
 
 #include <algorithm>
+#include <nlohmann/json.hpp>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
@@ -18,11 +19,59 @@ void require(bool condition, const char* message) {
 }
 }
 
-int main() {
+int main(int argc,char** argv) {
     try {
         const auto prepare=[](zima::sketcher::SketchText& t){t.contours={{{t.anchor_x,t.anchor_y},{t.anchor_x+1,t.anchor_y},{t.anchor_x+1,t.anchor_y+1},{t.anchor_x,t.anchor_y+1}}};};
         const auto folder=std::filesystem::current_path()/"Projects/test/template-contract";
         std::filesystem::create_directories(folder);
+        {
+            using namespace zima::drawing;
+            auto document=DrawingDocument::create_default();
+            document.add_data_source({"source-a",folder/"a.prtz","A"});
+            document.add_data_source({"source-b",folder/"b.asmz","B"});
+            bool duplicate=false;try{document.add_data_source({"source-a:family:x",folder/"a.prtz","A"});}catch(const std::invalid_argument&){duplicate=true;}
+            require(duplicate&&document.data_sources().size()==2,"Duplicate family source was registered twice");
+            auto second=document.sheets.front();second.id+="-second";document.sheets.push_back(second);
+            DrawingView a;a.id="view-a";a.name="A";a.source_document_id="source-a:family:x";a.source_path=folder/"a.prtz";
+            DrawingView b;b.id="view-b";b.name="B";b.source_document_id="source-b";b.source_path=folder/"b.asmz";
+            auto child=a;child.id="child";child.parent_view_id=a.id;
+            document.sheets.front().views={a,b};document.sheets.back().views={child};
+            document.sheets.front().selected_source_document_id="source-a:family:x";
+            document.sheets.back().bom_source_document_id="source-a:family:x";
+            DrawingDimension dimension;dimension.id="dimension-a";dimension.view_id=a.id;document.sheets.front().dimensions.push_back(dimension);
+            DrawingBalloon balloon;balloon.id="balloon-a";balloon.view_id=child.id;document.sheets.back().balloons.push_back(balloon);
+            const auto removed=document.remove_data_source("source-a");
+            require(removed.size()==2&&document.find_view("view-b")&&document.sheets.front().dimensions.empty()&&document.sheets.back().balloons.empty(),
+                "Source cascade did not remove dependent views and annotations across sheets");
+            require(document.source_document_id=="source-b"&&document.sheets.front().selected_source_document_id=="source-b"&&document.sheets.back().bom_source_document_id.empty(),
+                "Source removal left stale navigation or rebound title");
+            static_cast<void>(document.remove_data_source("source-b"));document.save(folder/"empty-sources.drwz");
+            auto restored=DrawingDocument::load(folder/"empty-sources.drwz");
+            require(restored.data_sources().empty()&&restored.source_path.empty(),"Empty source registry did not round-trip");
+            restored.add_data_source({"source-c",folder/"c.prtz","C"});restored.save(folder/"unused-source.drwz");
+            auto unused=DrawingDocument::load(folder/"unused-source.drwz");
+            require(unused.data_sources().size()==1&&unused.sheets.front().views.empty()&&unused.sheets.back().bom_source_document_id.empty(),
+                "Unused registered source was lost or restored an old title binding");
+        }
+        {
+            const auto current=folder/"current-schema.drwz";const auto fixture=zima::drawing::DrawingDocument::load("tests/fixtures/cross_language/drawing.drwz");fixture.save(current);
+            std::ifstream input(current);std::string line;std::ofstream output(folder/"previous-schema.drwz");
+            while(std::getline(input,line)) {
+                if(line.starts_with("format_version="))line="format_version=18";
+                if(line.starts_with("param.cpp_drawing=")) {
+                    auto root=nlohmann::json::parse(line.substr(std::string("param.cpp_drawing=").size()));root["version"]=10;root.erase("sources");
+                    for(auto& sheet:root["sheets"])sheet.erase("selected_source_document_id");
+                    line="param.cpp_drawing="+root.dump();
+                }
+                output<<line<<'\n';
+            }
+            output.close();const auto previous=zima::drawing::DrawingDocument::load(folder/"previous-schema.drwz");
+            require(previous.data_sources().size()==fixture.data_sources().size()&&previous.sheets.front().views.size()==1,
+                "Immediately preceding Drawing format lost its registered sources");
+        }
+        if(argc>1&&std::string(argv[1])=="--verify-sources") {
+            std::cout<<"Drawing sources: cross-sheet cascade, annotations, duplicate rejection, empty/unused persistence and previous schema passed\n";return 0;
+        }
         {
             using namespace zima::drawing;
             DrawingSheet pens;

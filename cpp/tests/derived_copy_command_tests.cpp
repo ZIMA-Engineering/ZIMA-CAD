@@ -43,6 +43,7 @@ void verify_solid_sources(const kernel::OcctKernel& kernel,fs::path dir) {
     near(part->session.calculated_boundaries().back().body_outputs.at(owner)->volume,1000);
     for(const auto& invalid:{owner,other,foreign.id})require(!host.execute({{"command","pattern.create"},{"arguments",{{"source",invalid}}}}).ok,
         "Active Body accepted its whole Body or a foreign source");
+    run(host,"body.activate",{{"body",""}});
     const auto linear=run(host,"pattern.create",{{"source",solid.id},{"linear",Json::array({{{"axis","x"},{"count",3},{"spacing_mm",20}}})}}).data.at("object").get<std::string>();
     const auto result=[&]()->const kernel::BodyResult& {return part->session.calculated_boundaries().back().body_outputs.at(linear).get();};
     near(result().volume,96);near(extent(result(),0).first,35);near(extent(result(),0).second,59);
@@ -80,6 +81,7 @@ void verify_solid_sources(const kernel::OcctKernel& kernel,fs::path dir) {
     workspace::Workspace cut_live;cut_live.add_part(negative,kernel.evaluate_history(negative.kernel_operations()));cut_live.activate(id);
     command_host::Host cut_host(cut_live,kernel,dir);auto* cut_part=cut_live.open_part(id);
     near(cut_part->session.calculated_boundaries().back().body_outputs.at(owner)->volume,952);
+    run(cut_host,"body.activate",{{"body",""}});
     const auto cut=run(cut_host,"pattern.create",{{"source",solid.id},{"linear",Json::array({{{"axis","x"},{"count",3},{"spacing_mm",3},{"distribution","reverse"}}})}}).data.at("object").get<std::string>();
     near(cut_part->session.calculated_boundaries().back().body_outputs.at(cut)->volume,856);
     near(cut_part->session.calculated_boundaries().back().volume,864);
@@ -93,6 +95,11 @@ void verify_solid_sources(const kernel::OcctKernel& kernel,fs::path dir) {
     run(cut_host,"undo");near(cut_part->session.calculated_boundaries().back().volume,864);
     run(cut_host,"redo");near(cut_part->session.calculated_boundaries().back().volume,816);
     run(cut_host,"body.activate",{{"body",owner}});
+    run(cut_host,"body.activate",{{"body",""}});
+    auto before_cut=cut_part->session.document();
+    before_cut.body_history.set_insertion_cursor(static_cast<std::size_t>(
+        std::ranges::find(before_cut.body_history.order(),cut)-before_cut.body_history.order().begin()));
+    cut_part->session.commit(std::move(before_cut),cut_part->session.calculated_boundaries());
     const auto preceding_cut=run(cut_host,"pattern.create",{{"source",solid.id},{"linear",Json::array({{{"axis","x"},{"count",3},{"spacing_mm",3},{"distribution","reverse"}}})}}).data.at("object").get<std::string>();
     near(cut_part->session.calculated_boundaries().back().volume,768);
     require(cut_part->session.document().body_history.copy_target_before(solid.id,cut_part->session.document().body_history.order().size())==cut,
@@ -106,7 +113,75 @@ void verify_solid_sources(const kernel::OcctKernel& kernel,fs::path dir) {
     require(!changed.body_history.find(cut)->derived_copy->subtract_source,"Changing the source operation did not propagate to Pattern");
     near(added.back().body_outputs.at(cut)->volume,72);
 }
+
+void verify_in_body_copies(const kernel::OcctKernel& kernel,fs::path dir) {
+    for(bool pattern:{false,true})for(bool subtract:{false,true}) {
+        auto doc=document::PartDocument::create_default();document::BodyHistoryGraph graph;
+        const auto body=graph.create_body("Editable body");
+        auto source=document::PartDocument::create_box_container();source.box={2,2,2};source.placement.x=3;
+        if(subtract) {
+            auto base=document::PartDocument::create_box_container();base.box={20,10,10};
+            doc.history={base};graph.insert({document::PartHistoryKind::Feature,base.id});
+            source.combine_mode=document::CombineMode::Subtract;
+        }
+        doc.history.push_back(source);graph.insert({document::PartHistoryKind::Feature,source.id});doc.set_body_history(graph);
+        workspace::Workspace live;const auto id=doc.document_id;
+        live.add_part(doc,kernel.evaluate_history(doc.kernel_operations()));live.activate(id);
+        command_host::Host host(live,kernel,dir);auto* part=live.open_part(id);
+        const auto command=pattern?"pattern.create":"mirror.create";
+        Json args={{"source",source.id}};
+        if(pattern)args["linear"]=Json::array({{{"axis","x"},{"count",3},{"spacing_mm",3},{"distribution","reverse"}}});
+        else args["local_plane"]="yz";
+        const auto copy=run(host,command,args).data.at("object").get<std::string>();
+        const auto volume=[&]{return part->session.calculated_boundaries().back().body_outputs.at(body)->volume;};
+        const auto expected=subtract?2000-(pattern?24:16):(pattern?24:16);
+        near(volume(),expected);
+        const auto& saved=part->session.document();
+        require(saved.body_history.bodies().size()==1&&saved.body_history.active_body_id()==body,"In-Body copy created or activated another Body");
+        require(saved.find_container(copy)&&saved.body_history.owner(copy)->scope.id==body,"Copy is not an owned history feature");
+        require(saved.body_history.find(body)->entries.back().id==copy,"Copy missed the Body insertion cursor");
+        require(!part->session.calculated_boundaries().back().body_outputs.contains(copy),"Copy incorrectly owns an independent Body result");
+        auto deleting=saved;bool protected_source=false;
+        try{deleting.erase_history_object(source.id);}catch(const std::exception&){protected_source=true;}
+        require(protected_source&&deleting.find_container(source.id),"Deleting the source orphaned a copy or partially changed the document");
+        const auto file=dir/(std::string(pattern?"inbody-pattern":"inbody-mirror")+(subtract?"-cut.prtz":"-add.prtz"));
+        saved.save(file,part->session.calculated_boundaries());
+        std::vector<kernel::BodyResult> packets;auto loaded=document::PartDocument::load(file,&packets);
+        require(loaded.find_container(copy)->derived_copy.source_id==source.id&&loaded.body_history.owner(copy)->scope.id==body,"Native persistence lost copy ownership/source");
+        kernel::OcctKernel cold;near(cold.evaluate_history(loaded.kernel_operations()).back().body_outputs.at(body)->volume,expected);
+        run(host,"undo");require(!part->session.document().find_container(copy),"Undo left the copy in history");
+        run(host,"redo");near(volume(),expected);
+        if(pattern) {
+            run(host,"pattern.set",{{"object",copy},{"linear",Json::array({{{"axis","x"},{"count",3},{"spacing_mm",1},{"distribution","reverse"}}})}});
+            near(volume(),subtract?1984:16);
+            run(host,"undo");near(volume(),expected);
+        }
+        auto edit=workspace::prepare_derived_copy_edit(live,id,copy,pattern);
+        require(edit.sources.body_id==body&&std::ranges::none_of(edit.sources.items,[&](const auto& s){return s.id==copy;}),"Edit offers its own or downstream source");
+        auto invalid=edit.initial;invalid.parameters.source_id=copy;
+        bool rejected=false;try{workspace::commit_derived_copy(live,kernel,edit,invalid);}catch(const workspace::DerivedCopyError&){rejected=true;}
+        require(rejected,"Copy accepted a source cycle");
+        auto changed=edit.initial;changed.name="Edited copy";workspace::commit_derived_copy(live,kernel,edit,changed);
+        require(part->session.document().find_container(copy)->name=="Edited copy","Edit changed the wrong owner");
+        near(volume(),expected);
+        auto updated=part->session.document();updated.find_container(source.id)->box.height=3;
+        auto recalculated=workspace::calculate_part_with_resolved_references(kernel,updated,&part->session.calculated_boundaries());
+        near(recalculated.back().body_outputs.at(body)->volume,subtract?2000-(pattern?36:24):(pattern?36:24));
+        // A later ordinary feature remains in the same editable Boolean chain.
+        auto later=document::PartDocument::create_box_container();later.box={1,1,1};later.placement.y=20;
+        updated.insert_history_entry(document::PartHistoryKind::Feature,later.id);updated.history.push_back(later);
+        auto later_result=workspace::calculate_part_with_resolved_references(kernel,updated);
+        near(later_result.back().body_outputs.at(body)->volume,(subtract?2000-(pattern?36:24):(pattern?36:24))+1);
+        auto placed=*updated.body_history.find(body);placed.scope.placement.x=40;placed.scope.placement.rotation_z=90;
+        updated.body_history.update_body(placed);
+        auto moved=workspace::calculate_part_with_resolved_references(kernel,updated);
+        near(moved.back().body_outputs.at(body)->volume,later_result.back().body_outputs.at(body)->volume);
+        std::cout<<"In-Body "<<(pattern?"Pattern":"Mirror")<<(subtract?" subtract":" add")<<" passed\n";
+    }
+}
+
 void verify(const kernel::OcctKernel& kernel,fs::path dir) {
+    verify_in_body_copies(kernel,dir);
     verify_solid_sources(kernel,dir);
     workspace::Workspace live;command_host::Options options;command_host::Interaction interaction;
     options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"start_part.prtz","start_assembly.asmz","Body"},{}};};
@@ -148,9 +223,14 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     run(host,"box.create",{{"length_mm","2"},{"width_mm","2"},{"height_mm","2"}});
     reject("mirror.set",{{"object",mirror},{"source",later}});
     run(host,"body.activate",{{"body",source}});
-    const auto original_plane=run(host,"mirror.create",{{"source",box},{"reference",{{"owner",box},{"key","x_min"}}}}).data.at("object").get<std::string>();
+    reject("mirror.create",{{"source",box},{"reference",{{"owner",box},{"key","x_min"}}}});
+    reject("mirror.set",{{"object",mirror},{"reference",{{"owner",source+":origin"},{"key","origin:plane:yz"}}}});
+    reject("mirror.set",{{"object",mirror},{"reference",{{"owner",mirror+":origin"},{"key","origin:plane:yz"},{"offset_mm",1}}}});
+    run(host,"mirror.set",{{"object",mirror},{"reference",{{"owner",mirror+":origin"},{"key","origin:plane:yz"}}}});
+    run(host,"body.activate",{{"body",""}});
+    const auto original_plane=run(host,"mirror.create",{{"source",box},{"local_plane","yz"},{"placement",{{"x",17}}}}).data.at("object").get<std::string>();
     near(extent(body(original_plane),0).first,11);near(extent(body(original_plane),0).second,17);
-    run(host,"body.activate",{{"body",source}});
+    run(host,"body.activate",{{"body",""}});
     const auto directions=Json::array({Json{{"axis","x"},{"spacing_mm",30},{"count",3},{"distribution","symmetric"}},
         Json{{"axis","y"},{"spacing_mm",20},{"count",2},{"reverse_count",2},{"distribution","both"}}});
     const auto pattern=run(host,"pattern.create",{{"source",box},{"linear",directions}}).data.at("object").get<std::string>();
@@ -163,6 +243,9 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     lock(pattern,"pattern:angle",true);
     reject("pattern.set",{{"object",pattern},{"mode","circular"},{"count",6}});
     run(host,"pattern.set",{{"object",pattern},{"mode","circular"},{"count",4}});near(body(pattern).volume,3*48);
+    reject("pattern.set",{{"object",pattern},{"reference",{{"owner",source+":origin"},{"key","origin:axis:z"}}}});
+    reject("pattern.set",{{"object",pattern},{"reference",{{"owner",box},{"key","edge:0"}}}});
+    run(host,"pattern.set",{{"object",pattern},{"reference",{{"owner",pattern+":origin"},{"key","origin:axis:z"}}}});
     reject("pattern.set",{{"object",pattern},{"count",6}});lock(pattern,"pattern:angle",false);
     run(host,"pattern.set",{{"object",pattern},{"count",6}});near(body(pattern).volume,5*48);
     run(host,"pattern.set",{{"object",pattern},{"mode","linear"}});near(body(pattern).volume,11*48);
@@ -208,6 +291,16 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     require(assembly->session.document().find_occurrence(ring)->nested_snapshot.size()==2&&live.open_part(simple_id)->session.revision()==simple_revision,
         "Assembly Pattern lost exact copies or edited its source Part");
     run(host,"undo");require(!assembly->session.document().find_occurrence(ring),"Assembly Pattern did not undo in one step");run(host,"redo");
+    for(const bool patterned:{false,true}) {
+        const auto& object=patterned?ring:copied;const auto key=patterned?"origin:axis:z":"origin:plane:yz";
+        for(const auto& ref:{Json{{"owner",assembly_id+":origin"},{"key",key}},
+            Json{{"owner",first+":origin"},{"key",key}},
+            Json{{"owner",object+":origin"},{"key",key},{"instance_path",assembly::InstancePath{}.child(second).encoded()}}}) {
+            const auto rev=assembly->session.revision();
+            const auto result=host.execute({{"command",patterned?"pattern.set":"mirror.set"},{"arguments",{{"object",object},{"reference",ref}}}});
+            require(!result.ok&&result.code=="invalid_reference"&&assembly->session.revision()==rev,"Assembly accepted a foreign copy Origin or committed a rejected edit");
+        }
+    }
     run(host,"save");const auto saved=assembly::AssemblyDocument::load(dir/"copy-assembly.asmz");
     require(saved.find_occurrence(ring)->derived_copy->source_id==first&&saved.find_occurrence(copied)->copy_placement.value_locks.contains("z")&&
         !saved.find_occurrence(copied)->visible&&saved.find_occurrence(copied)->body_color_override=="#123456","Native Assembly lost copy-specific data");

@@ -17,6 +17,9 @@ using namespace workspace_detail;
 void AssemblyWorkspaceWindow::show_primitive_properties(
     zima::document::FeatureKind feature_kind,
     const std::string& container_id, bool sheet_metal) {
+    if(feature_kind==zima::document::FeatureKind::DerivedCopy) {
+        show_derived_copy_properties(container_id);return;
+    }
     if(zima::document::is_sheet_state(feature_kind)) {
         show_sheet_state_properties(feature_kind==zima::document::FeatureKind::Unbend,container_id);return;
     }

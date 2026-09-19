@@ -83,6 +83,7 @@ QString feature_icon_name(zima::document::FeatureKind kind) {
 }
 
 QString feature_icon_name(const zima::document::HistoryContainer& feature) {
+    if(feature.feature_kind==zima::document::FeatureKind::DerivedCopy)return feature.derived_copy.pattern?"pattern":"mirror";
     if(feature.feature_kind==zima::document::FeatureKind::Revolution&&feature.revolution.sheet_metal)
         return QStringLiteral("sheet-revolve");
     if(feature.feature_kind==zima::document::FeatureKind::Extrusion&&feature.extrusion.sheet_cut)
@@ -99,6 +100,13 @@ void add_history_container_tree_children(QTreeWidgetItem* parent,
         container.feature_kind != zima::document::FeatureKind::DrillPoint) {
         add_construction_origin_tree_item(
             parent, container.container_origin, container.name, instance_path);
+    }
+    if(container.feature_kind==zima::document::FeatureKind::DerivedCopy) {
+        auto* link=new QTreeWidgetItem(parent,{QObject::tr("Zdroj")});
+        link->setData(0,Qt::UserRole,QString::fromStdString(container.id));
+        link->setData(0,Qt::UserRole+1,QString::fromStdString(instance_path.encoded()));
+        link->setData(0,Qt::UserRole+3,"mirror-source");
+        link->setIcon(0,resource_icon("part"));return;
     }
     if (container.feature_kind == zima::document::FeatureKind::Sweep3D) {
         auto* path = new QTreeWidgetItem(parent, {QObject::tr("Dráha")});

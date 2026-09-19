@@ -203,6 +203,18 @@ void verify_sheet_attachment(std::filesystem::path directory) {
             near(document::resolved_bend_parameters(part.history.front(),document::sheet_metal_defaults(part)).thickness,2);
             check(resolved.external_references.size()==2,"Bend lacks native endpoint references");
             for(const auto& dimension:resolved.dimensions)near(dimension.value,0);
+            const auto persisted=sketcher::Sketch::from_serialized(resolved.serialized());
+            std::set<int> zero_sides;
+            for(const auto& dimension:resolved.dimensions) {
+                zero_sides.insert(dimension.solution_side);
+                check(dimension.solution_side==(std::signbit(dimension.value)?-1:1),
+                    "Zero Bend offset lost its directed side");
+                const auto stored=std::ranges::find(persisted.dimensions,dimension.id,&sketcher::SketchDimension::id);
+                check(stored!=persisted.dimensions.end()&&stored->solution_side==dimension.solution_side&&
+                    std::signbit(stored->value)==std::signbit(dimension.value),
+                    "Persisting zero Bend offset changed its side");
+            }
+            check(zero_sides==std::set<int>{-1,1},"Bend merged opposite zero-offset endpoint sides");
             check(resolved.viewer_mesh().dimensions.size()==2,"Zero Bend endpoint dimensions are hidden");
             near(resolved.plane_offset,0);
             near(resolved.resolved_origin.x,part.history.front().placement.x);

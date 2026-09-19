@@ -104,6 +104,24 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
         const auto d=command("sketch.dimension.create",a);
         for(double value:{-10.,-15.})require(command("sketch.dimension.set",{{"dimension",d.at("dimension")},{"value",value}}).at("value")==std::abs(value),"Properties/CLI rejected an unsigned-distance branch flip");
     }
+    for(const bool x_axis:{false,true})for(const double zero:{0.0,-0.0}) {
+        create("Directed zero distance");
+        const auto a=point(2,3),b=point(12,13);
+        const auto d=command("sketch.dimension.create",{{"kind",x_axis?"distance_x":"distance_y"},{"points",{a,b}}});
+        const auto id=d.at("dimension").get<std::string>();
+        command("sketch.dimension.set",{{"dimension",id},{"value",zero}});
+        auto stored=sketcher::Sketch::from_serialized(current().serialized());
+        const auto& dimension=stored.dimensions.front();
+        require(dimension.value==0&&std::signbit(dimension.value)==std::signbit(zero),
+            "Projected dimension lost the authored zero side during edit/persistence");
+        require(stored.set_dimension_value(id,8),"Cannot grow a zero projected distance");
+        const auto* p=stored.find_point(a);const auto* q=stored.find_point(b);
+        require(std::abs((x_axis?q->x-p->x:q->y-p->y)-(std::signbit(zero)?-8:8))<1e-7,
+            "Growing a zero projected distance selected the opposite side");
+        run(host,"undo");require(std::abs(current().dimensions.front().value-10)<1e-7,"Undo lost pre-zero dimension");
+        run(host,"redo");require(std::signbit(current().dimensions.front().value)==std::signbit(zero),
+            "Redo lost projected dimension zero side");
+    }
     // Reversing picks changes the solver orientation, never a distance's
     // displayed sign. Repeated negative input flips the current side each time.
     for (const bool x_axis : {true, false}) for (const bool reverse : {true, false}) {

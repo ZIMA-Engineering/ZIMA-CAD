@@ -27,6 +27,7 @@
     <file alias="icons/save-as.svg">../../resources/icons/save-as.svg</file>
     <file alias="icons/parameters.svg">../../resources/icons/parameters.svg</file>
     <file alias="icons/family-table.svg">../../resources/icons/family-table.svg</file>
+    <file alias="icons/relations.svg">../../resources/icons/relations.svg</file>
     <file alias="icons/settings.svg">../../resources/icons/settings.svg</file>
     <file alias="icons/undo.svg">../../resources/icons/undo.svg</file>
     <file alias="icons/redo.svg">../../resources/icons/redo.svg</file>
@@ -83,6 +84,7 @@
     <file alias="icons/drill-point.svg">../../resources/icons/drill-point.svg</file>
     <file alias="icons/fillet.svg">../../resources/icons/fillet.svg</file>
     <file alias="icons/chamfer.svg">../../resources/icons/chamfer.svg</file>
+    <file alias="icons/active-check.svg">../../resources/icons/active-check.svg</file>
     <file alias="icons/mirror.svg">../../resources/icons/mirror.svg</file>
     <file alias="icons/shell.svg">../../resources/icons/shell.svg</file>
     <file alias="icons/box.svg">../../resources/icons/box.svg</file>

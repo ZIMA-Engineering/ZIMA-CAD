@@ -223,10 +223,10 @@ void test(const kernel::OcctKernel& kernel,const fs::path& directory) {
     drawing.sheets.front().views.push_back(drawing::DrawingDocument::create_view(id,drawing.source_path,cache.back().mesh));
     const auto first_sheet=drawing.sheets.front().id;
     workspace::select_family_drawing_source(drawing,live,first_sheet,variant);
-    require(drawing.sheets.front().bom_source_document_id==variant&&drawing.sheets.front().views.front().source_document_id==id&&
+    require(drawing.sheets.front().selected_source_document_id==variant&&drawing.sheets.front().views.front().source_document_id==id&&
         drawing.source_path==directory/"base.prtz","Drawing sheet metadata variant changed its independent view source");
     drawing.save(directory/"long.drwz");const auto drw=drawing::DrawingDocument::load(directory/"long.drwz");
-    require(drw.sheets.front().bom_source_document_id==variant,"Drawing sheet lost instance identity");
+    require(drw.sheets.front().selected_source_document_id==variant,"Drawing sheet lost instance identity");
     auto parameters=workspace::user_parameters(live,variant);parameters.flat["name"]="Long renamed";parameters.values["name"][""]="Long renamed";
     const auto shape=live.open_part(variant)->session.calculated_boundaries().back().kernel_shape;
     static_cast<void>(workspace::set_user_parameters(live,variant,std::move(parameters)));
@@ -240,9 +240,9 @@ void test(const kernel::OcctKernel& kernel,const fs::path& directory) {
     require(workspace::open_family_instance(live,kernel,variant,"No cut")==no_cut,"Opening a sibling from an instance created a nested family");
     const auto rename_saved=workspace::prepare_document_save(live,id,directory/"base.prtz").write();require(workspace::complete_document_save(live,rename_saved),"Rename Save failed");
     const auto renamed=workspace::build_title_block_context_for_source(
-        drw.sheets.front().bom_source_document_id,drw.source_path,nullptr);
+        drw.sheets.front().selected_source_document_id,drw.source_path,nullptr);
     require(renamed.parameters.at("name")=="Long renamed"&&renamed.file_stem=="Long renamed","Closed Drawing did not resolve renamed instance from stable identity");
-    require(workspace::read_drawing_source(nullptr,drw.source_path,drw.sheets.front().bom_source_document_id).first==variant,
+    require(workspace::read_drawing_source(nullptr,drw.source_path,drw.sheets.front().selected_source_document_id).first==variant,
         "Rename broke the saved Drawing sheet source");
     const auto member_files=live.save_copy(variant,directory/"renamed-copy.prtz");require(member_files.size()==1,"Instance Save As must create exactly one independent native file");
     auto root_copy=live.save_copy(id,directory/"family-copy.prtz");
@@ -274,14 +274,17 @@ void test(const kernel::OcctKernel& kernel,const fs::path& directory) {
     const auto loaded_assembly=workspace::read_family_assembly(nullptr,directory/"base.asmz",av);
     require(loaded_assembly.family.parent_id==aid&&loaded_assembly.find_occurrence(component)->suppressed,"Single Assembly file lost evaluated variant");
     auto empty_drawing=drawing::DrawingDocument::create_default();
+    empty_drawing.add_data_source({aid,directory/"base.asmz","Assembly"});
     workspace::select_family_drawing_source(empty_drawing,live,empty_drawing.sheets.front().id,av);
-    require(empty_drawing.source_document_id==av&&empty_drawing.sheets.front().bom_source_document_id==av,
+    require(empty_drawing.source_document_id==aid&&empty_drawing.sheets.front().selected_source_document_id==av,
         "Empty Drawing sheet cannot select an Assembly variant before view insertion");
     const auto generic_sheet=workspace::create_drawing_sheet(empty_drawing,workspace::SheetSettings{.name="Generic"});
     workspace::select_family_drawing_source(empty_drawing,live,generic_sheet,aid);
-    require(empty_drawing.sheets.front().bom_source_document_id==av&&empty_drawing.sheets.front().bom_rows.empty()&&
-        empty_drawing.find_sheet(generic_sheet)->bom_source_document_id==aid&&empty_drawing.find_sheet(generic_sheet)->bom_rows.size()==1,
+    require(empty_drawing.sheets.front().selected_source_document_id==av&&empty_drawing.sheets.front().bom_rows.empty()&&
+        empty_drawing.find_sheet(generic_sheet)->selected_source_document_id==aid&&empty_drawing.find_sheet(generic_sheet)->bom_rows.empty(),
         "Drawing sheets did not retain independent Assembly variants and their actual BOM quantities");
+    workspace::load_drawing_template(empty_drawing,empty_drawing.sheets.front().id,fs::absolute("config/formats/ZE-RAZITKO.tblz"),true,&live);
+    workspace::load_drawing_template(empty_drawing,generic_sheet,fs::absolute("config/formats/ZE-RAZITKO.tblz"),true,&live);
     const auto variant_title=workspace::prepare_drawing_title_edit(
         empty_drawing,empty_drawing.sheets.front().id,&live,directory/"assembly.drwz");
     const auto generic_title=workspace::prepare_drawing_title_edit(

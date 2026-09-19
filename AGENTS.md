@@ -186,6 +186,22 @@
 - Do not claim an updater, signed release pipeline or portable layout is
   implemented before it has been verified.
 
+## Geometry side identity (mandatory, permanent modeling contract)
+
+- The program distinguishes which side of geometry a reference or contact
+  uses, including at zero offset. Never remove, merge or reinterpret these
+  side identities in later refactoring, optimization or format changes.
+- Internal representations may change only while preserving the same visible
+  behavior, geometric result and persisted side choice. Preserve the choice
+  through creation, editing, save/reopen, regeneration and Undo/Redo.
+- Read `doc/GEOMETRY_SIDE_CONTRACT.md` before changing signed offsets,
+  oriented normals, side flags or numerical cache normalization. Signed zero
+  is meaningful in Bend endpoint dimensions; never normalize it globally.
+- Tests must distinguish the two sides and cover zero offset whenever the
+  affected operation supports it. Numeric equality alone is not proof of
+  equivalent modeling intent. This is a binding user requirement reaffirmed
+  on 2026-09-19, not an optional implementation preference.
+
 ## OCCT boundary
 
 - Use OCCT only as the solid-modeling kernel for calculating body geometry.
@@ -511,8 +527,10 @@ When verifying the result, do not.
 
 When the user next resumes ZIMA-CAD development, read the section
 **Agreed next steps for Part (2026-09-06)** in `ROADMAP.md` and briefly
-remind them of the agreed next task: Sketcher offsets, especially from STEP
-geometry. Preserve the listed order; the comprehensive Undo/Redo audit comes
+respect the 2026-09-19 scope correction: native Sketcher offsets are already
+implemented and STEP-derived offsets are not required. Do not remind the user
+to implement them again. Current Part bug fixes take priority. Preserve the
+remaining listed order; the comprehensive Undo/Redo audit comes
 only after the agreed modeling features are broadly implemented. This is a
 reminder and planning preference, not authorization to implement the whole
 roadmap automatically. New user instructions take precedence.

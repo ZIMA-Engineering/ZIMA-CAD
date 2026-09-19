@@ -114,7 +114,7 @@ committed values during pending edits without replacing rollback geometry.
 
 ```json
 {"command":"mirror.create","arguments":{"source":"SOURCE-ID","local_plane":"yz","placement":{"x":-2}}}
-{"command":"mirror.set","arguments":{"object":"MIRROR-ID","reference":{"owner":"ORIGINAL-OBJECT-ID","key":"FACE-KEY","instance_path":"","offset_mm":1}}}
+{"command":"mirror.set","arguments":{"object":"MIRROR-ID","local_plane":"xy","placement":{"z":1}}}
 {"command":"pattern.create","arguments":{"source":"SOURCE-ID","linear":[{"axis":"x","spacing_mm":30,"count":3,"distribution":"symmetric"},{"axis":"y","spacing_mm":20,"count":2,"reverse_count":2,"distribution":"both"}]}}
 {"command":"pattern.set","arguments":{"object":"PATTERN-ID","mode":"circular","count":6,"full_circle":true,"local_axis":"z"}}
 ```
@@ -132,9 +132,11 @@ the whole accumulated Body at that boundary is never substituted. Source-owned
 Add/Subtract changes propagate on explicit calculation. Pattern counts include
 the original, already applied feature, so only additional copies are calculated.
 
-Mirror needs either local-Origin `local_plane` (`xy/xz/yz`) or exact `reference`,
-never both. Explicit reference `offset_mm` moves its plane along the normal. Source
-reflection uses actual document coordinates; the plane belongs to Mirror placement.
+Mirror needs either local-Origin `local_plane` (`xy/xz/yz`) or an exact reference
+to that same own-Origin plane, never both. An explicit `reference` must use
+`owner: "MIRROR-ID:origin"`, `key: "origin:plane:xy/xz/yz"` (one plane), an empty
+`instance_path`, and zero `offset_mm`. Locate and orient the plane through the
+container's `placement`. Foreign planes and faces are rejected without committing.
 
 Pattern defaults to linear on creation. `linear` completely specifies one to three
 direction rows, each requiring `axis` (`x/y/z` or `null`). Optional `spacing_mm`,
@@ -149,9 +151,11 @@ backward positions. Total combinations cannot exceed 1000.
 
 `mode:"circular"` uses `count` (2–1000), `full_circle` and `angle_degrees`
 (−359.999 to 359.999°). A custom step must distinguish occurrences within one turn.
-`local_axis` selects local `x/y/z`; alternatively `reference` selects an original
-axis or straight edge. Zero axis-reference offset is allowed; nonzero reference
-offset is reserved for Mirror planes. Default circular reference is local Z.
+`local_axis` selects local `x/y/z`; alternatively `reference` names the same
+own-Origin axis using `owner: "PATTERN-ID:origin"` and `key: "origin:axis:x/y/z"`
+(one axis), an empty `instance_path`, and zero `offset_mm`. Foreign axes and edges
+are rejected. The default circular reference is local Z. These rules also apply
+to the retained circular reference in linear mode and to Assembly copies.
 
 Circular arguments apply only in circular mode, `linear` only in linear mode;
 `mode` may change in the same command. Switching Pattern modes preserves inactive
@@ -233,3 +237,12 @@ reopening share these rules. Activation targets the original source; virtual nod
 do not own source-document placement. Explicit copy recalculation repairs older
 calculated data, never a read. Geometry proof/regressions:
 [NESTED_COPY_REFERENCES.md](NESTED_COPY_REFERENCES.md).
+
+## In-Body ownership
+
+With a Part Body active, create commands insert a persisted DerivedCopy history
+feature into that Body at its cursor. With the Part root active, they create an
+independent result. Existing-object commands use persisted ownership even when
+the current activation differs. Sources for an in-Body edit are limited to
+preceding solid features in that same Body. The source operation determines
+Add/Subtract, and the original feature operand determines copied geometry.

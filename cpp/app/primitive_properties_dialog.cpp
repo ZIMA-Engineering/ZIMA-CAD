@@ -51,7 +51,7 @@ bool uses_container_placement(zima::document::FeatureKind kind) {
         kind == FeatureKind::Sphere || kind == FeatureKind::Cone ||
         kind == FeatureKind::Pyramid || kind == FeatureKind::Wedge ||
         kind == FeatureKind::Extrusion || kind == FeatureKind::Revolution ||
-        kind == FeatureKind::TwistedSheet ||
+        kind == FeatureKind::TwistedSheet || kind == FeatureKind::DerivedCopy ||
         kind == FeatureKind::ImportedStep || kind == FeatureKind::Hole ||
         kind == FeatureKind::Thread;
 }

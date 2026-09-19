@@ -339,7 +339,7 @@ private:
     QAction* pattern_action_{};
     void show_derived_copy_properties(const std::string& id = {},bool pattern=false);
     bool accept_derived_copy_tree_reference(QTreeWidgetItem* item);
-    void show_derived_source_properties(const std::string& id);
+    void show_derived_source(const std::string& id,bool properties);
     void show_body_properties(const std::string& id = {});
     void show_body_boolean_properties(const std::string& id = {});
     void activate_first_part_body();

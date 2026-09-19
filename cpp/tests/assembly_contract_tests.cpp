@@ -1011,6 +1011,44 @@ int main() {
             require(std::abs(a.x*b.x+a.y*b.y+a.z*b.z-(flip?-1.0:1.0)) < 1e-7,
                 "Plane Flip failed to restore its absolute orientation on repeated toggles");
         }
+        // At zero distance the explicit Flip flag still distinguishes the two
+        // face orientations. Preserve the numeric sign too through native I/O.
+        const auto side_path=std::filesystem::temp_directory_path()/"zima-assembly-zero-sides.asmz";
+        for(const bool flip:{false,true})for(const double offset:{0.0,-0.0,2.5,-2.5}) {
+            auto side_document=flipped_plane_assembly;
+            auto* component=side_document.find_occurrence(second_id);
+            component->placement_references.front().flip=flip;
+            component->placement_references.front().offset=offset;
+            const auto check_side=[&](const auto& model) {
+                const auto& row=model.find_occurrence(second_id)->placement_references.front();
+                require(row.flip==flip&&row.offset==offset&&std::signbit(row.offset)==std::signbit(offset),
+                    "Assembly lost the authored side or signed offset");
+                const auto a=model.resolve_plane(row.component_reference),b=model.resolve_plane(row.target_reference);
+                require(a.status==zima::assembly::MateStatus::Valid&&b.status==zima::assembly::MateStatus::Valid,
+                    "Assembly side test lost its plane reference");
+                const auto& n=b.plane.normal;
+                const auto alignment=a.plane.normal.x*n.x+a.plane.normal.y*n.y+a.plane.normal.z*n.z;
+                const auto distance=(a.plane.point.x-b.plane.point.x)*n.x+
+                    (a.plane.point.y-b.plane.point.y)*n.y+(a.plane.point.z-b.plane.point.z)*n.z;
+                require(std::abs(alignment-(flip?-1.:1.))<1e-7&&std::abs(distance-offset)<1e-7,
+                    "Assembly chose the wrong face side or signed separation");
+            };
+            side_document.calculate_placement_references();check_side(side_document);
+            side_document.save(side_path);
+            auto restored=zima::assembly::AssemblyDocument::load(side_path,fixture_sources(side_document));
+            check_side(restored);restored.calculate_placement_references();check_side(restored);
+            zima::assembly::AssemblySession side_session(restored);
+            auto changed=restored;changed.find_occurrence(second_id)->placement_references.front().flip=!flip;
+            changed.calculate_placement_references();side_session.commit(std::move(changed));
+            require(side_session.undo(),"Cannot Undo Assembly side change");check_side(side_session.document());
+            require(side_session.redo(),"Cannot Redo Assembly side change");
+            const auto& changed_row=side_session.document().find_occurrence(second_id)->placement_references.front();
+            const auto a=side_session.document().resolve_plane(changed_row.component_reference).plane.normal;
+            const auto b=side_session.document().resolve_plane(changed_row.target_reference).plane.normal;
+            require(changed_row.flip==!flip&&std::abs(a.x*b.x+a.y*b.y+a.z*b.z-(flip?1.:-1.))<1e-7,
+                "Redo lost the opposite Assembly face side");
+        }
+        std::filesystem::remove(side_path);
         const auto zero_offset_scene = flipped_plane_assembly.build_scene();
         require(std::none_of(zero_offset_scene.dimensions.begin(),
                     zero_offset_scene.dimensions.end(),

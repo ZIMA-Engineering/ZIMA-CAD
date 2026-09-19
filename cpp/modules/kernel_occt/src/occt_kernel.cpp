@@ -6395,6 +6395,9 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 live_cache_->insertion_order.pop_front();
             }
         };
+        std::map<std::string,PrimitiveData> copy_operands;
+        for(const auto& operation:operations)if(operation.feature_copy)
+            context.requested_solids.insert(operation.feature_copy->source_feature_id);
         std::size_t matching_prefix = 0;
         const auto available = std::min(
             operations.size(), previous_boundaries.size());
@@ -6421,7 +6424,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
             // references from the final packet, restricted to prefix owners.
             std::unordered_set<std::string> owners;
             for(const auto& operation:operations)if(!operation.suppressed)owners.insert(operation.owner_id);
-            if(!reused.empty())reused.back().mesh.original_references=reference_geometry_for_owners(
+            if(!reused.empty()&&matching_prefix<previous_boundaries.size())reused.back().mesh.original_references=reference_geometry_for_owners(
                 previous_boundaries.back().mesh.original_references,owners);
             compact_history_reference_geometry(reused);
             return reused;
@@ -6530,6 +6533,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 operation_index + 1 == operations.size();
             const auto retain_copy_solid=[&](const PrimitiveData& operand,const std::vector<ViewerAxis>& additional_axes=std::vector<ViewerAxis>{}) {
                 if(!context.requested_solids.contains(operation.owner_id))return;
+                copy_operands.insert_or_assign(operation.owner_id,operand);
                 auto solid=make_operation_result(operand.shape,operand.faces,operand.edges,operand.vertices,true,true,true);
                 const auto centerlines=centerlines_for_operation(operation);
                 solid.mesh.axes=axes_for_operation(operation,operand.shape,centerlines);
@@ -8029,7 +8033,50 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 return make_drill_point_data(primitive, matches,
                     result_shape, operation.owner_id, sweep_ends);
             };
-            PrimitiveData operand = std::visit([&](const auto& primitive)
+            const auto copy_operand = [&]() {
+                const auto& request=*operation.feature_copy;
+                const auto source=copy_operands.find(request.source_feature_id);
+                if(source==copy_operands.end())throw std::runtime_error("Copy source must precede the copy in the same Body.");
+                const bool pattern=request.combination==BodyCombination::Pattern;
+                const auto p=pattern?validated_pattern(request.pattern):PatternRequest{};
+                const auto plane=pattern?MirrorPlane{}:normalized_mirror_plane(request.mirror_plane);
+                PrimitiveData result;
+                for(unsigned index=1;index<(pattern?p.count:2);++index) {
+                    gp_Trsf transform;
+                    if(!pattern)transform.SetMirror(gp_Ax2(gp_Pnt(plane.point.x,plane.point.y,plane.point.z),gp_Dir(plane.normal.x,plane.normal.y,plane.normal.z)));
+                    else if(p.circular)transform.SetRotation(gp_Ax1(gp_Pnt(p.origin.x,p.origin.y,p.origin.z),gp_Dir(p.axis.x,p.axis.y,p.axis.z)),p.angle_degrees*index*std::numbers::pi/180.0);
+                    else {const auto t=pattern_translation(p,index);transform.SetTranslation(gp_Vec(t.x,t.y,t.z));}
+                    BRepBuilderAPI_Transform moved(source->second.shape,transform,true);moved.Build();
+                    if(!moved.IsDone())throw std::runtime_error("Feature copy transformation failed.");
+                    PrimitiveData copy;copy.shape=moved.Shape();
+                    const auto reference=[&](auto ref) {
+                        ref.semantic_key=(pattern?"pattern:"+pattern_copy_id(p,index)+":":std::string{})+mirror_source_key(ref.owner_id,ref.semantic_key);
+                        ref.owner_id=operation.owner_id;ref.instance_path.clear();return ref;
+                    };
+                    for(const auto& face:source->second.faces) {
+                        auto ref=reference(face.reference);ref.surface.reset();
+                        copy.faces.push_back({TopoDS::Face(moved.ModifiedShape(face.shape)),std::move(ref)});
+                    }
+                    for(const auto& edge:source->second.edges)
+                        copy.edges.push_back({TopoDS::Edge(moved.ModifiedShape(edge.shape)),reference(edge.reference)});
+                    for(const auto& vertex:source->second.vertices)
+                        copy.vertices.push_back({TopoDS::Vertex(moved.ModifiedShape(vertex.shape)),reference(vertex.reference)});
+                    if(result.shape.IsNull()) {result=std::move(copy);continue;}
+                    BRepAlgoAPI_Fuse fuse;
+                    set_boolean_inputs(fuse,result.shape,copy.shape);
+                    fuse.SetToFillHistory(true);
+                    fuse.SetFuzzyValue(std::max(1.0e-7,operation.boolean_tolerance));
+                    fuse.Build();
+                    if(!fuse.IsDone()||fuse.Shape().IsNull()||!BRepCheck_Analyzer(fuse.Shape()).IsValid())
+                        throw std::runtime_error("OCCT feature-copy fuse failed.");
+                    result.faces=propagate_topology(fuse,result.faces,copy.faces);
+                    result.edges=propagate_topology(fuse,result.edges,copy.edges);
+                    result.vertices=propagate_topology(fuse,result.vertices,copy.vertices);
+                    result.shape=fuse.Shape();
+                }
+                return result;
+            };
+            PrimitiveData operand = operation.feature_copy ? copy_operand() : std::visit([&](const auto& primitive)
                 -> PrimitiveData {
                 using Request = std::decay_t<decltype(primitive)>;
                 if constexpr (std::is_same_v<Request, BoxRequest>) {
@@ -8215,7 +8262,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
             const auto* extrusion_request =
                 std::get_if<ExtrusionRequest>(&operation.primitive);
             const bool cache_reference_mesh =
-                !imported_step && !std::holds_alternative<FeatureGroupRequest>(operation.primitive) &&
+                !operation.feature_copy && !imported_step && !std::holds_alternative<FeatureGroupRequest>(operation.primitive) &&
                 (extrusion_request == nullptr || (!extrusion_request->sheet_cut &&
                  (extrusion_request->extent == ExtrusionRequest::Extent::Blind &&
                   !extrusion_request->reverse_limit && !extrusion_request->through_all_reverse)));

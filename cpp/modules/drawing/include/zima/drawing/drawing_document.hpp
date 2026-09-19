@@ -279,6 +279,8 @@ struct DrawingSheet {
     std::vector<TitleBlockField> title_block_fields;
     std::vector<BomRow> bom_rows;
     std::string bom_source_document_id;
+    // Chooser/navigation state is independent of the source captured by a title block.
+    std::string selected_source_document_id;
     std::vector<DrawingBalloon> balloons;
     std::vector<TemplateCircle> frame_circles, title_block_circles;
     std::vector<zima::sketcher::SketchRepeatRegion> repeat_regions;
@@ -296,8 +298,21 @@ inline double drawing_pen_width_mm(const DrawingSheet& sheet,DrawingPen pen) {
     return sheet.thin_line_mm;
 }
 
+struct DrawingSource {
+    std::string document_id;
+    std::filesystem::path source_path;
+    std::string name;
+};
+
 class DrawingDocument {
 public:
+    // Explicitly registered files also survive without any projected views.
+    std::vector<DrawingSource> sources;
+    [[nodiscard]] std::vector<DrawingSource> data_sources() const;
+    [[nodiscard]] std::filesystem::path data_source_path(const std::string& id) const;
+    void add_data_source(DrawingSource source);
+    // Removes every variant, dependent view and view-owned annotation.
+    [[nodiscard]] std::vector<std::string> remove_data_source(const std::string& id);
     zima::document::DimensionIdentifiers dimension_identifiers;
     [[nodiscard]] std::vector<zima::document::DimensionParameter> dimension_parameters() const;
     void synchronize_dimension_identifiers();

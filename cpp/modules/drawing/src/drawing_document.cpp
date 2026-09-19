@@ -12,6 +12,7 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <set>
 #include <chrono>
 #include <cmath>
 #include <numbers>
@@ -482,16 +483,83 @@ void DrawingDocument::synchronize_dimension_identifiers() {
     dimension_identifiers.synchronize(dimension_parameters());
 }
 
+std::vector<DrawingSource> DrawingDocument::data_sources() const {
+    std::vector<DrawingSource> result;
+    const auto append=[&](DrawingSource source) {
+        source.document_id=source.document_id.substr(0,source.document_id.find(":family:"));
+        if(source.document_id.empty())return;
+        const auto found=std::ranges::find(result,source.document_id,&DrawingSource::document_id);
+        if(found==result.end())result.push_back(std::move(source));
+        else if(found->source_path.empty())found->source_path=source.source_path;
+    };
+    for(const auto& source:sources)append(source);
+    append({source_document_id,source_path,source_name});
+    for(const auto& sheet:sheets)for(const auto& view:sheet.views)
+        append({view.source_document_id,view.source_path,zima::document::path_to_utf8(view.source_path.stem())});
+    return result;
+}
+std::filesystem::path DrawingDocument::data_source_path(const std::string& id) const {
+    const auto root=id.substr(0,id.find(":family:"));
+    for(const auto& source:data_sources())if(source.document_id==root)return source.source_path;
+    return {};
+}
+void DrawingDocument::add_data_source(DrawingSource source) {
+    source.document_id=source.document_id.substr(0,source.document_id.find(":family:"));
+    if(source.document_id.empty()||source.source_path.empty())throw std::invalid_argument("Drawing source identity and path are required.");
+    sources=data_sources();
+    const auto found=std::ranges::find(sources,source.document_id,&DrawingSource::document_id);
+    if(found!=sources.end())throw std::invalid_argument("Tento zdroj je již ve výkresu přidaný.");
+    sources.push_back(source);
+    if(source_document_id.empty()) {
+        source_document_id=source.document_id;source_path=source.source_path;source_name=source.name;
+    }
+}
+std::vector<std::string> DrawingDocument::remove_data_source(const std::string& id) {
+    const auto root=id.substr(0,id.find(":family:"));
+    const auto matches=[&](const std::string& value){return !root.empty()&&(value==root||value.starts_with(root+":family:"));};
+    sources=data_sources();
+    if(std::ranges::none_of(sources,[&](const auto& source){return matches(source.document_id);}))
+        throw std::invalid_argument("Drawing source no longer exists.");
+    std::erase_if(sources,[&](const auto& source){return matches(source.document_id);});
+    std::set<std::string> removed;
+    std::vector<std::string> order;
+    for(const auto& sheet:sheets)for(const auto& view:sheet.views)if(matches(view.source_document_id))
+        if(removed.insert(view.id).second)order.push_back(view.id);
+    for(std::size_t i=0;i<order.size();++i)for(const auto& sheet:sheets)for(const auto& view:sheet.views)
+        if(view.parent_view_id==order[i]&&removed.insert(view.id).second)order.push_back(view.id);
+    if(matches(source_document_id)) {
+        source_document_id=sources.empty()?std::string{}:sources.front().document_id;
+        source_path=sources.empty()?std::filesystem::path{}:sources.front().source_path;
+        source_name=sources.empty()?std::string{}:sources.front().name;
+    }
+    for(auto& sheet:sheets) {
+        std::erase_if(sheet.views,[&](const auto& view){return removed.contains(view.id);});
+        std::erase_if(sheet.dimensions,[&](const auto& dimension){return removed.contains(dimension.view_id);});
+        std::erase_if(sheet.balloons,[&](const auto& balloon){return removed.contains(balloon.view_id);});
+        for(auto& view:sheet.views)if(removed.contains(view.section_parent_id))view.section_parent_id.clear();
+        if(matches(sheet.bom_source_document_id)) {
+            sheet.bom_source_document_id.clear();sheet.bom_rows.clear();
+        }
+        if(matches(sheet.selected_source_document_id))sheet.selected_source_document_id=source_document_id;
+        refresh_balloons(sheet);
+    }
+    synchronize_dimension_identifiers();
+    return order;
+}
+
 void DrawingDocument::save(const std::filesystem::path& path,
     const zima::document::DocumentCopyIdentity& copy) const {
     if (document_id.empty() || name.empty() || sheets.empty()) {
         throw std::runtime_error("Drawing identity, name and sheets are required");
     }
-    nlohmann::json root{{"format", "zima-cad-drawing"}, {"version", 10},
+    nlohmann::json root{{"format", "zima-cad-drawing"}, {"version", 11},
                         {"document_id", document_id}, {"name", name},
                         {"source_document_id", source_document_id},
                         {"source_path", zima::document::path_to_utf8(source_path)},
                         {"source_name", source_name}};
+    root["sources"]=nlohmann::json::array();
+    for(const auto& source:data_sources())root["sources"].push_back({{"document_id",source.document_id},
+        {"source_path",zima::document::path_to_utf8(source.source_path)},{"name",source.name}});
     root["measurement_sources"]=nlohmann::json::object();
     std::map<const MeasurementGeometry*,std::string> measurement_ids;
     auto identifiers = dimension_identifiers;
@@ -545,6 +613,7 @@ void DrawingDocument::save(const std::filesystem::path& path,
             {"format",field.format},{"write_back",field.write_back},{"anchor_position",field.anchor_position},
             {"angle",field.angle},{"flipped",field.flipped},{"font",field.font}});
         serialized["bom_source_document_id"]=sheet.bom_source_document_id;
+        serialized["selected_source_document_id"]=sheet.selected_source_document_id;
         for(const auto& b:sheet.balloons)if(!ids.insert(b.id).second||std::ranges::none_of(sheet.views,[&](const auto& v){return v.id==b.view_id;}))
             throw std::runtime_error("Invalid balloon identity or view");
         serialized["balloons"]=nlohmann::json::parse(serialize_balloons(sheet.balloons));
@@ -636,7 +705,7 @@ void DrawingDocument::save(const std::filesystem::path& path,
     // C++ drawing model has no Python entity fields, so its complete payload
     // lives in the ordinary param.* namespace.
     stream << "[Document]\n"
-           << "format_version=18\n"
+           << "format_version=19\n"
            << "type=drawing\n"
            << "document_id=" << root.at("document_id").get<std::string>() << "\n"
            << "name=" << root.at("name").get<std::string>() << "\n"
@@ -650,7 +719,7 @@ DrawingDocument DrawingDocument::load(const std::filesystem::path& path) {
     const auto document_section = ini.find("Document");
     if (document_section == ini.end() ||
         document_section->second.find("format_version") == document_section->second.end() ||
-        document_section->second.at("format_version") != "18" ||
+        (document_section->second.at("format_version") != "19" && document_section->second.at("format_version") != "18") ||
         document_section->second.find("type") == document_section->second.end() ||
         document_section->second.at("type") != "drawing")
         throw std::runtime_error("Unsupported Drawing document format");
@@ -664,8 +733,19 @@ DrawingDocument DrawingDocument::load(const std::filesystem::path& path) {
         throw std::runtime_error(
             std::string("Invalid C++ Drawing payload: ") + error.what());
     }
-    if (root.value("format", "") != "zima-cad-drawing" || root.value("version", 0) != 10)
+    const bool previous=document_section->second.at("format_version")=="18"&&root.value("version",0)==10;
+    if (root.value("format", "") != "zima-cad-drawing" || (!previous &&
+        (document_section->second.at("format_version")!="19"||root.value("version",0)!=11)))
         throw std::runtime_error("Unsupported C++ Drawing payload");
+    // The immediately preceding Drawing schema already persists every view
+    // source and title binding. Introduce only the new registry/chooser fields.
+    if(previous) {
+        root["sources"]=nlohmann::json::array();
+        for(auto& sheet:root.at("sheets")) {
+            if(sheet.at("bom_source_document_id").get<std::string>().empty())sheet["bom_source_document_id"]=root.value("source_document_id",std::string{});
+            sheet["selected_source_document_id"]=sheet.at("bom_source_document_id");
+        }
+    }
     std::map<std::string,std::shared_ptr<const MeasurementGeometry>> measurement_sources;
     for(const auto& [id,geometry]:root.at("measurement_sources").items()) {
         DrawingView source;
@@ -679,6 +759,9 @@ DrawingDocument DrawingDocument::load(const std::filesystem::path& path) {
     document.source_document_id = root.value("source_document_id", "");
     document.source_path = std::filesystem::u8path(root.value("source_path", ""));
     document.source_name = root.value("source_name", "");
+    for(const auto& source:root.at("sources"))document.sources.push_back({
+        source.at("document_id").get<std::string>(),std::filesystem::u8path(source.at("source_path").get<std::string>()),
+        source.at("name").get<std::string>()});
     for (const auto& serialized : root.at("sheets")) {
         DrawingSheet sheet;
         sheet.id = serialized.at("id").get<std::string>();
@@ -718,6 +801,7 @@ DrawingDocument DrawingDocument::load(const std::filesystem::path& path) {
             item.value("format", ""), item.value("write_back", false),item.value("anchor_position",false),
             item.value("angle",0.0),item.value("flipped",true),item.value("font","osifont")});
         sheet.bom_source_document_id=serialized.at("bom_source_document_id").get<std::string>();
+        sheet.selected_source_document_id=serialized.at("selected_source_document_id").get<std::string>();
         sheet.balloons=deserialize_balloons(serialized.at("balloons").dump());
         for(const auto& item:serialized.at("bom_rows")) sheet.bom_rows.push_back({
             item.at("item_number"),item.at("quantity"),item.at("name"),item.at("designation"),item.at("material"),
@@ -807,6 +891,7 @@ DrawingDocument DrawingDocument::load(const std::filesystem::path& path) {
         document.sheets.push_back(std::move(sheet));
     }
     if (document.sheets.empty()) throw std::runtime_error("Drawing has no sheets");
+    document.sources=document.data_sources();
     document.synchronize_dimension_identifiers();
     return document;
 }

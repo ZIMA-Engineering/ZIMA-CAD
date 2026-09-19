@@ -13,6 +13,9 @@ bool solid_source(const document::HistoryContainer& feature) {
 }
 DerivedCopyDefinition derived_copy_definition(const Workspace& live,const std::string& id,const std::string& object) {
     if(const auto* part=live.open_part(id)) {
+        if(const auto* feature=part->session.document().find_container(object);
+            feature&&feature->feature_kind==document::FeatureKind::DerivedCopy)
+            return {feature->id,feature->name,!feature->suppressed,feature->placement,feature->derived_copy};
         const auto* body=part->session.document().body_history.find(object);
         if(!body)throw DerivedCopyError("object_not_found","The requested derived copy does not exist in this document.");
         if(!body->derived_copy)throw DerivedCopyError("wrong_feature","This object is not a Mirror or Pattern.");
@@ -32,6 +35,20 @@ CopySources derived_copy_sources(const Workspace& live,const std::string& id,con
     if(const auto* part=live.open_part(id)) {
         const auto& document=part->session.document();const auto& graph=document.body_history;
         result.boundary=graph.insertion_cursor();
+        const auto* feature_owner=object.empty()?graph.find(graph.active_body_id()):graph.owner(object);
+        if(feature_owner) {
+            result.body_id=feature_owner->scope.id;
+            result.body_cursor=object.empty()?feature_owner->cursor:static_cast<std::size_t>(
+                std::ranges::find(feature_owner->entries,object,&document::PartHistoryEntry::id)-feature_owner->entries.begin());
+            const auto position=std::ranges::find(graph.order(),result.body_id);
+            result.boundary=static_cast<std::size_t>(position-graph.order().begin())+1;
+            result.context_bodies=graph.available_before(result.boundary);
+            for(std::size_t index=0;index<result.body_cursor;++index) {
+                const auto* feature=document.find_container(feature_owner->entries[index].id);
+                if(feature&&solid_source(*feature))result.items.push_back({feature->id,feature->name,CopySourceKind::Solid,feature_owner->visible});
+            }
+            return result;
+        }
         if(!object.empty()||!graph.active_body_id().empty()) {
             const auto& anchor=object.empty()?graph.active_body_id():object;
             const auto found=std::ranges::find(graph.order(),anchor);

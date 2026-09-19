@@ -151,6 +151,7 @@ std::vector<std::filesystem::path> Workspace::save_copy(
                 (index==0 ? std::string{} : "_"+std::to_string(index+1))+".drwz");
             const auto drawing_id=zima::drawing::DrawingDocument::create_default().document_id;
             const auto old_drawing_path=normalized(drawings[index].path);
+            for(auto& source:drawing.sources)if(source.document_id==document_id){source.document_id=new_id;source.source_path=target;}
             drawing.source_document_id=new_id;
             drawing.source_path=target;
             drawing.source_name=zima::document::path_to_utf8(target.stem());
@@ -159,6 +160,8 @@ std::vector<std::filesystem::path> Workspace::save_copy(
                 else if (reference.owner_id==document_id+":origin") reference.owner_id=new_id+":origin";
             };
             for (auto& sheet:drawing.sheets) {
+                if(sheet.bom_source_document_id==document_id)sheet.bom_source_document_id=new_id;
+                if(sheet.selected_source_document_id==document_id)sheet.selected_source_document_id=new_id;
                 for(auto& row:sheet.bom_rows)
                     if(row.source_document_id==document_id ||
                         (row.source_document_id.empty() && !source_path.empty() && normalized(row.source_path)==source_path)) {

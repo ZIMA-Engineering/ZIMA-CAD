@@ -5,6 +5,7 @@
 #include <QFocusEvent>
 #include <QKeyEvent>
 #include <QLineEdit>
+#include <cmath>
 #include <stdexcept>
 
 namespace zima::app {
@@ -44,16 +45,22 @@ protected:
         catch (const std::exception&) { return value(); }
     }
     void focusOutEvent(QFocusEvent* event) override {
-        try { static_cast<void>(expression_value()); }
+        double pending{};
+        try { pending=expression_value(); }
         catch (const std::exception&) { QWidget::focusOutEvent(event); return; }
         QDoubleSpinBox::focusOutEvent(event);
+        // Qt formats -0 as 0. The authored sign can select a dimension's
+        // solution side, so preserve it until the properties transaction reads it.
+        if(pending==0.0&&std::signbit(pending))lineEdit()->setText(prefix()+QStringLiteral("-0")+suffix());
     }
     void keyPressEvent(QKeyEvent* event) override {
+        bool negative_zero=false;
         if (event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter) {
-            try { static_cast<void>(expression_value()); }
+            try { const auto pending=expression_value();negative_zero=pending==0.0&&std::signbit(pending); }
             catch (const std::exception&) { event->accept(); return; }
         }
         QDoubleSpinBox::keyPressEvent(event);
+        if(negative_zero)lineEdit()->setText(prefix()+QStringLiteral("-0")+suffix());
     }
 private:
     QString without_units(QString text) const {

@@ -94,6 +94,7 @@ void AssemblyWorkspaceWindow::create_layout() {
     document_kind_button_ = new QToolButton(tree_->header());
     document_kind_button_->setObjectName("documentKindButton");
     document_kind_button_->setAutoRaise(true);
+    document_kind_button_->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
     document_kind_button_->setStyleSheet(command_button_style());
     connect(document_kind_button_, &QToolButton::clicked, this,
         [this] { navigate_document_kind(); });
@@ -942,7 +943,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                     QMenu menu(this);auto* source=menu.addAction(tr("Vlastnosti zdroje"));
                     auto* settings=menu.addAction(body->derived_copy->pattern?tr("Vlastnosti Pole"):tr("Vlastnosti Zrcadla"));
                     const auto* selected=menu.exec(global_position);
-                    if(selected==source)show_derived_source_properties(candidate.owner_id);
+                    if(selected==source)show_derived_source(candidate.owner_id,true);
                     else if(selected==settings)show_derived_copy_properties(candidate.owner_id);
                     return;
                 }
@@ -1432,13 +1433,16 @@ void AssemblyWorkspaceWindow::create_layout() {
             }
         } else if (candidate.kind == zima::viewer::CandidateKind::Occurrence) {
             if(!properties_dialog_){
-                assembly_dimension_path_=candidate.instance_path;
+                assembly_dimension_path_=workspace_.derived_source_path(workspace_.displayed_document_id(),
+                    zima::assembly::InstancePath::decode(candidate.instance_path)).encoded();
                 update_assembly_dimension_visibility();
             }
         } else if (candidate.kind == zima::viewer::CandidateKind::Container) {
             const auto* part=workspace_.open_part(workspace_.active_document_id());
             const auto* body=part?part->session.document().body_history.find(candidate.owner_id):nullptr;
-            if(body&&body->derived_copy)show_derived_source_properties(candidate.owner_id);
+            const auto* copy_feature=part?part->session.document().find_container(candidate.owner_id):nullptr;
+            if((body&&body->derived_copy)||(copy_feature&&copy_feature->feature_kind==zima::document::FeatureKind::DerivedCopy))
+                show_derived_source(candidate.owner_id,false);
             else {
                 // A sheet-state feature keeps ordinary View selection on the
                 // authored container, but its stored bend dimensions still
@@ -1515,7 +1519,7 @@ void AssemblyWorkspaceWindow::create_layout() {
     workspace_stack_->addWidget(model_workspace_);
     drawing_workspace_ = new DrawingWindow(&workspace_, false);
     drawing_workspace_->set_formats_directory(application_settings_.resolved_paths.value("Formats"));
-    drawing_workspace_->set_document_changed_handler([this] { refresh_drawing_tree();refresh_tabs();if(const auto* state=workspace_.open_drawing(workspace_.displayed_document_id())){undo_action_->setEnabled(state->can_undo());redo_action_->setEnabled(state->can_redo());} });
+    drawing_workspace_->set_document_changed_handler([this] { refresh_drawing_tree();refresh_tabs();update_document_kind_button();if(const auto* state=workspace_.open_drawing(workspace_.displayed_document_id())){undo_action_->setEnabled(state->can_undo());redo_action_->setEnabled(state->can_redo());} });
     drawing_workspace_->set_properties_handler([this](QDialog* dialog) {
         properties_dialog_=dialog;
         if(dialog)connect(dialog,&QObject::destroyed,this,[this,dialog] {
@@ -1524,6 +1528,7 @@ void AssemblyWorkspaceWindow::create_layout() {
     });
     drawing_workspace_->set_selection_handler([this](const std::string& id) {
         if (!workspace_.open_drawing(workspace_.displayed_document_id())) return;
+        update_document_kind_button();
         const QSignalBlocker blocker(tree_);
         tree_->clearSelection(); tree_->setCurrentItem(nullptr);
         for(QTreeWidgetItemIterator it(tree_); *it; ++it)
@@ -2132,6 +2137,9 @@ void AssemblyWorkspaceWindow::create_layout() {
                 menu.setObjectName("partActivationMenu");
                 auto* activate = menu.addAction(tr("Aktivní"));
                 activate->setObjectName("activatePartAction");
+                if(const auto* part=workspace_.open_part(workspace_.active_document_id());
+                    part&&part->session.document().body_history.active_body_id().empty())
+                    activate->setIcon(resource_icon("active-check"));
                 auto* create_body = menu.addAction(resource_icon("result-body"), tr("Vytvořit těleso"));
                 create_body->setObjectName("createBodyFromPartAction");
                 auto* parameters = menu.addAction(resource_icon("parameters"), tr("Parametry…"));
@@ -2187,7 +2195,10 @@ void AssemblyWorkspaceWindow::create_layout() {
                 auto* visibility=body ? menu.addAction(body->visible?tr("Skrýt"):tr("Zobrazit")) : nullptr;
                 if(visibility)visibility->setObjectName("bodyVisibilityAction");
                 QAction* activate = step_kind == "part-body" && !(body&&body->derived_copy) ? menu.addAction(tr("Aktivní")) : nullptr;
-                if (activate) activate->setObjectName("activateBodyAction");
+                if (activate) {
+                    activate->setObjectName("activateBodyAction");
+                    if(part->session.document().body_history.active_body_id()==id)activate->setIcon(resource_icon("active-check"));
+                }
                 auto* remove=part->session.document().body_history.active_body_id().empty()?menu.addAction(tr("Smazat")):nullptr;
                 if(remove)remove->setObjectName("deleteBodyAction");
                 auto* document = menu.addAction(tr("Zpět do dílu"));
@@ -2207,7 +2218,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                         id,!current->session.document().body_history.find(id)->visible));
                     preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();
                 }
-                else if (source_properties && selected == source_properties) show_derived_source_properties(id);
+                else if (source_properties && selected == source_properties) show_derived_source(id,true);
                 else if (activate && selected == activate) activate_body(id);
                 else if (selected == document) activate_body({});
                 else if (selected == before || selected == after) {

@@ -1,5 +1,85 @@
 # Development handoff — 2026-09-15
 
+## Local changes verified on 2026-09-19
+
+The follow-up Body ownership work adds a native `DerivedCopy` history feature:
+Mirror/Pattern created with an active Body remain inside that Body and use its
+Boolean chain. Root Part copies remain independent Bodies; Assembly copies
+remain immediate components. Overlapping Pattern operands are fused before
+combining them with the input Body. The common placement solver is unchanged.
+
+Geometry side identity is a mandatory agent rule in `AGENTS.md`; see
+[Geometry side contract](doc/GEOMETRY_SIDE_CONTRACT.md). Bend deliberately uses
+signed zero for opposite endpoint offsets. Cache normalization is limited to
+equivalent rigid-frame values; authored offsets retain their sign bits.
+New checks cover signed-zero persistence and distinct directed cache entries.
+
+The local GUI and CLI are rebuilt; `zima-cad.bat` still launches the current
+development executable. `VERSION` is 2026091901 for the requested Windows
+release; its packaging/publication record is maintained in
+[the release notes](doc/releases/2026091901.md).
+
+The broad native regression run passed 155 of 156 checks in
+`build/cache-preservation-broad-tests.log`. Only the previously reproduced
+standard-title master-dimension failure remains. The complete derived-copy
+command suite, Assembly zero-side matrix, Bend signed-zero persistence,
+projected-dimension signed-zero editing and CLI process suite pass.
+Ten focused GUI contracts pass in `build/inbody-gui-tests.log`. The additional
+dimension-entry GUI regression initially exposed Qt focus-out erasing `-0`;
+the fixed dialog passes in `build/geometry-side-fix-tests.log`.
+Packaging tests pass (nine cases, two Linux-only skips), and all sixteen
+publisher gate tests pass. Final release builds and acceptance logs use the
+`build/release-1901-` prefix.
+
+The final local build reports version 2026091901. All twelve final GUI suites
+pass in `build/release-1901-gui-tests.log` (163 seconds), including the repaired
+signed-zero dialog, copy ownership, Assembly properties/refresh, Drawing sources,
+Family Table, native templates, numeric fields and Sketch offsets.
+
+The first-open file-list delay remains unconfirmed. Fresh-process probes loaded
+the repository directory in 0.36 s and Projects in 0.61 s; these measurements
+do not reproduce or explain the user's reported cold-start delay.
+
+- Mirror/Pattern accept only their own placed Origin planes/axes in Parts and
+  Assemblies, including repeated nested occurrences. Double-clicking a derived
+  child shows source Edit dimensions without opening source Properties.
+- Drawing Settings manages registered native sources with staged removal,
+  consequence confirmation, zero-source support and Undo/Redo. The Source
+  chooser is independent of the title/BOM source captured on title insertion.
+  Navigation icons follow the selected Part/Assembly variant. See
+  [Drawing sources](doc/DRAWING_SOURCES.md).
+- Parameters, Family Table and Relations have distinct icons; Family Table
+  follows Parameters in Tools. Czech start-template parameter labels are
+  lowercase without diacritics, with matching standard title-block expressions.
+- The obsolete splash SVG was removed. The native application contained no
+  remaining splash implementation. Native Sketch offsets were verified;
+  STEP offsets are explicitly outside the user's requested scope.
+
+All ten focused Drawing/native-document/Family Table/template contracts pass
+in `build/drawing-settings-acceptance-tests.log`. They include actual GUI New
+Part/Assembly creation, enabled commands, Czech parameter labels, source
+registration/removal, missing files, zero sources, confirmation Cancel, Settings
+Cancel, MMB confirmation, Undo/Redo, persistence, navigation and title binding.
+Mirror/Pattern GUI and Sketch offset GUI pass in
+`build/drawing-settings-gui-recheck.log`; the related kernel/command checks pass
+in `build/drawing-settings-unit-tests.log`. The final Drawing UI screenshot is
+`build/drawing-settings-preview.png` and was visually inspected.
+
+Two broader checks are still failing and must not be reported as passing:
+`zima_cpp_drawing_contract_tests` cannot resize the standard title sketch's
+`d1` master from 10 to 12 mm; the same failure was reproduced with the unchanged
+HEAD template in `build/template-baseline-check`. The full workspace startup
+contract stops at “Universal Dimension did not enter angular placement after
+two segments”. These are separate from the focused acceptance suite above.
+
+Build diagnostic: this machine's localized MSVC include prefix was incorrectly
+recorded by CMake, producing objects with zero header dependencies and stale
+binary layouts. The generated compiler configuration now matches the actual
+UTF-8 prefix `Poznámka: Včetně souboru: `; affected sources were rebuilt and Ninja
+header dependencies verified. A future fresh configure should verify this
+prefix before trusting incremental builds. Existing native dependencies were
+retained (`VCPKG_MANIFEST_INSTALL=OFF` in the local build cache).
+
 ## Current application
 
 Development build **2026091512** distinguishes **Body measurement** (Czech
@@ -299,6 +379,11 @@ evidence of Linux runtime support. The first signed Windows release is now publi
 
 ## Work order
 
+**2026-09-19 correction:** the user confirmed that native Sketcher offsets are
+already implemented and that STEP-derived offsets are not required. Current
+work prioritizes reported Part defects. This supersedes the historical offset
+follow-up below; do not schedule STEP offset work or repeat that reminder.
+
 On 2026-09-15 the user confirmed this immediate order: finish the Holes preview,
 diameter annotation and display-mode icons; then complete program updates;
 then continue Sketcher offsets, especially external and STEP source curves.
@@ -307,11 +392,11 @@ approved publication are complete. The user then prioritized AI integration in
 the console, following ZIMA-CAD-Parts, with the active Part/Assembly/Drawing tab as
 context. That integration is implemented and published for Windows in `2026091505`.
 Live authenticated AI behavior remains to be tried after the user signs in through
-Settings > AI. Modeling work subsequently returns to Sketcher offsets.
+Settings > AI. The former offset follow-up is superseded by the correction above.
 
 New explicit user instructions take precedence. The agreed Part sequence is in
-[ROADMAP.md](ROADMAP.md#agreed-next-steps-for-part-2026-09-06), beginning with
-Sketcher offsets, especially projected STEP geometry. Current offset support is
+[ROADMAP.md](ROADMAP.md#agreed-next-steps-for-part-2026-09-06). Native offsets are
+implemented and STEP-derived offsets are outside the required scope. Current offset support is
 in [SKETCH_OFFSET.md](doc/SKETCH_OFFSET.md); review remaining practical coverage
 before treating the historical plan as unimplemented work. The comprehensive
 Undo/Redo audit stays after the agreed modeling features are broadly implemented.

@@ -14,6 +14,22 @@ static void close(double a,double b){require(std::abs(a-b)<1e-7,"Mirror changed 
 template<class F> void rejects(F f){bool rejected=false;try{f();}catch(const std::exception&){rejected=true;}require(rejected,"Invalid Mirror accepted");}
 static kernel::BoxRequest box(double length){kernel::BoxRequest result{length,5,7};result.translation={4,2,1};return result;}
 int main(){try{
+    kernel::HistoryOperation zero;zero.owner_id="signed-zero";zero.body.id="body";
+    auto signed_zero=zero;signed_zero.body.translation.y=-0.0;
+    std::get<kernel::BoxRequest>(signed_zero.primitive).rotation_degrees.z=-0.0;
+    require(kernel::history_fingerprint({zero},1)==kernel::history_fingerprint({signed_zero},1),
+        "Geometrically identical signed zeros must have the same cache identity");
+    kernel::HistoryOperation directed;directed.owner_id="directed";
+    kernel::ExtrusionRequest extrusion;extrusion.wall=kernel::ProfileWall{};
+    directed.primitive=extrusion;auto opposite=directed;
+    std::get<kernel::ExtrusionRequest>(opposite.primitive).wall->first_offset=-0.0;
+    require(kernel::history_fingerprint({directed},1)!=kernel::history_fingerprint({opposite},1),
+        "Authored offset signed zero must retain its cache identity");
+    directed.body.id="pattern";directed.body.combination=kernel::BodyCombination::Pattern;
+    directed.body.pattern.linear[0].direction={1,0,0};opposite=directed;
+    opposite.body.pattern.linear[0].direction={-1,0,0};
+    require(kernel::history_fingerprint({directed},1)!=kernel::history_fingerprint({opposite},1),
+        "Opposite Pattern directions must retain distinct cache identities");
     kernel::OcctKernel kernel;
     const auto source=kernel.evaluate_history({{"box",box(3)}}).back();
     for(auto plane:{kernel::MirrorPlane{{0,0,0},{1,0,0}},kernel::MirrorPlane{{3,-2,5},{1,2,3}},kernel::MirrorPlane{{4,0,0},{0,1,0}}}) {
@@ -112,6 +128,16 @@ int main(){try{
     document::Placement frame;frame.rotation_y=90;parameters.pattern->linear[0].local_axis=1;
     document::PartDocument::resolve_copy_reference(parameters,"pattern-body",frame,{});
     close(parameters.pattern->axis.x,1);close(parameters.pattern->axis.z,0);
+    for(const bool patterned:{false,true}) {
+        auto own=parameters;if(!patterned)own.pattern.reset();
+        own.reference={{},"pattern-body:origin",patterned?"origin:axis:z":"origin:plane:yz"};
+        for(const auto& ref:{document::ConstructionReference{{},"other:origin",own.reference.semantic_key},
+            document::ConstructionReference{"other-occurrence","pattern-body:origin",own.reference.semantic_key},
+            document::ConstructionReference{{},"pattern-body:origin",own.reference.semantic_key,2}}) {
+            auto invalid=own;invalid.reference=ref;
+            rejects([&]{document::PartDocument::resolve_copy_reference(invalid,"pattern-body",frame,{});});
+        }
+    }
     parameters.pattern->circular=false;const auto retained=parameters.reference;
     document::PartDocument::resolve_copy_reference(parameters,"pattern-body",frame,{});
     close(parameters.pattern->linear[0].direction.y,1);require(parameters.reference==retained,"Linear mode discarded the stored circular axis");

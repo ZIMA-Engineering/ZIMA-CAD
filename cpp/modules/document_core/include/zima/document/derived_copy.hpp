@@ -14,4 +14,12 @@ struct DerivedCopyParameters {
     bool subtract_source{};
     bool operator==(const DerivedCopyParameters&) const = default;
 };
+
+inline bool is_derived_copy_origin_reference(const ConstructionReference& reference,
+    const std::string& owner_id,bool pattern) {
+    if(!reference.instance_path.empty()||reference.owner_id!=owner_id+":origin"||reference.offset!=0)return false;
+    const auto& key=reference.semantic_key;
+    return pattern?(key=="origin:axis:x"||key=="origin:axis:y"||key=="origin:axis:z"):
+        (key=="origin:plane:xy"||key=="origin:plane:yz"||key=="origin:plane:xz");
+}
 } // namespace zima::document

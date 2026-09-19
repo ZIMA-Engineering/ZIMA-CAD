@@ -89,7 +89,6 @@ void parameters(workspace::DerivedCopyDefinition& value,const workspace::Derived
     }
     if(args.contains("reference")) {
         params.reference=reference(args.at("reference"));
-        if(pattern&&params.reference.offset!=0)throw Error("invalid_arguments","Only a Mirror plane can have a reference offset.");
     }
     if(args.contains(local)) {
         std::string key;
@@ -101,7 +100,9 @@ void parameters(workspace::DerivedCopyDefinition& value,const workspace::Derived
         }
         params.reference={{},value.id+":origin",std::move(key)};
     }
-    if(!pattern&&params.reference.owner_id.empty())throw Error("invalid_reference","Select a local plane or an original Mirror plane reference.");
+    if((!pattern||params.pattern->circular||!params.reference.owner_id.empty())&&
+        !document::is_derived_copy_origin_reference(params.reference,value.id,pattern))
+        throw Error("invalid_reference",pattern?"Select an axis of the Pattern's own Origin.":"Select a plane of the Mirror's own Origin.");
 }
 }
 void Host::register_derived_copy_commands() {

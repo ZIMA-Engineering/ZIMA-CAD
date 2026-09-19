@@ -374,13 +374,14 @@ void AssemblyWorkspaceWindow::create_actions() {
     parameters_action_->setIcon(resource_icon("parameters"));
     connect(parameters_action_, &QAction::triggered,
         this, &AssemblyWorkspaceWindow::edit_document_parameters);
-    relations_action_ = tools->addAction(t("menu.tools.relations", "Relace..."));
-    relations_action_->setObjectName("relationsAction");
-    connect(relations_action_, &QAction::triggered, this, &AssemblyWorkspaceWindow::edit_relations);
     family_table_action_ = tools->addAction(t("menu.tools.family_table", "Family Table..."));
     family_table_action_->setObjectName("familyTableAction");
     family_table_action_->setIcon(resource_icon("family-table"));
     connect(family_table_action_, &QAction::triggered, this, &AssemblyWorkspaceWindow::edit_family_table);
+    relations_action_ = tools->addAction(t("menu.tools.relations", "Relace..."));
+    relations_action_->setObjectName("relationsAction");
+    relations_action_->setIcon(resource_icon("relations"));
+    connect(relations_action_, &QAction::triggered, this, &AssemblyWorkspaceWindow::edit_relations);
     tools->addSeparator();
     file_settings_action_ = tools->addAction(
         t("menu.tools.file_settings", "Nastavení souboru..."));

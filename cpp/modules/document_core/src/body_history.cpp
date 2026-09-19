@@ -317,10 +317,14 @@ std::vector<zima::kernel::HistoryOperation> BodyHistoryGraph::compile(const Comp
             result.push_back(std::move(operation));calculated.insert(id);continue;
         }
         const auto start = result.size();
+        std::set<std::string> preceding_features;
         for (const auto& entry : body.entries) {
             if (auto operation = compiler(entry)) {
                 if (!(operation->body == zima::kernel::BodyHistoryScope{}))
                     throw std::invalid_argument("Feature compiler must return a local operation");
+                if(operation->feature_copy&&!preceding_features.contains(operation->feature_copy->source_feature_id))
+                    throw std::invalid_argument("Feature copy requires a preceding source in the same Body.");
+                preceding_features.insert(operation->owner_id);
                 operation->body.id = id;
                 operation->body.translation = body.scope.translation();
                 operation->body.rotation_degrees = body.scope.rotation_degrees();

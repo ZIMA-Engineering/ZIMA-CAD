@@ -76,7 +76,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir){
     auto part=document::PartDocument::create_default();auto box=document::PartDocument::create_box_container();box.box={20,10,6};part.history={box};
     auto boundaries=kernel.evaluate_history(part.kernel_operations());part.save(source_path,boundaries);
     workspace::Workspace live;live.add_part(part,boundaries,source_path);
-    auto doc=drawing::DrawingDocument::create_default();doc.source_document_id=part.document_id;doc.source_path="../source.prtz";
+    auto doc=drawing::DrawingDocument::create_default();doc.source_document_id=part.document_id;doc.source_path="../source.prtz";doc.sheets.front().bom_source_document_id=part.document_id;
     auto parent=drawing::DrawingDocument::create_view(part.document_id,"../source.prtz",boundaries.back().mesh);
     auto child=drawing::DrawingDocument::create_view(part.document_id,"../source.prtz",boundaries.back().mesh);child.parent_view_id=parent.id;child.projection_direction=drawing::ProjectionDirection::Right;
     auto grand=drawing::DrawingDocument::create_view(part.document_id,"../source.prtz",boundaries.back().mesh);grand.parent_view_id=child.id;grand.projection_direction=drawing::ProjectionDirection::Top;

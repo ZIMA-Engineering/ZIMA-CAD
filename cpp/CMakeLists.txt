@@ -1287,6 +1287,8 @@ if(ZIMA_BUILD_TESTS)
     add_executable(zima_cpp_drawing_contract_tests tests/drawing_contract_tests.cpp)
     target_link_libraries(zima_cpp_drawing_contract_tests PRIVATE zima_drawing)
     add_test(NAME zima_cpp_drawing_contract_tests COMMAND zima_cpp_drawing_contract_tests)
+    add_test(NAME zima_cpp_drawing_sources_tests COMMAND zima_cpp_drawing_contract_tests --verify-sources)
+    set_tests_properties(zima_cpp_drawing_sources_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     set_tests_properties(zima_cpp_drawing_contract_tests PROPERTIES
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     set_tests_properties(zima_cpp_drawing_contract_tests PROPERTIES

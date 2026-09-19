@@ -474,8 +474,9 @@ std::string open_family_instance(Workspace& live,const kernel::OcctKernel& kerne
 }
 void select_family_drawing_source(drawing::DrawingDocument& drawing,const Workspace& live,
     const std::string& sheet_id,const std::string& source) {
-    const auto generic=drawing.source_document_id.substr(0,drawing.source_document_id.find(":family:"));
-    if(!generic.empty()&&source!=generic&&!source.starts_with(generic+":family:"))throw std::invalid_argument("The model does not belong to this Drawing family.");
+    const auto sources=drawing.data_sources();
+    if(std::ranges::none_of(sources,[&](const auto& s){return source==s.document_id||source.starts_with(s.document_id+":family:");}))
+        throw std::invalid_argument("The model is not registered as a Drawing source.");
     std::filesystem::path path;std::string name;
     if(const auto* part=live.open_part(source)){path=part->path;name=part->session.document().name;}
     else if(const auto* assembly=live.open_assembly(source)){path=assembly->path;name=assembly->session.document().name;}
@@ -486,8 +487,7 @@ void select_family_drawing_source(drawing::DrawingDocument& drawing,const Worksp
     if(next.source_document_id.empty()) {
         next.source_document_id=source;next.source_path=path;next.source_name=name;
     }
-    sheet->bom_source_document_id=source;
-    sheet->bom_rows=build_bom_rows_for_source(source,path,&live);
+    sheet->selected_source_document_id=source;
     drawing=std::move(next);
 }
 }

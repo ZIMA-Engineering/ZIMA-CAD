@@ -1,4 +1,5 @@
 #include <zima/workspace/family_operations.hpp>
+#include <zima/workspace/engineering_metadata_operations.hpp>
 #include "workspace_internal.hpp"
 #include <zima/workspace/template_operations.hpp>
 #include <zima/workspace/document_operations.hpp>
@@ -419,23 +420,18 @@ void AssemblyWorkspaceWindow::update_document_kind_button() {
     QString tooltip;
     if(template_sketch()){document_kind_button_->hide();return;}
     if (const auto* drawing = workspace_.open_drawing(displayed)) {
-        bool assembly_source = false;
-        if (!drawing->document().source_document_id.empty()) {
-            assembly_source = workspace_.open_assembly(
-                    drawing->document().source_document_id) != nullptr ||
-                drawing->document().source_path.extension() == ".asmz";
-        } else if (!drawing->document().sheets.empty() &&
-            !drawing->document().sheets.front().views.empty()) {
-            const auto& view = drawing->document().sheets.front().views.front();
-            assembly_source = workspace_.open_assembly(view.source_document_id) != nullptr ||
-                view.source_path.extension() == ".asmz";
-        }
+        const auto source=drawing_workspace_->selected_source_id();
+        if(source.empty()){document_kind_button_->hide();return;}
+        const auto source_path=drawing->document().data_source_path(source);
+        const bool assembly_source=workspace_.open_assembly(source)!=nullptr||QString::fromStdWString(source_path.extension().wstring()).compare(".asmz",Qt::CaseInsensitive)==0;
+        document_kind_button_->setIcon(resource_icon(assembly_source?"assembly":"part"));
         label = assembly_source ? tr("SESTAVA") : tr("DÍL");
         tooltip = assembly_source ? tr("Přejít na zdrojovou sestavu")
                                   : tr("Přejít na zdrojový díl");
     } else if (workspace_.open_part(displayed) != nullptr ||
                workspace_.open_assembly(displayed) != nullptr) {
         label = tr("VÝKRES");
+        document_kind_button_->setIcon(resource_icon("drawing"));
         tooltip = tr("Otevřít nebo vytvořit výkres tohoto dokumentu");
     } else {
         document_kind_button_->hide();
@@ -459,34 +455,31 @@ void AssemblyWorkspaceWindow::update_document_kind_button() {
 void AssemblyWorkspaceWindow::navigate_document_kind() {
     const std::string displayed = workspace_.displayed_document_id();
     if (const auto* drawing = workspace_.open_drawing(displayed)) {
-        std::string source_document_id = drawing->document().source_document_id;
-        std::filesystem::path source_path = drawing->document().source_path;
-        const auto drawing_directory = drawing->path.parent_path();
-        if (source_document_id.empty() && !drawing->document().sheets.empty() &&
-            !drawing->document().sheets.front().views.empty()) {
-            const auto& first_view = drawing->document().sheets.front().views.front();
-            source_document_id = first_view.source_document_id;
-            source_path = first_view.source_path;
-        }
+        const auto source_document_id=drawing_workspace_->selected_source_id();
+        auto source_path=drawing->document().data_source_path(source_document_id);
+        const auto drawing_directory=drawing->path.parent_path();
         if (source_document_id.empty()) {
             state_->setText(tr("Výkres nemá přiřazený zdrojový dokument."));
             return;
         }
         if (!source_path.empty() && source_path.is_relative()) source_path = drawing_directory / source_path;
-        if (workspace_.find(source_document_id) == nullptr) {
-            if (source_path.empty() ||
-                !open_document_path(QString::fromStdString(zima::document::path_to_utf8(source_path)))) {
-                state_->setText(tr("Zdrojový dokument výkresu nelze otevřít."));
-                return;
+        try {
+            const auto root=source_document_id.substr(0,source_document_id.find(":family:"));
+            if(!workspace_.find(root)) {
+                if(source_path.empty()||!open_document_path(QString::fromStdString(zima::document::path_to_utf8(source_path))))
+                    throw std::runtime_error("Zdrojový dokument výkresu nelze otevřít.");
+                if(!workspace_.find(root))throw std::runtime_error("Zdrojový soubor patří jinému dokumentu.");
             }
-        } else {
-            workspace_.activate(source_document_id);
-            workspace_.display_top_level(source_document_id);
-            activate_first_part_body();
-            viewer_->clear_selection();
-            refresh_tabs();
-            refresh_scene();
-        }
+            if(source_document_id!=root&&!workspace_.find(source_document_id)) {
+                const auto table=zima::workspace::family_table(workspace_,root);
+                const auto row=std::ranges::find(table.instances,source_document_id.substr(root.size()+8),&zima::document::FamilyInstance::id);
+                if(row==table.instances.end())throw std::runtime_error("Varianta zdroje již neexistuje.");
+                zima::kernel::OcctKernel kernel;
+                static_cast<void>(zima::workspace::open_family_instance(workspace_,kernel,root,row->name,false));
+            }
+            workspace_.activate(source_document_id);workspace_.display_top_level(source_document_id);
+            activate_first_part_body();viewer_->clear_selection();refresh_tabs();refresh_scene();
+        } catch(const std::exception& error){state_->setText(tr(error.what()));}
         return;
     }
 

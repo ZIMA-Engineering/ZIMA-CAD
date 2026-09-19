@@ -5,8 +5,8 @@ Basic usage is also in the [user manual](UZIVATELSKY_MANUAL.md#basic-drawing-wor
 
 ## Document, sheets and source model
 
-A `.drwz` Drawing references one source `.prtz` Part or `.asmz` Assembly and may
-contain multiple sheets. Each sheet stores its own format, frame, title block,
+A `.drwz` Drawing registers zero or more source `.prtz` Parts and `.asmz` Assemblies
+and may contain multiple sheets. See [Drawing sources](DRAWING_SOURCES.md). Each sheet stores its own format, frame, title block,
 views, dimensions and sheet-local field values.
 
 **New > Drawing** asks for its source native Part (`.prtz`) or Assembly (`.asmz`)
@@ -17,8 +17,7 @@ stores its source link before any view exists; it does not open extra model tabs
 **Insert View** directly starts transient placement using the linked model.
 Clicking the sheet opens the existing view properties; OK inserts the view and
 Cancel discards it. The command does not open a source file picker. An unlinked
-Drawing retains the original fallback to an open Part/Assembly; if neither is
-available, it reports the missing source without crashing. Source loading errors
+Drawing disables view insertion until a source is added in Drawing Settings. Source loading errors
 also leave the Drawing unchanged. `zima_cpp_drawing_source_picker_contract`
 checks missing-source safety and direct Part/Assembly placement with OK/Cancel;
 the application-tools GUI contract covers New Drawing and subsequent insertion
@@ -135,8 +134,9 @@ invokes neither OCCT nor automatic dependency refresh. **Regenerate** explicitly
 reads the open source's latest calculated state, or its saved file, and refreshes
 projection/dimensions.
 
-The bottom **Variant** selector currently shows only the source filename. Family
-Table variant selection/calculation is future work. **Parameters** above the
+The bottom **Source** selector offers the registered models and their Family
+Table variants. Selection is sheet-local and controls navigation and new views.
+A title block retains the source selected when it was inserted. **Parameters** above the
 View or in the Drawing-name context menu opens source Part/Assembly Parameters
 while retaining the displayed Drawing.
 

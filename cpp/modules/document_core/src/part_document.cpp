@@ -1,3 +1,4 @@
+#include <zima/document/derived_copy_json.hpp>
 #include <zima/document/holes.hpp>
 #include <zima/document/bend.hpp>
 #include <zima/document/flat.hpp>
@@ -7165,6 +7166,12 @@ PlanarSweepPath planar_sweep_path(const HistoryContainer& c) {
 }
 void PartDocument::resolve_copy_reference(DerivedCopyParameters& mirror,const std::string& id,
     const Placement& placement,const kernel::ViewerReferenceGeometry& geometry) {
+    if((!mirror.pattern||mirror.pattern->circular||!mirror.reference.owner_id.empty())&&
+        !is_derived_copy_origin_reference(mirror.reference,id,mirror.pattern.has_value())) {
+        mirror.reference_valid=false;
+        throw std::invalid_argument(mirror.pattern?"Vyberte osu X, Y nebo Z vlastního počátku Pole.":
+            "Vyberte rovinu XY, YZ nebo XZ vlastního počátku Zrcadla.");
+    }
     auto references=geometry;
     if(mirror.reference.owner_id==id+":origin") {
         for(auto& ref:references.triangle_references)if(ref.owner_id==id+":origin")ref={};
@@ -7173,7 +7180,7 @@ void PartDocument::resolve_copy_reference(DerivedCopyParameters& mirror,const st
         PartDocument carrier;carrier.document_id=id;
         append_reference_geometry(references,transform_reference_geometry(carrier.origin_viewer_mesh().original_references,
             {placement.x,placement.y,placement.z},{placement.rotation_x,placement.rotation_y,placement.rotation_z},false));
-    } else if(mirror.reference.owner_id==id)throw std::invalid_argument("Zrcadlo nemůže používat vlastní geometrii jako rovinu.");
+    }
     if(mirror.pattern) {
         auto& pattern=*mirror.pattern;
         const std::array<kernel::Vec3,3> basis{{{1,0,0},{0,1,0},{0,0,1}}};
@@ -7192,7 +7199,7 @@ void PartDocument::resolve_copy_reference(DerivedCopyParameters& mirror,const st
     }
     const auto plane=placement_reference_plane(mirror.reference,references);
     mirror.reference_valid=plane.has_value()&&construction_reference_is_planar_face(mirror.reference,references);
-    if(!mirror.reference_valid)throw std::invalid_argument("Vyberte platnou rovinu nebo rovinnou plochu Zrcadla.");
+    if(!mirror.reference_valid)throw std::invalid_argument("Vyberte rovinu XY, YZ nebo XZ vlastního počátku Zrcadla.");
     const auto p=plane->point,n=plane->normal;
     mirror.resolved_plane=kernel::normalized_mirror_plane({{p.x+n.x*mirror.reference.offset,p.y+n.y*mirror.reference.offset,p.z+n.z*mirror.reference.offset},n});
 }
@@ -8329,7 +8336,15 @@ void PartDocument::validate_body_ownership() const {
         if (sketch.owner_container_id.empty()) expected.emplace(sketch.id, PartHistoryKind::Sketch);
     for (const auto& construction : constructions) expected.emplace(construction.id, PartHistoryKind::Construction);
     for (const auto& body : body_history.bodies()) {
+        std::set<std::string> preceding;
         for (const auto& entry : body.entries) {
+            if(const auto* copy=find_container(entry.id);copy&&copy->feature_kind==FeatureKind::DerivedCopy) {
+                if(!preceding.contains(copy->derived_copy.source_id))
+                    throw std::invalid_argument("Copy source must precede its copy in the same Body.");
+                if(!find_container(copy->derived_copy.source_id))
+                    throw std::invalid_argument("Copy source must be a solid feature.");
+            }
+            preceding.insert(entry.id);
             const auto found = expected.find(entry.id);
             if (found == expected.end() || found->second != entry.kind)
                 throw std::invalid_argument("Body history references a missing or mismatched container");
@@ -8388,6 +8403,12 @@ void PartDocument::erase_history_object(const std::string& id) {
 }
 
 void PartDocument::synchronize_derived_copy_sources() {
+    for(auto& feature:history)if(feature.feature_kind==FeatureKind::DerivedCopy) {
+        const auto* source=find_container(feature.derived_copy.source_id);
+        if(!source)throw std::runtime_error("Copy source feature is missing.");
+        feature.derived_copy.subtract_source=source->combine_mode==CombineMode::Subtract;
+        feature.combine_mode=source->combine_mode;
+    }
     const auto bodies=body_history.bodies();
     for(auto body:bodies)if(body.derived_copy) {
         const auto* source=find_container(body.derived_copy->source_id);
@@ -8668,6 +8689,17 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
         zima::kernel::Vec3 rotation{
             container.placement.rotation_x, container.placement.rotation_y,
             container.placement.rotation_z};
+        if(container.feature_kind==FeatureKind::DerivedCopy) {
+            auto parameters=container.derived_copy;
+            resolve_copy_reference(parameters,container.id,container.placement,{});
+            zima::kernel::HistoryOperation operation;operation.owner_id=container.id;
+            operation.suppressed=container.suppressed;operation.boolean_tolerance=boolean_tolerance;operation.mesh_deflection=mesh_deflection;
+            operation.operation=parameters.subtract_source?kernel::BooleanOperation::Subtract:kernel::BooleanOperation::Add;
+            kernel::BodyHistoryScope copy;copy.source_feature_id=parameters.source_id;
+            copy.combination=parameters.pattern?kernel::BodyCombination::Pattern:kernel::BodyCombination::Mirror;
+            copy.mirror_plane=parameters.resolved_plane;if(parameters.pattern)copy.pattern=*parameters.pattern;
+            operation.feature_copy=std::move(copy);operations.push_back(std::move(operation));continue;
+        }
         zima::kernel::PrimitiveRequest primitive;
         if (container.feature_kind == FeatureKind::Flat) {
             const auto sketch=std::ranges::find(sketches,container.flat.sketch_id,&zima::sketcher::Sketch::id);
@@ -9993,7 +10025,7 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
             type != "revolution" && type != "sweep3d" && type != "helical_sweep" && type != "sweep2d" &&
             type != "imported_step" &&
             type != "fillet" && type != "chamfer" &&
-            type != "shell" && type != "twisted_sheet" && type != "unbend" && type != "bend_back" &&
+            type != "derived_copy" && type != "shell" && type != "twisted_sheet" && type != "unbend" && type != "bend_back" &&
             type != "flat" && type != "bend" && type != "holes" && type != "hole" && type != "thread" && type != "shaft_thread" &&
             type != "drill_point") {
             throw std::runtime_error("Unsupported history feature type");
@@ -10017,6 +10049,7 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
             : type == "twisted_sheet" ? FeatureKind::TwistedSheet
             : type == "flat" ? FeatureKind::Flat
             : type == "unbend" ? FeatureKind::Unbend
+            : type == "derived_copy" ? FeatureKind::DerivedCopy
             : type == "bend_back" ? FeatureKind::BendBack
             : type == "bend" ? FeatureKind::Bend
             : type == "holes" ? FeatureKind::Holes
@@ -10025,6 +10058,7 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
             : type == "thread" ? FeatureKind::Thread
             : type == "drill_point" ? FeatureKind::DrillPoint
             : FeatureKind::Box;
+        if(container.feature_kind==FeatureKind::DerivedCopy)container.derived_copy=source.at("derived_copy").get<DerivedCopyParameters>();
         container.id = source.at("id").get<std::string>();
     container.value_locks = source.value("value_locks", std::set<std::string>{});
         container.feature_id = source.at("feature_id").get<std::string>();
@@ -10073,7 +10107,9 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
         container.combine_mode = combine == "subtract"
             ? CombineMode::Subtract : CombineMode::Add;
         container.suppressed = source.at("suppressed").get<bool>();
-        if (container.feature_kind == FeatureKind::Sketch) {
+        if(container.feature_kind==FeatureKind::DerivedCopy) {
+            // The copy codec above owns these parameters.
+        } else if (container.feature_kind == FeatureKind::Sketch) {
             // Sketch geometry is persisted in PartDocument::sketches and
             // linked through Sketch::owner_container_id.
         } else if (is_sheet_state(container.feature_kind)) {
@@ -10833,7 +10869,11 @@ nlohmann::json PartDocument::serialized(
             container.container_origin != create_container_origin(container.id)) {
             throw std::runtime_error("History container hierarchy is invalid");
         }
-        if (is_sheet_state(container.feature_kind)) {
+        if(container.feature_kind==FeatureKind::DerivedCopy) {
+            auto parameters=container.derived_copy;
+            if(parameters.source_id.empty())throw std::runtime_error("Copy source is missing.");
+            resolve_copy_reference(parameters,container.id,container.placement,{});
+        } else if (is_sheet_state(container.feature_kind)) {
             require_default_sketch_feature_placement(container.placement);
             const std::set<std::string> unique(container.sheet_state.owners.begin(),container.sheet_state.owners.end());
             if(container.combine_mode!=CombineMode::Add||unique.size()!=container.sheet_state.owners.size()||
@@ -11131,7 +11171,8 @@ nlohmann::json PartDocument::serialized(
             {"id", container.id}, {"value_locks", container.value_locks},
             {"feature_id", container.feature_id},
             {"feature_parent_id", container.feature_parent_id},
-            {"type", container.feature_kind == FeatureKind::Flat ? "flat"
+            {"type", container.feature_kind == FeatureKind::DerivedCopy ? "derived_copy"
+                : container.feature_kind == FeatureKind::Flat ? "flat"
                 : container.feature_kind == FeatureKind::Bend ? "bend"
                 : container.feature_kind == FeatureKind::Unbend ? "unbend"
                 : container.feature_kind == FeatureKind::BendBack ? "bend_back"
@@ -11233,7 +11274,9 @@ nlohmann::json PartDocument::serialized(
                 {"references", std::move(placement_references)},
             };
         }
-        if (container.feature_kind == FeatureKind::Sketch) {
+        if (container.feature_kind == FeatureKind::DerivedCopy) {
+            serialized["derived_copy"]=container.derived_copy;
+        } else if (container.feature_kind == FeatureKind::Sketch) {
             // No additional feature parameters: the owned Sketch is stored
             // in the document sketch collection.
         } else if (is_sheet_state(container.feature_kind)) {

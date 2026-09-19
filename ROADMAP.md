@@ -108,6 +108,12 @@ See [Drawings](doc/DRAWINGS.md), [Sketcher](doc/SKETCHER.md),
 
 ## Agreed next steps for Part (2026-09-06)
 
+**Scope correction (2026-09-19):** native Sketcher offsets are implemented; see
+[Sketcher offset](doc/SKETCH_OFFSET.md). The user requires offsets from ZIMA
+geometry and explicitly excludes STEP-derived offsets from remaining work.
+Current work is user-reported Part bug fixes. Do not schedule offset
+implementation again based on the historical sequence below.
+
 **Current sheet-metal checkpoint (2026-09-18):** separate Unbend and Bend Back
 history operations now cover cylindrical/conical sheet regions, attached planar
 material, and material edits between states. Original geometry and shared
@@ -133,10 +139,11 @@ this Part sequence, after the current Holes preview, diameter annotation and
 View icon refinements. The user subsequently prioritized AI in the CAD console,
 following ZIMA-CAD-Parts and using the active Part/Assembly/Drawing tab as context.
 That integration is implemented in development build `2026091505`; authenticated
-user acceptance is next. Resume Sketcher offsets after this AI work.
+user acceptance is next. The later offset scope correction above supersedes
+the earlier instruction to resume offset development.
 
-1. **Inward/outward Sketcher offsets** with a specified distance, especially
-   from imported STEP edges projected into a Sketch.
+1. **Inward/outward Sketcher offsets — implemented** for native Sketch curves
+   with a specified distance. STEP-derived offsets are not required (2026-09-19).
 2. **Complete and stabilize every Extrusion mode**: creation, editing, calculation,
    downstream references, and rejection of invalid input without damaging the model.
 3. **Part Mirror**: mirror geometry about a plane as an editable history operation.
@@ -169,8 +176,9 @@ as an operation tool, such as B in A - B, must not remain a separate BOM item or
 contribution. This role must be explicit and persisted on the operation; hiding the
 component is not a substitute. Suppressing/removing the operation must restore the
 tool's original participation. These discussions do not change the work order above:
-Sketcher offsets, especially from STEP edges, remain next. STEP import/export
-reliability also remains a coverage-review area.
+the later 2026-09-19 scope correction marks native offsets implemented and
+excludes STEP-derived offsets. STEP import/export reliability remains a separate
+coverage-review area.
 
 ### Addition: purple dimension grips (2026-09-06)
 
@@ -545,8 +553,8 @@ Further sweep scope:
 
 First finish **Holes** for drilled hydraulic channels: owned-Sketch segments
 specify cylinder axes and lengths, with one common diameter and subtraction only.
-Then complete existing **Sketcher offsets** for native curves and curves from
-external references, not just direct STEP import. AI integration follows the
+The historical request to complete **Sketcher offsets** for native and external
+curves is superseded by the 2026-09-19 scope correction above. AI integration follows the
 agreed modeling features; the comprehensive Undo/Redo audit order is unchanged.
 
 ### Approved work-plane unification (2026-09-15)
@@ -554,5 +562,5 @@ agreed modeling features; the comprehensive Undo/Redo audit order is unchanged.
 Sketch, Holes, Protrusion, Revolve, and construction Plane use an automatic base
 plane from the first planar reference and persist manual XY/XZ/YZ selection.
 Offset follows the selected plane; regeneration does not overwrite manual choice.
-The user approved this scoped change to the shared placement rule. Completing
-offsets for native and externally referenced curves remains the next modeling task.
+The user approved this scoped change to the shared placement rule. The former
+offset follow-up is superseded by the 2026-09-19 scope correction above.

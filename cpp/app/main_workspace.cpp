@@ -415,7 +415,7 @@ int verify_family_table(QApplication& application,zima::app::AssemblyWorkspaceWi
     if(!verify(unopened_index>=0&&variants->isEnabled(),"Drawing Variant selector omitted a closed Family Table variant"))return 1;
     variants->setCurrentIndex(unopened_index);QMetaObject::invokeMethod(variants,"activated",Qt::DirectConnection,Q_ARG(int,unopened_index));flush();
     if(!verify(drawing_window.document_for_test().source_document_id==part.document_id&&
-        drawing_window.document_for_test().sheets.front().bom_source_document_id==unopened_id&&
+        drawing_window.document_for_test().sheets.front().selected_source_document_id==unopened_id&&
         drawing_window.document_for_test().sheets.front().views.front().source_document_id==part.document_id&&
         drawing_models.find(unopened_id),
         "Drawing Variant selector did not calculate a closed Family Table variant or changed an independent view"))return 1;
@@ -426,7 +426,7 @@ int verify_family_table(QApplication& application,zima::app::AssemblyWorkspaceWi
     if(!verify(variant_index>=0,"Drawing Variant selector omitted the open family instance"))return 1;
     variants->setCurrentIndex(variant_index);QMetaObject::invokeMethod(variants,"activated",Qt::DirectConnection,Q_ARG(int,variant_index));flush();
     if(!verify(drawing_window.document_for_test().source_document_id==part.document_id&&
-        drawing_window.document_for_test().sheets.front().bom_source_document_id==family_id&&
+        drawing_window.document_for_test().sheets.front().selected_source_document_id==family_id&&
         drawing_models.open_drawing(drawing.document_id)->can_undo(),
         "Drawing Variant selector did not commit the selected sheet source"))return 1;
     drawing_models.open_drawing(drawing.document_id)->undo();
@@ -440,7 +440,7 @@ int verify_family_table(QApplication& application,zima::app::AssemblyWorkspaceWi
     assembly_table.instances={{"Assembly variant",{{"Block","yes"}}}};static_cast<void>(workspace::set_family_table(drawing_models,assembly_id,assembly_table));
     const auto assembly_variant=workspace::open_family_instance(drawing_models,kernel,assembly_id,"Assembly variant");
     const auto assembly_saved=workspace::prepare_document_save(drawing_models,assembly_variant,assembly_path).write();static_cast<void>(workspace::complete_document_save(drawing_models,assembly_saved));
-    auto empty_drawing=drawing::DrawingDocument::create_default();drawing_models.add_drawing(empty_drawing);
+    auto empty_drawing=drawing::DrawingDocument::create_default();empty_drawing.add_data_source({assembly_id,assembly_path,"Assembly"});drawing_models.add_drawing(empty_drawing);
     drawing_window.edit_workspace_document(empty_drawing.document_id);drawing_window.resize(1200,900);drawing_window.show();flush();
     variants=drawing_window.findChild<QComboBox*>("drawingSourceVariant");const int assembly_index=variants->findData(QString::fromStdString(assembly_variant));
     if(!verify(assembly_index>=0,"Empty Drawing omitted the active Assembly instance"))return 1;
@@ -461,8 +461,8 @@ int verify_family_table(QApplication& application,zima::app::AssemblyWorkspaceWi
     if(!verify(view_source->currentData().toString().toStdString()==assembly_variant&&view_source->findData(QString::fromStdString(assembly_id))==0,"View source confused variants sharing the same native file"))return 1;
     view_source->setCurrentIndex(0);view_properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
     if(!verify(drawing_window.document_for_test().find_view(assembly_view)->source_document_id==assembly_id&&
-        drawing_window.document_for_test().source_document_id==assembly_variant&&
-        drawing_window.document_for_test().sheets.front().bom_source_document_id==assembly_variant,
+        drawing_window.document_for_test().source_document_id==assembly_id&&
+        drawing_window.document_for_test().sheets.front().selected_source_document_id==assembly_variant,
         "Assembly view source replacement changed the independent sheet variant"))return 1;
     auto drawing_table=document::parse_family_table(stored_table.data.at("table").dump());std::string length_column;
     for(const auto& [column,binding]:drawing_table.bindings)if(binding.kind=="dimension")length_column=column;
@@ -482,7 +482,7 @@ int verify_family_table(QApplication& application,zima::app::AssemblyWorkspaceWi
     drawing_window.edit_workspace_document(drawing.document_id);flush();
     const auto source_generation=drawing_models.open_part(part.document_id)->session.data_generation();
     view_properties=edit_view(main_view);view_source=view_properties->findChild<QComboBox*>("drawingViewSource");
-    if(!verify(view_source->count()==5&&view_source->currentData().toString().toStdString()==part.document_id&&view_source->mapToGlobal(QPoint(0,0)).y()<view_properties->findChild<QLineEdit*>("drawingViewName")->mapToGlobal(QPoint(0,0)).y(),"Main view omitted family rows or source is not at the top"))return 1;
+    if(!verify(view_source->count()>=5&&view_source->currentData().toString().toStdString()==part.document_id&&view_source->mapToGlobal(QPoint(0,0)).y()<view_properties->findChild<QLineEdit*>("drawingViewName")->mapToGlobal(QPoint(0,0)).y(),"Main view omitted family rows or source is not at the top"))return 1;
     view_source->setCurrentIndex(view_source->findData(QString::fromStdString(short_id)));flush();
     if(!verify(drawing_models.open_part(part.document_id)->session.data_generation()==source_generation&&!drawing_models.open_part(part.document_id)->session.document().family.evaluated.contains(short_row),"Selecting an unevaluated row calculated the source before OK"))return 1;
     view_properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
@@ -509,7 +509,7 @@ int verify_family_table(QApplication& application,zima::app::AssemblyWorkspaceWi
     const auto updated_family=workspace::prepare_document_save(drawing_models,part.document_id,path).write();static_cast<void>(workspace::complete_document_save(drawing_models,updated_family));
     static_cast<void>(drawing_models.remove(family_id));static_cast<void>(drawing_models.remove(part.document_id));
     view_properties=edit_view(main_view);view_source=view_properties->findChild<QComboBox*>("drawingViewSource");
-    if(!verify(view_source->count()==5&&view_source->currentData().toString().toStdString()==short_id,"Cold parent file omitted or misidentified its Drawing variants"))return 1;
+    if(!verify(view_source->count()>=5&&view_source->currentData().toString().toStdString()==short_id,"Cold parent file omitted or misidentified its Drawing variants"))return 1;
     view_source->setCurrentIndex(0);view_properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
     if(!verify(drawing_window.document_for_test().find_view(grand.id)->source_document_id==part.document_id,"Cold Drawing Replace failed"))return 1;
     const auto tiny_row=drawing_table.instances[3].id,tiny_id=part.document_id+":family:"+tiny_row;
@@ -619,6 +619,70 @@ int verify_family_table(QApplication& application,zima::app::AssemblyWorkspaceWi
     if(!verify(dialog&&dialog->property("familyDocumentId").toString().toStdString()==active_root,
         "Assembly root Family Table action opened a different document"))return 1;
     dialog->reject();flush();
+    auto navigation=drawing::DrawingDocument::create_default();
+    navigation.add_data_source({part.document_id,path,"Part"});
+    navigation.add_data_source({assembly_id,assembly_path,"Assembly"});
+    navigation.sheets.front().selected_source_document_id=assembly_variant;
+    const auto navigation_path=directory/"drawing-source-navigation.drwz";navigation.save(navigation_path);
+    if(!verify(window.open_document_path(QString::fromStdString(navigation_path.string())),"Source navigation Drawing did not open"))return 1;flush();
+    auto* shortcut=window.findChild<QToolButton*>("documentKindButton");
+    if(!verify(shortcut->toolButtonStyle()==Qt::ToolButtonTextBesideIcon,
+            "Document navigation must display both its icon and text"))return 1;
+    auto* editor=dynamic_cast<app::DrawingWindow*>(window.findChild<QWidget*>("drawingWorkspace"));
+    auto* source_choice=editor->findChild<QComboBox*>("drawingSourceVariant");
+    if(!verify(shortcut->isVisible()&&shortcut->text()=="SESTAVA"&&!shortcut->icon().isNull()&&editor->selected_source_id()==assembly_variant,
+        "Drawing shortcut does not identify its selected Assembly variant"))return 1;
+    shortcut->click();flush();
+    if(!verify(window.execute_console_command("context").data.at("active_document")==assembly_variant&&
+        shortcut->text()=="VÝKRES"&&!shortcut->icon().isNull(),"Navigation did not open the selected Assembly variant"))return 1;
+    if(!window.open_document_path(QString::fromStdString(navigation_path.string())))return 1;flush();
+    const int native_source=source_choice->findData(QString::fromStdString(part.document_id));
+    source_choice->setCurrentIndex(native_source);source_choice->activated(native_source);flush();
+    if(!verify(shortcut->text()=="DÍL"&&!shortcut->icon().isNull(),"Drawing shortcut did not switch to the Part icon"))return 1;
+    shortcut->click();flush();
+    if(!verify(window.execute_console_command("context").data.at("active_document")==part.document_id&&shortcut->text()=="VÝKRES"&&!shortcut->icon().isNull(),
+        "Part/drawing navigation did not follow the chooser"))return 1;
+    if(!window.open_document_path(QString::fromStdString(navigation_path.string())))return 1;flush();
+    editor->findChild<QToolButton*>("drawingSettingsButton")->click();flush();
+    auto* source_settings=window.findChild<QDialog*>("drawingSettingsDialog");
+    if(!verify(source_settings,"Drawing Settings did not open in the main workspace"))return 1;
+    for(int i=0;i<2;++i) {
+        auto* source_table=source_settings->findChild<QTableWidget*>("drawingDataSources");
+        source_table->cellWidget(0,0)->findChild<QPushButton*>()->click();flush();
+        auto* confirm=window.findChild<QDialog*>("drawingSourceRemovalConfirmation");
+        if(!verify(confirm,"Source removal confirmation missing in main workspace"))return 1;
+        confirm->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+    }
+    source_settings->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+    if(!verify(!shortcut->isVisible()&&!source_choice->isEnabled()&&source_choice->currentData().toString().isEmpty(),
+        "Empty Drawing exposes stale navigation"))return 1;
+    window.findChild<QAction*>("undoAction")->trigger();flush();
+    if(!verify(shortcut->isVisible()&&source_choice->count()>1,"Undo failed to restore Drawing navigation"))return 1;
+    for(const auto* type:{"part","assembly"}) {
+        window.findChild<QAction*>("newDocumentAction")->trigger();flush();
+        auto* create=window.findChild<QDialog*>("newDocumentDialog");
+        if(!verify(create,"New template document dialog is unavailable"))return 1;
+        create->findChild<QLineEdit*>("newDocumentFileName")->setText(QString("Template labels %1 %2").arg(type).arg(QUuid::createUuid().toString(QUuid::Id128)));
+        for(auto* radio:create->findChildren<QRadioButton*>())radio->setChecked(radio->property("documentType").toString()==type);
+        create->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+        if(!verify(!window.findChild<QDialog*>("newDocumentDialog"),"New template document did not commit"))return 1;
+        const auto command=std::string(type)=="part"?"boxAction":"insertComponentAction";
+        if(!verify(window.findChild<QAction*>(command)->isEnabled(),"New template has no active modeling/component context"))return 1;
+        window.findChild<QAction*>("documentParametersAction")->trigger();flush();
+        auto* parameters=window.findChild<QDialog*>("documentParametersDialog");
+        if(!verify(parameters,"Template Parameters did not open"))return 1;
+        auto* language=parameters->findChild<QComboBox*>("parameterLanguage");language->setCurrentText("cs");
+        QMetaObject::invokeMethod(language,"activated",Qt::DirectConnection,Q_ARG(int,language->currentIndex()));
+        auto* fields=parameters->findChild<QTableWidget*>("documentParametersTable");
+        bool name=false;
+        for(int row=0;row<fields->rowCount();++row)if(auto* label=fields->item(row,3)) {
+            const auto text=label->text();name=name||text=="nazev";
+            if(!verify(text==text.toLower()&&std::ranges::all_of(text,[](QChar c){return c.unicode()<128;}),
+                "Template Czech parameter name contains capitals or diacritics"))return 1;
+        }
+        if(!verify(name,"New template did not retain the Czech nazev metadata label"))return 1;
+        parameters->reject();flush();
+    }
     std::cout<<"Family Table, native/member insertion, context Replace, Cancel, MMB, Undo and Part/Assembly Drawing sources passed\n";return 0;
 }
 
@@ -675,6 +739,79 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
     if(!verify(dialog->parentWidget()==&window&&(dialog->windowFlags()&Qt::WindowType_Mask)==Qt::SubWindow,"Mirror is not an internal properties window"))return 1;
     if(!verify(!dialog->buttons()->button(QDialogButtonBox::Apply),"Mirror exposes Apply"))return 1;
     const auto id=dialog->pending.id;
+    const auto verify_copy_origin_selection=[&](int input=0,const std::string& prefix=std::string{}) {
+        const bool pattern=dialog->derived_copy.pattern.has_value();
+        std::cout<<"Copy Origin GUI: "<<(pattern?"Pattern":"Mirror")<<", field "<<input<<", occurrence "<<prefix<<std::endl;
+        const int initial_axis=input>=2?dialog->derived_copy.pattern->linear[input-2].local_axis:-1;
+        const auto kind=pattern?viewer::CandidateKind::Axis:viewer::CandidateKind::Plane;
+        dialog->request_input(input);flush();
+        const auto accepts=view->candidate_filter();
+        if(!verify(static_cast<bool>(accepts),"Copy Origin input has no candidate filter"))return false;
+        viewer::ViewerCandidate candidate;candidate.kind=kind;candidate.instance_path=prefix;
+        candidate.geometry=viewer::CandidateGeometry::OriginalReference;
+        candidate.owner_id=dialog->pending.container_origin.id;
+        for(const auto* key:pattern?std::array{"origin:axis:x","origin:axis:y","origin:axis:z"}:
+            std::array{"origin:plane:xy","origin:plane:yz","origin:plane:xz"}) {
+            candidate.semantic_key=key;
+            bool available=true;
+            if(input>=2)for(int slot=0;slot<3;++slot)if(slot!=input-2&&dialog->derived_copy.pattern->linear[slot].local_axis==static_cast<int>(std::string("xyz").find(candidate.semantic_key.back())))available=false;
+            if(!verify(accepts(candidate)==available,"Copy rejected its own Origin or offered a duplicate linear axis"))return false;
+        }
+        candidate.instance_path="other-occurrence";
+        if(!verify(!accepts(candidate),"Copy accepted an Origin from another occurrence"))return false;
+        candidate.instance_path=prefix;candidate.semantic_key=pattern?"origin:plane:xy":"origin:axis:x";
+        candidate.kind=pattern?viewer::CandidateKind::Plane:viewer::CandidateKind::Axis;
+        if(!verify(!accepts(candidate),"Copy accepted the wrong Origin reference kind"))return false;
+        unsigned foreign_planes=0;
+        for(QTreeWidgetItemIterator it(tree);*it;++it) {
+            auto* item=*it;
+            if(item->data(0,Qt::UserRole+3).toString()!="origin-reference")continue;
+            candidate.semantic_key=item->data(0,Qt::UserRole+5).toString().toStdString();
+            candidate.owner_id=item->data(0,item->data(0,Qt::UserRole+6).isValid()?Qt::UserRole+6:Qt::UserRole).toString().toStdString();
+            candidate.kind=kind;candidate.instance_path=item->data(0,Qt::UserRole+1).toString().toStdString();
+            if(!candidate.semantic_key.starts_with(pattern?"origin:axis:":"origin:plane:")||
+                (candidate.owner_id==dialog->pending.container_origin.id&&candidate.instance_path==prefix))continue;
+            ++foreign_planes;
+            if(!verify(!accepts(candidate),"Mirror offered a foreign Origin plane"))return false;
+            const auto before=dialog->derived_copy;
+            tree->setCurrentItem(item);
+            if(!verify(dialog->active_input()==input&&dialog->derived_copy==before,"Tree accepted a foreign copy Origin"))return false;
+        }
+        if(!verify(foreign_planes>0,"Mirror fixture has no foreign Origin planes"))return false;
+        for(const auto& ref:view->mesh().original_references.triangle_references)if(ref.owner_id==box.id) {
+            candidate.kind=viewer::CandidateKind::Face;candidate.owner_id=ref.owner_id;candidate.semantic_key=ref.semantic_key;candidate.instance_path=ref.instance_path;
+            if(!verify(!accepts(candidate),"Mirror offered a source solid face as its plane"))return false;
+        }
+        for(const auto& edge:view->mesh().original_references.edges) {
+            candidate.kind=viewer::CandidateKind::Edge;candidate.owner_id=edge.reference.owner_id;candidate.semantic_key=edge.reference.semantic_key;candidate.instance_path=edge.reference.instance_path;
+            if(!verify(!accepts(candidate),"Copy offered an edge instead of its own Origin"))return false;
+        }
+        std::optional<QPointF> plane_hit;
+        for(int y=4;y<view->height()&&!plane_hit;y+=8)for(int x=4;x<view->width();x+=8) {
+            const auto candidates=view->selection_candidates_at(QPointF(x,y));
+            for(const auto& offered:candidates)
+                if(!verify(offered.kind==kind&&offered.owner_id==dialog->pending.container_origin.id&&offered.instance_path==prefix,
+                    "Mirror View offered geometry outside its own Origin"))return false;
+            if(!candidates.empty()){plane_hit=QPointF(x,y);break;}
+        }
+        if(!plane_hit) {
+            std::cerr<<"Copy Origin selection: pattern="<<pattern<<", input="<<input<<", path="<<prefix<<", owner="<<dialog->pending.container_origin.id<<'\n';
+            for(const auto& axis:view->mesh().original_references.axes)if(axis.reference.owner_id==dialog->pending.container_origin.id)
+                std::cerr<<"Own axis: "<<axis.reference.semantic_key<<", path="<<axis.reference.instance_path<<'\n';
+            window.grab().save(QString::fromStdString((directory/"copy-origin-failure.png").string()));
+        }
+        if(!verify(plane_hit.has_value(),"Copy own Origin is missing from View selection"))return false;
+        const auto p=*plane_hit;
+        QMouseEvent hover(QEvent::MouseMove,p,p,p,Qt::NoButton,Qt::NoButton,Qt::NoModifier);
+        QMouseEvent press(QEvent::MouseButtonPress,p,p,p,Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+        QMouseEvent release(QEvent::MouseButtonRelease,p,p,p,Qt::LeftButton,Qt::NoButton,Qt::NoModifier);
+        QApplication::sendEvent(view,&hover);QApplication::sendEvent(view,&press);QApplication::sendEvent(view,&release);flush();
+        if(!verify(dialog->active_input()==-1&&dialog->input_reference(input).owner_id==dialog->pending.container_origin.id,
+            "Copy View did not confirm its own Origin"))return false;
+        if(input>=2){dialog->set_linear_axis(input-2,initial_axis);flush();}
+        return true;
+    };
+    if(!verify_copy_origin_selection())return 1;
     dialog->findChild<QDoubleSpinBox*>("sweepTranslation0")->setValue(-2);
     dialog->findChild<QPushButton*>("mirrorPlane_yz")->click();flush();
     window.grab().save(QString::fromStdString((directory/"mirror-ui.png").string()));
@@ -707,6 +844,11 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
     window.show_tree_item_properties(row(id,"part-body"));flush();
     dialog=dynamic_cast<app::DerivedCopyDialog*>(window.findChild<QDialog*>("mirrorDialog"));
     if(!verify(dialog&&dialog->pending.id==id,"Mirror edit did not reopen the same dialog"))return 1;
+    const auto initial_origin_display=view->grabFramebuffer();
+    view->set_editing_origin_visible(true);flush();
+    if(!verify(initial_origin_display==view->grabFramebuffer(),
+            "Mirror Properties did not display its Origin immediately on opening"))return 1;
+    if(!verify_copy_origin_selection())return 1;
     for(const auto& ref:view->mesh().triangle_references)
         if(!verify(ref.owner_id!=id,"Mirror edit displays final output instead of rollback input"))return 1;
     dialog->findChild<QDoubleSpinBox*>("sweepTranslation0")->setValue(90);
@@ -717,6 +859,27 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
     dialog->buttons()->button(QDialogButtonBox::Cancel)->click();flush();save->trigger();flush();
     stored=document::PartDocument::load(path);
     if(!verify(stored.body_history.find(id)->scope.placement.x==-2,"Cancel committed Mirror placement"))return 1;
+    const auto double_click_copy=[&](const std::string& owner,const std::string& instance=std::string{}) {
+        view->clear_selection();tree->clearSelection();
+        std::optional<QPointF> hit;
+        for(int y=4;y<view->height()&&!hit;y+=4)for(int x=4;x<view->width();x+=4) {
+            const auto candidates=view->selection_candidates_at(QPointF(x,y));
+            if(!candidates.empty()&&candidates.front().instance_path==instance&&
+                (instance.empty()?candidates.front().owner_id==owner:candidates.front().kind==viewer::CandidateKind::Occurrence)){hit=QPointF(x,y);break;}
+        }
+        if(!hit)std::cerr<<"Missing double-click candidate: "<<owner<<" at "<<instance<<'\n';
+        if(!verify(hit.has_value(),"Derived child is missing from ordinary View selection"))return false;
+        const auto p=*hit;
+        QMouseEvent hover(QEvent::MouseMove,p,p,p,Qt::NoButton,Qt::NoButton,Qt::NoModifier);
+        QMouseEvent click(QEvent::MouseButtonDblClick,p,p,p,Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+        QMouseEvent release(QEvent::MouseButtonRelease,p,p,p,Qt::LeftButton,Qt::NoButton,Qt::NoModifier);
+        QApplication::sendEvent(view,&hover);QApplication::sendEvent(view,&click);QApplication::sendEvent(view,&release);flush();
+        for(auto* open:window.findChildren<QDialog*>())if(!verify(!open->isVisible(),"Derived child double-click opened Properties"))return false;
+        return true;
+    };
+    if(!double_click_copy(id))return 1;
+    if(!verify(std::ranges::any_of(view->mesh().dimensions,[&](const auto& d){return d.reference.owner_id==box.id&&d.reference.semantic_key.starts_with("parameter:");}),
+        "Mirror double-click did not display source dimensions"))return 1;
     window.show_tree_item_properties(row(id,"mirror-source"));flush();
     bool source_dialog=false;for(auto* open:window.findChildren<QDialog*>())if(dynamic_cast<app::PrimitivePropertiesDialog*>(open)&&open->isVisible())source_dialog=true;
     if(!verify(source_dialog,"Mirror source link did not open source properties"))return 1;
@@ -735,10 +898,13 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
     auto* mode=dialog->findChild<QComboBox*>("patternMode");auto* refs=dialog->findChild<QTableWidget*>("mirrorReferences");
     if(!verify(mode&&refs->isRowHidden(0),"Linear Pattern displays circular axis input"))return 1;
     const auto retained_axis=dialog->derived_copy.reference;
+    if(!verify_copy_origin_selection(2))return 1;
     dialog->findChild<QDoubleSpinBox*>("sweepRotation2")->setValue(90);
     dialog->findChild<QDoubleSpinBox*>("patternSpacing0")->setValue(20);
     mode->setCurrentIndex(1);flush();
     if(!verify(!refs->isRowHidden(0)&&dialog->findChild<QPushButton*>("mirrorPlane_z")->isVisible(),"Circular Pattern cannot select its axis"))return 1;
+    if(!verify_copy_origin_selection())return 1;
+    dialog->findChild<QPushButton*>("mirrorPlane_z")->click();flush();
     mode->setCurrentIndex(0);flush();
     if(!verify(dialog->derived_copy.reference==retained_axis,"Mode switch discarded the circular axis"))return 1;
     window.grab().save(QString::fromStdString((directory/"pattern-ui.png").string()));
@@ -758,11 +924,15 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
     if(!verify(pattern_body&&pattern_body->derived_copy->pattern->linear[0].count==4&&std::abs(pattern_body->derived_copy->pattern->linear[0].direction.y-1)<1e-7,"Pattern did not persist local direction/count"))return 1;
     bodies=kernel.evaluate_history(stored.kernel_operations());
     if(!verify(std::abs(bodies.back().body_outputs.at(pattern_id)->volume-576)<1e-7,"Pattern does not produce a full body"))return 1;
+    if(!double_click_copy(pattern_id))return 1;
+    if(!verify(std::ranges::any_of(view->mesh().dimensions,[&](const auto& d){return d.reference.owner_id==box.id&&d.reference.semantic_key.starts_with("parameter:");}),
+        "Pattern double-click did not display source dimensions"))return 1;
     if(!verify(copy_command("value_lock.set",{{"object",pattern_id},{"key","pattern:spacing:0"},{"locked",true}}).ok,
             "Cannot lock Pattern spacing through the console"))return 1;
     window.show_tree_item_properties(row(pattern_id,"part-body"));flush();
     dialog=dynamic_cast<app::DerivedCopyDialog*>(window.findChild<QDialog*>("patternDialog"));
     if(!verify(dialog!=nullptr,"Pattern editing uses a different dialog"))return 1;
+    if(!verify_copy_origin_selection(2))return 1;
     if(!verify(dialog->findChild<QDoubleSpinBox*>("patternSpacing0")->isReadOnly(),
             "Pattern Properties did not use the common spacing lock"))return 1;
     dialog->findChild<QSpinBox*>("patternCount0")->setValue(7);dialog->reject();flush();save->trigger();flush();
@@ -822,6 +992,7 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
     flush();tree->setCurrentItem(row(occurrence.occurrence_id,"part-occurrence"));flush();action->trigger();flush();
     dialog=dynamic_cast<app::DerivedCopyDialog*>(window.findChild<QDialog*>("mirrorDialog"));
     if(!verify(dialog&&dialog->derived_copy.source_id==occurrence.occurrence_id,"Mirror did not prefill selected component"))return 1;
+    if(!verify_copy_origin_selection())return 1;
     const auto assembly_mirror=dialog->pending.id;dialog->findChild<QPushButton*>("mirrorPlane_yz")->click();flush();
     dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();save->trigger();flush();
     const auto saved_assembly=assembly::AssemblyDocument::load(assembly_path);
@@ -831,10 +1002,15 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
     window.show_tree_item_properties(row(assembly_mirror,"part-occurrence"));flush();
     dialog=dynamic_cast<app::DerivedCopyDialog*>(window.findChild<QDialog*>("mirrorDialog"));
     if(!verify(dialog&&dialog->pending.id==assembly_mirror,"Assembly Mirror container properties missing"))return 1;
+    if(!verify_copy_origin_selection())return 1;
     dialog->reject();flush();
     tree->setCurrentItem(row(occurrence.occurrence_id,"part-occurrence"));flush();pattern_action->trigger();flush();
     dialog=dynamic_cast<app::DerivedCopyDialog*>(window.findChild<QDialog*>("patternDialog"));
     if(!verify(dialog&&dialog->derived_copy.source_id==occurrence.occurrence_id,"Assembly Pattern source prefill failed"))return 1;
+    for(int input:{2,3,4})if(!verify_copy_origin_selection(input))return 1;
+    dialog->findChild<QComboBox*>("patternMode")->setCurrentIndex(1);flush();
+    if(!verify_copy_origin_selection())return 1;
+    dialog->findChild<QComboBox*>("patternMode")->setCurrentIndex(0);flush();
     const auto group_id=dialog->pending.id;dialog->findChild<QSpinBox*>("patternCount0")->setValue(3);
     dialog->findChild<QDoubleSpinBox*>("patternSpacing0")->setValue(40);dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();save->trigger();flush();
     const auto patterned_assembly=assembly::AssemblyDocument::load(assembly_path);
@@ -847,6 +1023,58 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
     bool linked_properties=false;for(auto* open:window.findChildren<QDialog*>())if(open->isVisible())linked_properties=true;
     if(!verify(linked_properties,"Pattern copy properties did not resolve its source"))return 1;
     for(auto* open:window.findChildren<QDialog*>())if(open->isVisible())open->reject();flush();
+    if(!double_click_copy(assembly_mirror,assembly::InstancePath{}.child(assembly_mirror).encoded()))return 1;
+    if(!double_click_copy("copy-x1-y0-z0",copy_path))return 1;
+    window.show_tree_item_properties(row(group_id,"assembly-occurrence"));flush();
+    dialog=dynamic_cast<app::DerivedCopyDialog*>(window.findChild<QDialog*>("patternDialog"));
+    if(!verify(dialog!=nullptr,"Assembly Pattern did not reopen"))return 1;
+    if(!verify_copy_origin_selection(2))return 1;
+    dialog->findChild<QComboBox*>("patternMode")->setCurrentIndex(1);flush();
+    if(!verify_copy_origin_selection())return 1;
+    dialog->reject();flush();
+    auto top=assembly::AssemblyDocument::create_default();
+    auto nested=assembly::AssemblyDocument::create_assembly_occurrence("Nested copies",patterned_assembly.document_id,assembly_path,patterned_assembly);
+    nested.placement={0,40,0,0,0,30};
+    auto repeated=assembly::AssemblyDocument::create_assembly_occurrence("Repeated copies",patterned_assembly.document_id,assembly_path,patterned_assembly);
+    repeated.placement.x=160;top.components={nested,repeated};const auto top_path=directory/"copy-origins-top.asmz";top.save(top_path);
+    if(!verify(window.open_document_path(QString::fromStdString(top_path.string())),"Nested copy fixture did not open"))return 1;
+    const auto nested_path=assembly::InstancePath{}.child(nested.occurrence_id).encoded();
+    if(!verify(window.activate_occurrence_for_test(nested_path),"Cannot activate nested copy Assembly"))return 1;flush();
+    for(int mode=0;mode<3;++mode) {
+        tree->clearSelection();view->clear_selection();(mode?pattern_action:action)->trigger();flush();
+        dialog=dynamic_cast<app::DerivedCopyDialog*>(window.findChild<QDialog*>(mode?"patternDialog":"mirrorDialog"));
+        if(!verify(dialog!=nullptr,"Nested Assembly copy dialog missing"))return 1;
+        if(mode==2)dialog->findChild<QComboBox*>("patternMode")->setCurrentIndex(1);
+        dialog->request_input(1);flush();
+        QTreeWidgetItem* source_row{};
+        for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole+1).toString().toStdString()==assembly::InstancePath::decode(nested_path).child(occurrence.occurrence_id).encoded()&&
+            (*it)->data(0,Qt::UserRole+3).toString()=="part-occurrence"){source_row=*it;break;}
+        if(!verify(source_row!=nullptr,"Nested source row missing"))return 1;tree->setCurrentItem(source_row);flush();
+        if(!verify_copy_origin_selection(mode==1?2:0,nested_path))return 1;
+        const auto nested_id=dialog->pending.id;
+        std::cout<<"Nested copy commit: "<<mode<<std::endl;
+        dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+        if(!verify(!window.findChild<QDialog*>(mode?"patternDialog":"mirrorDialog"),"Nested copy did not commit"))return 1;
+        const auto persisted=copy_query(mode?"pattern.get":"mirror.get",nested_id);
+        if(!verify(persisted.ok,"Nested copy was not stored in the active Assembly"))return 1;
+        window.show_tree_item_properties(row(nested_id,mode?"assembly-occurrence":"part-occurrence"));flush();
+        dialog=dynamic_cast<app::DerivedCopyDialog*>(window.findChild<QDialog*>(mode?"patternDialog":"mirrorDialog"));
+        if(!verify(dialog!=nullptr,"Nested copy edit did not reopen"))return 1;
+        if(!verify_copy_origin_selection(mode==1?2:0,nested_path))return 1;
+        dialog->reject();flush();
+        if(!verify(copy_query(mode?"pattern.get":"mirror.get",nested_id).data==persisted.data,"Nested copy Cancel changed persisted data"))return 1;
+        std::cout<<"Nested copy committed/reopened/cancelled: "<<mode<<std::endl;
+    }
+    const auto nested_part_path=assembly::InstancePath::decode(nested_path).child(occurrence.occurrence_id).encoded();
+    if(!verify(window.activate_occurrence_for_test(nested_part_path)&&copy_command("body.activate",{{"body",""}}).ok,"Cannot activate nested Part copy context"))return 1;flush();
+    for(int mode=0;mode<3;++mode) {
+        tree->clearSelection();view->clear_selection();(mode?pattern_action:action)->trigger();flush();
+        dialog=dynamic_cast<app::DerivedCopyDialog*>(window.findChild<QDialog*>(mode?"patternDialog":"mirrorDialog"));
+        if(!verify(dialog!=nullptr,"Nested Part copy dialog missing"))return 1;
+        if(mode==2)dialog->findChild<QComboBox*>("patternMode")->setCurrentIndex(1);
+        if(!verify_copy_origin_selection(mode==1?2:0,nested_part_path))return 1;
+        dialog->reject();flush();
+    }
     // A body command must keep later bodies outside its source/display boundary.
     auto history_part=document::PartDocument::create_default();document::BodyHistoryGraph history_graph;
     const auto first=history_graph.create_body("First");auto first_box=document::PartDocument::create_box_container();first_box.box={8,6,4};
@@ -866,6 +1094,15 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
             std::ranges::none_of(view->mesh().vertices,[](const auto& point){return point.x>60;});
     };
     if(!verify(later_is_suppressed(),"Future body was not suppressed before copy command"))return 1;
+    bool active_mark=false;
+    QTimer::singleShot(0,&window,[&] {
+        auto* menu=window.findChild<QMenu*>("partActivationMenu");
+        if(!menu)return;
+        auto* action=menu->findChild<QAction*>("activateBodyAction");
+        active_mark=action&&!action->icon().isNull();menu->close();
+    });
+    tree->customContextMenuRequested(tree->visualItemRect(row(first,"part-body")).center());flush();
+    if(!verify(active_mark,"Active Body context menu has no active indicator"))return 1;
     for(int copy_mode=0;copy_mode<3;++copy_mode) {
         const bool make_pattern=copy_mode!=0;
         auto* command=window.findChild<QAction*>(make_pattern?"patternAction":"mirrorAction");
@@ -899,6 +1136,21 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
         copy->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
         if(!verify(later_is_suppressed(),"Copy Cancel changed the active history boundary"))return 1;
     }
+    tree->setCurrentItem(row(first_box.id,"part-container"));flush();
+    window.findChild<QAction*>("mirrorAction")->trigger();flush();
+    dialog=dynamic_cast<app::DerivedCopyDialog*>(window.findChild<QDialog*>("mirrorDialog"));
+    if(!verify(dialog&&dialog->derived_copy.source_id==first_box.id,"Selected solid did not prefill in-Body Mirror"))return 1;
+    const auto owned_mirror=dialog->pending.id;
+    if(!verify_copy_origin_selection())return 1;
+    dialog->findChild<QPushButton*>("mirrorPlane_yz")->click();
+    dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+    if(!verify(row(owned_mirror,"part-container")&&row(owned_mirror,"part-container")->parent()==row(first,"part-body"),
+        "In-Body Mirror is not nested under its owning Body"))return 1;
+    window.show_tree_item_properties(row(owned_mirror,"part-container"));flush();
+    dialog=dynamic_cast<app::DerivedCopyDialog*>(window.findChild<QDialog*>("mirrorDialog"));
+    if(!verify(dialog&&dialog->derived_copy.source_id==first_box.id,"In-Body Mirror did not reopen"))return 1;
+    dialog->reject();flush();window.findChild<QAction*>("undoAction")->trigger();flush();
+    if(!verify(!row(owned_mirror,"part-container")&&later_is_suppressed(),"In-Body Mirror Undo changed its owning context"))return 1;
     tree->setCurrentItem(row(first_box.id,"part-container"));flush();pattern_action->trigger();flush();
     dialog=dynamic_cast<app::DerivedCopyDialog*>(window.findChild<QDialog*>("patternDialog"));
     if(!verify(dialog&&dialog->derived_copy.source_id==first_box.id,"Selected solid did not prefill Pattern"))return 1;
@@ -906,9 +1158,11 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
     dialog->buttons()->button(QDialogButtonBox::Ok)->click();flush();
     if(!verify(!window.findChild<QDialog*>("patternDialog"),"Circular solid Pattern did not commit"))return 1;
     save->trigger();flush();
-    if(!verify(document::PartDocument::load(history_path).body_history.find(solid_pattern_id)->derived_copy->source_id==first_box.id,
+    if(!verify(document::PartDocument::load(history_path).find_container(solid_pattern_id)->derived_copy.source_id==first_box.id,
         "Circular solid Pattern did not persist the exact source"))return 1;
-    window.show_tree_item_properties(row(solid_pattern_id,"part-body"));flush();
+    if(!verify(row(solid_pattern_id,"part-container")&&row(solid_pattern_id,"part-container")->parent()==row(first,"part-body"),
+        "In-Body Pattern is not nested under its owning Body"))return 1;
+    window.show_tree_item_properties(row(solid_pattern_id,"part-container"));flush();
     dialog=dynamic_cast<app::DerivedCopyDialog*>(window.findChild<QDialog*>("patternDialog"));
     if(!verify(dialog&&dialog->derived_copy.source_id==first_box.id&&dialog->derived_copy.pattern->circular,"Circular solid Pattern did not reopen"))return 1;
     dialog->reject();flush();
@@ -921,8 +1175,10 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
     if(!verify(!window.findChild<QDialog*>("patternDialog"),"Subtractive circular Pattern did not commit"))return 1;
     save->trigger();flush();std::vector<kernel::BodyResult> subtract_boundaries;
     const auto subtract_document=document::PartDocument::load(history_path,&subtract_boundaries);
-    if(!verify(subtract_document.body_history.find(subtract_pattern)->derived_copy->subtract_source&&
-        std::abs(subtract_boundaries.back().body_outputs.at(subtract_pattern)->volume-160)<1e-7,
+    // Centered 8x6 and 6x8 rectangles union to 60 mm2. Positive copies
+    // refill the original cut; three repeated 2x1x4 cutters remove 24 mm3.
+    if(!verify(subtract_document.find_container(subtract_pattern)->derived_copy.subtract_source&&
+        std::abs(subtract_boundaries.back().body_outputs.at(first)->volume-((2*8*6-6*6)*4-3*2*1*4))<1e-7,
         "GUI Pattern turned a subtractive solid into positive copies"))return 1;
     std::cout<<"Mirror and Pattern UI contracts passed\n";return 0;
 }
@@ -4812,6 +5068,25 @@ int verify_sketch_dimension_entry_ui(QApplication& application,const std::filesy
         check(sketch.viewer_mesh().dimensions.front().value==(reference==0?30:-30),"Properties arithmetic or coordinate sign differs from inline entry");
         if(reference!=0)check(std::abs(sketch.find_point(b)->x+30)<1e-7,"Origin/axis Properties edit did not use the absolute signed coordinate");
         }
+        for(const bool negative:{false,true}) {
+            auto sketch=sketcher::Sketch::create_default();
+            const auto a=sketch.add_point(2,3),b=sketch.add_point(12,13);
+            auto dimension=sketch.create_point_dimension(a,b,sketcher::DimensionKind::DistanceX);
+            sketch.apply_dimension(dimension);
+            auto* properties=new app::SketchDimensionPropertiesDialog(dimension,true,[&](auto d){sketch.apply_dimension(std::move(d));},&parent);
+            properties->show();flush();
+            auto* value=properties->findChild<QDoubleSpinBox*>("sketchDimensionValue");
+            auto* input=value->findChild<QLineEdit*>();input->setFocus();flush();
+            input->setText(negative?"-0 mm":"0 mm");
+            properties->buttons()->button(QDialogButtonBox::Ok)->setFocus();flush();
+            properties->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+            check(sketch.dimensions.front().value==0&&std::signbit(sketch.dimensions.front().value)==negative,
+                "Dimension Properties lost signed zero on focus-out/OK");
+            auto restored=sketcher::Sketch::from_serialized(sketch.serialized());
+            check(restored.set_dimension_value(dimension.id,8),"Cannot grow saved zero dimension");
+            check(std::abs(restored.find_point(b)->x-restored.find_point(a)->x-(negative?-8:8))<1e-7,
+                "Dimension Properties zero chose the wrong side on subsequent edit");
+        }
         std::cout<<"Sketch dimension creation/editing, MMB finish, signed direction and arithmetic input passed\n";return 0;
     }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
 }
@@ -8054,6 +8329,13 @@ int verify_startup_contract(
                 "Parameters must match the localized Python table contract")) {
         return 1;
     }
+    parameter_language->setCurrentText("cs");
+    QMetaObject::invokeMethod(parameter_language,"activated",Qt::DirectConnection,Q_ARG(int,parameter_language->currentIndex()));
+    for(int row=0;row<parameters_table->rowCount();++row)if(auto* label=parameters_table->item(row,3)) {
+        const auto text=label->text();
+        if(!verify(text==text.toLower()&&std::ranges::all_of(text,[](QChar c){return c.unicode()<128;}),
+            "New Part Czech parameter name contains capitals or diacritics"))return 1;
+    }
     parameters_dialog->reject();
     application.processEvents();
     QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
@@ -10021,6 +10303,19 @@ int verify_startup_contract(
     if (!create_document(QStringLiteral("assembly"), assembly_name)) {
         return 1;
     }
+    parameters->trigger();application.processEvents();
+    auto* assembly_parameters=window.findChild<QDialog*>("documentParametersDialog");
+    if(!verify(assembly_parameters,"New Assembly Parameters did not open"))return 1;
+    auto* assembly_language=assembly_parameters->findChild<QComboBox*>("parameterLanguage");
+    assembly_language->setCurrentText("cs");
+    QMetaObject::invokeMethod(assembly_language,"activated",Qt::DirectConnection,Q_ARG(int,assembly_language->currentIndex()));
+    auto* assembly_parameters_table=assembly_parameters->findChild<QTableWidget*>("documentParametersTable");
+    for(int row=0;row<assembly_parameters_table->rowCount();++row)if(auto* label=assembly_parameters_table->item(row,3)) {
+        const auto text=label->text();
+        if(!verify(text==text.toLower()&&std::ranges::all_of(text,[](QChar c){return c.unicode()<128;}),
+            "New Assembly Czech parameter name contains capitals or diacritics"))return 1;
+    }
+    assembly_parameters->reject();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();
     auto* insert = window.findChild<QAction*>("insertComponentAction");
     auto* insert_menu = window.findChild<QMenu*>("insertComponentMenu");
     if (!verify(tabs->count() == 2 &&
