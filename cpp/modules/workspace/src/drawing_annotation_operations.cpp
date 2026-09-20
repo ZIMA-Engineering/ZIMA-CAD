@@ -1,6 +1,69 @@
+#include <zima/workspace/family_operations.hpp>
+#include <zima/workspace/native_documents.hpp>
+#include <zima/workspace/placement_edit.hpp>
+#include <zima/workspace/drawing_view_operations.hpp>
+#include <cmath>
 #include <zima/workspace/drawing_annotation_operations.hpp>
 #include <algorithm>
 namespace zima::workspace {
+void set_drawing_model_dimension(Workspace& live,const kernel::OcctKernel& kernel,
+    drawing::DrawingDocument& drawing,const std::filesystem::path& path,const std::string& view_id,
+    const drawing::ModelAnnotationReference& reference,double value) {
+    const auto& annotation=drawing_annotation(drawing,view_id,reference);
+    if(!std::isfinite(value)||annotation.unresolved||!annotation.visible||!annotation.model_dimension ||
+        !annotation.model_dimension->driving||annotation.model_dimension->locked||
+        !annotation.model_dimension->display_text_override.empty())
+        throw std::invalid_argument("Tato kóta není přímo editovatelná.");
+    // Work on an isolated Workspace so failed calculation/projection cannot leave
+    // the source changed while the Drawing still displays the previous value.
+    auto staged=live;
+    const auto ensure_open=[&](const std::string& id,std::filesystem::path source) {
+        if(staged.find(id))return;
+        if(source.empty())throw std::invalid_argument("Zdrojový dokument kóty není dostupný.");
+        auto prepared=read_native_document(source,native_source_resolver(staged));
+        if(prepared.id()!=id)throw std::invalid_argument("Zdroj kóty patří jinému dokumentu.");
+        static_cast<void>(insert_native_document(staged,std::move(prepared)));
+    };
+    const auto* view=drawing.find_view(view_id);
+    auto source_path=view->source_path;
+    if(source_path.is_relative()&&!path.empty())source_path=path.parent_path()/source_path;
+    auto source_id=view->source_document_id;
+    ensure_open(source_id,source_path);
+    for(const auto& occurrence:assembly::InstancePath::decode(reference.instance_path).occurrence_ids) {
+        const auto* owner=staged.open_assembly(source_id);
+        if(!owner)throw std::invalid_argument("Výskyt zdrojového modelu již není dostupný.");
+        const auto* component=owner->session.document().find_occurrence(occurrence);
+        if(!component||component->derived_copy)throw std::invalid_argument("Tento výskyt nemá upravitelný zdroj.");
+        source_path=component->source_path;
+        if(source_path.is_relative()&&!owner->path.empty())source_path=owner->path.parent_path()/source_path;
+        source_id=component->source_document_id;
+        ensure_open(source_id,source_path);
+    }
+    if(source_id!=reference.document_id)throw std::invalid_argument("Výskyt neodpovídá zdroji kóty.");
+    const document::FamilyColumn binding{"dimension",reference.owner_id,reference.semantic_id};
+    // Recheck current source locks/driving state, rather than trusting a cached label.
+    const auto available=family_references(staged,reference.document_id);
+    if(!std::ranges::any_of(available,[&](const auto& r){return r.binding==binding;}))
+        throw std::invalid_argument("Kóta je odvozená, zamčená nebo již není dostupná.");
+    if(auto* part=staged.open_part(reference.document_id)) {
+        auto next=part->session.document();
+        if(!assign_driving_dimension(next,binding,value))throw std::invalid_argument("Kótu nelze změnit.");
+        PartCalculationPolicy policy;policy.reject_errors=true;
+        commit_part_parameter_edit(*part,kernel,std::move(next),reference.owner_id,
+            reference.semantic_id.starts_with("parameter:"),policy);
+    } else if(auto* assembly=staged.open_assembly(reference.document_id)) {
+        auto next=assembly->session.document();
+        if(!assign_driving_dimension(next,binding,value))throw std::invalid_argument("Kótu nelze změnit.");
+        calculate_resolved_assembly_cuts(kernel,next);
+        assembly->session.commit(std::move(next));
+    } else throw std::invalid_argument("Zdroj kóty není model.");
+    staged.refresh_source_geometry();
+    auto projected=drawing;
+    static_cast<void>(regenerate_drawing_views(projected,&staged,path));
+    live=std::move(staged);
+    drawing=std::move(projected);
+}
+
 const drawing::ModelAnnotation& drawing_annotation(const drawing::DrawingDocument& document,
     const std::string& view_id,const drawing::ModelAnnotationReference& reference) {
     const auto* view=document.find_view(view_id);

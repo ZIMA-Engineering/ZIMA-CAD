@@ -28,7 +28,7 @@ std::optional<std::array<double, 2>> sketch_point_reference_position(
     const auto external = std::ranges::find_if(
         sketch.external_references, [&](const auto& reference) {
             return reference.id == reference_id &&
-                reference.kind == zima::sketcher::ExternalReferenceKind::Point &&
+                zima::sketcher::is_external_point_kind(reference.kind) &&
                 reference.cached_points.size() == 1;
         });
     return external == sketch.external_references.end()

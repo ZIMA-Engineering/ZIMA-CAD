@@ -308,7 +308,7 @@ AssemblyWorkspaceWindow::sketch_candidate_snap_ray(
             const auto reference = std::find_if(sketch->external_references.begin(),
                 sketch->external_references.end(), [&](const auto& value) {
                     return value.id == *reference_id &&
-                        value.kind == zima::sketcher::ExternalReferenceKind::Point &&
+                        zima::sketcher::is_external_point_kind(value.kind) &&
                         value.cached_points.size() == 1;
                 });
             if (reference != sketch->external_references.end()) {

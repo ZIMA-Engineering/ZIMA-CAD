@@ -776,6 +776,8 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
     if (ray_length_squared > 1.0e-18) {
         for (std::size_t index = 0; index < mesh.constraint_markers.size(); ++index) {
             const auto& marker = mesh.constraint_markers[index];
+            // Offset provenance is an annotation; edit/select the actual curve.
+            if (marker.reference.semantic_key.starts_with("offset:")) continue;
             if (!marker.reference.valid()) continue;
             const double ray_parameter = dot(
                 subtract(marker.position, ray_origin), ray_direction) /

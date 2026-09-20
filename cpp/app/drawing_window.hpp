@@ -11,6 +11,7 @@
 #include <functional>
 
 class QAction;
+class QLineEdit;
 class QDialog;
 class QComboBox;
 class QLabel;
@@ -47,6 +48,8 @@ public:
     void set_properties_handler(std::function<void(QDialog*)> handler) { properties_handler_=std::move(handler); }
     [[nodiscard]] std::string selected_source_id() const;
     void select_view(const std::string& view_id);
+    void select_manual_dimension(const std::string& view, const std::string& id);
+    void select_model_annotation(const std::string& view, const std::string& key);
     void select_view_for_test(const std::string& view_id);
     std::optional<QPointF> view_rectangle_center_for_test(const std::string& id) const;
     std::optional<QPointF> view_label_center_for_test(const std::string& id,bool section=false)const;
@@ -126,6 +129,8 @@ private:
     void show_text_properties(const std::string& id = {});
     void show_dimension_properties(const std::string&,int);
     void show_erase();
+    void edit_model_dimension_value(const std::string&, const std::string&, QPointF);
+    QPointer<QLineEdit> inline_dimension_edit_;
     void edit_model_dimension(const std::string&,const std::string&);
     void update_action_states();
     void refresh(bool changed = true);

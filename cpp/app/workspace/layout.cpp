@@ -1642,6 +1642,12 @@ void AssemblyWorkspaceWindow::create_layout() {
             if (workspace_.open_drawing(workspace_.displayed_document_id())) {
                 const auto items=tree_->selectedItems();
                 auto* item=items.empty()?nullptr:items.front();
+                if(item&&item->data(0,Qt::UserRole+3).toString()=="drawing-dimension") {
+                    drawing_workspace_->select_manual_dimension(item->data(0,Qt::UserRole+4).toString().toStdString(),item->data(0,Qt::UserRole+5).toString().toStdString());return;
+                }
+                if(item&&item->data(0,Qt::UserRole+3).toString()=="drawing-annotation") {
+                    drawing_workspace_->select_model_annotation(item->data(0,Qt::UserRole+4).toString().toStdString(),item->data(0,Qt::UserRole+5).toString().toStdString());return;
+                }
                 drawing_workspace_->select_view(item && item->data(0,Qt::UserRole+3).toString()=="drawing-view"
                     ? item->data(0,Qt::UserRole).toString().toStdString() : std::string{});
                 return;
@@ -1846,8 +1852,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                     selected_sketch_external_reference_id_ = geometry_id;
                     candidate_kind =
                         zima::viewer::CandidateKind::SketchExternalReference;
-                    semantic_key = reference->kind ==
-                            zima::sketcher::ExternalReferenceKind::Point
+                    semantic_key = zima::sketcher::is_external_point_kind(reference->kind)
                         ? "external_point:" + geometry_id
                         : reference->kind ==
                                 zima::sketcher::ExternalReferenceKind::Axis

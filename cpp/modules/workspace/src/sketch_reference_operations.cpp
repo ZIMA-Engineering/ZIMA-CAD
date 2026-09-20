@@ -20,14 +20,21 @@ void populate_external_reference_cache(
         if(std::ranges::count_if(values,[&](const auto& value){return matches(value.reference);})>1)
             throw std::invalid_argument("Persisted source reference is ambiguous");
     };
-    if(reference.kind==sketcher::ExternalReferenceKind::Edge)unique(source.edges);
+    if(reference.kind==sketcher::ExternalReferenceKind::Edge || sketcher::is_external_endpoint_kind(reference.kind))unique(source.edges);
     if(reference.kind==sketcher::ExternalReferenceKind::Point)unique(source.points);
     if(reference.kind==sketcher::ExternalReferenceKind::Axis)unique(source.axes);
-    if (reference.kind == zima::sketcher::ExternalReferenceKind::Edge) {
+    if (reference.kind == zima::sketcher::ExternalReferenceKind::Edge || sketcher::is_external_endpoint_kind(reference.kind)) {
         const auto edge = std::find_if(source.edges.begin(), source.edges.end(),
             [&](const auto& candidate) { return matches(candidate.reference); });
         if (edge == source.edges.end()) {
             throw std::runtime_error("Persisted source edge geometry is unavailable");
+        }
+        if (sketcher::is_external_endpoint_kind(reference.kind)) {
+            if(edge->points.size()<2)throw std::runtime_error("Source edge has no endpoints");
+            reference.cached_points={sketch.local_point(reference.kind==sketcher::ExternalReferenceKind::EdgeStart ? edge->points.front() : edge->points.back())};
+            reference.exact_spline.reset();
+            reference.broken=false;
+            return;
         }
         reference.exact_spline=sketch.project_external_spline(*edge);
         for (const auto& point : edge->points) {
@@ -81,13 +88,14 @@ void populate_external_reference_cache(
 namespace {
 using Kind=sketcher::ExternalReferenceKind;
 using Reference=sketcher::SketchExternalReference;
+Kind source_kind(Kind kind) { return sketcher::is_external_endpoint_kind(kind) ? Kind::Edge : kind; }
 using Key=std::tuple<Kind,std::string,std::string,std::string>;
 // Copy only selected original geometry, not a complete Part or Assembly mesh.
 kernel::ViewerReferenceGeometry collect(const Workspace& live,const std::string& doc,
     const sketcher::Sketch& sketch,const std::vector<Reference>& wanted,
     const std::string& draft_body_id = {}) {
     std::set<Key> keys;
-    for(const auto& r:wanted)keys.emplace(r.kind,r.source_owner_id,r.source_semantic_key,r.source_instance_path);
+    for(const auto& r:wanted)keys.emplace(source_kind(r.kind),r.source_owner_id,r.source_semantic_key,r.source_instance_path);
     kernel::ViewerReferenceGeometry result;
     if(keys.empty())return result;
     visit_original_references(live,doc,[&](const auto& source,const ReferenceFrame& frame) {
@@ -152,7 +160,7 @@ sketcher::SketchExternalReference prepare_sketch_external_reference(const Worksp
         auto geometry=context_original_reference_geometry(live,reference.context_assembly_document_id,
             assembly::InstancePath::decode(reference.context_instance_path),reference.source_document_id,
             [&](OriginalReferenceKind candidate,const auto& candidate_owner,const auto& candidate_key,const auto& candidate_path) {
-                const auto requested=kind==Kind::Face?OriginalReferenceKind::Face:kind==Kind::Edge?OriginalReferenceKind::Edge:
+                const auto requested=kind==Kind::Face?OriginalReferenceKind::Face:source_kind(kind)==Kind::Edge?OriginalReferenceKind::Edge:
                     kind==Kind::Point?OriginalReferenceKind::Point:OriginalReferenceKind::Axis;
                 return candidate==requested&&candidate_owner==owner&&candidate_key==key&&candidate_path==path;
             });
@@ -201,7 +209,7 @@ bool refresh_sketch_reference_snapshot(const Workspace& live,const std::string& 
         for(const auto& reference:references) {
             const auto address=live.resolve_occurrence(top,assembly::InstancePath::decode(reference.source_instance_path));
             if(address&&address->source_kind==assembly::ComponentSourceKind::Part&&address->source_document_id==source)
-                keys.emplace(reference.kind,reference.source_owner_id,reference.source_semantic_key,reference.source_instance_path);
+                keys.emplace(source_kind(reference.kind),reference.source_owner_id,reference.source_semantic_key,reference.source_instance_path);
         }
         kernel::ViewerReferenceGeometry current;
         if(!keys.empty())try {

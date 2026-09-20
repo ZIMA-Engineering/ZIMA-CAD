@@ -1099,6 +1099,7 @@ std::vector<ViewerCandidate> MeshView::selection_candidates_at(
             static_cast<int>(std::lround(anchor.x())),
             static_cast<int>(std::lround(anchor.y()))};
         const int slot = constraint_slots[key]++;
+        if (marker.reference.semantic_key.starts_with("offset:")) continue;
         const QPointF baseline = anchor + QPointF(7.0 + slot * 16.0, -7.0);
         QRectF bounds = constraint_metrics.boundingRect(
             QString::fromStdString(marker.label));

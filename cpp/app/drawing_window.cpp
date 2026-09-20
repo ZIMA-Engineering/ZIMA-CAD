@@ -1,3 +1,5 @@
+#include "inline_dimension_edit.hpp"
+#include "numeric_expression_edit.hpp"
 #include "toolbar_style.hpp"
 #include "sketch_text_properties_dialog.hpp"
 #include <zima/document/file_path.hpp>
@@ -730,6 +732,24 @@ public:
     void set_context_actions(QAction* insert, QAction* edit, QAction* projected, QAction* remove) {
         insert_action_=insert; edit_action_=edit; projected_action_=projected; remove_action_=remove;
     }
+    std::function<void(const std::string&,const std::string&,QPointF)> dimension_value_;
+    std::string tree_selection_id() const {
+        if(selected_annotation_&&selected_annotation_->kind==AnnotationKind::Dimension)
+            return "drawing-dimension:"+selected_annotation_->id;
+        if(selected_annotation_&&selected_annotation_->kind==AnnotationKind::Model)
+            return selected_annotation_->view+":"+selected_annotation_->id;
+        return selected_;
+    }
+    void select_manual(const std::string& view,const std::string& id) {
+        selected_.clear();selected_dimension_id_=id;
+        selected_annotation_=AnnotationKey{AnnotationKind::Dimension,view,id,0};
+        if(selection_changed_)selection_changed_();update();
+    }
+    void select_model(const std::string& view,const std::string& key) {
+        selected_=view;selected_dimension_id_.clear();
+        selected_annotation_=AnnotationKey{AnnotationKind::Model,view,key,0};
+        if(selection_changed_)selection_changed_();update();
+    }
     void set_dimension_properties_callback(std::function<void(const std::string&,const std::string&)> callback){dimension_properties_=std::move(callback);}
 
     void set_manual_properties_callback(std::function<void(const std::string&,int)> callback){manual_properties_=std::move(callback);}
@@ -901,6 +921,16 @@ protected:
         menu->popup(event->globalPos()); event->accept();
     }
     void mouseDoubleClickEvent(QMouseEvent* event) override {
+        if(event->button()==Qt::LeftButton&&!preview_&&!dimension_command_&&!balloon_command_&&!dimension_mode_&&selected_annotation_&&
+            selected_annotation_->kind==AnnotationKind::Model) {
+            for(const auto& handle:annotation_handles_)if(handle.key.kind==AnnotationKind::Model&&
+                handle.key.view==selected_annotation_->view&&handle.key.id==selected_annotation_->id&&
+                handle.key.end==0&&handle.text_hit.adjusted(-2,-2,2,2).contains(event->position())) {
+                dragged_model_.reset();model_drag_original_.reset();model_moved_=false;
+                if(dimension_value_)dimension_value_(handle.key.view,handle.key.id,handle.point);
+                event->accept();return;
+            }
+        }
         if(balloon_command_){event->accept();return;}
         if(event->button()==Qt::LeftButton&&selected_annotation_&&selected_annotation_->kind==AnnotationKind::Balloon){balloon_drag_original_.reset();if(balloon_properties_)balloon_properties_(selected_annotation_->id);event->accept();return;}
         if(event->button()==Qt::LeftButton) {
@@ -1413,7 +1443,7 @@ void DrawingWindow::create_actions() {
     edit_view_action_ = drawing->addAction(tr("Vlastnosti pohledu…"), this,
         [this] { edit_selected_view(); });
     edit_view_action_->setObjectName("editDrawingViewAction");
-    show_erase_action_=drawing->addAction(tr("Show / Erase…"),this,[this]{show_erase();});
+    show_erase_action_=drawing->addAction(tr("Zobrazit / skrýt kóty…"),this,[this]{show_erase();});
     show_erase_action_->setObjectName("drawingShowEraseAction");
     show_erase_action_->setIcon(resource_icon("show-erase"));
     regenerate_view_action_ = drawing->addAction(tr("Regenerovat"), this,
@@ -1465,6 +1495,7 @@ void DrawingWindow::create_layout() {
     state_ = new QLabel(central); state_->setObjectName("drawingState");
     canvas_->set_balloon_properties([this](const auto& id){show_balloon_properties(id);});
     canvas_->set_manual_properties_callback([this](const auto& id,int end){show_dimension_properties(id,end);});
+    canvas_->dimension_value_=[this](const auto& view,const auto& key,QPointF point){edit_model_dimension_value(view,key,point);};
     canvas_->set_dimension_properties_callback([this](const auto& view,const auto& key){edit_model_dimension(view,key);});
     canvas_->set_changed_callback([this] {
         sync_workspace_document();
@@ -1472,7 +1503,7 @@ void DrawingWindow::create_layout() {
     });
     canvas_->set_selection_changed_callback([this] {
         update_action_states();
-        if (selection_handler_) selection_handler_(canvas_->selected_view_id());
+        if (selection_handler_) selection_handler_(canvas_->tree_selection_id());
         const auto identifier = document_.dimension_identifiers.identifier(
             document_.document_id, "dimension:" + canvas_->selected_dimension_id());
         if (!identifier.empty()) set_status_message(tr("Kóta %1").arg(QString::fromStdString(identifier)));
@@ -1959,6 +1990,50 @@ void DrawingWindow::create_projected_view() {
 }
 QImage DrawingWindow::render_sheet_for_test(bool printing)const{QImage image(840,1188,QImage::Format_ARGB32_Premultiplied);image.fill(printing?Qt::white:Qt::black);QPainter painter(&image);canvas_->paint_sheet(painter,2,{},printing);return image;}
 std::optional<QPointF> DrawingWindow::model_annotation_handle_for_test(const drawing::ModelAnnotationReference& id,int end,const std::string& view)const{return canvas_->model_handle(model_annotation_key(id),end,view);}
+void DrawingWindow::select_manual_dimension(const std::string& view,const std::string& id) {
+    if(view_dialog_)return;
+    select_view(view);canvas_->select_manual(view,id);
+}
+void DrawingWindow::select_model_annotation(const std::string& view,const std::string& key) {
+    if(view_dialog_)return;
+    select_view(view);canvas_->select_model(view,key);
+}
+void DrawingWindow::edit_model_dimension_value(const std::string& view_id,const std::string& key,QPointF point) {
+    if(view_dialog_||!workspace_)return;
+    const auto* view=document_.find_view(view_id);if(!view)return;
+    const auto found=std::ranges::find_if(view->model_annotations,[&](const auto& a){return model_annotation_key(a.source)==key;});
+    if(found==view->model_annotations.end()||!found->model_dimension)return;
+    const auto& dimension=*found->model_dimension;
+    if(found->unresolved||!dimension.driving||dimension.locked||!dimension.display_text_override.empty()) {
+        set_status_message(tr("Tato kóta je pouze pro čtení."));return;
+    }
+    if(inline_dimension_edit_) {inline_dimension_edit_->setProperty("cancelled",true);inline_dimension_edit_->deleteLater();}
+    auto* edit=new InlineDimensionEdit(canvas_);inline_dimension_edit_=edit;
+    edit->setText(QString::fromStdString(kernel::dimension_number(dimension.value,ui::numeric_decimal_places(this))));
+    edit->move(std::clamp(qRound(point.x())-52,0,std::max(0,canvas_->width()-104)),
+        std::clamp(qRound(point.y())-14,0,std::max(0,canvas_->height()-28)));
+    const QPointer<InlineDimensionEdit> guarded(edit);
+    const auto commit=[this,guarded,view_id,reference=found->source] {
+        if(!guarded||guarded->property("cancelled").toBool()||guarded->property("committed").toBool())return;
+        double value;
+        try {value=numeric_expression_value(guarded->text());if(!std::isfinite(value))throw std::invalid_argument("Invalid value");}
+        catch(const std::exception&) {guarded->setStyleSheet(guarded->styleSheet()+" QLineEdit { border-color:#C64B4B; }");guarded->selectAll();return;}
+        const double factor=std::pow(10.0,ui::numeric_decimal_places(this));
+        value=std::round(value*factor)/factor;
+        guarded->setProperty("committed",true);
+        try {
+            kernel::OcctKernel kernel;
+            workspace::set_drawing_model_dimension(*workspace_,kernel,document_,path_,view_id,reference,value);
+            guarded->hide();guarded->deleteLater();refresh();
+            set_status_message(tr("Rozměr modelu i výkres byly aktualizovány."));
+        } catch(const std::exception& error) {
+            guarded->hide();guarded->deleteLater();set_status_message(tr(error.what()));
+        }
+    };
+    connect(edit,&QLineEdit::returnPressed,this,commit);
+    connect(edit,&QLineEdit::editingFinished,this,commit);
+    edit->show();edit->raise();edit->setFocus(Qt::MouseFocusReason);edit->selectAll();
+}
 void DrawingWindow::edit_model_dimension(const std::string& view_id,const std::string& key) {
     if(view_dialog_)return;
     const auto* view=document_.find_view(view_id);if(!view)return;
@@ -2195,7 +2270,7 @@ void DrawingWindow::sync_workspace_document(bool changed) {
             state->path=path_;
         }
     if (changed_handler_) changed_handler_();
-    if (selection_handler_) selection_handler_(canvas_->selected_view_id());
+    if (selection_handler_) selection_handler_(canvas_->tree_selection_id());
 }
 
 }  // namespace zima::app

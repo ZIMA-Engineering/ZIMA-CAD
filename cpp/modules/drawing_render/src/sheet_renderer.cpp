@@ -261,7 +261,7 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
                 else {painter.save();painter.translate(text_point);painter.rotate(layout.text_angle);painter.drawText(QPointF{},text);painter.restore();}
                 if(!printing){QPainterPathStroker picker;picker.setWidth(10);auto hit=picker.createStroke(stroke);if(!text.isEmpty())hit.addRect(text_transform.mapRect(QFontMetricsF(painter.font()).boundingRect(text)));
                     if(layout.handles.empty()){if(!layout.curves.empty()&&!layout.curves[0].empty())annotation_handles_.push_back({key,screen(layout.curves[0].front()),hit});}
-                    else for(const auto& [name,p]:layout.handles){auto handle=key;handle.end=name=="text"?0:name=="arrow_first"?1:2;annotation_handles_.push_back({handle,screen(p),hit});}
+                    else for(const auto& [name,p]:layout.handles){auto handle=key;handle.end=name=="text"?0:name=="arrow_first"?1:2;annotation_handles_.push_back({handle,screen(p),hit,{},0,0,text_transform.mapRect(QFontMetricsF(painter.font()).boundingRect(text))});}
                 }painter.restore();
             }
         }

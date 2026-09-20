@@ -17,7 +17,7 @@ namespace zima::app {
 ShowEraseDialog::ShowEraseDialog(
     drawing::DrawingView view, Preview preview,
     std::function<void(const std::vector<drawing::DrawingView> &)> commit, QWidget *parent)
-    : PropertiesSubWindow(tr("Show / Erase"), parent),
+    : PropertiesSubWindow(tr("Zobrazit / skrýt kóty"), parent),
       initial_(std::move(view)), pending_(initial_), session_(initial_),
       preview_(std::move(preview)), commit_(std::move(commit)) {
   setObjectName("drawingShowEraseDialog");

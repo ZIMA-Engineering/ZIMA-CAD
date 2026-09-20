@@ -20,8 +20,8 @@ Drawing-owned list of visible items and presentation positions, saved in `.drwz`
 - Select items to keep or remove from the offered preview. Show offers hidden
   candidates; Erase offers visible ones.
 - Preview is transient. OK saves visibility; Cancel restores the input state.
-- The first version does not write dimensions back to the model. Direct source
-  dimension editing requires a later, separately verified step with clear ownership.
+- Double-clicking a driving dimension value edits its original model parameter
+  through the shared inline editor; see the value-editing contract below.
 
 ## Identity and persistence
 
@@ -317,3 +317,46 @@ Dimension Properties combines text, tolerances and placement. Drawing overrides
 remain view-local. The existing text point moves the shelf; the radius arrow
 point rotates presentation along the circle in its plane. Three RMB modes
 follow `koty.bmp` and share the Sketcher/3D View implementation.
+
+## Driving value editing (2026-09-20)
+
+The Czech command label is **Zobrazit / skrýt kóty**. Its visibility dialog
+continues to offer dimensions, axes and construction geometry.
+
+Double-click the numeric text of a visible model dimension to open the same
+inline numeric field used in Part and Assembly. Enter or finishing editing
+confirms; Escape cancels. There is no additional OK button. Arithmetic and
+comma decimal separators use the shared numeric-expression parser. Invalid
+expressions remain available for correction. Context-menu Properties continues
+to edit Drawing presentation only.
+
+The edit resolves the original source document and exact occurrence path.
+Already open source documents are authoritative; an unopened native source is
+loaded without switching the displayed Drawing. The current source binding
+must still be writable. Measured, unresolved, locked and nonnumeric catalog
+annotations cannot be edited by this numeric field.
+
+An explicit confirmation calculates a private source draft and reprojects all
+views in the current Drawing. Only a successful calculation and projection
+publish the source and Drawing together. Rejection leaves their previous data
+and histories intact. Source edits remain unsaved model changes, visible in the
+source tab; they do not silently overwrite source files. Source and Drawing
+retain their existing document-owned Undo histories.
+
+## Annotation tree
+
+Each view below a sheet exposes nonempty **Kóty**, **Osy** and
+**Konstrukční geometrie** groups. Visible model annotations and manual Drawing
+dimensions appear as leaves. Hidden Show/Erase candidates do not appear as
+inserted elements. Leaf identity includes its owning view and the complete
+model reference, so repeated occurrences and repeated projections remain
+independent. Tree selection highlights that annotation; View confirmation
+selects its Tree leaf, and an empty View click clears both selections.
+
+## Value-editing verification
+
+The Drawing Show/Erase GUI contract exercises a real extruded Sketch: double
+click, Escape, arithmetic input, source dimension and solid recalculation,
+refresh in two views, invalid values, stale source locks, failed-projection
+rollback, and native source/Drawing persistence. The main-workspace Drawing
+verification checks annotation groups and bidirectional Tree/View selection.

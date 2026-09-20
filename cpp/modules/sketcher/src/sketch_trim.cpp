@@ -1102,6 +1102,33 @@ SketchTrimResult apply_sketch_trim(
         std::erase_if(next.constraints, [&](const auto& value) { return value.id==constraint.id; });
         if (valid) next.constraints.push_back(std::move(constraint));
     }
+    // Native external profiles retain the source-edge C on every survivor.
+    // Original endpoint C is restored above only if that endpoint survived.
+    for (const auto& [source_id, survivors] : result.geometry_mapping) {
+        const auto source=std::ranges::find(sketch.segments,source_id,&SketchSegment::id);
+        if(source==sketch.segments.end())continue;
+        std::vector<std::string> supports;
+        for(const auto& c:sketch.constraints) {
+            if(c.suppressed || c.kind!=ConstraintKind::PointOnLine || c.first_point_id!=source->first_point_id)continue;
+            const auto external=std::ranges::find(sketch.external_references,c.geometry_id,&SketchExternalReference::id);
+            if(external==sketch.external_references.end() || external->kind!=ExternalReferenceKind::Edge)continue;
+            if(std::ranges::any_of(sketch.constraints,[&](const auto& other) {
+                return !other.suppressed && other.kind==ConstraintKind::PointOnLine &&
+                    other.first_point_id==source->second_point_id && other.geometry_id==c.geometry_id;
+            }))supports.push_back(c.geometry_id);
+        }
+        for(const auto& survivor:survivors) {
+            const auto segment=std::ranges::find(next.segments,survivor,&SketchSegment::id);
+            if(segment==next.segments.end())continue;
+            const std::array endpoints{segment->first_point_id,segment->second_point_id};
+            for(const auto& point:endpoints)for(const auto& support:supports) {
+                if(std::ranges::none_of(next.constraints,[&](const auto& c) {
+                    return !c.suppressed && c.kind==ConstraintKind::PointOnLine &&
+                        c.first_point_id==point && c.geometry_id==support;
+                }))static_cast<void>(next.add_point_on_line_constraint(point,support));
+            }
+        }
+    }
     // A restored contact becomes pure topology when the reconstructed
     // survivor owns that exact point as an endpoint/control point. Keep the
     // one shared native point and remove only the now-redundant C equation;

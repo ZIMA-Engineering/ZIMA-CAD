@@ -28,7 +28,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     const auto ref=command("sketch.reference.create",edge_args).at("reference").get<std::string>();
     require(current().external_references.front().source_document_id==doc && state->session.calculated_boundaries().back().volume==cache,"Projection changed source cache or document identity");
     const auto own=command("sketch.reference.project",{{"reference",ref}}).at("geometry").get<std::string>();
-    require(current().segments.size()==1 && current().import_blocks.front().source_path=="external-reference:"+ref,"Projected line did not retain its source link");
+    require(current().segments.size()==1 && current().import_blocks.empty() && current().external_references.size()==3 && current().constraints.size()==4,"Projected line did not retain its source link");
     for(int missing=0;missing<3;++missing) {
         auto invalid=current();auto& r=invalid.external_references.front();r.context_assembly_document_id="context";r.context_instance_path="dependent";r.source_instance_path="source";
         if(missing==0)r.source_instance_path.clear();if(missing==1)r.context_assembly_document_id.clear();if(missing==2)r.context_instance_path.clear();
@@ -39,7 +39,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     require(!host.execute({{"command","sketch.reference.create"},{"arguments",duplicate}}).ok && current().serialized()==stable && state->session.revision()==revision,"Duplicate source partially committed");
     require(!host.execute({{"command","sketch.reference.project"},{"arguments",{{"sketch",sketch},{"reference",ref}}}}).ok,"Source produced duplicate native geometry");
     const auto points=current().points;command("sketch.reference.delete",{{"reference",ref}});
-    require(current().external_references.empty() && current().points==points && current().segments.front().id==own,"Detach destroyed projected geometry");run(host,"undo");require(current().external_references.size()==1,"Detach Undo did not restore its dependency");
+    require(current().external_references.empty() && current().points==points && current().segments.front().id==own,"Detach destroyed projected geometry");run(host,"undo");require(current().external_references.size()==3,"Detach Undo did not restore its dependency");
     const auto face=*std::ranges::find_if(source.triangle_references,[&](const auto& f){return f.owner_id==box && f.surface && std::abs(f.surface->axis.x)>.9;});
     command("sketch.reference.create",{{"kind","face"},{"owner",box},{"key",face.semantic_key}});
     require(current().external_references.back().infinite && current().external_references.back().cached_points.size()==2,"Planar face did not produce its intersection axis");

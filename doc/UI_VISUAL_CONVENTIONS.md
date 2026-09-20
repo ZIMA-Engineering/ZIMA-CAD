@@ -12,6 +12,9 @@ caps and joins.
   `#AD6E2E`, matching the View reference colour. Mirror uses the same brown axis.
 - Sheet Metal geometry uses azure `#39C5E8`. Sheet Cut shares Sheet Blank's
   square outline and adds an internal green diagonal. Thread remains green.
+- Unbend reuses the azure Sheet Profile silhouette with a green horizontal
+  arrow pointing at its vertical wall. Bend Back uses an azure horizontal
+  segment and a green curved arrow pointing upward and left.
 
 Toolbar separators use native separator actions and the shared
 `cpp/app/toolbar_style.hpp` stylesheet. The line is green, with a fixed
@@ -33,3 +36,8 @@ than a duplicate New Window menu action. See [Document copy](DOCUMENT_COPY.md),
 
 For the reference-table lifetime contract during profile handle dragging, see
 [C++ performance measurements](CXX_PERFORMANCE.md#profile-handle-updates-2026-09-20).
+
+Numeric dimension editing in Part, Assembly and Drawing uses the shared
+`cpp/app/inline_dimension_edit.hpp` field. Keep its size, colours and Escape
+handling identical; do not introduce a Drawing-only OK button. Drawing value
+ownership and Tree groups are described in [Show/Erase](DRAWING_SHOW_ERASE.md).

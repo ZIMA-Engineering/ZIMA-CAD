@@ -1,3 +1,4 @@
+#include "../drawing_annotation_layout.hpp"
 #include "workspace_internal.hpp"
 #include <zima/workspace/metadata_operations.hpp>
 #include <zima/workspace/engineering_metadata_operations.hpp>
@@ -91,6 +92,36 @@ void AssemblyWorkspaceWindow::refresh_drawing_tree() {
             auto* item=new QTreeWidgetItem(sheet_item,{QString::fromStdString(view.name)});
             item->setData(0,Qt::UserRole,QString::fromStdString(view.id));
             item->setData(0,Qt::UserRole+3,"drawing-view");
+            for(const auto kind:{drawing::ModelAnnotationKind::Dimension,drawing::ModelAnnotationKind::Axis,drawing::ModelAnnotationKind::Construction}) {
+                QTreeWidgetItem* group=nullptr;
+                for(const auto& annotation:view.model_annotations) {
+                    if(annotation.kind!=kind||!annotation.visible)continue;
+                    if(!group)group=new QTreeWidgetItem(item,{kind==drawing::ModelAnnotationKind::Dimension?tr("Kóty"):kind==drawing::ModelAnnotationKind::Axis?tr("Osy"):tr("Konstrukční geometrie")});
+                    const auto key=model_annotation_key(annotation.source);
+                    auto label=QString::fromStdString(annotation.text);
+                    if(label.isEmpty())label=QString::fromStdString(annotation.source.semantic_id);
+                    auto* child=new QTreeWidgetItem(group,{label});
+                    child->setData(0,Qt::UserRole,QString::fromStdString(view.id+":"+key));
+                    child->setData(0,Qt::UserRole+3,"drawing-annotation");
+                    child->setData(0,Qt::UserRole+4,QString::fromStdString(view.id));
+                    child->setData(0,Qt::UserRole+5,QString::fromStdString(key));
+                    child->setToolTip(0,QString::fromStdString(annotation.source.owner_id+" / "+annotation.source.semantic_id));
+                    child->setIcon(0,resource_icon(kind==drawing::ModelAnnotationKind::Dimension?"show-erase":kind==drawing::ModelAnnotationKind::Axis?"axis":"sketch"));
+                }
+                if(kind==drawing::ModelAnnotationKind::Dimension)for(const auto& dimension:sheet.dimensions) {
+                    if(dimension.view_id!=view.id)continue;
+                    if(!group)group=new QTreeWidgetItem(item,{tr("Kóty")});
+                    auto label=QString::fromStdString(document.dimension_identifiers.identifier(document.document_id,"dimension:"+dimension.id));
+                    if(label.isEmpty())label=tr("Měřená kóta");
+                    auto* child=new QTreeWidgetItem(group,{label});
+                    child->setData(0,Qt::UserRole,QString::fromStdString("drawing-dimension:"+dimension.id));
+                    child->setData(0,Qt::UserRole+3,"drawing-dimension");
+                    child->setData(0,Qt::UserRole+4,QString::fromStdString(view.id));
+                    child->setData(0,Qt::UserRole+5,QString::fromStdString(dimension.id));
+                    child->setIcon(0,resource_icon("show-erase"));
+                }
+            }
+            item->setExpanded(true);
         }
         sheet_item->setExpanded(true);
     }

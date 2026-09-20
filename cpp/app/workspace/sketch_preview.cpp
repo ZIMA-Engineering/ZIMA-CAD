@@ -816,7 +816,7 @@ AssemblyWorkspaceWindow::inferred_sketch_rectangle_midpoint_snap(
             if(midpoint?!midpoint_enabled:!contact_enabled)continue;
             std::optional<SketchRectangleMidpointSnap> chosen;double best_distance=2*tolerance;
             for(const auto& ref:sketch->external_references) {
-                if(ref.kind!=zima::sketcher::ExternalReferenceKind::Point||ref.broken||ref.cached_points.size()!=1)continue;
+                if(!zima::sketcher::is_external_point_kind(ref.kind)||ref.broken||ref.cached_points.size()!=1)continue;
                 const auto p=ref.cached_points.front();
                 for(std::size_t side=0;side<4;++side) {
                     auto proposed=opposite;

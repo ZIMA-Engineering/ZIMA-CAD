@@ -1,3 +1,4 @@
+#include "../inline_dimension_edit.hpp"
 #include <zima/workspace/placement_edit.hpp>
 #include <zima/workspace/sweep_operations.hpp>
 #include <zima/workspace/opening_operations.hpp>
@@ -37,20 +38,6 @@ public:
     }
 };
 
-class InlineDimensionEdit final : public QLineEdit {
-public:
-    using QLineEdit::QLineEdit;
-protected:
-    void keyPressEvent(QKeyEvent* event) override {
-        if (event->key() == Qt::Key_Escape) {
-            setProperty("cancelled", true);
-            deleteLater();
-            event->accept();
-            return;
-        }
-        QLineEdit::keyPressEvent(event);
-    }
-};
 
 } // namespace
 
@@ -146,12 +133,6 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
     edit->setToolTip(identifier);
     edit->setText(QString::fromStdString(kernel::dimension_number(
         *value, viewer_->dimension_decimal_places())));
-    edit->setAlignment(Qt::AlignCenter);
-    edit->setFixedSize(104, 28);
-    edit->setStyleSheet(
-        "QLineEdit { background:#171A1D; color:#FFD400;"
-        " border:1px solid #00DDF0; border-radius:3px;"
-        " selection-background-color:#356E22; padding:2px 5px; }");
     const QPoint pointer = label_position.value_or(viewer_->last_pointer_position());
     edit->move(std::clamp(pointer.x() - edit->width() / 2, 0,
                              std::max(0, viewer_->width() - edit->width())),

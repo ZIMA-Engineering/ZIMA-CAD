@@ -30,7 +30,7 @@ inline std::vector<ExternalPointContact> infer_external_point_contacts(const ske
     const double dx=end[0]-start[0],dy=end[1]-start[1],squared=dx*dx+dy*dy;
     if(squared<1e-16)return {};
     for(const auto& ref:sketch.external_references) {
-        if(ref.kind!=sketcher::ExternalReferenceKind::Point||ref.broken||ref.cached_points.size()!=1)continue;
+        if(!sketcher::is_external_point_kind(ref.kind)||ref.broken||ref.cached_points.size()!=1)continue;
         const auto p=ref.cached_points.front();
         const double t=((p[0]-start[0])*dx+(p[1]-start[1])*dy)/squared;
         if(t<=1e-6||t>=1-1e-6)continue; // Endpoints belong to the common point picker.

@@ -25,7 +25,7 @@ protected:
     };
     struct AnnotationHandle {
         AnnotationKey key;QPointF point;QPainterPath hit;
-        zima::drawing::Point2 direction{};double offset{},minimum{};
+        zima::drawing::Point2 direction{};double offset{},minimum{};QRectF text_hit;
     };
     std::set<std::string> model_offered_;
     std::function<void(const std::string&)> model_pick_;

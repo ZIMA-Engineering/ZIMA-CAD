@@ -1,7 +1,13 @@
 #pragma once
 #include <zima/workspace/drawing_operations.hpp>
 #include <zima/drawing/model_annotations.hpp>
+#include <zima/kernel/occt_kernel.hpp>
 namespace zima::workspace {
+// Explicit value confirmation calculates a private source and projects all views.
+// Failure preserves both the source sessions and the Drawing.
+void set_drawing_model_dimension(Workspace&, const kernel::OcctKernel&,
+    drawing::DrawingDocument&, const std::filesystem::path&, const std::string& view,
+    const drawing::ModelAnnotationReference&, double);
 struct AnnotationVisibility {
     std::string view;
     drawing::ModelAnnotationReference reference;

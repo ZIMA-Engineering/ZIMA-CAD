@@ -24,6 +24,60 @@ void require(bool condition, const char* message) {
 int main() {
     try {
         using zima::sketcher::DimensionKind;
+        {
+            using namespace zima::sketcher;
+            auto profile=Sketch::create_default();
+            auto edge=Sketch::create_external_reference(ExternalReferenceKind::Edge);
+            edge.source_document_id="source";edge.source_owner_id="feature";edge.source_semantic_key="profile-edge";
+            edge.cached_points={{0,5},{20,5}};
+            profile.add_external_reference(edge);
+            const auto line=profile.add_external_profile_geometry(edge.id);
+            require(profile.import_blocks.empty() && profile.external_references.size()==3,
+                "External line must be native geometry with two source endpoints");
+            auto mesh=profile.viewer_mesh();
+            require(std::ranges::count_if(mesh.constraint_markers,[](const auto& marker){return marker.label=="CC";})==2,
+                "External profile endpoints must expose CC");
+            profile=Sketch::from_serialized(profile.serialized());
+            const auto cut=profile.add_segment(8,0,8,10);
+            const auto pieces=sketch_trim_topology(profile,false);
+            const auto selected=nearest_sketch_trim_piece(pieces,{2,5},.01);
+            require(selected && selected->geometry_id==line,"Cannot find external profile trim piece");
+            static_cast<void>(apply_sketch_trim(profile,{*selected}));
+            const auto segment=std::ranges::find(profile.segments,line,&SketchSegment::id);
+            require(segment!=profile.segments.end(),"Trim replaced native line with special geometry");
+            const auto first=segment->first_point_id,second=segment->second_point_id;
+            require(std::abs(profile.find_point(first)->x-8)<1e-6,"Trim did not shorten the external line");
+            require(std::ranges::none_of(profile.constraints,[&](const auto& c){return c.kind==ConstraintKind::PointReference && c.first_point_id==first;}),
+                "Trim kept the old endpoint attachment at its new boundary");
+            for(const auto& point:{first,second})require(std::ranges::any_of(profile.constraints,[&](const auto& c){
+                return c.kind==ConstraintKind::PointOnLine && c.first_point_id==point && c.geometry_id==edge.id;
+            }),"Trim lost source-edge support");
+            require(std::ranges::any_of(profile.constraints,[&](const auto& c){return c.kind==ConstraintKind::PointReference && c.first_point_id==second;}),
+                "Trim lost the untouched endpoint attachment");
+            profile=Sketch::from_serialized(profile.serialized());
+            zima::kernel::ViewerReferenceGeometry changed;
+            changed.edges.push_back({{{0,7,0},{25,7,0}},{"feature","profile-edge",{}},false,false});
+            require(profile.refresh_external_references("source",changed),"External source did not refresh");
+            require(std::abs(profile.find_point(first)->y-7)<1e-6 && std::abs(profile.find_point(second)->x-25)<1e-6,
+                "Trimmed profile did not follow source edge and untouched source endpoint");
+            auto rectangle=Sketch::create_default();
+            auto point=Sketch::create_external_reference(ExternalReferenceKind::Point);
+            point.source_document_id="source";point.source_owner_id="feature";point.source_semantic_key="point";point.cached_points={{5,0}};
+            rectangle.add_external_reference(point);
+            const auto sides=rectangle.add_rectangle(0,0,12,8);
+            static_cast<void>(rectangle.add_point_reference_constraint(rectangle.segments.front().first_point_id,"sketch_origin"));
+            static_cast<void>(rectangle.add_external_point_segment_constraint(point.id,sides[0],false));
+            require(std::ranges::any_of(rectangle.constraints,[&](const auto& c){return c.kind==ConstraintKind::PointOnLine && c.geometry_id==sides[0];}),
+                "Rectangle C on an axis was offered but not persisted");
+            auto offset=Sketch::create_default();
+            const auto source=offset.add_segment(0,0,20,0);
+            const auto derived=offset.add_offset(source,3,false);
+            const auto display=offset.viewer_mesh();
+            require(std::ranges::any_of(display.constraint_markers,[&](const auto& marker){return marker.label=="O" && marker.reference.semantic_key=="offset:"+derived;}),
+                "Offset curve has no visible provenance marker");
+            std::cout<<"External profile CC, trim, refresh, rectangle C and offset marker passed\n";
+        }
+
         for(bool midpoint:{false,true}) {
             using namespace zima::sketcher;
             auto s=Sketch::create_default();
@@ -880,7 +934,9 @@ int main() {
         require(external_direction_sketch.segments.size() == 1 &&
                     external_direction_sketch.segments.front().id ==
                         external_profile_segment &&
-                    external_direction_sketch.import_blocks.size() == 1,
+                    external_direction_sketch.import_blocks.empty() &&
+                    external_direction_sketch.external_references.size() == 3 &&
+                    external_direction_sketch.constraints.size() == 4,
                 "Projected external line did not create linked profile geometry");
         const auto linked_first_point =
             external_direction_sketch.segments.front().first_point_id;

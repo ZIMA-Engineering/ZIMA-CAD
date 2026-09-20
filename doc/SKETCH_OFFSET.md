@@ -15,6 +15,9 @@ Use preselection or activate the field and select a curve in the View. A purple
 preview and an arrow from the curve start indicate the offset side. The arrow
 has a minimum screen size so it remains visible for small offsets.
 
+An informational **O** marker identifies each offset curve in the View. It is
+not an extra constraint; select the curve itself to edit its offset.
+
 Double-clicking the resulting curve or choosing Properties in the View or tree
 opens the same dialog. OK creates/edits one revision; Cancel discards the preview.
 The shared PropertiesSubWindow also supports confirmation by MMB double-click

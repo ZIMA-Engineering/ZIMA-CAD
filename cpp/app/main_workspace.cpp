@@ -1,3 +1,4 @@
+#include <zima/workspace/drawing_sources.hpp>
 #include "workspace/workspace_internal.hpp"
 #include <numbers>
 #include <zima/workspace/model_calculation.hpp>
@@ -5169,6 +5170,65 @@ int verify_sketch_arc_direction_ui(QApplication& application,const std::filesyst
     }catch(const std::exception& error){std::cerr<<"Arc shape="<<shape<<", flips="<<flips<<": "<<error.what()<<'\n';return 1;}
 }
 
+int verify_rectangle_external_contact_ui(QApplication& application,const std::filesystem::path& directory) {
+    using namespace zima;
+    const auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
+    const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
+    try {
+        for(bool vertical:{false,true})for(bool midpoint:{false,true}) {
+            auto part=document::PartDocument::create_default();
+            auto feature=document::PartDocument::create_sketch_container();
+            auto sketch=sketcher::Sketch::create_default();sketch.owner_container_id=feature.id;
+            auto source=document::PartDocument::create_construction(document::ConstructionKind::Point);
+            source.origin=vertical?kernel::Vec3{0,5,0}:kernel::Vec3{5,0,0};
+            part.constructions={source};part.history={feature};
+            document::BodyHistoryGraph graph;const auto body=graph.create_body("Rectangle external contact");
+            graph.insert({document::PartHistoryKind::Construction,source.id});
+            graph.insert({document::PartHistoryKind::Feature,feature.id});part.set_body_history(graph);
+            auto reference=sketcher::Sketch::create_external_reference(sketcher::ExternalReferenceKind::Point);
+            reference.source_document_id=part.document_id;reference.source_owner_id=source.entity_id;reference.source_semantic_key="point";
+            reference.cached_points={vertical?std::array{0.,5.}:std::array{5.,0.}};
+            sketch.add_external_reference(reference);part.sketches={sketch};part.resolve_constructions();
+            const auto path=directory/"rectangle-external-contact.prtz";part.save(path);
+            app::AssemblyWorkspaceWindow window(QString::fromStdString(directory.string()));window.resize(1200,900);window.show();
+            check(window.open_document_path(QString::fromStdString(path.string())),"Cannot open rectangle reference fixture");flush();
+            check(activate_test_body(application,window,body),"Cannot activate rectangle Body");flush();
+            auto* tree=window.findChild<QTreeWidget*>("documentTree");QTreeWidgetItem* row{};
+            for(QTreeWidgetItemIterator i(tree);*i;++i)
+                if((*i)->data(0,Qt::UserRole).toString().toStdString()==sketch.id && (*i)->data(0,Qt::UserRole+3)=="part-sketch"){row=*i;break;}
+            check(row,"Cannot locate rectangle Sketch");window.show_tree_item_properties(row);flush();
+            window.findChild<QPushButton*>("sketchOpenButton")->click();flush();
+            QEventLoop animation;QTimer::singleShot(950,&animation,&QEventLoop::quit);animation.exec();
+            auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>());check(view,"Rectangle View missing");
+            auto camera=view->camera_state();camera[4]=40;camera[5]=camera[6]=0;camera[7]=40;view->set_camera_state(camera);flush();
+            const auto local=[&](QPointF p){const auto ray=view->ray_at(p);check(ray.has_value(),"Rectangle camera ray missing");const auto q=sketch.intersect_ray(ray->first,ray->second);check(q.has_value(),"Rectangle camera not facing Sketch");return *q;};
+            const auto a=local({0,0}),b=local({100,0}),c=local({0,100});
+            const double ux=(b[0]-a[0])/100,uy=(b[1]-a[1])/100,vx=(c[0]-a[0])/100,vy=(c[1]-a[1])/100,det=ux*vy-uy*vx;
+            const auto screen=[&](std::array<double,2> p){return QPointF(((p[0]-a[0])*vy-(p[1]-a[1])*vx)/det,(ux*(p[1]-a[1])-uy*(p[0]-a[0]))/det);};
+            const auto mouse=[&](QPointF p,QEvent::Type type,Qt::MouseButton button){QMouseEvent event(type,p,QPointF(view->mapToGlobal(p.toPoint())),button,type==QEvent::MouseButtonPress?button:Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(view,&event);flush();};
+            auto* rectangle=window.findChild<QAction*>("sketchRectangleAction");check(rectangle&&rectangle->isEnabled(),"Rectangle unavailable");rectangle->trigger();flush();
+            const auto click=[&](std::array<double,2> p){const auto at=screen(p);mouse(at,QEvent::MouseMove,Qt::NoButton);mouse(at,QEvent::MouseButtonPress,Qt::LeftButton);mouse(at,QEvent::MouseButtonRelease,Qt::LeftButton);};
+            click({0,0});
+            const double length=midpoint?10.1:18.;
+            const auto opposite=vertical?std::array{13.,length}:std::array{length,13.};
+            mouse(screen(opposite),QEvent::MouseMove,Qt::NoButton);
+            view->grab().save(QString("build/rectangle-external-%1-%2.png").arg(vertical?"y":"x",midpoint?"M":"C"));
+            click(opposite);
+            window.findChild<QAction*>("finishSketchAction")->trigger();flush();
+            app::SketchPropertiesDialog* properties{};
+            for(auto* d:window.findChildren<QDialog*>())if(auto* candidate=dynamic_cast<app::SketchPropertiesDialog*>(d);candidate&&candidate->isVisible())properties=candidate;
+            check(properties,"Rectangle did not return to Sketch Properties");properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+            window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+            const auto saved=document::PartDocument::load(path);const auto& result=saved.sketches.front();
+            check(result.segments.size()==4,"Rectangle did not create four sides");
+            const auto binding=std::ranges::find_if(result.constraints,[&](const auto& value){return value.kind==sketcher::ConstraintKind::PointReference && value.second_point_id==reference.id;});
+            check(binding!=result.constraints.end(),"Rectangle lost the external source point");
+            check(std::ranges::any_of(result.constraints,[&](const auto& value){return value.first_point_id==binding->first_point_id && value.kind==(midpoint?sketcher::ConstraintKind::Midpoint:sketcher::ConstraintKind::PointOnLine);}),"Offered rectangle C/M was not committed");
+        }
+        std::cout<<"Rectangle external C/M on both origin axes passed through preview, mouse confirmation and save/reopen\n";return 0;
+    }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
+}
+
 int verify_sketch_endpoint_priority_ui(QApplication& application,const std::filesystem::path& directory) {
     using namespace zima;
     try {
@@ -7657,12 +7717,24 @@ int verify_drawing_workspace(QApplication& application, zima::app::AssemblyWorks
     part.name="drawing-parameter-source"; part.user_parameters["name"]="Drawing source marker";
     part.user_parameter_order={"name"}; part.user_parameter_values["name"][""]="Drawing source marker";
     part.history.push_back(zima::document::PartDocument::create_box_container());
+    auto annotation_sketch=zima::sketcher::Sketch::create_default();
+    const auto rectangle=annotation_sketch.add_rectangle(-20,-10,20,10);
+    annotation_sketch.dimensions={annotation_sketch.create_segment_dimension(rectangle.front())};
+    part.sketches.push_back(annotation_sketch);
     zima::kernel::OcctKernel kernel;
     const auto cache=kernel.evaluate_history(part.kernel_operations());
     const auto source=directory/"drawing-parameter-source.prtz"; part.save(source,cache);
     auto drawing=zima::drawing::DrawingDocument::create_default();
     drawing.source_document_id=part.document_id; drawing.source_path=source; drawing.source_name=part.name;
-    drawing.sheets.front().views.push_back(zima::drawing::DrawingDocument::create_view(part.document_id,source,cache.back().mesh));
+    drawing.sheets.front().views.push_back(zima::drawing::DrawingDocument::create_view(part.document_id,source,cache.back().mesh,zima::drawing::ViewOrientation::Top));
+    auto& annotation_view=drawing.sheets.front().views.front();
+    zima::drawing::refresh_view_geometry(annotation_view,cache.back().mesh);
+    zima::drawing::refresh_model_annotations(annotation_view,zima::workspace::drawing_annotation_sources(nullptr,part.document_id,source));
+    std::optional<zima::drawing::ModelAnnotationReference> tree_reference;
+    for(auto& annotation:annotation_view.model_annotations) {
+        annotation.visible=true;
+        if(annotation.kind==zima::drawing::ModelAnnotationKind::Dimension)tree_reference=annotation.source;
+    }
     const auto drawing_path=directory/"drawing-workspace.drwz"; drawing.save(drawing_path);
     const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);};
     window.show();
@@ -7700,6 +7772,21 @@ int verify_drawing_workspace(QApplication& application, zima::app::AssemblyWorks
     root=tree->topLevelItem(0);
     if(!verify(root->child(0)->child(0)->text(0)=="Renamed drawing view" && tree->selectedItems().size()==1,
         "Committing properties did not refresh and select the matching Tree row"))return 1;
+    if(!verify(tree_reference.has_value(),"Drawing tree fixture has no dimension"))return 1;
+    auto* drawing_window=dynamic_cast<zima::app::DrawingWindow*>(window.findChild<QMainWindow*>("drawingWorkspace"));
+    auto* view_item=root->child(0)->child(0);
+    if(!verify(view_item->childCount()>=2,"Drawing view is missing annotation groups"))return 1;
+    auto point=drawing_window->model_annotation_handle_for_test(*tree_reference,0,annotation_view.id);
+    if(!verify(point.has_value(),"Drawing tree annotation has no View handle"))return 1;
+    QMouseEvent annotation_press(QEvent::MouseButtonPress,*point,QPointF(canvas->mapToGlobal(point->toPoint())),Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+    QMouseEvent annotation_release(QEvent::MouseButtonRelease,*point,QPointF(canvas->mapToGlobal(point->toPoint())),Qt::LeftButton,Qt::NoButton,Qt::NoModifier);
+    QApplication::sendEvent(canvas,&annotation_press);QApplication::sendEvent(canvas,&annotation_release);flush();
+    if(!verify(tree->currentItem()&&tree->currentItem()->data(0,Qt::UserRole+3).toString()=="drawing-annotation","View annotation did not select Tree leaf"))return 1;
+    auto* annotation_item=tree->currentItem();
+    QApplication::sendEvent(canvas,&press);QApplication::sendEvent(canvas,&release);flush();
+    if(!verify(tree->selectedItems().empty(),"Empty View did not clear annotation Tree selection"))return 1;
+    tree->setCurrentItem(annotation_item);flush();
+    if(!verify(tree->selectedItems().size()==1&&tree->currentItem()==annotation_item,"Tree annotation selection did not survive View synchronization"))return 1;
     window.grab().save(QString::fromStdString((directory/"drawing-workspace.png").string()));
     // Filename context menu must route to the same source-parameter dialog.
     bool has_context=false;
@@ -7935,6 +8022,7 @@ int verify_startup_contract(
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_APPLICATION_TOOLS_ONLY")) return verify_application_tools_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SURFACE_ONLY")) return verify_surface_profiles_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_DIMENSION_ENTRY_ONLY")) return verify_sketch_dimension_entry_ui(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_RECTANGLE_EXTERNAL_CONTACT_ONLY")) return verify_rectangle_external_contact_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_COINCIDENT_ONLY")) return verify_sketch_coincident_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_ENDPOINT_PRIORITY_ONLY")) return verify_sketch_endpoint_priority_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_ARC_DIRECTION_ONLY")) return verify_sketch_arc_direction_ui(application,test_directory);

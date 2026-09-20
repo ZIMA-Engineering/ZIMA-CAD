@@ -160,6 +160,13 @@ template<class Doc> void apply(Doc& doc,const document::FamilyTable& table,const
 }
 }
 
+bool assign_driving_dimension(document::PartDocument& doc,const document::FamilyColumn& binding,double value) {
+    return assign_dimension(doc,binding,value);
+}
+bool assign_driving_dimension(assembly::AssemblyDocument& doc,const document::FamilyColumn& binding,double value) {
+    return assign_dimension(doc,binding,value);
+}
+
 std::vector<FamilyReference> family_references(const Workspace& live,const std::string& id) {
     std::vector<FamilyReference> out;
     if(const auto* state=live.open_part(id)) {

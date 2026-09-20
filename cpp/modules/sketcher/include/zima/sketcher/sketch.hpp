@@ -59,7 +59,15 @@ enum class DimensionKind {
 enum class TextHorizontalAlignment { Left, Center, Right };
 enum class TextVerticalAlignment { Bottom, Middle, Top };
 enum class SketchTextColor { Green, White, Yellow, Red };
-enum class ExternalReferenceKind { Edge, Point, Axis, Face };
+enum class ExternalReferenceKind { Edge, Point, Axis, Face, EdgeStart, EdgeEnd };
+
+constexpr bool is_external_point_kind(ExternalReferenceKind kind) {
+    return kind == ExternalReferenceKind::Point || kind == ExternalReferenceKind::EdgeStart ||
+        kind == ExternalReferenceKind::EdgeEnd;
+}
+constexpr bool is_external_endpoint_kind(ExternalReferenceKind kind) {
+    return kind == ExternalReferenceKind::EdgeStart || kind == ExternalReferenceKind::EdgeEnd;
+}
 enum class SolveStatus { Solved, UnderConstrained, Conflicting, Invalid };
 
 struct SketchPoint {

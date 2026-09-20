@@ -281,7 +281,7 @@ std::optional<std::array<double, 2>> external_point_position(
     const auto found = std::find_if(sketch.external_references.begin(),
         sketch.external_references.end(), [&](const auto& reference) {
             return reference.id == reference_id &&
-                reference.kind == ExternalReferenceKind::Point &&
+                is_external_point_kind(reference.kind) &&
                 reference.cached_points.size() == 1;
         });
     if (found == sketch.external_references.end()) return std::nullopt;
@@ -422,7 +422,7 @@ external_snap_point(const Sketch& sketch, double x, double y, double tolerance) 
     std::optional<std::pair<std::string, std::array<double, 2>>> result;
     double best = tolerance;
     for (const auto& reference : sketch.external_references) {
-        if (reference.kind != ExternalReferenceKind::Point ||
+        if (!is_external_point_kind(reference.kind) ||
             reference.cached_points.size() != 1) continue;
         const auto& position = reference.cached_points.front();
         const double distance = std::hypot(position[0] - x, position[1] - y);
@@ -631,6 +631,8 @@ const char* external_reference_kind_name(ExternalReferenceKind kind) {
     switch (kind) {
     case ExternalReferenceKind::Edge: return "edge";
     case ExternalReferenceKind::Point: return "point";
+    case ExternalReferenceKind::EdgeStart: return "edge_start";
+    case ExternalReferenceKind::EdgeEnd: return "edge_end";
     case ExternalReferenceKind::Axis: return "axis";
     case ExternalReferenceKind::Face: return "face";
     }
@@ -641,6 +643,8 @@ ExternalReferenceKind external_reference_kind_from_name(
     const std::string& name) {
     if (name == "edge") return ExternalReferenceKind::Edge;
     if (name == "point") return ExternalReferenceKind::Point;
+    if (name == "edge_start") return ExternalReferenceKind::EdgeStart;
+    if (name == "edge_end") return ExternalReferenceKind::EdgeEnd;
     if (name == "axis") return ExternalReferenceKind::Axis;
     if (name == "face") return ExternalReferenceKind::Face;
     throw std::runtime_error("Unknown Sketch external reference kind");
@@ -2379,7 +2383,7 @@ void Sketch::validate() const {
             throw std::runtime_error("Sketch external reference is duplicated");
         }
         external_sources.push_back(source);
-        if ((reference.kind == ExternalReferenceKind::Point &&
+        if ((is_external_point_kind(reference.kind) &&
              (reference.cached_points.size() != 1 || !reference.cached_paths.empty())) ||
             ((reference.kind == ExternalReferenceKind::Edge ||
               reference.kind == ExternalReferenceKind::Axis) &&
@@ -4760,7 +4764,20 @@ std::string Sketch::add_external_point_segment_constraint(const std::string& ref
         return !c.suppressed&&c.kind==ConstraintKind::PointReference&&c.first_point_id==point&&c.second_point_id==reference_id;
     });
     if(!bound)static_cast<void>(next.add_point_reference_constraint(point,reference_id));
-    const auto id=midpoint?next.add_midpoint_constraint(point,segment_id):next.add_point_on_line_constraint(point,segment_id);
+    std::string id;
+    try {
+        id=midpoint?next.add_midpoint_constraint(point,segment_id):next.add_point_on_line_constraint(point,segment_id);
+    } catch (const RedundantConstraint&) {
+        // The dependency on an external point remains meaningful even when
+        // the present coordinates coincide with an already constrained axis.
+        SketchConstraint contact{make_id(), midpoint ? ConstraintKind::Midpoint : ConstraintKind::PointOnLine, point};
+        contact.geometry_id=segment_id;
+        id=contact.id;
+        next.constraints.push_back(std::move(contact));
+        const auto solved=next.solve();
+        if(solved.status==SolveStatus::Conflicting || solved.status==SolveStatus::Invalid)
+            throw std::runtime_error("External point contact conflicts with geometry");
+    }
     *this=std::move(next);return id;
 }
 
@@ -4791,8 +4808,12 @@ std::string Sketch::add_point_on_line_constraint(
         throw std::runtime_error(
             "Point-on-line constraint conflicts with existing geometry");
     }
-    require_constraint_dof_reduction(
-        *this, result, "Point-on-line constraint is redundant");
+    // External supports carry a persistent dependency even when another
+    // endpoint relation already fixes the current coordinates (CC).
+    if (std::ranges::none_of(external_references, [&](const auto& reference) {
+            return reference.id==line_id && !is_external_point_kind(reference.kind);
+        })) require_constraint_dof_reduction(
+            *this, result, "Point-on-line constraint is redundant");
     *this = std::move(next);
     return id;
 }
@@ -5161,6 +5182,17 @@ void Sketch::remove_dimension(const std::string& dimension_id) {
 void Sketch::remove_geometry(const std::string& geometry_id) {
     if (geometry_id.empty()) throw std::invalid_argument("Geometry ID is required");
     auto next = *this;
+    const auto source_edge=std::ranges::find(next.external_references,geometry_id,&SketchExternalReference::id);
+    if(source_edge!=next.external_references.end() && source_edge->kind==ExternalReferenceKind::Edge) {
+        std::vector<std::string> children;
+        for(const auto& endpoint:next.external_references) {
+            if(is_external_endpoint_kind(endpoint.kind) && endpoint.source_document_id==source_edge->source_document_id &&
+                endpoint.source_owner_id==source_edge->source_owner_id && endpoint.source_semantic_key==source_edge->source_semantic_key &&
+                endpoint.source_instance_path==source_edge->source_instance_path && endpoint.context_assembly_document_id==source_edge->context_assembly_document_id &&
+                endpoint.context_instance_path==source_edge->context_instance_path)children.push_back(endpoint.id);
+        }
+        for(const auto& child:children)next.remove_geometry(child);
+    }
     std::erase_if(next.offsets,[&](const auto& c){return c.id==geometry_id;});
     std::erase_if(next.curve_trims,[&](const auto& c){return c.id==geometry_id;});
     if (std::any_of(next.external_references.begin(), next.external_references.end(),
@@ -6784,6 +6816,15 @@ std::string Sketch::add_external_profile_geometry(
         throw std::invalid_argument(
             "External profile requires a valid projected edge");
     }
+    const auto on_source = [&](const std::string& point) {
+        return std::ranges::any_of(constraints,[&](const auto& constraint) {
+            return !constraint.suppressed && constraint.kind==ConstraintKind::PointOnLine &&
+                constraint.first_point_id==point && constraint.geometry_id==reference_id;
+        });
+    };
+    if(std::ranges::any_of(segments,[&](const auto& segment) {
+        return on_source(segment.first_point_id) && on_source(segment.second_point_id);
+    }))throw std::invalid_argument("External edge already owns profile geometry");
     const std::string link = "external-reference:" + reference_id;
     if (std::any_of(import_blocks.begin(), import_blocks.end(),
             [&](const auto& value) { return value.source_path == link; })) {
@@ -6894,6 +6935,36 @@ std::string Sketch::add_external_profile_geometry(
         const auto segment = std::find_if(next.segments.begin(), next.segments.end(),
             [&](const auto& value) { return value.id == geometry_id; });
         point_ids = {segment->first_point_id, segment->second_point_id};
+        // A projected line is ordinary editable geometry. Each endpoint has
+        // independent support on the source edge and its corresponding end.
+        for (std::size_t index=0; index<2; ++index) {
+            auto endpoint = *reference;
+            endpoint.id = make_id();
+            endpoint.kind = index==0 ? ExternalReferenceKind::EdgeStart : ExternalReferenceKind::EdgeEnd;
+            endpoint.cached_points = {index==0 ? first : last};
+            endpoint.cached_paths.clear();
+            endpoint.exact_spline.reset();
+            endpoint.infinite = false;
+            const auto existing = std::ranges::find_if(next.external_references, [&](const auto& candidate) {
+                return candidate.kind==endpoint.kind && candidate.source_document_id==endpoint.source_document_id &&
+                    candidate.source_owner_id==endpoint.source_owner_id && candidate.source_semantic_key==endpoint.source_semantic_key &&
+                    candidate.source_instance_path==endpoint.source_instance_path &&
+                    candidate.context_assembly_document_id==endpoint.context_assembly_document_id &&
+                    candidate.context_instance_path==endpoint.context_instance_path;
+            });
+            const auto endpoint_id = existing==next.external_references.end() ? endpoint.id : existing->id;
+            if(existing==next.external_references.end())next.external_references.push_back(std::move(endpoint));
+            next.constraints.push_back({make_id(), ConstraintKind::PointReference, point_ids[index], endpoint_id});
+            SketchConstraint support{make_id(), ConstraintKind::PointOnLine, point_ids[index]};
+            support.geometry_id=reference_id;
+            next.constraints.push_back(std::move(support));
+        }
+        const auto solved=next.solve();
+        if(solved.status==SolveStatus::Conflicting || solved.status==SolveStatus::Invalid)
+            throw std::runtime_error("External profile endpoint constraints conflict");
+        next.validate();
+        *this=std::move(next);
+        return geometry_id;
     } else {
         std::vector<std::array<double, 2>> sampled;
         const auto count = std::min<std::size_t>(16, source.size());
@@ -7352,7 +7423,7 @@ bool Sketch::refresh_external_references(
         if (reference.source_document_id != source_document_id) continue;
         std::optional<std::vector<std::array<double, 2>>> resolved;
         bool face_intersection_resolved = false;
-        if (reference.kind == ExternalReferenceKind::Edge) {
+        if (reference.kind == ExternalReferenceKind::Edge || is_external_endpoint_kind(reference.kind)) {
             const zima::kernel::ViewerEdge* match = nullptr;
             std::size_t match_count{};
             for (const auto& edge : source_geometry.edges) {
@@ -7372,11 +7443,13 @@ bool Sketch::refresh_external_references(
                     }
                 }
                 if (points.size() >= 2) {
-                    auto exact=next.project_external_spline(*match);
+                    auto exact=is_external_endpoint_kind(reference.kind) ? std::optional<zima::kernel::BSplineGeometry>{} : next.project_external_spline(*match);
                     if (exact != reference.exact_spline) {
                         reference.exact_spline=std::move(exact); changed=true;
                     }
-                    resolved = std::move(points);
+                    if (is_external_endpoint_kind(reference.kind))
+                        resolved = std::vector<std::array<double, 2>>{reference.kind == ExternalReferenceKind::EdgeStart ? points.front() : points.back()};
+                    else resolved = std::move(points);
                 }
             }
         } else if (reference.kind == ExternalReferenceKind::Point) {
@@ -7468,19 +7541,6 @@ bool Sketch::refresh_external_references(
                     value.cached_points.size() >= 2;
             });
         if (reference == next.external_references.end()) continue;
-        const auto segment = std::find_if(next.segments.begin(), next.segments.end(),
-            [&](const auto& value) { return value.id == block.geometry_ids.front(); });
-        if (segment != next.segments.end() && block.point_ids.size() == 2) {
-            auto* first = next.find_point(block.point_ids.front());
-            auto* second = next.find_point(block.point_ids.back());
-            if (first != nullptr && second != nullptr) {
-                first->x = reference->cached_points.front()[0];
-                first->y = reference->cached_points.front()[1];
-                second->x = reference->cached_points.back()[0];
-                second->y = reference->cached_points.back()[1];
-            }
-            continue;
-        }
         const auto spline = std::find_if(next.bsplines.begin(), next.bsplines.end(),
             [&](const auto& value) { return value.id == block.geometry_ids.front(); });
         if (spline == next.bsplines.end() ||
@@ -11860,7 +11920,7 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
         }
     }
     for (const auto& reference : external_references) {
-        if (reference.kind != ExternalReferenceKind::Point) continue;
+        if (!is_external_point_kind(reference.kind)) continue;
         const auto& point = reference.cached_points.front();
         result.points.push_back({world_point(point[0], point[1]),
             {id, "external_point:" + reference.id +
@@ -12084,7 +12144,7 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
                 external_references.end(), [&](const auto& value) {
                     return value.id == geometry_id;
                 }); reference != external_references.end()) {
-            return std::string(reference->kind == ExternalReferenceKind::Point
+            return std::string(is_external_point_kind(reference->kind)
                     ? "external_point:"
                 : reference->kind == ExternalReferenceKind::Axis
                     ? "external_axis:"
@@ -12099,8 +12159,12 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
             constraint.kind == ConstraintKind::PointReference
             ? sketch_keypoint_geometry_id(constraint.second_point_id)
             : std::nullopt;
+        const bool endpoint_binding=constraint.kind==ConstraintKind::PointReference &&
+            std::ranges::any_of(external_references,[&](const auto& reference) {
+                return reference.id==constraint.second_point_id && is_external_endpoint_kind(reference.kind);
+            });
         if ((constraint.kind == ConstraintKind::PointReference &&
-             !referenced_keypoint_geometry) ||
+             !referenced_keypoint_geometry && !endpoint_binding) ||
             constraint.kind == ConstraintKind::Coincident) continue;
         std::optional<zima::kernel::Vec3> anchor;
         if (constraint.kind == ConstraintKind::Tangent &&
@@ -12224,9 +12288,10 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
                         !key.empty()) participants.push_back(key);
                 }
             } else {
-                participants.push_back(
-                    point_id == "sketch_origin" ? "origin:point"
-                                                 : "point:" + point_id);
+                const auto external=std::ranges::find(external_references,point_id,&SketchExternalReference::id);
+                participants.push_back(point_id == "sketch_origin" ? "origin:point" :
+                    external!=external_references.end() && is_external_point_kind(external->kind)
+                        ? "external_point:"+point_id : "point:"+point_id);
             }
         }
         for (const auto& geometry_id : {constraint.geometry_id,
@@ -12241,9 +12306,35 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
             participants.end());
         const auto marker_reference = zima::kernel::EdgeReference{
             id, "constraint:" + constraint.id, {}};
-        result.constraint_markers.push_back({*anchor,
-            constraint_marker_label(constraint.kind),
-            marker_reference, participants});
+        const auto endpoint_reference = [&](const std::string& point_id) -> const SketchExternalReference* {
+            for (const auto& binding : constraints) {
+                if(binding.suppressed || binding.kind!=ConstraintKind::PointReference || binding.first_point_id!=point_id)continue;
+                const auto found=std::ranges::find(external_references,binding.second_point_id,&SketchExternalReference::id);
+                if(found!=external_references.end() && is_external_endpoint_kind(found->kind))return &*found;
+            }
+            return nullptr;
+        };
+        const auto matching_support = [&](const SketchExternalReference& endpoint, const std::string& reference_id) {
+            const auto support=std::ranges::find(external_references,reference_id,&SketchExternalReference::id);
+            return support!=external_references.end() && support->kind==ExternalReferenceKind::Edge &&
+                support->source_document_id==endpoint.source_document_id && support->source_owner_id==endpoint.source_owner_id &&
+                support->source_semantic_key==endpoint.source_semantic_key && support->source_instance_path==endpoint.source_instance_path &&
+                support->context_assembly_document_id==endpoint.context_assembly_document_id && support->context_instance_path==endpoint.context_instance_path;
+        };
+        std::string label=constraint_marker_label(constraint.kind);
+        bool combined_support=false;
+        if(const auto* endpoint=endpoint_reference(constraint.first_point_id)) {
+            if(constraint.kind==ConstraintKind::PointReference) {
+                const bool has_support=std::ranges::any_of(constraints,[&](const auto& support) {
+                    return !support.suppressed && support.kind==ConstraintKind::PointOnLine &&
+                        support.first_point_id==constraint.first_point_id && matching_support(*endpoint,support.geometry_id);
+                });
+                label=has_support ? "CC" : "C";
+            } else if(constraint.kind==ConstraintKind::PointOnLine)
+                combined_support=matching_support(*endpoint,constraint.geometry_id);
+        }
+        if(!combined_support)result.constraint_markers.push_back({*anchor,
+            label, marker_reference, participants});
         if (constraint.kind == ConstraintKind::Symmetric &&
             !constraint.second_point_id.empty()) {
             if (const auto* mirrored = find_point(constraint.second_point_id)) {
@@ -12257,6 +12348,15 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
         if (!point.fixed) continue;
         result.constraint_markers.push_back({project(point), "F",
             {id, "fixed:" + point.id, {}}, {"point:" + point.id}});
+    }
+    for (const auto& offset : offsets) {
+        const auto spline=std::ranges::find(bsplines,offset.id,&SketchBSpline::id);
+        if(spline==bsplines.end())continue;
+        const auto path=sampled_bspline_points(*this,*spline,32);
+        if(path.empty())continue;
+        const auto& middle=path[path.size()/2];
+        result.constraint_markers.push_back({world_point(middle[0],middle[1]), "O",
+            {id,"offset:"+offset.id,{}},{"bspline:"+offset.id}});
     }
     result.dimensions.reserve(dimensions.size());
     for (const auto& dimension : dimensions) {
