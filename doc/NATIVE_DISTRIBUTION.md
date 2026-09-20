@@ -17,6 +17,12 @@ acknowledgement, recovery and two-version retention are implemented; see
 [Application updates](UPDATES.md) for the UI, signing and acceptance procedure.
 Neither the scripts nor a successful local build publish a release.
 
+Linux build **2026091904** is signed and published for Debian 13 x86_64 and
+KDE/Wayland. Candidate and finalized archive smoke, production bootstrap trust,
+remote asset hashes and public update discovery passed. See the
+[Linux release record](releases/2026091904.md), including the conical clearance
+Boolean-probe limitation in the broader Bend regression suite.
+
 Windows build **2026091903** is signed and published. Its committed-source
 candidate, finalized archive, production bootstrap trust and public discovery
 passed acceptance. See [the release record](releases/2026091903.md) for source
