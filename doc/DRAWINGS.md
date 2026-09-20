@@ -382,3 +382,63 @@ Changes affect neither other rows nor parent Assembly parameters; repeated
 occurrences of the same source share values and retain quantity. Calculated
 parameters (e.g. relation-driven mass) and system data remain read-only. OK edits
 source Parameters, Cancel does not; normal model Save persists the edits.
+
+## Relative view rotation and annotation guides (2026-09-20)
+
+View Properties has two numeric inputs: horizontal and vertical rotation. Type
+an angle directly, use the input arrows in one-degree steps, or use the adjacent
+−90° and +90° buttons. The inputs are relative to the camera at dialog opening
+and start at zero; reopening starts a new relative adjustment. Selecting a
+standard orientation resets this base and both inputs. The camera is calculated
+from the fixed base and both values, so editing either input does not accumulate
+rounding drift. Its existing persisted basis stores the result; no extra angle
+record is needed. Changes preview immediately, OK commits, and Cancel restores
+the saved view. Derived projected views continue to inherit their parent's
+orientation and keep these controls disabled.
+
+The positive snap offset and guide spacing are in paper millimetres. Dimension
+and balloon interactions show only their own view's active snap guides and a
+visible green snap indicator. Standalone text remains freely positioned. See
+[Show/Erase](DRAWING_SHOW_ERASE.md#view-scoped-annotation-snapping).
+
+## Saving model edits made through a Drawing
+
+Changing a source dimension through a Drawing registers that source for the
+Drawing's next native Save. The shared save operation used by the main workspace,
+standalone Drawing window and command host prepares immutable source snapshots
+alongside the Drawing snapshot. It writes each touched source first and writes
+the Drawing only after all source writes succeed. A source without a native
+filename must be saved normally first. A source write failure leaves the Drawing
+file untouched and its pending save relationship intact.
+
+The full current Part/Assembly state is saved, including other unsaved edits in
+that model. Unrelated models are never added to this save batch. Saving a source
+independently clears its pending relationship. Save completion clears dirty flags
+only for matching runtime identities and revisions; an edit made during the
+write remains dirty. Multiple native files are not a filesystem-wide atomic
+transaction: if a later write fails, earlier successfully written source files
+remain saved on disk, and the Drawing remains pending.
+
+This coordination is runtime-only unsaved-edit state. Source geometry, calculated
+results, Drawing references and presentations remain in their native files; no
+sidecar is introduced. The native-save test covers source-first writing,
+unrelated-model isolation, write failure, independent source Save and newer edits
+arriving while a prepared save is in flight.
+
+### Verification (2026-09-20)
+
+The native release application and Drawing harness build successfully. Targeted
+CTest coverage passes for `zima_cpp_document_operations_tests`,
+`zima_cpp_drawing_view_command_tests`, `zima_cpp_drawing_balloon_tests` and
+`zima_cpp_drawing_sources_tests`.
+
+The Drawing harness passes `--verify-show-erase` and `--verify-balloons` on
+Wayland, including source Save/reopen and actual grip positions after snapping.
+`--verify-view-controls` passes with the offscreen Qt platform, covering typed
+angles, one-degree steps, quarter turns, preview, Cancel, OK and projected views.
+
+The wider `zima_cpp_drawing_contract_tests` still fails at the previously recorded
+title-block assertion `Shared 10mm master dimension cannot drive its equal lengths`
+(also recorded in `SHEET_METAL.md`). The complete Drawing UI suite also encounters
+the selected-text colour assertion `Selected dimension text is not cyan`; it is
+not counted as passing. The focused checks above verify the changes in this update.

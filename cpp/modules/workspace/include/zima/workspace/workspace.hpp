@@ -8,6 +8,8 @@
 
 #include <filesystem>
 #include <memory>
+#include <map>
+#include <set>
 #include <optional>
 #include <string>
 #include <stdexcept>
@@ -94,6 +96,8 @@ public:
     }
     // Internal recursion guard for an explicitly committed family transaction.
     bool family_transaction_active{};
+    // Pending source edits authored from a Drawing; runtime save coordination.
+    std::map<std::string,std::set<std::string>> drawing_edited_sources;
     void add_part(
         zima::document::PartDocument document,
         std::vector<zima::kernel::BodyResult> calculated_boundaries = {},

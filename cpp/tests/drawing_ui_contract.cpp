@@ -279,7 +279,8 @@ int verify_drawing_ui() {
         auto* variants=window.findChild<QComboBox*>("drawingSourceVariant");
         require(variants && variants->count()==1 && variants->currentText().startsWith("Drawing source"),
             "Source variant does not show the model name");
-        const QPointF center=canvas->rect().center();
+        window.grab();flush();
+        const QPointF center=window.sheet_rectangle_for_test().center();
         action("insertDrawingViewAction")->trigger(); flush();
         require(!dialog() && count()==0,"Insert View opened a dialog or persisted before placement");
         click(canvas,center);
@@ -393,6 +394,15 @@ int verify_drawing_ui() {
             std::abs(child.y-original.y)<1e-6,"Projected view did not keep parent/ray placement");
         window.select_view_for_test(original.id); action("editDrawingViewAction")->trigger(); flush();
         properties=dialog(); properties->findChild<QDoubleSpinBox*>("drawingViewX")->setValue(original.x+10);
+        auto* horizontal=properties->findChild<QDoubleSpinBox*>("drawingRotationHorizontal");
+        auto* vertical=properties->findChild<QDoubleSpinBox*>("drawingRotationVertical");
+        require(horizontal&&vertical&&horizontal->singleStep()==1&&vertical->singleStep()==1,"View rotation has no degree inputs");
+        horizontal->findChild<QLineEdit*>()->setText("17");horizontal->interpretText();
+        vertical->findChild<QLineEdit*>()->setText("-23");vertical->interpretText();flush();
+        require(horizontal->value()==17&&vertical->value()==-23,"Rotation input cannot accept typed degrees");
+        require(std::abs(state.sheets.front().views.front().camera.depth.x-original.camera.depth.x)+std::abs(state.sheets.front().views.front().camera.depth.y-original.camera.depth.y)+std::abs(state.sheets.front().views.front().camera.depth.z-original.camera.depth.z)<1e-12,"Typed rotation committed before OK");
+        horizontal->setValue(0);vertical->setValue(0);
+        require(properties->findChild<QDoubleSpinBox*>("drawingGuideOffset")->minimum()>0,"Snap offset permits nonpositive values");
         auto* turn=properties->findChild<QPushButton*>("drawingRotateRight");require(turn&&turn->isEnabled(),"Root view has no relative rotation");turn->click();flush();
         require(state.sheets.front().views.front().camera.depth.y==original.camera.depth.y,"Rotation preview committed before OK");
         properties->findChild<QComboBox*>("drawingViewScaleMode")->setCurrentIndex(1);
@@ -406,6 +416,18 @@ int verify_drawing_ui() {
         properties->findChild<QComboBox*>("drawingViewOrientation")->setCurrentIndex(6);
         for(int i=0;i<4;++i)properties->findChild<QPushButton*>("drawingRotateRight")->click();
         properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_VIEW_CONTROLS_ONLY")) {
+            const auto saved_camera=state.sheets.front().views.front().camera;
+            window.select_view_for_test(original.id);action("editDrawingViewAction")->trigger();flush();properties=dialog();
+            properties->findChild<QDoubleSpinBox*>("drawingRotationHorizontal")->setValue(17);
+            properties->findChild<QDoubleSpinBox*>("drawingRotationVertical")->setValue(-23);
+            properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+            const auto expected=zima::drawing::rotated_camera(saved_camera,17,-23);
+            const auto actual=state.sheets.front().views.front().camera;
+            require(std::abs(actual.depth.x-expected.depth.x)+std::abs(actual.depth.y-expected.depth.y)+std::abs(actual.depth.z-expected.depth.z)<1e-9,"Typed non-quarter rotation did not commit");
+            std::cout<<"Drawing rotation inputs, typed degrees, quarter turns, preview, Cancel, OK and projected children passed\n";return 0;
+        }
+
         require(std::abs(state.sheets.front().views.front().camera.depth.x+1)<1e-9,"Cancel changed the saved camera");
         action("editDrawingSheetAction")->trigger(); flush();
         QDialog* sheet_properties{};

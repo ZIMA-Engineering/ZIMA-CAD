@@ -60,6 +60,7 @@ void set_drawing_model_dimension(Workspace& live,const kernel::OcctKernel& kerne
     staged.refresh_source_geometry();
     auto projected=drawing;
     static_cast<void>(regenerate_drawing_views(projected,&staged,path));
+    staged.drawing_edited_sources[drawing.document_id].insert(reference.document_id);
     live=std::move(staged);
     drawing=std::move(projected);
 }

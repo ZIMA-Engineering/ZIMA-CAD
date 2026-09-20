@@ -339,8 +339,10 @@ annotations cannot be edited by this numeric field.
 An explicit confirmation calculates a private source draft and reprojects all
 views in the current Drawing. Only a successful calculation and projection
 publish the source and Drawing together. Rejection leaves their previous data
-and histories intact. Source edits remain unsaved model changes, visible in the
-source tab; they do not silently overwrite source files. Source and Drawing
+and histories intact. Source edits remain unsaved model changes until Save. Saving the Drawing also
+writes the source models edited through it, before writing the Drawing itself.
+The complete current source state is saved, including any other pending edits
+in those models. Unrelated dirty documents are excluded. Source and Drawing
 retain their existing document-owned Undo histories.
 
 ## Annotation tree
@@ -360,3 +362,24 @@ click, Escape, arithmetic input, source dimension and solid recalculation,
 refresh in two views, invalid values, stale source locks, failed-projection
 rollback, and native source/Drawing persistence. The main-workspace Drawing
 verification checks annotation groups and bidirectional Tree/View selection.
+
+## View-scoped annotation snapping
+
+View Properties exposes a strictly positive **Odsazení přichytávání [mm]**
+value and a positive guide spacing, both in paper millimetres. Existing guide
+settings remain the sole persisted values. During dimension text/grip movement,
+manual dimension placement and balloon placement/center dragging, the owning
+view's projected frame guides appear automatically. The visibility checkbox
+controls whether guides also remain visible while idle.
+
+One shared geometry function produces both rendered guide segments and snap
+candidates. Snapping uses a six-logical-pixel screen tolerance and stores the
+resulting view-relative presentation position. A green highlighted segment and
+diamond identify an actual snap; releasing or canceling removes this feedback.
+Candidates always come from the exact owning view. Other views, sheets and free
+text objects do not contribute snap candidates. Source geometry and parameter
+values are unaffected. Views without model annotations use their projected
+geometry bounds for manual dimensions and balloons.
+
+The model dimension and balloon GUI contracts check the feedback during dragging
+and verify that the final grip matches the indicated snap position.

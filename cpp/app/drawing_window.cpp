@@ -1,3 +1,4 @@
+#include <zima/drawing/annotation_guides.hpp>
 #include "inline_dimension_edit.hpp"
 #include "numeric_expression_edit.hpp"
 #include "toolbar_style.hpp"
@@ -355,17 +356,26 @@ public:
         form->addRow(QObject::tr("Zdroj"), source_row);
         form->addRow(QObject::tr("Název"), name_); form->addRow(caption_);
         form->addRow(QObject::tr("Orientace"), orientation_);
-        auto* rotations=new QWidget(content);rotations->setSizePolicy(QSizePolicy::Expanding,QSizePolicy::Fixed);auto* rotation_row=new QHBoxLayout(rotations);rotation_row->setContentsMargins(0,0,0,0);
-        const std::array directions{zima::drawing::ProjectionDirection::Left,zima::drawing::ProjectionDirection::Right,zima::drawing::ProjectionDirection::Top,zima::drawing::ProjectionDirection::Bottom};
-        const QStringList labels{tr("Doleva"),tr("Doprava"),tr("Nahoru"),tr("Dolů")};
-        const QStringList ids{"drawingRotateLeft","drawingRotateRight","drawingRotateUp","drawingRotateDown"};
-        for(int i=0;i<4;++i){auto* button=new QPushButton(labels[i]+" 90°",rotations);button->setObjectName(ids[i]);button->setAutoDefault(false);rotation_row->addWidget(button);rotation_buttons_.push_back(button);
-            connect(button,&QPushButton::clicked,this,[this,direction=directions[i]]{
-                value_.camera=zima::drawing::projected_camera(value_.camera,direction,zima::drawing::ProjectionMethod::ThirdAngle);
+        rotation_base_=value_.camera;
+        for(int axis=0;axis<2;++axis) {
+            auto* row=new QWidget(content);auto* layout=new QHBoxLayout(row);layout->setContentsMargins(0,0,0,0);
+            auto* spin=new ExpressionDoubleSpinBox(row);rotation_values_[axis]=spin;
+            spin->setObjectName(axis==0?"drawingRotationHorizontal":"drawingRotationVertical");
+            spin->setRange(-3600,3600);spin->setDecimals(3);spin->setSingleStep(1);
+            spin->setToolTip(tr("Pootočení vůči pohledu při otevření vlastností. Krok šipek je 1°."));
+            layout->addWidget(spin,1);
+            for(int sign:{-1,1}) {
+                auto* button=new QPushButton(sign<0?QStringLiteral("−90°"):QStringLiteral("+90°"),row);
+                button->setObjectName(axis==0?(sign<0?"drawingRotateLeft":"drawingRotateRight"):(sign<0?"drawingRotateDown":"drawingRotateUp"));
+                button->setAutoDefault(false);button->setFixedWidth(58);layout->addWidget(button);rotation_buttons_.push_back(button);
+                connect(button,&QPushButton::clicked,this,[spin,sign]{spin->setValue(spin->value()+sign*90);});
+            }
+            connect(spin,&QDoubleSpinBox::valueChanged,this,[this]{
+                value_.camera=drawing::rotated_camera(rotation_base_,rotation_values_[0]->value(),rotation_values_[1]->value());
                 {QSignalBlocker block(orientation_);orientation_->setCurrentIndex(7);}preview_values();
             });
+            form->addRow(axis==0?tr("Vodorovné pootočení [°]"):tr("Svislé pootočení [°]"),row);
         }
-        form->addRow(tr("Otočit pohled"),rotations);
         form->addRow(QObject::tr("Zobrazení"), display_);
         form->addRow(QObject::tr("Skryté hrany"),hidden_style_);
         form->addRow(QObject::tr("Tečné hrany"),tangent_style_);
@@ -373,10 +383,10 @@ public:
         form->addRow(QObject::tr("Hodnota měřítka"), scale_);
         form->addRow(QObject::tr("Poloha X [mm]"), x_);
         form->addRow(QObject::tr("Poloha Y [mm]"), y_);
-        guides_=new QCheckBox(tr("Pracovní vodítka kót"),content);guides_->setObjectName("drawingDimensionGuides");guides_->setChecked(value_.show_dimension_guides);
+        guides_=new QCheckBox(tr("Zobrazovat vodítka i mimo přesouvání"),content);guides_->setObjectName("drawingDimensionGuides");guides_->setChecked(value_.show_dimension_guides);
         guide_offset_=new QDoubleSpinBox(content);guide_spacing_=new QDoubleSpinBox(content);guide_offset_->setObjectName("drawingGuideOffset");guide_spacing_->setObjectName("drawingGuideSpacing");
-        guide_offset_->setRange(0,1000);guide_spacing_->setRange(.1,1000);guide_offset_->setValue(value_.dimension_guide_offset);guide_spacing_->setValue(value_.dimension_guide_spacing);
-        form->addRow(guides_);form->addRow(tr("První vodítko [mm]"),guide_offset_);form->addRow(tr("Rozteč vodítek [mm]"),guide_spacing_);
+        guide_offset_->setDecimals(3);guide_offset_->setRange(.001,1000);guide_spacing_->setRange(.1,1000);guide_offset_->setValue(value_.dimension_guide_offset);guide_spacing_->setValue(value_.dimension_guide_spacing);
+        form->addRow(guides_);form->addRow(tr("Odsazení přichytávání [mm]"),guide_offset_);form->addRow(tr("Rozteč vodítek [mm]"),guide_spacing_);
         connect(guides_,&QCheckBox::toggled,this,[this]{preview_values();});for(auto* control:{guide_offset_,guide_spacing_})connect(control,&QDoubleSpinBox::valueChanged,this,[this]{preview_values();});
         section_=new QComboBox(content);section_->setObjectName("drawingSection");
         section_label_=new QCheckBox(tr("Zobrazit označení řezu"),content);section_label_->setObjectName("drawingSectionLabel");section_label_->setChecked(value_.show_section_label);
@@ -400,7 +410,8 @@ public:
         zima::ui::bind_numeric_value_lock(y_,"y",value_.value_locks,preview_change);
         zima::ui::bind_numeric_value_lock(scale_,"scale",value_.value_locks,preview_change);
         connect(orientation_,&QComboBox::currentIndexChanged,this,[this](int index){
-            if(index>=0&&index<7){value_.orientation=static_cast<zima::drawing::ViewOrientation>(index);value_.camera=zima::drawing::standard_camera(value_.orientation);preview_values();}
+            if(index>=0&&index<7){value_.orientation=static_cast<zima::drawing::ViewOrientation>(index);value_.camera=zima::drawing::standard_camera(value_.orientation);rotation_base_=value_.camera;
+                for(auto* spin:rotation_values_){QSignalBlocker block(spin);spin->setValue(0);}preview_values();}
         });
         for (auto* combo : {source_, display_, scale_mode_,hidden_style_,tangent_style_})
             connect(combo, &QComboBox::currentIndexChanged, this, [this,preview_change] {
@@ -454,8 +465,10 @@ private:
     QCheckBox* guides_{};QDoubleSpinBox *guide_offset_{},*guide_spacing_{};
     QComboBox *section_{};QCheckBox *section_label_{};
     std::vector<QPushButton*> rotation_buttons_;
+    std::array<QDoubleSpinBox*,2> rotation_values_{};
+    drawing::ProjectionCamera rotation_base_;
     QTableWidget* marker_table_{};
-    void update_rotation_controls(){const bool enabled=value_.parent_view_id.empty();orientation_->setEnabled(enabled);for(auto* button:rotation_buttons_)button->setEnabled(enabled);}
+    void update_rotation_controls(){const bool enabled=value_.parent_view_id.empty();orientation_->setEnabled(enabled);for(auto* button:rotation_buttons_)button->setEnabled(enabled);for(auto* spin:rotation_values_)spin->setEnabled(enabled);}
     SectionComponentsWidget* components_{};
     void load_sections(const std::string& selected){
         QSignalBlocker block(section_);section_->clear();section_->addItem(tr("Bez řezu"),QString{});available_sections_.clear();
@@ -619,6 +632,26 @@ class DrawingCanvas final : public QWidget, public SheetRenderer {
         if(!same)offered_annotation_index_=0;offered_annotations_=std::move(candidates);
         hovered_annotation_=offered_annotations_.empty()?std::optional<AnnotationKey>{}:offered_annotations_[offered_annotation_index_].key;
     }
+    std::string snap_view_;
+    std::optional<drawing::Point2> snap_point_;
+    std::optional<drawing::AnnotationGuide> snap_line_;
+    void clear_annotation_snap() {
+        snap_view_.clear();snap_point_.reset();snap_line_.reset();
+        setProperty("annotationSnapActive",false);setProperty("annotationSnapView",QString{});
+    }
+    drawing::Point2 snap_annotation_point(const drawing::DrawingView& view,drawing::Point2 point) {
+        snap_view_=view.id;
+        const auto snapped=drawing::snap_annotation(view,point,6/canvas_zoom());
+        snap_line_=snapped.guide;snap_point_=snapped.guide?std::optional(snapped.point):std::nullopt;
+        setProperty("annotationSnapActive",snap_point_.has_value());
+        setProperty("annotationSnapView",QString::fromStdString(view.id));
+        return snapped.point;
+    }
+    QPointF snap_measurement_point(const drawing::DrawingView& view,QPointF position) {
+        const auto p=measurement_point(view,position);
+        const auto snapped=snap_annotation_point(view,{p.x*view.scale,p.y*view.scale});
+        return {snapped.x/view.scale,snapped.y/view.scale};
+    }
 public:
 #include "drawing_balloon_canvas.inc"
 public:
@@ -633,7 +666,7 @@ public:
         setAttribute(Qt::WA_OpaquePaintEvent);
     }
     void set_sheet(zima::drawing::DrawingSheet* sheet) {
-        sheet_ = sheet;set_render_sheet(sheet);shaded_cache_.clear();annotation_handles_.clear();offered_annotations_.clear();selected_annotation_.reset();hovered_annotation_.reset();dragged_section_end_.reset();
+        clear_annotation_snap();sheet_ = sheet;set_render_sheet(sheet);shaded_cache_.clear();annotation_handles_.clear();offered_annotations_.clear();selected_annotation_.reset();hovered_annotation_.reset();dragged_section_end_.reset();
         selected_.clear();selected_field_.clear();hovered_field_.clear();field_regions_.clear();title_targets_.clear();
         selected_dimension_id_.clear();
         dragged_dimension_id_.clear();
@@ -1004,6 +1037,17 @@ protected:
             if(dimension_command_)for(const auto& view:sheet_->views)if(view.id==dimension_command_->value().view_id)for(const auto& ref:dimension_command_->inspected_references())highlight(view,ref,QColor("#00D1FF"));
             if(balloon_command_&&balloon_command_->inspecting_attachment())if(const auto* b=balloon_command_->selected_balloon())for(const auto& view:sheet_->views)if(view.id==b->view_id)highlight(view,b->attachment.reference,QColor("#00D1FF"));
         }
+        if(sheet_&&!snap_view_.empty())for(const auto& view:sheet_->views)if(view.id==snap_view_) {
+            const auto screen=[&](drawing::Point2 p){return view_screen_point(view,{p.x/view.scale,p.y/view.scale});};
+            painter.save();painter.setPen(QPen(QColor("#777777"),1,Qt::DashLine));
+            for(const auto& line:drawing::annotation_guides(view))painter.drawLine(screen(line.first),screen(line.second));
+            if(snap_point_&&snap_line_) {
+                painter.setPen(QPen(QColor("#80AA1A"),2));painter.drawLine(screen(snap_line_->first),screen(snap_line_->second));
+                const auto p=screen(*snap_point_);painter.setBrush(QColor("#171A1D"));
+                painter.drawPolygon(QPolygonF{p+QPointF(0,-6),p+QPointF(6,0),p+QPointF(0,6),p+QPointF(-6,0)});
+            }
+            painter.restore();
+        }
     }
     void mousePressEvent(QMouseEvent* event) override {
         if (sheet_ == nullptr) return;
@@ -1040,7 +1084,7 @@ protected:
                 if(!measurement_offered_.empty()){const auto candidate=measurement_offered_[measurement_index_];dimension_command_->accept_candidate(candidate.view,candidate.candidate);}
                 else {selected_annotation_.reset();selected_.clear();if(selection_changed_)selection_changed_();}
             }else if(dimension_command_->placing()){
-                for(const auto& view:sheet_->views)if(view.id==dimension_command_->value().view_id)dimension_command_->position(measurement_point(view,event->position()),true);
+                for(const auto& view:sheet_->views)if(view.id==dimension_command_->value().view_id){const auto p=snap_measurement_point(view,event->position());dimension_command_->position({p.x(),p.y()},true);clear_annotation_snap();}
             }else{
                 offer_annotations(event->position());
                 if(!offered_annotations_.empty()){const auto candidate=offered_annotations_[offered_annotation_index_];if(candidate.key.kind==AnnotationKind::Dimension&&candidate.key.id==dimension_command_->value().id&&QLineF(candidate.point,event->position()).length()<=8)begin_manual_drag(candidate,event->position());}
@@ -1123,7 +1167,7 @@ protected:
         }
         if(dimension_command_&&!view_panning_&&!(event->buttons()&Qt::MiddleButton)&&dragged_dimension_id_.empty()){
             offer_measurements(event->position());
-            if(dimension_command_->placing()){for(const auto& view:sheet_->views)if(view.id==dimension_command_->value().view_id)dimension_command_->position(measurement_point(view,event->position()),false);}
+            if(dimension_command_->placing()){for(const auto& view:sheet_->views)if(view.id==dimension_command_->value().view_id){const auto p=snap_measurement_point(view,event->position());dimension_command_->position({p.x(),p.y()},false);}}
             else if(!dimension_command_->entering())offer_annotations(event->position());
             update();event->accept();return;
         }
@@ -1163,27 +1207,27 @@ protected:
         if(dragged_model_&&(event->buttons()&Qt::LeftButton)){
             const auto delta=event->position()-model_drag_start_;if(!model_moved_&&delta.manhattanLength()<QApplication::startDragDistance())return;
             for(auto& view:sheet_->views)if(view.id==dragged_model_->key.view)for(auto& item:view.model_annotations)if(model_annotation_key(item.source)==dragged_model_->key.id){
-                const auto origin=view_screen_point(view,{});const auto point=dragged_model_->point+delta;drawing::Point2 p{(point.x()-origin.x())/zoom,(origin.y()-point.y())/zoom};
+                const auto origin=view_screen_point(view,{});const auto point=dragged_model_->point+delta;
+                auto p=snap_annotation_point(view,{(point.x()-origin.x())/zoom,(origin.y()-point.y())/zoom});
+                const QPointF snapped_delta=origin+QPointF(p.x*zoom,-p.y*zoom)-dragged_model_->point;
                 item.handle_camera_horizontal={view.camera.horizontal.x,view.camera.horizontal.y,view.camera.horizontal.z};
                 item.handle_camera_vertical={view.camera.vertical.x,view.camera.vertical.y,view.camera.vertical.z};
                 const auto key=dragged_model_->key.end==0?"text":dragged_model_->key.end==1?"arrow_first":"arrow_second";
                 const auto projected=drawing::project_model_annotation(view,item);
-                const bool guide_parallel=[&]{
-                    if(!model_drag_shown_||!item.model_envelope.valid||projected.dimension_kind!=kernel::ViewerDimensionKind::Linear)return false;
-                    const auto& shown=*model_drag_shown_;const auto along=kernel::dimension_unit(kernel::dimension_sub(shown.witness_second,shown.witness_first));const auto side=kernel::dimension_unit(kernel::dimension_cross(shown.plane_normal,along));
-                    const auto aligned=[&](auto v){return std::ranges::any_of(item.model_envelope.axes,[&](auto axis){return std::abs(kernel::dimension_dot(v,axis))>1-1e-6;});};return aligned(along)&&aligned(side);
-                }();
                 if(item.model_dimension&&model_drag_shown_) {
                     const auto& shown=*model_drag_shown_;const bool angular=shown.kind==kernel::ViewerDimensionKind::Angular;
                     const auto u=kernel::dimension_unit(kernel::dimension_sub(angular?shown.line_first:shown.witness_second,shown.witness_first));
                     const auto v=kernel::dimension_unit(kernel::dimension_cross(shown.plane_normal,u));
                     const QPointF a(kernel::dimension_dot(u,view.camera.horizontal),kernel::dimension_dot(u,view.camera.vertical)),b(kernel::dimension_dot(v,view.camera.horizontal),kernel::dimension_dot(v,view.camera.vertical));
-                    const QPointF move(delta.x()/(zoom*view.scale),-delta.y()/(zoom*view.scale));
+                    const QPointF move(snapped_delta.x()/(zoom*view.scale),-snapped_delta.y()/(zoom*view.scale));
                     if(const auto movement=viewer::dimension_plane_drag(move,a,b)){const double along=movement->x(),outward=movement->y();
-                        item.view_layout=kernel::dragged_dimension_layout(shown,item.model_envelope,model_drag_layout_initial_,dragged_model_->key.end,along,outward);if(view.show_dimension_guides&&guide_parallel&&dragged_model_->key.end!=0&&item.view_layout->envelope_offset){
-                            const double paper=*item.view_layout->envelope_offset*view.scale;
-                            const double snapped=view.dimension_guide_offset+std::max(0.,std::round((paper-view.dimension_guide_offset)/view.dimension_guide_spacing))*view.dimension_guide_spacing;
-                            if(std::abs(snapped-paper)*zoom<5)item.view_layout->envelope_offset=snapped/view.scale;
+                        item.view_layout=kernel::dragged_dimension_layout(shown,item.model_envelope,model_drag_layout_initial_,dragged_model_->key.end,along,outward);
+                        if(shown.kind==kernel::ViewerDimensionKind::Linear) {
+                            // Drawing placement is signed: crossing the object must not
+                            // clamp the actual grip to the old envelope's positive side.
+                            item.view_layout=model_drag_layout_initial_;
+                            item.view_layout->line_offset+=outward;
+                            if(dragged_model_->key.end==0)item.view_layout->text_along+=along;
                         }
                         if(dragged_model_->key.end==0){
                             const auto label=shown.label_position.value_or(kernel::dimension_scale(kernel::dimension_add(shown.line_first,shown.line_second),.5));
@@ -1193,11 +1237,18 @@ protected:
                                 item.view_layout->text_along+=offset->x();item.view_layout->text_outward+=offset->y();
                             }
                         }
-                        item.paper_handles.clear();model_moved_=true;}
+                        item.paper_handles.clear();model_moved_=true;
+                        if(snap_point_&&dragged_model_->key.end!=0) {
+                            const auto placed=kernel::layout_dimension(*item.model_dimension,item.model_envelope,*item.view_layout);
+                            const auto point=dragged_model_->key.end==1?placed.line_first:placed.line_second;
+                            const drawing::Point2 actual{kernel::dimension_dot(point,view.camera.horizontal)*view.scale,kernel::dimension_dot(point,view.camera.vertical)*view.scale};
+                            if(std::hypot(actual.x-snap_point_->x,actual.y-snap_point_->y)*zoom>1) {
+                                snap_point_.reset();snap_line_.reset();setProperty("annotationSnapActive",false);
+                            }
+                        }
+                    }
                     continue;
                 }
-                if(view.show_dimension_guides&&guide_parallel){const auto bounds=view_bounds_at(view,zoom,canvas_origin(zoom));double best_x=5/zoom,best_y=5/zoom;const auto near=[&](double value,double& coordinate,double& best){const auto distance=std::abs(value-coordinate);if(distance<best){best=distance;coordinate=value;}};
-                    for(int i=0;i<4;++i){const auto offset=view.dimension_guide_offset+i*view.dimension_guide_spacing;near((bounds.left()-origin.x())/zoom-offset,p.x,best_x);near((bounds.right()-origin.x())/zoom+offset,p.x,best_x);near((origin.y()-bounds.top())/zoom+offset,p.y,best_y);near((origin.y()-bounds.bottom())/zoom-offset,p.y,best_y);}}
                 if(dragged_model_->key.end!=0&&item.dimension_kind==kernel::ViewerDimensionKind::Linear&&item.curves.size()>=3&&item.curves[1].size()>=2){auto a=item.curves[1].front(),b=item.curves[1].back();a={a.x*view.scale,a.y*view.scale};b={b.x*view.scale,b.y*view.scale};const auto length=std::hypot(b.x-a.x,b.y-a.y);if(length>1e-9){const double nx=-(b.y-a.y)/length,ny=(b.x-a.x)/length,offset=(p.x-a.x)*nx+(p.y-a.y)*ny;item.paper_handles["arrow_first"]={a.x+nx*offset,a.y+ny*offset};item.paper_handles["arrow_second"]={b.x+nx*offset,b.y+ny*offset};}}
                 else {if(item.dimension_kind==kernel::ViewerDimensionKind::Angular&&dragged_model_->key.end!=0)item.paper_handles.erase(dragged_model_->key.end==1?"arrow_second":"arrow_first");item.paper_handles[key]=p;}model_moved_=true;
             }update();return;
@@ -1218,7 +1269,8 @@ protected:
             auto value=*dimension_drag_initial_;
             const auto view=std::ranges::find(sheet_->views,value.view_id,&drawing::DrawingView::id);
             if(view==sheet_->views.end())return;
-            const auto cursor=measurement_point(*view,event->position()),start=measurement_point(*view,dimension_drag_start_);drawing::Point2 delta{cursor.x-start.x,cursor.y-start.y};
+            const auto target=snap_measurement_point(*view,dimension_grip_start_+event->position()-dimension_drag_start_);
+            const auto start=measurement_point(*view,dimension_grip_start_);drawing::Point2 delta{target.x()-start.x,target.y()-start.y};
             const auto evaluation=drawing::evaluate_drawing_dimension(*view,value);const auto segment=dimension_drag_handle_/3;
             if(dimension_drag_handle_%3==0&&segment<int(evaluation.presentations.size())){
                 const auto label=evaluation.presentations[segment].label_position.value();
@@ -1247,6 +1299,7 @@ protected:
         update();
     }
     void mouseReleaseEvent(QMouseEvent* event) override {
+        if(event->button()==Qt::LeftButton)clear_annotation_snap();
         if(balloon_release(event))return;
         if(text_drag_original_&&event->button()==Qt::LeftButton) {
             const auto* text=editable_text("text:"+text_drag_original_->id);
@@ -1287,6 +1340,7 @@ protected:
         event->accept();
     }
     void keyPressEvent(QKeyEvent* event) override {
+        if(event->key()==Qt::Key_Escape)clear_annotation_snap();
         if(dimension_command_&&(event->key()==Qt::Key_C||event->key()==Qt::Key_T||event->key()==Qt::Key_I)){
             dimension_command_->set_mode(int(event->key()==Qt::Key_C?drawing::DimensionAttachmentKind::Center:event->key()==Qt::Key_T?drawing::DimensionAttachmentKind::Tangent:drawing::DimensionAttachmentKind::Intersection));event->accept();return;
         }

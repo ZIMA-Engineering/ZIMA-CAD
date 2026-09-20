@@ -1,3 +1,4 @@
+#include <zima/drawing/annotation_guides.hpp>
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/drawing_view_operations.hpp>
 #include <zima/workspace/drawing_sources.hpp>
@@ -122,4 +123,23 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir){
 
 }
 }
-int main(){try{kernel::OcctKernel kernel;const auto root=fs::canonical(fs::temp_directory_path());const auto dir=root/("zima-drawing-view-"+document::PartDocument::create_default().document_id);fs::create_directory(dir);verify(kernel,dir);verify_editing(kernel,dir);require(dir.parent_path()==root,"Unsafe cleanup");fs::remove_all(dir);std::cout<<"Drawing view snapshots, original references, parent-first regeneration, dimensions, native sources and deletion passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
+void verify_annotation_guides() {
+    using namespace zima;
+    drawing::DrawingView view;view.scale=2;view.dimension_guide_offset=5;view.dimension_guide_spacing=3;
+    drawing::ProjectedEdge edge;edge.points={{0,0},{10,10}};view.projected_edges={edge};
+    const auto snapped=drawing::snap_annotation(view,{10,25.2},.5);
+    require(snapped.guide.has_value()&&std::abs(snapped.point.y-25)<1e-9,"Guide did not snap in paper millimetres");
+    auto other=view;other.dimension_guide_offset=15;
+    require(!drawing::snap_annotation(other,{10,25.2},.5).guide,"Another view supplied snap geometry");
+    view.x=500;view.y=200;
+    require(drawing::snap_annotation(view,{10,25.2},.5).point==snapped.point,"Sheet placement changed view-local snapping");
+    const auto camera=drawing::standard_camera(drawing::ViewOrientation::Isometric);
+    const auto rotated=drawing::rotated_camera(camera,17,-23);
+    const auto dot=[](auto a,auto b){return a.x*b.x+a.y*b.y+a.z*b.z;};
+    require(std::abs(dot(rotated.depth,rotated.depth)-1)<1e-12&&std::abs(dot(rotated.horizontal,rotated.vertical))<1e-12,"Degree rotation damaged camera basis");
+    const auto quarter=drawing::rotated_camera(camera,90,0);
+    const auto expected=drawing::projected_camera(camera,drawing::ProjectionDirection::Right,drawing::ProjectionMethod::ThirdAngle);
+    require(std::abs(dot(quarter.depth,expected.depth)-1)<1e-12,"Degree rotation differs from existing quarter turn");
+}
+int main(){try{
+    verify_annotation_guides();kernel::OcctKernel kernel;const auto root=fs::canonical(fs::temp_directory_path());const auto dir=root/("zima-drawing-view-"+document::PartDocument::create_default().document_id);fs::create_directory(dir);verify(kernel,dir);verify_editing(kernel,dir);require(dir.parent_path()==root,"Unsafe cleanup");fs::remove_all(dir);std::cout<<"Drawing view snapshots, original references, parent-first regeneration, dimensions, native sources and deletion passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

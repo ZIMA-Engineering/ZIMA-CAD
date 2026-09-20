@@ -15,6 +15,7 @@ class SavedDocument {
     std::filesystem::path original_path_, target_;
     std::size_t kind_{};
     std::uint64_t revision_{}, generation_{}, allocations_{};
+    std::vector<SavedDocument> sources_;
     SavedDocument() = default;
 };
 
@@ -28,6 +29,7 @@ private:
     struct Part { document::PartDocument document; std::vector<kernel::BodyResult> boundaries; };
     std::variant<Part, assembly::AssemblyDocument, drawing::DrawingDocument> snapshot_;
     SavedDocument receipt_;
+    std::vector<DocumentSave> sources_;
 };
 
 [[nodiscard]] DocumentSave prepare_document_save(const Workspace& workspace,

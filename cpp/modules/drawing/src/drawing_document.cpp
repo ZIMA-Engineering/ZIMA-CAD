@@ -264,6 +264,16 @@ ProjectionCamera standard_camera(ViewOrientation orientation) {
     return {};
 }
 
+ProjectionCamera rotated_camera(const ProjectionCamera& base,double horizontal,double vertical) {
+    if(!std::isfinite(horizontal)||!std::isfinite(vertical))throw std::invalid_argument("Camera rotation must be finite");
+    const double h=horizontal*std::acos(-1.)/180,v=vertical*std::acos(-1.)/180;
+    const auto combine=[](auto a,double x,auto b,double y){return kernel::Vec3{a.x*x+b.x*y,a.y*x+b.y*y,a.z*x+b.z*y};};
+    const auto depth=combine(base.depth,std::cos(h),base.horizontal,std::sin(h));
+    return {combine(base.horizontal,std::cos(h),base.depth,-std::sin(h)),
+        combine(base.vertical,std::cos(v),depth,-std::sin(v)),
+        combine(depth,std::cos(v),base.vertical,std::sin(v))};
+}
+
 ProjectionCamera projected_camera(
     const ProjectionCamera& parent, ProjectionDirection direction,
     ProjectionMethod method) {

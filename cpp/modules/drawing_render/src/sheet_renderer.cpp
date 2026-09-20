@@ -1,3 +1,4 @@
+#include <zima/drawing/annotation_guides.hpp>
 #include <zima/drawing_render/sheet_renderer.hpp>
 #include <zima/drawing/balloon.hpp>
 #include <zima/viewer/dimension_text_layer.hpp>
@@ -231,14 +232,9 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
             const QRectF paper_bounds((b.left()-o.x())/zoom,(o.y()-b.bottom())/zoom,b.width()/zoom,b.height()/zoom);
             if(!printing&&view->show_dimension_guides){
                 painter.save();painter.setPen(QPen(QColor("#666666"),1,Qt::DashLine));
-                std::set<std::pair<std::string,std::string>> drawn;
-                for(const auto& item:view->model_annotations)if(item.visible&&item.model_envelope.valid&&drawn.emplace(item.source.owner_id,item.source.instance_path).second){
-                    for(int level=-1;level<4;++level){auto frame=item.model_envelope;const double offset=level<0?0:(view->dimension_guide_offset+level*view->dimension_guide_spacing)/view->scale;
-                        frame.minimum=kernel::dimension_sub(frame.minimum,{offset,offset,offset});frame.maximum=kernel::dimension_add(frame.maximum,{offset,offset,offset});
-                        const auto corners=frame.corners();const auto projected=[&](auto p){return screen({kernel::dimension_dot(p,view->camera.horizontal)*view->scale,kernel::dimension_dot(p,view->camera.vertical)*view->scale});};
-                        for(unsigned i=0;i<8;++i)for(unsigned bit:{1u,2u,4u})if(!(i&bit))painter.drawLine(projected(corners[i]),projected(corners[i|bit]));
-                    }
-                }painter.restore();
+                for(const auto& line:drawing::annotation_guides(*view))
+                    painter.drawLine(screen({line.first.x,line.first.y}),screen({line.second.x,line.second.y}));
+                painter.restore();
             }
             for(const auto& stored:view->model_annotations){
                 const auto item=drawing::project_model_annotation(*view,stored);

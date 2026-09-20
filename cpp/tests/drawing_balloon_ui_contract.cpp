@@ -81,6 +81,16 @@ int verify_drawing_balloon_ui(){using namespace zima;using namespace drawing;try
     for(int i=0;i+1<lines.size();i+=2){const auto code=lines[i].trimmed().toInt();if(code==0){finish_entity();kind=QString::fromUtf8(lines[i+1]);text.clear();height=0;}else if(code==1)text=QString::fromUtf8(lines[i+1]);else if(code==40)height=lines[i+1].toDouble();}
     finish_entity();check(numbers==int(stored().size()),"DXF omitted balloon numbers or exported them as curves");dxf.close();
     if(qEnvironmentVariableIsSet("ZIMA_BALLOON_CAPTURE"))window.grab().save(qEnvironmentVariable("ZIMA_BALLOON_CAPTURE"));
+    // Balloon center snapping uses the owning view frame, with matching feedback.
+    window.grab();auto snap_start=window.balloon_handle_for_test(id);check(snap_start.has_value(),"Balloon snap grip missing");
+    const auto snap_target=point(15,28); // 8 mm above this view's 20 mm high geometry.
+    pick(canvas,*snap_start);
+    mouse(canvas,QEvent::MouseButtonPress,*snap_start,Qt::LeftButton,Qt::LeftButton);
+    mouse(canvas,QEvent::MouseMove,snap_target+QPointF(0,1),Qt::NoButton,Qt::LeftButton);
+    check(canvas->property("annotationSnapActive").toBool()&&canvas->property("annotationSnapView").toString().toStdString()==view.id,"Balloon snap feedback missing or belongs to another view");
+    mouse(canvas,QEvent::MouseButtonRelease,snap_target+QPointF(0,1),Qt::LeftButton,Qt::NoButton);window.grab();
+    const auto snap_end=window.balloon_handle_for_test(id);
+    check(snap_end&&QLineF(*snap_end,snap_target).length()<1,"Balloon snap did not commit its preview");
     check(std::filesystem::canonical(dir).parent_path()==root,"Invalid cleanup path");std::filesystem::remove_all(dir);
     std::cout<<"Drawing balloon UI creation, selection, grips, undo, visibility and exports passed\n";return 0;
 }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

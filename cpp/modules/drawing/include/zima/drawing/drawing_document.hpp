@@ -393,6 +393,7 @@ void load_template_details(DrawingSheet&, const std::filesystem::path&, bool tit
 [[nodiscard]] std::vector<ProjectedTriangle> project_triangles(
     const zima::kernel::ViewerMesh& mesh, ViewOrientation orientation);
 [[nodiscard]] ProjectionCamera standard_camera(ViewOrientation orientation);
+[[nodiscard]] ProjectionCamera rotated_camera(const ProjectionCamera&, double horizontal_degrees, double vertical_degrees);
 [[nodiscard]] ProjectionCamera projected_camera(
     const ProjectionCamera& parent, ProjectionDirection direction,
     ProjectionMethod method);

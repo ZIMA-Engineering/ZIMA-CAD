@@ -50,7 +50,7 @@ private:
         }else if(balloon_command_->entering()) {
             if(!measurement_offered_.empty()){const auto candidate=measurement_offered_[measurement_index_];balloon_command_->accept_candidate(candidate.view,candidate.candidate);}
         }else if(balloon_command_->placing()) {
-            for(const auto& v:sheet_->views)if(v.id==balloon_command_->view_id()){auto p=measurement_point(v,event->position());balloon_command_->position({p.x*v.scale,p.y*v.scale},true);}
+            for(const auto& v:sheet_->views)if(v.id==balloon_command_->view_id()){auto p=measurement_point(v,event->position());balloon_command_->position(snap_annotation_point(v,{p.x*v.scale,p.y*v.scale}),true);clear_annotation_snap();}
         }else {
             offer_annotations(event->position());
             if(!offered_annotations_.empty()) {
@@ -66,7 +66,8 @@ private:
             auto* b=editable_balloon(balloon_drag_original_->id);if(!b)return true;
             if(balloon_drag_end_==0) {
                 const auto delta=(event->position()-balloon_drag_start_)/canvas_zoom();
-                b->position={balloon_drag_original_->position.x+delta.x(),balloon_drag_original_->position.y-delta.y()};
+                const drawing::Point2 point{balloon_drag_original_->position.x+delta.x(),balloon_drag_original_->position.y-delta.y()};
+                for(const auto& view:sheet_->views)if(view.id==b->view_id)b->position=snap_annotation_point(view,point);
             }else {
                 offer_measurements(event->position());balloon_drag_valid_=!measurement_offered_.empty();
                 if(balloon_drag_valid_){b->attachment=measurement_offered_[measurement_index_].candidate.attachment;drawing::refresh_balloon(*sheet_,*b);}
@@ -78,7 +79,7 @@ private:
         if(balloon_command_->choosing_view())offer_balloon_views(event->position());
         else if(balloon_command_->entering())offer_measurements(event->position());
         else if(balloon_command_->placing()) {
-            for(const auto& v:sheet_->views)if(v.id==balloon_command_->view_id()){auto p=measurement_point(v,event->position());balloon_command_->position({p.x*v.scale,p.y*v.scale},false);}
+            for(const auto& v:sheet_->views)if(v.id==balloon_command_->view_id()){auto p=measurement_point(v,event->position());balloon_command_->position(snap_annotation_point(v,{p.x*v.scale,p.y*v.scale}),false);}
         }else offer_annotations(event->position());
         update();event->accept();return true;
     }

@@ -1,3 +1,4 @@
+#include <zima/drawing/annotation_guides.hpp>
 #include <zima/workspace/drawing_annotation_operations.hpp>
 #include <zima/workspace/drawing_projection.hpp>
 #include <QKeyEvent>
@@ -53,22 +54,25 @@ void click(QWidget *w, QPointF p) {
 void verify_driving_value_ui() {
     using namespace zima;
     workspace::Workspace live;kernel::OcctKernel kernel;
+    QTemporaryDir linked_save;
+    const auto linked_source=std::filesystem::path(linked_save.path().toStdString())/"source.prtz";
+    const auto linked_drawing=std::filesystem::path(linked_save.path().toStdString())/"drawing.drwz";
     auto part=document::PartDocument::create_default();
     auto profile=sketcher::Sketch::create_default();const auto lines=profile.add_rectangle(0,0,20,10);
     profile.dimensions={profile.create_segment_dimension(lines.front())};
     auto box=document::PartDocument::create_extrusion_container(profile.id);box.extrusion.length_forward=6;profile.owner_container_id=box.id;part.sketches={profile};part.history={box};
     document::BodyHistoryGraph graph;static_cast<void>(graph.create_body("Body"));graph.insert({document::PartHistoryKind::Feature,box.id});part.set_body_history(graph);part.synchronize_dimension_identifiers();
     auto cache=kernel.evaluate_history(part.kernel_operations());
-    live.add_part(part,cache,"inline-source.prtz");
+    part.save(linked_source,cache);live.add_part(part,cache,linked_source);
     auto doc=drawing::DrawingDocument::create_default();
-    auto view=drawing::DrawingDocument::create_view(part.document_id,"inline-source.prtz",cache.back().mesh,drawing::ViewOrientation::Top);
-    view.x=100;view.y=160;workspace::DrawingProjection projection(&live,{});projection.project(view,{});
+    auto view=drawing::DrawingDocument::create_view(part.document_id,linked_source,cache.back().mesh,drawing::ViewOrientation::Top);
+    view.x=100;view.y=160;workspace::DrawingProjection projection(&live,linked_drawing);projection.project(view,{});
     drawing::ModelAnnotationReference ref{part.document_id,profile.id,"dimension:"+profile.dimensions.front().id,{}};
     bool found=false;
     for(auto& a:view.model_annotations)if(a.source==ref){a.visible=true;found=true;}
     require(found,"Sketch driving dimension missing");
     auto second=view;second.id="second";second.x=50;second.y=60;
-    doc.sheets[0].views={view,second};live.add_drawing(doc);live.activate(doc.document_id);live.display_top_level(doc.document_id);
+    doc.sheets[0].views={view,second};live.add_drawing(doc,linked_drawing);live.activate(doc.document_id);live.display_top_level(doc.document_id);
     app::DrawingWindow window(&live,false);window.edit_workspace_document(doc.document_id);window.resize(1400,950);window.show();window.fit_sheet();flush();
     auto* canvas=window.findChild<QWidget*>("drawingCanvas");require(canvas,"Drawing canvas missing");
     const auto open=[&]() {
@@ -91,6 +95,12 @@ void verify_driving_value_ui() {
         const auto& a=workspace::drawing_annotation(window.document_for_test(),v.id,ref);
         require(std::abs(a.value-30)<1e-7,"Another view retained old dimension value");
     }
+    require(live.drawing_edited_sources[doc.document_id].contains(part.document_id),"Drawing value edit did not register its source for Save");
+    auto* save=window.findChild<QAction*>("drawingSaveAction");
+    if(!save)for(auto* action:window.findChildren<QAction*>())if(action->shortcut()==QKeySequence::Save){save=action;break;}
+    require(save,"Drawing Save action missing");save->trigger();flush();
+    require(document::PartDocument::load(linked_source).sketches.front().dimensions.front().value==30,"Drawing Save did not persist its changed source");
+    require(workspace::drawing_annotation(drawing::DrawingDocument::load(linked_drawing),view.id,ref).value==30,"Drawing Save did not persist matching dimensions");
     auto draft=window.document_for_test();bool rejected=false;
     try {workspace::set_drawing_model_dimension(live,kernel,draft,{},view.id,ref,std::numeric_limits<double>::infinity());}catch(const std::exception&){rejected=true;}
     require(rejected&&live.open_part(part.document_id)->session.document().sketches.front().dimensions.front().value==30,"Invalid value changed model");
@@ -120,6 +130,24 @@ void verify_driving_value_ui() {
     workspace::set_drawing_model_dimension(closed,kernel,closed_drawing,{},view.id,ref,32);
     require(closed.open_part(part.document_id)&&closed.open_part(part.document_id)->session.document().sketches.front().dimensions.front().value==32,"Closed native source did not open for edit");
     require(closed.active_document_id()==closed_drawing.document_id,"Opening source activated its tab");
+    // Snap the displayed text grip, with visible feedback owned by this view.
+    const auto& snap_view=window.document_for_test().sheets[0].views[0];
+    const auto guides=drawing::annotation_guides(snap_view);
+    const auto guide=std::ranges::find_if(guides,[](const auto& g){return std::abs(g.first.y-g.second.y)<1e-8&&std::abs(g.first.x-g.second.x)>1;});
+    require(guide!=guides.end(),"Model dimension has no snap guides");
+    const auto sheet_rect=window.sheet_rectangle_for_test();const double zoom=sheet_rect.height()/window.document_for_test().sheets[0].height_mm();
+    const drawing::Point2 paper{(guide->first.x+guide->second.x)/2,guide->first.y};
+    const QPointF target(sheet_rect.right()-snap_view.x*zoom+paper.x*zoom,sheet_rect.bottom()-snap_view.y*zoom-paper.y*zoom);
+    canvas->grab();const auto start=window.model_annotation_handle_for_test(ref,0,view.id);require(start.has_value(),"Model text grip unavailable");
+    mouse(canvas,QEvent::MouseMove,*start,Qt::NoButton,Qt::NoButton);
+    mouse(canvas,QEvent::MouseButtonPress,*start,Qt::LeftButton,Qt::LeftButton);
+    mouse(canvas,QEvent::MouseMove,target+QPointF(0,1),Qt::NoButton,Qt::LeftButton);
+    require(canvas->property("annotationSnapActive").toBool()&&canvas->property("annotationSnapView").toString().toStdString()==view.id,"Text grip did not display its own view snap");
+    window.grab().save("build/drawing-snap-feedback.png");
+    mouse(canvas,QEvent::MouseButtonRelease,target+QPointF(0,1),Qt::LeftButton,Qt::NoButton);canvas->grab();
+    require(!canvas->property("annotationSnapActive").toBool(),"Snap marker survived drag completion");
+    const auto after=window.model_annotation_handle_for_test(ref,0,view.id);
+    require(after&&QLineF(*after,target).length()<2,"Snap marker did not match final dimension text grip");
     window.grab().save("build/drawing-inline-value.png");
     std::cout<<"Drawing driving value: shared GUI, Escape, expression, source update, all views, invalid value and locks passed\n";
 }

@@ -88,3 +88,12 @@ an endpoint drag and real DXF TEXT entities with a 5 mm height. GUI/CLI build
 log: `build/balloons-acceptance-build.log`. The sheet and dialog captures in
 `build/balloons-ui.png` and `build/balloons-ui.png.dialog.png` were inspected.
 No portable release was published for this change.
+
+## View-local snap guides
+
+Placing or dragging a balloon center uses the owning view's annotation guides,
+with the positive paper-millimetre offset from View Properties. The same guide
+segments are used for drawing and snapping. A green segment and diamond display
+a confirmed snap, and release commits that exact position. Leader attachment
+picking retains its original geometry reference contract. Free text and other
+views never supply balloon snap candidates.

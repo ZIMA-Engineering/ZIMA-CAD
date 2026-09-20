@@ -216,6 +216,7 @@ bool Workspace::remove(const std::string& document_id) {
     const auto found = std::find_if(documents_.begin(), documents_.end(),
         [&](const DocumentState& state) { return id_of(state) == document_id; });
     if (found == documents_.end()) return false;
+    drawing_edited_sources.erase(document_id);
     const auto index = static_cast<std::size_t>(std::distance(documents_.begin(), found));
     const bool removed_active = active_document_id_ == document_id;
     const bool removed_displayed = displayed_document_id_ == document_id;

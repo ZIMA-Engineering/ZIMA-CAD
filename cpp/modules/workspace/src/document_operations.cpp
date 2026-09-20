@@ -37,6 +37,21 @@ DocumentSave prepare_document_save(const Workspace& workspace,
             else job.snapshot_=value.session.document();
         }
     },*state);
+    if(std::holds_alternative<DrawingState>(*state)) {
+        if(const auto pending=workspace.drawing_edited_sources.find(id);pending!=workspace.drawing_edited_sources.end()) {
+            std::set<std::string> included;
+            for(const auto& source:pending->second) {
+                const auto source_id=family_owner(workspace,source);
+                if(!included.insert(source_id).second)continue;
+                const auto* model=workspace.find(source_id);
+                if(!model||std::holds_alternative<DrawingState>(*model))
+                    throw std::invalid_argument("Edited Drawing source is no longer open. Save the source model first.");
+                const auto source_path=std::visit([](const auto& value){return value.path;},*model);
+                if(source_path.empty())throw std::invalid_argument("Edited Drawing source has no native filename. Save the source model first.");
+                job.sources_.push_back(prepare_document_save(workspace,source_id,source_path));
+            }
+        }
+    }
     return job;
 }
 
@@ -48,15 +63,22 @@ std::optional<DocumentSave> prepare_document_save_if_needed(
 }
 
 SavedDocument DocumentSave::write() const {
+    auto result=receipt_;
+    // A source failure must prevent publication of the dependent Drawing.
+    for(const auto& source:sources_)result.sources_.push_back(source.write());
     std::visit([&](const auto& snapshot) {
         using Snapshot=std::decay_t<decltype(snapshot)>;
         if constexpr(std::is_same_v<Snapshot, Part>)snapshot.document.save(receipt_.target_,snapshot.boundaries);
         else snapshot.save(receipt_.target_);
     },snapshot_);
-    return receipt_;
+    return result;
 }
 
 bool complete_document_save(Workspace& workspace, const SavedDocument& saved) {
+    bool sources_current=true;
+    for(const auto& source:saved.sources_) {
+        if(!complete_document_save(workspace,source)||document_needs_save(workspace,source.id_))sources_current=false;
+    }
     auto* state=workspace.find(saved.id_);
     if(!state || state->index()!=saved.kind_)return false;
     return std::visit([&](auto& value) {
@@ -67,12 +89,17 @@ bool complete_document_save(Workspace& workspace, const SavedDocument& saved) {
         },member);
         using State=std::decay_t<decltype(value)>;
         if constexpr(std::is_same_v<State, DrawingState>) {
-            if(value.revision()==saved.revision_ && value.data_generation()==saved.generation_)value.mark_saved();
+            if(sources_current&&value.revision()==saved.revision_ && value.data_generation()==saved.generation_) {
+                value.mark_saved();workspace.drawing_edited_sources.erase(saved.id_);
+            }
         } else {
             if(value.session.revision()==saved.revision_ &&
                value.session.data_generation()==saved.generation_ &&
-               value.session.document().dimension_identifiers.allocation_count()==saved.allocations_)
+               value.session.document().dimension_identifiers.allocation_count()==saved.allocations_) {
                 value.session.mark_saved();
+                for(auto& [drawing,sources]:workspace.drawing_edited_sources)
+                    std::erase_if(sources,[&](const auto& source){return family_owner(workspace,source)==saved.id_;});
+            }
         }
         return true;
     },*state);
@@ -82,6 +109,7 @@ bool document_needs_save(const Workspace& workspace, const std::string& requeste
     const auto id=family_owner(workspace,requested);
     const auto* state=workspace.find(id);
     if(!state)throw std::invalid_argument("Document is not open");
+    if(const auto pending=workspace.drawing_edited_sources.find(id);pending!=workspace.drawing_edited_sources.end()&&!pending->second.empty())return true;
     return std::visit([](const auto& value) {
         using State=std::decay_t<decltype(value)>;
         const bool dirty=[&] {
@@ -102,6 +130,7 @@ CloseDocumentResult close_document(Workspace& workspace, const std::string& id, 
         if constexpr(requires{value.session;})if(value.session.document().family.parent_id==id)members.push_back(value.session.document().document_id);
     },state);
     for(const auto& member:members)static_cast<void>(workspace.remove(member));
+    workspace.drawing_edited_sources.erase(id);
     return workspace.remove(id)?CloseDocumentResult::Closed:CloseDocumentResult::NotOpen;
 }
 

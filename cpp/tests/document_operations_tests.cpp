@@ -129,6 +129,34 @@ int main() {
         require(can_step_document_history(workspace,drawing_id,HistoryDirection::Undo),"Drawing edit has no history");
         require(workspace.active_document_id()==id && workspace.displayed_document_id()==id,"Operations activated another document");
 
+        // Saving a Drawing writes only the source models edited through it.
+        auto touched=workspace.open_part(id)->session.document();touched.name="edited through Drawing";
+        workspace.open_part(id)->session.commit(touched,boundaries);
+        auto unrelated=document::PartDocument::create_default();const auto unrelated_path=directory/"unrelated.prtz";
+        workspace.add_part(unrelated,{},unrelated_path);
+        workspace.drawing_edited_sources[drawing_id].insert(id);
+        auto together=prepare_document_save_if_needed(workspace,drawing_id,drawing_path);
+        require(together.has_value(),"Pending source was ignored by Drawing Save");
+        require(complete_document_save(workspace,together->write()),"Combined source/Drawing save failed");
+        require(document::PartDocument::load(part_path).name==touched.name,"Drawing Save did not write its source");
+        require(!document_needs_save(workspace,id)&&!document_needs_save(workspace,drawing_id),"Combined Save retained dirty state");
+        require(!fs::exists(unrelated_path)&&document_needs_save(workspace,unrelated.document_id),"Drawing Save wrote an unrelated model");
+        touched.name="snapshot source";workspace.open_part(id)->session.commit(touched,boundaries);
+        workspace.drawing_edited_sources[drawing_id].insert(id);
+        auto older=prepare_document_save(workspace,drawing_id,drawing_path);
+        touched.name="newer source";workspace.open_part(id)->session.commit(touched,boundaries);
+        require(complete_document_save(workspace,older.write()),"Older combined receipt rejected");
+        require(document_needs_save(workspace,id)&&document_needs_save(workspace,drawing_id),"Combined receipt cleared a newer source edit");
+        const auto unchanged_drawing=bytes(drawing_path);
+        const auto source_save_blocker=directory/"source-save-blocker";{std::ofstream out(source_save_blocker);out<<"not a directory";}
+        workspace.open_part(id)->path=source_save_blocker/"source.prtz";
+        const auto failed=prepare_document_save(workspace,drawing_id,drawing_path);
+        fails([&]{static_cast<void>(failed.write());},"Source write failure was ignored");
+        require(bytes(drawing_path)==unchanged_drawing&&document_needs_save(workspace,drawing_id),"Source write failure published the Drawing");
+        workspace.open_part(id)->path=part_path;
+        require(complete_document_save(workspace,prepare_document_save(workspace,id,part_path).write()),"Independent source Save failed");
+        require(workspace.drawing_edited_sources[drawing_id].empty(),"Independent source Save left a stale dependency");
+
         auto retargeted=prepare_document_save(workspace,id,part_path);
         workspace.open_part(id)->path=directory/"retargeted.prtz";
         require(!complete_document_save(workspace,retargeted.write()) && workspace.open_part(id)->path.filename()=="retargeted.prtz","Old save retargeted a document");

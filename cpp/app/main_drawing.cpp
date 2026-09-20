@@ -17,6 +17,9 @@ int main(int argc, char* argv[]) {
     if (application.arguments().contains("--verify-show-erase")) return verify_show_erase_ui();
     if (application.arguments().contains("--verify-measurements")) return verify_measurement_dimension_ui();
     if (application.arguments().contains("--verify-balloons")) return verify_drawing_balloon_ui();
+    if (application.arguments().contains("--verify-view-controls")) {
+        qputenv("ZIMA_VERIFY_VIEW_CONTROLS_ONLY","1");return verify_drawing_ui();
+    }
     if (application.arguments().contains("--verify-ui")) return verify_drawing_ui();
     zima::app::DrawingWindow window;
     window.show();
