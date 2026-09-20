@@ -7,6 +7,7 @@
 #include <QSignalBlocker>
 #include <QTableWidget>
 #include <zima/drawing/measurement_dimension.hpp>
+#include <zima/sketcher/sketch.hpp>
 #include <zima/ui/reference_cell.hpp>
 namespace zima::app {
 class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
@@ -17,6 +18,7 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
         : PropertiesSubWindow(tr("Vlastnosti kóty"), parent), value_(std::move(initial)),
           view_(std::move(view)), commit_(std::move(commit)), creating_(creating) {
         setObjectName("drawingDimensionProperties");
+        automatic_placement_ = value_.direction == drawing::DimensionDirection::Automatic;
         set_initial_size({580, 560});
         setAttribute(Qt::WA_DeleteOnClose);
         tabs_ = new QTabWidget(this);
@@ -36,7 +38,7 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
         direction_ = new QComboBox(binding);
         direction_->setObjectName("drawingDimensionDirection");
         direction_->addItems(
-            {tr("Podle vazeb"), tr("Vodorovná"), tr("Svislá"), tr("Rovnoběžně s geometrií")});
+            {creating ? tr("Automaticky podle tažení") : tr("Podle vazeb"), tr("Vodorovná"), tr("Svislá"), tr("Rovnoběžně s geometrií")});
         direction_->setCurrentIndex(int(value_.direction));
         form->addRow(tr("Kótovací čára"), direction_);
         references_ = new QTableWidget(binding);
@@ -122,7 +124,7 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
             if(angular()!=was_angular) {
                 for(auto& segment:value_.segments){segment.layout={};segment.last_presentation.reset();segment.last_angular_leaders=false;}
                 auto* suffix=text_->findChild<QLineEdit*>("sketchDimensionSuffix");
-                if(suffix&&(suffix->text()=="mm"||suffix->text()==QString::fromUtf8("°"))){QSignalBlocker block(suffix);suffix->setText(angular()?QString::fromUtf8("°"):QStringLiteral("mm"));}
+                if(suffix&&(suffix->text().isEmpty()||suffix->text()=="mm"||suffix->text()==QString::fromUtf8("°"))){QSignalBlocker block(suffix);suffix->setText(angular()?QString::fromUtf8("°"):QString{});}
             }
             drawing::resize_dimension_segments(value_);
             modes_.resize(value_.attachments.size(), -1);
@@ -139,6 +141,7 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
         connect(direction_, &QComboBox::currentIndexChanged, this, [this](int index) {
             read_fields();
             value_.direction = drawing::DimensionDirection(index);
+            automatic_placement_ = index == 0;
             if (value_.direction == drawing::DimensionDirection::Parallel)
                 active_ = int(value_.attachments.size()) * 2;
             rebuild_references();
@@ -293,6 +296,23 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
             return;
         read_fields();
         if (const auto *view = view_(value_.view_id)) {
+            if (automatic_placement_ && creating_ && !extended_ &&
+                (value_.kind == drawing::DrawingDimensionKind::Linear || value_.kind == drawing::DrawingDimensionKind::Chain) && value_.attachments.size() == 2 &&
+                std::ranges::none_of(value_.attachments, [](const auto& a) {
+                    return a.kind == drawing::DimensionAttachmentKind::Line ||
+                           a.kind == drawing::DimensionAttachmentKind::Tangent;
+                })) {
+                const auto first = drawing::resolve_dimension_attachment(*view, value_.attachments[0]);
+                const auto second = drawing::resolve_dimension_attachment(*view, value_.attachments[1]);
+                if (first && second) {
+                    const auto kind = sketcher::classify_linear_dimension(
+                        {first->x, first->y}, {second->x, second->y}, {point.x, point.y});
+                    value_.direction = kind == sketcher::DimensionKind::DistanceX
+                        ? drawing::DimensionDirection::Horizontal
+                        : kind == sketcher::DimensionKind::DistanceY
+                            ? drawing::DimensionDirection::Vertical : drawing::DimensionDirection::Automatic;
+                }
+            }
             drawing::place_drawing_dimension(*view, value_, segment_, point);
             rebuild_placement();
         }
@@ -356,8 +376,12 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
         if (rebuilding_)
             return;
         value_.style = text_->value();
-        if (placement_ && segment_ < int(value_.segments.size()))
+        if (placement_ && segment_ < int(value_.segments.size())) {
             value_.segments[segment_].layout = placement_->value();
+            if (value_.kind == drawing::DrawingDimensionKind::Chain)
+                for (auto& segment : value_.segments)
+                    segment.layout.line_offset = value_.segments[segment_].layout.line_offset;
+        }
     }
     void publish() {
         if (rebuilding_)
@@ -507,6 +531,7 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
     std::function<void(drawing::DrawingDimension)> commit_;
     std::function<void()> changed_;
     bool creating_{}, extended_{}, placing_{}, rebuilding_{};
+    bool automatic_placement_{true};
     int active_{-1}, segment_{};
     std::vector<int> modes_;
     std::set<int> inspected_;

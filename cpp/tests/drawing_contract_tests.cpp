@@ -172,6 +172,12 @@ Data={"points":{"a":{"x":-10,"y":-5},"b":{"x":-20,"y":-5}},"geometry":{"line":{"
                 require(std::abs(resized.find_point("p192")->x-12)<1e-5&&std::abs(resized.find_point("p192")->y-12)<1e-5,"Master offset did not drive both coordinates");
                 const std::array<std::string,7> row_points{"p192","p318","p324","p302","p286","p272","p258"};
                 for(std::size_t i=1;i<row_points.size();++i)require(std::abs(resized.find_point(row_points[i])->y-resized.find_point(row_points[i-1])->y-12)<1e-5,"A repeated row did not follow its master height");
+                require(resized.circles==sketch.circles,"Master edit changed title-block symbol radii or ownership");
+                const auto resized_path=folder/"resized-title.tblz";
+                zima::drawing::save_template_sketch(resized,resized_path);
+                auto reopened_resized=zima::drawing::load_template_sketch(resized_path,prepare);
+                require(reopened_resized.points==resized.points&&reopened_resized.constraints==resized.constraints&&reopened_resized.dimensions==resized.dimensions&&reopened_resized.circles==resized.circles,"Resized master or symbol did not round-trip");
+                resized=std::move(reopened_resized);
                 require(resized.set_dimension_value("d1",8),"Shared master cannot shrink again");
                 for(std::size_t i=1;i<row_points.size();++i)require(std::abs(resized.find_point(row_points[i])->y-resized.find_point(row_points[i-1])->y-8)<1e-5,"A repeated row did not shrink with its master");
                 auto fixed=sketch;fixed.find_point("p192")->fixed=true;const auto before=fixed;
@@ -377,7 +383,7 @@ Data={"points":{"a":{"x":-10,"y":-5},"b":{"x":-20,"y":-5}},"geometry":{"line":{"
         require(static_cast<bool>(persisted), "Drawing contract file was not written");
         const std::string ini((std::istreambuf_iterator<char>(persisted)), {});
         require(ini.find("[Document]\n") != std::string::npos &&
-                    ini.find("format_version=18\n") != std::string::npos &&
+                    ini.find("format_version=19\n") != std::string::npos &&
                     ini.find("type=drawing\n") != std::string::npos &&
                     ini.find("param.cpp_drawing={") != std::string::npos &&
                     ini.find("[Containers]\n") != std::string::npos &&

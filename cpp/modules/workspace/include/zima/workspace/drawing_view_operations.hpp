@@ -2,6 +2,7 @@
 #include <zima/workspace/drawing_operations.hpp>
 namespace zima::workspace {
 class DrawingProjection;
+std::string next_drawing_view_name(const drawing::DrawingDocument&,const std::string& prefix="Pohled");
 void validate_drawing_view(const drawing::DrawingView&);
 drawing::Point2 projection_placement(drawing::ProjectionDirection,double distance);
 // Edits only the Drawing draft. Pending source hatch metadata is committed by

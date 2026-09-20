@@ -1,3 +1,4 @@
+#include <zima/drawing/measurement_dimension.hpp>
 #include "../drawing_annotation_layout.hpp"
 #include "workspace_internal.hpp"
 #include <zima/workspace/metadata_operations.hpp>
@@ -100,6 +101,7 @@ void AssemblyWorkspaceWindow::refresh_drawing_tree() {
                     const auto key=model_annotation_key(annotation.source);
                     auto label=QString::fromStdString(annotation.text);
                     if(label.isEmpty())label=QString::fromStdString(annotation.source.semantic_id);
+                    if(drawing::break_annotation_hidden(view,annotation))label+=tr(" — skryto přerušením");
                     auto* child=new QTreeWidgetItem(group,{label});
                     child->setData(0,Qt::UserRole,QString::fromStdString(view.id+":"+key));
                     child->setData(0,Qt::UserRole+3,"drawing-annotation");
@@ -113,6 +115,8 @@ void AssemblyWorkspaceWindow::refresh_drawing_tree() {
                     if(!group)group=new QTreeWidgetItem(item,{tr("Kóty")});
                     auto label=QString::fromStdString(document.dimension_identifiers.identifier(document.document_id,"dimension:"+dimension.id));
                     if(label.isEmpty())label=tr("Měřená kóta");
+                    const auto evaluation=drawing::evaluate_drawing_dimension(view,dimension);
+                    if(evaluation.state==drawing::MeasurementState::Hidden&&!view.breaks.empty())label+=tr(" — skryto přerušením");
                     auto* child=new QTreeWidgetItem(group,{label});
                     child->setData(0,Qt::UserRole,QString::fromStdString("drawing-dimension:"+dimension.id));
                     child->setData(0,Qt::UserRole+3,"drawing-dimension");

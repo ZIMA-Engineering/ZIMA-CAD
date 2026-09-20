@@ -385,16 +385,36 @@ source Parameters, Cancel does not; normal model Save persists the edits.
 
 ## Relative view rotation and annotation guides (2026-09-20)
 
-View Properties has two numeric inputs: horizontal and vertical rotation. Type
+View Properties has three numeric inputs: horizontal, vertical and in-plane rotation. Type
 an angle directly, use the input arrows in one-degree steps, or use the adjacent
 −90° and +90° buttons. The inputs are relative to the camera at dialog opening
 and start at zero; reopening starts a new relative adjustment. Selecting a
-standard orientation resets this base and both inputs. The camera is calculated
-from the fixed base and both values, so editing either input does not accumulate
+standard orientation resets this base and all three inputs. The camera is calculated
+from the fixed base and all three values, so editing an input does not accumulate
 rounding drift. Its existing persisted basis stores the result; no extra angle
 record is needed. Changes preview immediately, OK commits, and Cancel restores
 the saved view. Derived projected views continue to inherit their parent's
 orientation and keep these controls disabled.
+
+New base and projected views receive distinct numbered default names (`Pohled 1`,
+`Pohled 2`, etc.). Existing and manually assigned names are preserved.
+
+The dialog groups source/name, orientation, display/line styles, scale/position,
+guide settings, and sections/breaks. Related inputs occupy adjacent columns with
+labels above them, using the available width instead of a long form.
+
+Drawing guides are horizontal/vertical rectangles enclosing the actual 2D
+projection, including retained fragments of broken views. Model annotations do
+not substitute projected 3D boxes or enlarge these bounds. Both Drawing-created
+and Show/Erase dimensions use this same snapping aid. Source dimensions retain
+their model values and references; Drawing-created dimensions measure the
+unshortened projection in the view plane. Moving a view carries both types of
+dimensions without changing their values or view-local layout. Confirming an
+orientation change removes Drawing-created dimensions in every affected view,
+including projected descendants, because their measurement plane has changed.
+Model dimensions retain their source ownership. Cancel preserves all dimensions;
+Undo restores the former orientation and removed dimensions together. The spatial
+frame in Part/Assembly is unchanged.
 
 The positive snap offset and guide spacing are in paper millimetres. Dimension
 guide offset and spacing inputs both display three decimal places. View Properties
@@ -451,3 +471,128 @@ The guide-count follow-up passes the native view command test (count and spacing
 Save/reopen, removed snap targets and zero count) and the offscreen view-controls
 UI test (three-decimal spacing, count editing, OK, reopen and Cancel). Both the
 native application and Drawing harness were rebuilt successfully.
+
+## Broken views
+
+View Properties offers an isolated editor for view breaks, with model-space
+position/length dimensions and a paper-space gap. See [Broken Drawing views](DRAWING_BREAKS.md)
+for editing, reference preservation and persistence.
+
+### Drawing projection and break acceptance (2026-09-20)
+
+The current Linux native application, CLI and Drawing harness are rebuilt.
+The repository-root `./zima-cad` continues to launch this native build.
+`build/drawing-resume-acceptance.log` records 12/12 passing targeted tests:
+view, dimension and annotation commands; PDF/DXF commands; Show/Erase,
+measurement-dimension, balloon, view-controls and break-editor GUI contracts;
+measurement geometry and Drawing sources. The main-workspace Drawing check also
+passes (`build/drawing-resume-workspace-tests.log`).
+
+Coverage includes oblique horizontal/vertical/direct projected measurements at
+multiple scales, paper-axis rectangular snapping for both dimension kinds,
+actual mouse dragging of already dimensioned ordinary and broken views, native
+save/reopen, numbered view names, three-axis rotation, dimension removal in
+rotated parents and projected descendants, Cancel and Undo/Redo. Break coverage
+includes endpoint/segment dragging, expression entry without committing the
+Properties dialog, cursor-centred zoom, source references, hidden attachments,
+multiple intervals, clipping, fixed paper gaps and export. Antialiased colour
+checks compare the actual colour against its coverage over the black canvas,
+rather than requiring fully covered exact-RGB pixels on thin lines.
+
+Inspected captures:
+
+- `build/drawing-view-properties.png`: compact grouped Properties with three angles.
+- `build/drawing-break-editor.png`: independent full-view break editor.
+- `build/drawing-break-result.png`: shortened view retaining its 1000 mm model dimension.
+
+Broader tests are not all green. `build/drawing-resume-regression-tests.log`
+reproduces the previously documented full-Drawing-UI assertion `Selected dimension
+text is not cyan` and title-block assertion `Shared 10mm master dimension cannot
+drive its equal lengths`. The separate 3D dimension-layout test cannot obtain
+an OpenGL framebuffer offscreen; with Wayland and software OpenGL it reaches
+`View text background erases its dimension line: sketch=0, font=12, angle=0.000000`
+(`build/drawing-resume-spatial-frame-tests.log`). These failures are not counted
+as passing. No Part/Assembly spatial-frame or 3D dimension-renderer implementation
+was changed in this task.
+
+
+### Dimension follow-up, 2026-09-20
+
+New two-point Drawing dimensions use Sketcher's `classify_linear_dimension`
+during placement: the cursor chooses horizontal, vertical or direct projected
+distance. Live movement can switch repeatedly before the placement click.
+Explicit direction choices remain fixed; existing dimensions, chain extensions,
+line/tangent bindings and transferred model dimensions retain their semantics.
+The chosen direction persists in the native drawing. GUI regressions verify all
+three measured values at view scale 2 and save/reopen.
+
+Double-clicking an existing Drawing dimension now retains its cyan selection
+while Properties is open and after OK or Cancel, including tree synchronization.
+The older selected-text test inspected a region that excluded most of the small
+antialiased glyphs; its region now covers the glyphs beside the label handle,
+excludes the support line and checks cyan hue with partial pixel coverage.
+
+The title-block master-dimension failure recorded above is fixed. Decorative
+circles no longer disable the simultaneous rectilinear equation seed; unsupported
+nonlinear constraints still use the general solver. Tests cover 10 → 12 → 8 mm,
+EqualLength rows, unchanged circle radii, native save/reopen and transactional
+rejection with a fixed conflicting point. The persistence test now expects the
+current Drawing INI version 19. The unrelated 3D text-clearance issue is unchanged
+at the user's request.
+
+
+### Running chain and break-mark follow-up, 2026-09-20
+
+The user-provided `screenshots/01.png` defines Drawing chain presentation:
+all ordinates are measured from the original attachment identified by
+`anchor_attachment`, with one shared dimension line, one arrow at each target,
+and labels perpendicular to the dimension line, beside each target on the side
+opposite its witness/reference geometry. The datum has a small ring and a
+literal `0`, including when a common prefix, suffix or tolerance is configured.
+For targets at 10, 25 and 40 mm the labels are 10, 25 and 40, rather than the
+successive intervals 10, 15 and 15. Transferred model dimensions are unchanged.
+
+Adding a target at either end preserves the datum and existing segment IDs.
+Moving the line through any arrow grip or its placement field moves the shared
+line for every target. Individual label offsets remain editable. Native save,
+reopen, unresolved-reference caches, selection and PDF/DXF consume the same
+ordinate presentations. The screen and exports share one renderer, including
+the explicit zero. Evidence: `build/drawing-chain-proof.png`, `.drwz`, `.pdf`
+and `.dxf`; the GUI regression checks DXF text values 0, 10, 25 and 40.
+
+Zigzag break marks now use 20-degree included angles at their two sharp corners.
+The existing paper amplitude and gap are retained. Tests measure the angle for
+horizontal and vertical breaks at multiple scales.
+
+Final follow-up validation: 13/13 targeted contracts pass in
+`build/drawing-chain-final-tests.log`, including the complete Drawing GUI,
+measurement GUI, Sketcher, title-block, view breaks and PDF/DXF command checks.
+The root launcher's main-workspace Drawing check also passes in
+`build/drawing-chain-workspace.log`. The native application has been rebuilt.
+
+
+### Drawing dimension conventions, 2026-09-20
+
+Millimetres are implicit in Drawing dimension labels. New local length dimensions
+have an empty unit suffix; existing local and transferred model dimensions omit
+an exact `mm` suffix at presentation time. Model units, values, angular degree
+symbols, prefixes, tolerances, non-millimetre suffixes and explicit text overrides
+are retained. Screen, PDF and DXF use this same Drawing-only convention.
+
+A linear dimension's context menu now offers `Převést na řetězovou kótu…`.
+Conversion opens the shared Properties dialog using the two existing references
+and commits only with OK; it never starts entry for an additional reference.
+Adding references is a separate action on an existing chain. Undo restores the
+original linear dimension.
+
+Chain label baselines are perpendicular to their common dimension line, with
+readable text orientation. Their full text bounds stay outside the line, on the
+side opposite the witness geometry, for either side of vertical, horizontal and
+oblique dimensions. The zero follows the same rule.
+
+Drawing conventions validation: all five core/export tests and four GUI tests
+pass (`build/drawing-conventions-core-tests.log` and
+`build/drawing-conventions-ui-tests.log`). These include direct context-menu
+conversion with two existing references and Undo, both text sides at three
+orientations, hidden millimetres and retained tolerance text. The native root
+launcher has been rebuilt.

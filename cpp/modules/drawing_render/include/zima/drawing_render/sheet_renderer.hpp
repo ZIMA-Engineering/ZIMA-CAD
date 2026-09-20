@@ -36,6 +36,7 @@ protected:
     struct ShadedCache {double resolution{};QRectF bounds;const zima::drawing::ProjectedTriangle* triangles{};QImage image;};
     std::map<std::string,ShadedCache> shaded_cache_;
     bool lineweights_{};
+    bool show_paper_border_{true};
     std::string selected_;
     std::string hovered_;
     std::string selected_field_,hovered_field_;

@@ -1,3 +1,4 @@
+#include "drawing_break_editor.hpp"
 #include <zima/drawing/annotation_guides.hpp>
 #include "inline_dimension_edit.hpp"
 #include "numeric_expression_edit.hpp"
@@ -31,6 +32,8 @@
 #include "section_source.hpp"
 #include "section_properties_dialog.hpp"
 #include <QScrollArea>
+#include <QGroupBox>
+#include <QGridLayout>
 #include "drawing_shading.hpp"
 #include <zima/drawing_render/pdf_export.hpp>
 #include <QPageSize>
@@ -276,13 +279,24 @@ public:
         std::function<bool(zima::drawing::DrawingView)> accepted,
         std::function<void(std::optional<zima::drawing::DrawingView>)> preview,
         std::function<std::vector<zima::document::SectionDefinition>(const std::string&,const std::filesystem::path&)> sections,
-        std::function<std::vector<DrawingSourceChoice>(const std::filesystem::path&)> browse_sources)
+        std::function<std::vector<DrawingSourceChoice>(const std::filesystem::path&)> browse_sources,
+        std::function<void(ViewPropertiesDialog*,drawing::DrawingView)> edit_breaks)
         : PropertiesSubWindow(QObject::tr("Vlastnosti pohledu"), parent),
           value_(std::move(initial)), sources_(std::move(sources)),
           sections_(std::move(sections)), sheet_scale_(sheet_scale), accepted_(std::move(accepted)), preview_(std::move(preview)) {
         setObjectName("drawingViewProperties");
         auto* content = new QWidget(this);
-        auto* form = new QFormLayout(content);form->setFormAlignment(Qt::AlignTop);
+        auto* form = new QVBoxLayout(content);
+        const auto group=[&](const QString& title) {
+            auto* box=new QGroupBox(title,content);auto* grid=new QGridLayout(box);
+            grid->setHorizontalSpacing(12);grid->setVerticalSpacing(4);grid->setAlignment(Qt::AlignTop);form->addWidget(box);return grid;
+        };
+        const auto field=[](QGridLayout* grid,int row,int column,const QString& label,QWidget* widget,int span=1) {
+            auto* caption=new QLabel(label);caption->setBuddy(widget);
+            grid->addWidget(caption,row*2,column,1,span);
+            grid->addWidget(widget,row*2+1,column,1,span);
+            grid->setColumnStretch(column,1);
+        };
         name_ = new QLineEdit(QString::fromStdString(value_.name), content);
         name_->setObjectName("drawingViewName");
         caption_ = new QCheckBox(QObject::tr("Zobrazit název pohledu"), content);
@@ -354,54 +368,60 @@ public:
         x_->setObjectName("drawingViewX"); y_->setObjectName("drawingViewY");
         // Projected views keep the position constrained by their parent's ray.
         x_->setEnabled(value_.parent_view_id.empty()); y_->setEnabled(value_.parent_view_id.empty());
-        form->addRow(QObject::tr("Zdroj"), source_row);
-        form->addRow(QObject::tr("Název"), name_); form->addRow(caption_);
-        form->addRow(QObject::tr("Orientace"), orientation_);
+        auto* identity=group(tr("Pohled"));
+        field(identity,0,0,tr("Zdroj"),source_row);
+        auto* name_row=new QWidget(content);auto* name_layout=new QHBoxLayout(name_row);name_layout->setContentsMargins(0,0,0,0);
+        name_layout->addWidget(name_,1);name_layout->addWidget(caption_);field(identity,0,1,tr("Název"),name_row);
+        auto* orientation=group(tr("Orientace"));
+        field(orientation,0,0,tr("Základní pohled"),orientation_,3);
         rotation_base_=value_.camera;
-        for(int axis=0;axis<2;++axis) {
+        for(int axis=0;axis<3;++axis) {
             auto* row=new QWidget(content);auto* layout=new QHBoxLayout(row);layout->setContentsMargins(0,0,0,0);
             auto* spin=new ExpressionDoubleSpinBox(row);rotation_values_[axis]=spin;
-            spin->setObjectName(axis==0?"drawingRotationHorizontal":"drawingRotationVertical");
+            spin->setObjectName(axis==0?"drawingRotationHorizontal":axis==1?"drawingRotationVertical":"drawingRotationRoll");
             spin->setRange(-3600,3600);spin->setDecimals(3);spin->setSingleStep(1);
             spin->setToolTip(tr("Pootočení vůči pohledu při otevření vlastností. Krok šipek je 1°."));
             layout->addWidget(spin,1);
             for(int sign:{-1,1}) {
                 auto* button=new QPushButton(sign<0?QStringLiteral("−90°"):QStringLiteral("+90°"),row);
-                button->setObjectName(axis==0?(sign<0?"drawingRotateLeft":"drawingRotateRight"):(sign<0?"drawingRotateDown":"drawingRotateUp"));
-                button->setAutoDefault(false);button->setFixedWidth(58);layout->addWidget(button);rotation_buttons_.push_back(button);
+                button->setObjectName(axis==0?(sign<0?"drawingRotateLeft":"drawingRotateRight"):axis==1?(sign<0?"drawingRotateDown":"drawingRotateUp"):(sign<0?"drawingRotateClockwise":"drawingRotateCounterclockwise"));
+                button->setAutoDefault(false);button->setFixedWidth(48);layout->addWidget(button);rotation_buttons_.push_back(button);
                 connect(button,&QPushButton::clicked,this,[spin,sign]{spin->setValue(spin->value()+sign*90);});
             }
             connect(spin,&QDoubleSpinBox::valueChanged,this,[this]{
-                value_.camera=drawing::rotated_camera(rotation_base_,rotation_values_[0]->value(),rotation_values_[1]->value());
+                value_.camera=drawing::rotated_camera(rotation_base_,rotation_values_[0]->value(),rotation_values_[1]->value(),rotation_values_[2]->value());
                 {QSignalBlocker block(orientation_);orientation_->setCurrentIndex(7);}preview_values();
             });
-            form->addRow(axis==0?tr("Vodorovné pootočení [°]"):tr("Svislé pootočení [°]"),row);
+            field(orientation,1,axis,axis==0?tr("Vodorovně [°]"):axis==1?tr("Svisle [°]"):tr("V rovině pohledu [°]"),row);
         }
-        form->addRow(QObject::tr("Zobrazení"), display_);
-        form->addRow(QObject::tr("Skryté hrany"),hidden_style_);
-        form->addRow(QObject::tr("Tečné hrany"),tangent_style_);
-        form->addRow(QObject::tr("Měřítko"), scale_mode_);
-        form->addRow(QObject::tr("Hodnota měřítka"), scale_);
-        form->addRow(QObject::tr("Poloha X [mm]"), x_);
-        form->addRow(QObject::tr("Poloha Y [mm]"), y_);
+        auto* appearance=group(tr("Zobrazení a čáry"));
+        field(appearance,0,0,tr("Zobrazení"),display_);field(appearance,0,1,tr("Skryté hrany"),hidden_style_);field(appearance,0,2,tr("Tečné hrany"),tangent_style_);
+        auto* placement=group(tr("Měřítko a poloha na listu"));
+        field(placement,0,0,tr("Měřítko"),scale_mode_);field(placement,0,1,tr("Hodnota"),scale_);
+        field(placement,1,0,tr("X [mm]"),x_);field(placement,1,1,tr("Y [mm]"),y_);
         guides_=new QCheckBox(tr("Zobrazovat vodítka i mimo přesouvání"),content);guides_->setObjectName("drawingDimensionGuides");guides_->setChecked(value_.show_dimension_guides);
         guide_offset_=new QDoubleSpinBox(content);guide_spacing_=new QDoubleSpinBox(content);guide_offset_->setObjectName("drawingGuideOffset");guide_spacing_->setObjectName("drawingGuideSpacing");
         guide_offset_->setDecimals(3);guide_offset_->setRange(.001,1000);guide_spacing_->setDecimals(3);guide_spacing_->setRange(.1,1000);guide_offset_->setValue(value_.dimension_guide_offset);guide_spacing_->setValue(value_.dimension_guide_spacing);
         guide_count_=new QSpinBox(content);guide_count_->setObjectName("drawingGuideCount");guide_count_->setRange(0,100);guide_count_->setValue(value_.dimension_guide_count);
-        form->addRow(tr("Počet odsazených vodítek"),guide_count_);connect(guide_count_,&QSpinBox::valueChanged,this,[this]{preview_values();});
-        form->addRow(guides_);form->addRow(tr("Odsazení přichytávání [mm]"),guide_offset_);form->addRow(tr("Rozteč vodítek [mm]"),guide_spacing_);
+        auto* guides=group(tr("Vodítka kót"));field(guides,0,0,tr("Počet"),guide_count_);connect(guide_count_,&QSpinBox::valueChanged,this,[this]{preview_values();});
+        field(guides,0,1,tr("Odsazení [mm]"),guide_offset_);field(guides,0,2,tr("Rozteč [mm]"),guide_spacing_);guides->addWidget(guides_,2,0,1,3);
         connect(guides_,&QCheckBox::toggled,this,[this]{preview_values();});for(auto* control:{guide_offset_,guide_spacing_})connect(control,&QDoubleSpinBox::valueChanged,this,[this]{preview_values();});
+        auto* metrics=new QHBoxLayout;metrics->setSpacing(10);
+        form->removeWidget(placement->parentWidget());form->removeWidget(guides->parentWidget());
+        metrics->addWidget(placement->parentWidget(),1);metrics->addWidget(guides->parentWidget(),1);form->addLayout(metrics);
         section_=new QComboBox(content);section_->setObjectName("drawingSection");
         section_label_=new QCheckBox(tr("Zobrazit označení řezu"),content);section_label_->setObjectName("drawingSectionLabel");section_label_->setChecked(value_.show_section_label);
         components_=new SectionComponentsWidget(content);
-        form->addRow(tr("Řez"),section_);
-        form->addRow(section_label_);form->addRow(components_);
-        marker_table_=new QTableWidget(content);marker_table_->setObjectName("drawingSectionMarkers");marker_table_->setColumnCount(1);marker_table_->setHorizontalHeaderLabels({tr("Zobrazit trasy řezů")});marker_table_->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);marker_table_->verticalHeader()->hide();form->addRow(marker_table_);
+        auto* breaks=new QPushButton(tr("Editovat přerušení…"),content);breaks->setObjectName("drawingEditBreaks");auto* section_group=group(tr("Řezy a přerušení"));field(section_group,0,1,tr("Přerušení pohledu"),breaks);
+        connect(breaks,&QPushButton::clicked,this,[this,edit_breaks]{edit_breaks(this,values());});
+        field(section_group,0,0,tr("Řez"),section_);
+        section_group->addWidget(section_label_,2,0);section_group->addWidget(components_,3,0,1,2);
+        marker_table_=new QTableWidget(content);marker_table_->setObjectName("drawingSectionMarkers");marker_table_->setColumnCount(1);marker_table_->setHorizontalHeaderLabels({tr("Zobrazit trasy řezů")});marker_table_->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);marker_table_->verticalHeader()->hide();section_group->addWidget(marker_table_,4,0,1,2);
         error_ = new QLabel(content); error_->setWordWrap(true);error_->hide();
         error_->setObjectName("drawingViewError");
-        form->addRow(error_);
-        auto* scroll=new QScrollArea(this);scroll->setWidgetResizable(true);scroll->setWidget(content);scroll->setMinimumHeight(420);content_layout()->addWidget(scroll);
-        setMinimumWidth(680);
+        form->addWidget(error_);form->addStretch();
+        auto* scroll=new QScrollArea(this);scroll->setWidgetResizable(true);scroll->setWidget(content);scroll->setMinimumHeight(420);scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);content_layout()->addWidget(scroll);
+        setMinimumWidth(760);set_initial_size({800,760});
         load_sections(value_.section_id);
         connect(source_,&QComboBox::currentIndexChanged,this,[this]{load_sections({});});
         connect(section_,&QComboBox::currentIndexChanged,this,[this]{set_section_components();preview_values();});
@@ -431,6 +451,8 @@ public:
         {QSignalBlocker x_block(x_),y_block(y_);x_->setValue(position.x);y_->setValue(position.y);}
         preview_values();
     }
+    void set_breaks(std::vector<drawing::ViewBreak> breaks) {value_.breaks=std::move(breaks);preview_values();}
+    void resume_preview() {preview_values();}
     void set_error(const QString& error) { error_->setText(error);error_->setVisible(!error.isEmpty()); }
     zima::drawing::DrawingView values() const {
         auto result = value_;
@@ -468,7 +490,7 @@ private:
     QSpinBox* guide_count_{};QCheckBox* guides_{};QDoubleSpinBox *guide_offset_{},*guide_spacing_{};
     QComboBox *section_{};QCheckBox *section_label_{};
     std::vector<QPushButton*> rotation_buttons_;
-    std::array<QDoubleSpinBox*,2> rotation_values_{};
+    std::array<QDoubleSpinBox*,3> rotation_values_{};
     drawing::ProjectionCamera rotation_base_;
     QTableWidget* marker_table_{};
     void update_rotation_controls(){const bool enabled=value_.parent_view_id.empty();orientation_->setEnabled(enabled);for(auto* button:rotation_buttons_)button->setEnabled(enabled);for(auto* spin:rotation_values_)spin->setEnabled(enabled);}
@@ -795,12 +817,15 @@ public:
         if(dialog){
             dialog->set_changed([this]{offer_measurements(measurement_pointer_);update();});
             selected_dimension_id_=dialog->value().id;
+            if(sheet_&&std::ranges::any_of(sheet_->dimensions,[&](const auto& d){return d.id==selected_dimension_id_;})) {
+                selected_.clear();selected_annotation_=AnnotationKey{AnnotationKind::Dimension,dialog->value().view_id,selected_dimension_id_,0};
+            }
         }
         if(selection_changed_)selection_changed_();update();
     }
     drawing::Point2 measurement_point(const drawing::DrawingView& view,QPointF point)const{
-        const auto origin=view_screen_point(view,{});const double scale=canvas_zoom()*view.scale;
-        return {(point.x()-origin.x())/scale,-(point.y()-origin.y())/scale};
+        const auto origin=raw_view_origin(view);const double scale=canvas_zoom()*view.scale;
+        return drawing::break_map(view,{(point.x()-origin.x())/scale,-(point.y()-origin.y())/scale},true);
     }
     void offer_measurements(QPointF point){
         measurement_pointer_=point;std::vector<OfferedMeasurement> candidates;
@@ -854,8 +879,10 @@ public:
     [[nodiscard]] bool dimension_mode() const { return dimension_mode_; }
     bool interacting() const { return bool(preview_); }
 protected:
+    QPointF raw_view_origin(const drawing::DrawingView& view)const{const auto zoom=canvas_zoom();const auto o=canvas_origin(zoom);return {o.x()+(sheet_->width_mm()-view.x)*zoom,o.y()+(sheet_->height_mm()-view.y)*zoom};}
     QPointF view_screen_point(const zima::drawing::DrawingView& view,
-                            const zima::drawing::Point2& point) const {
+                            const zima::drawing::Point2& original) const {
+        const auto point=drawing::break_map(view,original);
         const double zoom = canvas_zoom(); const auto origin = canvas_origin(zoom);
         return {origin.x() + (sheet_->width_mm() - view.x + point.x * view.scale)*zoom,
                 origin.y() + (sheet_->height_mm() - view.y - point.y * view.scale)*zoom};
@@ -921,7 +948,10 @@ protected:
         }
         selected_field_.clear();
         offer_annotations(event->pos());
-        if(!offered_annotations_.empty()&&(!selected_annotation_||*selected_annotation_!=offered_annotations_[offered_annotation_index_].key)){
+        if(!offered_annotations_.empty()&&(!selected_annotation_||
+            selected_annotation_->kind!=offered_annotations_[offered_annotation_index_].key.kind||
+            selected_annotation_->view!=offered_annotations_[offered_annotation_index_].key.view||
+            selected_annotation_->id!=offered_annotations_[offered_annotation_index_].key.id)){
             offered_annotation_index_=(offered_annotation_index_+1)%offered_annotations_.size();hovered_annotation_=offered_annotations_[offered_annotation_index_].key;update();event->accept();return;
         }
         if(selected_annotation_&&selected_annotation_->kind==AnnotationKind::Model&&!offered_annotations_.empty()&&dimension_properties_) {
@@ -938,8 +968,13 @@ protected:
             menu->addAction(tr("Vlastnosti kóty…"),this,[this,id]{if(manual_properties_)manual_properties_(id,0);});
             const auto* dimension=visible_dimension(id);
             if(dimension&&(dimension->kind==drawing::DrawingDimensionKind::Linear||dimension->kind==drawing::DrawingDimensionKind::Chain)){
-                menu->addAction(tr("Řetězec z prvního konce…"),this,[this,id]{if(manual_properties_)manual_properties_(id,-1);});
-                menu->addAction(tr("Řetězec z druhého konce…"),this,[this,id]{if(manual_properties_)manual_properties_(id,1);});
+                if(dimension->kind==drawing::DrawingDimensionKind::Linear) {
+                    auto* convert=menu->addAction(tr("Převést na řetězovou kótu…"),this,[this,id]{if(manual_properties_)manual_properties_(id,2);});
+                    convert->setObjectName("convertDrawingChainAction");
+                } else {
+                    menu->addAction(tr("Přidat bod na začátek…"),this,[this,id]{if(manual_properties_)manual_properties_(id,-1);});
+                    menu->addAction(tr("Přidat bod na konec…"),this,[this,id]{if(manual_properties_)manual_properties_(id,1);});
+                }
             }
             menu->addAction(tr("Odstranit"),this,[this,id]{workspace::erase_drawing_dimension(*sheet_,id);selected_dimension_id_.clear();selected_annotation_.reset();if(changed_)changed_();if(selection_changed_)selection_changed_();update();});menu->popup(event->globalPos());event->accept();return;
         }
@@ -1027,7 +1062,7 @@ protected:
             const auto highlight=[&](const drawing::DrawingView& view,const kernel::EdgeReference& ref,QColor color){
                 painter.save();painter.setPen(QPen(color,2));painter.setBrush(Qt::NoBrush);
                 for(const auto& curve:drawing::measurement_reference_geometry(view,ref)){QPolygonF line;for(const auto& p:curve)line<<view_screen_point(view,p);painter.drawPolyline(line);}
-                for(const auto& p:view.measurement_geometry->points)if(p.source==ref)painter.drawEllipse(view_screen_point(view,{kernel::dimension_dot(p.position,view.camera.horizontal),kernel::dimension_dot(p.position,view.camera.vertical)}),4,4);
+                for(const auto& p:view.measurement_geometry->points)if(p.source==ref&&!drawing::break_hidden(view,{kernel::dimension_dot(p.position,view.camera.horizontal),kernel::dimension_dot(p.position,view.camera.vertical)}))painter.drawEllipse(view_screen_point(view,{kernel::dimension_dot(p.position,view.camera.horizontal),kernel::dimension_dot(p.position,view.camera.vertical)}),4,4);
                 painter.restore();
             };
             if(!measurement_offered_.empty()){
@@ -1130,7 +1165,7 @@ protected:
                 if(QLineF(candidate.point,event->position()).length()<=8){
                     if(candidate.key.kind==AnnotationKind::Caption||candidate.key.kind==AnnotationKind::SectionLabel){
                         dragged_label_=std::pair{candidate.key.view,candidate.key.kind==AnnotationKind::SectionLabel};label_drag_start_=event->position();label_moved_=false;
-                        for(const auto& view:sheet_->views)if(view.id==candidate.key.view){const auto origin=view_screen_point(view,{});label_position_start_={(candidate.point.x()-origin.x())/canvas_zoom(),(origin.y()-candidate.point.y())/canvas_zoom()};}
+                        for(const auto& view:sheet_->views)if(view.id==candidate.key.view){const auto origin=raw_view_origin(view);label_position_start_={(candidate.point.x()-origin.x())/canvas_zoom(),(origin.y()-candidate.point.y())/canvas_zoom()};}
                     }else if(candidate.key.kind==AnnotationKind::Balloon){
                         begin_balloon_drag(candidate,event->position());
                     }else if(candidate.key.kind==AnnotationKind::Dimension){
@@ -1210,9 +1245,10 @@ protected:
         if(dragged_model_&&(event->buttons()&Qt::LeftButton)){
             const auto delta=event->position()-model_drag_start_;if(!model_moved_&&delta.manhattanLength()<QApplication::startDragDistance())return;
             for(auto& view:sheet_->views)if(view.id==dragged_model_->key.view)for(auto& item:view.model_annotations)if(model_annotation_key(item.source)==dragged_model_->key.id){
-                const auto origin=view_screen_point(view,{});const auto point=dragged_model_->point+delta;
-                auto p=snap_annotation_point(view,{(point.x()-origin.x())/zoom,(origin.y()-point.y())/zoom});
-                const QPointF snapped_delta=origin+QPointF(p.x*zoom,-p.y*zoom)-dragged_model_->point;
+                const auto origin=raw_view_origin(view);const auto point=dragged_model_->point+delta;
+                auto p=snap_annotation_point(view,drawing::break_paper(view,{(point.x()-origin.x())/zoom,(origin.y()-point.y())/zoom},true));
+                const auto start=drawing::break_paper(view,{(dragged_model_->point.x()-origin.x())/zoom,(origin.y()-dragged_model_->point.y())/zoom},true);
+                const QPointF snapped_delta((p.x-start.x)*zoom,-(p.y-start.y)*zoom);
                 item.handle_camera_horizontal={view.camera.horizontal.x,view.camera.horizontal.y,view.camera.horizontal.z};
                 item.handle_camera_vertical={view.camera.vertical.x,view.camera.vertical.y,view.camera.vertical.z};
                 const auto key=dragged_model_->key.end==0?"text":dragged_model_->key.end==1?"arrow_first":"arrow_second";
@@ -1234,7 +1270,7 @@ protected:
                         }
                         if(dragged_model_->key.end==0){
                             const auto label=shown.label_position.value_or(kernel::dimension_scale(kernel::dimension_add(shown.line_first,shown.line_second),.5));
-                            const QPointF original((dragged_model_->point.x()-origin.x())/(zoom*view.scale),(origin.y()-dragged_model_->point.y())/(zoom*view.scale));
+                            const QPointF original(start.x/view.scale,start.y/view.scale);
                             const auto correction=original-QPointF(kernel::dimension_dot(label,view.camera.horizontal),kernel::dimension_dot(label,view.camera.vertical));
                             if(const auto offset=viewer::dimension_plane_drag(correction,a,b)) {
                                 item.view_layout->text_along+=offset->x();item.view_layout->text_outward+=offset->y();
@@ -1887,6 +1923,7 @@ void DrawingWindow::insert_view() {
         sheet=document_.find_sheet(sheet_id);if(!sheet)return;
         auto view=zima::drawing::DrawingDocument::create_view(source.first,source_path,source.second,
             zima::drawing::ViewOrientation::Isometric);
+        view.name=workspace::next_drawing_view_name(document_,tr("Pohled").toStdString());
         view.scale=sheet->default_scale; view.use_sheet_scale=true;
         canvas_->begin_placement(std::move(view), [this](auto placed) {
             show_view_properties(std::move(placed),true);
@@ -1994,8 +2031,14 @@ void DrawingWindow::show_view_properties(zima::drawing::DrawingView view, bool c
             try { project(*pending,true); canvas_->set_preview(std::move(pending)); error({}); }
             catch (const std::exception& exception) { canvas_->set_preview({});error(tr(exception.what())); }
         },[this](const auto& id,auto path){if(!path.empty()&&path.is_relative()&&!path_.empty())path=path_.parent_path()/path;return source_sections(workspace_,id,path);},
-        [this](const auto& path){return family_source_choices(workspace_,{},path);});
-    dialog->set_initial_size(QSize(820,980));
+        [this](const auto& path){return family_source_choices(workspace_,{},path);},
+        [this,project](ViewPropertiesDialog* properties,drawing::DrawingView pending){
+            try{project(pending,true);}catch(const std::exception& e){properties->set_error(QString::fromUtf8(e.what()));return;}
+            auto sheet=*active_sheet();auto owner=window();QPointer<ViewPropertiesDialog> guarded(properties);
+            auto* editor=new DrawingBreakEditor(owner,std::move(sheet),pending,[guarded](auto breaks){if(guarded)guarded->set_breaks(std::move(breaks));});
+            properties->hide();canvas_->set_preview({});canvas_->setEnabled(false);
+            connect(editor,&QDialog::finished,this,[this,guarded,editor]{canvas_->setEnabled(true);if(guarded){guarded->show();guarded->raise();guarded->resume_preview();}editor->deleteLater();});editor->show();
+        });
     view_dialog_=dialog;
     canvas_->set_preview_move_handler([dialog=QPointer<ViewPropertiesDialog>(dialog)](auto position){if(dialog)dialog->move_preview(position);});
     if (properties_handler_) properties_handler_(dialog);
@@ -2021,7 +2064,7 @@ void DrawingWindow::create_projected_view() {
         if (source_id!=parent_copy.source_document_id) throw std::runtime_error("Zdroj pohledu patří jinému dokumentu.");
         auto mesh=std::make_shared<zima::kernel::ViewerMesh>(std::move(source_mesh));
         auto view=zima::drawing::DrawingDocument::create_view(source_id,parent_copy.source_path,*mesh);
-        view.name=tr("Projekční pohled").toStdString(); view.parent_view_id=parent_copy.id;
+        view.name=workspace::next_drawing_view_name(document_,tr("Pohled").toStdString()); view.parent_view_id=parent_copy.id;
         view.scale=parent_copy.scale; view.use_sheet_scale=parent_copy.use_sheet_scale;
         view.display_style=parent_copy.display_style;
         canvas_->begin_placement(std::move(view), [this](auto placed) {
@@ -2189,8 +2232,13 @@ void DrawingWindow::show_dimension_properties(const std::string& id,int extend) 
                 sync_workspace_document();
         },owner?owner:this);
     view_dialog_=dialog;canvas_->set_dimension_command(dialog);
-    if(extend)dialog->extend(extend<0);
-    connect(dialog,&QDialog::finished,this,[this]{canvas_->set_dimension_command(nullptr);view_dialog_=nullptr;if(properties_handler_)properties_handler_(nullptr);update_action_states();});
+    if(extend==2)dialog->findChild<QComboBox*>("drawingDimensionType")->setCurrentIndex(int(drawing::DrawingDimensionKind::Chain));
+    else if(extend)dialog->extend(extend<0);
+    connect(dialog,&QDialog::finished,this,[this,id,view=value.view_id]{
+        canvas_->set_dimension_command(nullptr);view_dialog_=nullptr;
+        if(!id.empty())if(const auto* sheet=active_sheet();sheet&&std::ranges::any_of(sheet->dimensions,[&](const auto& d){return d.id==id;}))canvas_->select_manual(view,id);
+        if(properties_handler_)properties_handler_(nullptr);update_action_states();
+    });
     if(properties_handler_)properties_handler_(dialog);dialog->show();update_action_states();
     set_status_message(tr("Kóta: vyberte vazby a umístění. OK potvrdí měřenou kótu."));
 }

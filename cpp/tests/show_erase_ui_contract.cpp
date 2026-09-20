@@ -561,7 +561,7 @@ int verify_show_erase_ui() {
     window.findChild<QTabBar*>("drawingSheetTabs")->setCurrentIndex(1);flush();
     const auto second_dxf=dir.filePath("second-sheet.dxf");window.export_dxf(second_dxf.toStdString());
     QFile second_file(second_dxf);require(second_file.open(QIODevice::ReadOnly),"Second sheet DXF missing");
-    require(!second_file.readAll().contains("60mm"),"DXF included dimensions from another sheet");
+    require(!second_file.readAll().contains("\n1\n60\n"),"DXF included dimensions from another sheet");
     multi_sheet.sheets.pop_back();workspace.open_drawing(drawing.document_id)->commit(multi_sheet);
     window.edit_workspace_document(drawing.document_id);flush();
     state.save((dir.path() + "/show-erase.drwz").toStdString());

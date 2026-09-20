@@ -1,3 +1,4 @@
+#include <zima/drawing/view_breaks.hpp>
 #include <zima/drawing/measurement_dimension.hpp>
 #include "drawing_projection.hpp"
 #include <zima/drawing/model_annotations.hpp>
@@ -264,14 +265,17 @@ ProjectionCamera standard_camera(ViewOrientation orientation) {
     return {};
 }
 
-ProjectionCamera rotated_camera(const ProjectionCamera& base,double horizontal,double vertical) {
-    if(!std::isfinite(horizontal)||!std::isfinite(vertical))throw std::invalid_argument("Camera rotation must be finite");
+ProjectionCamera rotated_camera(const ProjectionCamera& base,double horizontal,double vertical,double roll) {
+    if(!std::isfinite(horizontal)||!std::isfinite(vertical)||!std::isfinite(roll))throw std::invalid_argument("Camera rotation must be finite");
     const double h=horizontal*std::acos(-1.)/180,v=vertical*std::acos(-1.)/180;
     const auto combine=[](auto a,double x,auto b,double y){return kernel::Vec3{a.x*x+b.x*y,a.y*x+b.y*y,a.z*x+b.z*y};};
     const auto depth=combine(base.depth,std::cos(h),base.horizontal,std::sin(h));
-    return {combine(base.horizontal,std::cos(h),base.depth,-std::sin(h)),
+    ProjectionCamera camera{combine(base.horizontal,std::cos(h),base.depth,-std::sin(h)),
         combine(base.vertical,std::cos(v),depth,-std::sin(v)),
         combine(depth,std::cos(v),base.vertical,std::sin(v))};
+    const double r=roll*std::acos(-1.)/180;
+    return {combine(camera.horizontal,std::cos(r),camera.vertical,-std::sin(r)),
+            combine(camera.horizontal,std::sin(r),camera.vertical,std::cos(r)),camera.depth};
 }
 
 ProjectionCamera projected_camera(
@@ -676,6 +680,8 @@ void DrawingDocument::save(const std::filesystem::path& path,
             if(stored_section){item["section_body_owners"]=stored_section->body_owners;item["section_component_names"]=stored_section->component_names;item["section_snapshot"]=nlohmann::json::parse(zima::document::serialize_sections({*stored_section}));}
             else item["section_snapshot"]=nlohmann::json::array();
 
+            validate_view_breaks(view);item["breaks"]=nlohmann::json::array();
+            for(const auto& b:view.breaks)item["breaks"].push_back({{"id",b.id},{"vertical",b.vertical},{"start",b.start},{"length",b.length},{"gap",b.gap},{"mark",int(b.mark)}});
             item["dimension_guides"]={{"visible",view.show_dimension_guides},{"offset",view.dimension_guide_offset},{"spacing",view.dimension_guide_spacing},{"count",view.dimension_guide_count}};
             item["model_annotations"] = nlohmann::json::parse(serialize_model_annotations(view.model_annotations));
             auto [measurement,inserted]=measurement_ids.try_emplace(view.measurement_geometry.get(),
@@ -825,6 +831,8 @@ DrawingDocument DrawingDocument::load(const std::filesystem::path& path) {
             DrawingView view;
             view.id = item.at("id").get<std::string>();
             view.name = item.value("name", "Pohled");
+            for(const auto& b:item.value("breaks",nlohmann::json::array()))view.breaks.push_back({b.at("id"),b.at("vertical"),b.at("start"),b.at("length"),b.at("gap"),static_cast<BreakMark>(b.at("mark").get<int>())});
+            validate_view_breaks(view);
             const auto guides=item.value("dimension_guides",nlohmann::json::object());
             view.show_dimension_guides=guides.value("visible",false);view.dimension_guide_offset=guides.value("offset",8.0);view.dimension_guide_spacing=guides.value("spacing",8.0);view.dimension_guide_count=guides.value("count",4);
             if(view.dimension_guide_count<0||view.dimension_guide_count>100||!std::isfinite(view.dimension_guide_offset)||!std::isfinite(view.dimension_guide_spacing)||view.dimension_guide_offset<0||view.dimension_guide_spacing<=0)throw std::runtime_error("Invalid dimension guides");

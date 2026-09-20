@@ -18,6 +18,9 @@ protected:
             setProperty("cancelled",true);hide();deleteLater();event->accept();return;
         }
         QLineEdit::keyPressEvent(event);
+        // Enter commits this numeric field only, never an enclosing Properties
+        // transaction through QDialog's default button.
+        if(event->key()==Qt::Key_Return||event->key()==Qt::Key_Enter)event->accept();
     }
 };
 }

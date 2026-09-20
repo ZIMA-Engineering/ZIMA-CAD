@@ -54,7 +54,7 @@ Individual handle positions should survive reopening, scale changes and
 regeneration. The view itself retains a rectangular area.
 
 View Properties exposes dimension working guides: enabled state, first-line
-distance from the envelope and subsequent spacing in mm. Guides are subtle gray
+distance from the 2D projection bounds and subsequent spacing in paper mm. Guides are subtle gray
 dashes like hidden edges. They are not Drawing geometry and do not print or
 export to PDF. Agreed defaults are 8 mm for both first distance and spacing.
 
@@ -110,12 +110,13 @@ clear confirmed selection.
    A linear dimension retains its direction when offset changes; an angular
    dimension changes arc radius. Source Sketch values/constraints do not change.
 
-Enable **Dimension working guides** in View Properties. Guides project from the
-dimension owner's oriented box. Geometric envelope and working offsets are
-separate: moving a dimension does not enlarge the model. First distance and
-spacing are **8 mm on paper**. Dimensions parallel to paper guides snap to a
-nearby level while dragging their offset. Oblique projections use the spatial
-dimension position. Working frames are excluded from print, PDF and DXF.
+Enable **Dimension working guides** in View Properties. Guides are rectangles
+aligned with the view's horizontal and vertical axes around its actual displayed
+projection. Geometric bounds and working offsets are separate: moving a
+dimension does not enlarge the model. First distance and spacing are **8 mm on
+paper** by default. Model and Drawing-created dimensions share these snap
+segments. Model dimensions retain their original spatial measurement and
+references. Working frames are excluded from print, PDF and DXF.
 
 The initial axial-view marker was a 6 mm cross with a center point; the later
 radius-based sizing rule below supersedes that fixed span. Each hole owns its
@@ -369,7 +370,7 @@ View Properties exposes a strictly positive **Odsazení přichytávání [mm]**
 value and a positive guide spacing, both in paper millimetres. Existing guide
 settings remain the sole persisted values. During dimension text/grip movement,
 manual dimension placement and balloon placement/center dragging, the owning
-view's projected frame guides appear automatically. The visibility checkbox
+view's 2D rectangular guides appear automatically. The visibility checkbox
 controls whether guides also remain visible while idle.
 
 One shared geometry function produces both rendered guide segments and snap
@@ -378,8 +379,9 @@ resulting view-relative presentation position. A green highlighted segment and
 diamond identify an actual snap; releasing or canceling removes this feedback.
 Candidates always come from the exact owning view. Other views, sheets and free
 text objects do not contribute snap candidates. Source geometry and parameter
-values are unaffected. Views without model annotations use their projected
-geometry bounds for manual dimensions and balloons.
+values are unaffected. Every view uses its displayed projection bounds for model
+dimensions, manual dimensions and balloons; projected 3D envelopes are not used.
+The Part/Assembly spatial frame remains unchanged.
 
 The model dimension and balloon GUI contracts check the feedback during dragging
 and verify that the final grip matches the indicated snap position.

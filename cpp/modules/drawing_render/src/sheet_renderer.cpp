@@ -1,5 +1,8 @@
+#include <zima/drawing/view_orientation.hpp>
+#include <zima/drawing/view_breaks.hpp>
 #include <zima/drawing/annotation_guides.hpp>
 #include <zima/drawing_render/sheet_renderer.hpp>
+#include <zima/drawing_render/chain_dimension_layout.hpp>
 #include <zima/drawing/balloon.hpp>
 #include <zima/viewer/dimension_text_layer.hpp>
 #include <zima/viewer/embedded_image.hpp>
@@ -45,8 +48,13 @@ QRectF SheetRenderer::view_bounds_at(const zima::drawing::DrawingView& view,doub
             else { xmin=std::min(xmin,screen.x()); xmax=std::max(xmax,screen.x());
                    ymin=std::min(ymin,screen.y()); ymax=std::max(ymax,screen.y()); }
         };
-        for (const auto& edge : view.projected_edges) for (const auto& point : edge.points) include(point);
-        for (const auto& triangle : view.projected_triangles) for (const auto& point : triangle.points) include(point);
+        if(view.breaks.empty()) {
+            for(const auto& edge:view.projected_edges)for(auto point:edge.points)include(point);
+            for(const auto& triangle:view.projected_triangles)for(auto point:triangle.points)include(point);
+        } else {
+            for(const auto& edge:drawing::broken_edges(view))for(auto point:edge.points)include(point);
+            for(const auto& triangle:drawing::broken_triangles(view))for(auto point:triangle.points)include(point);
+        }
         if (first) include({});
         return QRectF(QPointF(xmin,ymin),QPointF(xmax,ymax));
     }
@@ -84,7 +92,7 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
         painter.setRenderHint(QPainter::Antialiasing, true);
         QFont annotation_font(drawing_font_family());annotation_font.setPixelSize(std::max(1,static_cast<int>(3.5*zoom)));painter.setFont(annotation_font);
         painter.setPen(QPen(QColor("#808080"), 1.0));
-        if(!printing)painter.drawRect(paper);
+        if(!printing&&show_paper_border_)painter.drawRect(paper);
         painter.setPen(QPen(ink,width(false)));
         const auto screen=[&](const zima::drawing::Point2& point) {
             return QPointF(origin.x()+sheet_->width_mm()*zoom-point.x*zoom,
@@ -161,7 +169,9 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
         }
         draw_template(layout.lines,layout.texts,layout.circles);
         for (const auto* rendered_view : views) {
-            const auto& view = *rendered_view;
+            auto geometry = rendered_view->breaks.empty()?std::optional<drawing::DrawingView>{}:std::optional(*rendered_view);
+            if(geometry){geometry->projected_edges=drawing::broken_edges(*rendered_view);geometry->projected_triangles=drawing::broken_triangles(*rendered_view);}
+            const auto& view = geometry?*geometry:*rendered_view;
             if (view.display_style != zima::drawing::DisplayStyle::ShadedWithEdges && view.display_style != zima::drawing::DisplayStyle::Shaded) continue;
             bool first=true;QRectF model_bounds;
             for(const auto& triangle:view.projected_triangles)for(const auto& point:triangle.points) {
@@ -175,7 +185,7 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
                 model_bounds.width()*view.scale*zoom,model_bounds.height()*view.scale*zoom);
             const double resolution=zoom*view.scale*(printing?1.0:2.0);
             auto& cached=shaded_cache_[view.id];
-            if(cached.image.isNull()||cached.resolution!=resolution||cached.bounds!=model_bounds||cached.triangles!=view.projected_triangles.data()) {
+            if(!view.breaks.empty()||cached.image.isNull()||cached.resolution!=resolution||cached.bounds!=model_bounds||cached.triangles!=view.projected_triangles.data()) {
                 cached.image=drawing_shaded_fill(view,model_bounds,resolution);
                 cached.resolution=resolution;cached.bounds=model_bounds;cached.triangles=view.projected_triangles.data();
             }
@@ -185,7 +195,9 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
         }
         painter.setBrush(Qt::NoBrush);
         for (const auto* rendered_view : views) {
-            const auto& view = *rendered_view;
+            auto geometry = rendered_view->breaks.empty()?std::optional<drawing::DrawingView>{}:std::optional(*rendered_view);
+            if(geometry){geometry->projected_edges=drawing::broken_edges(*rendered_view);geometry->projected_triangles=drawing::broken_triangles(*rendered_view);}
+            const auto& view = geometry?*geometry:*rendered_view;
             for(bool hidden_pass:{true,false})for (const auto& edge : view.projected_edges) {
                 if(edge.hidden!=hidden_pass)continue;
                 if(!zima::drawing::drawing_edge_visible(view,edge))continue;
@@ -206,6 +218,8 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
                 }
                 painter.drawPolyline(line);
             }
+            painter.setPen(QPen(QColor("#808080"),width(false)));
+            for(const auto& mark:drawing::break_marks(*rendered_view)){QPolygonF line;for(auto p:mark)line<<QPointF(origin.x()+(sheet_->width_mm()-view.x+p.x*view.scale)*zoom,origin.y()+(sheet_->height_mm()-view.y-p.y*view.scale)*zoom);painter.drawPolyline(line);}
         }
         painter.setBrush(Qt::NoBrush);
         for (const auto* view : views) {
@@ -233,7 +247,7 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
             if(!printing&&view->show_dimension_guides){
                 painter.save();painter.setPen(QPen(QColor("#666666"),1,Qt::DashLine));
                 for(const auto& line:drawing::annotation_guides(*view))
-                    painter.drawLine(screen({line.first.x,line.first.y}),screen({line.second.x,line.second.y}));
+                    {auto a=drawing::break_paper(*view,line.first),b=drawing::break_paper(*view,line.second);painter.drawLine(screen({a.x,a.y}),screen({b.x,b.y}));}
                 painter.restore();
             }
             for(const auto& stored:view->model_annotations){
@@ -277,7 +291,7 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
                 }
                 traces.emplace_back(&section,std::move(*layout));
             }
-            const auto screen=[&](Point p){return QPointF(origin.x()+(sheet_->width_mm()-view->x+p.x)*zoom,origin.y()+(sheet_->height_mm()-view->y-p.y)*zoom);};
+            const auto screen=[&](Point original){auto p=drawing::break_paper(*view,original);return QPointF(origin.x()+(sheet_->width_mm()-view->x+p.x)*zoom,origin.y()+(sheet_->height_mm()-view->y-p.y)*zoom);};
             for(const auto& [section,layout]:traces){
                 const AnnotationKey trace_key{AnnotationKind::SectionEnd,view->id,section->id,0};
                 const auto trace_color=annotation_color(trace_key,ink,printing);
@@ -312,16 +326,33 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
         if(!printing&&dimension_preview)dimensions.push_back(dimension_preview);
         for(const auto* entry:dimensions){
             const auto& dimension=*entry;
+            if(!printing&&preview_&&preview_->id==dimension.view_id) {
+                const auto original=std::ranges::find(sheet_->views,dimension.view_id,&drawing::DrawingView::id);
+                if(original!=sheet_->views.end()&&!drawing::same_view_orientation(original->camera,preview_->camera))continue;
+            }
             const auto view_it=std::ranges::find_if(views,[&](const auto* view){return view->id==dimension.view_id;});
             if(view_it==views.end())continue;const auto* view=*view_it;
             const auto evaluation=drawing::evaluate_drawing_dimension(*view,dimension);
             if(evaluation.state==drawing::MeasurementState::Hidden)continue;
-            const auto screen=[&](kernel::Vec3 p){return QPointF(origin.x()+(sheet_->width_mm()-view->x+p.x*view->scale)*zoom,origin.y()+(sheet_->height_mm()-view->y-p.y*view->scale)*zoom);};
-            for(std::size_t index=0;index<evaluation.presentations.size();++index){
-                const auto& source=evaluation.presentations[index];const AnnotationKey key{AnnotationKind::Dimension,dimension.view_id,dimension.id,int(evaluation.cached_segment_indices.empty()?index:evaluation.cached_segment_indices[index])*3};
+            const auto screen=[&](kernel::Vec3 original){const auto p=drawing::break_map(*view,{original.x,original.y});return QPointF(origin.x()+(sheet_->width_mm()-view->x+p.x*view->scale)*zoom,origin.y()+(sheet_->height_mm()-view->y-p.y*view->scale)*zoom);};
+            const bool chain=dimension.kind==drawing::DrawingDimensionKind::Chain;
+            for(std::size_t index=0;index<evaluation.presentations.size()+(chain&&!evaluation.presentations.empty()?1:0);++index){
+                const bool datum=index==evaluation.presentations.size();
+                const auto& source=evaluation.presentations[datum?0:index];const AnnotationKey key{AnnotationKind::Dimension,dimension.view_id,dimension.id,int(datum?dimension.anchor_attachment:evaluation.cached_segment_indices.empty()?index:evaluation.cached_segment_indices[index])*3};
                 const auto color=annotation_color(key,evaluation.state==drawing::MeasurementState::Unresolved?QColor("#C62828"):printing?ink:QColor("#FFD400"),printing);
-                const auto text=QString::fromStdString(drawing::drawing_dimension_text(dimension,source,evaluation.state==drawing::MeasurementState::Unresolved));
-                const auto layout=viewer::dimension_text_presentation(source,screen,painter.font(),text,.5*zoom,width(false),2.5*zoom,.75*zoom,index<evaluation.angular_leaders.size()&&evaluation.angular_leaders[index]);
+                const auto text=datum?QStringLiteral("0"):QString::fromStdString(drawing::drawing_dimension_text(dimension,source,evaluation.state==drawing::MeasurementState::Unresolved));
+                auto layout=chain?chain_dimension_layout(source,screen,painter.font(),text,zoom,datum):
+                    viewer::dimension_text_presentation(source,screen,painter.font(),text,.5*zoom,width(false),2.5*zoom,.75*zoom,index<evaluation.angular_leaders.size()&&evaluation.angular_leaders[index]);
+                if(chain&&index==0) {
+                    const auto origin_point=screen(source.line_first);
+                    auto axis=viewer::dimension_screen_unit(screen(source.line_second)-origin_point);
+                    double low=0,high=0;
+                    for(const auto& ordinate:evaluation.presentations) {
+                        const double position=viewer::dimension_screen_dot(screen(ordinate.line_second)-origin_point,axis);
+                        low=std::min(low,position);high=std::max(high,position);
+                    }
+                    layout.curves.push_back(QPolygonF{origin_point+axis*low,origin_point+axis*high});
+                }
                 if(!layout.valid)continue;
                 painter.save();painter.setPen(QPen(color,width(false)));painter.setBrush(color);QPainterPath stroke;
                 for(const auto& curve:layout.curves){if(curve.empty())continue;painter.drawPolyline(curve);stroke.moveTo(curve.front());for(qsizetype i=1;i<curve.size();++i)stroke.lineTo(curve[i]);}
@@ -330,7 +361,10 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
                 dimension_texts.push_back({text,layout.text_baseline,layout.text_angle,painter.font(),color});
                 if(!printing){
                     QPainterPathStroker picker;picker.setWidth(10);auto hit=picker.createStroke(stroke);hit.addRect(transform.mapRect(QFontMetricsF(painter.font()).boundingRect(text)));
-                    for(int end=0;end<3;++end){auto grip=key;grip.end+=end;annotation_handles_.push_back({grip,layout.handles[end],hit});}
+                    for(int end=0;end<3;++end){
+                        if(chain&&((datum&&end!=1)||(!datum&&end==1)))continue;
+                        auto grip=key;grip.end+=end;annotation_handles_.push_back({grip,layout.handles[end],hit});
+                    }
                 }painter.restore();
             }
         }
@@ -341,7 +375,8 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
             if(view==sheet_->views.end())continue;
             const auto e=drawing::evaluate_balloon(*sheet_,b);if(!e.anchor)continue;
             const auto paper=[&](drawing::Point2 p){return QPointF(origin.x()+(sheet_->width_mm()-view->x+p.x)*zoom,origin.y()+(sheet_->height_mm()-view->y-p.y)*zoom);};
-            const auto center=paper(b.position),anchor=paper({e.anchor->x*view->scale,e.anchor->y*view->scale});
+            if(drawing::break_hidden(*view,*e.anchor))continue;
+            const auto center=paper(drawing::break_paper(*view,b.position)),anchor=paper(drawing::break_paper(*view,{e.anchor->x*view->scale,e.anchor->y*view->scale}));
             const AnnotationKey key{AnnotationKind::Balloon,b.view_id,b.id,0};
             const auto color=annotation_color(key,e.unresolved?QColor("#C62828"):printing?ink:QColor(Qt::white),printing);
             const auto label=e.item_number>0?QString::number(e.item_number):QStringLiteral("?");

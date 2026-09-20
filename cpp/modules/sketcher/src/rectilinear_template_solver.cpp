@@ -8,10 +8,15 @@
 namespace zima::sketcher {
 bool seed_rectilinear_equations(Sketch& sketch,const std::vector<std::string>& anchors) {
     if(!sketch.external_references.empty() || sketch.points.empty() ||
-       !sketch.circles.empty() || !sketch.arcs.empty() || !sketch.ellipses.empty() ||
+       !sketch.arcs.empty() || !sketch.ellipses.empty() ||
        !sketch.elliptical_arcs.empty() || !sketch.bsplines.empty() ||
        !sketch.corner_radii.empty() || !sketch.curve_trims.empty() ||
        !sketch.offsets.empty())return false;
+    // Circle centres are ordinary point coordinates and their radii are not
+    // altered by this linear seed. A circle alone must not disable simultaneous
+    // H/V and EqualLength solving (e.g. a title-block projection symbol).
+    // Nonlinear circle constraints/drivers are rejected by the row whitelist
+    // below, before any coordinates are published.
     // Undimensioned point/line commands retain their existing picked-reference
     // priority. Coupled dimension equations need the simultaneous solve.
     if(!sketch.drawing_template && std::ranges::none_of(sketch.dimensions,

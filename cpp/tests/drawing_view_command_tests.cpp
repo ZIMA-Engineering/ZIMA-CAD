@@ -27,6 +27,7 @@ void verify_editing(const kernel::OcctKernel& kernel,fs::path dir) {
     const auto base=run(host,"drawing.view.create",{{"sheet",sheet},{"source",part.document_id},{"name","Hlavní pohled"},{"x_mm",80},{"y_mm",50}}).data;
     const auto parent=base.at("view").get<std::string>();near(base.at("scale").get<double>(),2);near(width(*live.open_drawing(id)->document().find_view(parent)),20);
     const auto child=run(host,"drawing.view.create",{{"sheet",sheet},{"parent_view",parent},{"projection_direction","right"},{"distance_mm",30}}).data.at("view").get<std::string>();
+    require(live.open_drawing(id)->document().find_view(child)->name=="Pohled 2","CLI projected view has no numbered name");
     near(width(*live.open_drawing(id)->document().find_view(child)),10);near(live.open_drawing(id)->document().find_view(child)->x,50);
     const auto grand=run(host,"drawing.view.create",{{"sheet",sheet},{"parent_view",child},{"projection_direction","top"},{"distance_mm",25}}).data.at("view").get<std::string>();
     run(host,"drawing.view.set",{{"view",parent},{"x_mm",100},{"y_mm",60},{"scale",.5},{"orientation","back"},{"display_style","hidden_edges"},{"value_locks",Json::array({"scale"})}});
@@ -52,7 +53,10 @@ void verify_editing(const kernel::OcctKernel& kernel,fs::path dir) {
     near(live.open_drawing(id)->document().find_view(parent)->x,100);run(host,"undo");
     require(live.open_part(part.document_id)->session.revision()==source_revision,"Drawing edit regenerated its source");
     run(host,"drawing.view.set",{{"view",parent},{"guide_count",7},{"guide_spacing_mm",1.234}});
+    const auto breaks=Json::array({{{"id","one"},{"vertical",false},{"start",-15},{"length",5},{"gap",1},{"mark",2}}});
+    run(host,"drawing.view.set",{{"view",parent},{"breaks",breaks}});run(host,"undo");require(live.open_drawing(id)->document().find_view(parent)->breaks.empty(),"Undo retained break");run(host,"redo");
     run(host,"save");const auto saved=drawing::DrawingDocument::load(dir/"editing.drwz");require(saved.find_view(grand)&&saved.find_view(parent)->name=="Hlavní pohled","Native Drawing lost edited views");
+    require(saved.find_view(parent)->breaks.size()==1&&saved.find_view(child)->breaks.empty(),"View break leaked to child or failed to persist");
     require(saved.find_view(parent)->dimension_guide_count==7&&saved.find_view(parent)->dimension_guide_spacing==1.234,"Guide count or spacing did not persist");
     run(host,"drawing.view.delete",{{"view",parent}});run(host,"undo");require(live.open_drawing(id)->document().find_view(grand),"Undo lost view identities");
     auto empty=document::PartDocument::create_default();live.add_part(empty,{},{});
@@ -100,6 +104,26 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir){
     const auto& actual=state->document().find_view(child.id)->camera;near(actual.horizontal.x,expected.horizontal.x);near(actual.horizontal.y,expected.horizontal.y);near(actual.vertical.z,expected.vertical.z);
     require(live.open_part(part.document_id)->session.revision()==source_revision&&state->document().sheets.front().bom_rows.size()==1&&!state->document().find_view(parent.id)->model_annotations.empty(),"Regeneration changed source or omitted BOM and annotations");
     run(host,"undo");near(width(*state->document().find_view(parent.id)),20);run(host,"redo");near(width(*state->document().find_view(parent.id)),40);
+    const auto before_rotation=state->document();
+    auto dimensioned=before_rotation;
+    auto child_dimension=drawing::make_drawing_dimension(child.id);child_dimension.attachments=dim.attachments;
+    auto grand_dimension=drawing::make_drawing_dimension(grand.id);grand_dimension.attachments=dim.attachments;
+    dimensioned.sheets.front().dimensions.push_back(child_dimension);dimensioned.sheets.front().dimensions.push_back(grand_dimension);
+    state->commit(dimensioned);
+    const auto root_camera=dimensioned.find_view(parent.id)->camera;
+    const auto camera=drawing::rotated_camera(root_camera,0,0,27);
+    const auto vector=[](kernel::Vec3 p){return Json::array({p.x,p.y,p.z});};
+    run(host,"drawing.view.set",{{"view",parent.id},{"camera",{{"horizontal",vector(camera.horizontal)},{"vertical",vector(camera.vertical)},{"depth",vector(camera.depth)}}}});
+    require(state->document().sheets.front().dimensions.empty(),"Camera roll retained measurements in changed projection planes");
+    for(const auto& annotation:dimensioned.find_view(parent.id)->model_annotations) {
+        const auto& current=state->document().find_view(parent.id)->model_annotations;
+        const auto found=std::ranges::find(current,annotation.source,&drawing::ModelAnnotation::source);
+        require(found!=current.end()&&found->value==annotation.value&&found->model_dimension==annotation.model_dimension,"Rotating Drawing changed model dimensions");
+    }
+    run(host,"undo");require(state->document().sheets.front().dimensions==dimensioned.sheets.front().dimensions,"Rotation Undo lost Drawing dimensions");
+    run(host,"redo");require(state->document().sheets.front().dimensions.empty(),"Rotation Redo retained Drawing dimensions");
+    run(host,"undo");run(host,"undo");
+    require(state->document().sheets.front().dimensions==before_rotation.sheets.front().dimensions,"Rotation checks did not restore the initial dimensions");
     const auto snapshot_references=run(host,"drawing.view.references",{{"view",parent.id}}).data;
     changed.save(source_path,larger);
     const auto open_mesh=workspace::read_drawing_source(&live,source_path,part.document_id).second;
@@ -125,6 +149,54 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir){
 
 }
 }
+void verify_breaks(const fs::path& dir) {
+    drawing::DrawingView v;v.id="break-view";v.source_document_id="rod";v.scale=.5;v.camera={{1,0,0},{0,1,0},{0,0,-1}};
+    v.breaks={{"first",false,100,700,8,drawing::BreakMark::Zigzag},{"second",false,850,50,5,drawing::BreakMark::Straight}};
+    drawing::validate_view_breaks(v);
+    near(drawing::break_map(v,{1000,0}).x,276);near(drawing::break_map(v,{800,0}).x,116);
+    for(double x:{-100.,0.,100.,300.,800.,825.,850.,875.,900.,1000.})near(drawing::break_map(v,drawing::break_map(v,{x,5}),true).x,x);
+    for(double scale:{.1,.5,2.}) {
+        v.scale=scale;
+        near((drawing::break_map(v,{800,0}).x-drawing::break_map(v,{100,0}).x)*scale,8);
+    }
+    v.scale=.5;
+    auto fragments=drawing::break_fragments(v,{{0,0},{1000,0}});require(fragments.size()==3,"Multiple breaks lost retained fragments");near(fragments[1].front().x,800);near(fragments[1].back().x,850);
+    drawing::ProjectedEdge e;e.points={{0,0},{1000,0}};e.source={"rod","edge",""};v.projected_edges={e};
+    auto edges=drawing::broken_edges(v);require(edges.size()==3&&edges[2].source==e.source,"Break changed original edge identity");
+    auto geometry=drawing::MeasurementGeometry{};geometry.points={{{"rod","a",""},{0,0,0}},{{"rod","b",""},{1000,0,0}},{{"rod","hidden",""},{500,0,0}}};drawing::MeasurementCurve curve;curve.source=e.source;curve.points={{0,0,0},{1000,0,0}};curve.line=true;geometry.curves={curve};v.measurement_geometry=drawing::share_measurement_geometry(geometry);
+    require(drawing::measurement_candidates(v,{500,0},2,{}).empty(),"Hidden source offered a measurement candidate");
+    auto d=drawing::make_drawing_dimension(v.id);drawing::DimensionAttachment a,b;a.kind=b.kind=drawing::DimensionAttachmentKind::Point;a.reference={"rod","a",""};b.reference={"rod","b",""};d.attachments={a,b};drawing::resize_dimension_segments(d);
+    auto result=drawing::evaluate_drawing_dimension(v,d);require(result.state==drawing::MeasurementState::Resolved,"Spanning length became hidden");near(result.presentations[0].value,1000);
+    d.attachments[1].reference={"rod","hidden",""};require(drawing::evaluate_drawing_dimension(v,d).state==drawing::MeasurementState::Hidden,"Hidden anchor was fabricated at break boundary");
+    drawing::ProjectedTriangle triangle;triangle.points={drawing::Point2{0,0},drawing::Point2{1000,0},drawing::Point2{0,20}};v.projected_triangles={triangle};
+    for(double scale:{.5,2.})for(bool vertical:{false,true}) {
+        auto marks_view=v;marks_view.scale=scale;marks_view.breaks.resize(1);marks_view.breaks[0].vertical=vertical;
+        if(vertical)for(auto& edge:marks_view.projected_edges)for(auto& p:edge.points)std::swap(p.x,p.y);
+        if(vertical)for(auto& face:marks_view.projected_triangles)for(auto& p:face.points)std::swap(p.x,p.y);
+        const auto marks=drawing::break_marks(marks_view);
+        require(!marks.empty()&&marks[0].size()==6,"Zigzag mark missing its two arms");
+        const auto a=marks[0][1],b=marks[0][2],c=marks[0][3];
+        const double ux=a.x-b.x,uy=a.y-b.y,vx=c.x-b.x,vy=c.y-b.y;
+        near(std::acos((ux*vx+uy*vy)/std::hypot(ux,uy)/std::hypot(vx,vy))*180/std::acos(-1.),20);
+    }
+    double area=0;for(const auto& t:drawing::broken_triangles(v)){const auto a=t.points[0],b=t.points[1],c=t.points[2];area+=std::abs((b.x-a.x)*(c.y-a.y)-(b.y-a.y)*(c.x-a.x))/2;}near(area,2175);
+    auto doc=drawing::DrawingDocument::create_default();doc.sheets.front().views={v};doc.save(dir/"breaks.drwz");auto loaded=drawing::DrawingDocument::load(dir/"breaks.drwz");require(loaded.sheets.front().views.front().breaks==v.breaks,"Break native round trip changed settings");
+    for(auto& cut:v.breaks)cut.vertical=true;near(drawing::break_map(v,{0,1000}).y,276);
+    const auto valid=v.breaks;
+    for(int fault=0;fault<6;++fault) {
+        v.breaks=valid;
+        if(fault==0)v.breaks[1].id=v.breaks[0].id;
+        if(fault==1)v.breaks[1].vertical=false;
+        if(fault==2)v.breaks[0].length=0;
+        if(fault==3)v.breaks[0].gap=0;
+        if(fault==4)v.breaks[0].mark=static_cast<drawing::BreakMark>(3);
+        if(fault==5)v.breaks[1].start=v.breaks[0].start+v.breaks[0].length;
+        bool rejected=false;try{drawing::validate_view_breaks(v);}catch(...){rejected=true;}
+        require(rejected,"Invalid break configuration accepted");
+    }
+    v.breaks=valid;
+    v.breaks[1].start=200;bool rejected=false;try{drawing::validate_view_breaks(v);}catch(...){rejected=true;}require(rejected,"Overlapping breaks accepted");
+}
 void verify_annotation_guides() {
     using namespace zima;
     drawing::DrawingView view;view.scale=2;view.dimension_guide_offset=5;view.dimension_guide_spacing=3;
@@ -136,14 +208,52 @@ void verify_annotation_guides() {
     view.x=500;view.y=200;
     require(drawing::snap_annotation(view,{10,25.2},.5).point==snapped.point,"Sheet placement changed view-local snapping");
     view.dimension_guide_count=1;require(drawing::annotation_guides(view).size()==4&&!drawing::snap_annotation(view,{10,28.2},.5).guide,"Removed guide remains available for snapping");
+    drawing::ModelAnnotation annotation;annotation.visible=true;
+    annotation.model_envelope.include({-100,-100,-100});annotation.model_envelope.include({100,100,100});
+    view.model_annotations={annotation};view.camera=drawing::standard_camera(drawing::ViewOrientation::Isometric);
+    const auto rectangle=drawing::annotation_guides(view);
+    require(rectangle.size()==4,"Model envelope replaced the 2D guide rectangle");
+    near(rectangle[0].first.x,-5);near(rectangle[0].first.y,-5);near(rectangle[1].second.x,25);near(rectangle[1].second.y,25);
+    view.breaks={{"middle",false,2,6,2,drawing::BreakMark::None}};
+    const auto shortened=drawing::annotation_guides(view);require(shortened.size()==4,"Break split the helper rectangle");
+    near(drawing::break_paper(view,shortened[1].first).x,15);
+    require(drawing::snap_annotation(view,drawing::break_paper(view,{15.1,10},true),.5).guide.has_value(),"Broken-view guide did not snap in displayed coordinates");
+    view.breaks.clear();
     view.dimension_guide_count=0;require(drawing::annotation_guides(view).empty(),"Zero count still generates guides");
+    auto names=drawing::DrawingDocument::create_default();names.sheets.front().views={view,view};
+    names.sheets.front().views[0].name="Custom";names.sheets.front().views[1].name="Pohled 3";
+    require(workspace::next_drawing_view_name(names)=="Pohled 4","Default view name collides with an existing name");
     const auto camera=drawing::standard_camera(drawing::ViewOrientation::Isometric);
-    const auto rotated=drawing::rotated_camera(camera,17,-23);
+    const auto rotated=drawing::rotated_camera(camera,17,-23,31);
     const auto dot=[](auto a,auto b){return a.x*b.x+a.y*b.y+a.z*b.z;};
     require(std::abs(dot(rotated.depth,rotated.depth)-1)<1e-12&&std::abs(dot(rotated.horizontal,rotated.vertical))<1e-12,"Degree rotation damaged camera basis");
+    const auto rolled=drawing::rotated_camera(camera,0,0,90);
+    near(dot(rolled.depth,camera.depth),1);near(dot(rolled.horizontal,camera.vertical),-1);near(dot(rolled.vertical,camera.horizontal),1);
     const auto quarter=drawing::rotated_camera(camera,90,0);
     const auto expected=drawing::projected_camera(camera,drawing::ProjectionDirection::Right,drawing::ProjectionMethod::ThirdAngle);
     require(std::abs(dot(quarter.depth,expected.depth)-1)<1e-12,"Degree rotation differs from existing quarter turn");
 }
+void verify_projected_lengths() {
+    drawing::DrawingView view;view.id="projected-length";
+    drawing::MeasurementGeometry geometry;
+    geometry.points={{{"part","a","one"},{0,0,0}},{{"part","b","one"},{10,20,30}}};
+    view.measurement_geometry=drawing::share_measurement_geometry(geometry);
+    auto d=drawing::make_drawing_dimension(view.id);
+    d.attachments={{drawing::DimensionAttachmentKind::Point,{"part","a","one"}},
+                   {drawing::DimensionAttachmentKind::Point,{"part","b","one"}}};
+    drawing::resize_dimension_segments(d);
+    for(auto orientation:{drawing::ViewOrientation::Front,drawing::ViewOrientation::Top,drawing::ViewOrientation::Isometric})
+        for(double roll:{0.,37.,90.})for(double scale:{.5,2.}) {
+            view.camera=drawing::rotated_camera(drawing::standard_camera(orientation),17,-23,roll);view.scale=scale;
+            const auto h=view.camera.horizontal,v=view.camera.vertical;
+            const double x=10*h.x+20*h.y+30*h.z,y=10*v.x+20*v.y+30*v.z;
+            for(auto direction:{drawing::DimensionDirection::Horizontal,drawing::DimensionDirection::Vertical,drawing::DimensionDirection::Automatic}) {
+                d.direction=direction;auto result=drawing::evaluate_drawing_dimension(view,d);
+                require(result.state==drawing::MeasurementState::Resolved,"Oblique projected length unresolved");
+                near(result.presentations[0].value,direction==drawing::DimensionDirection::Horizontal?std::abs(x):direction==drawing::DimensionDirection::Vertical?std::abs(y):std::hypot(x,y));
+                view.x+=20;view.y-=15;near(drawing::evaluate_drawing_dimension(view,d).presentations[0].value,result.presentations[0].value);
+            }
+        }
+}
 int main(){try{
-    verify_annotation_guides();kernel::OcctKernel kernel;const auto root=fs::canonical(fs::temp_directory_path());const auto dir=root/("zima-drawing-view-"+document::PartDocument::create_default().document_id);fs::create_directory(dir);verify(kernel,dir);verify_editing(kernel,dir);require(dir.parent_path()==root,"Unsafe cleanup");fs::remove_all(dir);std::cout<<"Drawing view snapshots, original references, parent-first regeneration, dimensions, native sources and deletion passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
+    verify_projected_lengths();verify_annotation_guides();kernel::OcctKernel kernel;const auto root=fs::canonical(fs::temp_directory_path());const auto dir=root/("zima-drawing-view-"+document::PartDocument::create_default().document_id);fs::create_directory(dir);verify_breaks(dir);verify(kernel,dir);verify_editing(kernel,dir);require(dir.parent_path()==root,"Unsafe cleanup");fs::remove_all(dir);std::cout<<"Drawing view snapshots, original references, parent-first regeneration, dimensions, native sources and deletion passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

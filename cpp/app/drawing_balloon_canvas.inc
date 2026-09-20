@@ -67,7 +67,7 @@ private:
             if(balloon_drag_end_==0) {
                 const auto delta=(event->position()-balloon_drag_start_)/canvas_zoom();
                 const drawing::Point2 point{balloon_drag_original_->position.x+delta.x(),balloon_drag_original_->position.y-delta.y()};
-                for(const auto& view:sheet_->views)if(view.id==b->view_id)b->position=snap_annotation_point(view,point);
+                for(const auto& view:sheet_->views)if(view.id==b->view_id){const auto base=drawing::break_paper(view,balloon_drag_original_->position);b->position=snap_annotation_point(view,drawing::break_paper(view,{base.x+delta.x(),base.y-delta.y()},true));}
             }else {
                 offer_measurements(event->position());balloon_drag_valid_=!measurement_offered_.empty();
                 if(balloon_drag_valid_){b->attachment=measurement_offered_[measurement_index_].candidate.attachment;drawing::refresh_balloon(*sheet_,*b);}

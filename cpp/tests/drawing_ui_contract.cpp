@@ -1,3 +1,7 @@
+#include <zima/drawing_render/pdf_export.hpp>
+#include <zima/drawing_render/dxf_export.hpp>
+#include "drawing_break_editor.hpp"
+#include "drawing_annotation_layout.hpp"
 #include "sketch_text_properties_dialog.hpp"
 #include <QToolButton>
 #include <QPlainTextEdit>
@@ -302,6 +306,7 @@ int verify_drawing_ui() {
         display_mode->setCurrentIndex(3);hidden_style->setCurrentIndex(1);flush();
         require(count()==0,"Changing view display committed the pending preview");
         display_mode->setCurrentIndex(0);
+        require(properties->findChild<QLineEdit*>("drawingViewName")->text()==QString::fromUtf8("Pohled 1"),"First view has no numbered default name");
         properties->findChild<QLineEdit*>("drawingViewName")->setText("Front test");
         properties->findChild<QCheckBox*>()->setChecked(true);
         properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click(); flush();
@@ -391,18 +396,20 @@ int verify_drawing_ui() {
         mouse(canvas,QEvent::MouseButtonRelease,right,Qt::MiddleButton,Qt::NoButton);
         require(count()==2 && !dialog(),"Middle double click did not confirm view properties");
         const auto child=state.sheets.front().views.back();
+        require(child.name=="Pohled 2","Projected view has no numbered default name");
         require(child.parent_view_id==original.id && child.projection_direction==zima::drawing::ProjectionDirection::Right &&
             std::abs(child.y-original.y)<1e-6,"Projected view did not keep parent/ray placement");
         window.select_view_for_test(original.id); action("editDrawingViewAction")->trigger(); flush();
         properties=dialog(); properties->findChild<QDoubleSpinBox*>("drawingViewX")->setValue(original.x+10);
         auto* horizontal=properties->findChild<QDoubleSpinBox*>("drawingRotationHorizontal");
         auto* vertical=properties->findChild<QDoubleSpinBox*>("drawingRotationVertical");
+        auto* roll=properties->findChild<QDoubleSpinBox*>("drawingRotationRoll");require(roll&&roll->singleStep()==1,"Missing in-plane rotation");
         require(horizontal&&vertical&&horizontal->singleStep()==1&&vertical->singleStep()==1,"View rotation has no degree inputs");
         horizontal->findChild<QLineEdit*>()->setText("17");horizontal->interpretText();
         vertical->findChild<QLineEdit*>()->setText("-23");vertical->interpretText();flush();
         require(horizontal->value()==17&&vertical->value()==-23,"Rotation input cannot accept typed degrees");
         require(std::abs(state.sheets.front().views.front().camera.depth.x-original.camera.depth.x)+std::abs(state.sheets.front().views.front().camera.depth.y-original.camera.depth.y)+std::abs(state.sheets.front().views.front().camera.depth.z-original.camera.depth.z)<1e-12,"Typed rotation committed before OK");
-        horizontal->setValue(0);vertical->setValue(0);
+        roll->setValue(31);horizontal->setValue(0);vertical->setValue(0);roll->setValue(0);
         require(properties->findChild<QDoubleSpinBox*>("drawingGuideSpacing")->decimals()==3,"Guide spacing precision differs from offset");
         require(properties->findChild<QSpinBox*>("drawingGuideCount")!=nullptr,"Guide count control missing");
         properties->findChild<QSpinBox*>("drawingGuideCount")->setValue(7);
@@ -426,15 +433,46 @@ int verify_drawing_ui() {
         properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
         require(state.sheets.front().views.front().dimension_guide_count==7,"Cancel committed guide count");
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_VIEW_CONTROLS_ONLY")) {
+            auto seeded=workspace.open_drawing(drawing.document_id)->document();
+            for(const auto& v:seeded.sheets.front().views) {
+                auto dimension=zima::drawing::make_drawing_dimension(v.id);
+                const auto& curve=v.measurement_geometry->curves.front();
+                dimension.attachments={{zima::drawing::DimensionAttachmentKind::CurvePoint,curve.source,{},0},
+                                       {zima::drawing::DimensionAttachmentKind::CurvePoint,curve.source,{},1}};
+                zima::drawing::refresh_drawing_dimension(v,dimension);seeded.sheets.front().dimensions.push_back(dimension);
+            }
+            workspace.open_drawing(drawing.document_id)->commit(seeded);window.edit_workspace_document(drawing.document_id);flush();
+            const auto original_dimensions=state.sheets.front().dimensions;
+            window.select_view_for_test(original.id);action("editDrawingViewAction")->trigger();flush();properties=dialog();
+            properties->findChild<QDoubleSpinBox*>("drawingRotationRoll")->setValue(23);
+            require(state.sheets.front().dimensions==original_dimensions,"Rotation preview removed committed dimensions");
+            properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
+            require(state.sheets.front().dimensions==original_dimensions,"Rotation Cancel removed dimensions");
             const auto saved_camera=state.sheets.front().views.front().camera;
             window.select_view_for_test(original.id);action("editDrawingViewAction")->trigger();flush();properties=dialog();
             properties->findChild<QDoubleSpinBox*>("drawingRotationHorizontal")->setValue(17);
             properties->findChild<QDoubleSpinBox*>("drawingRotationVertical")->setValue(-23);
+            properties->findChild<QDoubleSpinBox*>("drawingRotationRoll")->setValue(31);
+            properties->grab().save("build/drawing-view-properties.png");
             properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
-            const auto expected=zima::drawing::rotated_camera(saved_camera,17,-23);
+            require(state.sheets.front().dimensions.empty(),"Committed rotation retained Drawing dimensions in parent or projected child");
+            zima::kernel::OcctKernel history_kernel;auto history_path=std::filesystem::current_path();zima::command_host::Host history(workspace,history_kernel,history_path);
+            require(history.execute({{"command","undo"}}).ok,"Rotation Undo failed");window.edit_workspace_document(drawing.document_id);flush();
+            require(state.sheets.front().dimensions==original_dimensions,"Rotation Undo did not restore dimensions");
+            require(history.execute({{"command","redo"}}).ok,"Rotation Redo failed");window.edit_workspace_document(drawing.document_id);flush();
+            require(state.sheets.front().dimensions.empty(),"Rotation Redo retained dimensions");
+            const auto expected=zima::drawing::rotated_camera(saved_camera,17,-23,31);
             const auto actual=state.sheets.front().views.front().camera;
+            require(std::abs(actual.horizontal.x-expected.horizontal.x)+std::abs(actual.horizontal.y-expected.horizontal.y)+std::abs(actual.horizontal.z-expected.horizontal.z)<1e-9,"In-plane angle did not commit");
             require(std::abs(actual.depth.x-expected.depth.x)+std::abs(actual.depth.y-expected.depth.y)+std::abs(actual.depth.z-expected.depth.z)<1e-9,"Typed non-quarter rotation did not commit");
-            std::cout<<"Drawing rotation inputs, typed degrees, quarter turns, preview, Cancel, OK and projected children passed\n";return 0;
+            window.select_view_for_test(original.id);action("editDrawingViewAction")->trigger();flush();properties=dialog();
+            properties->findChild<QPushButton*>("drawingEditBreaks")->click();flush();
+            auto* break_editor=dynamic_cast<zima::app::DrawingBreakEditor*>(window.findChild<QDialog*>("drawingBreakEditor"));require(break_editor&&break_editor->isVisible()&&!properties->isVisible(),"View Properties did not open isolated break editor");
+            auto* break_canvas=dynamic_cast<zima::app::BreakEditorCanvas*>(break_editor->findChild<QWidget*>("drawingBreakCanvas"));break_canvas->grab();
+            break_editor->findChild<QPushButton*>("drawingBreakAdd")->click();click(break_canvas,{break_canvas->width()*.4,break_canvas->height()*.5});click(break_canvas,{break_canvas->width()*.6,break_canvas->height()*.5});
+            break_editor->buttons()->button(QDialogButtonBox::Ok)->click();flush();require(properties->isVisible()&&state.find_view(original.id)->breaks.empty(),"Editor committed outer View Properties transaction");
+            properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();require(state.find_view(original.id)->breaks.size()==1,"View Properties did not commit break");
+            std::cout<<"Drawing rotation and guide inputs, isolated break editor integration, preview, Cancel, OK and projected children passed\n";return 0;
         }
 
         require(std::abs(state.sheets.front().views.front().camera.depth.x+1)<1e-9,"Cancel changed the saved camera");
@@ -804,14 +842,25 @@ int verify_drawing_ui() {
             v.measurement_geometry=zima::drawing::share_measurement_geometry({{},{{{"profile","vertex:bottom",""},{0,0,-20}},{{"profile","vertex:top",""},{0,0,20}}}});
             auto d=zima::drawing::make_drawing_dimension(v.id);d.id="handle-dimension";
             d.attachments={{zima::drawing::DimensionAttachmentKind::Point,v.measurement_geometry->points[0].source},{zima::drawing::DimensionAttachmentKind::Point,v.measurement_geometry->points[1].source}};
-            zima::drawing::place_drawing_dimension(v,d,0,{0,45});
+            // Keep the label inside the dimension span so the drag tests free
+            // movement, without triggering automatic outside-label clearance.
+            zima::drawing::place_drawing_dimension(v,d,0,{0,0});
             fixture.sheets.front().views={v};fixture.sheets.front().dimensions={d};workspace.add_drawing(fixture);window.edit_workspace_document(fixture.document_id);flush();
             const auto point=window.annotation_handle_for_test(d.id,0,true);require(point.has_value(),"Dimension has no manipulation point");
             mouse(canvas,QEvent::MouseMove,*point,Qt::NoButton,Qt::NoButton);click(canvas,*point);
             const auto selected_image=canvas->grab().toImage();const auto handle_pixel=(*point*selected_image.devicePixelRatio()).toPoint();
             const auto purple=selected_image.pixelColor(handle_pixel);require(purple.red()>150&&purple.blue()>200&&purple.green()<150,"Dimension handle is not purple");
             // A vertical normal-view dimension has upright text along the vertical support line, to its left.
-            bool cyan_dimension=false;for(int y=-80;y<80;++y)for(int x=-40;x<-7;++x){const auto pixel=selected_image.pixelColor(handle_pixel+QPoint(x,y));cyan_dimension|=pixel.red()<60&&pixel.green()>150&&pixel.blue()>200;}
+            // Scan the glyphs immediately left of the handle, excluding the
+            // support line. Thin antialiased text need not contain full RGB.
+            int cyan_pixels=0;const auto ratio=selected_image.devicePixelRatio();
+            for(int y=-int(20*ratio);y<int(20*ratio);++y)
+                for(int x=-int(20*ratio);x<-int(3*ratio);++x) {
+                    const auto pixel=selected_image.pixelColor(handle_pixel+QPoint(x,y));
+                    if(pixel.red()<40&&pixel.green()>110&&pixel.blue()>150&&
+                       std::abs(pixel.green()*255-pixel.blue()*209)<1000)++cyan_pixels;
+                }
+            const bool cyan_dimension=cyan_pixels>2;
             require(cyan_dimension,"Selected dimension text is not cyan");
             mouse(canvas,QEvent::MouseButtonPress,*point,Qt::LeftButton,Qt::LeftButton);mouse(canvas,QEvent::MouseMove,*point+QPointF(30,20),Qt::NoButton,Qt::LeftButton);mouse(canvas,QEvent::MouseButtonRelease,*point+QPointF(30,20),Qt::LeftButton,Qt::NoButton);
             const auto moved=window.annotation_handle_for_test(d.id,0,true);require(moved&&std::abs(moved->x()-point->x()-30)<1e-6&&std::abs(moved->y()-point->y()-20)<1e-6,"Dimension handle moved opposite to the mouse");
@@ -906,4 +955,59 @@ int verify_drawing_ui() {
         std::cout<<"Drawing placement, rectangular selection, projection, Cancel, MMB, persistence and global paths passed\n";
         return 0;
     } catch(const std::exception& error) { std::cerr<<error.what()<<'\n'; return 1; }
+}
+
+int verify_drawing_breaks_ui() {
+    using namespace zima;
+    try {
+        QMainWindow owner;owner.resize(1200,900);owner.show();flush();
+        auto sheet=drawing::DrawingDocument::create_default().sheets.front();drawing::DrawingView view;
+        view.id="rod-view";view.source_document_id="rod";view.scale=.2;view.camera={{1,0,0},{0,1,0},{0,0,-1}};
+        drawing::ProjectedEdge outline;outline.source={"rod","outline",""};outline.points={{0,0},{1000,0},{1000,80},{0,80},{0,0}};view.projected_edges={outline};
+        drawing::ModelAnnotation annotation;annotation.source={"rod","rod","length",""};annotation.visible=true;
+        kernel::ViewerDimension dimension;dimension.kind=kernel::ViewerDimensionKind::Linear;dimension.witness_first={0,0,0};dimension.witness_second={1000,0,0};dimension.line_first={0,-40,0};dimension.line_second={1000,-40,0};dimension.plane_normal={0,0,1};dimension.value=1000;dimension.label_position=kernel::Vec3{500,-40,0};annotation.model_dimension=dimension;view.model_annotations={annotation};
+        sheet.views={view};std::vector<drawing::ViewBreak> accepted;int commits=0;
+        app::DrawingBreakEditor editor(&owner,sheet,view,[&](auto b){accepted=std::move(b);++commits;});editor.show();flush();
+        auto* canvas=dynamic_cast<app::BreakEditorCanvas*>(editor.findChild<QWidget*>("drawingBreakCanvas"));require(canvas,"Break canvas missing");canvas->grab();flush();
+        editor.findChild<QPushButton*>("drawingBreakAdd")->click();click(canvas,canvas->screen({200,40}));click(canvas,canvas->screen({800,40}));
+        auto* table=editor.findChild<QTableWidget*>("drawingBreakTable");require(table->rowCount()==1&&sheet.views.front().breaks.empty()&&commits==0,"Editing break mutated source sheet");
+        canvas->grab();
+        const auto anchor=canvas->screen({350,60});const auto anchored_model=canvas->model(anchor);
+        QWheelEvent zoom(anchor,canvas->mapToGlobal(anchor.toPoint()),QPoint{},QPoint{0,120},Qt::NoButton,Qt::NoModifier,Qt::NoScrollPhase,false);
+        QApplication::sendEvent(canvas,&zoom);canvas->grab();
+        const auto after_zoom=canvas->model(anchor);
+        require(std::hypot(after_zoom.x-anchored_model.x,after_zoom.y-anchored_model.y)<1e-6,"Break zoom did not preserve the point under the cursor");
+        canvas->fit();canvas->grab();
+        const auto drag=[&](QPointF a,QPointF b){mouse(canvas,QEvent::MouseButtonPress,a,Qt::LeftButton,Qt::LeftButton);mouse(canvas,QEvent::MouseMove,b,Qt::NoButton,Qt::LeftButton);mouse(canvas,QEvent::MouseButtonRelease,b,Qt::LeftButton,Qt::NoButton);canvas->grab();};
+        drag(canvas->screen({200,40}),canvas->screen({180,40}));
+        require(std::abs(canvas->view().breaks.front().start-180)<1e-6&&std::abs(canvas->view().breaks.front().length-620)<1e-6,"Dragging first break endpoint did not keep second endpoint fixed");
+        drag(canvas->screen({800,40}),canvas->screen({820,40}));
+        require(std::abs(canvas->view().breaks.front().length-640)<1e-6,"Dragging second break endpoint failed");
+        drag(canvas->screen({500,40}),canvas->screen({520,40}));
+        require(std::abs(canvas->view().breaks.front().start-200)<1e-6&&std::abs(canvas->view().breaks.front().length-640)<1e-6,"Dragging break segment changed its length");
+        auto* start=qobject_cast<QDoubleSpinBox*>(table->cellWidget(0,0));auto* length=qobject_cast<QDoubleSpinBox*>(table->cellWidget(0,1));start->setValue(150);length->setValue(650);flush();
+        require(canvas->view().breaks.front().start==150&&canvas->view().breaks.front().length==650,"Numeric break dimensions ignored");
+        canvas->grab();const auto length_label=canvas->screen({475,40})+QPointF(0,35);
+        mouse(canvas,QEvent::MouseButtonDblClick,length_label,Qt::LeftButton,Qt::LeftButton);flush();
+        auto* number=canvas->findChild<QLineEdit*>("inlineDimensionValueEdit");require(number,"Double-click did not edit break dimension");number->setText("600+50");
+        QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(number,&enter);flush();require(commits==0&&editor.isVisible()&&canvas->view().breaks.front().length==650,"Inline break expression committed dialog or changed value");
+        editor.findChild<QComboBox*>("drawingBreakPreviewMode")->setCurrentIndex(1);flush();editor.grab().save("build/drawing-break-result.png");
+        require(sheet.views.front().projected_edges.front().points==outline.points,"Result preview mutated source geometry");
+        const auto before=app::model_annotation_layout(view,annotation,{});auto broken=view;broken.breaks=canvas->view().breaks;
+        const auto after=app::model_annotation_layout(broken,annotation,{});
+        require(!after.curves.empty()&&after.handles.at("arrow_second").x()<before.handles.at("arrow_second").x()-100,"Show/Erase length did not follow shortened geometry");
+        require(drawing::project_model_annotation(broken,annotation).value==1000,"Show/Erase value was shortened");
+        editor.findChild<QComboBox*>("drawingBreakPreviewMode")->setCurrentIndex(0);flush();editor.grab().save("build/drawing-break-editor.png");
+        mouse(canvas,QEvent::MouseButtonPress,canvas->rect().center(),Qt::MiddleButton,Qt::MiddleButton);mouse(canvas,QEvent::MouseButtonRelease,canvas->rect().center(),Qt::MiddleButton,Qt::NoButton);
+        require(editor.isVisible()&&commits==0,"Short MMB committed break editor");
+        mouse(canvas,QEvent::MouseButtonDblClick,canvas->rect().center(),Qt::MiddleButton,Qt::MiddleButton);flush();require(commits==1&&accepted.size()==1,"Break editor MMB OK did not commit once");
+        QTemporaryDir exports;auto document=drawing::DrawingDocument::create_default();document.sheets.front()=sheet;document.sheets.front().views.front()=broken;
+        const auto folder=std::filesystem::path(exports.path().toStdString());
+        workspace::Workspace source_models;auto source=document::PartDocument::create_default();source.document_id="rod";source_models.add_part(source,{},{});document.source_document_id="rod";
+        require(drawing_render::export_pdf(document,folder/"break.pdf",{},&source_models)>0,"Broken view PDF failed");
+        require(drawing_render::export_dxf(document,document.sheets.front().id,folder/"break.dxf",{},&source_models)>0,"Broken view DXF failed");
+        view.breaks=accepted;app::DrawingBreakEditor cancelled(&owner,sheet,view,[&](auto){++commits;});cancelled.show();flush();
+        auto* second=cancelled.findChild<QTableWidget*>("drawingBreakTable");qobject_cast<QDoubleSpinBox*>(second->cellWidget(0,1))->setValue(300);cancelled.buttons()->button(QDialogButtonBox::Cancel)->click();flush();require(commits==1&&view.breaks.front().length==650,"Cancel changed existing break");
+        std::cout<<"Break editor placement, numeric dimensions, isolated preview, Show/Erase true length, OK and Cancel passed\n";return 0;
+    }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
 }

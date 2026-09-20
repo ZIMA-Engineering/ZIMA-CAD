@@ -4,6 +4,7 @@
 #include <QApplication>
 
 int verify_drawing_ui();
+int verify_drawing_breaks_ui();
 int verify_drawing_source_picker();
 int verify_show_erase_ui();
 int verify_measurement_dimension_ui();
@@ -20,6 +21,7 @@ int main(int argc, char* argv[]) {
     if (application.arguments().contains("--verify-view-controls")) {
         qputenv("ZIMA_VERIFY_VIEW_CONTROLS_ONLY","1");return verify_drawing_ui();
     }
+    if (application.arguments().contains("--verify-breaks")) return verify_drawing_breaks_ui();
     if (application.arguments().contains("--verify-ui")) return verify_drawing_ui();
     zima::app::DrawingWindow window;
     window.show();

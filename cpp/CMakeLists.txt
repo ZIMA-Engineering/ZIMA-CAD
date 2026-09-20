@@ -1272,6 +1272,10 @@ if(ZIMA_BUILD_TESTS)
     set_tests_properties(zima_cpp_drawing_balloon_ui_contract PROPERTIES ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT}" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 90)
     set_tests_properties(zima_cpp_measurement_dimension_ui_contract PROPERTIES ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT}" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     add_test(NAME zima_cpp_drawing_ui_contract COMMAND zima-cad-drawing-harness --verify-ui)
+    add_test(NAME zima_cpp_drawing_view_controls_ui_contract COMMAND zima-cad-drawing-harness --verify-view-controls)
+    add_test(NAME zima_cpp_drawing_breaks_ui_contract COMMAND zima-cad-drawing-harness --verify-breaks)
+    set_tests_properties(zima_cpp_drawing_view_controls_ui_contract zima_cpp_drawing_breaks_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT}" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120)
     add_test(NAME zima_cpp_drawing_source_picker_contract COMMAND zima-cad-drawing-harness --verify-source-picker)
     set_tests_properties(zima_cpp_drawing_source_picker_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT}" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 90)

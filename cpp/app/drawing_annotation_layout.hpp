@@ -1,3 +1,4 @@
+#include <zima/drawing/view_breaks.hpp>
 #include <zima/viewer/dimension_presentation.hpp>
 #pragma once
 #include <QPointF>
@@ -22,7 +23,7 @@ struct ModelAnnotationLayout {
   std::vector<QPointF> centers;
 };
 inline ModelAnnotationLayout
-model_annotation_layout(const drawing::DrawingView &view,
+unbroken_model_annotation_layout(const drawing::DrawingView &view,
                         const drawing::ModelAnnotation &source, QRectF bounds, double text_width = -1, double text_gap = .75) {
   auto item=drawing::project_model_annotation(view,source);
   const auto h=view.camera.horizontal,v=view.camera.vertical;
@@ -35,7 +36,9 @@ model_annotation_layout(const drawing::DrawingView &view,
   ModelAnnotationLayout out;
   if(item.kind==drawing::ModelAnnotationKind::Dimension && item.model_dimension) {
     const auto d=kernel::layout_dimension(*item.model_dimension,item.model_envelope,item.view_layout.value_or(item.model_layout));
-    const auto project=[&](kernel::Vec3 p){return QPointF(kernel::dimension_dot(p,view.camera.horizontal)*view.scale,-kernel::dimension_dot(p,view.camera.vertical)*view.scale);};
+    const auto original=[&](kernel::Vec3 p){return drawing::Point2{kernel::dimension_dot(p,view.camera.horizontal),kernel::dimension_dot(p,view.camera.vertical)};};
+    if(drawing::break_hidden(view,original(d.witness_first))||drawing::break_hidden(view,original(d.witness_second)))return out;
+    const auto project=[&](kernel::Vec3 p){auto q=drawing::break_map(view,original(p));return QPointF(q.x*view.scale,-q.y*view.scale);};
     const auto layout=viewer::dimension_presentation(d,project,text_width<0?double(item.text.size())*2:text_width,2.5,text_gap);
     if(!layout.valid)return out;
     const auto paper=[](QPointF p){return QPointF(p.x(),-p.y());};
@@ -125,5 +128,15 @@ model_annotation_layout(const drawing::DrawingView &view,
   arrow(dimension.front(), dimension.front() - dimension[1]);
   arrow(dimension.back(), dimension.back() - dimension[dimension.size() - 2]);
   return out;
+}
+inline ModelAnnotationLayout model_annotation_layout(const drawing::DrawingView& view,const drawing::ModelAnnotation& source,QRectF bounds,double text_width=-1,double text_gap=.75) {
+    auto out=unbroken_model_annotation_layout(view,source,bounds,text_width,text_gap);
+    if(view.breaks.empty()||(source.kind==drawing::ModelAnnotationKind::Dimension&&source.model_dimension))return out;
+    const auto map=[&](QPointF p){auto q=drawing::break_paper(view,{p.x(),p.y()});return QPointF(q.x,q.y);};
+    std::vector<std::vector<QPointF>> curves;
+    for(const auto& c:out.curves){std::vector<drawing::Point2> points;for(auto p:c)points.push_back({p.x()/view.scale,p.y()/view.scale});
+        for(const auto& fragment:drawing::break_fragments(view,points)){std::vector<QPointF> line;for(auto p:fragment)line.push_back(map({p.x*view.scale,p.y*view.scale}));curves.push_back(std::move(line));}}
+    std::erase_if(out.centers,[&](QPointF p){return drawing::break_hidden(view,{p.x()/view.scale,p.y()/view.scale});});
+    out.curves=std::move(curves);out.text=map(out.text);for(auto& [key,p]:out.handles)p=map(p);for(auto& [p,d]:out.arrows)p=map(p);for(auto& p:out.centers)p=map(p);return out;
 }
 } // namespace zima::app

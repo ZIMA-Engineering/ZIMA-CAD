@@ -1,3 +1,4 @@
+#include <zima/drawing/dimension_text.hpp>
 #include <zima/document/dimension_layout_json.hpp>
 #include <algorithm>
 #include <cmath>
@@ -116,7 +117,7 @@ ModelAnnotation project_model_annotation(const DrawingView& view,ModelAnnotation
       if (!d.display_text_override.empty())
         item.text = d.display_text_override;
       else {
-        item.text = kernel::dimension_text(d, kernel::dimension_text_style(d));
+        item.text = kernel::dimension_text(d, sheet_dimension_style(kernel::dimension_text_style(d)));
       }
       if (d.kind == kernel::ViewerDimensionKind::Angular) {
         const auto u = subtract(d.line_first, d.witness_first);

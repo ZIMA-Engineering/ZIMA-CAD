@@ -1,4 +1,89 @@
-# Development handoff — 2026-09-15
+# Development handoff — 2026-09-20
+
+## Linux release 2026092001 preparation
+
+The user authorized documentation, commit, push and a Linux release of the Drawing
+work. Build identity is `2026092001`; see [release notes](doc/releases/2026092001.md).
+The package must be built from the exact committed/tagged source, signed with
+the existing publisher key and accepted before publication. Unrelated untracked
+images and the threaded-hole design note are excluded.
+
+## Drawing conventions correction, 2026-09-20
+
+The user clarified three conventions: omit mm from all Drawing length labels,
+convert a linear dimension to a chain without requesting another point, and
+place chain text perpendicular to the spine on the side opposite the witness
+geometry. These are implemented through Drawing-only text formatting, an
+explicit conversion action using the existing references, and the shared chain
+layout for screen/export. Source model units remain untouched. Tests cover
+conversion/Undo, both sides of vertical/horizontal/oblique labels, and implicit
+millimetres with retained tolerances and angular degree symbols.
+
+
+Drawing conventions validation: all five core/export tests and four GUI tests
+pass (`build/drawing-conventions-core-tests.log` and
+`build/drawing-conventions-ui-tests.log`). These include direct context-menu
+conversion with two existing references and Undo, both text sides at three
+orientations, hidden millimetres and retained tolerance text. The native root
+launcher has been rebuilt.
+
+## Drawing dimension follow-up, 2026-09-20
+
+The user supplied `screenshots/01.png` (not `doc/01.png`) as the running chain
+reference and explicitly requested an additional zero at the datum. Drawing
+chains now show ordinates from one retained datum, a shared spine, one arrow per
+target, perpendicular outside labels and a datum ring with literal `0`. Adding either end
+preserves the datum; dragging moves the common spine. Native persistence and
+screen/PDF/DXF share the resulting presentations. The break zigzag was sharpened
+to 20-degree included angles on the user's subsequent request.
+
+The preceding fixes for cyan selection after double-click, the title-block
+10 → 12 → 8 mm master and Sketcher-style automatic two-point direction are
+implemented. Their eight-test follow-up and the main-workspace Drawing check
+passed (`build/drawing-followup-tests.log`, `drawing-followup-workspace.log`).
+The older drag assertion now exercises free movement inside the dimension span,
+without crossing the automatic outside-text clearance boundary. The unrelated
+3D text-clearance issue remains outside this follow-up.
+
+
+Final follow-up validation: 13/13 targeted contracts pass in
+`build/drawing-chain-final-tests.log`, including the complete Drawing GUI,
+measurement GUI, Sketcher, title-block, view breaks and PDF/DXF command checks.
+The root launcher's main-workspace Drawing check also passes in
+`build/drawing-chain-workspace.log`. The native application has been rebuilt.
+
+## Drawing projection and view breaks completed, 2026-09-20
+
+The interrupted view-break work was recovered and completed together with the
+user's revised Drawing-dimension contract. Drawing guides now use horizontal/
+vertical 2D rectangles around the displayed projection. Drawing-created dimensions
+measure in the projection plane; transferred model dimensions keep their original
+values and references. Both snap to the same 2D guides. Part/Assembly spatial
+frames remain unchanged.
+
+View Properties has compact groups with labels above adjacent fields, including
+a third angle for in-plane rotation. New base/projected views receive numbered
+names (`Pohled 1`, etc.); custom names survive. Moving a view on the sheet retains
+its dimensions. The user explicitly approved removing Drawing-created dimensions
+when its orientation changes, including affected projected descendants. This is
+transactional: Cancel preserves them and Undo restores them with the old camera.
+
+Breaks have an independent internal editor with draggable boundaries, numeric
+position/length/gap, straight/zigzag/no marks and a result preview. Native
+persistence, unchanged measurements, hidden references, clipping and exports are
+implemented. Enter in the shared inline numeric field commits only that number,
+not the enclosing Properties transaction.
+
+The root Linux launcher uses the rebuilt native application. Twelve targeted
+contracts and the main-workspace Drawing check passed the initial acceptance.
+The subsequent follow-up fixes title-block master dimensions and cyan selection
+after dimension Properties, and adds Sketcher-style automatic two-point direction
+selection during placement. The older colour assertion now scans the actual
+antialiased glyph region. The unrelated 3D text-clearance failure remains
+recorded in [Drawing acceptance](doc/DRAWINGS.md#drawing-projection-and-break-acceptance-2026-09-20).
+See [view breaks](doc/DRAWING_BREAKS.md) for the completed interaction contract.
+No release was published and no commit was requested. Unrelated untracked
+`doc/01.png`, `doc/02.png` and `doc/AI/THREADED_HOLE_DESIGN.md` were left untouched.
 
 ## Application lifecycle follow-up, 2026-09-19
 

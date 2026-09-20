@@ -142,6 +142,41 @@ int main() {
                       line("right", {40, 0, 0}, {40, 20, 0}), circle("hole", 20, 10, 5),
                       circle("neighbor", 28, 10, 5)};
         auto v = view(mesh);
+        {
+            auto ordinate_view=view({});
+            ordinate_view.measurement_geometry=share_measurement_geometry({{}, {
+                {ref("zero"),{0,0,0}}, {ref("ten"),{0,10,0}},
+                {ref("twenty-five"),{0,25,0}}, {ref("forty"),{0,40,0}},
+                {ref("before"),{0,-5,0}}}});
+            auto running=make_drawing_dimension(ordinate_view.id,DrawingDimensionKind::Chain);
+            running.direction=DimensionDirection::Vertical;
+            running.attachments={{DimensionAttachmentKind::Point,ref("zero")},
+                {DimensionAttachmentKind::Point,ref("ten")}};
+            extend_dimension_chain(running,false,{DimensionAttachmentKind::Point,ref("twenty-five")});
+            extend_dimension_chain(running,false,{DimensionAttachmentKind::Point,ref("forty")});
+            for(double scale:{.5,1.,2.}) {
+                ordinate_view.scale=scale;
+                place_drawing_dimension(ordinate_view,running,0,{-8,10});
+                const auto result=evaluate_drawing_dimension(ordinate_view,running);
+                for(std::size_t i=0;i<3;++i) {
+                    near(result.presentations[i].value,std::array{10.,25.,40.}[i]);
+                    near(result.presentations[i].line_first.x,-8);
+                    near(result.presentations[i].line_second.x,-8);
+                    near(result.presentations[i].line_first.y,0);
+                    near(result.presentations[i].label_position->y,std::array{10.,25.,40.}[i]);
+                }
+            }
+            drag_drawing_dimension(ordinate_view,running,1,2,{-3,0});
+            for(const auto& shown:evaluate_drawing_dimension(ordinate_view,running).presentations)
+                near(shown.line_second.x,-11);
+            extend_dimension_chain(running,true,{DimensionAttachmentKind::Point,ref("before")});
+            const auto result=evaluate_drawing_dimension(ordinate_view,running);
+            require(running.anchor_attachment==1,"Prepending moved the running zero");
+            for(std::size_t i=0;i<4;++i)near(result.presentations[i].value,std::array{5.,10.,25.,40.}[i]);
+            refresh_drawing_dimension(ordinate_view,running);
+            auto roundtrip=deserialize_drawing_dimensions(serialize_drawing_dimensions({running}));
+            require(roundtrip.front()==running,"Running dimension lost its datum or layouts on persistence");
+        }
         auto d = make_drawing_dimension(v.id);
         d.attachments = {{DimensionAttachmentKind::Line, ref("bottom"), {}, .5},
                          {DimensionAttachmentKind::Line, ref("top"), {}, .5}};
@@ -172,12 +207,17 @@ int main() {
         v = view(mesh);
         d.view_id = v.id;
         d.style.prefix = "2×";
+        require(make_drawing_dimension(v.id).style.suffix.empty(),"New Drawing dimensions must omit mm");
+        ModelAnnotation displayed;displayed.model_dimension=kernel::ViewerDimension{};
+        displayed.model_dimension->value=40;displayed.model_dimension->unit_suffix=" mm";
+        require(project_model_annotation(v,displayed).text=="40","Transferred model dimension displays mm");
+        require(displayed.model_dimension->unit_suffix==" mm","Drawing changed model units");
         d.style.suffix = " mm";
         d.style.decimals = 1;
         d.style.tolerance_mode = "symmetric";
         d.style.symmetric_tolerance = "0.2";
         require(drawing_dimension_text(d, evaluate_drawing_dimension(v, d).presentations[0]) ==
-                    "2×40mm ±0,2",
+                    "2×40 ±0,2",
                 "Text/tolerance format diverged");
         place_drawing_dimension(v, d, 0, {20, 30});
         refresh_drawing_dimension(v, d);
@@ -191,7 +231,7 @@ int main() {
         near(chain.presentations[1].value, 40);
         extend_dimension_chain(d, false, {DimensionAttachmentKind::Center, ref("neighbor")});
         chain = evaluate_drawing_dimension(v, d);
-        near(chain.presentations[2].value, 12);
+        near(chain.presentations[2].value, 28); // All ordinates use the original zero.
         refresh_drawing_dimension(v, d);
         const auto before_missing = d;
         const auto intact = v.measurement_geometry;
@@ -201,7 +241,7 @@ int main() {
         const auto missing = evaluate_drawing_dimension(v, d);
         require(missing.state == MeasurementState::Unresolved && !missing.resolved_attachments.back(),
                 "Broken reference not marked");
-        require(drawing_dimension_text(d, missing.presentations.back(), true) == kernel::dimension_text(missing.presentations.back(),d.style),
+        require(drawing_dimension_text(d, missing.presentations.back(), true) == "2×28 ±0,2",
                 "Broken dimension did not preserve its last numeric value");
         v.measurement_geometry=intact;
         require(evaluate_drawing_dimension(v, d).state == MeasurementState::Resolved && d == before_missing,

@@ -1,12 +1,18 @@
 #include "drawing_dimension_dialog.hpp"
 #include "drawing_window.hpp"
+#include <zima/drawing/view_breaks.hpp>
+#include <zima/drawing/annotation_guides.hpp>
 #include <QAction>
+#include <QFile>
+#include <QMenu>
+#include <zima/drawing_render/chain_dimension_layout.hpp>
 #include <QApplication>
 #include <QContextMenuEvent>
 #include <QDialogButtonBox>
 #include <QMouseEvent>
 #include <QKeyEvent>
 #include <QTabWidget>
+#include <QTemporaryDir>
 #include <iostream>
 #include <numbers>
 #include <zima/kernel/stable_id.hpp>
@@ -94,6 +100,39 @@ int verify_measurement_dimension_ui() {
                            box.bottom() - view.y * scale - y * view.scale * scale);
         };
         auto count = [&] { return window.document_for_test().sheets.front().dimensions.size(); };
+        // Use the same two projected points throughout live placement, then
+        // commit and reopen the actual native document for each selected mode.
+        for (const auto& [cursor, expected, length] : std::vector<std::tuple<Point2, DimensionDirection, double>>{
+                 {{15, 30}, DimensionDirection::Horizontal, 30},
+                 {{40, 10}, DimensionDirection::Vertical, 20},
+                 {{15, 10}, DimensionDirection::Automatic, std::hypot(30., 20.)}}) {
+            auto pending = make_drawing_dimension(view.id);
+            DrawingDimension committed;
+            app::DrawingDimensionDialog placement(pending, true,
+                [&](const std::string&) { return &view; },
+                [&](auto result) { committed = std::move(result); }, &window);
+            placement.setAttribute(Qt::WA_DeleteOnClose, false);
+            MeasurementCandidate a, b;
+            a.attachment = {DimensionAttachmentKind::CurvePoint, mesh.edges[0].reference};
+            b.attachment = {DimensionAttachmentKind::CurvePoint, mesh.edges[1].reference};
+            b.attachment.parameter = 1;
+            placement.accept_candidate(view.id, a);placement.accept_candidate(view.id, b);
+            placement.position({15,30}, false);
+            placement.position({40,10}, false);
+            placement.position(cursor, true);
+            require(placement.value().direction == expected, "Drawing drag chose a different direction than Sketcher");
+            const auto evaluated = evaluate_drawing_dimension(view, placement.value());
+            require(evaluated.state == MeasurementState::Resolved &&
+                    std::abs(evaluated.presentations[0].value-length)<1e-8,
+                    "Automatic placement measured the wrong projected distance");
+            placement.findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();
+            auto saved = drawing;saved.sheets.front().dimensions = {committed};
+            QTemporaryDir temporary;const auto path = std::filesystem::path(temporary.path().toStdString())/"automatic.drwz";
+            saved.save(path);const auto reopened = DrawingDocument::load(path);
+            require(reopened.sheets.front().dimensions[0].direction == expected,
+                    "Automatic placement direction did not survive save/reopen");
+        }
+
         command->trigger();
         flush();
         auto *props = dialog();
@@ -132,7 +171,7 @@ int verify_measurement_dimension_ui() {
         require(count() == 0 && dialog(), "Short MMB committed dimension");
         mouse(canvas, QEvent::MouseButtonDblClick, point(40, 30), Qt::MiddleButton, Qt::MiddleButton);
         require(count() == 1 && !dialog(), "MMB double click did not commit dimension");
-        const auto linear = window.document_for_test().sheets.front().dimensions.front();
+        auto linear = window.document_for_test().sheets.front().dimensions.front();
         require(linear.style.prefix == "2×" && linear.style.symmetric_tolerance == "0.1",
                 "Unified tolerance fields not committed");
         const auto evaluation =
@@ -140,6 +179,94 @@ int verify_measurement_dimension_ui() {
         require(std::abs(evaluation.presentations[0].value - 20) < 1e-9,
                 "UI dimension changed projected measurement");
 
+        const auto before_snap=linear;
+        // Native Drawing dimensions snap to the same 2D rectangle as model dimensions.
+        canvas->grab();
+        const auto guides=annotation_guides(*window.document_for_test().find_view(view.id));
+        const auto guide=std::ranges::find_if(guides,[](const auto& g){return std::abs(g.first.x-g.second.x)<1e-9;});
+        require(guide!=guides.end(),"Drawing dimension has no vertical 2D guide");
+        const auto initial_grip=window.annotation_handle_for_test(linear.id,0,true);require(initial_grip.has_value(),"Drawing dimension text grip missing");
+        const auto target=point(guide->first.x/view.scale,10);
+        mouse(canvas,QEvent::MouseMove,*initial_grip,Qt::NoButton,Qt::NoButton);
+        mouse(canvas,QEvent::MouseButtonPress,*initial_grip,Qt::LeftButton,Qt::LeftButton);
+        mouse(canvas,QEvent::MouseMove,target+QPointF(1,0),Qt::NoButton,Qt::LeftButton);
+        require(canvas->property("annotationSnapActive").toBool(),"Drawing dimension did not snap to its 2D rectangle");
+        mouse(canvas,QEvent::MouseButtonRelease,target+QPointF(1,0),Qt::LeftButton,Qt::NoButton);canvas->grab();
+        const auto snapped_grip=window.annotation_handle_for_test(linear.id,0,true);
+        require(snapped_grip&&QLineF(*snapped_grip,target).length()<2,"Drawing snap did not place the actual grip");
+        linear=window.document_for_test().sheets.front().dimensions.front();
+        require(std::abs(evaluate_drawing_dimension(*window.document_for_test().find_view(view.id),linear).presentations[0].value-20)<1e-9,"Snapping changed projected length");
+
+        // Drag an already dimensioned view, with both local and source dimensions.
+        // Repeat after shortening it: only sheet placement may change.
+        for(bool broken:{false,true}) {
+            auto* state=workspace.open_drawing(drawing.document_id);
+            auto pending=state->document();
+            pending.find_view(view.id)->breaks=broken?std::vector<ViewBreak>{{"move-break",false,2,4,2,BreakMark::Zigzag}}:std::vector<ViewBreak>{};
+            state->commit(std::move(pending));window.edit_workspace_document(drawing.document_id);flush();canvas->grab();
+            const auto before_view=*window.document_for_test().find_view(view.id);
+            const auto before_dimension=window.document_for_test().sheets.front().dimensions.front();
+            const auto local_grip=window.annotation_handle_for_test(linear.id,0,true);
+            const auto model_grip=window.model_annotation_handle_for_test(parameter.source,0,view.id);
+            require(local_grip&&model_grip,"Dimensioned view has missing grips");
+            const auto box=window.sheet_rectangle_for_test();const double zoom=box.height()/drawing.sheets.front().height_mm();
+            const auto local=break_map(before_view,{25,15});
+            const QPointF start(box.right()-before_view.x*zoom+local.x*view.scale*zoom,
+                                box.bottom()-before_view.y*zoom-local.y*view.scale*zoom);
+            const QPointF delta(41,-27);
+            mouse(canvas,QEvent::MouseMove,start,Qt::NoButton,Qt::NoButton);
+            mouse(canvas,QEvent::MouseButtonPress,start,Qt::LeftButton,Qt::LeftButton);
+            mouse(canvas,QEvent::MouseMove,start+delta,Qt::NoButton,Qt::LeftButton);
+            mouse(canvas,QEvent::MouseButtonRelease,start+delta,Qt::LeftButton,Qt::NoButton);canvas->grab();
+            const auto& moved=*window.document_for_test().find_view(view.id);
+            require(std::abs(moved.x-before_view.x+delta.x()/zoom)<1e-6&&std::abs(moved.y-before_view.y+delta.y()/zoom)<1e-6,"Dragging dimensioned view did not move sheet placement");
+            const auto local_after=window.annotation_handle_for_test(linear.id,0,true);
+            const auto model_after=window.model_annotation_handle_for_test(parameter.source,0,view.id);
+            require(local_after&&model_after&&QLineF(*local_after,*local_grip+delta).length()<.1&&QLineF(*model_after,*model_grip+delta).length()<.1,"Moving view left local or model dimensions behind");
+            require(window.document_for_test().sheets.front().dimensions.front()==before_dimension&&moved.model_annotations==before_view.model_annotations&&moved.breaks==before_view.breaks,"Moving view changed references, values, layout or breaks");
+            QTemporaryDir saved;const auto path=std::filesystem::path(saved.path().toStdString())/"moved.drwz";
+            window.document_for_test().save(path);const auto reloaded=DrawingDocument::load(path);
+            require(reloaded.find_view(view.id)->x==moved.x&&reloaded.find_view(view.id)->breaks==moved.breaks&&reloaded.sheets.front().dimensions.front()==before_dimension,"Moved dimensions or breaks did not survive native reopen");
+            auto restored=state->document();*restored.find_view(view.id)=before_view;restored.find_view(view.id)->breaks.clear();state->commit(std::move(restored));window.edit_workspace_document(drawing.document_id);flush();canvas->grab();
+        }
+
+        // Restore the independent chain-edit fixture after snap/move coverage.
+        auto initial_chain=workspace.open_drawing(drawing.document_id)->document();
+        initial_chain.sheets.front().dimensions.front()=before_snap;
+        workspace.open_drawing(drawing.document_id)->commit(std::move(initial_chain));
+        window.edit_workspace_document(drawing.document_id);flush();canvas->grab();linear=before_snap;
+
+        std::string confirmed;
+        window.set_selection_handler([&](const auto& id){confirmed=id;});
+        const auto cyan_pixels=[&] {
+            const auto image=canvas->grab().toImage();std::size_t pixels=0;
+            for(int y=0;y<image.height();++y)for(int x=0;x<image.width();++x) {
+                const auto c=image.pixelColor(x,y);
+                if(c.red()<40&&c.green()>110&&c.blue()>150&&std::abs(c.green()*255-c.blue()*209)<1000)++pixels;
+            }
+            return pixels;
+        };
+        {
+            const auto handle=window.annotation_handle_for_test(linear.id,0,true);
+            require(handle.has_value(),"Conversion grip missing");pick(canvas,*handle);
+            const auto on_line=*handle+QPointF(0,20);
+            QContextMenuEvent context(QContextMenuEvent::Mouse,on_line.toPoint(),canvas->mapToGlobal(on_line.toPoint()));
+            QApplication::sendEvent(canvas,&context);flush();
+            auto* convert=canvas->findChild<QAction*>("convertDrawingChainAction");
+            require(convert,"Linear dimension has no direct chain conversion");
+            convert->trigger();for(auto* menu:canvas->findChildren<QMenu*>())menu->close();flush();
+            auto* converted=dialog();
+            require(converted&&converted->value().kind==DrawingDimensionKind::Chain&&
+                converted->value().attachments==linear.attachments&&!converted->entering(),
+                "Chain conversion requested another reference");
+            converted->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+            require(window.document_for_test().sheets.front().dimensions.front().kind==DrawingDimensionKind::Chain&&
+                window.document_for_test().sheets.front().dimensions.front().attachments.size()==2,
+                "Two-reference chain conversion did not commit");
+            require(workspace.open_drawing(drawing.document_id)->undo(),"Chain conversion has no Undo");
+            window.edit_workspace_document(drawing.document_id);flush();
+            require(window.document_for_test().sheets.front().dimensions.front()==linear,"Conversion Undo did not restore linear dimension");
+        }
         // One dialog class also edits and extends an existing dimension.
         auto grip = window.annotation_handle_for_test(linear.id, 0, true);
         require(grip.has_value(), "Committed dimension has no grip");
@@ -147,6 +274,8 @@ int verify_measurement_dimension_ui() {
         mouse(canvas, QEvent::MouseButtonDblClick, *grip, Qt::LeftButton, Qt::LeftButton);
         props = dialog();
         require(props, "Existing dimension did not open properties");
+        require(confirmed=="drawing-dimension:"+linear.id,"Double-click lost confirmed Tree selection");
+        require(cyan_pixels()>10,"Double-click removed cyan dimension presentation");
         const auto previous = props->value().segments.front();
         props->extend(true);
         pick(canvas, point(0, 0));
@@ -157,6 +286,7 @@ int verify_measurement_dimension_ui() {
         flush();
         require(count() == 1 && window.document_for_test().sheets.front().dimensions.front() == linear,
                 "Cancel changed original dimension");
+        require(confirmed=="drawing-dimension:"+linear.id&&cyan_pixels()>10,"Cancel lost the edited dimension selection");
 
         grip = window.annotation_handle_for_test(linear.id, 0, true);
         pick(canvas, *grip);
@@ -174,8 +304,9 @@ int verify_measurement_dimension_ui() {
         require(count() == 1 && window.document_for_test().sheets.front().dimensions.front().kind ==
                                     DrawingDimensionKind::Chain,
                 "Chain extension did not commit");
-        require(window.document_for_test().sheets.front().dimensions.front().segments.front() ==
-                    linear.segments.front(),
+        require(confirmed=="drawing-dimension:"+linear.id&&cyan_pixels()>10,"OK lost the edited dimension selection");
+        require(window.document_for_test().sheets.front().dimensions.front().segments.front().id == linear.segments.front().id &&
+                window.document_for_test().sheets.front().dimensions.front().segments.front().layout == linear.segments.front().layout,
                 "Chain changed original segment");
         command->trigger();
         flush();
@@ -318,8 +449,19 @@ int verify_measurement_dimension_ui() {
         mouse(canvas,QEvent::MouseButtonDblClick,point(40,30),Qt::MiddleButton,Qt::MiddleButton);require(count()==1&&!dialog(),"Middle double click did not confirm angle");
         const auto angular=window.document_for_test().sheets.front().dimensions.front();auto measured=evaluate_drawing_dimension(*window.document_for_test().find_view(view.id),angular);
         require(measured.state==MeasurementState::Resolved&&std::abs(measured.presentations[0].value-90)<1e-6&&drawing_dimension_text(angular,measured.presentations[0])=="90°","Angular UI measured the wrong value or unit");
-        const auto pixels=[&](QColor color){const auto image=canvas->grab().toImage();std::size_t found=0;for(int y=0;y<image.height();++y)for(int x=0;x<image.width();++x)if(image.pixelColor(x,y).rgb()==color.rgb())++found;return found;};
-        require(pixels(QColor("#FFD400"))>10,"Valid angle is not yellow");window.grab().save("build/drawing-angle-valid.png");
+        const auto pixels=[&](QColor color){
+            const auto image=canvas->grab().toImage();std::size_t found=0;
+            for(int y=0;y<image.height();++y)for(int x=0;x<image.width();++x) {
+                const auto pixel=image.pixelColor(x,y);
+                // Thin antialiased lines retain their hue on the black canvas
+                // without necessarily containing fully covered, exact RGB pixels.
+                const double alpha=double(std::max({pixel.red(),pixel.green(),pixel.blue()}))/std::max({color.red(),color.green(),color.blue()});
+                if(alpha>.35&&alpha<=1.01&&std::abs(pixel.red()-alpha*color.red())<3&&
+                   std::abs(pixel.green()-alpha*color.green())<3&&std::abs(pixel.blue()-alpha*color.blue())<3)++found;
+            }
+            return found;
+        };
+        window.grab().save("build/drawing-angle-valid.png");require(pixels(QColor("#FFD400"))>10,"Valid angle is not yellow");
         auto invalid_document=DrawingDocument::create_default();auto invalid_view=angular_view;auto packet=*invalid_view.measurement_geometry;
         std::erase_if(packet.curves,[](const auto& c){return c.source.semantic_key=="right";});invalid_view.measurement_geometry=share_measurement_geometry(std::move(packet));
         invalid_document.sheets.front().views={invalid_view};invalid_document.sheets.front().dimensions={angular};workspace.add_drawing(invalid_document);window.edit_workspace_document(invalid_document.document_id);flush();
@@ -341,6 +483,78 @@ int verify_measurement_dimension_ui() {
         require(window.document_for_test().sheets.front().dimensions.empty(),"GUI Delete did not remove the measured angle");
         auto* angle_state=workspace.open_drawing(invalid_document.document_id);require(angle_state->undo(),"GUI angle deletion has no Undo");
         window.edit_workspace_document(invalid_document.document_id);flush();require(window.document_for_test().sheets.front().dimensions.front()==fixed,"GUI delete Undo lost angle references or presentation");
+        {
+            auto chain_document=DrawingDocument::create_default();
+            auto chain_view=view;chain_view.model_annotations.clear();chain_view.projected_edges.clear();
+            chain_view.projected_edges.push_back({{{0,0},{20,0},{20,50},{0,50},{0,0}}});
+            for(double y:{10.,25.,40.}) {
+                ProjectedEdge hole;
+                for(int i=0;i<=64;++i)hole.points.push_back({10+2*std::cos(i*2*std::numbers::pi/64),y+2*std::sin(i*2*std::numbers::pi/64)});
+                chain_view.projected_edges.push_back(hole);
+            }
+            chain_view.measurement_geometry=share_measurement_geometry({{}, {
+                {{"chain","zero",{}},{0,0,0}},{{"chain","ten",{}},{10,10,0}},
+                {{"chain","twenty-five",{}},{10,25,0}},{{"chain","forty",{}},{10,40,0}}}});
+            auto running=make_drawing_dimension(chain_view.id,DrawingDimensionKind::Chain);
+            running.direction=DimensionDirection::Vertical;running.style.suffix="";
+            running.attachments.clear();
+            for(const auto& p:chain_view.measurement_geometry->points)
+                running.attachments.push_back({DimensionAttachmentKind::Point,p.source});
+            resize_dimension_segments(running);place_drawing_dimension(chain_view,running,0,{-8,10});
+            const auto projection=[](kernel::Vec3 p){return QPointF(p.x,-p.y);};
+            auto result=evaluate_drawing_dimension(chain_view,running);
+            for(const auto& ordinate:result.presentations) {
+                auto layout=drawing_render::chain_dimension_layout(ordinate,projection,canvas->font(),QString::number(ordinate.value),1.);
+                require(layout.valid&&layout.arrows.size()==1&&layout.text_angle==0,
+                        "Running ordinate must have one arrow and upright text");
+                require(layout.handles[0]==projection(*ordinate.label_position),"Ordinate label grip is detached");
+            }
+            // Both sides of horizontal, vertical and oblique spines: text is
+            // perpendicular, readable and outside the witness half-plane.
+            for(const auto axis:{QPointF(1,0),QPointF(0,1),QPointF(.6,.8)})for(double side:{-1.,1.}) {
+                kernel::ViewerDimension sample;
+                const QPointF normal(-axis.y(),axis.x());
+                const auto target=axis*40,reference=target+normal*(side*10);
+                sample.line_first={0,0,0};sample.line_second={target.x(),target.y(),0};
+                sample.witness_second={reference.x(),reference.y(),0};sample.label_position=sample.line_second;
+                const auto project=[](kernel::Vec3 p){return QPointF(p.x,p.y);};
+                const auto layout=drawing_render::chain_dimension_layout(sample,project,canvas->font(),"40",1.);
+                const double angle=layout.text_angle*std::numbers::pi/180;
+                const QPointF text_axis(std::cos(angle),std::sin(angle));
+                require(std::abs(QPointF::dotProduct(axis,text_axis))<1e-8,"Chain text is not perpendicular to its spine");
+                QTransform transform;transform.translate(layout.text_baseline.x(),layout.text_baseline.y());transform.rotate(layout.text_angle);
+                const auto box=viewer::dimension_text_box(canvas->font(),"40",.5);
+                for(const auto corner:{box.topLeft(),box.topRight(),box.bottomLeft(),box.bottomRight()})
+                    require(QPointF::dotProduct(transform.map(corner)-target,reference-target)<0,
+                            "Chain label lies on the witness/reference side");
+            }
+            auto zero=drawing_render::chain_dimension_layout(result.presentations.front(),projection,canvas->font(),"0",1.,true);
+            require(zero.valid&&zero.arrows.empty()&&zero.curves.size()==2,
+                    "Running datum must have a ring, witness and zero without an arrow");
+            chain_document.sheets.front().views={chain_view};chain_document.sheets.front().dimensions={running};
+            workspace.add_drawing(chain_document);window.edit_workspace_document(chain_document.document_id);flush();
+            window.grab().save("build/drawing-chain-proof.png");
+            auto handle=window.annotation_handle_for_test(running.id,2,true);require(handle.has_value(),"Running dimension handle missing");
+            mouse(canvas,QEvent::MouseButtonPress,*handle,Qt::LeftButton,Qt::LeftButton);
+            mouse(canvas,QEvent::MouseMove,*handle+QPointF(-20,0),Qt::NoButton,Qt::LeftButton);
+            mouse(canvas,QEvent::MouseButtonRelease,*handle+QPointF(-20,0),Qt::LeftButton,Qt::NoButton);
+            const auto& moved_chain=window.document_for_test().sheets.front().dimensions.front();
+            result=evaluate_drawing_dimension(chain_view,moved_chain);
+            for(std::size_t i=0;i<3;++i) {
+                require(std::abs(result.presentations[i].value-std::array{10.,25.,40.}[i])<1e-8,"Dragging changed an ordinate value");
+                require(std::abs(result.presentations[i].line_second.x-result.presentations[0].line_second.x)<1e-8,
+                        "Dragging split the running dimension spine");
+            }
+            require(result.presentations[0].line_second.x < -8,"Running dimension did not move with its grip");
+            window.document_for_test().save("build/drawing-chain-proof.drwz");
+            const auto reopened=DrawingDocument::load("build/drawing-chain-proof.drwz");
+            require(reopened.sheets.front().dimensions.front()==moved_chain,"Running dimension save/reopen changed state");
+            window.export_pdf("build/drawing-chain-proof.pdf");window.export_dxf("build/drawing-chain-proof.dxf");
+            QFile exported("build/drawing-chain-proof.dxf");require(exported.open(QIODevice::ReadOnly),"Running DXF missing");
+            const auto bytes=exported.readAll();
+            for(const auto& value:{"0","10","25","40"})
+                require(bytes.contains(QByteArray("\n1\n")+value+"\n"),"DXF lost a running ordinate or its literal zero");
+        }
         std::cout << "Manual dimension properties, references, preview/Cancel, MMB, measured values and "
                      "radius grips passed\n";
         return 0;

@@ -1,3 +1,5 @@
+#include <zima/drawing/view_orientation.hpp>
+#include <zima/drawing/view_breaks.hpp>
 #include <zima/workspace/drawing_view_operations.hpp>
 #include <zima/workspace/drawing_projection.hpp>
 #include <zima/workspace/drawing_sources.hpp>
@@ -10,8 +12,24 @@ namespace zima::workspace {
 namespace {
 void invalid_view() { throw DrawingOperationError("invalid_arguments","Invalid drawing view parameters."); }
 void bounded(double value,double low,double high) { if(!std::isfinite(value)||value<low||value>high)invalid_view(); }
+// Drawing measurements belong to their original projection plane. Keep model
+// annotations and preserve the old document for the caller's Undo transaction.
+void discard_reoriented_dimensions(const drawing::DrawingDocument& before,drawing::DrawingDocument& after) {
+    for(auto& sheet:after.sheets)std::erase_if(sheet.dimensions,[&](const auto& dimension) {
+        const auto* previous=before.find_view(dimension.view_id);
+        const auto* current=after.find_view(dimension.view_id);
+        return previous&&current&&!drawing::same_view_orientation(previous->camera,current->camera);
+    });
+}
+}
+std::string next_drawing_view_name(const drawing::DrawingDocument& document,const std::string& prefix) {
+    std::set<std::string> names;std::size_t number=1;
+    for(const auto& sheet:document.sheets)for(const auto& view:sheet.views){names.insert(view.name);++number;}
+    while(names.contains(prefix+" "+std::to_string(number)))++number;
+    return prefix+" "+std::to_string(number);
 }
 void validate_drawing_view(const drawing::DrawingView& view) {
+    drawing::validate_view_breaks(view);
     if(view.id.empty()||view.name.empty()||view.name.size()>256||std::ranges::all_of(view.name,[](unsigned char c){return c==' ';})||
        std::ranges::any_of(view.name,[](unsigned char c){return c<32||c==127;}))invalid_view();
     bounded(view.x,-10000,10000);bounded(view.y,-10000,10000);bounded(view.scale,.001,1000);
@@ -100,6 +118,7 @@ void edit_drawing_view(drawing::DrawingDocument& document,const std::string& she
             other.section_snapshot=accepted.section_snapshot;
             projection.project(other,{.pending_hatch=pending_hatch});refreshed.insert(other.id);
         }
+    discard_reoriented_dimensions(document,next);
     for(auto& s:next.sheets)for(auto& dimension:s.dimensions)if(refreshed.contains(dimension.view_id))
         drawing::refresh_drawing_dimension(*next.find_view(dimension.view_id),dimension);
     for(auto& s:next.sheets)drawing::refresh_balloons(s);
@@ -140,6 +159,7 @@ std::size_t regenerate_drawing_views(drawing::DrawingDocument& document,const Wo
     }
     for(auto& s:next.sheets)drawing::refresh_balloons(s);
     next.sources=next.data_sources();
+    discard_reoriented_dimensions(document,next);
     document=std::move(next);return count;
 }
 std::vector<std::string> delete_drawing_view(drawing::DrawingDocument& document,const std::string& id) {

@@ -112,7 +112,17 @@ struct MeasurementGeometry {
 };
 [[nodiscard]] std::shared_ptr<const MeasurementGeometry> share_measurement_geometry(MeasurementGeometry);
 
+enum class BreakMark { None, Straight, Zigzag };
+struct ViewBreak {
+    std::string id;
+    bool vertical{};
+    double start{}, length{50}, gap{8};
+    BreakMark mark{BreakMark::Zigzag};
+    bool operator==(const ViewBreak&) const = default;
+};
+
 struct DrawingView {
+    std::vector<ViewBreak> breaks;
     std::string id;
     std::string name{"Pohled"};
     std::string source_document_id;
@@ -394,7 +404,7 @@ void load_template_details(DrawingSheet&, const std::filesystem::path&, bool tit
 [[nodiscard]] std::vector<ProjectedTriangle> project_triangles(
     const zima::kernel::ViewerMesh& mesh, ViewOrientation orientation);
 [[nodiscard]] ProjectionCamera standard_camera(ViewOrientation orientation);
-[[nodiscard]] ProjectionCamera rotated_camera(const ProjectionCamera&, double horizontal_degrees, double vertical_degrees);
+[[nodiscard]] ProjectionCamera rotated_camera(const ProjectionCamera&, double horizontal_degrees, double vertical_degrees, double roll_degrees = 0);
 [[nodiscard]] ProjectionCamera projected_camera(
     const ProjectionCamera& parent, ProjectionDirection direction,
     ProjectionMethod method);

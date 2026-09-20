@@ -1,3 +1,5 @@
+#include <zima/drawing/dimension_text.hpp>
+#include <zima/drawing/view_breaks.hpp>
 #include <mutex>
 #include <algorithm>
 #include <cmath>
@@ -393,7 +395,9 @@ std::vector<std::vector<Point2>> measurement_reference_geometry(
             kernel::EdgeReference{item.source.owner_id, item.source.semantic_id, item.source.instance_path} == ref)
             for (auto &curve : axis_annotation_geometry(view, item).curves)
                 result.push_back(std::move(curve));
-    return result;
+    std::vector<std::vector<Point2>> clipped;
+    for(const auto& line:result)for(auto fragment:break_fragments(view,line))clipped.push_back(std::move(fragment));
+    return clipped;
 }
 std::vector<std::pair<Point2, double>> dimension_intersections(const ProjectedMeasurementCurve &a,
                                                                const ProjectedMeasurementCurve &b) {
@@ -495,7 +499,7 @@ DrawingDimension make_drawing_dimension(std::string view, DrawingDimensionKind k
     d.id = kernel::make_stable_id();
     d.view_id = std::move(view);
     d.kind = kind;
-    if(kind==DrawingDimensionKind::Angular)d.style.suffix="°";
+    d.style.suffix=kind==DrawingDimensionKind::Angular?"°":"";
     d.attachments.resize(kind == DrawingDimensionKind::Radius || kind == DrawingDimensionKind::Diameter ? 1
                                                                                                         : 2);
     resize_dimension_segments(d);
@@ -568,7 +572,7 @@ std::vector<MeasurementCandidate> measurement_candidates(const DrawingView &view
             sub(p, add(a, mul(delta, size > 1e-18 ? std::clamp(dot(sub(p, a), delta) / size, 0., 1.) : 0.))));
     };
     const auto add_candidate = [&](DimensionAttachment a, Point2 point, double distance, bool point_target=false) {
-        if (distance > tolerance)
+        if (distance > tolerance || break_hidden(view,point))
             return;
         if (std::ranges::any_of(offered, [&](const auto &c) { return c.attachment == a; }))
             return;
@@ -709,6 +713,9 @@ DimensionEvaluation evaluate_drawing_dimension(const DrawingView &view, const Dr
     };
     if (d.view_id != view.id || d.attachments.empty())
         return missing("Vyberte geometrické vazby kóty.");
+    for(const auto& attachment:d.attachments)if(auto p=resolve_dimension_attachment(view,attachment);p&&break_hidden(view,*p)) {
+        result.state=MeasurementState::Hidden;result.message="Reference kóty je skrytá přerušením pohledu.";return result;
+    }
     const auto curves = projected_measurement_curves(view);
     const bool radial = d.kind == DrawingDimensionKind::Radius || d.kind == DrawingDimensionKind::Diameter;
     if (radial) {
@@ -840,13 +847,14 @@ DimensionEvaluation evaluate_drawing_dimension(const DrawingView &view, const Dr
     bool visible = false;
     for (std::size_t i = 0; i + 1 < points.size(); ++i) {
         const auto &layout = d.segments[i].layout;
-        const auto a = points[i], b = points[i + 1];
+        const bool chain = d.kind == DrawingDimensionKind::Chain;
+        const auto a = points[chain ? anchor : i], b = points[chain ? (i < anchor ? i : i + 1) : i + 1];
         const auto line_point = [&](Point2 p) {
-            return add(mul(direction, dot(p, direction)), mul(outward, base + layout.line_offset));
+            return add(mul(direction, dot(p, direction)), mul(outward, base + (chain ? d.segments[anchor].layout.line_offset : layout.line_offset)));
         };
         const auto start = line_point(a), end = line_point(b), middle = mul(add(start, end), .5);
         const auto text =
-            add(middle, add(mul(direction, layout.text_along), mul(outward, layout.text_outward)));
+            add(chain ? end : middle, add(mul(direction, layout.text_along), mul(outward, layout.text_outward)));
         kernel::ViewerDimension value;
         value.witness_first = {a.x, a.y, 0};
         value.witness_second = {b.x, b.y, 0};
@@ -876,7 +884,7 @@ std::string drawing_dimension_text(const DrawingDimension &d, const kernel::View
     // An unresolved Drawing dimension retains its last measured text; the
     // canvas displays it in red until its original reference is repaired.
     static_cast<void>(unresolved);
-    return kernel::dimension_text(value, d.style);
+    return kernel::dimension_text(value, sheet_dimension_style(d.style));
 }
 void drag_drawing_dimension(const DrawingView &view, DrawingDimension &d, std::size_t index, int handle,
                             Point2 delta) {
@@ -916,7 +924,9 @@ void drag_drawing_dimension(const DrawingView &view, DrawingDimension &d, std::s
         layout = kernel::dragged_dimension_layout(source, {}, layout, handle, dot(delta, direction),
                                                   dot(delta, perp(direction)));
     } else {
-        layout.line_offset += dot(delta, perp(direction));
+        if (d.kind == DrawingDimensionKind::Chain) {
+            for (auto& segment : d.segments) segment.layout.line_offset += dot(delta, perp(direction));
+        } else layout.line_offset += dot(delta, perp(direction));
         if (handle == 0)
             layout.text_along += dot(delta, direction);
     }

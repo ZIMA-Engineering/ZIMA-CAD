@@ -1,3 +1,4 @@
+#include <zima/drawing/view_breaks.hpp>
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/drawing_annotation_operations.hpp>
 #include <algorithm>
@@ -118,7 +119,7 @@ void Host::register_drawing_annotation_commands() {
                     ++total;if(rows.size()>=static_cast<std::size_t>(limit))continue;
                     rows.push_back({{"view",view.id},{"sheet",sheet.id},{"reference",reference_json(item.source)},
                         {"kind",item.kind==drawing::ModelAnnotationKind::Dimension?"dimension":item.kind==drawing::ModelAnnotationKind::Axis?"axis":"construction"},
-                        {"visible",item.visible},{"unresolved",item.unresolved},{"text",item.text},{"value",item.value},{"curve_count",item.curves.size()}});
+                        {"visible",item.visible},{"hidden_by_break",drawing::break_annotation_hidden(view,item)},{"unresolved",item.unresolved},{"text",item.text},{"value",item.value},{"curve_count",item.curves.size()}});
                 }
             }
             return Result::success({{"document",id},{"revision",state->revision()},{"items",std::move(rows)},{"total",total}});
