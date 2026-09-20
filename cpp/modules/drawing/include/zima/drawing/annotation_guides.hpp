@@ -13,7 +13,7 @@ inline std::vector<AnnotationGuide> annotation_guides(const DrawingView& view) {
     const auto project=[&](kernel::Vec3 p){return Point2{kernel::dimension_dot(p,view.camera.horizontal)*view.scale,kernel::dimension_dot(p,view.camera.vertical)*view.scale};};
     std::set<std::pair<std::string,std::string>> owners;
     for(const auto& item:view.model_annotations)if(item.visible&&item.model_envelope.valid&&owners.emplace(item.source.owner_id,item.source.instance_path).second) {
-        for(int level=0;level<4;++level) {
+        for(int level=0;level<view.dimension_guide_count;++level) {
             auto frame=item.model_envelope;
             const double offset=(view.dimension_guide_offset+level*view.dimension_guide_spacing)/view.scale;
             frame.minimum=kernel::dimension_sub(frame.minimum,{offset,offset,offset});frame.maximum=kernel::dimension_add(frame.maximum,{offset,offset,offset});
@@ -32,7 +32,7 @@ inline std::vector<AnnotationGuide> annotation_guides(const DrawingView& view) {
             const double x=p.x*view.scale,y=p.y*view.scale;
             if(!valid){x0=x1=x;y0=y1=y;valid=true;}else{x0=std::min(x0,x);x1=std::max(x1,x);y0=std::min(y0,y);y1=std::max(y1,y);}
         }
-        if(valid)for(int level=0;level<4;++level) {
+        if(valid)for(int level=0;level<view.dimension_guide_count;++level) {
             const auto d=view.dimension_guide_offset+level*view.dimension_guide_spacing;
             const Point2 a{x0-d,y0-d},b{x1+d,y0-d},c{x1+d,y1+d},e{x0-d,y1+d};
             result.insert(result.end(),{{a,b},{b,c},{c,e},{e,a}});

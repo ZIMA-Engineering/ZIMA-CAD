@@ -21,6 +21,7 @@
 #include <QContextMenuEvent>
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
+#include <QSpinBox>
 #include <QFileDialog>
 #include <QLineEdit>
 #include <QLabel>
@@ -402,6 +403,10 @@ int verify_drawing_ui() {
         require(horizontal->value()==17&&vertical->value()==-23,"Rotation input cannot accept typed degrees");
         require(std::abs(state.sheets.front().views.front().camera.depth.x-original.camera.depth.x)+std::abs(state.sheets.front().views.front().camera.depth.y-original.camera.depth.y)+std::abs(state.sheets.front().views.front().camera.depth.z-original.camera.depth.z)<1e-12,"Typed rotation committed before OK");
         horizontal->setValue(0);vertical->setValue(0);
+        require(properties->findChild<QDoubleSpinBox*>("drawingGuideSpacing")->decimals()==3,"Guide spacing precision differs from offset");
+        require(properties->findChild<QSpinBox*>("drawingGuideCount")!=nullptr,"Guide count control missing");
+        properties->findChild<QSpinBox*>("drawingGuideCount")->setValue(7);
+        properties->findChild<QDoubleSpinBox*>("drawingGuideSpacing")->setValue(1.234);
         require(properties->findChild<QDoubleSpinBox*>("drawingGuideOffset")->minimum()>0,"Snap offset permits nonpositive values");
         auto* turn=properties->findChild<QPushButton*>("drawingRotateRight");require(turn&&turn->isEnabled(),"Root view has no relative rotation");turn->click();flush();
         require(state.sheets.front().views.front().camera.depth.y==original.camera.depth.y,"Rotation preview committed before OK");
@@ -411,11 +416,15 @@ int verify_drawing_ui() {
         require(std::abs(state.sheets.front().views.back().x-child.x-10)<1e-6,"Parent position edit left the projected view behind");
         require(std::abs(state.sheets.front().views.front().camera.depth.x+1)<1e-9&&std::abs(state.sheets.front().views.front().camera.depth.y)<1e-9,"Relative right rotation is not 90 degrees");
         require(std::abs(state.sheets.front().views.back().camera.depth.y+1)<1e-9&&std::abs(state.sheets.front().views.back().camera.depth.x)<1e-9,"Projected child did not follow the rotated parent camera");
+        require(state.sheets.front().views.front().dimension_guide_count==7&&state.sheets.front().views.front().dimension_guide_spacing==1.234,"Guide settings did not commit");
         // Four quarter turns from an oblique view restore all axes. Cancel keeps the saved view.
         window.select_view_for_test(original.id);action("editDrawingViewAction")->trigger();flush();properties=dialog();
+        require(properties->findChild<QSpinBox*>("drawingGuideCount")->value()==7,"Guide count lost on dialog reopen");
+        properties->findChild<QSpinBox*>("drawingGuideCount")->setValue(2);
         properties->findChild<QComboBox*>("drawingViewOrientation")->setCurrentIndex(6);
         for(int i=0;i<4;++i)properties->findChild<QPushButton*>("drawingRotateRight")->click();
         properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
+        require(state.sheets.front().views.front().dimension_guide_count==7,"Cancel committed guide count");
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_VIEW_CONTROLS_ONLY")) {
             const auto saved_camera=state.sheets.front().views.front().camera;
             window.select_view_for_test(original.id);action("editDrawingViewAction")->trigger();flush();properties=dialog();

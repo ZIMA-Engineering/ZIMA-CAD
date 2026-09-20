@@ -27,7 +27,7 @@ Json view_json(const drawing::DrawingView& v,const std::string& sheet){
         {"x_mm",v.x},{"y_mm",v.y},{"scale",v.scale},{"use_sheet_scale",v.use_sheet_scale},{"display_style",styles.at(static_cast<std::size_t>(v.display_style))},
         {"hidden_edge_style",v.hidden_edge_style==drawing::HiddenEdgeStyle::Dashed?"dashed":"gray"},{"tangent_edge_style",v.tangent_edge_style==drawing::TangentEdgeStyle::Visible?"visible":v.tangent_edge_style==drawing::TangentEdgeStyle::Thin?"thin":"hidden"},
         {"section",v.section_id},{"section_markers",std::move(markers)},{"hidden_hatch_components",v.hidden_hatch_components},{"section_parent_view",v.section_parent_id},{"show_caption",v.show_caption},{"show_section_label",v.show_section_label},
-        {"show_dimension_guides",v.show_dimension_guides},{"guide_offset_mm",v.dimension_guide_offset},{"guide_spacing_mm",v.dimension_guide_spacing},
+        {"show_dimension_guides",v.show_dimension_guides},{"guide_offset_mm",v.dimension_guide_offset},{"guide_spacing_mm",v.dimension_guide_spacing},{"guide_count",v.dimension_guide_count},
         {"projected_edges",v.projected_edges.size()},{"projected_triangles",v.projected_triangles.size()},{"model_annotations",v.model_annotations.size()},
         {"measurement_curves",v.measurement_geometry->curves.size()},{"measurement_points",v.measurement_geometry->points.size()},{"value_locks",v.value_locks}};
 }
@@ -87,7 +87,7 @@ void view_settings(drawing::DrawingView& value,const Json& args) {
     if(args.contains("scale")&&value.use_sheet_scale)invalid_view_arguments();
     value.show_caption=args.value("show_caption",value.show_caption);value.show_section_label=args.value("show_section_label",value.show_section_label);
     value.show_dimension_guides=args.value("show_dimension_guides",value.show_dimension_guides);
-    value.dimension_guide_offset=args.value("guide_offset_mm",value.dimension_guide_offset);value.dimension_guide_spacing=args.value("guide_spacing_mm",value.dimension_guide_spacing);
+    value.dimension_guide_count=args.value("guide_count",value.dimension_guide_count);value.dimension_guide_offset=args.value("guide_offset_mm",value.dimension_guide_offset);value.dimension_guide_spacing=args.value("guide_spacing_mm",value.dimension_guide_spacing);
     enum_argument(args,"orientation",value.orientation,std::array{"front","back","left","right","top","bottom","isometric"});
     enum_argument(args,"display_style",value.display_style,std::array{"visible_edges","hidden_edges","shaded_with_edges","shaded"});
     enum_argument(args,"hidden_edge_style",value.hidden_edge_style,std::array{"dashed","gray"});
@@ -253,7 +253,7 @@ void Host::register_drawing_commands(){
         std::vector<commands::Argument> parameters={{creating?"sheet":"view",true},{"source",false},{"name",false},{"orientation",false},{"camera",false,Type::Object},
             {"x_mm",false,Type::Number},{"y_mm",false,Type::Number},{"scale",false,Type::Number},{"use_sheet_scale",false,Type::Boolean},
             {"display_style",false},{"hidden_edge_style",false},{"tangent_edge_style",false},{"show_caption",false,Type::Boolean},{"show_section_label",false,Type::Boolean},
-            {"show_dimension_guides",false,Type::Boolean},{"guide_offset_mm",false,Type::Number},{"guide_spacing_mm",false,Type::Number},
+            {"show_dimension_guides",false,Type::Boolean},{"guide_offset_mm",false,Type::Number},{"guide_spacing_mm",false,Type::Number},{"guide_count",false,Type::Integer},
             {"section",false},{"section_markers",false,Type::Array},{"hidden_hatch_components",false,Type::Array},{"value_locks",false,Type::Array},{"distance_mm",false,Type::Number},{"document",false}};
         if(creating){parameters.push_back({"parent_view",false});parameters.push_back({"projection_direction",false});}
         add({creating?"drawing.view.create":"drawing.view.set",creating?tr("Create a drawing view from a calculated source or a parent view."):tr("Edit a drawing view and update its projected descendants."),std::move(parameters),true},[this,creating](auto& doc,const Json& args,const auto& document_path){

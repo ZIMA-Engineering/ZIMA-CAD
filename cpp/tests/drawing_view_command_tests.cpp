@@ -51,7 +51,9 @@ void verify_editing(const kernel::OcctKernel& kernel,fs::path dir) {
     require(!host.execute({{"command","drawing.view.set"},{"arguments",{{"view",parent},{"x_mm",150}}}}).ok&&live.open_drawing(id)->revision()==bad_revision,"Descendant failure partly committed parent");
     near(live.open_drawing(id)->document().find_view(parent)->x,100);run(host,"undo");
     require(live.open_part(part.document_id)->session.revision()==source_revision,"Drawing edit regenerated its source");
+    run(host,"drawing.view.set",{{"view",parent},{"guide_count",7},{"guide_spacing_mm",1.234}});
     run(host,"save");const auto saved=drawing::DrawingDocument::load(dir/"editing.drwz");require(saved.find_view(grand)&&saved.find_view(parent)->name=="Hlavní pohled","Native Drawing lost edited views");
+    require(saved.find_view(parent)->dimension_guide_count==7&&saved.find_view(parent)->dimension_guide_spacing==1.234,"Guide count or spacing did not persist");
     run(host,"drawing.view.delete",{{"view",parent}});run(host,"undo");require(live.open_drawing(id)->document().find_view(grand),"Undo lost view identities");
     auto empty=document::PartDocument::create_default();live.add_part(empty,{},{});
     require(!host.execute({{"command","drawing.view.create"},{"arguments",{{"sheet",sheet},{"source",empty.document_id}}}}).ok,"Uncalculated empty source accepted");
@@ -133,6 +135,8 @@ void verify_annotation_guides() {
     require(!drawing::snap_annotation(other,{10,25.2},.5).guide,"Another view supplied snap geometry");
     view.x=500;view.y=200;
     require(drawing::snap_annotation(view,{10,25.2},.5).point==snapped.point,"Sheet placement changed view-local snapping");
+    view.dimension_guide_count=1;require(drawing::annotation_guides(view).size()==4&&!drawing::snap_annotation(view,{10,28.2},.5).guide,"Removed guide remains available for snapping");
+    view.dimension_guide_count=0;require(drawing::annotation_guides(view).empty(),"Zero count still generates guides");
     const auto camera=drawing::standard_camera(drawing::ViewOrientation::Isometric);
     const auto rotated=drawing::rotated_camera(camera,17,-23);
     const auto dot=[](auto a,auto b){return a.x*b.x+a.y*b.y+a.z*b.z;};

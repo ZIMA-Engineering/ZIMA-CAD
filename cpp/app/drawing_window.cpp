@@ -65,6 +65,7 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QDoubleSpinBox>
+#include <QSpinBox>
 #include <QFileInfo>
 #include <QFontDatabase>
 #include <QFormLayout>
@@ -385,7 +386,9 @@ public:
         form->addRow(QObject::tr("Poloha Y [mm]"), y_);
         guides_=new QCheckBox(tr("Zobrazovat vodítka i mimo přesouvání"),content);guides_->setObjectName("drawingDimensionGuides");guides_->setChecked(value_.show_dimension_guides);
         guide_offset_=new QDoubleSpinBox(content);guide_spacing_=new QDoubleSpinBox(content);guide_offset_->setObjectName("drawingGuideOffset");guide_spacing_->setObjectName("drawingGuideSpacing");
-        guide_offset_->setDecimals(3);guide_offset_->setRange(.001,1000);guide_spacing_->setRange(.1,1000);guide_offset_->setValue(value_.dimension_guide_offset);guide_spacing_->setValue(value_.dimension_guide_spacing);
+        guide_offset_->setDecimals(3);guide_offset_->setRange(.001,1000);guide_spacing_->setDecimals(3);guide_spacing_->setRange(.1,1000);guide_offset_->setValue(value_.dimension_guide_offset);guide_spacing_->setValue(value_.dimension_guide_spacing);
+        guide_count_=new QSpinBox(content);guide_count_->setObjectName("drawingGuideCount");guide_count_->setRange(0,100);guide_count_->setValue(value_.dimension_guide_count);
+        form->addRow(tr("Počet odsazených vodítek"),guide_count_);connect(guide_count_,&QSpinBox::valueChanged,this,[this]{preview_values();});
         form->addRow(guides_);form->addRow(tr("Odsazení přichytávání [mm]"),guide_offset_);form->addRow(tr("Rozteč vodítek [mm]"),guide_spacing_);
         connect(guides_,&QCheckBox::toggled,this,[this]{preview_values();});for(auto* control:{guide_offset_,guide_spacing_})connect(control,&QDoubleSpinBox::valueChanged,this,[this]{preview_values();});
         section_=new QComboBox(content);section_->setObjectName("drawingSection");
@@ -433,7 +436,7 @@ public:
         auto result = value_;
         result.name = name_->text().trimmed().toStdString();
         result.show_caption = caption_->isChecked();
-        result.show_dimension_guides=guides_->isChecked();result.dimension_guide_offset=guide_offset_->value();result.dimension_guide_spacing=guide_spacing_->value();
+        result.dimension_guide_count=guide_count_->value();result.show_dimension_guides=guides_->isChecked();result.dimension_guide_offset=guide_offset_->value();result.dimension_guide_spacing=guide_spacing_->value();
         result.show_section_label=section_label_->isChecked();
         result.tangent_edge_style=static_cast<zima::drawing::TangentEdgeStyle>(tangent_style_->currentIndex());
         result.hidden_edge_style=static_cast<zima::drawing::HiddenEdgeStyle>(hidden_style_->currentIndex());
@@ -462,7 +465,7 @@ private:
     std::vector<DrawingSourceChoice> sources_;
     std::function<std::vector<zima::document::SectionDefinition>(const std::string&,const std::filesystem::path&)> sections_;
     std::vector<zima::document::SectionDefinition> available_sections_;
-    QCheckBox* guides_{};QDoubleSpinBox *guide_offset_{},*guide_spacing_{};
+    QSpinBox* guide_count_{};QCheckBox* guides_{};QDoubleSpinBox *guide_offset_{},*guide_spacing_{};
     QComboBox *section_{};QCheckBox *section_label_{};
     std::vector<QPushButton*> rotation_buttons_;
     std::array<QDoubleSpinBox*,2> rotation_values_{};

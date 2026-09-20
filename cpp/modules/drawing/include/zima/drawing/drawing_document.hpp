@@ -144,6 +144,7 @@ struct DrawingView {
     std::map<std::string,std::array<double,2>> section_marker_offsets;
     bool show_dimension_guides{};
     double dimension_guide_offset{8.0}, dimension_guide_spacing{8.0};
+    int dimension_guide_count{4};
     std::vector<ModelAnnotation> model_annotations;
     std::vector<ProjectedEdge> projected_edges;
     std::vector<ProjectedTriangle> projected_triangles;

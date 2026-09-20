@@ -15,7 +15,7 @@ void validate_drawing_view(const drawing::DrawingView& view) {
     if(view.id.empty()||view.name.empty()||view.name.size()>256||std::ranges::all_of(view.name,[](unsigned char c){return c==' ';})||
        std::ranges::any_of(view.name,[](unsigned char c){return c<32||c==127;}))invalid_view();
     bounded(view.x,-10000,10000);bounded(view.y,-10000,10000);bounded(view.scale,.001,1000);
-    bounded(view.dimension_guide_offset,0,1000);bounded(view.dimension_guide_spacing,.1,1000);
+    bounded(view.dimension_guide_count,0,100);bounded(view.dimension_guide_offset,0,1000);bounded(view.dimension_guide_spacing,.1,1000);
     if(view.orientation<drawing::ViewOrientation::Front||view.orientation>drawing::ViewOrientation::Isometric||
        view.display_style<drawing::DisplayStyle::VisibleEdges||view.display_style>drawing::DisplayStyle::Shaded||
        view.hidden_edge_style<drawing::HiddenEdgeStyle::Dashed||view.hidden_edge_style>drawing::HiddenEdgeStyle::Gray||

@@ -397,7 +397,11 @@ the saved view. Derived projected views continue to inherit their parent's
 orientation and keep these controls disabled.
 
 The positive snap offset and guide spacing are in paper millimetres. Dimension
-and balloon interactions show only their own view's active snap guides and a
+guide offset and spacing inputs both display three decimal places. View Properties
+also exposes the number of offset guide frames (0–100, default 4); zero disables
+the frames and their snap targets. This count is saved with each Drawing view
+and is available as `guide_count` through the view command API.
+Dimension and balloon interactions show only their own view's active snap guides and a
 visible green snap indicator. Standalone text remains freely positioned. See
 [Show/Erase](DRAWING_SHOW_ERASE.md#view-scoped-annotation-snapping).
 
@@ -442,3 +446,8 @@ title-block assertion `Shared 10mm master dimension cannot drive its equal lengt
 (also recorded in `SHEET_METAL.md`). The complete Drawing UI suite also encounters
 the selected-text colour assertion `Selected dimension text is not cyan`; it is
 not counted as passing. The focused checks above verify the changes in this update.
+
+The guide-count follow-up passes the native view command test (count and spacing
+Save/reopen, removed snap targets and zero count) and the offscreen view-controls
+UI test (three-decimal spacing, count editing, OK, reopen and Cancel). Both the
+native application and Drawing harness were rebuilt successfully.
