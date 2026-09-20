@@ -1,12 +1,19 @@
 # Development handoff — 2026-09-20
 
-## Linux release 2026092001 preparation
+## Linux release 2026092001 published
 
-The user authorized documentation, commit, push and a Linux release of the Drawing
-work. Build identity is `2026092001`; see [release notes](doc/releases/2026092001.md).
-The package must be built from the exact committed/tagged source, signed with
-the existing publisher key and accepted before publication. Unrelated untracked
-images and the threaded-hole design note are excluded.
+The user-authorized Drawing changes and documentation are committed and pushed.
+Source/tag `ZIMA-CAD-2026092001` identifies
+`7ae068d8eb6840062ffdb8aed1ce0d9f0caa1009`. The signed Linux release is public;
+see [acceptance](doc/releases/2026092001.md). Clean candidate and signed-archive
+smoke, production trust, packaged Drawing verification, remote hashes and public
+update discovery all passed. Tests also passed for packaging (8, plus one
+Windows-only skip), publishing (16) and isolated updater lifecycle (23).
+
+Signed assets are in `.dist-output/linux-2001-signed/`; root `./zima-cad` launches
+the rebuilt local version 2026092001. No Windows package was created. The three
+unrelated untracked files `doc/01.png`, `doc/02.png` and
+`doc/AI/THREADED_HOLE_DESIGN.md` remain outside commits and release artifacts.
 
 ## Drawing conventions correction, 2026-09-20
 
