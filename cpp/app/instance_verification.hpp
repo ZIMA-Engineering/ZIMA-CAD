@@ -13,7 +13,6 @@
 #include <QSaveFile>
 #include <QTabBar>
 #include <QTimer>
-#include <QFileDialog>
 #include <QApplication>
 
 namespace zima::app {
@@ -29,17 +28,6 @@ inline void install_instance_verification(AssemblyWorkspaceWindow& window,
         if (QFile::remove(prefix + ".quit")) { window.close(); return; }
         if (QFile::remove(prefix + ".close-document"))
             window.findChild<QAction*>("closeDocumentAction")->trigger();
-        if (QFile::remove(prefix + ".new-window")) {
-            QTimer::singleShot(100,&window,[report_directory] {
-                if(auto* dialog=qobject_cast<QFileDialog*>(QApplication::activeModalWidget())) {
-                    dialog->setDirectory(QDir(report_directory).filePath("Project four"));
-                    QMetaObject::invokeMethod(dialog,"accept",Qt::DirectConnection);
-                }
-            });
-            auto* menu = window.findChild<QMenu*>("windowMenu");
-            QMetaObject::invokeMethod(menu, "aboutToShow", Qt::DirectConnection);
-            window.findChild<QAction*>("newWindowAction")->trigger();
-        }
         QFile request(prefix+".command");
         if(request.open(QIODevice::ReadOnly)) {
             const auto data=QJsonDocument::fromJson(request.readAll()).object();request.close();request.remove();
@@ -51,7 +39,10 @@ inline void install_instance_verification(AssemblyWorkspaceWindow& window,
         if (const auto* tabs = window.findChild<QTabBar*>("documentTabs"))
             for (int index = 0; index < tabs->count(); ++index)
                 documents.push_back(tabs->tabText(index));
+        auto* menu = window.findChild<QMenu*>("windowMenu");
+        QMetaObject::invokeMethod(menu, "aboutToShow", Qt::DirectConnection);
         QJsonObject report{{"pid", QCoreApplication::applicationPid()},
+            {"newWindowAvailable", window.findChild<QAction*>("newWindowAction") != nullptr},
             {"instance", window.property("applicationInstance").toInt()},
             {"title", window.windowTitle()}, {"documents", documents},
             {"directory",window.property("instanceWorkingDirectory").toString()},

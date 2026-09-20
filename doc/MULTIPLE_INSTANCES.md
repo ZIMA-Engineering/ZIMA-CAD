@@ -16,10 +16,11 @@ when switching/closing documents or closing another instance. Exiting releases
 that number for future launches; existing windows are not renumbered. Failure to
 reserve a number stops startup with an error; no unreserved fallback instance starts.
 
-**Window -> New Window** asks for a different working directory and starts an
-independent process without documents. **File -> Set Working
-Directory** can choose another project for that instance only. **File -> Open**
-and in-application component opening still use the current instance, allowing
+**Window** lists documents in the current instance; it does not offer a New
+Window command. Start another independent instance from the operating system.
+**File -> Set Working Directory** can choose another project for that instance
+only. **File -> Open** and in-application component opening still use the current
+instance, allowing
 an Assembly, its Parts, and related drawings to coexist in tabs.
 
 ## Windows registration
@@ -72,7 +73,7 @@ application processes on this host, not third-party editors or separate machines
 
 `zima_cpp_instance_startup_contract` runs actual GUI processes for a Part,
 Assembly, and Drawing concurrently. It checks distinct PIDs/numbers, each process's
-document and working directory, another process through New Window, stable titles
+document and working directory, another externally launched process, stable titles
 after document closure, and independent exit. It rejects duplicate startup
 directories, occupied directory changes and opening the same file after its owner
 has changed directory; closing that file allows the other process to open it.
@@ -81,8 +82,8 @@ directory aliases, file release and instance-number release. A forcibly terminat
 GUI process is restarted against the same directory to check stale-lock recovery.
 
 Windows verification on 2026-09-17: the real-process instance contract passed,
-including concurrent numbering, directory/file exclusion, file release, New Window
-and forced-termination recovery (`build/instance-isolation-process-tests.log`).
+including concurrent numbering, directory/file exclusion, file release, the former
+New Window command and forced-termination recovery (`build/instance-isolation-process-tests.log`).
 The current development GUI and CLI were rebuilt; `zima-cad.bat` retains its normal
 repository-root entry point. This is a local build, not a published release.
 The final process, component-properties GUI and Assembly-refresh GUI rerun passed

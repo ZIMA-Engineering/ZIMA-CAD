@@ -286,8 +286,9 @@ hidden edges or the selected solid-gray variant; tangent edges print with their
 configured pen/width. Hidden dashes measure 3 mm with 1.5 mm gaps on paper,
 independent of model scale.
 
-**PDF…** on the bottom bar or **File → Export** saves all Drawing sheets to one
-PDF. The standalone Drawing window also offers **Drawing → Save as PDF…**.
+**PDF…** on the bottom bar or **File → Export → PDF** saves all Drawing sheets to
+one PDF. **File → Export** also offers JPEG of the current canvas and DXF of the
+active sheet. **Save As** offers only the native `.drwz` document format. The standalone Drawing window also offers **Drawing → Save as PDF…**.
 Pages retain actual sheet sizes, including mixed A4/A3. Lines/text are vector.
 Shaded fill uses a depth-evaluated bitmap at 720 dpi, capped at 16 million pixels
 and 8192 pixels per view side; embedded raster images remain bitmaps. Selection

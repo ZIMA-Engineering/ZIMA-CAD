@@ -585,14 +585,18 @@ void ContainerPlacementSection::set_remaining_translation_dof(int dof) {
             reference_status_->setText(total_dof == 0 ? tr("Plně určené") : QString());
         }
     }
-    // Always rebuild the row visibility, not just when translation itself
-    // changed: set_remaining_rotation_dof() below re-enters this same
-    // setter with an unchanged translation value right after mutating
-    // remaining_rotation_dof_, so any "did dof change" comparison here
-    // races against that mutation and can miss the update that needs to
-    // hide/show the last reference row once the combined total reaches (or
-    // leaves) zero. Rebuilding the table is cheap (a handful of rows).
-    if (reference_table_ != nullptr) refresh_reference_table();
+    // Compare the desired presentation with the rendered table, rather than
+    // the previous translation DOF: rotation setters update their state
+    // before entering here. Extent dragging must retain the existing row
+    // widgets, focus and inspection state when their presentation is unchanged.
+    const int position_dof = remaining_translation_dof_ +
+        (position_rows_can_define_rotation_ ? remaining_rotation_dof_ : 0);
+    const auto visible = std::min<std::size_t>(3, references_.size() +
+        (position_dof > 0 ? 1 : 0));
+    if (reference_table_ != nullptr &&
+        (reference_table_->rowCount() != static_cast<int>(visible) ||
+         rendered_third_point_is_station_ != third_point_is_station_))
+        refresh_reference_table();
 }
 
 void ContainerPlacementSection::set_remaining_rotation_dof(int dof) {
@@ -739,6 +743,7 @@ void ContainerPlacementSection::set_reference_label_resolver(ReferenceLabelResol
 
 void ContainerPlacementSection::refresh_reference_table() {
     if (reference_table_ == nullptr) return;
+    rendered_third_point_is_station_ = third_point_is_station_;
     reference_items_.fill(nullptr);
     reference_indicators_.fill(nullptr);
     reference_offset_fields_.fill(nullptr);

@@ -1,9 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-  <title>Sheet blank</title>
-  <path d="m3 13 7-7 11 5-7 7Z" fill="#80aa1a" fill-opacity=".18"/>
-  <g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round">
-    <path d="m3 13 7-7 11 5-7 7Z"/>
-    <path d="M3 13v3l11 5 7-7v-3M14 18v3"/>
-    <path d="m6 13 4-4 7 3" stroke="#80aa1a"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-labelledby="title">
+  <title id="title">Sheet Blank</title>
+  <g fill="none" stroke="#39C5E8" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="4" y="4" width="16" height="16"/>
   </g>
 </svg>

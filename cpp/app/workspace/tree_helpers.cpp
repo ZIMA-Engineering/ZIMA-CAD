@@ -68,14 +68,14 @@ QString feature_icon_name(zima::document::FeatureKind kind) {
         case FeatureKind::Fillet: return QStringLiteral("fillet");
         case FeatureKind::Chamfer: return QStringLiteral("chamfer");
         case FeatureKind::Shell: return QStringLiteral("shell");
-        case FeatureKind::Hole: return QStringLiteral("cylinder");
+        case FeatureKind::Hole: return QStringLiteral("hole");
         case FeatureKind::Bend: return QStringLiteral("bend");
         case FeatureKind::Unbend: return QStringLiteral("unbend");
         case FeatureKind::BendBack: return QStringLiteral("bend-back");
         case FeatureKind::Flat: return QStringLiteral("flat");
         case FeatureKind::TwistedSheet: return QStringLiteral("sheet-twist");
         case FeatureKind::Holes: return QStringLiteral("holes");
-        case FeatureKind::Thread: return QStringLiteral("cylinder");
+        case FeatureKind::Thread: return QStringLiteral("hole");
         case FeatureKind::ShaftThread: return QStringLiteral("thread");
         case FeatureKind::DrillPoint: return QStringLiteral("drill-point");
     }
@@ -178,7 +178,7 @@ void add_history_container_tree_children(QTreeWidgetItem* parent,
             child->setData(0,Qt::UserRole+3,"part-opening-component");
             child->setData(0,Qt::UserRole+5,role);
         };
-        add_component(QObject::tr("Otvor"),"cylinder","bore");
+        add_component(QObject::tr("Otvor"),"hole","bore");
         if (container.thread.enabled)
             add_component(QObject::tr("Závit %1").arg(QString::fromStdString(container.thread.designation)),"thread","thread");
         if (container.thread.chamfer_enabled)
@@ -241,18 +241,13 @@ void add_history_container_tree_children(QTreeWidgetItem* parent,
             assembly_owned ? "assembly-sketch" : "part-sketch");
     }
     if (container.feature_kind == zima::document::FeatureKind::Sketch) return;
-    const QString operation = container.feature_kind ==
-            zima::document::FeatureKind::Thread
-        ? QString{} : container.combine_mode ==
-            zima::document::CombineMode::Subtract
-        ? QStringLiteral("− ") : QStringLiteral("+ ");
     const QString feature_label = container.feature_kind ==
             zima::document::FeatureKind::Thread
         ? QObject::tr("Plochy závitu")
-        : operation + QString::fromStdString(container.name);
+        : QString::fromStdString(container.name);
     auto* feature = new QTreeWidgetItem(parent, {feature_label});
     feature->setIcon(0, resource_icon(container.feature_kind==zima::document::FeatureKind::Thread &&
-            !container.thread.enabled ? QStringLiteral("cylinder") : feature_icon_name(container)));
+            !container.thread.enabled ? QStringLiteral("hole") : feature_icon_name(container)));
     feature->setData(0, Qt::UserRole, QString::fromStdString(
         assembly_owned ? container.id : container.feature_id));
     feature->setData(0, Qt::UserRole + 1,

@@ -1,10 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-  <title>Twisted sheet</title>
-  <path d="M4 4h9c5 0 7 4 7 8s-2 8-7 8H4c4-2 6-5 6-8S8 6 4 4Z" fill="#80aa1a" fill-opacity=".18"/>
-  <g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M4 4h9c5 0 7 4 7 8s-2 8-7 8H4"/>
-    <path d="M4 4c4 2 6 5 6 8s-2 6-6 8" stroke="#80aa1a"/>
-    <path d="M4 4v16M13 4c-2 3-2 13 0 16"/>
-    <path d="M7 12h11" stroke="#56c7ed" stroke-width="1" stroke-dasharray="3 2"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-labelledby="title">
+  <title id="title">Twisted Sheet</title>
+  <g fill="none" stroke="#39C5E8" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M4 5C10 5 14 19 20 19V5C14 5 10 19 4 19Z"/>
   </g>
 </svg>

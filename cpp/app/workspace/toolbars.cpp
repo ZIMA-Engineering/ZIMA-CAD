@@ -175,14 +175,8 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         heading->setStyleSheet(QStringLiteral("font-weight:600; padding:3px;"));
         tools_toolbar_->addWidget(heading);
     }
-    const auto add_green_separator = [this] {
-        auto* separator = new QWidget(tools_toolbar_);
-        separator->setObjectName("greenToolbarSeparator");
-        separator->setFixedHeight(1);
-        separator->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-        separator->setStyleSheet(
-            "QWidget#greenToolbarSeparator { background:#4DD811; border:none; }");
-        tools_toolbar_->addWidget(separator);
+    const auto add_group_separator = [this] {
+        tools_toolbar_->addSeparator();
         if(command_insert_menu_&&!command_insert_menu_->actions().empty())command_insert_menu_->addSeparator();
     };
     const auto add_command = [this](QAction* action,bool insert=true) {
@@ -199,11 +193,6 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
             button->setMinimumWidth(146);
         }
     };
-    add_green_separator();
-    auto* spacing = new QWidget(tools_toolbar_);
-    spacing->setFixedHeight(5);
-    tools_toolbar_->addWidget(spacing);
-
     if (workspace_.size() == 0) return;
     if (drawing) {
         if (auto* drawing_toolbar =
@@ -251,7 +240,7 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
                 template_image_action_->setObjectName("templateImageAction");
                 connect(template_image_action_,&QAction::triggered,this,[this]{start_template_image();});
             }
-            add_command(template_region_action_);add_command(template_image_action_);add_green_separator();
+            add_command(template_region_action_);add_command(template_image_action_);add_group_separator();
         }
         add_command(sketch_normal_view_action_,false);
         add_command(sketch_flip_view_action_,false);
@@ -263,7 +252,7 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         add_command(sketch_trim_action_);
         add_command(sketch_mirror_action_);
         add_command(sketch_offset_action_);
-        add_green_separator();
+        add_group_separator();
         for (auto* action : {sketch_point_action_, sketch_construction_action_,
                              sketch_segment_action_, sketch_common_tangent_action_,
                              sketch_polyline_action_,
@@ -274,12 +263,12 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
                              sketch_interpolating_spline_action_}) {
             add_command(action);
         }
-        add_green_separator();
+        add_group_separator();
         add_command(sketch_constraints_action_);
-        add_green_separator();
+        add_group_separator();
         add_command(sketch_universal_dimension_action_);
         add_command(sketch_text_action_);
-        add_green_separator();
+        add_group_separator();
         if(!template_sketch())add_command(finish_sketch_action_,false);
         if(section_dialog_)add_command(cancel_section_sketch_action_,false);
         return;
@@ -309,33 +298,36 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
                 graph.available_before(graph.insertion_cursor()).size() >= 2);
             boolean->setToolTip(tr("Součet, rozdíl nebo průnik dvou dostupných výsledků těles před místem vložení."));
             if (graph.active_body_id().empty()) add_command(boolean);
-            tools_toolbar_->addSeparator();
+            if (graph.active_body_id().empty()) tools_toolbar_->addSeparator();
             if (graph.active_body_id().empty() && (!graph.bodies().empty() ||
                     part->session.document().history_order.empty())) return;
         }
         add_command(selection_action_);
-        tools_toolbar_->addSeparator();
         for (auto* action : {construction_point_action_, construction_axis_action_,
                              construction_plane_action_, sketch_action_, curve_3d_action_}) {
             add_command(action);
         }
-        add_green_separator();
+        add_group_separator();
         add_command(extrusion_action_);
         add_command(revolution_action_);
         add_command(sweep2d_action_);
         add_command(sweep_3d_action_);
         add_command(helical_sweep_action_);
-        add_green_separator();
+        add_group_separator();
         add_command(fillet_action_);
         add_command(chamfer_action_);
         add_command(shell_action_);
-        add_green_separator();
+        add_group_separator();
         add_command(thread_action_);
         add_command(holes_action_);
         add_command(shaft_thread_action_);
         add_command(drill_point_action_);
-        if(active_body){add_command(mirror_action_);add_command(pattern_action_);}
-        add_green_separator();
+        if (active_body) {
+            add_group_separator();
+            add_command(mirror_action_);
+            add_command(pattern_action_);
+        }
+        add_group_separator();
         for (auto* action : {box_action_, sphere_action_, cylinder_action_, cone_action_,
                              pyramid_action_, wedge_action_}) {
             add_command(action);
@@ -346,20 +338,19 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         mirror_action_->setEnabled(!properties_dialog_);add_command(mirror_action_);
         pattern_action_->setEnabled(!properties_dialog_);add_command(pattern_action_);
         add_command(selection_action_);
-        tools_toolbar_->addSeparator();
         add_command(insert_action_);
-        add_green_separator();
+        add_group_separator();
         for (auto* action : {construction_point_action_, construction_axis_action_,
                              construction_plane_action_}) {
             add_command(action);
         }
-        add_green_separator();
+        add_group_separator();
         add_command(sketch_action_);
         add_command(curve_3d_action_);
         tools_toolbar_->addSeparator();
         add_command(extrusion_action_);
         add_command(revolution_action_);
-        add_green_separator();
+        add_group_separator();
         return;
     }
     if(active_application_==ApplicationMode::SheetMetal) {
@@ -372,7 +363,7 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
                 connect(properties,&QAction::triggered,this,[this]{edit_file_settings(true);});
             }
             properties->setEnabled(!properties_dialog_ || properties_dialog_->objectName()=="fileSettingsDialog");
-            add_command(properties,false);add_green_separator();
+            add_command(properties,false);add_group_separator();
             auto* flat=findChild<QAction*>("flatAction");
             if(!flat) {
                 flat=new QAction(resource_icon("flat"),tr("Tabule"),this);flat->setObjectName("flatAction");
@@ -398,13 +389,13 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
                 connect(twist,&QAction::triggered,this,[this]{
                     show_primitive_properties(zima::document::FeatureKind::TwistedSheet,{},true);});
             }
-            twist->setEnabled(!properties_dialog_);add_command(twist);add_green_separator();
+            twist->setEnabled(!properties_dialog_);add_command(twist);add_group_separator();
             auto* cut=findChild<QAction*>("sheetCutAction");
             if(!cut) {
                 cut=new QAction(resource_icon("sheet-cut"),tr("Řez plechem"),this);cut->setObjectName("sheetCutAction");
                 connect(cut,&QAction::triggered,this,[this]{show_primitive_properties(zima::document::FeatureKind::Extrusion,{},true);});
             }
-            cut->setEnabled(!properties_dialog_);add_command(cut);add_green_separator();
+            cut->setEnabled(!properties_dialog_);add_command(cut);add_group_separator();
             for(const bool unfold:{true,false}) {
                 const char* object=unfold?"unbendAction":"bendBackAction";
                 auto* action=findChild<QAction*>(object);
@@ -413,7 +404,7 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
                     action->setObjectName(object);connect(action,&QAction::triggered,this,[this,unfold]{show_sheet_state_properties(unfold);});
                 }
                 action->setEnabled(!properties_dialog_);add_command(action);
-                if(!unfold)add_green_separator();
+                if(!unfold)add_group_separator();
             }
             return;
         }

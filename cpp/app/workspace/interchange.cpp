@@ -1,4 +1,5 @@
 #include "workspace_internal.hpp"
+#include <zima/document/file_path.hpp>
 #include <zima/workspace/import_operations.hpp>
 #include <zima/workspace/assembly_import_operations.hpp>
 #include <zima/workspace/export_operations.hpp>
@@ -135,7 +136,28 @@ void AssemblyWorkspaceWindow::import_selected_file(const QString& path, std::opt
 }
 
 void AssemblyWorkspaceWindow::export_file() {
-    if(workspace_.open_drawing(workspace_.displayed_document_id())){drawing_workspace_->save_pdf();return;}
+    if (const auto* drawing = workspace_.open_drawing(workspace_.displayed_document_id())) {
+        auto suggested = drawing->path.empty()
+            ? working_directory_ / "drawing.pdf" : drawing->path;
+        suggested.replace_extension(".pdf");
+        const auto path = save_file(this, tr("Exportovat"),
+            QString::fromStdString(document::path_to_utf8(suggested)),
+            tr("PDF (*.pdf);;JPEG – aktuální pohled (*.jpg *.jpeg);;DXF – aktuální list (*.dxf)"),
+            "pdf", application_settings_.translations);
+        if (path.isEmpty()) return;
+        try {
+            const auto target = std::filesystem::u8path(path.toStdString());
+            const auto extension = QFileInfo(path).suffix().toLower();
+            if (extension == "pdf") drawing_workspace_->export_pdf(target);
+            else if (extension == "jpg" || extension == "jpeg") drawing_workspace_->export_jpg(target);
+            else if (extension == "dxf") drawing_workspace_->export_dxf(target);
+            else throw std::runtime_error("Unsupported Drawing export format");
+            state_->setText(tr("Export uložen: %1").arg(path));
+        } catch (const std::exception& error) {
+            QMessageBox::warning(this, tr("Export selhal"), error.what());
+        }
+        return;
+    }
     const QString path = save_file(this, tr("Exportovat"),
         QString::fromStdString(working_directory_.string()),
         tr("DXF (*.dxf);;STEP (*.step);;STL (*.stl);;PNG (*.png);;JPEG (*.jpg *.jpeg)"));

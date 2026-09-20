@@ -1,3 +1,4 @@
+#include "toolbar_style.hpp"
 #include "sketch_text_properties_dialog.hpp"
 #include <zima/document/file_path.hpp>
 #include <zima/workspace/family_operations.hpp>
@@ -1438,6 +1439,7 @@ void DrawingWindow::create_actions() {
 
     drawing_toolbar_ = new QToolBar(tr("Výkres"), this);
     drawing_toolbar_->setObjectName("drawingToolbar");
+    drawing_toolbar_->setStyleSheet(toolbar_separator_style());
     drawing_toolbar_->setMovable(false);
     drawing_toolbar_->setToolButtonStyle(Qt::ToolButtonTextOnly);
     // Keep the application toolbar contract identical to the Python UI:

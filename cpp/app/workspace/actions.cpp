@@ -1,6 +1,7 @@
 #include "workspace_internal.hpp"
 #include <zima/workspace/document_operations.hpp>
 #include "tool_button_style.hpp"
+#include "toolbar_style.hpp"
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -397,12 +398,6 @@ void AssemblyWorkspaceWindow::create_actions() {
     window_menu->setObjectName("windowMenu");
     connect(window_menu, &QMenu::aboutToShow, this, [this, window_menu] {
         window_menu->clear();
-        auto* new_window = window_menu->addAction(application_settings_.text(
-            "menu.window.new_window", tr("Nové okno")));
-        new_window->setObjectName("newWindowAction");
-        connect(new_window, &QAction::triggered,
-            this, &AssemblyWorkspaceWindow::open_new_window);
-        window_menu->addSeparator();
         if (tabs_ == nullptr || tabs_->count() == 0) {
             auto* empty = window_menu->addAction(application_settings_.text(
                 "status.no_open_documents", tr("Není otevřen žádný dokument")));
@@ -430,7 +425,7 @@ void AssemblyWorkspaceWindow::create_actions() {
     box_action_ = make_action(tr("Kvádr"), "box");
     box_action_->setObjectName("boxAction");
     cylinder_action_ = make_action(tr("Válec"), "cylinder");
-    thread_action_ = make_action(tr("Otvor"), "cylinder");
+    thread_action_ = make_action(tr("Otvor"), "hole");
     thread_action_->setObjectName("threadAction");
     holes_action_ = make_action(tr("Otvory"), "holes");
     holes_action_->setObjectName("holesAction");
@@ -917,7 +912,7 @@ void AssemblyWorkspaceWindow::create_actions() {
     // Give every enabled command the same immediate green offer/press
     // feedback as the View and application toolbars instead of leaving the
     // icon buttons visually inert.
-    main_toolbar_->setStyleSheet(command_button_style());
+    main_toolbar_->setStyleSheet(command_button_style() + toolbar_separator_style());
     main_toolbar_->addAction(new_document_action_);
     main_toolbar_->addAction(open_document_action_);
     main_toolbar_->addAction(save_action_);
@@ -944,7 +939,7 @@ void AssemblyWorkspaceWindow::create_actions() {
     view_toolbar_->setObjectName("viewToolbar");
     view_toolbar_->setMovable(false);
     view_toolbar_->setIconSize(QSize(16, 16));
-    view_toolbar_->setStyleSheet(
+    view_toolbar_->setStyleSheet(toolbar_separator_style() +
         "QToolButton:hover:enabled { background-color:rgba(77,216,17,72);"
         " color:#fff; border:1px solid rgba(128,170,26,190); border-radius:4px; }"
         "QToolButton:checked { background-color:rgba(77,216,17,125);"
@@ -1040,7 +1035,7 @@ void AssemblyWorkspaceWindow::create_actions() {
     tools_toolbar_->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
     tools_toolbar_->setMinimumWidth(158);
     tools_toolbar_->setIconSize(QSize(16, 16));
-    tools_toolbar_->setStyleSheet(
+    tools_toolbar_->setStyleSheet(toolbar_separator_style() +
         "QToolButton { padding:3px 6px; text-align:left; }"
         "QToolButton:checked { background-color:rgba(77,216,17,125);"
         " color:#fff; border:none; border-radius:4px; }"

@@ -140,6 +140,9 @@ int main(int argc, char** argv) {
             !report(root, second_pid).isEmpty() && !report(root, third_pid).isEmpty(); }),
             "Real GUI instances did not open their documents");
         const auto a = report(root, first_pid), b = report(root, second_pid), c = report(root, third_pid);
+        for (const auto& data : {a, b, c})
+            require(data.contains("newWindowAvailable") && !data["newWindowAvailable"].toBool(),
+                "Window menu still offers New Window");
         const std::set<int> numbers{a["instance"].toInt(), b["instance"].toInt(), c["instance"].toInt()};
         require(numbers.size() == 3 && *numbers.begin() > 0, "Parallel process numbers collide");
         QProcess duplicate;
@@ -172,18 +175,20 @@ int main(int argc, char** argv) {
                 data["title"].toString().endsWith(data["documents"].toArray().first().toString()),
                 "Title does not identify the stable instance and displayed document");
 
-        command(root, second_pid, "new-window");
-        qint64 fourth_pid{};
-        require(until([&] {
-            for (const auto& file : QDir(root).entryList({"*.json"}, QDir::Files)) {
-                const auto pid = QFileInfo(file).completeBaseName().toLongLong();
-                if (pid != first_pid && pid != second_pid && pid != third_pid) { fourth_pid = pid; return true; }
-            }
-            return false;
-        }), "New Window did not start an independent process");
+        QProcess fourth_process;
+        fourth_process.setProgram(executable);
+        fourth_process.setProcessEnvironment(environment);
+        fourth_process.setArguments({"--working-directory", fourth_dir});
+        fourth_process.start();
+        require(fourth_process.waitForStarted(), "External launch did not start an independent process");
+        const auto fourth_pid = fourth_process.processId();
+        require(until([&] { return !report(root, fourth_pid).isEmpty(); }),
+            "Externally launched instance did not report startup");
         const auto fourth = report(root, fourth_pid);
+        require(fourth.contains("newWindowAvailable") && !fourth["newWindowAvailable"].toBool(),
+            "Empty instance still offers New Window");
         require(fourth["documents"].toArray().isEmpty() && !numbers.contains(fourth["instance"].toInt()) &&
-            fourth["directory"].toString() == fourth_dir, "New Window inherited documents or lost selected project context");
+            fourth["directory"].toString() == fourth_dir, "External launch inherited documents or lost selected project context");
 
         command(root, first_pid, "close-document");
         require(until([&] { return report(root, first_pid)["documents"].toArray().isEmpty(); }),
@@ -213,9 +218,10 @@ int main(int argc, char** argv) {
         command(root, fourth_pid, "quit");
         command(root, second_pid, "quit");
         command(root, third_pid, "quit");
-        require(second.waitForFinished(10000) && third.waitForFinished(10000) &&
+        require(fourth_process.waitForFinished(10000) && fourth_process.exitCode() == 0 &&
+            second.waitForFinished(10000) && third.waitForFinished(10000) &&
             second.exitCode() == 0 && third.exitCode() == 0, "Remaining instances did not close cleanly");
-        std::cout << "Independent Part/Assembly/Drawing launch, New Window, stable numbering, and argument contracts passed\n";
+        std::cout << "Independent Part/Assembly/Drawing launch, independent external startup, stable numbering, and argument contracts passed\n";
         return 0;
     } catch (const std::exception& error) {
         std::cerr << "Instance contract: " << error.what() << '\n';

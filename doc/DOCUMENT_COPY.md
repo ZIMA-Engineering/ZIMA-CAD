@@ -4,6 +4,11 @@
 remains open and active, with the same ID, path, and unsaved-change state.
 The operation neither renames it nor marks it saved.
 
+The file chooser offers only the active native document type: `.prtz`, `.asmz`,
+or `.drwz`; template editing retains `.frmz` or `.tblz`. Images, PDF and exchange
+formats belong to **File -> Export**, not Save As. Drawing Export offers PDF,
+JPEG of the current canvas and DXF of the active sheet.
+
 The new Part or Assembly receives a new document ID. Feature, body, source-curve,
 and topology identities remain within its own namespace. Self-document and
 self-Origin references are redirected to the new identity. Assembly Parts and

@@ -326,32 +326,11 @@ void AssemblyWorkspaceWindow::save_active_document_as() {
     } else {
         return;
     }
-    filter += tr(";;JPEG – aktuální pohled (*.jpg *.jpeg)");
-    if(workspace_.open_drawing(document_id)) filter += tr(";;DXF – aktuální list (*.dxf)");
     const QString initial = QString::fromStdString(zima::document::path_to_utf8(working_directory_ /
         std::filesystem::u8path(fallback_name.toStdString())));
     QString selected = save_file(this, caption, initial, filter, suffix,
                                  application_settings_.translations);
     if (selected.isEmpty()) return;
-    const auto export_extension=QFileInfo(selected).suffix().toLower();
-    if(export_extension=="jpg" || export_extension=="jpeg" ||
-       (export_extension=="dxf" && workspace_.open_drawing(document_id))) {
-        try {
-            if(export_extension=="dxf") drawing_workspace_->export_dxf(std::filesystem::u8path(selected.toStdString()));
-            else if(workspace_.open_drawing(document_id)) drawing_workspace_->export_jpg(std::filesystem::u8path(selected.toStdString()));
-            else {
-                const auto image=viewer_->grabFramebuffer();
-                QSaveFile output(selected);
-                if(image.isNull() || !output.open(QIODevice::WriteOnly) ||
-                   !image.save(&output,"JPG",95) || !output.commit())
-                    throw std::runtime_error("Cannot save current view as JPG");
-            }
-            state_->setText(tr("Export uložen: %1").arg(selected));
-        } catch(const std::exception& error) {
-            QMessageBox::warning(this,tr("Export selhal"),error.what());
-        }
-        return;
-    }
     const QString dotted_suffix = QStringLiteral(".") + suffix;
     std::filesystem::path target = std::filesystem::u8path(selected.toStdString());
     if (QString::fromStdString(zima::document::path_to_utf8(target.extension())).compare(
@@ -631,25 +610,6 @@ void AssemblyWorkspaceWindow::prune_file_archives(bool whole_directory, std::siz
     } catch (const std::exception& error) {
         QMessageBox::critical(this, tr("Odstranění selhalo"), tr(error.what()));
     }
-}
-
-void AssemblyWorkspaceWindow::open_new_window() {
-    const auto selected=choose_directory(this,tr("Pracovní adresář nové instance"),
-        QString::fromStdString(document::path_to_utf8(working_directory_)),application_settings_.translations);
-    if(selected.isEmpty())return;
-    if(ApplicationInstance::path_key(selected)==ApplicationInstance::path_key(QString::fromStdString(document::path_to_utf8(working_directory_)))) {
-        report_operation_error(tr("Pracovní adresář je obsazený"),tr("Vyberte jiný pracovní adresář než používá tato instance."));return;
-    }
-    try {const auto reservation=instance_.reserve_directory(selected);}
-    catch(const std::exception& error) {report_operation_error(tr("Pracovní adresář je obsazený"),QString::fromUtf8(error.what()));return;}
-    // Isolate application-wide translations/settings as well as documents.
-    QProcess process;
-    process.setProgram(QCoreApplication::applicationFilePath());
-    process.setArguments({QStringLiteral("--working-directory"),
-        selected});
-    process.setWorkingDirectory(selected);
-    if (!process.startDetached())
-        state_->setText(tr("Novou instanci ZIMA-CAD se nepodařilo spustit."));
 }
 
 void AssemblyWorkspaceWindow::show_global_settings() {

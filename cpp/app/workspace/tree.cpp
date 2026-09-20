@@ -492,16 +492,13 @@ void AssemblyWorkspaceWindow::add_part_tree_children(
         const auto& container = document.history[index];
         if (!pending_creation_id.empty() &&
             container.id == pending_creation_id) continue;
-        const QString operation = container.combine_mode ==
-                zima::document::CombineMode::Subtract
-            ? QStringLiteral("− ") : QStringLiteral("+ ");
         auto* item = new QTreeWidgetItem(parent,
-            {operation + QString::fromStdString(container.name) +
+            {QString::fromStdString(container.name) +
              (container.suppressed ? tr(" [potlačeno]") : QString{})});
         item->setData(0, Qt::UserRole, QString::fromStdString(container.id));
         item->setData(0, Qt::UserRole + 3, "part-container");
         item->setIcon(0, resource_icon(container.feature_kind==zima::document::FeatureKind::Thread &&
-            !container.thread.enabled ? QStringLiteral("cylinder") : feature_icon_name(container),container.is_surface_result()));
+            !container.thread.enabled ? QStringLiteral("hole") : feature_icon_name(container),container.is_surface_result()));
         const auto owned_sketch = std::find_if(document.sketches.begin(),
             document.sketches.end(), [&](const auto& sketch) {
                 return sketch.owner_container_id == container.id;

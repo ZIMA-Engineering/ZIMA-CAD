@@ -543,6 +543,53 @@ void verify_sketch_reference_tree() {
     require(item.data(0,app::missing_reference_role).toBool(),"Deleted source curve no longer marked the Tree");
 }
 
+int verify_stable_placement_rows() {
+    QWidget host;
+    auto* layout = new QVBoxLayout(&host);
+    zima::ui::ContainerPlacementSection placement(&host, layout, true, true);
+    QString error;
+    require(placement.set_reference(0, {{}, "source", "face", 2, true},
+        "Face", &error), "Cannot create placement row fixture");
+    auto* table = placement.reference_table();
+    QPointer<QWidget> offset = table->cellWidget(0, 2);
+    auto* reference = table->item(0, 1);
+    require(table->rowCount() == 2, "Missing next reference row");
+    zima::document::PointConstraintState state;
+    state.remaining_dof = 3;
+    for (int i = 0; i < 30; ++i) {
+        placement.set_translation_constraint_state(state, {});
+        placement.set_remaining_rotation_dof(3);
+        require(offset && table->cellWidget(0, 2) == offset &&
+            table->item(0, 1) == reference,
+            "Unchanged placement state rebuilt reference widgets");
+    }
+    placement.set_remaining_translation_dof(0);
+    require(table->rowCount() == 2, "Rotation DOF lost the next position row");
+    placement.set_remaining_rotation_dof(0);
+    require(table->rowCount() == 1, "Fully constrained placement kept an empty row");
+    placement.set_remaining_rotation_dof(1);
+    require(table->rowCount() == 2, "Rotation-only change did not restore an empty row");
+    require(placement.set_reference(1, {{}, "source", "edge", 0, false},
+        "Edge", &error), "Cannot add second reference");
+    require(placement.set_reference(2, {{}, "source", "point", 0, false},
+        "Point", &error), "Cannot add third reference");
+    state.third_point_is_station = true;
+    placement.set_translation_constraint_state(state, {});
+    require(table->item(2, 1)->text().contains("poloha podél hrany"),
+        "Third-point station label did not update");
+    state.third_point_is_station = false;
+    placement.set_translation_constraint_state(state, {});
+    require(!table->item(2, 1)->text().contains("poloha podél hrany"),
+        "Third-point station label remained after state changed");
+    require(placement.set_reference(0, {{}, "replacement", "face", 7, true},
+        "Replacement", &error), "Cannot replace reference");
+    require(table->item(0, 1)->text().contains("Replacement") &&
+        qobject_cast<QDoubleSpinBox*>(table->cellWidget(0, 2))->value() == 7,
+        "Reference replacement did not refresh its label and offset");
+    std::cout << "Stable placement rows and DOF transitions passed\n";
+    return 0;
+}
+
 int main(int argc, char* argv[]) {
     QApplication application(argc, argv);
     QWidget parent;
@@ -551,12 +598,35 @@ int main(int argc, char* argv[]) {
     const auto initial = zima::document::PartDocument::create_box_container();
 
     try {
+        verify_stable_placement_rows();
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_STABLE_PLACEMENT_ROWS_ONLY")) return 0;
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SHEET_ATTACHMENT_DIALOG_ONLY")) {verify_sheet_attachment_dialog(parent);verify_flat_attachment_dialog(parent);return 0;}
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_TRANSLATIONS_ONLY")) return verify_translations(application,parent);
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_VALUE_LOCKS_ONLY")) return verify_numeric_value_locks(application,parent);
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_ENTRY_TABLES_ONLY")) return verify_entry_tables(application,parent);
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_NUMERIC_ONLY")) return verify_numeric_fields(application,parent);
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_LINE_STYLES_ONLY")) return verify_sketch_line_styles(application,parent);
+        for (const auto kind : {zima::document::FeatureKind::Fillet,
+                zima::document::FeatureKind::Chamfer, zima::document::FeatureKind::Shell,
+                zima::document::FeatureKind::DrillPoint}) for (const bool edit_mode : {false, true}) {
+            auto initial = zima::document::PartDocument::create_box_container();
+            initial.feature_kind = kind;
+            auto* treatment = new zima::app::PrimitivePropertiesDialog(initial, edit_mode, false,
+                [](zima::document::HistoryContainer) {}, &parent);
+            auto* action = treatment->findChild<QPushButton*>("containerOriginSelectionButton");
+            if (kind == zima::document::FeatureKind::DrillPoint) {
+                require(action && action->isCheckable() && !action->autoDefault(),
+                    "Drill Point lost the shared Origin action");
+                require(treatment->ensure_origin_selection_button() == action &&
+                    treatment->findChildren<QPushButton*>("containerOriginSelectionButton").size() == 1,
+                    "Shared Origin action was duplicated");
+            } else {
+                require(!action && treatment->property("originSelectionBound").toBool(),
+                    "Fillet/Chamfer/Shell exposes or permits rebinding an unrelated Origin action");
+            }
+            delete treatment;
+        }
+        std::cout << "Treatment Origin policy passed for creation and editing" << std::endl;
         verify_sketch_line_styles(application,parent);
         verify_curve_placement_picker(application,parent);
         verify_sketch_endpoint_dialog(parent);
@@ -2164,21 +2234,6 @@ int main(int argc, char* argv[]) {
         require(origin_mode_changes == std::vector<bool>({true, false}) &&
                     !origin_mode->isChecked(),
                 "POČÁTEK button did not toggle one shared selection mode");
-        for (const auto kind : {zima::document::FeatureKind::Fillet,
-                zima::document::FeatureKind::Chamfer, zima::document::FeatureKind::Shell,
-                zima::document::FeatureKind::DrillPoint}) {
-            auto initial = zima::document::PartDocument::create_box_container();
-            initial.feature_kind = kind;
-            auto* treatment = new zima::app::PrimitivePropertiesDialog(initial, false, false,
-                [](zima::document::HistoryContainer) {}, &parent);
-            auto* action = treatment->findChild<QPushButton*>("containerOriginSelectionButton");
-            require(action && action->isCheckable() && !action->autoDefault(),
-                "A container without a placement table lacks the shared Origin action");
-            require(treatment->ensure_origin_selection_button() == action &&
-                treatment->findChildren<QPushButton*>("containerOriginSelectionButton").size() == 1,
-                "Shared Origin action was duplicated");
-            delete treatment;
-        }
         require(cylinder_dialog->set_reference(
                     0, {{}, "part-origin", "origin:point"}, "Počátek dílu"),
                 "Cylinder Properties rejected its placement reference");

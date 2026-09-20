@@ -228,6 +228,7 @@ private:
     std::vector<QString> orientation_labels_;
     int remaining_translation_dof_{3};
     bool third_point_is_station_{};
+    bool rendered_third_point_is_station_{};
     int remaining_rotation_dof_{3};
     bool orientation_reference_driven_{};
     std::set<std::size_t> highlighted_reference_rows_;

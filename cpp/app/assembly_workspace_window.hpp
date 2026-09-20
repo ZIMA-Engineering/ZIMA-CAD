@@ -755,7 +755,6 @@ private:
         const std::filesystem::path& file_path);
     void prune_file_archives(bool whole_directory, std::size_t keep);
     void set_working_directory();
-    void open_new_window();
     void show_global_settings();
     void show_about();
     void import_file();

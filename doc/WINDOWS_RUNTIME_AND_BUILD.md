@@ -45,7 +45,8 @@ There is no console or script-host process in the ordinary desktop launch.
 Run `tools/register-windows-file-types.ps1` after building to associate the
 current document/template extensions with this EXE for the current user.
 External launches create separate processes; [instance numbering and project
-isolation](MULTIPLE_INSTANCES.md) also apply to Window > New Window.
+isolation](MULTIPLE_INSTANCES.md) apply to every external launch. The Window menu
+only switches documents within the current instance.
 The user's normal development entry point is `zima-cad.bat` in the repository
 root, confirmed on 2026-09-15. Its name and location remain stable. It starts
 the current local C++ executable asynchronously with the repository working

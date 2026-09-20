@@ -88,3 +88,41 @@ Measured on the same Linux Debug/Ninja build directory (`build/cpp-debug`,
   and Deep Assembly mate creation/DOF/drag): ~7.6 s average over 3 runs
   (7.61-7.69 s), i.e. real end-to-end regression coverage completes well
   under 10 seconds, not just a bare window open.
+
+## Profile handle updates (2026-09-20)
+
+Extrusion length and Revolution angle handles update transient preview geometry
+and dimensions. They do not change placement references or calculate a solid.
+The shared placement section must retain its reference-row widgets while the
+required row count and third-point station presentation remain unchanged.
+Reference edits still refresh their content explicitly. DOF updates compare the
+required presentation with the rendered table, including rotation-only changes;
+comparing only the previous translation DOF would miss those transitions.
+
+The previous implementation cleared and recreated the table multiple times per
+extent update. On the Linux release build, 12 creation/editing scenarios covering
+Extrusion and Revolution on XY/XZ/YZ planes took approximately 35–41 ms per
+update. The geometric preview itself took approximately 1 ms. These are local
+observations on simple fixtures, not guarantees for arbitrary documents.
+
+After retaining unchanged reference rows, the same 12 scenarios measured
+0.23–0.97 ms per update. All parameter/widget-identity checks and the
+full profile-frame UI contract passed. Placement reference assignment, removal
+and command tests also passed (3/3).
+
+Reproduce the correctness checks and timing measurement with:
+
+```bash
+QT_QPA_PLATFORM=offscreen ZIMA_VERIFY_STABLE_PLACEMENT_ROWS_ONLY=1 \
+  ./build/cpp-native-release/zima_cpp_ui_contract_tests
+QT_QPA_PLATFORM=wayland ZIMA_VERIFY_PROFILE_DRAG_ONLY=1 \
+  ./build/cpp-native-release/zima-cad-cpp --verify-startup
+```
+
+The first check covers retained widget identity, row visibility after translation
+and rotation DOF changes, the third-point station label, and reference replacement.
+The second exercises the same extent callback used by the purple handles and
+checks parameter updates and retained reference editors. Timing is reported
+without a machine-dependent pass/fail threshold. The full profile-frame UI
+contract additionally checks preview frames, Sketcher round trips and committed
+geometry.

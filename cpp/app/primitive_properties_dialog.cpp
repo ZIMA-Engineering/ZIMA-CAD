@@ -206,7 +206,13 @@ PrimitivePropertiesDialog::PrimitivePropertiesDialog(
         placement_->install_dof_label(content_layout());
     }
 
-    static_cast<void>(ensure_origin_selection_button());
+    if (treatment) {
+        // These body operations have no Origin input. Also prevent the
+        // workspace's generic dialog binding from adding the action later.
+        setProperty("originSelectionBound", true);
+    } else {
+        static_cast<void>(ensure_origin_selection_button());
+    }
     auto* form = new QFormLayout;
 
     const auto dimension = [this](double value, const char* object_name) {

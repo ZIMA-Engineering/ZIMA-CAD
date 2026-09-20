@@ -2826,6 +2826,12 @@ int verify_save_copy_ui(QApplication& application, const std::filesystem::path& 
                 if (chosen || elapsed.elapsed() > 5000) {
                     failed = true; dialog->reject(); return;
                 }
+                if (std::string_view(action_name) == "saveDocumentAsAction") {
+                    const auto filters = dialog->nameFilters();
+                    if (filters.size() != 1 || !filters.front().contains("*" + qpath(target.extension()))) {
+                        failed = true; dialog->reject(); return;
+                    }
+                }
                 if (select_directory) dialog->setDirectory(qpath(target));
                 else {
                     dialog->setDirectory(qpath(target.parent_path()));
@@ -2884,11 +2890,16 @@ int verify_save_copy_ui(QApplication& application, const std::filesystem::path& 
         flush();
         const auto jpg = directory / fs::u8path("výkres-pohled.jpg");
         const auto dxf = directory / fs::u8path("výkres-obrys.dxf");
-        choose("saveDocumentAsAction",jpg);
-        choose("saveDocumentAsAction",dxf);
+        choose("exportDocumentAction",jpg);
+        choose("exportDocumentAction",dxf);
+        const auto pdf = directory / fs::u8path("výkres-listy.pdf");
+        choose("exportDocumentAction",pdf);
+        QFile pdf_file(qpath(pdf));
+        check(pdf_file.open(QIODevice::ReadOnly) && pdf_file.read(5) == "%PDF-",
+            "Drawing PDF export did not produce a PDF document");
         check(!QImage(qpath(jpg)).isNull() && fs::file_size(dxf) > 0 &&
               run("context").at("active_document") == drawing.document_id,
-            "Drawing Save As export lost its Unicode path or changed the active document");
+            "Drawing export lost its Unicode path or changed the active document");
         std::ifstream dxf_input(dxf, std::ios::binary);
         const std::string dxf_text((std::istreambuf_iterator<char>(dxf_input)),{});
         check(dxf_text.find("ENTITIES") != std::string::npos && dxf_text.find("EOF") != std::string::npos,
@@ -6241,6 +6252,26 @@ int verify_owned_profile_frames(QApplication& application, const std::filesystem
                 flush();
             }
             dialog()->set_profile_offset_and_forward_length(3,10);flush();
+            if (qEnvironmentVariableIsSet("ZIMA_VERIFY_PROFILE_DRAG_ONLY")) {
+                QElapsedTimer drag_timer; drag_timer.start();
+                auto* references = dialog()->findChild<QTableWidget*>("primitiveReferenceTable");
+                // The public extent setter is the same callback used by the
+                // purple handle. Repeated updates must retain reference editors.
+                check(references && references->rowCount()>0, "Missing profile reference table");
+                QPointer<QWidget> first_offset = references->cellWidget(0, 2);
+                for (int step=0; step<30; ++step) {
+                    dialog()->set_forward_extent_and_direction(10+step, false);
+                    check(std::abs(dialog()->forward_extent_length()-(10+step))<1e-8,
+                        "Extent callback did not update its parameter");
+                    check(first_offset && references->cellWidget(0, 2)==first_offset,
+                        "Extent update recreated a reference editor");
+                }
+                std::cout << "Profile extent updates " << (revolve?"revolution":"extrusion")
+                          << ": " << drag_timer.elapsed()/30.0 << " ms/update" << std::endl;
+                dialog()->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
+                continue;
+            }
+
             // All eight orientations are exercised on an asymmetric saved profile.
             // The first entry into a newly created, empty profile is checked too.
             for(int state=0;state<(existing?8:1);++state) {
@@ -7803,7 +7834,7 @@ int verify_startup_contract(
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_BODY_REFERENCE_DIMENSION_ONLY")) return verify_body_reference_dimension_edit(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_PROFILE_DIMENSION_FILE")) return verify_property_sketch_dimensions(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_DIMENSION_EDITS_ONLY")) return verify_inline_primitive_dimensions(application,test_directory);
-    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_PROFILE_FRAMES_ONLY")) return verify_owned_profile_frames(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_PROFILE_FRAMES_ONLY") || qEnvironmentVariableIsSet("ZIMA_VERIFY_PROFILE_DRAG_ONLY")) return verify_owned_profile_frames(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_PROFILE_ON_SHEET_FILE") || qEnvironmentVariableIsSet("ZIMA_VERIFY_PROFILE_ON_SHEET_ONLY")) return verify_profile_on_sheet(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_RETURN_FRAME_ONLY")) return verify_sketch_return_frames(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SKETCH_ORIGIN_PICK_ONLY")) return verify_sketch_return_frames(application,test_directory);
@@ -8215,8 +8246,8 @@ int verify_startup_contract(
         return 1;
     }
     auto* new_window = window.findChild<QAction*>("newWindowAction");
-    if (!verify(new_window != nullptr && new_window->isEnabled(),
-                "New Window must remain functional without a document")) {
+    if (!verify(new_window == nullptr,
+                "Window menu must not offer New Window")) {
         return 1;
     }
     global_settings->trigger();
@@ -8786,7 +8817,7 @@ int verify_startup_contract(
             auto* child = root->child(index);
             const auto item_kind = child->data(0, Qt::UserRole + 3).toString();
             if (item_kind == QStringLiteral("part-container") &&
-                child->text(0) == QStringLiteral("+ Kvádr")) {
+                child->text(0) == QStringLiteral("Kvádr")) {
                 box_tree_item = child;
             } else if (item_kind ==
                     QStringLiteral("part-construction")) {
@@ -12033,7 +12064,7 @@ int verify_startup_contract(
         if (!verify(component_menu("thread",true) && !find_component("thread") && find_component("bore"),
                 "Deleting thread did not switch the opening to a plain bore")) return 1;
         const auto plain_icon=find_component("bore")->parent()->icon(0).pixmap(24,24).toImage();
-        if (!verify(plain_icon==zima::app::resource_icon("cylinder").pixmap(24,24).toImage(),
+        if (!verify(plain_icon==zima::app::resource_icon("hole").pixmap(24,24).toImage(),
                 "Plain opening did not use the bore icon")) return 1;
         opening_window.findChild<QAction*>("saveDocumentAction")->trigger();
         application.processEvents();

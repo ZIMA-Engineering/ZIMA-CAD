@@ -1,10 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-  <g fill="none" stroke="currentColor" stroke-width="1.75"
-     stroke-linecap="round" stroke-linejoin="round">
-    <path d="M4 6.5 12 3l8 3.5v10L12 21l-8-4.5z"/>
-    <path d="m4 6.5 8 4 8-4M12 10.5V21"/>
-    <path d="m8 8.5 4-1.8 4 1.8v5.8L12 17l-4-2.7z"
-          stroke="#80AA1A" stroke-width="2.2"/>
-    <path d="M12 6.7v3.8" stroke="#80AA1A"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-labelledby="title">
+  <title id="title">Shell</title>
+  <g fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M3.5 4v12a4 4 0 0 0 4 4h9a4 4 0 0 0 4-4V4M3.5 4h4M16.5 4h4"/>
+    <path d="M7.5 4v11a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1V4" stroke="#80AA1A"/>
   </g>
 </svg>
