@@ -117,7 +117,9 @@ ZIMA-Engineering company logo, and the concept/development credit for
 Ing. Vladimír Zima. The email link opens `kontakt@zima-engineering.cz` in the
 default mail application; the website link opens
 [www.zima-engineering.cz](https://www.zima-engineering.cz). The introductory
-text follows the selected application language.
+text describes ZIMA-CAD as open-source parametric 3D CAD based on the OCCT
+geometry kernel and written in C++. It follows the selected application language
+(Czech, English, German, French or Russian).
 
 ## 3D View controls
 

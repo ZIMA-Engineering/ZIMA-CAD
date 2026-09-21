@@ -32,6 +32,12 @@ production public discovery passed on retry after transient GitHub HTTP 504 resp
 See [the release record](releases/2026092102.md) for source identity, hashes,
 verification scope and limitations.
 
+Windows build **2026092201** is signed and verified locally. It contains the
+Drawing details, hatch boundaries, dimension placement and localized About
+updates. Candidate and signed-archive smoke, production bootstrap trust and
+packaged five-language lifecycle checks passed. The archive is not yet published
+as a GitHub release. See [the release record](releases/2026092201.md).
+
 ## Installed layout
 
 ```text
