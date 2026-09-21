@@ -55,6 +55,15 @@ void verify(){
         auto axial=drawing::DrawingDocument::create_view(specimen.document_id,{},calculated.back().mesh,drawing::ViewOrientation::Bottom);
         const auto leadins=std::ranges::count_if(axial.projected_edges,[](const auto& edge){return edge.thread_leadin;});
         require(leadins>0,"Thread lead-in circle was not recognized");
+        specimen.save(folder/"chamfer-source.prtz",calculated);
+        std::vector<kernel::BodyResult> reopened_boundaries;
+        const auto reopened=document::PartDocument::load(folder/"chamfer-source.prtz",&reopened_boundaries);
+        require(!reopened_boundaries.empty(),"Saved thread source lost its calculated geometry");
+        const auto reopened_axial=drawing::DrawingDocument::create_view(reopened.document_id,{},reopened_boundaries.back().mesh,drawing::ViewOrientation::Bottom);
+        require(std::ranges::count_if(reopened_axial.projected_edges,[](const auto& edge){return edge.thread_leadin;})==leadins,"Reopened Part lost thread lead-in recognition");
+        require(std::abs(thread_length(reopened_axial.projected_edges)-thread_length(axial.projected_edges))<.02,"Reopened Part chamfer occludes the conventional thread arc");
+        for(const auto& edge:reopened_axial.projected_edges)if(edge.silhouette&&!edge.hidden&&!edge.thread)for(auto p:edge.points)
+            require(std::hypot(p.x,p.y)>1e-5,"Reopened Part draws a cone generator from the thread centre");
         for(const auto& edge:axial.projected_edges)if(edge.thread_leadin){require(!drawing::drawing_edge_visible(axial,edge),"Leadin visible by default");axial.show_thread_leadins=true;require(drawing::drawing_edge_visible(axial,edge)==!edge.hidden,"Leadin toggle does not restore circle");axial.show_thread_leadins=false;}
         for(const auto& edge:axial.projected_edges)if(edge.silhouette&&!edge.hidden&&!edge.thread)for(auto p:edge.points)
             require(std::hypot(p.x,p.y)>1e-5,"A cone generator is drawn from the thread centre");

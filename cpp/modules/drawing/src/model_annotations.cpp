@@ -143,11 +143,10 @@ ModelAnnotation project_model_annotation(const DrawingView& view,ModelAnnotation
                            d.plane_normal.z};
       item.dimension_kind = d.kind;
       item.text_anchor = project(d.label_position.value_or(d.line_second));
-      if (!d.display_text_override.empty())
-        item.text = d.display_text_override;
-      else {
-        item.text = kernel::dimension_text(d, sheet_dimension_style(kernel::dimension_text_style(d)));
-      }
+      // A layout may cache generated model text in display_text_override.
+      // Format its source style for the sheet; only an authored style override
+      // is literal text and should bypass implicit millimetres.
+      item.text = kernel::dimension_text(d, sheet_dimension_style(kernel::dimension_text_style(d)));
       if (d.kind == kernel::ViewerDimensionKind::Angular) {
         const auto u = subtract(d.line_first, d.witness_first);
         const double radius = std::sqrt(dot(u, u)),

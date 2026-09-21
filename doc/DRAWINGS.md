@@ -702,9 +702,19 @@ boundaries in axial, hidden-line and section projections and displays the
 stored thread designation, including external threads. Measurement metadata is
 native Drawing data and remains available after reopening.
 
+Projection resolves analytic cone/cylinder data from persisted original face
+references as well as live display references. This preserves lead-in detection,
+axial seam suppression and the complete thread arc after reopening a Part,
+without calling OCCT. A thread's own cone facets do not hide its axial bore rim.
+Previously saved Drawing projections require explicit regeneration to replace
+their stored line geometry.
+
 Show/Erase collects primitive parameter and embedded Sketch dimensions from
 the source document. Linear dimension presentation rotates into the drawing
 plane without modifying model witnesses, values or layouts.
+Generated model-layout text is reformatted with implicit millimetres on the
+sheet, including Box parameter dimensions. Authored text overrides remain
+literal; model text and units are not modified.
 
 Global Settings offers inline or stacked upper/lower deviations, shared by
 Part, Assembly, Drawing and exports. Both deviations use the nominal text size;

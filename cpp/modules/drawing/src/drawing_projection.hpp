@@ -46,6 +46,17 @@ inline std::vector<ProjectedEdge> project_drawing_edges(
     const auto is_thread=[](const auto& ref){return ref.semantic_key.starts_with("thread:boundary:");};
     using Owner=std::pair<std::string,std::string>;
     const auto owner=[](const auto& ref){return Owner{ref.owner_id,ref.instance_path};};
+    // Saved display meshes keep analytic surfaces in original references rather
+    // than duplicating them on each result triangle and adjacent edge face.
+    using FaceKey=std::tuple<std::string,std::string,std::string>;
+    const auto face_key=[](const auto& ref){return FaceKey{ref.owner_id,ref.semantic_key,ref.instance_path};};
+    std::map<FaceKey,const zima::kernel::SurfaceGeometry*> surfaces;
+    for(const auto& ref:mesh.original_references.triangle_references)if(ref.surface)surfaces.try_emplace(face_key(ref),&*ref.surface);
+    for(const auto& ref:mesh.triangle_references)if(ref.surface)surfaces.try_emplace(face_key(ref),&*ref.surface);
+    const auto surface_for=[&](const auto& ref)->const zima::kernel::SurfaceGeometry*{
+        if(ref.surface)return &*ref.surface;
+        const auto found=surfaces.find(face_key(ref));return found==surfaces.end()?nullptr:found->second;
+    };
     struct EndRing {Point2 center;double radius{},depth{};zima::kernel::EdgeReference source;};
     std::vector<EndRing> end_rings;
     std::set<Owner> axial_threads;
@@ -105,9 +116,10 @@ inline std::vector<ProjectedEdge> project_drawing_edges(
             // A cylinder/cone viewed along its analytic axis has no visible
             // generator. An unmatched mesh seam near a cone apex is not a
             // physical silhouette; its real rims are explicit viewer edges.
-            const bool axial_surface=ref&&ref->surface&&
-                (ref->surface->kind==zima::kernel::SurfaceGeometry::Kind::Cone||ref->surface->kind==zima::kernel::SurfaceGeometry::Kind::Cylinder)&&
-                std::abs(zima::kernel::dimension_dot(zima::kernel::dimension_unit(ref->surface->axis),camera.depth))>1-1e-9;
+            const auto* surface=ref?surface_for(*ref):nullptr;
+            const bool axial_surface=surface&&
+                (surface->kind==zima::kernel::SurfaceGeometry::Kind::Cone||surface->kind==zima::kernel::SurfaceGeometry::Kind::Cylinder)&&
+                std::abs(zima::kernel::dimension_dot(zima::kernel::dimension_unit(surface->axis),camera.depth))>1-1e-9;
             edge.axial_surface&=axial_surface;
             edge.front|=t.determinant*handedness>epsilon*epsilon;
             edge.back|=t.determinant*handedness<=epsilon*epsilon;
@@ -126,11 +138,9 @@ inline std::vector<ProjectedEdge> project_drawing_edges(
             if(radius<=ring.radius+epsilon)continue;
             const bool circular=std::ranges::all_of(edge.points,[&](const auto& p){const auto q=project(p);return std::abs(q.z-first.z)<epsilon&&std::abs(std::hypot(q.p.x-ring.center.x,q.p.y-ring.center.y)-radius)<epsilon;});
             const bool conical=std::ranges::any_of(edge.edge_treatment_side_references,[&](const auto& face){
-                const auto* resolved=&face;
-                if(!resolved->surface)for(const auto& candidate:mesh.triangle_references)
-                    if(candidate==face&&candidate.surface){resolved=&candidate;break;}
-                if(!resolved->surface||resolved->surface->kind!=zima::kernel::SurfaceGeometry::Kind::Cone)return false;
-                const auto& surface=*resolved->surface;const auto center=project(surface.origin);
+                const auto* resolved=surface_for(face);
+                if(!resolved||resolved->kind!=zima::kernel::SurfaceGeometry::Kind::Cone)return false;
+                const auto& surface=*resolved;const auto center=project(surface.origin);
                 const auto alignment=zima::kernel::dimension_dot(surface.axis,camera.depth);
                 const auto axial=(ring.depth-center.z)*alignment;
                 return std::abs(alignment)>1-1e-8&&std::hypot(center.p.x-ring.center.x,center.p.y-ring.center.y)<epsilon&&
@@ -150,8 +160,11 @@ inline std::vector<ProjectedEdge> project_drawing_edges(
                 // cone facets must not cover that exact boundary. Exempt only
                 // the same occurrence's matching persisted conical surface;
                 // every other solid remains a normal occluder.
-                if(symbolic&&triangle.source&&owner(*triangle.source)==owner(source)&&triangle.source->surface) {
-                    const auto& surface=*triangle.source->surface;
+                // The same applies to an axial thread's real bore rim: its
+                // sampled polygon must not be occluded by its own cone facets.
+                const auto* analytic=(symbolic||axial_threads.contains(owner(source)))&&triangle.source?surface_for(*triangle.source):nullptr;
+                if(analytic&&owner(*triangle.source)==owner(source)) {
+                    const auto& surface=*analytic;
                     if(surface.kind==zima::kernel::SurfaceGeometry::Kind::Cone) {
                         const auto on_surface=[&](const auto& p){
                             const double x=p.x-surface.origin.x,y=p.y-surface.origin.y,z=p.z-surface.origin.z;

@@ -297,6 +297,14 @@ int main(int argc, char **argv) {
             annotation.kind = drawing::ModelAnnotationKind::Dimension;
             annotation.model_dimension = d;
             annotation.model_layout.arrows_reversed = true;
+            {
+                auto styled=annotation;
+                kernel::DimensionTextStyle style;style.suffix="mm";
+                styled.model_layout.text_style=style;
+                require(drawing::project_model_annotation(drawing_view,styled).text=="20","Model dimension layout leaked millimetres into the drawing");
+                style.text_override="20 mm REF";styled.model_layout.text_style=style;
+                require(drawing::project_model_annotation(drawing_view,styled).text=="20 mm REF","Drawing changed authored dimension text");
+            }
             const auto paper = app::model_annotation_layout(drawing_view, annotation, {}, 12.5);
             const auto expected = viewer::dimension_presentation(
                 d, [](kernel::Vec3 p) { return QPointF(p.x, -p.y); }, 12.5, 2.5, .75);
