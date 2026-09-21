@@ -273,6 +273,7 @@ Windows release
 was published on 2026-09-21 at 15:19:55 UTC. Candidate and signed archive smoke,
 integrity, production bootstrap trust and the packaged five-language lifecycle
 contract passed. All three remote asset sizes and digests matched acceptance.
-Production discovery from 2026092101 remains unverified because GitHub returned
-HTTP 504 when fetching the new manifest on repeated attempts. No update was
-installed by the discovery check. See [the release record](releases/2026092102.md).
+Production discovery from 2026092101 passed on retry after initial GitHub HTTP
+504 responses: the updater verified the public manifest signature and offered
+2026092102 as installable. No update was installed by the discovery check.
+See [the release record](releases/2026092102.md).

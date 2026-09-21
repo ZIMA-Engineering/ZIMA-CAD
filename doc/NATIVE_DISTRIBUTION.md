@@ -28,7 +28,7 @@ Windows build **2026092102** is signed and published. Its committed-source
 candidate, finalized archive, production bootstrap trust and packaged lifecycle
 checks passed. It adds Skeleton components, Assembly editing and selection fixes,
 Drawing multi-selection and view cropping. Remote asset hashes match acceptance;
-production public discovery encountered GitHub HTTP 504 and remains unverified.
+production public discovery passed on retry after transient GitHub HTTP 504 responses.
 See [the release record](releases/2026092102.md) for source identity, hashes,
 verification scope and limitations.
 
