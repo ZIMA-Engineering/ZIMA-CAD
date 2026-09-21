@@ -83,8 +83,8 @@ public:
         }
         auto* description = new QLabel(
             QObject::tr(
-                "ZIMA-CAD\nNativní CAD aplikace pro parametrické modelování, "
-                "sestavy a technické výkresy.\n\n"
+                "ZIMA-CAD\nOpen-source parametrický 3D CAD založený na geometrickém "
+                "jádře OCCT a napsaný v jazyce C++.\n\n"
                 "Vydání: ZIMA-CAD-%1")
                 .arg(QString::fromUtf8(distribution::version.data(), static_cast<qsizetype>(distribution::version.size()))),
             this);
@@ -98,13 +98,6 @@ public:
         author->setAlignment(Qt::AlignCenter);
         author->setWordWrap(true);
         content_layout()->addWidget(author);
-        auto* story = new QLabel(QObject::tr("ZIMA-CAD vzniká z potřeb každodenní konstruktérské praxe. "
-            "Jeho cílem je spojit parametrické modelování, práci se sestavami a tvorbu technických výkresů "
-            "v přehledném prostředí, které respektuje způsob uvažování konstruktéra."), this);
-        story->setObjectName("aboutStory");
-        story->setAlignment(Qt::AlignCenter);
-        story->setWordWrap(true);
-        content_layout()->addWidget(story);
         auto* contact = new QLabel(QStringLiteral(
             "<a href=\"mailto:kontakt@zima-engineering.cz\">kontakt@zima-engineering.cz</a><br>"
             "<a href=\"https://www.zima-engineering.cz\">www.zima-engineering.cz</a>"), this);
