@@ -24,11 +24,13 @@ packaged Drawing checks, remote asset hashes and public discovery from
 2026091904 passed. See the [release record](releases/2026092001.md) for exact
 scope and remaining 3D text-clearance/conical Sheet Cut test limitations.
 
-Windows build **2026092101** is signed and published. Its committed-source
-candidate, finalized archive, production bootstrap trust and public discovery
-passed acceptance. It adds localized document setup, appearance transparency
-and explicit component-origin visibility. See [the release record](releases/2026092101.md)
-for source identity, hashes, verification and the pending Skeleton workflow.
+Windows build **2026092102** is signed and published. Its committed-source
+candidate, finalized archive, production bootstrap trust and packaged lifecycle
+checks passed. It adds Skeleton components, Assembly editing and selection fixes,
+Drawing multi-selection and view cropping. Remote asset hashes match acceptance;
+production public discovery encountered GitHub HTTP 504 and remains unverified.
+See [the release record](releases/2026092102.md) for source identity, hashes,
+verification scope and limitations.
 
 ## Installed layout
 

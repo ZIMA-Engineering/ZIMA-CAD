@@ -267,3 +267,12 @@ The previous signed Windows updater (2026091903), in a disposable installation,
 verified the public manifest and offered 2026092101 as installable. No update
 was installed during this check. All three remote asset digests matched local
 acceptance. See [the release record](releases/2026092101.md).
+
+Windows release
+[2026092102](https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026092102)
+was published on 2026-09-21 at 15:19:55 UTC. Candidate and signed archive smoke,
+integrity, production bootstrap trust and the packaged five-language lifecycle
+contract passed. All three remote asset sizes and digests matched acceptance.
+Production discovery from 2026092101 remains unverified because GitHub returned
+HTTP 504 when fetching the new manifest on repeated attempts. No update was
+installed by the discovery check. See [the release record](releases/2026092102.md).
