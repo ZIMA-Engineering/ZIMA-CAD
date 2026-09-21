@@ -31,16 +31,23 @@ bool set_model_relations(Workspace& live,const std::string& id,std::vector<docum
     },[](const auto& a,const auto& b){return a.relations==b.relations && a.user_parameters==b.user_parameters && a.user_parameter_values==b.user_parameter_values && a.user_parameter_order==b.user_parameter_order;});
 }
 document::MaterialData material_data(const Workspace& live,const std::string& id) {
-    return metadata_detail::read(live,id,[](const auto& doc){return material(doc);});
+    const auto* part=live.open_part(id);
+    if(!part)throw std::invalid_argument("Material requires an open Part document.");
+    return material(part->session.document());
 }
 bool set_material_data(Workspace& live,const std::string& id,document::MaterialData values) {
+    auto* part=live.open_part(id);
+    if(!part)throw std::invalid_argument("Material requires an open Part document.");
     document::validate_material(values);
     std::erase_if(values.units,[](const auto& entry){return entry.second.empty();});
     std::erase_if(values.descriptions,[](const auto& entry){return entry.second.empty();});
-    return metadata_detail::write(live,id,[&](auto& doc) {
-        doc.physical_parameters=std::move(values.properties);doc.physical_parameter_units=std::move(values.units);
-        doc.material_parameter_descriptions=std::move(values.descriptions);
-    },[](const auto& a,const auto& b){return material(a)==material(b);});
+    auto next=part->session.document();
+    next.physical_parameters=std::move(values.properties);next.physical_parameter_units=std::move(values.units);
+    next.material_parameter_descriptions=std::move(values.descriptions);
+    if(material(next)==material(part->session.document()))return false;
+    document::refresh_physical_relations(next,document::physical_values(next,part->session.calculated_boundaries()));
+    commit_part_document(live,id,std::move(next),part->session.calculated_boundaries());
+    return true;
 }
 document::FamilyTable family_table(const Workspace& live,const std::string& requested) {
     const auto id=family_owner(live,requested);

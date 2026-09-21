@@ -83,7 +83,18 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     const auto owner_revision=live.open_assembly(owner)->session.revision();
     run(host,"activate",{{"document",id}});material[1]["value"]="7800";run(host,"document.material.set",{{"properties",material}});
     require(live.open_assembly(owner)->session.revision()==owner_revision && std::abs(assembly::physical_values(live.open_assembly(owner)->session.document()).at("model.mass")-.0162)<1e-10,"Source material silently refreshed a parent Assembly");
-    run(host,"activate",{{"document",owner}});run(host,"document.material.set",{{"properties",material}});
+    run(host,"activate",{{"document",owner}});
+    for(const auto& request:std::vector<Json>{
+        {{"command","document.material.get"}},
+        {{"command","document.material.set"},{"arguments",{{"properties",material}}}},
+        {{"command","document.material.load"},{"arguments",{{"path",document::path_to_utf8(library)}}}}}) {
+        const auto result=host.execute(request);
+        require(!result.ok && live.open_assembly(owner)->session.revision()==owner_revision,
+            "Assembly accepted material or changed its history after rejection");
+    }
+    const auto packet=live.open_assembly(owner)->session.document().serialized();
+    require(!packet.contains("physical_parameters")&&!packet.contains("physical_parameter_units")&&
+        !packet.contains("material_parameter_descriptions"),"Assembly still serializes its own material");
     family["columns"]={"Part"};family["bindings"]={{"Part",{{"kind","component"},{"owner",live.open_assembly(owner)->session.document().components.front().occurrence_id},{"key",""}}}};
     for(auto& row:family["instances"])row["values"]={{"Part","yes"}};
     run(host,"document.family.set",{{"table",family}});

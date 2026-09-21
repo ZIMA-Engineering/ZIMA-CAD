@@ -54,6 +54,7 @@ int verify_new_document_options(QApplication& application) {
                       !saved.sheets.front().frame_lines.empty()&&!saved.sheets.front().title_block_images.empty(),"Drawing defaults did not survive native save/reopen");
             };
             create("part","model");
+            check(window.findChild<QAction*>("materialAction")->isEnabled(),"Part material action is disabled");
             check(window.findChild<QComboBox*>("applicationModeSelector")->currentData().toInt()==0,"Modeling selection was ignored");
             const auto model=document::PartDocument::load(std::filesystem::u8path(directory.filePath("model.prtz").toStdString()));
             check(model.history.empty()&&model.body_history.bodies().size()==1&&!model.body_history.active_body_id().empty(),"New Part template context changed");
@@ -67,6 +68,12 @@ int verify_new_document_options(QApplication& application) {
             check(window.findChild<QComboBox*>("applicationModeSelector")->currentData().toInt()==0,"Skeleton must use Modeling");
             check(QFileInfo::exists(directory.filePath("reference_skeleton.prtz")),"Skeleton filename suffix is missing");
             create("assembly","assembly");
+            auto* material=window.findChild<QAction*>("materialAction");
+            auto* material_button=window.findChild<QToolButton*>("treematerialAction");
+            check(material&&!material->isEnabled()&&material_button&&material_button->isVisible()&&
+                !material_button->isEnabled(),"Assembly material action is not visibly disabled");
+            const auto empty_assembly=assembly::AssemblyDocument::load(std::filesystem::u8path(directory.filePath("assembly.asmz").toStdString()));
+            check(!empty_assembly.serialized().contains("physical_parameters"),"New Assembly template retained material");
             auto* insert_menu=window.findChild<QMenu*>("insertComponentMenu");
             check(insert_menu,"Assembly insertion menu missing");
             insert_menu->aboutToShow();

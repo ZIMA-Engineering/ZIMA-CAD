@@ -1,7 +1,9 @@
 # Relations, material, and family tables through shared commands
 
 GUI console and standalone CLI share existing Relations, Material, and Family Table
-commit operations for open Parts/Assemblies. Changes create one Undo transaction;
+commit operations. Relations and Family Table support open Parts/Assemblies;
+Material supports Parts only, including a Part activated within an Assembly.
+Changes create one Undo transaction;
 identical final values create none. Reads, relation evaluation, and material edits
 use persisted physical values without B-Rep calculation or parent-Assembly refresh.
 
@@ -40,10 +42,21 @@ drive user parameters, not modeling-feature dimensions.
 Material rows have textual `key`, `value`, optional `unit`, and language-keyed
 `descriptions`. Numerical density must be finite/positive and supports `kg/mm^3`,
 `kg/m^3`, `g/cm^3`, and `lb/in^3`. Other unit choices depend on the property as in GUI.
-Assembly mass still derives from component snapshots; assigning Assembly material
-does not overwrite component densities. At this original stage source updates were
+Assemblies do not own material fields in their native files or runtime document
+model. Material get/set/load requests for Assemblies are rejected without changing
+history. The Assembly Tree retains a disabled Material icon; activating a Part
+enables it for that Part. The regenerated Assembly start template also omits the
+predefined `material` user parameter. General user-defined parameters remain
+available. Assembly mass derives from component snapshots.
+At this original stage source updates were
 explicitly regenerated; current source sharing is documented in
 [ASSEMBLY_GEOMETRY_SHARING.md](ASSEMBLY_GEOMETRY_SHARING.md).
+
+The Part-only material change is verified by native Assembly serialization,
+rejected Assembly material commands with unchanged history, component mass,
+Part material editing, activation of a nested Part, and new-document creation
+from the regenerated Assembly start template in all five UI languages.
+All six selected contracts pass in `build/part-only-material-tests.log`.
 
 Family Table stores original model references and dimension/presence overrides.
 `document.family.set` commits the shared table and updates evaluated variants;

@@ -247,10 +247,6 @@ public:
     std::map<std::string, std::string> document_precision{
         {"linear_tolerance", "0.001"}, {"angular_tolerance", "0.001"},
         {"mesh_deflection", "0.1"}, {"decimal_places", "3"}};
-    std::map<std::string, std::string> physical_parameters;
-    std::map<std::string, std::string> physical_parameter_units;
-    std::map<std::string, std::map<std::string, std::string>>
-        material_parameter_descriptions;
     zima::document::FamilyDocument family;
     std::string family_table{"{\"bindings\":{},\"columns\":[],\"instances\":[]}"};
     std::string named_views{"[]"};

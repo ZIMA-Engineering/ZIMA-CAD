@@ -7633,9 +7633,13 @@ int verify_component_references(QApplication& application, const std::filesystem
         app::AssemblyWorkspaceWindow closed_sources(QString::fromStdString(directory.string()));
         closed_sources.resize(1000,800);closed_sources.show();
         if(!verify(closed_sources.open_document_path(QString::fromStdString(top_path.string())),"Cannot open closed-source activation fixture"))return 1;flush();
+        if(!verify(!closed_sources.findChild<QAction*>("materialAction")->isEnabled(),
+            "Assembly exposes its own material action"))return 1;
         const auto activate=commands::Json{{"command","component.activate"},{"arguments",{{"instance_path",nested_path}}}};
         if(!verify(closed_sources.execute_console_command(QString::fromStdString(activate.dump())).ok,
             "GUI cannot activate a nested Part through a closed owning Assembly"))return 1;flush();
+        if(!verify(closed_sources.findChild<QAction*>("materialAction")->isEnabled(),
+            "Nested active Part lost its material action"))return 1;
         const auto context=closed_sources.execute_console_command("context");
         const auto documents=closed_sources.execute_console_command("documents");
         if(!verify(context.data.at("active_document")==part.document_id&&context.data.at("displayed_document")==top_id&&

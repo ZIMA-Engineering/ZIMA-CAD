@@ -51,6 +51,7 @@ int main() {
                     start_assembly_template.constructions.empty() &&
                     start_assembly_template.dependencies.empty() &&
                     start_assembly_template.user_parameters.contains("mass") &&
+                    !start_assembly_template.user_parameters.contains("material") &&
                     start_assembly_template.relations.size() == 1 &&
                     start_assembly_template.relations.front().target == "mass" &&
                     start_assembly_template.relations.front().expression ==
@@ -377,7 +378,6 @@ int main() {
         assembly.relations = {{"double_clearance", "clearance * 2"}};
         assembly.document_units["Length"] = "in";
         assembly.document_precision["mesh_deflection"] = "0.05";
-        assembly.physical_parameters["MATERIAL_NAME"] = "Steel";
         assembly.family_table = R"({"columns":[],"instances":[]})";
         auto assembly_sketch = zima::sketcher::Sketch::create_default();
         auto cut_definition = zima::document::PartDocument::create_extrusion_container(
@@ -399,7 +399,7 @@ int main() {
                     assembly_text.find("format_version=33\n") != std::string::npos &&
                     assembly_text.find("[DocumentUnits]\n") != std::string::npos &&
                     assembly_text.find("[DocumentPrecision]\n") != std::string::npos &&
-                    assembly_text.find("[Material]\n") != std::string::npos &&
+                    assembly_text.find("[Material]\n") == std::string::npos &&
                     assembly_text.find("[UserParameters]\n") != std::string::npos &&
                     assembly_text.find("[UserParameterLabels]\n") != std::string::npos &&
                     assembly_text.find("[UserParameterValues]\n") != std::string::npos &&
@@ -441,7 +441,6 @@ int main() {
                     loaded.relations == assembly.relations &&
                     loaded.document_units == assembly.document_units &&
                     loaded.document_precision == assembly.document_precision &&
-                    loaded.physical_parameters == assembly.physical_parameters &&
                     loaded.family_table == assembly.family_table &&
                     loaded.sketches.size() == 1 &&
                     loaded.sketches.front().serialized() ==

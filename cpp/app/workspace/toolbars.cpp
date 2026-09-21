@@ -62,7 +62,7 @@ void AssemblyWorkspaceWindow::update_document_area_visibility() {
     const bool has_editable_model = has_document &&
         (workspace_.open_part(workspace_.active_document_id()) != nullptr ||
          workspace_.open_assembly(workspace_.active_document_id()) != nullptr);
-    material_action_->setEnabled(has_editable_model);
+    material_action_->setEnabled(workspace_.open_part(workspace_.active_document_id()) != nullptr);
     relations_action_->setEnabled(has_editable_model);
     family_table_action_->setEnabled(relations_action_->isEnabled());
     file_settings_action_->setEnabled(has_editable_model);

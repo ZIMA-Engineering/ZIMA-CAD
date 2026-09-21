@@ -195,7 +195,7 @@ void AssemblyWorkspaceWindow::edit_parameters_for_document(std::string active_id
 void AssemblyWorkspaceWindow::edit_material() {
     if (properties_dialog_ != nullptr) { properties_dialog_->raise(); return; }
     const auto id = workspace_.active_document_id();
-    if(!workspace_.open_part(id) && !workspace_.open_assembly(id))return;
+    if(!workspace_.open_part(id))return;
     auto material=zima::workspace::material_data(workspace_,id);DocumentToolData data;
     data.physical_parameters=std::move(material.properties);data.physical_parameter_units=std::move(material.units);data.descriptions=std::move(material.descriptions);
     auto accepted = [this, id](DocumentToolData values) {

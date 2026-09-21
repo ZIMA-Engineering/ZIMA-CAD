@@ -2061,9 +2061,6 @@ AssemblyDocument AssemblyDocument::from_serialized(const nlohmann::json& root) {
     }
     document.document_units = root.at("document_units").get<decltype(document.document_units)>();
     document.document_precision = root.at("document_precision").get<decltype(document.document_precision)>();
-    document.physical_parameters = root.at("physical_parameters").get<decltype(document.physical_parameters)>();
-    document.physical_parameter_units = root.at("physical_parameter_units").get<decltype(document.physical_parameter_units)>();
-    document.material_parameter_descriptions = root.at("material_parameter_descriptions").get<decltype(document.material_parameter_descriptions)>();
     document.family=zima::document::family_document_from_json(root.at("family"));
     document.family_table = root.at("family_table").get<std::string>();
     document.named_views = root.value("named_views", std::string("[]"));
@@ -2387,9 +2384,6 @@ nlohmann::json AssemblyDocument::serialized(
         {"dimension_layouts",zima::document::dimension_layouts_json(dimension_layouts)},
         {"document_units", document_units},
         {"document_precision", document_precision},
-        {"physical_parameters", physical_parameters},
-        {"physical_parameter_units", physical_parameter_units},
-        {"material_parameter_descriptions", material_parameter_descriptions},
         {"family", zima::document::family_document_json(family)},
         {"family_table", family_table},
         {"named_views", named_views},
@@ -2425,18 +2419,6 @@ void AssemblyDocument::save(const std::filesystem::path& path,
     };
     ini["DocumentUnits"] = document_units;
     ini["DocumentPrecision"] = document_precision;
-    ini["Material"]["Name"] = physical_parameters.contains("MATERIAL_NAME")
-        ? physical_parameters.at("MATERIAL_NAME") : "";
-    for (const auto& [key, value] : physical_parameters) {
-        if (key != "MATERIAL_NAME") ini["MaterialProperties"][key] = value;
-    }
-    ini["MaterialUnits"] = physical_parameter_units;
-    for (const auto& [key, languages] : material_parameter_descriptions) {
-        for (const auto& [language, value] : languages) {
-            ini["MaterialDescriptions"][key + (language.empty() ? "" : "\\" + language)] =
-                value;
-        }
-    }
     std::string order;
     for (const auto& value : user_parameter_order) {
         if (!order.empty()) order += ", ";
