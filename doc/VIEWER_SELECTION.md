@@ -1,5 +1,29 @@
 # Viewer Selection and Assembly Tree Identity
 
+## Overlapping features in an activated Part (2026-09-21)
+
+Ordinary feature selection inside an activated Assembly Part uses visible
+result fragments with persisted source identities, matching standalone Part
+selection. Removed regions of an Extrusion's original face no longer precede
+the visible Hole or cosmetic Thread in the common candidate list. Commands
+that explicitly request original containers retain that option. Hover, RMB
+cycling, LMB confirmation and edit/context callbacks preserve the selected
+feature and occurrence; the Properties lookup in the Tree also matches the
+complete occurrence path. The viewer contracts cover an overlapping Thread,
+Hole and removed Extrusion face, including cycling and edit dispatch.
+Five selected viewer, GUI, component, family and translation contracts pass in
+`build/assembly-active-feature-final-tests.log`.
+
+## Origins visibility during component placement (2026-09-21)
+
+The View Origins switch also governs insertion and Properties of a Part or
+subassembly. Turning it off hides both the owning Assembly Origin and component
+Origins, including the purple drag handle. Reference-entry requests do not
+override that choice, and hidden origins are absent from the common picker.
+Turning it on restores the existing occurrence-specific visibility policy;
+placement values and stored references do not change. The viewer GUI contract
+checks both origin candidates and rendered purple-handle pixels across toggles.
+
 ## Visible Assembly faces as placement references (2026-09-21)
 
 Assembly face selection uses displayed result fragments that carry an exact

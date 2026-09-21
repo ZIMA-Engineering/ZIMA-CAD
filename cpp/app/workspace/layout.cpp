@@ -905,13 +905,14 @@ void AssemblyWorkspaceWindow::create_layout() {
                     return;
                 }
             }
-            const auto find_container_item = [this](const std::string& owner_id) {
+            const auto find_container_item = [this, &candidate](const std::string& owner_id) {
                 QTreeWidgetItemIterator iterator(tree_);
                 while (*iterator != nullptr) {
                     auto* item = *iterator;
                     const auto role = item->data(0, Qt::UserRole + 3).toString();
                     if (item->data(0, Qt::UserRole).toString() ==
                             QString::fromStdString(owner_id) &&
+                        item->data(0, Qt::UserRole + 1).toString().toStdString() == candidate.instance_path &&
                         (role == QStringLiteral("part-container") ||
                          role == QStringLiteral("part-construction") ||
                          role == QStringLiteral("assembly-construction") ||

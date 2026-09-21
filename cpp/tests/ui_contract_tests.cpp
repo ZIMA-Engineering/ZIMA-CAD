@@ -1969,6 +1969,57 @@ int main(int argc, char* argv[]) {
             view.hide();
         }
 
+        {
+            zima::kernel::ViewerMesh mesh;
+            const std::string path="8:assembly4:part";
+            mesh.vertices={{-1,-1,4.5},{1,-1,4.5},{0,1,4.5},{9,-1,7},{11,-1,7},{10,1,7},{-11,0,0}};
+            mesh.triangles={0,1,2,3,4,5};
+            mesh.triangle_references={{"hole","wall",path},{"extrusion","cap",path}};
+            mesh.original_references.vertices={{-1,-1,4.5},{1,-1,4.5},{0,1,4.5},{-1,-1,7},{1,-1,7},{0,1,7}};
+            mesh.original_references.triangles=mesh.triangles;
+            mesh.original_references.triangle_references=mesh.triangle_references;
+            for(const bool end:{false,true}) {
+                zima::kernel::ViewerEdge ring;ring.display_owner_id="thread";
+                ring.reference.semantic_key=end?"thread:wire:test:end":"thread:wire:test:start";
+                ring.reference.instance_path=path;
+                for(int i=0;i<=32;++i) {
+                    const double angle=i*2*std::acos(-1.0)/32;
+                    ring.points.push_back({std::cos(angle),end?1.0:-1.0,5+std::sin(angle)});
+                }
+                mesh.edges.push_back(std::move(ring));
+            }
+            zima::viewer::MeshView view(&parent);view.setGeometry(0,0,500,360);view.set_mesh(mesh);
+            auto camera=view.camera_state();camera[0]=1;camera[1]=camera[2]=camera[3]=0;view.set_camera_state(camera);
+            view.set_selection_contract({zima::viewer::CandidateKind::Container});
+            view.set_candidate_filter([&](const auto& c){return c.instance_path==path;});
+            view.show();application.processEvents();
+            const auto send=[&](QEvent::Type type,Qt::MouseButton button,Qt::MouseButtons buttons){
+                const QPointF p(250,180);QMouseEvent event(type,p,p,p,button,buttons,Qt::NoModifier);
+                QApplication::sendEvent(&view,&event);
+            };
+            send(QEvent::MouseMove,Qt::NoButton,Qt::NoButton);
+            require(view.hovered_candidate()&&view.hovered_candidate()->owner_id=="thread",
+                "Active Part hover chose the removed extrusion instead of the visible thread");
+            send(QEvent::MouseButtonPress,Qt::RightButton,Qt::RightButton);
+            send(QEvent::MouseButtonRelease,Qt::RightButton,Qt::NoButton);
+            require(view.hovered_candidate()&&view.hovered_candidate()->owner_id=="hole",
+                "RMB cannot reach the overlapping hole in the active Part");
+            send(QEvent::MouseButtonPress,Qt::LeftButton,Qt::LeftButton);
+            send(QEvent::MouseButtonRelease,Qt::LeftButton,Qt::NoButton);
+            int edits=0,menus=0;
+            view.set_double_confirmation_callback([&](const auto& c){
+                require(c.owner_id=="hole"&&c.instance_path==path,"Double-click edited another feature/occurrence");++edits;
+            });
+            view.set_context_menu_callback([&](const auto& c,const auto&){
+                require(c.owner_id=="hole"&&c.instance_path==path,"Properties menu lost the selected hole");++menus;
+            });
+            send(QEvent::MouseButtonDblClick,Qt::LeftButton,Qt::LeftButton);
+            send(QEvent::MouseButtonPress,Qt::RightButton,Qt::RightButton);
+            send(QEvent::MouseButtonRelease,Qt::RightButton,Qt::NoButton);
+            require(edits==1&&menus==1,"Selected hole did not dispatch its edit/context actions");
+            view.hide();
+        }
+
         zima::kernel::ViewerMesh tangent_route_mesh;
         tangent_route_mesh.edges = {
             {{{-10.0, 0.0, 0.0}, {0.0, 0.0, 0.0}},
@@ -2066,6 +2117,7 @@ int main(int argc, char* argv[]) {
             origin_filter_view.setGeometry(0,0,500,360);
             zima::kernel::ViewerMesh mesh;mesh.vertices={{-10,-10,0},{10,10,0}};
             mesh.points.push_back({{0,0,0},{"component:origin","origin:point","nested/part"}});
+            mesh.points.push_back({{0,0,0},{"assembly:origin","origin:point",{}}});
             origin_filter_view.set_mesh(mesh);origin_filter_view.set_view_direction({0,0,1});
             origin_filter_view.set_component_origin_handle(zima::viewer::EdgeKey{
                 "component:origin","origin:point","nested/part"});
@@ -2077,6 +2129,26 @@ int main(int argc, char* argv[]) {
             origin_filter_view.set_selection_filter(zima::viewer::SelectionFilter::Axes);
             require(origin_filter_view.selection_candidates_at({250,180}).empty(),
                 "Injected component-origin handle bypassed the user Axes filter");
+            origin_filter_view.set_selection_filter(zima::viewer::SelectionFilter::Origins);
+            origin_filter_view.set_selection_contract({zima::viewer::CandidateKind::Vertex});
+            origin_filter_view.set_editing_origin_visible(true);
+            require(origin_filter_view.selection_candidates_at({250,180}).size()==2,
+                "Placement fixture does not offer both Assembly and component origins");
+            const auto purple_pixels=[&] {
+                const auto image=origin_filter_view.grabFramebuffer();int count=0;
+                for(int y=0;y<image.height();++y)for(int x=0;x<image.width();++x) {
+                    const auto c=image.pixelColor(x,y);
+                    if(c.red()>170&&c.blue()>210&&c.green()<140)++count;
+                }
+                return count;
+            };
+            require(purple_pixels()>0,"Visible component origin has no purple handle");
+            origin_filter_view.set_reference_visibility(zima::viewer::ReferenceVisibility::Origins,false);
+            require(origin_filter_view.selection_candidates_at({250,180}).empty()&&purple_pixels()==0,
+                "Hidden Origins remain selectable or retain the purple placement handle");
+            origin_filter_view.set_reference_visibility(zima::viewer::ReferenceVisibility::Origins,true);
+            require(origin_filter_view.selection_candidates_at({250,180}).size()==2&&purple_pixels()>0,
+                "Origins switch did not restore the Assembly and component origins");
         }
 
         zima::kernel::ViewerMesh zero_dimension_mesh;

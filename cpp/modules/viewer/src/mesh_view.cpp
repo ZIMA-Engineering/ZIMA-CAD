@@ -459,6 +459,10 @@ struct MeshView::Impl {
     }
     std::function<bool(const EdgeKey&)> origin_visibility_filter;
     bool origin_visible(const EdgeKey& key) const {
+        // Component placement must respect the user's Origins switch even
+        // while reference entry or the purple drag handle requests datums.
+        if (component_origin_handle && !show_origins &&
+            (key.semantic_key == "origin" || key.semantic_key.starts_with("origin:"))) return false;
         // The explicitly selected component's drag handle is independently
         // offered; this does not reveal its axes or planes.
         if(component_origin_handle && key==*component_origin_handle)return true;
@@ -2580,7 +2584,13 @@ void MeshView::set_reference_visibility(
         case ReferenceVisibility::Surfaces:
             if(impl_->show_surfaces!=visible){impl_->show_surfaces=visible;if(impl_->surface_source_mesh)set_mesh(*impl_->surface_source_mesh,false);}
             break;
-        case ReferenceVisibility::Origins: impl_->show_origins = visible; break;
+        case ReferenceVisibility::Origins:
+            impl_->show_origins = visible;
+            impl_->candidates.clear();
+            if (!visible && impl_->component_origin_handle && impl_->confirmed_candidate &&
+                !impl_->origin_visible({impl_->confirmed_candidate->owner_id,
+                    impl_->confirmed_candidate->semantic_key,impl_->confirmed_candidate->instance_path})) clear_selection();
+            break;
         case ReferenceVisibility::Points: impl_->show_points = visible; break;
         case ReferenceVisibility::Axes: impl_->show_axes = visible; break;
         case ReferenceVisibility::Planes: impl_->show_planes = visible; break;

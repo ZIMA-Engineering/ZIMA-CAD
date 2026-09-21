@@ -722,9 +722,36 @@ int main() {
                     separated_containers.size() == 1 &&
                     separated_containers.front().owner_id == "original-box" &&
                     separated_containers.front().geometry ==
-                        zima::viewer::CandidateGeometry::OriginalReference,
+                        zima::viewer::CandidateGeometry::Display,
                 "Occurrence picking lost visible depth or container topology ownership");
         auto local_part = separated;
+        auto threaded_hole = cosmetic_thread_mesh;
+        const std::string active_path="8:assembly4:part";
+        for(auto& edge:threaded_hole.edges)edge.reference.instance_path=active_path;
+        threaded_hole.vertices={{-1,-1,4.5},{1,-1,4.5},{0,1,4.5},
+            {9,-1,3},{11,-1,3},{10,1,3}};
+        threaded_hole.triangles={0,1,2,3,4,5};
+        threaded_hole.triangle_references={{"hole","wall",active_path},{"extrusion","cap",active_path}};
+        threaded_hole.original_references.vertices={{-1,-1,4.5},{1,-1,4.5},{0,1,4.5},
+            {-1,-1,3},{1,-1,3},{0,1,3}};
+        threaded_hole.original_references.triangles=threaded_hole.triangles;
+        threaded_hole.original_references.triangle_references=threaded_hole.triangle_references;
+        const auto active_containers=zima::viewer::filter_candidates(
+            zima::viewer::ordered_viewer_candidates(threaded_hole,{0,0,0},{0,0,1},.01),
+            {zima::viewer::CandidateKind::Container});
+        require(active_containers.size()==2&&active_containers[0].owner_id=="thread-container"&&
+            active_containers[1].owner_id=="hole"&&active_containers[0].instance_path==active_path&&
+            active_containers[1].geometry==zima::viewer::CandidateGeometry::Display,
+            "Active Assembly Part offers removed extrusion geometry before its visible thread/hole");
+        zima::kernel::ViewerMesh original_faces;
+        original_faces.vertices=threaded_hole.original_references.vertices;
+        original_faces.triangles=threaded_hole.original_references.triangles;
+        original_faces.triangle_references=threaded_hole.original_references.triangle_references;
+        const auto source_containers=zima::viewer::filter_candidates(
+            zima::viewer::ordered_viewer_candidates(threaded_hole,original_faces,
+                {0,0,0},{0,0,1},.01,false,true),{zima::viewer::CandidateKind::Container});
+        require(std::ranges::any_of(source_containers,[](const auto& c){return c.owner_id=="extrusion";}),
+            "Explicit original-container command lost its source geometry");
         local_part.triangle_references.front().instance_path.clear();
         local_part.original_references.triangle_references.front()
             .instance_path.clear();

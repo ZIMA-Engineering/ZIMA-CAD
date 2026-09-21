@@ -549,7 +549,7 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
                                   face.reference.owner_id, face.reference.semantic_key,
                                   face.reference.instance_path, geometry});
             }
-            const bool persisted_container = persisted_occurrence;
+            const bool persisted_container = persisted_occurrence && !displayed_source;
             constexpr std::string_view entity_suffix{":entity"};
             const bool datum_entity = face.reference.owner_id.ends_with(entity_suffix) &&
                 face.reference.semantic_key == "plane";
@@ -562,6 +562,7 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
                     ? face.reference.display_owner_id
                     : transparent_sheet_state ? std::string{} : face.reference.owner_id;
             if (!container_owner.empty() && !origin_reference && !persisted_container &&
+                (!hidden_source_face || offer_original_containers) &&
                 std::none_of(result.begin(), result.end(), [&](const ViewerCandidate& item) {
                     return item.kind == CandidateKind::Container &&
                         item.owner_id == container_owner &&
