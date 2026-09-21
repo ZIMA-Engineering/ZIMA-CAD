@@ -21,5 +21,6 @@ struct SectionEdit {
 // An empty ID activates the permanent unsectioned display. These operations
 // preserve calculated body data and share the ordinary document Undo history.
 [[nodiscard]] bool activate_section(Workspace&,const std::string& document,const std::string& section = {});
+[[nodiscard]] bool set_section_plane_visible(Workspace&,const std::string& document,const std::string& section,bool visible);
 [[nodiscard]] bool remove_section(Workspace&,const std::string& document,const std::string& section);
 }

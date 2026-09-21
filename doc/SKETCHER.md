@@ -518,6 +518,12 @@ Sketcher-only, not periodic 3D spline functionality. Tangent self-closure needs
 enough control points for independent end arms. Preview does not add another
 coincident point when the cursor remains on the just-confirmed point (e.g. an axis).
 
+Extrusion consumes the Sketcher's exact spline poles, knots and weights,
+including interpolating curves and a single spline closed at a shared endpoint
+with self-tangency. It does not refit interpolation points in OCCT. Closed
+periodic and self-closed profiles are verified against their displayed area
+and resulting solid volume in `zima_cpp_closed_spline_extrusion_tests`.
+
 Selecting a dimension/constraint marker in View or Tree highlights participants
 from stored Sketch references. A length dimension created from an ordinary
 segment uses endpoints A/B. A visibly fillet-shortened segment also retains its

@@ -79,9 +79,12 @@ void reframe_section(SectionDefinition& s){
     s.sketch.resolved_normal=cross(s.plane_x,s.plane_y);
 }
 void resolve_section_placements(std::vector<SectionDefinition>& sections,const zima::kernel::ViewerReferenceGeometry& geometry){
-    for(auto& section:sections){static_cast<void>(resolve_placement(section.placement,geometry));reframe_section(section);}
+    for(auto& section:sections){static_cast<void>(resolve_placement(section.placement,geometry));reframe_section(section);
+        static_cast<void>(section.sketch.refresh_external_references({},geometry,true));}
 }
 std::vector<std::array<double,2>> section_path(const SectionDefinition& s){
+    if(std::ranges::any_of(s.sketch.external_references,[](const auto& ref){return ref.kind==zima::sketcher::ExternalReferenceKind::AxisPoint&&ref.broken;}))
+        throw std::invalid_argument("Externí bod osy není platný. Obnovte kolmost osy k rovině skici nebo opravte referenci.");
     const auto profile=[](const auto& curves){return std::ranges::any_of(curves,[](const auto& c){return !c.construction;});};
     if(profile(s.sketch.circles)||profile(s.sketch.arcs)||profile(s.sketch.ellipses)||profile(s.sketch.elliptical_arcs)||profile(s.sketch.bsplines)||!s.sketch.import_blocks.empty()||!s.sketch.texts.empty())
         throw std::invalid_argument("Řez potřebuje otevřenou čáru nebo lomenou čáru z úseček.");

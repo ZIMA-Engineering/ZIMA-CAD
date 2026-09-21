@@ -94,6 +94,7 @@ void AssemblyWorkspaceWindow::start_sketch_coincident(
     viewer_->set_selection_contract(kind == zima::sketcher::ConstraintKind::Coincident
         ? std::vector{zima::viewer::CandidateKind::SketchPoint,
                       zima::viewer::CandidateKind::SketchAxis,
+                      zima::viewer::CandidateKind::SketchSegment,
                       zima::viewer::CandidateKind::SketchExternalReference}
         : std::vector{zima::viewer::CandidateKind::SketchPoint,
                       zima::viewer::CandidateKind::SketchSegment});
@@ -107,7 +108,7 @@ void AssemblyWorkspaceWindow::start_sketch_coincident(
             ? tr("Vodorovnost bodů: vyberte první bod. Escape příkaz zruší.")
             : kind == zima::sketcher::ConstraintKind::Vertical
                 ? tr("Svislost bodů: vyberte první bod. Escape příkaz zruší.")
-                : tr("Totožnost bodů: vyberte první bod. Escape příkaz zruší."));
+                : tr("Totožnost: vyberte bod nebo úsečku. Escape příkaz zruší."));
 }
 
 void AssemblyWorkspaceWindow::cancel_sketch_coincident() {
@@ -618,6 +619,22 @@ void AssemblyWorkspaceWindow::accept_sketch_common_tangent_selection(
 void AssemblyWorkspaceWindow::accept_sketch_coincident_point(
     const zima::viewer::ViewerCandidate& candidate) {
     if (!sketch_coincident_active_ || candidate.owner_id != active_sketch_id_) return;
+    if (pending_point_pair_constraint_kind_ == zima::sketcher::ConstraintKind::Coincident &&
+        pending_coincident_point_id_.empty() &&
+        candidate.kind == zima::viewer::CandidateKind::SketchSegment &&
+        candidate.semantic_key.starts_with("segment:")) {
+        pending_coincident_point_id_ = candidate.semantic_key;
+        viewer_->set_selection_contract({zima::viewer::CandidateKind::SketchPoint,
+                                        zima::viewer::CandidateKind::SketchExternalReference});
+        const auto owner = active_sketch_id_;
+        viewer_->set_candidate_filter([owner](const auto& value) {
+            return value.owner_id == owner &&
+                ((value.kind == zima::viewer::CandidateKind::SketchPoint && value.semantic_key.starts_with("point:")) ||
+                 (value.kind == zima::viewer::CandidateKind::SketchExternalReference && value.semantic_key.starts_with("external_point:")));
+        });
+        state_->setText(tr("Totožnost: vyberte bod, kterým má úsečka procházet."));
+        return;
+    }
     if (pending_point_pair_constraint_kind_ != zima::sketcher::ConstraintKind::Coincident &&
         pending_coincident_point_id_.empty() &&
         candidate.kind == zima::viewer::CandidateKind::SketchSegment &&
@@ -724,6 +741,10 @@ void AssemblyWorkspaceWindow::accept_sketch_coincident_point(
         }
         return;
     }
+    const bool segment_first = pending_coincident_point_id_.starts_with("segment:") && !point_id.empty();
+    if (segment_first) {
+        support_geometry_id = pending_coincident_point_id_.substr(8);
+    }
     if (pending_coincident_point_id_.empty()) {
         pending_coincident_point_id_ = point_id;
         viewer_->set_selection_contract(pending_point_pair_constraint_kind_ ==
@@ -749,16 +770,22 @@ void AssemblyWorkspaceWindow::accept_sketch_coincident_point(
         return;
     }
     if (!support_geometry_id.empty()) {
+        const auto contact_point = segment_first ? point_id : pending_coincident_point_id_;
         try {
             if (!mutate_active_sketch([&](auto& sketch) {
-                    if (sketch.find_point(pending_coincident_point_id_) == nullptr)
-                        throw std::invalid_argument("Coincident point is missing");
+                    if (sketch.find_point(contact_point) == nullptr) {
+                        if (circular_support)
+                            throw std::invalid_argument("External point contact requires a segment");
+                        static_cast<void>(sketch.add_external_point_segment_constraint(
+                            contact_point, support_geometry_id, false));
+                        return;
+                    }
                     if (circular_support) {
                         static_cast<void>(sketch.add_point_on_circle_constraint(
-                            pending_coincident_point_id_, support_geometry_id));
+                            contact_point, support_geometry_id));
                     } else {
                         static_cast<void>(sketch.add_point_on_line_constraint(
-                            pending_coincident_point_id_, support_geometry_id));
+                            contact_point, support_geometry_id));
                     }
                 })) return;
             pending_coincident_point_id_.clear();

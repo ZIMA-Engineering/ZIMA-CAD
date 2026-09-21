@@ -111,7 +111,7 @@ bool AssemblyWorkspaceWindow::mass_properties_context_menu(QTreeWidgetItem* item
     QMenu menu(this);auto* edit=menu.addAction(tr("Vlastnosti…"));
     auto* visibility=menu.addAction(visible?tr("Skrýt"):tr("Zobrazit"));visibility->setObjectName("bodyPropertiesVisibilityAction");
     auto* remove=menu.addAction(tr("Odstranit"));
-    const auto* picked=menu.exec(tree_->viewport()->mapToGlobal(position));
+    const auto* picked=exec_tree_menu(menu,item,position);
     if(picked==edit)show_mass_properties(object);
     else if(picked==visibility) {
         try{auto edit=workspace::prepare_body_properties_edit(workspace_,workspace_.displayed_document_id(),object);auto value=edit.initial;value.visible=!visible;

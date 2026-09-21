@@ -36,13 +36,23 @@ I/O on the Workspace-owning thread.
 
 - Part updates its own name. External Sketch references carry document/occurrence IDs;
   STEP/DXF import provenance is not rewritten as a native dependency.
-- Assembly updates immediate-component source paths, preserving aliases, occurrences,
-  placement, mates, and shared bodies.
+- Assembly updates immediate-component source paths and names of all occurrences
+  of the renamed source, including nested snapshots. Occurrence IDs, placement,
+  mates, and shared bodies remain unchanged. Historical names are rebased as well,
+  so a later model Undo does not restore an obsolete source name. Independently
+  named Pattern/Mirror groups retain their feature names.
 - Drawing updates document/view/BOM sources, source name, and `file_stem`. Manual
   contents and other models remain unchanged.
 
 References are resolved by ID. Path/ID conflicts are rejected; missing IDs are not
 guessed from names. Relative paths belong to their owning native document.
+
+The Tree **Rename…** action on a real Part or subassembly targets its shared source
+document, including when invoked from a nested occurrence. It loads that source if
+necessary and reuses the file transaction without activating it or replacing the
+displayed top-level Assembly. Open tabs and matching occurrence labels refresh after
+success. Renaming an ordinary feature, Section, Drawing sheet or view uses a separate
+undoable name-only metadata edit.
 
 Private `PreparedNativeDocument` rewrites only saved snapshots. Renaming does not
 save pending parameters or geometry of open documents. Their metadata is updated

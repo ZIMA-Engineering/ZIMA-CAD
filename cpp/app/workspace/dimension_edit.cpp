@@ -4,6 +4,7 @@
 #include <zima/workspace/opening_operations.hpp>
 #include <zima/workspace/component_properties.hpp>
 #include <zima/workspace/holes_operations.hpp>
+#include <zima/workspace/section_operations.hpp>
 #include "workspace_internal.hpp"
 #include <zima/document/bend.hpp>
 #include <zima/workspace/bend_operations.hpp>
@@ -211,6 +212,18 @@ void AssemblyWorkspaceWindow::edit_dimension_inline(
                 sketch.validate();
             };
             const bool sketch_dimension=candidate.semantic_key.starts_with("dimension:")||candidate.semantic_key.starts_with("corner_dimension:");
+            if(sketch_dimension&&!properties_dialog_&&!construction_dimension_object_id_.empty()) {
+                const auto document=workspace_.active_document_id();
+                const std::vector<zima::document::SectionDefinition>* sections=nullptr;
+                if(const auto* part=workspace_.open_part(document))sections=&part->session.document().sections;
+                else if(const auto* assembly=workspace_.open_assembly(document))sections=&assembly->session.document().sections;
+                if(sections)for(const auto& section:*sections)if(section.id==construction_dimension_object_id_&&section.sketch.id==candidate.owner_id) {
+                    const auto edit=workspace::prepare_section_edit(workspace_,document,section.id);
+                    auto pending=edit.initial;edit_sketch(pending.sketch);
+                    static_cast<void>(workspace::commit_section(workspace_,edit,std::move(pending)));
+                    guarded->hide();refresh_tabs();show_parameter_dimensions(edit.initial.id);guarded->deleteLater();return;
+                }
+            }
             if(sketch_dimension&&candidate.owner_id==active_sketch_id_){
                 if(!mutate_active_sketch(edit_sketch))throw std::runtime_error("Sketch is no longer active");
                 guarded->hide();preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();guarded->deleteLater();return;

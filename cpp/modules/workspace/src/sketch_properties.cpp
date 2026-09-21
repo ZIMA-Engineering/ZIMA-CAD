@@ -73,6 +73,8 @@ bool commit_part_sketch_properties(Workspace& live,const kernel::OcctKernel& ker
     append_reference_geometry(geometry,next.origin_viewer_mesh().original_references);
     append_reference_geometry(geometry,next.construction_viewer_mesh().original_references);
     next.resolve_constructions(geometry);
+    for(auto& resolved : next.sketches)if(resolved.owner_container_id==owner_id)
+        static_cast<void>(resolved.refresh_external_references({},next.sketch_reference_geometry_for(resolved,geometry),true));
     PartCalculationPolicy policy;policy.reject_errors=true;
     if(!create){policy.edited_document_id=id;policy.edited_history_limit=before.history_index(owner_id);}
     auto calculated=calculate_part_with_resolved_references(kernel,next,&state->session.calculated_boundaries(),policy);
@@ -144,6 +146,12 @@ bool commit_sketch_properties(Workspace& live,const kernel::OcctKernel& kernel,c
     for(const auto& [source,consumer]:edges)if(source==owner_id&&edges.contains({consumer,source}))
         reject("reference_cycle","The reference would create a dependency cycle.");
     next.resolve_constructions();
+    auto& resolved=*std::ranges::find(next.sketches,sketch_id,&sketcher::Sketch::id);
+    if(std::ranges::any_of(resolved.external_references,[](const auto& ref){return ref.kind==sketcher::ExternalReferenceKind::AxisPoint;})) {
+        auto geometry=live.authoritative_viewer_mesh(id).original_references;
+        append_reference_geometry(geometry,next.construction_viewer_mesh().original_references);
+        static_cast<void>(resolved.refresh_external_references({},geometry,true));
+    }
     if(!next.find_sketch_container(owner_id)->placement.reference_valid)
         reject("invalid_reference","The proposed feature placement references cannot be resolved.");
     next.validate_sketch_containers();

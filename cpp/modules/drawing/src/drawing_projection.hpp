@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cmath>
 #include <map>
+#include <numbers>
+#include <set>
 #include <tuple>
 
 namespace zima::drawing::detail {
@@ -40,13 +42,41 @@ inline std::vector<ProjectedEdge> project_drawing_edges(
         extent=std::max({extent,high.x-low.x,high.y-low.y,high.z-low.z});
     }
     const double epsilon=1e-8*extent;
+    const auto& source_edges=mesh.edges.empty()?mesh.original_references.edges:mesh.edges;
+    const auto is_thread=[](const auto& ref){return ref.semantic_key.starts_with("thread:boundary:");};
+    using Owner=std::pair<std::string,std::string>;
+    const auto owner=[](const auto& ref){return Owner{ref.owner_id,ref.instance_path};};
+    struct EndRing {Point2 center;double radius{},depth{};zima::kernel::EdgeReference source;};
+    std::vector<EndRing> end_rings;
+    std::set<Owner> axial_threads;
+    // Recognize only a complete, planar, camera-normal circular boundary from
+    // persisted viewer samples. Never infer topology identities or call OCCT.
+    for(const auto& edge:source_edges) {
+        const auto& semantic=edge.reference.semantic_key;
+        if(semantic!="thread:boundary:nominal"&&semantic!="thread:boundary:root")continue;
+        if(edge.points.size()<9)continue;
+        const auto a=project(edge.points.front()),b=project(edge.points[edge.points.size()/3]),c=project(edge.points[2*edge.points.size()/3]);
+        const auto last=project(edge.points.back());
+        if(std::hypot(last.p.x-a.p.x,last.p.y-a.p.y)>epsilon||std::abs(last.z-a.z)>epsilon)continue;
+        const double bx=b.p.x-a.p.x,by=b.p.y-a.p.y,cx=c.p.x-a.p.x,cy=c.p.y-a.p.y;
+        const double det=2*(bx*cy-by*cx);if(std::abs(det)<epsilon*epsilon)continue;
+        const double bb=bx*bx+by*by,cc=cx*cx+cy*cy;
+        const Point2 center{a.p.x+(bb*cy-cc*by)/det,a.p.y+(bx*cc-cx*bb)/det};
+        const double radius=std::hypot(a.p.x-center.x,a.p.y-center.y);
+        if(radius<=epsilon)continue;
+        if(!std::ranges::all_of(edge.points,[&](const auto& p){const auto q=project(p);return std::abs(q.z-a.z)<=epsilon&&std::abs(std::hypot(q.p.x-center.x,q.p.y-center.y)-radius)<=epsilon;}))continue;
+        axial_threads.insert(owner(edge.reference));
+        auto found=std::ranges::find_if(end_rings,[&](const auto& ring){return owner(ring.source)==owner(edge.reference)&&std::hypot(ring.center.x-center.x,ring.center.y-center.y)<=epsilon;});
+        if(found==end_rings.end())end_rings.push_back({center,radius,a.z,edge.reference});
+        else if(a.z>found->depth)*found={center,radius,a.z,edge.reference};
+    }
     const auto& h=camera.horizontal;const auto& v=camera.vertical;const auto& d=camera.depth;
     const double handedness=(h.y*v.z-h.z*v.y)*d.x+(h.z*v.x-h.x*v.z)*d.y+(h.x*v.y-h.y*v.x)*d.z;
-    struct Triangle {std::array<ProjectionVertex,3> v;double determinant;double xmin{},xmax{},ymin{},ymax{};};
+    struct Triangle {std::array<ProjectionVertex,3> v;double determinant;double xmin{},xmax{},ymin{},ymax{};const zima::kernel::FaceReference* source{};};
     std::vector<Triangle> triangles;
     using Key=std::tuple<long long,long long,long long>;
-    struct Boundary {zima::kernel::Vec3 a,b;bool front{},back{};int count{};};
-    std::map<std::pair<Key,Key>,Boundary> boundaries;
+    struct Boundary {zima::kernel::Vec3 a,b;bool front{},back{};int count{};bool thread{};};
+    std::map<std::tuple<Key,Key,Owner>,Boundary> boundaries;
     const auto key=[&](const auto& p){return Key{std::llround(p.x/epsilon),std::llround(p.y/epsilon),std::llround(p.z/epsilon)};};
     for(std::size_t i=0;i+2<mesh.triangles.size();i+=3) {
         const auto ia=mesh.triangles[i],ib=mesh.triangles[i+1],ic=mesh.triangles[i+2];
@@ -56,7 +86,13 @@ inline std::vector<ProjectedEdge> project_drawing_edges(
         t.determinant=(b.x-a.x)*(c.y-a.y)-(b.y-a.y)*(c.x-a.x);
         t.xmin=std::min({a.x,b.x,c.x});t.xmax=std::max({a.x,b.x,c.x});
         t.ymin=std::min({a.y,b.y,c.y});t.ymax=std::max({a.y,b.y,c.y});
-        if(std::abs(t.determinant)>epsilon*epsilon)triangles.push_back(t);
+        const auto* ref=i/3<mesh.triangle_references.size()?&mesh.triangle_references[i/3]:nullptr;
+        t.source=ref;
+        const bool thread=ref&&ref->semantic_key.starts_with("thread:surface:");
+        // Technological thread surfaces are not solid material and cannot hide
+        // the real bore/shaft or other conventional thread lines.
+        if(!thread&&std::abs(t.determinant)>epsilon*epsilon)triangles.push_back(t);
+        if(thread&&axial_threads.contains(owner(*ref)))continue;
         // Section caps use scan-strip triangulation with T-junctions. Their
         // complete rim is already explicit; unmatched internal strip edges
         // must not be promoted to visible silhouettes.
@@ -65,18 +101,35 @@ inline std::vector<ProjectedEdge> project_drawing_edges(
         for(int side=0;side<3;++side) {
             auto pa=mesh.vertices[ids[side]],pb=mesh.vertices[ids[(side+1)%3]];
             auto ka=key(pa),kb=key(pb);if(kb<ka){std::swap(ka,kb);std::swap(pa,pb);}
-            auto& edge=boundaries[{ka,kb}];edge.a=pa;edge.b=pb;++edge.count;
+            auto& edge=boundaries[{ka,kb,thread?owner(*ref):Owner{}}];edge.a=pa;edge.b=pb;++edge.count;edge.thread=thread;
             edge.front|=t.determinant*handedness>epsilon*epsilon;
             edge.back|=t.determinant*handedness<=epsilon*epsilon;
         }
     }
     std::vector<ProjectedEdge> result;
-    const auto append=[&](const auto& points,const zima::kernel::EdgeReference& source,bool silhouette,bool tangent) {
+    const auto append=[&](const auto& points,const zima::kernel::EdgeReference& source,bool silhouette,bool tangent,bool thread=false,bool symbolic=false) {
         for(std::size_t segment=1;segment<points.size();++segment) {
             const auto a=project(points[segment-1]),b=project(points[segment]);
             if(std::hypot(b.p.x-a.p.x,b.p.y-a.p.y)<=epsilon)continue;
             std::vector<std::pair<double,double>> occluded;
             for(const auto& triangle:triangles) {
+                // The analytic arc lies on its own entrance chamfer. Coarse
+                // cone facets must not cover that exact boundary. Exempt only
+                // the same occurrence's matching persisted conical surface;
+                // every other solid remains a normal occluder.
+                if(symbolic&&triangle.source&&owner(*triangle.source)==owner(source)&&triangle.source->surface) {
+                    const auto& surface=*triangle.source->surface;
+                    if(surface.kind==zima::kernel::SurfaceGeometry::Kind::Cone) {
+                        const auto on_surface=[&](const auto& p){
+                            const double x=p.x-surface.origin.x,y=p.y-surface.origin.y,z=p.z-surface.origin.z;
+                            const double axial=x*surface.axis.x+y*surface.axis.y+z*surface.axis.z;
+                            const double radial=std::sqrt(std::max(0.0,x*x+y*y+z*z-axial*axial));
+                            return axial>=surface.axial_min-epsilon&&axial<=surface.axial_max+epsilon&&
+                                std::abs(radial-surface.radius-axial*std::tan(surface.semi_angle))<=epsilon;
+                        };
+                        if(on_surface(points[segment-1])&&on_surface(points[segment]))continue;
+                    }
+                }
                 if(std::max(a.p.x,b.p.x)<triangle.xmin || std::min(a.p.x,b.p.x)>triangle.xmax ||
                     std::max(a.p.y,b.p.y)<triangle.ymin || std::min(a.p.y,b.p.y)>triangle.ymax)continue;
                 const auto weights=[&](Point2 p) {
@@ -111,21 +164,34 @@ inline std::vector<ProjectedEdge> project_drawing_edges(
                 if(end-start<=1e-10)return;
                 const auto at=[&](double t){return Point2{a.p.x+(b.p.x-a.p.x)*t,a.p.y+(b.p.y-a.p.y)*t};};
                 const auto first=at(start),last=at(end);
-                if(!result.empty()&&result.back().source==source&&result.back().silhouette==silhouette&&result.back().hidden==hidden&&result.back().tangent==tangent&&
+                if(!result.empty()&&result.back().source==source&&result.back().silhouette==silhouette&&result.back().hidden==hidden&&result.back().tangent==tangent&&result.back().thread==thread&&
                     std::hypot(result.back().points.back().x-first.x,result.back().points.back().y-first.y)<=epsilon)
                     result.back().points.push_back(last);
-                else result.push_back({{first,last},source,hidden,silhouette,tangent});
+                else result.push_back({{first,last},source,hidden,silhouette,tangent,false,0,thread});
             };
             double cursor=0;
             for(const auto& interval:merged){emit(cursor,interval.first,false);emit(interval.first,interval.second,true);cursor=interval.second;}
             emit(cursor,1,false);
         }
     };
-    const auto& source=mesh.edges.empty()?mesh.original_references.edges:mesh.edges;
-    for(const auto& edge:source)if(!edge.parameter_seam&&!edge.construction&&!edge.overlay)
-        append(edge.points,edge.reference,false,tangent_boundary(edge));
+    for(const auto& edge:source_edges)if(!edge.parameter_seam&&!edge.construction&&!edge.overlay) {
+        const bool thread=is_thread(edge.reference);
+        if(thread&&axial_threads.contains(owner(edge.reference)))continue;
+        append(edge.points,edge.reference,false,thread?false:tangent_boundary(edge),thread);
+    }
+    for(const auto& ring:end_rings) {
+        std::vector<zima::kernel::Vec3> arc;
+        // 280 degrees: both ends extend five degrees past the centre lines,
+        // leaving the conventional opening in the upper-right quadrant.
+        for(int step=0;step<=100;++step) {
+            const double angle=(85.0+280.0*step/100)*std::numbers::pi/180;
+            const double x=ring.center.x+ring.radius*std::cos(angle),y=ring.center.y+ring.radius*std::sin(angle);
+            arc.push_back({h.x*x+v.x*y+d.x*ring.depth,h.y*x+v.y*y+d.y*ring.depth,h.z*x+v.z*y+d.z*ring.depth});
+        }
+        append(arc,ring.source,false,false,true,true);
+    }
     if(silhouettes)for(const auto& [key,edge]:boundaries)if((edge.front&&edge.back)||edge.count==1)
-        append(std::array{edge.a,edge.b},zima::kernel::EdgeReference{},true,false);
+        append(std::array{edge.a,edge.b},zima::kernel::EdgeReference{},true,false,edge.thread);
     return result;
 }
 } // namespace zima::drawing::detail

@@ -368,6 +368,7 @@ void AssemblyWorkspaceWindow::create_actions() {
     auto* tools = menuBar()->addMenu(t("menu.tools", "Nástroje"));
     material_action_ = tools->addAction(t("menu.tools.material", "Materiál..."));
     material_action_->setObjectName("materialAction");
+    material_action_->setIcon(resource_icon("material"));
     connect(material_action_, &QAction::triggered, this, &AssemblyWorkspaceWindow::edit_material);
     parameters_action_ = tools->addAction(
         t("menu.tools.parameters", "Parametry..."));
@@ -387,6 +388,7 @@ void AssemblyWorkspaceWindow::create_actions() {
     file_settings_action_ = tools->addAction(
         t("menu.tools.file_settings", "Nastavení souboru..."));
     file_settings_action_->setObjectName("fileSettingsAction");
+    file_settings_action_->setIcon(resource_icon("settings"));
     connect(file_settings_action_, &QAction::triggered, this, &AssemblyWorkspaceWindow::edit_file_settings);
     settings_action_ = make_action(
         t("menu.tools.global_settings", "Globální nastavení..."), "settings");
@@ -690,7 +692,7 @@ void AssemblyWorkspaceWindow::create_actions() {
     sketch_dimensions_action_->setIcon(resource_icon("sketch-dimensions"));
     sketch_dimensions_action_->setObjectName("sketchDimensionsAction");
     sketch_dimensions_action_->setEnabled(false);
-    finish_sketch_action_ = make_action(tr("Dokončit skicu"), "sketch");
+    finish_sketch_action_ = make_action(tr("Dokončit skicu"), "active-check");
     finish_sketch_action_->setObjectName("finishSketchAction");
     finish_sketch_action_->setEnabled(false);
     regenerate_part_action_ = make_action(tr("Regenerovat"));
@@ -948,8 +950,6 @@ void AssemblyWorkspaceWindow::create_actions() {
         " color:#fff; border:1px solid #9BCC32; border-radius:4px; }");
     view_toolbar_->addAction(regenerate_document_action_);
     view_toolbar_->addAction(custom_body_color_action_);
-    view_toolbar_->addAction(parameters_action_);
-    view_toolbar_->addAction(family_table_action_);
     measure_action_=view_toolbar_->addAction(resource_icon("measure"),tr("Měření…"));
     measure_action_->setObjectName("measureAction");
     connect(measure_action_,&QAction::triggered,this,[this]{show_measurement();});
@@ -959,9 +959,6 @@ void AssemblyWorkspaceWindow::create_actions() {
     section_action_=view_toolbar_->addAction(tr("Řezy…"));
     section_action_->setObjectName("createSectionAction");
     connect(section_action_,&QAction::triggered,this,[this]{show_section_properties();});
-    cancel_section_sketch_action_=view_toolbar_->addAction(tr("Zrušit skicu řezu"));
-    cancel_section_sketch_action_->setObjectName("cancelSectionSketchAction");cancel_section_sketch_action_->setVisible(false);
-    connect(cancel_section_sketch_action_,&QAction::triggered,this,[this]{cancel_section_sketch();});
     view_toolbar_->addSeparator();
     view_toolbar_->addAction(fit_view_action_);
     view_toolbar_->addAction(normal_view_action);

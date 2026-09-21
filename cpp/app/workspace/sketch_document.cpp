@@ -86,7 +86,7 @@ void AssemblyWorkspaceWindow::accept_sketch_external_reference(
             candidate.kind==zima::viewer::CandidateKind::Axis?zima::sketcher::ExternalReferenceKind::Axis:
             candidate.kind==zima::viewer::CandidateKind::Face?zima::sketcher::ExternalReferenceKind::Face:zima::sketcher::ExternalReferenceKind::Point;
         auto reference=workspace::prepare_sketch_external_reference(workspace_,owner,pending,kind,
-            candidate.owner_id,candidate.semantic_key,path,sketch_reference_draft_body_id());
+            candidate.owner_id,candidate.semantic_key,path,sketch_reference_draft_body_id(),section_dialog_!=nullptr);
         const auto reference_id=reference.id;pending.add_external_reference(std::move(reference));
         if(sketch_external_profile_active_)static_cast<void>(pending.add_external_profile_geometry(reference_id));
         // Drafts are local to the parent dialog. Only its final Part commit
@@ -465,8 +465,8 @@ void AssemblyWorkspaceWindow::finish_active_sketch() {
     // Flush a pending trim before validating or copying an embedded Sketch.
     if (sketch_trim_active_ && !finish_sketch_trim()) return;
     if (sweep_profile_sketch_draft_ && embedded_sketch_finished_) {
-        if(section_dialog_)try{auto test=section_dialog_->values();test.sketch=*sweep_profile_sketch_draft_;zima::document::reframe_section(test);static_cast<void>(zima::document::calculate_section(section_preview_source_,test));}
-        catch(const std::exception& e){state_->setText(QString::fromUtf8(e.what()));return;}
+        // Returning to Properties must also allow an incomplete Section draft,
+        // so its owning dialog can be cancelled. OK validates the final cut.
         auto sketch=*sweep_profile_sketch_draft_;
         auto finished=std::move(embedded_sketch_finished_);
         cancel_sketch_segment();active_sketch_id_.clear();clear_selected_sketch_geometry();

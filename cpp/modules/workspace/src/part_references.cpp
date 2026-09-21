@@ -27,7 +27,7 @@ void append_reference_geometry(
 
 std::set<std::string> sketch_external_reference_source_owners(
     const zima::document::PartDocument& document,
-    const std::string& sketch_id, const std::string& draft_body_id) {
+    const std::string& sketch_id, const std::string& draft_body_id, bool draft_section) {
     std::size_t first_consumer = document.history.size();
     const auto sketch = std::ranges::find_if(document.sketches,
         [&](const auto& value) { return value.id == sketch_id; });
@@ -59,7 +59,8 @@ std::set<std::string> sketch_external_reference_source_owners(
         const bool draft = !target && first_consumer == document.history.size() &&
             !draft_body_id.empty();
         if (draft) target = document.body_history.find(draft_body_id);
-        const bool section=std::ranges::any_of(document.sections,[&](const auto& value){return value.sketch.id==sketch_id;});
+        const bool section=(!target && first_consumer==document.history.size() && draft_section) ||
+            std::ranges::any_of(document.sections,[&](const auto& value){return value.sketch.id==sketch_id;});
         if (!target && !section) return owners;
         const auto add_construction = [&](const auto& self, const auto& object) -> void {
             owners.insert(object.id); owners.insert(object.entity_id);

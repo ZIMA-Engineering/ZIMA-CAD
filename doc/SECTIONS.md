@@ -14,7 +14,8 @@ saved original model objects.
 3. **Sketch…** opens normal Sketcher. Draw one open segment or connected polyline,
    using constraints, dimensions and point dragging as needed.
 4. **Finish sketch** returns the pending sketch to Section Properties.
-   **Cancel section sketch** discards only the current sketch-edit session.
+   The Sketcher has no separate **Cancel section sketch** action. Use Properties
+   **Cancel** to discard the entire pending Section edit.
 5. Set cut side, section-plane visibility and component modes. **OK** saves the
    whole section in one reversible transaction.
 
@@ -31,6 +32,20 @@ A–A, B–B, etc. follow and can be renamed. Context menus offer **Active**, Pr
 Sketch editing and removal. Despite appearing near the tree top, sections are outside
 body-creation history.
 
+The context menu separates **Properties**, **Rename…**, and **Edit**. Rename changes
+only the stored name without evaluating the cut. Edit shows the Section sketch
+and editable dimensions directly in View, without opening Properties or Sketcher.
+Each accepted inline dimension change is one undoable Section transaction and
+does not recalculate body geometry. Sketch geometry editing remains available
+through **Sketch…** in Properties.
+An incomplete sketch may also return to Properties, so the draft can be cancelled.
+
+The group starts collapsed when creating or opening a Part or Assembly. Manual
+expansion is retained across scene refreshes in the current document session.
+Starting Section Properties clears prior object inspection. A new Section Sketch
+can project original geometry from the complete model before the Section is saved;
+these references remain in the dialog draft until OK.
+
 Creation/editing share one internal **OK / Cancel** dialog. Preview and Sketcher
 changes stay transient until Section Properties OK. Cancelling Properties also
 discards already finished sketch edits. Sketching Undo/Redo affects only the pending
@@ -40,11 +55,26 @@ does not.
 ## Display and Assemblies
 
 Default document state is **No section**. The tree has no checkboxes. Opening an
-inactive section leaves the whole body visible and shows its sketch/dimensions.
-**Show section plane** draws the actual cross-section outline and configured hatching
-on the cutting surface without clipping the body. **Active** on A–A or **Active
-section** in Properties enables clipped display. At most one is active per document.
+section leaves the whole body visible, even when that Section is active.
+**Show section plane** draws the cutting sketch, intersection outline and configured hatching as overlays visible
+through solids, without auxiliary axes, references, midpoint markers or clipping.
+The cutting sketch is white, matching Sketch Properties; hatching retains its
+existing presentation.
+The Tree menu toggles between **Show section plane** and **Hide section plane**;
+it shares the persisted visibility flag with Properties and supports Undo/Redo.
+**Active** on A–A or **Active
+section** in Properties enables clipped display after confirming and closing the
+dialog. At most one is active per document. Properties and inline Section editing
+temporarily suspend clipping and always show the sketch. Inline editing preserves
+the saved plane-visibility flag; leaving editing restores active clipping.
+The plane-visibility checkbox also works while the section is active, adding or
+removing the sketch, outline and hatching independently of the clipped body. Reference geometry remains
+available while explicitly entering placement references.
 Modeling Properties and ordinary sketch editing use full geometry.
+
+Section display results are cached from the source mesh and Section definition.
+Repeated dimension display and plane-visibility changes reuse unchanged results;
+changed source geometry or Section geometry invalidates the cached result.
 
 Placement references refresh on explicit source-document regeneration. Missing
 references can be repaired in Properties; invalid sections are not calculated.

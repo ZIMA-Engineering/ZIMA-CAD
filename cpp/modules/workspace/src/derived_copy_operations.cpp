@@ -6,7 +6,7 @@ bool solid_source(const document::HistoryContainer& feature) {
     using Kind=document::FeatureKind;
     switch(feature.feature_kind) {
     case Kind::Sketch:case Kind::Fillet:case Kind::Chamfer:case Kind::Shell:
-    case Kind::Thread:case Kind::ShaftThread:case Kind::DrillPoint:return false;
+    case Kind::ShaftThread:case Kind::DrillPoint:return false;
     default:return !feature.suppressed;
     }
 }

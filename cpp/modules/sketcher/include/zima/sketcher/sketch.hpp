@@ -59,11 +59,11 @@ enum class DimensionKind {
 enum class TextHorizontalAlignment { Left, Center, Right };
 enum class TextVerticalAlignment { Bottom, Middle, Top };
 enum class SketchTextColor { Green, White, Yellow, Red };
-enum class ExternalReferenceKind { Edge, Point, Axis, Face, EdgeStart, EdgeEnd };
+enum class ExternalReferenceKind { Edge, Point, Axis, Face, EdgeStart, EdgeEnd, AxisPoint };
 
 constexpr bool is_external_point_kind(ExternalReferenceKind kind) {
     return kind == ExternalReferenceKind::Point || kind == ExternalReferenceKind::EdgeStart ||
-        kind == ExternalReferenceKind::EdgeEnd;
+        kind == ExternalReferenceKind::EdgeEnd || kind == ExternalReferenceKind::AxisPoint;
 }
 constexpr bool is_external_endpoint_kind(ExternalReferenceKind kind) {
     return kind == ExternalReferenceKind::EdgeStart || kind == ExternalReferenceKind::EdgeEnd;
@@ -577,7 +577,7 @@ public:
         const std::string& second_segment_id,
         double radius,
         double snap_tolerance = 1.0e-6);
-    [[nodiscard]] Sketch evaluated_profile_sketch() const;
+    [[nodiscard]] Sketch evaluated_profile_sketch(bool allow_broken_axis_points = false) const;
     [[nodiscard]] std::optional<std::pair<std::array<double, 2>,
         std::array<double, 2>>> visible_segment_endpoints(
             const std::string& segment_id) const;
@@ -616,9 +616,12 @@ public:
         const zima::kernel::ViewerEdge& edge) const;
     [[nodiscard]] bool refresh_external_references(
         const std::string& source_document_id,
-        const zima::kernel::ViewerReferenceGeometry& source_geometry);
+        const zima::kernel::ViewerReferenceGeometry& source_geometry,
+        bool axis_points_only = false);
     [[nodiscard]] std::optional<std::vector<std::array<double, 2>>>
         project_external_axis(const zima::kernel::ViewerAxis& axis) const;
+    [[nodiscard]] std::optional<std::vector<std::array<double, 2>>>
+        project_external_axis_point(const zima::kernel::ViewerAxis& axis) const;
     [[nodiscard]] std::optional<std::vector<std::array<double, 2>>>
         project_external_face_plane(
             const zima::kernel::ViewerReferenceGeometry& source_geometry,

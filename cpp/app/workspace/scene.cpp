@@ -9,6 +9,7 @@ using namespace workspace_detail;
 
 
 void AssemblyWorkspaceWindow::refresh_scene() {
+    viewer_->set_document_origin(workspace_.displayed_document_id()+":origin");
     workspace_.refresh_source_geometry();
     if(measure_action_)measure_action_->setEnabled(workspace_.open_part(workspace_.displayed_document_id())||workspace_.open_assembly(workspace_.displayed_document_id()));
     viewer_->set_dimension_layout_editable((!properties_dialog_||!properties_dialog_->isVisible())&&!sketch_universal_dimension_active_);
@@ -21,6 +22,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
     update_viewer_body_colors();
     update_body_color_actions();
     viewer_->set_active_sketch_owner(active_sketch_id_);
+    viewer_->set_geometry_editing_presentation(properties_dialog_!=nullptr||!active_sketch_id_.empty());
     QScopedValueRollback refreshing_guard(refreshing_scene_, true);
     set_selected_component_origin({});
     update_document_area_visibility();
@@ -1007,7 +1009,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
     };
     if (workspace_.size() == 0) {
         workspace_stack_->setCurrentWidget(model_workspace_);
-        tree_->setHeaderLabels({tr("DÍL")});
+        tree_->setHeaderLabels({QString{}});
         viewer_->set_mesh({});
         close_document_action_->setEnabled(false);
         save_action_->setEnabled(false);
@@ -1088,7 +1090,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         const auto construction_dimension_geometry =
             part_construction_dimension_geometry(
                 document, part->session.calculated_boundaries());
-        tree_->setHeaderLabels({tr("DÍL")});
+        tree_->setHeaderLabels({QString{}});
         const bool active_sweep_profile_sketch = sweep_profile_sketch_draft_ &&
             sweep_profile_sketch_draft_->id == active_sketch_id_;
         if (!active_sketch_id_.empty() &&
@@ -1323,7 +1325,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                               zima::viewer::CandidateKind::SketchExternalReference});
         if (sketch_external_reference_active_) {
             const auto source_owners = sketch_external_reference_source_owners(
-                document, active_sketch_id_, sketch_reference_draft_body_id());
+                document, active_sketch_id_, sketch_reference_draft_body_id(),section_dialog_!=nullptr);
             viewer_->set_candidate_filter(
                 [source_owners](const auto& candidate) {
                     const bool stable_geometry =
@@ -1776,7 +1778,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
             }
             if (sketch_external_reference_active_) {
                 const auto source_owners = sketch_external_reference_source_owners(
-                    document, active_sketch_id_, sketch_reference_draft_body_id());
+                    document, active_sketch_id_, sketch_reference_draft_body_id(),section_dialog_!=nullptr);
                 for (const auto& axis : display.original_references.axes) {
                     if (axis.reference.instance_path.empty() &&
                         source_owners.contains(axis.reference.owner_id)) {
@@ -2056,7 +2058,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
     if (editing_sketch != nullptr) {
         populate_sketch_tree(*editing_sketch);
     } else {
-        tree_->setHeaderLabels({tr("SESTAVA")});
+        tree_->setHeaderLabels({QString{}});
         auto* root = new QTreeWidgetItem(
             tree_, {QString::fromStdString(assembly->path.empty() ? document.name : assembly->path.filename().string())});
         root->setIcon(0, resource_icon("assembly"));
@@ -2146,7 +2148,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
     } else if (active_part != nullptr && sketch_external_reference_active_ &&
         active_part_occurrence && !active_part_occurrence->empty()) {
         const auto allowed_local_owners = sketch_external_reference_source_owners(
-            active_part->session.document(), active_sketch_id_, sketch_reference_draft_body_id());
+            active_part->session.document(), active_sketch_id_, sketch_reference_draft_body_id(),section_dialog_!=nullptr);
         const auto active_document_id = active_part->session.document().document_id;
         const auto top_assembly_id = document.document_id;
         const auto dependent_path = *active_part_occurrence;

@@ -140,6 +140,8 @@ protected:
 
     void mouseDoubleClickEvent(QMouseEvent* event) override {
         if (event->button() == Qt::LeftButton) {
+            if(auto* item=itemAt(event->position().toPoint()))
+                emit itemDoubleClicked(item,columnAt(static_cast<int>(event->position().x())));
             event->accept();
             return;
         }

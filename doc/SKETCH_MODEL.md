@@ -19,8 +19,8 @@ IDs.
   geometry, straight or curved, at an arbitrary position. The support geometry
   does not acquire a second point at that position.
 - Anchoring a native point to Sketch Origin, an external point or a generated
-  curve keypoint is a point-reference equation. Origin and external-point
-  references are hidden. A generated native curve keypoint is displayed as
+  curve keypoint is a point-reference equation. Origin references are hidden;
+  external-point references display `C`. A generated native curve keypoint is displayed as
   `K`, because it is the exact persisted form of point-on-curve placement.
   None of these references transfer point ownership across the boundary.
 - `C`, `K` and `T` describe different facts and may coexist. A generic tangent

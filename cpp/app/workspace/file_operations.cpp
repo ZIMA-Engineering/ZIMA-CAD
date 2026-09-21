@@ -452,12 +452,55 @@ bool AssemblyWorkspaceWindow::native_file_operation_ready(QDialog* own_dialog) {
     return false;
 }
 
-void AssemblyWorkspaceWindow::rename_document_file() {
+void AssemblyWorkspaceWindow::add_object_rename_action(QMenu& menu,const std::string& document,const std::string& kind,const std::string& object) {
+    if(properties_dialog_||!active_sketch_id_.empty()||document!=workspace_.active_document_id())return;
+    const auto initial=workspace::tree_object_name(workspace_,document,kind,object);
+    if(!initial)return;
+    auto* action=menu.addAction(tr("Přejmenovat…"));action->setObjectName("renameTreeItemAction");
+    connect(action,&QAction::triggered,this,[this,document,kind,object,initial] {
+        auto* dialog=new RenameDocumentDialog(QString::fromStdString(*initial),[this,document,kind,object](QString name) {
+            try {static_cast<void>(workspace::rename_tree_object(workspace_,document,kind,object,name.toStdString()));return QString{};}
+            catch(const std::exception& error){return tr(error.what());}
+        },application_settings_,this);
+        dialog->setObjectName("renameTreeItemDialog");
+        dialog->findChild<QLineEdit*>("renameDocumentName")->setObjectName("renameTreeItemName");
+        properties_dialog_=dialog;
+        connect(dialog,&QDialog::finished,this,[this,dialog](int result) {
+            if(properties_dialog_==dialog)properties_dialog_=nullptr;
+            if(result==QDialog::Accepted){preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();}
+        });
+        dialog->show();
+    });
+}
+
+void AssemblyWorkspaceWindow::add_tree_rename_action(QMenu& menu,QTreeWidgetItem* item) {
+    if(!item||properties_dialog_||!active_sketch_id_.empty())return;
+    if(!item->parent()) {
+        if(workspace_.active_document_id()!=workspace_.displayed_document_id())return;
+        if(rename_document_action_->isEnabled())menu.addAction(rename_document_action_);
+        else add_object_rename_action(menu,workspace_.active_document_id(),"document",workspace_.active_document_id());
+        return;
+    }
+    const auto path=item->data(0,Qt::UserRole+1).toString().toStdString();
+    if(!path.empty()&&path!=resolve_active_occurrence(workspace_.active_document_id()).value_or(std::string{}))return;
+    const auto kind=item->data(0,Qt::UserRole+3).toString().toStdString();
+    add_object_rename_action(menu,workspace_.active_document_id(),kind,item->data(0,Qt::UserRole).toString().toStdString());
+}
+
+QAction* AssemblyWorkspaceWindow::exec_tree_menu(QMenu& menu,QTreeWidgetItem* item,const QPoint& position) {
+    add_tree_rename_action(menu,item);
+    return menu.exec(tree_->viewport()->mapToGlobal(position));
+}
+
+void AssemblyWorkspaceWindow::rename_document_file(std::string document_id) {
     if (rename_document_dialog_) { rename_document_dialog_->raise(); return; }
     if (!native_file_operation_ready()) return;
-    const auto id = workspace_.active_document_id();
+    const auto id = document_id.empty()?workspace_.active_document_id():document_id;
     const bool family_instance=!id.empty()&&workspace::family_owner(workspace_,id)!=id;
-    const auto target = active_document_file_path();
+    const auto* selected=workspace_.find(id);
+    const auto target=selected?std::visit([](const auto& value)->std::optional<std::filesystem::path> {
+        return value.path.empty()?std::nullopt:std::optional<std::filesystem::path>{value.path};
+    },*selected):std::nullopt;
     if (!target&&!family_instance) return;
     const auto old_path = target?std::filesystem::absolute(*target).lexically_normal():std::filesystem::path{};
     const auto text_path = [](const auto& path) { return QString::fromStdString(document::path_to_utf8(path)); };

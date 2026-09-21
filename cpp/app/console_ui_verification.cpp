@@ -878,10 +878,10 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
             }
             for(const bool after:{true,false}) {
                 json_run("body.activate",{{"body",tool}});
-                menu_action(after?tool:first,after?"bodyInsertAfterAction":"bodyInsertBeforeAction");
+                dynamic_cast<HistoryTreeWidget*>(model_tree)->body_cursor_moved(QString{},after?2:0);flush();
                 const auto index=after?2:0;const auto gui_state=run("body.list").data;
                 check(gui_state.at("active_body")=="" && gui_state.at("insertion_cursor")==index,
-                    "Body context cursor did not return to the global history");
+                    "Body Tree cursor did not return to the global history");
                 run("save");const auto gui=bytes();
                 run("undo");
                 const auto cli=json_run("body.cursor",{{"index",index}}).data;

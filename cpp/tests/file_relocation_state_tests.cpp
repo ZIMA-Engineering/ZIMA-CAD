@@ -86,15 +86,15 @@ int main() {
             assembly_session.document().name == document::path_to_utf8(new_assembly.stem()), "Assembly rebase reset editing state");
         const auto check_group = [&] {
             for (const auto& component : assembly_session.document().components)
-                require(component.source_path == new_part && component.source_document_id == part.document_id,
-                    "Assembly restored an obsolete source path/identity");
+                require(component.source_path == new_part && component.source_document_id == part.document_id&&component.name==document::path_to_utf8(new_part.stem()),
+                    "Assembly restored an obsolete source path/name/identity");
             require(assembly_session.document().components[0].calculated_source.shares_with(shared),
                 "Assembly rebase copied or rebuilt its source geometry");
         };
         check_group();
         require(assembly_session.undo() && !assembly_session.is_dirty(), "Assembly clean history state lost"); check_group();
-        require(assembly_session.redo() && assembly_session.document().components[0].name == "first edit", "Assembly Undo content changed"); check_group();
-        require(assembly_session.redo() && assembly_session.document().components[0].name == "second edit", "Assembly Redo content changed"); check_group();
+        require(assembly_session.redo(), "Assembly first Redo state lost"); check_group();
+        require(assembly_session.redo(), "Assembly second Redo state lost"); check_group();
         assembly_session.document().save(new_assembly);
         const auto loaded_group = assembly::AssemblyDocument::load(new_assembly);
         require(loaded_group.document_id == group.document_id && loaded_group.name == document::path_to_utf8(new_assembly.stem()) &&

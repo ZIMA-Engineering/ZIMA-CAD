@@ -270,7 +270,6 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         add_command(sketch_text_action_);
         add_group_separator();
         if(!template_sketch())add_command(finish_sketch_action_,false);
-        if(section_dialog_)add_command(cancel_section_sketch_action_,false);
         return;
     }
 

@@ -258,6 +258,7 @@ struct MeshView::Impl {
     std::set<std::size_t> feature_selected_edge_indices;
     std::set<std::string> feature_preview_owner_ids;
     std::string active_sketch_owner_id;
+    bool geometry_editing_presentation{};
     std::set<std::string> constraint_reference_owner_ids;
     std::set<EdgeKey> constraint_reference_edges;
     std::set<EdgeKey> sketch_relation_highlights;
@@ -450,6 +451,11 @@ struct MeshView::Impl {
 
     std::function<bool(const zima::kernel::ViewerDimension&)> dimension_visibility_filter;
     bool editing_origin_visible{};
+    std::string document_origin_id;
+    QColor origin_point_color(const zima::kernel::ViewerPoint& point) const {
+        return point.reference.owner_id==document_origin_id && point.reference.instance_path.empty()
+            ? QColor(0,0,0) : QColor(173,110,46);
+    }
     std::function<bool(const EdgeKey&)> origin_visibility_filter;
     bool origin_visible(const EdgeKey& key) const {
         return (key.semantic_key != "origin" && !key.semantic_key.starts_with("origin:")) ||
@@ -867,6 +873,10 @@ void MeshView::set_selection_contract(std::vector<CandidateKind> allowed_kinds) 
     update();
 }
 
+void MeshView::set_geometry_editing_presentation(bool editing) {
+    if(impl_->geometry_editing_presentation==editing)return;
+    impl_->geometry_editing_presentation=editing;update();
+}
 void MeshView::set_active_sketch_owner(std::string owner_id) {
     if (impl_->active_sketch_owner_id == owner_id) return;
     impl_->active_sketch_owner_id = std::move(owner_id);
@@ -2581,6 +2591,11 @@ void MeshView::set_origin_visibility_filter(std::function<bool(const EdgeKey&)> 
     update();
 }
 
+void MeshView::set_document_origin(const std::string& owner_id) {
+    if(impl_->document_origin_id==owner_id)return;
+    impl_->document_origin_id=owner_id;update();
+}
+
 void MeshView::set_editing_origin_visible(bool visible) {
     if (impl_->editing_origin_visible == visible) return;
     impl_->editing_origin_visible = visible;
@@ -2977,7 +2992,9 @@ if (impl_->show_origins) {
                 if (!impl_->origin_visible({point.reference.owner_id,point.reference.semantic_key,point.reference.instance_path})) continue;
                 if (point.reference.semantic_key != "origin:point") continue;
                 const QPointF center = project(point.position);
-                draw_circular_marker(painter, center, QColor(0, 0, 0));
+                const auto color=impl_->origin_point_color(point);
+                draw_circular_marker(painter, center, color);
+                painter.setPen(QPen(color,1.0));
                 if (!point.label.empty()) {
                     painter.drawText(center + QPointF(8.0, -6.0),
                                      QString::fromStdString(point.label));
@@ -3481,7 +3498,8 @@ if (impl_->show_origins) {
         });
     const bool dimensions_visible = !impl_->mesh.dimensions.empty() ||
         !impl_->transient_dimensions.empty();
-    if (axes_visible || points_visible || planes_visible ||
+    const bool overlay_edges_visible=std::ranges::any_of(impl_->mesh.edges,[](const auto& edge){return edge.overlay&&edge.reference.semantic_key=="section:sketch";});
+    if (overlay_edges_visible || axes_visible || points_visible || planes_visible ||
         sketch_geometry_visible || curve3d_geometry_visible ||
         dimensions_visible ||
         !impl_->transient_edges.empty() || !impl_->transient_points.empty() ||
@@ -3699,7 +3717,8 @@ if (impl_->show_origins) {
                         ? QPen(external_color, 1.5, Qt::DashLine)
                     : edge.construction
                         ? QPen(QColor(77, 216, 17), 1.5, Qt::DashLine)
-                        : QPen(QColor(255, 255, 255), 1.8);
+                        : QPen(impl_->geometry_editing_presentation||!impl_->active_sketch_owner_id.empty()?QColor(255,255,255):QColor(173,110,46),
+                            impl_->geometry_editing_presentation||!impl_->active_sketch_owner_id.empty()?1.8:1.0);
                 if (!edge.color.empty()) edge_pen.setColor(QColor(QString::fromStdString(edge.color)));
                 const bool candidate_match = highlighted &&
                     candidate_recolors_wire_edge(*highlighted, edge);
@@ -3723,8 +3742,10 @@ if (impl_->show_origins) {
                         edge.reference.owner_id);
                 if (selected) {
                     edge_pen.setColor(QColor(0, 209, 255));
+                    if (!edge.construction && !external && !external_face) edge_pen.setWidthF(1.8);
                 } else if (hovered) {
                     edge_pen.setColor(QColor(255, 122, 0));
+                    if (!edge.construction && !external && !external_face) edge_pen.setWidthF(1.8);
                 } else if (preview) {
                     edge_pen.setColor(QColor(0, 209, 255));
                 }
@@ -3785,8 +3806,8 @@ if (impl_->show_origins) {
                         : QColor(255, 140, 12)
                     : (referenced || preview)
                         ? QColor(0, 209, 255)
-                        : centerline ? QColor(173, 110, 46) : QColor(255, 255, 255);
-                QPen curve_pen(color, centerline ? 1.5 : 1.8,
+                        : centerline || !(impl_->geometry_editing_presentation||!impl_->active_sketch_owner_id.empty()) ? QColor(173, 110, 46) : QColor(255, 255, 255);
+                QPen curve_pen(color, centerline ? 1.5 : candidate_match||referenced||preview||impl_->geometry_editing_presentation||!impl_->active_sketch_owner_id.empty()?1.8:1.0,
                     Qt::SolidLine,Qt::RoundCap,Qt::RoundJoin);
                 if (centerline) {
                     // Match the ordinary axes: 20 px dash, 10 px gaps, 3 px dot.
@@ -3935,6 +3956,12 @@ if (impl_->show_origins) {
                         QPointF(6.0, -5.0), key);
                 }
             }
+        }
+        for(const auto& edge:impl_->mesh.edges)if(edge.overlay&&edge.reference.semantic_key=="section:sketch") {
+            const bool selected=highlighted&&highlighted->kind==CandidateKind::Container&&highlighted->owner_id==edge.reference.owner_id&&highlighted->instance_path==edge.reference.instance_path;
+            painter.setPen(QPen(selected?(impl_->confirmed_candidate?QColor(0,209,255):QColor(255,122,0)):
+                edge.color.empty()?QColor(173,110,46):QColor(QString::fromStdString(edge.color)),selected?1.8:edge.color=="#AD6E2E"?1.0:2.0));
+            for(std::size_t i=1;i<edge.points.size();++i)painter.drawLine(project(edge.points[i-1]),project(edge.points[i]));
         }
         if (!impl_->transient_edges.empty()) {
             // Orange is reserved for hover. Pending container geometry is a
@@ -4325,10 +4352,12 @@ if (impl_->show_origins) {
                         : point.reference.semantic_key.starts_with("point:")
                             ? point.construction
                                 ? QColor(77, 216, 17)
-                                : QColor(255, 255, 255)
+                                : impl_->geometry_editing_presentation||!impl_->active_sketch_owner_id.empty()?QColor(255,255,255):QColor(173,110,46)
                         : point.reference.semantic_key.starts_with(
                                 "corner_radius_handle:")
                             ? QColor(255, 255, 255)
+                        : point.reference.semantic_key == "point"
+                            ? QColor(173,110,46)
                             : QColor(0, 0, 0);
                     painter.setPen(QPen(marker_color, 1.0));
                     painter.setBrush(marker_color);
@@ -4364,7 +4393,7 @@ if (impl_->show_origins) {
                     point.reference.owner_id, point.reference.semantic_key,
                     point.reference.instance_path});
                 const QColor marker_color = referenced
-                    ? QColor(0, 209, 255) : QColor(0, 0, 0);
+                    ? QColor(0, 209, 255) : impl_->origin_point_color(point);
                 painter.setPen(QPen(marker_color, 1.0));
                 painter.setBrush(marker_color);
                 draw_circular_marker(painter, center, marker_color);
@@ -4463,9 +4492,18 @@ if (impl_->show_origins) {
         if (highlighted) {
             const QColor color = impl_->confirmed_candidate
                 ? QColor(30, 220, 240) : QColor(255, 140, 12);
-            const bool sketch_container =
+            std::set<std::string> selected_sketch_owners;
+            if(highlighted->kind==CandidateKind::Container)for(const auto& edge:impl_->mesh.edges) {
+                const auto& key=edge.reference.semantic_key;
+                if(edge.reference.instance_path==highlighted->instance_path&&
+                    (edge.reference.owner_id==highlighted->owner_id||edge.display_owner_id==highlighted->owner_id)&&
+                    (key.starts_with("segment:")||key.starts_with("circle:")||key.starts_with("arc:")||key.starts_with("ellipse:")||key.starts_with("elliptical_arc:")||key.starts_with("bspline:")||key.starts_with("text:")))
+                    selected_sketch_owners.insert(edge.reference.owner_id);
+            }
+            const bool sketch_container = !selected_sketch_owners.empty() || (
                 highlighted->kind == CandidateKind::Container &&
-                highlighted->semantic_key == "sketch";
+                highlighted->semantic_key == "sketch");
+            if(sketch_container)selected_sketch_owners.insert(highlighted->owner_id);
             // Datum planes are selected through their two hidden picking
             // triangles, but hover/confirmation must present the semantic
             // plane as its rectangular border. Never expose the triangulated
@@ -4516,7 +4554,7 @@ if (impl_->show_origins) {
                 painter.setPen(QPen(color, 1.8, Qt::SolidLine, Qt::RoundCap));
                 painter.setBrush(color);
                 for (const auto& edge : impl_->mesh.edges) {
-                    if (edge.reference.owner_id != highlighted->owner_id ||
+                    if (!selected_sketch_owners.contains(edge.reference.owner_id) ||
                         edge.reference.instance_path !=
                             highlighted->instance_path || edge.construction) continue;
                     const auto& key = edge.reference.semantic_key;
@@ -4535,7 +4573,7 @@ if (impl_->show_origins) {
                 }
                 for (const auto& point : impl_->mesh.points) {
                 if (!impl_->origin_visible({point.reference.owner_id,point.reference.semantic_key,point.reference.instance_path})) continue;
-                    if (point.reference.owner_id == highlighted->owner_id &&
+                    if (selected_sketch_owners.contains(point.reference.owner_id) &&
                         point.reference.instance_path ==
                             highlighted->instance_path &&
                         (point.reference.semantic_key.starts_with("point:") ||
@@ -4785,7 +4823,7 @@ if (impl_->show_origins) {
             for (const auto& point : impl_->mesh.points) {
                 if (!impl_->origin_visible({point.reference.owner_id,point.reference.semantic_key,point.reference.instance_path})) continue;
                 if (point.reference.semantic_key != "origin:point") continue;
-                QColor marker_color(0, 0, 0);
+                QColor marker_color=impl_->origin_point_color(point);
                 bool exact_highlight = highlighted &&
                     highlighted->owner_id == point.reference.owner_id &&
                     highlighted->instance_path == point.reference.instance_path &&

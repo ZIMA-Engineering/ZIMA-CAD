@@ -2,6 +2,8 @@
 
 Both commands create referenced copies with their own Origin and standard container
 placement. Select a source before starting or through the green Source field in View/Tree.
+The Source label precedes its reference controls. Openings, including threaded
+openings, are valid solid sources; their copies subtract the source tool geometry.
 
 - **Mirror Properties** offers only XY/YZ/XZ planes of its own Origin for the
   reflection plane, through both the View and Tree. Other Origins and planar

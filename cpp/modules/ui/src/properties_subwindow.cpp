@@ -320,6 +320,9 @@ void PropertiesSubWindow::showEvent(QShowEvent* event) {
         resize(target);
     } else {
         adjustSize();
+        // Match the safe width available by manual resizing, retaining layout
+        // minimums for labels and editors and the natural content height.
+        resize(std::max(minimumWidth(), minimumSizeHint().width()), height());
     }
     if (parentWidget() != nullptr) {
         const int margin = 12;
@@ -330,7 +333,19 @@ void PropertiesSubWindow::showEvent(QShowEvent* event) {
             move(std::max(margin, parentWidget()->width() - width() - margin), margin);
         }
     }
-    QTimer::singleShot(0, this, [this] { keep_inside_parent(); raise(); });
+    QTimer::singleShot(0, this, [this] {
+        // Numeric editors finish sizing on their queued Show events. Their
+        // initial minimum can be wider than the settled mouse-resize limit.
+        // Compact once after those events, preserving deliberately sized
+        // dialogs (for example Section's component table) and later resizing.
+        if (!initial_size_.isValid()) {
+            if (layout()) layout()->activate();
+            const int right = x() + width();
+            resize(std::max(minimumWidth(), minimumSizeHint().width()), height());
+            move(std::max(0, right - width()), y());
+        }
+        keep_inside_parent(); raise();
+    });
 }
 
 void PropertiesSubWindow::moveEvent(QMoveEvent* event) {

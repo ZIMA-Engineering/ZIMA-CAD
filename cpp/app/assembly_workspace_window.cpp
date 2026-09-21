@@ -34,6 +34,10 @@ AssemblyWorkspaceWindow::AssemblyWorkspaceWindow(const QString& working_director
         instance_.reserve_file(QString::fromStdString(document::path_to_utf8(path)));
     };
     apply_application_translations(*qApp, application_settings_);
+    apply_application_font(*qApp, application_settings_);
+    // Apply synchronously before child widgets copy and customize this font;
+    // QApplication's queued font-change event arrives after their creation.
+    setFont(qApp->font());
     setWindowTitle(tr("ZIMA-CAD"));
     setWindowIcon(application_icon());
     resize(1200, 800);

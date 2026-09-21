@@ -423,6 +423,7 @@ external_snap_point(const Sketch& sketch, double x, double y, double tolerance) 
     double best = tolerance;
     for (const auto& reference : sketch.external_references) {
         if (!is_external_point_kind(reference.kind) ||
+            (reference.kind==ExternalReferenceKind::AxisPoint&&reference.broken) ||
             reference.cached_points.size() != 1) continue;
         const auto& position = reference.cached_points.front();
         const double distance = std::hypot(position[0] - x, position[1] - y);
@@ -634,6 +635,7 @@ const char* external_reference_kind_name(ExternalReferenceKind kind) {
     case ExternalReferenceKind::EdgeStart: return "edge_start";
     case ExternalReferenceKind::EdgeEnd: return "edge_end";
     case ExternalReferenceKind::Axis: return "axis";
+    case ExternalReferenceKind::AxisPoint: return "axis_point";
     case ExternalReferenceKind::Face: return "face";
     }
     throw std::invalid_argument("Unknown Sketch external reference kind");
@@ -646,6 +648,7 @@ ExternalReferenceKind external_reference_kind_from_name(
     if (name == "edge_start") return ExternalReferenceKind::EdgeStart;
     if (name == "edge_end") return ExternalReferenceKind::EdgeEnd;
     if (name == "axis") return ExternalReferenceKind::Axis;
+    if (name == "axis_point") return ExternalReferenceKind::AxisPoint;
     if (name == "face") return ExternalReferenceKind::Face;
     throw std::runtime_error("Unknown Sketch external reference kind");
 }
@@ -6359,7 +6362,9 @@ CornerFilletResult Sketch::add_corner_fillet(
     return {id, {}, {}};
 }
 
-Sketch Sketch::evaluated_profile_sketch() const {
+Sketch Sketch::evaluated_profile_sketch(bool allow_broken_axis_points) const {
+    if(!allow_broken_axis_points&&std::ranges::any_of(external_references,[](const auto& ref){return ref.kind==ExternalReferenceKind::AxisPoint&&ref.broken;}))
+        throw std::runtime_error("Externí bod osy není platný. Obnovte kolmost osy k rovině skici nebo opravte referenci.");
     auto result = *this;
     const auto records = result.corner_radii;
     std::vector<SketchConstraint> corner_relations;
@@ -6986,6 +6991,20 @@ std::string Sketch::add_external_profile_geometry(
     return geometry_id;
 }
 
+std::optional<std::vector<std::array<double, 2>>> Sketch::project_external_axis_point(
+    const zima::kernel::ViewerAxis& axis) const {
+    const double length=std::hypot(axis.direction.x,axis.direction.y,axis.direction.z);
+    if(!std::isfinite(length)||length<=1e-12)return std::nullopt;
+    const auto first=local_point(axis.point);
+    const auto second=local_point({axis.point.x+axis.direction.x/length,
+        axis.point.y+axis.direction.y/length,axis.point.z+axis.direction.z/length});
+    // Dimensionless angular tolerance; camera orientation and display length
+    // have no influence on whether a perpendicular-axis point is valid.
+    if(!std::isfinite(first[0])||!std::isfinite(first[1])||
+        std::hypot(second[0]-first[0],second[1]-first[1])>1e-8)return std::nullopt;
+    return std::vector<std::array<double,2>>{first};
+}
+
 std::optional<std::vector<std::array<double, 2>>> Sketch::project_external_axis(
     const zima::kernel::ViewerAxis& axis) const {
     if (!std::isfinite(axis.display_length) || axis.display_length <= 0.0) {
@@ -7407,8 +7426,9 @@ std::optional<zima::kernel::BSplineGeometry> Sketch::project_external_spline(
 
 bool Sketch::refresh_external_references(
     const std::string& source_document_id,
-    const zima::kernel::ViewerReferenceGeometry& source_geometry) {
-    if (source_document_id.empty()) {
+    const zima::kernel::ViewerReferenceGeometry& source_geometry,
+    bool axis_points_only) {
+    if (source_document_id.empty() && !axis_points_only) {
         throw std::invalid_argument(
             "Sketch external reference source document ID is required");
     }
@@ -7420,7 +7440,8 @@ bool Sketch::refresh_external_references(
             candidate.instance_path == reference.source_instance_path;
     };
     for (auto& reference : next.external_references) {
-        if (reference.source_document_id != source_document_id) continue;
+        if (axis_points_only && reference.kind != ExternalReferenceKind::AxisPoint) continue;
+        if (!source_document_id.empty() && reference.source_document_id != source_document_id) continue;
         std::optional<std::vector<std::array<double, 2>>> resolved;
         bool face_intersection_resolved = false;
         if (reference.kind == ExternalReferenceKind::Edge || is_external_endpoint_kind(reference.kind)) {
@@ -7464,7 +7485,7 @@ bool Sketch::refresh_external_references(
                 resolved = std::vector<std::array<double, 2>>{
                     next.local_point(match->position)};
             }
-        } else if (reference.kind == ExternalReferenceKind::Axis) {
+        } else if (reference.kind == ExternalReferenceKind::Axis || reference.kind == ExternalReferenceKind::AxisPoint) {
             const zima::kernel::ViewerAxis* match = nullptr;
             std::size_t match_count{};
             for (const auto& axis : source_geometry.axes) {
@@ -7473,7 +7494,8 @@ bool Sketch::refresh_external_references(
                 ++match_count;
             }
             if (match_count == 1 && match != nullptr) {
-                resolved = next.project_external_axis(*match);
+                resolved = reference.kind==ExternalReferenceKind::AxisPoint
+                    ? next.project_external_axis_point(*match) : next.project_external_axis(*match);
             }
         } else {
             std::size_t match_count{};
@@ -7578,7 +7600,8 @@ bool Sketch::refresh_external_references(
         }
     }
     next.validate();
-    const auto solved = next.solve();
+    const bool unavailable_axis_point=std::ranges::any_of(next.external_references,[](const auto& ref){return ref.kind==ExternalReferenceKind::AxisPoint&&ref.broken;});
+    const auto solved = unavailable_axis_point ? SolveResult{SolveStatus::UnderConstrained} : next.solve();
     if (solved.status == SolveStatus::Invalid ||
         solved.status == SolveStatus::Conflicting) {
         throw std::runtime_error(
@@ -8518,6 +8541,7 @@ void Sketch::apply_dimension(SketchDimension dimension) {
 }
 
 SolveResult Sketch::solve(std::size_t maximum_iterations) {
+    if(std::ranges::any_of(external_references,[](const auto& ref){return ref.kind==ExternalReferenceKind::AxisPoint&&ref.broken;}))return {};
     auto result=solve_impl(maximum_iterations, true);
     if(result.status != SolveStatus::Invalid && result.status != SolveStatus::Conflicting)refresh_curve_dependencies();
     return result;
@@ -11650,7 +11674,7 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
             [](const auto& value) {
                 return !value.suppressed && value.radius > 1.0e-9;
             })) {
-        auto evaluated = evaluated_profile_sketch();
+        auto evaluated = evaluated_profile_sketch(true);
         // A corner radius owns its parameter and annotation. Feed a transient
         // render adapter to the evaluated profile; never persist a generic
         // dimension against the derived arc.
@@ -11921,6 +11945,7 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
     }
     for (const auto& reference : external_references) {
         if (!is_external_point_kind(reference.kind)) continue;
+        if(reference.kind==ExternalReferenceKind::AxisPoint&&reference.broken)continue;
         const auto& point = reference.cached_points.front();
         result.points.push_back({world_point(point[0], point[1]),
             {id, "external_point:" + reference.id +
@@ -12159,12 +12184,12 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
             constraint.kind == ConstraintKind::PointReference
             ? sketch_keypoint_geometry_id(constraint.second_point_id)
             : std::nullopt;
-        const bool endpoint_binding=constraint.kind==ConstraintKind::PointReference &&
+        const bool external_point_binding=constraint.kind==ConstraintKind::PointReference &&
             std::ranges::any_of(external_references,[&](const auto& reference) {
-                return reference.id==constraint.second_point_id && is_external_endpoint_kind(reference.kind);
+                return reference.id==constraint.second_point_id && is_external_point_kind(reference.kind);
             });
         if ((constraint.kind == ConstraintKind::PointReference &&
-             !referenced_keypoint_geometry && !endpoint_binding) ||
+             !referenced_keypoint_geometry && !external_point_binding) ||
             constraint.kind == ConstraintKind::Coincident) continue;
         std::optional<zima::kernel::Vec3> anchor;
         if (constraint.kind == ConstraintKind::Tangent &&
@@ -12322,6 +12347,12 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
                 support->context_assembly_document_id==endpoint.context_assembly_document_id && support->context_instance_path==endpoint.context_instance_path;
         };
         std::string label=constraint_marker_label(constraint.kind);
+        if (constraint.kind == ConstraintKind::PointReference) {
+            const auto reference = std::ranges::find(external_references,
+                constraint.second_point_id, &SketchExternalReference::id);
+            if (reference != external_references.end() && is_external_point_kind(reference->kind))
+                label = "C";
+        }
         bool combined_support=false;
         if(const auto* endpoint=endpoint_reference(constraint.first_point_id)) {
             if(constraint.kind==ConstraintKind::PointReference) {

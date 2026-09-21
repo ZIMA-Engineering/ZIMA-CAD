@@ -897,6 +897,8 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
     if(!verify(part_insertion_marker_count(tree)==0,"Pattern creation retained the body-level insertion marker"))return 1;
     const auto pattern_id=dialog->pending.id;
     auto* mode=dialog->findChild<QComboBox*>("patternMode");auto* refs=dialog->findChild<QTableWidget*>("mirrorReferences");
+    if(!verify(refs->item(1,0)&&refs->item(1,0)->text()==QObject::tr("Zdroj")&&refs->cellWidget(1,1),
+        "Pattern Source label must precede its reference controls"))return 1;
     if(!verify(mode&&refs->isRowHidden(0),"Linear Pattern displays circular axis input"))return 1;
     const auto retained_axis=dialog->derived_copy.reference;
     if(!verify_copy_origin_selection(2))return 1;
@@ -986,6 +988,26 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
     dialog->request_input(1);tree->setCurrentItem(row(source,"part-body"));flush();
     if(!verify(dialog->derived_copy.source_id==source,"Command-first source selection failed"))return 1;
     dialog->reject();flush();
+    {
+        auto opening_part=document::PartDocument::create_default();
+        auto block=document::PartDocument::create_box_container();block.box={40,40,40};
+        auto opening=document::PartDocument::create_thread_container();opening.placement.z=-20;
+        document::BodyHistoryGraph bodies;static_cast<void>(bodies.create_body("Opening"));
+        bodies.insert({document::PartHistoryKind::Feature,block.id});bodies.insert({document::PartHistoryKind::Feature,opening.id});
+        opening_part.history={block,opening};opening_part.set_body_history(bodies);
+        const auto opening_path=directory/"opening-pattern-ui.prtz";
+        opening_part.save(opening_path,kernel.evaluate_history(opening_part.kernel_operations()));
+        if(!verify(window.open_document_path(QString::fromStdString(opening_path.string())),"Opening Pattern fixture did not open"))return 1;
+        flush();pattern_action->trigger();flush();
+        dialog=dynamic_cast<app::DerivedCopyDialog*>(window.findChild<QDialog*>("patternDialog"));
+        if(!verify(dialog!=nullptr,"Opening Pattern properties did not open"))return 1;
+        dialog->request_input(1);auto* opening_row=row(opening.id,"part-container");
+        if(!verify(opening_row!=nullptr,"Opening is missing from Tree"))return 1;
+        tree->setCurrentItem(opening_row);flush();
+        if(!verify(dialog->derived_copy.source_id==opening.id,"Pattern Source rejected the Opening Tree row"))return 1;
+        dialog->reject();flush();
+        if(!verify(document::PartDocument::load(opening_path).history.size()==2,"Cancelling Opening Pattern changed its source document"))return 1;
+    }
     auto assembly=assembly::AssemblyDocument::create_default();
     auto occurrence=assembly::AssemblyDocument::create_part_occurrence("Zdroj",part.document_id,path,calculated.back());
     occurrence.placement.x=20;assembly.components={occurrence};const auto assembly_path=directory/"mirror-ui.asmz";assembly.save(assembly_path);
@@ -1100,7 +1122,7 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
         auto* menu=window.findChild<QMenu*>("partActivationMenu");
         if(!menu)return;
         auto* action=menu->findChild<QAction*>("activateBodyAction");
-        active_mark=action&&!action->icon().isNull();menu->close();
+        active_mark=action&&!action->icon().isNull()&&menu->actions().front()==action;menu->close();
     });
     tree->customContextMenuRequested(tree->visualItemRect(row(first,"part-body")).center());flush();
     if(!verify(active_mark,"Active Body context menu has no active indicator"))return 1;

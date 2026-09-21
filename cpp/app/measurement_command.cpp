@@ -192,9 +192,9 @@ bool AssemblyWorkspaceWindow::measurement_context_menu(QTreeWidgetItem* item,con
     if(!item||item->data(0,Qt::UserRole+3)!="document-measurement")return false;
     if(properties_dialog_)return true;
     const auto key=item->data(0,Qt::UserRole).toString().toStdString();QMenu menu(this);
-    auto* edit=menu.addAction(tr("Vlastnosti…"));auto* remove=menu.addAction(tr("Odstranit"));
+    auto* edit=menu.addAction(tr("Vlastnosti…"));auto* remove=menu.addAction(resource_icon("delete"),tr("Odstranit"));
     remove->setEnabled(workspace_.active_document_id()==workspace_.displayed_document_id());
-    const auto* selected=menu.exec(tree_->viewport()->mapToGlobal(position));
+    const auto* selected=exec_tree_menu(menu,item,position);
     if(selected==edit)show_measurement(key);
     else if(selected==remove){
         const auto id=workspace_.displayed_document_id();

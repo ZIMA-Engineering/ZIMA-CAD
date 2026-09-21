@@ -15,6 +15,26 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     command_host::Host host(live,kernel,dir,options);run(host,"new",{{"type","part"},{"name","metadata-part"}});
     const auto id=live.active_document_id();run(host,"box.create",{{"length_mm","10"},{"width_mm","20"},{"height_mm","30"}});
     auto* part=live.open_part(id);const auto original=workspace::user_parameters(live,id);const auto cached=part->session.calculated_boundaries().back().kernel_shape;
+    const auto feature=part->session.document().history.back().id;
+    const auto feature_name=part->session.document().history.back().name;
+    require(workspace::rename_tree_object(live,id,"part-container",feature,"Renamed feature"),"Feature rename did not commit");
+    require(part->session.calculated_boundaries().back().kernel_shape==cached,"Renaming a feature recalculated its geometry");
+    require(!workspace::rename_tree_object(live,id,"part-container",feature,"Renamed feature"),"Unchanged name created an Undo entry");
+    run(host,"undo");require(workspace::tree_object_name(live,id,"part-container",feature)==feature_name,"Rename Undo failed");
+    run(host,"redo");require(workspace::tree_object_name(live,id,"part-container",feature)=="Renamed feature","Rename Redo failed");
+    require(!workspace::tree_object_name(live,id,"part-opening-component",feature),"Derived component exposes its owner's name");
+    try {static_cast<void>(workspace::rename_tree_object(live,id,"part-container",feature," \t "));require(false,"Blank rename accepted");}
+    catch(const std::invalid_argument&){}
+    part->session.document().save(dir/"renamed-feature.prtz",part->session.calculated_boundaries());
+    require(document::PartDocument::load(dir/"renamed-feature.prtz").find_container(feature)->name=="Renamed feature","Feature name did not persist");
+    run(host,"undo");
+    const auto body_id=part->session.document().body_history.active_body_id();
+    if(!body_id.empty()) {
+        const auto body_name=workspace::tree_object_name(live,id,"part-body",body_id);
+        require(workspace::rename_tree_object(live,id,"part-body",body_id,"Renamed Body"),"Body rename failed");
+        require(part->session.calculated_boundaries().back().kernel_shape==cached,"Body rename rebuilt geometry");
+        run(host,"undo");require(workspace::tree_object_name(live,id,"part-body",body_id)==body_name,"Body rename Undo failed");
+    }
     const auto revision=part->session.revision(),generation=part->session.data_generation();
     const auto initial=run(host,"document.parameters.get").data.at("parameters");run(host,"document.settings.get");
     require(part->session.revision()==revision && part->session.data_generation()==generation,"Metadata queries changed the document");
@@ -82,6 +102,31 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     require(loaded.user_parameter_values==part->session.document().user_parameter_values && loaded.document_precision==part->session.document().document_precision,"Native save lost metadata");
     require(document::sheet_metal_defaults(loaded)==document::SheetMetalDefaults{2.5,.42},"Native save lost sheet defaults");
     run(host,"new",{{"type","assembly"},{"name","metadata-assembly"}});const auto owner=live.active_document_id();static_cast<void>(live.insert_open_part(owner,id,"Part"));
+    part=live.open_part(id);
+    const auto occurrence=live.open_assembly(owner)->session.document().components.front().occurrence_id;
+    const auto occurrence_cache=live.open_assembly(owner)->session.document().components.front().calculated_source;
+    require(workspace::rename_tree_object(live,owner,"part-occurrence",occurrence,"Renamed occurrence"),"Occurrence rename failed");
+    require(live.open_assembly(owner)->session.document().components.front().calculated_source.shares_with(occurrence_cache),"Occurrence rename regenerated its source");
+    require(part->session.document().name=="metadata-part","Occurrence rename changed its source document name");
+    run(host,"undo");require(workspace::tree_object_name(live,owner,"part-occurrence",occurrence)=="Part","Occurrence rename Undo failed");
+    auto drawing=drawing::DrawingDocument::create_default();const auto drawing_id=drawing.document_id;
+    const auto sheet_id=drawing.sheets.front().id;
+    auto view=drawing::DrawingDocument::create_view(id,dir/"renamed-feature.prtz",part->session.calculated_boundaries().back().mesh);
+    const auto view_id=view.id;const auto projected=view.projected_edges;drawing.sheets.front().views.push_back(view);live.add_drawing(drawing);
+    require(workspace::rename_tree_object(live,drawing_id,"drawing-view",view_id,"Renamed view")&&
+        workspace::rename_tree_object(live,drawing_id,"drawing-sheet",sheet_id,"Renamed sheet"),"Drawing view/sheet rename failed");
+    auto* drawing_state=live.open_drawing(drawing_id);
+    const auto& renamed_edges=drawing_state->document().find_view(view_id)->projected_edges;
+    require(renamed_edges.size()==projected.size(),"View rename changed projection size");
+    for(std::size_t i=0;i<projected.size();++i) {
+        require(renamed_edges[i].source==projected[i].source&&renamed_edges[i].points.size()==projected[i].points.size(),"View rename changed projected topology");
+        for(std::size_t j=0;j<projected[i].points.size();++j)require(renamed_edges[i].points[j].x==projected[i].points[j].x&&
+            renamed_edges[i].points[j].y==projected[i].points[j].y,"View rename changed projected coordinates");
+    }
+    drawing_state->document().save(dir/"renamed.drwz");
+    const auto reopened_drawing=drawing::DrawingDocument::load(dir/"renamed.drwz");
+    require(reopened_drawing.find_view(view_id)->name=="Renamed view"&&reopened_drawing.find_sheet(sheet_id)->name=="Renamed sheet","Drawing names did not persist");
+    drawing_state->undo();require(drawing_state->document().find_sheet(sheet_id)->name==drawing.sheets.front().name,"Sheet rename Undo failed");
     require(!run(host,"document.settings.get").data.contains("sheet_metal"),"Assembly exposed Part sheet defaults");
     require(!host.execute({{"command","document.settings.set"},{"arguments",{{"sheet_metal",sheet}}}}).ok,"Assembly accepted sheet defaults");
     require(!host.execute({{"command","document.settings.set"},{"arguments",{{"precision",{{"sheet_cut_tolerance",.05}}}}}}).ok,

@@ -1511,6 +1511,7 @@ void DrawingWindow::create_actions() {
     remove_sheet_action_ = drawing->addAction(tr("Odstranit list"), this,
         [this] { remove_sheet(); });
     remove_sheet_action_->setObjectName("removeDrawingSheetAction");
+    remove_sheet_action_->setIcon(resource_icon("delete"));
     edit_sheet_action_ = drawing->addAction(tr("Vlastnosti listu…"), this,
         [this] { edit_sheet(); });
     edit_sheet_action_->setObjectName("editDrawingSheetAction");
@@ -1518,10 +1519,12 @@ void DrawingWindow::create_actions() {
     auto* remove_frame_action = drawing->addAction(
         tr("Odstranit formát"), this, [this] { remove_frame(); });
     remove_frame_action->setObjectName("removeDrawingFrameAction");
+    remove_frame_action->setIcon(resource_icon("delete"));
     drawing->addAction(tr("Načíst razítko…"), this, [this] { load_title_block(); });
     auto* remove_title_block_action = drawing->addAction(
         tr("Odstranit razítko"), this, [this] { remove_title_block(); });
     remove_title_block_action->setObjectName("removeDrawingTitleBlockAction");
+    remove_title_block_action->setIcon(resource_icon("delete"));
     edit_title_block_action_ = drawing->addAction(tr("Hodnoty razítka…"), this,
         [this] { edit_title_block(); });
     edit_title_block_action_->setObjectName("editDrawingTitleBlockAction");
@@ -1545,6 +1548,7 @@ void DrawingWindow::create_actions() {
     delete_view_action_ = drawing->addAction(tr("Odstranit pohled"), this,
         [this] { delete_selected_view(); });
     delete_view_action_->setObjectName("deleteDrawingViewAction");
+    delete_view_action_->setIcon(resource_icon("delete"));
     linear_dimension_action_ = drawing->addAction(tr("Kóta"), this,
         [this] { start_linear_dimension(); });
     linear_dimension_action_->setObjectName("drawingDimensionAction");

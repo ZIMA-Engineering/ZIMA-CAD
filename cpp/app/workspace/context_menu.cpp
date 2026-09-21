@@ -183,6 +183,18 @@ bool AssemblyWorkspaceWindow::open_component_source(const std::string& instance_
     }
 }
 
+void AssemblyWorkspaceWindow::add_component_rename_action(QMenu& menu,const std::string& instance_path) {
+    if(properties_dialog_||!active_sketch_id_.empty())return;
+    auto* rename=menu.addAction(tr("Přejmenovat…"));rename->setObjectName("renameComponentSourceAction");
+    connect(rename,&QAction::triggered,this,[this,instance_path]{
+        try {
+            const auto opened=zima::workspace::open_component_source(workspace_,workspace_.displayed_document_id(),
+                zima::assembly::InstancePath::decode(instance_path),[](auto task){run_background_task(std::move(task));});
+            refresh_tabs();rename_document_file(opened.document_id);
+        }catch(const std::exception& error){state_->setText(tr(error.what()));}
+    });
+}
+
 void AssemblyWorkspaceWindow::show_component_context_menu(
     const std::string& instance_path, const QPoint& global_position) {
     std::optional<zima::workspace::OccurrenceAddress> address;
@@ -221,6 +233,7 @@ void AssemblyWorkspaceWindow::show_component_context_menu(
         auto* properties=source!=path?menu.addAction(tr("Vlastnosti zdroje")):nullptr;
         auto* parent=menu.addAction(tr("Vybrat rodiče"));
         parent->setObjectName("selectParentOccurrenceAction");
+        add_component_rename_action(menu,source.encoded());
         const auto* selected=menu.exec(global_position);
         if(selected==open)static_cast<void>(open_component_source(instance_path));
         else if(properties&&selected==properties)show_component_properties(source.encoded());
@@ -236,6 +249,10 @@ void AssemblyWorkspaceWindow::show_component_context_menu(
     const bool source_is_assembly =
         address->source_kind == zima::assembly::ComponentSourceKind::Assembly;
     QMenu menu(this);
+    if(is_active_occurrence)menu.addAction(resource_icon("active-check"),tr("Aktivní"));
+    auto* activate_or_deactivate = is_active_occurrence
+        ? menu.addAction(tr("Zpět do sestavy"))
+        : menu.addAction(tr("Aktivní"));
     auto* open = menu.addAction(resource_icon("open"),tr("Otevřít"));
     open->setObjectName("openComponentSourceAction");
     auto* source_file=menu.addAction(tr("Zdrojový soubor…"));
@@ -244,10 +261,6 @@ void AssemblyWorkspaceWindow::show_component_context_menu(
     source_file->setToolTip(tr("Vyhledejte původní zdrojový soubor. Pro jiný díl použijte Replace."));
     auto* select_parent = menu.addAction(tr("Vybrat rodiče"));
     select_parent->setObjectName("selectParentOccurrenceAction");
-    if(is_active_occurrence)menu.addAction(resource_icon("active-check"),tr("Aktivní"));
-    auto* activate_or_deactivate = is_active_occurrence
-        ? menu.addAction(tr("Zpět do sestavy"))
-        : menu.addAction(tr("Aktivní"));
     auto* create_body=is_active_occurrence && !source_is_assembly && !properties_dialog_
         ? menu.addAction(resource_icon("result-body"),tr("Vytvořit těleso")) : nullptr;
     auto* properties = menu.addAction(tr("Vlastnosti"));
@@ -264,8 +277,12 @@ void AssemblyWorkspaceWindow::show_component_context_menu(
     auto* grounding = menu.addAction(
         occurrence->grounded ? tr("Uvolnit") : tr("Uzemnit"));
     grounding->setEnabled(!occurrence->derived_copy);
-    auto* remove = menu.addAction(tr("Odstranit"));
+    auto* remove = menu.addAction(resource_icon("delete"),tr("Odstranit"));
     remove->setObjectName("removeComponentAction");
+    if(occurrence->derived_copy||occurrence->source_kind==zima::assembly::ComponentSourceKind::Pattern)
+        add_object_rename_action(menu,address->owner_assembly_document_id,
+            source_is_assembly?"assembly-occurrence":"part-occurrence",address->occurrence_id);
+    else add_component_rename_action(menu,instance_path);
     const QAction* selected = menu.exec(global_position);
     if(selected==source_file) {
         const auto path=open_file(this,tr("Zdrojový soubor"),QString::fromStdString(zima::document::path_to_utf8(working_directory_)),

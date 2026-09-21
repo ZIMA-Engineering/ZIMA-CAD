@@ -119,4 +119,11 @@ bool remove_section(Workspace& live,const std::string& document_id,const std::st
         throw SectionOperationError("section_not_found","The requested Section does not exist in this document.");
     commit(live,id,std::move(sections));return true;
 }
+bool set_section_plane_visible(Workspace& live,const std::string& document_id,const std::string& section_id,bool visible) {
+    auto sections=editable_sections(live,document_id);
+    const auto found=std::ranges::find(sections,section_id,&document::SectionDefinition::id);
+    if(found==sections.end())throw SectionOperationError("section_not_found","The requested Section does not exist in this document.");
+    if(found->show_plane==visible)return false;
+    found->show_plane=visible;commit(live,document_id,std::move(sections));return true;
+}
 }

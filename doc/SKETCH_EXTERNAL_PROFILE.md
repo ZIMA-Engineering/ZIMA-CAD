@@ -1,5 +1,17 @@
 # External line profiles and endpoint contacts
 
+## External point contacts
+
+The C command accepts a native Segment and an external point in either order,
+including the cross projected from an axis perpendicular to the Sketch plane.
+It binds a native construction point to the external reference and constrains
+that point onto the Segment's supporting line. The Segment remains unsplit;
+the contact may lie on its extension. Native endpoints can also bind directly
+to an external point. Both the snapping hint and persisted point binding use C.
+Native point merging and generated curve-keypoint K markers remain distinct.
+
+## Reference profiles
+
 Reference Profile (`Reference obrys`) projects a source edge into the Sketch.
 A straight projected edge now creates an ordinary native Segment and two external
 endpoint references. Each native endpoint has two independent constraints:

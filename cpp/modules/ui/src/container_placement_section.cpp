@@ -11,6 +11,7 @@
 #include <QDoubleSpinBox>
 #include <QHeaderView>
 #include <QFormLayout>
+#include <QGridLayout>
 #include <QFontMetrics>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -192,11 +193,18 @@ ContainerPlacementSection::ContainerPlacementSection(
     translation_ = {field(false, "containerPlacementX"),
                     field(false, "containerPlacementY"),
                     field(false, "containerPlacementZ")};
-    auto* coordinates = new QFormLayout;
-    coordinates->addRow(tr("X"), translation_[0]);
-    coordinates->addRow(tr("Y"), translation_[1]);
-    coordinates->addRow(tr("Z"), translation_[2]);
-    layout->addLayout(coordinates);
+    auto* numeric_panel = new QWidget(parent_widget_);
+    numeric_panel->setObjectName("containerPlacementNumericPanel");
+    auto* coordinates = new QGridLayout(numeric_panel);
+    coordinates->setContentsMargins(0,0,0,0);
+    coordinates->setHorizontalSpacing(8);
+    coordinates->addWidget(new QLabel(tr("Poloha"),numeric_panel),0,0,1,2);
+    coordinates->setColumnStretch(1,1);
+    for(int index=0;index<3;++index) {
+        coordinates->addWidget(new QLabel(index==0?tr("X"):index==1?tr("Y"):tr("Z"),numeric_panel),index+1,0);
+        coordinates->addWidget(translation_[index],index+1,1);
+    }
+    layout->addWidget(numeric_panel);
 
     if (with_orientation_) {
         // Absolute rotation needs one ordered signal handler: store the
@@ -218,22 +226,16 @@ ContainerPlacementSection::ContainerPlacementSection(
                     notify_changed();
                 });
         }
-        auto* rotation_form = new QFormLayout;
-        auto* header = new QWidget(parent_widget_);
-        auto* header_layout = new QHBoxLayout(header);
-        header_layout->setContentsMargins(0, 0, 0, 0);
-        header_layout->addWidget(new QLabel(tr("Absolutní"), parent_widget_));
-        header_layout->addWidget(new QLabel(tr("Korekce"), parent_widget_));
-        rotation_form->addRow(QString(), header);
-        for (std::size_t index = 0; index < 3; ++index) {
-            auto* row = new QWidget(parent_widget_);
-            auto* row_layout = new QHBoxLayout(row);
-            row_layout->setContentsMargins(0, 0, 0, 0);
-            row_layout->addWidget(rotation_[index]);
-            row_layout->addWidget(rotation_offset_[index]);
-            rotation_form->addRow(index == 0 ? tr("RX") : index == 1 ? tr("RY") : tr("RZ"), row);
+        coordinates->addWidget(new QLabel(tr("Absolutní"),numeric_panel),0,2,1,2);
+        coordinates->addWidget(new QLabel(tr("Korekce"),numeric_panel),0,4,1,2);
+        coordinates->setColumnStretch(3,1);coordinates->setColumnStretch(5,1);
+        for(int index=0;index<3;++index) {
+            const auto label=index==0?tr("RX"):index==1?tr("RY"):tr("RZ");
+            coordinates->addWidget(new QLabel(label,numeric_panel),index+1,2);
+            coordinates->addWidget(rotation_[index],index+1,3);
+            coordinates->addWidget(new QLabel(label,numeric_panel),index+1,4);
+            coordinates->addWidget(rotation_offset_[index],index+1,5);
         }
-        layout->addLayout(rotation_form);
     }
 
     dof_label_ = new QLabel(parent_widget_);

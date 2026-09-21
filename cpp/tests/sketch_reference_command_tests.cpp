@@ -14,6 +14,50 @@ commands::Result run(command_host::Host& host,const std::string& name,Json args=
     if(!result.ok)throw std::runtime_error(name+": "+result.code+": "+result.message+" "+args.dump());return result;
 }
 void verify(const kernel::OcctKernel& kernel,fs::path directory) {
+    {
+        auto part=document::PartDocument::create_default();auto box=document::PartDocument::create_box_container();box.box={30,30,30};part.history.push_back(box);
+        auto thread=document::PartDocument::create_thread_container();thread.placement.z=-15;thread.thread.bore_length=20;thread.thread.length_forward=15;part.history.push_back(thread);
+        const auto calculated=kernel.evaluate_history(part.kernel_operations());
+        auto source=calculated.back().mesh.original_references;
+        const auto axis=std::ranges::find_if(source.axes,[&](const auto& a){return a.reference.owner_id==thread.id&&a.reference.semantic_key=="axis:primary";});
+        require(axis!=source.axes.end(),"Thread did not persist its source axis");
+        auto sketch=sketcher::Sketch::create_default();
+        auto reference=sketcher::Sketch::create_external_reference(sketcher::ExternalReferenceKind::Axis);
+        reference.source_document_id=part.document_id;reference.source_owner_id=thread.id;reference.source_semantic_key="axis:primary";
+        workspace::populate_external_reference_cache(sketch,reference,source);
+        require(reference.kind==sketcher::ExternalReferenceKind::AxisPoint&&!reference.infinite&&reference.cached_points.size()==1,"Perpendicular thread axis did not become a point");
+        const auto id=reference.id;sketch.add_external_reference(reference);
+        const auto line=sketch.add_segment(0,0,10,0);
+        static_cast<void>(sketch.add_external_point_segment_constraint(id,line,false));
+        const auto binding=std::ranges::find_if(sketch.constraints,[](const auto& c){return c.kind==sketcher::ConstraintKind::PointReference;});
+        require(binding!=sketch.constraints.end(),"External line contact lost its point binding");
+        const auto markers=sketch.viewer_mesh().constraint_markers;
+        require(std::ranges::any_of(markers,[&](const auto& m){return m.reference.semantic_key=="constraint:"+binding->id&&m.label=="C";}),
+            "External axis point binding does not display C");
+        const auto constraints=sketch.constraints;
+        // Tilt the source relative to the Sketch; camera changes are absent
+        // from this persisted geometry contract.
+        axis->direction={0.1,0,std::sqrt(.99)};
+        require(sketch.refresh_external_references(part.document_id,source),"Axis tilt did not invalidate the point");
+        require(sketch.external_references.front().broken&&sketch.constraints==constraints&&sketch.solve().status==sketcher::SolveStatus::Invalid,"Broken axis point lost constraints or silently solved");
+        const auto hidden=sketch.viewer_mesh();
+        require(std::ranges::none_of(hidden.points,[&](const auto& p){return p.reference.semantic_key.starts_with("external_point:"+id);}),"Broken axis point remains visible/pickable");
+        sketch=sketcher::Sketch::from_serialized(sketch.serialized());
+        require(sketch.external_references.front().kind==sketcher::ExternalReferenceKind::AxisPoint&&sketch.constraints==constraints,"Save/reopen changed point identity or constraints");
+        axis->direction={0,0,-1};axis->point.x+=2;
+        require(sketch.refresh_external_references(part.document_id,source)&&!sketch.external_references.front().broken,"Restoring perpendicularity did not repair the reference");
+        require(sketch.external_references.front().id==id&&sketch.constraints==constraints&&sketch.solve().status!=sketcher::SolveStatus::Invalid,"Repaired point did not retain its constraints");
+        require(sketch.external_references.front().cached_points.front()[0]==2,"Restored point did not follow the moved axis");
+        sketch.plane_reference_owner_id="test-plane";
+        sketch.resolved_x_axis={1,0,0};sketch.resolved_y_axis={0,0,1};sketch.resolved_normal={0,-1,0};
+        require(sketch.refresh_external_references({},source,true)&&sketch.external_references.front().broken,
+            "Tilting the Sketch frame did not invalidate the axis point");
+        sketch.plane_reference_owner_id.clear();sketch.refresh_default_frame();
+        require(sketch.refresh_external_references({},source,true)&&!sketch.external_references.front().broken&&sketch.constraints==constraints,
+            "Restoring the Sketch frame did not recover its point and constraints");
+        source.axes.clear();sketch.refresh_external_references(part.document_id,source);
+        require(sketch.external_references.front().broken&&sketch.constraints==constraints,"Deleted source erased its dependent constraints");
+    }
     workspace::Workspace live;command_host::Options options;
     options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"start_part.prtz","start_assembly.asmz","Body"},{}};};
     command_host::Host host(live,kernel,directory,options);run(host,"new",{{"type","part"},{"name","references"}});const auto doc=live.active_document_id();
@@ -72,6 +116,13 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
         state->session.commit(context,calculated);
         require(workspace::sketch_external_reference_source_owners(context,draft.id).empty(),
                 "Unknown Sketch identity acquired an implicit Body");
+        const auto section_sources=workspace::sketch_external_reference_source_owners(context,draft.id,{},true);
+        require(section_sources.contains(box)&&section_sources.contains(later.get<std::string>()),
+                "New Section Sketch cannot reference the complete model");
+        const auto section_reference=workspace::prepare_sketch_external_reference(live,doc,draft,
+            sketcher::ExternalReferenceKind::Edge,box,edge.reference.semantic_key,{}, {},true);
+        require(!section_reference.broken&&section_reference.cached_points.size()>=2&&
+                state->session.document().sections.empty(),"Section draft projection modified the document or lost its source");
         const auto allowed=workspace::sketch_external_reference_source_owners(context,draft.id,body);
         require(allowed.contains(box)&&!allowed.contains(later.get<std::string>()),
                 "Draft references ignored the Body insertion cursor");

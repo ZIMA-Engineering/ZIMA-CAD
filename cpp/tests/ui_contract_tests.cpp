@@ -543,10 +543,68 @@ void verify_sketch_reference_tree() {
     require(item.data(0,app::missing_reference_role).toBool(),"Deleted source curve no longer marked the Tree");
 }
 
+void verify_point_marker_colours(QApplication& application,QWidget& parent) {
+    using namespace zima;
+    viewer::MeshView view(&parent);view.setGeometry(0,0,500,360);
+    view.set_document_origin("document:origin");
+    view.set_reference_visibility(viewer::ReferenceVisibility::Origins,true);
+    view.set_reference_visibility(viewer::ReferenceVisibility::Points,true);
+    const std::array<kernel::VertexReference,4> references{{
+        {"document:origin","origin:point",{}},
+        {"feature:origin","origin:point",{}},
+        {"document:origin","origin:point","occurrence"},
+        {"construction","point",{}}}};
+    for(std::size_t i=0;i<references.size();++i) {
+        kernel::ViewerMesh mesh;mesh.vertices={{-1,-1,0},{1,1,0}};
+        mesh.points.push_back({{0,0,0},references[i]});mesh.original_references.points=mesh.points;
+        view.set_mesh(mesh);view.set_selection_contract({});view.show();view.raise();
+        application.processEvents();
+        require(framebuffer_contains_color_near(view.grabFramebuffer(),view.size(),{250,180},
+            i==0?QColor(0,0,0):QColor(173,110,46),8),
+            "Main Origin and construction/feature/occurrence points have incorrect base colours");
+        view.confirm_reference(references[i].owner_id,references[i].semantic_key,
+            references[i].instance_path,viewer::CandidateKind::Vertex);
+        application.processEvents();
+        require(framebuffer_contains_color_near(view.grabFramebuffer(),view.size(),{250,180},QColor(30,220,240),8),
+            "Point base colour replaced confirmed cyan highlighting");
+    }
+    kernel::ViewerMesh solid;
+    {
+        auto sketch=sketcher::Sketch::create_default();static_cast<void>(sketch.add_circle(0,0,1));
+        auto mesh=sketch.viewer_mesh();mesh.vertices={{-2,-2,0},{2,2,0}};
+        for(auto& edge:mesh.edges)edge.display_owner_id="sketch-container";
+        view.set_mesh(mesh);view.set_active_sketch_owner({});view.set_selection_contract({viewer::CandidateKind::Container});
+        view.confirm_container("sketch-container");application.processEvents();
+        require(framebuffer_contains_color_near(view.grabFramebuffer(),view.size(),{250,180},QColor(30,220,240),4),
+            "Selecting the Sketch container omitted its owned circle-center point");
+    }
+    solid.vertices={{-10,-10,-10},{10,-10,-10},{10,10,-10},{-10,10,-10},
+        {-10,-10,10},{10,-10,10},{10,10,10},{-10,10,10}};
+    solid.triangles={0,2,1,0,3,2,4,5,6,4,6,7,0,1,5,0,5,4,1,2,6,1,6,5,2,3,7,2,7,6,3,0,4,3,4,7};
+    kernel::ViewerEdge cut;cut.points={{-5,0,0},{5,0,0}};cut.overlay=true;cut.color="#AD6E2E";cut.reference={"section","section:sketch",{}};
+    solid.edges.push_back(cut);view.set_mesh(solid);view.clear_selection();application.processEvents();
+    require(framebuffer_contains_color_near(view.grabFramebuffer(),view.size(),{250,180},QColor(173,110,46),8),
+        "Section sketch inside a solid is hidden by depth testing");
+    view.hide();
+}
+
 int verify_stable_placement_rows() {
     QWidget host;
     auto* layout = new QVBoxLayout(&host);
     zima::ui::ContainerPlacementSection placement(&host, layout, true, true);
+    host.resize(660,500);host.show();QApplication::processEvents();
+    auto* numeric_panel=host.findChild<QWidget*>("containerPlacementNumericPanel");
+    require(numeric_panel!=nullptr,"Placement numeric panel is missing");
+    for(int i=0;i<3;++i) {
+        const auto position=placement.translation_fields()[i]->geometry();
+        const auto absolute=placement.rotation_fields()[i]->geometry();
+        const auto correction=placement.rotation_offset_fields()[i]->geometry();
+        require(position.y()==absolute.y()&&absolute.y()==correction.y()&&
+            position.right()<absolute.left()&&absolute.right()<correction.left(),
+            "Placement position, absolute rotation and correction are not aligned in three columns");
+        require(numeric_panel->rect().contains(correction)&&position.width()>=100,
+            "Compact placement fields are clipped or unreadable");
+    }
     QString error;
     require(placement.set_reference(0, {{}, "source", "face", 2, true},
         "Face", &error), "Cannot create placement row fixture");
@@ -598,6 +656,7 @@ int main(int argc, char* argv[]) {
     const auto initial = zima::document::PartDocument::create_box_container();
 
     try {
+        verify_point_marker_colours(application,parent);
         verify_stable_placement_rows();
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_STABLE_PLACEMENT_ROWS_ONLY")) return 0;
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SHEET_ATTACHMENT_DIALOG_ONLY")) {verify_sheet_attachment_dialog(parent);verify_flat_attachment_dialog(parent);return 0;}
@@ -1607,9 +1666,15 @@ int main(int argc, char* argv[]) {
             rounded_route_view.set_display_mode(mode);
             application.processEvents();
             require(framebuffer_contains_color_near(rounded_route_view.grabFramebuffer(),
-                rounded_route_view.size(),QPointF(250,180),QColor(255,255,255)),
+                rounded_route_view.size(),QPointF(250,180),QColor(173,110,46)),
                 "3D rounding arc is absent from the rendered View");
         }
+        rounded_route_view.set_geometry_editing_presentation(true);
+        application.processEvents();
+        require(framebuffer_contains_color_near(rounded_route_view.grabFramebuffer(),
+            rounded_route_view.size(),QPointF(250,180),QColor(255,255,255)),
+            "3D rounding arc did not switch to white for editing");
+        rounded_route_view.set_geometry_editing_presentation(false);
         rounded_route_view.hide();
         auto solid_centerline_mesh=rounded_route_mesh;
         auto& centerline=solid_centerline_mesh.edges.front();
@@ -3130,8 +3195,8 @@ int main(int argc, char* argv[]) {
             }, &parent);
         construction_axis_dialog->show();
         application.processEvents();
-        require(construction_axis_dialog->width() <= 360,
-                "Axis Properties is wider than the compact feature dialogs");
+        require(construction_axis_dialog->width() <= 660,
+                "Axis Properties exceeds the three-column placement width");
         construction_axis_dialog->findChild<QDoubleSpinBox*>("constructionX")->setValue(12.0);
         auto* construction_axis_direction =
             construction_axis_dialog->findChild<QComboBox*>("constructionDirection");
@@ -3202,8 +3267,8 @@ int main(int argc, char* argv[]) {
             [&](std::size_t index) { requested_orientation_reference = index; });
         plane_dialog->show();
         application.processEvents();
-        require(plane_dialog->width() <= 360,
-                "Plane Properties is wider than the compact feature dialogs");
+        require(plane_dialog->width() <= 660,
+                "Plane Properties exceeds the three-column placement width");
         auto* plane_reference_table = plane_dialog->findChild<QTableWidget*>(
             "constructionReferenceTable");
         auto* orientation_table = plane_dialog->findChild<QTableWidget*>(
@@ -3437,8 +3502,8 @@ int main(int argc, char* argv[]) {
         application.processEvents();
         require(construction_point_dialog->windowTitle() ==
                     QStringLiteral("Vlastnosti bodu") &&
-                    construction_point_dialog->width() <= 360,
-                "Point Properties is wider than the compact feature dialogs");
+                    construction_point_dialog->width() <= 660,
+                "Point Properties exceeds the three-column placement width");
         auto* point_absolute_rx = construction_point_dialog->findChild<QDoubleSpinBox*>(
             "constructionRotationX");
         const auto point_rotation_offsets =
@@ -3878,8 +3943,8 @@ int main(int argc, char* argv[]) {
         sweep_dialog->set_sweep_profile_edit_request_callback([&](std::size_t index){edited_profile=index;});
         sweep_dialog->show();
         application.processEvents();
-        require(sweep_dialog->width() <= 500,
-                "Sweep/Loft properties retained the oversized dialog width");
+        require(sweep_dialog->width() <= 660,
+                "Sweep/Loft properties exceed the three-column placement width");
         auto* thin_result=sweep_dialog->findChild<QComboBox*>("sweep3DResultType");
         auto* thin_side=sweep_dialog->findChild<QComboBox*>("sweep3DThinSide");
         auto* thin_thickness=sweep_dialog->findChild<QDoubleSpinBox*>("sweep3DThickness");
@@ -4062,6 +4127,11 @@ int main(int argc, char* argv[]) {
             }, &parent);
         extrusion_dialog->show();
         application.processEvents();
+        application.processEvents();
+        const int extrusion_minimum_width=std::max(extrusion_dialog->minimumWidth(),extrusion_dialog->minimumSizeHint().width());
+        if(extrusion_dialog->width()!=extrusion_minimum_width)
+            throw std::runtime_error("Extrusion initial width "+std::to_string(extrusion_dialog->width())+
+                " exceeds mouse-resize minimum "+std::to_string(extrusion_minimum_width));
         auto* extrusion_height =
             extrusion_dialog->findChild<QDoubleSpinBox*>("extrusionHeight");
         auto* extrusion_direction =
@@ -4298,6 +4368,9 @@ int main(int argc, char* argv[]) {
             }, &parent);
         revolution_dialog->show();
         application.processEvents();
+        application.processEvents();
+        require(revolution_dialog->width()==std::max(revolution_dialog->minimumWidth(),revolution_dialog->minimumSizeHint().width()),
+            "Revolution initial width exceeds its mouse-resize minimum");
         auto* revolution_axis_hint =
             revolution_dialog->findChild<QLabel*>("revolutionAxisHint");
         auto* revolution_angle =

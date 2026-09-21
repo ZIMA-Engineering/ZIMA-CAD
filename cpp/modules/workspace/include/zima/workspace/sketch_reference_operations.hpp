@@ -8,10 +8,12 @@ void populate_external_reference_cache(const sketcher::Sketch&,
     sketcher::SketchExternalReference&,const kernel::ViewerReferenceGeometry&);
 // Supply draft_body_id only for a dialog-owned Part Sketch. Projection uses
 // the existing Body coordinate transform; no placement or history is changed.
+// draft_section identifies an uncommitted Section Sketch in document coordinates.
 [[nodiscard]] sketcher::SketchExternalReference prepare_sketch_external_reference(
     const Workspace&,const std::string& document,const sketcher::Sketch&,
     sketcher::ExternalReferenceKind,const std::string& owner,const std::string& key,
-    const std::string& instance_path, const std::string& draft_body_id = {});
+    const std::string& instance_path, const std::string& draft_body_id = {},
+    bool draft_section = false);
 // A contextual reference is editable only at its exact active source occurrence.
 void require_sketch_reference_context(const Workspace&,const std::string& document,
     const sketcher::SketchExternalReference&);

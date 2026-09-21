@@ -76,6 +76,7 @@ struct ProjectedEdge {
     bool tangent{};
     bool hatch{};
     int hatch_pattern{};
+    bool thread{}; // Conventional thread line, independent of tangent-edge display.
 };
 
 struct ProjectedTriangle {

@@ -122,19 +122,26 @@ private:
     std::string assembly_dimension_path_;
     void show_section_properties(const std::string& id = {}, bool draw = false);
     void update_section_ui();
+    std::map<std::string,bool> section_tree_expanded_;
     void preview_section();
     void begin_section_sketch();
-    void cancel_section_sketch();
     bool section_sketch_history(bool redo);
     bool section_confirmation(const zima::viewer::ViewerCandidate&);
     bool section_context_menu(QTreeWidgetItem*,const QPoint&);
     QAction* section_action_{};
-    QAction* cancel_section_sketch_action_{};
     QPointer<SectionPropertiesDialog> section_dialog_;
     bool section_component_picking_{};
     std::vector<zima::sketcher::Sketch> section_sketch_undo_,section_sketch_redo_,section_drag_sketches_;
     std::array<float,8> section_camera_{};
     zima::kernel::ViewerMesh section_preview_source_;
+    struct SectionPreviewCache {
+        std::string key;
+        zima::kernel::ViewerMesh clipped,plane;
+    };
+    std::map<std::string,SectionPreviewCache> section_preview_cache_;
+    std::string section_cache_document_;
+    std::uint64_t section_calculation_count_{};
+    const SectionPreviewCache& cached_section_preview(const zima::kernel::ViewerMesh&,const zima::document::SectionDefinition&);
     std::string section_document_id_;
     const zima::sketcher::Sketch* template_sketch() const;
     void save_template_document(bool copy);
@@ -741,7 +748,8 @@ private:
         const QString& message, int value = -1, int maximum = -1);
     void finish_status_operation(const QString& message, bool success = true);
     bool native_file_operation_ready(QDialog* own_dialog = nullptr);
-    void rename_document_file();
+    void rename_document_file(std::string document_id = {});
+    void add_component_rename_action(QMenu& menu,const std::string& instance_path);
     void delete_current_document_file();
     void delete_document_file(bool include_archives);
     void delete_all_file_versions();
@@ -1069,6 +1077,9 @@ private:
     void toggle_part_container_suppressed(const std::string& container_id);
     bool part_element_context_menu_enabled(const std::string& owner_id) const;
     bool tree_item_context_menu_enabled(QTreeWidgetItem* item) const;
+    void add_tree_rename_action(QMenu& menu,QTreeWidgetItem* item);
+    QAction* exec_tree_menu(QMenu& menu,QTreeWidgetItem* item,const QPoint& position);
+    void add_object_rename_action(QMenu& menu,const std::string& document,const std::string& kind,const std::string& object);
     bool tree_item_reorder_enabled(QTreeWidgetItem* item) const;
     bool reorder_tree_item(QTreeWidgetItem* item, const QString& before, bool commit);
     bool reorder_part_history(const std::string& id, const std::string& before, bool commit);

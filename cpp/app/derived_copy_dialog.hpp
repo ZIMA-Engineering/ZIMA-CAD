@@ -18,7 +18,7 @@ public:
     DerivedCopyDialog(document::HistoryContainer value,document::DerivedCopyParameters parameters,
         std::function<void(document::HistoryContainer,document::DerivedCopyParameters)> commit,QWidget* parent)
         : SweepPlacementDialog(parameters.pattern?tr("Vlastnosti Pole"):tr("Vlastnosti Zrcadla"),std::move(value),parent),derived_copy(std::move(parameters)),commit_(std::move(commit)) {
-        setObjectName(derived_copy.pattern?"patternDialog":"mirrorDialog");setAttribute(Qt::WA_DeleteOnClose);setMinimumWidth(440);set_initial_size({510,820});
+        setObjectName(derived_copy.pattern?"patternDialog":"mirrorDialog");setAttribute(Qt::WA_DeleteOnClose);setMinimumWidth(440);set_initial_size({620,720});
         auto* form=new QFormLayout;auto* name=new QLineEdit(QString::fromStdString(pending.name),this);name->setObjectName("mirrorName");
         form->addRow(tr("Název"),name);content_layout()->addLayout(form);
         connect(name,&QLineEdit::textChanged,this,[this](const auto& text){pending.name=text.toStdString();});
@@ -40,13 +40,13 @@ public:
         table_=new QTableWidget(2,4,this);table_->setObjectName("mirrorReferences");
         table_->horizontalHeader()->hide();table_->verticalHeader()->hide();table_->setFixedHeight(74);
         table_->setSelectionMode(QAbstractItemView::NoSelection);table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
-        table_->setColumnWidth(0,26);table_->setColumnWidth(1,120);table_->setColumnWidth(3,28);
+        table_->setColumnWidth(0,120);table_->setColumnWidth(1,26);table_->setColumnWidth(3,28);
         table_->horizontalHeader()->setSectionResizeMode(2,QHeaderView::Stretch);ui::install_reference_cell_delegate(table_);
         for(int row=0;row<2;++row){
-            table_->setItem(row,1,new QTableWidgetItem(row?tr("Zdroj"):derived_copy.pattern?tr("Osa Pole"):tr("Rovina zrcadlení")));
+            table_->setItem(row,0,new QTableWidgetItem(row?tr("Zdroj"):derived_copy.pattern?tr("Osa Pole"):tr("Rovina zrcadlení")));
             fields_[row]=new ui::ReferenceCellItem;table_->setItem(row,2,fields_[row]);
             indicators_[row]=ui::build_reference_row_indicator([this,row]{if(row)derived_copy.source_id.clear();else derived_copy.reference={};
-                labels_[row].clear();inspected_[row]=false;refresh_fields();notify();});table_->setCellWidget(row,0,indicators_[row]);
+                labels_[row].clear();inspected_[row]=false;refresh_fields();notify();});table_->setCellWidget(row,1,indicators_[row]);
             eyes_[row]=ui::build_reference_inspection_button(false,false,[this,row](bool on){inspected_[row]=on;refresh_fields();notify();});
             table_->setCellWidget(row,3,ui::centered_cell_widget(eyes_[row]));
         }
@@ -59,7 +59,7 @@ public:
             connect(button,&QPushButton::clicked,this,[this,key]{if(request_input)request_input(0);set_plane({{},pending.container_origin.id,(derived_copy.pattern?"origin:axis:":"origin:plane:")+std::string(key)},QString::fromLatin1(key).toUpper());});}
         content_layout()->addWidget(plane_buttons_);
         if(derived_copy.pattern) {
-            setMinimumWidth(620);set_initial_size({660,850});
+            setMinimumWidth(620);set_initial_size({660,750});
             linear_table_=new QTableWidget(3,7,this);linear_table_->setObjectName("patternLinearDirections");
             linear_table_->setHorizontalHeaderLabels({"",tr("Místní osa"),"",tr("Rozložení"),tr("Rozteč"),tr("Počet"),tr("Vzad")});
             linear_table_->setVerticalHeaderLabels({tr("Směr 1"),tr("Směr 2"),tr("Směr 3")});

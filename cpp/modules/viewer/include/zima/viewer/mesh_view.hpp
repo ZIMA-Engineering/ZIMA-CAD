@@ -116,6 +116,7 @@ public:
     void set_fly_navigation_enabled(bool enabled);
     [[nodiscard]] bool fly_navigation_enabled() const;
     void set_standard_view(StandardView view);
+    void set_document_origin(const std::string& owner_id);
     void set_view_direction(const zima::kernel::Vec3& direction);
     void set_view_direction(const zima::kernel::Vec3& direction, float roll_degrees);
     void set_dimension_visibility_filter(std::function<bool(const zima::kernel::ViewerDimension&)> filter);
@@ -134,6 +135,7 @@ public:
     [[nodiscard]] std::function<bool(const ViewerCandidate&)> candidate_filter() const;
     [[nodiscard]] bool advances_selection_on_hover() const;
     void set_active_sketch_owner(std::string owner_id);
+    void set_geometry_editing_presentation(bool editing);
     void set_candidate_filter(
         std::function<bool(const ViewerCandidate&)> candidate_filter,
         bool advance_on_hover = true);

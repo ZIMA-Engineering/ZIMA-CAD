@@ -21,6 +21,31 @@ std::set<std::string> y_copy_faces(const kernel::BodyResult& body) {
         if(ref.semantic_key.starts_with("pattern:copy-x0-y1-z0:"))result.insert(ref.semantic_key);return result;
 }
 void verify_solid_sources(const kernel::OcctKernel& kernel,fs::path dir) {
+    {
+        auto opening_part=document::PartDocument::create_default();
+        auto block=document::PartDocument::create_box_container();block.box={40,40,40};
+        auto opening=document::PartDocument::create_thread_container();opening.placement.z=-20;
+        document::BodyHistoryGraph bodies;static_cast<void>(bodies.create_body("Opening source"));
+        bodies.insert({document::PartHistoryKind::Feature,block.id});bodies.insert({document::PartHistoryKind::Feature,opening.id});
+        opening_part.history={block,opening};opening_part.set_body_history(bodies);
+        const auto calculated=kernel.evaluate_history(opening_part.kernel_operations());
+        const double removed=64000-calculated.back().volume;
+        require(removed>0,"Opening fixture did not subtract material");
+        workspace::Workspace opening_live;const auto opening_id=opening_part.document_id;
+        opening_live.add_part(opening_part,calculated);opening_live.activate(opening_id);
+        command_host::Host opening_host(opening_live,kernel,dir);
+        const auto choices=workspace::derived_copy_sources(opening_live,opening_id);
+        require(std::ranges::any_of(choices.items,[&](const auto& source){return source.id==opening.id;}),"Opening is missing from Pattern sources");
+        const auto copy=run(opening_host,"pattern.create",{{"source",opening.id},{"linear",Json::array({{{"axis","x"},{"count",2},{"spacing_mm",10}}})}}).data.at("object").get<std::string>();
+        auto* state=opening_live.open_part(opening_id);
+        auto explicit_part=opening_part;
+        auto second=document::PartDocument::create_thread_container();second.placement=opening.placement;second.placement.x=10;
+        explicit_part.history.push_back(second);bodies.insert({document::PartHistoryKind::Feature,second.id});explicit_part.set_body_history(bodies);
+        const auto explicit_result=kernel.evaluate_history(explicit_part.kernel_operations());
+        near(state->session.calculated_boundaries().back().volume,explicit_result.back().volume);
+        const auto path=dir/"opening-pattern.prtz";state->session.document().save(path,state->session.calculated_boundaries());
+        require(document::PartDocument::load(path).find_container(copy)->derived_copy.source_id==opening.id,"Opening Pattern lost its persisted source");
+    }
     auto document=document::PartDocument::create_default();document::BodyHistoryGraph graph;
     auto box=document::PartDocument::create_box_container();box.box={10,10,10};
     auto solid=document::PartDocument::create_box_container();solid.box={2,4,6};solid.placement.x=3;

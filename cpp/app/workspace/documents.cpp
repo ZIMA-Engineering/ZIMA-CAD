@@ -296,6 +296,7 @@ bool AssemblyWorkspaceWindow::open_document_path(const QString& path) {
 }
 
 void AssemblyWorkspaceWindow::finish_document_switch(bool opening) {
+    if(opening)section_tree_expanded_.erase(workspace_.displayed_document_id());
     active_sketch_id_.clear();
     selected_sketch_id_.clear();
     selected_sketch_segment_id_.clear();
@@ -410,6 +411,8 @@ void AssemblyWorkspaceWindow::refresh_tabs() {
 }
 
 void AssemblyWorkspaceWindow::update_document_kind_button() {
+    if(auto* tools=tree_->header()->findChild<QWidget*>("treeDocumentTools"))
+        tools->setVisible(!workspace_.displayed_document_id().empty()&&active_sketch_id_.empty()&&!template_sketch());
     if (document_kind_button_ == nullptr) return;
     const std::string displayed = workspace_.displayed_document_id();
     if (displayed.empty()) {

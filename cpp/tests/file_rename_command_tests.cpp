@@ -45,6 +45,7 @@ struct Fixture {
         part.save(source, boundaries); part.save(source, boundaries);
         group = assembly::AssemblyDocument::create_default();
         group.components.push_back(assembly::AssemblyDocument::create_part_occurrence("saved component", part.document_id, source, boundaries.back()));
+        group.components.push_back(assembly::AssemblyDocument::create_part_occurrence("second occurrence", part.document_id, source, boundaries.back()));
         group.save(assembly_file);
         auto closed = assembly::AssemblyDocument::create_default();
         closed.components.push_back(assembly::AssemblyDocument::create_part_occurrence("closed component", part.document_id, source, boundaries.back()));
@@ -96,6 +97,11 @@ int main() {
         fs::create_directory(root);
         {
             Fixture fixture(root / "success", part, boundaries);
+            auto parent=assembly::AssemblyDocument::create_default();const auto parent_id=parent.document_id;
+            fixture.live.add_assembly(std::move(parent));
+            static_cast<void>(fixture.live.insert_open_assembly(parent_id,fixture.group.document_id,"Subassembly"));
+            static_cast<void>(fixture.live.insert_open_assembly(parent_id,fixture.group.document_id,"Repeated subassembly"));
+            fixture.live.refresh_source_geometry();
             const auto occurrence = fixture.live.active_occurrence_path();
             const auto source_cache = fixture.live.open_part(part.document_id)->source_geometry;
             require(source_cache.has_value(), "No shared Part source cache in fixture");
@@ -123,7 +129,14 @@ int main() {
                     session.redo() && session.redo() && session.document().user_parameters.at("LIVE_ONLY") == "two", "Rename broke Part Undo/Redo");
                 const auto* open_group = fixture.live.open_assembly(fixture.group.document_id);
                 const auto* open_drawing = fixture.live.open_drawing(fixture.drawing.document_id);
-                require(open_group->session.is_dirty() && open_group->session.document().components[0].name == "live component" &&
+                require(open_group->session.document().components[1].name==document::path_to_utf8(fixture.target.stem())&&
+                    fixture.live.open_assembly(parent_id)->session.document().components[0].nested_snapshot[0].name==document::path_to_utf8(fixture.target.stem())&&
+                    fixture.live.open_assembly(parent_id)->session.document().components[1].nested_snapshot[1].name==document::path_to_utf8(fixture.target.stem()),
+                    "Rename missed repeated or nested occurrence names");
+                auto* editable_group=fixture.live.open_assembly(fixture.group.document_id);
+                require(editable_group->session.undo()&&editable_group->session.document().components[0].name==document::path_to_utf8(fixture.target.stem())&&
+                    editable_group->session.redo(),"Undo restored an obsolete component source name");
+                require(open_group->session.is_dirty() && open_group->session.document().components[0].name == document::path_to_utf8(fixture.target.stem()) &&
                     open_group->session.document().components[0].source_path == fixture.target &&
                     open_drawing->is_dirty() && open_drawing->path == fixture.renamed_companion &&
                     open_drawing->document().sheets.front().bom_rows[0].name == "live row" &&
@@ -134,12 +147,19 @@ int main() {
                 const auto saved_drawing = drawing::DrawingDocument::load(fixture.renamed_companion);
                 const auto closed = assembly::AssemblyDocument::load(fixture.closed_file);
                 require(saved_part.document_id == part.document_id && !saved_part.user_parameters.contains("LIVE_ONLY") &&
-                    saved_group.components[0].name == "saved component" && saved_group.components[0].source_path == fixture.target &&
+                    saved_group.components[0].name == document::path_to_utf8(fixture.target.stem()) && saved_group.components[0].source_path == fixture.target &&
                     saved_drawing.source_path == fixture.target && saved_drawing.sheets.front().bom_rows[0].name == "saved row" &&
                     saved_drawing.sheets.front().views[0].source_path == fixture.target &&
-                    closed.components[0].source_path == fixture.target,
+                    closed.components[0].source_path == fixture.target && closed.components[0].name == document::path_to_utf8(fixture.target.stem()),
                     "Disk dependency rename included unrelated live edits or missed closed/open-file references");
                 require(!job.commit(fixture.live).ok(), "Rename job could be published twice");
+                auto rename_group=workspace::prepare_document_file_rename(fixture.live,fixture.group.document_id,"renamed assembly.asmz",fixture.work);
+                rename_group.stage();const auto group_result=rename_group.commit(fixture.live);
+                require(group_result.ok()&&group_result.changed,"Subassembly source rename failed");
+                for(const auto& component:fixture.live.open_assembly(parent_id)->session.document().components)
+                    require(component.name=="renamed assembly"&&component.source_document_id==fixture.group.document_id&&
+                        component.source_path==fixture.assembly_file.parent_path()/"renamed assembly.asmz",
+                        "Subassembly rename missed a repeated parent occurrence");
             }
             fixture.clean_staging();
         }

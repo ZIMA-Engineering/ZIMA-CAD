@@ -84,11 +84,15 @@ void AssemblyWorkspaceWindow::refresh_drawing_tree() {
     const auto& document=drawing_workspace_->document_for_test();
     const auto* state=workspace_.open_drawing(document.document_id); if (!state) return;
     const QSignalBlocker blocker(tree_);
-    tree_->clear(); tree_->setHeaderLabels({tr("VÝKRES")});
+    tree_->clear(); tree_->setHeaderLabels({QString{}});
     auto* root=new QTreeWidgetItem(tree_,{QString::fromStdString(state->path.empty()?document.name:state->path.filename().string())});
     root->setIcon(0,resource_icon("drawing"));
+    root->setData(0,Qt::UserRole,QString::fromStdString(document.document_id));
+    root->setData(0,Qt::UserRole+3,"drawing-document");
     for(const auto& sheet:document.sheets) {
         auto* sheet_item=new QTreeWidgetItem(root,{QString::fromStdString(sheet.name)});
+        sheet_item->setData(0,Qt::UserRole,QString::fromStdString(sheet.id));
+        sheet_item->setData(0,Qt::UserRole+3,"drawing-sheet");
         for(const auto& view:sheet.views) {
             auto* item=new QTreeWidgetItem(sheet_item,{QString::fromStdString(view.name)});
             item->setData(0,Qt::UserRole,QString::fromStdString(view.id));

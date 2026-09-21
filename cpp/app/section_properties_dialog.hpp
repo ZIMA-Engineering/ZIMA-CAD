@@ -108,7 +108,7 @@ class SectionPropertiesDialog final : public SweepPlacementDialog {
 public:
     SectionPropertiesDialog(QWidget* parent,zima::document::SectionDefinition initial,
         std::function<bool(zima::document::SectionDefinition)> commit,std::function<void()> pick)
-        :SweepPlacementDialog(tr("Řez"),container(initial),parent),value_(std::move(initial)),commit_(std::move(commit)){
+        :SweepPlacementDialog(tr("Vlastnosti řezu"),container(initial),parent),value_(std::move(initial)),commit_(std::move(commit)){
         setObjectName("sectionProperties");auto* form=new QFormLayout;
         name_=new QLineEdit(QString::fromStdString(value_.name),this);name_->setObjectName("sectionName");form->addRow(tr("Název"),name_);content_layout()->addLayout(form);
         install_placement();
@@ -139,6 +139,11 @@ public:
         auto s=value_;s.placement=pending.placement;s.name=name_->text().trimmed().toStdString();s.reversed=reverse_->isChecked();s.show_plane=show_->isChecked();s.show_cut=cut_->isChecked();s.components=components_->values();zima::document::reframe_section(s);return s;
     }
     void set_sketch(unsigned,const zima::sketcher::Sketch& sketch)override{value_.sketch=sketch;update_sketch_info();if(changed)changed();}
+    void refresh_axis_points(const zima::kernel::ViewerReferenceGeometry& geometry){
+        auto pending_sketch=values().sketch;
+        static_cast<void>(pending_sketch.refresh_external_references({},geometry,true));
+        value_.sketch=std::move(pending_sketch);
+    }
     void select_component(const std::string& id){components_->select_component(id);}
     void set_status(const QString& message)override{set_error(message);}
     void set_error(const QString& message){error_->setText(message);}

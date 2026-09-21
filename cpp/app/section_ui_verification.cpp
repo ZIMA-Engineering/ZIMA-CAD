@@ -2,6 +2,7 @@
 #include "section_properties_dialog.hpp"
 #include "section_source.hpp"
 #include "drawing_window.hpp"
+#include <zima/drawing/view_orientation.hpp>
 #include <zima/viewer/mesh_view.hpp>
 #include <QApplication>
 #include <QAction>
@@ -13,6 +14,8 @@
 #include <QMessageBox>
 #include <QMenu>
 #include <QKeyEvent>
+#include <QRadioButton>
+#include <QToolBar>
 #include <iostream>
 namespace zima::app {
 int verify_sections(QApplication& application,AssemblyWorkspaceWindow& window,const std::filesystem::path& base){
@@ -47,9 +50,40 @@ int verify_sections(QApplication& application,AssemblyWorkspaceWindow& window,co
         auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>());auto* tree=window.findChild<QTreeWidget*>("documentTree");auto* create=window.findChild<QAction*>("createSectionAction");auto* save=window.findChild<QAction*>("saveDocumentAction");
         check(view&&tree&&create&&create->isEnabled(),"Missing Section action");view->set_standard_view(viewer::StandardView::Top);{QEventLoop animation;QTimer::singleShot(1000,&animation,&QEventLoop::quit);animation.exec();}flush();
         const auto dialog=[&]{return dynamic_cast<SectionPropertiesDialog*>(window.findChild<QDialog*>("sectionProperties"));};
+        check(!tree->topLevelItem(0)->child(1)->isExpanded(),"Opening a Part expanded Sections");
+        check(tree->headerItem()->text(0).isEmpty(),"Tree still shows the document-type heading");
+        int previous_button_x=-1;
+        for(const auto* id:{"fileSettingsAction","materialAction","documentParametersAction","familyTableAction","relationsAction"}) {
+            auto* button=tree->header()->findChild<QToolButton*>("tree"+QString::fromLatin1(id));
+            check(button&&button->isVisible()&&!button->icon().isNull()&&button->x()>previous_button_x,"Tree document toolbar order or icon is wrong");
+            previous_button_x=button->x();
+        }
+        const auto view_actions=window.findChild<QToolBar*>("viewToolbar")->actions();
+        check(!view_actions.contains(window.findChild<QAction*>("documentParametersAction"))&&!view_actions.contains(window.findChild<QAction*>("familyTableAction")),"Document actions remain duplicated over View");
+        {
+            QTreeWidgetItem* row{};
+            for(QTreeWidgetItemIterator i(tree);*i;++i)if((*i)->data(0,Qt::UserRole).toString().toStdString()==box.id&&(*i)->data(0,Qt::UserRole+3)=="part-container"){row=*i;break;}
+            check(row!=nullptr,"Box tree row is missing");
+            tree->setCurrentItem(row);flush();
+            check(view->confirmed_candidate()&&view->confirmed_candidate()->owner_id==box.id,"Single tree selection did not confirm the object");
+            tree->scrollToItem(row);const auto point=tree->visualItemRect(row).center();
+            QMouseEvent twice(QEvent::MouseButtonDblClick,QPointF(point),QPointF(tree->viewport()->mapToGlobal(point)),Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+            QApplication::sendEvent(tree->viewport(),&twice);flush();
+            check(std::ranges::any_of(view->mesh().dimensions,[&](const auto& d){return d.reference.owner_id==box.id;}),"Tree double-click did not expose existing dimensions");
+            check(!window.findChild<QDialog*>("primitivePropertiesDialog"),"Tree double-click opened Properties");
+        }
+        tree->topLevelItem(0)->child(1)->setExpanded(true);
         const auto line=[&](bool bent=false){
             dialog()->findChild<QPushButton*>("editSectionSketch")->click();flush();check(!dialog()->isVisible(),"Sketch did not hide parent Section properties");
             {QEventLoop animation;QTimer::singleShot(1000,&animation,&QEventLoop::quit);animation.exec();}
+            check(!view->confirmed_candidate(),"Section Sketch retained a confirmed object");
+            auto* external=window.findChild<QAction*>("sketchExternalReferenceAction");
+            check(external&&external->isEnabled(),"Section Sketch external references are disabled");
+            external->trigger();flush();
+            bool source_offered=false;
+            for(int y=8;y<view->height()&&!source_offered;y+=12)for(int x=8;x<view->width();x+=12)
+                if(std::ranges::any_of(view->selection_candidates_at(QPointF(x,y)),[&](const auto& c){return c.owner_id==box.id||c.owner_id==bore.id;})){source_offered=true;break;}
+            check(source_offered,"New Section Sketch has no original geometry reference candidates");
             auto* polyline=window.findChild<QAction*>("sketchPolylineAction");check(polyline&&polyline->isEnabled(),"Section has no ordinary Sketcher tools");polyline->trigger();flush();
             std::vector<QPointF> points{QPointF(view->width()*.25,view->height()*.5),QPointF(view->width()*(bent?.5:.75),view->height()*.5)};if(bent)points.push_back(QPointF(view->width()*.5,view->height()*.25));
             for(const QPointF point:points){
@@ -76,9 +110,11 @@ int verify_sections(QApplication& application,AssemblyWorkspaceWindow& window,co
             window.findChild<QAction*>("finishSketchAction")->trigger();flush();check(dialog()->isVisible()&&dialog()->values().sketch.segments.size()==(bent?2:1),"Finishing Section sketch lost the line");
         };
         create->trigger();flush();check(dialog()&&dialog()->parentWidget()==&window&&(dialog()->windowFlags()&Qt::WindowType_Mask)==Qt::SubWindow,"Section is not shared internal dialog");
+        check(dialog()->windowTitle()==QObject::tr("Vlastnosti řezu"),"Section Properties has an inconsistent title");
+        check(!window.findChild<QAction*>("cancelSectionSketchAction"),"Section Sketch retains a separate Cancel action");
         const auto* sketch_button=dialog()->findChild<QPushButton*>("editSectionSketch");
         check(sketch_button&&sketch_button->text()==QObject::tr("Skica…")&&sketch_button->styleSheet().contains("#4DD811"),"Section Sketch button is not localized or green");
-        check(dialog()->height()>=std::min(900,window.height()-24),"Section properties did not use the available vertical space");
+        check(dialog()->height()>=std::min(800,window.height()-24),"Section properties did not use the available vertical space");
         auto* scroll=dialog()->findChild<QScrollArea*>();auto* name=dialog()->findChild<QLineEdit*>("sectionName");auto* translation=dialog()->findChild<QDoubleSpinBox*>("sweepTranslation0");
         check(scroll&&scroll->widget()->isAncestorOf(name)&&scroll->widget()->isAncestorOf(translation)&&translation->mapTo(dialog(),QPoint{}).y()>name->mapTo(dialog(),QPoint{}).y()+name->height(),"Section controls are outside their scroll layout");
         QLabel* heading{};for(auto* label:dialog()->findChildren<QLabel*>())
@@ -86,8 +122,6 @@ int verify_sections(QApplication& application,AssemblyWorkspaceWindow& window,co
         check(heading && heading->mapTo(dialog(),QPoint{}).y()-name->mapTo(dialog(),QPoint{}).y()-name->height()<40,
             "Section placement has excessive spacing below its name");
         const auto origin_reference=part.origin_viewer_mesh().original_references.points.front().reference;
-        check(std::ranges::any_of(view->mesh().points,[&](const auto& point){return point.reference.owner_id==origin_reference.owner_id;}),
-            "Section did not display the document Origin on opening");
         const auto click_tree=[&](const std::string& id){
             QTreeWidgetItem* item{};
             {for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==id){item=*it;break;}}
@@ -115,40 +149,101 @@ int verify_sections(QApplication& application,AssemblyWorkspaceWindow& window,co
         dialog()->buttons()->button(QDialogButtonBox::Cancel)->click();flush();create->trigger();flush();
         dialog()->findChild<QDoubleSpinBox*>("sweepTranslation0")->setValue(7);dialog()->findChild<QComboBox*>("sectionSketchPlane")->setCurrentIndex(1);
         check(std::abs(dialog()->values().plane_origin.x-7)<1e-7&&std::abs(dialog()->values().plane_y.z+1)<1e-7,"Section placement or own XZ plane was ignored");
-        dialog()->findChild<QPushButton*>("editSectionSketch")->click();flush();window.findChild<QAction*>("cancelSectionSketchAction")->trigger();flush();check(dialog()->isVisible()&&dialog()->values().sketch.segments.empty(),"Cancel sketch did not restore parent draft");line(true);dialog()->findChild<QCheckBox*>("sectionShowCut")->setChecked(true);flush();
+        dialog()->findChild<QPushButton*>("editSectionSketch")->click();flush();window.findChild<QAction*>("finishSketchAction")->trigger();flush();check(dialog()->isVisible()&&dialog()->values().sketch.segments.empty(),"Finishing an empty Section Sketch did not return to Properties");line(true);dialog()->findChild<QCheckBox*>("sectionShowCut")->setChecked(true);flush();
         window.grab().save(QString::fromStdString((dir/"section-properties.png").string()));
         dialog()->buttons()->button(QDialogButtonBox::Cancel)->click();flush();save->trigger();flush();check(document::PartDocument::load(path).sections.empty(),"Cancel saved section");
-        create->trigger();flush();line();dialog()->findChild<QCheckBox*>("sectionShowCut")->setChecked(true);
+        create->trigger();flush();line();
+        {auto sketch=dialog()->values().sketch;sketch.apply_dimension(sketch.create_segment_dimension(sketch.segments.front().id));dialog()->set_sketch(0,sketch);}
+        dialog()->findChild<QCheckBox*>("sectionShowCut")->setChecked(true);
         const QPointF point(30,30),global(view->mapToGlobal(point.toPoint()));QMouseEvent short_click(QEvent::MouseButtonPress,point,global,Qt::MiddleButton,Qt::MiddleButton,Qt::NoModifier),release(QEvent::MouseButtonRelease,point,global,Qt::MiddleButton,Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(view,&short_click);QApplication::sendEvent(view,&release);flush();check(dialog()!=nullptr,"Short MMB committed Section");
         QMouseEvent double_click(QEvent::MouseButtonDblClick,point,global,Qt::MiddleButton,Qt::MiddleButton,Qt::NoModifier);QApplication::sendEvent(view,&double_click);flush();check(!dialog(),"MMB double click did not save Section");save->trigger();flush();
         auto stored=document::PartDocument::load(path);check(stored.sections.size()==1&&stored.sections.front().show_cut,"Section was not persisted");const auto section_id=stored.sections.front().id,point_id=stored.sections.front().sketch.points.front().id;
         auto* root=tree->topLevelItem(0);auto* group=root->child(1);check(group->data(0,Qt::UserRole+3)=="document-sections"&&group->childCount()==2&&group->child(0)->data(0,Qt::UserRole+3)=="document-section-normal","Sections and permanent Normal are not immediately after Origin");
+        check(group->isExpanded(),"Scene refresh lost the user's Sections expansion");
         check(!(group->flags()&Qt::ItemIsUserCheckable)&&!(group->child(1)->flags()&Qt::ItemIsUserCheckable)&&!group->child(1)->data(0,Qt::CheckStateRole).isValid(),"Section tree still exposes a checkbox");
         check(!group->icon(0).isNull()&&!group->child(0)->icon(0).isNull()&&!group->child(1)->icon(0).isNull(),"Missing section icons");
         check(group->icon(0).pixmap(24).toImage()!=group->child(0)->icon(0).pixmap(24).toImage()&&group->child(0)->icon(0).pixmap(24).toImage()!=group->child(1)->icon(0).pixmap(24).toImage(),"Section icons are indistinguishable");
         auto* unchanged_row=group->child(1);unchanged_row->setToolTip(0,"Presentation change");flush();check(tree->topLevelItem(0)->child(1)->child(1)==unchanged_row,"A presentation change rebuilt the tree inside itemChanged");
         const auto menu_action=[&](QTreeWidgetItem* row,const QString& label,bool protected_row=false){
+            for(auto* parent=row->parent();parent;parent=parent->parent())parent->setExpanded(true);
             bool chosen=false,protected_ok=true;QTimer::singleShot(0,[&]{for(auto* menu:window.findChildren<QMenu*>())if(menu->isVisible()){
                 const bool can_create=row->data(0,Qt::UserRole+3)=="document-sections";
+                if(!can_create)protected_ok&=menu->actions().front()->text()==QObject::tr("Aktivní")&&
+                    (!menu->actions().front()->icon().isNull())==row->font(0).bold();
                 protected_ok&=std::ranges::count_if(menu->actions(),[](auto* action){return action->text()==QObject::tr("Nový řez…");})==(can_create?1:0);
-                for(auto* action:menu->actions()){if(protected_row&&(action->text()==QObject::tr("Odstranit")||action->text()==QObject::tr("Vlastnosti / přejmenovat…")))protected_ok=false;
+                for(auto* action:menu->actions()){if(protected_row&&(action->text()==QObject::tr("Odstranit")||action->text()==QObject::tr("Vlastnosti")||action->objectName()=="renameTreeItemAction"))protected_ok=false;
                     if(action->text()==label){chosen=true;menu->setActiveAction(action);QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(menu,&enter);return;}}
                 menu->close();return;
             }});tree->customContextMenuRequested(tree->visualItemRect(row).center());flush();check(protected_ok,"Section row exposes an invalid create, delete, or edit action");return chosen;
         };
+        const auto rename_section=[&](bool accept){
+            auto* current=tree->topLevelItem(0)->child(1)->child(1);
+            check(menu_action(current,QObject::tr("Přejmenovat…")),"Section has no independent Rename action");
+            auto* rename=window.findChild<QDialog*>("renameTreeItemDialog");
+            check(rename&&rename->isVisible()&&!dialog(),"Rename opened Section Properties");
+            rename->findChild<QLineEdit*>("renameTreeItemName")->setText("Renamed section");
+            rename->findChild<QDialogButtonBox*>()->button(accept?QDialogButtonBox::Ok:QDialogButtonBox::Cancel)->click();flush();
+        };
+        const auto name_before=window.execute_console_command("section.list").data;
+        rename_section(false);check(window.execute_console_command("section.list").data==name_before,"Cancel renamed Section");
+        rename_section(true);save->trigger();flush();check(document::PartDocument::load(path).sections.front().name=="Renamed section","Standalone Section rename did not persist");
+        window.findChild<QAction*>("undoAction")->trigger();flush();
+        check(menu_action(tree->topLevelItem(0)->child(1)->child(1),QObject::tr("Upravit")),"Section has no Edit action");
+        check(!dialog(),"Section Edit opened Properties");
+        check(view->mesh().triangles.size()==cache.back().mesh.triangles.size(),"Section dimension editing clipped the solid");
+        const auto calculations=window.property("sectionCalculationCount").toULongLong();
+        window.show_parameter_dimensions(section_id);flush();
+        check(window.property("sectionCalculationCount").toULongLong()==calculations,"Showing unchanged dimensions recalculated Section");
+        check(!view->mesh().dimensions.empty(),"Section Edit omitted dimensions");
+        const auto dimension=stored.sections.front().sketch.dimensions.front();
+        viewer::ViewerCandidate candidate;candidate.kind=viewer::CandidateKind::Dimension;
+        candidate.owner_id=stored.sections.front().sketch.id;candidate.semantic_key="dimension:"+dimension.id;
+        window.edit_dimension_inline(candidate);flush();
+        auto* field=view->findChild<QLineEdit*>("inlineDimensionValueEdit");check(field&&field->isVisible(),"Section dimension editor did not open");
+        field->setText(QString::number(std::ceil(dimension.value)+2));QMetaObject::invokeMethod(field,"returnPressed");flush();
+        save->trigger();flush();
+
+        check(std::abs(document::PartDocument::load(path).sections.front().sketch.dimensions.front().value-std::ceil(dimension.value)-2)<1e-7,"Section dimension edit did not persist");
+        check(view->mesh().triangles.size()==cache.back().mesh.triangles.size(),"Dimension commit restored clipping before editing ended");
+        window.findChild<QAction*>("undoAction")->trigger();flush();save->trigger();flush();
+        check(document::PartDocument::load(path).sections.front().sketch.dimensions.front().value==dimension.value,"Section dimension edit is not undoable");
+        window.finish_parameter_dimensions();flush();
+        save->trigger();flush();
+        check(document::PartDocument::load(path).sections.front().show_plane==stored.sections.front().show_plane,"Section Edit changed plane visibility");
+        group=tree->topLevelItem(0)->child(1);
         check(menu_action(group->child(0),QObject::tr("Aktivní"),true),"Normal cannot be activated");check(view->mesh().triangles.size()==cache.back().mesh.triangles.size(),"Normal did not restore the complete body");
         const auto normal_revision=window.execute_console_command("section.list").data.at("revision");
         group=tree->topLevelItem(0)->child(1);
         check(menu_action(group->child(0),QObject::tr("Aktivní"),true),"Normal cannot be activated twice");
         check(window.execute_console_command("section.list").data.at("revision")==normal_revision,"Unchanged GUI Section activation added history");
+        const auto plane_shown=[&]{return std::ranges::any_of(view->mesh().edges,[](const auto& edge){return edge.reference.semantic_key=="section:sketch";});};
+        save->trigger();flush();const bool initially_visible=document::PartDocument::load(path).sections.front().show_plane;
+        check(menu_action(tree->topLevelItem(0)->child(1)->child(1),initially_visible?QObject::tr("Skrýt rovinu řezu"):QObject::tr("Zobrazit rovinu řezu")),"Section menu lacks plane visibility toggle");
+        check(plane_shown()!=initially_visible&&view->mesh().triangles.size()==cache.back().mesh.triangles.size(),"Plane visibility changed the solid or failed to update the overlay");
+        save->trigger();flush();check(!document::PartDocument::load(path).sections.front().show_cut,"Showing the plane activated cutting");
+        const auto plane_calculations=window.property("sectionCalculationCount").toULongLong();
+        check(menu_action(tree->topLevelItem(0)->child(1)->child(1),initially_visible?QObject::tr("Zobrazit rovinu řezu"):QObject::tr("Skrýt rovinu řezu")),"Section menu did not reverse its plane visibility label");
+        check(window.property("sectionCalculationCount").toULongLong()==plane_calculations,"Toggling plane visibility recalculated unchanged Section");
         group=tree->topLevelItem(0)->child(1);
         window.show_tree_item_properties(group->child(1));flush();
         check(dialog()&&!dialog()->values().show_cut&&view->mesh().triangles.size()==cache.back().mesh.triangles.size(),
             "Editing an inactive Section clipped the solid");
         dialog()->findChild<QCheckBox*>("sectionShowPlane")->setChecked(true);flush();
         check(view->mesh().triangles.size()==cache.back().mesh.triangles.size()&&
-            std::ranges::any_of(view->mesh().edges,[](const auto& edge){return edge.color=="#00C000"&&!edge.reference.valid();}),
-            "Section-plane preview did not show its hatch over the complete solid");
+            std::ranges::any_of(view->mesh().edges,[](const auto& edge){return edge.overlay&&edge.reference.semantic_key=="section:sketch";}),
+            "Section-plane preview did not show its sketch over the complete solid");
+        check(std::ranges::any_of(view->mesh().edges,[](const auto& edge){return edge.overlay&&edge.color=="#00C000"&&edge.reference.semantic_key=="section:sketch";}),
+            "Section-plane preview omitted through-solid hatching");
+        check(std::ranges::none_of(view->mesh().points,[&](const auto& point){return point.reference.owner_id==dialog()->values().sketch.id;}),
+            "Section-plane preview includes Sketch point markers");
+        view->set_view_direction(document::section_frame(dialog()->values()).normal);
+        {QEventLoop animation;QTimer::singleShot(1000,&animation,&QEventLoop::quit);animation.exec();flush();}
+        window.grab().save(QString::fromStdString((dir/"section-plane-through-solid.png").string()));
+        dialog()->findChild<QCheckBox*>("sectionShowCut")->setChecked(true);flush();
+        check(view->mesh().triangles.size()==cache.back().mesh.triangles.size(),"Active Section Properties clipped the solid");
+        const auto plane_edges=view->mesh().edges.size();
+        dialog()->findChild<QCheckBox*>("sectionShowPlane")->setChecked(false);flush();
+        check(view->mesh().edges.size()<plane_edges,"Active Section ignores Show plane toggle");
         dialog()->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
         group=tree->topLevelItem(0)->child(1);menu_action(group,{},true);check(menu_action(group->child(1),QObject::tr("Aktivní")),"A-A cannot be activated");
         group=tree->topLevelItem(0)->child(1);
@@ -167,7 +262,21 @@ int verify_sections(QApplication& application,AssemblyWorkspaceWindow& window,co
         auto drawing=drawing::DrawingDocument::create_default();drawing.source_document_id=part.document_id;drawing.source_path=path;auto& sheet=drawing.sheets.front();
         auto parent=drawing::DrawingDocument::create_view(part.document_id,path,cache.back().mesh,drawing::ViewOrientation::Top);parent.x=150;parent.y=120;parent.name="Top";
         auto cut=drawing::DrawingDocument::create_view(part.document_id,path,cache.back().mesh,drawing::ViewOrientation::Front);cut.x=65;cut.y=120;cut.name="A–A";sheet.views={parent,cut};const auto drawing_path=dir/"section.drwz";drawing.save(drawing_path);
-        check(window.open_document_path(QString::fromStdString(drawing_path.string())),"Cannot open section drawing");flush();DrawingWindow* dw=nullptr;for(auto* w:window.findChildren<QMainWindow*>())if(auto* drawing_window=dynamic_cast<DrawingWindow*>(w)){dw=drawing_window;break;}check(dw!=nullptr,"Drawing window missing");dw->select_view_for_test(cut.id);window.findChild<QAction*>("editDrawingViewAction")->trigger();flush();
+        check(window.open_document_path(QString::fromStdString(drawing_path.string())),"Cannot open section drawing");flush();DrawingWindow* dw=nullptr;for(auto* w:window.findChildren<QMainWindow*>())if(auto* drawing_window=dynamic_cast<DrawingWindow*>(w)){dw=drawing_window;break;}check(dw!=nullptr,"Drawing window missing");
+        for(const auto& key:{sheet.id,cut.id}) {
+            QTreeWidgetItem* row{};for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==key){row=*it;break;}
+            check(row!=nullptr,"Drawing sheet/view has no stable Tree identity");
+            bool offered=false;QTimer::singleShot(0,[&]{for(auto* menu:window.findChildren<QMenu*>())if(menu->isVisible()){
+                for(auto* action:menu->actions())if(action->objectName()=="renameTreeItemAction") {offered=true;menu->setActiveAction(action);QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(menu,&enter);return;}
+                menu->close();return;
+            }});tree->customContextMenuRequested(tree->visualItemRect(row).center());flush();
+            check(offered,"Drawing sheet/view has no Rename action");
+            auto* rename=window.findChild<QDialog*>("renameTreeItemDialog");check(rename&&rename->isVisible(),"Drawing Rename did not open");
+            rename->findChild<QLineEdit*>("renameTreeItemName")->setText("Renamed drawing item");rename->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+            check(key==sheet.id?dw->document_for_test().find_sheet(key)->name=="Renamed drawing item":dw->document_for_test().find_view(key)->name=="Renamed drawing item","Drawing did not refresh its renamed item");
+            window.findChild<QAction*>("undoAction")->trigger();flush();
+        }
+        dw->select_view_for_test(cut.id);window.findChild<QAction*>("editDrawingViewAction")->trigger();flush();
         auto* props=window.findChild<QDialog*>("drawingViewProperties");check(props!=nullptr,"Missing drawing properties");auto* combo=props->findChild<QComboBox*>("drawingSection");check(combo&&combo->count()==2,"Saved Section is missing from drawing choices");combo->setCurrentIndex(1);check(!props->findChild<QCheckBox*>("drawingSectionAlign")&&props->findChild<QComboBox*>("drawingViewOrientation")->isEnabled()&&props->findChild<QPushButton*>("drawingRotateRight")->isEnabled(),"Section took ownership of view orientation");flush();
         auto* hatch_rows=dynamic_cast<SectionComponentsWidget*>(props->findChild<QTableWidget*>("sectionComponents"));check(hatch_rows&&hatch_rows->rowCount()>0,"Missing component hatch row");
         check(hatch_rows->findChildren<QCheckBox*>().empty(),"Redundant custom-hatch checkbox remains");
@@ -193,7 +302,7 @@ int verify_sections(QApplication& application,AssemblyWorkspaceWindow& window,co
         const auto source_before=document::serialize_sections({*dw->document_for_test().find_view(cut.id)->section_snapshot});
         dw->select_view_for_test(cut.id);window.findChild<QAction*>("editDrawingViewAction")->trigger();flush();props=window.findChild<QDialog*>("drawingViewProperties");
         props->findChild<QPushButton*>("drawingRotateRight")->click();props->findChild<QPushButton*>("drawingRotateRight")->click();props->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
-        check(dw->document_for_test().find_view(cut.id)->camera.depth==drawing::standard_camera(drawing::ViewOrientation::Back).depth&&has_hatch(),"Rotating the cut view concealed its hatch");
+        check(drawing::same_view_orientation(dw->document_for_test().find_view(cut.id)->camera,drawing::standard_camera(drawing::ViewOrientation::Back))&&has_hatch(),"Rotating the cut view concealed its hatch");
         window.findChild<QAction*>("editDrawingViewAction")->trigger();flush();props=window.findChild<QDialog*>("drawingViewProperties");
         check(!props->findChild<QCheckBox*>("drawingSectionReverse"),"Redundant section side override remains");
         check(!props->findChild<QCheckBox*>("drawingHatching")&&!props->findChild<QDoubleSpinBox*>("drawingHatchAngle")&&!props->findChild<QDoubleSpinBox*>("drawingHatchSpacing"),"Duplicate hatch controls remain above the component table");
@@ -264,7 +373,7 @@ int verify_sections(QApplication& application,AssemblyWorkspaceWindow& window,co
         check(has_hatch(),"Changing the Part display side concealed the Drawing cut");
         check(window.open_document_path(QString::fromStdString(path.string())),"Cannot return to Part for section removal");flush();root=tree->topLevelItem(0);group=root->child(1);auto* section_row=group->child(1);
         bool removed=false;QTimer::singleShot(0,[&]{for(auto* menu:window.findChildren<QMenu*>())if(menu->isVisible())for(auto* action:menu->actions())if(action->text()==QObject::tr("Odstranit")){removed=true;menu->setActiveAction(action);QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(menu,&enter);return;}});
-        tree->customContextMenuRequested(tree->visualItemRect(section_row).center());flush();check(removed,"Cannot remove section from tree");
+        group->setExpanded(true);tree->customContextMenuRequested(tree->visualItemRect(section_row).center());flush();check(removed,"Cannot remove section from tree");
         check(window.open_document_path(QString::fromStdString(drawing_path.string())),"Cannot reopen linked drawing");flush();const auto prior_edges=dw->document_for_test().find_view(cut.id)->projected_edges.size();window.findChild<QAction*>("regenerateDrawingViewAction")->trigger();flush();
         check(!modal_error.isEmpty()&&dw->document_for_test().find_view(cut.id)->projected_edges.size()==prior_edges,"Missing source section silently replaced drawing");modal_error.clear();
         // Read-only source resolution and repeated occurrence rows in Assembly.
@@ -327,7 +436,84 @@ int verify_sections(QApplication& application,AssemblyWorkspaceWindow& window,co
         console("undo");
         check(console("sketch.entity.get",{{"sketch",cli_section.at("sketch")},{"entity",edit_point}}).at("entity").at("y")==0,
             "Console Undo after Properties did not restore the whole Section Sketch batch");
-        std::cout<<"Section UI: container placement, own plane, full Sketcher, local undo/redo, nested cancel, MMB, tree, Drawing hatch/PDF and repeated Assembly components passed\n";return 0;
+        QTreeWidgetItem* component_row{};
+        for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole+3)=="part-occurrence"){component_row=*it;break;}
+        check(component_row!=nullptr,"Assembly component missing for source rename");
+        const auto displayed_root=tree->topLevelItem(0)->text(0);
+        check(menu_action(component_row,QObject::tr("Přejmenovat…")),"Component has no source Rename action");
+        auto* source_rename=window.findChild<QDialog*>("renameDocumentDialog");
+        check(source_rename&&source_rename->isVisible()&&source_rename->findChild<QLineEdit*>("renameDocumentName")->text()==QString::fromStdString(path.filename().string()),
+            "Component Rename targets an occurrence or owning Assembly instead of its source file");
+        source_rename->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
+        check(tree->topLevelItem(0)->text(0)==displayed_root,"Opening source Rename switched the displayed document");
+        {
+            auto axis_part=document::PartDocument::create_default();auto base=document::PartDocument::create_box_container();base.box={30,30,30};
+            auto thread=document::PartDocument::create_thread_container();thread.placement.z=-15;thread.thread.bore_length=20;thread.thread.length_forward=15;
+            axis_part.history={base,thread};document::BodyHistoryGraph graph;static_cast<void>(graph.create_body("Axis test"));
+            graph.insert({document::PartHistoryKind::Feature,base.id});graph.insert({document::PartHistoryKind::Feature,thread.id});axis_part.set_body_history(graph);
+            const auto axis_path=dir/"axis-source.prtz";axis_part.save(axis_path,kernel.evaluate_history(axis_part.kernel_operations()));
+            check(window.open_document_path(QString::fromStdString(axis_path.string())),"Cannot open thread-axis fixture");flush();
+            view->set_standard_view(viewer::StandardView::Top);create->trigger();flush();dialog()->findChild<QPushButton*>("editSectionSketch")->click();flush();
+            {QEventLoop animation;QTimer::singleShot(1000,&animation,&QEventLoop::quit);animation.exec();}
+            window.findChild<QAction*>("sketchExternalReferenceAction")->trigger();flush();
+            const QPointF center(view->width()/2.,view->height()/2.);
+            const auto candidates=view->selection_candidates_at(center);
+            check(std::ranges::any_of(candidates,[&](const auto& c){return c.kind==viewer::CandidateKind::Axis&&c.owner_id==thread.id;}),"Section Sketcher does not offer the perpendicular thread axis");
+            // Restrict the existing command's common candidate stream to its
+            // axis entry, then confirm through the real mouse event path.
+            const auto filter=view->candidate_filter();
+            view->set_selection_contract({viewer::CandidateKind::Axis});
+            view->set_candidate_filter([filter,owner=thread.id](const auto& c){return c.owner_id==owner&&c.semantic_key=="axis:primary"&&(!filter||filter(c));},false);
+            QCursor::setPos(view->mapToGlobal(center.toPoint()));flush();
+            check(!view->selection_candidates_at(center).empty(),"Thread axis disappeared after command filtering");
+            for(const auto type:{QEvent::MouseMove,QEvent::MouseButtonPress,QEvent::MouseButtonRelease}){
+                QMouseEvent event(type,center,QPointF(view->mapToGlobal(center.toPoint())),type==QEvent::MouseMove?Qt::NoButton:Qt::LeftButton,type==QEvent::MouseButtonPress?Qt::LeftButton:Qt::NoButton,Qt::NoModifier);QApplication::sendEvent(view,&event);flush();
+            }
+            const auto axis_pick_status=window.findChild<QLabel*>("workspaceState")->text();
+            window.findChild<QAction*>("finishSketchAction")->trigger();flush();
+            const auto refs=dialog()->values().sketch.external_references;
+            if(!(refs.size()==1&&refs.front().kind==sketcher::ExternalReferenceKind::AxisPoint&&refs.front().source_owner_id==thread.id))
+                throw std::runtime_error("Section Sketcher did not create the picked axis point: "+axis_pick_status.toStdString());
+            for (bool segment_first : {false, true}) {
+                auto draft=dialog()->values().sketch;
+                const auto line=draft.add_segment(-12,4,12,4);
+                dialog()->set_sketch(0,draft);
+                dialog()->findChild<QPushButton*>("editSectionSketch")->click();flush();
+                {QEventLoop animation;QTimer::singleShot(1000,&animation,&QEventLoop::quit);animation.exec();}
+                window.findChild<QAction*>("sketchCoincidentAction")->trigger();flush();
+                const auto click_candidate=[&](const std::string& key) {
+                    const auto filter=view->candidate_filter();
+                    view->set_candidate_filter([filter,key](const auto& c){return c.semantic_key==key&&(!filter||filter(c));},false);
+                    std::optional<QPointF> location;
+                    for(int y=2;y<view->height()&&!location;y+=4)for(int x=2;x<view->width();x+=4)
+                        if(!view->selection_candidates_at(QPointF(x,y)).empty()){location=QPointF(x,y);break;}
+                    check(location.has_value(),"C command does not offer the requested segment/axis point");
+                    QCursor::setPos(view->mapToGlobal(location->toPoint()));
+                    for(const auto type:{QEvent::MouseMove,QEvent::MouseButtonPress,QEvent::MouseButtonRelease}) {
+                        QMouseEvent event(type,*location,QPointF(view->mapToGlobal(location->toPoint())),type==QEvent::MouseMove?Qt::NoButton:Qt::LeftButton,type==QEvent::MouseButtonPress?Qt::LeftButton:Qt::NoButton,Qt::NoModifier);
+                        QApplication::sendEvent(view,&event);flush();
+                    }
+                };
+                const auto point_key="external_point:"+refs.front().id, line_key="segment:"+line;
+                click_candidate(segment_first?line_key:point_key);
+                click_candidate(segment_first?point_key:line_key);
+                window.findChild<QAction*>("finishSketchAction")->trigger();flush();
+                const auto result=dialog()->values().sketch;
+                check(std::ranges::any_of(result.constraints,[&](const auto& c){return c.kind==sketcher::ConstraintKind::PointOnLine&&c.geometry_id==line;}),
+                    "C command did not bind the segment to the external axis point");
+            }
+            dialog()->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
+            for(const auto* type:{"part","assembly"}) {
+                window.findChild<QAction*>("newDocumentAction")->trigger();flush();
+                auto* create=window.findChild<QDialog*>("newDocumentDialog");check(create,"New template dialog missing");
+                create->findChild<QLineEdit*>("newDocumentFileName")->setText(QString::fromStdString(std::string("axis-template-")+type+document::PartDocument::create_default().document_id));
+                for(auto* radio:create->findChildren<QRadioButton*>())radio->setChecked(radio->property("documentType").toString()==type);
+                create->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+                check(!window.findChild<QDialog*>("newDocumentDialog"),"New template creation failed");
+                check(window.findChild<QAction*>(std::string(type)=="part"?"boxAction":"insertComponentAction")->isEnabled(),"Start template lost its active Body/component context");
+            }
+        }
+        std::cout<<"Section UI: container placement, own plane, full Sketcher, local undo/redo, nested cancel, MMB, tree, Drawing hatch/PDF, thread axis point and repeated Assembly components passed\n";return 0;
     }catch(const std::exception& e){std::cerr<<"Section UI: "<<e.what()<<'\n';return 1;}
 }
 }

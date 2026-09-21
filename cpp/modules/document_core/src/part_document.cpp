@@ -21,6 +21,7 @@
 #include <zima/document/versioned_file.hpp>
 #include <zima/document/viewer_packet_json.hpp>
 #include <zima/kernel/stable_id.hpp>
+#include <zima/sketcher/curve_geometry.hpp>
 
 #include <nlohmann/json.hpp>
 
@@ -1276,17 +1277,17 @@ zima::kernel::ExtrusionRequest extrusion_request(
         if (!spline.construction) profile_splines.push_back(&spline);
     }
     const auto exact_spline = [&](const auto& spline) {
+        // Use the same native curve as the Sketcher, including its seam and
+        // interpolation. Passing interpolation points to OCCT would fit a
+        // different curve and leave a self-closed spline without exact knots.
+        const auto geometry = zima::sketcher::sketch_curve_geometry(sketch, spline.id);
         zima::kernel::ExtrusionRequest::BSplineCurve curve;
-        curve.knots = spline.knots; curve.weights = spline.weights;
-        curve.degree = spline.degree;
-        curve.interpolating = spline.interpolating;
-        curve.periodic = spline.closed && spline.knots.empty();
-        for (const auto& point_id : spline.control_point_ids) {
-            const auto* point = sketch.find_point(point_id);
-            curve.control_points.push_back(sketch.world_point(point->x, point->y));
-        }
+        curve.knots = geometry.knots; curve.weights = geometry.weights;
+        curve.degree = geometry.degree;
+        for (const auto& point : geometry.poles)
+            curve.control_points.push_back(sketch.world_point(point.x, point.y));
         curve.start = curve.control_points.front();
-        curve.end = spline.closed ? curve.start : curve.control_points.back();
+        curve.end = curve.control_points.back();
         return curve;
     };
     const auto exact_elliptical_arc = [&](const auto& arc) {

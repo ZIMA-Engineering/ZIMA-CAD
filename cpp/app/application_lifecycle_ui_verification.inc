@@ -9,6 +9,7 @@ int verify_application_lifecycle_ui(QApplication& application) {
     const auto configure = [](const QString& directory, const QString& language) {
         QSettings config(QDir(directory).filePath("config.ini"), QSettings::IniFormat);
         config.setValue("Application/Language", language);
+        config.setValue("Application/UseISOFont", true);
         config.setValue("Paths/WorkingDirectory", directory);
         config.sync();
     };
@@ -20,6 +21,19 @@ int verify_application_lifecycle_ui(QApplication& application) {
     try {
         QTemporaryDir directory;
         check(directory.isValid(), "Cannot create lifecycle fixture directory");
+        configure(directory.path(), "cs");
+        for(bool iso:{true,false}) {
+            QSettings config(directory.filePath("config.ini"),QSettings::IniFormat);
+            config.setValue("Application/UseISOFont",iso);config.sync();
+            auto opposite=app::ApplicationSettings::load(directory.path());opposite.use_iso_application_font=!iso;
+            app::apply_application_font(application,opposite);
+            app::AssemblyWorkspaceWindow cold(directory.path());cold.show();flush();
+            const auto startup_font=application.font();
+            app::apply_application_font(application,app::ApplicationSettings::load(directory.path()));
+            check(startup_font==application.font(),"Cold startup ignored the saved application font");
+            check(cold.findChild<QTreeWidget*>("documentTree")->font().family()==startup_font.family(),"Tree inherited a different startup font");
+            check(cold.close(),"Font fixture did not close");
+        }
         configure(directory.path(), "cs");
         {
             app::AssemblyWorkspaceWindow window(directory.path()); window.show(); flush();
@@ -131,12 +145,14 @@ int verify_application_lifecycle_ui(QApplication& application) {
         }
         configure(directory.path(), "cs");
         for (const QString language : {"en", "de", "fr", "ru", "cs"}) {
+            QFont original_font;
             std::optional<app::AssemblyWorkspaceWindow::RestartState> restart;
             {
                 app::AssemblyWorkspaceWindow window(directory.path()); window.show(); flush();
                 check(window.open_document_path(directory.filePath("close-part.prtz")), "Cannot open restart fixture");
                 auto* settings_action = window.findChild<QAction*>("globalSettingsAction");
                 const auto old_text = settings_action->text();
+                original_font=application.font();
                 settings_action->trigger(); flush();
                 auto* settings = dynamic_cast<app::GlobalSettingsDialog*>(window.findChild<QDialog*>("globalSettingsDialog"));
                 check(settings, "Missing Settings dialog");
@@ -155,11 +171,14 @@ int verify_application_lifecycle_ui(QApplication& application) {
                 check(prompts == 1 && window.restart_state().has_value() && !window.isVisible(),
                     "Language change did not request complete window restart");
                 check(settings_action->text() == old_text, "Old window was partially translated");
+                check(application.font()==original_font,"Changing only language changed the application font");
                 restart = window.restart_state();
                 check(restart->documents.contains(directory.filePath("close-part.prtz")), "Restart omitted saved document");
             }
             app::AssemblyWorkspaceWindow reopened(restart->working_directory, restart->settings_directory);
             reopened.show(); flush();
+            check(application.font()==original_font&&reopened.findChild<QTreeWidget*>("documentTree")->font().family()==original_font.family(),
+                "Language restart changed the application or Tree font");
             for (const auto& path : restart->documents) check(reopened.open_document_path(path), "Restart failed to reopen document");
             const auto settings = app::ApplicationSettings::load(restart->settings_directory);
             check(settings.language == language, "Restart loaded a different language");

@@ -384,6 +384,7 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
                     resolved_sketch.plane_offset,
                 geometric_placement.z + resolved_sketch.resolved_normal.z *
                     resolved_sketch.plane_offset};
+            static_cast<void>(resolved_sketch.refresh_external_references({},primitive_reference_geometry_,true));
             *prepared_sketch = resolved_sketch;
             // A Bend draft has no meaningful wire until its attachment frame
             // is defined. Two independent manual references can fix rotation

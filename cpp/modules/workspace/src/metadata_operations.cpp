@@ -7,6 +7,48 @@
 #include "metadata_transaction.hpp"
 namespace zima::workspace {
 namespace {
+template<class Range> auto named(Range& values,const std::string& id) -> decltype(&values.front().name) {
+    for(auto& value:values)if(value.id==id)return &value.name;
+    return nullptr;
+}
+template<class Doc> auto object_name(Doc& doc,const std::string& kind,const std::string& id) -> decltype(&doc.name) {
+    if(kind=="document"&&id==doc.document_id)return &doc.name;
+    if constexpr(requires {doc.sheets;}) {
+        if(kind=="drawing-sheet")return named(doc.sheets,id);
+        if(kind=="drawing-view")for(auto& sheet:doc.sheets)if(auto* name=named(sheet.views,id))return name;
+    } else {
+        if(kind=="document-section")return named(doc.sections,id);
+        if(kind=="document-measurement")return named(doc.measurements,id);
+        if(kind=="part-construction"||kind=="assembly-construction")return named(doc.constructions,id);
+        if(kind=="curve3d-point")for(auto& curve:doc.constructions)if(auto* name=named(curve.curve_points,id))return name;
+        if(kind=="part-sketch"||kind=="assembly-sketch")return named(doc.sketches,id);
+        if constexpr(requires {doc.history;}) {
+            if(kind=="part-container")return named(doc.history,id);
+            if(kind=="body-properties")return named(doc.body_properties,id);
+        } else {
+            if(kind=="assembly-sketch-container")return named(doc.sketch_containers,id);
+            if(kind=="assembly-cut")for(auto& cut:doc.cuts)if(cut.definition.id==id)return &cut.definition.name;
+            if(kind=="part-occurrence"||kind=="assembly-occurrence")for(auto& occurrence:doc.components)
+                if(occurrence.occurrence_id==id)return &occurrence.name;
+        }
+    }
+    return nullptr;
+}
+template<class Doc> std::optional<std::string> read_object_name(const Doc& doc,const std::string& kind,const std::string& id) {
+    if constexpr(requires {doc.body_history;}) {
+        if(kind=="part-body") {if(auto* body=doc.body_history.find(id))return body->name;}
+        if(kind=="part-body-boolean") {if(auto* body=doc.body_history.find_boolean(id))return body->name;}
+    }
+    if(auto* name=object_name(doc,kind,id))return *name;
+    return std::nullopt;
+}
+template<class Doc> void write_object_name(Doc& doc,const std::string& kind,const std::string& id,const std::string& name) {
+    if constexpr(requires {doc.body_history;}) {
+        if(kind=="part-body") {auto body=*doc.body_history.find(id);body.name=name;doc.body_history.update_body(std::move(body));return;}
+        if(kind=="part-body-boolean") {auto body=*doc.body_history.find_boolean(id);body.name=name;doc.body_history.update_boolean(std::move(body));return;}
+    }
+    *object_name(doc,kind,id)=name;
+}
 template<class Doc> document::UserParameterData parameters(const Doc& doc) {
     document::UserParameterData data{doc.user_parameters,doc.user_parameter_order,doc.user_parameter_labels,doc.user_parameter_values};
     // Native factories may initialize shared parameters before a UI order exists.
@@ -16,6 +58,28 @@ template<class Doc> document::UserParameterData parameters(const Doc& doc) {
     }
     document::normalize_user_parameters(data);return data;
 }
+}
+std::optional<std::string> tree_object_name(const Workspace& live,const std::string& document,const std::string& kind,const std::string& id) {
+    if(auto* part=live.open_part(document))return read_object_name(part->session.document(),kind,id);
+    if(auto* assembly=live.open_assembly(document))return read_object_name(assembly->session.document(),kind,id);
+    if(auto* drawing=live.open_drawing(document))return read_object_name(drawing->document(),kind,id);
+    return std::nullopt;
+}
+bool rename_tree_object(Workspace& live,const std::string& document,const std::string& kind,const std::string& id,const std::string& name) {
+    if(name.empty()||name.find_first_of("\r\n\t")!=std::string::npos||name.find_first_not_of(' ')==std::string::npos)
+        throw std::invalid_argument("Enter a non-empty single-line name.");
+    const auto before=tree_object_name(live,document,kind,id);
+    if(!before)throw std::invalid_argument("This object has no editable name.");
+    if(*before==name)return false;
+    if(auto* part=live.open_part(document)) {
+        auto next=part->session.document();write_object_name(next,kind,id,name);
+        commit_part_document(live,document,std::move(next),part->session.calculated_boundaries());
+    } else if(auto* assembly=live.open_assembly(document)) {
+        auto next=assembly->session.document();write_object_name(next,kind,id,name);assembly->session.commit(std::move(next));
+    } else if(auto* drawing=live.open_drawing(document)) {
+        auto next=drawing->document();write_object_name(next,kind,id,name);drawing->commit(std::move(next));
+    }
+    return true;
 }
 document::UserParameterData user_parameters(const Workspace& live,const std::string& id) {
     return metadata_detail::read(live,id,[](const auto& doc){return parameters(doc);});

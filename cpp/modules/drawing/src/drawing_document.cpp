@@ -692,7 +692,7 @@ void DrawingDocument::save(const std::filesystem::path& path,
             item["projected_edges"] = nlohmann::json::array();
             for (const auto& edge : view.projected_edges) {
                 nlohmann::json edge_json{{"source", edge_reference_json(edge.source)},
-                                         {"hidden", edge.hidden}, {"silhouette",edge.silhouette},{"tangent",edge.tangent},{"hatch",edge.hatch},{"hatch_pattern",edge.hatch_pattern}};
+                                         {"hidden", edge.hidden}, {"silhouette",edge.silhouette},{"tangent",edge.tangent},{"hatch",edge.hatch},{"hatch_pattern",edge.hatch_pattern},{"thread",edge.thread}};
                 edge_json["points"] = nlohmann::json::array();
                 for (const auto& point : edge.points) edge_json["points"].push_back({point.x, point.y});
                 item["projected_edges"].push_back(std::move(edge_json));
@@ -884,6 +884,7 @@ DrawingDocument DrawingDocument::load(const std::filesystem::path& path) {
                 edge.hidden = edge_json.value("hidden", false);
                 edge.silhouette=edge_json.value("silhouette",false);
                 edge.tangent=edge_json.value("tangent",false);
+                edge.thread=edge_json.value("thread",false);
                 edge.hatch=edge_json.value("hatch",false);edge.hatch_pattern=edge_json.value("hatch_pattern",0);
                 for (const auto& point : edge_json.at("points"))
                     edge.points.push_back({point.at(0).get<double>(), point.at(1).get<double>()});
