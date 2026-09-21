@@ -865,8 +865,8 @@ std::string Workspace::insert_open_part(
         throw std::invalid_argument("Insertion requires open Part and Assembly documents");
     }
     const auto& calculated = part->session.calculated_boundaries();
-    if (part->session.document().history.empty() ||
-            (calculated.empty() && !part->session.document().kernel_operations().empty())) {
+    if (!assembly::is_skeleton_file(part->path) && (part->session.document().history.empty() ||
+            (calculated.empty() && !part->session.document().kernel_operations().empty()))) {
         throw std::runtime_error("Open Part has no explicit calculated result");
     }
     auto next = assembly->session.document();
@@ -877,6 +877,11 @@ std::string Workspace::insert_open_part(
     occurrence.body_color = part->session.document().body_color;
     occurrence.appearance = part_appearance(part->session.document());
     occurrence.face_colors = part->session.document().face_colors;
+    if (zima::assembly::is_skeleton(occurrence)) {
+        kernel::Appearance style; style.body = {"#4D8C78AE", .55, 0};
+        occurrence.appearance_override = style;
+        occurrence.body_color_override = style.body.color;
+    }
     const std::string occurrence_id = occurrence.occurrence_id;
     next.components.push_back(std::move(occurrence));
     static_cast<void>(next.build_scene());
@@ -980,8 +985,8 @@ zima::assembly::AssemblyDocument Workspace::refreshed_assembly(
             part = &*loaded;
         }
         const auto& calculated = part->session.calculated_boundaries();
-        if (part->session.document().history.empty() ||
-            (calculated.empty() && !part->session.document().kernel_operations().empty())) {
+        if (!assembly::is_skeleton_file(part->path) && (part->session.document().history.empty() ||
+            (calculated.empty() && !part->session.document().kernel_operations().empty()))) {
             throw std::runtime_error(
                 "An open Assembly dependency has no calculated Part result");
         }

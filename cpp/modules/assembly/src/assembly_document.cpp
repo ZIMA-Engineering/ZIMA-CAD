@@ -816,13 +816,14 @@ void copy_surface_frames(kernel::ViewerMesh& mesh,const std::vector<OccurrenceSn
 
 kernel::BodyResult calculate_component_body(
     const PartOccurrence& occurrence, const kernel::GeometryKernel& kernel) {
+    if (is_skeleton(occurrence)) throw std::runtime_error("Skeleton cannot be used in Assembly body operations.");
     const auto calculate = [&](const auto& self, const kernel::BodySnapshot& source,
             const std::vector<OccurrenceSnapshot>& children, std::size_t depth) -> kernel::BodyResult {
         if (depth > 256) throw std::runtime_error("Assembly calculation nesting is too deep");
         if (!source->kernel_shape.empty() || children.empty()) return source;
         std::vector<kernel::PlacedBody> bodies;
         for (const auto& child : children) {
-            if (!child.visible || child.manually_suppressed || child.dependency_suppressed) continue;
+            if (is_skeleton(child) || !child.visible || child.manually_suppressed || child.dependency_suppressed) continue;
             const auto found=source->body_outputs.find(child.occurrence_id);
             if (found==source->body_outputs.end())
                 throw std::runtime_error("Assembly calculation is missing a child revision");
@@ -833,8 +834,48 @@ kernel::BodyResult calculate_component_body(
                 {p.rotation_x,p.rotation_y,p.rotation_z}});
         }
         auto result=bodies.empty()?kernel::BodyResult{}:kernel.compound_bodies(bodies);
-        result.mesh=source->mesh;
-        result.body_outputs=source->body_outputs;
+        result.mesh = source->mesh;
+        result.body_outputs = source->body_outputs;
+        std::vector<std::string> excluded;
+        const auto collect = [&](const auto& visit, const auto& rows, const InstancePath& parent) -> void {
+            for (const auto& row : rows) {
+                const auto path = parent.child(row.occurrence_id);
+                if (is_skeleton(row)) excluded.push_back(path.encoded());
+                else visit(visit, row.children, path);
+            }
+        };
+        collect(collect, children, {});
+        const auto hidden = [&](const auto& reference) {
+            return std::ranges::any_of(excluded, [&](const auto& path) { return reference.instance_path.starts_with(path); });
+        };
+        if (!excluded.empty()) {
+            const auto filter = [&](auto& geometry) {
+                std::vector<std::uint32_t> triangles;
+                std::vector<kernel::FaceReference> references;
+                for (std::size_t i=0; i<geometry.triangles.size()/3; ++i) {
+                    const auto reference = i<geometry.triangle_references.size() ? geometry.triangle_references[i] : kernel::FaceReference{};
+                    if (hidden(reference)) continue;
+                    references.push_back(reference);
+                    triangles.insert(triangles.end(), geometry.triangles.begin()+3*i, geometry.triangles.begin()+3*i+3);
+                }
+                std::vector<kernel::Vec3> vertices;
+                std::map<std::uint32_t,std::uint32_t> indices;
+                for (auto& index : triangles) {
+                    auto [it, inserted] = indices.emplace(index, static_cast<std::uint32_t>(vertices.size()));
+                    if (inserted) vertices.push_back(geometry.vertices.at(index));
+                    index=it->second;
+                }
+                geometry.vertices=std::move(vertices); geometry.triangles=std::move(triangles);
+                geometry.triangle_references=std::move(references);
+                std::erase_if(geometry.edges,[&](const auto& value){return hidden(value.reference);});
+                std::erase_if(geometry.points,[&](const auto& value){return hidden(value.reference);});
+                std::erase_if(geometry.axes,[&](const auto& value){return hidden(value.reference);});
+            };
+            filter(result.mesh); filter(result.mesh.original_references);
+            std::erase_if(result.mesh.dimensions,[&](const auto& value){return hidden(value.reference);});
+            std::erase_if(result.mesh.constraint_markers,[&](const auto& value){return hidden(value.reference);});
+            for (const auto& child : children) if (is_skeleton(child)) result.body_outputs.erase(child.occurrence_id);
+        }
         return result;
     };
     return calculate(calculate,occurrence.calculated_source,occurrence.nested_snapshot,0);
@@ -868,7 +909,7 @@ PartOccurrence AssemblyDocument::create_assembly_occurrence(
     const auto suppressed=calculated_document.effectively_suppressed_occurrences();
     for(const auto& child:calculated_document.components) {
         snapshot.body_outputs.emplace(child.occurrence_id,child.calculated_source);
-        if (child.visible && !suppressed.contains(child.occurrence_id)) {
+        if (!is_skeleton(child) && child.visible && !suppressed.contains(child.occurrence_id)) {
             snapshot.volume += child.calculated_source->volume;
             snapshot.surface_area += child.calculated_source->surface_area;
         }
@@ -884,7 +925,7 @@ std::vector<OccurrenceSnapshot> AssemblyDocument::occurrence_snapshot() const {
     result.reserve(components.size());
     for (const auto& component : components) {
         result.push_back({
-            component.occurrence_id, component.name, component.source_document_id,
+            component.occurrence_id, component.derived_copy || component.source_path.empty() ? component.name : document::path_to_utf8(component.source_path.filename()), component.source_document_id,
             component.source_kind, component.suppressed,
             !component.suppressed &&
                 effectively_suppressed.contains(component.occurrence_id),
@@ -1453,6 +1494,8 @@ AssemblyDocument::effectively_suppressed_occurrences() const {
 }
 
 zima::kernel::ViewerMesh AssemblyDocument::build_scene() const {
+    if (std::ranges::count_if(components, [](const auto& value) { return is_skeleton(value); }) > 1)
+        throw std::runtime_error("An Assembly can contain only one Skeleton.");
     // Build the component/construction geometry first so the Origin
     // axis/plane display size can scale with the assembly's actual extent,
     // matching Python's reference_scene_size = _scene_diagonal(layers)
@@ -1480,7 +1523,7 @@ zima::kernel::ViewerMesh AssemblyDocument::build_scene() const {
         std::unordered_set<std::string> target_ids;
         for (const auto& target_id : cut.target_occurrence_ids) {
             const auto* target = find_occurrence(target_id);
-            if (!target_ids.insert(target_id).second || target == nullptr || target->derived_copy) {
+            if (!target_ids.insert(target_id).second || target == nullptr || target->derived_copy || is_skeleton(*target)) {
                 throw std::runtime_error(
                     "Assembly cut target must be a unique immediate component occurrence");
             }
@@ -2173,6 +2216,8 @@ void AssemblyDocument::synchronize_dimension_identifiers() {
 
 nlohmann::json AssemblyDocument::serialized(
     const zima::document::DocumentCopyIdentity& copy) const {
+    if (std::ranges::count_if(components, [](const auto& value) { return is_skeleton(value); }) > 1)
+        throw std::runtime_error("An Assembly can contain only one Skeleton.");
     nlohmann::json operation_geometries=nlohmann::json::object();
     std::map<const zima::kernel::BodyResult*,std::string> geometry_ids;
     const auto geometry_id=[&](const auto& self,const zima::kernel::BodySnapshot& snapshot)->std::string {

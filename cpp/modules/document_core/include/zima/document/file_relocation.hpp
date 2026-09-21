@@ -18,6 +18,7 @@ class FileRelocationEdits {
 public:
     explicit FileRelocationEdits(std::span<const FileRelocation>);
     void document_name(const std::string& id, std::string& name);
+    void source_filename(const std::string& id, std::string& filename);
     void source_reference(const std::string& id, std::filesystem::path& path,
         const std::filesystem::path& owning_file, std::string* name = nullptr);
     [[nodiscard]] bool empty() const { return names_.empty() && paths_.empty(); }

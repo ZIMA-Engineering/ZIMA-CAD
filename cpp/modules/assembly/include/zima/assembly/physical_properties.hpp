@@ -3,6 +3,7 @@
 #include <zima/document/physical_properties.hpp>
 namespace zima::assembly {
 inline std::optional<double> occurrence_mass_kg(const PartOccurrence& item) {
+    if (is_skeleton(item)) return 0;
     const double volume=std::abs(item.calculated_source->volume);
     if(volume==0)return 0;
     if(item.density_kg_mm3)return volume * *item.density_kg_mm3;
@@ -15,7 +16,7 @@ inline std::map<std::string,double> physical_values(const AssemblyDocument& doc)
     double volume=0,area=0,mass=0;bool known=true;
     const auto suppressed=doc.effectively_suppressed_occurrences();
     for(const auto& item:doc.components) {
-        if(suppressed.contains(item.occurrence_id))continue;
+        if(is_skeleton(item)||suppressed.contains(item.occurrence_id))continue;
         volume+=std::abs(item.calculated_source->volume);area+=std::abs(item.calculated_source->surface_area);
         if(const auto value=occurrence_mass_kg(item))mass+=*value;else known=false;
     }

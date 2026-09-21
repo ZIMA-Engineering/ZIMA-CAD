@@ -2186,6 +2186,16 @@ void AssemblyWorkspaceWindow::create_layout() {
                 if(!menu.isEmpty())menu.exec(tree_->viewport()->mapToGlobal(position));
                 return;
             }
+            if (!item->parent() && workspace_.open_assembly(workspace_.displayed_document_id()) && !properties_dialog_) {
+                QMenu menu(this);
+                auto* insert = menu.addAction(resource_icon("skeleton"), tr("Vložit Skeleton…"));
+                insert->setObjectName("insertSkeletonAction");
+                const auto* owner = workspace_.open_assembly(workspace_.active_document_id());
+                insert->setEnabled(owner && workspace_.active_occurrence_path().empty() &&
+                    std::ranges::none_of(owner->session.document().components, [](const auto& value) { return zima::assembly::is_skeleton(value); }));
+                if (exec_tree_menu(menu,item,position) == insert) insert_component_from_file(true);
+                return;
+            }
             const auto step_kind = item->data(0, Qt::UserRole + 3).toString();
             if(step_kind=="template-image"&&!properties_dialog_) {
                 const auto id=item->data(0,Qt::UserRole).toString().toStdString();QMenu menu(this);

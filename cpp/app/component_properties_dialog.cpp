@@ -1,5 +1,6 @@
 #include <zima/ui/numeric_value_lock.hpp>
 #include "component_properties_dialog.hpp"
+#include "resource_icon.hpp"
 
 #include <zima/ui/reference_cell.hpp>
 
@@ -164,10 +165,21 @@ ComponentPropertiesDialog::ComponentPropertiesDialog(
     setMinimumWidth(720);
     resize(820, sizeHint().height());
     auto* form = new QFormLayout;
-    name_ = new QLineEdit(QString::fromStdString(initial.name), this);
-    name_->setObjectName("componentName");
-    form->addRow(tr("Název"), name_);
-    auto* source = new QLineEdit(QString::fromStdString(initial.source_path.string()), this);
+    auto* identity = new QWidget(this);
+    auto* identity_layout = new QHBoxLayout(identity);
+    identity_layout->setContentsMargins(0, 0, 0, 0);
+    auto* icon = new QLabel(identity);
+    icon->setPixmap(resource_icon(zima::assembly::is_skeleton(initial) ? "skeleton" :
+        initial.source_kind == zima::assembly::ComponentSourceKind::Assembly ? "assembly" : "part").pixmap(24, 24));
+    auto* filename = new QLabel(QString::fromStdString(zima::document::path_to_utf8(initial.source_path.filename())), identity);
+    filename->setObjectName("componentFileName");
+    filename->setTextFormat(Qt::PlainText);
+    filename->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    filename->setWordWrap(true);
+    identity_layout->addWidget(icon);
+    identity_layout->addWidget(filename, 1);
+    form->addRow(identity);
+    auto* source = new QLineEdit(QString::fromStdString(zima::document::path_to_utf8(initial.source_path)), this);
     source->setReadOnly(true);
     form->addRow(tr("Zdroj"), source);
     const auto placement = [this](double value, bool angular) {
@@ -256,22 +268,33 @@ ComponentPropertiesDialog::ComponentPropertiesDialog(
             }
         });
 
+    auto* coordinates = new QHBoxLayout;
+    auto* position_column = new QVBoxLayout;
+    auto* position_heading = new QLabel(tr("Poloha"), this);
+    position_heading->setFont(heading_font);
+    position_column->addWidget(position_heading);
     auto* position_form = new QFormLayout;
+    position_form->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
     position_form->addRow(tr("X"), translation_[0]);
     position_form->addRow(tr("Y"), translation_[1]);
     position_form->addRow(tr("Z"), translation_[2]);
-    content_layout()->addLayout(position_form);
+    position_column->addLayout(position_form);
+    coordinates->addLayout(position_column, 1);
 
-    auto* orientation_heading = new QLabel(tr("Orientace komponenty"), this);
+    auto* orientation_heading = new QLabel(tr("Natočení"), this);
     auto orientation_heading_font = orientation_heading->font();
     orientation_heading_font.setBold(true);
     orientation_heading->setFont(orientation_heading_font);
-    content_layout()->addWidget(orientation_heading);
+    auto* orientation_column = new QVBoxLayout;
+    orientation_column->addWidget(orientation_heading);
     auto* orientation_form = new QFormLayout;
+    orientation_form->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
     orientation_form->addRow(tr("RX"), rotation_[0]);
     orientation_form->addRow(tr("RY"), rotation_[1]);
     orientation_form->addRow(tr("RZ"), rotation_[2]);
-    content_layout()->addLayout(orientation_form);
+    orientation_column->addLayout(orientation_form);
+    coordinates->addLayout(orientation_column, 1);
+    content_layout()->addLayout(coordinates);
     freedom_ = new QLabel(this);
     freedom_->setObjectName("componentDegreesOfFreedom");
     content_layout()->addWidget(freedom_);
@@ -280,9 +303,6 @@ ComponentPropertiesDialog::ComponentPropertiesDialog(
     error_->setStyleSheet("color: #c64b4b;");
     error_->setWordWrap(true);
     content_layout()->addWidget(error_);
-    connect(name_, &QLineEdit::textChanged, this, [this](const QString&) {
-        error_->clear();
-    });
     for (auto* field : translation_) {
         connect(field, &QDoubleSpinBox::valueChanged, this,
             [this](double) { notify_preview(); });
@@ -703,7 +723,6 @@ void ComponentPropertiesDialog::refresh_placement_table() {
 
 zima::assembly::PartOccurrence ComponentPropertiesDialog::current_value() const {
     auto result = initial_;
-    result.name = name_->text().trimmed().toStdString();
     result.placement = {
         translation_[0]->value(), translation_[1]->value(), translation_[2]->value(),
         rotation_[0]->value(), rotation_[1]->value(), rotation_[2]->value(),
@@ -724,12 +743,6 @@ void ComponentPropertiesDialog::notify_preview() {
 }
 
 bool ComponentPropertiesDialog::submit() {
-    const QString name = name_->text().trimmed();
-    if (name.isEmpty()) {
-        error_->setText(tr("Název nesmí být prázdný."));
-        name_->setFocus();
-        return false;
-    }
     auto result = current_value();
     try {
         commit_(std::move(result));

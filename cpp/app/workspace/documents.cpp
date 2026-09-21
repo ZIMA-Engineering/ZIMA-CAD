@@ -36,6 +36,7 @@ public:
         part_mode_->setAccessibleName(QObject::tr("Typ aplikace"));
         part_mode_->addItem(QObject::tr("Modelování"),"modeling");
         part_mode_->addItem(QObject::tr("Plech"),"sheet_metal");
+        part_mode_->addItem(QObject::tr("Skeleton"),"skeleton");
         part_ = add_type(layout, QObject::tr("Díl"), "part", "part", true,part_mode_);
         add_type(layout, QObject::tr("Sestava"), "assembly", "assembly", true);
         drawing_format_=new QComboBox(this);
@@ -142,7 +143,10 @@ void AssemblyWorkspaceWindow::new_document() {
 QString AssemblyWorkspaceWindow::create_document(
     const QString& document_type, const QString& file_stem,
     const QString& part_mode,const QString& drawing_frame) {
-    const std::string name = file_stem.trimmed().toStdString();
+    auto stem = file_stem.trimmed();
+    if (stem.isEmpty()) return tr("Zadejte název souboru.");
+    if (document_type == "part" && part_mode == "skeleton" && !stem.endsWith("_skeleton", Qt::CaseInsensitive)) stem += "_skeleton";
+    const std::string name = stem.toStdString();
     if (name.empty()) return tr("Zadejte název souboru.");
     const QString suffix = document_type == QStringLiteral("part")
         ? QStringLiteral(".prtz")

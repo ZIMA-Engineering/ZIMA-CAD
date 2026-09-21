@@ -35,6 +35,8 @@ public:
             for(const auto& reference:sketch.external_references)if(!reference.source_document_id.empty() && reference.source_document_id!=id)dependencies.push_back(reference.source_document_id);
             return true;
         });
+        if (const auto* part=workspace.open_part(id); part && assembly::is_skeleton_file(part->path) && !dependencies.empty())
+            throw DocumentDependencyError("skeleton_dependency", "Skeleton geometry cannot depend on another document.");
         // Recursion may grow the private document vector. Keep no borrowed state
         // pointers across it; only the collected stable document IDs survive.
         for(const auto& dependency:dependencies)visit(dependency);
@@ -96,6 +98,8 @@ private:
 }
 void require_acyclic_document_dependency(const Workspace& live,const std::string& owner,const std::string& source) {
     if(owner.empty()||source.empty())throw DocumentDependencyError("invalid_dependency","Document dependency identities are required.");
+    if (const auto* part=live.open_part(owner); part && assembly::is_skeleton_file(part->path) && owner!=source)
+        throw DocumentDependencyError("skeleton_dependency", "Skeleton geometry cannot depend on another document.");
     DocumentDependencies(live,owner).visit(source);
 }
 } // namespace zima::workspace

@@ -18,7 +18,7 @@ int verify_new_document_options(QApplication& application) {
                     if(radio->property("documentType").toString()==type)radio->setChecked(true);
                 auto* modes=dialog->findChild<QComboBox*>("newDocumentPartMode");
                 auto* formats=dialog->findChild<QComboBox*>("newDocumentDrawingFormat");
-                check(modes&&formats&&modes->count()==2,"New Document option controls missing");
+                check(modes&&formats&&modes->count()==3,"New Document option controls missing");
                 check(modes->isEnabled()==(type=="part")&&formats->isEnabled()==(type=="drawing"),"Options do not follow document type");
                 if(type=="part")modes->setCurrentIndex(mode);
                 if(a3) {
@@ -63,7 +63,39 @@ int verify_new_document_options(QApplication& application) {
             check(window.findChild<QComboBox*>("applicationModeSelector")->currentData().toInt()==2,"Sheet Metal selection was ignored");
             const auto sheet=document::PartDocument::load(std::filesystem::u8path(directory.filePath("sheet.prtz").toStdString()));
             check(sheet.history.empty()&&sheet.body_history.bodies().size()==1,"Sheet Metal choice changed the Part model");
+            create("part","reference",2);
+            check(window.findChild<QComboBox*>("applicationModeSelector")->currentData().toInt()==0,"Skeleton must use Modeling");
+            check(QFileInfo::exists(directory.filePath("reference_skeleton.prtz")),"Skeleton filename suffix is missing");
             create("assembly","assembly");
+            auto* insert_menu=window.findChild<QMenu*>("insertComponentMenu");
+            check(insert_menu,"Assembly insertion menu missing");
+            insert_menu->aboutToShow();
+            QAction* insert_skeleton=nullptr;
+            for(auto* action:insert_menu->actions())if(action->objectName()=="insertSkeletonAction")insert_skeleton=action;
+            check(insert_skeleton&&insert_skeleton->isEnabled(),"Insert Skeleton is unavailable in an empty Assembly");
+            QTimer choose_skeleton;
+            QObject::connect(&choose_skeleton,&QTimer::timeout,&window,[&]{
+                if(auto* file=qobject_cast<QFileDialog*>(QApplication::activeModalWidget())) {
+                    choose_skeleton.stop();file->selectFile(directory.filePath("reference_skeleton.prtz"));
+                    QMetaObject::invokeMethod(file,"accept",Qt::QueuedConnection);
+                }
+            });
+            choose_skeleton.start(10);insert_skeleton->trigger();choose_skeleton.stop();flush();
+            app::ComponentPropertiesDialog* properties=nullptr;
+            for(auto* candidate:window.findChildren<QDialog*>())if(auto* component=dynamic_cast<app::ComponentPropertiesDialog*>(candidate))properties=component;
+            check(properties,"Skeleton insertion did not reuse component Properties");
+            check(properties->findChild<QLabel*>("componentFileName")->text()=="reference_skeleton.prtz"&&
+                !properties->findChild<QLineEdit*>("componentName"),"Component properties must show the immutable source filename");
+            properties->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+            auto* tree=window.findChild<QTreeWidget*>();
+            check(tree&&tree->topLevelItem(0)->child(1)->text(0).startsWith("reference_skeleton.prtz"),"Skeleton is not immediately after the Assembly Origin");
+            insert_menu->aboutToShow();
+            for(auto* action:insert_menu->actions())if(action->objectName()=="insertSkeletonAction")
+                check(!action->isEnabled(),"A second Skeleton insertion remained enabled");
+            window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+            const auto saved_assembly=assembly::AssemblyDocument::load(std::filesystem::u8path(directory.filePath("assembly.asmz").toStdString()));
+            check(saved_assembly.components.size()==1&&assembly::is_skeleton(saved_assembly.components.front()),"Skeleton was lost on native reopen");
+
             window.findChild<QToolButton*>("documentKindButton")->click();flush();
             check_drawing(drawing::SheetFormat::A4,"assembly");
             create("drawing","chosen-format",0,true);

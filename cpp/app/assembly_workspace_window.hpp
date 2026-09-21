@@ -664,7 +664,7 @@ private:
     void open_document();
     void rebuild_insert_menu();
     [[nodiscard]] bool has_insertable_component() const;
-    void insert_component_from_file();
+    void insert_component_from_file(bool skeleton_only = false);
     void insert_component(const std::string& source_document_id);
     void choose_component_variant(const std::string& source_document_id,
         const std::string& replaced_instance_path = {});

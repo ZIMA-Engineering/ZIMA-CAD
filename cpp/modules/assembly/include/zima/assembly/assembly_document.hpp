@@ -6,6 +6,9 @@
 #include <zima/document/section.hpp>
 
 #include <array>
+#include <algorithm>
+#include <cctype>
+#include <zima/document/file_path.hpp>
 #include <zima/document/document_copy.hpp>
 
 #include <zima/kernel/geometry_kernel.hpp>
@@ -47,6 +50,14 @@ enum class ComponentSourceKind {
     Assembly,
     Pattern, // Assembly-owned group of dependent occurrences.
 };
+
+// Snapshot names are source filenames (including extensions) for native components.
+// Derived copies retain their Assembly-owned labels.
+inline bool is_skeleton_file(const std::filesystem::path& path) {
+    auto name = document::path_to_utf8(path.filename());
+    std::ranges::transform(name, name.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return name.ends_with("_skeleton.prtz");
+}
 
 struct OccurrenceSnapshot {
     std::string occurrence_id;
@@ -149,6 +160,13 @@ struct PartOccurrence {
     double mass_volume_mm3{};
     bool source_missing{};
 };
+
+inline bool is_skeleton(const PartOccurrence& value) {
+    return value.source_kind == ComponentSourceKind::Part && !value.derived_copy && is_skeleton_file(value.source_path);
+}
+inline bool is_skeleton(const OccurrenceSnapshot& value) {
+    return value.source_kind == ComponentSourceKind::Part && value.derived_source_id.empty() && is_skeleton_file(std::filesystem::u8path(value.name));
+}
 
 // Only explicit body operations may call this. Ordinary Assemblies retain
 // shared child snapshots and viewer data, not a duplicate compound B-Rep.

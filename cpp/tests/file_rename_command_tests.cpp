@@ -130,8 +130,8 @@ int main() {
                 const auto* open_group = fixture.live.open_assembly(fixture.group.document_id);
                 const auto* open_drawing = fixture.live.open_drawing(fixture.drawing.document_id);
                 require(open_group->session.document().components[1].name==document::path_to_utf8(fixture.target.stem())&&
-                    fixture.live.open_assembly(parent_id)->session.document().components[0].nested_snapshot[0].name==document::path_to_utf8(fixture.target.stem())&&
-                    fixture.live.open_assembly(parent_id)->session.document().components[1].nested_snapshot[1].name==document::path_to_utf8(fixture.target.stem()),
+                    fixture.live.open_assembly(parent_id)->session.document().components[0].nested_snapshot[0].name==document::path_to_utf8(fixture.target.filename())&&
+                    fixture.live.open_assembly(parent_id)->session.document().components[1].nested_snapshot[1].name==document::path_to_utf8(fixture.target.filename()),
                     "Rename missed repeated or nested occurrence names");
                 auto* editable_group=fixture.live.open_assembly(fixture.group.document_id);
                 require(editable_group->session.undo()&&editable_group->session.document().components[0].name==document::path_to_utf8(fixture.target.stem())&&
@@ -301,6 +301,27 @@ int main() {
                     "Companion filename overrode live ownership or saved unrelated owner edits");
             }
             fixture.clean_staging();
+        }
+        {
+            const auto folder=root/"skeleton";fs::create_directory(folder);
+            const auto source=folder/"design_skeleton.prtz", target=folder/"renamed_skeleton.prtz";
+            part.save(source,boundaries);
+            auto owner=assembly::AssemblyDocument::create_default();
+            owner.components.push_back(assembly::AssemblyDocument::create_part_occurrence("Internal alias",part.document_id,source,boundaries.back()));
+            owner.save(folder/"owner.asmz");
+            auto drawing=drawing::DrawingDocument::create_default();
+            drawing.source_document_id=part.document_id;drawing.source_path=source;drawing.source_name=part.name;
+            drawing.save(folder/"design_skeleton.drwz");
+            workspace::Workspace live;
+            live.add_part(part,boundaries,source);live.add_assembly(owner,folder/"owner.asmz");live.add_drawing(drawing,folder/"design_skeleton.drwz");
+            auto job=workspace::prepare_document_file_rename(live,part.document_id,"renamed.prtz",folder);
+            job.stage();const auto result=job.commit(live);
+            require(result.ok()&&fs::exists(target)&&!fs::exists(source)&&fs::exists(folder/"renamed_skeleton.drwz"),
+                "Skeleton rename did not preserve its suffix and Drawing companion");
+            require(live.open_assembly(owner.document_id)->session.document().components.front().source_path==target&&
+                live.open_drawing(drawing.document_id)->document().source_path==target&&
+                live.open_drawing(drawing.document_id)->path==folder/"renamed_skeleton.drwz",
+                "Skeleton rename left stale Assembly or Drawing references");
         }
         require(fs::canonical(root).parent_path() == fs::canonical(fs::temp_directory_path()), "Unsafe fixture cleanup");
         fs::remove_all(root);

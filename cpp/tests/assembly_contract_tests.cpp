@@ -1,5 +1,6 @@
 #include <zima/assembly/assembly_document.hpp>
 #include <zima/assembly/assembly_session.hpp>
+#include <zima/assembly/physical_properties.hpp>
 #include <zima/kernel/occt_kernel.hpp>
 #include <zima/viewer/picking.hpp>
 
@@ -55,6 +56,43 @@ int main() {
         zima::kernel::OcctKernel kernel;
         const auto fixture_body=kernel.evaluate_history({
             {"fixture-source",zima::kernel::BoxRequest{4,5,6},zima::kernel::BooleanOperation::Add}}).back();
+        {
+            using namespace zima::assembly;
+            auto doc = AssemblyDocument::create_default();
+            auto reference = AssemblyDocument::create_part_occurrence("Misleading alias", "skeleton-source",
+                "ZE026-0100-0000_SKELETON.PRTZ", fixture_body);
+            auto real = AssemblyDocument::create_part_occurrence("Alias", "real-source", "real.prtz", fixture_body);
+            reference.density_kg_mm3 = real.density_kg_mm3 = 0.001;
+            doc.components = {reference, real};
+            require(is_skeleton(reference) && !is_skeleton(real), "Skeleton classification must use the source filename");
+            require(doc.occurrence_snapshot().at(0).name == "ZE026-0100-0000_SKELETON.PRTZ" &&
+                doc.occurrence_snapshot().at(1).name == "real.prtz", "Occurrence snapshots must display full filenames");
+            require(occurrence_mass_kg(reference) == 0, "Skeleton contributed mass");
+            const auto all = physical_values(doc);
+            auto physical_only = doc; physical_only.components.erase(physical_only.components.begin());
+            require(all == physical_values(physical_only), "Skeleton contributed physical totals");
+            const auto nested = AssemblyDocument::create_assembly_occurrence("Nested", doc.document_id, "nested.asmz", doc);
+            require(std::abs(nested.calculated_source->volume - fixture_body.volume) < 1e-7,
+                "Nested Assembly counted Skeleton volume");
+            const auto solid = calculate_component_body(nested, kernel);
+            require(std::abs(solid.volume - fixture_body.volume) < 1e-7 &&
+                solid.mesh.triangles.size() == fixture_body.mesh.triangles.size(), "Skeleton entered the nested physical compound");
+            bool rejected = false;
+            try { static_cast<void>(calculate_component_body(reference, kernel)); } catch(const std::runtime_error&) { rejected = true; }
+            require(rejected, "Skeleton accepted as a body operand");
+            auto duplicate = reference; duplicate.occurrence_id = "second-skeleton"; duplicate.source_missing = true;
+            doc.components.push_back(duplicate); rejected = false;
+            try { static_cast<void>(doc.build_scene()); } catch(const std::runtime_error&) { rejected = true; }
+            require(rejected, "Missing Skeleton did not reserve the single Skeleton slot");
+            doc.components.pop_back();
+            auto restored = AssemblyDocument::from_serialized(doc.serialized());
+            restored.hydrate_sources({}, fixture_sources(doc));
+            require(is_skeleton(restored.components.front()), "Skeleton role was lost through serialization");
+            AssemblySession edits(doc); auto hidden = doc; hidden.components.front().visible = false;
+            edits.commit(hidden);
+            require(!edits.document().components.front().visible && edits.undo() && edits.document().components.front().visible &&
+                edits.redo() && !edits.document().components.front().visible, "Skeleton visibility lost Undo/Redo");
+        }
         auto fixture_inner=zima::assembly::AssemblyDocument::create_default();
         fixture_inner.components.push_back(zima::assembly::AssemblyDocument::create_part_occurrence(
             "Fixture Part","part-fixture-001",{},fixture_body));

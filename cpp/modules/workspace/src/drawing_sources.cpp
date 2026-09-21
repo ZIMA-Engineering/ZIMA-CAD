@@ -83,7 +83,7 @@ std::vector<zima::drawing::BomRow> build_bom_rows_for_source(
     };
     if(assembly) {
         const auto suppressed=assembly->effectively_suppressed_occurrences();
-        for(const auto& component:assembly->components)if(!suppressed.contains(component.occurrence_id))
+        for(const auto& component:assembly->components)if(!assembly::is_skeleton(component)&&!suppressed.contains(component.occurrence_id))
             append(component.source_document_id,component.source_path,component.name,assembly::InstancePath{}.child(component.occurrence_id).encoded());
     }
     else if((workspace&&workspace->open_part(source_id))||source_extension(source_path)==".prtz")

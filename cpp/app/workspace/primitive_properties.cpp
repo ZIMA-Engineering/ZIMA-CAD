@@ -343,7 +343,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
     std::vector<std::string> selected_targets;
     if (assembly_cut) {
         for (const auto& component : assembly->session.document().components) {
-            if (component.suppressed || component.derived_copy || component.source_kind !=
+            if (zima::assembly::is_skeleton(component) || component.suppressed || component.derived_copy || component.source_kind !=
                     zima::assembly::ComponentSourceKind::Part) continue;
             assembly_targets.emplace_back(component.occurrence_id, component.name);
             if (!edit_mode) selected_targets.push_back(component.occurrence_id);

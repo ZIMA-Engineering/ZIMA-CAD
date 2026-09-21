@@ -189,7 +189,12 @@ void AssemblyWorkspaceWindow::update_section_ui(){
     group->setData(0,Qt::UserRole+3,"document-sections");
     group->setFlags(group->flags()&~Qt::ItemIsUserCheckable);
     group->setIcon(0,resource_icon("sections"));
-    root->insertChild(std::min(1,root->childCount()),group);group->setExpanded(section_tree_expanded_[id]);
+    auto position=std::min(1,root->childCount());
+    if(const auto* assembly=workspace_.open_assembly(id); assembly && position<root->childCount()) {
+        const auto* component=assembly->session.document().find_occurrence(root->child(position)->data(0,Qt::UserRole).toString().toStdString());
+        if(component && zima::assembly::is_skeleton(*component)) ++position;
+    }
+    root->insertChild(position,group);group->setExpanded(section_tree_expanded_[id]);
     const auto row=[&](const QString& name,const std::string& key,const char* type,bool active){
         auto* item=new QTreeWidgetItem(group,QStringList{name});
         item->setData(0,Qt::UserRole,QString::fromStdString(key));item->setData(0,Qt::UserRole+3,type);

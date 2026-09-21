@@ -4,7 +4,7 @@ namespace zima::assembly {
 namespace {
 void rename_snapshot(std::vector<OccurrenceSnapshot>& rows,document::FileRelocationEdits& edits) {
     for(auto& row:rows) {
-        if(row.derived_source_id.empty()&&!row.pattern_group)edits.document_name(row.source_document_id,row.name);
+        if(row.derived_source_id.empty()&&!row.pattern_group)edits.source_filename(row.source_document_id,row.name);
         rename_snapshot(row.children,edits);
     }
 }

@@ -148,7 +148,16 @@ FileRenameJob prepare_document_file_rename(const Workspace& live, const std::str
     if (name.extension().empty()) name += impl->from.extension();
     if (extension(name) != extension(impl->from))
         throw FileRenameError("document_type_mismatch", "Renaming a native file must preserve its document extension.");
+    if (assembly::is_skeleton_file(impl->from) && !assembly::is_skeleton_file(name))
+        name = fs::u8path(document::path_to_utf8(name.stem()) + "_skeleton" + document::path_to_utf8(name.extension()));
     impl->to = impl->from.parent_path() / name;
+    for (const auto& open_state : live.documents()) if (const auto* owner = std::get_if<AssemblyState>(&open_state)) {
+        const auto count = std::ranges::count_if(owner->session.document().components, [&](const auto& component) {
+            return !component.derived_copy && component.source_kind == assembly::ComponentSourceKind::Part &&
+                assembly::is_skeleton_file(component.source_document_id == id ? impl->to : component.source_path);
+        });
+        if (count > 1) throw FileRenameError("duplicate_skeleton", "An Assembly can contain only one Skeleton.");
+    }
     if (impl->to != impl->from) impl->destination_available(impl->to);
     impl->token = document::PartDocument::create_default().document_id;
     impl->moves.push_back({id, impl->from, impl->to});

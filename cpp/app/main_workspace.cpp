@@ -7370,12 +7370,14 @@ int verify_component_references(QApplication& application, const std::filesystem
     if(!verify(component_command("component.set",{{"instance_path",second_path},{"name","Komponenta z CLI"},
         {"placement_references",commands::Json::array({console_mate})}}).ok,"GUI console component edit failed"))return 1;
     flush();window.show_tree_item_properties(find(second,second_path));flush();
-    if(!verify(dialog()&&dialog()->findChild<QLineEdit*>("componentName")->text()==QStringLiteral("Komponenta z CLI")&&
+    if(!verify(dialog()&&dialog()->findChild<QLabel*>("componentFileName") && !dialog()->findChild<QLineEdit*>("componentName") && dialog()->pending_value().name=="Komponenta z CLI"&&
         dialog()->placement_references().size()==1&&std::abs(dialog()->pending_value().placement.z-6)<1e-7,
         "Properties did not display the CLI name, original reference and solved placement"))return 1;
-    dialog()->findChild<QLineEdit*>("componentName")->setText(QStringLiteral("Komponenta z GUI"));
+    auto edited_references = dialog()->placement_references();
+    edited_references.front().offset = 7;
+    dialog()->set_placement_references(std::move(edited_references));
     dialog()->buttons()->button(QDialogButtonBox::Ok)->click();flush();
-    if(!verify(!dialog()&&component_command("component.get",{{"instance_path",second_path}}).data.at("name")=="Komponenta z GUI",
+    if(!verify(!dialog()&&component_command("component.get",{{"instance_path",second_path}}).data.at("name")=="Komponenta z CLI" && std::abs(component_command("component.get",{{"instance_path",second_path}}).data.at("placement").at("z_mm").get<double>()-7)<1e-7,
         "GUI Properties did not commit through the shared component transaction"))return 1;
     window.findChild<QAction*>("undoAction")->trigger();flush();
     window.findChild<QAction*>("undoAction")->trigger();flush();
@@ -11507,7 +11509,7 @@ int verify_startup_contract(
         application.processEvents();
         QDialog* inserted_component_dialog = nullptr;
         for (auto* pending : window.findChildren<QDialog*>())
-            if (pending->isVisible() && pending->findChild<QLineEdit*>("componentName"))
+            if (pending->isVisible() && pending->findChild<QLabel*>("componentFileName"))
                 inserted_component_dialog = pending;
         if (!verify(inserted_component_dialog != nullptr,
                     "BOM component insertion must open its placement Properties")) return 1;

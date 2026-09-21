@@ -249,10 +249,21 @@ void AssemblyWorkspaceWindow::show_component_context_menu(
     const bool source_is_assembly =
         address->source_kind == zima::assembly::ComponentSourceKind::Assembly;
     QMenu menu(this);
+    QAction* insert_skeleton = nullptr;
+    if (is_active_occurrence && source_is_assembly) {
+        insert_skeleton = menu.addAction(resource_icon("skeleton"), tr("Vložit Skeleton…"));
+        insert_skeleton->setObjectName("insertSkeletonAction");
+        const auto* active = workspace_.open_assembly(workspace_.active_document_id());
+        insert_skeleton->setEnabled(active && std::ranges::none_of(active->session.document().components,
+            [](const auto& value) { return zima::assembly::is_skeleton(value); }));
+    }
     if(is_active_occurrence)menu.addAction(resource_icon("active-check"),tr("Aktivní"));
     auto* activate_or_deactivate = is_active_occurrence
         ? menu.addAction(tr("Zpět do sestavy"))
         : menu.addAction(tr("Aktivní"));
+    auto* edit_skeleton = zima::assembly::is_skeleton(*occurrence) && !is_active_occurrence
+        ? menu.addAction(tr("Upravit")) : nullptr;
+    if (edit_skeleton) edit_skeleton->setObjectName("editSkeletonAction");
     auto* open = menu.addAction(resource_icon("open"),tr("Otevřít"));
     open->setObjectName("openComponentSourceAction");
     auto* source_file=menu.addAction(tr("Zdrojový soubor…"));
@@ -284,6 +295,12 @@ void AssemblyWorkspaceWindow::show_component_context_menu(
             source_is_assembly?"assembly-occurrence":"part-occurrence",address->occurrence_id);
     else add_component_rename_action(menu,instance_path);
     const QAction* selected = menu.exec(global_position);
+    if(edit_skeleton && selected==edit_skeleton) {
+        if(!activate_occurrence_for_test(instance_path))
+            QMessageBox::warning(this,tr("Aktivace selhala"),tr("Zdrojový dokument komponenty se nepodařilo otevřít nebo aktivovat."));
+        return;
+    }
+    if(insert_skeleton && selected==insert_skeleton) { insert_component_from_file(true); return; }
     if(selected==source_file) {
         const auto path=open_file(this,tr("Zdrojový soubor"),QString::fromStdString(zima::document::path_to_utf8(working_directory_)),
             source_is_assembly?tr("Sestavy ZIMA-CAD (*.asmz)"):tr("Díly ZIMA-CAD (*.prtz)"));

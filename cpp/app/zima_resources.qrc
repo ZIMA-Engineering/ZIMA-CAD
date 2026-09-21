@@ -40,6 +40,7 @@
     <file alias="icons/sections.svg">../../resources/icons/sections.svg</file>
     <file alias="icons/section-normal.svg">../../resources/icons/section-normal.svg</file>
     <file alias="icons/section-cut.svg">../../resources/icons/section-cut.svg</file>
+    <file alias="icons/skeleton.svg">../../resources/icons/skeleton.svg</file>
     <file alias="icons/drawing.svg">../../resources/icons/drawing.svg</file>
     <file alias="icons/drawing-format.svg">../../resources/icons/drawing-format.svg</file>
     <file alias="icons/template-image.svg">../../resources/icons/template-image.svg</file>

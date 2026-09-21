@@ -1,5 +1,6 @@
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/component_operations.hpp>
+#include <zima/workspace/document_dependencies.hpp>
 #include <zima/document/file_path.hpp>
 #include <iostream>
 #include <cmath>
@@ -10,6 +11,23 @@ commands::Result run(command_host::Host& host,const char* name,Json args=Json::o
     auto result=host.execute({{"command",name},{"arguments",std::move(args)}});if(!result.ok)throw std::runtime_error(std::string(name)+": "+result.code+": "+result.message);return result;
 }
 command_host::Options options() {command_host::Options options;options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"start_part.prtz","start_assembly.asmz","Body"},{}};};return options;}
+void skeleton(const kernel::OcctKernel& kernel,fs::path dir) {
+    workspace::Workspace live;command_host::Host host(live,kernel,dir,options());
+    run(host,"new",{{"type","part"},{"name","reference_skeleton"}});const auto source=live.active_document_id();run(host,"save");
+    run(host,"new",{{"type","assembly"},{"name","skeleton-owner"}});const auto owner=live.active_document_id();
+    run(host,"component.insert",{{"source",source}});
+    require(live.open_assembly(owner)->session.document().components.size()==1,"An empty reference Skeleton could not be inserted");
+    const auto revision=live.open_assembly(owner)->session.revision();
+    const auto failed=host.execute({{"command","component.insert"},{"arguments",{{"source",source}}}});
+    require(!failed.ok&&live.open_assembly(owner)->session.revision()==revision,"Duplicate Skeleton partially committed");
+    run(host,"new",{{"type","assembly"},{"name","skeleton-parent"}});const auto parent=live.active_document_id();
+    run(host,"component.insert",{{"source",source}});run(host,"component.insert",{{"source",owner}});
+    require(live.open_assembly(parent)->session.document().components.size()==2,"Nested Assembly could not own an independent Skeleton");
+    bool rejected=false;
+    try {workspace::require_acyclic_document_dependency(live,source,owner);}catch(const workspace::DocumentDependencyError&){rejected=true;}
+    require(rejected,"Skeleton accepted a reverse document dependency");
+    run(host,"save");
+}
 void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     workspace::Workspace live;command_host::Host host(live,kernel,dir,options());
     run(host,"new",{{"type","part"},{"name","component-part"}});const auto source=live.active_document_id();
@@ -46,7 +64,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     run(host,"save");run(host,"close",{{"document",sub}});run(host,"close",{{"document",source}});
     const auto before=live.open_assembly(owner)->session.revision(),generation=live.open_assembly(owner)->session.data_generation();
     fs::remove(dir/"component-part.prtz");fs::remove(dir/"component-subassembly.asmz");
-    require(run(host,"component.get",{{"instance_path",path1}}).data.at("name")=="component-part" && run(host,"component.list",{{"recursive",true}}).data.at("total")==7,"Snapshot queries loaded closed source files");
+    require(run(host,"component.get",{{"instance_path",path1}}).data.at("name")=="component-part.prtz" && run(host,"component.list",{{"recursive",true}}).data.at("total")==7,"Snapshot queries loaded closed source files");
     require(live.open_assembly(owner)->session.revision()==before && live.open_assembly(owner)->session.data_generation()==generation,"Queries changed revision or generation");
     const auto loaded=assembly::AssemblyDocument::load(dir/"component-owner.asmz");
     require(loaded.find_occurrence(sub1)->source_missing && loaded.find_occurrence(sub1)->nested_snapshot.empty(),"Reopened Assembly retained embedded children of a deleted source file");
@@ -92,4 +110,4 @@ void cycles(const kernel::OcctKernel& kernel,fs::path dir) {
     require(!failed.ok && live.open_assembly(owner)->session.revision()==revision && live.open_assembly(owner)->session.data_generation()==generation && live.open_assembly(owner)->session.document().components.size()==1,"A physical relation error partially committed insertion");
 }
 }
-int main(){try{kernel::OcctKernel kernel;const auto parent=fs::canonical(fs::temp_directory_path());const auto dir=parent/("zima-component-command-"+document::PartDocument::create_default().document_id);fs::create_directory(dir);verify(kernel,dir);cycles(kernel,dir);require(dir.parent_path()==parent,"Unsafe cleanup");fs::remove_all(dir);std::cout<<"Component snapshots, exact paths, native insertion, Undo, parent isolation and dependency cycles passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
+int main(){try{kernel::OcctKernel kernel;const auto parent=fs::canonical(fs::temp_directory_path());const auto dir=parent/("zima-component-command-"+document::PartDocument::create_default().document_id);fs::create_directory(dir);verify(kernel,dir);cycles(kernel,dir);skeleton(kernel,dir);require(dir.parent_path()==parent,"Unsafe cleanup");fs::remove_all(dir);std::cout<<"Component snapshots, exact paths, native insertion, Undo, parent isolation and dependency cycles passed\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

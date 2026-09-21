@@ -50,6 +50,8 @@ bool AssemblySession::is_dirty() const {
 bool AssemblySession::can_undo() const {return !undo_.empty();}
 bool AssemblySession::can_redo() const {return !redo_.empty();}
 void AssemblySession::replace(AssemblyDocument document) {
+    if (std::ranges::count_if(document.components, [](const auto& value) { return is_skeleton(value); }) > 1)
+        throw std::runtime_error("An Assembly can contain only one Skeleton.");
     zima::document::refresh_physical_relations(document,physical_values(document));
     document.synchronize_dimension_identifiers();
     auto next=std::make_unique<State>(State{std::move(document),0,false});
@@ -59,6 +61,8 @@ void AssemblySession::replace(AssemblyDocument document) {
 }
 void AssemblySession::commit(AssemblyDocument document) {
     const auto intercept=commit_interceptor;if(intercept&&intercept(document))return;
+    if (std::ranges::count_if(document.components, [](const auto& value) { return is_skeleton(value); }) > 1)
+        throw std::runtime_error("An Assembly can contain only one Skeleton.");
     zima::document::refresh_physical_relations(document,physical_values(document));
     document.dimension_identifiers.retain(current_->document.dimension_identifiers);
     document.synchronize_dimension_identifiers();
@@ -68,6 +72,8 @@ void AssemblySession::commit(AssemblyDocument document) {
     redo_.clear();++data_generation_;
 }
 void AssemblySession::update_dependency_snapshots(AssemblyDocument document) {
+    if (std::ranges::count_if(document.components, [](const auto& value) { return is_skeleton(value); }) > 1)
+        throw std::runtime_error("An Assembly can contain only one Skeleton.");
     zima::document::refresh_physical_relations(document,physical_values(document));
     document.dimension_identifiers.retain(current_->document.dimension_identifiers);
     document.synchronize_dimension_identifiers();

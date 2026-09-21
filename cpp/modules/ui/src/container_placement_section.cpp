@@ -226,8 +226,8 @@ ContainerPlacementSection::ContainerPlacementSection(
                     notify_changed();
                 });
         }
-        coordinates->addWidget(new QLabel(tr("Absolutní"),numeric_panel),0,2,1,2);
-        coordinates->addWidget(new QLabel(tr("Korekce"),numeric_panel),0,4,1,2);
+        coordinates->addWidget(new QLabel(tr("Natočení"),numeric_panel),0,2,1,2);
+        coordinates->addWidget(new QLabel(tr("Korekce natočení"),numeric_panel),0,4,1,2);
         coordinates->setColumnStretch(3,1);coordinates->setColumnStretch(5,1);
         for(int index=0;index<3;++index) {
             const auto label=index==0?tr("RX"):index==1?tr("RY"):tr("RZ");

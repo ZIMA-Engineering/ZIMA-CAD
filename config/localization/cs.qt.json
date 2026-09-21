@@ -416,6 +416,8 @@
   "Cut finite cylindrical channels along the segments of an owned Sketch.": "Vyřízne konečné válcové kanálky podél úseček vlastní skici.",
   "Rovina kontejneru": "Rovina kontejneru",
   " deg": " deg",
+  "Natočení": "Natočení",
+  "Korekce natočení": "Korekce natočení",
   "Poloha": "Poloha",
   "ZADNÍ": "ZADNÍ",
   "PŘEDNÍ": "PŘEDNÍ",
@@ -1499,5 +1501,11 @@
   "Průhlednost": "Průhlednost",
   "0 % = neprůhledné, 100 % = zcela průhledné": "0 % = neprůhledné, 100 % = zcela průhledné",
   "Zobrazit počátek": "Zobrazit počátek",
-  "Skrýt počátek": "Skrýt počátek"
+  "Skrýt počátek": "Skrýt počátek",
+  "Vložit Skeleton…": "Vložit Skeleton…",
+  "Skeleton (*_skeleton.prtz)": "Skeleton (*_skeleton.prtz)",
+  "Název souboru musí končit na _skeleton.prtz.": "Název souboru musí končit na _skeleton.prtz.",
+  "An Assembly can contain only one Skeleton.": "Sestava může obsahovat pouze jeden Skeleton.",
+  "Skeleton cannot be used in Assembly body operations.": "Skeleton nelze použít v operacích těles sestavy.",
+  "Skeleton geometry cannot depend on another document.": "Geometrie Skeletonu nesmí záviset na jiném dokumentu."
 }

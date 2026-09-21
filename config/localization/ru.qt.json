@@ -416,6 +416,8 @@
   "Cut finite cylindrical channels along the segments of an owned Sketch.": "Вырезать конечные цилиндрические каналы вдоль отрезков собственного эскиза.",
   "Rovina kontejneru": "Плоскость контейнера",
   " deg": " deg",
+  "Natočení": "Поворот",
+  "Korekce natočení": "Коррекция поворота",
   "Poloha": "Положение",
   "ZADNÍ": "ЗАДНЯЯ",
   "PŘEDNÍ": "ПЕРЕДНЯЯ",
@@ -1499,5 +1501,11 @@
   "Průhlednost": "Прозрачность",
   "0 % = neprůhledné, 100 % = zcela průhledné": "0 % = непрозрачный, 100 % = полностью прозрачный",
   "Zobrazit počátek": "Показать начало координат",
-  "Skrýt počátek": "Скрыть начало координат"
+  "Skrýt počátek": "Скрыть начало координат",
+  "Vložit Skeleton…": "Вставить Skeleton…",
+  "Skeleton (*_skeleton.prtz)": "Skeleton (*_skeleton.prtz)",
+  "Název souboru musí končit na _skeleton.prtz.": "Имя файла должно оканчиваться на _skeleton.prtz.",
+  "An Assembly can contain only one Skeleton.": "Сборка может содержать только один Skeleton.",
+  "Skeleton cannot be used in Assembly body operations.": "Skeleton нельзя использовать в операциях над телами сборки.",
+  "Skeleton geometry cannot depend on another document.": "Геометрия Skeleton не может зависеть от другого документа."
 }

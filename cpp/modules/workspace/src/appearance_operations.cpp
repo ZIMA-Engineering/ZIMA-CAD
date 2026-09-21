@@ -65,6 +65,7 @@ kernel::Appearance occurrence_appearance(const Workspace& live,const assembly::P
         overridden.owner_bodies=value.owner_bodies;
         return overridden;
     }
+    if(assembly::is_skeleton(component)) { value.body={"#4D8C78AE",.55,0}; value.bodies.clear(); value.groups.clear(); }
     if(component.body_color_override)value.body.color=*component.body_color_override;
     return value;
 }

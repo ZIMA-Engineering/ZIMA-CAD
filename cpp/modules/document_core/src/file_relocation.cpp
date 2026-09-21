@@ -30,6 +30,13 @@ void FileRelocationEdits::document_name(const std::string& id, std::string& valu
     for (const auto& file : relocations_)
         if (file.document_id == id) { name(value, file); return; }
 }
+void FileRelocationEdits::source_filename(const std::string& id, std::string& value) {
+    for (const auto& file : relocations_) if (file.document_id == id) {
+        auto next = path_to_utf8(file.to.filename());
+        if (value != next) names_.emplace_back(&value, std::move(next));
+        return;
+    }
+}
 void FileRelocationEdits::source_reference(const std::string& id, fs::path& path,
         const fs::path& owning_file, std::string* source_name) {
     fs::path resolved;

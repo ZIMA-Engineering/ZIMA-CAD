@@ -1118,8 +1118,8 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                 populate_sketch_tree(*sweep_profile_sketch_draft_);
         } else {
             auto* root = new QTreeWidgetItem(
-                tree_, {QString::fromStdString(part->path.empty() ? document.name : part->path.filename().string())});
-            root->setIcon(0, resource_icon("part"));
+                tree_, {QString::fromStdString(part->path.empty() ? document.name : zima::document::path_to_utf8(part->path.filename()))});
+            root->setIcon(0, resource_icon(zima::assembly::is_skeleton_file(part->path) ? "skeleton" : "part"));
             root->setData(0, Qt::UserRole, QString::fromStdString(document.document_id));
             root->setData(0, Qt::UserRole + 3, "part-result-body");
             if (document.body_history.active_body_id().empty() && !properties_dialog_) {
@@ -2060,7 +2060,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
     } else {
         tree_->setHeaderLabels({QString{}});
         auto* root = new QTreeWidgetItem(
-            tree_, {QString::fromStdString(assembly->path.empty() ? document.name : assembly->path.filename().string())});
+            tree_, {QString::fromStdString(assembly->path.empty() ? document.name : zima::document::path_to_utf8(assembly->path.filename()))});
         root->setIcon(0, resource_icon("assembly"));
         add_assembly_tree_children(root, document.document_id, {});
         root->setExpanded(true);

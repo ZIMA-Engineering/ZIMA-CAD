@@ -20,7 +20,8 @@ void verify(std::filesystem::path dir) {
     auto a=assembly::AssemblyDocument::create_part_occurrence("Pin A",part.document_id,{},empty);a.occurrence_id="a";
     auto b=a;b.occurrence_id="ab";b.name="Pin B";
     auto nested=assembly::AssemblyDocument::create_part_occurrence("Subassembly",sub.document_id,{},empty);nested.occurrence_id="s";
-    assembly.components={a,b,nested};live.add_assembly(assembly);
+    auto skeleton=a;skeleton.occurrence_id="reference";skeleton.source_path="reference_skeleton.prtz";
+    assembly.components={a,b,nested,skeleton};live.add_assembly(assembly);
     auto bom=workspace::build_bom_rows_for_source(assembly.document_id,{},&live);
     check(bom.size()==2&&bom[0].quantity==2&&bom[0].occurrence_paths==std::vector<std::string>{"1:a","2:ab"},"Grouped BOM lost exact occurrences");
     const kernel::EdgeReference pin{"pin-solid","edge","1:a"},pin2{"pin-solid","edge","2:ab"},leaf{"leaf-solid","edge","1:s4:leaf"};

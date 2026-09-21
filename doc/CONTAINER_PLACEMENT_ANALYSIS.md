@@ -90,6 +90,11 @@ Absolute/free angles and correction angles are separate persisted parameters.
 An editable correction is an intentional change relative to the reference frame;
 it must not be confused with a remaining rotational freedom.
 
+The properties panel labels its three numeric columns **Position**, **Rotation**,
+and **Rotation correction**. Assembly component properties place **Position** and
+**Rotation** side by side. These localized headings and layout changes do not
+alter reference solving, coordinate values, or persisted placement semantics.
+
 ### Automatic role assignment
 
 The generic input path examines the existing references before each new pick.

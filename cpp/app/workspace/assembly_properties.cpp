@@ -1,5 +1,7 @@
 #include "workspace_internal.hpp"
 #include <zima/workspace/component_properties.hpp>
+#include <zima/workspace/component_source_operations.hpp>
+#include "../file_dialog.hpp"
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -70,6 +72,23 @@ void AssemblyWorkspaceWindow::show_component_properties(
     const auto* occurrence = assembly->session.document().find_occurrence(
         address->occurrence_id);
     if (occurrence == nullptr) return;
+    if (occurrence->source_missing) {
+        const auto path = open_file(this, tr("Zdrojový soubor"),
+            QString::fromStdString(zima::document::path_to_utf8(working_directory_)),
+            occurrence->source_kind == zima::assembly::ComponentSourceKind::Assembly
+                ? tr("Sestavy ZIMA-CAD (*.asmz)") : tr("Díly ZIMA-CAD (*.prtz)"));
+        if (path.isEmpty()) return;
+        try {
+            zima::workspace::relink_component_source(workspace_, address->owner_assembly_document_id,
+                address->occurrence_id, std::filesystem::u8path(path.toStdString()),
+                [](auto task) { run_background_task(std::move(task)); });
+            refresh_scene();
+            show_component_properties(instance_path, start_reference_entry);
+        } catch (const std::exception& error) {
+            QMessageBox::warning(this, tr("Zdrojový soubor"), tr(error.what()));
+        }
+        return;
+    }
     const auto edit = zima::workspace::prepare_component_edit(workspace_,address->owner_assembly_document_id,address->occurrence_id);
     auto* dialog = new ComponentPropertiesDialog(
         *occurrence,

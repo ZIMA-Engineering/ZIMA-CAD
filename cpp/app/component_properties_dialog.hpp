@@ -97,7 +97,6 @@ private:
     ReferenceLabelResolver reference_label_resolver_;
     zima::assembly::PartOccurrence initial_;
     CommitCallback commit_;
-    QLineEdit* name_{};
     std::array<QDoubleSpinBox*, 3> translation_{};
     std::array<QDoubleSpinBox*, 3> rotation_{};
     QLabel* error_{};

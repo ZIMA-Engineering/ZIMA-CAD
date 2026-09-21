@@ -870,7 +870,12 @@ void AssemblyWorkspaceWindow::add_snapshot_tree_children(
         auto* item = new QTreeWidgetItem(parent, {label});
         if(component.source_missing)item->setToolTip(0,tr("Zdrojový soubor nebyl nalezen. Použijte příkaz Zdrojový soubor… v kontextovém menu komponenty."));
         item->setIcon(0, resource_icon(component.source_kind == zima::assembly::ComponentSourceKind::Assembly
-            ? "assembly" : "part"));
+            ? "assembly" : zima::assembly::is_skeleton(component) ? "skeleton" : "part"));
+        if (zima::assembly::is_skeleton(component)) {
+            parent->takeChild(parent->indexOfChild(item));
+            const bool origin_first = parent->childCount() > 0 && parent->child(0)->data(0, Qt::UserRole + 3).toString() == "document-origin";
+            parent->insertChild(origin_first ? 1 : 0, item);
+        }
         const auto path = parent_path.child(component.occurrence_id);
         if(!component.derived_source_id.empty()) {
             item->setIcon(0,resource_icon(component.pattern_group?"pattern":"mirror"));
@@ -901,6 +906,7 @@ void AssemblyWorkspaceWindow::add_snapshot_tree_children(
         } else if (suppressed || !component.visible) {
             item->setForeground(0, QBrush(QColor(125, 125, 125)));
         }
+        if (component.source_missing) item->setForeground(0, QBrush(QColor("#d94a4a")));
         if (component.source_kind != zima::assembly::ComponentSourceKind::Part) {
             const auto* active_source = active_occurrence
                 ? workspace_.open_assembly(component.source_document_id) : nullptr;
