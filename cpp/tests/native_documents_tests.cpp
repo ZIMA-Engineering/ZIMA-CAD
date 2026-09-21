@@ -31,6 +31,23 @@ int main(){
         const auto directory=fs::canonical(fs::temp_directory_path())/("zima-native-documents-"+document::PartDocument::create_default().document_id);
         fs::create_directory(directory);
         Workspace workspace;
+        {
+            const auto blank=drawing_from_template(settings);
+            require(blank.sheets.front().format==drawing::SheetFormat::A4&&blank.sheets.front().frame_lines.empty(),
+                "Missing optional Drawing templates must leave a blank A4 sheet");
+            auto configured=settings;configured.drawing_format=drawing::SheetFormat::A3;
+            configured.drawing_frame_template=fs::absolute("config/formats/ZE-A3.frmz");
+            configured.drawing_title_block_template=fs::absolute("config/formats/ZE-RAZITKO-en.tblz");
+            const auto prepared=prepare_new_native_document(NativeDocumentType::Drawing,"formatted",directory/"formatted.drwz",configured);
+            prepared.write(directory/"formatted.drwz");
+            const auto formatted=drawing::DrawingDocument::load(directory/"formatted.drwz");
+            const auto& sheet=formatted.sheets.front();
+            require(sheet.format==drawing::SheetFormat::A3&&!sheet.frame_lines.empty()&&
+                !sheet.title_block_lines.empty()&&sheet.title_block_locale=="en","Configured Drawing templates were not embedded");
+            configured.drawing_frame_template=directory/"missing.frmz";
+            fails([&]{static_cast<void>(drawing_from_template(configured));},"Missing selected Drawing frame was silently ignored");
+            require(workspace.size()==0,"Drawing template preparation mutated Workspace");
+        }
         auto first=prepare_new_native_document(NativeDocumentType::Part,"díl 1",directory/fs::path(u8"díl 1.prtz"),settings,{{"Length","cm"}});
         const auto first_id=first.id();
         require(first.type()==NativeDocumentType::Part && first_id!=template_part.document_id,"New Part reused template identity");

@@ -10,6 +10,8 @@
 #include <zima/command_host/host.hpp>
 #include <zima/document/file_path.hpp>
 #include <zima/document/versioned_file.hpp>
+#include <QSvgRenderer>
+#include <QPainter>
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -63,12 +65,20 @@ public:
     explicit AboutSubWindow(QMainWindow* parent)
         : PropertiesSubWindow(QObject::tr("O aplikaci ZIMA-CAD"), parent) {
         setMinimumWidth(520);
+        setObjectName("aboutDialog");
         auto* artwork = new QLabel(this);
+        artwork->setObjectName("aboutCompanyLogo");
         artwork->setAlignment(Qt::AlignCenter);
-        const QPixmap pixmap(QStringLiteral(":/zima/branding/about.svg"));
-        if (!pixmap.isNull()) {
-            artwork->setPixmap(pixmap.scaled(
-                480, 260, Qt::KeepAspectRatio, Qt::SmoothTransformation));
+        QSvgRenderer logo(QStringLiteral(":/zima/branding/ZIMA-Engineering.svg"));
+        if (logo.isValid()) {
+            const auto size=logo.defaultSize().scaled(420,100,Qt::KeepAspectRatio);
+            QPixmap pixmap(size*devicePixelRatioF());
+            pixmap.setDevicePixelRatio(devicePixelRatioF());
+            pixmap.fill(Qt::transparent);
+            QPainter painter(&pixmap);
+            logo.render(&painter,QRectF(QPointF(0,0),QSizeF(size)));
+            painter.end();
+            artwork->setPixmap(pixmap);
             content_layout()->addWidget(artwork);
         }
         auto* description = new QLabel(
@@ -82,6 +92,27 @@ public:
         description->setAlignment(Qt::AlignCenter);
         description->setWordWrap(true);
         content_layout()->addWidget(description);
+        auto* author = new QLabel(QObject::tr("Autor koncepce a vývoje: %1\n%2")
+            .arg(QString::fromUtf8("Ing. Vladimír Zima"), QStringLiteral("ZIMA-Engineering")), this);
+        author->setObjectName("aboutAuthor");
+        author->setAlignment(Qt::AlignCenter);
+        author->setWordWrap(true);
+        content_layout()->addWidget(author);
+        auto* story = new QLabel(QObject::tr("ZIMA-CAD vzniká z potřeb každodenní konstruktérské praxe. "
+            "Jeho cílem je spojit parametrické modelování, práci se sestavami a tvorbu technických výkresů "
+            "v přehledném prostředí, které respektuje způsob uvažování konstruktéra."), this);
+        story->setObjectName("aboutStory");
+        story->setAlignment(Qt::AlignCenter);
+        story->setWordWrap(true);
+        content_layout()->addWidget(story);
+        auto* contact = new QLabel(QStringLiteral(
+            "<a href=\"mailto:kontakt@zima-engineering.cz\">kontakt@zima-engineering.cz</a><br>"
+            "<a href=\"https://www.zima-engineering.cz\">www.zima-engineering.cz</a>"), this);
+        contact->setObjectName("aboutContact");
+        contact->setAlignment(Qt::AlignCenter);
+        contact->setOpenExternalLinks(true);
+        contact->setTextInteractionFlags(Qt::TextBrowserInteraction);
+        content_layout()->addWidget(contact);
         setAttribute(Qt::WA_DeleteOnClose);
     }
 

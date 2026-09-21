@@ -10,10 +10,13 @@ struct NativeTemplateSettings {
     std::string first_body_name{"Body 1"};
     double sheet_cut_tolerance{0.05};
     std::string first_sheet_name{"Sheet 1"};
+    drawing::SheetFormat drawing_format{drawing::SheetFormat::A4};
+    std::filesystem::path drawing_frame_template, drawing_title_block_template;
 };
 // Uses the existing body-origin attachment contract unchanged.
 [[nodiscard]] document::PartDocument part_from_template(const NativeTemplateSettings& settings);
 [[nodiscard]] assembly::AssemblyDocument assembly_from_template(const NativeTemplateSettings& settings);
+[[nodiscard]] drawing::DrawingDocument drawing_from_template(const NativeTemplateSettings& settings);
 
 class PreparedNativeDocument {
 public:

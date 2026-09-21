@@ -113,7 +113,10 @@ template<class Document> std::string feature_reference_issue(const document::His
 }
 inline zima::workspace::ReferenceIndex assembly_reference_index(const assembly::AssemblyDocument& document) {
     zima::workspace::ReferenceIndex index;
-    index.add_geometry(document.build_scene().original_references);
+    // Visibility is a presentation choice, not a lost persisted reference.
+    auto reference_document=document;
+    for (auto& component : reference_document.components) component.visible=true;
+    index.add_geometry(reference_document.build_scene().original_references);
     return index;
 }
 inline std::string occurrence_reference_issue(const assembly::PartOccurrence& component,const zima::workspace::ReferenceIndex& index) {

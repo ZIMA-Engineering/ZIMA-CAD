@@ -1,6 +1,7 @@
 #include <zima/document/placement_orientation.hpp>
 #include <zima/workspace/placement_edit.hpp>
 #include "workspace_internal.hpp"
+#include "new_document_options.hpp"
 
 namespace zima::app::workspace_detail {
 
@@ -199,11 +200,13 @@ void assign_automatic_orientation_role(
 
 
 zima::workspace::NativeTemplateSettings native_template_settings(const ApplicationSettings& settings) {
-    return {std::filesystem::u8path(settings.resolved_paths.value("Templates").toStdString()),
+    zima::workspace::NativeTemplateSettings result{std::filesystem::u8path(settings.resolved_paths.value("Templates").toStdString()),
         std::filesystem::u8path(settings.part_template.toStdString()),
         std::filesystem::u8path(settings.assembly_template.toStdString()),
         QObject::tr("Těleso 1").toStdString(),settings.sheet_cut_tolerance,
         QObject::tr("List %1").arg(1).toStdString()};
+    configure_new_drawing(result,new_drawing_options(settings));
+    return result;
 }
 
 zima::document::PartDocument new_part_from_template(const ApplicationSettings& settings) {

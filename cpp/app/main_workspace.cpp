@@ -743,6 +743,33 @@ int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWo
     const auto verify_copy_origin_selection=[&](int input=0,const std::string& prefix=std::string{}) {
         const bool pattern=dialog->derived_copy.pattern.has_value();
         std::cout<<"Copy Origin GUI: "<<(pattern?"Pattern":"Mirror")<<", field "<<input<<", occurrence "<<prefix<<std::endl;
+        const auto origin_axis=[&]() -> std::optional<kernel::ViewerAxis> {
+            for(const auto& axis:view->mesh().axes)
+                if(axis.reference.owner_id==dialog->pending.container_origin.id&&
+                   axis.reference.instance_path==prefix&&axis.reference.semantic_key=="origin:axis:x")return axis;
+            return std::nullopt;
+        };
+        if(!verify(origin_axis().has_value(),"Copy preview Origin is missing before reference entry"))return false;
+        // Origin selection refreshes the scene independently of changed().
+        // A one-shot mesh append disappears here, just as after a placement pick.
+        auto* origin_button=dialog->ensure_origin_selection_button();
+        origin_button->click();flush();origin_button->click();flush();
+        if(!verify(origin_axis().has_value(),"Copy preview Origin disappeared after reference-entry refresh"))return false;
+        auto* translation=dialog->findChild<QDoubleSpinBox*>("sweepTranslation0");
+        if(translation&&translation->isEnabled()&&!translation->isReadOnly()) {
+            const auto before=origin_axis()->point;const double value=translation->value();
+            translation->setValue(value+3);flush();
+            const auto moved=origin_axis();
+            if(!verify(moved.has_value(),"Copy Origin disappeared after numeric placement"))return false;
+            const auto p=moved->point;
+            if(!verify(std::abs(std::hypot(p.x-before.x,p.y-before.y,p.z-before.z)-3)<1e-6,
+                       "Copy Origin does not follow pending placement"))return false;
+            for(const auto& axis:view->mesh().axes)
+                if(axis.reference==moved->reference&&!verify(
+                    std::hypot(axis.point.x-p.x,axis.point.y-p.y,axis.point.z-p.z)<1e-6,
+                    "Copy Origin still displays its stored position beside the preview"))return false;
+            translation->setValue(value);flush();
+        }
         const int initial_axis=input>=2?dialog->derived_copy.pattern->linear[input-2].local_axis:-1;
         const auto kind=pattern?viewer::CandidateKind::Axis:viewer::CandidateKind::Plane;
         dialog->request_input(input);flush();
@@ -7656,16 +7683,24 @@ int verify_component_references(QApplication& application, const std::filesystem
         };
     view->set_reference_visibility(viewer::ReferenceVisibility::Origins,true);flush();
     window.grab().save(QString::fromStdString((directory/"origin-depth-top.png").string()));
-    if(!verify(offered_origins()==std::set<std::string>{"",outer_path,passive_path},
-        "Top Assembly exposed nested component origins"))return 1;
+    if(!verify(offered_origins()==std::set<std::string>{""},
+        "Top Assembly exposed component origins without an explicit request"))return 1;
     if(!verify(window.activate_occurrence_for_test(outer_path),"Cannot activate origin-policy subassembly"))return 1;flush();
     window.grab().save(QString::fromStdString((directory/"origin-depth-active.png").string()));
-    if(!verify(offered_origins()==std::set<std::string>{"",outer_path,nested_path},
-        "Active subassembly did not expose exactly its immediate origins"))return 1;
+    if(!verify(offered_origins()==std::set<std::string>{""},
+        "Active subassembly exposed origins without an explicit request"))return 1;
     if(!verify(window.activate_occurrence_for_test(nested_path),"Cannot activate origin-policy Part"))return 1;flush();
-    if(!verify(offered_origins()==std::set<std::string>{"",nested_path},
-        "Active Part exposed sibling or ancestor component origins"))return 1;
+    if(!verify(offered_origins()==std::set<std::string>{""},
+        "Active Part exposed an origin without an explicit request"))return 1;
     window.deactivate_active_occurrence_for_test();flush();
+    for(const auto& edited_path:{outer_path,nested_path}) {
+        window.show_tree_item_properties(find(edited_path==outer_path?outer:second,edited_path));flush();
+        if(!verify(dialog() && offered_origins()==std::set<std::string>{"",edited_path},
+            "Component placement must expose its own origin without exposing other components"))return 1;
+        dialog()->reject();flush();
+        if(!verify(offered_origins()==std::set<std::string>{""},
+            "Closing component properties left its origin visible"))return 1;
+    }
     for(const char* action_name:{"extrusionAction","mirrorAction"}) {
         auto* action=window.findChild<QAction*>(action_name);
         if(!verify(action && action->isEnabled(),"Feature origin fixture action is disabled"))return 1;
@@ -7686,8 +7721,30 @@ int verify_component_references(QApplication& application, const std::filesystem
         if(!verify(offered_origins()==std::set<std::string>{"",outer_path},
             "Origin button did not reveal exactly the requested subassembly"))return 1;
         feature->reject();flush();
-        if(!verify(offered_origins()==std::set<std::string>{"",outer_path,passive_path},
+        if(!verify(offered_origins()==std::set<std::string>{""},
             "Cancel did not restore ordinary component origin visibility"))return 1;
+    }
+    for(const auto& path:{outer_path,nested_path}) {
+        for(bool hide:{false,true}) {
+            auto* origin_row=find(path==outer_path?assembly_id+":origin":origin,path);
+            if(!verify(origin_row,"Component origin Tree row is missing"))return 1;
+            for(auto* parent=origin_row->parent();parent;parent=parent->parent())parent->setExpanded(true);
+            tree->scrollToItem(origin_row);flush();
+            bool valid_menu=false;
+            QTimer::singleShot(0,&window,[&]{
+                auto* menu=window.findChild<QMenu*>("occurrenceOriginMenu");
+                if(!menu)return;
+                auto* action=menu->findChild<QAction*>("occurrenceOriginVisibilityAction");
+                valid_menu=menu->actions().size()==1 && action && action->isEnabled();
+                if(!valid_menu){menu->close();return;}
+                menu->setActiveAction(action);
+                QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(menu,&enter);
+            });
+            tree->customContextMenuRequested(tree->visualItemRect(origin_row).center());flush();
+            if(!verify(valid_menu,"Component origin menu exposed unrelated Part operations"))return 1;
+            const auto expected=hide?std::set<std::string>{""}:std::set<std::string>{"",path};
+            if(!verify(offered_origins()==expected,"Origin context action did not change the exact occurrence visibility"))return 1;
+        }
     }
     // Import keeps its owning Assembly tab, even when editing a nested source.
     kernel::StepProduct imported_part;imported_part.definition_id="import-tab-part";
@@ -7901,12 +7958,15 @@ int verify_selection_filter(QApplication& application,
 
 #include "sheet_state_ui_verification.inc"
 #include "application_lifecycle_ui_verification.inc"
+#include "new_document_ui_verification.inc"
 
 int verify_startup_contract(
     QApplication& application, zima::app::AssemblyWorkspaceWindow& window,
     const std::filesystem::path& initial_test_directory,
     const QString& part_capture_path = {}, const QString& drawing_capture_path = {}) {
     auto test_directory = initial_test_directory;
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_NEW_DOCUMENT_OPTIONS_ONLY"))
+        return verify_new_document_options(application);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_APPLICATION_LIFECYCLE_ONLY"))
         return verify_application_lifecycle_ui(application);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SELECTION_FILTER_ONLY"))

@@ -1,5 +1,15 @@
 # Drawing sources and title-block ownership
 
+New Drawings use the same native sheet initializer in the New Document dialog
+and the Part/Assembly Tree shortcut. The dialog offers configured frame files;
+the shortcut defaults to A4. Both embed the available frame and localized company
+title block. The title/BOM source is the selected source document from creation,
+before any view is inserted. No body regeneration is needed to load templates.
+See [New documents](UZIVATELSKY_MANUAL.md#new-documents) for library discovery and
+language fallback rules. The five-language New Document GUI contract covers
+both Part workspaces, explicit A3 selection, linked Part/Assembly A4 creation,
+and native save/reopen.
+
 Drawing Settings is the gear button below the sheet, before the Source chooser.
 Its reference-style list registers native `.prtz` and `.asmz` files, including
 files with no views yet. A family and all its variants share one source file.

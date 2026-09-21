@@ -459,6 +459,7 @@ private:
     bool origin_suspended_tree_command_{};
     std::set<std::string> visible_local_origin_ids_;
     std::set<std::string> visible_occurrence_origin_paths_;
+    std::set<std::string> shown_occurrence_origin_paths_;
     std::set<std::string> selectable_local_origin_container_ids_;
     std::optional<std::size_t> suspended_primitive_reference_index_;
     bool suspended_primitive_reference_auto_advance_{};
@@ -654,7 +655,8 @@ private:
     void create_actions();
     void new_document();
     [[nodiscard]] QString create_document(
-        const QString& document_type, const QString& file_stem);
+        const QString& document_type, const QString& file_stem,
+        const QString& part_mode = {}, const QString& drawing_frame = {});
     void new_assembly();
     void new_part();
     void new_drawing();

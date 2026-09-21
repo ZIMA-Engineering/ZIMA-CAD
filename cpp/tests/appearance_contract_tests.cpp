@@ -7,6 +7,7 @@
 #include <QMouseEvent>
 #include <QPushButton>
 #include <QSlider>
+#include <QSpinBox>
 #include <QTemporaryDir>
 #include <QThread>
 #include <iostream>
@@ -30,7 +31,7 @@ int main(int argc, char **argv) {
   QApplication app(argc, argv);
   try {
     kernel::Appearance a;
-    a.body = {"#C57D5C", .12, 1};
+    a.body = {"#4DC57D5C", .12, 1};
     a.bodies["body"] = {"#225FC2", .3, 0};
     a.owner_bodies["result"] = "body";
     a.groups.push_back({"group",
@@ -52,6 +53,8 @@ int main(int argc, char **argv) {
     }
     require(rejected, "Multiple groups claimed one face");
     auto palette = document::default_surface_palette();
+    const auto skeleton=std::find_if(palette.begin(),palette.end(),[](const auto& color){return color.id=="skeleton";});
+    require(skeleton!=palette.end() && QColor(QString::fromStdString(skeleton->style.color)).alpha()==77,"Skeleton palette transparency");
     require(palette.size() >= 26, "Missing existing colors or materials");
     require(document::deserialize_palette(
                 document::serialize_palette(palette)) == palette,
@@ -139,6 +142,11 @@ int main(int argc, char **argv) {
     dialog.findChild<QLineEdit *>("appearanceName")->setText("My bronze");
     dialog.findChild<QSlider *>("appearanceMetallic")->setValue(100);
     dialog.findChild<QSlider *>("appearanceGloss")->setValue(88);
+    auto* transparency=dialog.findChild<QSlider*>("appearanceTransparency");
+    auto* percent=dialog.findChild<QSpinBox*>("appearanceTransparencyValue");
+    require(transparency && percent,"Missing transparency controls");
+    percent->setValue(70);
+    require(transparency->value()==70 && QColor(QString::fromStdString(preview.bodies.at("body").color)).alpha()==77,"Transparency preview or slider synchronization");
     click("appearanceAddColor");
     require(commits == 0, "Palette committed before OK");
     render();
@@ -156,6 +164,24 @@ int main(int argc, char **argv) {
             "Material shader did not change pixels");
     matte.save("appearance-matte.png");
     metal.save("appearance-metal.png");
+    kernel::ViewerMesh layers;
+    layers.vertices={{-2,-2,0},{2,-2,0},{0,2,0},{-2,-2,1},{2,-2,1},{0,2,1}};
+    layers.triangles={0,1,2,3,4,5};
+    layers.triangle_references={{"rear","face",{}},{"front","face",{}}};
+    sphere->set_standard_view(viewer::StandardView::Top);
+    sphere->set_mesh(layers);
+    sphere->set_body_surface_styles({"#FFFFFF",.5,0},{},{{"\x1f" "rear",{"#802244CC",.5,0}},{"\x1f" "front",{"#80CC4422",.5,0}}});
+    for(int frame=0;frame<4;++frame)render();
+    const auto ordered=sphere->grabFramebuffer();
+    layers.triangles={3,4,5,0,1,2};
+    std::reverse(layers.triangle_references.begin(),layers.triangle_references.end());
+    sphere->set_mesh(layers,false);render();
+    require(ordered==sphere->grabFramebuffer(),"Transparent rendering depends on mesh order");
+    sphere->set_body_surface_styles({"#FFFFFF",.5,0},{},{{"\x1f" "rear",{"#2244CC",.5,0}},{"\x1f" "front",{"#00CC4422",.5,0}}});
+    render();const auto invisible_front=sphere->grabFramebuffer();
+    layers.triangles={0,1,2};layers.triangle_references={{"rear","face",{}}};
+    sphere->set_mesh(layers,false);render();
+    require(invisible_front==sphere->grabFramebuffer(),"Fully transparent surface occludes opaque geometry");
     QMouseEvent shortclick(QEvent::MouseButtonRelease, QPointF(20, 20),
                            QPointF(view.mapToGlobal(QPoint(20, 20))),
                            Qt::MiddleButton, Qt::NoButton, Qt::NoModifier);
@@ -167,12 +193,14 @@ int main(int argc, char **argv) {
     QApplication::sendEvent(&view, &dbl);
     require(commits == 1 && saved.size() == palette.size() + 1,
             "MMB double click outside dialog did not commit palette");
+    require(QColor(QString::fromStdString(saved.back().style.color)).alpha()==77,"Custom palette lost transparency");
     app::AppearanceDialog cancel(
         a, "body", palette, [&](const auto &p) { preview = p; },
         [&](const auto &, const auto &) { ++commits; }, [](const auto &) {},
         &owner);
     cancel.show();
     cancel.findChild<QSlider *>("appearanceGloss")->setValue(50);
+    cancel.findChild<QSpinBox*>("appearanceTransparencyValue")->setValue(100);
     cancel.reject();
     require(preview == a && commits == 1, "Cancel did not restore appearance");
     std::cout << "Appearance persistence, result-face groups, palette "

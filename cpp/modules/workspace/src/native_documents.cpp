@@ -58,6 +58,17 @@ assembly::AssemblyDocument assembly_from_template(const NativeTemplateSettings& 
     do { document.document_id=assembly::AssemblyDocument::create_default().document_id; } while(document.document_id==template_id);
     return document;
 }
+drawing::DrawingDocument drawing_from_template(const NativeTemplateSettings& settings) {
+    auto document=drawing::DrawingDocument::create_default();
+    auto& sheet=document.sheets.front();
+    sheet.name=settings.first_sheet_name;
+    sheet.format=settings.drawing_format;
+    if(!settings.drawing_frame_template.empty())
+        drawing::load_frame_template(sheet,settings.drawing_frame_template);
+    if(!settings.drawing_title_block_template.empty())
+        drawing::load_title_block_template(sheet,settings.drawing_title_block_template);
+    return document;
+}
 NativeDocumentType PreparedNativeDocument::type() const {
     return static_cast<NativeDocumentType>(document_.index());
 }
@@ -205,9 +216,7 @@ PreparedNativeDocument prepare_new_native_document(NativeDocumentType type, cons
         case NativeDocumentType::Part: prepared.document_=PreparedNativeDocument::Part{part_from_template(settings),{}};break;
         case NativeDocumentType::Assembly: prepared.document_=assembly_from_template(settings);break;
         case NativeDocumentType::Drawing: {
-            auto drawing=drawing::DrawingDocument::create_default();
-            drawing.sheets.front().name=settings.first_sheet_name;
-            prepared.document_=std::move(drawing);break;
+            prepared.document_=drawing_from_template(settings);break;
         }
         default: throw std::invalid_argument("Unsupported document type");
     }

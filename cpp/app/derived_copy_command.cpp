@@ -89,7 +89,11 @@ void AssemblyWorkspaceWindow::show_derived_copy_properties(const std::string& id
     },this);
     if(sources.contains(parameters.source_id))dialog->set_source(parameters.source_id,sources.at(parameters.source_id).name);
     properties_dialog_=dialog;properties_dialog_instance_path_=prefix;primitive_parameter_owner_id_=initial.id;
-    visible_local_origin_ids_.insert(initial.container_origin.id);
+    // The live preview owns this Origin; revealing the stored one as context
+    // would also draw its old position while editing an existing feature.
+    // Assembly selection additionally requires the exact occurrence's Origin
+    // to be explicitly offered by its temporary visibility policy.
+    if(assembly||!prefix.empty())visible_local_origin_ids_.insert(initial.container_origin.id);
     viewer_->set_editing_origin_visible(true);
     primitive_reference_dialog_=dialog;primitive_reference_geometry_=geometry;
     if(part){
@@ -165,38 +169,14 @@ void AssemblyWorkspaceWindow::show_derived_copy_properties(const std::string& id
         dialog->pending.derived_copy=dialog->derived_copy;
         const bool valid=dialog->resolve_pending_placement(geometry);
         auto origin=mirror_origin(dialog->pending);
+        // Keep the draft in the existing scene-preview channel. Reference
+        // confirmation refreshes the scene again after this callback returns.
+        // A one-shot append to MeshView would lose the Origin on that refresh.
+        primitive_origin_preview_mesh_=origin;
         if(!body_id.empty())origin=workspace_.open_part(document_id)->session.document().place_body_mesh(std::move(origin),body_id);
-        if(workspace_.open_part(document_id))primitive_origin_preview_mesh_.reset();else primitive_origin_preview_mesh_=origin;
-        preserve_view_on_refresh_=true;refresh_scene();
-        if(prefix.empty()&&workspace_.open_part(document_id)&&std::ranges::none_of(viewer_->mesh().original_references.axes,[&](const auto& axis) {
-            return axis.reference.owner_id==dialog->pending.container_origin.id;
-        })) {
-            auto mesh=viewer_->mesh();append_derived_copy_references(mesh,origin);
-            append_derived_copy_references(mesh.original_references,origin.original_references);viewer_->set_mesh(std::move(mesh));
-        }
-        if(!prefix.empty()) {
-            if(workspace_.open_part(document_id)) {
-                kernel::BodyResult input;
-                const auto* part=workspace_.open_part(document_id);
-                if(!body_id.empty()) {
-                    auto context=part->session.document().body_history;
-                    context.activate(body_id);context.set_history_cursor(body_id,body_cursor);
-                    input.mesh=part->session.body_context_mesh(&context);
-                } else if(!part->session.calculated_boundaries().empty())for(const auto& id:available) {
-                    const auto& outputs=part->session.calculated_boundaries().back().body_outputs;const auto found=outputs.find(id);
-                    if(found!=outputs.end()){append_derived_copy_references(input.mesh,found->second->mesh);append_derived_copy_references(input.mesh.original_references,found->second->mesh.original_references);}
-                }
-                append_derived_copy_references(input.mesh,origin);append_derived_copy_references(input.mesh.original_references,origin.original_references);
-                viewer_->set_mesh(workspace_.build_scene_with_part_override(workspace_.displayed_document_id(),assembly::InstancePath::decode(prefix),std::move(input)));
-            } else if(derived_copy_assembly_preview_) {
-                const auto& preview=*derived_copy_assembly_preview_;
-                auto display=preview.build_scene();
-                append_derived_copy_references(display,origin);
-                append_derived_copy_references(display.original_references,origin.original_references);
-                viewer_->set_mesh(workspace::build_scene_with_assembly_override(workspace_,workspace_.displayed_document_id(),
-                    assembly::InstancePath::decode(prefix),preview,&display));
-            }
-        }
+        // Root Part scenes apply the owning Body frame themselves. Nested
+        // Part overrides consume document-space preview geometry instead.
+        if(!prefix.empty())primitive_origin_preview_mesh_=origin;
         std::vector<kernel::ViewerEdge> edges;
         try {
             if(!valid)throw std::invalid_argument("Chybí reference umístění kontejneru.");
@@ -235,6 +215,36 @@ void AssemblyWorkspaceWindow::show_derived_copy_properties(const std::string& id
             } else edges=kernel::mirrored_viewer_mesh(sources.at(dialog->derived_copy.source_id).mesh,dialog->derived_copy.resolved_plane).edges;
             dialog->set_status(tr("Náhled je připraven. OK vypočítá a uloží výsledek."));
         }catch(const std::exception& e){dialog->set_status(QString::fromUtf8(e.what()));}
+        preserve_view_on_refresh_=true;refresh_scene();
+        if(prefix.empty()&&workspace_.open_part(document_id)&&std::ranges::none_of(viewer_->mesh().original_references.axes,[&](const auto& axis) {
+            return axis.reference.owner_id==dialog->pending.container_origin.id;
+        })) {
+            auto mesh=viewer_->mesh();append_derived_copy_references(mesh,origin);
+            append_derived_copy_references(mesh.original_references,origin.original_references);viewer_->set_mesh(std::move(mesh));
+        }
+        if(!prefix.empty()) {
+            if(workspace_.open_part(document_id)) {
+                kernel::BodyResult input;
+                const auto* part=workspace_.open_part(document_id);
+                if(!body_id.empty()) {
+                    auto context=part->session.document().body_history;
+                    context.activate(body_id);context.set_history_cursor(body_id,body_cursor);
+                    input.mesh=part->session.body_context_mesh(&context);
+                } else if(!part->session.calculated_boundaries().empty())for(const auto& id:available) {
+                    const auto& outputs=part->session.calculated_boundaries().back().body_outputs;const auto found=outputs.find(id);
+                    if(found!=outputs.end()){append_derived_copy_references(input.mesh,found->second->mesh);append_derived_copy_references(input.mesh.original_references,found->second->mesh.original_references);}
+                }
+                append_derived_copy_references(input.mesh,origin);append_derived_copy_references(input.mesh.original_references,origin.original_references);
+                viewer_->set_mesh(workspace_.build_scene_with_part_override(workspace_.displayed_document_id(),assembly::InstancePath::decode(prefix),std::move(input)));
+            } else if(derived_copy_assembly_preview_) {
+                const auto& preview=*derived_copy_assembly_preview_;
+                auto display=preview.build_scene();
+                append_derived_copy_references(display,origin);
+                append_derived_copy_references(display.original_references,origin.original_references);
+                viewer_->set_mesh(workspace::build_scene_with_assembly_override(workspace_,workspace_.displayed_document_id(),
+                    assembly::InstancePath::decode(prefix),preview,&display));
+            }
+        }
         for(auto& edge:edges){edge.overlay=true;if(!prefix.empty())for(auto& p:edge.points)p=workspace_.occurrence_point_to_scene(workspace_.displayed_document_id(),assembly::InstancePath::decode(prefix),p);}
         viewer_->set_transient_edges(std::move(edges));
         if(id.empty()&&workspace_.open_assembly(document_id)) {

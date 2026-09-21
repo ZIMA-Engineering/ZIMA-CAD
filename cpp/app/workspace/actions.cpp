@@ -41,7 +41,7 @@ void AssemblyWorkspaceWindow::create_actions() {
     file->addAction(export_action_);
     close_document_action_ = make_action(t("menu.file.close", "Zavřít"));
     close_document_action_->setObjectName("closeDocumentAction");
-    close_document_action_->setShortcut(QKeySequence::Close);
+    close_document_action_->setShortcuts({QKeySequence(Qt::Key_F6), QKeySequence::Close});
     connect(close_document_action_, &QAction::triggered, this,
         [this] { close_document(); });
     file->addAction(close_document_action_);

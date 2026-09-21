@@ -10,6 +10,7 @@
 #include <QPushButton>
 #include <QSignalBlocker>
 #include <QSlider>
+#include <QSpinBox>
 #include <QTableWidget>
 #include <QToolButton>
 #include <QUuid>
@@ -19,6 +20,9 @@
 #include <zima/ui/reference_cell.hpp>
 namespace zima::app {
 namespace {
+QString palette_name(const kernel::NamedStyle& value) {
+  return value.id=="skeleton"?QObject::tr("Skeleton"):QString::fromStdString(value.name);
+}
 QString swatch(const kernel::SurfaceStyle &s) {
   return "background:" + QString::fromStdString(s.color) +
          ";border:1px solid #70757a;border-radius:3px;min-width:28px;";
@@ -72,9 +76,8 @@ AppearanceDialog::AppearanceDialog(
       palette_(std::move(palette)), preview_(std::move(preview)),
       commit_(std::move(commit)), inspect_(std::move(inspect)) {
   setObjectName("bodyColorPropertiesDialog");
-  set_initial_size({630, 680});
+  set_initial_size({600, 760});
   setMinimumSize(480, 500);
-  set_centered_on_show();
   auto *top = new QHBoxLayout;
   auto *left = new QVBoxLayout;
   categories_ = new QComboBox(this);
@@ -89,7 +92,8 @@ AppearanceDialog::AppearanceDialog(
   palette_list_->setObjectName("appearancePalette");
   palette_list_->setViewMode(QListView::IconMode);
   palette_list_->setIconSize({44, 44});
-  palette_list_->setGridSize({110, 76});
+  palette_list_->setGridSize({86, 64});
+  palette_list_->setSpacing(0);
   palette_list_->setResizeMode(QListView::Adjust);
   palette_list_->setMinimumHeight(165);
   left->addWidget(palette_list_);
@@ -107,7 +111,7 @@ AppearanceDialog::AppearanceDialog(
   name_->setObjectName("appearanceName");
   color_ = new QLineEdit(this);
   color_->setObjectName("appearanceColor");
-  color_->setMaxLength(9);
+  color_->setMaxLength(7);
   gloss_ = new QSlider(Qt::Horizontal, this);
   gloss_->setObjectName("appearanceGloss");
   gloss_->setRange(0, 96);
@@ -116,6 +120,19 @@ AppearanceDialog::AppearanceDialog(
   metal_->setRange(0, 100);
   editor->addRow(tr("Název vzhledu"), name_);
   editor->addRow(tr("Barva (#RRGGBB)"), color_);
+  auto* transparency_row=new QHBoxLayout;
+  transparency_=new QSlider(Qt::Horizontal,this);
+  transparency_->setObjectName("appearanceTransparency");
+  transparency_->setRange(0,100);
+  transparency_value_=new QSpinBox(this);
+  transparency_value_->setObjectName("appearanceTransparencyValue");
+  transparency_value_->setRange(0,100);
+  transparency_value_->setSuffix(" %");
+  transparency_->setToolTip(tr("0 % = neprůhledné, 100 % = zcela průhledné"));
+  transparency_value_->setToolTip(transparency_->toolTip());
+  transparency_row->addWidget(transparency_,1);
+  transparency_row->addWidget(transparency_value_);
+  editor->addRow(tr("Průhlednost"),transparency_row);
   editor->addRow(tr("Lesk: matný → leštěný"), gloss_);
   editor->addRow(tr("Kovový charakter"), metal_);
   content_layout()->addLayout(editor);
@@ -169,7 +186,7 @@ AppearanceDialog::AppearanceDialog(
           [this](QListWidgetItem *item) {
             const auto index = item->data(Qt::UserRole).toInt();
             target_style() = palette_.at(index).style;
-            name_->setText(QString::fromStdString(palette_[index].name));
+            name_->setText(palette_name(palette_[index]));
             load_editor();
             publish();
             refresh_groups();
@@ -177,6 +194,9 @@ AppearanceDialog::AppearanceDialog(
   connect(color_, &QLineEdit::textEdited, this, [this] { editor_changed(); });
   connect(gloss_, &QSlider::valueChanged, this, [this] { editor_changed(); });
   connect(metal_, &QSlider::valueChanged, this, [this] { editor_changed(); });
+  connect(transparency_,&QSlider::valueChanged,transparency_value_,&QSpinBox::setValue);
+  connect(transparency_value_,&QSpinBox::valueChanged,transparency_,&QSlider::setValue);
+  connect(transparency_,&QSlider::valueChanged,this,[this]{editor_changed();});
   connect(body_button_, &QPushButton::clicked, this, [this] {
     target_.clear();
     armed_ = false;
@@ -272,7 +292,9 @@ kernel::SurfaceStyle &AppearanceDialog::target_style() {
 void AppearanceDialog::load_editor() {
   refreshing_ = true;
   const auto s = target_style();
-  color_->setText(QString::fromStdString(s.color));
+  const QColor color(QString::fromStdString(s.color));
+  color_->setText(color.name(QColor::HexRgb));
+  transparency_->setValue(qRound((1-color.alphaF())*100));
   gloss_->setValue(qRound((1 - s.roughness) * 100));
   metal_->setValue(qRound(s.metallic * 100));
   sphere_->set_body_surface_styles(s);
@@ -283,10 +305,14 @@ void AppearanceDialog::load_editor() {
 void AppearanceDialog::editor_changed() {
   if (refreshing_)
     return;
-  const QColor color(color_->text());
+  QColor color(color_->text());
   if (!color.isValid())
     return;
   auto &s = target_style();
+  const QColor previous(QString::fromStdString(s.color));
+  color.setAlpha(previous.alpha());
+  if(transparency_->value()!=qRound((1-previous.alphaF())*100))
+    color.setAlpha(qRound(255*(100-transparency_->value())/100.0));
   // Changing one control must not round untouched values from CLI/native data.
   if (QColor(QString::fromStdString(s.color)) != color)
     s.color = color.name(QColor::HexArgb).toStdString();
@@ -311,9 +337,9 @@ void AppearanceDialog::refresh_palette() {
     if (QString::fromStdString(p.category) != categories_->currentData().toString())
       continue;
     auto *item = new QListWidgetItem(
-        style_icon(p.style), QString::fromStdString(p.name), palette_list_);
+        style_icon(p.style), palette_name(p), palette_list_);
     item->setData(Qt::UserRole, static_cast<int>(i));
-    item->setToolTip(QString::fromStdString(p.name));
+    item->setToolTip(palette_name(p));
   }
 }
 void AppearanceDialog::refresh_groups() {

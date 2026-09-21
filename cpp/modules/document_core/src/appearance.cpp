@@ -108,6 +108,7 @@ std::vector<kernel::NamedStyle> default_surface_palette() {
   add("blue", "Modrá", "Základní barvy", "#3F6F9F", .55, 0);
   add("green", "Zelená", "Základní barvy", "#3F7652", .55, 0);
   add("violet", "Fialová", "Základní barvy", "#6B5A8E", .55, 0);
+  add("skeleton", "Skeleton", "Základní barvy", "#4D8C78AE", .55, 0);
   add("burgundy", "Vínová", "Základní barvy", "#7A4654", .55, 0);
   add("sand", "Písková", "Základní barvy", "#B59A68", .55, 0);
   add("red", "Červená", "Základní barvy", "#E53935", .55, 0);

@@ -8,6 +8,7 @@ class QComboBox;
 class QListWidget;
 class QLineEdit;
 class QSlider;
+class QSpinBox;
 class QTableWidget;
 class QPushButton;
 namespace zima::app {
@@ -43,7 +44,8 @@ private:
   QComboBox *categories_{}, *save_category_{};
   QListWidget *palette_list_{};
   QLineEdit *name_{}, *color_{};
-  QSlider *gloss_{}, *metal_{};
+  QSlider *gloss_{}, *metal_{}, *transparency_{};
+  QSpinBox *transparency_value_{};
   QTableWidget *groups_{};
   QPushButton *body_button_{};
   viewer::MeshView *sphere_{};

@@ -118,18 +118,14 @@ void AssemblyWorkspaceWindow::create_layout() {
     viewer_->setObjectName("modelViewer");
     viewer_->set_origin_visibility_filter([this](const auto& reference) {
         if (!workspace_.open_assembly(workspace_.displayed_document_id())) return true;
+        if (component_placement_dialog_ &&
+            reference.instance_path == properties_dialog_instance_path_) return true;
         if (reference.instance_path.empty() ||
             visible_occurrence_origin_paths_.contains(reference.instance_path) ||
+            shown_occurrence_origin_paths_.contains(reference.instance_path) ||
             (reference.instance_path == workspace_.active_occurrence_path() &&
              visible_local_origin_ids_.contains(reference.owner_id))) return true;
-        if(properties_dialog_ && properties_dialog_->property("originSelectionBound").toBool())return false;
-        const auto& active=workspace_.active_occurrence_path();
-        if(reference.instance_path==active)return true;
-        if(!workspace_.open_assembly(workspace_.active_document_id()))return false;
-        const auto path=zima::assembly::InstancePath::decode(reference.instance_path);
-        if(active.empty())return path.occurrence_ids.size()==1;
-        const auto parent=path.parent();
-        return parent && parent->encoded()==active;
+        return false;
     });
     viewer_->set_selection_contract({zima::viewer::CandidateKind::Dimension,
                                      zima::viewer::CandidateKind::Occurrence});
@@ -2162,6 +2158,28 @@ void AssemblyWorkspaceWindow::create_layout() {
                 primitive_reference_dialog_ != nullptr ||
                 pending_primitive_reference_index_) return;
             auto* item = tree_->itemAt(position);
+            if(item && workspace_.open_assembly(workspace_.displayed_document_id())) {
+                const auto role=item->data(0,Qt::UserRole+3).toString();
+                const auto path=item->data(0,Qt::UserRole+1).toString().toStdString();
+                if((role=="document-origin" || role=="origin-reference") && !path.empty()) {
+                    const auto address=workspace_.resolve_occurrence(workspace_.displayed_document_id(),zima::assembly::InstancePath::decode(path));
+                    const auto* owner=address?workspace_.open_assembly(address->owner_assembly_document_id):nullptr;
+                    const auto* occurrence=owner?owner->session.document().find_occurrence(address->occurrence_id):nullptr;
+                    if(!occurrence || item->data(0,Qt::UserRole).toString().toStdString()!=occurrence->source_document_id+":origin")return;
+                    const bool required=component_placement_dialog_ && properties_dialog_instance_path_==path;
+                    const bool visible=required || shown_occurrence_origin_paths_.contains(path) || visible_occurrence_origin_paths_.contains(path);
+                    QMenu menu(this);menu.setObjectName("occurrenceOriginMenu");
+                    auto* visibility=menu.addAction(resource_icon("origin"),visible?tr("Skrýt počátek"):tr("Zobrazit počátek"));
+                    visibility->setObjectName("occurrenceOriginVisibilityAction");
+                    visibility->setEnabled(!required);
+                    if(menu.exec(tree_->viewport()->mapToGlobal(position))==visibility) {
+                        if(visible){shown_occurrence_origin_paths_.erase(path);visible_occurrence_origin_paths_.erase(path);}
+                        else shown_occurrence_origin_paths_.insert(path);
+                        viewer_->clear_selection();tree_->clearSelection();viewer_->update();
+                    }
+                    return;
+                }
+            }
             if(measurement_context_menu(item,position)||section_context_menu(item,position))return;
             if (!tree_item_context_menu_enabled(item)) {
                 QMenu menu(this);add_tree_rename_action(menu,item);

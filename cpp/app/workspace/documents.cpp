@@ -1,6 +1,7 @@
 #include <zima/workspace/family_operations.hpp>
 #include <zima/workspace/engineering_metadata_operations.hpp>
 #include "workspace_internal.hpp"
+#include "new_document_options.hpp"
 #include <zima/workspace/template_operations.hpp>
 #include <zima/workspace/document_operations.hpp>
 #include <zima/workspace/drawing_sources.hpp>
@@ -14,9 +15,9 @@ namespace {
 
 class NewDocumentDialog final : public zima::ui::PropertiesSubWindow {
 public:
-    using Accepted = std::function<QString(QString, QString)>;
+    using Accepted = std::function<QString(QString, QString, QString, QString)>;
 
-    NewDocumentDialog(Accepted accepted, QMainWindow* parent)
+    NewDocumentDialog(Accepted accepted, const NewDrawingOptions& drawing_options, QMainWindow* parent)
         : PropertiesSubWindow(QObject::tr("Nový dokument"), parent),
           accepted_(std::move(accepted)) {
         setObjectName("newDocumentDialog");
@@ -30,9 +31,20 @@ public:
         form->addRow(QObject::tr("Název souboru"), name_);
         layout->addLayout(form);
         layout->addWidget(new QLabel(QObject::tr("Typ dokumentu"), content));
-        part_ = add_type(layout, QObject::tr("Díl"), "part", "part", true);
+        part_mode_=new QComboBox(this);
+        part_mode_->setObjectName("newDocumentPartMode");
+        part_mode_->setAccessibleName(QObject::tr("Typ aplikace"));
+        part_mode_->addItem(QObject::tr("Modelování"),"modeling");
+        part_mode_->addItem(QObject::tr("Plech"),"sheet_metal");
+        part_ = add_type(layout, QObject::tr("Díl"), "part", "part", true,part_mode_);
         add_type(layout, QObject::tr("Sestava"), "assembly", "assembly", true);
-        add_type(layout, QObject::tr("Výkres"), "drawing", "drawing", true);
+        drawing_format_=new QComboBox(this);
+        drawing_format_->setObjectName("newDocumentDrawingFormat");
+        drawing_format_->setAccessibleName(QObject::tr("Formát výkresu"));
+        if(std::ranges::none_of(drawing_options.formats,[](const auto& format){return format.format==drawing::SheetFormat::A4;}))
+            drawing_format_->addItem("A4",QString{});
+        for(const auto& format:drawing_options.formats)drawing_format_->addItem(format.label,format.path);
+        add_type(layout, QObject::tr("Výkres"), "drawing", "drawing", true,drawing_format_);
         add_type(
             layout, QObject::tr("Formát výkresu"), "drawing_format",
             "drawing-format", true);
@@ -54,16 +66,25 @@ private:
     QLineEdit* name_{};
     QRadioButton* part_{};
     QLabel* error_{};
+    QComboBox* part_mode_{};
+    QComboBox* drawing_format_{};
     Accepted accepted_;
 
     QRadioButton* add_type(QVBoxLayout* layout, const QString& label,
                            const QString& type, const QString& icon,
-                           bool enabled) {
+                           bool enabled, QWidget* options=nullptr) {
         auto* radio = new QRadioButton(label, this);
         radio->setIcon(resource_icon(icon));
         radio->setProperty("documentType", type);
         radio->setEnabled(enabled);
-        layout->addWidget(radio);
+        auto* row=new QHBoxLayout;
+        row->addWidget(radio,1);
+        if(options) {
+            row->addWidget(options,1);
+            options->setEnabled(false);
+            connect(radio,&QRadioButton::toggled,options,&QWidget::setEnabled);
+        }
+        layout->addLayout(row);
         return radio;
     }
 
@@ -80,7 +101,8 @@ private:
             [](const auto* radio) { return radio->isChecked(); });
         if (selected == radios.end()) return false;
         const QString error = accepted_(
-            (*selected)->property("documentType").toString(), stem);
+            (*selected)->property("documentType").toString(), stem,
+            part_mode_->currentData().toString(),drawing_format_->currentData().toString());
         if (!error.isEmpty()) {
             error_->setText(error);
             error_->show();
@@ -101,9 +123,9 @@ void AssemblyWorkspaceWindow::new_document() {
         return;
     }
     auto* dialog = new NewDocumentDialog(
-        [this](QString type, QString stem) {
-            return create_document(type, stem);
-        }, this);
+        [this](QString type, QString stem, QString mode, QString frame) {
+            return create_document(type, stem,mode,frame);
+        }, new_drawing_options(application_settings_),this);
     properties_dialog_ = dialog;
     connect(dialog, &QDialog::finished, this, [this, dialog] {
         if (properties_dialog_ != dialog) return;
@@ -118,7 +140,8 @@ void AssemblyWorkspaceWindow::new_document() {
 }
 
 QString AssemblyWorkspaceWindow::create_document(
-    const QString& document_type, const QString& file_stem) {
+    const QString& document_type, const QString& file_stem,
+    const QString& part_mode,const QString& drawing_frame) {
     const std::string name = file_stem.trimmed().toStdString();
     if (name.empty()) return tr("Zadejte název souboru.");
     const QString suffix = document_type == QStringLiteral("part")
@@ -144,8 +167,10 @@ QString AssemblyWorkspaceWindow::create_document(
             std::map<std::string,std::string> units;
             for(auto it=application_settings_.units.cbegin();it!=application_settings_.units.cend();++it)
                 units[it.key().toStdString()]=it.value().toStdString();
-            auto prepared=workspace::prepare_new_native_document(type,name,path,
-                native_template_settings(application_settings_),units);
+            auto templates=native_template_settings(application_settings_);
+            if(type==workspace::NativeDocumentType::Drawing&&!drawing_frame.isEmpty())
+                configure_new_drawing(templates,new_drawing_options(application_settings_),drawing_frame);
+            auto prepared=workspace::prepare_new_native_document(type,name,path,templates,units);
             if(type==workspace::NativeDocumentType::Drawing) {
                 const auto selected=open_file(this,tr("Zdroj výkresu"),
                     QString::fromStdString(zima::document::path_to_utf8(working_directory_)),
@@ -159,10 +184,12 @@ QString AssemblyWorkspaceWindow::create_document(
             }
             id=workspace::insert_native_document(workspace_,std::move(prepared));
             switch(type) {
-                case workspace::NativeDocumentType::Part: active_application_=ApplicationMode::Modeling;break;
+                case workspace::NativeDocumentType::Part:
+                    active_application_=part_mode=="sheet_metal"?ApplicationMode::SheetMetal:ApplicationMode::Modeling;break;
                 case workspace::NativeDocumentType::Assembly: active_application_=ApplicationMode::Assembly;break;
                 case workspace::NativeDocumentType::Drawing: active_application_=ApplicationMode::Drawing;break;
             }
+            document_application_modes_[id]=active_application_;
         }
     } catch (const std::exception& error) {
         return tr("Dokument nelze vytvořit: %1").arg(error.what());
@@ -512,8 +539,8 @@ void AssemblyWorkspaceWindow::navigate_document_kind() {
             QString::fromStdString(zima::document::path_to_utf8(drawing_path))));
         return;
     }
-    auto drawing = zima::drawing::DrawingDocument::create_default();
-    drawing.sheets.front().name=tr("List %1").arg(1).toStdString();
+    try {
+    auto drawing = workspace::drawing_from_template(native_template_settings(application_settings_));
     drawing.name = source_name.toStdString();
     drawing.source_document_id = displayed;
     drawing.source_path = source_path;
@@ -529,6 +556,9 @@ void AssemblyWorkspaceWindow::navigate_document_kind() {
     workspace_.display_top_level(drawing_id);
     refresh_tabs(); refresh_scene();
     state_->setText(tr("Nový výkres vytvořen. Pokračujte příkazem Vložit pohled."));
+    } catch(const std::exception& error) {
+        state_->setText(tr("Dokument nelze vytvořit: %1").arg(QString::fromUtf8(error.what())));
+    }
 }
 
 std::optional<std::string> AssemblyWorkspaceWindow::selected_occurrence_path() const {

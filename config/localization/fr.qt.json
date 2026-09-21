@@ -1490,5 +1490,14 @@
   "Skica otvoru": "Esquisse de trou",
   "%1 — začátek": "%1 — début",
   "%1 — konec": "%1 — fin",
-  "Profil %1": "Profil %1"
+  "Profil %1": "Profil %1",
+  "Autor koncepce a vývoje: %1\n%2": "Conception et développement : %1\n%2",
+  "ZIMA-CAD vzniká z potřeb každodenní konstruktérské praxe. Jeho cílem je spojit parametrické modelování, práci se sestavami a tvorbu technických výkresů v přehledném prostředí, které respektuje způsob uvažování konstruktéra.": "ZIMA-CAD est né des besoins de la pratique quotidienne de la conception mécanique. Il vise à réunir la modélisation paramétrique, la conception d’assemblages et les dessins techniques dans un environnement clair qui respecte la démarche du concepteur.",
+  "Typ aplikace": "Mode de travail",
+  "Plech": "Tôlerie",
+  "Skeleton": "Squelette",
+  "Průhlednost": "Transparence",
+  "0 % = neprůhledné, 100 % = zcela průhledné": "0 % = opaque, 100 % = entièrement transparent",
+  "Zobrazit počátek": "Afficher l’origine",
+  "Skrýt počátek": "Masquer l’origine"
 }

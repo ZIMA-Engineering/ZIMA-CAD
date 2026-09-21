@@ -141,6 +141,7 @@ struct MeshView::Impl {
     QOpenGLShaderProgram program;
     QOpenGLBuffer vertices{QOpenGLBuffer::VertexBuffer};
     QOpenGLBuffer triangles{QOpenGLBuffer::IndexBuffer};
+    QOpenGLBuffer transparent_triangles{QOpenGLBuffer::IndexBuffer};
     QOpenGLBuffer lines{QOpenGLBuffer::VertexBuffer};
     QOpenGLBuffer silhouette{QOpenGLBuffer::VertexBuffer};
     QOpenGLVertexArrayObject vertex_array;
@@ -458,6 +459,9 @@ struct MeshView::Impl {
     }
     std::function<bool(const EdgeKey&)> origin_visibility_filter;
     bool origin_visible(const EdgeKey& key) const {
+        // The explicitly selected component's drag handle is independently
+        // offered; this does not reveal its axes or planes.
+        if(component_origin_handle && key==*component_origin_handle)return true;
         return (key.semantic_key != "origin" && !key.semantic_key.starts_with("origin:")) ||
             !origin_visibility_filter || origin_visibility_filter(key);
     }
@@ -717,6 +721,7 @@ MeshView::~MeshView() {
         impl_->vertex_array.destroy();
         impl_->vertices.destroy();
         impl_->triangles.destroy();
+        impl_->transparent_triangles.destroy();
         impl_->lines.destroy();
         impl_->silhouette.destroy();
         doneCurrent();
@@ -2663,6 +2668,7 @@ void main(){
     impl_->vertex_array.bind();
     impl_->vertices.create();
     impl_->triangles.create();
+    impl_->transparent_triangles.create();
     impl_->lines.create();
     impl_->silhouette.create();
     upload_mesh();
@@ -3035,7 +3041,7 @@ if (impl_->show_origins) {
             1, GL_FLOAT, 3 * sizeof(float), 3, 6 * sizeof(float));
     };
 
-    const auto draw_triangles = [&] {
+    const auto draw_triangles = [&](bool depth_only=false) {
         impl_->program.setUniformValue("unlit", 0);
         bind_attributes(impl_->vertices);
         // Keep body edges in front of their supporting surface.  Without the
@@ -3051,7 +3057,7 @@ if (impl_->show_origins) {
                 static_cast<float>(color.alphaF()));
         };
         impl_->prepare_surface_batches();
-        for (const auto& batch : impl_->surface_batches) {
+        const auto set_material = [&](const auto& batch) {
             const auto& style = batch.style;
             const auto& color = batch.color;
             const bool technological_thread = batch.technological_thread;
@@ -3061,16 +3067,48 @@ if (impl_->show_origins) {
             // genuinely nearer solid geometry still occludes it.
             glPolygonOffset(technological_thread ? 0.0F : 1.0F,
                 technological_thread ? 0.0F : 1.0F);
-            if (color.alpha() < 255) {
-                glEnable(GL_BLEND);
-                glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-            }
             impl_->program.setUniformValue("roughness",static_cast<float>(style.roughness));
             impl_->program.setUniformValue("metallic",static_cast<float>(style.metallic));
             impl_->program.setUniformValue("color", color_vector(color));
+        };
+        // Opaque geometry establishes depth first. Transparent geometry must
+        // neither hide later objects nor write depth when its alpha is zero.
+        for (const auto& batch : impl_->surface_batches) {
+            if(batch.color.alpha()<255)continue;
+            set_material(batch);
             glDrawArrays(GL_TRIANGLES, static_cast<GLint>(batch.first * 3),
                 static_cast<GLsizei>(batch.count * 3));
-            if (color.alpha() < 255) glDisable(GL_BLEND);
+        }
+        if(!depth_only) {
+            struct TransparentTriangle { std::uint32_t triangle; const Impl::SurfaceBatch* batch; float depth; };
+            std::vector<TransparentTriangle> sorted;
+            for(const auto& batch:impl_->surface_batches)if(batch.color.alpha()>0&&batch.color.alpha()<255)
+                for(std::size_t triangle=batch.first;triangle<batch.first+batch.count;++triangle) {
+                    QVector3D center;
+                    for(std::size_t corner=0;corner<3;++corner) {
+                        const auto& p=impl_->mesh.vertices[impl_->mesh.triangles[triangle*3+corner]];
+                        center+=QVector3D(p.x,p.y,p.z);
+                    }
+                    sorted.push_back({static_cast<std::uint32_t>(triangle),&batch,(view*(center/3)).z()});
+                }
+            std::stable_sort(sorted.begin(),sorted.end(),[](const auto& a,const auto& b){return a.depth<b.depth;});
+            if(!sorted.empty()) {
+                std::vector<std::uint32_t> indices;indices.reserve(sorted.size()*3);
+                for(const auto& triangle:sorted)for(unsigned corner=0;corner<3;++corner)
+                    indices.push_back(triangle.triangle*3+corner);
+                impl_->transparent_triangles.bind();
+                impl_->transparent_triangles.allocate(indices.data(),static_cast<int>(indices.size()*sizeof(std::uint32_t)));
+                glEnable(GL_BLEND);glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);glDepthMask(GL_FALSE);
+                for(std::size_t first=0;first<sorted.size();) {
+                    std::size_t end=first+1;
+                    while(end<sorted.size()&&sorted[end].batch==sorted[first].batch)++end;
+                    set_material(*sorted[first].batch);
+                    glDrawElements(GL_TRIANGLES,static_cast<GLsizei>((end-first)*3),GL_UNSIGNED_INT,
+                        reinterpret_cast<const void*>(first*3*sizeof(std::uint32_t)));
+                    first=end;
+                }
+                glDepthMask(GL_TRUE);glDisable(GL_BLEND);impl_->transparent_triangles.release();
+            }
         }
         glPolygonOffset(1.0F, 1.0F);
         glDisable(GL_POLYGON_OFFSET_FILL);
@@ -3301,7 +3339,7 @@ if (impl_->show_origins) {
     };
     const auto depth_prepass = [&] {
         glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
-        draw_triangles();
+        draw_triangles(true);
         glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
     };
     const auto draw_visible_lines = [&] {

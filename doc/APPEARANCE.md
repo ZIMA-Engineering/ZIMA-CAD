@@ -2,6 +2,8 @@
 
 **Colors and Appearance...** is available through the colored-sphere icon above
 View or the color menu. It uses the shared internal Properties window with OK/Cancel.
+It initially opens at the right edge at 600 x 760 logical pixels, constrained to
+the main window. Palette spheres retain their size with tighter spacing.
 
 ## Palette and surfaces
 
@@ -9,6 +11,9 @@ The palette selector groups Basic Colors, Plastics, Paints, Metals, and custom
 classes, retaining existing shades. Metals include steel, matte/polished stainless
 steel, aluminum, matte/polished bronze, brass, and copper. The preview sphere uses
 the model renderer. Enter colors as `#RRGGBB`; sliders control gloss and metallicity.
+Every appearance also has a transparency slider and numeric percentage: 0% is
+opaque and 100% fully transparent. The basic Skeleton shade is muted purple with
+70% transparency. It is a palette preset, not a physical material.
 
 For a custom appearance, enter a name, adjust the surface, choose/type a class,
 and click **Add to Palette**. Custom entries are written to `appearances.json`
@@ -40,6 +45,9 @@ of surrounding components. Appearance does not assign physical material or densi
 
 Groups store ZIMA result-face identities in Part; occurrence overrides are stored
 in Assembly. These are presentation references, not construction-reference ownership.
+Transparency is stored in the existing ARGB color value in native documents and
+custom palettes. Opaque surfaces establish depth first; transparent triangles
+are blended from back to front without writing depth. Edges remain readable.
 Opening the window, selection, sphere preview, and appearance changes invoke no
 OCCT or parent regeneration. After geometry changes, appearance applies only to
 surviving identities; missing faces are not reassigned by order or proximity.
@@ -49,4 +57,6 @@ surviving identities; missing faces are not reassigned by order or proximity.
 `zima_cpp_appearance_contract_tests` covers Part/Assembly/palette serialization,
 Assembly result-face selection, exclusive group assignment, Clear/Default,
 OK/Cancel transactions, MMB double-click, and matte/metallic rendering differences
-using an actual OpenGL framebuffer.
+using an actual OpenGL framebuffer. Transparency checks cover slider/numeric
+synchronization, custom palette persistence, Cancel restoration, mesh-order
+independent blending and non-occluding fully transparent surfaces.

@@ -211,6 +211,17 @@ int verify_application_lifecycle_ui(QApplication& application) {
             check(box_dialog && QString::fromStdString(box_dialog->pending_value().name) ==
                 settings.qt_translations.value("Kvádr"), "New feature name ignores the UI language");
             box_dialog->buttons()->button(QDialogButtonBox::Cancel)->click(); flush();
+            reopened.findChild<QAction*>("aboutAction")->trigger(); flush();
+            auto* about=dynamic_cast<ui::PropertiesSubWindow*>(reopened.findChild<QDialog*>("aboutDialog"));
+            check(about&&about->isVisible(),"About dialog did not open");
+            auto* logo=about->findChild<QLabel*>("aboutCompanyLogo");
+            check(logo&&!logo->pixmap().isNull(),"About dialog has no embedded company logo");
+            const auto author=settings.qt_translations.value("Autor koncepce a vývoje: %1\n%2")
+                .arg(QString::fromUtf8("Ing. Vladimír Zima"),QStringLiteral("ZIMA-Engineering"));
+            check(about->findChild<QLabel*>("aboutAuthor")->text()==author,"About author is not localized");
+            const auto capture=std::filesystem::path(__FILE__).parent_path().parent_path().parent_path()/"build"/("about-"+language.toStdString()+".png");
+            about->grab().save(QString::fromStdString(capture.generic_string()));
+            about->buttons()->button(QDialogButtonBox::Ok)->click(); flush();
             check(reopened.close(), "Reopened saved document became dirty");
         }
         for (int cycle = 0; cycle < 2; ++cycle) {

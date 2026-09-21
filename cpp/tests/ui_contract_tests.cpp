@@ -984,6 +984,20 @@ int main(int argc, char* argv[]) {
             occurrence.placement_references.front().target_reference.instance_path.occurrence_ids={"other"};
             require(!occurrence_reference_issue(occurrence,references).empty(),
                 "Assembly reference resolved against the wrong instance path");
+            auto hidden_assembly=zima::assembly::AssemblyDocument::create_default();
+            zima::assembly::PartOccurrence hidden;
+            hidden.occurrence_id="hidden";hidden.source_document_id="hidden-source";
+            hidden.visible=false;
+            zima::assembly::ComponentPlacementReference hidden_mate;
+            hidden_mate.component_reference={zima::assembly::MateReferenceKind::Point,zima::assembly::InstancePath{{"hidden"}},"hidden-source:origin","origin:point"};
+            hidden_mate.target_reference={zima::assembly::MateReferenceKind::Point,{},hidden_assembly.document_id+":origin","origin:point"};
+            hidden.placement_references.push_back(hidden_mate);
+            hidden_assembly.components.push_back(hidden);
+            const auto hidden_index=assembly_reference_index(hidden_assembly);
+            require(occurrence_reference_issue(hidden,hidden_index).empty(),"Hiding a component marked its persisted references missing");
+            require(!hidden_assembly.components.front().visible,"Reference validation changed component visibility");
+            hidden.placement_references.front().target_reference.semantic_key="deleted";
+            require(!occurrence_reference_issue(hidden,hidden_index).empty(),"Hidden component concealed a genuinely missing reference");
             auto document=zima::document::PartDocument::create_default();
             auto plane=zima::document::PartDocument::create_construction(zima::document::ConstructionKind::Plane);
             document.constructions.push_back(plane);

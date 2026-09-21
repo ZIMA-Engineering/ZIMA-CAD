@@ -109,6 +109,16 @@ the operation's own Origin. Existing Assembly coverage includes nested and
 repeated occurrences. Side preservation is governed separately by the
 [geometry side contract](GEOMETRY_SIDE_CONTRACT.md).
 
+The editing Origin remains in the scene-preview channel throughout reference
+entry. Independent scene refreshes must retain it, and numeric placement changes
+must move it immediately, including when reopening Properties. Root Part previews
+hide the stored editing Origin so it cannot remain at its old position beside
+the live preview. They
+use Body-local coordinates; nested Part previews use document coordinates before
+the occurrence transform. This is display-only and does not calculate an OCCT
+body. The GUI contract checks visibility after reference-entry refreshes and
+movement in root and nested editing contexts.
+
 ### Acceptance on 2026-09-15
 
 The GUI and CLI development builds passed. Eight contracts passed: derived-copy

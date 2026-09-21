@@ -1490,5 +1490,14 @@
   "Skica otvoru": "Hole sketch",
   "%1 — začátek": "%1 — start",
   "%1 — konec": "%1 — end",
-  "Profil %1": "Profile %1"
+  "Profil %1": "Profile %1",
+  "Autor koncepce a vývoje: %1\n%2": "Concept and development: %1\n%2",
+  "ZIMA-CAD vzniká z potřeb každodenní konstruktérské praxe. Jeho cílem je spojit parametrické modelování, práci se sestavami a tvorbu technických výkresů v přehledném prostředí, které respektuje způsob uvažování konstruktéra.": "ZIMA-CAD grows out of everyday engineering design practice. It aims to bring parametric modeling, assembly design and technical drawings together in a clear environment that follows the way a design engineer thinks.",
+  "Typ aplikace": "Application mode",
+  "Plech": "Sheet Metal",
+  "Skeleton": "Skeleton",
+  "Průhlednost": "Transparency",
+  "0 % = neprůhledné, 100 % = zcela průhledné": "0 % = opaque, 100 % = fully transparent",
+  "Zobrazit počátek": "Show origin",
+  "Skrýt počátek": "Hide origin"
 }

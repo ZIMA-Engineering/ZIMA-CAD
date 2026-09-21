@@ -11,6 +11,27 @@ than silently converted. Backward compatibility with old Part and Assembly
 formats is not maintained during development. Required geometry and reference
 data live inside native documents; see [cache storage](CACHE_STORAGE.md).
 
+## New documents
+
+**New / F1** offers a contextual chooser beside the document type. For a Part,
+choose **Modeling** or **Sheet Metal**. Both create the same ordinary Part from
+the configured start template; the choice only selects the working environment
+in the application dropdown. Skeleton is reserved for future development.
+
+For a Drawing, choose a frame from the native `.frmz` files in `Paths/Formats`
+(normally `config/formats`). Labels include the sheet size and template name;
+numeric backup files are excluded. The supported sheet sizes are A4 through A0.
+The dialog still asks for the source Part or Assembly before creating the tab.
+
+Creating a Drawing with the Tree's Drawing button on a Part or Assembly starts
+with A4. Both creation paths insert the matching frame and a company title block.
+The current-language `ZE-RAZITKO-<language>.tblz` takes priority, followed by
+another title block declaring that locale, then the base `ZE-RAZITKO.tblz`.
+Missing optional library resources leave the corresponding frame or title block
+empty; a missing A4 frame leaves a blank A4 sheet. A corrupt selected template
+reports an error before creating a document. Existing drawings are not modified.
+Frame, title-block geometry and embedded images are stored inside the new `.drwz`.
+
 ## Open and Save dialogs
 
 The selected file-type filter shows the corresponding documents, such as `.prtz`
@@ -89,6 +110,15 @@ Drawings do not own these relations. Their **Parameters** action edits the
 source Part or Assembly and refreshes relevant displayed parameter/title-block
 data. It does not implicitly regenerate parent Assemblies.
 
+## About the application
+
+**Help > About ZIMA-CAD** shows the installed version, the embedded
+ZIMA-Engineering company logo, and the concept/development credit for
+Ing. Vladimír Zima. The email link opens `kontakt@zima-engineering.cz` in the
+default mail application; the website link opens
+[www.zima-engineering.cz](https://www.zima-engineering.cz). The introductory
+text follows the selected application language.
+
 ## 3D View controls
 
 | Input | Action |
@@ -102,8 +132,8 @@ data. It does not implicitly regenerate parent Assemblies.
 | F2 / Ctrl+O | Open document |
 | F3 / Ctrl+S | Save document |
 | F4 / Ctrl+Shift+S | Save document as |
-| Ctrl+W | Close the active document tab |
 | F5 | Regenerate |
+| F6 / Ctrl+W | Close the active document tab |
 | Ctrl+Shift+C | Toggle the CAD command console |
 
 Panning does not open the context menu. Reset View and standard views animate
@@ -856,3 +886,28 @@ See [Mirror and Pattern](MIRROR_AND_PATTERN.md).
 - [Dimension identities](DIMENSION_IDENTIFIERS.md): document-wide stable d1, d2, … labels.
 - [Command coverage](CAD_COMMAND_COVERAGE.md): supported GUI/CLI operations and boundaries.
 - [Release policy](PORTABLE_RELEASE.md): native packaging strategy and platform status.
+
+
+### Assembly visibility and origins
+
+Hidden components use muted gray in the Tree. Hiding a component does not delete
+its references; red reference warnings indicate genuinely unresolved references.
+Component and subassembly origins are hidden by default, including while an
+occurrence is active. During insertion or component placement Properties, the
+edited Part or subassembly exposes its own origin automatically; all other
+component origins remain hidden. Use the shared **Origin** command in a properties window
+to reveal the exact occurrence needed for a reference. Closing that command
+removes its temporary origin display. In the Tree, a component origin and its
+axes/planes expose only **Show origin / Hide origin**, never Part modeling
+operations. This explicit display choice lasts for the workspace session. The
+origin of a component currently being positioned remains visible.
+The selected component's purple point remains available as a drag handle without
+revealing its axes or planes. The displayed Assembly origin remains
+available through the normal Origins visibility control.
+
+### Appearance transparency
+
+The Colors and Appearance window initially opens at the right edge with compact
+palette spacing. Every color supports 0–100% transparency through a slider and
+numeric entry. Custom palette entries retain transparency; Cancel restores the
+previous appearance. The basic Skeleton preset is muted purple and 70% transparent.

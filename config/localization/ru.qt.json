@@ -1490,5 +1490,14 @@
   "Skica otvoru": "Эскиз отверстия",
   "%1 — začátek": "%1 — начало",
   "%1 — konec": "%1 — конец",
-  "Profil %1": "Профиль %1"
+  "Profil %1": "Профиль %1",
+  "Autor koncepce a vývoje: %1\n%2": "Автор концепции и разработки: %1\n%2",
+  "ZIMA-CAD vzniká z potřeb každodenní konstruktérské praxe. Jeho cílem je spojit parametrické modelování, práci se sestavami a tvorbu technických výkresů v přehledném prostředí, které respektuje způsob uvažování konstruktéra.": "ZIMA-CAD создается на основе потребностей повседневной конструкторской практики. Его цель — объединить параметрическое моделирование, работу со сборками и создание технических чертежей в понятной среде, соответствующей образу мышления конструктора.",
+  "Typ aplikace": "Режим работы",
+  "Plech": "Листовой металл",
+  "Skeleton": "Скелет",
+  "Průhlednost": "Прозрачность",
+  "0 % = neprůhledné, 100 % = zcela průhledné": "0 % = непрозрачный, 100 % = полностью прозрачный",
+  "Zobrazit počátek": "Показать начало координат",
+  "Skrýt počátek": "Скрыть начало координат"
 }
