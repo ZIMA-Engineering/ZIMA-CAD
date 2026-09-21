@@ -1536,14 +1536,15 @@ void AssemblyWorkspaceWindow::create_layout() {
             if(properties_dialog_==dialog)properties_dialog_=nullptr;
         });
     });
-    drawing_workspace_->set_selection_handler([this](const std::string& id) {
+    drawing_workspace_->set_selection_handler([this](const std::vector<std::string>& ids) {
         if (!workspace_.open_drawing(workspace_.displayed_document_id())) return;
         update_document_kind_button();
         const QSignalBlocker blocker(tree_);
         tree_->clearSelection(); tree_->setCurrentItem(nullptr);
         for(QTreeWidgetItemIterator it(tree_); *it; ++it)
-            if ((*it)->data(0,Qt::UserRole).toString().toStdString()==id && !id.empty()) {
-                tree_->setCurrentItem(*it); (*it)->setSelected(true); break;
+            if (std::ranges::find(ids,(*it)->data(0,Qt::UserRole).toString().toStdString())!=ids.end()) {
+                if(!tree_->currentItem())tree_->setCurrentItem(*it,0,QItemSelectionModel::NoUpdate);
+                (*it)->setSelected(true);
             }
     });
     drawing_workspace_->setObjectName("drawingWorkspace");
@@ -1663,15 +1664,10 @@ void AssemblyWorkspaceWindow::create_layout() {
             }
             if (workspace_.open_drawing(workspace_.displayed_document_id())) {
                 const auto items=tree_->selectedItems();
-                auto* item=items.empty()?nullptr:items.front();
-                if(item&&item->data(0,Qt::UserRole+3).toString()=="drawing-dimension") {
-                    drawing_workspace_->select_manual_dimension(item->data(0,Qt::UserRole+4).toString().toStdString(),item->data(0,Qt::UserRole+5).toString().toStdString());return;
-                }
-                if(item&&item->data(0,Qt::UserRole+3).toString()=="drawing-annotation") {
-                    drawing_workspace_->select_model_annotation(item->data(0,Qt::UserRole+4).toString().toStdString(),item->data(0,Qt::UserRole+5).toString().toStdString());return;
-                }
-                drawing_workspace_->select_view(item && item->data(0,Qt::UserRole+3).toString()=="drawing-view"
-                    ? item->data(0,Qt::UserRole).toString().toStdString() : std::string{});
+                std::vector<std::string> ids;
+                for(auto* item:items)ids.push_back(item->data(0,Qt::UserRole).toString().toStdString());
+                auto* current=tree_->currentItem();
+                drawing_workspace_->select_tree_entities(ids,current&&current->isSelected()?current->data(0,Qt::UserRole).toString().toStdString():std::string{});
                 return;
             }
             if (local_origin_selection_active_) return;
@@ -2182,6 +2178,16 @@ void AssemblyWorkspaceWindow::create_layout() {
                 }
             }
             if(measurement_context_menu(item,position)||section_context_menu(item,position))return;
+            if(item&&workspace_.open_drawing(workspace_.displayed_document_id())&&
+                item->data(0,Qt::UserRole+3).toString()!="drawing-document") {
+                if(properties_dialog_)return;
+                if(!item->isSelected())tree_->setCurrentItem(item,0,QItemSelectionModel::ClearAndSelect);
+                synchronize_tree_selection();
+                QMenu menu(this);menu.setObjectName("drawingTreeSelectionMenu");
+                drawing_workspace_->populate_selection_menu(menu);
+                if(!menu.isEmpty())menu.exec(tree_->viewport()->mapToGlobal(position));
+                return;
+            }
             if (!tree_item_context_menu_enabled(item)) {
                 QMenu menu(this);add_tree_rename_action(menu,item);
                 if(!menu.isEmpty())menu.exec(tree_->viewport()->mapToGlobal(position));

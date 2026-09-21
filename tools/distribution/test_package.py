@@ -35,7 +35,7 @@ class PackageTests(unittest.TestCase):
             package.git(repo, 'config', 'user.name', 'Packaging test')
             package.git(repo, 'config', 'user.email', 'test@example.invalid')
             (repo / 'tracked.txt').write_text('committed', encoding='utf-8')
-            resources = ('config/localization/ru.qt.json', 'config/formats/ZE-RAZITKO-ru.tblz',
+            resources = ('config/localization/ru.qt.json', 'config/formats/ZE-TITLE-BLOCK-RU.tblz',
                          'config/formats/ZIMA-Engineering.svg', 'config/materials/01_steels/structural/S235JR.matz')
             for name in resources:
                 target = repo / name

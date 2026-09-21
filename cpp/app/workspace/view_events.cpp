@@ -6,6 +6,10 @@ using namespace workspace_detail;
 
 
 void AssemblyWorkspaceWindow::keyPressEvent(QKeyEvent* event) {
+    if(event->key()==Qt::Key_Delete && tree_->hasFocus() && !properties_dialog_ &&
+       workspace_.open_drawing(workspace_.displayed_document_id())) {
+        drawing_workspace_->erase_selected_entities();event->accept();return;
+    }
     if (event->key() == Qt::Key_Escape && placement_reference_drag_document_) {
         placement_reference_drag_document_.reset();
         placement_reference_drag_document_id_.clear();

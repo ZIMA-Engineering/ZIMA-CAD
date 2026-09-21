@@ -100,6 +100,35 @@ AxisAnnotationGeometry axis_annotation_geometry(const DrawingView &view, const M
     }
     return out;
 }
+kernel::ViewerDimension drawing_model_dimension(const DrawingView& view,const ModelAnnotation& item) {
+    auto source=*item.model_dimension;
+    if(source.kind==kernel::ViewerDimensionKind::Linear) {
+        const auto u=kernel::dimension_measurement_direction(source);
+        const auto old_v=kernel::dimension_unit(kernel::dimension_cross(source.plane_normal,u));
+        const auto view_normal=kernel::dimension_unit(kernel::dimension_cross(view.camera.horizontal,view.camera.vertical));
+        auto normal=kernel::dimension_unit(kernel::dimension_sub(view_normal,
+            kernel::dimension_scale(u,kernel::dimension_dot(view_normal,u))));
+        if(kernel::dimension_dot(normal,normal)>.5&&kernel::dimension_dot(old_v,old_v)>.5) {
+            if(kernel::dimension_dot(normal,source.plane_normal)<0)normal=kernel::dimension_scale(normal,-1);
+            const auto next_v=kernel::dimension_unit(kernel::dimension_cross(normal,u));
+            const auto rotate=[&](kernel::Vec3 p,kernel::Vec3 origin) {
+                const auto delta=kernel::dimension_sub(p,origin);
+                return kernel::dimension_add(origin,kernel::dimension_add(
+                    kernel::dimension_scale(u,kernel::dimension_dot(delta,u)),
+                    kernel::dimension_scale(next_v,kernel::dimension_dot(delta,old_v))));
+            };
+            source.line_first=rotate(source.line_first,source.witness_first);
+            source.line_second=rotate(source.line_second,source.witness_second);
+            if(source.label_position)source.label_position=rotate(*source.label_position,source.witness_first);
+            source.plane_normal=normal;
+        }
+    }
+    auto layout=item.view_layout.value_or(item.model_layout);
+    // Model quarter-turns describe its 3D presentation. A drawing derives its
+    // own readable plane; an explicit drawing override still remains editable.
+    if(!item.view_layout)layout.plane_quarter_turns=0;
+    return kernel::layout_dimension(source,item.model_envelope,layout);
+}
 ModelAnnotation project_model_annotation(const DrawingView& view,ModelAnnotation item) {
     if(item.model_axis) {
         const auto project=[&](kernel::Vec3 p){return Point2{dot(p,view.camera.horizontal),dot(p,view.camera.vertical)};};
@@ -107,7 +136,7 @@ ModelAnnotation project_model_annotation(const DrawingView& view,ModelAnnotation
         return item;
     }
     if(!item.model_dimension)return item;
-    const auto d=kernel::layout_dimension(*item.model_dimension,item.model_envelope,item.view_layout.value_or(item.model_layout));
+    const auto d=drawing_model_dimension(view,item);
     const auto project=[&](kernel::Vec3 p){return Point2{dot(p,view.camera.horizontal),dot(p,view.camera.vertical)};};
       item.value = d.value;
       item.plane_normal = {d.plane_normal.x, d.plane_normal.y,
@@ -367,6 +396,8 @@ std::vector<ModelAnnotationReference> show_erase_candidates(
   std::vector<ModelAnnotationReference> result;
   for (const auto &item : items)
     if (!item.unresolved &&
+        !(item.kind == ModelAnnotationKind::Axis &&
+          item.source.semantic_id.starts_with("origin:axis:")) &&
         kinds.contains(item.kind) &&
         item.visible == (mode == ShowEraseMode::Erase))
       result.push_back(item.source);

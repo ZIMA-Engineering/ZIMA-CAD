@@ -183,7 +183,7 @@ inline Vec3 dimension_measurement_direction(const ViewerDimension& d) {
 inline ViewerDimension layout_dimension(ViewerDimension d, const ModelEnvelope &bounds,
                                         const DimensionLayout &layout) {
     validate_dimension_layout(layout);
-    if(layout.text_style)d.display_text_override=dimension_text(d,*layout.text_style);
+    if(layout.text_style){d.display_text_override=dimension_text(d,*layout.text_style);d.source_text_style=layout.text_style;}
     d.arrows_reversed = layout.arrows_reversed;
     d.radius_center_line_hidden = layout.radius_center_line_hidden;
     auto normal = dimension_unit(d.plane_normal);

@@ -514,6 +514,10 @@ target_link_libraries(zima-cad-drawing-harness PRIVATE
     Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Svg)
 set_target_properties(zima-cad-drawing-harness PROPERTIES AUTORCC ON)
 
+add_executable(zima_cpp_precision_benchmark tests/precision_benchmark.cpp)
+target_link_libraries(zima_cpp_precision_benchmark PRIVATE zima_workspace zima_drawing_render Qt6::Gui)
+target_compile_options(zima_cpp_precision_benchmark PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
+
 add_executable(zima_cpp_performance_benchmark
     tests/performance_benchmark.cpp)
 target_link_libraries(zima_cpp_performance_benchmark PRIVATE
@@ -1284,6 +1288,8 @@ if(ZIMA_BUILD_TESTS)
     add_test(NAME zima_cpp_drawing_ui_contract COMMAND zima-cad-drawing-harness --verify-ui)
     add_test(NAME zima_cpp_drawing_view_controls_ui_contract COMMAND zima-cad-drawing-harness --verify-view-controls)
     add_test(NAME zima_cpp_drawing_breaks_ui_contract COMMAND zima-cad-drawing-harness --verify-breaks)
+    add_test(NAME zima_cpp_drawing_details_ui_contract COMMAND zima-cad-drawing-harness --verify-details)
+    set_tests_properties(zima_cpp_drawing_details_ui_contract PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT}")
     set_tests_properties(zima_cpp_drawing_view_controls_ui_contract zima_cpp_drawing_breaks_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT}" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120)
     add_test(NAME zima_cpp_drawing_source_picker_contract COMMAND zima-cad-drawing-harness --verify-source-picker)
@@ -1293,7 +1299,7 @@ if(ZIMA_BUILD_TESTS)
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT}"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     add_executable(zima_cpp_dimension_layout_contract_tests tests/dimension_layout_contract_tests.cpp)
-    target_link_libraries(zima_cpp_dimension_layout_contract_tests PRIVATE zima_drawing zima_assembly zima_viewer zima_ui nlohmann_json::nlohmann_json)
+    target_link_libraries(zima_cpp_dimension_layout_contract_tests PRIVATE zima_drawing_render zima_drawing zima_assembly zima_viewer zima_ui nlohmann_json::nlohmann_json)
     add_test(NAME zima_cpp_dimension_layout_contract_tests COMMAND zima_cpp_dimension_layout_contract_tests)
     set_tests_properties(zima_cpp_dimension_layout_contract_tests PROPERTIES ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT}" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     add_executable(zima_cpp_show_erase_contract_tests tests/show_erase_contract_tests.cpp)

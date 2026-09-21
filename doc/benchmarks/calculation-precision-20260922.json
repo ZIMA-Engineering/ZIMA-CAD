@@ -1,0 +1,2057 @@
+{
+  "fixtures": [
+    {
+      "name": "one cylinder / eight occurrences",
+      "samples": [
+        {
+          "assembly_recalculated": false,
+          "assembly_regenerate_ms": 18.338,
+          "assembly_scene_ms": 4.0788,
+          "assembly_settings_ms": 0.0858,
+          "cycle": 0,
+          "dependency_refresh_ms": 0.1488,
+          "drawing_paint_ms": 1.2747,
+          "drawing_regenerate_ms": 1.5801,
+          "part_recalculated": true,
+          "part_settings_ms": 5.334,
+          "tolerance_mm": 0.01,
+          "triangles": 124,
+          "volume_delta_mm3": 0.0,
+          "volume_mm3": 6283.185307179586
+        },
+        {
+          "assembly_recalculated": false,
+          "assembly_regenerate_ms": 15.8845,
+          "assembly_scene_ms": 3.9483,
+          "assembly_settings_ms": 0.086,
+          "cycle": 0,
+          "dependency_refresh_ms": 0.1498,
+          "drawing_paint_ms": 1.2905,
+          "drawing_regenerate_ms": 1.5875,
+          "part_recalculated": true,
+          "part_settings_ms": 4.8799,
+          "tolerance_mm": 0.001,
+          "triangles": 124,
+          "volume_delta_mm3": 0.0,
+          "volume_mm3": 6283.185307179586
+        },
+        {
+          "assembly_recalculated": false,
+          "assembly_regenerate_ms": 17.8183,
+          "assembly_scene_ms": 4.2022,
+          "assembly_settings_ms": 0.0858,
+          "cycle": 1,
+          "dependency_refresh_ms": 0.1549,
+          "drawing_paint_ms": 1.2521,
+          "drawing_regenerate_ms": 1.4451,
+          "part_recalculated": true,
+          "part_settings_ms": 5.3004,
+          "tolerance_mm": 0.01,
+          "triangles": 124,
+          "volume_delta_mm3": 0.0,
+          "volume_mm3": 6283.185307179586
+        },
+        {
+          "assembly_recalculated": false,
+          "assembly_regenerate_ms": 17.2357,
+          "assembly_scene_ms": 4.1447,
+          "assembly_settings_ms": 0.0902,
+          "cycle": 1,
+          "dependency_refresh_ms": 0.1705,
+          "drawing_paint_ms": 1.1971,
+          "drawing_regenerate_ms": 1.5375,
+          "part_recalculated": true,
+          "part_settings_ms": 5.4914,
+          "tolerance_mm": 0.001,
+          "triangles": 124,
+          "volume_delta_mm3": 0.0,
+          "volume_mm3": 6283.185307179586
+        },
+        {
+          "assembly_recalculated": false,
+          "assembly_regenerate_ms": 17.6506,
+          "assembly_scene_ms": 3.8336,
+          "assembly_settings_ms": 0.0864,
+          "cycle": 2,
+          "dependency_refresh_ms": 0.1506,
+          "drawing_paint_ms": 1.4083,
+          "drawing_regenerate_ms": 1.791,
+          "part_recalculated": true,
+          "part_settings_ms": 4.9541,
+          "tolerance_mm": 0.01,
+          "triangles": 124,
+          "volume_delta_mm3": 0.0,
+          "volume_mm3": 6283.185307179586
+        },
+        {
+          "assembly_recalculated": false,
+          "assembly_regenerate_ms": 18.8324,
+          "assembly_scene_ms": 4.2276,
+          "assembly_settings_ms": 0.0979,
+          "cycle": 2,
+          "dependency_refresh_ms": 0.1696,
+          "drawing_paint_ms": 1.1773,
+          "drawing_regenerate_ms": 1.5348,
+          "part_recalculated": true,
+          "part_settings_ms": 5.5181,
+          "tolerance_mm": 0.001,
+          "triangles": 124,
+          "volume_delta_mm3": 0.0,
+          "volume_mm3": 6283.185307179586
+        },
+        {
+          "assembly_recalculated": false,
+          "assembly_regenerate_ms": 16.6011,
+          "assembly_scene_ms": 4.187,
+          "assembly_settings_ms": 0.0914,
+          "cycle": 3,
+          "dependency_refresh_ms": 0.164,
+          "drawing_paint_ms": 1.2356,
+          "drawing_regenerate_ms": 1.5546,
+          "part_recalculated": true,
+          "part_settings_ms": 5.4606,
+          "tolerance_mm": 0.01,
+          "triangles": 124,
+          "volume_delta_mm3": 0.0,
+          "volume_mm3": 6283.185307179586
+        },
+        {
+          "assembly_recalculated": false,
+          "assembly_regenerate_ms": 16.3084,
+          "assembly_scene_ms": 3.8715,
+          "assembly_settings_ms": 0.0831,
+          "cycle": 3,
+          "dependency_refresh_ms": 0.1618,
+          "drawing_paint_ms": 1.2232,
+          "drawing_regenerate_ms": 1.8073,
+          "part_recalculated": true,
+          "part_settings_ms": 5.163,
+          "tolerance_mm": 0.001,
+          "triangles": 124,
+          "volume_delta_mm3": 0.0,
+          "volume_mm3": 6283.185307179586
+        },
+        {
+          "assembly_recalculated": false,
+          "assembly_regenerate_ms": 17.1684,
+          "assembly_scene_ms": 4.0742,
+          "assembly_settings_ms": 0.0765,
+          "cycle": 4,
+          "dependency_refresh_ms": 0.1483,
+          "drawing_paint_ms": 1.5089,
+          "drawing_regenerate_ms": 1.3257,
+          "part_recalculated": true,
+          "part_settings_ms": 4.6172,
+          "tolerance_mm": 0.01,
+          "triangles": 124,
+          "volume_delta_mm3": 0.0,
+          "volume_mm3": 6283.185307179586
+        },
+        {
+          "assembly_recalculated": false,
+          "assembly_regenerate_ms": 17.7064,
+          "assembly_scene_ms": 4.3058,
+          "assembly_settings_ms": 0.0857,
+          "cycle": 4,
+          "dependency_refresh_ms": 0.1572,
+          "drawing_paint_ms": 1.2499,
+          "drawing_regenerate_ms": 1.6315,
+          "part_recalculated": true,
+          "part_settings_ms": 5.3042,
+          "tolerance_mm": 0.001,
+          "triangles": 124,
+          "volume_delta_mm3": 0.0,
+          "volume_mm3": 6283.185307179586
+        }
+      ]
+    },
+    {
+      "name": "one cylinder / assembly-owned cut",
+      "samples": [
+        {
+          "assembly_cut_settings_ms": 20.1719,
+          "cycle": 0,
+          "tolerance_mm": 0.01,
+          "volume_mm3": 5484.5206476907015
+        },
+        {
+          "assembly_cut_settings_ms": 20.8966,
+          "cycle": 0,
+          "tolerance_mm": 0.001,
+          "volume_mm3": 5484.5206476907015
+        },
+        {
+          "assembly_cut_settings_ms": 20.4381,
+          "cycle": 1,
+          "tolerance_mm": 0.01,
+          "volume_mm3": 5484.5206476907015
+        },
+        {
+          "assembly_cut_settings_ms": 19.9092,
+          "cycle": 1,
+          "tolerance_mm": 0.001,
+          "volume_mm3": 5484.5206476907015
+        },
+        {
+          "assembly_cut_settings_ms": 19.5265,
+          "cycle": 2,
+          "tolerance_mm": 0.01,
+          "volume_mm3": 5484.5206476907015
+        },
+        {
+          "assembly_cut_settings_ms": 18.9296,
+          "cycle": 2,
+          "tolerance_mm": 0.001,
+          "volume_mm3": 5484.5206476907015
+        },
+        {
+          "assembly_cut_settings_ms": 18.5191,
+          "cycle": 3,
+          "tolerance_mm": 0.01,
+          "volume_mm3": 5484.5206476907015
+        },
+        {
+          "assembly_cut_settings_ms": 18.9731,
+          "cycle": 3,
+          "tolerance_mm": 0.001,
+          "volume_mm3": 5484.5206476907015
+        },
+        {
+          "assembly_cut_settings_ms": 18.0958,
+          "cycle": 4,
+          "tolerance_mm": 0.01,
+          "volume_mm3": 5484.5206476907015
+        },
+        {
+          "assembly_cut_settings_ms": 18.323,
+          "cycle": 4,
+          "tolerance_mm": 0.001,
+          "volume_mm3": 5484.5206476907015
+        }
+      ]
+    },
+    {
+      "name": "twelve disjoint cylinders / eight occurrences",
+      "samples": [
+        {
+          "assembly_recalculated": false,
+          "assembly_regenerate_ms": 194.7885,
+          "assembly_scene_ms": 44.9919,
+          "assembly_settings_ms": 0.0962,
+          "cycle": 0,
+          "dependency_refresh_ms": 2.2521,
+          "drawing_paint_ms": 8.4117,
+          "drawing_regenerate_ms": 19.2663,
+          "part_recalculated": true,
+          "part_settings_ms": 307.9394,
+          "tolerance_mm": 0.01,
+          "triangles": 1524,
+          "volume_delta_mm3": 0.0,
+          "volume_mm3": 84009.95746817539
+        },
+        {
+          "assembly_recalculated": false,
+          "assembly_regenerate_ms": 218.7616,
+          "assembly_scene_ms": 50.5387,
+          "assembly_settings_ms": 0.0745,
+          "cycle": 0,
+          "dependency_refresh_ms": 2.0318,
+          "drawing_paint_ms": 7.8789,
+          "drawing_regenerate_ms": 17.4303,
+          "part_recalculated": true,
+          "part_settings_ms": 292.0738,
+          "tolerance_mm": 0.001,
+          "triangles": 1524,
+          "volume_delta_mm3": 0.0,
+          "volume_mm3": 84009.95746817539
+        },
+        {
+          "assembly_recalculated": false,
+          "assembly_regenerate_ms": 211.4861,
+          "assembly_scene_ms": 44.2014,
+          "assembly_settings_ms": 0.075,
+          "cycle": 1,
+          "dependency_refresh_ms": 2.0346,
+          "drawing_paint_ms": 9.6507,
+          "drawing_regenerate_ms": 20.0687,
+          "part_recalculated": true,
+          "part_settings_ms": 310.3346,
+          "tolerance_mm": 0.01,
+          "triangles": 1524,
+          "volume_delta_mm3": 0.0,
+          "volume_mm3": 84009.95746817539
+        },
+        {
+          "assembly_recalculated": false,
+          "assembly_regenerate_ms": 214.3157,
+          "assembly_scene_ms": 47.7869,
+          "assembly_settings_ms": 0.092,
+          "cycle": 1,
+          "dependency_refresh_ms": 2.5735,
+          "drawing_paint_ms": 7.0022,
+          "drawing_regenerate_ms": 15.0382,
+          "part_recalculated": true,
+          "part_settings_ms": 297.8383,
+          "tolerance_mm": 0.001,
+          "triangles": 1524,
+          "volume_delta_mm3": 0.0,
+          "volume_mm3": 84009.95746817539
+        },
+        {
+          "assembly_recalculated": false,
+          "assembly_regenerate_ms": 213.7223,
+          "assembly_scene_ms": 52.1608,
+          "assembly_settings_ms": 0.0917,
+          "cycle": 2,
+          "dependency_refresh_ms": 1.8994,
+          "drawing_paint_ms": 8.3583,
+          "drawing_regenerate_ms": 17.9493,
+          "part_recalculated": true,
+          "part_settings_ms": 295.2386,
+          "tolerance_mm": 0.01,
+          "triangles": 1524,
+          "volume_delta_mm3": 0.0,
+          "volume_mm3": 84009.95746817539
+        },
+        {
+          "assembly_recalculated": false,
+          "assembly_regenerate_ms": 216.0683,
+          "assembly_scene_ms": 51.7782,
+          "assembly_settings_ms": 0.0815,
+          "cycle": 2,
+          "dependency_refresh_ms": 1.8146,
+          "drawing_paint_ms": 8.8619,
+          "drawing_regenerate_ms": 18.2544,
+          "part_recalculated": true,
+          "part_settings_ms": 293.9154,
+          "tolerance_mm": 0.001,
+          "triangles": 1524,
+          "volume_delta_mm3": 0.0,
+          "volume_mm3": 84009.95746817539
+        },
+        {
+          "assembly_recalculated": false,
+          "assembly_regenerate_ms": 209.3539,
+          "assembly_scene_ms": 50.5646,
+          "assembly_settings_ms": 0.0691,
+          "cycle": 3,
+          "dependency_refresh_ms": 1.5808,
+          "drawing_paint_ms": 7.549,
+          "drawing_regenerate_ms": 17.646,
+          "part_recalculated": true,
+          "part_settings_ms": 297.9688,
+          "tolerance_mm": 0.01,
+          "triangles": 1524,
+          "volume_delta_mm3": 0.0,
+          "volume_mm3": 84009.95746817539
+        },
+        {
+          "assembly_recalculated": false,
+          "assembly_regenerate_ms": 223.8429,
+          "assembly_scene_ms": 53.4944,
+          "assembly_settings_ms": 0.0916,
+          "cycle": 3,
+          "dependency_refresh_ms": 1.9701,
+          "drawing_paint_ms": 8.9773,
+          "drawing_regenerate_ms": 16.7326,
+          "part_recalculated": true,
+          "part_settings_ms": 286.3763,
+          "tolerance_mm": 0.001,
+          "triangles": 1524,
+          "volume_delta_mm3": 0.0,
+          "volume_mm3": 84009.95746817539
+        },
+        {
+          "assembly_recalculated": false,
+          "assembly_regenerate_ms": 200.3171,
+          "assembly_scene_ms": 47.6794,
+          "assembly_settings_ms": 0.0797,
+          "cycle": 4,
+          "dependency_refresh_ms": 1.8603,
+          "drawing_paint_ms": 7.0665,
+          "drawing_regenerate_ms": 17.3043,
+          "part_recalculated": true,
+          "part_settings_ms": 308.7047,
+          "tolerance_mm": 0.01,
+          "triangles": 1524,
+          "volume_delta_mm3": 0.0,
+          "volume_mm3": 84009.95746817539
+        },
+        {
+          "assembly_recalculated": false,
+          "assembly_regenerate_ms": 187.5644,
+          "assembly_scene_ms": 45.0208,
+          "assembly_settings_ms": 0.0757,
+          "cycle": 4,
+          "dependency_refresh_ms": 1.5783,
+          "drawing_paint_ms": 7.7703,
+          "drawing_regenerate_ms": 18.3396,
+          "part_recalculated": true,
+          "part_settings_ms": 310.0732,
+          "tolerance_mm": 0.001,
+          "triangles": 1524,
+          "volume_delta_mm3": 0.0,
+          "volume_mm3": 84009.95746817539
+        }
+      ]
+    },
+    {
+      "name": "twelve cylinders / assembly-owned cut",
+      "samples": [
+        {
+          "assembly_cut_settings_ms": 90.5437,
+          "cycle": 0,
+          "tolerance_mm": 0.01,
+          "volume_mm3": 83211.29280868653
+        },
+        {
+          "assembly_cut_settings_ms": 94.8277,
+          "cycle": 0,
+          "tolerance_mm": 0.001,
+          "volume_mm3": 83211.29280868653
+        },
+        {
+          "assembly_cut_settings_ms": 91.1822,
+          "cycle": 1,
+          "tolerance_mm": 0.01,
+          "volume_mm3": 83211.29280868653
+        },
+        {
+          "assembly_cut_settings_ms": 100.3536,
+          "cycle": 1,
+          "tolerance_mm": 0.001,
+          "volume_mm3": 83211.29280868653
+        },
+        {
+          "assembly_cut_settings_ms": 102.1811,
+          "cycle": 2,
+          "tolerance_mm": 0.01,
+          "volume_mm3": 83211.29280868653
+        },
+        {
+          "assembly_cut_settings_ms": 102.4522,
+          "cycle": 2,
+          "tolerance_mm": 0.001,
+          "volume_mm3": 83211.29280868653
+        },
+        {
+          "assembly_cut_settings_ms": 101.4811,
+          "cycle": 3,
+          "tolerance_mm": 0.01,
+          "volume_mm3": 83211.29280868653
+        },
+        {
+          "assembly_cut_settings_ms": 91.6138,
+          "cycle": 3,
+          "tolerance_mm": 0.001,
+          "volume_mm3": 83211.29280868653
+        },
+        {
+          "assembly_cut_settings_ms": 92.2002,
+          "cycle": 4,
+          "tolerance_mm": 0.01,
+          "volume_mm3": 83211.29280868653
+        },
+        {
+          "assembly_cut_settings_ms": 89.0532,
+          "cycle": 4,
+          "tolerance_mm": 0.001,
+          "volume_mm3": 83211.29280868653
+        }
+      ]
+    },
+    {
+      "name": "user Part (read-only input)",
+      "samples": [
+        {
+          "boundaries": [
+            {
+              "calculation_errors": {},
+              "triangles": 12,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 12
+              },
+              "volume_mm3": 440000.0
+            },
+            {
+              "calculation_errors": {},
+              "triangles": 367,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 40,
+                "01a0c2310e237a80a1f6a8c17f687bed": 327
+              },
+              "volume_mm3": 438837.5471321499
+            },
+            {
+              "calculation_errors": {},
+              "triangles": 403,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 58,
+                "01a0c2310e237a80a1f6a8c17f687bed": 327,
+                "01a0c302dab574ac8b057420abdfe4a8": 18
+              },
+              "volume_mm3": 386905.5400020819
+            },
+            {
+              "calculation_errors": {},
+              "triangles": 435,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 74,
+                "01a0c2310e237a80a1f6a8c17f687bed": 327,
+                "01a0c302dab574ac8b057420abdfe4a8": 18,
+                "01a0c302dab574ac8b057420abdfed03": 16
+              },
+              "volume_mm3": 386036.4025638415
+            },
+            {
+              "calculation_errors": {},
+              "triangles": 475,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 74,
+                "01a0c2310e237a80a1f6a8c17f687bed": 327,
+                "01a0c302dab574ac8b057420abdfe4a8": 19,
+                "01a0c302dab574ac8b057420abdfed03": 16,
+                "01a0c302dab574ac8b057420abdfed4d": 39
+              },
+              "volume_mm3": 383404.45594729786
+            },
+            {
+              "calculation_errors": {},
+              "triangles": 511,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 77,
+                "01a0c2310e237a80a1f6a8c17f687bed": 327,
+                "01a0c302dab574ac8b057420abdfe4a8": 19,
+                "01a0c302dab574ac8b057420abdfed03": 16,
+                "01a0c302dab574ac8b057420abdfed4d": 40,
+                "01a0c30769647a75b4de5e66085f6bd5": 32
+              },
+              "volume_mm3": 382928.95029275
+            },
+            {
+              "calculation_errors": {},
+              "triangles": 1223,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 122,
+                "01a0c2310e237a80a1f6a8c17f687bed": 327,
+                "01a0c302dab574ac8b057420abdfe4a8": 19,
+                "01a0c302dab574ac8b057420abdfed03": 16,
+                "01a0c302dab574ac8b057420abdfed4d": 40,
+                "01a0c30769647a75b4de5e66085f6bd5": 32,
+                "01a0c3692fe173d3876ebd4e0d6a4317": 667
+              },
+              "volume_mm3": 378064.70990692143
+            },
+            {
+              "calculation_errors": {},
+              "triangles": 1351,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 124,
+                "01a0c2310e237a80a1f6a8c17f687bed": 327,
+                "01a0c302dab574ac8b057420abdfe4a8": 19,
+                "01a0c302dab574ac8b057420abdfed03": 16,
+                "01a0c302dab574ac8b057420abdfed4d": 40,
+                "01a0c30769647a75b4de5e66085f6bd5": 32,
+                "01a0c3692fe173d3876ebd4e0d6a4317": 589,
+                "01a0c38d1db27c22a8d12b726f3c4372": 204
+              },
+              "volume_mm3": 378017.4794864017
+            }
+          ],
+          "cycle": 0,
+          "part_recalculated": true,
+          "part_settings_ms": 5122.7309,
+          "tolerance_mm": 0.01,
+          "triangles": 1351,
+          "volume_mm3": 378017.4794864017
+        },
+        {
+          "boundaries": [
+            {
+              "calculation_errors": {},
+              "triangles": 12,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 12
+              },
+              "volume_mm3": 440000.0
+            },
+            {
+              "calculation_errors": {},
+              "triangles": 367,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 40,
+                "01a0c2310e237a80a1f6a8c17f687bed": 327
+              },
+              "volume_mm3": 438837.5471321499
+            },
+            {
+              "calculation_errors": {},
+              "triangles": 403,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 58,
+                "01a0c2310e237a80a1f6a8c17f687bed": 327,
+                "01a0c302dab574ac8b057420abdfe4a8": 18
+              },
+              "volume_mm3": 386905.5400020819
+            },
+            {
+              "calculation_errors": {},
+              "triangles": 435,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 74,
+                "01a0c2310e237a80a1f6a8c17f687bed": 327,
+                "01a0c302dab574ac8b057420abdfe4a8": 18,
+                "01a0c302dab574ac8b057420abdfed03": 16
+              },
+              "volume_mm3": 386036.4025638415
+            },
+            {
+              "calculation_errors": {},
+              "triangles": 475,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 74,
+                "01a0c2310e237a80a1f6a8c17f687bed": 327,
+                "01a0c302dab574ac8b057420abdfe4a8": 19,
+                "01a0c302dab574ac8b057420abdfed03": 16,
+                "01a0c302dab574ac8b057420abdfed4d": 39
+              },
+              "volume_mm3": 383404.45594729786
+            },
+            {
+              "calculation_errors": {},
+              "triangles": 511,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 77,
+                "01a0c2310e237a80a1f6a8c17f687bed": 327,
+                "01a0c302dab574ac8b057420abdfe4a8": 19,
+                "01a0c302dab574ac8b057420abdfed03": 16,
+                "01a0c302dab574ac8b057420abdfed4d": 40,
+                "01a0c30769647a75b4de5e66085f6bd5": 32
+              },
+              "volume_mm3": 382928.95029275
+            },
+            {
+              "calculation_errors": {},
+              "triangles": 1039,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 121,
+                "01a0c2310e237a80a1f6a8c17f687bed": 327,
+                "01a0c302dab574ac8b057420abdfe4a8": 19,
+                "01a0c302dab574ac8b057420abdfed03": 16,
+                "01a0c302dab574ac8b057420abdfed4d": 40,
+                "01a0c30769647a75b4de5e66085f6bd5": 32,
+                "01a0c3692fe173d3876ebd4e0d6a4317": 484
+              },
+              "volume_mm3": 378064.45712530485
+            },
+            {
+              "calculation_errors": {},
+              "triangles": 1205,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 122,
+                "01a0c2310e237a80a1f6a8c17f687bed": 327,
+                "01a0c302dab574ac8b057420abdfe4a8": 19,
+                "01a0c302dab574ac8b057420abdfed03": 16,
+                "01a0c302dab574ac8b057420abdfed4d": 40,
+                "01a0c30769647a75b4de5e66085f6bd5": 32,
+                "01a0c3692fe173d3876ebd4e0d6a4317": 449,
+                "01a0c38d1db27c22a8d12b726f3c4372": 200
+              },
+              "volume_mm3": 378017.2371939001
+            }
+          ],
+          "cycle": 0,
+          "part_recalculated": true,
+          "part_settings_ms": 5519.3072,
+          "tolerance_mm": 0.001,
+          "triangles": 1205,
+          "volume_mm3": 378017.2371939001
+        },
+        {
+          "boundaries": [
+            {
+              "calculation_errors": {},
+              "triangles": 12,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 12
+              },
+              "volume_mm3": 440000.0
+            },
+            {
+              "calculation_errors": {},
+              "triangles": 367,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 40,
+                "01a0c2310e237a80a1f6a8c17f687bed": 327
+              },
+              "volume_mm3": 438837.5471321499
+            },
+            {
+              "calculation_errors": {},
+              "triangles": 403,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 58,
+                "01a0c2310e237a80a1f6a8c17f687bed": 327,
+                "01a0c302dab574ac8b057420abdfe4a8": 18
+              },
+              "volume_mm3": 386905.5400020819
+            },
+            {
+              "calculation_errors": {},
+              "triangles": 435,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 74,
+                "01a0c2310e237a80a1f6a8c17f687bed": 327,
+                "01a0c302dab574ac8b057420abdfe4a8": 18,
+                "01a0c302dab574ac8b057420abdfed03": 16
+              },
+              "volume_mm3": 386036.4025638415
+            },
+            {
+              "calculation_errors": {},
+              "triangles": 475,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 74,
+                "01a0c2310e237a80a1f6a8c17f687bed": 327,
+                "01a0c302dab574ac8b057420abdfe4a8": 19,
+                "01a0c302dab574ac8b057420abdfed03": 16,
+                "01a0c302dab574ac8b057420abdfed4d": 39
+              },
+              "volume_mm3": 383404.45594729786
+            },
+            {
+              "calculation_errors": {},
+              "triangles": 511,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 77,
+                "01a0c2310e237a80a1f6a8c17f687bed": 327,
+                "01a0c302dab574ac8b057420abdfe4a8": 19,
+                "01a0c302dab574ac8b057420abdfed03": 16,
+                "01a0c302dab574ac8b057420abdfed4d": 40,
+                "01a0c30769647a75b4de5e66085f6bd5": 32
+              },
+              "volume_mm3": 382928.95029275
+            },
+            {
+              "calculation_errors": {},
+              "triangles": 1223,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 122,
+                "01a0c2310e237a80a1f6a8c17f687bed": 327,
+                "01a0c302dab574ac8b057420abdfe4a8": 19,
+                "01a0c302dab574ac8b057420abdfed03": 16,
+                "01a0c302dab574ac8b057420abdfed4d": 40,
+                "01a0c30769647a75b4de5e66085f6bd5": 32,
+                "01a0c3692fe173d3876ebd4e0d6a4317": 667
+              },
+              "volume_mm3": 378064.70990692143
+            },
+            {
+              "calculation_errors": {},
+              "triangles": 1351,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 124,
+                "01a0c2310e237a80a1f6a8c17f687bed": 327,
+                "01a0c302dab574ac8b057420abdfe4a8": 19,
+                "01a0c302dab574ac8b057420abdfed03": 16,
+                "01a0c302dab574ac8b057420abdfed4d": 40,
+                "01a0c30769647a75b4de5e66085f6bd5": 32,
+                "01a0c3692fe173d3876ebd4e0d6a4317": 589,
+                "01a0c38d1db27c22a8d12b726f3c4372": 204
+              },
+              "volume_mm3": 378017.4794864017
+            }
+          ],
+          "cycle": 1,
+          "part_recalculated": true,
+          "part_settings_ms": 5574.4634,
+          "tolerance_mm": 0.01,
+          "triangles": 1351,
+          "volume_mm3": 378017.4794864017
+        },
+        {
+          "boundaries": [
+            {
+              "calculation_errors": {},
+              "triangles": 12,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 12
+              },
+              "volume_mm3": 440000.0
+            },
+            {
+              "calculation_errors": {},
+              "triangles": 367,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 40,
+                "01a0c2310e237a80a1f6a8c17f687bed": 327
+              },
+              "volume_mm3": 438837.5471321499
+            },
+            {
+              "calculation_errors": {},
+              "triangles": 403,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 58,
+                "01a0c2310e237a80a1f6a8c17f687bed": 327,
+                "01a0c302dab574ac8b057420abdfe4a8": 18
+              },
+              "volume_mm3": 386905.5400020819
+            },
+            {
+              "calculation_errors": {},
+              "triangles": 435,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 74,
+                "01a0c2310e237a80a1f6a8c17f687bed": 327,
+                "01a0c302dab574ac8b057420abdfe4a8": 18,
+                "01a0c302dab574ac8b057420abdfed03": 16
+              },
+              "volume_mm3": 386036.4025638415
+            },
+            {
+              "calculation_errors": {},
+              "triangles": 475,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 74,
+                "01a0c2310e237a80a1f6a8c17f687bed": 327,
+                "01a0c302dab574ac8b057420abdfe4a8": 19,
+                "01a0c302dab574ac8b057420abdfed03": 16,
+                "01a0c302dab574ac8b057420abdfed4d": 39
+              },
+              "volume_mm3": 383404.45594729786
+            },
+            {
+              "calculation_errors": {},
+              "triangles": 511,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 77,
+                "01a0c2310e237a80a1f6a8c17f687bed": 327,
+                "01a0c302dab574ac8b057420abdfe4a8": 19,
+                "01a0c302dab574ac8b057420abdfed03": 16,
+                "01a0c302dab574ac8b057420abdfed4d": 40,
+                "01a0c30769647a75b4de5e66085f6bd5": 32
+              },
+              "volume_mm3": 382928.95029275
+            },
+            {
+              "calculation_errors": {},
+              "triangles": 1039,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 121,
+                "01a0c2310e237a80a1f6a8c17f687bed": 327,
+                "01a0c302dab574ac8b057420abdfe4a8": 19,
+                "01a0c302dab574ac8b057420abdfed03": 16,
+                "01a0c302dab574ac8b057420abdfed4d": 40,
+                "01a0c30769647a75b4de5e66085f6bd5": 32,
+                "01a0c3692fe173d3876ebd4e0d6a4317": 484
+              },
+              "volume_mm3": 378064.45712530485
+            },
+            {
+              "calculation_errors": {},
+              "triangles": 1205,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 122,
+                "01a0c2310e237a80a1f6a8c17f687bed": 327,
+                "01a0c302dab574ac8b057420abdfe4a8": 19,
+                "01a0c302dab574ac8b057420abdfed03": 16,
+                "01a0c302dab574ac8b057420abdfed4d": 40,
+                "01a0c30769647a75b4de5e66085f6bd5": 32,
+                "01a0c3692fe173d3876ebd4e0d6a4317": 449,
+                "01a0c38d1db27c22a8d12b726f3c4372": 200
+              },
+              "volume_mm3": 378017.2371939001
+            }
+          ],
+          "cycle": 1,
+          "part_recalculated": true,
+          "part_settings_ms": 5447.1471,
+          "tolerance_mm": 0.001,
+          "triangles": 1205,
+          "volume_mm3": 378017.2371939001
+        },
+        {
+          "boundaries": [
+            {
+              "calculation_errors": {},
+              "triangles": 12,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 12
+              },
+              "volume_mm3": 440000.0
+            },
+            {
+              "calculation_errors": {},
+              "triangles": 367,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 40,
+                "01a0c2310e237a80a1f6a8c17f687bed": 327
+              },
+              "volume_mm3": 438837.5471321499
+            },
+            {
+              "calculation_errors": {},
+              "triangles": 403,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 58,
+                "01a0c2310e237a80a1f6a8c17f687bed": 327,
+                "01a0c302dab574ac8b057420abdfe4a8": 18
+              },
+              "volume_mm3": 386905.5400020819
+            },
+            {
+              "calculation_errors": {},
+              "triangles": 435,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 74,
+                "01a0c2310e237a80a1f6a8c17f687bed": 327,
+                "01a0c302dab574ac8b057420abdfe4a8": 18,
+                "01a0c302dab574ac8b057420abdfed03": 16
+              },
+              "volume_mm3": 386036.4025638415
+            },
+            {
+              "calculation_errors": {},
+              "triangles": 475,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 74,
+                "01a0c2310e237a80a1f6a8c17f687bed": 327,
+                "01a0c302dab574ac8b057420abdfe4a8": 19,
+                "01a0c302dab574ac8b057420abdfed03": 16,
+                "01a0c302dab574ac8b057420abdfed4d": 39
+              },
+              "volume_mm3": 383404.45594729786
+            },
+            {
+              "calculation_errors": {},
+              "triangles": 511,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 77,
+                "01a0c2310e237a80a1f6a8c17f687bed": 327,
+                "01a0c302dab574ac8b057420abdfe4a8": 19,
+                "01a0c302dab574ac8b057420abdfed03": 16,
+                "01a0c302dab574ac8b057420abdfed4d": 40,
+                "01a0c30769647a75b4de5e66085f6bd5": 32
+              },
+              "volume_mm3": 382928.95029275
+            },
+            {
+              "calculation_errors": {},
+              "triangles": 1223,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 122,
+                "01a0c2310e237a80a1f6a8c17f687bed": 327,
+                "01a0c302dab574ac8b057420abdfe4a8": 19,
+                "01a0c302dab574ac8b057420abdfed03": 16,
+                "01a0c302dab574ac8b057420abdfed4d": 40,
+                "01a0c30769647a75b4de5e66085f6bd5": 32,
+                "01a0c3692fe173d3876ebd4e0d6a4317": 667
+              },
+              "volume_mm3": 378064.70990692143
+            },
+            {
+              "calculation_errors": {},
+              "triangles": 1351,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 124,
+                "01a0c2310e237a80a1f6a8c17f687bed": 327,
+                "01a0c302dab574ac8b057420abdfe4a8": 19,
+                "01a0c302dab574ac8b057420abdfed03": 16,
+                "01a0c302dab574ac8b057420abdfed4d": 40,
+                "01a0c30769647a75b4de5e66085f6bd5": 32,
+                "01a0c3692fe173d3876ebd4e0d6a4317": 589,
+                "01a0c38d1db27c22a8d12b726f3c4372": 204
+              },
+              "volume_mm3": 378017.4794864017
+            }
+          ],
+          "cycle": 2,
+          "part_recalculated": true,
+          "part_settings_ms": 5472.5782,
+          "tolerance_mm": 0.01,
+          "triangles": 1351,
+          "volume_mm3": 378017.4794864017
+        },
+        {
+          "boundaries": [
+            {
+              "calculation_errors": {},
+              "triangles": 12,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 12
+              },
+              "volume_mm3": 440000.0
+            },
+            {
+              "calculation_errors": {},
+              "triangles": 367,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 40,
+                "01a0c2310e237a80a1f6a8c17f687bed": 327
+              },
+              "volume_mm3": 438837.5471321499
+            },
+            {
+              "calculation_errors": {},
+              "triangles": 403,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 58,
+                "01a0c2310e237a80a1f6a8c17f687bed": 327,
+                "01a0c302dab574ac8b057420abdfe4a8": 18
+              },
+              "volume_mm3": 386905.5400020819
+            },
+            {
+              "calculation_errors": {},
+              "triangles": 435,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 74,
+                "01a0c2310e237a80a1f6a8c17f687bed": 327,
+                "01a0c302dab574ac8b057420abdfe4a8": 18,
+                "01a0c302dab574ac8b057420abdfed03": 16
+              },
+              "volume_mm3": 386036.4025638415
+            },
+            {
+              "calculation_errors": {},
+              "triangles": 475,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 74,
+                "01a0c2310e237a80a1f6a8c17f687bed": 327,
+                "01a0c302dab574ac8b057420abdfe4a8": 19,
+                "01a0c302dab574ac8b057420abdfed03": 16,
+                "01a0c302dab574ac8b057420abdfed4d": 39
+              },
+              "volume_mm3": 383404.45594729786
+            },
+            {
+              "calculation_errors": {},
+              "triangles": 511,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 77,
+                "01a0c2310e237a80a1f6a8c17f687bed": 327,
+                "01a0c302dab574ac8b057420abdfe4a8": 19,
+                "01a0c302dab574ac8b057420abdfed03": 16,
+                "01a0c302dab574ac8b057420abdfed4d": 40,
+                "01a0c30769647a75b4de5e66085f6bd5": 32
+              },
+              "volume_mm3": 382928.95029275
+            },
+            {
+              "calculation_errors": {},
+              "triangles": 1039,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 121,
+                "01a0c2310e237a80a1f6a8c17f687bed": 327,
+                "01a0c302dab574ac8b057420abdfe4a8": 19,
+                "01a0c302dab574ac8b057420abdfed03": 16,
+                "01a0c302dab574ac8b057420abdfed4d": 40,
+                "01a0c30769647a75b4de5e66085f6bd5": 32,
+                "01a0c3692fe173d3876ebd4e0d6a4317": 484
+              },
+              "volume_mm3": 378064.45712530485
+            },
+            {
+              "calculation_errors": {},
+              "triangles": 1205,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 122,
+                "01a0c2310e237a80a1f6a8c17f687bed": 327,
+                "01a0c302dab574ac8b057420abdfe4a8": 19,
+                "01a0c302dab574ac8b057420abdfed03": 16,
+                "01a0c302dab574ac8b057420abdfed4d": 40,
+                "01a0c30769647a75b4de5e66085f6bd5": 32,
+                "01a0c3692fe173d3876ebd4e0d6a4317": 449,
+                "01a0c38d1db27c22a8d12b726f3c4372": 200
+              },
+              "volume_mm3": 378017.2371939001
+            }
+          ],
+          "cycle": 2,
+          "part_recalculated": true,
+          "part_settings_ms": 5235.8365,
+          "tolerance_mm": 0.001,
+          "triangles": 1205,
+          "volume_mm3": 378017.2371939001
+        },
+        {
+          "boundaries": [
+            {
+              "calculation_errors": {},
+              "triangles": 12,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 12
+              },
+              "volume_mm3": 440000.0
+            },
+            {
+              "calculation_errors": {},
+              "triangles": 367,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 40,
+                "01a0c2310e237a80a1f6a8c17f687bed": 327
+              },
+              "volume_mm3": 438837.5471321499
+            },
+            {
+              "calculation_errors": {},
+              "triangles": 403,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 58,
+                "01a0c2310e237a80a1f6a8c17f687bed": 327,
+                "01a0c302dab574ac8b057420abdfe4a8": 18
+              },
+              "volume_mm3": 386905.5400020819
+            },
+            {
+              "calculation_errors": {},
+              "triangles": 435,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 74,
+                "01a0c2310e237a80a1f6a8c17f687bed": 327,
+                "01a0c302dab574ac8b057420abdfe4a8": 18,
+                "01a0c302dab574ac8b057420abdfed03": 16
+              },
+              "volume_mm3": 386036.4025638415
+            },
+            {
+              "calculation_errors": {},
+              "triangles": 475,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 74,
+                "01a0c2310e237a80a1f6a8c17f687bed": 327,
+                "01a0c302dab574ac8b057420abdfe4a8": 19,
+                "01a0c302dab574ac8b057420abdfed03": 16,
+                "01a0c302dab574ac8b057420abdfed4d": 39
+              },
+              "volume_mm3": 383404.45594729786
+            },
+            {
+              "calculation_errors": {},
+              "triangles": 511,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 77,
+                "01a0c2310e237a80a1f6a8c17f687bed": 327,
+                "01a0c302dab574ac8b057420abdfe4a8": 19,
+                "01a0c302dab574ac8b057420abdfed03": 16,
+                "01a0c302dab574ac8b057420abdfed4d": 40,
+                "01a0c30769647a75b4de5e66085f6bd5": 32
+              },
+              "volume_mm3": 382928.95029275
+            },
+            {
+              "calculation_errors": {},
+              "triangles": 1223,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 122,
+                "01a0c2310e237a80a1f6a8c17f687bed": 327,
+                "01a0c302dab574ac8b057420abdfe4a8": 19,
+                "01a0c302dab574ac8b057420abdfed03": 16,
+                "01a0c302dab574ac8b057420abdfed4d": 40,
+                "01a0c30769647a75b4de5e66085f6bd5": 32,
+                "01a0c3692fe173d3876ebd4e0d6a4317": 667
+              },
+              "volume_mm3": 378064.70990692143
+            },
+            {
+              "calculation_errors": {},
+              "triangles": 1351,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 124,
+                "01a0c2310e237a80a1f6a8c17f687bed": 327,
+                "01a0c302dab574ac8b057420abdfe4a8": 19,
+                "01a0c302dab574ac8b057420abdfed03": 16,
+                "01a0c302dab574ac8b057420abdfed4d": 40,
+                "01a0c30769647a75b4de5e66085f6bd5": 32,
+                "01a0c3692fe173d3876ebd4e0d6a4317": 589,
+                "01a0c38d1db27c22a8d12b726f3c4372": 204
+              },
+              "volume_mm3": 378017.4794864017
+            }
+          ],
+          "cycle": 3,
+          "part_recalculated": true,
+          "part_settings_ms": 5311.203,
+          "tolerance_mm": 0.01,
+          "triangles": 1351,
+          "volume_mm3": 378017.4794864017
+        },
+        {
+          "boundaries": [
+            {
+              "calculation_errors": {},
+              "triangles": 12,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 12
+              },
+              "volume_mm3": 440000.0
+            },
+            {
+              "calculation_errors": {},
+              "triangles": 367,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 40,
+                "01a0c2310e237a80a1f6a8c17f687bed": 327
+              },
+              "volume_mm3": 438837.5471321499
+            },
+            {
+              "calculation_errors": {},
+              "triangles": 403,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 58,
+                "01a0c2310e237a80a1f6a8c17f687bed": 327,
+                "01a0c302dab574ac8b057420abdfe4a8": 18
+              },
+              "volume_mm3": 386905.5400020819
+            },
+            {
+              "calculation_errors": {},
+              "triangles": 435,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 74,
+                "01a0c2310e237a80a1f6a8c17f687bed": 327,
+                "01a0c302dab574ac8b057420abdfe4a8": 18,
+                "01a0c302dab574ac8b057420abdfed03": 16
+              },
+              "volume_mm3": 386036.4025638415
+            },
+            {
+              "calculation_errors": {},
+              "triangles": 475,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 74,
+                "01a0c2310e237a80a1f6a8c17f687bed": 327,
+                "01a0c302dab574ac8b057420abdfe4a8": 19,
+                "01a0c302dab574ac8b057420abdfed03": 16,
+                "01a0c302dab574ac8b057420abdfed4d": 39
+              },
+              "volume_mm3": 383404.45594729786
+            },
+            {
+              "calculation_errors": {},
+              "triangles": 511,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 77,
+                "01a0c2310e237a80a1f6a8c17f687bed": 327,
+                "01a0c302dab574ac8b057420abdfe4a8": 19,
+                "01a0c302dab574ac8b057420abdfed03": 16,
+                "01a0c302dab574ac8b057420abdfed4d": 40,
+                "01a0c30769647a75b4de5e66085f6bd5": 32
+              },
+              "volume_mm3": 382928.95029275
+            },
+            {
+              "calculation_errors": {},
+              "triangles": 1039,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 121,
+                "01a0c2310e237a80a1f6a8c17f687bed": 327,
+                "01a0c302dab574ac8b057420abdfe4a8": 19,
+                "01a0c302dab574ac8b057420abdfed03": 16,
+                "01a0c302dab574ac8b057420abdfed4d": 40,
+                "01a0c30769647a75b4de5e66085f6bd5": 32,
+                "01a0c3692fe173d3876ebd4e0d6a4317": 484
+              },
+              "volume_mm3": 378064.45712530485
+            },
+            {
+              "calculation_errors": {},
+              "triangles": 1205,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 122,
+                "01a0c2310e237a80a1f6a8c17f687bed": 327,
+                "01a0c302dab574ac8b057420abdfe4a8": 19,
+                "01a0c302dab574ac8b057420abdfed03": 16,
+                "01a0c302dab574ac8b057420abdfed4d": 40,
+                "01a0c30769647a75b4de5e66085f6bd5": 32,
+                "01a0c3692fe173d3876ebd4e0d6a4317": 449,
+                "01a0c38d1db27c22a8d12b726f3c4372": 200
+              },
+              "volume_mm3": 378017.2371939001
+            }
+          ],
+          "cycle": 3,
+          "part_recalculated": true,
+          "part_settings_ms": 5397.2863,
+          "tolerance_mm": 0.001,
+          "triangles": 1205,
+          "volume_mm3": 378017.2371939001
+        },
+        {
+          "boundaries": [
+            {
+              "calculation_errors": {},
+              "triangles": 12,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 12
+              },
+              "volume_mm3": 440000.0
+            },
+            {
+              "calculation_errors": {},
+              "triangles": 367,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 40,
+                "01a0c2310e237a80a1f6a8c17f687bed": 327
+              },
+              "volume_mm3": 438837.5471321499
+            },
+            {
+              "calculation_errors": {},
+              "triangles": 403,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 58,
+                "01a0c2310e237a80a1f6a8c17f687bed": 327,
+                "01a0c302dab574ac8b057420abdfe4a8": 18
+              },
+              "volume_mm3": 386905.5400020819
+            },
+            {
+              "calculation_errors": {},
+              "triangles": 435,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 74,
+                "01a0c2310e237a80a1f6a8c17f687bed": 327,
+                "01a0c302dab574ac8b057420abdfe4a8": 18,
+                "01a0c302dab574ac8b057420abdfed03": 16
+              },
+              "volume_mm3": 386036.4025638415
+            },
+            {
+              "calculation_errors": {},
+              "triangles": 475,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 74,
+                "01a0c2310e237a80a1f6a8c17f687bed": 327,
+                "01a0c302dab574ac8b057420abdfe4a8": 19,
+                "01a0c302dab574ac8b057420abdfed03": 16,
+                "01a0c302dab574ac8b057420abdfed4d": 39
+              },
+              "volume_mm3": 383404.45594729786
+            },
+            {
+              "calculation_errors": {},
+              "triangles": 511,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 77,
+                "01a0c2310e237a80a1f6a8c17f687bed": 327,
+                "01a0c302dab574ac8b057420abdfe4a8": 19,
+                "01a0c302dab574ac8b057420abdfed03": 16,
+                "01a0c302dab574ac8b057420abdfed4d": 40,
+                "01a0c30769647a75b4de5e66085f6bd5": 32
+              },
+              "volume_mm3": 382928.95029275
+            },
+            {
+              "calculation_errors": {},
+              "triangles": 1223,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 122,
+                "01a0c2310e237a80a1f6a8c17f687bed": 327,
+                "01a0c302dab574ac8b057420abdfe4a8": 19,
+                "01a0c302dab574ac8b057420abdfed03": 16,
+                "01a0c302dab574ac8b057420abdfed4d": 40,
+                "01a0c30769647a75b4de5e66085f6bd5": 32,
+                "01a0c3692fe173d3876ebd4e0d6a4317": 667
+              },
+              "volume_mm3": 378064.70990692143
+            },
+            {
+              "calculation_errors": {},
+              "triangles": 1351,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 124,
+                "01a0c2310e237a80a1f6a8c17f687bed": 327,
+                "01a0c302dab574ac8b057420abdfe4a8": 19,
+                "01a0c302dab574ac8b057420abdfed03": 16,
+                "01a0c302dab574ac8b057420abdfed4d": 40,
+                "01a0c30769647a75b4de5e66085f6bd5": 32,
+                "01a0c3692fe173d3876ebd4e0d6a4317": 589,
+                "01a0c38d1db27c22a8d12b726f3c4372": 204
+              },
+              "volume_mm3": 378017.4794864017
+            }
+          ],
+          "cycle": 4,
+          "part_recalculated": true,
+          "part_settings_ms": 5490.3478,
+          "tolerance_mm": 0.01,
+          "triangles": 1351,
+          "volume_mm3": 378017.4794864017
+        },
+        {
+          "boundaries": [
+            {
+              "calculation_errors": {},
+              "triangles": 12,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 12
+              },
+              "volume_mm3": 440000.0
+            },
+            {
+              "calculation_errors": {},
+              "triangles": 367,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 40,
+                "01a0c2310e237a80a1f6a8c17f687bed": 327
+              },
+              "volume_mm3": 438837.5471321499
+            },
+            {
+              "calculation_errors": {},
+              "triangles": 403,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 58,
+                "01a0c2310e237a80a1f6a8c17f687bed": 327,
+                "01a0c302dab574ac8b057420abdfe4a8": 18
+              },
+              "volume_mm3": 386905.5400020819
+            },
+            {
+              "calculation_errors": {},
+              "triangles": 435,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 74,
+                "01a0c2310e237a80a1f6a8c17f687bed": 327,
+                "01a0c302dab574ac8b057420abdfe4a8": 18,
+                "01a0c302dab574ac8b057420abdfed03": 16
+              },
+              "volume_mm3": 386036.4025638415
+            },
+            {
+              "calculation_errors": {},
+              "triangles": 475,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 74,
+                "01a0c2310e237a80a1f6a8c17f687bed": 327,
+                "01a0c302dab574ac8b057420abdfe4a8": 19,
+                "01a0c302dab574ac8b057420abdfed03": 16,
+                "01a0c302dab574ac8b057420abdfed4d": 39
+              },
+              "volume_mm3": 383404.45594729786
+            },
+            {
+              "calculation_errors": {},
+              "triangles": 511,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 77,
+                "01a0c2310e237a80a1f6a8c17f687bed": 327,
+                "01a0c302dab574ac8b057420abdfe4a8": 19,
+                "01a0c302dab574ac8b057420abdfed03": 16,
+                "01a0c302dab574ac8b057420abdfed4d": 40,
+                "01a0c30769647a75b4de5e66085f6bd5": 32
+              },
+              "volume_mm3": 382928.95029275
+            },
+            {
+              "calculation_errors": {},
+              "triangles": 1039,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 121,
+                "01a0c2310e237a80a1f6a8c17f687bed": 327,
+                "01a0c302dab574ac8b057420abdfe4a8": 19,
+                "01a0c302dab574ac8b057420abdfed03": 16,
+                "01a0c302dab574ac8b057420abdfed4d": 40,
+                "01a0c30769647a75b4de5e66085f6bd5": 32,
+                "01a0c3692fe173d3876ebd4e0d6a4317": 484
+              },
+              "volume_mm3": 378064.45712530485
+            },
+            {
+              "calculation_errors": {},
+              "triangles": 1205,
+              "triangles_by_owner": {
+                "01a0c2310e237a80a1f6a8c17f687bd2": 122,
+                "01a0c2310e237a80a1f6a8c17f687bed": 327,
+                "01a0c302dab574ac8b057420abdfe4a8": 19,
+                "01a0c302dab574ac8b057420abdfed03": 16,
+                "01a0c302dab574ac8b057420abdfed4d": 40,
+                "01a0c30769647a75b4de5e66085f6bd5": 32,
+                "01a0c3692fe173d3876ebd4e0d6a4317": 449,
+                "01a0c38d1db27c22a8d12b726f3c4372": 200
+              },
+              "volume_mm3": 378017.2371939001
+            }
+          ],
+          "cycle": 4,
+          "part_recalculated": true,
+          "part_settings_ms": 5801.5354,
+          "tolerance_mm": 0.001,
+          "triangles": 1205,
+          "volume_mm3": 378017.2371939001
+        }
+      ]
+    }
+  ],
+  "incremental_kernel_operations": [
+    {
+      "cycle": 0,
+      "incremental_kernel_ms": 6.585,
+      "operation_index": 0,
+      "tolerance_mm": 0.01,
+      "triangles": 12
+    },
+    {
+      "cycle": 0,
+      "incremental_kernel_ms": 49.6761,
+      "operation_index": 1,
+      "tolerance_mm": 0.01,
+      "triangles": 367
+    },
+    {
+      "cycle": 0,
+      "incremental_kernel_ms": 72.2385,
+      "operation_index": 2,
+      "tolerance_mm": 0.01,
+      "triangles": 403
+    },
+    {
+      "cycle": 0,
+      "incremental_kernel_ms": 100.1398,
+      "operation_index": 3,
+      "tolerance_mm": 0.01,
+      "triangles": 435
+    },
+    {
+      "cycle": 0,
+      "incremental_kernel_ms": 132.301,
+      "operation_index": 4,
+      "tolerance_mm": 0.01,
+      "triangles": 475
+    },
+    {
+      "cycle": 0,
+      "incremental_kernel_ms": 166.8756,
+      "operation_index": 5,
+      "tolerance_mm": 0.01,
+      "triangles": 511
+    },
+    {
+      "cycle": 0,
+      "incremental_kernel_ms": 483.6804,
+      "operation_index": 6,
+      "tolerance_mm": 0.01,
+      "triangles": 1223
+    },
+    {
+      "cycle": 0,
+      "incremental_kernel_ms": 817.4345,
+      "operation_index": 7,
+      "tolerance_mm": 0.01,
+      "triangles": 1351
+    },
+    {
+      "cycle": 0,
+      "incremental_kernel_ms": 9.3107,
+      "operation_index": 0,
+      "tolerance_mm": 0.001,
+      "triangles": 12
+    },
+    {
+      "cycle": 0,
+      "incremental_kernel_ms": 65.6738,
+      "operation_index": 1,
+      "tolerance_mm": 0.001,
+      "triangles": 367
+    },
+    {
+      "cycle": 0,
+      "incremental_kernel_ms": 84.3716,
+      "operation_index": 2,
+      "tolerance_mm": 0.001,
+      "triangles": 403
+    },
+    {
+      "cycle": 0,
+      "incremental_kernel_ms": 119.4233,
+      "operation_index": 3,
+      "tolerance_mm": 0.001,
+      "triangles": 435
+    },
+    {
+      "cycle": 0,
+      "incremental_kernel_ms": 132.9121,
+      "operation_index": 4,
+      "tolerance_mm": 0.001,
+      "triangles": 475
+    },
+    {
+      "cycle": 0,
+      "incremental_kernel_ms": 195.0647,
+      "operation_index": 5,
+      "tolerance_mm": 0.001,
+      "triangles": 511
+    },
+    {
+      "cycle": 0,
+      "incremental_kernel_ms": 547.6285,
+      "operation_index": 6,
+      "tolerance_mm": 0.001,
+      "triangles": 1039
+    },
+    {
+      "cycle": 0,
+      "incremental_kernel_ms": 910.8277,
+      "operation_index": 7,
+      "tolerance_mm": 0.001,
+      "triangles": 1205
+    },
+    {
+      "cycle": 1,
+      "incremental_kernel_ms": 7.074,
+      "operation_index": 0,
+      "tolerance_mm": 0.01,
+      "triangles": 12
+    },
+    {
+      "cycle": 1,
+      "incremental_kernel_ms": 46.8158,
+      "operation_index": 1,
+      "tolerance_mm": 0.01,
+      "triangles": 367
+    },
+    {
+      "cycle": 1,
+      "incremental_kernel_ms": 77.4033,
+      "operation_index": 2,
+      "tolerance_mm": 0.01,
+      "triangles": 403
+    },
+    {
+      "cycle": 1,
+      "incremental_kernel_ms": 104.5216,
+      "operation_index": 3,
+      "tolerance_mm": 0.01,
+      "triangles": 435
+    },
+    {
+      "cycle": 1,
+      "incremental_kernel_ms": 132.9014,
+      "operation_index": 4,
+      "tolerance_mm": 0.01,
+      "triangles": 475
+    },
+    {
+      "cycle": 1,
+      "incremental_kernel_ms": 167.5787,
+      "operation_index": 5,
+      "tolerance_mm": 0.01,
+      "triangles": 511
+    },
+    {
+      "cycle": 1,
+      "incremental_kernel_ms": 525.0063,
+      "operation_index": 6,
+      "tolerance_mm": 0.01,
+      "triangles": 1223
+    },
+    {
+      "cycle": 1,
+      "incremental_kernel_ms": 872.482,
+      "operation_index": 7,
+      "tolerance_mm": 0.01,
+      "triangles": 1351
+    },
+    {
+      "cycle": 1,
+      "incremental_kernel_ms": 5.8515,
+      "operation_index": 0,
+      "tolerance_mm": 0.001,
+      "triangles": 12
+    },
+    {
+      "cycle": 1,
+      "incremental_kernel_ms": 46.08,
+      "operation_index": 1,
+      "tolerance_mm": 0.001,
+      "triangles": 367
+    },
+    {
+      "cycle": 1,
+      "incremental_kernel_ms": 69.5178,
+      "operation_index": 2,
+      "tolerance_mm": 0.001,
+      "triangles": 403
+    },
+    {
+      "cycle": 1,
+      "incremental_kernel_ms": 97.3186,
+      "operation_index": 3,
+      "tolerance_mm": 0.001,
+      "triangles": 435
+    },
+    {
+      "cycle": 1,
+      "incremental_kernel_ms": 125.7867,
+      "operation_index": 4,
+      "tolerance_mm": 0.001,
+      "triangles": 475
+    },
+    {
+      "cycle": 1,
+      "incremental_kernel_ms": 153.7023,
+      "operation_index": 5,
+      "tolerance_mm": 0.001,
+      "triangles": 511
+    },
+    {
+      "cycle": 1,
+      "incremental_kernel_ms": 464.202,
+      "operation_index": 6,
+      "tolerance_mm": 0.001,
+      "triangles": 1039
+    },
+    {
+      "cycle": 1,
+      "incremental_kernel_ms": 815.1815,
+      "operation_index": 7,
+      "tolerance_mm": 0.001,
+      "triangles": 1205
+    },
+    {
+      "cycle": 2,
+      "incremental_kernel_ms": 7.5719,
+      "operation_index": 0,
+      "tolerance_mm": 0.01,
+      "triangles": 12
+    },
+    {
+      "cycle": 2,
+      "incremental_kernel_ms": 60.6153,
+      "operation_index": 1,
+      "tolerance_mm": 0.01,
+      "triangles": 367
+    },
+    {
+      "cycle": 2,
+      "incremental_kernel_ms": 111.9095,
+      "operation_index": 2,
+      "tolerance_mm": 0.01,
+      "triangles": 403
+    },
+    {
+      "cycle": 2,
+      "incremental_kernel_ms": 111.6516,
+      "operation_index": 3,
+      "tolerance_mm": 0.01,
+      "triangles": 435
+    },
+    {
+      "cycle": 2,
+      "incremental_kernel_ms": 165.4648,
+      "operation_index": 4,
+      "tolerance_mm": 0.01,
+      "triangles": 475
+    },
+    {
+      "cycle": 2,
+      "incremental_kernel_ms": 220.2191,
+      "operation_index": 5,
+      "tolerance_mm": 0.01,
+      "triangles": 511
+    },
+    {
+      "cycle": 2,
+      "incremental_kernel_ms": 586.2259,
+      "operation_index": 6,
+      "tolerance_mm": 0.01,
+      "triangles": 1223
+    },
+    {
+      "cycle": 2,
+      "incremental_kernel_ms": 1060.0749,
+      "operation_index": 7,
+      "tolerance_mm": 0.01,
+      "triangles": 1351
+    },
+    {
+      "cycle": 2,
+      "incremental_kernel_ms": 5.8944,
+      "operation_index": 0,
+      "tolerance_mm": 0.001,
+      "triangles": 12
+    },
+    {
+      "cycle": 2,
+      "incremental_kernel_ms": 47.3109,
+      "operation_index": 1,
+      "tolerance_mm": 0.001,
+      "triangles": 367
+    },
+    {
+      "cycle": 2,
+      "incremental_kernel_ms": 71.5894,
+      "operation_index": 2,
+      "tolerance_mm": 0.001,
+      "triangles": 403
+    },
+    {
+      "cycle": 2,
+      "incremental_kernel_ms": 94.749,
+      "operation_index": 3,
+      "tolerance_mm": 0.001,
+      "triangles": 435
+    },
+    {
+      "cycle": 2,
+      "incremental_kernel_ms": 123.3605,
+      "operation_index": 4,
+      "tolerance_mm": 0.001,
+      "triangles": 475
+    },
+    {
+      "cycle": 2,
+      "incremental_kernel_ms": 150.8562,
+      "operation_index": 5,
+      "tolerance_mm": 0.001,
+      "triangles": 511
+    },
+    {
+      "cycle": 2,
+      "incremental_kernel_ms": 494.3266,
+      "operation_index": 6,
+      "tolerance_mm": 0.001,
+      "triangles": 1039
+    },
+    {
+      "cycle": 2,
+      "incremental_kernel_ms": 983.9952,
+      "operation_index": 7,
+      "tolerance_mm": 0.001,
+      "triangles": 1205
+    },
+    {
+      "cycle": 3,
+      "incremental_kernel_ms": 6.3371,
+      "operation_index": 0,
+      "tolerance_mm": 0.01,
+      "triangles": 12
+    },
+    {
+      "cycle": 3,
+      "incremental_kernel_ms": 48.3784,
+      "operation_index": 1,
+      "tolerance_mm": 0.01,
+      "triangles": 367
+    },
+    {
+      "cycle": 3,
+      "incremental_kernel_ms": 71.9136,
+      "operation_index": 2,
+      "tolerance_mm": 0.01,
+      "triangles": 403
+    },
+    {
+      "cycle": 3,
+      "incremental_kernel_ms": 90.7701,
+      "operation_index": 3,
+      "tolerance_mm": 0.01,
+      "triangles": 435
+    },
+    {
+      "cycle": 3,
+      "incremental_kernel_ms": 120.8118,
+      "operation_index": 4,
+      "tolerance_mm": 0.01,
+      "triangles": 475
+    },
+    {
+      "cycle": 3,
+      "incremental_kernel_ms": 157.4952,
+      "operation_index": 5,
+      "tolerance_mm": 0.01,
+      "triangles": 511
+    },
+    {
+      "cycle": 3,
+      "incremental_kernel_ms": 525.6109,
+      "operation_index": 6,
+      "tolerance_mm": 0.01,
+      "triangles": 1223
+    },
+    {
+      "cycle": 3,
+      "incremental_kernel_ms": 958.2504,
+      "operation_index": 7,
+      "tolerance_mm": 0.01,
+      "triangles": 1351
+    },
+    {
+      "cycle": 3,
+      "incremental_kernel_ms": 6.2466,
+      "operation_index": 0,
+      "tolerance_mm": 0.001,
+      "triangles": 12
+    },
+    {
+      "cycle": 3,
+      "incremental_kernel_ms": 49.456,
+      "operation_index": 1,
+      "tolerance_mm": 0.001,
+      "triangles": 367
+    },
+    {
+      "cycle": 3,
+      "incremental_kernel_ms": 76.6376,
+      "operation_index": 2,
+      "tolerance_mm": 0.001,
+      "triangles": 403
+    },
+    {
+      "cycle": 3,
+      "incremental_kernel_ms": 99.3848,
+      "operation_index": 3,
+      "tolerance_mm": 0.001,
+      "triangles": 435
+    },
+    {
+      "cycle": 3,
+      "incremental_kernel_ms": 127.722,
+      "operation_index": 4,
+      "tolerance_mm": 0.001,
+      "triangles": 475
+    },
+    {
+      "cycle": 3,
+      "incremental_kernel_ms": 171.3674,
+      "operation_index": 5,
+      "tolerance_mm": 0.001,
+      "triangles": 511
+    },
+    {
+      "cycle": 3,
+      "incremental_kernel_ms": 533.6774,
+      "operation_index": 6,
+      "tolerance_mm": 0.001,
+      "triangles": 1039
+    },
+    {
+      "cycle": 3,
+      "incremental_kernel_ms": 876.1068,
+      "operation_index": 7,
+      "tolerance_mm": 0.001,
+      "triangles": 1205
+    },
+    {
+      "cycle": 4,
+      "incremental_kernel_ms": 6.2284,
+      "operation_index": 0,
+      "tolerance_mm": 0.01,
+      "triangles": 12
+    },
+    {
+      "cycle": 4,
+      "incremental_kernel_ms": 45.3654,
+      "operation_index": 1,
+      "tolerance_mm": 0.01,
+      "triangles": 367
+    },
+    {
+      "cycle": 4,
+      "incremental_kernel_ms": 69.7724,
+      "operation_index": 2,
+      "tolerance_mm": 0.01,
+      "triangles": 403
+    },
+    {
+      "cycle": 4,
+      "incremental_kernel_ms": 92.3747,
+      "operation_index": 3,
+      "tolerance_mm": 0.01,
+      "triangles": 435
+    },
+    {
+      "cycle": 4,
+      "incremental_kernel_ms": 125.7267,
+      "operation_index": 4,
+      "tolerance_mm": 0.01,
+      "triangles": 475
+    },
+    {
+      "cycle": 4,
+      "incremental_kernel_ms": 151.4413,
+      "operation_index": 5,
+      "tolerance_mm": 0.01,
+      "triangles": 511
+    },
+    {
+      "cycle": 4,
+      "incremental_kernel_ms": 458.8952,
+      "operation_index": 6,
+      "tolerance_mm": 0.01,
+      "triangles": 1223
+    },
+    {
+      "cycle": 4,
+      "incremental_kernel_ms": 839.1012,
+      "operation_index": 7,
+      "tolerance_mm": 0.01,
+      "triangles": 1351
+    },
+    {
+      "cycle": 4,
+      "incremental_kernel_ms": 6.4641,
+      "operation_index": 0,
+      "tolerance_mm": 0.001,
+      "triangles": 12
+    },
+    {
+      "cycle": 4,
+      "incremental_kernel_ms": 48.3115,
+      "operation_index": 1,
+      "tolerance_mm": 0.001,
+      "triangles": 367
+    },
+    {
+      "cycle": 4,
+      "incremental_kernel_ms": 76.904,
+      "operation_index": 2,
+      "tolerance_mm": 0.001,
+      "triangles": 403
+    },
+    {
+      "cycle": 4,
+      "incremental_kernel_ms": 97.9395,
+      "operation_index": 3,
+      "tolerance_mm": 0.001,
+      "triangles": 435
+    },
+    {
+      "cycle": 4,
+      "incremental_kernel_ms": 133.6633,
+      "operation_index": 4,
+      "tolerance_mm": 0.001,
+      "triangles": 475
+    },
+    {
+      "cycle": 4,
+      "incremental_kernel_ms": 166.0161,
+      "operation_index": 5,
+      "tolerance_mm": 0.001,
+      "triangles": 511
+    },
+    {
+      "cycle": 4,
+      "incremental_kernel_ms": 537.8745,
+      "operation_index": 6,
+      "tolerance_mm": 0.001,
+      "triangles": 1039
+    },
+    {
+      "cycle": 4,
+      "incremental_kernel_ms": 901.7352,
+      "operation_index": 7,
+      "tolerance_mm": 0.001,
+      "triangles": 1205
+    }
+  ],
+  "linear_tolerances_mm": [
+    0.001,
+    0.01
+  ],
+  "mesh_deflection_mm": 0.1,
+  "method": "Release build; one warm-up and five alternating measured cycles; original models are never saved. Times include native transactions; draw_ms is CPU sheet painting to QImage, not interactive GPU frame latency."
+}

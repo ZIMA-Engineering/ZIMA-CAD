@@ -63,7 +63,7 @@ including its extension to construction Planes.
 
 - Full CTest run: 161/165 initially. The remaining four tests subsequently
   passed after updating automatic-selection expectations and embedded
-  Sketches in the ZE-A4/ZE-RAZITKO drawing templates.
+  Sketches in the ZE-A4/ZE-TITLE-BLOCK-CS drawing templates.
 - Model tests cover automatic/manual planes, perpendicular offsets, reference
   replacement, Undo/Redo, save/regenerate, and analytical body volumes.
 - The GUI test passed for Sketch, Holes, Extrusion, Revolution, and Plane:

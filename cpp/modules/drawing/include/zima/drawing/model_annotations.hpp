@@ -13,8 +13,12 @@ struct ModelAnnotationSource {
   std::map<kernel::ObjectEnvelopeKey,kernel::ModelEnvelope> object_frames;
   // Exact axis reference (owner, semantic); the packet supplies the occurrence.
   std::map<std::pair<std::string,std::string>,kernel::ModelEnvelope> axis_frames;
+  // Thread measuring metadata also accompanies child Parts whose modeling
+  // dimensions are deliberately excluded from Assembly Show/Erase.
+  std::map<std::string,ThreadDesignation> threads;
 };
 ModelAnnotation project_model_annotation(const DrawingView&,ModelAnnotation);
+kernel::ViewerDimension drawing_model_dimension(const DrawingView&,const ModelAnnotation&);
 struct AxisAnnotationGeometry {
   Point2 center;
   std::vector<std::vector<Point2>> curves;

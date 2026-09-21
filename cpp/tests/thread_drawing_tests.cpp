@@ -1,6 +1,10 @@
 #include <zima/command_host/host.hpp>
 #include <zima/drawing_render/sheet_renderer.hpp>
 #include <zima/drawing_render/pdf_export.hpp>
+#include <zima/drawing/measurement_dimension.hpp>
+#include <zima/drawing/model_annotations.hpp>
+#include <zima/document/feature_parameter_dimensions.hpp>
+#include <zima/workspace/drawing_projection.hpp>
 #include <QGuiApplication>
 #include <QImage>
 #include <cmath>
@@ -45,6 +49,35 @@ void verify(){
     part.history.back().thread.chamfer_enabled=true;
     const auto chamfer=kernel.evaluate_history(part.kernel_operations());
     require(std::abs(thread_length(drawing::project_edges(chamfer.back().mesh,camera))-expected)<.02,"Entrance chamfer hides or duplicates the thread arc");
+    {
+        auto specimen=part;specimen.history.back().hole.drill_point_enabled=true;
+        const auto calculated=kernel.evaluate_history(specimen.kernel_operations());
+        auto axial=drawing::DrawingDocument::create_view(specimen.document_id,{},calculated.back().mesh,drawing::ViewOrientation::Bottom);
+        const auto leadins=std::ranges::count_if(axial.projected_edges,[](const auto& edge){return edge.thread_leadin;});
+        require(leadins>0,"Thread lead-in circle was not recognized");
+        for(const auto& edge:axial.projected_edges)if(edge.thread_leadin){require(!drawing::drawing_edge_visible(axial,edge),"Leadin visible by default");axial.show_thread_leadins=true;require(drawing::drawing_edge_visible(axial,edge)==!edge.hidden,"Leadin toggle does not restore circle");axial.show_thread_leadins=false;}
+        for(const auto& edge:axial.projected_edges)if(edge.silhouette&&!edge.hidden&&!edge.thread)for(auto p:edge.points)
+            require(std::hypot(p.x,p.y)>1e-5,"A cone generator is drawn from the thread centre");
+        const auto annotations=document::primitive_parameter_dimensions(specimen.history.back());
+        drawing::ModelAnnotationSource source;source.document_id=specimen.document_id;source.dimensions=annotations.dimensions;
+        for(auto orientation:{drawing::ViewOrientation::Bottom,drawing::ViewOrientation::Front}) {
+            auto view=drawing::DrawingDocument::create_view(specimen.document_id,{},calculated.back().mesh,orientation);
+            const std::array sources{source};view.display_style=drawing::DisplayStyle::HiddenEdges;drawing::refresh_model_annotations(view,sources);
+            bool checked=false;
+            for(const auto& edge:view.projected_edges)if(edge.thread&&edge.source.valid()&&edge.points.size()>1) {
+                const auto a=edge.points.front(),b=edge.points[1];drawing::Point2 target{(a.x+b.x)/2,(a.y+b.y)/2};
+                drawing::MeasurementPickRequest request;request.circles_only=true;
+                for(const auto& candidate:drawing::measurement_candidates(view,target,.2,request))if(candidate.attachment.reference.semantic_key.starts_with("thread:boundary:")) {
+                    auto dimension=drawing::make_drawing_dimension(view.id,drawing::DrawingDimensionKind::Diameter);dimension.attachments[0]=candidate.attachment;
+                    const auto evaluation=drawing::evaluate_drawing_dimension(view,dimension);
+                    require(evaluation.state==drawing::MeasurementState::Resolved,"Thread diameter did not resolve in hidden projection");
+                    require(drawing::drawing_dimension_text(dimension,evaluation.presentations.front())==specimen.history.back().thread.designation,"Thread dimension lost its designation");checked=true;break;
+                }
+                if(checked)break;
+            }
+            require(checked,"No measurable thread candidate in axial or side projection");
+        }
+    }
     auto shaft_doc=document::PartDocument::create_default();auto shaft=document::PartDocument::create_cylinder_container();
     shaft.cylinder.radius=5;shaft.cylinder.height=30;shaft_doc.history.push_back(shaft);
     const auto shaft_base=kernel.evaluate_history(shaft_doc.kernel_operations());
@@ -54,6 +87,40 @@ void verify(){
     external.shaft_thread.root_diameter=8.16;external.shaft_thread.length=15;shaft_doc.history.push_back(external);
     const auto shaft_result=kernel.evaluate_history(shaft_doc.kernel_operations());
     require(std::abs(thread_length(drawing::project_edges(shaft_result.back().mesh,camera))-expected*8.16/10)<.02,"External thread did not use the root-diameter arc");
+    {
+        workspace::Workspace live;
+        auto section=document::create_section();static_cast<void>(section.sketch.add_segment(-50,0,50,0));
+        part.sections.push_back(section);live.add_part(part,chamfer);
+        live.add_part(shaft_doc,shaft_result);
+        workspace::DrawingProjection projection(&live,{});
+        for(const auto* model:{&part,&shaft_doc})for(bool cut:{false,true}) {
+            if(cut&&model==&shaft_doc)continue;
+            auto measured=drawing::DrawingDocument::create_view(model->document_id,{}, {},drawing::ViewOrientation::Front);
+            measured.display_style=drawing::DisplayStyle::HiddenEdges;
+            if(cut)measured.section_id=section.id;
+            projection.project(measured,{});
+            bool picked=false;
+            for(const auto& edge:measured.projected_edges)if(edge.thread&&edge.source.valid()&&edge.points.size()>1) {
+                const auto a=edge.points[0],b=edge.points[1];drawing::MeasurementPickRequest request;request.circles_only=true;
+                for(const auto& candidate:drawing::measurement_candidates(measured,{(a.x+b.x)/2,(a.y+b.y)/2},.2,request)) {
+                    if(!candidate.attachment.reference.semantic_key.starts_with("thread:boundary:"))continue;
+                    auto dimension=drawing::make_drawing_dimension(measured.id,drawing::DrawingDimensionKind::Diameter);
+                    dimension.attachments[0]=candidate.attachment;
+                    const auto evaluation=drawing::evaluate_drawing_dimension(measured,dimension);
+                    require(evaluation.state==drawing::MeasurementState::Resolved,"Section/external thread cannot be dimensioned");
+                    const auto expected=model==&part?part.history.back().thread.designation:external.shaft_thread.designation;
+                    require(drawing::drawing_dimension_text(dimension,evaluation.presentations.front())==expected,"Section/external thread designation missing");
+                    auto saved=drawing::DrawingDocument::create_default();saved.sheets.front().views={measured};saved.save(folder/"measured.drwz");
+                    const auto loaded=drawing::DrawingDocument::load(folder/"measured.drwz");
+                    const auto after=drawing::evaluate_drawing_dimension(loaded.sheets.front().views.front(),dimension);
+                    require(after.state==drawing::MeasurementState::Resolved&&drawing::drawing_dimension_text(dimension,after.presentations.front())==expected,"Thread measurement metadata failed to persist");
+                    picked=true;break;
+                }
+                if(picked)break;
+            }
+            require(picked,"Section/external thread has no measurable candidate");
+        }
+    }
     auto doc=drawing::DrawingDocument::create_default();auto& sheet=doc.sheets.front();
     auto view=drawing::DrawingDocument::create_view(part.document_id,folder/"source.prtz",{},drawing::ViewOrientation::Bottom);
     view.camera=camera;view.x=105;view.y=200;view.scale=2;view.projected_edges=edges;sheet.views={view};

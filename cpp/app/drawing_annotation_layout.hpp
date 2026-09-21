@@ -35,7 +35,7 @@ unbroken_model_annotation_layout(const drawing::DrawingView &view,
   }
   ModelAnnotationLayout out;
   if(item.kind==drawing::ModelAnnotationKind::Dimension && item.model_dimension) {
-    const auto d=kernel::layout_dimension(*item.model_dimension,item.model_envelope,item.view_layout.value_or(item.model_layout));
+    const auto d=drawing::drawing_model_dimension(view,item);
     const auto original=[&](kernel::Vec3 p){return drawing::Point2{kernel::dimension_dot(p,view.camera.horizontal),kernel::dimension_dot(p,view.camera.vertical)};};
     if(drawing::break_hidden(view,original(d.witness_first))||drawing::break_hidden(view,original(d.witness_second)))return out;
     const auto project=[&](kernel::Vec3 p){auto q=drawing::break_map(view,original(p));return QPointF(q.x*view.scale,-q.y*view.scale);};

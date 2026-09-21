@@ -19,6 +19,7 @@ class QPushButton;
 class QDoubleSpinBox;
 class QTabBar;
 class QToolBar;
+class QMenu;
 
 namespace zima::workspace { class Workspace; struct SheetSettings; }
 
@@ -44,7 +45,10 @@ public:
         return document_;
     }
     void set_document_changed_handler(std::function<void()> handler) { changed_handler_=std::move(handler); }
-    void set_selection_handler(std::function<void(const std::string&)> handler) { selection_handler_=std::move(handler); }
+    void set_selection_handler(std::function<void(const std::vector<std::string>&)> handler) { selection_handler_=std::move(handler); }
+    void select_tree_entities(const std::vector<std::string>& ids, const std::string& current);
+    void populate_selection_menu(QMenu& menu);
+    void erase_selected_entities();
     void set_properties_handler(std::function<void(QDialog*)> handler) { properties_handler_=std::move(handler); }
     [[nodiscard]] std::string selected_source_id() const;
     void select_view(const std::string& view_id);
@@ -76,7 +80,7 @@ private:
     QLabel* state_{};
     std::function<void(const QString&)> status_handler_;
     std::function<void()> changed_handler_;
-    std::function<void(const std::string&)> selection_handler_;
+    std::function<void(const std::vector<std::string>&)> selection_handler_;
     std::function<void(QDialog*)> properties_handler_;
     void set_status_message(const QString& message);
     QComboBox* sheet_format_{};
@@ -91,6 +95,7 @@ private:
     QAction* edit_sheet_action_{};
     QAction* edit_title_block_action_{};
     QAction* insert_view_action_{};
+    QAction* insert_detail_action_{};
     QAction* projected_view_action_{};
     QAction* edit_view_action_{};
     QAction* regenerate_view_action_{};
@@ -116,6 +121,8 @@ private:
     void remove_title_block();
     void edit_title_block();
     void insert_view();
+    void insert_detail();
+    void show_detail_properties(zima::drawing::DrawingView,bool creating);
     void show_view_properties(zima::drawing::DrawingView view, bool creating);
     void update_source_variant();
     void show_drawing_settings();

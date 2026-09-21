@@ -54,7 +54,7 @@ right, without hidden compensation.
 
 Supplied title blocks:
 
-- `ZE-RAZITKO.tblz`: Czech labels and localized parameter names.
+- `ZE-TITLE-BLOCK-CS.tblz`: Czech labels and localized parameter names.
 - `ZE-TITLE-BLOCK.tblz`: English labels and localized parameter names.
 
 Text starting with `&` references a parameter. Internal keys such as `name` and
@@ -646,3 +646,53 @@ A changed projection may therefore require editing the crop boundary.
 The screen, PDF and raster exports share the same clipping path. DXF applies
 that path to exported strokes and fills as well. Crop entry and grip movement
 consume already calculated projection data and do not call OCCT.
+
+### Detail views and local hatch boundaries
+
+Insert Detail follows Insert View in the Drawing toolbar. Pick a point in the
+source view, define a circle, ellipse or closed spline, then place the enlarged
+view. The shared creation/edit properties window controls name, scale, caption,
+source boundary and source label. Names start with X, Y, Z, then X1, Y1, Z1.
+Only OK commits; Cancel discards the complete preview. A detail inherits its
+parent's calculated geometry, visibility, model annotations, section, breaks and
+crop. Regeneration refreshes parents before details; deleting a parent also
+deletes its dependent details. Native Drawing version 20 persists these links.
+Boundary anchors remain view coordinates, so a source orientation change can
+require repositioning the boundary.
+
+The section table in View Properties has a separate hatch-region action. Its
+circle, ellipse or spline limits only hatch strokes. It leaves material contours
+and the Part/Assembly Section definition unchanged. Each section's local region
+is saved in the Drawing. Finished view-crop boundaries use thin strokes only
+where they cross the projected body; the complete boundary remains visible
+during editing.
+
+The interaction reference is PTC's
+[Insert a Detailed View](https://support.ptc.com/help/creo/creo_pma/r12/usascii/detail/To_Insert_a_Detailed_View.html):
+source point, boundary, sheet location, then name/scale presentation. ZIMA keeps
+its shared OK/Cancel transaction instead of introducing an Apply action.
+
+### Threads, dimensions and tolerance presentation
+
+Axial thread views suppress spurious cone/cylinder mesh generators. Thread
+lead-in chamfer circles are hidden by default; View Properties can reveal them.
+The chamfer stays in the model. Diameter dimensioning accepts symbolic thread
+boundaries in axial, hidden-line and section projections and displays the
+stored thread designation, including external threads. Measurement metadata is
+native Drawing data and remains available after reopening.
+
+Show/Erase collects primitive parameter and embedded Sketch dimensions from
+the source document. Linear dimension presentation rotates into the drawing
+plane without modifying model witnesses, values or layouts.
+
+Global Settings offers inline or stacked upper/lower deviations, shared by
+Part, Assembly, Drawing and exports. Both deviations use the nominal text size;
+the stacked lower deviation shares the nominal baseline and decimal separators
+align. Literal text overrides and symmetric tolerances keep their existing
+presentation. The saved setting is `Dimensions/ToleranceLayout=inline|stacked`.
+Stacked text has a larger hit box and background; the 8 mm dimension spacing is
+not automatically increased, so dense drawings can require manual placement.
+Inline deviations are an optional compact presentation, not a claim of standard
+conformity. The relevant presentation standard is
+[ISO 129-1:2018](https://www.iso.org/standard/64007.html), whose scope covers 2D
+dimensions and tolerances and can also apply to 3D annotation.

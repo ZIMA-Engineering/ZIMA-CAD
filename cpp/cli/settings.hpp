@@ -3,6 +3,7 @@
 
 namespace zima::cli {
 struct Settings {
+    bool stacked_tolerances{};
     command_host::Settings documents;
     std::map<std::string,std::string> translations;
     [[nodiscard]] std::string translate(const char* source,const char* context="QMainWindow") const;

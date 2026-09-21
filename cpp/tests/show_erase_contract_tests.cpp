@@ -32,6 +32,17 @@ int main() {
     dimension.line_second = {10, 5, 0};
     dimension.value = 10;
     source.dimensions.push_back(dimension);
+    {
+      auto original=dimension;original.plane_normal={0,-1,0};original.line_first={0,0,8};original.line_second={10,0,8};
+      drawing::ModelAnnotation annotation;annotation.model_dimension=original;
+      drawing::DrawingView projected;projected.camera={{-1,0,0},{0,1,0},{0,0,1}};
+      const auto shown=drawing::drawing_model_dimension(projected,annotation);
+      require(std::abs(shown.line_first.y)==8&&shown.line_first.z==0&&shown.value==10,"Model dimension did not rotate into drawing plane");
+      require(annotation.model_dimension->line_first==original.line_first&&annotation.model_dimension->plane_normal==original.plane_normal,"Drawing projection changed source dimension");
+      const double q=std::sqrt(.5);projected.camera={{-q,-q,0},{-q,q,0},{0,0,1}};
+      const auto rotated=drawing::drawing_model_dimension(projected,annotation);
+      require(rotated.value==10&&std::abs(rotated.line_first.y)==8,"Rotated view lost model dimension geometry");
+    }
     kernel::ViewerEdge circle;
     circle.construction = true;
     circle.reference = {"sketch", "curve:circle", source.instance_path};
@@ -75,6 +86,28 @@ int main() {
                    drawing::ModelAnnotationKind::Construction};
     auto ids = session.candidates(drawing::ShowEraseMode::Show, kinds);
     require(ids.size() == 6, "Hidden items not offered");
+    {
+      auto with_origins = view;
+      for (const auto* owner : {"source-part:origin", "body-origin", "assembly:origin"})
+        for (const auto* path : {"assembly/first", "assembly/second"})
+          for (const auto* semantic : {"origin:axis:x", "origin:axis:y", "origin:axis:z"}) {
+            auto origin = view.model_annotations[2];
+            origin.source = {"source-part", owner, semantic, path};
+            with_origins.model_annotations.push_back(origin);
+          }
+      drawing::ShowEraseSession show_origins(with_origins);
+      require(show_origins.candidates(drawing::ShowEraseMode::Show, kinds) == ids,
+              "Show offered Part, Body or Assembly Origin axes");
+      for (auto& item : with_origins.model_annotations) item.visible = true;
+      drawing::ShowEraseSession erase_origins(with_origins);
+      require(erase_origins.candidates(drawing::ShowEraseMode::Erase, kinds) == ids,
+              "Erase offered Origin axes or excluded geometric axes");
+      rejects([&] {
+        erase_origins.preview(drawing::ShowEraseMode::Erase,
+                              drawing::ShowEraseSelection::RemoveSelected, kinds,
+                              {with_origins.model_annotations.back().source});
+      });
+    }
     auto pending = session.preview(drawing::ShowEraseMode::Show,
                                    drawing::ShowEraseSelection::KeepSelected,
                                    kinds, {ids[0], ids[1]});

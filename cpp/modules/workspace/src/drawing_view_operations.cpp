@@ -1,3 +1,4 @@
+#include <zima/drawing/detail_view.hpp>
 #include <zima/drawing/view_crop.hpp>
 #include <zima/drawing/view_orientation.hpp>
 #include <zima/drawing/view_breaks.hpp>
@@ -76,14 +77,14 @@ void edit_drawing_view(drawing::DrawingDocument& document,const std::string& she
         const auto parent=std::ranges::find(sheet->views,accepted.parent_view_id,&drawing::DrawingView::id);
         if(parent==sheet->views.end())throw DrawingOperationError("view_not_found","The parent drawing view is unavailable.");
         if(parent->id==accepted.id)throw DrawingOperationError("dependency_cycle","Drawing views contain a cyclic dependency.");
-        if(accepted.projection_direction==drawing::ProjectionDirection::None)invalid_view();
+        if(!accepted.detail_view&&accepted.projection_direction==drawing::ProjectionDirection::None)invalid_view();
         accepted.source_document_id=parent->source_document_id;accepted.source_path=parent->source_path;
-        accepted.camera=drawing::projected_camera(parent->camera,accepted.projection_direction,sheet->projection_method);
+        if(accepted.detail_view)drawing::refresh_detail_view(accepted,*parent);else accepted.camera=drawing::projected_camera(parent->camera,accepted.projection_direction,sheet->projection_method);
     }
     if(accepted.section_id.empty()) {accepted.section_snapshot.reset();accepted.section_parent_id.clear();}
-    projection.project(accepted,{.pending_hatch=pending_hatch,.refresh_markers=true});
+    if(!accepted.detail_view)projection.project(accepted,{.pending_hatch=pending_hatch,.refresh_markers=true});
     const double dx=creating?0:accepted.x-found->x,dy=creating?0:accepted.y-found->y;
-    if(!accepted.section_id.empty()&&accepted.section_parent_id.empty())for(auto& parent:sheet->views)
+    if(!accepted.detail_view&&!accepted.section_id.empty()&&accepted.section_parent_id.empty())for(auto& parent:sheet->views)
         if(parent.id!=accepted.id&&parent.source_document_id==accepted.source_document_id&&parent.section_id.empty()) {
             accepted.section_parent_id=parent.id;
             if(accepted.section_snapshot&&std::ranges::none_of(parent.section_markers,[&](const auto& s){return s.id==accepted.section_id;}))parent.section_markers.push_back(*accepted.section_snapshot);
@@ -97,9 +98,9 @@ void edit_drawing_view(drawing::DrawingDocument& document,const std::string& she
         for(auto& child:sheet->views)if(child.parent_view_id==parent.id) {
             if(!refreshed.insert(child.id).second)throw DrawingOperationError("dependency_cycle","Drawing views contain a cyclic dependency.");
             child.source_document_id=parent.source_document_id;child.source_path=parent.source_path;
-            child.camera=drawing::projected_camera(parent.camera,child.projection_direction,sheet->projection_method);
+            if(child.detail_view)drawing::refresh_detail_view(child,parent);else child.camera=drawing::projected_camera(parent.camera,child.projection_direction,sheet->projection_method);
             child.x+=dx;child.y+=dy;validate_drawing_view(child);
-            projection.project(child,{.refresh_markers=true});self(self,child,depth+1);
+            if(!child.detail_view)projection.project(child,{.refresh_markers=true});self(self,child,depth+1);
         }
     };
     children(children,*next.find_view(id),0);
@@ -114,11 +115,26 @@ void edit_drawing_view(drawing::DrawingDocument& document,const std::string& she
         sheet->bom_rows=projection.source(source_view).bom;
         if(next.source_name.empty()&&!sheet->bom_rows.empty())next.source_name=sheet->bom_rows.front().name;
     }
-    if(accepted.section_snapshot)for(auto& s:next.sheets)for(auto& other:s.views)
-        if(other.source_document_id==accepted.source_document_id&&other.section_id==accepted.section_id) {
+    if(!accepted.detail_view&&accepted.section_snapshot)for(auto& s:next.sheets)for(auto& other:s.views)
+        if(!other.detail_view&&other.source_document_id==accepted.source_document_id&&other.section_id==accepted.section_id) {
             other.section_snapshot=accepted.section_snapshot;
             projection.project(other,{.pending_hatch=pending_hatch});refreshed.insert(other.id);
         }
+    // Section settings can also refresh a different source view. Update its
+    // details after all section projections, including nested details.
+    for(auto& s:next.sheets) {
+        std::set<std::string> visiting,complete;
+        const auto refresh_detail=[&](const auto& self,drawing::DrawingView& view)->void {
+            if(!view.detail_view||complete.contains(view.id))return;
+            if(!visiting.insert(view.id).second)throw DrawingOperationError("dependency_cycle","Drawing views contain a cyclic dependency.");
+            auto parent=std::ranges::find(s.views,view.parent_view_id,&drawing::DrawingView::id);
+            if(parent==s.views.end())throw DrawingOperationError("view_not_found","The parent drawing view is unavailable.");
+            self(self,*parent);
+            if(refreshed.contains(parent->id)){drawing::refresh_detail_view(view,*parent);refreshed.insert(view.id);}
+            visiting.erase(view.id);complete.insert(view.id);
+        };
+        for(auto& view:s.views)refresh_detail(refresh_detail,view);
+    }
     discard_reoriented_dimensions(document,next);
     for(auto& s:next.sheets)for(auto& dimension:s.dimensions)if(refreshed.contains(dimension.view_id))
         drawing::refresh_drawing_dimension(*next.find_view(dimension.view_id),dimension);
@@ -143,9 +159,9 @@ std::size_t regenerate_drawing_views(drawing::DrawingDocument& document,const Wo
                 if(parent==sheet.views.end())throw DrawingOperationError("view_not_found","The parent drawing view is unavailable.");
                 if(parent->source_document_id!=view.source_document_id)throw DrawingOperationError("source_identity","A projected view must use its parent source document.");
                 self(self,*parent,depth+1);
-                view.camera=drawing::projected_camera(parent->camera,view.projection_direction,sheet.projection_method);
+                if(view.detail_view)drawing::refresh_detail_view(view,*parent);else view.camera=drawing::projected_camera(parent->camera,view.projection_direction,sheet.projection_method);
             }
-            projection.project(view,{.refresh_markers=true,.require_geometry=false});
+            if(!view.detail_view)projection.project(view,{.refresh_markers=true,.require_geometry=false});
             for(auto& dimension:sheet.dimensions)if(dimension.view_id==view.id)drawing::refresh_drawing_dimension(view,dimension);
             state=2;++count;
         };

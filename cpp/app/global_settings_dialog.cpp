@@ -53,6 +53,12 @@ GlobalSettingsDialog::GlobalSettingsDialog(
     application_font_->addItem(tr("Systémový font"), false);
     application_font_->setCurrentIndex(settings_.use_iso_application_font ? 0 : 1);
     form->addRow(tr("Font celé aplikace"), application_font_);
+    tolerance_layout_ = new QComboBox(this);
+    tolerance_layout_->setObjectName("globalToleranceLayout");
+    tolerance_layout_->addItem(tr("V řádku"), false);
+    tolerance_layout_->addItem(tr("Nad sebou"), true);
+    tolerance_layout_->setCurrentIndex(settings_.stacked_tolerances ? 1 : 0);
+    form->addRow(tr("Zobrazení tolerancí"), tolerance_layout_);
 
     const QMap<QString, QStringList> choices{
         {"Length", {"mm", "cm", "m", "in"}},
@@ -165,6 +171,7 @@ void GlobalSettingsDialog::browse_path(const QString& key) {
 }
 
 bool GlobalSettingsDialog::submit() {
+    settings_.stacked_tolerances = tolerance_layout_->currentData().toBool();
     settings_.sheet_cut_tolerance=sheet_cut_tolerance_->value();
     settings_.language = language_->currentText();
     settings_.use_iso_application_font =

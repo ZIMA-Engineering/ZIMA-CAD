@@ -25,8 +25,8 @@ The dialog still asks for the source Part or Assembly before creating the tab.
 
 Creating a Drawing with the Tree's Drawing button on a Part or Assembly starts
 with A4. Both creation paths insert the matching frame and a company title block.
-The current-language `ZE-RAZITKO-<language>.tblz` takes priority, followed by
-another title block declaring that locale, then the base `ZE-RAZITKO.tblz`.
+The current-language `ZE-TITLE-BLOCK-<LANGUAGE>.tblz` takes priority, followed by
+another title block declaring that locale, then the base `ZE-TITLE-BLOCK-CS.tblz`.
 Missing optional library resources leave the corresponding frame or title block
 empty; a missing A4 frame leaves a blank A4 sheet. A corrupt selected template
 reports an error before creating a document. Existing drawings are not modified.
@@ -723,6 +723,20 @@ support item number, quantity and source parameters. See [Drawings](DRAWINGS.md)
 for template images, region direction and language behavior.
 
 ### Canvas controls
+
+The Drawing Tree and canvas share entity selection. Selecting a Tree leaf
+highlights only that entity in cyan; Ctrl-click adds or removes individual
+entities, including axes, within the displayed sheet. Selecting an entity on
+another sheet displays that sheet. An empty canvas click clears both selections.
+The Tree includes visible model annotations, measured dimensions, view captions,
+section labels and traces, texts, and balloons.
+
+Right-click a selected Tree leaf to keep the current selection and open its
+available actions. Dimensions, texts, balloons and views expose their existing
+properties editors. Delete removes selected drawing annotations or hides model
+annotations in that view; one Undo restores the complete operation. Whole views
+are protected from ordinary Delete and mixed-selection deletion. Remove a view
+only with its explicit **Delete View** command.
 
 | Input | Action |
 | --- | --- |

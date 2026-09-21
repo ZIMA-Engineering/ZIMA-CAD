@@ -77,6 +77,7 @@ struct ProjectedEdge {
     bool hatch{};
     int hatch_pattern{};
     bool thread{}; // Conventional thread line, independent of tangent-edge display.
+    bool thread_leadin{};
 };
 
 struct ProjectedTriangle {
@@ -94,11 +95,17 @@ struct MeasurementCircle {
     double radius{};
     bool operator==(const MeasurementCircle&) const = default;
 };
+struct ThreadDesignation {
+    std::string text;
+    double nominal_diameter{};
+    bool operator==(const ThreadDesignation&) const = default;
+};
 struct MeasurementCurve {
     kernel::EdgeReference source;
     std::vector<kernel::Vec3> points;
     std::optional<MeasurementCircle> circle;
     bool line{};
+    std::optional<ThreadDesignation> thread;
     bool operator==(const MeasurementCurve&) const = default;
 };
 struct MeasurementPoint {
@@ -117,7 +124,7 @@ enum class BreakMark { None, Straight, Zigzag };
 struct ViewBreak {
     std::string id;
     bool vertical{};
-    double start{}, length{50}, gap{8};
+    double start{}, length{50}, gap{2};
     BreakMark mark{BreakMark::Zigzag};
     bool operator==(const ViewBreak&) const = default;
 };
@@ -143,6 +150,7 @@ struct DrawingView {
     DisplayStyle display_style{DisplayStyle::VisibleEdges};
     HiddenEdgeStyle hidden_edge_style{HiddenEdgeStyle::Dashed};
     TangentEdgeStyle tangent_edge_style{TangentEdgeStyle::Visible};
+    bool show_thread_leadins{};
     std::string section_id, section_parent_id;
     std::optional<zima::document::SectionDefinition> section_snapshot;
     // Last calculated side, persisted with the projection for trace arrows.
@@ -154,6 +162,12 @@ struct DrawingView {
     double scale{1.0};
     bool use_sheet_scale{true};
     std::optional<ViewCrop> crop;
+    bool detail_view{};
+    bool show_detail_boundary{true}, show_detail_label{true};
+    // Intersections inherited from the parent; crop is this detail's boundary.
+    std::vector<ViewCrop> inherited_crops;
+    // Drawing-only limits for hatch ink; source Section definitions are unchanged.
+    std::map<std::string,ViewCrop> section_hatch_crops;
     bool show_caption{};
     bool show_section_label{true};
     // Optional paper-mm offsets from the view origin: right/up, independent
@@ -190,6 +204,7 @@ Point2 section_letter_position(const SectionTraceLayout&,std::size_t end,Point2 
 
 // The renderer and dimension picker share the same visibility contract.
 inline bool drawing_edge_visible(const DrawingView& view,const ProjectedEdge& edge) {
+    if(edge.thread_leadin&&!view.show_thread_leadins)return false;
     if(edge.hatch)return !edge.hidden;
     if(view.display_style==DisplayStyle::Shaded)return false;
     if(edge.tangent&&(edge.hidden||view.tangent_edge_style==TangentEdgeStyle::Hidden))return false;

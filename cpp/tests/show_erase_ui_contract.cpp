@@ -35,6 +35,10 @@ void require(bool b, const char *message) {
   if (!b)
     throw std::runtime_error(message);
 }
+bool shown_without_origin(const zima::drawing::ModelAnnotation& item) {
+  return item.visible == !(item.kind == zima::drawing::ModelAnnotationKind::Axis &&
+                           item.source.semantic_id.starts_with("origin:axis:"));
+}
 void flush() {
   QApplication::processEvents();
   QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
@@ -380,7 +384,7 @@ int verify_show_erase_ui() {
     picked_dialog->findChild<QPushButton*>("showEraseAll")->click();
     picked_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
     require(std::ranges::none_of(window.document_for_test().sheets[0].views[0].model_annotations,[](const auto& a){return a.visible;}) &&
-            std::ranges::all_of(window.document_for_test().sheets[0].views[1].model_annotations,[](const auto& a){return a.visible;}),"Retargeted command changed wrong view");
+            std::ranges::all_of(window.document_for_test().sheets[0].views[1].model_annotations,shown_without_origin),"Retargeted command changed wrong view");
     for(bool accept:{false,true}) {
       command->trigger();flush();
       auto* multi=window.findChild<QDialog*>("drawingShowEraseDialog");
@@ -398,13 +402,13 @@ int verify_show_erase_ui() {
       mouse(canvas,QEvent::MouseButtonRelease,next,Qt::MiddleButton,Qt::NoButton);
       const auto& unchanged=workspace.open_drawing(drawing.document_id)->document().sheets[0].views;
       require(std::ranges::none_of(unchanged[0].model_annotations,[](const auto& a){return a.visible;}) &&
-              std::ranges::all_of(unchanged[1].model_annotations,[](const auto& a){return a.visible;}),"Changing Show/Erase target committed before OK");
+              std::ranges::all_of(unchanged[1].model_annotations,shown_without_origin),"Changing Show/Erase target committed before OK");
       if(accept)mouse(canvas,QEvent::MouseButtonDblClick,next,Qt::MiddleButton,Qt::MiddleButton);
       else multi->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();
       flush();
       const auto& result=window.document_for_test().sheets[0].views;
-      require(std::ranges::all_of(result[0].model_annotations,[&](const auto& a){return a.visible==accept;}) &&
-              std::ranges::all_of(result[1].model_annotations,[&](const auto& a){return a.visible!=accept;}),"Multi-view Show/Erase did not commit/cancel all pending views together");
+      require(std::ranges::all_of(result[0].model_annotations,[&](const auto& a){return accept?shown_without_origin(a):!a.visible;}) &&
+              std::ranges::all_of(result[1].model_annotations,[&](const auto& a){return accept?!a.visible:shown_without_origin(a);}),"Multi-view Show/Erase did not commit/cancel all pending views together");
       window.select_view_for_test(other.id);
     }
     workspace.open_drawing(drawing.document_id)->commit(drawing);
@@ -466,7 +470,7 @@ int verify_show_erase_ui() {
           Qt::MiddleButton);
     flush();
     require(std::ranges::all_of(state.sheets[0].views[0].model_annotations,
-                                [](const auto &a) { return a.visible; }),
+                                shown_without_origin),
             "MMB double click did not commit Show");
     require(std::ranges::none_of(state.sheets[0].views[1].model_annotations,
                                  [](const auto &a) { return a.visible; }),

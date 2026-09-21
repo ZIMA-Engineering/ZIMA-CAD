@@ -42,7 +42,7 @@ its existing source/view records and title binding. Part/Assembly schemas are
 unchanged. There are no required sidecars or additional geometry files.
 
 The start Part and Assembly templates use lowercase Czech parameter labels
-without diacritics. The standard `ZE-RAZITKO.tblz` expressions use the matching
+without diacritics. The standard `ZE-TITLE-BLOCK-CS.tblz` expressions use the matching
 labels; other languages and stable internal parameter keys are unchanged.
 
 Verification on 2026-09-19: all ten targeted native-document, Drawing, Family

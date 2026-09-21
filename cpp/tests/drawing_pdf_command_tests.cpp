@@ -19,7 +19,7 @@ void verify(){
     drawing::TemplateText heading;heading.text="PDF ONE";heading.position={170,270};heading.height=8;heading.flipped=true;doc.sheets.front().frame_texts={heading};
     auto second=drawing::DrawingDocument::create_default().sheets.front();second.format=drawing::SheetFormat::A3;heading.text="PDF TWO";second.frame_texts={heading};doc.sheets.push_back(second);
     live.add_drawing(doc,directory/"drawing.drwz");live.activate(doc.document_id);live.display_top_level(doc.document_id);
-    for(const auto& sheet:doc.sheets)run(host,"drawing.title_block.load",{{"sheet",sheet.id},{"path",document::path_to_utf8(fs::absolute("config/formats/ZE-RAZITKO.tblz"))}});
+    for(const auto& sheet:doc.sheets)run(host,"drawing.title_block.load",{{"sheet",sheet.id},{"path",document::path_to_utf8(fs::absolute("config/formats/ZE-TITLE-BLOCK-CS.tblz"))}});
     const auto revision=live.open_drawing(doc.document_id)->revision(),generation=live.open_drawing(doc.document_id)->data_generation();const auto count=live.size();
     const auto output=directory/fs::path(u8"výkres.pdf");
     const auto exported=run(host,"export.pdf",{{"path",document::path_to_utf8(output)},{"overwrite",true}}).data;

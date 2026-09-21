@@ -1,3 +1,5 @@
+#include <zima/document/feature_parameter_dimensions.hpp>
+#include <zima/document/holes.hpp>
 #include <zima/workspace/family_operations.hpp>
 #include <zima/document/object_annotation_frames.hpp>
 #include <zima/workspace/drawing_sources.hpp>
@@ -82,6 +84,7 @@ drawing_annotation_sources(const Workspace *workspace,
     std::map<kernel::ObjectEnvelopeKey,kernel::ModelEnvelope> frames;
     std::vector<kernel::DimensionLayoutEntry> layouts;
     std::map<std::pair<std::string,std::string>,kernel::ModelEnvelope> axis_frames;
+    std::map<std::string,drawing::ThreadDesignation> threads;
     const auto part_mesh = [&](const document::PartDocument &part,
                                const kernel::ViewerMesh &calculated) {
       if (part.document_id != id)
@@ -176,11 +179,25 @@ drawing_annotation_sources(const Workspace *workspace,
         }
         append(mesh, std::move(packet));
       }
-      for(const auto& feature:part.history)if(feature.feature_kind==document::FeatureKind::Bend&&!feature.suppressed) {
+      for(const auto& feature:part.history) if(!feature.suppressed) {
+        if(feature.feature_kind==document::FeatureKind::Thread&&feature.thread.enabled)
+          threads[feature.id]={feature.thread.designation,feature.thread.nominal_diameter};
+        if(feature.feature_kind==document::FeatureKind::ShaftThread)
+          threads[feature.id]={feature.shaft_thread.designation,feature.shaft_thread.nominal_diameter};
+        auto packet=document::primitive_parameter_dimensions(feature);
+        if(feature.feature_kind==document::FeatureKind::Holes) {
+          const auto sketch=std::ranges::find(part.sketches,feature.holes.sketch_id,&sketcher::Sketch::id);
+          if(sketch!=part.sketches.end())packet=document::holes_preview(feature,*sketch);
+        }
+        if(const auto* body=part.body_owner_for_object(feature.id))
+          packet=part.place_body_mesh(std::move(packet),body->scope.id);
+        append(mesh,std::move(packet));
+      }
+      for(const auto& feature:part.history)if(!feature.suppressed) {
         document::visit_feature_sketches(feature,[&](const auto& data,std::size_t stage) {
           // The circular path dimension remains an authored radius reference
           // even when the two physical side edges are width-transition curves.
-          if(stage==0&&feature.bend.angle_degrees==0)return;
+          if(feature.feature_kind==document::FeatureKind::Bend&&stage==0&&feature.bend.angle_degrees==0)return;
           const auto sketch=sketcher::Sketch::from_serialized(data);
           auto packet=sketch.viewer_mesh();
           if(const auto* body=part.body_owner_for_object(feature.id))packet=part.place_body_mesh(std::move(packet),body->scope.id);
@@ -385,7 +402,7 @@ drawing_annotation_sources(const Workspace *workspace,
     for (auto &a : mesh.axes)
       a.reference.instance_path = occurrence.encoded();
     result.push_back({id, occurrence.encoded(), std::move(mesh.dimensions),
-                      std::move(mesh.edges), std::move(mesh.axes),envelope,std::move(layouts),std::move(frames),std::move(axis_frames)});
+                      std::move(mesh.edges), std::move(mesh.axes),envelope,std::move(layouts),std::move(frames),std::move(axis_frames),std::move(threads)});
     stack.erase(id);
   };
   visit(root, root_path, {}, {});

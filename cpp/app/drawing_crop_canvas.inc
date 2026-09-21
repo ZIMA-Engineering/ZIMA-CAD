@@ -25,11 +25,12 @@
         auto callback=std::move(crop_finished_);if(callback)callback(crop,accepted);update();
     }
 public:
-    void begin_crop(drawing::DrawingView view,int mode,std::function<void(std::optional<drawing::ViewCrop>,bool)> finished) {
+    void begin_crop(drawing::DrawingView view,int mode,std::function<void(std::optional<drawing::ViewCrop>,bool)> finished,std::optional<drawing::Point2> anchor={}) {
         select_entity({},false);selected_.clear();selected_annotation_.reset();
         crop_error_.clear();crop_modifying_=mode==3;crop_anchor_ready_=crop_modifying_;
         crop_value_=crop_modifying_?view.crop.value_or(drawing::ViewCrop{}):drawing::ViewCrop{};
         if(!crop_modifying_)crop_value_.shape=static_cast<drawing::ViewCropShape>(mode);
+        if(anchor&&!crop_modifying_){crop_value_.anchor=*anchor;crop_anchor_ready_=true;}
         view.crop.reset();crop_edit_=view;preview_=view;crop_finished_=std::move(finished);crop_grip_=-1;crop_offer_.reset();
         setFocus();setCursor(Qt::CrossCursor);update();
     }

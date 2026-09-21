@@ -237,7 +237,7 @@ int verify_measurement_dimension_ui() {
         window.edit_workspace_document(drawing.document_id);flush();canvas->grab();linear=before_snap;
 
         std::string confirmed;
-        window.set_selection_handler([&](const auto& id){confirmed=id;});
+        window.set_selection_handler([&](const auto& ids){confirmed=ids.empty()?std::string{}:ids.front();});
         const auto cyan_pixels=[&] {
             const auto image=canvas->grab().toImage();std::size_t pixels=0;
             for(int y=0;y<image.height();++y)for(int x=0;x<image.width();++x) {

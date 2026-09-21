@@ -11,8 +11,17 @@ Open View Properties and choose **Edit breaks** (`Editovat přerušení…`). Th
 internal properties window contains a separate copy of the entire view and its
 annotations. The actual sheet is not expanded or edited during this interaction.
 
-Choose horizontal or vertical shortening, then **Add break** and click two
-endpoints. A segment joins the endpoints; perpendicular construction lines mark
+The table always ends with an empty input row, marked by the shared green
+reference arrow. Choose horizontal or vertical shortening in that row, click
+**First position** or **Second position**, then place that boundary in the view.
+A dashed line and a point follow the cursor while position entry is active.
+Only the active position cell has a green outline. Either position may be entered
+first. A short middle-button click or Escape ends entry without discarding an
+already picked position. Both positions are required before the row is complete.
+The completed row replaces its green arrow with the shared red remove button
+and adds a new empty row (up to 32 breaks).
+
+A segment joins the endpoints; perpendicular construction lines mark
 the boundaries. The tinted strip is the region to omit. Drag either endpoint to
 change the interval, or drag the segment to move both boundaries together.
 
@@ -20,15 +29,17 @@ Each table row specifies:
 
 - Start position from the source origin projected into the view, in model mm.
 - Omitted length, in model mm.
-- Gap between retained fragments, in paper mm.
+- Gap between retained fragments, in paper mm; new breaks default to **2 mm**.
 - Boundary mark: none, straight gray line, or gray zigzag.
 
 The position and length are also shown as helper dimensions. Double-click their
 values to edit them with the shared inline numeric field (Enter confirms the
 number; Escape discards it). The table accepts numeric expressions and shows
-three decimal places. Wheel zoom, middle-button pan and Fit operate in the
-editor. The result-preview selector uses the same sheet renderer as the final
-Drawing, including existing dimensions.
+three decimal places. Wheel zoom and middle-button pan operate in the editor.
+The former Add break, Remove, whole-view/result selector and Fit controls are
+replaced by the table workflow. There are no background instruction messages.
+The source geometry remains visible while editing; the accepted result uses
+the shared Drawing renderer, including existing dimensions.
 
 Editor OK transfers the pending breaks to View Properties; View Properties OK
 commits the view. Cancel at either level does not commit that level's pending

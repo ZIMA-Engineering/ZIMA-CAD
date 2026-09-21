@@ -1,6 +1,8 @@
 #include <zima/drawing_render/pdf_export.hpp>
 #include <zima/drawing_render/dxf_export.hpp>
 #include "drawing_break_editor.hpp"
+#include "application_settings.hpp"
+#include <QSettings>
 #include "drawing_annotation_layout.hpp"
 #include "sketch_text_properties_dialog.hpp"
 #include <QToolButton>
@@ -138,7 +140,7 @@ int verify_drawing_source_picker() {
                 "Sheet Variant selection changed an independent Drawing view");
             require(window.title_field_text_for_test("NAME")==std::optional<std::string>{"Generic parameter"},
                 "Changing the chooser rebound the title block");
-            window.load_title_block_for_test(std::filesystem::absolute("config/formats/ZE-RAZITKO.tblz"));flush();
+            window.load_title_block_for_test(std::filesystem::absolute("config/formats/ZE-TITLE-BLOCK-CS.tblz"));flush();
             require(window.document_for_test().sheets.front().bom_source_document_id==variant&&
                 window.title_field_text_for_test("NAME")==std::optional<std::string>{"Variant"},"Inserted title did not capture the selected variant");
             const int native_index=choices->findData(QString::fromStdString(family_part.document_id));
@@ -470,7 +472,9 @@ int verify_drawing_ui() {
             properties->findChild<QPushButton*>("drawingEditBreaks")->click();flush();
             auto* break_editor=dynamic_cast<zima::app::DrawingBreakEditor*>(window.findChild<QDialog*>("drawingBreakEditor"));require(break_editor&&break_editor->isVisible()&&!properties->isVisible(),"View Properties did not open isolated break editor");
             auto* break_canvas=dynamic_cast<zima::app::BreakEditorCanvas*>(break_editor->findChild<QWidget*>("drawingBreakCanvas"));break_canvas->grab();
-            break_editor->findChild<QPushButton*>("drawingBreakAdd")->click();click(break_canvas,{break_canvas->width()*.4,break_canvas->height()*.5});click(break_canvas,{break_canvas->width()*.6,break_canvas->height()*.5});
+            auto* break_table=break_editor->findChild<QTableWidget*>("drawingBreakTable");
+            click(break_table->viewport(),break_table->visualItemRect(break_table->item(0,2)).center());click(break_canvas,{break_canvas->width()*.4,break_canvas->height()*.5});
+            click(break_table->viewport(),break_table->visualItemRect(break_table->item(0,3)).center());click(break_canvas,{break_canvas->width()*.6,break_canvas->height()*.5});
             break_editor->buttons()->button(QDialogButtonBox::Ok)->click();flush();require(properties->isVisible()&&state.find_view(original.id)->breaks.empty(),"Editor committed outer View Properties transaction");
             properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();require(state.find_view(original.id)->breaks.size()==1,"View Properties did not commit break");
             std::cout<<"Drawing rotation and guide inputs, isolated break editor integration, preview, Cancel, OK and projected children passed\n";return 0;
@@ -523,7 +527,7 @@ int verify_drawing_ui() {
             model.user_parameter_labels["drawn_by"]["cs"]="kreslil";
             workspace.open_part(part.document_id)->session.commit(model,{cache});
             const auto revision=workspace.open_part(part.document_id)->session.revision();
-            const auto library=std::filesystem::path(__FILE__).parent_path().parent_path().parent_path()/"config/formats/ZE-RAZITKO.tblz";
+            const auto library=std::filesystem::path(__FILE__).parent_path().parent_path().parent_path()/"config/formats/ZE-TITLE-BLOCK-CS.tblz";
             window.load_title_block_for_test(library);flush();
             require(!state.sheets.front().title_block_fields.empty(),"Library title block did not insert");
             auto* edit=action("editDrawingTitleBlockAction");
@@ -948,8 +952,18 @@ int verify_drawing_ui() {
             click(canvas,a);ctrl_click(*window.view_rectangle_center_for_test(view.id));
             require(canvas->property("drawingSelectionCount").toInt()==2,"Mixed text/view selection failed");
             QKeyEvent key(QEvent::KeyPress,Qt::Key_Delete,Qt::NoModifier);QApplication::sendEvent(canvas,&key);flush();
-            require(window.document_for_test().sheets.front().views.empty()&&window.document_for_test().sheets.front().texts.size()==1,"Delete did not remove mixed selection");
+            require(window.document_for_test().sheets.front().views.size()==1&&window.document_for_test().sheets.front().texts.size()==1,"Mixed Delete must preserve views and remove selected text");
             require(zima::workspace::step_document_history(workspace,fixture.document_id,zima::workspace::HistoryDirection::Undo),"Mixed delete has no Undo");window.edit_workspace_document(fixture.document_id);flush();
+            click(canvas,*window.view_rectangle_center_for_test(view.id));
+            QApplication::sendEvent(canvas,&key);flush();
+            require(window.document_for_test().sheets.front().views.size()==1&&window.document_for_test().sheets.front().texts.size()==2,"Delete must preserve an individually selected view");
+            require(canvas->property("drawingSelectionCount").toInt()==1,"Ignored view Delete must preserve selection");
+            ctrl_click(a);
+            QContextMenuEvent mixed_menu_event(QContextMenuEvent::Mouse,a.toPoint(),canvas->mapToGlobal(a.toPoint()));QApplication::sendEvent(canvas,&mixed_menu_event);flush();
+            menu=canvas->findChild<QMenu*>("drawingSelectionContextMenu");require(menu,"Mixed text/view context menu missing");
+            remove=menu->findChild<QAction*>("drawingDeleteSelectionAction");require(remove,"Mixed Delete action missing");remove->trigger();menu->close();flush();
+            require(window.document_for_test().sheets.front().views.size()==1&&window.document_for_test().sheets.front().texts.size()==1,"Context Delete must preserve views and remove selected text");
+            require(zima::workspace::step_document_history(workspace,fixture.document_id,zima::workspace::HistoryDirection::Undo),"Mixed context delete has no Undo");window.edit_workspace_document(fixture.document_id);flush();
             click(canvas,a);click(canvas,QPointF(2,2));QApplication::sendEvent(canvas,&key);flush();require(window.document_for_test().sheets.front().texts.size()==2,"Empty click retained stale drawing selection");
             auto annotations=fixture;annotations.document_id+="-annotations";
             auto& annotated=annotations.sheets.front().views.front();annotated.model_annotations.clear();
@@ -1045,8 +1059,22 @@ int verify_drawing_breaks_ui() {
         sheet.views={view};std::vector<drawing::ViewBreak> accepted;int commits=0;
         app::DrawingBreakEditor editor(&owner,sheet,view,[&](auto b){accepted=std::move(b);++commits;});editor.show();flush();
         auto* canvas=dynamic_cast<app::BreakEditorCanvas*>(editor.findChild<QWidget*>("drawingBreakCanvas"));require(canvas,"Break canvas missing");canvas->grab();flush();
-        editor.findChild<QPushButton*>("drawingBreakAdd")->click();click(canvas,canvas->screen({200,40}));click(canvas,canvas->screen({800,40}));
-        auto* table=editor.findChild<QTableWidget*>("drawingBreakTable");require(table->rowCount()==1&&sheet.views.front().breaks.empty()&&commits==0,"Editing break mutated source sheet");
+        auto* table=editor.findChild<QTableWidget*>("drawingBreakTable");
+        require(table->rowCount()==1&&!editor.findChild<QPushButton*>("drawingBreakAdd")&&!editor.findChild<QPushButton*>("drawingBreakRemove")&&!editor.findChild<QComboBox*>("drawingBreakPreviewMode"),"Break editor retained obsolete controls");
+        const auto arm=[&](int row,int column){click(table->viewport(),table->visualItemRect(table->item(row,column)).center());};
+        arm(0,2);require(static_cast<ui::ReferenceCellItem*>(table->item(0,2))->is_active_input()&&!static_cast<ui::ReferenceCellItem*>(table->item(0,3))->is_active_input(),"Break input ownership must belong only to first position");
+        const auto pointer=canvas->screen({200,40});mouse(canvas,QEvent::MouseMove,pointer,Qt::NoButton,Qt::NoButton);
+        const auto offer=canvas->grab().toImage();const auto pixel=offer.pixelColor((pointer*offer.devicePixelRatio()).toPoint());
+        require(pixel.green()>150&&pixel.red()<120&&pixel.blue()<100,"Pending break boundary has no green point under cursor");
+        click(canvas,pointer);require(canvas->view().breaks.empty()&&!editor.buttons()->button(QDialogButtonBox::Ok)->isEnabled(),"Partial break was committed or accepted");
+        arm(0,3);mouse(canvas,QEvent::MouseButtonPress,canvas->rect().center(),Qt::MiddleButton,Qt::MiddleButton);mouse(canvas,QEvent::MouseButtonRelease,canvas->rect().center(),Qt::MiddleButton,Qt::NoButton);
+        require(!canvas->picking&&!static_cast<ui::ReferenceCellItem*>(table->item(0,3))->is_active_input()&&canvas->draft_first.has_value(),"Short MMB must end boundary entry without deleting first position");
+        arm(0,3);click(canvas,canvas->screen({200,40}));
+        require(canvas->view().breaks.empty()&&canvas->picking&&!editor.findChild<QLabel*>("drawingBreakError")->text().isEmpty(),"Coincident boundaries must remain pending with a validation message");
+        click(canvas,canvas->screen({800,40}));
+        require(table->rowCount()==2&&sheet.views.front().breaks.empty()&&commits==0,"Completed break must append one empty row without mutating source sheet");
+        require(canvas->view().breaks.front().gap==2&&qobject_cast<QDoubleSpinBox*>(table->cellWidget(1,6))->value()==2,"New break paper gap must default to 2 mm");
+        require(table->cellWidget(0,0)->findChild<QPushButton*>()->isVisible()&&!table->cellWidget(1,0)->findChild<QPushButton*>()->isVisible(),"Completed row must have remove button and empty row a green arrow");
         canvas->grab();
         const auto anchor=canvas->screen({350,60});const auto anchored_model=canvas->model(anchor);
         QWheelEvent zoom(anchor,canvas->mapToGlobal(anchor.toPoint()),QPoint{},QPoint{0,120},Qt::NoButton,Qt::NoModifier,Qt::NoScrollPhase,false);
@@ -1061,19 +1089,19 @@ int verify_drawing_breaks_ui() {
         require(std::abs(canvas->view().breaks.front().length-640)<1e-6,"Dragging second break endpoint failed");
         drag(canvas->screen({500,40}),canvas->screen({520,40}));
         require(std::abs(canvas->view().breaks.front().start-200)<1e-6&&std::abs(canvas->view().breaks.front().length-640)<1e-6,"Dragging break segment changed its length");
-        auto* start=qobject_cast<QDoubleSpinBox*>(table->cellWidget(0,0));auto* length=qobject_cast<QDoubleSpinBox*>(table->cellWidget(0,1));start->setValue(150);length->setValue(650);flush();
+        auto* start=qobject_cast<QDoubleSpinBox*>(table->cellWidget(0,4));auto* length=qobject_cast<QDoubleSpinBox*>(table->cellWidget(0,5));start->setValue(150);length->setValue(650);flush();
         require(canvas->view().breaks.front().start==150&&canvas->view().breaks.front().length==650,"Numeric break dimensions ignored");
         canvas->grab();const auto length_label=canvas->screen({475,40})+QPointF(0,35);
         mouse(canvas,QEvent::MouseButtonDblClick,length_label,Qt::LeftButton,Qt::LeftButton);flush();
         auto* number=canvas->findChild<QLineEdit*>("inlineDimensionValueEdit");require(number,"Double-click did not edit break dimension");number->setText("600+50");
         QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(number,&enter);flush();require(commits==0&&editor.isVisible()&&canvas->view().breaks.front().length==650,"Inline break expression committed dialog or changed value");
-        editor.findChild<QComboBox*>("drawingBreakPreviewMode")->setCurrentIndex(1);flush();editor.grab().save("build/drawing-break-result.png");
+        canvas->result=true;canvas->fit();flush();editor.grab().save("build/drawing-break-result.png");
         require(sheet.views.front().projected_edges.front().points==outline.points,"Result preview mutated source geometry");
         const auto before=app::model_annotation_layout(view,annotation,{});auto broken=view;broken.breaks=canvas->view().breaks;
         const auto after=app::model_annotation_layout(broken,annotation,{});
         require(!after.curves.empty()&&after.handles.at("arrow_second").x()<before.handles.at("arrow_second").x()-100,"Show/Erase length did not follow shortened geometry");
         require(drawing::project_model_annotation(broken,annotation).value==1000,"Show/Erase value was shortened");
-        editor.findChild<QComboBox*>("drawingBreakPreviewMode")->setCurrentIndex(0);flush();editor.grab().save("build/drawing-break-editor.png");
+        canvas->result=false;canvas->fit();flush();editor.grab().save("build/drawing-break-editor.png");
         mouse(canvas,QEvent::MouseButtonPress,canvas->rect().center(),Qt::MiddleButton,Qt::MiddleButton);mouse(canvas,QEvent::MouseButtonRelease,canvas->rect().center(),Qt::MiddleButton,Qt::NoButton);
         require(editor.isVisible()&&commits==0,"Short MMB committed break editor");
         mouse(canvas,QEvent::MouseButtonDblClick,canvas->rect().center(),Qt::MiddleButton,Qt::MiddleButton);flush();require(commits==1&&accepted.size()==1,"Break editor MMB OK did not commit once");
@@ -1083,7 +1111,95 @@ int verify_drawing_breaks_ui() {
         require(drawing_render::export_pdf(document,folder/"break.pdf",{},&source_models)>0,"Broken view PDF failed");
         require(drawing_render::export_dxf(document,document.sheets.front().id,folder/"break.dxf",{},&source_models)>0,"Broken view DXF failed");
         view.breaks=accepted;app::DrawingBreakEditor cancelled(&owner,sheet,view,[&](auto){++commits;});cancelled.show();flush();
-        auto* second=cancelled.findChild<QTableWidget*>("drawingBreakTable");qobject_cast<QDoubleSpinBox*>(second->cellWidget(0,1))->setValue(300);cancelled.buttons()->button(QDialogButtonBox::Cancel)->click();flush();require(commits==1&&view.breaks.front().length==650,"Cancel changed existing break");
+        auto* second=cancelled.findChild<QTableWidget*>("drawingBreakTable");qobject_cast<QDoubleSpinBox*>(second->cellWidget(0,5))->setValue(300);
+        second->cellWidget(0,0)->findChild<QPushButton*>()->click();flush();require(second->rowCount()==1,"Removing break must retain the empty input row");
+        auto* vertical_canvas=dynamic_cast<app::BreakEditorCanvas*>(cancelled.findChild<QWidget*>("drawingBreakCanvas"));vertical_canvas->grab();
+        qobject_cast<QComboBox*>(second->cellWidget(0,1))->setCurrentIndex(1);
+        click(second->viewport(),second->visualItemRect(second->item(0,3)).center());click(vertical_canvas,vertical_canvas->screen({400,60}));
+        click(second->viewport(),second->visualItemRect(second->item(0,2)).center());click(vertical_canvas,vertical_canvas->screen({400,10}));
+        require(vertical_canvas->view().breaks.size()==1&&vertical_canvas->view().breaks[0].vertical&&std::abs(vertical_canvas->view().breaks[0].start-10)<1e-6&&std::abs(vertical_canvas->view().breaks[0].length-50)<1e-6,"Vertical boundaries must support entering second position first");
+        cancelled.buttons()->button(QDialogButtonBox::Cancel)->click();flush();require(commits==1&&view.breaks.front().length==650,"Cancel changed existing break");
+        const auto saved_settings=app::ApplicationSettings::load();
+        QTemporaryDir language_directory;
+        const auto catalogs=std::filesystem::path(__FILE__).parent_path().parent_path().parent_path()/"config/localization";
+        for(const auto* language:{"cs","en","de","fr","ru"}) {
+            QSettings config(language_directory.filePath("config.ini"),QSettings::IniFormat);
+            config.setValue("Application/Language",language);config.setValue("Paths/Localization",QString::fromStdString(catalogs.generic_string()));config.sync();
+            const auto settings=app::ApplicationSettings::load(language_directory.path());app::apply_application_translations(*qApp,settings);
+            app::DrawingBreakEditor translated(&owner,sheet,view,[](auto){});translated.show();flush();
+            auto* localized=translated.findChild<QTableWidget*>("drawingBreakTable");
+            require(localized->horizontalHeaderItem(2)->text()==settings.qt_translations.value("První poloha")&&localized->horizontalHeaderItem(3)->text()==settings.qt_translations.value("Druhá poloha"),"Break position headers did not follow language change");
+            translated.grab().save(QString("build/drawing-break-editor-%1.png").arg(language));translated.reject();flush();
+        }
+        app::apply_application_translations(*qApp,saved_settings);
         std::cout<<"Break editor placement, numeric dimensions, isolated preview, Show/Erase true length, OK and Cancel passed\n";return 0;
+    }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
+}
+
+int verify_drawing_details_ui() {
+    using namespace zima;
+    try {
+        QTemporaryDir temporary;
+        workspace::Workspace live;auto part=document::PartDocument::create_default();
+        kernel::BodyResult cache;cache.mesh.edges={{{{-30,0,-20},{30,0,-20}},{"box","bottom",{}}},{{{30,0,-20},{30,0,20}},{"box","right",{}}},{{{30,0,20},{-30,0,20}},{"box","top",{}}},{{{-30,0,20},{-30,0,-20}},{"box","left",{}}}};
+        cache.mesh.vertices={{-30,0,-20},{30,0,-20},{30,0,20},{-30,0,20}};cache.mesh.triangles={0,1,2,0,2,3};
+        auto section=document::create_section();static_cast<void>(section.sketch.add_segment(-50,0,50,0));part.sections.push_back(section);
+        live.add_part(part,{cache});
+        auto document=drawing::DrawingDocument::create_default();
+        auto source=drawing::DrawingDocument::create_view(part.document_id,{},cache.mesh);source.x=105;source.y=180;
+        document.sheets.front().views.push_back(source);live.add_drawing(document);
+        app::DrawingWindow window(&live,false);window.edit_workspace_document(document.document_id);window.resize(1200,850);window.show();flush();
+        auto* canvas=window.findChild<QWidget*>("drawingCanvas");
+        const auto action=[&](const char* name){auto* a=window.findChild<QAction*>(name);require(a,"Detail action missing");return a;};
+        const auto dialog=[&]{return window.findChild<QDialog*>("drawingDetailProperties");};
+        const auto count=[&]{return window.document_for_test().sheets.front().views.size();};
+        const auto source_center=*window.view_rectangle_center_for_test(source.id);
+        for(int shape=0;shape<3;++shape) {
+            action("insertDrawingDetailAction")->trigger();flush();auto* d=dialog();require(d,"Insert Detail did not open properties");
+            require((d->windowFlags()&Qt::WindowType_Mask)==Qt::SubWindow,"Detail uses a native floating dialog");
+            d->findChild<QComboBox*>("detailShape")->setCurrentIndex(shape);
+            d->findChild<QPushButton*>("detailSource")->click();flush();click(canvas,source_center);
+            require(!d->isVisible(),"Region input did not own the canvas");
+            if(shape==2) {
+                for(auto delta:{QPointF(-35,-25),QPointF(35,-25),QPointF(35,25),QPointF(-35,25)})click(canvas,source_center+delta);
+                QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(canvas,&enter);flush();
+            } else click(canvas,source_center+QPointF(35,25));
+            click(canvas,source_center+QPointF(180,140));flush();
+            require(d->isVisible()&&d->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->isEnabled(),"Detail cannot commit after region and placement");
+            require(count()==1,"Detail preview committed before OK");
+            d->findChild<QCheckBox*>("detailShowBoundary")->setChecked(false);
+            if(shape<2){d->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();require(count()==1,"Cancel persisted a detail");}
+            else {d->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();require(count()==2&&!dialog(),"Detail OK failed");}
+        }
+        const auto detail=window.document_for_test().sheets.front().views.back();
+        require(detail.detail_view&&detail.name=="X"&&detail.parent_view_id==source.id&&!detail.show_detail_boundary&&detail.show_detail_label,"Detail metadata is incorrect");
+        require(detail.projected_edges.size()==source.projected_edges.size(),"Detail lost parent geometry");
+        const auto path=std::filesystem::u8path(temporary.filePath("detail.drwz").toStdString());window.document_for_test().save(path);
+        const auto reopened=drawing::DrawingDocument::load(path);
+        require(reopened.sheets.front().views.back().detail_view&&reopened.sheets.front().views.back().crop->shape==drawing::ViewCropShape::Spline,"Detail save/reopen failed");
+        window.select_view_for_test(detail.id);action("editDrawingViewAction")->trigger();flush();
+        require(dialog(),"Edit Detail uses a different or missing properties dialog");
+        dialog()->findChild<QLineEdit*>("detailName")->setText("Y");
+        dialog()->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
+        require(window.document_for_test().sheets.front().views.back().name=="X","Cancel changed detail name");
+        live.open_drawing(document.document_id)->undo();window.edit_workspace_document(document.document_id);flush();require(count()==1,"Detail creation Undo failed");
+        live.open_drawing(document.document_id)->redo();window.edit_workspace_document(document.document_id);flush();require(count()==2,"Detail creation Redo failed");
+        window.grab().save("build/drawing-detail-proof.png");
+        // A hatch boundary is owned by this Drawing view; removing it is a
+        // pending property edit until OK and never mutates the source Section.
+        auto pending=window.document_for_test();pending.find_view(source.id)->section_hatch_crops[section.id]={drawing::ViewCropShape::Circle,{0,0},{{5,5}}};
+        live.open_drawing(document.document_id)->commit(pending);window.edit_workspace_document(document.document_id);flush();
+        for(bool accept:{false,true}) {
+            window.select_view_for_test(source.id);action("editDrawingViewAction")->trigger();flush();
+            auto* button=window.findChild<QPushButton*>("drawingHatchCrop_"+QString::fromStdString(section.id));require(button&&button->menu(),"Section table lacks hatch region action");
+            QDialog* properties=nullptr;for(auto* owner=button->parentWidget();owner&&!properties;owner=owner->parentWidget())properties=qobject_cast<QDialog*>(owner);
+            require(properties,"Hatch action is outside properties");
+            button->menu()->actions().back()->trigger();flush();
+            require(window.document_for_test().find_view(source.id)->section_hatch_crops.size()==1,"Hatch edit committed before OK");
+            properties->findChild<QDialogButtonBox*>()->button(accept?QDialogButtonBox::Ok:QDialogButtonBox::Cancel)->click();flush();
+            require(window.document_for_test().find_view(source.id)->section_hatch_crops.size()==(accept?0:1),"Hatch OK/Cancel transaction failed");
+            require(live.open_part(part.document_id)->session.document().sections.front().id==section.id,"Drawing hatch edit changed source Section");
+        }
+        std::cout<<"Detail circle/ellipse/spline input, transient preview, OK/Cancel, editing, persistence and Undo/Redo passed\n";return 0;
     }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
 }

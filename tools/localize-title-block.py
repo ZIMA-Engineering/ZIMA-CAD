@@ -46,17 +46,19 @@ def main():
     parser.add_argument('--cli', required=True, type=Path)
     args = parser.parse_args()
     root = Path(__file__).resolve().parent.parent
-    source = root / 'config/formats/ZE-RAZITKO.tblz'
+    source = root / 'config/formats/ZE-TITLE-BLOCK-CS.tblz'
     original = source.read_bytes()
     _, sketch = read(source)
     unchanged = {'[Kg]', 'ZIMA-Engineering', 'www.zima-engineering.cz',
-                 'e-mail: vladimir.zima@zima-engineering.cz', 'tel.: +420 774 206 965'}
+                 'e-mail: kontakt@zima-engineering.cz', 'tel.: +420 774 206 965'}
     for text in sketch['texts']:
         value = text['value']
         if not value.startswith('&') and value not in LABELS and value not in unchanged:
             raise ValueError('Add translations for the new title-block label: ' + value)
     for index, language in enumerate(('cs', 'en', 'de', 'fr', 'ru')):
-        target = source.with_stem(source.stem + '-' + language)
+        if language == 'cs':
+            continue  # The maintained Czech template is the source, not an output.
+        target = source.with_name('ZE-TITLE-BLOCK-' + language.upper() + '.tblz')
         operations = [{'command': 'sketch.geometry.delete', 'arguments': {'geometry': text['id']}}
                       for text in sketch['texts'] if text['value'] == 'ZIMA-Engineering']
         for text in sketch['texts']:
@@ -82,7 +84,7 @@ def main():
                 raise RuntimeError(result.stdout + result.stderr)
             ini, translated = read(generated)
         ini['TitleBlock']['Locale'] = language
-        ini['TitleBlock']['Name'] = 'ZE RAZITKO ' + language.upper()
+        ini['TitleBlock']['Name'] = 'ZE-TITLE-BLOCK-' + language.upper()
         translated['drawing_template']['sections']['TitleBlock'].update(dict(ini['TitleBlock']))
         ini['Sketch']['Data'] = json.dumps(translated, ensure_ascii=False, separators=(',', ':'))
         output = io.StringIO()

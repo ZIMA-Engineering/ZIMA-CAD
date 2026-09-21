@@ -31,7 +31,7 @@ inline NewDrawingOptions new_drawing_options(const ApplicationSettings& settings
     std::stable_sort(result.formats.begin(),result.formats.end(),[](const auto& a,const auto& b){return a.format<b.format;});
     // Prefer the company template in the active language, then any matching
     // locale supplied by the configured library, then the base company block.
-    const auto preferred=folder.filePath("ZE-RAZITKO-"+settings.language+".tblz");
+    const auto preferred=folder.filePath("ZE-TITLE-BLOCK-"+settings.language.toUpper()+".tblz");
     if(QFileInfo(preferred).isFile())result.title_block=preferred;
     else {
         for(const auto& file:folder.entryInfoList({"*.tblz"},QDir::Files,QDir::Name)) {
@@ -40,7 +40,7 @@ inline NewDrawingOptions new_drawing_options(const ApplicationSettings& settings
                 result.title_block=file.absoluteFilePath();break;
             }
         }
-        const auto base=folder.filePath("ZE-RAZITKO.tblz");
+        const auto base=folder.filePath("ZE-TITLE-BLOCK-CS.tblz");
         if(result.title_block.isEmpty()&&QFileInfo(base).isFile())result.title_block=base;
     }
     return result;

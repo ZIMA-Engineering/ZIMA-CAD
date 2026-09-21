@@ -1,4 +1,5 @@
 #include "application_settings.hpp"
+#include "drawing_detail_dialog.hpp"
 #include "primitive_properties_dialog.hpp"
 #include "sweep_station_label.hpp"
 #include <QAction>
@@ -98,6 +99,12 @@ int verify_translations(QApplication& application, QWidget& parent) {
         check(settings.translations.contains("global.language") &&
             !settings.translations.contains("Zamknout hodnotu"), "INI sections were mixed");
         app::apply_application_translations(application, settings);
+        {
+            app::DrawingDetailDialog detail(drawing::DrawingView{},&parent);
+            detail.setAttribute(Qt::WA_DeleteOnClose,false);
+            check(detail.findChild<QPushButton*>("detailSource")->text()==settings.qt_translations.value("Vybrat bod v pohledu"),"Detail source button is untranslated");
+            check(detail.findChild<QCheckBox*>("detailShowBoundary")->text()==settings.qt_translations.value("Zobrazit hranici ve zdrojovém pohledu"),"Detail boundary toggle is untranslated");
+        }
         check(app::sweep_station_label("12 — začátek") == settings.qt_translations.value("%1 — začátek").arg(12),
             "Generated Sweep station labels are not translated");
         for (auto it = sources.cbegin(); it != sources.cend(); ++it) {
@@ -148,6 +155,12 @@ int verify_translations(QApplication& application, QWidget& parent) {
         std::cout << "Translations verified: " << languages[language].toStdString() << '\n';
     }
     auto settings = load("en");
+    settings.stacked_tolerances=true;QString settings_error;
+    check(settings.save(&settings_error),"Cannot persist global tolerance layout");
+    check(load("en").stacked_tolerances,"Global tolerance layout did not survive reload");
+    app::apply_application_font(application,settings);
+    check(application.property("zimaStackedTolerances").toBool(),"Global tolerance layout did not reach viewers");
+    settings.stacked_tolerances=false;app::apply_application_font(application,settings);
     settings.qt_translations.insert("Scoped|Obrázek", "Scoped image");
     app::apply_application_translations(application, settings);
     app::apply_application_translations(application, settings);

@@ -89,6 +89,12 @@ void AssemblyWorkspaceWindow::refresh_drawing_tree() {
     root->setIcon(0,resource_icon("drawing"));
     root->setData(0,Qt::UserRole,QString::fromStdString(document.document_id));
     root->setData(0,Qt::UserRole+3,"drawing-document");
+    const auto entity=[](QTreeWidgetItem* parent,const QString& label,const std::string& id,const char* icon) {
+        auto* child=new QTreeWidgetItem(parent,{label});
+        child->setData(0,Qt::UserRole,QString::fromStdString(id));
+        child->setData(0,Qt::UserRole+3,"drawing-entity");
+        child->setIcon(0,resource_icon(icon));
+    };
     for(const auto& sheet:document.sheets) {
         auto* sheet_item=new QTreeWidgetItem(root,{QString::fromStdString(sheet.name)});
         sheet_item->setData(0,Qt::UserRole,QString::fromStdString(sheet.id));
@@ -97,6 +103,11 @@ void AssemblyWorkspaceWindow::refresh_drawing_tree() {
             auto* item=new QTreeWidgetItem(sheet_item,{QString::fromStdString(view.name)});
             item->setData(0,Qt::UserRole,QString::fromStdString(view.id));
             item->setData(0,Qt::UserRole+3,"drawing-view");
+            if(view.show_caption)entity(item,QString::fromStdString(view.name),"drawing-caption:"+view.id,"text");
+            if(view.show_section_label&&view.section_snapshot&&!view.section_id.empty())
+                entity(item,QString::fromStdString(view.section_snapshot->name),"drawing-section-label:"+view.id,"text");
+            for(const auto& marker:view.section_markers)
+                entity(item,QString::fromStdString(marker.name),"drawing-section-end:"+view.id+":"+marker.id,"section");
             for(const auto kind:{drawing::ModelAnnotationKind::Dimension,drawing::ModelAnnotationKind::Axis,drawing::ModelAnnotationKind::Construction}) {
                 QTreeWidgetItem* group=nullptr;
                 for(const auto& annotation:view.model_annotations) {
@@ -131,6 +142,10 @@ void AssemblyWorkspaceWindow::refresh_drawing_tree() {
             }
             item->setExpanded(true);
         }
+        for(const auto& text:sheet.texts)
+            entity(sheet_item,QString::fromStdString(text.presentation.text),"text:"+text.id,"text");
+        for(const auto& balloon:sheet.balloons)if(balloon.visible)
+            entity(sheet_item,tr("Pozice")+" "+QString::number(balloon.item_number),"drawing-balloon:"+balloon.id,"drawing-balloon");
         sheet_item->setExpanded(true);
     }
     root->setExpanded(true); tree_->setRootIndex(QModelIndex{});

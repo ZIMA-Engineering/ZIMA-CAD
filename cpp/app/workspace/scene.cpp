@@ -1,3 +1,4 @@
+#include <zima/document/feature_parameter_dimensions.hpp>
 #include <zima/workspace/document_operations.hpp>
 #include <zima/workspace/family_operations.hpp>
 #include <zima/workspace/assembly_scene.hpp>
@@ -322,145 +323,12 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                         zima::kernel::ViewerDimensionKind::Radius;
                 };
                 using zima::document::FeatureKind;
-                if (container->feature_kind == FeatureKind::Box) {
-                    const double x = container->box.length * 0.5;
-                    const double y = container->box.width * 0.5;
-                    const double z = container->box.height * 0.5;
-                    linear("length", "Délka = ", local(-x,-y,-z), local(x,-y,-z),
-                        {0,-8,0}, container->box.length);
-                    linear("width", "Šířka = ", local(-x,-y,-z), local(-x,y,-z),
-                        {-8,0,0}, container->box.width);
-                    linear("height", "Výška = ", local(-x,-y,-z), local(-x,-y,z),
-                        {-8,0,0}, container->box.height);
-                } else if (container->feature_kind == FeatureKind::Holes) {
-                    const auto sketch=std::ranges::find(document.sketches,container->holes.sketch_id,&zima::sketcher::Sketch::id);
-                    if (sketch!=document.sketches.end() && sketch->id!=sketch_properties_preview_id_) {
-                        try {
-                            auto display=zima::document::holes_preview(*container,*sketch);
-                            if (const auto* body=document.body_owner_for_object(container->id))
-                                display=document.place_body_mesh(std::move(display),body->scope.id);
-                            mesh.dimensions.insert(mesh.dimensions.end(),display.dimensions.begin(),display.dimensions.end());
-                        } catch (const std::exception&) { /* Invalid drafts have no diameter annotation. */ }
-                    }
-                } else if (container->feature_kind == FeatureKind::Cylinder) {
-                    radius("radius", origin,
-                        local(container->cylinder.radius,0,0), {0,6,0},
-                        container->cylinder.radius);
-                    linear("height", "Výška = ", origin,
-                        local(0,0,container->cylinder.height), {8,0,0},
-                        container->cylinder.height);
-                } else if (container->feature_kind == FeatureKind::ShaftThread) {
-                    try {
-                        const auto preview=shaft_thread_preview(*container,placement_reference_geometry);
-                        mesh.dimensions.insert(mesh.dimensions.end(),preview.dimensions.begin(),preview.dimensions.end());
-                    } catch (const std::exception&) { /* Incomplete reference entry has no dimension. */ }
-                } else if (container->feature_kind == FeatureKind::Thread) {
-                    const double diameter=container->thread.enabled
-                        ? container->thread.profile_diameter : container->thread.nominal_diameter;
-                    const bool referenced_work_plane = std::any_of(
-                        container->placement.references.begin(),
-                        container->placement.references.end(),
-                        [](const auto& reference) {
-                            return !reference.orientation_only &&
-                                reference.supports_offset &&
-                                !reference.owner_id.empty();
-                        });
-                    const auto axial = [&](double distance) {
-                        if (container->thread.direction == zima::document::ExtrusionDirection::Reverse)
-                            distance = -distance;
-                        return referenced_work_plane
-                            ? local(0,-distance,0)
-                            : local(0,0,distance);
-                    };
-                    const auto diameter_dimension = [&](const char* key, double size,
-                            double depth, const std::string& text) {
-                        const auto center = axial(depth);
-                        const auto radial = local_vector({size*0.5,0,0});
-                        const zima::kernel::Vec3 rim{center.x+radial.x,
-                            center.y+radial.y,center.z+radial.z};
-                        mesh.dimensions.push_back({center, rim, center, rim, size,
-                            {container->id,std::string("parameter:")+key,{}},""});
-                        auto& dimension=mesh.dimensions.back();
-                        dimension.kind=zima::kernel::ViewerDimensionKind::Diameter;
-                        dimension.label_prefix="⌀ ";
-                        const auto axis_point=axial(1.0);
-                        dimension.plane_normal={axis_point.x-origin.x,
-                            axis_point.y-origin.y,axis_point.z-origin.z};
-                        dimension.display_text_override=text;
-                    };
-                    const double resolved_length=zima::document::PartDocument::thread_length(*container);
-                    const double display_length=std::isfinite(resolved_length) && resolved_length>0
-                        ? resolved_length : container->thread.length_forward;
-                    const double bore_start=container->thread.chamfer_enabled
-                        ? container->thread.chamfer_depth : 0.0;
-                    diameter_dimension("bore_diameter", diameter,
-                        container->thread.enabled
-                            ? std::max(bore_start,display_length*0.5)
-                            : bore_start, "");
-                    if (container->thread.enabled) {
-                        auto& bore_dimension=mesh.dimensions.back();
-                        // Opposite leaders keep bore and thread labels distinct
-                        // even when looking straight down the opening axis.
-                        const auto center=bore_dimension.witness_first;
-                        const auto rim=bore_dimension.witness_second;
-                        bore_dimension.witness_second={2*center.x-rim.x,
-                            2*center.y-rim.y,2*center.z-rim.z};
-                        bore_dimension.line_second=bore_dimension.witness_second;
-                        bore_dimension.driving=false;
-                        bore_dimension.reference.semantic_key="measurement:bore_diameter";
-                        diameter_dimension("thread_designation",
-                            container->thread.nominal_diameter,
-                            display_length,
-                            container->thread.designation);
-                        if (container->thread.length_end_condition == zima::document::EndCondition::Length)
-                        linear("thread_length", "Délka závitu = ", origin,
-                            axial(container->thread.length_forward), {8,8,0},
-                            container->thread.length_forward);
-                    }
-                    if (container->thread.end_condition_forward == zima::document::EndCondition::Length) {
-                        linear("bore_length", "Hloubka otvoru = ", origin,
-                            axial(container->thread.bore_length), {14,14,0},
-                            container->thread.bore_length);
-                    }
-                    const auto cone_angle = [&](const char* key, double degrees,
-                            double rim_depth, double rim_radius) {
-                        auto angle=opening_cone_angle_dimension(container->id, key,
-                            degrees,rim_depth,rim_radius);
-                        if (!angle) return;
-                        const auto radial=local_vector({1,0,0});
-                        const auto along=axial(1.0);
-                        const zima::kernel::Vec3 axis{along.x-origin.x,
-                            along.y-origin.y,along.z-origin.z};
-                        const auto point=[&](const zima::kernel::Vec3& p) {
-                            const auto center=axial(p.y);
-                            return zima::kernel::Vec3{center.x+radial.x*p.x,
-                                center.y+radial.y*p.x,center.z+radial.z*p.x};
-                        };
-                        angle->witness_first=point(angle->witness_first);
-                        angle->witness_second=point(angle->witness_second);
-                        angle->line_first=point(angle->line_first);
-                        angle->line_second=point(angle->line_second);
-                        if (angle->label_position)
-                            angle->label_position=point(*angle->label_position);
-                        angle->plane_normal={radial.y*axis.z-radial.z*axis.y,
-                            radial.z*axis.x-radial.x*axis.z,
-                            radial.x*axis.y-radial.y*axis.x};
-                        mesh.dimensions.push_back(std::move(*angle));
-                    };
-                    if (container->thread.chamfer_enabled) {
-                        linear("chamfer_depth", "Sražení = ", origin,
-                            axial(container->thread.chamfer_depth), {-10,0,0},
-                            container->thread.chamfer_depth);
-                        const double mouth_radius=diameter*0.5+
-                            container->thread.chamfer_depth*std::tan(
-                                container->thread.chamfer_angle_degrees*std::numbers::pi/360.0);
-                        cone_angle("chamfer_angle", container->thread.chamfer_angle_degrees,
-                            0.0, mouth_radius);
-                    }
-                    if (container->hole.drill_point_enabled &&
-                        container->thread.end_condition_forward == zima::document::EndCondition::Length)
-                        cone_angle("drill_point_angle", container->hole.drill_point_angle_degrees,
-                            container->thread.bore_length, diameter*0.5);
+                if (zima::document::has_primitive_parameter_dimensions(container->feature_kind)) {
+                    auto display=zima::document::primitive_parameter_dimensions(*container);
+                    if (!parameter_dimension_preview_)
+                        if (const auto* body=document.body_owner_for_object(container->id))
+                            display=document.place_body_mesh(std::move(display),body->scope.id);
+                    mesh.dimensions.insert(mesh.dimensions.end(),display.dimensions.begin(),display.dimensions.end());
                     if (properties_dialog_==nullptr && opening_component_edit_.first==container->id &&
                         !opening_component_edit_.second.empty()) {
                         const auto& component=opening_component_edit_.second;
@@ -476,43 +344,21 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                             return false;
                         });
                     }
-                } else if (container->feature_kind == FeatureKind::Sphere) {
-                    radius("radius", origin,
-                        local(container->sphere.radius,0,0), {0,6,0},
-                        container->sphere.radius);
-                } else if (container->feature_kind == FeatureKind::Cone) {
-                    radius("bottom_radius", origin,
-                        local(container->cone.bottom_radius,0,0), {0,-8,0},
-                        container->cone.bottom_radius);
-                    radius("top_radius", local(0,0,container->cone.height),
-                        local(container->cone.top_radius,0,container->cone.height),
-                        {0,8,0}, container->cone.top_radius);
-                    linear("height", "Výška = ", origin,
-                        local(0,0,container->cone.height), {8,0,0},
-                        container->cone.height);
-                } else if (container->feature_kind == FeatureKind::Pyramid) {
-                    linear("length", "Délka = ", origin,
-                        local(container->pyramid.length,0,0), {0,-8,0},
-                        container->pyramid.length);
-                    linear("width", "Šířka = ", origin,
-                        local(0,container->pyramid.width,0), {-8,0,0},
-                        container->pyramid.width);
-                    linear("height", "Výška = ", origin,
-                        local(0,0,container->pyramid.height), {8,0,0},
-                        container->pyramid.height);
-                } else if (container->feature_kind == FeatureKind::Wedge) {
-                    linear("length", "Délka = ", origin,
-                        local(container->wedge.length,0,0), {0,-8,0},
-                        container->wedge.length);
-                    linear("width", "Šířka = ", origin,
-                        local(0,container->wedge.width,0), {-8,0,0},
-                        container->wedge.width);
-                    linear("height", "Výška = ", origin,
-                        local(0,0,container->wedge.height), {8,0,0},
-                        container->wedge.height);
-                    linear("top_offset", "Posun = ", origin,
-                        local(container->wedge.top_offset,0,0), {0,8,0},
-                        container->wedge.top_offset);
+                } else if (container->feature_kind == FeatureKind::Holes) {
+                    const auto sketch=std::ranges::find(document.sketches,container->holes.sketch_id,&zima::sketcher::Sketch::id);
+                    if (sketch!=document.sketches.end() && sketch->id!=sketch_properties_preview_id_) {
+                        try {
+                            auto display=zima::document::holes_preview(*container,*sketch);
+                            if (const auto* body=document.body_owner_for_object(container->id))
+                                display=document.place_body_mesh(std::move(display),body->scope.id);
+                            mesh.dimensions.insert(mesh.dimensions.end(),display.dimensions.begin(),display.dimensions.end());
+                        } catch (const std::exception&) { /* Invalid drafts have no diameter annotation. */ }
+                    }
+                } else if (container->feature_kind == FeatureKind::ShaftThread) {
+                    try {
+                        const auto preview=shaft_thread_preview(*container,placement_reference_geometry);
+                        mesh.dimensions.insert(mesh.dimensions.end(),preview.dimensions.begin(),preview.dimensions.end());
+                    } catch (const std::exception&) { /* Incomplete reference entry has no dimension. */ }
                 } else if (container->feature_kind == FeatureKind::Extrusion) {
                     const auto sketch = std::find_if(document.sketches.begin(),
                         document.sketches.end(), [&](const auto& value) {

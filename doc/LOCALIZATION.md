@@ -82,8 +82,8 @@ dynamic text, user-content boundaries and visible layout when adding UI.
 
 ## Localized company title blocks
 
-`config/formats/ZE-RAZITKO.tblz` is the Czech source template. Language variants
-are `ZE-RAZITKO-{cs,en,de,fr,ru}.tblz`. Each embeds the company SVG logo from
+`config/formats/ZE-TITLE-BLOCK-CS.tblz` is the Czech source template. Language variants
+are `ZE-TITLE-BLOCK-{CS,EN,DE,FR,RU}.tblz`. Each embeds the company SVG logo from
 `config/formats/ZIMA-Engineering.svg`, with its aspect ratio preserved, and
 retains the original geometry, constraints, data fields and BOM tokens.
 

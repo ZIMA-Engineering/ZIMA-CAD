@@ -1279,7 +1279,7 @@ int verify_template_commands(QApplication& application,zima::app::AssemblyWorksp
     const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
     const auto prepare=[](auto& text){app::rebuild_sketch_text_contours(text,true);};
     window.resize(1280,960);window.show();
-    for(const auto name:{"ZE-A4.frmz","ZE-RAZITKO.tblz"}) {
+    for(const auto name:{"ZE-A4.frmz","ZE-TITLE-BLOCK-CS.tblz"}) {
         const auto source=std::filesystem::current_path()/"config/formats"/name;
         const auto target=directory/name;std::filesystem::copy_file(source,target,std::filesystem::copy_options::overwrite_existing);
         if(!verify(window.open_document_path(QString::fromStdString(target.string())),"Template cannot open in the main application"))return 1;
@@ -1290,7 +1290,7 @@ int verify_template_commands(QApplication& application,zima::app::AssemblyWorksp
     auto* tree=window.findChild<QTreeWidget*>("documentTree");
     auto* action=window.findChild<QAction*>("templateRepeatRegionAction");auto* save=window.findChild<QAction*>("saveDocumentAction");
     if(!verify(view&&tree&&action&&!action->icon().isNull(),"Template region command or icon missing"))return 1;
-    const auto initial_sketch=drawing::load_template_sketch(directory/"ZE-RAZITKO.tblz",prepare);
+    const auto initial_sketch=drawing::load_template_sketch(directory/"ZE-TITLE-BLOCK-CS.tblz",prepare);
     const auto screen_for=[&](double x,double y) {
         const auto local=[&](QPointF pixel){const auto ray=view->ray_at(pixel);return *initial_sketch.intersect_ray(ray->first,ray->second);};
         const auto a=local({0,0}),b=local({static_cast<double>(view->width()),0}),c=local({0,static_cast<double>(view->height())});
@@ -1354,7 +1354,7 @@ int verify_template_commands(QApplication& application,zima::app::AssemblyWorksp
                 value->setPlainText(QString::fromStdString(text.value+" TEST"));
                 window.grab().save(QString::fromStdString((directory/"old-text-properties.png").string()));
                 properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();save->trigger();flush();
-                const auto stored=drawing::load_template_sketch(directory/"ZE-RAZITKO.tblz",prepare);
+                const auto stored=drawing::load_template_sketch(directory/"ZE-TITLE-BLOCK-CS.tblz",prepare);
                 const auto changed=std::ranges::find(stored.texts,text.id,&sketcher::SketchText::id);
                 if(!verify(changed!=stored.texts.end() && changed->value==text.value+" TEST" && changed->flipped==text.flipped,"Old text edit was not saved as semantic text"))return 1;
                 edited_old_text=true;break;
@@ -1373,7 +1373,7 @@ int verify_template_commands(QApplication& application,zima::app::AssemblyWorksp
     const QPointF middle(20,20),global=view->mapToGlobal(QPoint(20,20));
     QMouseEvent confirm(QEvent::MouseButtonDblClick,middle,global,Qt::MiddleButton,Qt::MiddleButton,Qt::NoModifier);
     QApplication::sendEvent(view,&confirm);flush();save->trigger();flush();
-    const auto target=directory/"ZE-RAZITKO.tblz";
+    const auto target=directory/"ZE-TITLE-BLOCK-CS.tblz";
     auto stored=drawing::load_template_sketch(target,prepare);
     if(!verify(stored.drawing_template->repeat_regions.size()==1&&stored.drawing_template->repeat_regions.front().step==12,"BOM region change did not persist"))return 1;
     action=window.findChild<QAction*>("templateRepeatRegionAction");action->trigger();flush();
@@ -7881,7 +7881,7 @@ int verify_drawing_workspace(QApplication& application, zima::app::AssemblyWorks
     std::optional<zima::drawing::ModelAnnotationReference> tree_reference;
     for(auto& annotation:annotation_view.model_annotations) {
         annotation.visible=true;
-        if(annotation.kind==zima::drawing::ModelAnnotationKind::Dimension)tree_reference=annotation.source;
+        if(annotation.kind==zima::drawing::ModelAnnotationKind::Dimension&&annotation.source.owner_id==annotation_sketch.id)tree_reference=annotation.source;
     }
     const auto drawing_path=directory/"drawing-workspace.drwz"; drawing.save(drawing_path);
     const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);};
@@ -7891,9 +7891,9 @@ int verify_drawing_workspace(QApplication& application, zima::app::AssemblyWorks
     auto* tree=window.findChild<QTreeWidget*>("documentTree");
     auto* canvas=window.findChild<QWidget*>("drawingCanvas");
     auto* parameters=window.findChild<QAction*>("documentParametersAction");
-    auto* view_toolbar=window.findChild<QToolBar*>("viewToolbar");
+    auto* parameter_button=window.findChild<QToolButton*>("treedocumentParametersAction");
     auto* edit=window.findChild<QAction*>("editDrawingViewAction");
-    if(!verify(tree && canvas && parameters && view_toolbar->actions().contains(parameters),"Drawing parameters button is missing"))return 1;
+    if(!verify(tree && canvas && parameters && parameter_button && parameter_button->defaultAction()==parameters,"Drawing parameters button is missing"))return 1;
     parameters->trigger();flush();
     QDialog* properties{};
     for(auto* dialog:window.findChildren<QDialog*>()) if(dialog->isVisible() && dialog->findChild<QDialogButtonBox*>()) {properties=dialog;break;}
@@ -7935,6 +7935,57 @@ int verify_drawing_workspace(QApplication& application, zima::app::AssemblyWorks
     if(!verify(tree->selectedItems().empty(),"Empty View did not clear annotation Tree selection"))return 1;
     tree->setCurrentItem(annotation_item);flush();
     if(!verify(tree->selectedItems().size()==1&&tree->currentItem()==annotation_item,"Tree annotation selection did not survive View synchronization"))return 1;
+    {
+        QMenu menu;drawing_window->populate_selection_menu(menu);
+        auto* properties_action=menu.findChild<QAction*>("drawingEntityPropertiesAction");
+        if(!verify(properties_action,"Selected Tree dimension has no properties action"))return 1;
+        properties_action->trigger();flush();
+        QDialog* editor=nullptr;
+        for(auto* candidate:window.findChildren<QDialog*>())if(candidate->isVisible())editor=candidate;
+        if(!verify(editor&&(editor->windowFlags()&Qt::SubWindow),"Tree dimension properties did not open the shared internal editor"))return 1;
+        editor->reject();flush();
+    }
+    {
+        std::vector<QTreeWidgetItem*> axes;
+        for(QTreeWidgetItemIterator it(tree);*it;++it)
+            if((*it)->data(0,Qt::UserRole+3)=="drawing-annotation"&&
+               (*it)->data(0,Qt::UserRole+5).toString().contains("origin:axis:"))axes.push_back(*it);
+        if(!verify(axes.size()>=2,"Drawing Tree fixture needs two axes"))return 1;
+        tree->clearSelection();flush();
+        const auto unselected=drawing_window->render_sheet_for_test(false);
+        const auto print=drawing_window->render_sheet_for_test(true);
+        const auto tree_click=[&](QTreeWidgetItem* row,Qt::KeyboardModifiers modifiers) {
+            tree->scrollToItem(row);flush();const QPointF position=tree->visualItemRect(row).center();
+            QMouseEvent down(QEvent::MouseButtonPress,position,QPointF(tree->viewport()->mapToGlobal(position.toPoint())),Qt::LeftButton,Qt::LeftButton,modifiers);
+            QMouseEvent up(QEvent::MouseButtonRelease,position,QPointF(tree->viewport()->mapToGlobal(position.toPoint())),Qt::LeftButton,Qt::NoButton,modifiers);
+            QApplication::sendEvent(tree->viewport(),&down);QApplication::sendEvent(tree->viewport(),&up);flush();
+        };
+        tree_click(axes[0],Qt::NoModifier);tree_click(axes[1],Qt::ControlModifier);
+        if(!verify(tree->selectedItems().size()==2&&canvas->property("drawingSelectionCount").toInt()==2,"Ctrl Tree axes selection collapsed"))return 1;
+        if(!verify(unselected!=drawing_window->render_sheet_for_test(false)&&print==drawing_window->render_sheet_for_test(true),"Tree selection must highlight View geometry without changing print"))return 1;
+        tree_click(axes[1],Qt::ControlModifier);
+        if(!verify(tree->selectedItems().size()==1&&canvas->property("drawingSelectionCount").toInt()==1,"Ctrl Tree axis deselection failed"))return 1;
+        tree_click(axes[1],Qt::ControlModifier);
+        const auto before=drawing_window->document_for_test().sheets.front().views.front().model_annotations;
+        bool menu_delete=false;
+        QTimer::singleShot(0,[&] {
+            for(auto* menu:window.findChildren<QMenu*>("drawingTreeSelectionMenu"))if(menu->isVisible()) {
+                for(auto* action:menu->actions())if(action->objectName()=="drawingDeleteSelectionAction") {
+                    menu_delete=true;menu->setActiveAction(action);
+                    QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(menu,&enter);return;
+                }
+                menu->close();
+            }
+        });
+        tree->customContextMenuRequested(tree->visualItemRect(axes[0]).center());flush();
+        const auto& after=drawing_window->document_for_test().sheets.front().views.front().model_annotations;
+        if(!verify(menu_delete&&std::ranges::count_if(after,[](const auto& a){return !a.visible;})==2,"Tree context Delete must hide exactly the two selected axes"))return 1;
+        window.findChild<QAction*>("undoAction")->trigger();flush();
+        if(!verify(drawing_window->document_for_test().sheets.front().views.front().model_annotations==before,"One Undo did not restore Tree multi-delete"))return 1;
+        root=tree->topLevelItem(0);tree->setCurrentItem(root->child(0)->child(0));tree->setFocus();flush();
+        QKeyEvent remove(QEvent::KeyPress,Qt::Key_Delete,Qt::NoModifier);QApplication::sendEvent(tree,&remove);flush();
+        if(!verify(drawing_window->document_for_test().sheets.front().views.size()==1,"Tree Delete bypassed view protection"))return 1;
+    }
     window.grab().save(QString::fromStdString((directory/"drawing-workspace.png").string()));
     // Filename context menu must route to the same source-parameter dialog.
     bool has_context=false;

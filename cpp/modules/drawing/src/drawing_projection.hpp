@@ -75,7 +75,7 @@ inline std::vector<ProjectedEdge> project_drawing_edges(
     struct Triangle {std::array<ProjectionVertex,3> v;double determinant;double xmin{},xmax{},ymin{},ymax{};const zima::kernel::FaceReference* source{};};
     std::vector<Triangle> triangles;
     using Key=std::tuple<long long,long long,long long>;
-    struct Boundary {zima::kernel::Vec3 a,b;bool front{},back{};int count{};bool thread{};};
+    struct Boundary {zima::kernel::Vec3 a,b;bool front{},back{};int count{};bool thread{};bool axial_surface{true};};
     std::map<std::tuple<Key,Key,Owner>,Boundary> boundaries;
     const auto key=[&](const auto& p){return Key{std::llround(p.x/epsilon),std::llround(p.y/epsilon),std::llround(p.z/epsilon)};};
     for(std::size_t i=0;i+2<mesh.triangles.size();i+=3) {
@@ -102,11 +102,44 @@ inline std::vector<ProjectedEdge> project_drawing_edges(
             auto pa=mesh.vertices[ids[side]],pb=mesh.vertices[ids[(side+1)%3]];
             auto ka=key(pa),kb=key(pb);if(kb<ka){std::swap(ka,kb);std::swap(pa,pb);}
             auto& edge=boundaries[{ka,kb,thread?owner(*ref):Owner{}}];edge.a=pa;edge.b=pb;++edge.count;edge.thread=thread;
+            // A cylinder/cone viewed along its analytic axis has no visible
+            // generator. An unmatched mesh seam near a cone apex is not a
+            // physical silhouette; its real rims are explicit viewer edges.
+            const bool axial_surface=ref&&ref->surface&&
+                (ref->surface->kind==zima::kernel::SurfaceGeometry::Kind::Cone||ref->surface->kind==zima::kernel::SurfaceGeometry::Kind::Cylinder)&&
+                std::abs(zima::kernel::dimension_dot(zima::kernel::dimension_unit(ref->surface->axis),camera.depth))>1-1e-9;
+            edge.axial_surface&=axial_surface;
             edge.front|=t.determinant*handedness>epsilon*epsilon;
             edge.back|=t.determinant*handedness<=epsilon*epsilon;
         }
     }
     std::vector<ProjectedEdge> result;
+
+    std::vector<zima::kernel::EdgeReference> leadin_edges;
+    for(const auto& edge:source_edges) {
+        if(edge.points.size()<9||is_thread(edge.reference))continue;
+        const auto first=project(edge.points.front()),last=project(edge.points.back());
+        if(std::hypot(first.p.x-last.p.x,first.p.y-last.p.y)>epsilon||std::abs(first.z-last.z)>epsilon)continue;
+        for(const auto& ring:end_rings){
+            if(edge.reference.instance_path!=ring.source.instance_path)continue;
+            const double radius=std::hypot(first.p.x-ring.center.x,first.p.y-ring.center.y);
+            if(radius<=ring.radius+epsilon)continue;
+            const bool circular=std::ranges::all_of(edge.points,[&](const auto& p){const auto q=project(p);return std::abs(q.z-first.z)<epsilon&&std::abs(std::hypot(q.p.x-ring.center.x,q.p.y-ring.center.y)-radius)<epsilon;});
+            const bool conical=std::ranges::any_of(edge.edge_treatment_side_references,[&](const auto& face){
+                const auto* resolved=&face;
+                if(!resolved->surface)for(const auto& candidate:mesh.triangle_references)
+                    if(candidate==face&&candidate.surface){resolved=&candidate;break;}
+                if(!resolved->surface||resolved->surface->kind!=zima::kernel::SurfaceGeometry::Kind::Cone)return false;
+                const auto& surface=*resolved->surface;const auto center=project(surface.origin);
+                const auto alignment=zima::kernel::dimension_dot(surface.axis,camera.depth);
+                const auto axial=(ring.depth-center.z)*alignment;
+                return std::abs(alignment)>1-1e-8&&std::hypot(center.p.x-ring.center.x,center.p.y-ring.center.y)<epsilon&&
+                    axial>=surface.axial_min-epsilon&&axial<=surface.axial_max+epsilon&&
+                    std::abs(ring.radius-std::abs(surface.radius+axial*std::tan(surface.semi_angle)))<epsilon;
+            });
+            if(circular&&conical){leadin_edges.push_back(edge.reference);break;}
+        }
+    }
     const auto append=[&](const auto& points,const zima::kernel::EdgeReference& source,bool silhouette,bool tangent,bool thread=false,bool symbolic=false) {
         for(std::size_t segment=1;segment<points.size();++segment) {
             const auto a=project(points[segment-1]),b=project(points[segment]);
@@ -167,7 +200,7 @@ inline std::vector<ProjectedEdge> project_drawing_edges(
                 if(!result.empty()&&result.back().source==source&&result.back().silhouette==silhouette&&result.back().hidden==hidden&&result.back().tangent==tangent&&result.back().thread==thread&&
                     std::hypot(result.back().points.back().x-first.x,result.back().points.back().y-first.y)<=epsilon)
                     result.back().points.push_back(last);
-                else result.push_back({{first,last},source,hidden,silhouette,tangent,false,0,thread});
+                else result.push_back({{first,last},source,hidden,silhouette,tangent,false,0,thread,std::ranges::find(leadin_edges,source)!=leadin_edges.end()});
             };
             double cursor=0;
             for(const auto& interval:merged){emit(cursor,interval.first,false);emit(interval.first,interval.second,true);cursor=interval.second;}
@@ -190,8 +223,15 @@ inline std::vector<ProjectedEdge> project_drawing_edges(
         }
         append(arc,ring.source,false,false,true,true);
     }
-    if(silhouettes)for(const auto& [key,edge]:boundaries)if((edge.front&&edge.back)||edge.count==1)
-        append(std::array{edge.a,edge.b},zima::kernel::EdgeReference{},true,false,edge.thread);
+    if(silhouettes)for(const auto& [key,edge]:boundaries)if(!edge.axial_surface&&((edge.front&&edge.back)||edge.count==1)) {
+        zima::kernel::EdgeReference reference;
+        if(edge.thread)for(const auto& original:source_edges)
+            if(is_thread(original.reference)&&owner(original.reference)==std::get<2>(key)&&
+               (original.reference.semantic_key=="thread:boundary:nominal"||original.reference.semantic_key=="thread:boundary:root")) {
+                reference=original.reference;break;
+            }
+        append(std::array{edge.a,edge.b},reference,true,false,edge.thread);
+    }
     return result;
 }
 } // namespace zima::drawing::detail

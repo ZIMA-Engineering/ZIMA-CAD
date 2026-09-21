@@ -64,5 +64,10 @@ void DrawingProjection::project(drawing::DrawingView& view,Options options) {
         marker=*current;
     }
     drawing::refresh_model_annotations(view,source.annotations);
+    auto measuring=*view.measurement_geometry;
+    for(auto& curve:measuring.curves)if(curve.source.semantic_key.starts_with("thread:boundary:"))
+        for(const auto& packet:source.annotations)if(packet.instance_path==curve.source.instance_path)
+            if(const auto thread=packet.threads.find(curve.source.owner_id);thread!=packet.threads.end())curve.thread=thread->second;
+    view.measurement_geometry=drawing::share_measurement_geometry(std::move(measuring));
 }
 }

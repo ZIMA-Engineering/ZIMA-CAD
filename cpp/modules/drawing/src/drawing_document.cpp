@@ -448,7 +448,9 @@ void refresh_view_geometry(DrawingView& view,const zima::kernel::ViewerMesh& sou
     section.reversed=facing < -epsilon;
     if(section.reversed)cut=zima::document::calculate_section(source,section);
     view.section_display_reversed=section.reversed;
-    capture_measurement_geometry(view,cut.mesh);
+    // Keep full original curves for associative measurement. The displayed
+    // cut fragments decide visibility/picking, never redefine a source curve.
+    capture_measurement_geometry(view,source);
     view.projected_edges=detail::project_drawing_edges(cut.mesh,view.camera,true,true);view.projected_triangles=project_triangles(cut.mesh,view.camera);
     for(const auto& patch:cut.patches){
         const auto& frame=patch.frame;
@@ -567,7 +569,7 @@ void DrawingDocument::save(const std::filesystem::path& path,
     if (document_id.empty() || name.empty() || sheets.empty()) {
         throw std::runtime_error("Drawing identity, name and sheets are required");
     }
-    nlohmann::json root{{"format", "zima-cad-drawing"}, {"version", 11},
+    nlohmann::json root{{"format", "zima-cad-drawing"}, {"version", 12},
                         {"document_id", document_id}, {"name", name},
                         {"source_document_id", source_document_id},
                         {"source_path", zima::document::path_to_utf8(source_path)},
@@ -669,8 +671,23 @@ void DrawingDocument::save(const std::filesystem::path& path,
                 {"use_sheet_scale", view.use_sheet_scale}, {"show_caption", view.show_caption},
                 {"x", view.x}, {"y", view.y}, {"scale", view.scale}, {"value_locks",view.value_locks}};
             for(const auto& [id,offsets]:view.section_marker_offsets)for(double offset:offsets)if(!std::isfinite(offset))throw std::runtime_error("Invalid section marker offset");
-            validate_view_crop(view);item["crop"]=nullptr;
+            validate_view_crop(view);item["crop"]=nullptr;item["show_thread_leadins"]=view.show_thread_leadins;
             if(view.crop){auto& crop=item["crop"];crop={{"shape",int(view.crop->shape)},{"anchor",{view.crop->anchor.x,view.crop->anchor.y}},{"points",nlohmann::json::array()}};for(auto p:view.crop->points)crop["points"].push_back({p.x,p.y});}
+            item["detail_view"]=view.detail_view;
+            item["show_detail_boundary"]=view.show_detail_boundary;item["show_detail_label"]=view.show_detail_label;
+            item["inherited_crops"]=nlohmann::json::array();
+            for(const auto& crop:view.inherited_crops) {
+                auto check=view;check.crop=crop;validate_view_crop(check);
+                nlohmann::json saved{{"shape",int(crop.shape)},{"anchor",{crop.anchor.x,crop.anchor.y}},{"points",nlohmann::json::array()}};
+                for(auto p:crop.points)saved["points"].push_back({p.x,p.y});
+                item["inherited_crops"].push_back(std::move(saved));
+            }
+            item["section_hatch_crops"]=nlohmann::json::object();
+            for(const auto& [id,crop]:view.section_hatch_crops){
+                auto check=view;check.crop=crop;validate_view_crop(check);
+                auto& saved=item["section_hatch_crops"][id];saved={{"shape",int(crop.shape)},{"anchor",{crop.anchor.x,crop.anchor.y}},{"points",nlohmann::json::array()}};
+                for(auto p:crop.points)saved["points"].push_back({p.x,p.y});
+            }
             item["section_marker_offsets"]=view.section_marker_offsets;
             item["section_markers"]=nlohmann::json::parse(zima::document::serialize_sections(view.section_markers));
             item["show_section_label"]=view.show_section_label;
@@ -695,7 +712,7 @@ void DrawingDocument::save(const std::filesystem::path& path,
             item["projected_edges"] = nlohmann::json::array();
             for (const auto& edge : view.projected_edges) {
                 nlohmann::json edge_json{{"source", edge_reference_json(edge.source)},
-                                         {"hidden", edge.hidden}, {"silhouette",edge.silhouette},{"tangent",edge.tangent},{"hatch",edge.hatch},{"hatch_pattern",edge.hatch_pattern},{"thread",edge.thread}};
+                                         {"hidden", edge.hidden}, {"silhouette",edge.silhouette},{"tangent",edge.tangent},{"hatch",edge.hatch},{"hatch_pattern",edge.hatch_pattern},{"thread",edge.thread},{"thread_leadin",edge.thread_leadin}};
                 edge_json["points"] = nlohmann::json::array();
                 for (const auto& point : edge.points) edge_json["points"].push_back({point.x, point.y});
                 item["projected_edges"].push_back(std::move(edge_json));
@@ -724,7 +741,7 @@ void DrawingDocument::save(const std::filesystem::path& path,
     // C++ drawing model has no Python entity fields, so its complete payload
     // lives in the ordinary param.* namespace.
     stream << "[Document]\n"
-           << "format_version=19\n"
+           << "format_version=20\n"
            << "type=drawing\n"
            << "document_id=" << root.at("document_id").get<std::string>() << "\n"
            << "name=" << root.at("name").get<std::string>() << "\n"
@@ -738,7 +755,7 @@ DrawingDocument DrawingDocument::load(const std::filesystem::path& path) {
     const auto document_section = ini.find("Document");
     if (document_section == ini.end() ||
         document_section->second.find("format_version") == document_section->second.end() ||
-        (document_section->second.at("format_version") != "19" && document_section->second.at("format_version") != "18") ||
+        (document_section->second.at("format_version") != "20" && document_section->second.at("format_version") != "19" && document_section->second.at("format_version") != "18") ||
         document_section->second.find("type") == document_section->second.end() ||
         document_section->second.at("type") != "drawing")
         throw std::runtime_error("Unsupported Drawing document format");
@@ -753,8 +770,9 @@ DrawingDocument DrawingDocument::load(const std::filesystem::path& path) {
             std::string("Invalid C++ Drawing payload: ") + error.what());
     }
     const bool previous=document_section->second.at("format_version")=="18"&&root.value("version",0)==10;
-    if (root.value("format", "") != "zima-cad-drawing" || (!previous &&
-        (document_section->second.at("format_version")!="19"||root.value("version",0)!=11)))
+    const bool preceding=document_section->second.at("format_version")=="19"&&root.value("version",0)==11;
+    if (root.value("format", "") != "zima-cad-drawing" || (!previous && !preceding &&
+        (document_section->second.at("format_version")!="20"||root.value("version",0)!=12)))
         throw std::runtime_error("Unsupported C++ Drawing payload");
     // The immediately preceding Drawing schema already persists every view
     // source and title binding. Introduce only the new registry/chooser fields.
@@ -860,9 +878,25 @@ DrawingDocument DrawingDocument::load(const std::filesystem::path& path) {
             view.hidden_edge_style=item.value("hidden_edge_style","dashed")=="gray"?HiddenEdgeStyle::Gray:HiddenEdgeStyle::Dashed;
             view.use_sheet_scale = item.value("use_sheet_scale", true);
             view.show_caption = item.value("show_caption", false);
+            view.show_thread_leadins=item.value("show_thread_leadins",false);
             if(item.contains("crop")&&!item.at("crop").is_null()){
                 const auto& saved=item.at("crop");ViewCrop crop;crop.shape=static_cast<ViewCropShape>(saved.at("shape").get<int>());crop.anchor={saved.at("anchor").at(0),saved.at("anchor").at(1)};
                 for(const auto& p:saved.at("points"))crop.points.push_back({p.at(0),p.at(1)});view.crop=std::move(crop);validate_view_crop(view);
+            }
+            view.detail_view=item.value("detail_view",false);
+            view.show_detail_boundary=item.value("show_detail_boundary",true);view.show_detail_label=item.value("show_detail_label",true);
+            if(view.detail_view&&(!view.crop||view.parent_view_id.empty()))throw std::runtime_error("Invalid detail view parent or boundary.");
+            for(const auto& saved:item.value("inherited_crops",nlohmann::json::array())) {
+                ViewCrop crop;crop.shape=static_cast<ViewCropShape>(saved.at("shape").get<int>());
+                crop.anchor={saved.at("anchor").at(0),saved.at("anchor").at(1)};
+                for(const auto& p:saved.at("points"))crop.points.push_back({p.at(0),p.at(1)});
+                auto check=view;check.crop=crop;validate_view_crop(check);view.inherited_crops.push_back(std::move(crop));
+            }
+            const auto hatch_crops=item.value("section_hatch_crops",nlohmann::json::object());
+            for(const auto& [id,saved]:hatch_crops.items()){
+                ViewCrop crop;crop.shape=static_cast<ViewCropShape>(saved.at("shape").get<int>());crop.anchor={saved.at("anchor").at(0),saved.at("anchor").at(1)};
+                for(const auto& p:saved.at("points"))crop.points.push_back({p.at(0),p.at(1)});
+                auto check=view;check.crop=crop;validate_view_crop(check);view.section_hatch_crops[id]=std::move(crop);
             }
             view.section_marker_offsets=item.value("section_marker_offsets",std::map<std::string,std::array<double,2>>{});
             for(const auto& [id,offsets]:view.section_marker_offsets)for(double offset:offsets)if(!std::isfinite(offset))throw std::runtime_error("Invalid section marker offset");
@@ -891,7 +925,7 @@ DrawingDocument DrawingDocument::load(const std::filesystem::path& path) {
                 edge.hidden = edge_json.value("hidden", false);
                 edge.silhouette=edge_json.value("silhouette",false);
                 edge.tangent=edge_json.value("tangent",false);
-                edge.thread=edge_json.value("thread",false);
+                edge.thread=edge_json.value("thread",false);edge.thread_leadin=edge_json.value("thread_leadin",false);
                 edge.hatch=edge_json.value("hatch",false);edge.hatch_pattern=edge_json.value("hatch_pattern",0);
                 for (const auto& point : edge_json.at("points"))
                     edge.points.push_back({point.at(0).get<double>(), point.at(1).get<double>()});

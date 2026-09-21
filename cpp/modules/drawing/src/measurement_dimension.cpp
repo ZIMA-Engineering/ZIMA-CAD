@@ -388,7 +388,7 @@ std::vector<std::vector<Point2>> measurement_reference_geometry(
     if (!ref.valid())
         return result;
     for (const auto &edge : view.projected_edges)
-        if (edge.source == ref && !edge.hatch && !edge.silhouette && drawing_edge_visible(view, edge))
+        if (edge.source == ref && !edge.hatch && (!edge.silhouette||edge.thread) && drawing_edge_visible(view, edge))
             result.push_back(edge.points);
     for (const auto &item : view.model_annotations)
         if (item.kind == ModelAnnotationKind::Axis && item.model_axis && item.visible && !item.unresolved &&
@@ -584,7 +584,8 @@ std::vector<MeasurementCandidate> measurement_candidates(const DrawingView &view
     for (const auto &curve : curves) {
         if (request.lines_only && !curve.line)
             continue;
-        if (request.circles_only && (!curve.center || !curve.circular))
+        const bool thread=curve.source.semantic_key.starts_with("thread:boundary:");
+        if (request.circles_only && (!curve.center || (!curve.circular&&!thread)))
             continue;
         double distance = std::numeric_limits<double>::infinity();
         const auto fragments = measurement_reference_geometry(view, curve.source);
@@ -723,18 +724,22 @@ DimensionEvaluation evaluate_drawing_dimension(const DrawingView &view, const Dr
         if (!curve || !curve->center || d.segments.empty())
             return missing("Vyberte kružnici nebo kruhový oblouk.");
         result.resolved_attachments[0] = true;
-        if (!curve->circular) {
+        const bool thread=curve->source.semantic_key.starts_with("thread:boundary:")&&d.kind==DrawingDimensionKind::Diameter;
+        if (!curve->circular&&!thread) {
             result.state = MeasurementState::Hidden;
             result.message = "R/⌀ je skrytá v nekruhovém průmětu.";
             return result;
         }
-        const double radius = length(curve->cosine_axis);
+        const auto original=std::ranges::find(view.measurement_geometry->curves,curve->source,&MeasurementCurve::source);
+        const double radius = thread&&original!=view.measurement_geometry->curves.end()&&original->circle
+            ? original->circle->radius : length(curve->cosine_axis);
         if (radius < 1e-9)
             return missing("Kružnice má nulový poloměr.");
         auto rim = point_at(*curve, d.attachments[0].parameter);
         auto direction = unit(sub(rim, *curve->center));
         if (length(direction) < .5)
             direction = unit(curve->cosine_axis);
+        if(length(direction)<.5)direction=unit(curve->sine_axis);
         kernel::ViewerDimension value;
         value.kind = d.kind == DrawingDimensionKind::Radius ? kernel::ViewerDimensionKind::Radius
                                                             : kernel::ViewerDimensionKind::Diameter;
@@ -750,6 +755,14 @@ DimensionEvaluation evaluate_drawing_dimension(const DrawingView &view, const Dr
             kernel::dimension_add(value.witness_first, {direction.x * (radius + 8 / view.scale),
                                                         direction.y * (radius + 8 / view.scale), 0});
         value = kernel::layout_dimension(value, {}, d.segments[0].layout);
+        if(thread&&original!=view.measurement_geometry->curves.end()&&original->thread) {
+            value.display_text_override=original->thread->text;value.value=original->thread->nominal_diameter;
+        }
+        if(thread)for(const auto& annotation:view.model_annotations)
+            if(annotation.source.owner_id==curve->source.owner_id&&annotation.source.instance_path==curve->source.instance_path&&
+               annotation.source.semantic_id=="parameter:thread_designation"&&annotation.model_dimension) {
+                value.display_text_override=annotation.model_dimension->display_text_override;break;
+            }
         result.presentations = {value};
         result.state = MeasurementState::Resolved;
         return result;
@@ -884,7 +897,9 @@ std::string drawing_dimension_text(const DrawingDimension &d, const kernel::View
     // An unresolved Drawing dimension retains its last measured text; the
     // canvas displays it in red until its original reference is repaired.
     static_cast<void>(unresolved);
-    return kernel::dimension_text(value, sheet_dimension_style(d.style));
+    auto style=sheet_dimension_style(d.style);
+    if(style.text_override.empty()&&!value.display_text_override.empty())style.text_override=value.display_text_override;
+    return kernel::dimension_text(value, style);
 }
 void drag_drawing_dimension(const DrawingView &view, DrawingDimension &d, std::size_t index, int handle,
                             Point2 delta) {
@@ -1040,6 +1055,7 @@ std::string serialize_measurement_geometry(const DrawingView &view) {
     for (const auto &c : view.measurement_geometry->curves) {
         json curve{
             {"source", ref_json(c.source)}, {"line", c.line}, {"points", json::array()}, {"circle", nullptr}};
+        if(c.thread)curve["thread"]={{"designation",c.thread->text},{"nominal_diameter",c.thread->nominal_diameter}};
         for (auto p : c.points)
             curve["points"].push_back(document::dimension_vec_json(p));
         if (c.circle)
@@ -1062,6 +1078,11 @@ void deserialize_measurement_geometry(DrawingView &view, const std::string &text
         MeasurementCurve curve;
         curve.source = ref_from(c.at("source"));
         curve.line = c.at("line");
+        if(c.contains("thread")) {
+            const auto& saved=c.at("thread");curve.thread=ThreadDesignation{saved.at("designation"),saved.at("nominal_diameter")};
+            if(curve.thread->text.empty()||!std::isfinite(curve.thread->nominal_diameter)||curve.thread->nominal_diameter<=0)
+                throw std::invalid_argument("Invalid thread measuring metadata");
+        }
         if (!curve.source.valid() || !keys.insert(key(curve.source)).second)
             throw std::invalid_argument("Invalid measuring curve identity");
         for (const auto &p : c.at("points"))

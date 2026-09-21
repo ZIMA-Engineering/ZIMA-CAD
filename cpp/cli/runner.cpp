@@ -96,6 +96,7 @@ int run(const std::vector<std::string>& arguments,const fs::path& executable,
         char* graphics_argv[]={app_name,platform_option,platform_name,nullptr};
         std::unique_ptr<QGuiApplication> graphics;
         if(!QCoreApplication::instance())graphics=std::make_unique<QGuiApplication>(graphics_argc,graphics_argv);
+        QCoreApplication::instance()->setProperty("zimaStackedTolerances",settings.stacked_tolerances);
         app::ApplicationInstance instance;
         instance.set_directory(QString::fromStdString(document::path_to_utf8(options.working)));
         workspace::Workspace workspace;kernel::OcctKernel kernel;

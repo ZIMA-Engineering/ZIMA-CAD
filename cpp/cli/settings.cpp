@@ -99,6 +99,7 @@ Settings load_settings(const fs::path& executable,const fs::path& working,const 
     const auto value=[&](const char* key,const char* fallback){const auto found=supplied(key);return found.second.empty()?std::string(fallback):found.second;};
     const auto configured_path=[&](const char* key,const char* fallback){const auto found=supplied(key);return resolve(found.first,found.second.empty()?fallback:found.second);};
     Settings result;
+    result.stacked_tolerances=value("Dimensions/ToleranceLayout","inline")=="stacked";
     result.documents.templates={configured_path("Paths/Templates","templates"),
         fs::u8path(value("Templates/Part","start_part.prtz")),fs::u8path(value("Templates/Assembly","start_assembly.asmz")),"Těleso 1"};
     try {

@@ -7,6 +7,7 @@
 
 #include <QCoreApplication>
 #include <QApplication>
+#include <QWidget>
 #include <QFontDatabase>
 #include <QDir>
 #include <QFileInfo>
@@ -135,6 +136,7 @@ ApplicationSettings ApplicationSettings::load(const QString& working_directory, 
     };
     result.language = value("Application/Language", "cs");
     result.use_iso_application_font = value("Application/UseISOFont", "true").toLower() != "false";
+    result.stacked_tolerances = value("Dimensions/ToleranceLayout", "inline") == "stacked";
     try {
         result.sheet_cut_tolerance=zima::document::sheet_cut_tolerance({
             {"sheet_cut_tolerance",value("SheetMetal/CutTolerance","0.05").toStdString()}});
@@ -296,6 +298,7 @@ bool ApplicationSettings::save(QString* error) const {
     catch(const std::exception& issue){if(error)*error=QString::fromUtf8(issue.what());return false;}
     QMap<QString, QVariant> common{
         {"Application/Language", language}, {"Application/UseISOFont", use_iso_application_font},
+        {"Dimensions/ToleranceLayout", stacked_tolerances ? "stacked" : "inline"},
         {"SheetMetal/CutTolerance",sheet_cut_tolerance},
         {"Templates/Part", part_template}, {"Templates/Assembly", assembly_template}};
     for (auto it = units.cbegin(); it != units.cend(); ++it) common.insert("Units/" + it.key(), it.value());
@@ -347,6 +350,8 @@ void apply_application_translations(QApplication& application,
 
 void apply_application_font(QApplication& application,
     const ApplicationSettings& settings) {
+    application.setProperty("zimaStackedTolerances",settings.stacked_tolerances);
+    for(auto* widget:application.allWidgets())widget->update();
     if (!settings.use_iso_application_font) {
         application.setFont(QFontDatabase::systemFont(QFontDatabase::GeneralFont));
         return;

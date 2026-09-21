@@ -37,7 +37,7 @@ int main(){
                 "Missing optional Drawing templates must leave a blank A4 sheet");
             auto configured=settings;configured.drawing_format=drawing::SheetFormat::A3;
             configured.drawing_frame_template=fs::absolute("config/formats/ZE-A3.frmz");
-            configured.drawing_title_block_template=fs::absolute("config/formats/ZE-RAZITKO-en.tblz");
+            configured.drawing_title_block_template=fs::absolute("config/formats/ZE-TITLE-BLOCK-EN.tblz");
             const auto prepared=prepare_new_native_document(NativeDocumentType::Drawing,"formatted",directory/"formatted.drwz",configured);
             prepared.write(directory/"formatted.drwz");
             const auto formatted=drawing::DrawingDocument::load(directory/"formatted.drwz");

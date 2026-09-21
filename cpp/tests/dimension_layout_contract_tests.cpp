@@ -12,6 +12,9 @@
 #include <iostream>
 #include <source_location>
 #include <zima/viewer/dimension_text_layer.hpp>
+#include <zima/drawing_render/crop_path.hpp>
+#include <zima/drawing_render/sheet_renderer.hpp>
+#include <zima/drawing/detail_view.hpp>
 #include <zima/assembly/assembly_document.hpp>
 #include <zima/document/dimension_layout_json.hpp>
 #include <zima/document/object_annotation_frames.hpp>
@@ -46,6 +49,49 @@ void mouse(QWidget *w, QEvent::Type type, QPointF p, Qt::MouseButton button,
 int main(int argc, char **argv) {
     QApplication app(argc, argv);
     try {
+        {
+            kernel::DimensionTextStyle style;style.tolerance_mode="deviations";
+            style.upper_tolerance="0.2";style.lower_tolerance="0.15";
+            kernel::ViewerDimension dimension;dimension.value=30;
+            const auto literal=QString::fromStdString(kernel::dimension_text(dimension,style));
+            app.setProperty("zimaStackedTolerances",false);
+            require(viewer::dimension_render_text(style,literal)==literal,"Inline layout changed text");
+            app.setProperty("zimaStackedTolerances",true);
+            const auto stacked=viewer::dimension_render_text(style,literal);
+            QFont font; font.setPixelSize(35);
+            const auto runs=viewer::dimension_text_runs(font,stacked);
+            require(runs.size()==3 && runs[1].baseline.y()<runs[2].baseline.y(),"Deviations are not stacked");
+            require(runs[0].baseline.y()==runs[2].baseline.y(),"Nominal and lower deviation baseline differ");
+            require(viewer::dimension_text_box(font,stacked,0).height()>viewer::dimension_text_box(font,literal,0).height(),"Stack bounds omit upper deviation");
+            require(viewer::dimension_text_width(font,stacked)<viewer::dimension_text_width(font,literal),"Stack did not reduce width");
+            style.text_override="custom +0,2 /-0,15";
+            require(viewer::dimension_render_text(style,QString::fromStdString(style.text_override))==QString::fromStdString(style.text_override),"Literal override was interpreted as tolerance");
+            app.setProperty("zimaStackedTolerances",false);
+            drawing::DrawingView view;
+            drawing::ProjectedTriangle t;t.points={drawing::Point2{0,0},{10,0},{0,10}};view.projected_triangles.push_back(t);
+            std::swap(t.points[1],t.points[2]);view.projected_triangles.push_back(t);
+            const auto body=drawing_render::projected_body_path(view,{},1);
+            require(body.contains({2,-2})&&!body.contains({20,-2}),"Crop body mask lost overlap or includes empty space");
+            auto doc=drawing::DrawingDocument::create_default();auto& sheet=doc.sheets.front();
+            view.id="parent";view.name="Parent";view.source_document_id="model";view.x=105;view.y=150;view.section_id="section";
+            drawing::ProjectedEdge contour;contour.points={{-20,-3},{20,-3}};
+            drawing::ProjectedEdge hatch;hatch.points={{-20,0},{20,0}};hatch.hatch=true;
+            view.projected_edges={contour,hatch};view.section_hatch_crops["section"]={drawing::ViewCropShape::Circle,{0,0},{{5,5}}};
+            sheet.views={view};
+            QImage image(840,1188,QImage::Format_RGB32);image.fill(Qt::white);
+            {drawing_render::SheetRenderer renderer;renderer.set_render_sheet(&sheet);QPainter painter(&image);renderer.paint_sheet(painter,4,{},true);}
+            const int y=int((sheet.height_mm()-view.y)*4);
+            require(qGray(image.pixel(420,y))<128&&qGray(image.pixel(460,y))>240&&qGray(image.pixel(460,y+12))<128,"Hatch region clipped ordinary contour or retained exterior hatching");
+            auto detail=view;detail.id="detail";detail.name="X";detail.parent_view_id=view.id;detail.detail_view=true;detail.scale=2;
+            detail.crop=drawing::ViewCrop{drawing::ViewCropShape::Ellipse,{0,0},{{8,6}}};
+            drawing::refresh_detail_view(detail,view);sheet.views.push_back(detail);
+            require(detail.section_hatch_crops.size()==1&&detail.projected_edges.size()==2,"Detail lost hatching or section region");
+            const auto anchor=detail.crop->anchor;view.projected_edges.front().points.front().x=-25;
+            drawing::refresh_detail_view(detail,view);require(detail.projected_edges.front().points.front().x==-25&&detail.crop->anchor==anchor,"Detail refresh lost associativity or boundary");
+            QTemporaryDir saved;const auto path=std::filesystem::u8path(saved.filePath("clipping.drwz").toStdString());doc.save(path);
+            const auto loaded=drawing::DrawingDocument::load(path);
+            require(loaded.sheets.front().views.front().section_hatch_crops.size()==1&&loaded.sheets.front().views.back().detail_view,"Drawing-only hatch region or detail failed to persist");
+        }
         // Zero coordinates retain the same definition plane and projected
         // measurement direction as nonzero coordinates, including in assemblies.
         QImage zero_proof(1200,1200,QImage::Format_ARGB32);zero_proof.fill(Qt::white);
