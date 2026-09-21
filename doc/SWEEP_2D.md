@@ -80,3 +80,16 @@ approximated portions of one source curve share a reference. Only straight porti
 also offer axis references. Display respects Axes visibility, including shaded mode.
 Geometry is persisted during solid calculation; rendering/picking invoke no OCCT.
 Older calculated models gain centerlines through explicit Regenerate.
+
+### Boolean boundary visibility (2026-09-21)
+
+A Boolean intersection may retain paired p-curves from its source surface.
+That alone does not make the resulting edge a hidden parameter seam: an edge
+shared by distinct faces remains visible. The existing tangent cylindrical
+split suppression remains in effect. Explicit **Regenerate** refreshes the
+persisted edge flags of already calculated documents; opening or displaying
+them never triggers a kernel calculation.
+
+The Sweep contract includes a circular-profile cut along a box boundary.
+For a read-only recalculation check of a specific native Part, pass its path
+to `zima_cpp_sweep2d_contract_tests`; this does not save the document.

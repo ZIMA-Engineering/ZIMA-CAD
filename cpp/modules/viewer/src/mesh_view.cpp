@@ -675,33 +675,55 @@ struct MeshView::Impl {
         const float aspect = height > 0 ? static_cast<float>(width) / height : 1.0F;
         QMatrix4x4 result;
         const float vertical = std::max(view_scale, 0.001F);
+        // Fit All owns the navigation radius, not the clipping volume. A
+        // regenerated or newly opened model can grow while retaining its camera.
+        // Use the current persisted viewer envelope, with no kernel work.
+        float closest_depth = std::numeric_limits<float>::max();
+        float furthest_depth = std::numeric_limits<float>::lowest();
+        if (dimension_bounds.valid) {
+            const auto camera = view();
+            for (const auto& point : dimension_bounds.corners()) {
+                const float depth = -camera.map(QVector3D(
+                    static_cast<float>(point.x), static_cast<float>(point.y),
+                    static_cast<float>(point.z))).z();
+                closest_depth = std::min(closest_depth, depth);
+                furthest_depth = std::max(furthest_depth, depth);
+            }
+        }
         if (projection_mode == ProjectionMode::Perspective) {
             const float camera_distance = fly_navigation_enabled
                 ? std::max((center - fly_position).length(), radius)
                 : orbit_distance();
-            // Fit the perspective depth range tightly around the scene's
-            // persisted bounding sphere. The earlier 1e-5*radius ..
-            // distance+40*radius span wasted most 24-bit depth precision and
-            // made adjacent/coplanar CAD triangles alternate as dark square
-            // "teeth" along silhouettes when zoomed in. A small 10% sphere
-            // margin keeps the whole model visible while retaining useful
-            // precision even when the fly camera moves inside its bounds.
+            // Empty scenes use the navigation sphere. For model geometry,
+            // tighten the range around its current camera-space envelope to
+            // preserve depth precision on adjacent/coplanar CAD triangles.
             const float scene_radius = std::max(radius, 0.001F);
             const float minimum_near = std::max(
                 scene_radius * 1.0e-3F, 1.0e-4F);
-            const float near_plane = std::max(minimum_near,
+            float near_plane = std::max(minimum_near,
                 camera_distance - scene_radius * 1.1F);
-            const float far_plane = std::max(
+            float far_plane = std::max(
                 camera_distance + scene_radius * 1.1F,
                 near_plane + scene_radius * 0.01F);
+            if (dimension_bounds.valid && furthest_depth > 0.0F) {
+                const float margin = std::max({
+                    (furthest_depth - closest_depth) * 0.1F,
+                    std::abs(furthest_depth) * 1.0e-4F, 0.001F});
+                near_plane = std::max(minimum_near, closest_depth - margin);
+                far_plane = std::max(near_plane + margin, furthest_depth + margin);
+            }
             result.perspective(kPerspectiveFieldOfViewDegrees,
                 std::max(aspect, 0.001F), near_plane, far_plane);
             return result;
         }
-        const float depth_extent = std::max({radius * 20.0F, 100.0F,
+        float depth_extent = std::max({radius * 20.0F, 100.0F,
             fly_navigation_enabled
                 ? (center - fly_position).length() + radius * 2.0F
                 : 0.0F});
+        if (dimension_bounds.valid) {
+            depth_extent = std::max(depth_extent,
+                std::max(std::abs(closest_depth), std::abs(furthest_depth)) * 1.1F + 0.001F);
+        }
         result.ortho(-vertical * aspect, vertical * aspect, -vertical, vertical,
                      -depth_extent, depth_extent);
         return result;

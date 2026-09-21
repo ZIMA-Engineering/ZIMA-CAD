@@ -1,5 +1,19 @@
 # Viewer Selection and Assembly Tree Identity
 
+## Camera clipping after geometry changes (2026-09-21)
+
+Orthographic and perspective depth limits use the current persisted viewer
+geometry envelope transformed into camera space. They do not depend solely on
+the radius recorded by the last Fit All. Larger or displaced geometry therefore
+remains inside the depth range after a mesh update that preserves the camera.
+Zoom, pan and orientation remain unchanged; Fit All is still an explicit action.
+This shared behavior applies to Parts, Skeletons and Assemblies without OCCT
+work during display. Geometry behind a perspective camera remains outside its view.
+
+The viewer GUI contract renders geometry at depths of 10,000 and 1,000,000 model
+units after fitting a small initial mesh, checks both projections and verifies
+that mesh replacement does not change the camera state.
+
 ## User selection filter (2026-09-17)
 
 The View toolbar filter is a persistent, independent restriction on the common

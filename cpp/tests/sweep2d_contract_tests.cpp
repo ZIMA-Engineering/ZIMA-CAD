@@ -28,10 +28,39 @@ static document::HistoryContainer fixture(bool arc=false,bool open=false){
     c.sweep2d.path_sketch=path.serialized();document::PartDocument::reframe_sweep2d_sketches(c);
     profile_at(c,document::PartDocument::sweep2d_route(c).stations.front(),2,open);return c;
 }
-int main(){try{
+int main(int argc,char** argv){try{
     kernel::OcctKernel kernel;
+    if(argc==2) {
+        std::vector<kernel::BodyResult> cache;
+        auto native=document::PartDocument::load(std::filesystem::u8path(argv[1]),&cache);
+        const auto calculated=kernel.evaluate_history(native.kernel_operations());
+        require(!calculated.empty(),"Part has no calculated body to inspect");
+        std::size_t boundaries=0,hidden=0;
+        for(const auto& edge:calculated.back().mesh.edges) if(edge.reference.semantic_key.find("sweep:")!=std::string::npos &&
+            edge.edge_treatment_side_references.size()==2) {
+            ++boundaries;if(edge.parameter_seam)++hidden;
+        }
+        std::cout<<"Sweep boundary edges="<<boundaries<<" hidden="<<hidden<<" volume="<<calculated.back().volume<<std::endl;
+        require(boundaries>0&&hidden==0,"A real Sweep cut boundary is hidden as a parameter seam");
+        return 0;
+    }
     auto doc=document::PartDocument::create_default();
     const auto calculate=[&](const auto& c){doc.history={c};return kernel.evaluate_history(doc.kernel_operations()).back();};
+    // A tube cut along a box face can retain two surface p-curves on an
+    // intersection edge. It still separates two faces and is not a seam.
+    {
+        auto box=document::PartDocument::create_box_container();box.box={100,80,50};
+        auto cut=fixture();cut.combine_mode=document::CombineMode::Subtract;
+        cut.placement.x=25;cut.placement.y=40;cut.placement.rotation_y=90;cut.placement.rotation_z=90;
+        doc.history={box,cut};
+        const auto body=kernel.evaluate_history(doc.kernel_operations()).back();
+        std::size_t boundaries=0;
+        for(const auto& edge:body.mesh.edges) if(edge.reference.semantic_key.find("sweep:")!=std::string::npos &&
+            edge.edge_treatment_side_references.size()==2) {
+            ++boundaries;require(!edge.parameter_seam,"Sweep/box intersection was incorrectly marked as a parameter seam");
+        }
+        require(boundaries>0,"Sweep cut fixture has no two-face boundaries");
+    }
     for(bool arc:{false,true}) {
         auto c=fixture(arc);const double length=arc?5*std::numbers::pi:20;
         const auto body=calculate(c);close(body.volume,4*std::numbers::pi*length,"Constant profile Sweep volume");

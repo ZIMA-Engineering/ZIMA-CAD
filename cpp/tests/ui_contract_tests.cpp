@@ -1480,6 +1480,45 @@ int main(int argc, char* argv[]) {
         require(view_middle_commits == 1,
                 "Middle-button double-click over the owning view did not invoke OK");
 
+        // Geometry may grow without Fit All: clipping must follow the current
+        // mesh while the user's camera remains unchanged (Part or Skeleton).
+        {
+            zima::viewer::MeshView growing_view(&parent);
+            growing_view.setGeometry(0, 0, 500, 360);
+            zima::kernel::ViewerMesh packet;
+            packet.vertices = {{-1, -1, 0}, {1, -1, 0}, {0, 1, 0}};
+            packet.triangles = {0, 1, 2};
+            packet.triangle_references.push_back({"growing-part", "face", {}});
+            growing_view.set_mesh(packet);
+            growing_view.fit_all();
+            auto camera = growing_view.camera_state();
+            camera[0] = 1; camera[1] = camera[2] = camera[3] = 0;
+            growing_view.set_camera_state(camera);
+            growing_view.show();
+            application.processEvents();
+            const auto initial_frame = growing_view.grabFramebuffer();
+            require(!initial_frame.isNull(), "Missing clipping regression framebuffer");
+            const auto face_color = initial_frame.pixelColor(
+                initial_frame.width()/2, initial_frame.height()/2);
+            for (const auto mode : {zima::viewer::ProjectionMode::Orthographic,
+                                     zima::viewer::ProjectionMode::Perspective}) {
+                growing_view.set_projection_mode(mode);
+                const auto unchanged_camera = growing_view.camera_state();
+                for (const double depth : {-10000.0, -1000000.0, 1000000.0}) {
+                    if (mode == zima::viewer::ProjectionMode::Perspective && depth > 0) continue;
+                    packet.vertices = {{-2000000, -2000000, depth},
+                        {2000000, -2000000, depth}, {0, 2000000, depth}};
+                    growing_view.set_mesh(packet, false);
+                    application.processEvents();
+                    require(growing_view.camera_state() == unchanged_camera,
+                        "Updating geometry changed the user's camera");
+                    require(framebuffer_contains_color_near(growing_view.grabFramebuffer(),
+                        growing_view.size(), {250, 180}, face_color, 8),
+                        "Geometry grown beyond the last Fit All was depth-clipped");
+                }
+            }
+        }
+
         zima::kernel::ViewerMesh selection_mesh;
         selection_mesh.vertices = {
             {-0.5, -0.5, 0.0}, {0.5, -0.5, 0.0}, {0.0, 0.5, 0.0}};

@@ -5224,14 +5224,16 @@ BodyResult make_result(
                      edge_faces.FindFromIndex(edge_index));
                  iterator.More(); iterator.Next()) {
                 const auto face = TopoDS::Face(iterator.Value());
-                if (BRep_Tool::IsClosed(edge, face)) {
-                    viewer_edge.parameter_seam = true;
-                }
                 if (std::none_of(adjacent_faces.begin(), adjacent_faces.end(),
                         [&](const auto& existing) {
                             return existing.IsSame(face);
                         })) adjacent_faces.push_back(face);
             }
+            // Boolean intersections can retain paired p-curves on a source
+            // surface even though the resulting edge separates distinct faces.
+            // A parameter seam belongs to one face; a shared boundary stays visible.
+            viewer_edge.parameter_seam = adjacent_faces.size() == 1 &&
+                BRep_Tool::IsClosed(edge, adjacent_faces.front());
             if (!viewer_edge.parameter_seam && adjacent_faces.size() == 2) {
                 const BRepAdaptor_Surface first(adjacent_faces[0], true);
                 const BRepAdaptor_Surface second(adjacent_faces[1], true);
