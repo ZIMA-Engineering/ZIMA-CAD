@@ -1184,6 +1184,29 @@ int verify_drawing_details_ui() {
         require(window.document_for_test().sheets.front().views.back().name=="X","Cancel changed detail name");
         live.open_drawing(document.document_id)->undo();window.edit_workspace_document(document.document_id);flush();require(count()==1,"Detail creation Undo failed");
         live.open_drawing(document.document_id)->redo();window.edit_workspace_document(document.document_id);flush();require(count()==2,"Detail creation Redo failed");
+        canvas->grab();flush();
+        auto handle=window.detail_label_handle_for_test(detail.id);require(handle.has_value(),"Detail reference label has no movable grip");
+        const auto drag=[&](QPointF from,QPointF to,bool cancel){
+            mouse(canvas,QEvent::MouseButtonPress,from,Qt::LeftButton,Qt::LeftButton);
+            mouse(canvas,QEvent::MouseMove,to,Qt::NoButton,Qt::LeftButton);
+            if(cancel){QKeyEvent escape(QEvent::KeyPress,Qt::Key_Escape,Qt::NoModifier);QApplication::sendEvent(canvas,&escape);flush();}
+            mouse(canvas,QEvent::MouseButtonRelease,to,Qt::LeftButton,Qt::NoButton);canvas->grab();flush();
+        };
+        drag(*handle,*handle+QPointF(55,-35),true);
+        require(!window.document_for_test().find_view(detail.id)->detail_label_position,"Escape committed detail label movement");
+        handle=window.detail_label_handle_for_test(detail.id);
+        drag(*handle,*handle+QPointF(55,-35),false);
+        const auto position=window.document_for_test().find_view(detail.id)->detail_label_position;
+        require(position.has_value()&&QLineF(*window.detail_label_handle_for_test(detail.id),*handle).length()>20,"Detail reference label did not move");
+        live.open_drawing(document.document_id)->undo();window.edit_workspace_document(document.document_id);flush();
+        require(!window.document_for_test().find_view(detail.id)->detail_label_position,"Detail label movement Undo failed");
+        live.open_drawing(document.document_id)->redo();window.edit_workspace_document(document.document_id);flush();
+        require(window.document_for_test().find_view(detail.id)->detail_label_position==position,"Detail label movement Redo failed");
+        window.document_for_test().save(path);
+        require(drawing::DrawingDocument::load(path).find_view(detail.id)->detail_label_position==position,"Detail label position failed to persist");
+        const auto yellow=[](const QImage& image){int pixels=0;for(int y=0;y<image.height();++y)for(int x=0;x<image.width();++x){const auto p=image.pixelColor(x,y);pixels+=p.red()>180&&p.green()>140&&p.blue()<100;}return pixels;};
+        window.select_view_for_test({});mouse(canvas,QEvent::MouseMove,QPointF(5,5),Qt::NoButton,Qt::NoButton);flush();
+        require(yellow(window.render_sheet_for_test(false))>10,"Detail reference lines must be yellow on screen");
         window.grab().save("build/drawing-detail-proof.png");
         // A hatch boundary is owned by this Drawing view; removing it is a
         // pending property edit until OK and never mutates the source Section.

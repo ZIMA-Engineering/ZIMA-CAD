@@ -16,6 +16,7 @@
 #include <QFontDatabase>
 #include <QRegularExpression>
 #include <QPainterPathStroker>
+#include <limits>
 namespace zima::drawing_render {
 using app::model_annotation_key;
 using app::model_annotation_layout;
@@ -301,11 +302,37 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
             QTransform transform;transform.translate(origin.x()+(sheet_->width_mm()-view->x)*zoom,origin.y()+(sheet_->height_mm()-view->y)*zoom);
             transform.scale(view->scale*zoom,-view->scale*zoom);
             const auto boundary=transform.map(crop_path(*detail->crop));
-            painter.save();painter.setPen(QPen(ink,width(false),Qt::DashDotLine));painter.setBrush(Qt::NoBrush);
+            const AnnotationKey key{AnnotationKind::DetailLabel,detail->id,view->id,0};
+            const auto color=annotation_color(key,printing?ink:QColor("#FFD400"),printing);
+            painter.save();painter.setPen(QPen(color,width(false)));painter.setBrush(Qt::NoBrush);
             if(detail->show_detail_boundary)painter.drawPath(boundary);
             if(detail->show_detail_label) {
-                QFont font(drawing_font_family());font.setPixelSize(std::max(1,int(5*zoom)));painter.setFont(font);painter.setPen(ink);
-                painter.drawText(boundary.boundingRect().topRight()+QPointF(2*zoom,-2*zoom),QString::fromStdString(detail->name));
+                QFont font(drawing_font_family());font.setPixelSize(1000);painter.setFont(font);
+                const QFontMetricsF metrics(font);const auto text=QString::fromStdString(detail->name);
+                const double text_scale=5*zoom/metrics.capHeight(),text_width=metrics.horizontalAdvance(text)*text_scale;
+                const double half=std::max(3*zoom,text_width/2+zoom);
+                const QPointF parent_origin{origin.x()+(sheet_->width_mm()-view->x)*zoom,origin.y()+(sheet_->height_mm()-view->y)*zoom};
+                const auto center=detail->detail_label_position?parent_origin+QPointF(detail->detail_label_position->x,-detail->detail_label_position->y)*zoom
+                    :boundary.boundingRect().topRight()+QPointF(half+8*zoom,-5*zoom);
+                const bool right=center.x()>=boundary.boundingRect().center().x();
+                const auto elbow=center+QPointF(right?-half:half,0);
+                // Attach to the nearest point on the real circle/ellipse/spline,
+                // not its rectangular bounds. The attachment follows a moved label.
+                QPointF anchor=boundary.pointAtPercent(0);double best=std::numeric_limits<double>::infinity();
+                for(const auto& polygon:boundary.toSubpathPolygons())for(qsizetype i=1;i<polygon.size();++i) {
+                    const auto a=polygon[i-1],delta=polygon[i]-a;const double length=QPointF::dotProduct(delta,delta);
+                    const double t=length>0?std::clamp(QPointF::dotProduct(elbow-a,delta)/length,0.,1.):0.;
+                    const auto point=a+delta*t;const auto distance=QLineF(point,elbow).length();
+                    if(distance<best){best=distance;anchor=point;}
+                }
+                QPainterPath stroke;stroke.moveTo(anchor);stroke.lineTo(elbow);stroke.moveTo(center-QPointF(half,0));stroke.lineTo(center+QPointF(half,0));
+                painter.drawPath(stroke);
+                painter.save();painter.setPen(annotation_color(key,printing?ink:QColor(Qt::white),printing));painter.translate(center+QPointF(-text_width/2,-zoom));painter.scale(text_scale,text_scale);painter.drawText(QPointF{},text);painter.restore();
+                if(!printing) {
+                    const QRectF text_hit(center.x()-half,center.y()-7*zoom,2*half,8*zoom);
+                    QPainterPathStroker picker;picker.setWidth(8);auto hit=picker.createStroke(stroke);hit.addRect(text_hit);
+                    annotation_handles_.push_back({key,center,hit,{},0,0,text_hit});
+                }
             }
             painter.restore();
         }
@@ -444,7 +471,7 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
         if(!printing&&text_preview_) {auto text=text_preview_->presentation;text.field_id="text:"+text_preview_->id;draw_text(text);}
         if(!printing&&!preview_)for(const auto& handle:annotation_handles_){
             const bool selected=(selected_annotation_&&selected_annotation_->kind==handle.key.kind&&selected_annotation_->view==handle.key.view&&selected_annotation_->id==handle.key.id)||(dimension_preview&&handle.key.kind==AnnotationKind::Dimension&&dimension_preview->id==handle.key.id),hovered=hovered_annotation_&&*hovered_annotation_==handle.key;
-            const bool movable=handle.key.kind==AnnotationKind::Balloon||handle.key.kind==AnnotationKind::Caption||handle.key.kind==AnnotationKind::SectionLabel||handle.key.kind==AnnotationKind::SectionEnd||handle.key.kind==AnnotationKind::Dimension||
+            const bool movable=handle.key.kind==AnnotationKind::DetailLabel||handle.key.kind==AnnotationKind::Balloon||handle.key.kind==AnnotationKind::Caption||handle.key.kind==AnnotationKind::SectionLabel||handle.key.kind==AnnotationKind::SectionEnd||handle.key.kind==AnnotationKind::Dimension||
                 (handle.key.kind==AnnotationKind::Model&&std::ranges::any_of(sheet_->views,[&](const auto& view){return view.id==handle.key.view&&std::ranges::any_of(view.model_annotations,[&](const auto& item){return item.kind==drawing::ModelAnnotationKind::Dimension&&model_annotation_key(item.source)==handle.key.id;});}));
             if(movable&&(selected||hovered))draw_handle(handle.point,selected);
         }

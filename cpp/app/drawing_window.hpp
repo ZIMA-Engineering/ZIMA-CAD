@@ -58,6 +58,7 @@ public:
     std::optional<QPointF> view_rectangle_center_for_test(const std::string& id) const;
     std::optional<QPointF> view_label_center_for_test(const std::string& id,bool section=false)const;
     std::optional<QPointF> annotation_handle_for_test(const std::string& id,int end=0,bool dimension=false)const;
+    std::optional<QPointF> detail_label_handle_for_test(const std::string& id)const;
     std::optional<QPointF> model_annotation_handle_for_test(const zima::drawing::ModelAnnotationReference&,int end=0,const std::string& view={})const;
     std::optional<QPointF> balloon_handle_for_test(const std::string&,int end=0)const;
     QImage render_sheet_for_test(bool printing)const;

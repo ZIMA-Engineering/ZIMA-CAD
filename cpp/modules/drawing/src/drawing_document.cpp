@@ -675,6 +675,8 @@ void DrawingDocument::save(const std::filesystem::path& path,
             if(view.crop){auto& crop=item["crop"];crop={{"shape",int(view.crop->shape)},{"anchor",{view.crop->anchor.x,view.crop->anchor.y}},{"points",nlohmann::json::array()}};for(auto p:view.crop->points)crop["points"].push_back({p.x,p.y});}
             item["detail_view"]=view.detail_view;
             item["show_detail_boundary"]=view.show_detail_boundary;item["show_detail_label"]=view.show_detail_label;
+            if(view.detail_label_position&&(!std::isfinite(view.detail_label_position->x)||!std::isfinite(view.detail_label_position->y)))throw std::runtime_error("Invalid view label position");
+            item["detail_label_position"]=view.detail_label_position?nlohmann::json::array({view.detail_label_position->x,view.detail_label_position->y}):nlohmann::json(nullptr);
             item["inherited_crops"]=nlohmann::json::array();
             for(const auto& crop:view.inherited_crops) {
                 auto check=view;check.crop=crop;validate_view_crop(check);
@@ -908,6 +910,7 @@ DrawingDocument DrawingDocument::load(const std::filesystem::path& path) {
                 if(!std::isfinite(p.x)||!std::isfinite(p.y))throw std::runtime_error("Invalid view label position");return p;
             };
             view.caption_position=label_position("caption_position");view.section_label_position=label_position("section_label_position");
+            view.detail_label_position=label_position("detail_label_position");
             view.x = item.at("x").get<double>(); view.y = item.at("y").get<double>();
             view.scale = item.at("scale").get<double>();
             view.value_locks=item.value("value_locks",std::set<std::string>{});

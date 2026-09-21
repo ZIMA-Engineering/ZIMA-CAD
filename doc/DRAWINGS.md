@@ -660,6 +660,22 @@ deletes its dependent details. Native Drawing version 20 persists these links.
 Boundary anchors remain view coordinates, so a source orientation change can
 require repositioning the boundary.
 
+The source detail reference uses the same yellow as dimensions on screen and
+thin continuous lines: a boundary, an attached leader and a horizontal underline
+with a white, 5 mm high detail letter above it, without a balloon. The enlarged
+view caption remains white. Hover and selection use the common orange/cyan feedback; print,
+PDF and DXF output use black. Drag the reference letter or underline grip to
+move the label while its leader follows the nearest point on the boundary.
+The source area does not move. Esc cancels a pending drag; release commits one
+Undo/Redo step. Position is stored in the Drawing relative to the source view,
+so moving the source moves its reference and moving the enlarged detail does
+not. Renaming the detail updates the source letter automatically.
+
+This simple presentation follows the configurable leader-note concept in
+[Creo detail options](https://support.ptc.com/help/creo/creo_pma/r12/usascii/detail/detail_options.html),
+where the default detail boundary line style is continuous. Yellow is a ZIMA
+screen convention, not a prescribed print color.
+
 The section table in View Properties has a separate hatch-region action. Its
 circle, ellipse or spline limits only hatch strokes. It leaves material contours
 and the Part/Assembly Section definition unchanged. Each section's local region

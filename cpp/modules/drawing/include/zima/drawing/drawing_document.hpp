@@ -164,6 +164,8 @@ struct DrawingView {
     std::optional<ViewCrop> crop;
     bool detail_view{};
     bool show_detail_boundary{true}, show_detail_label{true};
+    // Underline centre in paper millimetres relative to the parent view origin.
+    std::optional<Point2> detail_label_position;
     // Intersections inherited from the parent; crop is this detail's boundary.
     std::vector<ViewCrop> inherited_crops;
     // Drawing-only limits for hatch ink; source Section definitions are unchanged.

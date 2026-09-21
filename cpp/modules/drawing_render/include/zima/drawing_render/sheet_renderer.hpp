@@ -19,7 +19,7 @@ public:
     void set_render_context(drawing::TitleBlockContext context) {title_block_context_=std::move(context);}
     void paint_sheet(QPainter&,double zoom,QPointF origin,bool printing);
 protected:
-    enum class AnnotationKind { Caption, SectionLabel, Dimension, SectionEnd, Model, Balloon, View, Text };
+    enum class AnnotationKind { Caption, SectionLabel, Dimension, SectionEnd, Model, Balloon, View, Text, DetailLabel };
     struct AnnotationKey {
         AnnotationKind kind{};std::string view,id;int end{};
         bool operator==(const AnnotationKey&)const=default;
