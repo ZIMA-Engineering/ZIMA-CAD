@@ -1139,6 +1139,31 @@ int verify_drawing_breaks_ui() {
 int verify_drawing_details_ui() {
     using namespace zima;
     try {
+        // Local hatch limits have a printable boundary over material only.
+        // They must leave ordinary edges intact and affect only their section.
+        {
+            auto sheet=drawing::DrawingDocument::create_default().sheets.front();
+            sheet.frame_lines.clear();sheet.frame_texts.clear();sheet.frame_circles.clear();sheet.title_block_fields.clear();
+            drawing::DrawingView view;view.id="hatch-boundary";view.section_id="section";view.show_caption=false;
+            view.x=sheet.width_mm()-25;view.y=sheet.height_mm()-25;
+            drawing::ProjectedTriangle a,b;a.points={drawing::Point2{-10,-10},{10,-10},{10,10}};b.points={drawing::Point2{-10,-10},{10,10},{-10,10}};view.projected_triangles={a,b};
+            drawing::ProjectedEdge edge;edge.points={{-10,8},{10,8}};view.projected_edges.push_back(edge);
+            edge.hatch=true;edge.points={{-10,7},{10,7}};view.projected_edges.push_back(edge);
+            view.section_hatch_crops["section"]={drawing::ViewCropShape::Ellipse,{0,0},{{15,5}}};sheet.views={view};
+            drawing_render::SheetRenderer renderer;renderer.set_render_sheet(&sheet);
+            const auto render=[&](bool printing){QImage image(200,200,QImage::Format_ARGB32);image.fill(printing?Qt::white:Qt::black);QPainter painter(&image);renderer.paint_sheet(painter,4,{},printing);return image;};
+            const auto has_ink=[](const QImage& image,int x,int y,bool printing){for(int dy=-1;dy<=1;++dy)for(int dx=-1;dx<=1;++dx){const auto value=image.pixelColor(x+dx,y+dy).red();if(printing?value<220:value>35)return true;}return false;};
+            for(bool printing:{false,true}){
+                const auto image=render(printing);
+                require(has_ink(image,100,80,printing),"Local hatch boundary is missing over material");
+                require(!has_ink(image,160,100,printing),"Local hatch boundary extends outside material");
+                require(has_ink(image,100,68,printing)&&!has_ink(image,100,72,printing),"Hatch limit clipped ordinary geometry or retained outside hatch strokes");
+            }
+            sheet.views.front().crop=drawing::ViewCrop{drawing::ViewCropShape::Circle,{0,0},{{3,3}}};
+            require(!has_ink(render(true),100,80,true),"Local hatch boundary escaped the view crop");
+            sheet.views.front().crop.reset();sheet.views.front().section_id="other";
+            require(!has_ink(render(true),100,80,true),"Local hatch boundary leaked into another section");
+        }
         QTemporaryDir temporary;
         workspace::Workspace live;auto part=document::PartDocument::create_default();
         kernel::BodyResult cache;cache.mesh.edges={{{{-30,0,-20},{30,0,-20}},{"box","bottom",{}}},{{{30,0,-20},{30,0,20}},{"box","right",{}}},{{{30,0,20},{-30,0,20}},{"box","top",{}}},{{{-30,0,20},{-30,0,-20}},{"box","left",{}}}};

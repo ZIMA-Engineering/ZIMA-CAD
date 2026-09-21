@@ -679,7 +679,7 @@ screen convention, not a prescribed print color.
 The section table in View Properties has a separate hatch-region action. Its
 circle, ellipse or spline limits only hatch strokes. It leaves material contours
 and the Part/Assembly Section definition unchanged. Each section's local region
-is saved in the Drawing. Finished view-crop boundaries use thin strokes only
+is saved in the Drawing. Finished view-crop and local hatch-region boundaries use thin strokes only
 where they cross the projected body; the complete boundary remains visible
 during editing.
 

@@ -231,6 +231,12 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
             }
             painter.setPen(QPen(QColor("#808080"),width(false)));
             for(const auto& mark:drawing::break_marks(*rendered_view)){QPolygonF line;for(auto p:mark)line<<QPointF(origin.x()+(sheet_->width_mm()-view.x+p.x*view.scale)*zoom,origin.y()+(sheet_->height_mm()-view.y-p.y*view.scale)*zoom);painter.drawPolyline(line);}
+            if(const auto crop=view.section_hatch_crops.find(view.section_id);crop!=view.section_hatch_crops.end()){
+                const QPointF view_origin{origin.x()+(sheet_->width_mm()-view.x)*zoom,origin.y()+(sheet_->height_mm()-view.y)*zoom};
+                QTransform transform;transform.translate(view_origin.x(),view_origin.y());transform.scale(zoom*view.scale,-zoom*view.scale);
+                painter.save();painter.setClipPath(projected_body_path(view,view_origin,zoom*view.scale),Qt::IntersectClip);
+                painter.setPen(QPen(ink,width(false)));painter.drawPath(transform.map(crop_path(crop->second)));painter.restore();
+            }
             painter.restore();
             if(view.crop){
                 const QPointF view_origin{origin.x()+(sheet_->width_mm()-view.x)*zoom,origin.y()+(sheet_->height_mm()-view.y)*zoom};
