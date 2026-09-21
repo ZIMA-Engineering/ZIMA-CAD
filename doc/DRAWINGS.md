@@ -590,6 +590,11 @@ readable text orientation. Their full text bounds stay outside the line, on the
 side opposite the witness geometry, for either side of vertical, horizontal and
 oblique dimensions. The zero follows the same rule.
 
+For in-plane dimensions with text between the arrows, text width does not force
+the label outside. The chosen label centre determines placement, even when the
+text overlaps the arrows. The shared drawing/model presentation preserves this
+choice; users decide whether the resulting spacing is acceptable.
+
 Drawing conventions validation: all five core/export tests and four GUI tests
 pass (`build/drawing-conventions-core-tests.log` and
 `build/drawing-conventions-ui-tests.log`). These include direct context-menu

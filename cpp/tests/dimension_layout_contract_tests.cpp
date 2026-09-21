@@ -233,6 +233,12 @@ int main(int argc, char **argv) {
                     "Normal dimension did not center its label");
             near(centered.handles[0].x(), 100);
             near(centered.text_baseline.y(), centered.handles[0].y() - 3);
+            for(double x:{1.,10.,19.}) {
+                auto wide=d;wide.label_position=kernel::Vec3{x,8,0};
+                const auto shown=viewer::dimension_presentation(wide,front,400);
+                require(shown.valid&&!shown.outside,"Wide dimension text was forced outside the arrows");
+                near(shown.handles[0].x(),x*10);
+            }
             auto slanted = viewer::dimension_presentation(d, iso, 50);
             require(slanted.oblique && slanted.outside && slanted.text_angle == 0,
                     "Oblique dimension did not use horizontal outside text");

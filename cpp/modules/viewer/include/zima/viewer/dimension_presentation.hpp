@@ -177,7 +177,8 @@ DimensionPresentation dimension_presentation(const kernel::ViewerDimension &d, P
     if (std::abs(shift) < gap * 1.5)
         shift = 0;
     const double length = QLineF(a, b).length();
-    out.outside = out.oblique || radial || std::abs(shift) + text_width / 2 + arrow > length / 2;
+    // The user owns label placement, including text wider than the arrow span.
+    out.outside = out.oblique || radial || std::abs(shift) > length / 2;
     auto text_direction = out.oblique ? QPointF(1, 0) : along;
     if (text_direction.x() < -1e-6 ||
         (std::abs(text_direction.x()) <= 1e-6 && text_direction.y() > 0))
