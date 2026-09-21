@@ -256,3 +256,14 @@ verified the public manifest and offered `2026091604` as installable; the new
 version reported `current`. The three published asset hashes matched acceptance.
 This verifies discovery, without activating or rolling back this release. See
 [release acceptance](releases/2026091604.md#signed-windows-acceptance).
+
+
+Windows release
+[2026092101](https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026092101)
+was published on 2026-09-21 at 11:41:16 UTC. The committed-source candidate and
+signed archive passed native smoke and integrity gates. A fresh extraction
+passed production bootstrap trust and the five-language lifecycle GUI contract.
+The previous signed Windows updater (2026091903), in a disposable installation,
+verified the public manifest and offered 2026092101 as installable. No update
+was installed during this check. All three remote asset digests matched local
+acceptance. See [the release record](releases/2026092101.md).

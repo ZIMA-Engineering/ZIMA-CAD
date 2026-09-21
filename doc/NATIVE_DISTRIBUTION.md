@@ -24,10 +24,11 @@ packaged Drawing checks, remote asset hashes and public discovery from
 2026091904 passed. See the [release record](releases/2026092001.md) for exact
 scope and remaining 3D text-clearance/conical Sheet Cut test limitations.
 
-Windows build **2026091903** is signed and published. Its committed-source
+Windows build **2026092101** is signed and published. Its committed-source
 candidate, finalized archive, production bootstrap trust and public discovery
-passed acceptance. See [the release record](releases/2026091903.md) for source
-identity, hashes, format changes and the explicitly retained test limitations.
+passed acceptance. It adds localized document setup, appearance transparency
+and explicit component-origin visibility. See [the release record](releases/2026092101.md)
+for source identity, hashes, verification and the pending Skeleton workflow.
 
 ## Installed layout
 
