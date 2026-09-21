@@ -934,6 +934,7 @@ PartOccurrence AssemblyDocument::create_assembly_occurrence(
     }
     occurrence.calculated_source = std::move(snapshot);
     occurrence.nested_snapshot = calculated_document.occurrence_snapshot();
+    occurrence.source_name = calculated_document.name;
     return occurrence;
 }
 
@@ -948,7 +949,7 @@ std::vector<OccurrenceSnapshot> AssemblyDocument::occurrence_snapshot() const {
             !component.suppressed &&
                 effectively_suppressed.contains(component.occurrence_id),
             component.visible, component.grounded, component.placement,
-            component.nested_snapshot,component.derived_copy ? component.derived_copy->source_id : std::string{},component.derived_copy&&component.derived_copy->pattern.has_value(),component.source_missing});
+            component.nested_snapshot,component.derived_copy ? component.derived_copy->source_id : std::string{},component.derived_copy&&component.derived_copy->pattern.has_value(),component.source_missing,component.source_name});
     }
     return result;
 }
@@ -1907,7 +1908,8 @@ void AssemblyDocument::hydrate_sources(const std::filesystem::path& path, const 
             auto file=component.source_path;
             if(!file.empty() && file.is_relative())file=owner_path.parent_path()/file;
             if(!file.empty())file=std::filesystem::absolute(file).lexically_normal();
-            if(owner.owns_component_result(component.occurrence_id)) {
+            const bool preserve_result = owner.owns_component_result(component.occurrence_id);
+            if(component.derived_copy) {
                 auto check=component;
                 component.source_missing=!component.derived_copy && (file.empty() || !std::filesystem::is_regular_file(file)) && !(resolver && resolver(check));
                 continue;
@@ -1936,6 +1938,7 @@ void AssemblyDocument::hydrate_sources(const std::filesystem::path& path, const 
                         auto body=document::component_source(part,calculated);
                         body.body_boundaries.clear();body.body_inputs.clear();
                         source.calculated_source=std::move(body);
+                        source.source_name=part.name;
                         source.nested_snapshot.clear();
                         source.body_color=part.body_color;source.face_colors=part.face_colors;
                         source.appearance=document::component_appearance(part);
@@ -1953,6 +1956,7 @@ void AssemblyDocument::hydrate_sources(const std::filesystem::path& path, const 
                         }
                         self(self,nested,file);
                         const auto loaded=create_assembly_occurrence(component.name,component.source_document_id,file,nested);
+                        source.source_name=nested.name;
                         source.calculated_source=loaded.calculated_source;
                         source.nested_snapshot=loaded.nested_snapshot;
                         capture_nested_mass(source,nested);
@@ -1962,6 +1966,8 @@ void AssemblyDocument::hydrate_sources(const std::filesystem::path& path, const 
             }
             const auto& source=sources.at(key);
             component.source_missing=source.source_missing;
+            component.source_name=source.source_name;
+            if (preserve_result) continue;
             component.calculated_source=source.calculated_source;
             component.nested_snapshot=source.nested_snapshot;
             component.body_color=source.body_color;component.face_colors=source.face_colors;

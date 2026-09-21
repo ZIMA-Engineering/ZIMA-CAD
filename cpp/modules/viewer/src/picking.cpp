@@ -5,6 +5,9 @@
 #include <limits>
 #include <iterator>
 #include <map>
+#include <set>
+#include <tuple>
+#include <string_view>
 
 namespace zima::viewer {
 namespace {
@@ -409,6 +412,15 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
     const Vec3& ray_direction,
     double world_tolerance, bool offer_result_faces, bool offer_original_containers) {
     std::vector<ViewerCandidate> result;
+    using FaceIdentity = std::tuple<std::string_view,std::string_view,std::string_view>;
+    const auto identity = [](const auto& ref) -> FaceIdentity { return {ref.owner_id,ref.semantic_key,ref.instance_path}; };
+    std::set<FaceIdentity> persisted_identities;
+    for (const auto& ref : references.triangle_references)
+        if (ref.valid()) persisted_identities.insert(identity(ref));
+    std::set<std::string_view> displayed_source_paths;
+    for (const auto& ref : mesh.triangle_references)
+        if (!ref.instance_path.empty() && ref.valid() && persisted_identities.contains(identity(ref)))
+            displayed_source_paths.insert(ref.instance_path);
     const bool has_local_display_faces = std::any_of(
         mesh.triangle_references.begin(), mesh.triangle_references.end(),
         [](const auto& reference) {
@@ -524,7 +536,15 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
             // A display triangle owns an occurrence even without a persisted
             // face identity. It must never become a topology/placement reference.
             if (!face.reference.valid()) continue;
-            if ((!persisted_occurrence || offer_result_faces) && face.reference.semantic_key != "container:display") {
+            // An Assembly uses the same visible-fragment/source-identity
+            // contract as Part. Match all three identity fields so repeated
+            // occurrences never borrow another instance's original topology.
+            const bool displayed_source = geometry == CandidateGeometry::Display &&
+                persisted_identities.contains(identity(face.reference));
+            const bool hidden_source_face = geometry == CandidateGeometry::OriginalReference &&
+                displayed_source_paths.contains(face.reference.instance_path);
+            if (!hidden_source_face && (!persisted_occurrence || offer_result_faces || displayed_source) &&
+                face.reference.semantic_key != "container:display") {
                 result.push_back({CandidateKind::Face, face.distance, face.triangle,
                                   face.reference.owner_id, face.reference.semantic_key,
                                   face.reference.instance_path, geometry});

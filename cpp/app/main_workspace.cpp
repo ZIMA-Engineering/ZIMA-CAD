@@ -562,6 +562,13 @@ int verify_family_table(QApplication& application,zima::app::AssemblyWorkspaceWi
     chooser=choose(part.name);chooser->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
     if(!verify(rows().size()==2&&rows()[1].at("source_document")==part.document_id,"Native choice did not insert the generic"))return 1;
     const auto selected_path=inserted[0].at("instance_path").get<std::string>();
+    const auto variant_label=[&] {
+        for(QTreeWidgetItemIterator it(tree);*it;++it)
+            if((*it)->data(0,Qt::UserRole+1).toString().toStdString()==selected_path&&
+               (*it)->data(0,Qt::UserRole+3).toString()=="part-occurrence")return (*it)->text(0);
+        return QString{};
+    };
+    if(!verify(variant_label()=="family-base-Long.prtz","Tree did not append the selected native variant name"))return 1;
     const auto replace_menu=[&] {
         QTreeWidgetItem* selected=nullptr;tree->expandAll();
         for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole+1).toString().toStdString()==selected_path&&(*it)->data(0,Qt::UserRole+3).toString()=="part-occurrence"){selected=*it;break;}
@@ -586,7 +593,9 @@ int verify_family_table(QApplication& application,zima::app::AssemblyWorkspaceWi
     chooser=replace_menu();chooser->findChild<QComboBox*>("componentVariant")->setCurrentIndex(0);
     chooser->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
     if(!verify(rows()[0].at("source_document")==part.document_id&&rows()[0].at("instance_path")==selected_path&&rows()[1].at("source_document")==part.document_id,"Replace changed occurrence identity or the other occurrence"))return 1;
+    if(!verify(variant_label()=="family-base.prtz","Returning to generic did not restore the real filename label"))return 1;
     run("undo");if(!verify(rows()[0].at("source_document")==member_id,"GUI Replace did not undo to its original variant"))return 1;
+    if(!verify(variant_label()=="family-base-Long.prtz","Undo did not restore the variant Tree label"))return 1;
     std::string face_key;for(const auto& ref:cache.back().mesh.original_references.triangle_references)if(ref.owner_id==box.id){face_key=ref.semantic_key;break;}
     if(!verify(!face_key.empty(),"Replacement GUI fixture has no original Box face"))return 1;
     const auto reference=[&](const std::string& path){return commands::Json{{"instance_path",path},{"owner",box.id},{"key",face_key}};};
@@ -7441,6 +7450,29 @@ int verify_component_references(QApplication& application, const std::filesystem
 
     window.show_tree_item_properties(find(second,second_path));flush();
     if(!verify(dialog()!=nullptr,"Cannot open component properties"))return 1;
+    dialog()->findChild<QTableWidget*>("componentPlacementTable")->cellClicked(0,1);flush();
+    std::optional<viewer::ViewerCandidate> visible_face;
+    QPointF visible_face_position;
+    for(int y=12;y<view->height()&&!visible_face;y+=12)
+        for(int x=12;x<view->width()&&!visible_face;x+=12) {
+            const auto candidates=view->selection_candidates_at(QPointF(x,y));
+            if(!candidates.empty()&&candidates.front().kind==viewer::CandidateKind::Face) {
+                visible_face=candidates.front();visible_face_position=QPointF(x,y);
+            }
+        }
+    if(!verify(visible_face&&visible_face->geometry==viewer::CandidateGeometry::Display&&
+        visible_face->instance_path==second_path,"Component placement did not offer its visible source face"))return 1;
+    for(const auto type:{QEvent::MouseMove,QEvent::MouseButtonPress,QEvent::MouseButtonRelease}) {
+        QMouseEvent event(type,visible_face_position,QPointF(view->mapToGlobal(visible_face_position.toPoint())),
+            type==QEvent::MouseMove?Qt::NoButton:Qt::LeftButton,
+            type==QEvent::MouseButtonPress?Qt::LeftButton:Qt::NoButton,Qt::NoModifier);
+        QApplication::sendEvent(view,&event);flush();
+    }
+    const auto& picked_face=dialog()->placement_references()[0].component_reference;
+    if(!verify(picked_face.owner_id==visible_face->owner_id&&picked_face.semantic_key==visible_face->semantic_key&&
+        picked_face.instance_path.encoded()==second_path,"Visible component face lost its persisted source identity"))return 1;
+    dialog()->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
+    window.show_tree_item_properties(find(second,second_path));flush();
     if(!verify(pick(0,true,origin,second_path,"origin:plane:xy") && pick(0,false,origin,first_path,"origin:plane:xy"),
         "Cannot prepare reversible plane Flip"))return 1;
     for(const bool flipped:{true,false,true,false}) {

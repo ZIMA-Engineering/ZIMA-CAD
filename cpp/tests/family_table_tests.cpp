@@ -105,6 +105,9 @@ void component_test(const kernel::OcctKernel& kernel,const fs::path& directory) 
     const auto saved_assembly=workspace::prepare_document_save(live,owner,assembly_file).write();static_cast<void>(workspace::complete_document_save(live,saved_assembly));
     workspace::Workspace cold;cold.add_assembly(assembly::AssemblyDocument::load(assembly_file),assembly_file);cold.refresh_source_geometry();
     const auto& reopened=cold.open_assembly(owner)->session.document();
+    require(reopened.find_occurrence(first)->source_name=="Long"&&reopened.find_occurrence(second)->source_name=="Short"&&
+        reopened.occurrence_snapshot()[1].source_name=="Short",
+        "Cold Assembly lost native variant names or substituted a custom occurrence alias");
     require(std::abs(reopened.find_occurrence(first)->calculated_source->volume-960)<1e-8&&std::abs(reopened.find_occurrence(second)->calculated_source->volume-240)<1e-8,"Cold Assembly confused two members in one file");
     const auto snapshot=reopened.find_occurrence(first)->calculated_source;cold.refresh_source_geometry();require(snapshot.shares_with(cold.open_assembly(owner)->session.document().find_occurrence(first)->calculated_source),"Unchanged display rebuilt the variant source");
     const auto opened=workspace::open_component_source(cold,owner,assembly::InstancePath{}.child(first));

@@ -139,6 +139,13 @@ later Front, side or top view of the same variant.
 
 ## Assembly component variants
 
+The Assembly Tree displays a selected variant as `filename-variant.ext`, for
+example `01-v01.prtz`. The generic remains `01.prtz`. This is a display label;
+the actual source filename, path and document identity do not change. Labels
+use the source variant's name rather than an occurrence alias, and refresh
+after variant selection, Undo/Redo and reopening nested Assemblies. The source
+name is disposable runtime metadata hydrated from the native family document.
+
 Inserting a Part or Assembly opens component Properties directly. The first row
 shows the relative source path and an Open icon for selecting another native
 file. The second row shows that file's icon, filename and a variant dropdown. Its first entry is the

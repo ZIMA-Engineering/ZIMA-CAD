@@ -687,8 +687,31 @@ int main() {
         require(separated_faces.size() == 1 &&
                     separated_faces.front().owner_id == "original-box" &&
                     separated_faces.front().geometry ==
-                        zima::viewer::CandidateGeometry::OriginalReference,
-                "Hidden original geometry did not replace result-face picking");
+                        zima::viewer::CandidateGeometry::Display &&
+                    separated_faces.front().semantic_key == "z_max" &&
+                    separated_faces.front().instance_path == "8:assembly4:part",
+                "Assembly visible fragment lost its original face/occurrence identity");
+        auto trimmed = separated;
+        for (auto& vertex : trimmed.vertices) vertex.x *= 0.25;
+        const auto removed_faces = zima::viewer::filter_candidates(
+            zima::viewer::ordered_viewer_candidates(trimmed,{0.6,-0.5,0},{0,0,1},0.01),
+            {zima::viewer::CandidateKind::Face});
+        require(removed_faces.empty(), "Assembly offered a removed part of an original face");
+        auto repeated = trimmed;
+        repeated.vertices.insert(repeated.vertices.end(),trimmed.vertices.begin(),trimmed.vertices.end());
+        repeated.triangles.insert(repeated.triangles.end(),{3,4,5});
+        repeated.triangle_references.push_back({"original-box","z_max","8:assembly5:other"});
+        repeated.original_references.vertices.insert(repeated.original_references.vertices.end(),
+            separated.vertices.begin(),separated.vertices.end());
+        repeated.original_references.triangles.insert(repeated.original_references.triangles.end(),{3,4,5});
+        repeated.original_references.triangle_references.push_back({"original-box","z_max","8:assembly5:other"});
+        const auto repeated_faces = zima::viewer::filter_candidates(
+            zima::viewer::ordered_viewer_candidates(repeated,{0,0,0},{0,0,1},0.01),
+            {zima::viewer::CandidateKind::Face});
+        require(repeated_faces.size()==2 && repeated_faces[0].instance_path!=repeated_faces[1].instance_path &&
+            repeated_faces[0].geometry==zima::viewer::CandidateGeometry::Display &&
+            repeated_faces[1].geometry==zima::viewer::CandidateGeometry::Display,
+            "Repeated occurrences merged their visible source-face candidates");
         const auto separated_occurrences = zima::viewer::filter_candidates(
             separated_candidates, {zima::viewer::CandidateKind::Occurrence});
         const auto separated_containers = zima::viewer::filter_candidates(

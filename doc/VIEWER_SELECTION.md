@@ -1,5 +1,20 @@
 # Viewer Selection and Assembly Tree Identity
 
+## Visible Assembly faces as placement references (2026-09-21)
+
+Assembly face selection uses displayed result fragments that carry an exact
+persisted original-face identity. Matching includes the source owner, semantic
+key and complete occurrence path. Hover, cycling and confirmation therefore
+use the visible fragment while the mate stores its original reference.
+Removed portions of original faces are not offered as a second face candidate.
+Repeated and nested occurrences remain independent. This reuses the existing
+Part selection/highlight contract without kernel work or placement-solver changes.
+
+The viewer regression covers trimmed-away face regions and repeated occurrences.
+The component-properties GUI regression clicks an offered display face and checks
+the stored source owner, semantic key and exact occurrence path. Verification is
+recorded in `build/assembly-variant-face-final-tests.log`.
+
 ## Camera clipping after geometry changes (2026-09-21)
 
 Orthographic and perspective depth limits use the current persisted viewer

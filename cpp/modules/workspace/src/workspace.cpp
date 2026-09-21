@@ -344,6 +344,11 @@ void Workspace::refresh_source_geometry() {
             const NativeSourceKey source_key{file,component.source_document_id};
             const auto parent_id=component.source_document_id.substr(0,component.source_document_id.find(":family:"));
             if(document.owns_component_result(component.occurrence_id)) {
+                const auto* source_part = open_part(component.source_document_id);
+                const auto* source_assembly = open_assembly(component.source_document_id);
+                const auto* name = source_part ? &source_part->session.document().name :
+                    source_assembly ? &source_assembly->session.document().name : nullptr;
+                if (name && component.source_name != *name) { component.source_name = *name; changed = true; }
                 const bool missing=!component.derived_copy && !open_part(component.source_document_id) && !open_assembly(component.source_document_id) &&
                     !open_part(parent_id) && !open_assembly(parent_id) && (file.empty() || !std::filesystem::is_regular_file(file));
                 if(component.source_missing!=missing){component.source_missing=missing;changed=true;}
@@ -367,6 +372,9 @@ void Workspace::refresh_source_geometry() {
                 }
                 if(component.source_missing!=(part==nullptr)){component.source_missing=part==nullptr;changed=true;}
                 if (part) {
+                    if (component.source_name != part->session.document().name) {
+                        component.source_name = part->session.document().name; changed = true;
+                    }
                     if(part->session.document().document_id!=component.source_document_id)
                         throw std::runtime_error("Part source document identity mismatch");
                     const auto source=part_snapshot(*part);
@@ -420,6 +428,7 @@ void Workspace::refresh_source_geometry() {
                 if(found==component.calculated_source->body_outputs.end()||
                     !found->second.shares_with(child.calculated_source)) {same=false;break;}
             }
+            if (component.source_name != nested.name) { component.source_name = nested.name; changed = true; }
             const auto sharing_key=source_stamp+":"+file.generic_string();
             if(const auto shared=assembly_sources.find(sharing_key);shared!=assembly_sources.end()) {
                 if(!component.calculated_source.shares_with(shared->second)) {
@@ -873,6 +882,7 @@ std::string Workspace::insert_open_part(
     auto occurrence = zima::assembly::AssemblyDocument::create_part_occurrence(
         std::move(occurrence_name), part_document_id, part->path,
         part_snapshot(*part));
+    occurrence.source_name=part->session.document().name;
     occurrence.density_kg_mm3=zima::document::material_density_kg_mm3(part->session.document());
     occurrence.body_color = part->session.document().body_color;
     occurrence.appearance = part_appearance(part->session.document());
@@ -969,6 +979,7 @@ zima::assembly::AssemblyDocument Workspace::refreshed_assembly(
                     occurrence.name, occurrence.source_document_id, dependency_path, nested).calculated_source;
                 zima::assembly::capture_nested_mass(occurrence,nested);
                 occurrence.nested_snapshot = nested.occurrence_snapshot();
+                occurrence.source_name = nested.name;
                 if (const auto* open = open_assembly(occurrence.source_document_id))
                     occurrence.source_path = open->path;
             }
@@ -991,6 +1002,7 @@ zima::assembly::AssemblyDocument Workspace::refreshed_assembly(
                 "An open Assembly dependency has no calculated Part result");
         }
         occurrence.calculated_source = part_snapshot(*part);
+        occurrence.source_name = part->session.document().name;
         occurrence.density_kg_mm3=zima::document::material_density_kg_mm3(part->session.document());
         occurrence.body_color = part->session.document().body_color;
         occurrence.appearance = part_appearance(part->session.document());

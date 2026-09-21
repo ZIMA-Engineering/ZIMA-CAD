@@ -860,6 +860,12 @@ void AssemblyWorkspaceWindow::add_snapshot_tree_children(
         const bool suppressed = ancestor_suppressed ||
             component.manually_suppressed || component.dependency_suppressed;
         QString label = QString::fromStdString(component.name);
+        if (component.derived_source_id.empty() && !component.pattern_group &&
+            component.source_document_id.find(":family:") != std::string::npos && !component.source_name.empty()) {
+            const auto file = std::filesystem::u8path(component.name);
+            label = QString::fromStdString(document::path_to_utf8(file.stem()) + "-" +
+                component.source_name + document::path_to_utf8(file.extension()));
+        }
         if(component.source_missing)label+=tr(" [chybí zdrojový soubor]");
         if (component.manually_suppressed) label += tr(" [potlačeno]");
         else if (suppressed) {

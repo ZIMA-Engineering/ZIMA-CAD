@@ -141,6 +141,7 @@ assembly::AssemblyDocument::SourceResolver native_source_resolver(const Workspac
                 component.body_color=source.body_color;component.face_colors=source.face_colors;
                 component.appearance=source.appearance;component.density_kg_mm3=source.density_kg_mm3;
                 component.mass_volume_mm3=source.mass_volume_mm3;
+                component.source_name=source.name;
                 return true;
             }
             const auto found=assemblies.find(component.source_document_id);
@@ -153,6 +154,7 @@ assembly::AssemblyDocument::SourceResolver native_source_resolver(const Workspac
             visiting.erase(component.source_document_id);
             const auto source=assembly::AssemblyDocument::create_assembly_occurrence(component.name,component.source_document_id,found->second.second,nested);
             component.calculated_source=source.calculated_source;component.nested_snapshot=source.nested_snapshot;
+            component.source_name=nested.name;
             assembly::capture_nested_mass(component,nested);
             return true;
         }

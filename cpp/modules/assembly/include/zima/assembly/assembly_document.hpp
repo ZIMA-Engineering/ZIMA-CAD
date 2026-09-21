@@ -73,6 +73,7 @@ struct OccurrenceSnapshot {
     std::string derived_source_id;
     bool pattern_group{};
     bool source_missing{}; // Runtime availability; not part of persisted hierarchy.
+    std::string source_name; // Runtime native model/variant display name.
     bool operator==(const OccurrenceSnapshot&) const = default;
 };
 
@@ -159,6 +160,8 @@ struct PartOccurrence {
     std::optional<double> nested_mass_kg;
     double mass_volume_mm3{};
     bool source_missing{};
+    // Runtime display metadata, hydrated from the native source document.
+    std::string source_name;
 };
 
 inline bool is_skeleton(const PartOccurrence& value) {
