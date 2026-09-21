@@ -122,6 +122,14 @@ struct ViewBreak {
     bool operator==(const ViewBreak&) const = default;
 };
 
+enum class ViewCropShape { Circle, Ellipse, Spline };
+struct ViewCrop {
+    ViewCropShape shape{ViewCropShape::Circle};
+    // Displayed view coordinates, before paper scale; independent of sheet position.
+    Point2 anchor;
+    // Circle/ellipse: one positive radius pair. Spline: periodic interpolation points.
+    std::vector<Point2> points;
+};
 struct DrawingView {
     std::vector<ViewBreak> breaks;
     std::string id;
@@ -145,6 +153,7 @@ struct DrawingView {
     double y{100.0};
     double scale{1.0};
     bool use_sheet_scale{true};
+    std::optional<ViewCrop> crop;
     bool show_caption{};
     bool show_section_label{true};
     // Optional paper-mm offsets from the view origin: right/up, independent

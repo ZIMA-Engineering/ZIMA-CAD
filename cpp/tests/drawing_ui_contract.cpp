@@ -711,7 +711,7 @@ int verify_drawing_ui() {
             const auto source_path=directory/"projection-source.prtz";source.save(source_path,calculated);workspace.add_part(source,calculated,source_path);auto fixture=zima::drawing::DrawingDocument::create_default();fixture.sheets.clear();
             for(const auto method:{zima::drawing::ProjectionMethod::FirstAngle,zima::drawing::ProjectionMethod::ThirdAngle}) {
                 auto sheet=zima::drawing::DrawingDocument::create_default().sheets.front();sheet.projection_method=method;
-                auto root=zima::drawing::DrawingDocument::create_view(source.document_id,source_path,calculated.back().mesh,zima::drawing::ViewOrientation::Front);root.section_id=section.id;root.section_snapshot=section;
+                auto root=zima::drawing::DrawingDocument::create_view(source.document_id,source_path,calculated.back().mesh,zima::drawing::ViewOrientation::Front);root.section_id=section.id;root.section_snapshot=section;root.crop=zima::drawing::ViewCrop{zima::drawing::ViewCropShape::Ellipse,{0,0},{{10,6}}};
                 auto child=zima::drawing::DrawingDocument::create_view(source.document_id,source_path,calculated.back().mesh,zima::drawing::ViewOrientation::Isometric);child.parent_view_id=root.id;child.projection_direction=zima::drawing::ProjectionDirection::Left;
                 auto nested=zima::drawing::DrawingDocument::create_view(source.document_id,source_path,calculated.back().mesh,zima::drawing::ViewOrientation::Isometric);nested.parent_view_id=child.id;nested.projection_direction=zima::drawing::ProjectionDirection::Top;
                 sheet.views={nested,child,root};fixture.sheets.push_back(sheet);
@@ -725,6 +725,7 @@ int verify_drawing_ui() {
                 const auto& root=sheet.views.back();const auto front=zima::drawing::standard_camera(zima::drawing::ViewOrientation::Front);
                 require(root.camera.horizontal==front.horizontal&&root.camera.vertical==front.vertical&&root.camera.depth==front.depth,"Changed Section tilted the primary view");
                 require(root.section_snapshot->sketch.points.back().y==6,"Regenerate missed the unsaved cut change");
+                require(root.crop&&root.crop->points.front().x==10&&root.crop->points.front().y==6,"Section regeneration lost its local crop");
                 for(const auto& view:sheet.views)if(!view.parent_view_id.empty()) {
                     const auto* parent=window.document_for_test().find_view(view.parent_view_id);const auto expected=zima::drawing::projected_camera(parent->camera,view.projection_direction,sheet.projection_method);
                     require(view.camera.horizontal==expected.horizontal&&view.camera.vertical==expected.vertical&&view.camera.depth==expected.depth,"Regenerate did not update nested projection cameras parent-first");
@@ -963,6 +964,41 @@ int verify_drawing_ui() {
             require(zima::workspace::step_document_history(workspace,annotations.document_id,zima::workspace::HistoryDirection::Undo),"Annotation deletion has no Undo");window.edit_workspace_document(annotations.document_id);flush();
             require(std::ranges::all_of(window.document_for_test().sheets.front().views.front().model_annotations,[](const auto& a){return a.visible;}),"One Undo did not restore all model annotations");
 
+        }
+        {
+            auto fixture=zima::drawing::DrawingDocument::create_default();auto view=original;view.x=145;view.y=150;view.show_caption=false;view.model_annotations.clear();fixture.sheets.front().views={view};
+            workspace.add_drawing(fixture);window.edit_workspace_document(fixture.document_id);flush();
+            const auto curves=zima::drawing::projected_measurement_curves(view);require(!curves.empty()&&!curves.front().points.empty(),"Crop fixture has no selectable geometry");
+            const auto point=curves.front().points.front();const auto bounds=window.sheet_rectangle_for_test();const double zoom=bounds.height()/fixture.sheets.front().height_mm();
+            const QPointF anchor(bounds.right()-view.x*zoom+point.x*view.scale*zoom,bounds.bottom()-view.y*zoom-point.y*view.scale*zoom);
+            const auto open_crop_properties=[&](){window.select_view_for_test(view.id);action("editDrawingViewAction")->trigger();flush();auto* props=window.findChild<QDialog*>("drawingViewProperties");require(props,"Crop properties missing");return props;};
+            for(int shape=0;shape<3;++shape){
+                auto* props=open_crop_properties();auto* crop_action=props->findChild<QAction*>(QString("drawingCropMode%1").arg(shape));require(crop_action,"Crop shape action missing");crop_action->trigger();flush();require(!props->isVisible(),"Crop opened another properties window instead of using the canvas");
+                mouse(canvas,QEvent::MouseMove,anchor,Qt::NoButton,Qt::NoButton);click(canvas,anchor);
+                if(shape<2){mouse(canvas,QEvent::MouseMove,anchor+QPointF(40,25),Qt::NoButton,Qt::NoButton);click(canvas,anchor+QPointF(40,25));}
+                else {for(const auto& delta:{QPointF(-35,-25),QPointF(40,-25),QPointF(40,30),QPointF(-35,30)})click(canvas,anchor+delta);QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(canvas,&enter);flush();}
+                require(props->isVisible(),"Crop boundary did not return to the existing properties window");
+                const auto before=window.document_for_test().find_view(view.id)->crop;require(!before||int(before->shape)!=shape,"Crop changed document before OK");
+                props->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+                const auto& committed=window.document_for_test().find_view(view.id)->crop;require(committed&&int(committed->shape)==shape,"Crop shape did not commit");
+                window.document_for_test().save(directory/"crop.drwz");auto reopened=zima::drawing::DrawingDocument::load(directory/"crop.drwz");require(reopened.find_view(view.id)->crop&&reopened.find_view(view.id)->crop->points==committed->points,"Crop boundary did not round-trip");
+            }
+            {
+                auto sheet=zima::drawing::DrawingDocument::create_default().sheets.front();sheet.frame_lines.clear();sheet.frame_texts.clear();sheet.frame_circles.clear();sheet.title_block_fields.clear();
+                zima::drawing::DrawingView test_view;test_view.id="clip-pixels";test_view.x=sheet.width_mm()-50;test_view.y=sheet.height_mm()-50;
+                zima::drawing::ProjectedEdge edge;edge.points={{-20,0},{20,0}};test_view.projected_edges={edge};test_view.crop=zima::drawing::ViewCrop{zima::drawing::ViewCropShape::Circle,{0,0},{{5,5}}};sheet.views={test_view};
+                zima::drawing_render::SheetRenderer renderer;renderer.set_render_sheet(&sheet);QImage image(200,200,QImage::Format_ARGB32);image.fill(Qt::white);{QPainter painter(&image);renderer.paint_sheet(painter,2,{},true);}
+                require(image.pixelColor(130,100)==QColor(Qt::white)&&image.pixelColor(100,100).red()<128,"Print renderer did not clip the projected edge");
+            }
+            const auto printed_crop=window.render_sheet_for_test(true);require(!printed_crop.isNull(),"Cropped view did not render for printing");
+            auto* props=open_crop_properties();props->findChild<QAction*>("drawingCropMode3")->trigger();flush();
+            const auto saved=*window.document_for_test().find_view(view.id)->crop;const auto grip=saved.points.front();
+            const QPointF location(bounds.right()-view.x*zoom+grip.x*view.scale*zoom,bounds.bottom()-view.y*zoom-grip.y*view.scale*zoom);
+            mouse(canvas,QEvent::MouseButtonPress,location,Qt::LeftButton,Qt::LeftButton);mouse(canvas,QEvent::MouseMove,location+QPointF(12,0),Qt::NoButton,Qt::LeftButton);mouse(canvas,QEvent::MouseButtonRelease,location+QPointF(12,0),Qt::LeftButton,Qt::NoButton);
+            QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(canvas,&enter);flush();props->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();require(window.document_for_test().find_view(view.id)->crop->points==saved.points,"Crop edit Cancel changed stored boundary");
+            window.export_pdf(directory/"crop.pdf");window.export_dxf(directory/"crop.dxf");window.export_jpg(directory/"crop.jpg");
+            props=open_crop_properties();props->findChild<QAction*>("drawingRemoveCrop")->trigger();props->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();require(!window.document_for_test().find_view(view.id)->crop,"Removing crop did not restore the full view");
+            require(zima::workspace::step_document_history(workspace,fixture.document_id,zima::workspace::HistoryDirection::Undo),"Crop removal has no Undo");window.edit_workspace_document(fixture.document_id);flush();require(window.document_for_test().find_view(view.id)->crop.has_value(),"Undo did not restore crop");
         }
         {
             std::optional<zima::sketcher::SketchText> preview,committed;

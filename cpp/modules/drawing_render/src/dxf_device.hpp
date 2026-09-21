@@ -9,6 +9,7 @@
 #include <QTextStream>
 #include <cmath>
 #include <algorithm>
+#include <vector>
 
 namespace zima::drawing_render {
 // Millimetre drawing output. Qt supplies the same vector primitives as PDF;
@@ -24,6 +25,15 @@ class DrawingDxfDevice final : public QPaintDevice {
             if(s.state()&DirtyTransform) transform_=s.transform();
             if(s.state()&DirtyPen) pen_=s.pen();
             if(s.state()&DirtyBrush) brush_=s.brush();
+            if(s.state()&DirtyClipEnabled)clipping_=s.isClipEnabled();
+            if(s.state()&(DirtyClipPath|DirtyClipRegion)){
+                QPainterPath path;if(s.state()&DirtyClipPath)path=s.clipPath();else path.addRegion(s.clipRegion());
+                path=transform_.map(path);
+                if(s.clipOperation()==Qt::NoClip){clipping_=false;clip_={};}
+                else {clip_=s.clipOperation()==Qt::IntersectClip&&!clip_.isEmpty()?clip_.intersected(path):path;clipping_=true;}
+                clip_polygons_=clip_.toSubpathPolygons(QTransform::fromScale(32,32));for(auto& polygon:clip_polygons_)for(auto& p:polygon)p/=32;
+            }
+            if(s.state()&DirtyClipEnabled){clipping_=s.isClipEnabled();if(!clipping_){clip_={};clip_polygons_.clear();}}
         }
         void code(int n,const QString& value){entities_+=QString::number(n)+'\n'+value+'\n';}
         void code(int n,double value){code(n,QString::number(value,'g',15));}
@@ -37,6 +47,14 @@ class DrawingDxfDevice final : public QPaintDevice {
         }
         void line(QPointF a,QPointF b) {
             if(pen_.style()==Qt::NoPen)return;
+            if(clipping_){
+                const auto x=transform_.map(a),y=transform_.map(b);const QLineF line(x,y);std::vector<double> cuts{0,1};
+                const auto delta=y-x;const double length=QPointF::dotProduct(delta,delta);if(length<1e-20)return;
+                for(const auto& polygon:clip_polygons_)for(int i=1;i<polygon.size();++i){QPointF hit;if(line.intersects(QLineF(polygon[i-1],polygon[i]),&hit)==QLineF::BoundedIntersection)cuts.push_back(std::clamp(QPointF::dotProduct(hit-x,delta)/length,0.,1.));}
+                std::ranges::sort(cuts);clipping_=false;
+                for(std::size_t i=1;i<cuts.size();++i)if(cuts[i]-cuts[i-1]>1e-10&&clip_.contains(x+delta*((cuts[i]+cuts[i-1])/2)))this->line(a+(b-a)*cuts[i-1],a+(b-a)*cuts[i]);
+                clipping_=true;return;
+            }
             entity("LINE",pen_.color());
             const bool center=pen_.style()==Qt::DashDotLine||pen_.style()==Qt::DashDotDotLine;
             code(6,center?QStringLiteral("CENTER"):pen_.style()==Qt::SolidLine?QStringLiteral("CONTINUOUS"):QStringLiteral("DASHED"));
@@ -45,6 +63,7 @@ class DrawingDxfDevice final : public QPaintDevice {
         }
         void solid(QPointF a,QPointF b,QPointF c,QColor color) {
             if(color.alpha()==0)return;
+            if(clipping_){QPainterPath path;path.moveTo(a);path.lineTo(b);path.lineTo(c);path.closeSubpath();clipped_fill(path,color);return;}
             entity("SOLID",color);vertex(10,point(a));vertex(11,point(b));vertex(12,point(c));vertex(13,point(c));
         }
         void drawLines(const QLineF* lines,int count)override{for(int i=0;i<count;++i)line(lines[i].p1(),lines[i].p2());}
@@ -52,12 +71,15 @@ class DrawingDxfDevice final : public QPaintDevice {
         void drawPolygon(const QPointF* points,int count,PolygonDrawMode mode)override {
             if(count<2)return;
             if(mode!=PolylineMode&&brush_.style()!=Qt::NoBrush) {
+                if(clipping_){QPainterPath path;QPolygonF polygon;for(int i=0;i<count;++i)polygon<<points[i];path.addPolygon(polygon);path.closeSubpath();clipped_fill(path,brush_.color());}
+                else {
                 // HATCH retains concave boundaries without triangulation artifacts.
                 entity("HATCH",brush_.color());vertex(10,{});code(210,0);code(220,0);code(230,1);
                 code(2,QStringLiteral("SOLID"));code(70,1);code(71,0);code(91,1);
                 code(92,2);code(72,0);code(73,1);code(93,count);
                 for(int i=0;i<count;++i){auto p=point(points[i]);code(10,p.x());code(20,p.y());}
                 code(97,0);code(75,0);code(76,1);code(98,0);
+                }
             }
             for(int i=1;i<count;++i)line(points[i-1],points[i]);
             if(mode!=PolylineMode)line(points[count-1],points[0]);
@@ -108,6 +130,15 @@ class DrawingDxfDevice final : public QPaintDevice {
         QString entities_;
         unsigned next_handle_{0x100};
     private:
+        void clipped_fill(const QPainterPath& path,QColor color){
+            const auto clipped=transform_.map(path).intersected(clip_);
+            for(auto polygon:clipped.toFillPolygons(QTransform::fromScale(32,32))){
+                entity("HATCH",color);code(10,0);code(20,0);code(30,0);code(210,0);code(220,0);code(230,1);
+                code(2,QStringLiteral("SOLID"));code(70,1);code(71,0);code(91,1);code(92,2);code(72,0);code(73,1);code(93,polygon.size());
+                for(auto p:polygon){p/=32;code(10,p.x());code(20,height_-p.y());}code(97,0);code(75,0);code(76,1);code(98,0);
+            }
+        }
+        bool clipping_{};QPainterPath clip_;QList<QPolygonF> clip_polygons_;
         double height_;QTransform transform_;QPen pen_;QBrush brush_;
     };
 public:

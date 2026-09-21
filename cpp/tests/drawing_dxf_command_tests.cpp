@@ -65,6 +65,21 @@ void verify() {
     bad=args;bad["sheet"]="missing";reject(bad,"sheet_not_found");
     bad=args;bad["path"]="wrong.pdf";reject(bad,"unsupported_format");
     bad=args;bad["path"]="missing/output.dxf";reject(bad,"invalid_directory");
+    // A cropped view must export shortened geometry, not merely a visible outline.
+    auto cropped=doc;auto& cv=cropped.sheets.back().views.front();
+    cv.crop=drawing::ViewCrop{drawing::ViewCropShape::Circle,{5,0},{{2,2}}};
+    auto second_crop=cv;second_crop.id="second-crop";second_crop.x=150;cropped.sheets.back().views.push_back(second_crop);
+    live.open_drawing(doc.document_id)->commit(cropped);
+    auto crop_args=args;crop_args["path"]="crop.dxf";run(host,"export.dxf",crop_args);
+    bool clipped_line=false,second_clipped_line=false;
+    for(const auto& e:entities(read(directory/"crop.dxf")))if(e.at(0)=="LINE"){
+        const auto x=e.at(10).toDouble(),y=e.at(20).toDouble(),xx=e.at(11).toDouble(),yy=e.at(21).toDouble();
+        if(near(y,100)&&near(yy,100)&&x>319&&xx<341&&std::abs(xx-x)>1){
+            require(x>=326-.01&&xx<=334+.01,"DXF retained geometry outside the circular crop");clipped_line=true;
+        }
+        if(near(y,100)&&near(yy,100)&&near(x,276)&&near(xx,284))second_clipped_line=true;
+    }
+    require(clipped_line&&second_clipped_line,"DXF lost a cropped segment or retained another view clip");
     auto broken=doc;broken.sheets.back().views.front().source_document_id="missing";broken.sheets.back().views.front().source_path="missing.asmz";live.open_drawing(doc.document_id)->commit(std::move(broken));
     reject(args,"export_failed");
     for(const auto& entry:fs::directory_iterator(directory))require(!entry.path().filename().string().starts_with(".zima-export-"),"Failed DXF left staging data");

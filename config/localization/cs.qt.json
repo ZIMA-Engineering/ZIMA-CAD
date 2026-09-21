@@ -1507,5 +1507,16 @@
   "Název souboru musí končit na _skeleton.prtz.": "Název souboru musí končit na _skeleton.prtz.",
   "An Assembly can contain only one Skeleton.": "Sestava může obsahovat pouze jeden Skeleton.",
   "Skeleton cannot be used in Assembly body operations.": "Skeleton nelze použít v operacích těles sestavy.",
-  "Skeleton geometry cannot depend on another document.": "Geometrie Skeletonu nesmí záviset na jiném dokumentu."
+  "Skeleton geometry cannot depend on another document.": "Geometrie Skeletonu nesmí záviset na jiném dokumentu.",
+  "Omezit zobrazení…": "Omezit zobrazení…",
+  "Částečné zobrazení": "Částečné zobrazení",
+  "Uzavřená spline": "Uzavřená spline",
+  "Upravit hranici": "Upravit hranici",
+  "Odstranit omezení": "Odstranit omezení",
+  "Vyberte kotevní bod na geometrii pohledu.": "Vyberte kotevní bod na geometrii pohledu.",
+  "Přesuňte body hranice. Enter potvrdí, Esc zruší.": "Přesuňte body hranice. Enter potvrdí, Esc zruší.",
+  "Zadejte body spline. Kliknutím na první bod nebo Enter hranici uzavřete.": "Zadejte body spline. Kliknutím na první bod nebo Enter hranici uzavřete.",
+  "Kliknutím určete velikost hranice. Esc zruší.": "Kliknutím určete velikost hranice. Esc zruší.",
+  "Invalid drawing crop boundary.": "Neplatná hranice omezení pohledu.",
+  "Kruh": "Kruh"
 }

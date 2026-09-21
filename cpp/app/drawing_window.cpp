@@ -1,3 +1,4 @@
+#include <zima/drawing_render/crop_path.hpp>
 #include "drawing_break_editor.hpp"
 #include <zima/drawing/annotation_guides.hpp>
 #include "inline_dimension_edit.hpp"
@@ -280,7 +281,8 @@ public:
         std::function<void(std::optional<zima::drawing::DrawingView>)> preview,
         std::function<std::vector<zima::document::SectionDefinition>(const std::string&,const std::filesystem::path&)> sections,
         std::function<std::vector<DrawingSourceChoice>(const std::filesystem::path&)> browse_sources,
-        std::function<void(ViewPropertiesDialog*,drawing::DrawingView)> edit_breaks)
+        std::function<void(ViewPropertiesDialog*,drawing::DrawingView)> edit_breaks,
+        std::function<void(ViewPropertiesDialog*,drawing::DrawingView,int)> edit_crop)
         : PropertiesSubWindow(QObject::tr("Vlastnosti pohledu"), parent),
           value_(std::move(initial)), sources_(std::move(sources)),
           sections_(std::move(sections)), sheet_scale_(sheet_scale), accepted_(std::move(accepted)), preview_(std::move(preview)) {
@@ -415,6 +417,12 @@ public:
         auto* breaks=new QPushButton(tr("Editovat přerušení…"),content);breaks->setObjectName("drawingEditBreaks");auto* section_group=group(tr("Řezy a přerušení"));field(section_group,0,1,tr("Přerušení pohledu"),breaks);
         connect(breaks,&QPushButton::clicked,this,[this,edit_breaks]{edit_breaks(this,values());});
         field(section_group,0,0,tr("Řez"),section_);
+        auto* crop=new QPushButton(tr("Omezit zobrazení…"),content);crop->setObjectName("drawingViewCrop");
+        auto* crop_menu=new QMenu(crop);crop->setMenu(crop_menu);field(section_group,0,2,tr("Částečné zobrazení"),crop);
+        const std::array<QString,4> crop_labels{tr("Kruh"),tr("Elipsa"),tr("Uzavřená spline"),tr("Upravit hranici")};
+        for(int mode=0;mode<4;++mode){auto* action=crop_menu->addAction(crop_labels[mode]);action->setObjectName(QString("drawingCropMode%1").arg(mode));connect(action,&QAction::triggered,this,[this,edit_crop,mode]{edit_crop(this,values(),mode);});}
+        auto* remove_crop=crop_menu->addAction(tr("Odstranit omezení"),this,[this]{set_crop({});});remove_crop->setObjectName("drawingRemoveCrop");
+        connect(crop_menu,&QMenu::aboutToShow,this,[this,crop_menu,remove_crop]{crop_menu->actions()[3]->setEnabled(value_.crop.has_value());remove_crop->setEnabled(value_.crop.has_value());});
         section_group->addWidget(section_label_,2,0);section_group->addWidget(components_,3,0,1,2);
         marker_table_=new QTableWidget(content);marker_table_->setObjectName("drawingSectionMarkers");marker_table_->setColumnCount(1);marker_table_->setHorizontalHeaderLabels({tr("Zobrazit trasy řezů")});marker_table_->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);marker_table_->verticalHeader()->hide();section_group->addWidget(marker_table_,4,0,1,2);
         error_ = new QLabel(content); error_->setWordWrap(true);error_->hide();
@@ -451,6 +459,7 @@ public:
         {QSignalBlocker x_block(x_),y_block(y_);x_->setValue(position.x);y_->setValue(position.y);}
         preview_values();
     }
+    void set_crop(std::optional<drawing::ViewCrop> crop){value_.crop=std::move(crop);preview_values();}
     void set_breaks(std::vector<drawing::ViewBreak> breaks) {value_.breaks=std::move(breaks);preview_values();}
     void resume_preview() {preview_values();}
     void set_error(const QString& error) { error_->setText(error);error_->setVisible(!error.isEmpty()); }
@@ -658,7 +667,7 @@ class DrawingCanvas final : public QWidget, public SheetRenderer {
         hovered_annotation_=offered_annotations_.empty()?std::optional<AnnotationKey>{}:offered_annotations_[offered_annotation_index_].key;
     }
     bool ordinary_selection() const {
-        return sheet_&&!preview_&&!placed_&&!choose_view_&&!dimension_command_&&!dimension_mode_&&!balloon_command_&&!text_editor_&&!model_pick_;
+        return sheet_&&!crop_edit_&&!preview_&&!placed_&&!choose_view_&&!dimension_command_&&!dimension_mode_&&!balloon_command_&&!text_editor_&&!model_pick_;
     }
     void select_entity(std::optional<AnnotationKey> key,bool toggle) {
         if(!toggle)entity_selection_.clear();
@@ -686,6 +695,7 @@ class DrawingCanvas final : public QWidget, public SheetRenderer {
         select_entity({},false);selected_.clear();selected_field_.clear();selected_dimension_id_.clear();selected_annotation_.reset();hovered_annotation_.reset();offered_annotations_.clear();
         if(changed_)changed_();if(selection_changed_)selection_changed_();update();
     }
+#include "drawing_crop_canvas.inc"
     std::string snap_view_;
     std::optional<drawing::Point2> snap_point_;
     std::optional<drawing::AnnotationGuide> snap_line_;
@@ -861,6 +871,7 @@ public:
         measurement_pointer_=point;std::vector<OfferedMeasurement> candidates;
         if(dimension_command_&&dimension_command_->entering()&&sheet_)for(const auto& view:sheet_->views){
             if(!dimension_command_->value().view_id.empty()&&dimension_command_->value().view_id!=view.id)continue;
+            if(view.crop&&!drawing_render::crop_screen_path(view,raw_view_origin(view),canvas_zoom()*view.scale).contains(point))continue;
             const double scale=canvas_zoom()*view.scale;
             for(auto candidate:drawing::measurement_candidates(view,measurement_point(view,point),8/scale,dimension_command_->pick_request())){
                 candidate.distance*=scale;candidates.push_back({view.id,std::move(candidate)});
@@ -939,7 +950,7 @@ protected:
         // Later views are painted on top. Hover and all confirmation paths
         // consume this same order and the same complete rectangular region.
         for (auto it=sheet_->views.rbegin(); it!=sheet_->views.rend(); ++it)
-            if (view_bounds(*it).contains(point)) return it->id;
+            if (view_bounds(*it).contains(point)&&(!it->crop||drawing_render::crop_screen_path(*it,raw_view_origin(*it),canvas_zoom()*it->scale).contains(point))) return it->id;
         return {};
     }
     void position_preview(QPointF point) {
@@ -952,6 +963,7 @@ protected:
         update();
     }
     void contextMenuEvent(QContextMenuEvent* event) override {
+        if(crop_edit_){event->accept();return;}
         if(ordinary_selection()&&!entity_selection_.empty()) {
             const auto field=field_at(event->pos());offer_annotations(event->pos());
             const bool on_selection=entity_selected({AnnotationKind::Text,{},field,0})||
@@ -1037,6 +1049,7 @@ protected:
         menu->popup(event->globalPos()); event->accept();
     }
     void mouseDoubleClickEvent(QMouseEvent* event) override {
+        if(crop_edit_){if(event->button()==Qt::LeftButton)finish_crop(true);event->accept();return;}
         if(event->button()==Qt::LeftButton&&!preview_&&!dimension_command_&&!balloon_command_&&!dimension_mode_&&selected_annotation_&&
             selected_annotation_->kind==AnnotationKind::Model) {
             for(const auto& handle:annotation_handles_)if(handle.key.kind==AnnotationKind::Model&&
@@ -1090,6 +1103,7 @@ protected:
     void paintEvent(QPaintEvent*) override {
         QPainter painter(this);painter.fillRect(rect(),QColor("#000000"));
         paint_sheet(painter,canvas_zoom(),canvas_origin(canvas_zoom()),false);
+        paint_crop(painter);
         if(text_editor_&&text_editor_->needs_anchor()&&text_preview_&&underMouse()) {
             const auto zoom=canvas_zoom();const auto p=text_preview_->presentation.position;const auto origin=canvas_origin(zoom);
             const QPointF anchor(origin.x()+(sheet_->width_mm()-p.x)*zoom,origin.y()+(sheet_->height_mm()-p.y)*zoom);
@@ -1133,6 +1147,7 @@ protected:
         }
     }
     void mousePressEvent(QMouseEvent* event) override {
+        if(crop_press(event))return;
         if (sheet_ == nullptr) return;
         if(event->button()==Qt::RightButton&&!dragged_dimension_id_.empty()&&(event->buttons()&Qt::LeftButton)){
             auto value=*visible_dimension(dragged_dimension_id_);const auto segment=dimension_drag_handle_/3;
@@ -1248,6 +1263,7 @@ protected:
         update();
     }
     void mouseMoveEvent(QMouseEvent* event) override {
+        if(crop_move(event))return;
         if(text_editor_&&!view_panning_&&!(event->buttons()&Qt::MiddleButton)) {
             if(text_editor_->needs_anchor()){const auto p=paper_point(event->position());text_editor_->set_preview_anchor(p.x,p.y);}
             update();event->accept();return;
@@ -1411,6 +1427,7 @@ protected:
         update();
     }
     void mouseReleaseEvent(QMouseEvent* event) override {
+        if(crop_edit_){crop_grip_=-1;event->accept();return;}
         if(event->button()==Qt::LeftButton)clear_annotation_snap();
         if(balloon_release(event))return;
         if(text_drag_original_&&event->button()==Qt::LeftButton) {
@@ -1452,6 +1469,7 @@ protected:
         event->accept();
     }
     void keyPressEvent(QKeyEvent* event) override {
+        if(crop_edit_){if(event->key()==Qt::Key_Escape)finish_crop(false);else if(event->key()==Qt::Key_Return||event->key()==Qt::Key_Enter)finish_crop(true);event->accept();return;}
         if(event->key()==Qt::Key_Delete&&ordinary_selection()&&!entity_selection_.empty()){erase_selection();event->accept();return;}
         if(event->key()==Qt::Key_Escape){select_entity({},false);clear_annotation_snap();}
         if(dimension_command_&&(event->key()==Qt::Key_C||event->key()==Qt::Key_T||event->key()==Qt::Key_I)){
@@ -2118,6 +2136,13 @@ void DrawingWindow::show_view_properties(zima::drawing::DrawingView view, bool c
             auto* editor=new DrawingBreakEditor(owner,std::move(sheet),pending,[guarded](auto breaks){if(guarded)guarded->set_breaks(std::move(breaks));});
             properties->hide();canvas_->set_preview({});canvas_->setEnabled(false);
             connect(editor,&QDialog::finished,this,[this,guarded,editor]{canvas_->setEnabled(true);if(guarded){guarded->show();guarded->raise();guarded->resume_preview();}editor->deleteLater();});editor->show();
+        },[this,project](ViewPropertiesDialog* properties,drawing::DrawingView pending,int mode){
+            try{project(pending,true);}catch(const std::exception& e){properties->set_error(tr(e.what()));return;}
+            QPointer<ViewPropertiesDialog> guarded(properties);properties->hide();
+            canvas_->begin_crop(std::move(pending),mode,[this,guarded](auto crop,bool accepted){
+                if(guarded){if(accepted)guarded->set_crop(std::move(crop));guarded->show();guarded->raise();guarded->resume_preview();}
+                set_status_message({});
+            });
         });
     view_dialog_=dialog;
     canvas_->set_preview_move_handler([dialog=QPointer<ViewPropertiesDialog>(dialog)](auto position){if(dialog)dialog->move_preview(position);});

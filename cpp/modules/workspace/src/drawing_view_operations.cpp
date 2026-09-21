@@ -1,3 +1,4 @@
+#include <zima/drawing/view_crop.hpp>
 #include <zima/drawing/view_orientation.hpp>
 #include <zima/drawing/view_breaks.hpp>
 #include <zima/workspace/drawing_view_operations.hpp>
@@ -29,7 +30,7 @@ std::string next_drawing_view_name(const drawing::DrawingDocument& document,cons
     return prefix+" "+std::to_string(number);
 }
 void validate_drawing_view(const drawing::DrawingView& view) {
-    drawing::validate_view_breaks(view);
+    drawing::validate_view_crop(view);drawing::validate_view_breaks(view);
     if(view.id.empty()||view.name.empty()||view.name.size()>256||std::ranges::all_of(view.name,[](unsigned char c){return c==' ';})||
        std::ranges::any_of(view.name,[](unsigned char c){return c<32||c==127;}))invalid_view();
     bounded(view.x,-10000,10000);bounded(view.y,-10000,10000);bounded(view.scale,.001,1000);

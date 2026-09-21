@@ -1,3 +1,4 @@
+#include <zima/drawing/view_crop.hpp>
 #include <zima/drawing/view_breaks.hpp>
 #include <zima/drawing/measurement_dimension.hpp>
 #include "drawing_projection.hpp"
@@ -668,6 +669,8 @@ void DrawingDocument::save(const std::filesystem::path& path,
                 {"use_sheet_scale", view.use_sheet_scale}, {"show_caption", view.show_caption},
                 {"x", view.x}, {"y", view.y}, {"scale", view.scale}, {"value_locks",view.value_locks}};
             for(const auto& [id,offsets]:view.section_marker_offsets)for(double offset:offsets)if(!std::isfinite(offset))throw std::runtime_error("Invalid section marker offset");
+            validate_view_crop(view);item["crop"]=nullptr;
+            if(view.crop){auto& crop=item["crop"];crop={{"shape",int(view.crop->shape)},{"anchor",{view.crop->anchor.x,view.crop->anchor.y}},{"points",nlohmann::json::array()}};for(auto p:view.crop->points)crop["points"].push_back({p.x,p.y});}
             item["section_marker_offsets"]=view.section_marker_offsets;
             item["section_markers"]=nlohmann::json::parse(zima::document::serialize_sections(view.section_markers));
             item["show_section_label"]=view.show_section_label;
@@ -857,6 +860,10 @@ DrawingDocument DrawingDocument::load(const std::filesystem::path& path) {
             view.hidden_edge_style=item.value("hidden_edge_style","dashed")=="gray"?HiddenEdgeStyle::Gray:HiddenEdgeStyle::Dashed;
             view.use_sheet_scale = item.value("use_sheet_scale", true);
             view.show_caption = item.value("show_caption", false);
+            if(item.contains("crop")&&!item.at("crop").is_null()){
+                const auto& saved=item.at("crop");ViewCrop crop;crop.shape=static_cast<ViewCropShape>(saved.at("shape").get<int>());crop.anchor={saved.at("anchor").at(0),saved.at("anchor").at(1)};
+                for(const auto& p:saved.at("points"))crop.points.push_back({p.at(0),p.at(1)});view.crop=std::move(crop);validate_view_crop(view);
+            }
             view.section_marker_offsets=item.value("section_marker_offsets",std::map<std::string,std::array<double,2>>{});
             for(const auto& [id,offsets]:view.section_marker_offsets)for(double offset:offsets)if(!std::isfinite(offset))throw std::runtime_error("Invalid section marker offset");
             view.section_markers=zima::document::parse_sections(item.value("section_markers",nlohmann::json::array()).dump());

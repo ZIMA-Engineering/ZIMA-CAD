@@ -1507,5 +1507,16 @@
   "Název souboru musí končit na _skeleton.prtz.": "Le nom du fichier doit se terminer par _skeleton.prtz.",
   "An Assembly can contain only one Skeleton.": "Un assemblage ne peut contenir qu’un seul Skeleton.",
   "Skeleton cannot be used in Assembly body operations.": "Le Skeleton ne peut pas participer aux opérations sur les corps de l’assemblage.",
-  "Skeleton geometry cannot depend on another document.": "La géométrie du Skeleton ne peut pas dépendre d’un autre document."
+  "Skeleton geometry cannot depend on another document.": "La géométrie du Skeleton ne peut pas dépendre d’un autre document.",
+  "Omezit zobrazení…": "Limiter la vue…",
+  "Částečné zobrazení": "Vue partielle",
+  "Uzavřená spline": "Spline fermée",
+  "Upravit hranici": "Modifier le contour",
+  "Odstranit omezení": "Supprimer la limitation",
+  "Vyberte kotevní bod na geometrii pohledu.": "Sélectionnez un point d’ancrage sur la géométrie de la vue.",
+  "Přesuňte body hranice. Enter potvrdí, Esc zruší.": "Déplacez les points du contour. Entrée valide, Échap annule.",
+  "Zadejte body spline. Kliknutím na první bod nebo Enter hranici uzavřete.": "Placez les points de la spline. Cliquez sur le premier point ou appuyez sur Entrée pour fermer le contour.",
+  "Kliknutím určete velikost hranice. Esc zruší.": "Cliquez pour définir la taille du contour. Échap annule.",
+  "Invalid drawing crop boundary.": "Contour de limitation de la vue non valide.",
+  "Kruh": "Cercle"
 }

@@ -1,3 +1,4 @@
+#include <zima/drawing_render/crop_path.hpp>
 #include <zima/drawing/view_orientation.hpp>
 #include <zima/drawing/view_breaks.hpp>
 #include <zima/drawing/annotation_guides.hpp>
@@ -41,6 +42,7 @@ QColor SheetRenderer::annotation_color(const AnnotationKey& key,QColor normal,bo
         if(entity_selected(key)||same(selected_annotation_))return QColor("#00D1FF");if(same(hovered_annotation_))return QColor("#FF9300");return normal;
     }
 QRectF SheetRenderer::view_bounds_at(const zima::drawing::DrawingView& view,double zoom,QPointF origin) const {
+        if(view.crop)return crop_screen_path(view,{origin.x()+(sheet_->width_mm()-view.x)*zoom,origin.y()+(sheet_->height_mm()-view.y)*zoom},zoom*view.scale).boundingRect();
         bool first = true; double xmin{}, xmax{}, ymin{}, ymax{};
         const auto include = [&](const zima::drawing::Point2& point) {
             const auto screen = QPointF(origin.x()+(sheet_->width_mm()-view.x+point.x*view.scale)*zoom,origin.y()+(sheet_->height_mm()-view.y-point.y*view.scale)*zoom);
@@ -190,7 +192,8 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
                 cached.resolution=resolution;cached.bounds=model_bounds;cached.triangles=view.projected_triangles.data();
             }
             painter.setRenderHint(QPainter::SmoothPixmapTransform,true);
-            painter.drawImage(target,cached.image);
+            painter.save();if(view.crop)painter.setClipPath(crop_screen_path(view,{origin.x()+(sheet_->width_mm()-view.x)*zoom,origin.y()+(sheet_->height_mm()-view.y)*zoom},zoom*view.scale),Qt::IntersectClip);
+            painter.drawImage(target,cached.image);painter.restore();
 
         }
         painter.setBrush(Qt::NoBrush);
@@ -198,6 +201,7 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
             auto geometry = rendered_view->breaks.empty()?std::optional<drawing::DrawingView>{}:std::optional(*rendered_view);
             if(geometry){geometry->projected_edges=drawing::broken_edges(*rendered_view);geometry->projected_triangles=drawing::broken_triangles(*rendered_view);}
             const auto& view = geometry?*geometry:*rendered_view;
+            painter.save();if(view.crop)painter.setClipPath(crop_screen_path(view,{origin.x()+(sheet_->width_mm()-view.x)*zoom,origin.y()+(sheet_->height_mm()-view.y)*zoom},zoom*view.scale),Qt::IntersectClip);
             for(bool hidden_pass:{true,false})for (const auto& edge : view.projected_edges) {
                 if(edge.hidden!=hidden_pass)continue;
                 if(!zima::drawing::drawing_edge_visible(view,edge))continue;
@@ -220,6 +224,8 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
             }
             painter.setPen(QPen(QColor("#808080"),width(false)));
             for(const auto& mark:drawing::break_marks(*rendered_view)){QPolygonF line;for(auto p:mark)line<<QPointF(origin.x()+(sheet_->width_mm()-view.x+p.x*view.scale)*zoom,origin.y()+(sheet_->height_mm()-view.y-p.y*view.scale)*zoom);painter.drawPolyline(line);}
+            painter.restore();
+            if(view.crop){painter.setPen(QPen(ink,width(false)));painter.drawPath(crop_screen_path(view,{origin.x()+(sheet_->width_mm()-view.x)*zoom,origin.y()+(sheet_->height_mm()-view.y)*zoom},zoom*view.scale));}
         }
         painter.setBrush(Qt::NoBrush);
         for (const auto* view : views) {
@@ -260,7 +266,7 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
                 if(item.model_dimension && layout.curves.empty())continue;
                 const AnnotationKey key{AnnotationKind::Model,view->id,id,0};
                 QColor color=annotation_color(key,printing?ink:item.unresolved?QColor("#E05050"):!item.visible?QColor("#777777"):item.kind==drawing::ModelAnnotationKind::Dimension?QColor("#FFD400"):QColor("#E6C85C"),printing);
-                painter.save();QPen pen(color,width(false));if(item.kind!=drawing::ModelAnnotationKind::Dimension)pen.setDashPattern({8*zoom/pen.widthF(),1.5*zoom/pen.widthF(),.5*zoom/pen.widthF(),1.5*zoom/pen.widthF()});painter.setPen(pen);painter.setBrush(Qt::NoBrush);QPainterPath stroke;
+                painter.save();if(view->crop&&item.kind!=drawing::ModelAnnotationKind::Dimension)painter.setClipPath(crop_screen_path(*view,{origin.x()+(sheet_->width_mm()-view->x)*zoom,origin.y()+(sheet_->height_mm()-view->y)*zoom},zoom*view->scale),Qt::IntersectClip);QPen pen(color,width(false));if(item.kind!=drawing::ModelAnnotationKind::Dimension)pen.setDashPattern({8*zoom/pen.widthF(),1.5*zoom/pen.widthF(),.5*zoom/pen.widthF(),1.5*zoom/pen.widthF()});painter.setPen(pen);painter.setBrush(Qt::NoBrush);QPainterPath stroke;
                 for(const auto& line:layout.curves){if(line.empty())continue;QPolygonF polygon;for(auto p:line)polygon<<screen(p);painter.drawPolyline(polygon);stroke.moveTo(polygon.front());for(qsizetype i=1;i<polygon.size();++i)stroke.lineTo(polygon[i]);}
                 for(const auto& center:layout.centers){painter.save();painter.setPen(Qt::NoPen);painter.setBrush(color);painter.drawEllipse(screen(center),.35*zoom,.35*zoom);painter.restore();}
                 for(const auto& [tip,direction]:layout.arrows){painter.save();painter.setPen(Qt::NoPen);painter.setBrush(color);painter.drawPolygon(viewer::annotation_arrow(screen(tip),{direction.x(),-direction.y()},2.5*zoom));painter.restore();}
@@ -270,7 +276,8 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
                     dimension_texts.push_back({text,text_point,layout.text_angle,painter.font(),color});
                 else {painter.save();painter.translate(text_point);painter.rotate(layout.text_angle);painter.drawText(QPointF{},text);painter.restore();}
                 if(!printing){QPainterPathStroker picker;picker.setWidth(10);auto hit=picker.createStroke(stroke);if(!text.isEmpty())hit.addRect(text_transform.mapRect(QFontMetricsF(painter.font()).boundingRect(text)));
-                    if(layout.handles.empty()){if(!layout.curves.empty()&&!layout.curves[0].empty())annotation_handles_.push_back({key,screen(layout.curves[0].front()),hit});}
+                    if(view->crop&&item.kind!=drawing::ModelAnnotationKind::Dimension)hit=hit.intersected(crop_screen_path(*view,{origin.x()+(sheet_->width_mm()-view->x)*zoom,origin.y()+(sheet_->height_mm()-view->y)*zoom},zoom*view->scale));
+                    if(layout.handles.empty()){if(!layout.curves.empty()&&!layout.curves[0].empty()&&!hit.isEmpty())annotation_handles_.push_back({key,hit.contains(screen(layout.curves[0].front()))?screen(layout.curves[0].front()):hit.boundingRect().center(),hit});}
                     else for(const auto& [name,p]:layout.handles){auto handle=key;handle.end=name=="text"?0:name=="arrow_first"?1:2;annotation_handles_.push_back({handle,screen(p),hit,{},0,0,text_transform.mapRect(QFontMetricsF(painter.font()).boundingRect(text))});}
                 }painter.restore();
             }

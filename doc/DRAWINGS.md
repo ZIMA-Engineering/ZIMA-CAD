@@ -617,3 +617,32 @@ as dimensions. Cutting-trace end grips snap where their permitted movement line
 intersects a helper rectangle. End direction and minimum extension are preserved.
 The six-screen-pixel tolerance remains stable while zooming. Snapping changes
 stored paper placement only and never recalculates source geometry.
+
+
+## Partial views and local presentation of model sections
+
+View Properties → Partial view → Crop view starts boundary drawing on the
+existing drawing canvas. No additional properties window opens. Select an
+anchor point on the view geometry, then define a circle radius or ellipse
+half-width/half-height. For a closed spline, place at least three interpolation
+points and click the first point or press Enter. The periodic cubic spline
+passes through the points and closes smoothly. Esc cancels boundary entry.
+
+Edit boundary exposes draggable points and an anchor that moves the complete
+boundary. Enter returns to View Properties; only its OK commits the changes.
+Cancel leaves the original document unchanged. Remove crop restores the full
+view and participates in the same document Undo/Redo history.
+
+The same boundary applies to a normal projection and to a previously calculated
+model Section view such as A–A. It clips projected body edges, shading and
+hatching, not the source model. It does not create a new section or define a
+section depth. Dimensions, view captions and A–A labels remain independently
+positionable outside the crop. The boundary is stored in the native `.drwz` in
+displayed view coordinates, before paper scale; moving the view on the sheet
+moves its boundary too. Its initial anchor is picked on stored projection
+geometry; it is a drawing placement, not a persistent topology attachment.
+A changed projection may therefore require editing the crop boundary.
+
+The screen, PDF and raster exports share the same clipping path. DXF applies
+that path to exported strokes and fills as well. Crop entry and grip movement
+consume already calculated projection data and do not call OCCT.
