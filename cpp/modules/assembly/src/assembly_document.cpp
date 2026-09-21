@@ -36,6 +36,24 @@
 
 namespace zima::assembly {
 namespace {
+void map_component_paths(nlohmann::json& packet, const std::filesystem::path& source_file,
+                         const std::filesystem::path& destination_file = {}) {
+    const auto source_directory = std::filesystem::absolute(source_file).parent_path();
+    for (auto& component : packet.at("components")) {
+        auto path = std::filesystem::u8path(component.at("source_path").get<std::string>());
+        if (path.empty()) continue;
+        if (path.is_relative()) path = source_directory / path;
+        path = path.lexically_normal();
+        if (!destination_file.empty()) {
+            const auto relative = path.lexically_relative(std::filesystem::absolute(destination_file).parent_path());
+            // Different Windows drives cannot be expressed as a relative path.
+            if (!relative.empty()) path = relative;
+        }
+        component["source_path"] = document::path_to_utf8(path);
+    }
+    for (auto& member : packet.at("family").at("evaluated"))
+        map_component_paths(member, source_file, destination_file);
+}
 
 using IniSections = std::map<std::string, std::map<std::string, std::string>>;
 
@@ -1974,7 +1992,9 @@ AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path, const
     } catch (const nlohmann::json::exception&) {
         throw std::runtime_error("Assembly INI contains invalid Container data");
     }
-    auto document=from_serialized(root);
+    auto resolved_root = root;
+    map_component_paths(resolved_root, path);
+    auto document=from_serialized(resolved_root);
     document.native_source_path=path;
     if(resolve_sources)document.hydrate_sources(path,resolver);
     return document;
@@ -2362,9 +2382,12 @@ nlohmann::json AssemblyDocument::serialized(
     return root;
 }
 void AssemblyDocument::save(const std::filesystem::path& path,
-    const zima::document::DocumentCopyIdentity& copy) const {
+    const zima::document::DocumentCopyIdentity& copy,
+    const std::filesystem::path& reference_file) const {
     if(!family.parent_id.empty()&&copy.document_id.empty())throw std::invalid_argument("Save the owning family document instead of an instance.");
-    const auto root=serialized(copy);
+    auto root=serialized(copy);
+    const auto owner = reference_file.empty() ? path : reference_file;
+    map_component_paths(root, native_source_path.empty() ? owner : native_source_path, owner);
     const auto saved_id = root.at("document_id").get<std::string>();
     const auto saved_name = root.at("name").get<std::string>();
     IniSections ini;

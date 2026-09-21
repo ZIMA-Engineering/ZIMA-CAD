@@ -75,8 +75,12 @@ pointers. It reads saved files, validates identities, prepares rewritten native 
 and verifies reopening. Originals remain untouched.
 
 `commit` rechecks live documents, input sizes/times, discovered dependency sets, and
-destination availability. Unreadable current native documents cannot be silently
-skipped. Identity conflicts in renamed documents or older Undo states reject the
+destination availability. Dependency discovery first checks persisted document
+IDs and source filenames, including JSON-escaped names. Unrelated closed files
+are not loaded, so an unsupported test fixture cannot block renaming a current
+project. Open files and possible dependencies are still validated; unreadable
+dependencies cannot be silently skipped. All inspected files retain size/time
+checks through publication. Identity conflicts in renamed documents or older Undo states reject the
 batch before any original changes.
 
 Before publication, originals move to transaction-owned temporary backups. Prepared

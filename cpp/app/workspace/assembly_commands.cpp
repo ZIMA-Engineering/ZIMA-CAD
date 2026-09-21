@@ -111,61 +111,16 @@ void AssemblyWorkspaceWindow::insert_component_from_file(bool skeleton_only) {
     }
 }
 
-void AssemblyWorkspaceWindow::choose_component_variant(const std::string& requested,const std::string& replaced_path) {
+void AssemblyWorkspaceWindow::choose_component_variant(const std::string& requested,const std::string&) {
     if(properties_dialog_){properties_dialog_->raise();return;}
-    const auto owner=workspace_.active_document_id();const auto* state=workspace_.open_assembly(owner);
-    if(!state)return;
-    const auto generic=zima::workspace::family_owner(workspace_,requested);
-    const auto table=zima::workspace::family_table(workspace_,generic);
-    if(table.instances.empty()&&replaced_path.empty()){insert_component(requested);return;}
-    QString name;
-    if(const auto* part=workspace_.open_part(generic))name=QString::fromStdString(part->session.document().name);
-    else if(const auto* assembly=workspace_.open_assembly(generic))name=QString::fromStdString(assembly->session.document().name);
-    const auto top=workspace_.displayed_document_id(),active_path=workspace_.active_occurrence_path();
-    const auto revision=state->session.revision();const auto identity=state->runtime_identity;
-    const auto separator=requested.find(":family:");
-    const auto selected=replaced_path.empty()||separator==std::string::npos?std::string{}:requested.substr(separator+8);
-    auto completed=std::make_shared<std::string>();
-    auto* dialog=new FamilyInstanceDialog(name,table,selected,!replaced_path.empty(),
-        [this,generic,owner,top,active_path,revision,identity,replaced_path,completed](const std::string& row_id) {
-            const auto* current=workspace_.open_assembly(owner);
-            if(!current||current->runtime_identity!=identity||current->session.revision()!=revision||
-               workspace_.active_document_id()!=owner||workspace_.displayed_document_id()!=top||workspace_.active_occurrence_path()!=active_path)
-                throw std::runtime_error(tr("Sestava se během výběru varianty změnila.").toStdString());
-            std::string source=generic;
-            if(!row_id.empty()) {
-                const auto current_table=zima::workspace::family_table(workspace_,generic);
-                const auto row=std::ranges::find(current_table.instances,row_id,&zima::document::FamilyInstance::id);
-                if(row==current_table.instances.end())throw std::runtime_error(tr("Family variant no longer exists.").toStdString());
-                source=zima::workspace::open_family_instance(workspace_,kernel_,generic,row->name,false);
-            }
-            if(replaced_path.empty()) {
-                const auto inserted=zima::workspace::insert_component(workspace_,owner,source);
-                *completed=(active_path.empty()?zima::assembly::InstancePath{}:zima::assembly::InstancePath::decode(active_path)).child(inserted).encoded();
-            } else {
-                const auto address=workspace_.resolve_occurrence(top,zima::assembly::InstancePath::decode(replaced_path));
-                if(!address||address->owner_assembly_document_id!=owner)throw std::runtime_error(tr("Vyberte komponentu aktivní sestavy.").toStdString());
-                static_cast<void>(zima::workspace::replace_component(workspace_,kernel_,owner,address->occurrence_id,source));
-                *completed=replaced_path;
-            }
-        },this);
-    dialog->setAttribute(Qt::WA_DeleteOnClose);properties_dialog_=dialog;
-    connect(dialog,&QObject::destroyed,this,[this,dialog]{if(properties_dialog_==dialog)properties_dialog_=nullptr;});
-    connect(dialog,&QDialog::finished,this,[this,dialog,completed,replaced_path](int result){
-        if(properties_dialog_==dialog)properties_dialog_=nullptr;
-        if(result!=QDialog::Accepted)return;
-        QTimer::singleShot(0,this,[this,completed,replaced_path]{
-            refresh_tabs();refresh_scene();viewer_->confirm_occurrence(*completed);select_occurrence(*completed);
-            if(replaced_path.empty())show_component_properties(*completed,true);
-        });
-    });
-    dialog->show();
+    insert_component(requested);
 }
 
 void AssemblyWorkspaceWindow::insert_component(
     const std::string& source_document_id) {
     const std::string assembly_id = workspace_.active_document_id();
     if (workspace_.open_assembly(assembly_id) == nullptr) return;
+    const auto original_session = workspace_.open_assembly(assembly_id)->session;
     try {
         const auto occurrence_id=zima::workspace::insert_component(workspace_,assembly_id,source_document_id);
         workspace_.activate(assembly_id);
@@ -175,7 +130,22 @@ void AssemblyWorkspaceWindow::insert_component(
             zima::assembly::InstancePath::decode(workspace_.active_occurrence_path())).child(occurrence_id).encoded();
         viewer_->confirm_occurrence(path);
         show_component_properties(path, true);
+        if (auto* dialog = component_placement_dialog_) {
+            connect(dialog, &QDialog::finished, this, [this, assembly_id, original_session](int result) {
+                auto* state = workspace_.open_assembly(assembly_id);
+                if (!state) return;
+                auto final_document = state->session.document();
+                state->session = original_session;
+                if (result == QDialog::Accepted) state->session.commit(std::move(final_document));
+                preserve_view_on_refresh_ = true;
+                refresh_tabs(); refresh_scene();
+            });
+        } else {
+            workspace_.open_assembly(assembly_id)->session = original_session;
+            refresh_scene();
+        }
     } catch (const std::exception& error) {
+        workspace_.open_assembly(assembly_id)->session = original_session;
         QMessageBox::critical(this, tr("Vložení selhalo"), error.what());
     }
 }

@@ -269,16 +269,12 @@ void AssemblyWorkspaceWindow::show_component_context_menu(
     auto* source_file=menu.addAction(tr("Zdrojový soubor…"));
     source_file->setObjectName("componentSourceFileAction");
     source_file->setEnabled(!occurrence->derived_copy && address->owner_assembly_document_id==workspace_.active_document_id());
-    source_file->setToolTip(tr("Vyhledejte původní zdrojový soubor. Pro jiný díl použijte Replace."));
     auto* select_parent = menu.addAction(tr("Vybrat rodiče"));
     select_parent->setObjectName("selectParentOccurrenceAction");
     auto* create_body=is_active_occurrence && !source_is_assembly && !properties_dialog_
         ? menu.addAction(resource_icon("result-body"),tr("Vytvořit těleso")) : nullptr;
     auto* properties = menu.addAction(tr("Vlastnosti"));
-    auto* replace = menu.addAction(tr("Replace…"));
-    replace->setObjectName("replaceComponentAction");
-    replace->setEnabled(!occurrence->derived_copy&&occurrence->source_kind!=zima::assembly::ComponentSourceKind::Pattern&&
-        address->owner_assembly_document_id==workspace_.active_document_id());
+    properties->setObjectName("componentPropertiesAction");
     auto* mirror_properties=occurrence->derived_copy&&address->owner_assembly_document_id==workspace_.active_document_id()
         ? menu.addAction(occurrence->derived_copy->pattern?tr("Vlastnosti Pole"):tr("Vlastnosti Zrcadla")) : nullptr;
     auto* visibility = menu.addAction(
@@ -314,13 +310,6 @@ void AssemblyWorkspaceWindow::show_component_context_menu(
     }
     if(selected==open) {
         if(!open_component_source(instance_path)) state_->setText(tr("Zdrojový dokument komponenty nelze otevřít."));
-        return;
-    }
-    if(selected==replace) {
-        try {
-            const auto opened=zima::workspace::open_component_source(workspace_,workspace_.displayed_document_id(),selected_path);
-            choose_component_variant(opened.document_id,instance_path);
-        } catch(const std::exception& error){QMessageBox::warning(this,tr("Replace…"),tr(error.what()));}
         return;
     }
     if (selected == select_parent) {

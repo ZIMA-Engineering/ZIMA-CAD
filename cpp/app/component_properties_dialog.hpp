@@ -37,6 +37,10 @@ class ComponentPropertiesDialog final : public zima::ui::PropertiesSubWindow {
 public:
     using ReferenceLabelResolver = std::function<std::optional<QString>(const zima::assembly::MateReference&)>;
     void set_reference_label_resolver(ReferenceLabelResolver resolver);
+    void set_variant_choices(const std::vector<std::pair<std::string, std::string>>& choices,
+        const std::string& selected, std::function<void(std::string)> changed);
+    void set_source_display(const QString& path, const QString& filename, bool assembly, bool skeleton);
+    void set_source_request_callback(std::function<void()> callback);
     using CommitCallback = std::function<void(zima::assembly::PartOccurrence)>;
     using PreviewCallback = std::function<void(
         const zima::assembly::PartOccurrence&)>;
@@ -101,6 +105,11 @@ private:
     std::array<QDoubleSpinBox*, 3> rotation_{};
     QLabel* error_{};
     QLabel* freedom_{};
+    QComboBox* variant_{};
+    QLineEdit* source_{};
+    QLabel* source_filename_{};
+    QLabel* source_icon_{};
+    std::function<void()> source_request_;
 
     QTableWidget* placement_table_{};
     std::vector<zima::assembly::ComponentPlacementReference> placement_references_;

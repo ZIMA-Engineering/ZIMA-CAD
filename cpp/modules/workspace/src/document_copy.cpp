@@ -90,7 +90,7 @@ std::vector<std::filesystem::path> Workspace::save_copy(
                 if (checked.document_id!=identity.document_id)
                     throw std::runtime_error("Kopie Partu má nesprávné ID.");
             } else if constexpr (std::is_same_v<T,AssemblyState>) {
-                state.session.document().save(staged,identity);
+                state.session.document().save(staged,identity,target);
                 if (zima::assembly::AssemblyDocument::load(staged).document_id!=identity.document_id)
                     throw std::runtime_error("Kopie sestavy má nesprávné ID.");
             } else {

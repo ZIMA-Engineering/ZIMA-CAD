@@ -27,7 +27,8 @@ public:
         const std::filesystem::path& source_path, const std::string& source_name);
     // Work only on this private, loaded snapshot; no Workspace or body calculation.
     bool rebase_native_files(std::span<const document::FileRelocation>);
-    void write(const std::filesystem::path& target) const;
+    void write(const std::filesystem::path& target,
+        const std::filesystem::path& reference_file = {}) const;
 private:
     friend PreparedNativeDocument read_native_document(const std::filesystem::path&, const assembly::AssemblyDocument::SourceResolver&, bool);
     friend PreparedNativeDocument prepare_new_native_document(NativeDocumentType, const std::string&,

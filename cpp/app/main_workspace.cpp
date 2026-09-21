@@ -337,10 +337,12 @@ int verify_family_table(QApplication& application,zima::app::AssemblyWorkspaceWi
     window.resize(1800,1000);window.show();if(!verify(window.open_document_path(QString::fromStdString(path.string())),"Family fixture did not open"))return 1;flush();
     auto* view=dynamic_cast<viewer::MeshView*>(window.findChild<QOpenGLWidget*>("modelWorkspace"));auto* action=window.findChild<QAction*>("familyTableAction");
     auto* tree=window.findChild<QTreeWidget*>("documentTree");auto* view_toolbar=window.findChild<QToolBar*>("viewToolbar");
-    const auto toolbar_actions=view_toolbar?view_toolbar->actions():QList<QAction*>{};
-    const auto parameters_index=toolbar_actions.indexOf(window.findChild<QAction*>("documentParametersAction"));
-    if(!verify(action&&!action->icon().isNull()&&parameters_index>=0&&parameters_index+1<toolbar_actions.size()&&toolbar_actions[parameters_index+1]==action,
-        "Family Table icon is missing or is not immediately after Parameters in the View toolbar"))return 1;
+    const auto* document_tools=window.findChild<QWidget*>("treeDocumentTools");
+    QList<QAction*> header_actions;
+    if(document_tools)for(auto* button:document_tools->findChildren<QToolButton*>())header_actions.push_back(button->defaultAction());
+    const auto parameters_index=header_actions.indexOf(window.findChild<QAction*>("documentParametersAction"));
+    if(!verify(action&&!action->icon().isNull()&&parameters_index>=0&&parameters_index+1<header_actions.size()&&header_actions[parameters_index+1]==action,
+        "Family Table icon is missing or is not immediately after Parameters in the Tree header"))return 1;
     bool root_family=false;
     QTimer::singleShot(0,&window,[&]{if(auto* menu=qobject_cast<QMenu*>(QApplication::activePopupWidget())){
         for(auto* entry:menu->actions())if(entry->objectName()=="treeFamilyTableAction"){
@@ -534,31 +536,30 @@ int verify_family_table(QApplication& application,zima::app::AssemblyWorkspaceWi
     run("document.family.set",{{"table",insertion_table}});
     run("new",{{"type","assembly"},{"name","Family insertion GUI"}});
     const auto rows=[&]{return run("component.list").at("items");};
+    const auto active_properties=[&]() -> QDialog* {
+        for(auto* value:window.findChildren<QDialog*>())
+            if(dynamic_cast<app::ComponentPropertiesDialog*>(value)&&value->isVisible())return value;
+        throw std::runtime_error("Component Properties did not open");
+    };
     const auto choose=[&](const std::string& source_name) {
         QAction* source=nullptr;for(auto* candidate:window.findChildren<QAction*>("insertSourceAction"))
             if(candidate->text().startsWith(QString::fromStdString(source_name)+" —")){source=candidate;break;}
         if(!source)throw std::runtime_error("Family insertion source is missing from the actual menu");source->trigger();flush();
-        auto* chooser=window.findChild<QDialog*>("componentFamilyDialog");
-        if(!chooser)throw std::runtime_error("Insertion omitted the family chooser");return chooser;
+        if(window.findChild<QDialog*>("componentFamilyDialog"))throw std::runtime_error("Insertion opened the obsolete variant chooser");
+        return active_properties();
     };
-    auto* chooser=choose(part.name);auto* choices=chooser->findChild<QTableWidget*>("componentFamilyTable");
-    if(!verify(chooser->windowFlags().testFlag(Qt::SubWindow)&&choices->rowCount()==3&&choices->currentRow()==0&&choices->item(0,0)->data(Qt::UserRole).toString().isEmpty(),"Family chooser omitted/defaulted away from native model"))return 1;
+    auto* chooser=choose(part.name);auto* choices=chooser->findChild<QComboBox*>("componentVariant");
+    if(!verify(chooser->windowFlags().testFlag(Qt::SubWindow)&&choices&&choices->count()==3&&choices->currentIndex()==0&&choices->itemData(0).toString().isEmpty(),"Properties omitted/defaulted away from native model"))return 1;
     chooser->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
     if(!verify(rows().empty(),"Cancel inserted a family component"))return 1;
-    chooser=choose(part.name);choices=chooser->findChild<QTableWidget*>("componentFamilyTable");choices->selectRow(1);
-    window.grab().save(QString::fromStdString((directory/"family-component-picker.png").string()));
+    chooser=choose(part.name);choices=chooser->findChild<QComboBox*>("componentVariant");choices->setCurrentIndex(1);
+    window.grab().save(QString::fromStdString((directory/"family-component-properties.png").string()));
     mouse(view,QEvent::MouseButtonPress,view->rect().center(),Qt::MiddleButton);mouse(view,QEvent::MouseButtonRelease,view->rect().center(),Qt::MiddleButton);
-    if(!verify(chooser->isVisible(),"Short MMB committed the family chooser"))return 1;
-    mouse(view,QEvent::MouseButtonDblClick,view->rect().center(),Qt::MiddleButton);mouse(view,QEvent::MouseButtonRelease,view->rect().center(),Qt::MiddleButton);
-    const auto finish_properties=[&] {
-        for(auto* properties:window.findChildren<QDialog*>())if(dynamic_cast<app::ComponentPropertiesDialog*>(properties)&&properties->isVisible()) {
-            properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();return;
-        }
-        throw std::runtime_error("Insertion did not continue to component properties");
-    };
-    finish_properties();const auto inserted=rows();
+    if(!verify(chooser->isVisible(),"Short MMB committed component properties"))return 1;
+    mouse(view,QEvent::MouseButtonDblClick,view->rect().center(),Qt::MiddleButton);mouse(view,QEvent::MouseButtonRelease,view->rect().center(),Qt::MiddleButton);flush();
+    const auto inserted=rows();
     if(!verify(inserted.size()==1&&inserted[0].at("source_document")==member_id,"MMB inserted a different family member"))return 1;
-    chooser=choose(part.name);chooser->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();finish_properties();
+    chooser=choose(part.name);chooser->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
     if(!verify(rows().size()==2&&rows()[1].at("source_document")==part.document_id,"Native choice did not insert the generic"))return 1;
     const auto selected_path=inserted[0].at("instance_path").get<std::string>();
     const auto replace_menu=[&] {
@@ -568,20 +569,21 @@ int verify_family_table(QApplication& application,zima::app::AssemblyWorkspaceWi
         QTimer click_menu;click_menu.setInterval(10);bool found=false;
         QObject::connect(&click_menu,&QTimer::timeout,&window,[&]{
             auto* menu=qobject_cast<QMenu*>(QApplication::activePopupWidget());if(!menu)return;
-            for(auto* action:menu->actions())if(action->objectName()=="replaceComponentAction"&&action->isEnabled()){
+            for(auto* action:menu->actions())if(action->objectName()=="replaceComponentAction")throw std::runtime_error("Obsolete Replace action remains in component menu");
+            for(auto* action:menu->actions())if(action->objectName()=="componentPropertiesAction"&&action->isEnabled()){
                 click_menu.stop();found=true;menu->setActiveAction(action);QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(menu,&enter);return;
             }
             click_menu.stop();menu->close();
         });click_menu.start();
         const auto position=tree->visualItemRect(selected).center();
         QMetaObject::invokeMethod(tree,"customContextMenuRequested",Qt::DirectConnection,Q_ARG(QPoint,position));flush();
-        auto* result=window.findChild<QDialog*>("componentFamilyDialog");if(!found||!result)throw std::runtime_error("Tree Replace did not open the shared family chooser");return result;
+        if(!found)throw std::runtime_error("Tree Properties action missing");return active_properties();
     };
-    chooser=replace_menu();choices=chooser->findChild<QTableWidget*>("componentFamilyTable");
-    if(!verify(choices->currentRow()==1,"Replace did not preselect the current instance"))return 1;
-    choices->selectRow(0);chooser->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
+    chooser=replace_menu();choices=chooser->findChild<QComboBox*>("componentVariant");
+    if(!verify(choices->currentIndex()==1,"Replace did not preselect the current instance"))return 1;
+    choices->setCurrentIndex(0);chooser->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
     if(!verify(rows()[0].at("source_document")==member_id,"Replace Cancel changed its source"))return 1;
-    chooser=replace_menu();chooser->findChild<QTableWidget*>("componentFamilyTable")->selectRow(0);
+    chooser=replace_menu();chooser->findChild<QComboBox*>("componentVariant")->setCurrentIndex(0);
     chooser->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
     if(!verify(rows()[0].at("source_document")==part.document_id&&rows()[0].at("instance_path")==selected_path&&rows()[1].at("source_document")==part.document_id,"Replace changed occurrence identity or the other occurrence"))return 1;
     run("undo");if(!verify(rows()[0].at("source_document")==member_id,"GUI Replace did not undo to its original variant"))return 1;
@@ -589,7 +591,7 @@ int verify_family_table(QApplication& application,zima::app::AssemblyWorkspaceWi
     if(!verify(!face_key.empty(),"Replacement GUI fixture has no original Box face"))return 1;
     const auto reference=[&](const std::string& path){return commands::Json{{"instance_path",path},{"owner",box.id},{"key",face_key}};};
     run("component.set",{{"instance_path",selected_path},{"placement_references",commands::Json::array({{{"kind","plane_coincident"},{"component",reference(selected_path)},{"target",reference(rows()[1].at("instance_path").get<std::string>())},{"offset",0}}})}});
-    chooser=replace_menu();chooser->findChild<QTableWidget*>("componentFamilyTable")->selectRow(2);
+    chooser=replace_menu();chooser->findChild<QComboBox*>("componentVariant")->setCurrentIndex(2);
     chooser->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
     const auto marked=[&] {
         for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole+1).toString().toStdString()==selected_path&&(*it)->data(0,Qt::UserRole+3).toString()=="part-occurrence")return (*it)->data(0,app::missing_reference_role).toBool();
@@ -601,13 +603,42 @@ int verify_family_table(QApplication& application,zima::app::AssemblyWorkspaceWi
     run("redo");if(!verify(marked(),"Redo lost the missing-reference marker"))return 1;
     run("component.set",{{"instance_path",selected_path},{"placement_references",commands::Json::array()}});
     if(!verify(!marked(),"Repaired references left a stale red component"))return 1;
+    auto replacement=document::PartDocument::create_default();replacement.name="Replacement";
+    replacement.history={document::PartDocument::create_box_container()};
+    const auto replacement_file=directory/"replacement.prtz";
+    replacement.save(replacement_file,kernel.evaluate_history(replacement.kernel_operations()));
+    const auto browse_source=[&](QDialog* properties) {
+        QTimer accept;accept.setInterval(20);bool picked=false;
+        QObject::connect(&accept,&QTimer::timeout,&window,[&] {
+            if(auto* file=qobject_cast<QFileDialog*>(QApplication::activeModalWidget())) {
+                accept.stop();picked=true;file->selectFile(QString::fromStdString(replacement_file.string()));
+                QMetaObject::invokeMethod(file,"accept",Qt::DirectConnection);
+            }
+        });
+        accept.start();properties->findChild<QAction*>("componentBrowseSource")->trigger();flush();
+        if(!picked)throw std::runtime_error("Source icon did not open the native file picker");
+    };
+    const auto before_source=rows()[0].at("source_document");
+    chooser=replace_menu();browse_source(chooser);
+    if(!verify(chooser->findChild<QLabel*>("componentFileName")->text()=="replacement.prtz"&&
+        !std::filesystem::u8path(chooser->findChild<QLineEdit*>("componentSourcePath")->text().toStdString()).is_absolute()&&
+        chooser->findChild<QComboBox*>("componentVariant")->count()==1,
+        "Source selection did not refresh relative path, filename and variants"))return 1;
+    chooser->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();flush();
+    if(!verify(rows()[0].at("source_document")==before_source,"Source Cancel replaced the component"))return 1;
+    chooser=replace_menu();browse_source(chooser);
+    chooser->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+    if(!verify(rows()[0].at("source_document")==replacement.document_id&&rows()[0].at("instance_path")==selected_path,
+        "Source OK did not replace the selected occurrence with an unrelated file"))return 1;
+    run("undo");if(!verify(rows()[0].at("source_document")==before_source,"One Undo did not restore the previous source"))return 1;
     if(!verify(window.open_document_path(QString::fromStdString(assembly_path.string())),"Assembly family insertion source did not open"))return 1;flush();
     run("new",{{"type","assembly"},{"name","Assembly family insertion GUI"}});
-    chooser=choose(assembly_model.name);choices=chooser->findChild<QTableWidget*>("componentFamilyTable");
-    if(!verify(choices->rowCount()==2&&choices->item(0,0)->data(Qt::UserRole).toString().isEmpty(),"Assembly picker omitted native or variant"))return 1;
-    choices->selectRow(1);chooser->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();finish_properties();
+    chooser=choose(assembly_model.name);choices=chooser->findChild<QComboBox*>("componentVariant");
+    if(!verify(choices->count()==2&&choices->itemData(0).toString().isEmpty(),"Assembly picker omitted native or variant"))return 1;
+    choices->setCurrentIndex(1);chooser->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
     if(!verify(rows().size()==1&&rows()[0].at("source_document")==assembly_variant,"Assembly chooser inserted the generic instead of the selected member"))return 1;
     root_family=false;
+    tree->setCurrentItem(tree->topLevelItem(0));tree->scrollToItem(tree->topLevelItem(0));flush();
     QTimer::singleShot(0,&window,[&]{if(auto* menu=qobject_cast<QMenu*>(QApplication::activePopupWidget())){
         for(auto* entry:menu->actions())if(entry->objectName()=="treeFamilyTableAction"){
             root_family=!entry->icon().isNull();menu->setActiveAction(entry);
@@ -684,7 +715,7 @@ int verify_family_table(QApplication& application,zima::app::AssemblyWorkspaceWi
         if(!verify(name,"New template did not retain the Czech nazev metadata label"))return 1;
         parameters->reject();flush();
     }
-    std::cout<<"Family Table, native/member insertion, context Replace, Cancel, MMB, Undo and Part/Assembly Drawing sources passed\n";return 0;
+    std::cout<<"Family Table, component source/variant Properties, Cancel, MMB, Undo and Part/Assembly Drawing sources passed\n";return 0;
 }
 
 int verify_derived_copy_commands(QApplication& application,zima::app::AssemblyWorkspaceWindow& window,
@@ -7609,8 +7640,8 @@ int verify_component_references(QApplication& application, const std::filesystem
         component_command("component.list",{{"document",top_id}}).data.at("total")==2&&
         window.active_occurrence_path_for_test()==outer_path,"GUI inserted into the parent Assembly or lost insertion Properties"))return 1;
     dialog()->buttons()->button(QDialogButtonBox::Cancel)->click();flush();
-    if(!verify(window.execute_console_command("undo").ok&&component_command("component.list",commands::Json::object()).data.at("total")==2,
-        "GUI nested insertion Undo did not restore its owning Assembly"))return 1;flush();
+    if(!verify(component_command("component.list",commands::Json::object()).data.at("total")==2,
+        "GUI nested insertion Cancel did not restore its owning Assembly"))return 1;flush();
     window.show_tree_item_properties(find(second,nested_path));flush();
     if(!verify(dialog()!=nullptr,"Cannot open nested Part properties"))return 1;
     window.deactivate_active_occurrence_for_test();

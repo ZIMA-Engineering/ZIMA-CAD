@@ -1,5 +1,29 @@
 # Component properties in GUI and CLI
 
+## Properties header and portable sources (2026-09-21)
+
+The first GUI row is Source: a read-only relative path with an embedded Open
+action. Selecting a native Part or Assembly updates the second row containing
+its filename, icon and Family Table variant dropdown. The source can be a
+different file, not only a variant of the original family. Source and variant
+changes are confirmed with the same OK transaction as placement; Cancel leaves
+the original occurrence intact. See [Family Table](FAMILY_TABLE.md).
+
+Assembly files store component paths relative to the owning `.asmz` file,
+including evaluated Assembly family packets. Loading resolves those paths to
+absolute runtime locations. Save As rebases them against the new owner; rename
+staging uses the final destination rather than its temporary directory. Moving
+a project directory therefore preserves its internal dependencies. Sources on
+different Windows drives retain absolute paths because a relative path cannot
+represent that relationship. No format fields or version numbers change.
+
+Verification covers actual GUI insertion, pending variant/source selection,
+Cancel, middle-button confirmation, native-file browsing, one-step Undo,
+missing-reference retention, nested placement, project-directory relocation,
+file renaming and Save As. The existing cs/en/de/fr/ru translations cover all
+labels in the updated header. The Assembly root menu retains Parameters and
+Family Table alongside Insert Skeleton.
+
 `component.set` edits an immediate component of the active Assembly. Shared
 `workspace/component_properties` also handles GUI Properties OK and visibility,
 suppression, and grounding context actions. The catalog has **206 commands** at this

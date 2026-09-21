@@ -314,7 +314,8 @@ public:
     [[nodiscard]] nlohmann::json serialized(const zima::document::DocumentCopyIdentity& copy = {}) const;
     [[nodiscard]] static AssemblyDocument from_serialized(const nlohmann::json&);
     void save(const std::filesystem::path& path,
-        const zima::document::DocumentCopyIdentity& copy = {}) const;
+        const zima::document::DocumentCopyIdentity& copy = {},
+        const std::filesystem::path& reference_file = {}) const;
     [[nodiscard]] static ComponentDependency create_dependency(
         std::string dependent_occurrence_id,
         std::string prerequisite_occurrence_id,

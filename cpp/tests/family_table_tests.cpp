@@ -129,6 +129,24 @@ void component_test(const kernel::OcctKernel& kernel,const fs::path& directory) 
     require(nested_cold.open_assembly(top_id)->session.document().find_occurrence(native_nested)->source_document_id==owner,"Nested replacement changed its sibling");
     bool cycle=false;try{nested_cold.activate(owner);static_cast<void>(workspace::insert_component(nested_cold,owner,assembly_variant));}catch(const std::exception&){cycle=true;}
     require(cycle,"Assembly accepted an instance of its own family as a child");
+    auto replacement_workspace=live;replacement_workspace.activate(owner);
+    auto other_part=document::PartDocument::create_default();other_part.history={document::PartDocument::create_box_container()};
+    const auto other_id=other_part.document_id;
+    replacement_workspace.add_part(other_part,kernel.evaluate_history(other_part.kernel_operations()),directory/"different-part.prtz");
+    const auto before_source=replacement_workspace.open_assembly(owner)->session.document().find_occurrence(first)->source_document_id;
+    require(workspace::replace_component(replacement_workspace,kernel,owner,first,other_id),"Unrelated Part source replacement was rejected");
+    require(replacement_workspace.open_assembly(owner)->session.document().find_occurrence(first)->source_document_id==other_id&&
+        replacement_workspace.open_assembly(owner)->session.document().find_occurrence(second)->source_document_id==short_id,
+        "Source replacement changed the wrong occurrence");
+    require(workspace::step_document_history(replacement_workspace,owner,workspace::HistoryDirection::Undo)&&
+        replacement_workspace.open_assembly(owner)->session.document().find_occurrence(first)->source_document_id==before_source,
+        "Unrelated source replacement did not undo atomically");
+    auto other_assembly=assembly::AssemblyDocument::create_default();const auto other_assembly_id=other_assembly.document_id;
+    replacement_workspace.add_assembly(other_assembly,directory/"different-assembly.asmz");
+    replacement_workspace.activate(owner);
+    require(workspace::replace_component(replacement_workspace,kernel,owner,first,other_assembly_id)&&
+        replacement_workspace.open_assembly(owner)->session.document().find_occurrence(first)->source_kind==assembly::ComponentSourceKind::Assembly,
+        "Source replacement did not switch Part to Assembly");
 }
 void test(const kernel::OcctKernel& kernel,const fs::path& directory) {
     auto base=document::PartDocument::create_default();base.name="Block";

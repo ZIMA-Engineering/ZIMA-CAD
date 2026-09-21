@@ -96,6 +96,17 @@ int main() {
         const auto root = fs::canonical(fs::temp_directory_path()) / ("zima-native-rename-" + part.document_id);
         fs::create_directory(root);
         {
+            Fixture portable(root / "portable", part, boundaries);
+            const auto moved = root / "moved-project";
+            fs::create_directories(moved / "source"); fs::create_directories(moved / "outside");
+            fs::copy_file(portable.source,moved / "source" / portable.source.filename());
+            fs::copy_file(portable.assembly_file,moved / "outside" / portable.assembly_file.filename());
+            const auto reopened=assembly::AssemblyDocument::load(moved / "outside" / portable.assembly_file.filename());
+            require(reopened.components.front().source_path == moved / "source" / portable.source.filename() &&
+                !reopened.components.front().source_missing,
+                "Assembly source paths did not survive moving the project directory");
+        }
+        {
             Fixture fixture(root / "success", part, boundaries);
             auto parent=assembly::AssemblyDocument::create_default();const auto parent_id=parent.document_id;
             fixture.live.add_assembly(std::move(parent));
@@ -178,14 +189,24 @@ int main() {
         {
             Fixture fixture(root / "invalid_dependency", part, boundaries);
             const auto invalid = fixture.work / "nested" / "invalid.asmz";
-            write(invalid, "not a native Assembly");
+            const auto damaged = "not a native Assembly: " + part.document_id;
+            write(invalid, damaged);
             auto directory = fixture.work;
             command_host::Host host(fixture.live, kernel, directory);
             const auto result = host.execute({{"command","rename_file"},{"arguments",{{"name","new.prtz"}}}});
             require(!result.ok && result.code == "rename_rejected" && !host.change(),
                 "Unreadable native dependency was silently skipped");
             fixture.unchanged(); fixture.clean_staging();
-            require(read(invalid) == "not a native Assembly", "Rename rewrote an unreadable dependency");
+            require(read(invalid) == damaged, "Rename rewrote an unreadable dependency");
+        }
+        {
+            Fixture fixture(root / "unrelated_document", part, boundaries);
+            const auto unrelated = fixture.work / "nested" / "old-test.asmz";
+            const std::string bytes = "[Document]\nformat_version=22\ntype=assembly\ndocument_id=unrelated-test\n";
+            write(unrelated, bytes);
+            auto job = fixture.job(); job.stage();
+            require(job.commit(fixture.live).ok(), "Unrelated unsupported file blocked native rename");
+            require(read(unrelated) == bytes, "Rename changed an unrelated unsupported file");
         }
         for (const std::string kind : {"model", "file", "added_dependency", "history_conflict"}) {
             Fixture fixture(root / kind, part, boundaries);

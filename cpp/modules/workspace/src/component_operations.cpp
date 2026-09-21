@@ -51,20 +51,17 @@ bool replace_component(Workspace& live,const kernel::OcctKernel& kernel,const st
     if(item->derived_copy||item->source_kind==assembly::ComponentSourceKind::Pattern)
         throw ComponentOperationError("read_only_copy","Replace the original component of a Mirror or Pattern.");
     if(item->source_document_id==source)return false;
-    const auto root=[](const std::string& id){return id.substr(0,id.find(":family:"));};
-    if(root(item->source_document_id)!=root(source))
-        throw ComponentOperationError("different_family","Replace requires the native model or an instance of the same family.");
     const auto* part=live.open_part(source);const auto* subassembly=live.open_assembly(source);
-    if((item->source_kind==assembly::ComponentSourceKind::Part&&!part)||
-       (item->source_kind==assembly::ComponentSourceKind::Assembly&&!subassembly))
+    if(!part&&!subassembly)
         throw ComponentOperationError("source_not_open","The component source must be an open Part or Assembly.");
     require_acyclic_document_dependency(live,owner,source);
     auto file=item->source_path;if(file.is_relative())file=state->path.parent_path()/file;
     std::string old_name;
-    if(part){std::vector<kernel::BodyResult> cache;old_name=read_family_part(&live,file,item->source_document_id,cache).name;}
+    if(item->source_kind==assembly::ComponentSourceKind::Part){std::vector<kernel::BodyResult> cache;old_name=read_family_part(&live,file,item->source_document_id,cache).name;}
     else old_name=read_family_assembly(&live,file,item->source_document_id).name;
     auto next=state->session.document();auto* changed=next.find_occurrence(occurrence);
     changed->source_document_id=source;changed->source_path=part?part->path:subassembly->path;
+    changed->source_kind=part?assembly::ComponentSourceKind::Part:assembly::ComponentSourceKind::Assembly;
     if(changed->name==old_name)changed->name=part?part->session.document().name:subassembly->session.document().name;
     for(auto& component:next.components)for(auto& row:component.placement_references)
         for(auto* reference:{&row.component_reference,&row.target_reference})

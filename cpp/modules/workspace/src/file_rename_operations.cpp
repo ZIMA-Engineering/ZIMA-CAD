@@ -4,6 +4,8 @@
 #include <zima/document/file_path.hpp>
 #include <algorithm>
 #include <cctype>
+#include <fstream>
+#include <nlohmann/json.hpp>
 #include <map>
 #include <set>
 #include <type_traits>
@@ -58,6 +60,23 @@ struct Stamp {
 Stamp stamp(const fs::path& path) {
     if (!regular(path)) throw FileRenameError("file_not_found", "A native rename input is missing or is not a regular file.");
     return {path, fs::file_size(path), fs::last_write_time(path)};
+}
+bool may_reference(const fs::path& path, const std::vector<document::FileRelocation>& moves) {
+    std::ifstream stream(path, std::ios::binary);
+    if (!stream) throw fs::filesystem_error("read", path, std::make_error_code(std::errc::io_error));
+    const std::string bytes{std::istreambuf_iterator<char>(stream), {}};
+    if (stream.bad()) throw fs::filesystem_error("read", path, std::make_error_code(std::errc::io_error));
+    // Candidate discovery only: current native documents persist stable IDs.
+    // Also retain filename matches so mismatched path/identity references are
+    // rejected by the real loader, rather than silently lost during rename.
+    for (const auto& move : moves) {
+        const auto filename = document::path_to_utf8(move.from.filename());
+        const auto escaped = nlohmann::json(filename).dump(-1, ' ', true);
+        if (bytes.find(move.document_id) != std::string::npos ||
+            bytes.find(filename) != std::string::npos ||
+            bytes.find(escaped.substr(1, escaped.size()-2)) != std::string::npos) return true;
+    }
+    return false;
 }
 }
 struct FileRenameJob::Impl {
@@ -192,6 +211,12 @@ void FileRenameJob::stage() {
     std::set<fs::path> targets;
     for (const auto& input : job.candidates) {
         const auto before = stamp(input);
+        const bool open = std::ranges::any_of(job.open, [&](const auto& state) { return state.path == input; });
+        if (input != job.from && !open && !may_reference(input, job.moves)) {
+            if (stamp(input) != before) throw FileRenameError("stale_file", "A native rename input changed during staging.");
+            job.observed.push_back(before);
+            continue;
+        }
         auto loaded = read_native_document(input,{},false);
         if (input == job.from && loaded.id() != job.id)
             throw FileRenameError("stale_document", "The saved native file has a different document identity.");
@@ -215,7 +240,7 @@ void FileRenameJob::stage() {
         const auto scratch = job.scratch(target.parent_path());
         const auto staged = scratch / "new" / target.filename();
         const auto backup = scratch / "original" / input.filename();
-        loaded.write(staged);
+        loaded.write(staged, target);
         if (read_native_document(staged,{},false).id() != loaded.id())
             throw FileRenameError("staging_failed", "Staged native document identity does not match its source.");
         job.files.push_back({input, target, staged, backup});

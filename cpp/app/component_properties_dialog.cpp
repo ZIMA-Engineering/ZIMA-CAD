@@ -5,6 +5,7 @@
 #include <zima/ui/reference_cell.hpp>
 
 #include <QComboBox>
+#include <QAction>
 #include <QCheckBox>
 #include <QDoubleSpinBox>
 #include <QFormLayout>
@@ -165,23 +166,35 @@ ComponentPropertiesDialog::ComponentPropertiesDialog(
     setMinimumWidth(720);
     resize(820, sizeHint().height());
     auto* form = new QFormLayout;
+    source_ = new QLineEdit(this);
+    source_->setObjectName("componentSourcePath");
+    source_->setReadOnly(true);
+    auto* browse = source_->addAction(resource_icon("open"), QLineEdit::TrailingPosition);
+    browse->setObjectName("componentBrowseSource");
+    browse->setToolTip(tr("Zdrojový soubor…"));
+    connect(browse, &QAction::triggered, this, [this] { if (source_request_) source_request_(); });
+    form->addRow(tr("Zdroj"), source_);
     auto* identity = new QWidget(this);
     auto* identity_layout = new QHBoxLayout(identity);
     identity_layout->setContentsMargins(0, 0, 0, 0);
     auto* icon = new QLabel(identity);
+    source_icon_ = icon;
     icon->setPixmap(resource_icon(zima::assembly::is_skeleton(initial) ? "skeleton" :
         initial.source_kind == zima::assembly::ComponentSourceKind::Assembly ? "assembly" : "part").pixmap(24, 24));
     auto* filename = new QLabel(QString::fromStdString(zima::document::path_to_utf8(initial.source_path.filename())), identity);
+    source_filename_ = filename;
     filename->setObjectName("componentFileName");
     filename->setTextFormat(Qt::PlainText);
     filename->setTextInteractionFlags(Qt::TextSelectableByMouse);
     filename->setWordWrap(true);
     identity_layout->addWidget(icon);
     identity_layout->addWidget(filename, 1);
+    variant_ = new QComboBox(identity);
+    variant_->setObjectName("componentVariant");
+    variant_->setToolTip(tr("Varianta se vypočítá po potvrzení OK."));
+    variant_->setVisible(false);
+    identity_layout->addWidget(variant_);
     form->addRow(identity);
-    auto* source = new QLineEdit(QString::fromStdString(zima::document::path_to_utf8(initial.source_path)), this);
-    source->setReadOnly(true);
-    form->addRow(tr("Zdroj"), source);
     const auto placement = [this](double value, bool angular) {
         auto* field = new QDoubleSpinBox(this);
         field->setRange(angular ? -180.0 : -1'000'000.0,
@@ -501,6 +514,32 @@ void ComponentPropertiesDialog::remove_placement_reference(std::size_t index) {
     notify_preview();
 }
 
+void ComponentPropertiesDialog::set_variant_choices(
+    const std::vector<std::pair<std::string, std::string>>& choices,
+    const std::string& selected, std::function<void(std::string)> changed) {
+    const QSignalBlocker blocker(variant_);
+    disconnect(variant_, &QComboBox::currentIndexChanged, this, nullptr);
+    variant_->clear();
+    for (const auto& [id, name] : choices)
+        variant_->addItem(QString::fromStdString(name), QString::fromStdString(id));
+    variant_->setCurrentIndex(variant_->findData(QString::fromStdString(selected)));
+    variant_->setVisible(true);
+    variant_->setEnabled(choices.size() > 1);
+    connect(variant_, &QComboBox::currentIndexChanged, this,
+        [this, changed = std::move(changed)] { changed(variant_->currentData().toString().toStdString()); });
+}
+
+void ComponentPropertiesDialog::set_source_request_callback(std::function<void()> callback) {
+    source_request_ = std::move(callback);
+}
+
+void ComponentPropertiesDialog::set_source_display(const QString& path, const QString& filename,
+        bool assembly, bool skeleton) {
+    source_->setText(path);
+    source_filename_->setText(filename);
+    source_icon_->setPixmap(resource_icon(skeleton ? "skeleton" : assembly ? "assembly" : "part").pixmap(24,24));
+}
+
 void ComponentPropertiesDialog::set_reference_label_resolver(ReferenceLabelResolver resolver) {
     reference_label_resolver_ = std::move(resolver);
     refresh_placement_table();
@@ -747,7 +786,7 @@ bool ComponentPropertiesDialog::submit() {
     try {
         commit_(std::move(result));
     } catch (const std::exception& failure) {
-        error_->setText(QString::fromUtf8(failure.what()));
+        error_->setText(tr(failure.what()));
         return false;
     }
     return true;

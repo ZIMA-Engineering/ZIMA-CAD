@@ -137,24 +137,28 @@ annotation, because the authored centerline and calculated axis intentionally
 share one persistent reference. This prevents an isometric view from blocking a
 later Front, side or top view of the same variant.
 
-## Assembly insertion and Replace
+## Assembly component variants
 
-Inserting a Part or Assembly with at least one Family Table variant opens an
-internal variant chooser. An empty Family Table skips the chooser and inserts
-the native model directly, then opens component Properties. The first chooser
-row is the native/generic model; the remaining rows use stable
-Family Table identities. This applies both to open models and insertion from a
-native file. OK prepares the selected variant and continues to component
-Properties. Cancel leaves the Assembly unchanged. An unopened row is calculated
-only after confirmation. Middle-button double-click over View confirms the chooser;
-a short middle click does not.
+Inserting a Part or Assembly opens component Properties directly. The first row
+shows the relative source path and an Open icon for selecting another native
+file. The second row shows that file's icon, filename and a variant dropdown. Its first entry is the
+native/generic model; the remaining entries use stable Family Table identities.
+An empty Family Table leaves only the disabled native entry. This applies both
+to open models and insertion from a native file. The former separate chooser
+and Tree Replace action are removed.
 
-Use **Replace…** in an immediate component's context menu to switch between its
-generic model and family variants. Activate the component's owning subassembly
-before replacing one of its children. Replace preselects the current row and
+Selecting a row only changes the pending choice. OK calculates an unopened
+variant and publishes the source and placement together. Cancel leaves the
+Assembly unchanged, including cancelling a new insertion. Middle-button
+double-click over View confirms Properties; a short middle click does not.
+
+Use **Properties** in an immediate component's context menu to switch between its
+generic model and family variants, or browse to an unrelated Part or Assembly.
+Activate the component's owning subassembly
+before editing one of its children. The dropdown preselects the current row and
 preserves the occurrence ID, placement, flags, locks, custom name and stored mates.
 It updates only that occurrence; other insertions of the same file are independent.
-Replace the original of a Mirror/Pattern rather than a generated copy.
+Change the original of a Mirror/Pattern rather than a generated copy.
 
 Missing mate references do not prevent replacement. Their original keys remain
 stored, the affected component is marked red in Tree, and its Properties can

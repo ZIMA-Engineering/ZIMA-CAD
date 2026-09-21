@@ -2193,7 +2193,14 @@ void AssemblyWorkspaceWindow::create_layout() {
                 const auto* owner = workspace_.open_assembly(workspace_.active_document_id());
                 insert->setEnabled(owner && workspace_.active_occurrence_path().empty() &&
                     std::ranges::none_of(owner->session.document().components, [](const auto& value) { return zima::assembly::is_skeleton(value); }));
-                if (exec_tree_menu(menu,item,position) == insert) insert_component_from_file(true);
+                auto* parameters = menu.addAction(resource_icon("parameters"), tr("Parametry…"));
+                parameters->setObjectName("treeDocumentParametersAction");
+                auto* family = menu.addAction(resource_icon("family-table"), family_table_action_->text());
+                family->setObjectName("treeFamilyTableAction");
+                const auto* selected = exec_tree_menu(menu,item,position);
+                if (selected == insert) insert_component_from_file(true);
+                else if (selected == parameters) edit_parameters_for_document(workspace_.displayed_document_id());
+                else if (selected == family) edit_family_table_for_document(workspace_.displayed_document_id());
                 return;
             }
             const auto step_kind = item->data(0, Qt::UserRole + 3).toString();

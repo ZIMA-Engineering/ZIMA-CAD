@@ -96,12 +96,14 @@ bool PreparedNativeDocument::rebase_native_files(std::span<const document::FileR
     edits.apply();
     return changed;
 }
-void PreparedNativeDocument::write(const std::filesystem::path& target) const {
+void PreparedNativeDocument::write(const std::filesystem::path& target,
+        const std::filesystem::path& reference_file) const {
     if (native_document_type(target) != type())
         throw std::invalid_argument("Document type does not match target path");
     std::visit([&](const auto& value) {
         using T = std::decay_t<decltype(value)>;
         if constexpr (std::is_same_v<T, Part>) value.document.save(target, value.boundaries);
+        else if constexpr (std::is_same_v<T, assembly::AssemblyDocument>) value.save(target, {}, reference_file);
         else value.save(target);
     }, document_);
 }

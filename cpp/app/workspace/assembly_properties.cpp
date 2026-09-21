@@ -1,6 +1,9 @@
 #include "workspace_internal.hpp"
 #include <zima/workspace/component_properties.hpp>
 #include <zima/workspace/component_source_operations.hpp>
+#include <zima/workspace/family_operations.hpp>
+#include <zima/workspace/engineering_metadata_operations.hpp>
+#include <zima/workspace/native_documents.hpp>
 #include "../file_dialog.hpp"
 
 namespace zima::app {
@@ -89,13 +92,85 @@ void AssemblyWorkspaceWindow::show_component_properties(
         }
         return;
     }
+    std::string generic, initial_variant;
+    std::filesystem::path source_file;
+    std::vector<std::pair<std::string, std::string>> variants;
+    try {
+        const auto opened = zima::workspace::open_component_source(workspace_, workspace_.displayed_document_id(),
+            zima::assembly::InstancePath::decode(instance_path));
+        generic = opened.document_id.substr(0, opened.document_id.find(":family:"));
+        source_file = opened.path;
+        if (!workspace_.find(generic))
+            static_cast<void>(workspace::insert_native_document(workspace_, workspace::read_native_document(opened.path)));
+        if (opened.document_id != generic) initial_variant = opened.document_id.substr(generic.size()+8);
+        variants.emplace_back("", tr("Výchozí (nativní)").toStdString());
+        for (const auto& row : workspace::family_table(workspace_, generic).instances)
+            variants.emplace_back(row.id, row.name);
+        assembly = workspace_.open_assembly(address->owner_assembly_document_id);
+        occurrence = assembly->session.document().find_occurrence(address->occurrence_id);
+    } catch (const std::exception& error) {
+        state_->setText(tr(error.what())); return;
+    }
+    const auto selected_variant = std::make_shared<std::string>(initial_variant);
+    const auto selected_generic = std::make_shared<std::string>(generic);
+    const auto selected_file = std::make_shared<std::filesystem::path>(source_file);
     const auto edit = zima::workspace::prepare_component_edit(workspace_,address->owner_assembly_document_id,address->occurrence_id);
     auto* dialog = new ComponentPropertiesDialog(
         *occurrence,
-        [this,edit](zima::assembly::PartOccurrence committed) {
-            static_cast<void>(zima::workspace::commit_component_properties(workspace_,edit,
-                zima::workspace::component_properties(committed)));
+        [this,edit,generic,initial_variant,selected_variant,selected_generic,selected_file](zima::assembly::PartOccurrence committed) {
+            if (*selected_generic == generic && *selected_variant == initial_variant) {
+                static_cast<void>(workspace::commit_component_properties(workspace_,edit,workspace::component_properties(committed)));
+                return;
+            }
+            // Explicit OK: evaluate the chosen family in a private workspace.
+            // Publish placement and source together as one undoable transaction.
+            auto pending = workspace_;
+            static_cast<void>(workspace::commit_component_properties(pending,edit,workspace::component_properties(committed)));
+            if (!pending.find(*selected_generic)) {
+                auto prepared = workspace::read_native_document(*selected_file,workspace::native_source_resolver(pending));
+                if (prepared.id() != *selected_generic) throw std::runtime_error("The component source file belongs to a different document.");
+                static_cast<void>(workspace::insert_native_document(pending,std::move(prepared)));
+            }
+            std::string source = *selected_generic;
+            if (!selected_variant->empty()) {
+                const auto table = workspace::family_table(pending,*selected_generic);
+                const auto row = std::ranges::find(table.instances,*selected_variant,&document::FamilyInstance::id);
+                if (row == table.instances.end()) throw std::runtime_error("Family variant no longer exists.");
+                source = workspace::open_family_instance(pending,kernel_,*selected_generic,row->name,false);
+            }
+            static_cast<void>(workspace::replace_component(pending,kernel_,edit.document_id,edit.occurrence_id,source));
+            auto final_document = pending.open_assembly(edit.document_id)->session.document();
+            pending.open_assembly(edit.document_id)->session = workspace_.open_assembly(edit.document_id)->session;
+            pending.open_assembly(edit.document_id)->session.commit(std::move(final_document));
+            workspace_ = std::move(pending);
         }, this);
+    dialog->set_variant_choices(variants,initial_variant,[selected_variant](std::string value) { *selected_variant=std::move(value); });
+    const auto owner_directory = assembly->path.empty() ? working_directory_ : std::filesystem::absolute(assembly->path).parent_path();
+    const auto show_source = [dialog,owner_directory](const std::filesystem::path& path,bool is_assembly) {
+        auto shown = path.lexically_relative(owner_directory);
+        if (shown.empty()) shown = path;
+        dialog->set_source_display(QString::fromStdString(document::path_to_utf8(shown)),
+            QString::fromStdString(document::path_to_utf8(path.filename())),is_assembly,assembly::is_skeleton_file(path));
+    };
+    show_source(source_file,occurrence->source_kind == assembly::ComponentSourceKind::Assembly);
+    dialog->set_source_request_callback([this,dialog,show_source,selected_generic,selected_variant,selected_file] {
+        const auto path = open_file(this,tr("Zdrojový soubor"),
+            QString::fromStdString(document::path_to_utf8(selected_file->parent_path())),
+            tr("Komponenty ZIMA-CAD (*.prtz *.asmz)"),application_settings_.translations);
+        if (path.isEmpty()) return;
+        try {
+            const auto file = std::filesystem::absolute(std::filesystem::u8path(path.toStdString())).lexically_normal();
+            auto inspection = workspace_;
+            auto id = inspection.document_id_for_path(file);
+            if (!id) id = workspace::insert_native_document(inspection,workspace::read_native_document(file,workspace::native_source_resolver(inspection)));
+            const auto root = workspace::family_owner(inspection,*id);
+            std::vector<std::pair<std::string,std::string>> choices{{"",tr("Výchozí (nativní)").toStdString()}};
+            for (const auto& row : workspace::family_table(inspection,root).instances) choices.emplace_back(row.id,row.name);
+            *selected_generic = root; *selected_file = file; selected_variant->clear();
+            dialog->set_variant_choices(choices,"",[selected_variant](std::string value){*selected_variant=std::move(value);});
+            show_source(file,inspection.open_assembly(root)!=nullptr);
+        } catch (const std::exception& error) { dialog->set_placement_error(tr(error.what())); }
+    });
     dialog->set_reference_request_callback(
         [this](std::size_t index, bool component_side) {
             start_component_placement_reference_selection(index, component_side);
