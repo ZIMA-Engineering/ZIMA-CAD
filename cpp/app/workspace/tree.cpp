@@ -863,8 +863,9 @@ void AssemblyWorkspaceWindow::add_snapshot_tree_children(
         if (component.derived_source_id.empty() && !component.pattern_group &&
             component.source_document_id.find(":family:") != std::string::npos && !component.source_name.empty()) {
             const auto file = std::filesystem::u8path(component.name);
-            label = QString::fromStdString(document::path_to_utf8(file.stem()) + "-" +
-                component.source_name + document::path_to_utf8(file.extension()));
+            label = QString::fromStdString(component.source_name);
+            const auto extension = QString::fromStdString(document::path_to_utf8(file.extension()));
+            if (!label.endsWith(extension, Qt::CaseInsensitive)) label += extension;
         }
         if(component.source_missing)label+=tr(" [chybí zdrojový soubor]");
         if (component.manually_suppressed) label += tr(" [potlačeno]");

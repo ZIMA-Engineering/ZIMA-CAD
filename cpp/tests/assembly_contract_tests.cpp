@@ -2,10 +2,13 @@
 #include <zima/assembly/assembly_session.hpp>
 #include <zima/assembly/physical_properties.hpp>
 #include <zima/kernel/occt_kernel.hpp>
+#include <zima/kernel/dimension_layout.hpp>
 #include <zima/viewer/picking.hpp>
 
 #include <iostream>
 #include <cmath>
+#include <chrono>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <limits>
@@ -1538,6 +1541,53 @@ int main() {
         const auto captured_pose=captured_document.find_occurrence(second_id)->placement;
         require(close_vector(zima::kernel::Vec3{captured_pose.x,captured_pose.y,captured_pose.z},zima::kernel::Vec3{3,4,15}),
             "Capturing a tilted plane moved the component origin during normal alignment");
+        for(const double offset:{-15.0,15.0}) for(const double rotation:{0.0,37.0,90.0}) {
+            auto annotated=captured_document;
+            annotated.find_occurrence(first_id)->placement.rotation_y=rotation;
+            auto* moving=annotated.find_occurrence(second_id);
+            moving->placement_references.front().offset=offset;
+            annotated.calculate_placement_references();
+            const auto before=moving->placement;
+            const auto scene=annotated.build_scene();
+            const auto key="placement-reference:"+second_id+":0";
+            const auto it=std::ranges::find_if(scene.dimensions,[&](const auto& d){return d.reference.semantic_key==key;});
+            require(it!=scene.dimensions.end(),"Missing plane-distance annotation");
+            const auto axis=zima::kernel::dimension_sub(it->witness_second,it->witness_first);
+            const auto normal=zima::kernel::dimension_unit(it->plane_normal);
+            require(std::abs(std::sqrt(zima::kernel::dimension_dot(axis,axis))-std::abs(offset))<1e-7,
+                "Plane-distance annotation measured unrelated face vertices instead of normal separation");
+            for(const auto point:{it->witness_second,it->line_first,it->line_second})
+                require(std::abs(zima::kernel::dimension_dot(zima::kernel::dimension_sub(point,it->witness_first),normal))<1e-7,
+                    "Plane-distance label and witnesses do not share the dimension plane");
+            require(moving->placement==before&&it->value==offset,
+                "Plane-distance presentation modified placement or the signed offset");
+        }
+        if(std::getenv("ZIMA_BENCH_COMPONENT_PREVIEW")) {
+            auto benchmark=captured_document;
+            for(int i=0;i<48;++i) {
+                auto copy=benchmark.components.front();
+                copy.occurrence_id="preview-benchmark-"+std::to_string(i);
+                copy.placement.x=100+i*20;
+                benchmark.components.push_back(std::move(copy));
+            }
+            for(const bool drag:{false,true}) {
+                const auto start=std::chrono::steady_clock::now();
+                for(int i=0;i<30;++i) {
+                    auto preview=benchmark;
+                    auto* moving=preview.find_occurrence(second_id);
+                    if(drag) {
+                        const auto delta=benchmark.component_drag_translation(second_id,{double(i),double(i),0});
+                        moving->placement.x+=delta.x;moving->placement.y+=delta.y;moving->placement.z+=delta.z;
+                    } else moving->placement_references.front().offset=15+i;
+                    preview.calculate_placement_references();
+                    static_cast<void>(preview.component_constraint_state(second_id));
+                    const auto scene=preview.build_scene();
+                    require(!scene.triangles.empty(),"Preview benchmark lost its geometry");
+                }
+                std::cout<<"Component preview "<<(drag?"drag":"offset")<<" (50 occurrences), ms/sample: "
+                    <<std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count()/30<<'\n';
+            }
+        }
         measured_row.mate_type=zima::assembly::MateKind::PlaneAngle;
         require(std::abs(drag_document.measure_placement_reference(measured_row).value_or(-999)-37)<1e-8,
             "Captured assembly angle does not describe the current orientation");

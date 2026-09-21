@@ -569,8 +569,97 @@ PlacementPose step_pose(PlacementPose pose,const Motion& step,double factor,doub
     }
     return pose;
 }
+PlaneResolution resolve_plane_in_scene(
+    const MateReference& reference, const kernel::ViewerMesh& scene) {
+    if (reference.kind != MateReferenceKind::Face) {
+        return {MateStatus::UnsupportedGeometry, {}};
+    }
+    const std::string path = reference.instance_path.encoded();
+    constexpr double epsilon = 1.0e-10;
+    constexpr double planar_tolerance = 1.0e-7;
+    std::optional<ResolvedPlane> result;
+    std::vector<zima::kernel::Vec3> points;
+    const auto& face_vertices = scene.original_references.vertices;
+    const auto& face_triangles = scene.original_references.triangles;
+    const auto& face_references = scene.original_references.triangle_references;
+    for (std::size_t triangle = 0;
+         triangle < face_references.size(); ++triangle) {
+        const auto& candidate = face_references[triangle];
+        if (candidate.instance_path != path || candidate.owner_id != reference.owner_id ||
+            candidate.semantic_key != reference.semantic_key) continue;
+        const auto first = face_triangles[triangle * 3];
+        const auto second = face_triangles[triangle * 3 + 1];
+        const auto third = face_triangles[triangle * 3 + 2];
+        const auto& a = face_vertices[first];
+        const auto& b = face_vertices[second];
+        const auto& c = face_vertices[third];
+        points.insert(points.end(), {a, b, c});
+        if (!result) {
+            const zima::kernel::Vec3 ab{b.x - a.x, b.y - a.y, b.z - a.z};
+            const zima::kernel::Vec3 ac{c.x - a.x, c.y - a.y, c.z - a.z};
+            zima::kernel::Vec3 normal{
+                ab.y * ac.z - ab.z * ac.y,
+                ab.z * ac.x - ab.x * ac.z,
+                ab.x * ac.y - ab.y * ac.x};
+            const double magnitude = std::sqrt(
+                normal.x * normal.x + normal.y * normal.y + normal.z * normal.z);
+            if (magnitude > epsilon) {
+                normal = {normal.x / magnitude, normal.y / magnitude,
+                          normal.z / magnitude};
+                result = ResolvedPlane{a, normal};
+            }
+        }
+    }
+    if (!result) return {MateStatus::MissingReference, {}};
+    for (const auto& point : points) {
+        const double distance =
+            (point.x - result->point.x) * result->normal.x +
+            (point.y - result->point.y) * result->normal.y +
+            (point.z - result->point.z) * result->normal.z;
+        if (std::abs(distance) > planar_tolerance) {
+            return {MateStatus::UnsupportedGeometry, {}};
+        }
+    }
+    return {MateStatus::Valid, *result};
+}
+
+AxisResolution resolve_axis_in_scene(
+    const MateReference& reference, const kernel::ViewerMesh& scene) {
+    if (reference.kind != MateReferenceKind::Axis) {
+        return {MateStatus::UnsupportedGeometry, {}};
+    }
+    const std::string path = reference.instance_path.encoded();
+    const auto& axes = scene.original_references.axes;
+    const auto found = std::find_if(axes.begin(), axes.end(),
+        [&](const auto& axis) {
+            return axis.reference.instance_path == path &&
+                axis.reference.owner_id == reference.owner_id &&
+                axis.reference.semantic_key == reference.semantic_key;
+        });
+    if (found == axes.end()) return {MateStatus::MissingReference, {}};
+    return {MateStatus::Valid, {found->point, found->direction}};
+}
+
+PointResolution resolve_point_in_scene(
+    const MateReference& reference, const kernel::ViewerMesh& scene) {
+    if (reference.kind != MateReferenceKind::Point) {
+        return {MateStatus::UnsupportedGeometry, {}};
+    }
+    const std::string path = reference.instance_path.encoded();
+    const auto& points = scene.original_references.points;
+    const auto found = std::find_if(points.begin(), points.end(),
+        [&](const auto& point) {
+            return point.reference.instance_path == path &&
+                point.reference.owner_id == reference.owner_id &&
+                point.reference.semantic_key == reference.semantic_key;
+        });
+    if (found == points.end()) return {MateStatus::MissingReference, {}};
+    return {MateStatus::Valid, found->position};
+}
+
 PlacementSystem make_placement_system(const AssemblyDocument& document,const PartOccurrence& component) {
     PlacementSystem system;
+    if(component.placement_references.empty()) return system;
     const auto reference_scene=document.build_scene();
     const auto pose=placement_pose(component.placement);
     for(const auto& row:component.placement_references) {
@@ -578,16 +667,16 @@ PlacementSystem make_placement_system(const AssemblyDocument& document,const Par
         if(!std::isfinite(row.offset)) throw std::runtime_error("Hodnota vazby musí být konečné číslo.");
         Vec3 moving_point{},moving_direction{};
         if(row.mate_type==MateKind::PointCoincident) {
-            const auto moving=document.resolve_point(row.component_reference),target=document.resolve_point(row.target_reference);
+            const auto moving=resolve_point_in_scene(row.component_reference,reference_scene),target=resolve_point_in_scene(row.target_reference,reference_scene);
             if(moving.status!=MateStatus::Valid || target.status!=MateStatus::Valid)continue;
             moving_point=moving.point;equation.target_point=target.point;
         } else if(row.mate_type==MateKind::AxisCoincident) {
-            const auto moving=document.resolve_axis(row.component_reference),target=document.resolve_axis(row.target_reference);
+            const auto moving=resolve_axis_in_scene(row.component_reference,reference_scene),target=resolve_axis_in_scene(row.target_reference,reference_scene);
             if(moving.status!=MateStatus::Valid || target.status!=MateStatus::Valid)continue;
             moving_point=moving.axis.point;moving_direction=moving.axis.direction;
             equation.target_point=target.axis.point;equation.target_direction=target.axis.direction;
         } else {
-            const auto moving=document.resolve_plane(row.component_reference),target=document.resolve_plane(row.target_reference);
+            const auto moving=resolve_plane_in_scene(row.component_reference,reference_scene),target=resolve_plane_in_scene(row.target_reference,reference_scene);
             if(moving.status!=MateStatus::Valid || target.status!=MateStatus::Valid)continue;
             moving_point=moving.plane.point;moving_direction=moving.plane.normal;
             equation.target_point=target.plane.point;equation.target_direction=target.plane.normal;
@@ -1145,93 +1234,20 @@ double AssemblyDocument::project_angular_drag_value(
 
 PlaneResolution AssemblyDocument::resolve_plane(
     const MateReference& reference) const {
-    if (reference.kind != MateReferenceKind::Face) {
-        return {MateStatus::UnsupportedGeometry, {}};
-    }
-    const auto scene = build_scene();
-    const std::string path = reference.instance_path.encoded();
-    constexpr double epsilon = 1.0e-10;
-    constexpr double planar_tolerance = 1.0e-7;
-    std::optional<ResolvedPlane> result;
-    std::vector<zima::kernel::Vec3> points;
-    const auto& face_vertices = scene.original_references.vertices;
-    const auto& face_triangles = scene.original_references.triangles;
-    const auto& face_references = scene.original_references.triangle_references;
-    for (std::size_t triangle = 0;
-         triangle < face_references.size(); ++triangle) {
-        const auto& candidate = face_references[triangle];
-        if (candidate.instance_path != path || candidate.owner_id != reference.owner_id ||
-            candidate.semantic_key != reference.semantic_key) continue;
-        const auto first = face_triangles[triangle * 3];
-        const auto second = face_triangles[triangle * 3 + 1];
-        const auto third = face_triangles[triangle * 3 + 2];
-        const auto& a = face_vertices[first];
-        const auto& b = face_vertices[second];
-        const auto& c = face_vertices[third];
-        points.insert(points.end(), {a, b, c});
-        if (!result) {
-            const zima::kernel::Vec3 ab{b.x - a.x, b.y - a.y, b.z - a.z};
-            const zima::kernel::Vec3 ac{c.x - a.x, c.y - a.y, c.z - a.z};
-            zima::kernel::Vec3 normal{
-                ab.y * ac.z - ab.z * ac.y,
-                ab.z * ac.x - ab.x * ac.z,
-                ab.x * ac.y - ab.y * ac.x};
-            const double magnitude = std::sqrt(
-                normal.x * normal.x + normal.y * normal.y + normal.z * normal.z);
-            if (magnitude > epsilon) {
-                normal = {normal.x / magnitude, normal.y / magnitude,
-                          normal.z / magnitude};
-                result = ResolvedPlane{a, normal};
-            }
-        }
-    }
-    if (!result) return {MateStatus::MissingReference, {}};
-    for (const auto& point : points) {
-        const double distance =
-            (point.x - result->point.x) * result->normal.x +
-            (point.y - result->point.y) * result->normal.y +
-            (point.z - result->point.z) * result->normal.z;
-        if (std::abs(distance) > planar_tolerance) {
-            return {MateStatus::UnsupportedGeometry, {}};
-        }
-    }
-    return {MateStatus::Valid, *result};
+    if (reference.kind != MateReferenceKind::Face) return {MateStatus::UnsupportedGeometry, {}};
+    return resolve_plane_in_scene(reference, build_scene());
 }
 
 AxisResolution AssemblyDocument::resolve_axis(
     const MateReference& reference) const {
-    if (reference.kind != MateReferenceKind::Axis) {
-        return {MateStatus::UnsupportedGeometry, {}};
-    }
-    const auto scene = build_scene();
-    const std::string path = reference.instance_path.encoded();
-    const auto& axes = scene.original_references.axes;
-    const auto found = std::find_if(axes.begin(), axes.end(),
-        [&](const auto& axis) {
-            return axis.reference.instance_path == path &&
-                axis.reference.owner_id == reference.owner_id &&
-                axis.reference.semantic_key == reference.semantic_key;
-        });
-    if (found == axes.end()) return {MateStatus::MissingReference, {}};
-    return {MateStatus::Valid, {found->point, found->direction}};
+    if (reference.kind != MateReferenceKind::Axis) return {MateStatus::UnsupportedGeometry, {}};
+    return resolve_axis_in_scene(reference, build_scene());
 }
 
 PointResolution AssemblyDocument::resolve_point(
     const MateReference& reference) const {
-    if (reference.kind != MateReferenceKind::Point) {
-        return {MateStatus::UnsupportedGeometry, {}};
-    }
-    const auto scene = build_scene();
-    const std::string path = reference.instance_path.encoded();
-    const auto& points = scene.original_references.points;
-    const auto found = std::find_if(points.begin(), points.end(),
-        [&](const auto& point) {
-            return point.reference.instance_path == path &&
-                point.reference.owner_id == reference.owner_id &&
-                point.reference.semantic_key == reference.semantic_key;
-        });
-    if (found == points.end()) return {MateStatus::MissingReference, {}};
-    return {MateStatus::Valid, found->position};
+    if (reference.kind != MateReferenceKind::Point) return {MateStatus::UnsupportedGeometry, {}};
+    return resolve_point_in_scene(reference, build_scene());
 }
 
 
@@ -1747,11 +1763,14 @@ zima::kernel::ViewerMesh AssemblyDocument::build_scene() const {
                 const double side_length = length(side);
                 side = {side.x * 10.0 / side_length, side.y * 10.0 / side_length,
                         side.z * 10.0 / side_length};
-                dimension.witness_first = target->point;
+                // Face vertices can be displaced tangentially. Project one
+                // anchor onto the other plane so the annotation measures only
+                // normal separation and all its geometry lies in one plane.
+                const auto separation = dot(subtract(moving->point,target->point),normal);
+                const auto projected = subtract(moving->point,scaled(normal,separation));
+                dimension.witness_first = projected;
                 dimension.witness_second = moving->point;
-                dimension.line_first = {target->point.x + side.x,
-                                        target->point.y + side.y,
-                                        target->point.z + side.z};
+                dimension.line_first = add(projected,side);
                 dimension.line_second = {moving->point.x + side.x,
                                          moving->point.y + side.y,
                                          moving->point.z + side.z};

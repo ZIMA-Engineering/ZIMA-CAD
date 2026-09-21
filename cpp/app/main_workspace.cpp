@@ -368,7 +368,7 @@ int verify_family_table(QApplication& application,zima::app::AssemblyWorkspaceWi
     click(view,*position);
     const auto name=part.dimension_identifiers.identifier(box.id,"parameter:length");
     if(!verify(table->horizontalHeaderItem(2)->text().toStdString()==name,"Family dimension did not bind secondary identifier"))return 1;
-    table->item(1,1)->setText("Long");table->item(1,2)->setText("20");flush();
+    table->item(1,1)->setText("family-base-V01.prtz");table->item(1,2)->setText("20");flush();
     dialog->findChild<QPushButton*>("familyAddColumn")->click();flush();
     QTreeWidgetItem* body_row=nullptr;
     for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole).toString().toStdString()==body&&(*it)->data(0,Qt::UserRole+3).toString()=="part-body")body_row=*it;
@@ -386,7 +386,7 @@ int verify_family_table(QApplication& application,zima::app::AssemblyWorkspaceWi
     if(!verify(open_row&&open_row->isVisible()&&table->cellWidget(1,0),"Family row lacks its separate Open and first-cell delete actions"))return 1;
     open_row->click();flush();
     const auto documents=window.execute_console_command("documents");
-    if(!verify(documents.ok&&documents.data.dump().find("Long")!=std::string::npos&&!window.findChild<QDialog*>("familyTableDialog"),"Family instance did not open in a new tab"))return 1;
+    if(!verify(documents.ok&&documents.data.dump().find("family-base-V01.prtz")!=std::string::npos&&!window.findChild<QDialog*>("familyTableDialog"),"Family instance did not open in a new tab"))return 1;
     const auto result_path=directory/std::filesystem::u8path("family-ui-result-"+part.document_id+".prtz");
     const auto copied=window.execute_console_command(QString::fromStdString(commands::Json{{"command","save_as"},{"arguments",{{"path",document::path_to_utf8(result_path)}}}}.dump()));
     if(!verify(copied.ok&&window.findChild<QAction*>("saveDocumentAsAction")->isEnabled(),"Family instance Save As did not create an independent copy"))return 1;
@@ -406,7 +406,7 @@ int verify_family_table(QApplication& application,zima::app::AssemblyWorkspaceWi
     static_cast<void>(workspace::set_family_table(drawing_models,part.document_id,drawing_source_table));
     drawing_source_table=workspace::family_table(drawing_models,part.document_id);
     const auto unopened_id=part.document_id+":family:"+drawing_source_table.instances.back().id;
-    const auto family_id=workspace::open_family_instance(drawing_models,kernel,part.document_id,"Long");
+    const auto family_id=workspace::open_family_instance(drawing_models,kernel,part.document_id,"family-base-V01.prtz");
     const auto family_saved=workspace::prepare_document_save(drawing_models,family_id,path).write();
     if(!verify(workspace::complete_document_save(drawing_models,family_saved),"Drawing family fixture did not save"))return 1;
     auto drawing=drawing::DrawingDocument::create_default();drawing.source_document_id=part.document_id;drawing.source_path=path;
@@ -568,7 +568,7 @@ int verify_family_table(QApplication& application,zima::app::AssemblyWorkspaceWi
                (*it)->data(0,Qt::UserRole+3).toString()=="part-occurrence")return (*it)->text(0);
         return QString{};
     };
-    if(!verify(variant_label()=="family-base-Long.prtz","Tree did not append the selected native variant name"))return 1;
+    if(!verify(variant_label()=="family-base-V01.prtz","Tree duplicated the generic filename or extension in the variant name"))return 1;
     const auto replace_menu=[&] {
         QTreeWidgetItem* selected=nullptr;tree->expandAll();
         for(QTreeWidgetItemIterator it(tree);*it;++it)if((*it)->data(0,Qt::UserRole+1).toString().toStdString()==selected_path&&(*it)->data(0,Qt::UserRole+3).toString()=="part-occurrence"){selected=*it;break;}
@@ -595,7 +595,7 @@ int verify_family_table(QApplication& application,zima::app::AssemblyWorkspaceWi
     if(!verify(rows()[0].at("source_document")==part.document_id&&rows()[0].at("instance_path")==selected_path&&rows()[1].at("source_document")==part.document_id,"Replace changed occurrence identity or the other occurrence"))return 1;
     if(!verify(variant_label()=="family-base.prtz","Returning to generic did not restore the real filename label"))return 1;
     run("undo");if(!verify(rows()[0].at("source_document")==member_id,"GUI Replace did not undo to its original variant"))return 1;
-    if(!verify(variant_label()=="family-base-Long.prtz","Undo did not restore the variant Tree label"))return 1;
+    if(!verify(variant_label()=="family-base-V01.prtz","Undo did not restore the variant Tree label"))return 1;
     std::string face_key;for(const auto& ref:cache.back().mesh.original_references.triangle_references)if(ref.owner_id==box.id){face_key=ref.semantic_key;break;}
     if(!verify(!face_key.empty(),"Replacement GUI fixture has no original Box face"))return 1;
     const auto reference=[&](const std::string& path){return commands::Json{{"instance_path",path},{"owner",box.id},{"key",face_key}};};

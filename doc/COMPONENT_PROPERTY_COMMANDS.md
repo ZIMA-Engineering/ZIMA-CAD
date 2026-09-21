@@ -1,5 +1,31 @@
 # Component properties in GUI and CLI
 
+## Distance annotations and preview cost (2026-09-21)
+
+Plane-distance annotations project the moving face anchor onto the target plane.
+Their witness points, dimension line and text plane therefore describe normal
+separation even when the two faces' stored vertices are displaced tangentially.
+This changes presentation only; signed offsets, Flip and component placement
+are preserved. Tests cover positive/negative distances and rotated target planes.
+
+Each component placement-system evaluation resolves all of its references from
+one current scene. Previously it rebuilt the full scene for each endpoint of
+every reference, as well as once for angular orientation. Scene reuse is local
+to that evaluation, so dependent components still consume updated target poses.
+Components without reference rows do not construct a scene for constraint checks.
+The solver equations, tolerances and persisted identities are unchanged.
+
+Set `ZIMA_BENCH_COMPONENT_PREVIEW=1` when running
+`zima_cpp_assembly_contract_tests` to measure offset and drag preview preparation
+on 50 occurrences. This includes constraints and scene preparation, but excludes
+Qt/GPU rendering. Before/after logs are `build/assembly-preview-before.log` and
+`build/assembly-preview-after.log`.
+On the same Windows host, 30 samples averaged 72.6 to 32.0 ms for offset edits
+and 90.1 to 33.5 ms for constrained dragging. These are fixture measurements,
+not frame-rate guarantees for arbitrary models. Assembly and Family Table
+contracts pass; component Properties, variant naming/Undo, new-document and
+translation GUI checks pass in `build/assembly-preview-final-gui-tests.log`.
+
 ## Properties header and portable sources (2026-09-21)
 
 The first GUI row is Source: a read-only relative path with an embedded Open
