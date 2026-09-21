@@ -596,3 +596,24 @@ pass (`build/drawing-conventions-core-tests.log` and
 conversion with two existing references and Undo, both text sides at three
 orientations, hidden millimetres and retained tolerance text. The native root
 launcher has been rebuilt.
+
+
+## Entity selection and deletion
+
+A normal left click selects one drawing entity. Ctrl+left click adds or removes
+an entity from the selection; clicking empty paper clears the selection.
+Selected entities are cyan. Delete and the selection context menu remove the
+same set in one document history transaction, so one Undo restores the set.
+This applies to manual dimensions, displayed model dimensions, axes,
+construction geometry, free text, balloons, captions, section labels, cutting
+traces and views. Removing a model annotation hides its drawing representation;
+it does not delete the source Part geometry. Removing a view also removes its
+dependent projected views and attached dimensions/balloons, using the existing
+view deletion contract. Title-block fields remain part of their dedicated editor.
+Selection is unavailable while an editing command owns input.
+
+Caption and section-label grips snap to the same view-local helper rectangles
+as dimensions. Cutting-trace end grips snap where their permitted movement line
+intersects a helper rectangle. End direction and minimum extension are preserved.
+The six-screen-pixel tolerance remains stable while zooming. Snapping changes
+stored paper placement only and never recalculates source geometry.

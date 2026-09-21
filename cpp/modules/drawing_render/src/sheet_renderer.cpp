@@ -38,7 +38,7 @@ QString drawing_font_family() {
 QColor SheetRenderer::annotation_color(const AnnotationKey& key,QColor normal,bool printing)const{
         if(printing)return normal;
         const auto same=[&](const auto& candidate){return candidate&&candidate->kind==key.kind&&candidate->view==key.view&&candidate->id==key.id;};
-        if(same(selected_annotation_))return QColor("#00D1FF");if(same(hovered_annotation_))return QColor("#FF9300");return normal;
+        if(entity_selected(key)||same(selected_annotation_))return QColor("#00D1FF");if(same(hovered_annotation_))return QColor("#FF9300");return normal;
     }
 QRectF SheetRenderer::view_bounds_at(const zima::drawing::DrawingView& view,double zoom,QPointF origin) const {
         bool first = true; double xmin{}, xmax{}, ymin{}, ymax{};
@@ -117,7 +117,7 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
         const auto draw_text=[&](const zima::drawing::TemplateText& text) {
             auto value=QString::fromStdString(text.text);
             if(value.trimmed().isEmpty()){if(printing)return;value=QStringLiteral("-");}
-            const bool selected=!printing&&!text.field_id.empty()&&selected_field_==text.field_id;
+            const bool selected=!printing&&!text.field_id.empty()&&(selected_field_==text.field_id||entity_selected({AnnotationKind::Text,{},text.field_id,0}));
             const bool hovered=!printing&&!text.field_id.empty()&&hovered_field_==text.field_id;
             painter.save();painter.setPen(selected?QColor("#00D1FF"):hovered?QColor("#FF9300"):pen_color(text.pen));
             QFont font(QString::fromStdString(text.font));font.setPixelSize(1000);painter.setFont(font);
@@ -202,7 +202,7 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
                 if(edge.hidden!=hidden_pass)continue;
                 if(!zima::drawing::drawing_edge_visible(view,edge))continue;
                 const bool gray=edge.hidden&&view.hidden_edge_style==zima::drawing::HiddenEdgeStyle::Gray;
-                const QColor edge_color=!printing&&!model_pick_&&!selected_annotation_&&view.id==selected_?QColor("#00D1FF"):
+                const QColor edge_color=!printing&&!model_pick_&&(entity_selected({AnnotationKind::View,view.id,{},0})||(!selected_annotation_&&view.id==selected_))?QColor("#00D1FF"):
                     edge.hatch&&!printing?QColor("#55BB77"):(edge.hidden||edge.tangent||edge.thread)&&!printing?QColor("#666666"):gray?QColor("#808080"):ink;
                 QPen pen(edge_color,width(!edge.thread&&!edge.hatch&&!edge.hidden&&!(edge.tangent&&view.tangent_edge_style==zima::drawing::TangentEdgeStyle::Thin)));
                 pen.setCapStyle(Qt::FlatCap);pen.setJoinStyle(Qt::RoundJoin);
@@ -224,7 +224,7 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
         painter.setBrush(Qt::NoBrush);
         for (const auto* view : views) {
             const auto bounds = printing?view_bounds_at(*view,zoom,origin):view_bounds_at(*view,zoom,origin).adjusted(-8,-8,8,8);
-            if (!printing&&((!selected_annotation_&&view->id==selected_) || view->id==hovered_ || (preview_ && preview_->id==view->id))) {
+            if (!printing&&((entity_selected({AnnotationKind::View,view->id,{},0})||(!selected_annotation_&&view->id==selected_)) || view->id==hovered_ || (preview_ && preview_->id==view->id))) {
                 painter.setPen(QPen(view->id==hovered_ && view->id!=selected_ ? QColor("#FF9300")
                     : QColor("#00D1FF"), 1, Qt::DashLine));
                 painter.drawRect(bounds);

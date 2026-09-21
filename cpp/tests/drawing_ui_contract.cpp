@@ -339,9 +339,10 @@ int verify_drawing_ui() {
         require(caption_point.red()>150&&caption_point.blue()>200&&caption_point.green()<150,"Selected text manipulation point is not a solid purple dot");
         mouse(canvas,QEvent::MouseButtonPress,*caption,Qt::LeftButton,Qt::LeftButton);
         mouse(canvas,QEvent::MouseMove,*caption+QPointF(60,-25),Qt::NoButton,Qt::LeftButton);
+        require(canvas->property("annotationSnapActive").toBool(),"Caption guide snap feedback missing");
         mouse(canvas,QEvent::MouseButtonRelease,*caption+QPointF(60,-25),Qt::LeftButton,Qt::NoButton);
         require(state.sheets.front().views.front().caption_position.has_value(),"Caption drag was not saved");
-        require(std::abs(window.view_label_center_for_test(original.id)->x()-caption->x()-60)<1e-6&&std::abs(window.view_label_center_for_test(original.id)->y()-caption->y()+25)<1e-6,"Caption does not follow the mouse");
+        require(QLineF(*window.view_label_center_for_test(original.id),*caption+QPointF(60,-25)).length()<=6.01,"Caption does not follow the mouse within guide snap tolerance");
         require(state.sheets.front().views.front().x==original.x&&state.sheets.front().views.front().y==original.y,"Caption drag moved the model");
         {
             zima::kernel::OcctKernel label_kernel;auto label_directory=std::filesystem::current_path();zima::command_host::Host host(workspace,label_kernel,label_directory);
@@ -746,8 +747,8 @@ int verify_drawing_ui() {
             side.camera=zima::drawing::projected_camera(root.camera,side.projection_direction,fixture.sheets.front().projection_method);side.projected_edges=zima::drawing::project_edges(box.back().mesh,side.camera);side.projected_triangles=zima::drawing::project_triangles(box.back().mesh,side.camera);
             auto section=zima::document::create_section();static_cast<void>(section.sketch.add_segment(-10,0,10,0));side.section_markers={section};fixture.sheets.front().views={root,side};workspace.add_drawing(fixture);window.edit_workspace_document(fixture.document_id);flush();
             const auto point=window.annotation_handle_for_test(section.id);require(point.has_value(),"Side projected trace has no visible manipulation handle");
-            mouse(canvas,QEvent::MouseButtonPress,*point,Qt::LeftButton,Qt::LeftButton);mouse(canvas,QEvent::MouseMove,*point+QPointF(0,20),Qt::NoButton,Qt::LeftButton);mouse(canvas,QEvent::MouseButtonRelease,*point+QPointF(0,20),Qt::LeftButton,Qt::NoButton);
-            const auto moved=window.annotation_handle_for_test(section.id);require(moved&&std::abs(moved->y()-point->y()-20)<1e-6,"Side trace handle did not follow a vertical drag");
+            mouse(canvas,QEvent::MouseButtonPress,*point,Qt::LeftButton,Qt::LeftButton);mouse(canvas,QEvent::MouseMove,*point+QPointF(0,20),Qt::NoButton,Qt::LeftButton);require(canvas->property("annotationSnapActive").toBool(),"Section end guide snap feedback missing");mouse(canvas,QEvent::MouseButtonRelease,*point+QPointF(0,20),Qt::LeftButton,Qt::NoButton);
+            const auto moved=window.annotation_handle_for_test(section.id);require(moved&&std::abs(moved->x()-point->x())<1e-6&&std::abs(moved->y()-point->y()-20)<=6.01,"Side trace snap changed its direction or exceeded tolerance");
             {
                 workspace.activate(fixture.document_id);workspace.display_top_level(fixture.document_id);
                 auto label_directory=std::filesystem::current_path();zima::command_host::Host host(workspace,kernel,label_directory);
@@ -758,7 +759,7 @@ int verify_drawing_ui() {
                 require(run("drawing.view.labels.get",{{"view",side.id}}).at("markers")[0].at("offsets_mm")==zima::commands::Json(offsets),"CLI query lost the GUI Section drag");
                 run("drawing.view.labels.set",{{"view",side.id},{"values",{{"markers",zima::commands::Json::array({{{"section",section.id},{"offsets_mm",{offsets[0]+5,offsets[1]}}}})}}}});
                 window.edit_workspace_document(fixture.document_id);flush();const auto changed=window.annotation_handle_for_test(section.id);
-                require(changed&&std::abs(QLineF(*changed,*moved).length()-5*20/std::abs(offsets[0]))<1e-6,"CLI Section offset did not move the visible handle by five paper millimetres");
+                require(changed&&std::abs(QLineF(*changed,*moved).length()-5*window.sheet_rectangle_for_test().height()/fixture.sheets.front().height_mm())<1e-6,"CLI Section offset did not move the visible handle by five paper millimetres");
                 run("undo");window.edit_workspace_document(fixture.document_id);flush();require(QLineF(*window.annotation_handle_for_test(section.id),*moved).length()<1e-6,"CLI Section Undo lost the GUI drag");
                 run("redo");window.edit_workspace_document(fixture.document_id);flush();require(QLineF(*window.annotation_handle_for_test(section.id),*changed).length()<1e-6,"CLI Section Redo lost its handle");
                 run("undo");window.edit_workspace_document(fixture.document_id);flush();
@@ -923,6 +924,45 @@ int verify_drawing_ui() {
             std::ifstream file(directory/"multiline-text.dxf");const std::string dxf((std::istreambuf_iterator<char>(file)),{});require(dxf.find("Hydraulic manifold")!=std::string::npos&&dxf.find("Deburr all ports")!=std::string::npos&&dxf.find("Clean before assembly")!=std::string::npos,"DXF lost real text lines");
             window.grab().save(QString::fromStdString((directory/"multiline-text.png").string()));
             center=window.title_field_center_for_test("text:"+text.id);click(canvas,*center);QKeyEvent key(QEvent::KeyPress,Qt::Key_Delete,Qt::NoModifier);QApplication::sendEvent(canvas,&key);flush();require(window.document_for_test().sheets.front().texts.empty(),"Selected text cannot be deleted");
+        }
+        {
+            auto fixture=zima::drawing::DrawingDocument::create_default();auto view=original;
+            view.x=65;view.y=60;view.show_caption=true;fixture.sheets.front().views={view};
+            zima::drawing::DrawingText first;first.id="multi-first";first.presentation.text="First selection";first.presentation.position={200,160};
+            auto second=first;second.id="multi-second";second.presentation.text="Second selection";second.presentation.position={200,130};
+            fixture.sheets.front().texts={first,second};workspace.add_drawing(fixture);window.edit_workspace_document(fixture.document_id);flush();
+            const auto a=*window.title_field_center_for_test("text:"+first.id),b=*window.title_field_center_for_test("text:"+second.id);
+            const auto ctrl_click=[&](QPointF point){
+                QMouseEvent press(QEvent::MouseButtonPress,point,QPointF(canvas->mapToGlobal(point.toPoint())),Qt::LeftButton,Qt::LeftButton,Qt::ControlModifier);
+                QApplication::sendEvent(canvas,&press);mouse(canvas,QEvent::MouseButtonRelease,point,Qt::LeftButton,Qt::NoButton);flush();
+            };
+            click(canvas,a);ctrl_click(b);require(canvas->property("drawingSelectionCount").toInt()==2,"Ctrl did not add text to drawing selection");
+            ctrl_click(a);require(canvas->property("drawingSelectionCount").toInt()==1,"Ctrl did not toggle selected text off");ctrl_click(a);
+            QContextMenuEvent menu_event(QContextMenuEvent::Mouse,b.toPoint(),canvas->mapToGlobal(b.toPoint()));QApplication::sendEvent(canvas,&menu_event);flush();
+            auto* menu=canvas->findChild<QMenu*>("drawingSelectionContextMenu");require(menu,"Mixed selection context menu missing");
+            auto* remove=menu->findChild<QAction*>("drawingDeleteSelectionAction");require(remove,"Selection Delete action missing");remove->trigger();menu->close();flush();
+            require(window.document_for_test().sheets.front().texts.empty()&&window.document_for_test().sheets.front().views.size()==1,"Multi-delete removed wrong entities");
+            require(zima::workspace::step_document_history(workspace,fixture.document_id,zima::workspace::HistoryDirection::Undo),"Multi-delete has no Undo");window.edit_workspace_document(fixture.document_id);flush();
+            require(window.document_for_test().sheets.front().texts.size()==2,"One Undo did not restore complete selection");
+            click(canvas,a);ctrl_click(*window.view_rectangle_center_for_test(view.id));
+            require(canvas->property("drawingSelectionCount").toInt()==2,"Mixed text/view selection failed");
+            QKeyEvent key(QEvent::KeyPress,Qt::Key_Delete,Qt::NoModifier);QApplication::sendEvent(canvas,&key);flush();
+            require(window.document_for_test().sheets.front().views.empty()&&window.document_for_test().sheets.front().texts.size()==1,"Delete did not remove mixed selection");
+            require(zima::workspace::step_document_history(workspace,fixture.document_id,zima::workspace::HistoryDirection::Undo),"Mixed delete has no Undo");window.edit_workspace_document(fixture.document_id);flush();
+            click(canvas,a);click(canvas,QPointF(2,2));QApplication::sendEvent(canvas,&key);flush();require(window.document_for_test().sheets.front().texts.size()==2,"Empty click retained stale drawing selection");
+            auto annotations=fixture;annotations.document_id+="-annotations";
+            auto& annotated=annotations.sheets.front().views.front();annotated.model_annotations.clear();
+            for(int i=0;i<3;++i){zima::drawing::ModelAnnotation item;item.source={part.document_id,"selection-owner","selection-"+std::to_string(i),{}};item.visible=true;
+                item.kind=i==0?zima::drawing::ModelAnnotationKind::Axis:i==1?zima::drawing::ModelAnnotationKind::Construction:zima::drawing::ModelAnnotationKind::Dimension;
+                item.curves={{{-15.,50.+i*15},{15.,50.+i*15}}};item.text_anchor={0,50.+i*15};annotated.model_annotations.push_back(item);}
+            workspace.add_drawing(annotations);window.edit_workspace_document(annotations.document_id);flush();canvas->grab();
+            for(int i=0;i<3;++i){const auto handle=window.model_annotation_handle_for_test(annotated.model_annotations[i].source,0,annotated.id);require(handle.has_value(),"Model annotation has no selection hit");if(i==0)click(canvas,*handle);else ctrl_click(*handle);}
+            require(canvas->property("drawingSelectionCount").toInt()==3,"Mixed axis/construction/dimension selection failed");
+            QApplication::sendEvent(canvas,&key);flush();
+            require(std::ranges::none_of(window.document_for_test().sheets.front().views.front().model_annotations,[](const auto& a){return a.visible;}),"Model annotations were not all hidden by Delete");
+            require(zima::workspace::step_document_history(workspace,annotations.document_id,zima::workspace::HistoryDirection::Undo),"Annotation deletion has no Undo");window.edit_workspace_document(annotations.document_id);flush();
+            require(std::ranges::all_of(window.document_for_test().sheets.front().views.front().model_annotations,[](const auto& a){return a.visible;}),"One Undo did not restore all model annotations");
+
         }
         {
             std::optional<zima::sketcher::SketchText> preview,committed;

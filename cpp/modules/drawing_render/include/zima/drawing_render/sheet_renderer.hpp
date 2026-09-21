@@ -6,6 +6,7 @@
 #include <QPolygonF>
 #include <QImage>
 #include <set>
+#include <algorithm>
 #include <functional>
 namespace zima::drawing_render {
 QString drawing_font_family();
@@ -18,7 +19,7 @@ public:
     void set_render_context(drawing::TitleBlockContext context) {title_block_context_=std::move(context);}
     void paint_sheet(QPainter&,double zoom,QPointF origin,bool printing);
 protected:
-    enum class AnnotationKind { Caption, SectionLabel, Dimension, SectionEnd, Model, Balloon };
+    enum class AnnotationKind { Caption, SectionLabel, Dimension, SectionEnd, Model, Balloon, View, Text };
     struct AnnotationKey {
         AnnotationKind kind{};std::string view,id;int end{};
         bool operator==(const AnnotationKey&)const=default;
@@ -27,6 +28,11 @@ protected:
         AnnotationKey key;QPointF point;QPainterPath hit;
         zima::drawing::Point2 direction{};double offset{},minimum{};QRectF text_hit;
     };
+    std::vector<AnnotationKey> entity_selection_;
+    bool entity_selected(AnnotationKey key) const {
+        key.end=0;
+        return std::ranges::find(entity_selection_,key)!=entity_selection_.end();
+    }
     std::set<std::string> model_offered_;
     std::function<void(const std::string&)> model_pick_;
     std::map<std::string,zima::drawing::TitleBlockTextTarget> title_targets_;
