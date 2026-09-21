@@ -333,7 +333,7 @@ public:
         });
         orientation_ = new QComboBox(content);
         orientation_->setObjectName("drawingViewOrientation");
-        const char* orientations[]{"Přední", "Zadní", "Levý", "Pravý", "Horní", "Dolní", "Izometrický"};
+        const char* orientations[]{QT_TR_NOOP("Přední"), QT_TR_NOOP("Zadní"), QT_TR_NOOP("Levý"), QT_TR_NOOP("Pravý"), QT_TR_NOOP("Horní"), QT_TR_NOOP("Dolní"), QT_TR_NOOP("Izometrický")};
         for (int i=0; i<7; ++i) orientation_->addItem(QObject::tr(orientations[i]), i);
         orientation_->addItem(tr("Vlastní orientace"),-1);
         const auto standard=zima::drawing::standard_camera(value_.orientation);
@@ -1739,6 +1739,7 @@ void DrawingWindow::set_status_message(const QString& message) {
 
 void DrawingWindow::new_document() {
     document_ = zima::drawing::DrawingDocument::create_default(); path_.clear();
+    document_.sheets.front().name=tr("List %1").arg(1).toStdString();
     workspace_document_id_.clear();
     if(workspace_!=nullptr) {
         workspace_->add_drawing(document_); workspace_document_id_=document_.document_id;
@@ -1934,7 +1935,7 @@ void DrawingWindow::insert_view() {
         }, [this] { start_selection(); });
         set_status_message(tr("Vložit pohled: klikněte na místo na listu. Esc zruší vložení."));
     } catch (const std::exception& error) {
-        start_selection();set_status_message(QString::fromUtf8(error.what()));
+        start_selection();set_status_message(QObject::tr(error.what()));
     }
 }
 
@@ -2359,7 +2360,7 @@ void DrawingWindow::refresh_title_block_context() {
     zima::drawing::TitleBlockContext context;
     try {context=build_title_block_context_for_source(source_id,source_path,workspace_);}
     catch(const std::exception& error) {
-        set_status_message(tr("Zdroj razítka není dostupný: %1").arg(QString::fromUtf8(error.what())));
+        set_status_message(tr("Zdroj razítka není dostupný: %1").arg(QObject::tr(error.what())));
     }
     context.sheet_index=sheets_->currentIndex();context.sheet_count=static_cast<int>(document_.sheets.size());
     canvas_->set_title_block_context(std::move(context));

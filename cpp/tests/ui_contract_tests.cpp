@@ -351,6 +351,7 @@ int verify_curve_placement_picker(QApplication& application,QWidget& parent) {
 
 int verify_numeric_value_locks(QApplication&,QWidget&);
 int verify_translations(QApplication&,QWidget&);
+int verify_part_dialog_layout(QApplication&,QWidget&);
 
 void verify_sketch_endpoint_dialog(QWidget& parent) {
     using namespace zima;
@@ -660,6 +661,7 @@ int main(int argc, char* argv[]) {
         verify_stable_placement_rows();
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_STABLE_PLACEMENT_ROWS_ONLY")) return 0;
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SHEET_ATTACHMENT_DIALOG_ONLY")) {verify_sheet_attachment_dialog(parent);verify_flat_attachment_dialog(parent);return 0;}
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_PART_DIALOG_LAYOUT_ONLY")) return verify_part_dialog_layout(application,parent);
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_TRANSLATIONS_ONLY")) return verify_translations(application,parent);
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_VALUE_LOCKS_ONLY")) return verify_numeric_value_locks(application,parent);
         if(qEnvironmentVariableIsSet("ZIMA_VERIFY_ENTRY_TABLES_ONLY")) return verify_entry_tables(application,parent);

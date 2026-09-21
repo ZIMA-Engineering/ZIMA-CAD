@@ -126,7 +126,8 @@ void Host::register_derived_copy_commands() {
                 if(!create&&args.size()==1+(args.contains("document")?1:0))throw Error("invalid_arguments","Specify at least one copy parameter.");
                 const auto edit=workspace::prepare_derived_copy_edit(workspace_,id,create?std::string{}:args.at("object").get<std::string>(),pattern);
                 if(edit.initial.parameters.pattern.has_value()!=pattern)throw Error("wrong_feature","The requested copy type does not match this object.");
-                auto value=edit.initial;parameters(value,edit,args,pattern);
+                auto value=edit.initial;
+                if(create)value.name=pattern?tr("Pole"):tr("Zrcadlo");parameters(value,edit,args,pattern);
                 const bool changed=workspace::commit_derived_copy(workspace_,kernel_,edit,std::move(value));
                 auto data=derived_copy_details(workspace_,id,edit.initial.id,pattern);data["changed"]=changed;
                 if(changed)change_=Change{ChangeKind::Model,id};

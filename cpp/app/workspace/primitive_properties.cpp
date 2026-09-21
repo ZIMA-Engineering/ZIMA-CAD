@@ -203,6 +203,16 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
         : feature_kind == zima::document::FeatureKind::Revolution
             ? zima::document::PartDocument::create_revolution_container(source_sketch_id)
             : zima::document::PartDocument::create_box_container();
+    if (!edit_mode && !resuming_profile) {
+        initial.name = tr(initial.name.c_str()).toStdString();
+        for (auto* data : {&initial.hole.sketch_serialized, &initial.hole.chamfer_sketch_serialized,
+                           &initial.hole.tip_sketch_serialized}) {
+            if (data->empty()) continue;
+            auto sketch = zima::sketcher::Sketch::from_serialized(*data);
+            sketch.name = tr(sketch.name.c_str()).toStdString();
+            *data = sketch.serialized();
+        }
+    }
     if (feature_kind == zima::document::FeatureKind::DrillPoint && part != nullptr) {
         const zima::kernel::BodyResult* input_body = nullptr;
         if (rollback_boundary && rollback_boundary->input_body) {
@@ -1320,7 +1330,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 // not react until after returning from Sketcher.
                 viewer_->set_transient_edges({});
                 publish_profile_preview_scene(nullptr, resolved_preview);
-                state_->setText(QString::fromUtf8(error.what()));
+                state_->setText(QObject::tr(error.what()));
             }
         });
     } else if (feature_kind == zima::document::FeatureKind::Revolution) {
@@ -1385,7 +1395,7 @@ void AssemblyWorkspaceWindow::show_primitive_properties(
                 // operation wire, never its live work plane and dimensions.
                 viewer_->set_transient_edges({});
                 publish_profile_preview_scene(nullptr, resolved_preview);
-                state_->setText(QString::fromUtf8(error.what()));
+                state_->setText(QObject::tr(error.what()));
             }
         });
     }

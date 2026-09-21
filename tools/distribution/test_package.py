@@ -35,12 +35,20 @@ class PackageTests(unittest.TestCase):
             package.git(repo, 'config', 'user.name', 'Packaging test')
             package.git(repo, 'config', 'user.email', 'test@example.invalid')
             (repo / 'tracked.txt').write_text('committed', encoding='utf-8')
-            package.git(repo, 'add', 'tracked.txt'); package.git(repo, 'commit', '-qm', 'fixture')
+            resources = ('config/localization/ru.qt.json', 'config/formats/ZE-RAZITKO-ru.tblz',
+                         'config/formats/ZIMA-Engineering.svg', 'config/materials/01_steels/structural/S235JR.matz')
+            for name in resources:
+                target = repo / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text('committed resource', encoding='utf-8')
+            package.git(repo, 'add', 'tracked.txt', 'config'); package.git(repo, 'commit', '-qm', 'fixture')
             (repo / 'tracked.txt').write_text('dirty', encoding='utf-8')
             (repo / 'private.txt').write_text('not source', encoding='utf-8')
             package.export_source(repo, 'HEAD', root / 'export')
             self.assertEqual((root / 'export/tracked.txt').read_text(), 'committed')
             self.assertFalse((root / 'export/private.txt').exists())
+            for name in resources:
+                self.assertEqual((root / 'export' / name).read_text(), 'committed resource')
 
     def test_archive_hash_and_extraction(self):
         with tempfile.TemporaryDirectory() as temp:

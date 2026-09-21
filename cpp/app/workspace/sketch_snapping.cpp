@@ -93,7 +93,7 @@ bool AssemblyWorkspaceWindow::accept_sketch_point_ray(
         refresh_scene();
         state_->setText(tr("Bod vytvořen. Kliknutím můžete vytvořit další."));
     } catch (const std::exception& error) {
-        state_->setText(QString::fromUtf8(error.what()));
+        state_->setText(QObject::tr(error.what()));
     }
     return true;
 }
@@ -942,7 +942,7 @@ bool AssemblyWorkspaceWindow::accept_sketch_segment_ray(
             })) return true;
     } catch (const std::exception& error) {
         state_->setText(tr("Úsečku nelze vytvořit: %1")
-            .arg(QString::fromUtf8(error.what())));
+            .arg(QObject::tr(error.what())));
         return true;
     }
     preserve_view_on_refresh_ = true;

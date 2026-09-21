@@ -95,7 +95,7 @@ void AssemblyWorkspaceWindow::accept_sketch_external_reference(
         preserve_view_on_refresh_=true;refresh_tabs();refresh_scene();
         state_->setText(tr("Externí reference byla uložena bez volání OCCT. Vyberte další zdroj."));
     }catch(const std::exception& error) {
-        state_->setText(tr("Externí referenci nelze vytvořit: %1").arg(QString::fromUtf8(error.what())));
+        state_->setText(tr("Externí referenci nelze vytvořit: %1").arg(QObject::tr(error.what())));
     }
 }
 

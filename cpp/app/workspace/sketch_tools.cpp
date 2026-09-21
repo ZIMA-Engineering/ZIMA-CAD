@@ -749,7 +749,7 @@ void AssemblyWorkspaceWindow::end_sketch_trim_gesture() {
             "Ořezání je pouze v náhledu. Pokračujte LMB; dvojklik MMB "
             "dokončí příkaz a Escape obnoví původní skicu."));
     } catch (const std::exception& error) {
-        state_->setText(QString::fromUtf8(error.what()));
+        state_->setText(QObject::tr(error.what()));
     }
 }
 
@@ -802,7 +802,7 @@ bool AssemblyWorkspaceWindow::finish_sketch_trim() {
         preserve_view_on_refresh_ = true;
         refresh_scene();
         state_->setText(tr("Ořezání nebylo uloženo: %1. Aktivní je Výběr.")
-            .arg(QString::fromUtf8(error.what())));
+            .arg(QObject::tr(error.what())));
     }
     return true;
 }
@@ -954,7 +954,7 @@ bool AssemblyWorkspaceWindow::finish_sketch_mirror() {
         state_->setText(tr("Geometrie skici byla zrcadlena jako jedna revize."));
         return true;
     } catch (const std::exception& error) {
-        state_->setText(QString::fromUtf8(error.what()));
+        state_->setText(QObject::tr(error.what()));
         return true;
     }
 }
@@ -1163,7 +1163,7 @@ bool AssemblyWorkspaceWindow::finish_sketch_bspline() {
             ? tr("Interpolační spline vytvořena. Klikáním můžete vytvořit další.")
             : tr("B-spline vytvořena. Klikáním můžete vytvořit další."));
     } catch (const std::exception& error) {
-        state_->setText(QString::fromUtf8(error.what()));
+        state_->setText(QObject::tr(error.what()));
     }
     return true;
 }
@@ -1218,7 +1218,7 @@ void AssemblyWorkspaceWindow::preview_sketch_bspline_ray(
         // Preview is transient; a temporarily invalid shape must never let
         // an exception escape into Qt's mouse-event dispatch.
         viewer_->set_transient_edges({});
-        state_->setText(tr("Náhled spliny: %1").arg(QString::fromUtf8(error.what())));
+        state_->setText(tr("Náhled spliny: %1").arg(QObject::tr(error.what())));
     }
     std::vector<zima::kernel::Vec3> accepted;
     for (const auto& point : pending_bspline_points_)

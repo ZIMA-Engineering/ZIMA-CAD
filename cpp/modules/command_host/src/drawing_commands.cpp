@@ -315,7 +315,7 @@ void Host::register_drawing_commands(){
         const auto ids=workspace::delete_drawing_view(doc,args["view"].get<std::string>());return Json{{"removed",ids},{"changed",true}};
     });
     std::vector<commands::Argument> parameters={{"name",false},{"format",false},{"projection",false},{"scale",false,Type::Number},{"thick_line_mm",false,Type::Number},{"thin_line_mm",false,Type::Number},{"red_line_mm",false,Type::Number},{"locale",false},{"document",false}};
-    add({"drawing.sheet.create",tr("Create a drawing sheet with explicit paper settings."),parameters,true},[](auto& doc,const Json& args,const auto&){workspace::SheetSettings initial;initial.name="List "+std::to_string(doc.sheets.size()+1);const auto id=workspace::create_drawing_sheet(doc,settings(args,initial));auto result=sheet_json(*doc.find_sheet(id));result["changed"]=true;return result;});
+    add({"drawing.sheet.create",tr("Create a drawing sheet with explicit paper settings."),parameters,true},[this](auto& doc,const Json& args,const auto&){workspace::SheetSettings initial;initial.name=tr("List")+" "+std::to_string(doc.sheets.size()+1);const auto id=workspace::create_drawing_sheet(doc,settings(args,initial));auto result=sheet_json(*doc.find_sheet(id));result["changed"]=true;return result;});
     parameters.insert(parameters.begin(),{"sheet",true});
     add({"drawing.sheet.set",tr("Edit drawing sheet settings through the shared sheet operation."),parameters,true},[this](auto& doc,const Json& args,const auto& document_path){
         const auto id=args["sheet"].get<std::string>();const auto* sheet=doc.find_sheet(id);if(!sheet)throw workspace::DrawingOperationError("sheet_not_found","The drawing sheet does not exist.");

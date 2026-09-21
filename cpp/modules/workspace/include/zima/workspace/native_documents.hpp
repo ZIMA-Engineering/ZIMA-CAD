@@ -9,6 +9,7 @@ struct NativeTemplateSettings {
     std::filesystem::path directory, part_template, assembly_template;
     std::string first_body_name{"Body 1"};
     double sheet_cut_tolerance{0.05};
+    std::string first_sheet_name{"Sheet 1"};
 };
 // Uses the existing body-origin attachment contract unchanged.
 [[nodiscard]] document::PartDocument part_from_template(const NativeTemplateSettings& settings);

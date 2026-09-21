@@ -903,7 +903,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                                 refresh_scene();
                             }
                         } catch (const std::exception& error) {
-                            state_->setText(QString::fromUtf8(error.what()));
+                            state_->setText(QObject::tr(error.what()));
                         }
                     }
                     return;

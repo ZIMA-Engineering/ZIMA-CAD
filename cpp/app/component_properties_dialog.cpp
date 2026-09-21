@@ -28,12 +28,12 @@ namespace {
 
 const char* mate_type_label(zima::assembly::MateKind kind) {
     switch (kind) {
-    case zima::assembly::MateKind::PlaneCoincident: return "Plocha";
-    case zima::assembly::MateKind::AxisCoincident: return "Osa";
-    case zima::assembly::MateKind::PointCoincident: return "Bod";
-    case zima::assembly::MateKind::PlaneAngle: return "Úhel ploch";
+    case zima::assembly::MateKind::PlaneCoincident: return QT_TR_NOOP("Plocha");
+    case zima::assembly::MateKind::AxisCoincident: return QT_TR_NOOP("Osa");
+    case zima::assembly::MateKind::PointCoincident: return QT_TR_NOOP("Bod");
+    case zima::assembly::MateKind::PlaneAngle: return QT_TR_NOOP("Úhel ploch");
     }
-    return "Plocha";
+    return QT_TR_NOOP("Plocha");
 }
 
 bool mate_type_accepts(zima::assembly::MateKind type, zima::assembly::MateReferenceKind kind) {

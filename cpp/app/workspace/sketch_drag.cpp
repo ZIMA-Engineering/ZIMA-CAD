@@ -311,7 +311,7 @@ void AssemblyWorkspaceWindow::update_sketch_point_drag(
                 sketch_corner_drag_first_segment_id_,
                 sketch_corner_drag_second_segment_id_, radius));
         } catch (const std::exception& error) {
-            state_->setText(QString::fromUtf8(error.what()));
+            state_->setText(QObject::tr(error.what()));
             return;
         }
         sketch_drag_changed_ = radius > 1.0e-9 || had_radius;
@@ -519,7 +519,7 @@ void AssemblyWorkspaceWindow::update_placement_reference_drag(
     try { placement_reference_drag_document_->calculate_placement_references(); }
     catch (const std::exception& error) {
         row.offset = previous_value;
-        state_->setText(QString::fromUtf8(error.what()));
+        state_->setText(QObject::tr(error.what()));
         return;
     }
     placement_reference_drag_changed_ = true;

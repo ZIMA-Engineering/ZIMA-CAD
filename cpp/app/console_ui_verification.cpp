@@ -1386,7 +1386,7 @@ int verify_command_console(QApplication& application,AssemblyWorkspaceWindow& wi
         check(window.findChild<QDialog*>("materialDialog") && material_table->item(density_row,2)->text()=="-1" && QApplication::activeModalWidget()==nullptr,"Material validation lost pending data or closed the editor");
         material_table->item(density_row,2)->setText("7800");material_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
         check(!window.findChild<QDialog*>("materialDialog") && std::abs(run("document.relations.get").data.at("model_values").at("model.mass").get<double>()-.0468)<1e-9,"Material GUI did not update cached physical mass");
-        const auto library_source=std::filesystem::absolute(std::filesystem::path("config/materials/01_oceli/konstrukcni/S235JR.matz"));
+        const auto library_source=std::filesystem::absolute(std::filesystem::path("config/materials/01_steels/structural/S235JR.matz"));
         const auto load_gui_library=[&](bool confirm) {
             material_action->trigger();flush();auto* dialog=window.findChild<QDialog*>("materialDialog");
             auto* load=dialog?dialog->findChild<QPushButton*>("loadMaterialLibrary"):nullptr;check(load,"Material library button missing");

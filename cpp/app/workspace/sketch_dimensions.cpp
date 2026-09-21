@@ -471,7 +471,7 @@ void AssemblyWorkspaceWindow::accept_sketch_universal_dimension(
         }
     } catch (const std::exception& error) {
         state_->setText(tr("Univerzální kótu nelze sestavit: %1")
-            .arg(QString::fromUtf8(error.what())));
+            .arg(QObject::tr(error.what())));
     }
 }
 
@@ -557,7 +557,7 @@ bool AssemblyWorkspaceWindow::accept_sketch_universal_dimension_ray(
         }
     } catch (const std::exception& error) {
         state_->setText(tr("Univerzální kótu nelze uložit: %1")
-            .arg(QString::fromUtf8(error.what())));
+            .arg(QObject::tr(error.what())));
         return true;
     }
     reset_sketch_universal_dimension(!completed_symmetric_dimension);
@@ -749,7 +749,7 @@ void AssemblyWorkspaceWindow::accept_sketch_point_dimension(
                 preserve_view_on_refresh_ = true;
                 refresh_scene();
             } catch (const std::exception& error) {
-                state_->setText(QString::fromUtf8(error.what()));
+                state_->setText(QObject::tr(error.what()));
             }
             return;
         }
@@ -774,7 +774,7 @@ void AssemblyWorkspaceWindow::accept_sketch_point_dimension(
                 preserve_view_on_refresh_ = true;
                 refresh_scene();
             } catch (const std::exception& error) {
-                state_->setText(QString::fromUtf8(error.what()));
+                state_->setText(QObject::tr(error.what()));
             }
         }
         return;
@@ -819,7 +819,7 @@ void AssemblyWorkspaceWindow::accept_sketch_point_dimension(
             preserve_view_on_refresh_ = true;
             refresh_scene();
         } catch (const std::exception& error) {
-            state_->setText(QString::fromUtf8(error.what()));
+            state_->setText(QObject::tr(error.what()));
         }
         return;
     }
@@ -854,7 +854,7 @@ void AssemblyWorkspaceWindow::accept_sketch_point_dimension(
                         candidate.semantic_key.substr(4));
                 } catch (const std::exception& error) {
                     state_->setText(tr("Kótu radiusu nelze vytvořit: %1")
-                        .arg(QString::fromUtf8(error.what())));
+                        .arg(QObject::tr(error.what())));
                 }
             } else if (candidate.semantic_key.starts_with("corner_radius:")) {
                 pending_corner_radius_dimension_id_ =
@@ -1059,7 +1059,7 @@ bool AssemblyWorkspaceWindow::accept_sketch_dimension_placement_ray(
             }
         } catch (const std::exception& error) {
             state_->setText(tr("Kótu nelze vytvořit: %1")
-                .arg(QString::fromUtf8(error.what())));
+                .arg(QObject::tr(error.what())));
             return true;
         }
         pending_corner_radius_dimension_id_.clear();
@@ -1092,7 +1092,7 @@ bool AssemblyWorkspaceWindow::accept_sketch_dimension_placement_ray(
             // the user can cancel or choose another command, and leave the
             // persisted Sketch unchanged.
             state_->setText(tr("Kótu nelze vytvořit: %1")
-                .arg(QString::fromUtf8(error.what())));
+                .arg(QObject::tr(error.what())));
             return true;
         }
         pending_sketch_dimension_.reset();
@@ -1276,7 +1276,7 @@ void AssemblyWorkspaceWindow::accept_sketch_line_pair_dimension(
         show_sketch_dimension_properties(
             active_sketch_id_, {}, kind, {}, {}, first, second);
     } catch (const std::exception& error) {
-        state_->setText(QString::fromUtf8(error.what()));
+        state_->setText(QObject::tr(error.what()));
         preserve_view_on_refresh_ = true;
         refresh_scene();
     }
@@ -1496,7 +1496,7 @@ void AssemblyWorkspaceWindow::show_sketch_dimension_properties(
         } catch (const std::exception& error) {
             pending_sketch_dimension_ = std::move(initial);
             state_->setText(tr("Kótu nelze vytvořit: %1")
-                .arg(QString::fromUtf8(error.what())));
+                .arg(QObject::tr(error.what())));
             preserve_view_on_refresh_ = true;
             refresh_scene();
             return;

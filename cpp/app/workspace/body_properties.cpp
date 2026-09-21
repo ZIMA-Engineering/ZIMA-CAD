@@ -134,7 +134,7 @@ void AssemblyWorkspaceWindow::show_body_boolean_properties(const std::string& id
     auto available = graph.available_before(boundary);
     if (available.size() < 2) { state_->setText(tr("Boolean potřebuje dva dostupné výsledky těles.")); return; }
     if(!id.empty() && !pending.body_history.find_boolean(id))return;
-    const auto edit=workspace::prepare_body_boolean_edit(pending,id,"Boolean",zima::kernel::BodyCombination::Subtract,
+    const auto edit=workspace::prepare_body_boolean_edit(pending,id,tr("Boolean").toStdString(),zima::kernel::BodyCombination::Subtract,
         available[0],available[1]);
     graph=edit.pending;
     const auto edited=edit.object_id;

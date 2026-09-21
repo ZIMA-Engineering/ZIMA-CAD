@@ -1,4 +1,5 @@
 #pragma once
+#include "sweep_station_label.hpp"
 #include "table_entry.hpp"
 #include "sketch_button_style.hpp"
 #include "sweep_placement_dialog.hpp"
@@ -33,7 +34,9 @@ public:
         plane_table_=new QTableWidget(1,3,this);plane_table_->setObjectName("sweep2dPathPlane");
         plane_table_->horizontalHeader()->hide();plane_table_->verticalHeader()->hide();
         plane_table_->setSelectionMode(QAbstractItemView::NoSelection);plane_table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
-        plane_table_->setFixedHeight(36);plane_table_->setColumnWidth(0,24);plane_table_->setColumnWidth(2,28);
+        // Shared reference controls are 30 px; leave space for the cell grid.
+        plane_table_->setRowHeight(0,32);
+        plane_table_->setFixedHeight(36);plane_table_->setColumnWidth(0,32);plane_table_->setColumnWidth(2,32);
         plane_table_->horizontalHeader()->setSectionResizeMode(1,QHeaderView::Stretch);
         ui::install_reference_cell_delegate(plane_table_);
         plane_indicator_=ui::build_reference_row_indicator([this]{pending.sweep2d.path_plane.reset();plane_initialized_=true;
@@ -124,9 +127,9 @@ public:
                 std::erase_if(pending.sweep2d.profiles,[&](const auto& p){return p.point_id==station.point_id&&p.incoming==station.incoming;});
                 refresh_profiles();notify();
             });
-            profiles_->setItem(row,0,new QTableWidgetItem(QString::fromStdString(station.label)));
+            profiles_->setItem(row,0,new QTableWidgetItem(sweep_station_label(station.label)));
             const auto status=populated?tr("Vlastní"):inherited.isEmpty()?tr("Vyplňte první profil"):tr("Z %1").arg(inherited);
-            if(populated)inherited=QString::fromStdString(station.label);
+            if(populated)inherited=sweep_station_label(station.label);
             profiles_->setItem(row,3,new QTableWidgetItem(status));
             auto* button=new QPushButton(tr("Sketch"),profiles_);style_sketch_button(button);
             button->setObjectName(QString("sweep2dStationSketch%1").arg(row));

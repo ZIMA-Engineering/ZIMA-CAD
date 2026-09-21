@@ -5,6 +5,7 @@
 #include <fstream>
 #include <iostream>
 #include <stdexcept>
+#include <nlohmann/json.hpp>
 
 namespace zima::cli {
 namespace {
@@ -112,7 +113,14 @@ Settings load_settings(const fs::path& executable,const fs::path& working,const 
     const auto language=value("Application/Language","cs");
     const auto catalogue=configured_path("Paths/Localization","localization")/fs::u8path(language+".ini");
     if(fs::is_regular_file(catalogue))for(const auto& [key,text]:read_ini(catalogue,true))result.translations[key.substr(15)]=text;
+    std::ifstream supplemental(catalogue.parent_path()/fs::u8path(language+".qt.json"));
+    if(supplemental) {
+        const auto messages=nlohmann::json::parse(supplemental);
+        if(messages.is_object())for(const auto& [key,text]:messages.items())
+            if(text.is_string())result.translations[key]=text.get<std::string>();
+    }
     result.documents.templates.first_body_name=result.translate("Těleso 1","QObject");
+    result.documents.templates.first_sheet_name=result.translate("List","QObject")+" 1";
     return result;
 }
 } // namespace zima::cli

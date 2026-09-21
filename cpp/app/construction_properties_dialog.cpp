@@ -1,3 +1,4 @@
+#include "sweep_station_label.hpp"
 #include "work_plane_selection.hpp"
 #include <zima/ui/numeric_value_lock.hpp>
 #include "table_entry.hpp"
@@ -736,12 +737,12 @@ void ConstructionPropertiesDialog::refresh_sweep_profiles() {
     auto* row_actions=entry_row_header(sweep_profiles_table_);row_actions->clear_actions();
     zima::document::Curve3DRoute route;
     try { route = zima::document::curve3d_route(current_value()); }
-    catch(const std::exception& error) { error_->setText(QString::fromUtf8(error.what())); return; }
+    catch(const std::exception& error) { error_->setText(QObject::tr(error.what())); return; }
     QString inherited_from;
     for (const auto& station : route.stations) {
         const int row = sweep_profiles_table_->rowCount();
         sweep_profiles_table_->insertRow(row);
-        auto* item = new QTableWidgetItem(QString::fromStdString(station.label));
+        auto* item = new QTableWidgetItem(sweep_station_label(station.label));
         if (initial_sweep_ && current_value().curve_type == zima::document::Curve3DType::Polyline &&
             !current_value().curve_rounding_enabled) {
             auto container=*initial_sweep_;
@@ -769,7 +770,7 @@ void ConstructionPropertiesDialog::refresh_sweep_profiles() {
         QString status;
         if (!station.active) status = tr("Neaktivní");
         else if (has_profile) {
-            inherited_from = QString::fromStdString(station.label);
+            inherited_from = sweep_station_label(station.label);
             status = tr("Vlastní");
         } else if (inherited_from.isEmpty()) status = tr("Vyplňte první profil");
         else status = tr("Z bodu %1").arg(inherited_from);
@@ -797,7 +798,7 @@ void ConstructionPropertiesDialog::refresh_sweep_profiles() {
                     self->show();self->raise();
                 });
                 hide();dialog->show();
-            } catch(const std::exception& error) { error_->setText(QString::fromUtf8(error.what())); }
+            } catch(const std::exception& error) { error_->setText(QObject::tr(error.what())); }
         });
         sweep_profiles_table_->setCellWidget(row,2,order);
         auto* button = new QPushButton(tr("Sketch"), sweep_profiles_table_);
@@ -811,7 +812,7 @@ void ConstructionPropertiesDialog::refresh_sweep_profiles() {
             std::size_t index=static_cast<std::size_t>(std::distance(sweep_profiles_.begin(),found));
             if(found==sweep_profiles_.end()) {
                 auto sketch=zima::sketcher::Sketch::create_default();
-                sketch.name="Profil "+station.label;
+                sketch.name=tr("Profil %1").arg(sweep_station_label(station.label)).toStdString();
                 sketch.owner_container_id=initial_sweep_->id;
                 sweep_profiles_.push_back({zima::kernel::make_stable_id(),station.point_id,sketch.id,sketch.serialized(),station.incoming});
             }
@@ -1323,7 +1324,7 @@ void ConstructionPropertiesDialog::refresh_curve_points() {
         auto* direction_enabled = new QToolButton(curve_points_table_);
         direction_enabled->setObjectName(
             QStringLiteral("curve3DDirectionEnabled%1").arg(index));
-        direction_enabled->setText(QStringLiteral("SMĚR"));
+        direction_enabled->setText(QObject::tr("SMĚR"));
         direction_enabled->setCheckable(true);
         direction_enabled->setChecked(
             curve_points_[index].curve_tangent_enabled);
@@ -1434,13 +1435,13 @@ void ConstructionPropertiesDialog::notify_preview() {
             static_cast<void>(zima::document::curve3d_route(value));
         error_->clear();
         if (preview_) preview_(value);
-    } catch(const std::exception& error) { error_->setText(QString::fromUtf8(error.what())); }
+    } catch(const std::exception& error) { error_->setText(QObject::tr(error.what())); }
 }
 
 bool ConstructionPropertiesDialog::submit() {
     auto value = current_value();
     try { if(value.kind==zima::document::ConstructionKind::Curve3D)static_cast<void>(zima::document::curve3d_route(value)); }
-    catch(const std::exception& error){error_->setText(QString::fromUtf8(error.what()));return false;}
+    catch(const std::exception& error){error_->setText(QObject::tr(error.what()));return false;}
     if ((value.kind == zima::document::ConstructionKind::Curve3D) &&
         value.curve_points.size() < 2) {
         error_->setText(tr("3D křivka vyžaduje alespoň dva body."));

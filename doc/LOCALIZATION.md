@@ -1,95 +1,114 @@
 # User-interface localization
 
-Choose application language in **Global Settings → Application Language**. Available
-languages are Czech (`cs`), English (`en`), German (`de`), French (`fr`), and Russian
-(`ru`). Effective config uses `Application/Language` and `Paths/Localization`.
-Working-directory `config.ini` overrides base `config/config.ini`; that choice survives
-settings confirmation.
+Global Settings supports Czech (`cs`), English (`en`), German (`de`), French
+(`fr`) and Russian (`ru`). Confirming a language change offers a full application
+window restart. Saved documents reopen; cancelling restart keeps the current
+window language and retains the selected language for the next startup.
+The ISO application font remains unchanged across language changes.
 
-New Properties dialogs use the changed language immediately. Restart to update every
-already open menu, panel, and dialog; Global Settings includes this notice. Language
-changes do not translate user object/file names, title-block text, or persisted model values.
-Project documentation is maintained in English; exact localized strings below are examples.
+## Catalogs and resource paths
 
-## Newly localized features
+Every language has two UTF-8 catalogs under `config/localization`:
 
-All five languages include value locks, one-time distance/angle capture, title-block
-images, and BOM regions: commands, properties, alignment, repeat directions, help,
-input/save errors, file filters, and shared OK/Cancel buttons.
+- `<language>.ini`: `[Translations]` contains named `ApplicationSettings::text`
+  keys; `[QtTranslations]` contains source-text translations.
+- `<language>.qt.json`: additional source-text translations, loaded after INI.
+  JSON preserves multiline strings, leading/trailing spaces and equals signs
+  in keys. Both the GUI and native CLI load these catalogs.
 
-| Czech | English | German | French |
-| --- | --- | --- | --- |
-| Zamknout hodnotu | Lock value | Wert sperren | Verrouiller la valeur |
-| Odemknout hodnotu | Unlock value | Wert entsperren | Déverrouiller la valeur |
-| Obrázek | Image | Bild | Image |
-| Vlastnosti obrázku | Image Properties | Bildeigenschaften | Propriétés de l’image |
-| Oblast kusovníku | BOM region | Stücklistenbereich | Zone de nomenclature |
-| Zachovat poměr stran | Keep aspect ratio | Seitenverhältnis beibehalten | Conserver les proportions |
-| Zrušit | Cancel | Abbrechen | Annuler |
+Qt uses the shared source entry or a more specific `Context|Source` entry.
+Replacing the translator retires the previous translator. Unknown messages
+fall back to their source; this is not a substitute for completing all five
+catalogs. Numerus messages require a separate plural-aware implementation.
 
-See [Numerical value locks](NUMERIC_VALUE_LOCKS.md) and [Drawings](DRAWINGS.md) for
-lock behavior, PNG/SVG insertion, and BOM repetition.
+Paths remain relative to the configuration file that owns them. When saving
+an inherited path into a working-directory configuration, rebase it against
+that writable configuration. Otherwise changing language can accidentally
+redirect localization, templates and materials to nonexistent local folders.
+Installed portable configuration retains its layered ownership rules.
 
-## Editing language files
+## Names and document content
 
-Catalogs are UTF-8 `config/localization/{cs,en,de,fr,ru}.ini`. C++ reads two sections:
+New feature defaults follow the selected application language, including
+primitives, Extrusion/Revolution, Sketches, construction objects, sweeps,
+patterns, mirrors and sheet-metal features. New Bodies and drawing sheets use
+localized default names. Creation uses translation before the property dialog
+opens; edits retain the stored name. Explicit names supplied by users or command
+arguments are never translated. Imported source names are retained.
 
-- `[Translations]`: existing named keys for `ApplicationSettings::text`, such as
-  `global.language`, also used by menus/file selection.
-- `[QtTranslations]`: C++ `tr()` / `QObject::tr()` source text, for example
-  `Zamknout hodnotu = Lock value`. Application-owned QTranslator is replaced when
-  config changes, without accumulating old language translators.
+Changing application language does not rewrite existing document names,
+parameters, metadata, object names or title-block labels. Persisted Origin
+identity and reference keys are not localized. Title-block templates and their
+value locale are selected independently of the application language.
 
-Use `Context|Source text` when Qt contexts need different translations; this overrides
-the shared source-text entry. Context comes from the `Q_OBJECT` class providing
-`tr()`, not necessarily the derived dialog name. Unknown text falls back to source
-language. This section handles nonplural text; messages with `n` need plural-aware catalogs.
+## Requirements for every change
 
-Add identical keys in all five languages. Preserve `%1`, `%2`, etc., `&bom.item_number`,
-`&bom.quantity`, and file-filter extensions exactly. Lines split at the first `=`,
-so keys cannot contain it. Text is single-line with trimmed edges. Do not translate
-internal identifiers such as `center`, `middle`, `up`, or lock keys.
+The binding rule is recorded in [AGENTS.md](../AGENTS.md). New or changed visible
+text must be translated into all five supported languages in the same change.
+Use `tr()` for static text and `QT_TR_NOOP` for source literals translated later.
+Use the named catalog for existing settings-based UI. Translate errors at their
+presentation boundary, without changing internal error codes.
+
+Preserve placeholders (`%1`, `%2`), parameter tokens (`&bom.quantity`), file
+extensions and internal identifiers. Keep palette category identity separate
+from its translated display name. Prefer JSON for new source-text messages.
+Do not translate user-authored palette or object names.
 
 ## Verification
 
-`zima_cpp_translations_contract` loads all five real catalogs through local config,
-checking matching keys, placeholders, translator replacement, contexts, and source
-fallback. Box Properties verifies permanent-lock help, both one-time-capture states,
-and Cancel.
+`zima_cpp_translations_contract` loads all real catalogs, verifies matching
+source and named key sets, checks placeholders, contexts and translator
+replacement, and scans production `tr()`/`QT_TR_NOOP` literals for omissions.
+Actual Qt buttons, lock tooltips and property dialogs are exercised in all five
+languages. The test also checks Russian alphabet coverage, including both Yo
+characters, in the bundled `osifont-lgpl3fe.ttf`.
 
-`ZIMA_VERIFY_TEMPLATES_ONLY=1` in `zima_cpp_workspace_startup_contract` opens actual
-Image/BOM-region Properties in all five languages, checks text and preserved alignment,
-and captures `Projects/test/image-properties-*.png` and `Projects/test/bom-properties-*.png`.
+`zima_cpp_application_lifecycle_ui_contract` exercises restart through Global
+Settings for all five languages, reopening documents and checking the font,
+main menu, standard-view selector, Tree section folder and new feature names.
+This covers inherited configuration paths as well as catalog lookup.
 
-## Russian and Parameters
+`zima_cpp_part_dialog_layout_contract` opens Part feature dialogs in all five
+languages at 1366×768 and 1920×1080. It checks window containment, editor bounds,
+table-cell controls and confirmation buttons, including populated 2D Sweep
+stations. The 2D Sweep path-plane row reserves 32 px for the shared 30 px
+reference controls; smaller columns allowed the arrow and inspection button to
+overlap adjacent cells. Mirror and Pattern reference tables use the same minimum;
+Pattern count and distribution columns size themselves to translated content. The test includes primitive, profile, construction,
+sweep, section, copy, Body/Boolean and sheet-metal property dialogs.
 
-The Russian catalog contains all English keys, including parameters, materials,
-units, modeling commands, and new text modes. Part/Assembly start templates include
-Russian standard-parameter labels. Parameters language selection offers `ru`; shared
-values are not translated. Existing documents can receive Russian labels/values in
-Parameters. UI language changes neither parameter keys nor user document content.
-Title-block value language is selected separately in Sheet Properties.
+The source scanner is a regression guard, not a natural-language proof: review
+dynamic text, user-content boundaries and visible layout when adding UI.
 
-## Czech interface audit (2026-09-11)
+## Localized company title blocks
 
-Standard Qt buttons, file dialogs, and editing menus now have translations, including
-mnemonic `&` variants. Unsaved-document confirmation uses **Uložit / Neukládat / Zrušit**
-(Save / Don't Save / Cancel). Translating only Save As menu text is insufficient:
-QMessageBox/QFileDialog buttons look up their own Qt source strings.
+`config/formats/ZE-RAZITKO.tblz` is the Czech source template. Language variants
+are `ZE-RAZITKO-{cs,en,de,fr,ru}.tblz`. Each embeds the company SVG logo from
+`config/formats/ZIMA-Engineering.svg`, with its aspect ratio preserved, and
+retains the original geometry, constraints, data fields and BOM tokens.
 
-Newer Czech labels include **Odsazení**, **Obrátit**, **Skica**, **Tenkostěnný**,
-**Skořepina**, **Booleovská operace**, and **Meze vazby**. Show/Erase now translates
-both buttons through `tr()` instead of fixed SHOW/ERASE. New keys exist in all five
-languages. This audit does not certify complete translation of every older Czech
-source message into other languages or all kernel diagnostics.
+To regenerate variants after updating the Czech source, run:
 
-`zima_cpp_translations_contract` additionally creates an actual unsaved-document
-QMessageBox and non-native save QFileDialog in each language, checking button text,
-Offset Properties, and Flip names. It saves Czech confirmation as
-`unsaved-document-cs.png` in the test working directory.
+```powershell
+python tools/localize-title-block.py --cli build/cpp-windows-release/zima-cad-cli.exe
+```
 
-The red document-tab close button uses shared `TabCloseButton`, drawing a centered
-white cross from two segments independently of font metrics and retaining 10 px
-right-slot inset. The existing offset test captures `build/tab-close-centered.png`.
-Verification includes Windows Release build, translation/offset/Show-Erase tests,
-and visual screenshot inspection.
+The generator uses native `template.sketch.edit` and `template.save` commands
+to rebuild translated font outlines. It checks unchanged geometry and field
+tokens. Review native drawing exports for label fit after changing translations.
+Language variants can be opened without access to the original external logo.
+
+## Git and release resources
+
+Catalogs, font, templates, title blocks, SVG and material library are tracked
+project resources. Windows `tools/distribution/package.py` and Linux
+`tools/distribution/build-linux.py` recursively copy committed `config` and
+`resources` into the versioned runtime. Numeric backup files are excluded from
+runtime resources. Shared user configuration remains outside immutable versions.
+Changes become part of a release when that committed revision is packaged;
+updating a local development build does not publish a new release archive.
+
+Material directories use English names (`01_steels`, `02_nonferrous_metals`,
+`03_cast_irons`, `04_plastics`, `05_glass_ceramics`, `06_construction`) and English
+subcategory names. Existing material filenames and contents are retained;
+user-removed library entries are not restored.

@@ -99,7 +99,7 @@ void AssemblyWorkspaceWindow::populate_sketch_tree(
     origin->setIcon(0, resource_icon("origin"));
     origin->setFlags(Qt::ItemIsEnabled);
     const std::array origin_children{
-        std::pair{QStringLiteral("Lokální počátek"), "point"},
+        std::pair{QObject::tr("Lokální počátek"), "point"},
         std::pair{QStringLiteral("X"), "axis"},
         std::pair{QStringLiteral("Y"), "axis"},
         std::pair{QStringLiteral("Z"), "axis"},

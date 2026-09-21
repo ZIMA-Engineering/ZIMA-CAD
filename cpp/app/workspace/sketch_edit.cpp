@@ -154,7 +154,7 @@ void AssemblyWorkspaceWindow::set_active_sketch_geometry_construction(
             ? tr("Geometrie byla změněna na pomocnou geometrii.")
             : tr("Geometrie byla vrácena do obrysu profilu."));
     } catch (const std::exception& error) {
-        state_->setText(QString::fromUtf8(error.what()));
+        state_->setText(QObject::tr(error.what()));
     }
 }
 

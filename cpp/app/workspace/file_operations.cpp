@@ -383,7 +383,7 @@ void AssemblyWorkspaceWindow::set_working_directory() {
         return;
     }
     try {change_working_directory(target,true);}
-    catch(const std::exception& error) {report_operation_error(tr("Pracovní adresář je obsazený"),QString::fromUtf8(error.what()));return;}
+    catch(const std::exception& error) {report_operation_error(tr("Pracovní adresář je obsazený"),QObject::tr(error.what()));return;}
     state_->setText(tr("Pracovní adresář: %1").arg(selected));
 }
 
@@ -685,7 +685,7 @@ void AssemblyWorkspaceWindow::show_global_settings() {
             application_settings_.resolved_paths.value("WorkingDirectory");
         if (!configured.trimmed().isEmpty() && QFileInfo(configured).isDir()) {
             try {change_working_directory(std::filesystem::u8path(QFileInfo(configured).absoluteFilePath().toStdString()),true);}
-            catch(const std::exception& error) {report_operation_error(tr("Pracovní adresář je obsazený"),QString::fromUtf8(error.what()));}
+            catch(const std::exception& error) {report_operation_error(tr("Pracovní adresář je obsazený"),QObject::tr(error.what()));}
             refresh_delete_file_actions();
         }
         if (language_changed) QTimer::singleShot(0, this, [this] {

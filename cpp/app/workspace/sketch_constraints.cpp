@@ -72,7 +72,7 @@ void AssemblyWorkspaceWindow::constrain_selected_segment(
         // area. A modal native warning would interrupt the active Sketcher
         // command contract and can strand keyboard/view interaction.
         state_->setText(tr("Vazbu nelze vytvořit: %1")
-            .arg(QString::fromUtf8(error.what())));
+            .arg(QObject::tr(error.what())));
     }
 }
 
@@ -167,7 +167,7 @@ void AssemblyWorkspaceWindow::accept_sketch_midpoint_selection(
             "Vazba bodu ve středu byla vytvořena. Vyberte bod další vazby."));
     } catch (const std::exception& error) {
         state_->setText(tr("Vazbu bodu ve středu nelze vytvořit: %1")
-            .arg(QString::fromUtf8(error.what())));
+            .arg(QObject::tr(error.what())));
     }
 }
 
@@ -269,7 +269,7 @@ void AssemblyWorkspaceWindow::accept_sketch_symmetric_selection(
             "Symetrická vazba byla vytvořena. Vyberte referenční bod další vazby."));
     } catch (const std::exception& error) {
         state_->setText(tr("Symetrickou vazbu nelze vytvořit: %1")
-            .arg(QString::fromUtf8(error.what())));
+            .arg(QObject::tr(error.what())));
     }
 }
 
@@ -356,7 +356,7 @@ void AssemblyWorkspaceWindow::accept_sketch_concentric_selection(
             "Soustředná vazba byla vytvořena. Vyberte referenční křivku další vazby."));
     } catch (const std::exception& error) {
         state_->setText(tr("Soustřednou vazbu nelze vytvořit: %1")
-            .arg(QString::fromUtf8(error.what())));
+            .arg(QObject::tr(error.what())));
     }
 }
 
@@ -524,7 +524,7 @@ void AssemblyWorkspaceWindow::accept_sketch_tangent_selection(
             "Tečná vazba byla vytvořena. Vyberte referenční geometrii další vazby."));
     } catch (const std::exception& error) {
         state_->setText(tr("Tečnou vazbu nelze vytvořit: %1")
-            .arg(QString::fromUtf8(error.what())));
+            .arg(QObject::tr(error.what())));
     }
 }
 
@@ -612,7 +612,7 @@ void AssemblyWorkspaceWindow::accept_sketch_common_tangent_selection(
             "Společná tečna byla vytvořena. Vyberte první křivku další tečny."));
     } catch (const std::exception& error) {
         state_->setText(tr("Společnou tečnu nelze vytvořit: %1")
-            .arg(QString::fromUtf8(error.what())));
+            .arg(QObject::tr(error.what())));
     }
 }
 
@@ -649,7 +649,7 @@ void AssemblyWorkspaceWindow::accept_sketch_coincident_point(
             refresh_tabs();refresh_scene();
             state_->setText(tr("Vazba úsečky vytvořena. Vyberte další úsečku nebo dvojici bodů."));
         } catch (const std::exception& error) {
-            state_->setText(QString::fromUtf8(error.what()));
+            state_->setText(QObject::tr(error.what()));
         }
         return;
     }
@@ -737,7 +737,7 @@ void AssemblyWorkspaceWindow::accept_sketch_coincident_point(
             state_->setText(tr(
                 "Vazba bodu na osu byla vytvořena. Vyberte další referenci."));
         } catch (const std::exception& error) {
-            state_->setText(QString::fromUtf8(error.what()));
+            state_->setText(QObject::tr(error.what()));
         }
         return;
     }
@@ -797,7 +797,7 @@ void AssemblyWorkspaceWindow::accept_sketch_coincident_point(
             state_->setText(tr(
                 "Vazba bodu na geometrii byla vytvořena. Vyberte další bod."));
         } catch (const std::exception& error) {
-            state_->setText(QString::fromUtf8(error.what()));
+            state_->setText(QObject::tr(error.what()));
         }
         return;
     }
@@ -843,7 +843,7 @@ void AssemblyWorkspaceWindow::accept_sketch_coincident_point(
                 ? tr("Svislost bodů vytvořena. Vyberte referenční bod další vazby.")
                 : tr("Vazba totožnosti vytvořena. Vyberte první bod další vazby."));
     } catch (const std::exception& error) {
-        state_->setText(QString::fromUtf8(error.what()));
+        state_->setText(QObject::tr(error.what()));
     }
 }
 
@@ -1040,7 +1040,7 @@ void AssemblyWorkspaceWindow::accept_sketch_segment_pair(
                     ? tr("Stejný poloměr vytvořen. Vyberte další řízenou geometrii.")
                     : tr("Stejná délka vytvořena. Vyberte další řízenou geometrii."));
     } catch (const std::exception& error) {
-        state_->setText(QString::fromUtf8(error.what()));
+        state_->setText(QObject::tr(error.what()));
     }
 }
 

@@ -139,7 +139,7 @@ void AssemblyWorkspaceWindow::show_component_properties(
                     workspace_.build_scene_with_assembly_override(workspace_.displayed_document_id(),
                         reference_scene_prefix, next), false);
             } catch (const std::exception& error) {
-                dialog->set_placement_error(QString::fromUtf8(error.what()));
+                dialog->set_placement_error(QObject::tr(error.what()));
             }
         });
     connect(dialog, &QObject::destroyed, this, [this] {

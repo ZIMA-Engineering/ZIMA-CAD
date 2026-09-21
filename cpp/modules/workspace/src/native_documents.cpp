@@ -204,7 +204,11 @@ PreparedNativeDocument prepare_new_native_document(NativeDocumentType type, cons
     switch(type) {
         case NativeDocumentType::Part: prepared.document_=PreparedNativeDocument::Part{part_from_template(settings),{}};break;
         case NativeDocumentType::Assembly: prepared.document_=assembly_from_template(settings);break;
-        case NativeDocumentType::Drawing: prepared.document_=drawing::DrawingDocument::create_default();break;
+        case NativeDocumentType::Drawing: {
+            auto drawing=drawing::DrawingDocument::create_default();
+            drawing.sheets.front().name=settings.first_sheet_name;
+            prepared.document_=std::move(drawing);break;
+        }
         default: throw std::invalid_argument("Unsupported document type");
     }
     std::visit([&](auto& value) {

@@ -14,6 +14,22 @@
 - This is a binding user requirement agreed on 2026-09-15. It does not change
   the language of conversations with the user or the application's localization.
 
+## Localization with every change (mandatory)
+
+- Every change must include a localization review. New or changed user-visible
+  text must be translated into every supported language: Czech, English, German,
+  French and Russian (`cs`, `en`, `de`, `fr`, `ru`) in the same change.
+- This includes menus, toolbars, Tree labels and context actions, dialogs,
+  tooltips, status messages, validation messages and user-visible errors.
+- Reuse shared translation keys; never hard-code localized UI text or leave
+  source-language placeholders in another language's catalog.
+- Preserve formatting placeholders, units, shortcuts, identifiers and file
+  extensions. Do not translate user-authored names or persisted model content.
+- Run localization coverage and catalog validation, and verify affected UI text
+  after changing language. A UI change is incomplete until its localization is
+  complete. Changes with no user-visible text still require checking that fact.
+- This is a binding user requirement agreed on 2026-09-21.
+
 ## Local development launch (mandatory)
 
 - The user's normal Windows development entry point is `zima-cad.bat` in the

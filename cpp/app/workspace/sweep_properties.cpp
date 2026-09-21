@@ -61,6 +61,13 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
     const auto occurrence=resolve_active_occurrence(part->session.document().document_id);if(!occurrence)return;
     const bool planar=kind==zima::document::FeatureKind::Sweep2D;
     auto initial=planar?zima::document::PartDocument::create_sweep2d_container():zima::document::PartDocument::create_helical_sweep_container();
+    initial.name=tr(initial.name.c_str()).toStdString();
+    const auto localize_sketch = [](std::string& data) {
+        auto sketch=zima::sketcher::Sketch::from_serialized(data);
+        sketch.name=QObject::tr(sketch.name.c_str()).toStdString();data=sketch.serialized();
+    };
+    if (planar) { for (auto& data : initial.sweep2d.sketches()) localize_sketch(data); }
+    else { for (auto& data : initial.helical.sketches) localize_sketch(data); }
     if(!id.empty()){
         const auto* stored=part->session.document().find_container(id);if(!stored||stored->feature_kind!=kind)return;
         initial=*stored;const auto boundary=part->session.rollback_boundary(id);
@@ -203,7 +210,7 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
                 else zima::document::PartDocument::reframe_helical_sketches(framed,stage);
                 dialog->pending=std::move(framed);
             } catch(const std::exception& error) {
-                frame_warning=tr("Skica používá uloženou rovinu; závislost není dořešená: %1").arg(QString::fromUtf8(error.what()));
+                frame_warning=tr("Skica používá uloženou rovinu; závislost není dořešená: %1").arg(QObject::tr(error.what()));
             }
             sweep_profile_sketch_draft_=zima::sketcher::Sketch::from_serialized(planar?dialog->pending.sweep2d.sketch_data(stage):dialog->pending.helical.sketches.at(stage));
             embedded_sketch_finished_=[this,dialog,stage](auto s){
@@ -253,8 +260,12 @@ void AssemblyWorkspaceWindow::show_sweep3d_properties(
         (edited == nullptr || edited->feature_kind !=
             zima::document::FeatureKind::Sweep3D)) return;
     const bool edit_mode = edited != nullptr;
-    const auto initial = edit_mode ? *edited
+    auto initial = edit_mode ? *edited
         : zima::document::PartDocument::create_sweep3d_container();
+    if (!edit_mode) {
+        initial.name=tr(initial.name.c_str()).toStdString();
+        initial.sweep3d.path.name=tr(initial.sweep3d.path.name.c_str()).toStdString();
+    }
     const std::string document_id = part->session.document().document_id;
     const int decimal_places = document_decimal_places(part->session.document());
     const bool allow_subtract = !part->session.document().history.empty() &&

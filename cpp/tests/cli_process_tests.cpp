@@ -745,6 +745,7 @@ int main(int argc,char** argv){
         fs::copy_file(repository/"config/templates/start_part.prtz",local_templates/"custom.prtz");
         const auto catalogue_directory=project/"catalogue";fs::create_directory(catalogue_directory);
         write(catalogue_directory/"en.ini",QByteArray("[QtTranslations]\nQObject|Těleso 1 = Body from context\nQMainWindow|Není otevřený dokument. = Context-specific empty document\n"));
+        write(catalogue_directory/"en.qt.json",QByteArray("{\"Box\":\"Box from JSON\",\"List\":\"Sheet from JSON\"}"));
         {
             QSettings local(qpath(project/"config.ini"),QSettings::IniFormat);
             local.setValue("Paths/Templates",qpath(local_templates.filename()));
@@ -757,6 +758,11 @@ int main(int argc,char** argv){
         require(document::PartDocument::load(project/"local.prtz").body_history.bodies().front().name=="Body from context","Body name did not use the GUI factory's translation context");
         result=launch(executable,root,common+QStringList{"--command","save"});
         require(result.exit_code==1&&result.results().front().at("message")=="Context-specific empty document","Command translation context differs from GUI");
+        result=launch(executable,root,common+QStringList{"--stdin"},
+            "new part json-names\nbox.create 2 3 4\nsave\nnew drawing json-sheet\nsave\n");
+        require(result.exit_code==0 && document::PartDocument::load(project/"json-names.prtz").history.back().name=="Box from JSON" &&
+            drawing::DrawingDocument::load(project/"json-sheet.drwz").sheets.front().name=="Sheet from JSON 1",
+            "CLI supplemental catalog did not localize new feature and sheet names");
         fs::remove(project/"config.ini");
         // Scripts use launch-directory paths; document paths follow working_directory.
         const auto script=root/fs::path(u8"dávka příkazů.txt");
@@ -1027,7 +1033,7 @@ int main(int argc,char** argv){
             "CLI engineering metadata failed native persistence or mass calculation");
         result=launch(executable,root,common+QStringList{"--command","open cli-step.prtz","--command","document.material.get","--command","document.relations.get","--command","document.family.get"});
         require(result.exit_code==0 && result.results()[2].at("data").at("parameters").at("grams")=="16.200000" && result.results()[3].at("data").at("table").at("instances")[0].at("name")=="Varianta A","CLI engineering metadata readback failed");
-        const auto material_source=project/fs::path(u8"Ocel česká.matz");fs::copy_file(repository/"config/materials/01_oceli/konstrukcni/S235JR.matz",material_source);
+        const auto material_source=project/fs::path(u8"Ocel česká.matz");fs::copy_file(repository/"config/materials/01_steels/structural/S235JR.matz",material_source);
         const auto material_load=command({{"command","document.material.load"},{"arguments",{{"path",document::path_to_utf8(material_source)}}}});
         result=launch(executable,root,common+QStringList{"--command","open cli-step.prtz","--command",material_load,"--command","save"});
         require(result.exit_code==0 && result.results().size()==3,"CLI material library assignment failed");fs::remove(material_source);
@@ -1284,7 +1290,11 @@ int main(int argc,char** argv){
         const auto projection_request=command({{"command","sketch.reference.create"},{"arguments",{{"sketch",projection_sketch},{"kind","edge"},{"owner",projection_edge->reference.owner_id},{"key",projection_edge->reference.semantic_key},{"profile",true}}}});
         result=launch(executable,root,common+QStringList{"--command","open cli-projection.prtz","--command",projection_request,"--command","save"});
         require(result.exit_code==0,"CLI projection command failed");const auto projection_id=result.results()[1].at("data").at("reference").get<std::string>();
-        const auto projected=document::PartDocument::load(project/"cli-projection.prtz");require(projected.sketches.back().external_references.size()==1 && projected.sketches.back().segments.size()==1,"CLI projection did not persist reference and native line");
+        const auto projected=document::PartDocument::load(project/"cli-projection.prtz");
+        const auto& projection=projected.sketches.back();
+        require(projection.external_references.size()==3 && projection.segments.size()==1 &&
+            std::ranges::count_if(projection.external_references,[](const auto& reference){return sketcher::is_external_endpoint_kind(reference.kind);})==2,
+            "CLI projection did not persist edge, endpoint references and native line");
         result=launch(executable,root,common+QStringList{"--command","open cli-projection.prtz","--command",QString::fromStdString("sketch.reference.delete "+projection_sketch+" "+projection_id),"--command","save"});
         require(result.exit_code==0,"CLI reference detach failed");const auto detached=document::PartDocument::load(project/"cli-projection.prtz");
         require(detached.sketches.back().external_references.empty() && detached.sketches.back().segments==projected.sketches.back().segments,"CLI detach destroyed native projection");

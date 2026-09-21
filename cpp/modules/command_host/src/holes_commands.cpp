@@ -45,6 +45,7 @@ void Host::register_holes_commands() {
                         return Result::failure("value_locked", tr("Unlock the dimension before changing it."));
                     feature.holes.diameter = diameter;
                 }
+                if (create) feature.name=tr("Otvory");
                 if (args.contains("name")) feature.name = args.at("name").get<std::string>();
                 const auto sketch = std::ranges::find(state->session.document().sketches, feature.holes.sketch_id, &sketcher::Sketch::id);
                 if (sketch == state->session.document().sketches.end()) throw std::invalid_argument("Zdrojová skica neexistuje.");

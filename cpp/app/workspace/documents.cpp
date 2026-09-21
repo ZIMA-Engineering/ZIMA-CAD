@@ -513,6 +513,7 @@ void AssemblyWorkspaceWindow::navigate_document_kind() {
         return;
     }
     auto drawing = zima::drawing::DrawingDocument::create_default();
+    drawing.sheets.front().name=tr("List %1").arg(1).toStdString();
     drawing.name = source_name.toStdString();
     drawing.source_document_id = displayed;
     drawing.source_path = source_path;

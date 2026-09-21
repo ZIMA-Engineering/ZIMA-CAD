@@ -14,6 +14,7 @@ void AssemblyWorkspaceWindow::show_shaft_thread_properties(const std::string& id
     const auto occurrence=resolve_active_occurrence(part->session.document().document_id);
     if (!occurrence) return;
     auto initial=document::PartDocument::create_shaft_thread_container();
+    initial.name=tr("Závit").toStdString();
     if (!id.empty()) {
         const auto* stored=part->session.document().find_container(id);
         if (!stored || stored->feature_kind!=document::FeatureKind::ShaftThread) return;
@@ -93,7 +94,7 @@ void AssemblyWorkspaceWindow::refresh_shaft_thread_preview() {
         viewer_->set_transient_edges(std::move(mesh.edges));
         state_->setText(tr("Závit: zkontrolujte náhled. OK vytvoří plochy závitu."));
     } catch (const std::exception& error) {
-        viewer_->set_transient_edges({});state_->setText(QString::fromUtf8(error.what()));
+        viewer_->set_transient_edges({});state_->setText(QObject::tr(error.what()));
     }
     const int row=shaft_thread_dialog_->active_reference();
     const auto path=properties_dialog_instance_path_;

@@ -350,6 +350,7 @@ void AssemblyWorkspaceWindow::start_shell() {
     }
 
     auto initial = zima::document::PartDocument::create_shell_container();
+    initial.name = tr("Shell").toStdString();
     const std::string part_id = part->session.document().document_id;
     pending_shell_faces_.clear();
     shell_face_selection_active_ = true;

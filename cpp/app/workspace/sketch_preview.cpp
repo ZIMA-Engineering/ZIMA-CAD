@@ -964,7 +964,7 @@ bool AssemblyWorkspaceWindow::accept_sketch_polygon_ray(
             "Pravidelný %1úhelník vytvořen. Kliknutím určete střed dalšího.")
             .arg(sketch_polygon_sides_));
     } catch (const std::exception& error) {
-        state_->setText(QString::fromUtf8(error.what()));
+        state_->setText(QObject::tr(error.what()));
     }
     return true;
 }
@@ -1113,7 +1113,7 @@ bool AssemblyWorkspaceWindow::accept_sketch_circle_ray(
             pending_curve_point_snaps_.resize(1);
         }
         state_->setText(tr("Kružnici nelze vytvořit: %1")
-            .arg(QString::fromUtf8(error.what())));
+            .arg(QObject::tr(error.what())));
         return true;
     }
     pending_circle_center_.reset();
@@ -1330,7 +1330,7 @@ bool AssemblyWorkspaceWindow::accept_sketch_arc_ray(
         refresh_scene();
         state_->setText(tr("Oblouk vytvořen. Kliknutím určete střed dalšího."));
     } catch (const std::exception& error) {
-        state_->setText(QString::fromUtf8(error.what()));
+        state_->setText(QObject::tr(error.what()));
     }
     return true;
 }
@@ -1440,7 +1440,7 @@ bool AssemblyWorkspaceWindow::accept_sketch_ellipse_ray(
         refresh_scene();
         state_->setText(tr("Elipsa vytvořena. Kliknutím určete střed další elipsy."));
     } catch (const std::exception& error) {
-        state_->setText(QString::fromUtf8(error.what()));
+        state_->setText(QObject::tr(error.what()));
     }
     return true;
 }
@@ -1626,7 +1626,7 @@ bool AssemblyWorkspaceWindow::accept_sketch_elliptical_arc_ray(
         state_->setText(tr(
             "Eliptický oblouk vytvořen. Kliknutím určete střed dalšího."));
     } catch (const std::exception& error) {
-        state_->setText(QString::fromUtf8(error.what()));
+        state_->setText(QObject::tr(error.what()));
     }
     return true;
 }

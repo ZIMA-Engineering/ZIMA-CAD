@@ -42,6 +42,7 @@ void AssemblyWorkspaceWindow::show_derived_copy_properties(const std::string& id
     catch(const std::exception& error){state_->setText(tr(error.what()));return;}
     document::HistoryContainer initial;initial.id=edit->initial.id;
     initial.feature_id=initial.id+":entity";initial.container_origin=document::create_container_origin(initial.id);
+    if (id.empty()) edit->initial.name=pattern?tr("Pole").toStdString():tr("Zrcadlo").toStdString();
     initial.name=edit->initial.name;initial.placement=edit->initial.placement;
     auto parameters=edit->initial.parameters;
     if(!edit->sources.body_id.empty()){initial.feature_kind=document::FeatureKind::DerivedCopy;initial.derived_copy=parameters;}

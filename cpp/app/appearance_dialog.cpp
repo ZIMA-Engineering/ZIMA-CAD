@@ -79,11 +79,11 @@ AppearanceDialog::AppearanceDialog(
   auto *left = new QVBoxLayout;
   categories_ = new QComboBox(this);
   categories_->setObjectName("appearanceCategory");
-  for (const auto *c : {"Základní barvy", "Plasty", "Laky", "Kovy", "Vlastní"})
-    categories_->addItem(tr(c));
+  for (const auto *c : {QT_TR_NOOP("Základní barvy"), QT_TR_NOOP("Plasty"), QT_TR_NOOP("Laky"), QT_TR_NOOP("Kovy"), QT_TR_NOOP("Vlastní")})
+    categories_->addItem(tr(c), QString::fromUtf8(c));
   for (const auto &p : palette_)
-    if (categories_->findText(QString::fromStdString(p.category)) < 0)
-      categories_->addItem(QString::fromStdString(p.category));
+    if (categories_->findData(QString::fromStdString(p.category)) < 0)
+      categories_->addItem(QString::fromStdString(p.category), QString::fromStdString(p.category));
   left->addWidget(categories_);
   palette_list_ = new QListWidget(this);
   palette_list_->setObjectName("appearancePalette");
@@ -123,7 +123,7 @@ AppearanceDialog::AppearanceDialog(
   save_category_ = new QComboBox(this);
   save_category_->setEditable(true);
   for (int i = 0; i < categories_->count(); ++i)
-    save_category_->addItem(categories_->itemText(i));
+    save_category_->addItem(categories_->itemText(i), categories_->itemData(i));
   save_category_->setCurrentText(tr("Vlastní"));
   save_row->addWidget(save_category_);
   auto *save = new QPushButton(tr("Přidat do palety"), this);
@@ -188,14 +188,16 @@ AppearanceDialog::AppearanceDialog(
         save_category_->currentText().trimmed().isEmpty() ||
         !QColor(color_->text()).isValid())
       return;
-    const auto category = save_category_->currentText().trimmed();
+    const auto label = save_category_->currentText().trimmed();
+    const auto index = save_category_->findText(label);
+    const auto category = index >= 0 ? save_category_->itemData(index).toString() : label;
     palette_.push_back(
         {QUuid::createUuid().toString(QUuid::WithoutBraces).toStdString(),
          name_->text().trimmed().toStdString(), category.toStdString(),
          target_style()});
-    if (categories_->findText(category) < 0)
-      categories_->addItem(category);
-    categories_->setCurrentText(category);
+    if (categories_->findData(category) < 0)
+      categories_->addItem(label, category);
+    categories_->setCurrentIndex(categories_->findData(category));
     refresh_palette();
   });
   connect(add, &QPushButton::clicked, this, [this] {
@@ -306,7 +308,7 @@ void AppearanceDialog::refresh_palette() {
   palette_list_->clear();
   for (std::size_t i = 0; i < palette_.size(); ++i) {
     const auto &p = palette_[i];
-    if (QString::fromStdString(p.category) != categories_->currentText())
+    if (QString::fromStdString(p.category) != categories_->currentData().toString())
       continue;
     auto *item = new QListWidgetItem(
         style_icon(p.style), QString::fromStdString(p.name), palette_list_);

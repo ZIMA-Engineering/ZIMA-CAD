@@ -17,6 +17,8 @@
 #include <QSettings>
 #include <QScopeGuard>
 #include <QTranslator>
+#include <QJsonDocument>
+#include <QJsonObject>
 
 namespace zima::app {
 namespace {
@@ -147,7 +149,8 @@ ApplicationSettings ApplicationSettings::load(const QString& working_directory, 
         const auto resolved = resolved_path(origin, configured);
         result.resolved_paths.insert(key, resolved);
         // Display relative paths against the writable config, not a hidden lower layer.
-        const auto displayed = installed ? QDir(QFileInfo(result.config_path).absolutePath()).relativeFilePath(resolved) : configured;
+        const auto displayed = installed || QFileInfo(origin).absolutePath() != QFileInfo(result.config_path).absolutePath()
+            ? QDir(QFileInfo(result.config_path).absolutePath()).relativeFilePath(resolved) : configured;
         result.configured_paths.insert(key, displayed);
     }
     result.initial_configured_paths = result.configured_paths;
@@ -177,6 +180,14 @@ ApplicationSettings ApplicationSettings::load(const QString& working_directory, 
                 line.left(equals).trimmed(), line.mid(equals + 1).trimmed());
         }
     }
+    // JSON preserves leading spaces, multiline text and '=' in source keys.
+    QFile supplemental(QDir(result.resolved_paths.value("Localization"))
+        .absoluteFilePath(result.language + ".qt.json"));
+    if (supplemental.open(QIODevice::ReadOnly)) {
+        const auto messages = QJsonDocument::fromJson(supplemental.readAll()).object();
+        for (auto it = messages.begin(); it != messages.end(); ++it)
+            if (it.value().isString()) result.qt_translations.insert(it.key(), it.value().toString());
+    }
     return result;
 }
 
@@ -190,7 +201,7 @@ static bool save_values(const QString& config_path, const QMap<QString, QVariant
     if (!target_info.absoluteDir().exists() &&
         !QDir().mkpath(target_info.absolutePath())) {
         if (error != nullptr) {
-            *error = QStringLiteral("Konfigurační adresář nelze vytvořit: %1")
+            *error = QObject::tr("Konfigurační adresář nelze vytvořit: %1")
                          .arg(target_info.absolutePath());
         }
         return false;
@@ -201,7 +212,7 @@ static bool save_values(const QString& config_path, const QMap<QString, QVariant
         QTemporaryFile temporary(target_info.absolutePath() + QStringLiteral("/.") +
             target_info.fileName() + QStringLiteral(".XXXXXX.tmp"));
         if (!temporary.open()) {
-            if (error != nullptr) *error = QStringLiteral("Dočasný konfigurační soubor nelze vytvořit: %1").arg(config_path);
+            if (error != nullptr) *error = QObject::tr("Dočasný konfigurační soubor nelze vytvořit: %1").arg(config_path);
             return false;
         }
         temporary_path = temporary.fileName();
@@ -224,7 +235,7 @@ static bool save_values(const QString& config_path, const QMap<QString, QVariant
     output.sync();
     if (output.status() != QSettings::NoError) {
         if (error != nullptr) {
-            *error = QStringLiteral("Konfiguraci nelze připravit: %1")
+            *error = QObject::tr("Konfiguraci nelze připravit: %1")
                          .arg(config_path);
         }
         QFile::remove(temporary_path);
@@ -234,7 +245,7 @@ static bool save_values(const QString& config_path, const QMap<QString, QVariant
     QFile temporary_file(temporary_path);
     if (!temporary_file.open(QIODevice::ReadOnly)) {
         if (error != nullptr) {
-            *error = QStringLiteral("Konfiguraci nelze ověřit: %1")
+            *error = QObject::tr("Konfiguraci nelze ověřit: %1")
                          .arg(config_path);
         }
         QFile::remove(temporary_path);
@@ -245,7 +256,7 @@ static bool save_values(const QString& config_path, const QMap<QString, QVariant
     QSettings validator(temporary_path, QSettings::IniFormat);
     if (validator.status() != QSettings::NoError) {
         if (error != nullptr) {
-            *error = QStringLiteral("Konfigurace není platný INI soubor: %1")
+            *error = QObject::tr("Konfigurace není platný INI soubor: %1")
                          .arg(config_path);
         }
         QFile::remove(temporary_path);
@@ -257,7 +268,7 @@ static bool save_values(const QString& config_path, const QMap<QString, QVariant
         archive_path = next_archive_path(config_path);
         if (!QFile::copy(config_path, archive_path)) {
             if (error != nullptr) {
-                *error = QStringLiteral("Nelze vytvořit zálohu konfigurace: %1")
+                *error = QObject::tr("Nelze vytvořit zálohu konfigurace: %1")
                              .arg(archive_path);
             }
             QFile::remove(temporary_path);
@@ -272,7 +283,7 @@ static bool save_values(const QString& config_path, const QMap<QString, QVariant
         if (!archive_path.isEmpty()) QFile::remove(archive_path);
         QFile::remove(temporary_path);
         if (error != nullptr) {
-            *error = QStringLiteral("Konfiguraci nelze atomicky uložit: %1")
+            *error = QObject::tr("Konfiguraci nelze atomicky uložit: %1")
                          .arg(config_path);
         }
         return false;
@@ -303,7 +314,7 @@ bool ApplicationSettings::save(QString* error) const {
     if (existed) {
         QFile input(platform_config_path);
         if (!input.open(QIODevice::ReadOnly)) {
-            if (error) *error = QStringLiteral("Konfiguraci cest nelze přečíst: %1").arg(platform_config_path);
+            if (error) *error = QObject::tr("Konfiguraci cest nelze přečíst: %1").arg(platform_config_path);
             return false;
         }
         previous = input.readAll();
@@ -317,7 +328,7 @@ bool ApplicationSettings::save(QString* error) const {
         QSaveFile restore(platform_config_path);
         restored = restore.open(QIODevice::WriteOnly) && restore.write(previous) == previous.size() && restore.commit();
     } else restored = QFile::remove(platform_config_path);
-    if (!restored && error) *error += QStringLiteral("\nZměny cest nelze vrátit: %1").arg(platform_config_path);
+    if (!restored && error) *error += QObject::tr("\nZměny cest nelze vrátit: %1").arg(platform_config_path);
     return false;
 }
 

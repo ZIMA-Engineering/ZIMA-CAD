@@ -16,8 +16,14 @@ void AssemblyWorkspaceWindow::show_construction_properties(
         : assembly->session.document().find_construction(object_id);
     if (!object_id.empty() && (edited == nullptr || edited->kind != kind)) return;
     const bool edit_mode = edited != nullptr;
-    const auto initial = edit_mode ? *edited
+    auto initial = edit_mode ? *edited
         : zima::document::PartDocument::create_construction(kind);
+    if (!edit_mode) {
+        const auto prefix = kind == zima::document::ConstructionKind::Point ? tr("Bod")
+            : kind == zima::document::ConstructionKind::Curve3D ? tr("3D křivka")
+            : kind == zima::document::ConstructionKind::Axis ? tr("Osa") : tr("Rovina");
+        initial.name = (prefix + "001").toStdString();
+    }
     const std::string document_id = workspace_.active_document_id();
     const int decimal_places = part != nullptr
         ? document_decimal_places(part->session.document())

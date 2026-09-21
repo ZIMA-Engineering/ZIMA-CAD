@@ -1,5 +1,6 @@
 #include "application_settings.hpp"
 #include "primitive_properties_dialog.hpp"
+#include "sweep_station_label.hpp"
 #include <QAction>
 #include <QApplication>
 #include <QDialogButtonBox>
@@ -9,6 +10,11 @@
 #include <QSettings>
 #include <QTemporaryDir>
 #include <QTranslator>
+#include <QDirIterator>
+#include <QFile>
+#include <QJsonDocument>
+#include <QJsonArray>
+#include <QRawFont>
 #include <QMessageBox>
 #include <QFileDialog>
 #include <QAbstractButton>
@@ -44,7 +50,38 @@ int verify_translations(QApplication& application, QWidget& parent) {
         return app::ApplicationSettings::load(directory.path());
     };
     const auto sources = load("cs").qt_translations;
-    check(sources.size() >= 76, "New source messages were not loaded");
+    const auto named_sources = load("cs").translations;
+    check(sources.size() > 3000, "Complete source catalogs were not loaded");
+    // Source coverage is checked against production code, including shared UI.
+    const auto source_root = catalogue.parent_path().parent_path() / "cpp";
+    QDirIterator files(QString::fromStdString(source_root.generic_string()),
+        {"*.cpp", "*.hpp", "*.inc"}, QDir::Files, QDirIterator::Subdirectories);
+    const QRegularExpression calls(R"rx(\b(?:tr|QT_TR_NOOP)\s*\(\s*((?:"(?:\\.|[^"\\])*"\s*)+))rx");
+    const QRegularExpression literal(R"rx("(?:\\.|[^"\\])*")rx");
+    while (files.hasNext()) {
+        const auto path = files.next();
+        if (path.contains("/tests/") || path.contains("verification")) continue;
+        QFile file(path); check(file.open(QIODevice::ReadOnly), "Cannot read translation source");
+        auto matches = calls.globalMatch(QString::fromUtf8(file.readAll()));
+        while (matches.hasNext()) {
+            QString source;
+            auto strings = literal.globalMatch(matches.next().captured(1));
+            while (strings.hasNext()) {
+                const auto json = "[" + strings.next().captured() + "]";
+                source += QJsonDocument::fromJson(json.toUtf8()).array().at(0).toString();
+            }
+            if (!sources.contains(source)) {
+                std::cerr << "Missing translation: " << path.toStdString() << ": " << source.toStdString() << '\n';
+                throw std::runtime_error("Production UI source is missing from the language catalogs");
+            }
+        }
+    }
+    const auto font_path = catalogue.parent_path() / "fonts/osifont-lgpl3fe.ttf";
+    QRawFont iso(QString::fromStdString(font_path.generic_string()), 16);
+    check(iso.isValid(), "Cannot load ISO font");
+    for (char16_t letter = u'А'; letter <= u'я'; ++letter)
+        check(iso.supportsCharacter(QChar(letter)), "ISO font is missing a Russian letter");
+    check(iso.supportsCharacter(QChar(u'Ё')) && iso.supportsCharacter(QChar(u'ё')), "ISO font is missing Yo");
     const QStringList languages{"cs", "en", "de", "fr", "ru"};
     const QStringList locked{"Odemknout hodnotu", "Unlock value", "Wert entsperren", "Déverrouiller la valeur", "Разблокировать значение"};
     const QStringList unlocked{"Zamknout hodnotu", "Lock value", "Wert sperren", "Verrouiller la valeur", "Заблокировать значение"};
@@ -53,9 +90,16 @@ int verify_translations(QApplication& application, QWidget& parent) {
         const auto settings = load(languages[language]);
         check(settings.language == languages[language], "Configured language was ignored");
         check(settings.qt_translations.keys() == sources.keys(), "Language has missing or extra messages");
+        check(settings.translations.keys() == named_sources.keys(), "Language has missing or extra named messages");
+        for (auto it = named_sources.cbegin(); it != named_sources.cend(); ++it)
+            check(!settings.translations.value(it.key()).isEmpty() &&
+                tokens(it.value()) == tokens(settings.translations.value(it.key())),
+                "Named translation is empty or changes placeholders");
         check(settings.translations.contains("global.language") &&
             !settings.translations.contains("Zamknout hodnotu"), "INI sections were mixed");
         app::apply_application_translations(application, settings);
+        check(app::sweep_station_label("12 — začátek") == settings.qt_translations.value("%1 — začátek").arg(12),
+            "Generated Sweep station labels are not translated");
         for (auto it = sources.cbegin(); it != sources.cend(); ++it) {
             const auto translated = QCoreApplication::translate("QObject", it.key().toUtf8().constData());
             check(!translated.isEmpty() && translated == settings.qt_translations.value(it.key()),

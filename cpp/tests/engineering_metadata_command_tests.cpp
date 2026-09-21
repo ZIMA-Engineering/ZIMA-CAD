@@ -71,7 +71,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     run(host,"save");const auto saved=document::PartDocument::load(dir/"engineering-part.prtz");
     require(saved.family_table==part->session.document().family_table && saved.relations==part->session.document().relations && saved.material_parameter_descriptions.at("MATERIAL_NAME").at("cs")=="Název","Native save lost engineering metadata");
     require(part->session.calculated_boundaries().back().kernel_shape==geometry,"Engineering metadata rebuilt geometry");
-    const auto library=dir/fs::path(u8"Ocel česká.matz");fs::copy_file("config/materials/01_oceli/konstrukcni/S235JR.matz",library);
+    const auto library=dir/fs::path(u8"Ocel česká.matz");fs::copy_file("config/materials/01_steels/structural/S235JR.matz",library);
     const auto aluminum_before=workspace::material_data(live,id);
     run(host,"document.material.load",{{"path",document::path_to_utf8(library.filename())}});
     require(std::abs(document::physical_values(part->session.document(),part->session.calculated_boundaries()).at("model.mass")-.0471)<1e-10 && part->session.calculated_boundaries().back().kernel_shape==geometry,"Library assignment did not use cached volume and steel density");

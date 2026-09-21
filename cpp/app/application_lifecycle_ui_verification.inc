@@ -184,6 +184,33 @@ int verify_application_lifecycle_ui(QApplication& application) {
             check(settings.language == language, "Restart loaded a different language");
             check(reopened.findChild<QAction*>("newDocumentAction")->text() == settings.text("menu.file.new", "Nový"),
                 "New window menu retained the previous language");
+            auto* views = reopened.findChild<QComboBox*>("standardViewCombo");
+            if (!views || views->itemText(0) != settings.qt_translations.value("Základní pohledy"))
+                std::cerr << "Language " << language.toStdString() << ", views=" << (views ? views->itemText(0).toStdString() : "missing")
+                    << ", expected=" << settings.qt_translations.value("Základní pohledy").toStdString()
+                    << ", catalog=" << settings.resolved_paths.value("Localization").toStdString() << '\n';
+            check(views && views->itemText(0) == settings.qt_translations.value("Základní pohledy"),
+                "Standard views retained the previous language");
+            auto* document_tree = reopened.findChild<QTreeWidget*>("documentTree");
+            bool sections_found = false;
+            QTreeWidgetItemIterator rows(document_tree);
+            while (*rows) {
+                if ((*rows)->data(0, Qt::UserRole + 3).toString() == "document-sections") {
+                    sections_found = true;
+                    check((*rows)->text(0) == settings.qt_translations.value("Řezy"),
+                        "Tree section folder retained the previous language");
+                }
+                ++rows;
+            }
+            check(sections_found, "Restart fixture has no section folder");
+            reopened.findChild<QAction*>("boxAction")->trigger(); flush();
+            app::PrimitivePropertiesDialog* box_dialog = nullptr;
+            for (auto* dialog : reopened.findChildren<QDialog*>())
+                if (auto* primitive = dynamic_cast<app::PrimitivePropertiesDialog*>(dialog);
+                    primitive && primitive->isVisible()) box_dialog = primitive;
+            check(box_dialog && QString::fromStdString(box_dialog->pending_value().name) ==
+                settings.qt_translations.value("Kvádr"), "New feature name ignores the UI language");
+            box_dialog->buttons()->button(QDialogButtonBox::Cancel)->click(); flush();
             check(reopened.close(), "Reopened saved document became dirty");
         }
         for (int cycle = 0; cycle < 2; ++cycle) {

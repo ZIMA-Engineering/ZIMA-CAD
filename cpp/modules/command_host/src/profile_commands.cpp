@@ -268,6 +268,7 @@ void Host::register_profile_commands() {
                             if(body&&body->scope.id!=state->session.document().body_history.active_body_id())throw Error("inactive_body","Activate the owning Body before editing its profile.");
                             if(args.contains("targets"))throw Error("invalid_arguments","Occurrence targets are available only in an Assembly.");
                         }
+                        if(create)value.name=tr(value.name.c_str());
                         properties(value,args,workspace_,id);const auto container=value.id;
                         std::optional<sketcher::Sketch> pending_sketch;
                         if(args.contains("profile_plane")) {

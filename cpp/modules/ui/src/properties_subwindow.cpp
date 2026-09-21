@@ -277,7 +277,7 @@ PropertiesSubWindow::PropertiesSubWindow(const QString& title, QWidget* parent)
         try {
             if (submit()) accept();
         } catch (const std::exception& error) {
-            submit_error_->setText(QString::fromUtf8(error.what()));
+            submit_error_->setText(QObject::tr(error.what()));
             submit_error_->show();
         } catch (...) {
             submit_error_->setText(tr("Operaci nelze dokončit."));

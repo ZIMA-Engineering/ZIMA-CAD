@@ -31,6 +31,8 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
     if (!edit_mode) {
         new_sketch_container = zima::document::PartDocument::create_sketch_container();
         initial.owner_container_id = new_sketch_container->id;
+        initial.name = tr("Skica").toStdString();
+        new_sketch_container->name = initial.name;
     }
     std::shared_ptr<zima::document::HistoryContainer> sketch_feature;
     if (part) {
@@ -46,7 +48,7 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
             if (!owner) {
                 value.feature_kind = zima::document::FeatureKind::Holes;
                 value.combine_mode = zima::document::CombineMode::Subtract;
-                value.name = "Otvory"; value.holes.sketch_id = initial.id;
+                value.name = tr("Otvory").toStdString(); value.holes.sketch_id = initial.id;
             }
             initial.name = value.name;
             sketch_feature = std::make_shared<zima::document::HistoryContainer>(std::move(value));
@@ -54,7 +56,7 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
             if(owner && owner->feature_kind!=zima::document::FeatureKind::Flat)return;
             auto value=owner?*owner:*new_sketch_container;
             if(!owner) {
-                value.feature_kind=zima::document::FeatureKind::Flat;value.name="Tabule";value.flat.sketch_id=initial.id;
+                value.feature_kind=zima::document::FeatureKind::Flat;value.name=tr("Tabule").toStdString();value.flat.sketch_id=initial.id;
                 value.flat.thickness=zima::document::sheet_metal_defaults(part->session.document()).thickness_mm.value_or(1);
             }
             initial.name=value.name;sketch_feature=std::make_shared<zima::document::HistoryContainer>(std::move(value));
@@ -168,7 +170,7 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
                 const auto defaults=source?zima::document::sheet_metal_defaults(source->session.document()):zima::document::SheetMetalDefaults{};
                 if(stage) {
                     try {zima::document::prepare_bend_sketches(*sketch_feature,*prepared_sketch,defaults);}
-                    catch(const std::exception& error){state_->setText(QString::fromUtf8(error.what()));return;}
+                    catch(const std::exception& error){state_->setText(QObject::tr(error.what()));return;}
                     sweep_profile_sketch_draft_=zima::sketcher::Sketch::from_serialized(sketch_feature->bend.auxiliary_sketches.at(*stage));
                 } else sweep_profile_sketch_draft_ = *prepared_sketch;
                 using Finish=std::function<void(zima::sketcher::Sketch)>;
@@ -182,7 +184,7 @@ void AssemblyWorkspaceWindow::show_sketch_properties(const std::string& sketch_i
                         } catch(const std::exception& error) {
                             sweep_profile_sketch_draft_=std::move(sketch);active_sketch_id_=sweep_profile_sketch_draft_->id;
                             if(auto callback=retry.lock())embedded_sketch_finished_=[callback](auto value){(*callback)(std::move(value));};
-                            preserve_view_on_refresh_=true;refresh_scene();state_->setText(QString::fromUtf8(error.what()));return;
+                            preserve_view_on_refresh_=true;refresh_scene();state_->setText(QObject::tr(error.what()));return;
                         }
                     }
                     properties_dialog_ = dialog; primitive_reference_dialog_ = dialog;

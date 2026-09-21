@@ -92,8 +92,8 @@ private:
             if(lock->error()!=QLockFile::LockFailedError)
                 throw std::runtime_error("Cannot reserve access to: "+path.toStdString());
             const auto message=kind==QStringLiteral("directory:")
-                ? QStringLiteral("Pracovní adresář již používá jiná instance ZIMA-CAD: %1")
-                : QStringLiteral("Soubor již používá jiná instance ZIMA-CAD: %1");
+                ? QObject::tr("Pracovní adresář již používá jiná instance ZIMA-CAD: %1")
+                : QObject::tr("Soubor již používá jiná instance ZIMA-CAD: %1");
             throw std::runtime_error(message.arg(path).toStdString());
         }
         reservations[registry_key]=lock;return lock;

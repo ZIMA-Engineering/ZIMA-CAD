@@ -45,7 +45,7 @@ void Host::register_flat_commands() {
                 auto feature=create?document::PartDocument::create_sketch_container():flat(state,args.at("container"));
                 sketcher::Sketch sketch;
                 if(create) {
-                    feature.feature_kind=document::FeatureKind::Flat;feature.name="Tabule";
+                    feature.feature_kind=document::FeatureKind::Flat;feature.name=tr("Tabule");
                     sketch=sketcher::Sketch::create_default();sketch.owner_container_id=feature.id;feature.flat.sketch_id=sketch.id;
                     feature.flat.thickness=document::sheet_metal_defaults(state->session.document()).thickness_mm.value_or(1);
                     const double width=args.value("width_mm",40.0),height=args.value("height_mm",30.0);

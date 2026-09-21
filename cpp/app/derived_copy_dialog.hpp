@@ -40,7 +40,9 @@ public:
         table_=new QTableWidget(2,4,this);table_->setObjectName("mirrorReferences");
         table_->horizontalHeader()->hide();table_->verticalHeader()->hide();table_->setFixedHeight(74);
         table_->setSelectionMode(QAbstractItemView::NoSelection);table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
-        table_->setColumnWidth(0,120);table_->setColumnWidth(1,26);table_->setColumnWidth(3,28);
+        table_->setColumnWidth(0,120);table_->setColumnWidth(1,32);table_->setColumnWidth(3,32);
+        table_->verticalHeader()->setDefaultSectionSize(32);
+        table_->horizontalHeader()->setSectionResizeMode(0,QHeaderView::ResizeToContents);
         table_->horizontalHeader()->setSectionResizeMode(2,QHeaderView::Stretch);ui::install_reference_cell_delegate(table_);
         for(int row=0;row<2;++row){
             table_->setItem(row,0,new QTableWidgetItem(row?tr("Zdroj"):derived_copy.pattern?tr("Osa Pole"):tr("Rovina zrcadlení")));
@@ -65,9 +67,11 @@ public:
             linear_table_->setVerticalHeaderLabels({tr("Směr 1"),tr("Směr 2"),tr("Směr 3")});
             linear_table_->setSelectionMode(QAbstractItemView::NoSelection);linear_table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
             ui::install_reference_cell_delegate(linear_table_);linear_table_->setFixedHeight(132);
-            const std::array<int,7> widths{26,82,28,112,91,62,62};
+            const std::array<int,7> widths{32,82,32,112,91,62,62};
+            linear_table_->verticalHeader()->setDefaultSectionSize(32);
             for(int column=0;column<7;++column)linear_table_->setColumnWidth(column,widths[column]);
             linear_table_->horizontalHeader()->setSectionResizeMode(1,QHeaderView::Stretch);
+            for(int column:{3,5,6})linear_table_->horizontalHeader()->setSectionResizeMode(column,QHeaderView::ResizeToContents);
             for(int row=0;row<3;++row) {
                 const int field=row+2;auto& d=derived_copy.pattern->linear[row];
                 fields_[field]=new ui::ReferenceCellItem;linear_table_->setItem(row,1,fields_[field]);
@@ -119,7 +123,7 @@ protected:
     bool submit() override{try{read_placement();if(pending.name.empty())throw std::invalid_argument("Zadejte název kontejneru.");
         if(derived_copy.source_id.empty())throw std::invalid_argument("Vyberte zdrojový solid, těleso nebo komponentu.");
         if((!derived_copy.pattern||derived_copy.pattern->circular)&&derived_copy.reference.owner_id.empty())throw std::invalid_argument(derived_copy.pattern?"Vyberte osu Pole.":"Vyberte rovinu zrcadlení.");
-        commit_(pending,derived_copy);return true;}catch(const std::exception& error){set_status(QString::fromUtf8(error.what()));return false;}}
+        commit_(pending,derived_copy);return true;}catch(const std::exception& error){set_status(QObject::tr(error.what()));return false;}}
 private:
     std::function<void(document::HistoryContainer,document::DerivedCopyParameters)> commit_;
     QWidget* plane_buttons_{};QWidget* circular_settings_{};QDoubleSpinBox* angle_{};QCheckBox* full_circle_{};
