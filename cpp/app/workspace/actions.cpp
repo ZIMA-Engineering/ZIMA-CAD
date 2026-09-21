@@ -21,13 +21,13 @@ void AssemblyWorkspaceWindow::create_actions() {
     auto* file = menuBar()->addMenu(t("menu.file", "Soubor"));
     new_document_action_ = make_action(t("menu.file.new", "Nový"), "new");
     new_document_action_->setObjectName("newDocumentAction");
-    new_document_action_->setShortcut(QKeySequence::New);
+    new_document_action_->setShortcuts({QKeySequence(Qt::Key_F1), QKeySequence::New});
     connect(new_document_action_, &QAction::triggered, this,
         [this] { new_document(); });
     file->addAction(new_document_action_);
     open_document_action_ = make_action(t("menu.file.open", "Otevřít..."), "open");
     open_document_action_->setObjectName("openDocumentAction");
-    open_document_action_->setShortcut(QKeySequence::Open);
+    open_document_action_->setShortcuts({QKeySequence(Qt::Key_F2), QKeySequence::Open});
     connect(open_document_action_, &QAction::triggered, this,
         [this] { open_document(); });
     file->addAction(open_document_action_);
@@ -41,14 +41,13 @@ void AssemblyWorkspaceWindow::create_actions() {
     file->addAction(export_action_);
     close_document_action_ = make_action(t("menu.file.close", "Zavřít"));
     close_document_action_->setObjectName("closeDocumentAction");
-    close_document_action_->setShortcut(QKeySequence(QStringLiteral("F2")));
+    close_document_action_->setShortcut(QKeySequence::Close);
     connect(close_document_action_, &QAction::triggered, this,
         [this] { close_document(); });
     file->addAction(close_document_action_);
     save_action_ = make_action(t("menu.file.save", "Uložit"), "save");
     save_action_->setObjectName("saveDocumentAction");
-    save_action_->setShortcuts({QKeySequence::Save,
-                                QKeySequence(QStringLiteral("F1"))});
+    save_action_->setShortcuts({QKeySequence(Qt::Key_F3), QKeySequence::Save});
     save_action_->setShortcutContext(Qt::ApplicationShortcut);
     connect(save_action_, &QAction::triggered, this,
         [this] { save_active_document(); });
@@ -57,7 +56,7 @@ void AssemblyWorkspaceWindow::create_actions() {
         t("menu.file.save_as", "Uložit jako..."), "save-as");
     save_as_action_->setObjectName("saveDocumentAsAction");
     save_as_action_->setToolTip(tr("Uložit kopii modelu včetně navázaného výkresu; původní dokument zůstane otevřený."));
-    save_as_action_->setShortcut(QKeySequence::SaveAs);
+    save_as_action_->setShortcuts({QKeySequence(Qt::Key_F4), QKeySequence::SaveAs});
     save_as_action_->setEnabled(false);
     connect(save_as_action_, &QAction::triggered, this,
         [this] { save_active_document_as(); });

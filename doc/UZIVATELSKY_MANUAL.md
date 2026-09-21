@@ -98,7 +98,11 @@ data. It does not implicitly regenerate parent Assemblies.
 | Wheel forward / backward | Zoom out / in |
 | Short MMB click | End reference entry or the documented command-local step; never accept a property dialog |
 | MMB double-click | Invoke enabled OK in the active internal dialog, including over View |
-| F2 | Close the active document tab |
+| F1 / Ctrl+N | New document |
+| F2 / Ctrl+O | Open document |
+| F3 / Ctrl+S | Save document |
+| F4 / Ctrl+Shift+S | Save document as |
+| Ctrl+W | Close the active document tab |
 | F5 | Regenerate |
 | Ctrl+Shift+C | Toggle the CAD command console |
 
