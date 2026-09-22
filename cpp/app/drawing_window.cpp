@@ -1238,8 +1238,11 @@ protected:
             if(!measurement_offered_.empty()){
                 const auto& candidate=measurement_offered_[measurement_index_];
                 for(const auto& view:sheet_->views)if(view.id==candidate.view){
-                    highlight(view,candidate.candidate.attachment.reference,QColor("#FF9300"));highlight(view,candidate.candidate.attachment.other_reference,QColor("#FF9300"));
-                    painter.save();painter.setPen(QPen(QColor("#FF9300"),2));painter.setBrush(Qt::NoBrush);painter.drawEllipse(view_screen_point(view,candidate.candidate.position),4,4);painter.restore();
+                    const QColor color=dimension_command_?QColor(255,140,12):QColor("#FF9300");
+                    highlight(view,candidate.candidate.attachment.reference,color);highlight(view,candidate.candidate.attachment.other_reference,color);
+                    // Match the Sketcher point hover: filled, radius 5 px, 2 px outline.
+                    const double radius=dimension_command_?5.0:4.0;
+                    painter.save();painter.setPen(QPen(color,2));painter.setBrush(dimension_command_?QBrush(color):QBrush(Qt::NoBrush));painter.drawEllipse(view_screen_point(view,candidate.candidate.position),radius,radius);painter.restore();
                 }
             }
             if(dimension_command_)for(const auto& view:sheet_->views)if(view.id==dimension_command_->value().view_id)for(const auto& ref:dimension_command_->inspected_references())highlight(view,ref,QColor("#00D1FF"));

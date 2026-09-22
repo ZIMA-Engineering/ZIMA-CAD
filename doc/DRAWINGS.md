@@ -695,6 +695,9 @@ its shared OK/Cancel transaction instead of introducing an Apply action.
 
 ### Threads, dimensions and tolerance presentation
 
+During dimension entry, the hovered attachment point uses the same filled orange
+marker as a Sketcher point (5 px radius with a 2 px outline, in screen space).
+
 Axial thread views suppress spurious cone/cylinder mesh generators. Thread
 lead-in chamfer circles are hidden by default; View Properties can reveal them.
 The chamfer stays in the model. Diameter dimensioning accepts symbolic thread
