@@ -67,6 +67,20 @@ int main(){
         require(second_id!=first_id && workspace.open_part(second_id)->session.document().body_history.bodies().front().scope.id!=first_body.scope.id,"New Parts share persistent object IDs");
         require(workspace.active_document_id()==first_id && workspace.displayed_document_id()==first_id,"Creating another document switched context");
         auto custom_settings=settings;custom_settings.sheet_cut_tolerance=.0125;
+        const auto skeleton_template=document::PartDocument::load(template_root/"start_skeleton.prtz");
+        require(skeleton_template.body_history.bodies().empty(),"Skeleton template contains persistent Body identities");
+        for(const auto* filename:{"layout_skeleton.prtz","reference_SKELETON.PRTZ"}) {
+            auto skeleton=prepare_new_native_document(NativeDocumentType::Part,"layout",directory/filename,settings);
+            skeleton.write(directory/filename);
+            const auto loaded=document::PartDocument::load(directory/filename);
+            require(loaded.document_id!=skeleton_template.document_id && loaded.document_id!=first_id &&
+                loaded.history.empty() && loaded.sketches.empty() && loaded.constructions.empty() &&
+                loaded.body_history.bodies().size()==1 && !loaded.body_history.active_body_id().empty(),
+                "Skeleton did not create a clean Part with a fresh active Body");
+            require(loaded.appearance.body.color=="#4D000000" && loaded.body_color=="#4D000000" &&
+                loaded.appearance.bodies.empty(),"Skeleton did not retain its transparent black inherited appearance");
+        }
+        require(first_document.appearance.body==template_part.appearance.body,"Skeleton changed the ordinary Part appearance");
         auto custom_part=part_from_template(custom_settings);custom_part.save(directory/"custom-tolerance.prtz");
         require(std::stod(custom_part.document_precision.at("sheet_cut_tolerance"))==.0125,
             "New Part did not snapshot the configured Sheet Cut tolerance");

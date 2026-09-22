@@ -388,7 +388,7 @@ target_link_libraries(zima_viewer PUBLIC zima_kernel_api zima_measurement
     Qt6::Widgets Qt6::OpenGL Qt6::OpenGLWidgets Qt6::Svg)
 
 add_library(zima_drawing_render modules/drawing_render/src/template_image_import.cpp modules/drawing_render/src/sheet_renderer.cpp modules/drawing_render/src/pdf_export.cpp modules/drawing_render/src/dxf_export.cpp modules/drawing_render/src/image_export.cpp)
-target_include_directories(zima_drawing_render PUBLIC modules/drawing_render/include PRIVATE app modules/viewer/include)
+target_include_directories(zima_drawing_render PUBLIC modules/drawing_render/include modules/viewer/include PRIVATE app)
 target_link_libraries(zima_drawing_render PUBLIC zima_drawing zima_workspace Qt6::Gui Qt6::Svg)
 target_link_libraries(zima_command_host PUBLIC zima_drawing_render)
 
@@ -719,6 +719,8 @@ if(ZIMA_BUILD_TESTS)
             ENVIRONMENT "QT_QPA_PLATFORM=windows;QT_STYLE_OVERRIDE=windows;ZIMA_VERIFY_VALUE_LOCKS_ONLY=1")
     endif()
     add_executable(zima_cpp_native_documents_tests tests/native_documents_tests.cpp)
+    add_executable(zima_cpp_drawing_projection_benchmark tests/drawing_projection_benchmark.cpp)
+    target_link_libraries(zima_cpp_drawing_projection_benchmark PRIVATE zima_workspace)
     target_link_libraries(zima_cpp_native_documents_tests PRIVATE zima_workspace)
     add_test(NAME zima_cpp_native_documents_tests COMMAND zima_cpp_native_documents_tests)
     set_tests_properties(zima_cpp_native_documents_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")

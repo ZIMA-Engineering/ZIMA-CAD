@@ -217,7 +217,11 @@ PreparedNativeDocument prepare_new_native_document(NativeDocumentType type, cons
     if(std::filesystem::exists(target))throw std::invalid_argument("Document path already exists");
     PreparedNativeDocument prepared;prepared.path_=target;prepared.new_document_=true;
     switch(type) {
-        case NativeDocumentType::Part: prepared.document_=PreparedNativeDocument::Part{part_from_template(settings),{}};break;
+        case NativeDocumentType::Part: {
+            auto selected=settings;
+            if(assembly::is_skeleton_file(target))selected.part_template="start_skeleton.prtz";
+            prepared.document_=PreparedNativeDocument::Part{part_from_template(selected),{}};break;
+        }
         case NativeDocumentType::Assembly: prepared.document_=assembly_from_template(settings);break;
         case NativeDocumentType::Drawing: {
             prepared.document_=drawing_from_template(settings);break;

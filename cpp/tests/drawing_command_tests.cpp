@@ -47,6 +47,25 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir){
 }
 void projections(const kernel::OcctKernel& kernel,fs::path dir){
     auto part=document::PartDocument::create_default();auto box=document::PartDocument::create_box_container();box.box={10,10,10};part.history={box};auto boundaries=kernel.evaluate_history(part.kernel_operations());const auto mesh=boundaries.back().mesh;
+    {
+        auto skeleton=part;skeleton.document_id=document::PartDocument::create_default().document_id;
+        part.save(dir/"real.prtz",boundaries);skeleton.save(dir/"layout_SKELETON.PRTZ",boundaries);
+        auto inner=assembly::AssemblyDocument::create_default();
+        inner.components={assembly::AssemblyDocument::create_part_occurrence("real",part.document_id,dir/"real.prtz",boundaries.back()),
+            assembly::AssemblyDocument::create_part_occurrence("layout",skeleton.document_id,dir/"layout_SKELETON.PRTZ",boundaries.back())};
+        inner.save(dir/"inner.asmz");
+        auto outer=assembly::AssemblyDocument::create_default();
+        outer.components.push_back(assembly::AssemblyDocument::create_assembly_occurrence("inner",inner.document_id,dir/"inner.asmz",inner));
+        outer.save(dir/"outer.asmz");
+        workspace::Workspace sources;sources.add_assembly(inner,dir/"inner.asmz");sources.add_assembly(outer,dir/"outer.asmz");
+        for(const auto* source:{&inner,&outer})for(bool open:{false,true}) {
+            const auto path=dir/(source==&inner?"inner.asmz":"outer.asmz");
+            const auto drawing_mesh=workspace::read_drawing_source(open?&sources:nullptr,path,source->document_id).second;
+            require(drawing_mesh.triangles.size()==mesh.triangles.size(),"Skeleton geometry entered an Assembly drawing");
+            require(source->build_scene().triangles.size()==2*mesh.triangles.size(),"Drawing filtering changed the Assembly scene");
+            for(const auto& edge:drawing_mesh.edges)require(edge.reference.instance_path.find(inner.components[1].occurrence_id)==std::string::npos,"Skeleton edge remained pickable in a Drawing");
+        }
+    }
     workspace::Workspace live;live.add_part(part,boundaries,dir/"source.prtz");auto doc=drawing::DrawingDocument::create_default();const auto sheet=doc.sheets.front().id;
     auto section=document::create_section();static_cast<void>(section.sketch.add_segment(-20,0,20,0));
     auto view=drawing::DrawingDocument::create_view(part.document_id,dir/"source.prtz",mesh);view.section_id=section.id;view.section_snapshot=section;

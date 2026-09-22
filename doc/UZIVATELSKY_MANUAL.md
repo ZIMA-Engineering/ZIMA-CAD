@@ -16,7 +16,14 @@ data live inside native documents; see [cache storage](CACHE_STORAGE.md).
 **New / F1** offers a contextual chooser beside the document type. For a Part,
 choose **Modeling** or **Sheet Metal**. Both create the same ordinary Part from
 the configured start template; the choice only selects the working environment
-in the application dropdown. Skeleton is reserved for future development.
+in the application dropdown. **Skeleton** uses Modeling, appends `_skeleton`
+to the filename and loads `start_skeleton.prtz` from the template directory.
+It starts with one active empty Body and black surfaces with approximately 70%
+transparency. It contains no modeling geometry, material or manufacturing
+parameters. Skeleton identity is determined only by the case-insensitive
+`*_skeleton.prtz` filename; there is no additional document flag. Creating a
+Part with that filename also selects the Skeleton template through the shared
+GUI/CLI creation path. Existing Parts are not recolored when opened or renamed.
 
 For a Drawing, choose a frame from the native `.frmz` files in `Paths/Formats`
 (normally `config/formats`). Labels include the sheet size and template name;
@@ -55,6 +62,11 @@ document ID and the entered name. Start templates intentionally contain no
 modeling containers or components, preventing copied internal IDs. A project
 `config.ini` may override `[Templates]`; relative names resolve under
 `Paths/Templates`.
+
+The Skeleton template is `start_skeleton.prtz` in the same directory. It stores
+no Body IDs: creation assigns a fresh document ID and creates an active Body
+using the same origin attachment contract as an ordinary Part. The document
+appearance is inherited by subsequently created geometry and can be edited.
 
 ## Numeric fields and tables
 

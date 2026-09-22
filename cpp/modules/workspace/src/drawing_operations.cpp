@@ -8,6 +8,41 @@
 #include <cctype>
 namespace zima::workspace {
 namespace {
+kernel::ViewerMesh drawing_assembly_mesh(const assembly::AssemblyDocument& document) {
+    auto mesh=document.build_scene();
+    std::set<std::string> skeletons;
+    const auto visit=[&](auto&& self,const auto& nodes,assembly::InstancePath parent)->void {
+        for(const auto& node:nodes){const auto path=parent.child(node.occurrence_id);
+            if(assembly::is_skeleton(node))skeletons.insert(path.encoded());
+            self(self,node.children,path);
+        }
+    };
+    visit(visit,document.occurrence_snapshot(),{});
+    if(skeletons.empty())return mesh;
+    const auto hidden=[&](const auto& reference){return skeletons.contains(reference.instance_path);};
+    const auto filter=[&](auto& geometry) {
+        std::vector<std::uint32_t> triangles;
+        std::vector<kernel::FaceReference> references;
+        for(std::size_t i=0;i<geometry.triangles.size()/3;++i) {
+            const auto reference=i<geometry.triangle_references.size()?geometry.triangle_references[i]:kernel::FaceReference{};
+            if(hidden(reference))continue;
+            references.push_back(reference);
+            triangles.insert(triangles.end(),geometry.triangles.begin()+3*i,geometry.triangles.begin()+3*i+3);
+        }
+        std::vector<kernel::Vec3> vertices;std::map<std::uint32_t,std::uint32_t> remap;
+        for(auto& index:triangles){auto [it,inserted]=remap.emplace(index,static_cast<std::uint32_t>(vertices.size()));if(inserted)vertices.push_back(geometry.vertices.at(index));index=it->second;}
+        geometry.vertices=std::move(vertices);geometry.triangles=std::move(triangles);geometry.triangle_references=std::move(references);
+        std::erase_if(geometry.edges,[&](const auto& item){return hidden(item.reference);});
+        std::erase_if(geometry.points,[&](const auto& item){return hidden(item.reference);});
+        std::erase_if(geometry.axes,[&](const auto& item){return hidden(item.reference);});
+    };
+    filter(mesh);filter(mesh.original_references);
+    std::erase_if(mesh.dimensions,[&](const auto& item){return hidden(item.reference);});
+    std::erase_if(mesh.constraint_markers,[&](const auto& item){return hidden(item.reference);});
+    std::erase_if(mesh.images,[&](const auto& item){return hidden(item.reference);});
+    std::erase_if(mesh.annotation_frames,[&](const auto& item){return skeletons.contains(item.first.second);});
+    return mesh;
+}
 drawing::DrawingSheet& sheet(drawing::DrawingDocument& doc,const std::string& id){auto* s=doc.find_sheet(id);if(!s)throw DrawingOperationError("sheet_not_found","The drawing sheet does not exist.");return *s;}
 void text(const std::string& s,std::size_t max){if(s.empty()||s.size()>max||std::ranges::any_of(s,[](unsigned char c){return c<32||c==127;}))throw DrawingOperationError("invalid_arguments","Drawing names and language codes must be non-empty bounded single-line text.");}
 void assign(drawing::DrawingSheet& s,const SheetSettings& v){s.name=v.name;s.format=v.format;s.projection_method=v.projection;s.default_scale=v.scale;s.thick_line_mm=v.thick_line_mm;s.thin_line_mm=v.thin_line_mm;s.red_line_mm=v.red_line_mm;s.title_block_locale=v.locale;}
@@ -74,9 +109,9 @@ std::pair<std::string,kernel::ViewerMesh> read_drawing_source(const Workspace* l
                 Workspace source;source.add_part(std::move(member),std::move(cache),base->path);
                 return checked(expected,source.authoritative_viewer_mesh(expected));
             }
-            if(const auto* base=live->open_assembly(*open))return checked(expected,family_assembly_source(base->session.document(),expected).build_scene());
+            if(const auto* base=live->open_assembly(*open))return checked(expected,drawing_assembly_mesh(family_assembly_source(base->session.document(),expected)));
         }
-        if(open && (expected.empty()||*open==expected)){if(!live->open_part(*open)&&!live->open_assembly(*open))throw DrawingOperationError("unsupported_document","Drawing sources must be Parts or Assemblies.");return checked(*open,live->authoritative_viewer_mesh(*open));}
+        if(open && (expected.empty()||*open==expected)){if(!live->open_part(*open)&&!live->open_assembly(*open))throw DrawingOperationError("unsupported_document","Drawing sources must be Parts or Assemblies.");if(const auto* assembly=live->open_assembly(*open))return checked(*open,drawing_assembly_mesh(assembly->session.document()));return checked(*open,live->authoritative_viewer_mesh(*open));}
     }
     auto ext=path.extension().string();std::ranges::transform(ext,ext.begin(),[](unsigned char c){return static_cast<char>(std::tolower(c));});
     if(ext==".prtz"){
@@ -89,7 +124,7 @@ std::pair<std::string,kernel::ViewerMesh> read_drawing_source(const Workspace* l
         Workspace source;source.add_part(std::move(part),std::move(boundaries),path);
         return checked(id,source.authoritative_viewer_mesh(id));
     }
-    if(ext==".asmz"){const auto assembly=read_family_assembly(live,path,expected);return checked(assembly.document_id,assembly.build_scene());}
+    if(ext==".asmz"){const auto assembly=read_family_assembly(live,path,expected);return checked(assembly.document_id,drawing_assembly_mesh(assembly));}
     throw DrawingOperationError("unsupported_format","Drawing sources must be native prtz or asmz files.");
 }
 }

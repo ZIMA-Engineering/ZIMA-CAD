@@ -16,6 +16,8 @@ LABELS = {
     '[ks]': ['[pcs]', '[Stk]', '[pcs]', '[шт.]'],
     'Hmotnost:': ['Mass:', 'Masse:', 'Masse :', 'Масса:'],
     'Množství:': ['Quantity:', 'Menge:', 'Quantité :', 'Кол-во:'],
+    'Hmotnost [Kg]:': ['Mass [Kg]:', 'Masse [Kg]:', 'Masse [Kg] :', 'Масса [Kg]:'],
+    'Množství [ks]:': ['Quantity [pcs]:', 'Menge [Stk]:', 'Quantité [pcs] :', 'Кол-во [шт.]:'],
     'Formát:': ['Format:', 'Format:', 'Format :', 'Формат:'],
     'Promítání:': ['Projection:', 'Projektion:', 'Projection :', 'Проекция:'],
     'Přesnost:': ['Accuracy:', 'Genauigkeit:', 'Précision :', 'Точность:'],

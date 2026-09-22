@@ -653,7 +653,7 @@ public:
         }
         error_=new QLabel(this);error_->setWordWrap(true);error_->setObjectName("titleBlockError");
         content_layout()->addWidget(content);content_layout()->addWidget(error_);
-        set_initial_size({3 * std::max(minimumWidth(), minimumSizeHint().width()), sizeHint().height()});
+        set_initial_size({3 * std::max(minimumWidth(), minimumSizeHint().width()) / 2, sizeHint().height()});
         setAttribute(Qt::WA_DeleteOnClose);
     }
 private:

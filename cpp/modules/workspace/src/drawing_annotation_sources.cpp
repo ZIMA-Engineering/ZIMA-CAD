@@ -264,7 +264,7 @@ drawing_annotation_sources(const Workspace *workspace,
               std::move(chain));
       };
       for (const auto &component : assembly.components) {
-        if (suppressed.contains(component.occurrence_id) || !component.visible)
+        if (assembly::is_skeleton(component) || suppressed.contains(component.occurrence_id) || !component.visible)
           continue;
         expand(component, occurrence.child(component.occurrence_id), placements,
                {});

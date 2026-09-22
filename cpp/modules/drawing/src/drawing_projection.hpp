@@ -4,6 +4,7 @@
 #include <cmath>
 #include <map>
 #include <numbers>
+#include <numeric>
 #include <set>
 #include <tuple>
 
@@ -128,6 +129,35 @@ inline std::vector<ProjectedEdge> project_drawing_edges(
             edge.back|=t.determinant*handedness<=epsilon*epsilon;
         }
     }
+    // Broad-phase index only: the existing exact triangle clipping below still
+    // decides visibility. Refining a curved rim must not scan the whole model
+    // for every small segment.
+    struct Node {double xmin{},xmax{},ymin{},ymax{};std::size_t begin{},end{},left{},right{};};
+    std::vector<std::size_t> order(triangles.size());std::iota(order.begin(),order.end(),0);
+    std::vector<Node> nodes;nodes.reserve(triangles.size()*2);
+    const auto build=[&](auto&& self,std::size_t begin,std::size_t end)->std::size_t {
+        const auto index=nodes.size();const auto& first=triangles[order[begin]];
+        Node node{first.xmin,first.xmax,first.ymin,first.ymax,begin,end};
+        for(auto i=begin+1;i<end;++i){const auto& t=triangles[order[i]];node.xmin=std::min(node.xmin,t.xmin);node.xmax=std::max(node.xmax,t.xmax);node.ymin=std::min(node.ymin,t.ymin);node.ymax=std::max(node.ymax,t.ymax);}
+        nodes.push_back(node);
+        if(end-begin>8) {
+            const bool x=node.xmax-node.xmin>=node.ymax-node.ymin;const auto middle=begin+(end-begin)/2;
+            std::nth_element(order.begin()+begin,order.begin()+middle,order.begin()+end,[&](auto a,auto b){const auto& p=triangles[a];const auto& q=triangles[b];return x?p.xmin+p.xmax<q.xmin+q.xmax:p.ymin+p.ymax<q.ymin+q.ymax;});
+            nodes[index].left=self(self,begin,middle);nodes[index].right=self(self,middle,end);
+        }
+        return index;
+    };
+    if(!triangles.empty())build(build,0,triangles.size());
+    const auto candidates=[&](double xmin,double xmax,double ymin,double ymax,std::vector<std::size_t>& found) {
+        found.clear();
+        const auto visit=[&](auto&& self,std::size_t index)->void {
+            const auto& node=nodes[index];
+            if(xmax<node.xmin||xmin>node.xmax||ymax<node.ymin||ymin>node.ymax)return;
+            if(node.right){self(self,node.left);self(self,node.right);}
+            else for(auto i=node.begin;i<node.end;++i){const auto& t=triangles[order[i]];if(!(xmax<t.xmin||xmin>t.xmax||ymax<t.ymin||ymin>t.ymax))found.push_back(order[i]);}
+        };
+        if(!nodes.empty())visit(visit,0);
+    };
     std::vector<ProjectedEdge> result;
 
     std::vector<zima::kernel::EdgeReference> leadin_edges;
@@ -196,11 +226,13 @@ inline std::vector<ProjectedEdge> project_drawing_edges(
                 }
             }
         }
+        std::vector<std::size_t> nearby;
         for(std::size_t segment=1;segment<points.size();++segment) {
             const auto a=project(points[segment-1]),b=project(points[segment]);
             if(std::hypot(b.p.x-a.p.x,b.p.y-a.p.y)<=epsilon)continue;
             std::vector<std::pair<double,double>> occluded;
-            for(std::size_t triangle_index=0;triangle_index<triangles.size();++triangle_index) {
+            candidates(std::min(a.p.x,b.p.x),std::max(a.p.x,b.p.x),std::min(a.p.y,b.p.y),std::max(a.p.y,b.p.y),nearby);
+            for(const auto triangle_index:nearby) {
                 const auto& triangle=triangles[triangle_index];
                 if(const auto& interval=rim_intervals[triangle_index];interval&&parameters) {
                     const auto [lo,hi]=std::minmax((*parameters)[segment-1],(*parameters)[segment]);

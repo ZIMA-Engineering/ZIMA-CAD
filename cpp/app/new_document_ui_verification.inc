@@ -67,6 +67,15 @@ int verify_new_document_options(QApplication& application) {
             create("part","reference",2);
             check(window.findChild<QComboBox*>("applicationModeSelector")->currentData().toInt()==0,"Skeleton must use Modeling");
             check(QFileInfo::exists(directory.filePath("reference_skeleton.prtz")),"Skeleton filename suffix is missing");
+            const auto skeleton=document::PartDocument::load(std::filesystem::u8path(directory.filePath("reference_skeleton.prtz").toStdString()));
+            check(skeleton.history.empty()&&skeleton.sketches.empty()&&skeleton.constructions.empty()&&
+                  skeleton.body_history.bodies().size()==1&&!skeleton.body_history.active_body_id().empty()&&
+                  skeleton.document_id!=model.document_id,"Skeleton must start with a fresh active empty Body");
+            check(skeleton.appearance.body.color=="#4D000000"&&skeleton.body_color=="#4D000000"&&
+                  skeleton.appearance.bodies.empty(),"Skeleton template appearance was not inherited");
+            check(window.findChild<QAction*>("materialAction")->isEnabled(),"Skeleton Part commands are disabled");
+            check(window.findChild<QAction*>("sketchAction")->isEnabled()&&window.findChild<QAction*>("boxAction")->isEnabled(),
+                  "Skeleton active Body must enable normal modeling commands");
             create("assembly","assembly");
             auto* material=window.findChild<QAction*>("materialAction");
             auto* material_button=window.findChild<QToolButton*>("treematerialAction");

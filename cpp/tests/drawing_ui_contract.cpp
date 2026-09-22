@@ -1054,7 +1054,7 @@ int verify_drawing_ui() {
                 auto* today=props->findChild<QPushButton*>("titleBlockToday:DATE");auto* value=props->findChild<QLineEdit*>("titleBlockField:DATE");auto* choices=props->findChild<QComboBox*>("titleBlockChoices:LIST");auto* editable=props->findChild<QComboBox*>("titleBlockChoices:CUSTOM");
                 require(today&&value&&choices&&editable&&!choices->isEditable()&&editable->isEditable(),"Field action widgets are incorrect");require(value->text()=="old","Date changed without clicking");
                 today->click();require(value->text()==QDate::currentDate().toString("yyyy-MM-dd"),"Today action used wrong date format");choices->setCurrentText("B");editable->setEditText("Custom");
-                require(props->width()>=std::min(window.width(),3*props->minimumSizeHint().width()),"Title value dialog did not use wider layout");
+                require(props->width()>=std::min(window.width(),3*props->minimumSizeHint().width()/2),"Title value dialog did not use the reduced width");
                 window.grab().save(QString::fromStdString((directory/"title-field-actions.png").string()));
                 props->findChild<QDialogButtonBox*>()->button(accept?QDialogButtonBox::Ok:QDialogButtonBox::Cancel)->click();flush();
                 const auto& fields=window.document_for_test().sheets.front().title_block_fields;

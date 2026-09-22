@@ -326,6 +326,18 @@ Data={"points":{"a":{"x":-10,"y":-5},"b":{"x":-20,"y":-5}},"geometry":{"line":{"
             (edge.hidden?hidden_length:visible_length)+=std::hypot(edge.points[i].x-edge.points[i-1].x,edge.points[i].y-edge.points[i-1].y);
         require(std::abs(hidden_length-6)<1e-6 && std::abs(visible_length-4)<1e-6,
                 "Partial occlusion must split an edge at the actual face boundary");
+        // Force multiple spatial-index levels, including disjoint and coplanar
+        // triangles. Broad-phase pruning must preserve exact clipping lengths.
+        for(unsigned i=0;i<64;++i){const auto offset=static_cast<unsigned>(occluded.vertices.size());const double x=100+i*20;
+            occluded.vertices.insert(occluded.vertices.end(),{{x,-1,-1},{x+10,-1,-1},{x+5,-1,1}});
+            occluded.triangles.insert(occluded.triangles.end(),{offset,offset+1,offset+2});}
+        for(int pass=0;pass<2;++pass) {
+            double hidden_sum=0,visible_sum=0;
+            for(const auto& edge:zima::drawing::project_edges(occluded,zima::drawing::ViewOrientation::Front))if(!edge.silhouette)
+                for(std::size_t i=1;i<edge.points.size();++i)(edge.hidden?hidden_sum:visible_sum)+=std::hypot(edge.points[i].x-edge.points[i-1].x,edge.points[i].y-edge.points[i-1].y);
+            require(std::abs(hidden_sum-hidden_length)<1e-6&&std::abs(visible_sum-visible_length)<1e-6,"Spatial triangle pruning changed occlusion");
+            std::reverse(occluded.triangles.begin(),occluded.triangles.end());
+        }
         const auto cylinder=drawing_cylinder_fixture();
         const auto front=zima::drawing::project_edges(cylinder,zima::drawing::ViewOrientation::Front);
         int sides=0;

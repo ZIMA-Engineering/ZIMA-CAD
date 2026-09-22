@@ -3,6 +3,37 @@
 This document describes the current ZIMA-CAD Drawing data and interaction model.
 Basic usage is also in the [user manual](UZIVATELSKY_MANUAL.md#basic-drawing-workflow).
 
+## Assembly projection performance and Skeleton exclusion (2026-09-22)
+
+Hidden-line projection builds a transient 2D bounding-volume tree over the
+projected triangles. Each curve segment tests only overlapping candidates;
+the exact clipping, curve refinement and visibility tolerances are unchanged.
+This avoids repeatedly scanning the entire assembly for every refined curve
+segment. The index never defines persistent topology identities or invokes OCCT.
+
+Assembly drawing sources exclude Skeleton occurrences, including Skeletons in
+nested subassemblies, from both display and reference geometry and annotation
+sources. Filtering uses exact occurrence paths and the existing filename-based
+Skeleton predicate. It does not alter Assembly visibility or source documents.
+The same rule applies to open and saved Assembly sources. A Skeleton opened as
+a standalone Part remains a usable explicit drawing source.
+
+`zima_cpp_drawing_projection_benchmark <source.asmz>` reports source loading and
+isometric/front edge projection times without modifying the source. On the
+reported `ze0001-0000-0000.asmz` fixture (4,610 triangles before Skeleton
+filtering), the original projection was stopped after more than 60 seconds;
+the indexed isometric projection took approximately 0.7 seconds with the same
+source geometry. With Skeleton filtering enabled, the final diagnostic measured
+0.75 seconds for loading, 0.56 seconds for isometric edges, 0.33 seconds for front
+edges, and 4.75 seconds for the complete projection service including source
+loading, annotations and BOM context. These are local diagnostic measurements,
+not GUI interaction timing guarantees.
+
+The supplied title blocks label the central mass and quantity fields with units
+before the colon (`Hmotnost [Kg]:`, `Množství [ks]:` in Czech), with translated
+quantity abbreviations in the other four languages. Existing embedded title
+blocks require reinsertion to adopt changed library labels.
+
 ## Document, sheets and source model
 
 A `.drwz` Drawing registers zero or more source `.prtz` Parts and `.asmz` Assemblies
@@ -186,7 +217,7 @@ in inserted Drawing fields, and survive native save/reopen. No external sidecar
 or Part/Assembly schema change is required. Text composition remains a future
 Relations topic.
 
-**Title block values** opens at three times its natural minimum width, bounded
+**Title block values** opens at 1.5 times its natural minimum width, bounded
 by the application window. A date button fills the local current date only when
 clicked; opening the dialog never changes a date. A list field displays a combo
 box, editable only when custom values are allowed. Existing values remain intact
