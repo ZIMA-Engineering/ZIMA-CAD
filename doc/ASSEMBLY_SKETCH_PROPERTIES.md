@@ -1,5 +1,23 @@
 # Standalone Sketch properties in Assembly
 
+## Camera and viewport stability
+
+Activating or leaving an Assembly component preserves camera orientation, zoom
+and pan. The top-level Assembly Tree context action **Activate** delegates to
+the same return operation as the component toolbar action. It is disabled while
+a Sketch or property transaction is open.
+
+Normal alignment when entering an Assembly-context Sketch changes orientation
+without fitting the complete Assembly or resetting pan. Standalone Part Sketch
+profile fitting retains its existing behavior. Explicit Fit remains available.
+
+The status row reserves the same height with or without its progress indicator.
+Status text cannot impose a horizontal minimum on the document canvas. This
+prevents save completion and double-click dimension inspection from resizing
+the View under the pointer. Native regression coverage checks nested Body and
+Assembly Sketch editing, save/progress transitions, root activation and camera
+invariance; it also supports read-only verification of a supplied Assembly.
+
 ## Data model and shared commands
 
 Every standalone Assembly Sketch belongs to a Sketch HistoryContainer.
@@ -99,7 +117,8 @@ coordinates. Passive parent Assembly geometry remains visible during dragging.
 The display model regression checks two occurrences of the same subassembly and
 unchanged shared data for the inactive occurrence.
 
-The catalog contains 292 commands and CTest registers 159 tests. Both applications
+At the earlier Assembly Sketch milestone, the catalog contained 292 commands and
+CTest registered 159 tests. Both applications
 and all test programs built. The full regression passed **159/159 in 647.73 s**,
 including the separate CLI process, full GUI, new Assembly Sketches, properties,
 reference dependencies, native saving, drawings, model operations, and exact-spline

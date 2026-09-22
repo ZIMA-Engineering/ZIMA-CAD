@@ -2,6 +2,7 @@
 
 #include <zima/kernel/dimension_layout.hpp>
 #include <zima/sketcher/template_image.hpp>
+#include <zima/sketcher/symbol_instance.hpp>
 
 #include <filesystem>
 #include <map>
@@ -440,6 +441,7 @@ public:
         const std::string& geometry_id, const std::vector<std::array<double,2>>& intervals);
 
     std::vector<SketchText> texts;
+    std::vector<SymbolInstance> symbols;
     std::vector<SketchExternalReference> external_references;
     std::vector<SketchConstraint> constraints;
     std::vector<SketchDimension> dimensions;

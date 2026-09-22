@@ -1,3 +1,4 @@
+#include <zima/symbols/definition.hpp>
 #include <zima/sketcher/template_image_json.hpp>
 #include <zima/drawing/drawing_template.hpp>
 #include <zima/document/versioned_file.hpp>
@@ -208,7 +209,7 @@ void save_template_sketch(const zima::sketcher::Sketch& sketch,const std::filesy
     const auto pen_for=[&](const std::string& id){const auto it=m.pens.find(id);return it==m.pens.end()?std::string("GREEN"):it->second;};
     for(const auto& e:s.viewer_mesh().edges) {
         const auto& key=e.reference.semantic_key;
-        if(key.starts_with("template_image:")||key.starts_with("text:")||key.starts_with("repeat_region:")||key.starts_with("circle:")||(e.construction&&!e.dash_dot))continue;
+        if(key.starts_with("symbol:")||key.starts_with("template_image:")||key.starts_with("text:")||key.starts_with("repeat_region:")||key.starts_with("circle:")||(e.construction&&!e.dash_dot))continue;
         const auto id=key.substr(key.find(':')+1);
         for(std::size_t i=1;i<e.points.size();++i) {
             const auto a=s.local_point(e.points[i-1]),b=s.local_point(e.points[i]);
@@ -240,7 +241,7 @@ void load_template_details(DrawingSheet& sheet,const std::filesystem::path& path
         circles.push_back({{std::stod(v[0]),std::stod(v[1])},std::stod(v[2]),drawing_pen(v[3])});
     }
     if(title) {
-        sheet.repeat_regions.clear();sheet.title_block_images.clear();
+        sheet.repeat_regions.clear();sheet.title_block_images.clear();sheet.title_block_symbols.clear();
         for(const auto& [section,values]:ini)if(section.starts_with("RepeatRegion.")) {
             SketchRepeatRegion r{section.substr(13),number(ini,section,"X"),number(ini,section,"Y"),number(ini,section,"Width"),number(ini,section,"Height"),value(ini,section,"Direction","up"),number(ini,section,"Step",number(ini,section,"Height"))};
             validate_repeat_region(r);sheet.repeat_regions.push_back(std::move(r));
@@ -248,6 +249,7 @@ void load_template_details(DrawingSheet& sheet,const std::filesystem::path& path
     }
     if(!ini.contains("Sketch"))return;
     const auto data=Json::parse(value(ini,"Sketch","Data"));
+    if(title)sheet.title_block_symbols=data.value("symbols",std::vector<sketcher::SymbolInstance>{});
     auto& texts=title?sheet.title_block_texts:sheet.frame_texts;texts.clear();
     const auto append=[&](TemplateText t,std::string field_id,const std::string& text_id) {
         const auto tokens=title_block_tokens(t.text);
@@ -303,6 +305,24 @@ TemplateLayout title_block_layout(const DrawingSheet& sheet,const TitleBlockCont
             draw(offset,c,r&&i<sheet.bom_rows.size()?std::optional{i}:std::nullopt);
         }
     };
+    for(const auto& symbol:sheet.title_block_symbols) {
+        if(!symbol.visible)continue;
+        const auto variant=sheet.projection_method==ProjectionMethod::FirstAngle?"first_angle":"third_angle";
+        const auto mesh=symbols::instance_mesh(symbol,variant);
+        // Library XY is right-handed; title-block paper X increases to the left.
+        for(const auto& edge:mesh.edges)if(!edge.filled_text)for(std::size_t i=1;i<edge.points.size();++i) {
+            const auto& a=edge.points[i-1];const auto& b=edge.points[i];
+            result.lines.push_back({{2*symbol.x-a.x,a.y},{2*symbol.x-b.x,b.y},edge.dash_dot?DrawingPen::Green:edge.color=="#F5CD50"?DrawingPen::Yellow:DrawingPen::White,edge.dash_dot,"symbol:"+symbol.id});
+        }
+        const auto definition=symbols::Definition::from_serialized(symbol.definition);
+        const double angle=symbol.angle_degrees*3.141592653589793/180.,c=std::cos(angle),s=std::sin(angle);
+        for(const auto& sketch:definition.evaluate(symbol.use_cad_variant?variant:symbol.variant,symbol.text_values))for(const auto& text:sketch.texts) {
+            const double x=(text.anchor_x-definition.insertion_point[0])*symbol.scale,y=(text.anchor_y-definition.insertion_point[1])*symbol.scale;
+            result.texts.push_back({text.value,{symbol.x-c*x+s*y,symbol.y+s*x+c*y},text.height*symbol.scale,
+                text.color==SketchTextColor::Green?DrawingPen::Green:text.color==SketchTextColor::Yellow?DrawingPen::Yellow:text.color==SketchTextColor::Red?DrawingPen::Red:DrawingPen::White,
+                align(text.horizontal),valign(text.vertical),-symbol.angle_degrees-text.angle_degrees,!text.flipped,text.font,"symbol:"+symbol.id});
+        }
+    }
     for(const auto& image:sheet.title_block_images) {
         const auto box=image.corners();
         copies(region_for({box[0][0],box[0][1]},{box[2][0],box[2][1]}),[&](Point2 o,const auto&,const auto&){auto i=image;i.x+=o.x;i.y+=o.y;result.images.push_back(std::move(i));});

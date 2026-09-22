@@ -94,6 +94,11 @@ void AssemblyWorkspaceWindow::populate_sketch_tree(
             item->setSelected(selected_template_image_==image.id);
         }
     }
+    for(const auto& symbol:sketch.symbols) {
+        auto* item=new QTreeWidgetItem(tree_,{tr("Symbol")});item->setIcon(0,resource_icon("insert-symbol"));
+        item->setData(0,Qt::UserRole,QString::fromStdString(symbol.id));item->setData(0,Qt::UserRole+3,"sketch-symbol");
+        item->setSelected(selected_symbol_==symbol.id);
+    }
     auto* origin = new QTreeWidgetItem(tree_, {
         tr("Počátek kontejneru — %1").arg(QString::fromStdString(sketch.name))});
     origin->setIcon(0, resource_icon("origin"));

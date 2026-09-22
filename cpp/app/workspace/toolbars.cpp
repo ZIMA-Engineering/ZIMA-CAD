@@ -268,6 +268,7 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
         add_group_separator();
         add_command(sketch_universal_dimension_action_);
         add_command(sketch_text_action_);
+        add_command(symbol_action_);
         add_group_separator();
         if(!template_sketch())add_command(finish_sketch_action_,false);
         return;

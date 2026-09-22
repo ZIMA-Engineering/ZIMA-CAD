@@ -1,106 +1,150 @@
 #include <zima/symbols/definition.hpp>
+#include <zima/sketcher/text_geometry.hpp>
 #include <nlohmann/json.hpp>
-#include <QFile>
-#include <QSaveFile>
+#include <algorithm>
 #include <cmath>
 #include <set>
 #include <stdexcept>
-
 namespace zima::symbols {
 namespace {
-using Json = nlohmann::json;
-QString qpath(const std::filesystem::path& path) {
-    const auto bytes=path.u8string();return QString::fromUtf8(reinterpret_cast<const char*>(bytes.data()),static_cast<qsizetype>(bytes.size()));
-}
+using Json=nlohmann::json;
 void require(bool valid) {if(!valid)throw std::invalid_argument("Invalid symbol definition");}
+void check_value(const TextField& field,const std::string& value) {
+    require(field.allow_custom||std::ranges::find(field.choices,value)!=field.choices.end());
+}
 }
 void Definition::validate() const {
     require(!id.empty()&&!name.empty()&&std::isfinite(insertion_point[0])&&std::isfinite(insertion_point[1]));
-    sketch.validate();
-    require(sketch.external_references.empty()&&sketch.plane_reference_owner_id.empty()&&!sketch.drawing_template);
-    require(variants.contains(default_variant)&&!groups.empty());
-    std::set<std::string> curves;
-    for(const auto& v:sketch.segments)curves.insert(v.id);
-    for(const auto& v:sketch.circles)curves.insert(v.id);
-    for(const auto& v:sketch.arcs)curves.insert(v.id);
-    for(const auto& v:sketch.ellipses)curves.insert(v.id);
-    for(const auto& v:sketch.elliptical_arcs)curves.insert(v.id);
-    for(const auto& v:sketch.bsplines)curves.insert(v.id);
-    for(const auto& v:sketch.texts)curves.insert(v.id);
-    std::set<std::string> assigned;
-    for(const auto& [key, group]:groups) {
-        require(!key.empty()&&!group.geometry.empty());
-        for(const auto& entity:group.geometry)require(curves.contains(entity)&&assigned.insert(entity).second);
+    require(!sketches.empty()&&variants.contains(default_variant));
+    require(variant_source.empty()||variant_source=="drawing.projection_method");
+    std::set<std::string> ids;
+    for(const auto& sketch:sketches) {
+        require(sketch.symbols.empty()); // No recursive symbol graphs.
+        sketch.validate();require(ids.insert(sketch.id).second);
+        require(sketch.external_references.empty()&&sketch.plane_reference_owner_id.empty()&&sketch.owner_container_id.empty()&&!sketch.drawing_template);
+        require(sketch.plane==sketcher::SketchPlane::XY&&sketch.plane_offset==0);
     }
-    require(assigned==curves);
-    for(const auto& [key, members]:variants) {
-        require(!key.empty()&&!members.empty());std::set<std::string> used;
-        for(const auto& group:members)require(groups.contains(group)&&used.insert(group).second);
+    std::set<std::pair<std::string,std::string>> text_ids;
+    for(const auto& [owner,entries]:pens) {
+        require(ids.contains(owner));
+        const auto& sketch=*std::ranges::find(sketches,owner,&sketcher::Sketch::id);
+        std::set<std::string> curves;
+        const auto add=[&](const auto& values){for(const auto& value:values)curves.insert(value.id);};
+        add(sketch.segments);add(sketch.circles);add(sketch.arcs);add(sketch.ellipses);add(sketch.elliptical_arcs);add(sketch.bsplines);
+        for(const auto& [curve,pen]:entries) {
+            require(pen=="white"||pen=="yellow");
+            require(curves.contains(curve));
+        }
     }
+    for(const auto& [key,field]:fields) {
+        require(!key.empty()&&ids.contains(field.sketch_id));
+        const auto& sketch=*std::ranges::find(sketches,field.sketch_id,&sketcher::Sketch::id);
+        require(std::ranges::find(sketch.texts,field.text_id,&sketcher::SketchText::id)!=sketch.texts.end());
+        require(text_ids.emplace(field.sketch_id,field.text_id).second);
+        require(field.allow_custom||!field.choices.empty());
+    }
+    for(const auto& [key,row]:variants) {
+        require(!key.empty());std::set<std::string> used;
+        for(const auto& sketch:row.sketches)require(ids.contains(sketch)&&used.insert(sketch).second);
+        for(const auto& [field,value]:row.text_values){require(fields.contains(field));check_value(fields.at(field),value);}
+        for(const auto& field:row.hidden_texts)require(fields.contains(field));
+    }
+    if(variant_source=="drawing.projection_method")require(variants.contains("first_angle")&&variants.contains("third_angle"));
 }
-std::vector<std::string> Definition::visible_geometry(const std::string& variant) const {
-    validate();std::vector<std::string> result;
-    for(const auto& group:variants.at(variant)) {
-        const auto& ids=groups.at(group).geometry;result.insert(result.end(),ids.begin(),ids.end());
+std::vector<sketcher::Sketch> Definition::evaluate(const std::string& variant,const std::map<std::string,std::string>& overrides) const {
+    validate();const auto& row=variants.at(variant.empty()?default_variant:variant);
+    for(const auto& [field,value]:overrides){require(fields.contains(field));check_value(fields.at(field),value);}
+    std::vector<sketcher::Sketch> result;
+    for(const auto& id:row.sketches) {
+        auto sketch=*std::ranges::find(sketches,id,&sketcher::Sketch::id);
+        for(const auto& [key,field]:fields)if(field.sketch_id==id) {
+            if(std::ranges::find(row.hidden_texts,key)!=row.hidden_texts.end()) {
+                std::erase_if(sketch.texts,[&](const auto& text){return text.id==field.text_id;});continue;
+            }
+            auto& text=*std::ranges::find(sketch.texts,field.text_id,&sketcher::SketchText::id);
+            if(row.text_values.contains(key))text.value=row.text_values.at(key);
+            if(overrides.contains(key))text.value=overrides.at(key);
+            sketcher::rebuild_text_contours(text,true);
+        }
+        result.push_back(std::move(sketch));
     }
     return result;
 }
 std::string Definition::serialized() const {
-    validate();Json group_data=Json::object();
-    for(const auto& [id, group]:groups)group_data[id]={{"geometry",group.geometry},{"axis",group.axis}};
-    return Json{{"format","zima.symbol"},{"version",1},{"units","mm"},{"id",id},{"name",name},
-        {"insertion_point",insertion_point},{"sketch",Json::parse(sketch.serialized())},
-        {"groups",group_data},{"variants",variants},{"default_variant",default_variant},{"variant_source",variant_source}}.dump(2)+"\n";
+    validate();Json data={{"format","zima.symbol"},{"version",2},{"units","mm"},{"id",id},{"name",name},
+        {"insertion_point",insertion_point},{"default_variant",default_variant},{"variant_source",variant_source},
+        {"sketches",Json::array()},{"fields",Json::object()},{"variants",Json::object()}};
+    data["pens"]=pens;
+    for(const auto& sketch:sketches)data["sketches"].push_back(Json::parse(sketch.serialized()));
+    for(const auto& [key,field]:fields)data["fields"][key]={{"sketch",field.sketch_id},{"text",field.text_id},{"choices",field.choices},{"allow_custom",field.allow_custom}};
+    for(const auto& [key,row]:variants)data["variants"][key]={{"sketches",row.sketches},{"text_values",row.text_values},{"hidden_texts",row.hidden_texts}};
+    return data.dump(2)+"\n";
 }
 Definition Definition::from_serialized(const std::string& data) {
-    const auto value=Json::parse(data);
-    require(value.at("format")=="zima.symbol"&&value.at("version")==1&&value.at("units")=="mm");
-    Definition result;result.id=value.at("id");result.name=value.at("name");
-    result.insertion_point=value.at("insertion_point").get<std::array<double,2>>();
-    result.sketch=sketcher::Sketch::from_serialized(value.at("sketch").dump());
-    for(const auto& [id, group]:value.at("groups").items())result.groups[id]={group.at("geometry").get<std::vector<std::string>>(),group.at("axis").get<bool>()};
-    result.variants=value.at("variants").get<decltype(result.variants)>();
-    result.default_variant=value.at("default_variant");result.variant_source=value.at("variant_source");
-    result.validate();return result;
+    const auto root=Json::parse(data);
+    require(root.at("format")=="zima.symbol"&&root.at("version")==2&&root.at("units")=="mm");
+    Definition d;d.id=root.at("id");d.name=root.at("name");d.insertion_point=root.at("insertion_point").get<std::array<double,2>>();
+    d.default_variant=root.at("default_variant");d.variant_source=root.at("variant_source");
+    d.pens=root.value("pens",decltype(d.pens){});
+    for(const auto& value:root.at("sketches")) {
+        require(!value.contains("symbols")||value.at("symbols").empty());
+        d.sketches.push_back(sketcher::Sketch::from_serialized(value.dump()));
+    }
+    for(const auto& [key,f]:root.at("fields").items())d.fields[key]={f.at("sketch"),f.at("text"),f.at("choices").get<std::vector<std::string>>(),f.at("allow_custom")};
+    for(const auto& [key,r]:root.at("variants").items())d.variants[key]={r.at("sketches").get<std::vector<std::string>>(),r.at("text_values").get<std::map<std::string,std::string>>(),r.at("hidden_texts").get<std::vector<std::string>>()};
+    d.validate();return d;
 }
-Definition Definition::load(const std::filesystem::path& path) {
-    QFile file(qpath(path));if(!file.open(QIODevice::ReadOnly))throw std::runtime_error("Cannot read symbol definition");
-    return from_serialized(file.readAll().toStdString());
-}
-void Definition::save(const std::filesystem::path& path) const {
-    const auto bytes=serialized();QSaveFile file(qpath(path));
-    if(!file.open(QIODevice::WriteOnly)||file.write(bytes.data(),static_cast<qint64>(bytes.size()))!=static_cast<qint64>(bytes.size())||!file.commit())
-        throw std::runtime_error("Cannot save symbol definition");
+kernel::ViewerMesh instance_mesh(const sketcher::SymbolInstance& instance,const std::string& cad_variant) {
+    const auto d=Definition::from_serialized(instance.definition);
+    const auto variant=instance.use_cad_variant&&!cad_variant.empty()?cad_variant:instance.variant;
+    kernel::ViewerMesh result;if(!instance.visible)return result;
+    const double a=instance.angle_degrees*3.141592653589793/180.,c=std::cos(a),s=std::sin(a);
+    for(const auto& sketch:d.evaluate(variant,instance.text_values)) {
+        for(auto edge:sketch.viewer_mesh().edges) {
+            const auto& key=edge.reference.semantic_key;
+            if(key.starts_with("sketch_axis:")||key.starts_with("dimension:"))continue;
+            for(auto& p:edge.points){const double x=(p.x-d.insertion_point[0])*instance.scale,y=(p.y-d.insertion_point[1])*instance.scale;p={instance.x+c*x-s*y,instance.y+s*x+c*y,0};}
+            const auto separator=key.find(':');
+            const auto curve=separator==std::string::npos?key:key.substr(separator+1);
+            const bool yellow=d.pens.contains(sketch.id)&&d.pens.at(sketch.id).contains(curve)&&d.pens.at(sketch.id).at(curve)=="yellow";
+            const bool text=key.starts_with("text:");
+            const std::string text_color=key.ends_with(":green")?"#4DD811":key.ends_with(":yellow")?"#F5CD50":key.ends_with(":red")?"#FF0000":"#FFFFFF";
+            edge.reference={instance.id,"symbol:"+instance.id,{}};edge.overlay=true;edge.exact_spline.reset();
+            edge.dash_dot=edge.construction;edge.infinite=false;
+            edge.color=text?text_color:edge.construction?"#4DD811":yellow?"#F5CD50":"#FFFFFF";
+            result.edges.push_back(std::move(edge));
+        }
+    }
+    return result;
 }
 Definition projection_method() {
     Definition d;d.id="ze:projection-method";d.name="ZE-PROJECTION-METHOD";
-    d.sketch=sketcher::Sketch::create_default();d.sketch.id="ze:projection-method:sketch";d.sketch.name=d.name;
     d.default_variant="first_angle";d.variant_source="drawing.projection_method";
-    // One local Sketch. Each variant selects geometry groups, never another Sketch.
     // ISO 5456-2 figures 4 and 7: the cone widens to the right in both variants.
     for(bool first:{true,false}) {
         const std::string key=first?"first_angle":"third_angle";
-        auto& outline=d.groups[key+":outline"];auto& axes=d.groups[key+":axes"];axes.axis=true;
+        auto& sketch=d.sketches.emplace_back(sketcher::Sketch::create_default());
+        sketch.id=d.id+":"+key;sketch.name=key;
         const double left=first?-7.2:1.2, right=left+6., center=first?4.2:-4.2;
         const auto point=[&](std::string id,double x,double y) {
-            id=key+":"+id;d.sketch.points.push_back({id,x,y,true,false});return id;
+            id=key+":"+id;sketch.points.push_back({id,x,y,true,false});return id;
         };
         const auto a=point("cone-small-bottom",left,-1.5), b=point("cone-large-bottom",right,-3.);
         const auto c=point("cone-large-top",right,3.), e=point("cone-small-top",left,1.5);
         const auto segment=[&](std::string id,const std::string& p,const std::string& q,bool axis) {
-            id=key+":"+id;d.sketch.segments.push_back({id,p,q,axis,false});
-            (axis?axes:outline).geometry.push_back(id);
+            id=key+":"+id;sketch.segments.push_back({id,p,q,axis,false});
+
         };
         segment("cone-bottom",a,b,false);segment("cone-large",b,c,false);
         segment("cone-top",c,e,false);segment("cone-small",e,a,false);
         const auto center_id=point("circle-center",center,0);
         for(bool outer:{true,false}) {
             const std::string id=key+(outer?":outer-circle":":inner-circle");
-            d.sketch.circles.push_back({id,center_id,outer?3.:1.5,false});outline.geometry.push_back(id);
+            sketch.circles.push_back({id,center_id,outer?3.:1.5,false});
         }
         segment("horizontal-axis",point("axis-left",-7.8,0),point("axis-right",7.8,0),true);
         segment("vertical-axis",point("axis-bottom",center,-3.6),point("axis-top",center,3.6),true);
-        d.variants[key]={key+":outline",key+":axes"};
+        d.variants[key].sketches={sketch.id};
     }
     d.validate();return d;
 }

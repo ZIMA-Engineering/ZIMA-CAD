@@ -279,7 +279,7 @@ struct DrawingBalloon {
 };
 
 enum class DrawingPen { White, Green, Yellow, Red };
-struct TemplateLine { Point2 first; Point2 second; DrawingPen pen{DrawingPen::Green}; bool centerline{}; };
+struct TemplateLine { Point2 first; Point2 second; DrawingPen pen{DrawingPen::Green}; bool centerline{}; std::string field_id; };
 struct TemplateCircle { Point2 center; double radius{}; DrawingPen pen{DrawingPen::Green}; };
 struct TemplateText {
     std::string text; Point2 position; double height{2.5};
@@ -342,6 +342,7 @@ struct DrawingSheet {
     std::vector<TemplateCircle> frame_circles, title_block_circles;
     std::vector<zima::sketcher::SketchRepeatRegion> repeat_regions;
     std::vector<zima::sketcher::TemplateImage> title_block_images;
+    std::vector<zima::sketcher::SymbolInstance> title_block_symbols;
     std::string title_block_locale{"cs"};
     std::map<std::string, std::string> local_parameters;
 

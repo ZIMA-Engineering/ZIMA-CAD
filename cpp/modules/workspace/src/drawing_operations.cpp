@@ -48,8 +48,8 @@ void text(const std::string& s,std::size_t max){if(s.empty()||s.size()>max||std:
 void assign(drawing::DrawingSheet& s,const SheetSettings& v){s.name=v.name;s.format=v.format;s.projection_method=v.projection;s.default_scale=v.scale;s.thick_line_mm=v.thick_line_mm;s.thin_line_mm=v.thin_line_mm;s.red_line_mm=v.red_line_mm;s.title_block_locale=v.locale;}
 bool clear(drawing::DrawingSheet& s,bool title){
     if(!title){const bool changed=s.frame_trimming_marks||!s.frame_lines.empty()||!s.frame_texts.empty()||!s.frame_circles.empty();s.frame_lines.clear();s.frame_texts.clear();s.frame_circles.clear();s.frame_trimming_marks=false;return changed;}
-    const bool changed=!s.title_block_lines.empty()||!s.title_block_texts.empty()||!s.title_block_fields.empty()||!s.title_block_circles.empty()||!s.title_block_images.empty()||!s.repeat_regions.empty();
-    s.title_block_lines.clear();s.title_block_texts.clear();s.title_block_fields.clear();s.title_block_circles.clear();s.title_block_images.clear();s.repeat_regions.clear();return changed;
+    const bool changed=!s.title_block_lines.empty()||!s.title_block_texts.empty()||!s.title_block_fields.empty()||!s.title_block_circles.empty()||!s.title_block_images.empty()||!s.repeat_regions.empty()||!s.title_block_symbols.empty();
+    s.title_block_lines.clear();s.title_block_texts.clear();s.title_block_fields.clear();s.title_block_circles.clear();s.title_block_images.clear();s.repeat_regions.clear();s.title_block_symbols.clear();return changed;
 }
 }
 SheetSettings sheet_settings(const drawing::DrawingSheet& s){return {s.name,s.format,s.projection_method,s.default_scale,s.thick_line_mm,s.thin_line_mm,s.red_line_mm,s.title_block_locale};}

@@ -151,6 +151,13 @@ private:
         std::optional<zima::sketcher::SketchRepeatRegion> initial = {});
     void remove_template_region(const std::string& id);
     void select_template_region(const std::string& id);
+    void start_symbol();
+    void show_symbol_properties(const std::string& id, std::optional<zima::sketcher::SymbolInstance> initial = {});
+    void remove_symbol(const std::string& id);
+    void select_symbol(const std::string& id);
+    QAction* symbol_action_{};
+    std::string selected_symbol_;
+    std::function<void(double,double)> symbol_anchor_;
     void start_template_image();
     void show_template_image_properties(const std::string& id,
         std::optional<zima::sketcher::TemplateImage> initial = {});

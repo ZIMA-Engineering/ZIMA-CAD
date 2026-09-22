@@ -53,7 +53,7 @@ bool is_sketch_wire_edge(const zima::kernel::ViewerEdge& edge) {
         key.starts_with("elliptical_arc:") || key.starts_with("bspline:") ||
         key.starts_with("text:") || key.starts_with("external_edge:") ||
         key.starts_with("external_axis:") || key.starts_with("external_face:") ||
-        key.starts_with("repeat_region:");
+        key.starts_with("repeat_region:") || key.starts_with("symbol:");
 }
 
 template<class Project> void paint_normal_text(QPainter& painter,
@@ -736,6 +736,7 @@ struct MeshView::Impl {
 
 MeshView::MeshView(QWidget* parent)
     : QOpenGLWidget(parent), impl_(std::make_unique<Impl>()) {
+    auto annotation_font=font();annotation_font.setWeight(QFont::Normal);setFont(annotation_font);
     setMinimumSize(500, 360);
     setMouseTracking(true);
     setFocusPolicy(Qt::StrongFocus);
@@ -1537,6 +1538,7 @@ void MeshView::confirm_reference(const std::string& owner_id,
                kind == CandidateKind::SketchText ||
                kind == CandidateKind::TemplateRegion ||
                kind == CandidateKind::TemplateImage ||
+               kind == CandidateKind::Symbol ||
                kind == CandidateKind::SketchExternalReference) {
         const auto found = std::find_if(impl_->mesh.edges.begin(),
             impl_->mesh.edges.end(), [&](const auto& value) {
@@ -2441,7 +2443,7 @@ namespace {
 constexpr int kAnimationDurationMs = 850;
 }  // namespace
 
-void MeshView::animate_orientation_to(const QQuaternion& target) {
+void MeshView::animate_orientation_to(const QQuaternion& target, bool preserve_pan) {
     if (impl_->camera_animation != nullptr) {
         impl_->camera_animation->stop();
         impl_->camera_animation = nullptr;
@@ -2454,11 +2456,11 @@ void MeshView::animate_orientation_to(const QQuaternion& target) {
     animation->setDuration(kAnimationDurationMs);
     animation->setEasingCurve(QEasingCurve::InOutCubic);
     connect(animation, &QVariantAnimation::valueChanged, this,
-        [this, start_orientation, target, start_pan](const QVariant& raw) {
+        [this, start_orientation, target, start_pan, preserve_pan](const QVariant& raw) {
             const float progress = static_cast<float>(raw.toDouble());
             impl_->orientation =
                 QQuaternion::slerp(start_orientation, target, progress);
-            impl_->pan_pixels = start_pan * (1.0 - progress);
+            impl_->pan_pixels = preserve_pan ? start_pan : start_pan * (1.0 - progress);
             update();
         });
     connect(animation, &QVariantAnimation::finished, this, [this, animation] {
@@ -2556,7 +2558,7 @@ void MeshView::set_view_direction(const zima::kernel::Vec3& direction) {
 }
 
 void MeshView::set_view_direction(
-    const zima::kernel::Vec3& direction, float roll_degrees) {
+    const zima::kernel::Vec3& direction, float roll_degrees, bool preserve_pan) {
     const double length = std::sqrt(direction.x * direction.x +
         direction.y * direction.y + direction.z * direction.z);
     if (!std::isfinite(length) || length <= 1.0e-12) {
@@ -2575,7 +2577,7 @@ void MeshView::set_view_direction(
         QQuaternion::fromAxisAndAngle(1.0F, 0.0F, 0.0F, pitch) *
         QQuaternion::fromAxisAndAngle(0.0F, 0.0F, 1.0F, yaw);
     impl_->candidates.clear();
-    animate_orientation_to(target);
+    animate_orientation_to(target,preserve_pan);
 }
 
 void MeshView::set_dimension_visibility_filter(std::function<bool(const zima::kernel::ViewerDimension&)> filter) {

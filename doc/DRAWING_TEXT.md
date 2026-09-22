@@ -5,6 +5,12 @@ on a sheet, with no modeling contours or solid-kernel calculation. It uses the
 shared Sketch text properties implementation in Drawing mode: a larger multiline
 editor, height in mm, alignment, ISO font, colour, rotation and horizontal flip.
 
+The application's ISO interface font uses a modest DemiBold weight for menus,
+trees, buttons and dialogs. Drawing fonts explicitly retain Normal weight;
+the Drawing canvas, PDF output and model annotation canvas do not inherit the
+heavier interface weight. Switching to the system interface font restores the
+system's own font settings. Drawing pen widths remain a separate print setting.
+
 1. Choose Text. A point and an empty-text dash follow the cursor over the sheet.
    Click to place the anchor; the preview then stays at that position. Text can be
    entered before or after placement. New text starts green at **2.5 mm**.

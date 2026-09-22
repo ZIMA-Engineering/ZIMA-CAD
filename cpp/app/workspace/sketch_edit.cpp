@@ -5,7 +5,7 @@ using namespace workspace_detail;
 
 
 void AssemblyWorkspaceWindow::clear_selected_sketch_geometry() {
-    selected_template_region_.clear();selected_template_image_.clear();
+    selected_template_region_.clear();selected_template_image_.clear();selected_symbol_.clear();
     selected_sketch_geometry_ids_.clear();
     selected_sketch_segment_id_.clear();
     selected_sketch_circle_id_.clear();
@@ -38,6 +38,7 @@ void AssemblyWorkspaceWindow::clear_selected_sketch_geometry() {
 }
 
 bool AssemblyWorkspaceWindow::delete_selected_sketch_geometry() {
+    if(!selected_symbol_.empty()){const auto id=selected_symbol_;remove_symbol(id);return true;}
     if(!selected_template_image_.empty()){const auto id=selected_template_image_;remove_template_image(id);return true;}
     if(!selected_template_region_.empty()){const auto id=selected_template_region_;remove_template_region(id);return true;}
     if (properties_dialog_ != nullptr || active_sketch_id_.empty() ||

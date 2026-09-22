@@ -41,6 +41,21 @@
   a release must not redirect the development BAT to an older packaged version.
 - This workflow was confirmed by the user on 2026-09-15.
 
+## Drawing and title-block coordinate convention
+
+- Drawing frames and title blocks intentionally use horizontal coordinates
+  measured from right to left. This is an engineering-sheet anchoring convention,
+  not an accidental mirror transform to remove.
+- Preserve the title block's right-hand anchor when changing the drawing frame
+  or sheet format. Changing the frame must not shift the title block away from
+  its intended position.
+- Library symbols may use conventional local XY coordinates. Convert them at
+  the insertion/rendering boundary while preserving the drawing convention,
+  symbol handedness and readable text. Do not reverse the document coordinate
+  system to accommodate a library asset.
+- Verify frame changes and symbol/text orientation when modifying this area.
+  This requirement was reaffirmed by the user on 2026-09-22.
+
 ## Property and parameter dialogs
 
 - Every newly created property, feature-parameter, or editing dialog must use

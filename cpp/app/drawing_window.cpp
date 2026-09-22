@@ -1,3 +1,4 @@
+#include "symbol_properties_dialog.hpp"
 #include <QJsonDocument>
 #include <QJsonArray>
 #include <QDate>
@@ -800,6 +801,7 @@ public:
         setMinimumSize(640, 480); setMouseTracking(true); setFocusPolicy(Qt::StrongFocus);
         auto drawing_font = font();
         drawing_font.setFamily(drawing_font_family());
+        drawing_font.setWeight(QFont::Normal);
         setFont(drawing_font);
         auto canvas_palette = palette();
         canvas_palette.setColor(QPalette::Window, QColor("#000000"));
@@ -1225,7 +1227,9 @@ protected:
             selected_field_=field;selected_.clear();selected_dimension_id_.clear();selected_annotation_.reset();
             if(selection_changed_)selection_changed_();update();
             auto* menu=new QMenu(this);menu->setAttribute(Qt::WA_DeleteOnClose);
-            menu->addAction(title_action_);menu->popup(event->globalPos());event->accept();return;
+            if(field.starts_with("symbol:"))menu->addAction(tr("Vlastnosti symbolu"),this,[this]{if(title_action_)title_action_->trigger();});
+            else menu->addAction(title_action_);
+            menu->popup(event->globalPos());event->accept();return;
         }
         selected_field_.clear();
         offer_annotations(event->pos());
@@ -2319,7 +2323,24 @@ void DrawingWindow::load_title_block() {
     catch(const std::exception& error) { QMessageBox::warning(this,tr("Nelze načíst razítko"),error.what()); }
 }
 void DrawingWindow::edit_title_block() {
-    auto* sheet=active_sheet();if(!sheet||(sheet->title_block_fields.empty()&&sheet->title_block_texts.empty()))return;
+    auto* sheet=active_sheet();if(!sheet)return;
+    const auto selected_symbol=canvas_->selected_title_field();
+    if(selected_symbol.starts_with("symbol:")) {
+        if(raise_open_properties(window()))return;
+        const auto id=selected_symbol.substr(7),sheet_id=sheet->id;
+        const auto found=std::ranges::find(sheet->title_block_symbols,id,&sketcher::SymbolInstance::id);
+        if(found==sheet->title_block_symbols.end())return;
+        auto* dialog=new SymbolDialog(*found,{},[this,id,sheet_id](auto symbol){
+            auto* target=document_.find_sheet(sheet_id);if(!target)return;
+            auto item=std::ranges::find(target->title_block_symbols,id,&sketcher::SymbolInstance::id);
+            if(item==target->title_block_symbols.end())return;
+            *item=std::move(symbol);refresh();
+        },this);
+        view_dialog_=dialog;if(properties_handler_)properties_handler_(dialog);
+        connect(dialog,&QDialog::finished,this,[this,dialog]{if(view_dialog_==dialog){view_dialog_.clear();if(properties_handler_)properties_handler_(nullptr);}update_action_states();});
+        dialog->show();update_action_states();return;
+    }
+    if(sheet->title_block_fields.empty()&&sheet->title_block_texts.empty())return;
     if(raise_open_properties(window()))return;
     try {
         const auto selected=canvas_->selected_title_target();std::string bom_row;
@@ -2776,7 +2797,7 @@ void DrawingWindow::update_action_states() {
     remove_sheet_action_->setEnabled(!view_dialog_ && document_.sheets.size() > 1);
     edit_sheet_action_->setEnabled(has_sheet);
     edit_title_block_action_->setEnabled(
-        has_sheet && (!sheet->title_block_fields.empty() || !sheet->title_block_texts.empty()));
+        has_sheet && (!sheet->title_block_fields.empty() || !sheet->title_block_texts.empty() || !sheet->title_block_symbols.empty()));
     insert_view_action_->setEnabled(has_sheet&&!selected_source_id().empty());
     insert_detail_action_->setEnabled(has_view);
     projected_view_action_->setEnabled(selected_view);

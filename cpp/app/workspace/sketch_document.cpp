@@ -161,9 +161,10 @@ void AssemblyWorkspaceWindow::align_active_sketch_view(bool fit_view) {
     }
     const double frame_roll = camera_roll_for_direction(
         direction, screen_x, 0.0);
+    const bool assembly_context=workspace_.open_assembly(workspace_.displayed_document_id())!=nullptr;
     viewer_->set_view_direction(direction, static_cast<float>(
-        frame_roll + sketch_view_quarter_turns_ * 90.0 + (sketch->drawing_template ? 180.0 : 0.0)));
-    if (fit_view) viewer_->fit_all();
+        frame_roll + sketch_view_quarter_turns_ * 90.0 + (sketch->drawing_template ? 180.0 : 0.0)),assembly_context);
+    if (fit_view&&!assembly_context) viewer_->fit_all();
     state_->setText(tr("Pohled je kolmý k rovině aktivní skici."));
 }
 

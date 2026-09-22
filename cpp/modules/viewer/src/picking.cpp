@@ -157,6 +157,7 @@ bool candidate_recolors_wire_edge(
         candidate.kind == CandidateKind::Edge ||
         candidate.kind == CandidateKind::TemplateRegion ||
         candidate.kind == CandidateKind::TemplateImage ||
+        candidate.kind == CandidateKind::Symbol ||
         candidate.kind == CandidateKind::SketchSegment ||
         candidate.kind == CandidateKind::SketchCurve ||
         candidate.kind == CandidateKind::SketchTrimPiece ||
@@ -646,7 +647,9 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
                 }
                 continue;
             }
-            const auto kind = edge.reference.semantic_key.starts_with("repeat_region:")
+            const auto kind = edge.reference.semantic_key.starts_with("symbol:")
+                ? CandidateKind::Symbol
+                : edge.reference.semantic_key.starts_with("repeat_region:")
                 ? CandidateKind::TemplateRegion
                 : edge.reference.semantic_key.starts_with("template_image:")
                 ? CandidateKind::TemplateImage
@@ -667,7 +670,7 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
                   edge.reference.semantic_key.starts_with("elliptical_arc:") ||
                   edge.reference.semantic_key.starts_with("bspline:")
                     ? CandidateKind::SketchCurve : CandidateKind::Edge;
-            if ((kind != CandidateKind::SketchText &&
+            if ((kind != CandidateKind::Symbol && kind != CandidateKind::SketchText &&
                  kind != CandidateKind::SketchExternalReference) ||
                 std::none_of(result.begin(), result.end(), [&](const auto& candidate) {
                     return candidate.kind == kind &&
@@ -834,6 +837,7 @@ std::vector<ViewerCandidate> ordered_viewer_candidates(
         case CandidateKind::Dimension: return 0;
         case CandidateKind::SketchTrimPiece: return 0;
         case CandidateKind::SketchExternalReference: return 1;
+        case CandidateKind::Symbol:
         case CandidateKind::TemplateImage: return 3;
         case CandidateKind::SketchText: return 2;
         case CandidateKind::SketchCurve: return 2;

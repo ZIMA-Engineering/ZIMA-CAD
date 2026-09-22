@@ -118,7 +118,7 @@ public:
     void set_standard_view(StandardView view);
     void set_document_origin(const std::string& owner_id);
     void set_view_direction(const zima::kernel::Vec3& direction);
-    void set_view_direction(const zima::kernel::Vec3& direction, float roll_degrees);
+    void set_view_direction(const zima::kernel::Vec3& direction, float roll_degrees, bool preserve_pan = false);
     void set_dimension_visibility_filter(std::function<bool(const zima::kernel::ViewerDimension&)> filter);
     void set_reference_visibility(ReferenceVisibility reference, bool visible);
     [[nodiscard]] bool reference_visible(ReferenceVisibility reference) const;
@@ -323,7 +323,7 @@ private:
     void upload_mesh();
     void update_candidates(const QPointF& position);
     void notify_confirmation();
-    void animate_orientation_to(const QQuaternion& target);
+    void animate_orientation_to(const QQuaternion& target, bool preserve_pan = false);
     // Animates a full camera-state restore (orientation, pan, zoom),
     // matching Python's animate_camera_state used to restore custom saved
     // "Pohled kolmo" views (as opposed to animate_orientation_to, which only

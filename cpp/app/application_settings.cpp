@@ -45,13 +45,14 @@ private:
 
 const QStringList path_keys{
     QStringLiteral("Materials"), QStringLiteral("Templates"),
-    QStringLiteral("Formats"), QStringLiteral("Localization"),
+    QStringLiteral("Formats"), QStringLiteral("Symbols"), QStringLiteral("Localization"),
     QStringLiteral("WorkingDirectory")};
 
 const QMap<QString, QString> path_defaults{
     {QStringLiteral("Materials"), QStringLiteral("materials")},
     {QStringLiteral("Templates"), QStringLiteral("templates")},
     {QStringLiteral("Formats"), QStringLiteral("formats")},
+    {QStringLiteral("Symbols"), QStringLiteral("symbols")},
     {QStringLiteral("Localization"), QStringLiteral("localization")},
     {QStringLiteral("WorkingDirectory"), QStringLiteral("../Projects")}};
 
@@ -370,6 +371,7 @@ void apply_application_font(QApplication& application,
     if (families.empty()) return;
     auto font = application.font();
     font.setFamily(families.front());
+    font.setWeight(QFont::DemiBold);
     application.setFont(font);
 }
 

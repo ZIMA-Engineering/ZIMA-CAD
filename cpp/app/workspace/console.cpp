@@ -37,6 +37,7 @@ const char* candidate_kind(viewer::CandidateKind kind) {
         case Kind::SketchTrimPiece:return "sketch_trim_piece";
         case Kind::TemplateRegion:return "template_region";
         case Kind::TemplateImage:return "template_image";
+        case Kind::Symbol:return "symbol";
     }
     return "unknown";
 }
@@ -122,7 +123,7 @@ void AssemblyWorkspaceWindow::create_command_console() {
         for(auto* dialog:findChildren<QDialog*>())state.editing|=dialog->isVisible();
         state.editing|=tree_&&tree_->property("commandSelectionActive").toBool();
         state.template_document=template_sketch()!=nullptr;
-        state.template_editor_ready=state.template_document&&!state.editing&&!sketch_command_active()&&!sketch_drag_document_&&!assembly_sketch_drag_document_&&!sketch_corner_drag_source_&&!template_region_picking_&&!template_image_anchor_;
+        state.template_editor_ready=state.template_document&&!state.editing&&!sketch_command_active()&&!sketch_drag_document_&&!assembly_sketch_drag_document_&&!sketch_corner_drag_source_&&!template_region_picking_&&!template_image_anchor_&&!symbol_anchor_;
         state.editing|=!active_sketch_id_.empty();
         state.active_occurrence=workspace_.active_occurrence_path();state.active_sketch=active_sketch_id_;
         const auto candidate_json=[](const viewer::ViewerCandidate& candidate) -> Json {

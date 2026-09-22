@@ -579,6 +579,9 @@ void AssemblyWorkspaceWindow::create_actions() {
                          sketch_interpolating_spline_action_}) {
         action->setCheckable(true);
     }
+    symbol_action_=make_action(tr("Vložit symbol"),"insert-symbol");
+    symbol_action_->setObjectName("insertSymbolAction");
+    connect(symbol_action_,&QAction::triggered,this,[this]{start_symbol();});
     sketch_text_action_ = make_action(tr("Text"), "sketch-text");
     sketch_text_action_->setObjectName("sketchTextAction");
     sketch_text_action_->setEnabled(false);

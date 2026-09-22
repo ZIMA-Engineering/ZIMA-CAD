@@ -5642,7 +5642,6 @@ int verify_assembly_refresh_view(QApplication& application,const std::filesystem
     const auto save_jpg=[&](const char* stem) {
         const auto path=directory/(std::string(stem)+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count())+".jpg");
         bool jpeg_offered=false;
-        QSize exported_view_size;
         QTimer accept_dialog;
         accept_dialog.setInterval(20);
         QObject::connect(&accept_dialog,&QTimer::timeout,[&] {
@@ -5650,24 +5649,21 @@ int verify_assembly_refresh_view(QApplication& application,const std::filesystem
                 accept_dialog.stop();
                 for(const auto& filter:dialog->nameFilters())if(filter.contains("*.jpg")){jpeg_offered=true;dialog->selectNameFilter(filter);break;}
                 dialog->selectFile(QString::fromStdString(path.string()));
-                // Capture the export-time viewport. The success message can
-                // resize the status bar/main window after the image is saved.
-                exported_view_size=view->grabFramebuffer().size();
                 QMetaObject::invokeMethod(dialog,"accept",Qt::DirectConnection);
             }
         });
         accept_dialog.start();
         const auto previous_camera=view->camera_state();
-        window.findChild<QAction*>("saveDocumentAsAction")->trigger();application.processEvents();
+        window.findChild<QAction*>("exportDocumentAction")->trigger();application.processEvents();
         const QImage image(QString::fromStdString(path.string()));
-        const auto actual_size=exported_view_size;const bool camera_unchanged=view->camera_state()==previous_camera;
+        const auto actual_size=view->grabFramebuffer().size();const bool camera_unchanged=view->camera_state()==previous_camera;
         if(!jpeg_offered||image.isNull()||image.size()!=actual_size||!camera_unchanged)std::cerr<<"JPG diagnostic "<<stem<<": offered="<<jpeg_offered<<" image="<<image.width()<<"x"<<image.height()<<" viewport="<<actual_size.width()<<"x"<<actual_size.height()<<" camera="<<camera_unchanged<<std::endl;
         return jpeg_offered&&!image.isNull()&&image.size()==actual_size&&camera_unchanged;
     };
-    if(!verify(save_jpg("assembly-view-"),"Assembly Save As JPG failed or changed the camera"))return 1;
+    if(!verify(save_jpg("assembly-view-"),"Assembly JPG export failed or changed the camera"))return 1;
     if(!verify(window.open_document_path(QString::fromStdString(part_path.string())),"Cannot open Part for JPG export"))return 1;
     application.processEvents();
-    if(!verify(save_jpg("part-view-"),"Part Save As JPG failed or changed the camera"))return 1;
+    if(!verify(save_jpg("part-view-"),"Part JPG export failed or changed the camera"))return 1;
     std::cout<<"Assembly refresh camera and dimension visibility contracts passed\n";
     return 0;
 }
@@ -6964,6 +6960,47 @@ int verify_property_sketch_dimensions(QApplication& application, const std::file
 
 int verify_nested_body_sketch_ui(QApplication& application, const std::filesystem::path& directory) {
     using namespace zima::document;
+    if(const auto source=qEnvironmentVariable("ZIMA_VERIFY_ASSEMBLY_VIEW_DOCUMENT");!source.isEmpty()) {
+        std::cerr<<"Opening reported Assembly: "<<source.toStdString()<<std::endl;
+        QTimer dialog_watch;
+        QObject::connect(&dialog_watch,&QTimer::timeout,&application,[]{for(auto* widget:QApplication::topLevelWidgets())if(auto* dialog=qobject_cast<QDialog*>(widget);dialog&&dialog->isVisible()&&dialog->isModal()){std::cerr<<"Reported document dialog: "<<dialog->windowTitle().toStdString()<<std::endl;for(auto* label:dialog->findChildren<QLabel*>())std::cerr<<label->text().toStdString()<<std::endl;dialog->reject();}});dialog_watch.start(1000);
+        const auto assembly=zima::assembly::AssemblyDocument::load(std::filesystem::u8path(source.toStdString()));
+        std::cerr<<"Reported Assembly data loaded"<<std::endl;
+        zima::app::AssemblyWorkspaceWindow actual(QString::fromStdString(directory.string()));actual.resize(1200,900);actual.show();
+        std::cerr<<"Reported Assembly window created"<<std::endl;
+        const auto flush=[&]{application.processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);application.processEvents();};
+        if(!verify(actual.open_document_path(source),"Cannot open reported Assembly"))return 1;
+        std::cerr<<"Reported Assembly opened"<<std::endl;flush();
+        auto* canvas=dynamic_cast<zima::viewer::MeshView*>(actual.findChild<QOpenGLWidget*>());
+        const auto before=canvas->camera_state();
+        const auto skeleton=std::ranges::find_if(assembly.components,[](const auto& c){return zima::assembly::is_skeleton(c);});
+        if(!verify(skeleton!=assembly.components.end(),"Reported Assembly has no Skeleton"))return 1;
+        std::cerr<<"Activating reported Skeleton"<<std::endl;
+        if(!verify(actual.activate_occurrence_for_test(zima::assembly::InstancePath{{skeleton->occurrence_id}}.encoded()),"Cannot activate reported Skeleton"))return 1;flush();
+        std::cerr<<"Reported Skeleton active"<<std::endl;
+        if(!verify(canvas->camera_state()==before,"Skeleton activation changed camera"))return 1;
+        auto* tree=actual.findChild<QTreeWidget*>("documentTree");
+        const auto size=canvas->size();const auto camera=canvas->camera_state();bool found=false;
+        QTreeWidgetItem* body_item=nullptr;
+        for(QTreeWidgetItemIterator i(tree);*i;++i)
+            if((*i)->data(0,Qt::UserRole+3).toString()=="part-body") {
+                auto* parent=(*i)->parent();
+                while(parent&&parent->data(0,Qt::UserRole+3).toString()!="part-occurrence")parent=parent->parent();
+                if(parent&&parent->data(0,Qt::UserRole+1).toString().toStdString()==actual.active_occurrence_path_for_test()) {
+                    body_item=*i;break;
+                }
+            }
+        if(!verify(body_item!=nullptr,"Cannot find reported Skeleton Body"))return 1;
+        if(body_item){tree->itemDoubleClicked(body_item,0);found=true;}
+        std::cerr<<"Reported Skeleton Body double-click completed"<<std::endl;
+        flush();actual.findChild<QProgressBar*>("fileOperationProgress")->hide();flush();
+        std::cerr<<"Reported Body canvas "<<size.width()<<","<<size.height()<<" -> "<<canvas->width()<<","<<canvas->height()<<" camera equal="<<(canvas->camera_state()==camera)<<std::endl;
+        if(!verify(found&&canvas->size()==size&&canvas->camera_state()==camera,"Reported Skeleton double-click moved View"))return 1;
+        actual.deactivate_active_occurrence_for_test();flush();
+        std::cerr<<"Reported Skeleton exit completed"<<std::endl;
+        if(!verify(canvas->camera_state()==camera&&actual.active_occurrence_path_for_test().empty(),"Leaving reported Skeleton changed camera"))return 1;
+        std::cout<<"Reported Assembly Skeleton activation, double-click and exit preserved camera and canvas; source files unchanged\n";return 0;
+    }
     auto part=PartDocument::create_default();
     auto first=PartDocument::create_box_container();first.box={5,5,5};
     auto middle=PartDocument::create_box_container();middle.box={2,2,2};
@@ -7022,6 +7059,15 @@ int verify_nested_body_sketch_ui(QApplication& application, const std::filesyste
             window.activate_occurrence_for_test(active_path),"Cannot activate nested multi-body Part")) return 1;
     flush();
     if (!verify(activate_test_body(application,window,body_id), "Cannot activate nested Sketch Body")) return 1;
+    auto* camera_view=dynamic_cast<zima::viewer::MeshView*>(window.findChild<QOpenGLWidget*>());
+    const auto stable_geometry=camera_view->geometry();const auto stable_camera=camera_view->camera_state();
+    auto* body_tree=window.findChild<QTreeWidget*>("documentTree");
+    for(QTreeWidgetItemIterator i(body_tree);*i;++i)if((*i)->data(0,Qt::UserRole).toString().toStdString()==body_id&&(*i)->data(0,Qt::UserRole+3).toString()=="part-body") {
+        body_tree->itemDoubleClicked(*i,0);break;
+    }
+    flush();
+    std::cerr<<"Body double-click canvas "<<stable_geometry.x()<<","<<stable_geometry.y()<<","<<stable_geometry.width()<<","<<stable_geometry.height()<<" -> "<<camera_view->geometry().x()<<","<<camera_view->geometry().y()<<","<<camera_view->width()<<","<<camera_view->height()<<" camera equal="<<(stable_camera==camera_view->camera_state())<<"\n";
+    if(!verify(stable_geometry==camera_view->geometry()&&stable_camera==camera_view->camera_state(),"Body double-click moved the assembly View"))return 1;
     auto* tree=window.findChild<QTreeWidget*>("documentTree");
     QTreeWidgetItem* row{};
     for (QTreeWidgetItemIterator i(tree);*i;++i)
@@ -7032,6 +7078,7 @@ int verify_nested_body_sketch_ui(QApplication& application, const std::filesyste
     auto* open=window.findChild<QPushButton*>("sketchOpenButton");
     if (!verify(open && open->isVisible(),"Cannot edit nested Body Sketch")) return 1;
     QPointer<QPushButton> open_guard=open;
+    const auto sketch_entry_camera=camera_view->camera_state();
     open->click();flush();
     if(open_guard && open_guard->isVisible()) {
         for(auto* dialog:window.findChildren<QDialog*>())if(dialog->isVisible())
@@ -7041,6 +7088,7 @@ int verify_nested_body_sketch_ui(QApplication& application, const std::filesyste
     }
     QEventLoop animation;QTimer::singleShot(950,&animation,&QEventLoop::quit);animation.exec();
     auto* view=dynamic_cast<zima::viewer::MeshView*>(window.findChild<QOpenGLWidget*>());
+    for(const auto index:{4,5,6})if(!verify(view->camera_state()[index]==sketch_entry_camera[index],"Assembly Sketch alignment changed zoom or pan"))return 1;
     const auto has_later=[&](const std::string& path) {
         return std::ranges::any_of(view->mesh().triangle_references,[&](const auto& ref) {
             return ref.owner_id==later.id && ref.instance_path==path;
@@ -7071,7 +7119,11 @@ int verify_nested_body_sketch_ui(QApplication& application, const std::filesyste
     if (!verify(!has_later(active_path) && has_later(passive_path),
             "Dragging a nested Sketch point discarded Assembly context or restored later Body history")) return 1;
     send(QEvent::MouseButtonRelease,*picked+QPointF(18,12),Qt::LeftButton,Qt::NoButton);
+    const auto save_camera=view->camera_state();const auto save_size=view->size();
     window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+    if(!verify(view->camera_state()==save_camera&&view->size()==save_size,"Saving active Sketch moved Assembly View"))return 1;
+    window.findChild<QProgressBar*>("fileOperationProgress")->hide();flush();
+    if(!verify(view->camera_state()==save_camera&&view->size()==save_size,"Save progress completion moved Assembly View"))return 1;
     const auto edited=PartDocument::load(part_path);
     const auto* moved=edited.sketches.front().find_point(sketch.points[1].id);
     if (!verify(moved && std::hypot(moved->x-sketch.points[1].x,moved->y-sketch.points[1].y)>1e-4 &&
@@ -7163,6 +7215,19 @@ int verify_nested_body_sketch_ui(QApplication& application, const std::filesyste
             "Nested Assembly Sketch drag escaped its local plane"))return 1;
     window.findChild<QAction*>("finishSketchAction")->trigger();flush();
     if(!verify(close_returned_sketch_properties(),"Finished Assembly Sketch did not return to Properties"))return 1;
+    const auto exit_camera=view->camera_state();
+    auto* root=tree->topLevelItem(0);tree->scrollToItem(root);flush();
+    bool root_activation_offered=false;
+    QTimer::singleShot(0,&window,[&]{
+        if(auto* menu=qobject_cast<QMenu*>(QApplication::activePopupWidget())) {
+            auto* action=menu->findChild<QAction*>("activateTopAssemblyAction");
+            root_activation_offered=action&&action->isEnabled();
+            if(root_activation_offered){menu->setActiveAction(action);QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);QApplication::sendEvent(menu,&enter);}else menu->close();
+        }
+    });
+    tree->customContextMenuRequested(tree->visualItemRect(root).center());flush();
+    if(!verify(root_activation_offered&&window.active_occurrence_path_for_test().empty(),"Top Assembly context activation did not leave nested source"))return 1;
+    if(!verify(view->camera_state()==exit_camera,"Top Assembly activation fitted the camera"))return 1;
     std::cout << "Nested Body and Assembly Sketch UI contracts passed\n";
     return 0;
 }
@@ -8089,12 +8154,14 @@ int verify_selection_filter(QApplication& application,
 #include "sheet_state_ui_verification.inc"
 #include "application_lifecycle_ui_verification.inc"
 #include "new_document_ui_verification.inc"
+#include "symbol_ui_verification.inc"
 
 int verify_startup_contract(
     QApplication& application, zima::app::AssemblyWorkspaceWindow& window,
     const std::filesystem::path& initial_test_directory,
     const QString& part_capture_path = {}, const QString& drawing_capture_path = {}) {
     auto test_directory = initial_test_directory;
+    if(qEnvironmentVariableIsSet("ZIMA_VERIFY_SYMBOLS_ONLY"))return verify_symbol_ui(application,window,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_NEW_DOCUMENT_OPTIONS_ONLY"))
         return verify_new_document_options(application);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_APPLICATION_LIFECYCLE_ONLY"))

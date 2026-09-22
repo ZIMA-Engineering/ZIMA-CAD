@@ -1,3 +1,4 @@
+#include <zima/symbols/definition.hpp>
 #include <zima/kernel/dimension_layout.hpp>
 #include <zima/kernel/bspline_json.hpp>
 #include "rectilinear_template_solver.hpp"
@@ -2102,6 +2103,7 @@ const SketchPoint* Sketch::find_point(const std::string& point_id) const {
 }
 
 void Sketch::validate() const {
+    { std::set<std::string> ids;for(const auto& symbol:symbols){symbol.validate();if(!ids.insert(symbol.id).second)throw std::invalid_argument("Duplicate symbol identity");} }
     validate_curve_dependencies();
     for(const auto& entry:dimension_layouts)kernel::validate_dimension_layout(entry.layout);
     const bool owns_point_lookup = !point_lookup_active_;
@@ -13147,6 +13149,10 @@ zima::kernel::ViewerMesh Sketch::viewer_mesh() const {
             result.edges.push_back(std::move(edge));
         }
     }
+    for(const auto& symbol:symbols)for(auto edge:zima::symbols::instance_mesh(symbol).edges) {
+        for(auto& point:edge.points)point=world_point(drawing_template?2*symbol.x-point.x:point.x,point.y);
+        edge.reference.owner_id=id;result.edges.push_back(std::move(edge));
+    }
     for(auto& dimension:result.dimensions)dimension.plane_normal=normal();
     return result;
 }
@@ -13423,6 +13429,7 @@ std::string Sketch::serialized() const {
             {"along",v.text_along},{"outward",v.text_outward},{"line",v.line_offset},
             {"reverse",v.arrows_reversed},{"hide_center",v.radius_center_line_hidden},{"radius_rotation",v.radius_rotation_degrees}});
     }
+    root["symbols"]=symbols;
     if (drawing_template) {
         const auto& data = *drawing_template;
         nlohmann::json regions = nlohmann::json::array();
@@ -13441,6 +13448,7 @@ Sketch Sketch::from_serialized(const std::string& value) {
         throw std::runtime_error("Unsupported sketch format");
     }
     Sketch sketch;
+    sketch.symbols=root.value("symbols",std::vector<SymbolInstance>{});
     if (root.contains("drawing_template")) {
         const auto& data = root.at("drawing_template");
         sketch.drawing_template.emplace();

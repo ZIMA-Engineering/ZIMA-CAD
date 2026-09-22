@@ -1,3 +1,4 @@
+#include <zima/symbols/definition.hpp>
 #include <zima/drawing_render/sheet_renderer.hpp>
 #include <QDate>
 #include <zima/drawing_render/pdf_export.hpp>
@@ -891,7 +892,74 @@ int verify_drawing_ui() {
             require(window.document_for_test().find_view(child.id)->x==child_before.x&&window.document_for_test().find_view(child.id)->y==child_before.y,"Projected preview Cancel changed its saved position");
         }
         {
+            const auto library=std::filesystem::current_path()/"config/symbols/general/ZE-GENERAL-EDGES-ISO13715.symz";
+            const auto definition=zima::symbols::Definition::load(library);
+            zima::sketcher::SymbolInstance symbol;symbol.id="independent-edges";symbol.definition=definition.serialized();symbol.variant=definition.default_variant;symbol.x=100;symbol.y=140;
+            auto fixture=zima::drawing::DrawingDocument::create_default();fixture.sheets.front().title_block_symbols={symbol};
+            auto copy=symbol;copy.id="second-edges";copy.y=100;fixture.sheets.front().title_block_symbols.push_back(copy);
+            workspace.add_drawing(fixture);window.edit_workspace_document(fixture.document_id);flush();
+            const auto open_symbol=[&] {
+                const auto center=window.title_field_center_for_test("symbol:"+symbol.id);require(center.has_value(),"Symbol has no common drawing hit region");
+                click(canvas,*center);mouse(canvas,QEvent::MouseButtonDblClick,*center,Qt::LeftButton,Qt::LeftButton);flush();
+                auto* dialog=window.findChild<QDialog*>("symbolPropertiesDialog");require(dialog,"Drawing symbol cannot open shared properties");return dialog;
+            };
+            for(const QString language:{"cs","en","de","fr","ru"}) {
+                QTemporaryDir translated;QSettings config(translated.filePath("config.ini"),QSettings::IniFormat);config.setValue("Application/Language",language);config.sync();
+                const auto settings=zima::app::ApplicationSettings::load(translated.path());
+                zima::app::apply_application_translations(*qApp,settings);
+                auto* dialog=open_symbol();auto* variants=dialog->findChild<QComboBox*>("symbolVariant");
+                require(variants->currentText()==settings.qt_translations.value("Vnější a vnitřní hrany"),"Factory symbol variant label is not translated");
+                variants->setCurrentIndex(variants->findData("external_exceptions"));flush();
+                require(!dialog->findChild<QComboBox*>("symbolField:Internal edges")->isVisible()&&!dialog->findChild<QComboBox*>("symbolField:Exception")->isVisible(),"Hidden symbol fields remained editable");
+                dialog->reject();flush();
+            }
+            zima::app::apply_application_translations(*qApp,zima::app::ApplicationSettings::load());
+            auto* props=open_symbol();
+            require(!props->findChild<QCheckBox*>("symbolOverride:External edges"),"Symbol field still requires an override checkbox");
+            require(props->findChild<QComboBox*>("symbolField:External edges")->isEnabled(),"Symbol field is not immediately editable");
+            props->findChild<QComboBox*>("symbolField:External edges")->setCurrentText("-0.8");
+            props->reject();flush();require(window.document_for_test().sheets.front().title_block_symbols.front()==symbol,"Symbol Cancel changed drawing");
+            props=open_symbol();
+            props->findChild<QComboBox*>("symbolField:External edges")->setCurrentText("-0.8");
+            window.grab().save(QString::fromStdString((std::filesystem::current_path()/"build/drawing-symbol-properties.png").string()));
+            props->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+            const auto& edited=window.document_for_test().sheets.front().title_block_symbols;
+            require(edited.front().text_values.at("External edges")=="-0.8"&&edited.back()==copy,"Editing one symbol changed another instance");
+            require(zima::symbols::Definition::load(library).serialized()==definition.serialized(),"Drawing symbol edit modified library");
+            const auto path=directory/"independent-symbols.drwz";window.document_for_test().save(path);
+            require(zima::drawing::DrawingDocument::load(path).sheets.front().title_block_symbols==edited,"Edited symbol values did not survive reopen");
+            require(workspace.open_drawing(fixture.document_id)->undo(),"Symbol edit has no Undo");
+            window.edit_workspace_document(fixture.document_id);flush();
+            require(window.document_for_test().sheets.front().title_block_symbols.front()==symbol,"Symbol Undo did not restore original values");
+            require(workspace.open_drawing(fixture.document_id)->redo(),"Symbol edit has no Redo");
+            window.edit_workspace_document(fixture.document_id);flush();
+            require(window.document_for_test().sheets.front().title_block_symbols.front().text_values.at("External edges")=="-0.8","Symbol Redo lost edited value");
+            action("removeDrawingTitleBlockAction")->trigger();flush();
+            require(window.document_for_test().sheets.front().title_block_symbols.empty(),"Removing title block left its symbols behind");
+        }
+        {
             auto fixture=zima::drawing::DrawingDocument::create_default();
+            // Printed text must honor the configured physical pen widths.
+            auto& weight_sheet=fixture.sheets.front();
+            weight_sheet.thick_line_mm=.5;weight_sheet.thin_line_mm=.25;
+            zima::drawing::TemplateText weight_text;weight_text.text="I";weight_text.height=5;
+            weight_text.font=zima::drawing_render::drawing_font_family().toStdString();weight_text.flipped=true;
+            weight_text.position={160,97};weight_text.pen=zima::drawing::DrawingPen::White;
+            weight_sheet.title_block_texts={weight_text};weight_text.position.x=150;weight_text.pen=zima::drawing::DrawingPen::Green;weight_sheet.title_block_texts.push_back(weight_text);
+            zima::drawing_render::SheetRenderer weight_renderer;weight_renderer.set_render_sheet(&weight_sheet);
+            QImage weights(1000,500,QImage::Format_ARGB32);weights.fill(Qt::white);
+            {QPainter p(&weights);weight_renderer.paint_sheet(p,40,{-1800,-7600},true);}
+            const auto saved_ui_font=qApp->font();auto heavier_ui_font=saved_ui_font;heavier_ui_font.setWeight(QFont::DemiBold);qApp->setFont(heavier_ui_font);
+            QImage heavier_ui_output(weights.size(),weights.format());heavier_ui_output.fill(Qt::white);
+            {QPainter p(&heavier_ui_output);weight_renderer.paint_sheet(p,40,{-1800,-7600},true);}
+            qApp->setFont(saved_ui_font);
+            require(heavier_ui_output==weights,"Application font weight changed Drawing output");
+            const auto pixels=[&](int first,int last){int count=0;for(int x=first;x<last;++x)if(weights.pixelColor(x,300).red()<128)++count;return count;};
+            require(std::abs(pixels(100,400)-20)<=2,"White PDF text does not follow 0.5 mm pen");
+            require(std::abs(pixels(500,800)-10)<=2,"Green PDF text does not follow 0.25 mm pen");
+            weights.save("build/pdf-text-weights.png");
+            zima::drawing_render::export_pdf(fixture,directory/"text-pen-widths.pdf",{},nullptr,true);
+            weight_sheet.title_block_texts.clear();
             zima::drawing::TitleBlockField empty;empty.id="EMPTY";empty.position={105,160};empty.height=5;empty.editable=true;empty.anchor_position=true;
             fixture.sheets.front().title_block_fields={empty};workspace.add_drawing(fixture);window.edit_workspace_document(fixture.document_id);flush();
             const auto center=window.title_field_center_for_test(empty.id);require(center.has_value(),"Empty text has no hit region");

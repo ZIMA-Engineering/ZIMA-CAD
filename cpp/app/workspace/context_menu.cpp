@@ -16,6 +16,9 @@ void AssemblyWorkspaceWindow::show_tree_item_properties(QTreeWidgetItem* item) {
     }
     if(item&&item->data(0,Qt::UserRole+3)=="document-measurement"){show_measurement(item->data(0,Qt::UserRole).toString().toStdString());return;}
     if(item&&item->data(0,Qt::UserRole+3)=="document-section"){show_section_properties(item->data(0,Qt::UserRole).toString().toStdString());return;}
+    if(item && item->data(0,Qt::UserRole+3).toString()=="sketch-symbol") {
+        show_symbol_properties(item->data(0,Qt::UserRole).toString().toStdString());return;
+    }
     if(item && item->data(0,Qt::UserRole+3).toString()=="template-image") {
         show_template_image_properties(item->data(0,Qt::UserRole).toString().toStdString());return;
     }
@@ -153,6 +156,7 @@ bool AssemblyWorkspaceWindow::activate_occurrence_for_test(const std::string& se
             zima::assembly::InstancePath::decode(selected_path),[](auto task){run_background_task(std::move(task));});
         active_sketch_id_.clear();selected_sketch_id_.clear();
         active_application_=workspace_.open_assembly(opened.document_id)?ApplicationMode::Assembly:ApplicationMode::Modeling;
+        preserve_view_on_refresh_=true;
         refresh_tabs();refresh_scene();return true;
     }catch(const std::exception&){return false;}
 }
@@ -161,6 +165,7 @@ void AssemblyWorkspaceWindow::deactivate_active_occurrence_for_test() {
     if(properties_dialog_||!active_sketch_id_.empty())return;
     if(!zima::workspace::deactivate_component_source(workspace_))return;
     active_sketch_id_.clear();selected_sketch_id_.clear();active_application_=ApplicationMode::Assembly;
+    preserve_view_on_refresh_=true;
     refresh_tabs();refresh_scene();
 }
 

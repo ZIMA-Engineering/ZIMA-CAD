@@ -139,6 +139,8 @@ file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/sketch_font_data.cpp"
     "#include <span>\nnamespace zima::sketcher { std::span<const unsigned char> bundled_sketch_font() { static const unsigned char bytes[]={${ZIMA_SKETCH_FONT_BYTES}}; return bytes; } }\n")
 
 add_library(zima_sketcher
+    modules/symbols/src/definition.cpp
+    modules/symbols/src/instance.cpp
     modules/sketcher/src/sketch.cpp
     modules/sketcher/src/text_geometry.cpp
     "${CMAKE_CURRENT_BINARY_DIR}/sketch_font_data.cpp"
@@ -147,15 +149,17 @@ add_library(zima_sketcher
     modules/sketcher/src/sketch_trim.cpp
     modules/sketcher/src/curve_geometry.cpp
     modules/sketcher/src/sketch_offset.cpp)
-target_include_directories(zima_sketcher PUBLIC modules/sketcher/include)
+target_include_directories(zima_sketcher PUBLIC modules/sketcher/include modules/symbols/include)
 target_compile_options(zima_sketcher PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
 target_link_libraries(zima_sketcher
-    PUBLIC zima_kernel_api
-    PRIVATE nlohmann_json::nlohmann_json Freetype::Freetype harfbuzz::harfbuzz)
+    PUBLIC zima_kernel_api nlohmann_json::nlohmann_json
+    PRIVATE Freetype::Freetype harfbuzz::harfbuzz)
 
-add_library(zima_symbols modules/symbols/src/definition.cpp)
+add_library(zima_symbols modules/symbols/src/file.cpp)
 target_include_directories(zima_symbols PUBLIC modules/symbols/include)
 target_link_libraries(zima_symbols PUBLIC zima_sketcher PRIVATE Qt6::Core nlohmann_json::nlohmann_json)
+add_executable(zima_symbol_catalog_tool tools/symbol_catalog_tool.cpp)
+target_link_libraries(zima_symbol_catalog_tool PRIVATE zima_symbols Qt6::Gui)
 add_executable(zima_symbol_library_tool tools/symbol_library_tool.cpp)
 target_link_libraries(zima_symbol_library_tool PRIVATE zima_symbols Qt6::Gui)
 
@@ -430,7 +434,7 @@ include(app/workspace/sources.cmake)
 add_executable(zima-cad-cpp
     ${ZIMA_WORKSPACE_SOURCES}
     app/command_console.cpp app/console_ui_verification.cpp app/holes_ui_verification.cpp app/edge_treatment_ui_verification.cpp app/rotation_handle_ui_verification.cpp
-    app/main_workspace.cpp app/appearance_dialog.cpp app/appearance_command.cpp app/section_command.cpp app/section_ui_verification.cpp app/assembly_workspace_window.cpp app/template_command.cpp app/numeric_value_lock_command.cpp app/shaft_thread_command.cpp app/derived_copy_command.cpp
+    app/main_workspace.cpp app/appearance_dialog.cpp app/appearance_command.cpp app/section_command.cpp app/section_ui_verification.cpp app/assembly_workspace_window.cpp app/template_command.cpp app/symbol_command.cpp app/numeric_value_lock_command.cpp app/shaft_thread_command.cpp app/derived_copy_command.cpp
     app/application_settings.cpp app/global_settings_dialog.cpp app/measurement_command.cpp app/measurement_ui_verification.cpp app/mass_properties_command.cpp
     app/document_tools_dialogs.cpp app/updates_ui_verification.cpp app/ai_settings_page.cpp
     app/drawing_window.cpp app/show_erase_dialog.cpp app/file_dialog.cpp app/resource_icon.cpp
@@ -476,7 +480,7 @@ if(WIN32 AND TARGET Qt6::QModernWindowsStylePlugin)
             "$<TARGET_FILE:Qt6::QModernWindowsStylePlugin>"
             "$<TARGET_FILE_DIR:zima-cad-cpp>/styles/")
 endif()
-target_link_libraries(zima-cad-cpp PRIVATE zima_drawing_render)
+target_link_libraries(zima-cad-cpp PRIVATE zima_drawing_render zima_symbols)
 install(TARGETS zima-cad-cpp RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 
 # A console-subsystem executable. Qt Gui runs offscreen for shared PDF painting; no Widgets are created.
@@ -514,7 +518,7 @@ if(WIN32 AND TARGET Qt6::QJpegPlugin)
     endforeach()
 endif()
 target_include_directories(zima-cad-drawing-harness PRIVATE app)
-target_link_libraries(zima-cad-drawing-harness PRIVATE zima_viewer zima_drawing_render zima_command_host)
+target_link_libraries(zima-cad-drawing-harness PRIVATE zima_viewer zima_drawing_render zima_command_host zima_symbols)
 target_link_libraries(zima-cad-drawing-harness PRIVATE
     zima_workspace zima_drawing zima_document_core zima_assembly zima_ui
     Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Svg)
@@ -1260,6 +1264,10 @@ if(ZIMA_BUILD_TESTS)
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT}"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     add_test(NAME zima_cpp_sketch_grips_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    add_test(NAME zima_cpp_nested_body_sketch_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_nested_body_sketch_ui_contract PROPERTIES
+        ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_NESTED_BODY_ONLY=1"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120)
     set_tests_properties(zima_cpp_sketch_grips_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_BODY_SKETCH_ONLY=1;ZIMA_VERIFY_SKETCH_GRIPS_ONLY=1"
         TIMEOUT 90)
@@ -1283,6 +1291,8 @@ if(ZIMA_BUILD_TESTS)
     set_tests_properties(zima_cpp_section_ui_contract PROPERTIES
         ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SECTIONS_ONLY=1"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
+    add_test(NAME zima_cpp_symbol_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_symbol_ui_contract PROPERTIES ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT};ZIMA_VERIFY_SYMBOLS_ONLY=1" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 120)
     add_test(NAME zima_cpp_template_ui_contract COMMAND zima-cad-cpp --verify-startup)
     add_test(NAME zima_cpp_new_document_options_ui_contract COMMAND zima-cad-cpp --verify-startup)
     set_tests_properties(zima_cpp_new_document_options_ui_contract PROPERTIES
@@ -1443,4 +1453,11 @@ if(ZIMA_BUILD_TESTS)
     target_link_libraries(zima_cpp_exact_spline_dialog_tests PRIVATE zima_ui zima_sketcher Qt6::Widgets)
     add_test(NAME zima_cpp_exact_spline_dialog_tests COMMAND zima_cpp_exact_spline_dialog_tests)
     set_tests_properties(zima_cpp_exact_spline_dialog_tests PROPERTIES ENVIRONMENT "${ZIMA_GUI_TEST_ENVIRONMENT}")
+endif()
+
+if(ZIMA_BUILD_TESTS)
+    add_executable(zima_cpp_symbol_integration_tests tests/symbol_integration_tests.cpp)
+    target_link_libraries(zima_cpp_symbol_integration_tests PRIVATE zima_workspace zima_symbols)
+    add_test(NAME zima_cpp_symbol_integration COMMAND zima_cpp_symbol_integration_tests)
+    set_tests_properties(zima_cpp_symbol_integration PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
 endif()

@@ -28,10 +28,10 @@ int main(int argc,char** argv) {
         const auto roundtrip=std::filesystem::u8path(temp.filePath("roundtrip.symz").toStdString());
         d.save(roundtrip);
         check(zima::symbols::Definition::load(roundtrip).serialized()==d.serialized(),"Symbol round trip changed definition");
-        auto invalid=d;invalid.groups.begin()->second.geometry.push_back("missing-curve");
+        auto invalid=d;invalid.variants.begin()->second.sketches.push_back("missing-sketch");
         bool rejected=false;try{invalid.validate();}catch(const std::exception&){rejected=true;}
         check(rejected,"Dangling symbol group reference accepted");
-        auto invalid_version=d.serialized();const auto at=invalid_version.find("\"version\": 1");
+        auto invalid_version=d.serialized();const auto at=invalid_version.find("\"version\": 2");
         check(at!=std::string::npos,"Missing version");invalid_version.replace(at,12,"\"version\": 9");
         rejected=false;try{static_cast<void>(zima::symbols::Definition::from_serialized(invalid_version));}catch(const std::exception&){rejected=true;}
         check(rejected,"Unsupported symbol format accepted");
@@ -39,23 +39,23 @@ int main(int argc,char** argv) {
         QPainter painter(&image);painter.setRenderHint(QPainter::Antialiasing);
         int column=0;
         for(const auto* variant:{"first_angle","third_angle"}) {
-            const auto visible=d.visible_geometry(variant);check(visible.size()==8,"Projection variant geometry count changed");
-            const std::set<std::string> ids(visible.begin(),visible.end());
+            const auto evaluated=d.evaluate(variant);check(evaluated.size()==1,"Projection must select one sketch");
+            const auto& sketch=evaluated.front();
             const auto point=[&](const std::string& id)->const zima::sketcher::SketchPoint& {
-                const auto it=std::ranges::find(d.sketch.points,id,&zima::sketcher::SketchPoint::id);
-                check(it!=d.sketch.points.end(),"Missing point");return *it;
+                const auto it=std::ranges::find(sketch.points,id,&zima::sketcher::SketchPoint::id);
+                check(it!=sketch.points.end(),"Missing point");return *it;
             };
             const double origin_x=240+480*column;
             const auto screen=[&](const auto& p){return QPointF(origin_x+p.x*22,175-p.y*22);};
             double circle_x=0, cone_left=100;
             std::string center_id;int circles=0,axes=0,edges=0;
-            for(const auto& c:d.sketch.circles)if(ids.contains(c.id)) {
+            for(const auto& c:sketch.circles) {
                 if(center_id.empty())center_id=c.center_point_id;
                 check(center_id==c.center_point_id&&point(center_id).y==0,"Projection circles are not concentric on the shared axis");
                 circle_x=point(center_id).x;++circles;
                 painter.setPen(QPen(Qt::black,.35*22));painter.drawEllipse(screen(point(center_id)),c.radius*22,c.radius*22);
             }
-            for(const auto& s:d.sketch.segments)if(ids.contains(s.id)) {
+            for(const auto& s:sketch.segments) {
                 const auto& a=point(s.first_point_id);const auto& b=point(s.second_point_id);
                 if(s.construction) {
                     ++axes;check(!s.centerline,"Symbol axes must retain finite extents");

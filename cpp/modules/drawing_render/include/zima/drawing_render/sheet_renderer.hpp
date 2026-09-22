@@ -18,6 +18,7 @@ public:
     virtual ~SheetRenderer() = default;
     void set_render_sheet(const drawing::DrawingSheet* sheet) {sheet_=sheet;shaded_cache_.clear();}
     void set_render_context(drawing::TitleBlockContext context) {title_block_context_=std::move(context);}
+    void set_native_text_output(bool enabled) {native_text_output_=enabled;}
     void paint_sheet(QPainter&,double zoom,QPointF origin,bool printing);
 protected:
     enum class AnnotationKind { Caption, SectionLabel, Dimension, SectionEnd, Model, Balloon, View, Text, DetailLabel };
@@ -49,6 +50,7 @@ protected:
     struct ShadedCache {double resolution{};QRectF bounds;const zima::drawing::ProjectedTriangle* triangles{};QImage image;};
     std::map<std::string,ShadedCache> shaded_cache_;
     bool lineweights_{};
+    bool native_text_output_{};
     bool show_paper_border_{true};
     std::string selected_;
     std::string hovered_;

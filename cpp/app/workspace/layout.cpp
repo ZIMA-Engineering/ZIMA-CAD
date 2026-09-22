@@ -290,6 +290,9 @@ void AssemblyWorkspaceWindow::create_layout() {
         // That stale latch also kept commands such as Horizontal and Length
         // enabled and could apply them to geometry that was no longer the
         // confirmed viewer candidate.
+        if(candidate.kind==zima::viewer::CandidateKind::Symbol && candidate.owner_id==active_sketch_id_) {
+            select_symbol(candidate.semantic_key.substr(7));return;
+        }
         if(candidate.kind==zima::viewer::CandidateKind::TemplateImage && candidate.owner_id==active_sketch_id_) {
             select_template_image(candidate.semantic_key.substr(15));return;
         }
@@ -709,6 +712,11 @@ void AssemblyWorkspaceWindow::create_layout() {
         [this](const auto& candidate, const QPoint& global_position) {
             if(section_dialog_&&section_dialog_->isVisible())return;
             if (!part_element_context_menu_enabled(candidate.owner_id)) return;
+            if(candidate.kind==zima::viewer::CandidateKind::Symbol && !properties_dialog_) {
+                const auto id=candidate.semantic_key.substr(7);QMenu menu(this);
+                auto* properties=menu.addAction(tr("Vlastnosti…"));auto* remove=menu.addAction(resource_icon("delete"),tr("Odstranit"));
+                const auto* chosen=menu.exec(global_position);if(chosen==properties)show_symbol_properties(id);else if(chosen==remove)remove_symbol(id);return;
+            }
             if(candidate.kind==zima::viewer::CandidateKind::TemplateImage && !properties_dialog_) {
                 const auto id=candidate.semantic_key.substr(15);QMenu menu(this);
                 auto* properties=menu.addAction(tr("Vlastnosti…"));auto* remove=menu.addAction(resource_icon("delete"),tr("Odstranit"));
@@ -1020,6 +1028,10 @@ void AssemblyWorkspaceWindow::create_layout() {
     });
     viewer_->set_world_click_callback([this](const auto& origin, const auto& direction) {
         if(measurement_dialog_)return false;
+        if(symbol_anchor_) {
+            if(const auto* sketch=active_sketch())if(const auto point=sketch->intersect_ray(origin,direction))symbol_anchor_((*point)[0],(*point)[1]);
+            return true;
+        }
         if(template_image_ray(origin,direction))return true;
         if(template_region_ray(origin,direction,true))return true;
         auto [local_origin, local_direction] =
@@ -1410,6 +1422,9 @@ void AssemblyWorkspaceWindow::create_layout() {
     viewer_->set_double_confirmation_callback([this](const auto& candidate) {
         if(accept_family_reference(candidate,true))return;
         if(measurement_dialog_)return;
+        if(candidate.kind==zima::viewer::CandidateKind::Symbol && candidate.owner_id==active_sketch_id_) {
+            show_symbol_properties(candidate.semantic_key.substr(7));return;
+        }
         if(candidate.kind==zima::viewer::CandidateKind::TemplateImage && candidate.owner_id==active_sketch_id_) {
             show_template_image_properties(candidate.semantic_key.substr(15));return;
         }
@@ -1587,6 +1602,10 @@ void AssemblyWorkspaceWindow::create_layout() {
     setCentralWidget(central);
     state_ = new QLabel(this);
     state_->setObjectName("workspaceState");
+    // Progress visibility and changing status text must not resize the canvas.
+    const int status_height=std::max(20,state_->fontMetrics().height());
+    state_->setFixedHeight(status_height);
+    state_->setSizePolicy(QSizePolicy::Ignored,QSizePolicy::Fixed);
     state_->setText(tr("Připraveno."));
     statusBar()->addWidget(state_, 1);
     drawing_workspace_->set_status_handler([this](const QString& message) {
@@ -1597,7 +1616,10 @@ void AssemblyWorkspaceWindow::create_layout() {
     operation_progress_->setObjectName("fileOperationProgress");
     operation_progress_->setMinimumWidth(360);
     operation_progress_->setMaximumWidth(620);
-    operation_progress_->setFixedHeight(20);
+    operation_progress_->setFixedHeight(status_height);
+    auto progress_policy=operation_progress_->sizePolicy();
+    progress_policy.setRetainSizeWhenHidden(true);
+    operation_progress_->setSizePolicy(progress_policy);
     operation_progress_->setTextVisible(true);
     operation_progress_->hide();
     statusBar()->addPermanentWidget(operation_progress_);
@@ -1686,6 +1708,10 @@ void AssemblyWorkspaceWindow::create_layout() {
             auto* item = tree_->currentItem();
             if (item == nullptr || !selected_items.contains(item)) {
                 item = selected_items.front();
+            }
+            if(item->data(0,Qt::UserRole+3).toString()=="sketch-symbol") {
+                const auto id=item->data(0,Qt::UserRole).toString().toStdString();selected_symbol_=id;
+                viewer_->confirm_reference(active_sketch_id_,"symbol:"+id,{},zima::viewer::CandidateKind::Symbol);return;
             }
             if(item->data(0,Qt::UserRole+3).toString()=="template-image") {
                 const auto id=item->data(0,Qt::UserRole).toString().toStdString();selected_template_image_=id;
@@ -2195,6 +2221,9 @@ void AssemblyWorkspaceWindow::create_layout() {
             }
             if (!item->parent() && workspace_.open_assembly(workspace_.displayed_document_id()) && !properties_dialog_) {
                 QMenu menu(this);
+                auto* activate=menu.addAction(resource_icon("assembly"),tr("Aktivovat"));
+                activate->setObjectName("activateTopAssemblyAction");
+                activate->setEnabled(!workspace_.active_occurrence_path().empty()&&active_sketch_id_.empty());
                 auto* insert = menu.addAction(resource_icon("skeleton"), tr("Vložit Skeleton…"));
                 insert->setObjectName("insertSkeletonAction");
                 const auto* owner = workspace_.open_assembly(workspace_.active_document_id());
@@ -2205,7 +2234,8 @@ void AssemblyWorkspaceWindow::create_layout() {
                 auto* family = menu.addAction(resource_icon("family-table"), family_table_action_->text());
                 family->setObjectName("treeFamilyTableAction");
                 const auto* selected = exec_tree_menu(menu,item,position);
-                if (selected == insert) insert_component_from_file(true);
+                if (selected == activate) deactivate_active_occurrence_for_test();
+                else if (selected == insert) insert_component_from_file(true);
                 else if (selected == parameters) edit_parameters_for_document(workspace_.displayed_document_id());
                 else if (selected == family) edit_family_table_for_document(workspace_.displayed_document_id());
                 return;
@@ -2217,6 +2247,12 @@ void AssemblyWorkspaceWindow::create_layout() {
                 properties->setObjectName("templateImagePropertiesAction");remove->setObjectName("templateImageRemoveAction");
                 const auto* chosen=exec_tree_menu(menu,item,position);
                 if(chosen==properties)show_template_image_properties(id);else if(chosen==remove)remove_template_image(id);return;
+            }
+            if(step_kind=="sketch-symbol"&&!properties_dialog_) {
+                const auto id=item->data(0,Qt::UserRole).toString().toStdString();QMenu menu(this);
+                auto* properties=menu.addAction(tr("Vlastnosti…"));auto* remove=menu.addAction(resource_icon("delete"),tr("Odstranit"));
+                const auto* chosen=menu.exec(tree_->viewport()->mapToGlobal(position));
+                if(chosen==properties)show_symbol_properties(id);else if(chosen==remove)remove_symbol(id);return;
             }
             if(step_kind=="template-repeat-region"&&!properties_dialog_) {
                 const auto id=item->data(0,Qt::UserRole).toString().toStdString();QMenu menu(this);

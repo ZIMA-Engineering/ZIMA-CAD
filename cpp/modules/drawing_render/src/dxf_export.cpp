@@ -19,7 +19,7 @@ std::uint64_t export_dxf(const drawing::DrawingDocument& doc,const std::string& 
     if(!sheet)throw ExportOperationError("sheet_not_found","The drawing sheet does not exist.");
     if(!qobject_cast<QGuiApplication*>(QCoreApplication::instance()))throw ExportOperationError("graphics_unavailable","Drawing DXF export requires an initialized graphics runtime.");
     return workspace::write_export_file(destination,overwrite,[&](const auto& staged) {
-        SheetRenderer output;output.set_render_sheet(sheet);
+        SheetRenderer output;output.set_render_sheet(sheet);output.set_native_text_output(true);
         output.set_render_context(sheet_export_context(doc,static_cast<std::size_t>(sheet-doc.sheets.data()),document_path,live));
         DrawingDxfDevice device(sheet->width_mm(),sheet->height_mm());
         QPainter painter;

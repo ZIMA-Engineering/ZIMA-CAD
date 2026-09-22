@@ -78,7 +78,7 @@ QString SheetRenderer::label_text(const zima::drawing::DrawingView& view,bool se
     }
 QRectF SheetRenderer::label_bounds(const zima::drawing::DrawingView& view,bool section,double zoom,QPointF origin)const{
         const auto text=label_text(view,section);if(text.isEmpty())return {};
-        QFont font(drawing_font_family());font.setPixelSize(1000);const QFontMetricsF metrics(font);
+        QFont font(drawing_font_family());font.setWeight(QFont::Normal);font.setPixelSize(1000);const QFontMetricsF metrics(font);
         const auto bounds=view_bounds_at(view,zoom,origin);const auto& position=section?view.section_label_position:view.caption_position;
         const bool both=view.show_caption&&view.show_section_label&&!view.section_id.empty()&&view.section_snapshot;
         const QPointF center=position?QPointF(origin.x()+(sheet_->width_mm()-view.x+position->x)*zoom,origin.y()+(sheet_->height_mm()-view.y-position->y)*zoom)
@@ -103,7 +103,7 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
         const QRectF paper(origin.x(), origin.y(), sheet_->width_mm() * zoom,
                            sheet_->height_mm() * zoom);
         painter.setRenderHint(QPainter::Antialiasing, true);
-        QFont annotation_font(drawing_font_family());annotation_font.setPixelSize(std::max(1,static_cast<int>(3.5*zoom)));painter.setFont(annotation_font);
+        QFont annotation_font(drawing_font_family());annotation_font.setWeight(QFont::Normal);annotation_font.setPixelSize(std::max(1,static_cast<int>(3.5*zoom)));painter.setFont(annotation_font);
         painter.setPen(QPen(QColor("#808080"), 1.0));
         if(!printing&&show_paper_border_)painter.drawRect(paper);
         painter.setPen(QPen(ink,width(false)));
@@ -133,7 +133,7 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
             const bool selected=!printing&&!text.field_id.empty()&&(selected_field_==text.field_id||entity_selected({AnnotationKind::Text,{},text.field_id,0}));
             const bool hovered=!printing&&!text.field_id.empty()&&hovered_field_==text.field_id;
             painter.save();painter.setPen(selected?QColor("#00D1FF"):hovered?QColor("#FF9300"):pen_color(text.pen));
-            QFont font(QString::fromStdString(text.font));font.setPixelSize(1000);painter.setFont(font);
+            QFont font(QString::fromStdString(text.font));font.setWeight(QFont::Normal);font.setPixelSize(1000);painter.setFont(font);
             const QFontMetricsF metrics(font);
             const auto lines=value.split('\n',Qt::KeepEmptyParts);
             QRectF ink;const double spacing=metrics.lineSpacing();
@@ -143,6 +143,16 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
             }
             const auto anchor=screen(text.position);
             const double scale=text.height/std::max(1.0,metrics.capHeight());
+            // Calibrate the font's existing stem before adding/removing weight.
+            // Stroking a filled glyph with the full pen width would count its
+            // native thickness twice. A mid-height I slice excludes serifs.
+            double weight_delta=0;
+            if((printing||lineweights_)&&!native_text_output_) {
+                QPainterPath stem;stem.addText(QPointF{},font,QStringLiteral("I"));
+                QPainterPath slice;slice.addRect(QRectF(stem.boundingRect().left()-1,-metrics.capHeight()*.5,stem.boundingRect().width()+2,.01));
+                const double native_width=stem.intersected(slice).boundingRect().width();
+                if(native_width>0)weight_delta=drawing::drawing_pen_width_mm(*sheet_,text.pen)/scale-native_width;
+            }
             const double angle=text.angle*3.141592653589793/180.0,flip=text.flipped?-1:1;
             const QPointF x=screen({text.position.x+flip*std::cos(angle)*scale,text.position.y+flip*std::sin(angle)*scale})-anchor;
             const QPointF y=screen({text.position.x+std::sin(angle)*scale,text.position.y-std::cos(angle)*scale})-anchor;
@@ -154,7 +164,14 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
             for(qsizetype i=0;i<lines.size();++i) {
                 const auto bounds=metrics.tightBoundingRect(lines[i]);
                 const double line_dx=alignment=="center"?-bounds.center().x():alignment=="right"?-bounds.right():-bounds.left();
-                painter.drawText(QPointF(line_dx,dy+i*spacing),lines[i]);
+                const QPointF baseline(line_dx,dy+i*spacing);
+                if(std::abs(weight_delta)>.01) {
+                    QPainterPath glyphs;glyphs.addText(baseline,font,lines[i]);
+                    QPainterPathStroker stroker;stroker.setWidth(std::abs(weight_delta));stroker.setJoinStyle(Qt::RoundJoin);
+                    const auto outline=stroker.createStroke(glyphs);
+                    const auto weighted=weight_delta>0?glyphs.united(outline):glyphs.subtracted(outline);
+                    painter.fillPath(weighted,painter.pen().color());
+                } else painter.drawText(baseline,lines[i]);
             }
             painter.restore();
             if(!printing&&!text.field_id.empty()) {
@@ -169,7 +186,20 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
         };
         const auto pen_width=[&](zima::drawing::DrawingPen pen){return printing||lineweights_?zoom*zima::drawing::drawing_pen_width_mm(*sheet_,pen):1.0;};
         const auto draw_template=[&](const auto& lines,const auto& texts,const auto& circles) {
-            for(const auto& line:lines){QPen pen(pen_color(line.pen),line.centerline?(printing||lineweights_?zoom*sheet_->thin_line_mm:1.0):pen_width(line.pen));if(line.centerline)pen.setDashPattern({2*zoom/pen.widthF(),.4*zoom/pen.widthF(),.2*zoom/pen.widthF(),.4*zoom/pen.widthF()});painter.setPen(pen);painter.drawLine(screen(line.first),screen(line.second));}
+            for(const auto& line:lines) {
+                const auto first=screen(line.first),second=screen(line.second);
+                const bool selected=!printing&&!line.field_id.empty()&&selected_field_==line.field_id;
+                const bool hovered=!printing&&!line.field_id.empty()&&hovered_field_==line.field_id;
+                QPen pen(selected?QColor("#00D1FF"):hovered?QColor("#FF9300"):pen_color(line.pen),line.centerline?(printing||lineweights_?zoom*sheet_->thin_line_mm:1.0):pen_width(line.pen));
+                if(line.centerline)pen.setDashPattern({2*zoom/pen.widthF(),.4*zoom/pen.widthF(),.2*zoom/pen.widthF(),.4*zoom/pen.widthF()});
+                painter.setPen(pen);painter.drawLine(first,second);
+                if(!printing&&!line.field_id.empty()) {
+                    const auto delta=second-first;const auto length=std::hypot(delta.x(),delta.y());
+                    if(length>1e-9) {const QPointF normal(-delta.y()*4/length,delta.x()*4/length);
+                        QPolygonF hit;hit<<first+normal<<second+normal<<second-normal<<first-normal;
+                        field_regions_.push_back({line.field_id,hit});}
+                }
+            }
             for(const auto& circle:circles){painter.setPen(QPen(pen_color(circle.pen),pen_width(circle.pen)));painter.setBrush(Qt::NoBrush);painter.drawEllipse(screen(circle.center),circle.radius*zoom,circle.radius*zoom);}
             for(const auto& text:texts)draw_text(text);
         };
@@ -278,7 +308,7 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
                 const AnnotationKey key{section?AnnotationKind::SectionLabel:AnnotationKind::Caption,view->id,{},0};
                 if(!printing){QPainterPath hit;hit.addRect(rect);annotation_handles_.push_back({key,rect.center(),hit});}
                 painter.save();painter.setPen(annotation_color(key,ink,printing));
-                QFont font(drawing_font_family());font.setPixelSize(1000);painter.setFont(font);const QFontMetricsF metrics(font);
+                QFont font(drawing_font_family());font.setWeight(QFont::Normal);font.setPixelSize(1000);painter.setFont(font);const QFontMetricsF metrics(font);
                 painter.translate(rect.left()+zoom,rect.bottom()-zoom);const double scale=5.0*zoom/metrics.capHeight();painter.scale(scale,scale);painter.drawText(QPointF(0,0),text);painter.restore();
             }
         }
@@ -333,7 +363,7 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
             painter.save();painter.setPen(QPen(color,width(false)));painter.setBrush(Qt::NoBrush);
             if(detail->show_detail_boundary)painter.drawPath(boundary);
             if(detail->show_detail_label) {
-                QFont font(drawing_font_family());font.setPixelSize(1000);painter.setFont(font);
+                QFont font(drawing_font_family());font.setWeight(QFont::Normal);font.setPixelSize(1000);painter.setFont(font);
                 const QFontMetricsF metrics(font);const auto text=QString::fromStdString(detail->name);
                 const double text_scale=5*zoom/metrics.capHeight(),text_width=metrics.horizontalAdvance(text)*text_scale;
                 const double half=std::max(3*zoom,text_width/2+zoom);
@@ -387,7 +417,7 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
                 QPen thick(trace_color,width(true));thick.setCapStyle(Qt::FlatCap);painter.setPen(thick);
                 for(const auto& line:layout.accents)painter.drawLine(screen(line[0]),screen(line[1]));
                 auto letter=QString::fromStdString(section->name);const auto separator=letter.indexOf(QRegularExpression("[-–—]"));if(separator>0)letter=letter.left(separator).trimmed();
-                QFont font(drawing_font_family());font.setPixelSize(1000);const QFontMetricsF metrics(font);const auto bounds=metrics.tightBoundingRect(letter);const double text_scale=5/metrics.capHeight();
+                QFont font(drawing_font_family());font.setWeight(QFont::Normal);font.setPixelSize(1000);const QFontMetricsF metrics(font);const auto bounds=metrics.tightBoundingRect(letter);const double text_scale=5/metrics.capHeight();
                 const Point text_size{bounds.width()*text_scale,bounds.height()*text_scale};
                 for(int end=0;end<2;++end){const auto tip=screen(layout.arrow_tips[end]);const auto d=layout.arrow_directions[end];const QPointF direction(d.x,-d.y);
                     const auto tail=tip-direction*8*zoom;painter.drawLine(tail,tip);
@@ -473,7 +503,7 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
             const AnnotationKey key{AnnotationKind::Balloon,b.view_id,b.id,0};
             const auto color=annotation_color(key,e.unresolved?QColor("#C62828"):printing?ink:QColor(Qt::white),printing);
             const auto label=e.item_number>0?QString::number(e.item_number):QStringLiteral("?");
-            QFont font(drawing_font_family());font.setPixelSize(1000);const QFontMetricsF metrics(font);
+            QFont font(drawing_font_family());font.setWeight(QFont::Normal);font.setPixelSize(1000);const QFontMetricsF metrics(font);
             const auto text_bounds=metrics.tightBoundingRect(label);const double text_scale=b.text_height/metrics.capHeight()*zoom;
             const double radius=std::max(b.diameter*zoom/2,(text_bounds.width()*text_scale+4*zoom)/2);
             const auto delta=anchor-center;const double length=std::hypot(delta.x(),delta.y());

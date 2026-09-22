@@ -641,6 +641,7 @@ void DrawingDocument::save(const std::filesystem::path& path,
             {"designation",row.designation},{"material",row.material},{"file_stem",row.file_stem},
             {"parameters",row.parameters},{"parameter_values",row.parameter_values},{"parameter_aliases",row.parameter_aliases},{"mass_unit",row.mass_unit},{"source_document_id",row.source_document_id},{"source_path",zima::document::path_to_utf8(row.source_path)}});
         const auto circles_json=[](const auto& circles){nlohmann::json values=nlohmann::json::array();for(const auto& c:circles)values.push_back({{"center",{c.center.x,c.center.y}},{"radius",c.radius},{"pen",static_cast<int>(c.pen)}});return values;};
+        serialized["title_block_symbols"]=sheet.title_block_symbols;
         serialized["frame_circles"]=circles_json(sheet.frame_circles);serialized["title_block_circles"]=circles_json(sheet.title_block_circles);
         serialized["title_block_images"]=sheet.title_block_images;
         serialized["repeat_regions"]=nlohmann::json::array();for(const auto& r:sheet.repeat_regions)serialized["repeat_regions"].push_back({{"id",r.id},{"x",r.x},{"y",r.y},{"width",r.width},{"height",r.height},{"direction",r.direction},{"step",r.step},{"value_locks",r.value_locks}});
@@ -849,6 +850,7 @@ DrawingDocument DrawingDocument::load(const std::filesystem::path& path) {
             item.value("file_stem",std::string{}),item.value("parameters",std::map<std::string,std::string>{}),
             item.value("parameter_values",std::map<std::string,std::map<std::string,std::string>>{}),item.value("parameter_aliases",std::map<std::string,std::string>{}),item.value("mass_unit","kg"),item.value("source_document_id",std::string{}),std::filesystem::u8path(item.value("source_path",std::string{})),item.at("occurrence_paths").get<std::vector<std::string>>()});
         const auto parse_circles=[](const auto& values){std::vector<TemplateCircle> result;for(const auto& c:values)result.push_back({{c.at("center").at(0),c.at("center").at(1)},c.at("radius"),static_cast<DrawingPen>(c.at("pen").template get<int>())});return result;};
+        sheet.title_block_symbols=serialized.value("title_block_symbols",std::vector<zima::sketcher::SymbolInstance>{});
         sheet.frame_circles=parse_circles(serialized.value("frame_circles",nlohmann::json::array()));sheet.title_block_circles=parse_circles(serialized.value("title_block_circles",nlohmann::json::array()));
         sheet.title_block_images=serialized.value("title_block_images",std::vector<zima::sketcher::TemplateImage>{});
         for(const auto& r:serialized.value("repeat_regions",nlohmann::json::array()))sheet.repeat_regions.push_back({r.at("id"),r.at("x"),r.at("y"),r.at("width"),r.at("height"),r.at("direction"),r.at("step"),r.value("value_locks",std::set<std::string>{})});

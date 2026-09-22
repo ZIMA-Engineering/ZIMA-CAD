@@ -107,6 +107,7 @@ GlobalSettingsDialog::GlobalSettingsDialog(
         {"Materials", settings_.text("global.path.materials", tr("Knihovna materiálů"))},
         {"Templates", settings_.text("global.path.templates", tr("Šablony"))},
         {"Formats", settings_.text("global.path.formats", tr("Formáty výkresů"))},
+        {"Symbols", settings_.text("global.path.symbols", tr("Symboly"))},
         {"Localization", settings_.text("global.path.localization", tr("Překlady"))}};
     for (auto it = path_labels.cbegin(); it != path_labels.cend(); ++it) {
         auto* row = new QWidget(this);

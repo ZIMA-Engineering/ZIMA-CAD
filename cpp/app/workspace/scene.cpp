@@ -866,6 +866,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         sketch_constraints_action_->setEnabled(false);
         sketch_dimensions_action_->setEnabled(false);
         sketch_text_action_->setEnabled(false);
+        symbol_action_->setEnabled(false);
         sketch_external_reference_action_->setEnabled(false);
         sketch_external_profile_action_->setEnabled(false);
         rebuild_application_toolbar();
@@ -1168,6 +1169,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                               zima::viewer::CandidateKind::SketchConstraint,
                               zima::viewer::CandidateKind::SketchCurve,
                               zima::viewer::CandidateKind::SketchText,
+                          zima::viewer::CandidateKind::Symbol,
                               zima::viewer::CandidateKind::SketchExternalReference});
         if (sketch_external_reference_active_) {
             const auto source_owners = sketch_external_reference_source_owners(
@@ -1724,6 +1726,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
         sketch_bspline_action_->setEnabled(!active_sketch_id_.empty());
         sketch_interpolating_spline_action_->setEnabled(!active_sketch_id_.empty());
         sketch_text_action_->setEnabled(!active_sketch_id_.empty());
+        symbol_action_->setEnabled(!active_sketch_id_.empty());
         sketch_constraints_action_->setEnabled(!active_sketch_id_.empty());
         sketch_dimensions_action_->setEnabled(!active_sketch_id_.empty());
         // H/V can constrain a preselected segment, but without a preselection
@@ -1949,6 +1952,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                           zima::viewer::CandidateKind::SketchConstraint,
                           zima::viewer::CandidateKind::SketchCurve,
                           zima::viewer::CandidateKind::SketchText,
+                          zima::viewer::CandidateKind::Symbol,
                           zima::viewer::CandidateKind::SketchExternalReference}
         : [this, active_part] {
             switch (selection_filter_combo_->currentIndex()) {
@@ -2227,6 +2231,7 @@ void AssemblyWorkspaceWindow::refresh_scene() {
     sketch_bspline_action_->setEnabled(has_active_part_sketch);
     sketch_interpolating_spline_action_->setEnabled(has_active_part_sketch);
     sketch_text_action_->setEnabled(has_active_part_sketch);
+    symbol_action_->setEnabled(has_active_part_sketch);
     sketch_constraints_action_->setEnabled(has_active_part_sketch);
     sketch_dimensions_action_->setEnabled(has_active_part_sketch);
     const bool has_segment = has_active_part_sketch &&

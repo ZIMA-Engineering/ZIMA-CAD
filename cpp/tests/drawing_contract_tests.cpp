@@ -2,6 +2,7 @@
 #include "drawing_projection_fixture.hpp"
 #include <zima/drawing/drawing_template.hpp>
 #include <zima/drawing/drawing_document.hpp>
+#include <zima/symbols/definition.hpp>
 
 #include <algorithm>
 #include <nlohmann/json.hpp>
@@ -247,11 +248,19 @@ Data={"points":{"a":{"x":-10,"y":-5},"b":{"x":-20,"y":-5}},"geometry":{"line":{"
                 auto drawing=zima::drawing::DrawingDocument::create_default();drawing.sheets.front()=sheet;
                 const auto drawing_path=folder/"embedded-logo.drwz";drawing.save(drawing_path);
                 require(zima::drawing::DrawingDocument::load(drawing_path).sheets.front().title_block_images==sheet.title_block_images,"Saved Drawing lost its embedded image");
-                require(sheet.repeat_regions.size()==1&&sheet.title_block_circles.size()==2,"Inserted template lost BOM region or circles");
-                require(std::ranges::count_if(sheet.title_block_lines,[](const auto& line){return line.centerline;})==2,"Template axes were lost when inserted");
+                require(sheet.repeat_regions.size()==1&&sheet.title_block_symbols.size()==3,"Inserted template lost BOM region or factory symbols");
+                require(sheet.title_block_circles.empty(),"Projection symbol was duplicated as static circles");
+                const auto layout=zima::drawing::title_block_layout(sheet,{});
+                require(std::ranges::count_if(layout.lines,[](const auto& line){return line.centerline;})==2,"Symbol axes were lost when inserted");
                 const auto date=std::ranges::find(sheet.title_block_fields,std::string("DATE"),&zima::drawing::TitleBlockField::id);
                 require(date!=sheet.title_block_fields.end()&&date->action_settings.at("kind")=="today","Template date action was not imported");
-                const auto& circles=sketch.circles;require(circles[0].center_point_id==circles[1].center_point_id,"Projection circles do not share a constrained center");
+                const auto definition=zima::symbols::Definition::from_serialized(sheet.title_block_symbols.front().definition);
+                for(const auto& [variant,row]:definition.variants) {
+                    const auto evaluated=definition.evaluate(variant);
+                    require(evaluated.size()==1&&evaluated.front().circles.size()==2,"Projection variant lost its circles");
+                    const auto& circles=evaluated.front().circles;
+                    require(circles[0].center_point_id==circles[1].center_point_id,"Projection circles do not share a constrained center");
+                }
             }
         }
         {
@@ -480,7 +489,7 @@ Data={"points":{"a":{"x":-10,"y":-5},"b":{"x":-20,"y":-5}},"geometry":{"line":{"
                     !loaded.sheets.front().title_block_fields.empty() &&
                     loaded.sheets.front().bom_rows.size() == 2 &&
                     loaded.sheets.front().repeat_regions.size()==1 &&
-                    loaded.sheets.front().title_block_circles.size()==2 &&
+                    loaded.sheets.front().title_block_symbols==drawing.sheets.front().title_block_symbols &&
                     loaded.sheets.front().bom_rows[1].material == "A2" &&
                     loaded.sheets.front().title_block_fields.front().value == "Ada" &&
                     loaded.sheets.front().title_block_fields.front().write_back &&
