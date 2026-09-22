@@ -90,7 +90,7 @@ QRectF SheetRenderer::label_bounds(const zima::drawing::DrawingView& view,bool s
 void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,bool printing) {
         if(!sheet_)return;
         const auto* dimension_preview=pending_dimension();
-        if(!printing)annotation_handles_.clear();
+        if(!printing){annotation_handles_.clear();witness_handles_.clear();}
         const auto width=[&](bool thick){return printing||lineweights_?zoom*(thick?sheet_->thick_line_mm:sheet_->thin_line_mm):1.0;};
         const auto ink=printing?QColor(Qt::black):QColor(Qt::white);
         std::vector<viewer::DimensionTextLabel> dimension_texts;
@@ -414,7 +414,8 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
             const auto screen=[&](kernel::Vec3 original){const auto p=drawing::break_map(*view,{original.x,original.y});return QPointF(origin.x()+(sheet_->width_mm()-view->x+p.x*view->scale)*zoom,origin.y()+(sheet_->height_mm()-view->y-p.y*view->scale)*zoom);};
             const bool chain=dimension.kind==drawing::DrawingDimensionKind::Chain;
             const auto branches=chain&&dimension.chain_datum_only?std::size_t(0):evaluation.presentations.size();
-            const bool show_datum=chain&&(dimension.chain_group.empty()||drawn_chain_datums.emplace(dimension.view_id,dimension.chain_group).second);
+            const bool preview_owns_datum=!printing&&dimension_preview&&!dimension.chain_group.empty()&&dimension_preview->chain_group==dimension.chain_group&&dimension_preview->view_id==dimension.view_id;
+            const bool show_datum=chain&&(!preview_owns_datum||dimension_preview->id==dimension.id)&&(dimension.chain_group.empty()||drawn_chain_datums.emplace(dimension.view_id,dimension.chain_group).second);
             for(std::size_t index=0;index<branches+(show_datum&&!evaluation.presentations.empty()?1:0);++index){
                 const bool datum=index==branches;
                 const auto segment=datum?std::size_t(0):evaluation.cached_segment_indices.empty()?index:evaluation.cached_segment_indices[index];
@@ -424,8 +425,18 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
                 auto layout=chain?chain_dimension_layout(source,screen,painter.font(),text,zoom,datum):
                     viewer::dimension_text_presentation(source,screen,painter.font(),text,.5*zoom,width(false),2.5*zoom,.75*zoom,index<evaluation.angular_leaders.size()&&evaluation.angular_leaders[index]);
                 if(!layout.valid)continue;
+                if(dimension.kind==drawing::DrawingDimensionKind::Linear||chain) {
+                    auto edits=dimension.segments[segment].witness_edits;
+                    if(preview_owns_datum&&dimension.id!=dimension_preview->id&&!dimension_preview->segments.empty()) {
+                        std::erase_if(edits,[](const auto& e){return e.side==0;});
+                        for(const auto& edit:dimension_preview->segments.front().witness_edits)if(edit.side==0)edits.push_back(edit);
+                    }
+                    const auto witnesses=apply_witness_edits(layout,edits,zoom,chain,datum,
+                        {{{screen(source.witness_first),screen(source.line_first)},{screen(source.witness_second),screen(source.line_second)}}});
+                    if(!printing)for(const auto& witness:witnesses)witness_handles_.push_back({key,segment,witness});
+                }
                 painter.save();painter.setPen(QPen(color,width(false)));painter.setBrush(color);QPainterPath stroke;
-                if(chain&&datum)painter.drawEllipse(screen(source.line_first),.6*zoom,.6*zoom);
+                if(chain&&datum)painter.drawEllipse(layout.handles[1],.6*zoom,.6*zoom);
                 for(const auto& curve:layout.curves){if(curve.empty())continue;painter.drawPolyline(curve);stroke.moveTo(curve.front());for(qsizetype i=1;i<curve.size();++i)stroke.lineTo(curve[i]);}
                 for(const auto& [tip,direction]:layout.arrows)painter.drawPolygon(viewer::annotation_arrow(tip,direction,2.5*zoom));
                 QTransform transform;transform.translate(layout.text_baseline.x(),layout.text_baseline.y());transform.rotate(layout.text_angle);

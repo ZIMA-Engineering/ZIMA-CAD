@@ -336,6 +336,13 @@ int verify_measurement_dimension_ui() {
         command->trigger();
         flush();
         props = dialog();
+        for(const auto kind:{DrawingDimensionKind::Diameter,DrawingDimensionKind::Radius}) {
+            props->findChild<QComboBox*>("drawingDimensionType")->setCurrentIndex(int(kind));flush();
+            mouse(canvas,QEvent::MouseMove,point(15,10),Qt::NoButton,Qt::NoButton);
+            const auto hover=canvas->grab().toImage();
+            require(orange(pixel(hover,point(5,10))),"Radial hover does not highlight the whole selected circle");
+            require(!orange(pixel(hover,point(15,10)+QPointF(4,0))),"Radial hover retains a misleading point marker");
+        }
         props->findChild<QComboBox *>("drawingDimensionType")
             ->setCurrentIndex(int(DrawingDimensionKind::Radius));
         flush();
@@ -818,6 +825,8 @@ int verify_measurement_dimension_ui() {
                 app::DrawingWindow translated_window(&workspace,false);
                 const std::map<std::string,QString> command_labels{{"cs",QString::fromUtf8("Řetězová kóta")},{"en","Chain dimension"},{"de",QString::fromUtf8("Kettenbemaßung")},{"fr",QString::fromUtf8("Cotation en chaîne")},{"ru",QString::fromUtf8("Цепочка размеров")}};
                 require(translated_window.findChild<QAction*>("drawingChainDimensionAction")->text()==command_labels.at(language),"Chain command is not localized after switching language");
+                const std::map<std::string,QString> jog_labels{{"cs",QString::fromUtf8("Vložit zalomení (Jog)")},{"en","Insert jog"},{"de",QString::fromUtf8("Knick einfügen (Jog)")},{"fr",QString::fromUtf8("Insérer un coude (Jog)")},{"ru",QString::fromUtf8("Вставить излом (Jog)")}};
+                require(translated_window.findChild<QAction*>("drawingDimensionJogAction")->text()==jog_labels.at(language),"Jog command is not localized after switching language");
                 auto localized_value=make_drawing_dimension(view.id,DrawingDimensionKind::Chain);
                 localized_value.attachments={{DimensionAttachmentKind::Line,{"profile","bottom",{}}},{DimensionAttachmentKind::Line,{"profile","top",{}}}};
                 auto menu_document=drawing;menu_document.document_id=kernel::make_stable_id();
@@ -836,6 +845,99 @@ int verify_measurement_dimension_ui() {
                     "Add branch is not localized after switching language");
             }
             app::apply_application_translations(*qApp,original_settings);
+        }
+        {
+            auto edited=drawing;edited.sheets.front().views={view};
+            auto dimension=make_drawing_dimension(view.id);
+            dimension.attachments={{DimensionAttachmentKind::CurvePoint,{"profile","bottom",{}},{},0},{DimensionAttachmentKind::CurvePoint,{"profile","bottom",{}},{},1}};
+            dimension.direction=DimensionDirection::Horizontal;place_drawing_dimension(view,dimension,0,{15,30});
+            edited.sheets.front().dimensions={dimension};
+            auto* state=workspace.open_drawing(drawing.document_id);state->commit(edited);window.edit_workspace_document(drawing.document_id);flush();canvas->grab();
+            auto* jog=window.findChild<QAction*>("drawingDimensionJogAction");auto* brk=window.findChild<QAction*>("drawingDimensionBreakAction");
+            require(jog&&brk,"Witness commands missing");
+            // MMB navigation must not become an accidental witness confirmation.
+            jog->trigger();
+            const auto before_pan=window.sheet_rectangle_for_test();
+            mouse(canvas,QEvent::MouseButtonPress,{100,100},Qt::MiddleButton,Qt::MiddleButton|Qt::RightButton);
+            mouse(canvas,QEvent::MouseMove,{120,110},Qt::NoButton,Qt::MiddleButton|Qt::RightButton);
+            mouse(canvas,QEvent::MouseButtonRelease,{120,110},Qt::MiddleButton,Qt::NoButton);
+            require(window.sheet_rectangle_for_test().topLeft()!=before_pan.topLeft(),"Jog command blocks MMB navigation");
+            QKeyEvent escape_witness(QEvent::KeyPress,Qt::Key_Escape,Qt::NoModifier);QApplication::sendEvent(canvas,&escape_witness);flush();
+            window.fit_sheet();flush();canvas->grab();
+            jog->trigger();pick(canvas,point(15,30));
+            require(window.document_for_test().sheets.front().dimensions.front().segments.front().witness_edits.empty(),"Jog accepted a dimension line");
+            pick(canvas,point(0,10));pick(canvas,point(5,20));canvas->grab();
+            auto current=window.document_for_test().sheets.front().dimensions.front();
+            require(current.segments[0].witness_edits.size()==1&&current.segments[0].witness_edits[0].kind==WitnessEditKind::Jog,"Two-click jog did not commit");
+            require(current.attachments==dimension.attachments&&current.style==dimension.style,"Jog changed measured references or text");
+            brk->trigger();pick(canvas,point(30,10));pick(canvas,point(30,12));pick(canvas,point(30,18));canvas->grab();
+            current=window.document_for_test().sheets.front().dimensions.front();
+            require(current.segments[0].witness_edits.size()==2,"Break did not commit after selecting the dimension and two endpoints");
+            const auto break_id=current.segments[0].witness_edits[1].id;
+            window.select_tree_entities({"drawing-dimension:"+dimension.id},"drawing-dimension:"+dimension.id);canvas->grab();
+            const auto end=window.witness_grip_for_test(dimension.id,break_id,1);require(end.has_value(),"Break grip missing");
+            mouse(canvas,QEvent::MouseMove,*end,Qt::NoButton,Qt::NoButton);
+            mouse(canvas,QEvent::MouseButtonPress,*end,Qt::LeftButton,Qt::LeftButton);
+            mouse(canvas,QEvent::MouseMove,point(30,1),Qt::NoButton,Qt::LeftButton);
+            mouse(canvas,QEvent::MouseButtonRelease,point(30,1),Qt::LeftButton,Qt::NoButton);
+            current=window.document_for_test().sheets.front().dimensions.front();
+            require(current.segments[0].witness_edits[1].last>current.segments[0].witness_edits[1].first,"Break endpoints crossed");
+            require(state->undo(),"Witness grip drag has no Undo");window.edit_workspace_document(drawing.document_id);flush();canvas->grab();
+            current=window.document_for_test().sheets.front().dimensions.front();
+            require(deserialize_drawing_dimensions(serialize_drawing_dimensions({current})).front()==current,"Witness edits lost in native serialization");
+            auto invalid=current;auto overlapping=invalid.segments[0].witness_edits[1];overlapping.id=kernel::make_stable_id();invalid.segments[0].witness_edits.push_back(overlapping);
+            bool rejected=false;try{validate_drawing_dimension(invalid);}catch(const std::invalid_argument&){rejected=true;}require(rejected,"Overlapping breaks accepted");
+            window.export_pdf("build/witness-edits-proof.pdf");window.export_dxf("build/witness-edits-proof.dxf");
+            window.document_for_test().save("build/witness-edits-proof.drwz");
+            require(DrawingDocument::load("build/witness-edits-proof.drwz").sheets.front().dimensions.front()==current,"Native file lost witness edits");
+            window.select_tree_entities({"drawing-dimension:"+dimension.id},"drawing-dimension:"+dimension.id);canvas->grab();window.grab().save("build/witness-edits-proof.png");
+            const auto label=window.annotation_handle_for_test(dimension.id,0,true);require(label.has_value(),"Edited witness dimension lost its label grip");
+            mouse(canvas,QEvent::MouseButtonDblClick,*label,Qt::LeftButton,Qt::LeftButton);
+            auto* properties=dialog();require(properties,"Witness properties missing");
+            auto* table=properties->findChild<QTableWidget*>("dimensionWitnessEdits");require(table&&table->rowCount()==3,"Witness properties lack progressive rows");
+            auto* indicator=table->findChild<QWidget*>("witnessRowAction0");
+            qobject_cast<QPushButton*>(indicator->property("_removeWidget").value<QObject*>())->click();
+            properties->reject();flush();require(window.document_for_test().sheets.front().dimensions.front()==current,"Cancel removed a witness edit");
+            canvas->grab();
+            mouse(canvas,QEvent::MouseButtonDblClick,*window.annotation_handle_for_test(dimension.id,0,true),Qt::LeftButton,Qt::LeftButton);
+            properties=dialog();table=properties->findChild<QTableWidget*>("dimensionWitnessEdits");
+            properties->findChild<QTabWidget*>()->setCurrentWidget(table);
+            qobject_cast<QComboBox*>(table->cellWidget(2,1))->setCurrentIndex(int(WitnessEditKind::Break));
+            indicator=table->findChild<QWidget*>("witnessRowAction2");
+            mouse(qobject_cast<QWidget*>(indicator->property("_arrowWidget").value<QObject*>()),QEvent::MouseButtonRelease,{10,10},Qt::LeftButton,Qt::NoButton);
+            pick(canvas,point(30,22));pick(canvas,point(30,26));
+            require(properties->value().segments[0].witness_edits.size()==3&&properties->value().segments[0].witness_edits.back().kind==WitnessEditKind::Break,"Properties arrow did not preserve the selected Break type");
+            require(window.document_for_test().sheets.front().dimensions.front()==current,"Properties witness preview committed early");
+            properties->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+            require(window.document_for_test().sheets.front().dimensions.front().segments[0].witness_edits.size()==3,"Properties OK lost the new break");
+            require(state->undo(),"Properties witness edit has no Undo");window.edit_workspace_document(drawing.document_id);flush();
+            // The same edits and grips must work on independent running members.
+            auto chain=current;chain.kind=DrawingDimensionKind::Chain;chain.chain_direction=Point2{1,0};
+            extend_dimension_chain(chain,false,{DimensionAttachmentKind::CurvePoint,{"profile","bottom",{}},{},.5});
+            auto chain_document=edited;chain_document.sheets.front().dimensions.clear();
+            workspace::commit_drawing_chain(chain_document,chain_document.sheets.front().id,chain,true);
+            state->commit(chain_document);window.edit_workspace_document(drawing.document_id);flush();canvas->grab();
+            const auto original_members=window.document_for_test().sheets.front().dimensions;
+            jog->trigger();pick(canvas,point(30,5));pick(canvas,point(35,8));canvas->grab();
+            const auto changed_members=window.document_for_test().sheets.front().dimensions;
+            require(changed_members[0].segments[0].witness_edits.size()==original_members[0].segments[0].witness_edits.size()+1,"Running witness did not accept a jog");
+            require(changed_members[1]==original_members[1],"Jog on one running branch changed another member");
+            require(state->undo()&&state->document().sheets.front().dimensions==original_members,"Running witness edit has no atomic Undo");
+            window.edit_workspace_document(drawing.document_id);flush();
+            window.select_tree_entities({"drawing-dimension:"+original_members[0].id},"drawing-dimension:"+original_members[0].id);canvas->grab();
+            const auto datum_edit=std::ranges::find_if(original_members[0].segments[0].witness_edits,[](const auto& e){return e.side==0;});
+            require(datum_edit!=original_members[0].segments[0].witness_edits.end(),"Common datum fixture has no jog");
+            const auto datum_grip=window.witness_grip_for_test(original_members[0].id,datum_edit->id,1);require(datum_grip.has_value(),"Common datum edit grip missing");
+            mouse(canvas,QEvent::MouseMove,*datum_grip,Qt::NoButton,Qt::NoButton);
+            mouse(canvas,QEvent::MouseButtonPress,*datum_grip,Qt::LeftButton,Qt::LeftButton);
+            mouse(canvas,QEvent::MouseMove,*datum_grip+QPointF(12,0),Qt::NoButton,Qt::LeftButton);
+            mouse(canvas,QEvent::MouseButtonRelease,*datum_grip+QPointF(12,0),Qt::LeftButton,Qt::NoButton);
+            const auto shared=window.document_for_test().sheets.front().dimensions;
+            const auto& shared_edits=shared[0].segments[0].witness_edits;
+            const auto first_datum=std::ranges::find(shared_edits,datum_edit->id,&WitnessEdit::id);
+            const auto& other_edits=shared[1].segments[0].witness_edits;
+            const auto second_datum=std::ranges::find(other_edits,datum_edit->id,&WitnessEdit::id);
+            require(first_datum!=shared_edits.end()&&second_datum!=other_edits.end()&&*first_datum==*second_datum&&first_datum->offset!=datum_edit->offset,"Common datum jog did not synchronize across independent members");
         }
         std::cout << "Manual dimension properties, references, preview/Cancel, MMB, measured values and "
                      "radius grips passed\n";

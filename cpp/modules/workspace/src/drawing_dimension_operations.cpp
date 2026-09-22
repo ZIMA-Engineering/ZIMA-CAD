@@ -11,6 +11,10 @@ void synchronize_dimension_chain(drawing::DrawingSheet& sheet,const drawing::Dra
         d.attachments[d.anchor_attachment]=value.attachments[value.anchor_attachment];
         d.direction=value.direction;d.parallel_reference=value.parallel_reference;d.chain_direction=value.chain_direction;
         for(auto& segment:d.segments)segment.layout.line_offset=value.segments.front().layout.line_offset;
+        for(auto& segment:d.segments) {
+            std::erase_if(segment.witness_edits,[](const auto& edit){return edit.side==0;});
+            for(const auto& edit:value.segments.front().witness_edits)if(edit.side==0)segment.witness_edits.push_back(edit);
+        }
         const auto view=std::ranges::find(sheet.views,d.view_id,&drawing::DrawingView::id);
         if(view!=sheet.views.end())drawing::refresh_drawing_dimension(*view,d);
     }
@@ -43,6 +47,10 @@ bool commit_drawing_chain(drawing::DrawingDocument& doc,const std::string& sheet
         if(i)member.id=kernel::make_stable_id();
         member.attachments={value.attachments[value.anchor_attachment],value.attachments[i<value.anchor_attachment?i:i+1]};
         member.anchor_attachment=0;member.segments={value.segments[i]};
+        if(i) {
+            std::erase_if(member.segments.front().witness_edits,[](const auto& edit){return edit.side==0;});
+            for(const auto& edit:value.segments.front().witness_edits)if(edit.side==0)member.segments.front().witness_edits.push_back(edit);
+        }
         edit_drawing_dimension(next,sheet_id,std::move(member),creating||i!=0);
     }
     doc=std::move(next);return true;

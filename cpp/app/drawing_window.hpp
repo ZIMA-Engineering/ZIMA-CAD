@@ -35,6 +35,7 @@ public:
     void save_pdf();
     void fit_sheet();
     QRectF sheet_rectangle_for_test() const;
+    std::optional<QPointF> witness_grip_for_test(const std::string&,const std::string&,int)const;
     void export_dxf(const std::filesystem::path& path);
     void export_jpg(const std::filesystem::path& path);
     void export_pdf(const std::filesystem::path& path);
@@ -104,6 +105,7 @@ private:
     QAction* selection_action_{};
     QAction* linear_dimension_action_{};
     QAction* chain_dimension_action_{};
+    QAction *dimension_jog_action_{},*dimension_break_action_{};
     QAction* text_action_{};
     QAction* balloon_action_{};
     QAction* show_erase_action_{};

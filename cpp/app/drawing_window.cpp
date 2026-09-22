@@ -686,7 +686,7 @@ class DrawingCanvas final : public QWidget, public SheetRenderer {
         hovered_annotation_=offered_annotations_.empty()?std::optional<AnnotationKey>{}:offered_annotations_[offered_annotation_index_].key;
     }
     bool ordinary_selection() const {
-        return sheet_&&!crop_edit_&&!preview_&&!placed_&&!choose_view_&&!dimension_command_&&!dimension_mode_&&!balloon_command_&&!text_editor_&&!model_pick_;
+        return sheet_&&!witness_tool_&&!crop_edit_&&!preview_&&!placed_&&!choose_view_&&!dimension_command_&&!dimension_mode_&&!balloon_command_&&!text_editor_&&!model_pick_;
     }
     void select_entity(std::optional<AnnotationKey> key,bool toggle) {
         if(key&&key->kind==AnnotationKind::Dimension&&key->end%3==1&&sheet_) {
@@ -736,6 +736,7 @@ class DrawingCanvas final : public QWidget, public SheetRenderer {
         if(changed_)changed_();if(selection_changed_)selection_changed_();update();
     }
 #include "drawing_crop_canvas.inc"
+#include "drawing_witness_canvas.inc"
     std::string snap_view_;
     std::optional<drawing::Point2> snap_point_;
     std::optional<drawing::AnnotationGuide> snap_line_;
@@ -770,6 +771,7 @@ public:
         setAttribute(Qt::WA_OpaquePaintEvent);
     }
     void set_sheet(zima::drawing::DrawingSheet* sheet) {
+        cancel_witness();witness_handles_.clear();
         select_entity({},false);clear_annotation_snap();sheet_ = sheet;set_render_sheet(sheet);shaded_cache_.clear();annotation_handles_.clear();offered_annotations_.clear();selected_annotation_.reset();hovered_annotation_.reset();dragged_section_end_.reset();
         selected_.clear();selected_field_.clear();hovered_field_.clear();field_regions_.clear();title_targets_.clear();
         selected_dimension_id_.clear();
@@ -954,6 +956,10 @@ public:
                 if(!key.branch.empty())menu.addAction(tr("Vybrat nadřazený"),this,[this,key]{select_manual(key.view,key.id);})->setObjectName("drawingSelectChainAction");
                 properties=menu.addAction(tr("Vlastnosti kóty…"),this,[this,key]{edit_manual_entity(key);});
                 const auto* dimension=visible_dimension(key.id);
+                if(dimension&&(dimension->kind==drawing::DrawingDimensionKind::Linear||dimension->kind==drawing::DrawingDimensionKind::Chain)) {
+                    menu.addAction(tr("Vložit zalomení (Jog)"),this,[this,key]{start_witness_tool(drawing::WitnessEditKind::Jog,key.id);})->setObjectName("drawingWitnessJogContextAction");
+                    menu.addAction(tr("Vložit přerušení (Break)"),this,[this,key]{start_witness_tool(drawing::WitnessEditKind::Break,key.id);})->setObjectName("drawingWitnessBreakContextAction");
+                }
                 if(dimension&&dimension->kind==drawing::DrawingDimensionKind::Linear)
                     menu.addAction(tr("Převést na řetězovou kótu…"),this,[this,key]{if(manual_properties_)manual_properties_(key.id,2);});
                 if(dimension&&dimension->kind==drawing::DrawingDimensionKind::Chain) {
@@ -988,6 +994,7 @@ public:
 
     void set_manual_properties_callback(std::function<void(const std::string&,int)> callback){manual_properties_=std::move(callback);}
     void set_dimension_command(DrawingDimensionDialog* dialog){
+        cancel_witness();
         if(dialog)select_entity({},false);dimension_command_=dialog;dimension_mode_=dialog!=nullptr;measurement_offered_.clear();measurement_index_=0;
         selected_annotation_.reset();selected_dimension_id_.clear();drag_view_id_.clear();hovered_annotation_.reset();offered_annotations_.clear();
         if(dialog){
@@ -1066,7 +1073,22 @@ public:
     }
     drawing::Point2 chosen_view_point(const drawing::DrawingView& view)const {const auto o=raw_view_origin(view);return {(chosen_view_point_.x()-o.x())/(canvas_zoom()*view.scale),(o.y()-chosen_view_point_.y())/(canvas_zoom()*view.scale)};}
     void choose_view(std::function<void(const std::string&)> pick,std::function<void()> canceled={}) { start_selection();choose_view_=std::move(pick);choose_view_canceled_=std::move(canceled);selected_.clear();if(selection_changed_)selection_changed_();update(); }
-    void start_selection() { choose_view_={};if(balloon_command_)balloon_command_->reject();if(dimension_command_)dimension_command_->reject();dimension_mode_=false;update(); }
+    void begin_witness_command(drawing::WitnessEditKind kind,const std::string& id={},const std::string& edit_id={}){
+        start_witness_tool(kind,id);
+        if(edit_id.empty())return;
+        const auto* value=dimension_command_?&dimension_command_->value():visible_dimension(id);if(!value)return;
+        for(const auto& handle:witness_handles_)if(handle.key.id==id) {
+            const auto& edits=value->segments[handle.segment].witness_edits;
+            const auto it=std::ranges::find(edits,edit_id,&drawing::WitnessEdit::id);
+            if(it!=edits.end()&&it->side==handle.geometry.side){witness_active_=handle;witness_draft_=*value;witness_edit_index_=it-edits.begin();witness_first_ready_=true;return;}
+        }
+    }
+    void end_witness_command(){cancel_witness();}
+    std::optional<QPointF> witness_grip(const std::string& id,const std::string& edit,int end)const {
+        for(const auto& handle:witness_handles_)if(handle.key.id==id)for(const auto& grip:handle.geometry.grips)if(grip.id==edit&&grip.end==end)return grip.point;
+        return {};
+    }
+    void start_selection() { cancel_witness();choose_view_={};if(balloon_command_)balloon_command_->reject();if(dimension_command_)dimension_command_->reject();dimension_mode_=false;update(); }
     [[nodiscard]] bool dimension_mode() const { return dimension_mode_; }
     bool interacting() const { return bool(preview_); }
 protected:
@@ -1116,6 +1138,7 @@ protected:
         update();
     }
     void contextMenuEvent(QContextMenuEvent* event) override {
+        if(witness_tool_){if(witness_owner_.empty()&&*witness_tool_==drawing::WitnessEditKind::Break){if(!offered_annotations_.empty()){offered_annotation_index_=(offered_annotation_index_+1)%offered_annotations_.size();hovered_annotation_=offered_annotations_[offered_annotation_index_].key;}}else if(!witness_offered_.empty())witness_offer_index_=(witness_offer_index_+1)%witness_offered_.size();update();event->accept();return;}
         if(crop_edit_){event->accept();return;}
         if(ordinary_selection()&&!entity_selection_.empty()) {
             const auto field=field_at(event->pos());offer_annotations(event->pos());
@@ -1181,6 +1204,10 @@ protected:
         if(selected_annotation_&&selected_annotation_->kind==AnnotationKind::Dimension&&!offered_annotations_.empty()){
             auto* menu=new QMenu(this);menu->setAttribute(Qt::WA_DeleteOnClose);const auto id=selected_dimension_id_;
             menu->addAction(tr("Vlastnosti kóty…"),this,[this,id]{if(manual_properties_)manual_properties_(id,0);});
+            if(const auto* value=visible_dimension(id);value&&(value->kind==drawing::DrawingDimensionKind::Linear||value->kind==drawing::DrawingDimensionKind::Chain)) {
+                menu->addAction(tr("Vložit zalomení (Jog)"),this,[this,id]{start_witness_tool(drawing::WitnessEditKind::Jog,id);});
+                menu->addAction(tr("Vložit přerušení (Break)"),this,[this,id]{start_witness_tool(drawing::WitnessEditKind::Break,id);});
+            }
             const auto* dimension=visible_dimension(id);
             if(dimension&&(dimension->kind==drawing::DrawingDimensionKind::Linear||dimension->kind==drawing::DrawingDimensionKind::Chain)){
                 if(dimension->kind==drawing::DrawingDimensionKind::Linear) {
@@ -1278,8 +1305,9 @@ public:
     std::optional<QPointF> model_handle(const std::string& key,int end,const std::string& view)const{for(const auto& h:annotation_handles_)if(h.key.kind==AnnotationKind::Model&&h.key.id==key&&h.key.end==end&&(view.empty()||h.key.view==view))return h.point;return {};}
     void set_lineweights(bool value){lineweights_=value;update();}
 protected:
-    const drawing::DrawingDimension* pending_dimension() const override {return dimension_command_?&dimension_command_->value():nullptr;}
+    const drawing::DrawingDimension* pending_dimension() const override {return witness_draft_?&*witness_draft_:dimension_command_?&dimension_command_->value():nullptr;}
     void paint_reference_overlay(QPainter& painter) override {
+        paint_witness(painter);
         if(dimension_command_||balloon_command_||balloon_drag_original_){
             const auto highlight=[&](const drawing::DrawingView& view,const kernel::EdgeReference& ref,QColor color,bool points=true){
                 painter.save();painter.setPen(QPen(color,2));painter.setBrush(Qt::NoBrush);
@@ -1291,7 +1319,8 @@ protected:
                 const auto& candidate=measurement_offered_[measurement_index_];
                 for(const auto& view:sheet_->views)if(view.id==candidate.view&&candidate.chain_seed.empty()){
                     const QColor color=dimension_command_?QColor(255,140,12):QColor("#FF9300");
-                    const bool line=candidate.candidate.attachment.kind==drawing::DimensionAttachmentKind::Line;
+                    const bool line=candidate.candidate.attachment.kind==drawing::DimensionAttachmentKind::Line||
+                        (dimension_command_&&(dimension_command_->value().kind==drawing::DrawingDimensionKind::Radius||dimension_command_->value().kind==drawing::DrawingDimensionKind::Diameter));
                     if(!dimension_command_||line){highlight(view,candidate.candidate.attachment.reference,color,!dimension_command_);highlight(view,candidate.candidate.attachment.other_reference,color,!dimension_command_);}
                     // Match the Sketcher point hover: filled, radius 5 px, 2 px outline.
                     const double radius=dimension_command_?5.0:4.0;
@@ -1312,6 +1341,7 @@ protected:
         }
     }
     void mousePressEvent(QMouseEvent* event) override {
+        if(witness_press(event)){event->accept();return;}
         if(crop_press(event))return;
         if (sheet_ == nullptr) return;
         if(event->button()==Qt::RightButton&&!dragged_dimension_id_.empty()&&(event->buttons()&Qt::LeftButton)){
@@ -1434,6 +1464,18 @@ protected:
         update();
     }
     void mouseMoveEvent(QMouseEvent* event) override {
+        if(witness_tool_&&(event->buttons()&Qt::MiddleButton)&&!view_panning_){event->accept();return;}
+        if((witness_tool_||witness_drag_end_>=0)&&!view_panning_){
+            if(witness_draft_)move_witness(event->position());
+            else if(witness_owner_.empty()&&*witness_tool_==drawing::WitnessEditKind::Break) {
+                offer_annotations(event->position());
+                std::erase_if(offered_annotations_,[&](const auto& handle){const auto* d=visible_dimension(handle.key.id);return handle.key.kind!=AnnotationKind::Dimension||!d||(d->kind!=drawing::DrawingDimensionKind::Linear&&d->kind!=drawing::DrawingDimensionKind::Chain);});
+                if(offered_annotation_index_>=offered_annotations_.size())offered_annotation_index_=0;
+                hovered_annotation_=offered_annotations_.empty()?std::optional<AnnotationKey>{}:offered_annotations_[offered_annotation_index_].key;
+            }else offer_witness(event->position());
+            update();event->accept();return;
+        }
+        offer_witness_grip(event->position());
         if(crop_move(event))return;
         if(text_editor_&&!view_panning_&&!(event->buttons()&Qt::MiddleButton)) {
             if(text_editor_->needs_anchor()){const auto p=paper_point(event->position());text_editor_->set_preview_anchor(p.x,p.y);}
@@ -1618,6 +1660,14 @@ protected:
         update();
     }
     void mouseReleaseEvent(QMouseEvent* event) override {
+        if(witness_tool_&&event->button()==Qt::MiddleButton){
+            const bool click=(event->position()-witness_middle_origin_).manhattanLength()<QApplication::startDragDistance();
+            view_panning_=false;unsetCursor();
+            if(click){cancel_witness();if(dimension_command_)dimension_command_->end_entry();}
+            update();event->accept();return;
+        }
+        if(witness_drag_end_>=0&&event->button()==Qt::LeftButton){move_witness(event->position());commit_witness();event->accept();return;}
+        if(witness_tool_){event->accept();return;}
         if(crop_edit_){crop_grip_=-1;event->accept();return;}
         if(event->button()==Qt::LeftButton)clear_annotation_snap();
         if(balloon_release(event))return;
@@ -1662,6 +1712,7 @@ protected:
         event->accept();
     }
     void keyPressEvent(QKeyEvent* event) override {
+        if(event->key()==Qt::Key_Escape&&(witness_tool_||witness_draft_)){cancel_witness();if(dimension_command_)dimension_command_->end_entry();event->accept();return;}
         if(event->key()==Qt::Key_Escape&&dragged_detail_label_){
             for(auto& view:sheet_->views)if(view.id==dragged_detail_label_->key.view)view.detail_label_position=detail_label_original_;
             dragged_detail_label_.reset();detail_label_original_.reset();label_moved_=false;clear_annotation_snap();update();event->accept();return;
@@ -1851,6 +1902,10 @@ void DrawingWindow::create_actions() {
     chain_dimension_action_=drawing->addAction(tr("Řetězová kóta"),this,[this]{show_dimension_properties({},3);});
     chain_dimension_action_->setObjectName("drawingChainDimensionAction");
     chain_dimension_action_->setIcon(resource_icon("sketch-dimensions"));
+    dimension_jog_action_=drawing->addAction(tr("Vložit zalomení (Jog)"),this,[this]{canvas_->start_selection();canvas_->begin_witness_command(drawing::WitnessEditKind::Jog);});
+    dimension_jog_action_->setObjectName("drawingDimensionJogAction");
+    dimension_break_action_=drawing->addAction(tr("Vložit přerušení (Break)"),this,[this]{canvas_->start_selection();canvas_->begin_witness_command(drawing::WitnessEditKind::Break);});
+    dimension_break_action_->setObjectName("drawingDimensionBreakAction");
     text_action_=drawing->addAction(resource_icon("sketch-text"),tr("Text"),this,[this]{show_text_properties();});
     text_action_->setObjectName("drawingTextAction");
     balloon_action_=drawing->addAction(resource_icon("drawing-balloon"),tr("Pozice"),this,[this]{show_balloon_properties();});
@@ -1878,6 +1933,8 @@ void DrawingWindow::create_actions() {
     drawing_toolbar_->addAction(chain_dimension_action_);
     drawing_toolbar_->addAction(text_action_);
     drawing_toolbar_->addAction(balloon_action_);
+    drawing_toolbar_->addAction(dimension_jog_action_);
+    drawing_toolbar_->addAction(dimension_break_action_);
     addToolBar(Qt::TopToolBarArea, drawing_toolbar_);
 }
 
@@ -2125,6 +2182,7 @@ void DrawingWindow::save_pdf() {
     catch(const std::exception& error){set_status_message(tr(error.what()));}
 }
 QRectF DrawingWindow::sheet_rectangle_for_test()const{return canvas_->sheet_rectangle();}
+std::optional<QPointF> DrawingWindow::witness_grip_for_test(const std::string& id,const std::string& edit,int end)const{return canvas_->witness_grip(id,edit,end);}
 void DrawingWindow::export_dxf(const std::filesystem::path& path) {
     auto* sheet=active_sheet();
     if(!sheet) throw std::runtime_error("Drawing has no active sheet");
@@ -2625,6 +2683,8 @@ void DrawingWindow::show_dimension_properties(const std::string& id,int extend) 
             }
         },owner?owner:this);
     view_dialog_=dialog;canvas_->set_dimension_command(dialog);
+    dialog->witness_requested=[this,dialog](auto kind,const auto& edit){canvas_->begin_witness_command(kind,dialog->value().id,edit);};
+    dialog->witness_canceled=[this]{canvas_->end_witness_command();};
     if(extend==4)dialog->findChild<QComboBox*>("drawingDimensionType")->setCurrentIndex(int(drawing::DrawingDimensionKind::Linear));
     else if(extend==2)dialog->findChild<QComboBox*>("drawingDimensionType")->setCurrentIndex(int(drawing::DrawingDimensionKind::Chain));
     else if(extend){dialog->enable_chain_command();if(extend!=3)dialog->extend(extend<0);}
@@ -2664,6 +2724,7 @@ void DrawingWindow::update_action_states() {
     delete_view_action_->setEnabled(selected_view);
     linear_dimension_action_->setEnabled(has_view);
     chain_dimension_action_->setEnabled(has_view);
+    dimension_jog_action_->setEnabled(has_view);dimension_break_action_->setEnabled(has_view);
     text_action_->setEnabled(has_sheet&&!view_dialog_);
     balloon_action_->setEnabled(has_view);
     linear_dimension_action_->setChecked(canvas_->dimension_mode());

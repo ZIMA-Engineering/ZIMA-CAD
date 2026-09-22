@@ -8,6 +8,7 @@
 #include <set>
 #include <algorithm>
 #include <functional>
+#include <zima/drawing_render/witness_edits.hpp>
 namespace zima::drawing_render {
 QString drawing_font_family();
 // One painter for the interactive canvas and exported sheets. All geometry is
@@ -30,6 +31,8 @@ protected:
         zima::drawing::Point2 direction{};double offset{},minimum{};QRectF text_hit;
     };
     std::vector<AnnotationKey> entity_selection_;
+    struct WitnessHandle {AnnotationKey key;std::size_t segment;WitnessGeometry geometry;};
+    std::vector<WitnessHandle> witness_handles_;
     bool entity_selected(AnnotationKey key) const {
         key.end=0;
         return std::ranges::any_of(entity_selection_,[&](const auto& selected){

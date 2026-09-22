@@ -226,6 +226,15 @@ struct DimensionAttachment {
     bool operator==(const DimensionAttachment&) const = default;
 };
 using DrawingDimensionStyle=kernel::DimensionTextStyle;
+enum class WitnessEditKind { Jog, Break };
+struct WitnessEdit {
+    std::string id;
+    WitnessEditKind kind{WitnessEditKind::Break};
+    int side{};
+    // Fractions along the original witness; offset is in paper millimetres.
+    double first{.25}, last{.5}, offset{};
+    bool operator==(const WitnessEdit&) const = default;
+};
 struct DrawingDimensionSegment {
     std::string id;
     kernel::DimensionLayout layout;
@@ -233,6 +242,7 @@ struct DrawingDimensionSegment {
     // Unresolved dimensions retain this last value and are drawn in red.
     std::optional<kernel::ViewerDimension> last_presentation;
     bool last_angular_leaders{};
+    std::vector<WitnessEdit> witness_edits;
     bool operator==(const DrawingDimensionSegment&) const = default;
 };
 struct DrawingDimension {

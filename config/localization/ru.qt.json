@@ -1,4 +1,11 @@
 {
+  "Vložit zalomení (Jog)": "Вставить излом (Jog)",
+  "Vložit přerušení (Break)": "Вставить разрыв (Break)",
+  "Vynášecí úsečka": "Выносная линия",
+  "Zalomení a přerušení": "Изломы и разрывы",
+  "Zalomení (Jog)": "Излом (Jog)",
+  "Přerušení (Break)": "Разрыв (Break)",
+  "Úsečka %1": "Отрезок %1",
   "Řetězová kóta": "Цепочка размеров",
   "Invalid thread measuring metadata": "Некорректные данные для размеров резьбы",
   "Vložit detail…": "Вставить деталь вида…",

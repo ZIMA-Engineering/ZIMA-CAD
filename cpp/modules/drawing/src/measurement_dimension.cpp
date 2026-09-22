@@ -558,6 +558,15 @@ void validate_drawing_dimension(const DrawingDimension &d) {
         if (s.id.empty() || !ids.insert(s.id).second)
             throw std::invalid_argument("Neplatná identita úseku kóty.");
         kernel::validate_dimension_layout(s.layout);
+        std::set<std::string> edit_ids;
+        for(const auto& edit:s.witness_edits) {
+            if(edit.id.empty()||!edit_ids.insert(edit.id).second||int(edit.kind)<0||int(edit.kind)>1||edit.side<0||edit.side>1||
+                !std::isfinite(edit.first)||!std::isfinite(edit.last)||!std::isfinite(edit.offset)||
+                edit.first<=0||edit.last>=1||edit.last-edit.first<1e-5)
+                throw std::invalid_argument("Neplatná výkresová kóta.");
+            for(const auto& other:s.witness_edits)if(other.id!=edit.id&&other.side==edit.side&&edit.first<other.last&&other.first<edit.last)
+                throw std::invalid_argument("Neplatná výkresová kóta.");
+        }
     }
     for (const auto &a : d.attachments)
         if (int(a.kind) < 0 || int(a.kind) > 5 || !std::isfinite(a.parameter) ||
@@ -1098,7 +1107,7 @@ std::string serialize_drawing_dimensions(const std::vector<DrawingDimension> &di
                                         {"parameter", a.parameter},
                                         {"side", a.side}});
         j["segments"] = json::array();
-        for (const auto &s : d.segments)
+        for (const auto &s : d.segments) {
             j["segments"].push_back(
                 {{"id", s.id},
                  {"layout", document::dimension_layout_json(s.layout)},
@@ -1106,6 +1115,10 @@ std::string serialize_drawing_dimensions(const std::vector<DrawingDimension> &di
                  {"last_presentation", s.last_presentation
                                            ? document::dimension_geometry_json(*s.last_presentation)
                                            : json(nullptr)}});
+            auto edits=json::array();
+            for(const auto& e:s.witness_edits)edits.push_back({{"id",e.id},{"kind",int(e.kind)},{"side",e.side},{"first",e.first},{"last",e.last},{"offset",e.offset}});
+            j["segments"].back()["witness_edits"]=std::move(edits);
+        }
         rows.push_back(std::move(j));
     }
     return rows.dump();
@@ -1134,6 +1147,8 @@ std::vector<DrawingDimension> deserialize_drawing_dimensions(const std::string &
             segment.id = s.at("id");
             segment.layout = document::dimension_layout_from_json(s.at("layout"));
             segment.last_angular_leaders=s.value("angular_leaders",false);
+            for(const auto& e:s.value("witness_edits",json::array()))
+                segment.witness_edits.push_back({e.at("id"),WitnessEditKind(e.at("kind").get<int>()),e.at("side"),e.at("first"),e.at("last"),e.at("offset")});
             if (!s.at("last_presentation").is_null())
                 segment.last_presentation = document::dimension_geometry_from_json(s.at("last_presentation"));
             d.segments.push_back(std::move(segment));

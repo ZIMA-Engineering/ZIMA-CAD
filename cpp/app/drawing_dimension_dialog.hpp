@@ -84,6 +84,20 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
         segments_->setObjectName("drawingDimensionSegment");
         placement_column_->addWidget(segments_);
         tabs_->addTab(placement_page, tr("Umístění"));
+        witness_table_=new QTableWidget(tabs_);
+        witness_table_->setObjectName("dimensionWitnessEdits");
+        witness_table_->setColumnCount(4);
+        witness_table_->setHorizontalHeaderLabels({QString(),tr("Typ"),tr("Vynášecí úsečka"),QString()});
+        witness_table_->setSelectionMode(QAbstractItemView::NoSelection);
+        witness_table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
+        witness_table_->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+        witness_table_->horizontalHeader()->setSectionResizeMode(2,QHeaderView::Stretch);
+        witness_table_->verticalHeader()->setDefaultSectionSize(32);
+        ui::install_reference_cell_delegate(witness_table_);
+        tabs_->addTab(witness_table_,tr("Zalomení a přerušení"));
+        connect(witness_table_,&QTableWidget::cellClicked,this,[this](int row,int column){
+            if(column==1||column==2)arm_witness_row(row);
+        });
         status_ = new QLabel(this);
         status_->setWordWrap(true);
         status_->setObjectName("drawingDimensionStatus");
@@ -96,6 +110,7 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
         active_ = creating ? 0 : -1;
         rebuild();
         connect(references_, &QTableWidget::cellClicked, this, [this](int row, int col) {
+            if(witness_canceled)witness_canceled();rebuild_witnesses();
             if(row==draft_row_){begin_branches();return;}
             branch_entry_=false;
             if (col != 2 && col != 4)
@@ -269,6 +284,8 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
         return result;
     }
     void end_entry() {
+        if(witness_canceled)witness_canceled();
+        inspected_witness_.clear();rebuild_witnesses();
         branch_entry_=false;
         active_ = -1;
         inspected_.clear();
@@ -381,11 +398,57 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
         read_fields();
         value_ = std::move(value);
         rebuild_placement();
+        rebuild_witnesses();
         publish();
+    }
+    std::function<void(drawing::WitnessEditKind,const std::string&)> witness_requested;
+    std::function<void()> witness_canceled;
+    const std::string& inspected_witness()const{return inspected_witness_;}
+    void rebuild_witnesses() {
+        if(!witness_table_)return;
+        witness_table_->clearContents();
+        witness_rows_.clear();
+        for(const auto& segment:value_.segments)for(const auto& edit:segment.witness_edits)witness_rows_.push_back(edit);
+        const bool enabled=value_.kind==drawing::DrawingDimensionKind::Linear||value_.kind==drawing::DrawingDimensionKind::Chain;
+        witness_table_->setEnabled(enabled);witness_table_->setRowCount(int(witness_rows_.size())+(enabled?1:0));
+        for(int row=0;row<witness_table_->rowCount();++row) {
+            const bool stored=row<int(witness_rows_.size());
+            auto* indicator=ui::build_reference_row_indicator([this,row]{
+                const auto id=witness_rows_[row].id;
+                for(auto& segment:value_.segments)std::erase_if(segment.witness_edits,[&](const auto& e){return e.id==id;});
+                inspected_witness_.clear();rebuild_witnesses();publish();
+            });
+            indicator->setObjectName(QString("witnessRowAction%1").arg(row));
+            ui::set_reference_row_populated(indicator,stored);
+            auto* arrow=indicator->property("_arrowWidget").value<QObject*>();arrow->setProperty("witnessEntryRow",row);arrow->installEventFilter(this);
+            witness_table_->setCellWidget(row,0,ui::centered_cell_widget(indicator));
+            if(stored) {
+                const auto& edit=witness_rows_[row];
+                witness_table_->setItem(row,1,new QTableWidgetItem(edit.kind==drawing::WitnessEditKind::Jog?tr("Zalomení (Jog)"):tr("Přerušení (Break)")));
+                auto* field=new ui::ReferenceCellItem(tr("Úsečka %1").arg(edit.side+1));
+                field->set_reference(QString::fromStdString(edit.id));field->set_inspected(inspected_witness_==edit.id);witness_table_->setItem(row,2,field);
+                witness_table_->setCellWidget(row,3,ui::centered_cell_widget(ui::build_reference_inspection_button(true,inspected_witness_==edit.id,[this,id=edit.id](bool on){inspected_witness_=on?id:std::string{};rebuild_witnesses();if(changed_)changed_();})));
+            }else {
+                auto* kind=new QComboBox(witness_table_);kind->addItems({tr("Zalomení (Jog)"),tr("Přerušení (Break)")});
+                witness_table_->setCellWidget(row,1,kind);
+                witness_table_->setItem(row,2,new ui::ReferenceCellItem(tr("Vyberte…")));
+            }
+        }
+    }
+    void arm_witness_row(int row) {
+        if(row<0||row>=witness_table_->rowCount()||!witness_requested)return;
+        const bool stored=row<int(witness_rows_.size());
+        const auto kind=stored?witness_rows_[row].kind:drawing::WitnessEditKind(qobject_cast<QComboBox*>(witness_table_->cellWidget(row,1))->currentIndex());
+        const auto id=stored?witness_rows_[row].id:std::string{};
+        end_entry();
+        for(int i=0;i<witness_table_->rowCount();++i)if(auto* item=dynamic_cast<ui::ReferenceCellItem*>(witness_table_->item(i,2)))item->set_active_input(i==row);
+        if(!stored)qobject_cast<QComboBox*>(witness_table_->cellWidget(row,1))->setCurrentIndex(int(kind));
+        witness_requested(kind,id);
     }
 
   protected:
     bool eventFilter(QObject *watched, QEvent *event) override {
+        if(watched->property("witnessEntryRow").isValid()&&event->type()==QEvent::MouseButtonRelease&&static_cast<QMouseEvent*>(event)->button()==Qt::LeftButton){arm_witness_row(watched->property("witnessEntryRow").toInt());return true;}
         if(watched->property("dimensionEntryRow").isValid()&&event->type()==QEvent::MouseButtonRelease&&static_cast<QMouseEvent*>(event)->button()==Qt::LeftButton){
             arm_row(watched->property("dimensionEntryRow").toInt());return true;
         }
@@ -503,6 +566,7 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
         rebuilding_ = false;
         rebuild_references();
         rebuild_placement();
+        rebuild_witnesses();
     }
     void rebuild_placement() {
         rebuilding_ = true;
@@ -625,6 +689,7 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
         branch_entry_=true;active_=draft_row_*2;placing_=false;refresh_states();publish();
     }
     void arm_row(int row) {
+        if(witness_canceled)witness_canceled();rebuild_witnesses();
         if(row==draft_row_){begin_branches();return;}
         branch_entry_=false;active_=row*2;
         if(row<int(modes_.size())&&modes_[row]==int(drawing::DimensionAttachmentKind::Intersection)&&reference(active_).valid())++active_;
@@ -689,6 +754,9 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
     QTabWidget *tabs_{};
     QComboBox *type_{}, *direction_{}, *segments_{};
     QTableWidget *references_{};
+    QTableWidget* witness_table_{};
+    std::vector<drawing::WitnessEdit> witness_rows_;
+    std::string inspected_witness_;
     QLabel *view_label_{}, *status_{};
     QPushButton *first_{}, *last_{};
     DimensionTextFields *text_{};
