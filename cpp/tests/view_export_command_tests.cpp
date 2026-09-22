@@ -15,7 +15,7 @@ void require(bool ok,const char* text){if(!ok)throw std::runtime_error(text);}
 std::string bytes(const fs::path& path){std::ifstream in(path,std::ios::binary);return {std::istreambuf_iterator<char>(in),{}};}
 void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     workspace::Workspace live;command_host::Options options;command_host::Interaction interaction;
-    options.settings=[]{return command_host::Settings{{fs::absolute("config/templates"),"start_part.prtz","start_assembly.asmz","Body"},{}};};
+    options.settings=[]{return command_host::Settings{{fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"},{}};};
     interaction.camera=Json::array({1,2,3});options.interaction=[&]{return interaction;};
     const auto owner_thread=std::this_thread::get_id();int captures{},writes{};bool empty{},fail_capture{},fail_io{};
     QImage expected(37,23,QImage::Format_ARGB32);expected.fill(qRgb(24,67,140));expected.setPixel(7,11,qRgb(210,100,19));

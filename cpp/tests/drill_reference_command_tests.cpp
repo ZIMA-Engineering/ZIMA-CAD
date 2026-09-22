@@ -17,7 +17,7 @@ std::array<kernel::Vec3,2> feature_bounds(const kernel::ViewerMesh& mesh,const s
 }
 void verify(const kernel::OcctKernel& kernel,fs::path directory,const std::string& kind) {
     const bool hole=kind=="hole";const std::string prefix=hole?"hole":"opening";workspace::Workspace live;command_host::Interaction interaction;command_host::Options options;
-    options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"start_part.prtz","start_assembly.asmz","Body"},{}};};options.interaction=[&]{return interaction;};
+    options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"},{}};};options.interaction=[&]{return interaction;};
     command_host::Host host(live,kernel,directory,options);
     const auto run=[&](const std::string& name,Json args=Json::object()){auto r=host.execute({{"command",name},{"arguments",std::move(args)}});if(!r.ok)throw std::runtime_error(kind+" "+name+": "+r.code+": "+r.message);return r.data;};
     run("new",{{"type","part"},{"name",kind+"-reference"}});run("box.create",{{"length_mm","40"},{"width_mm","40"},{"height_mm","40"}});

@@ -9,7 +9,7 @@ void require(bool ok,const char* message){if(!ok)throw std::runtime_error(messag
 void near(double actual,double expected){if(std::abs(actual-expected)>1e-5)throw std::runtime_error("Expected "+std::to_string(expected)+", got "+std::to_string(actual));}
 void verify(const kernel::OcctKernel& kernel,fs::path directory,bool native) {
     workspace::Workspace live;command_host::Interaction interaction;command_host::Options options;
-    options.settings=[] {command_host::Settings s;s.templates={fs::absolute("config/templates"),"start_part.prtz","start_assembly.asmz","Body"};return s;};
+    options.settings=[] {command_host::Settings s;s.templates={fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"};return s;};
     options.interaction=[&]{return interaction;};command_host::Host host(live,kernel,directory,options);
     const auto request=[](const std::string& command,Json args=Json::object()){return Json{{"command",command},{"arguments",std::move(args)}};};
     const auto run=[&](const std::string& command,Json args=Json::object()) {

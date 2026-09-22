@@ -13,7 +13,7 @@ void near(double actual, double expected) { require(std::isfinite(actual) && std
 Json point(double x, double y, double z = 0) { return {{"values", {{"x",x},{"y",y},{"z",z}}}}; }
 void verify(const kernel::OcctKernel& kernel, fs::path directory, bool assembly) {
     workspace::Workspace live; command_host::Options options;
-    options.settings = [] { return command_host::Settings{{fs::absolute("config/templates"),"start_part.prtz","start_assembly.asmz","Body"},{}}; };
+    options.settings = [] { return command_host::Settings{{fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"},{}}; };
     command_host::Host host(live,kernel,directory,options);
     const auto run = [&](const char* command, Json args = Json::object()) {
         auto result=host.execute({{"command",command},{"arguments",std::move(args)}});

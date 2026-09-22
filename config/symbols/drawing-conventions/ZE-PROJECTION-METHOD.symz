@@ -1,0 +1,347 @@
+{
+  "default_variant": "first_angle",
+  "format": "zima.symbol",
+  "groups": {
+    "first_angle:axes": {
+      "axis": true,
+      "geometry": [
+        "first_angle:horizontal-axis",
+        "first_angle:vertical-axis"
+      ]
+    },
+    "first_angle:outline": {
+      "axis": false,
+      "geometry": [
+        "first_angle:cone-bottom",
+        "first_angle:cone-large",
+        "first_angle:cone-top",
+        "first_angle:cone-small",
+        "first_angle:outer-circle",
+        "first_angle:inner-circle"
+      ]
+    },
+    "third_angle:axes": {
+      "axis": true,
+      "geometry": [
+        "third_angle:horizontal-axis",
+        "third_angle:vertical-axis"
+      ]
+    },
+    "third_angle:outline": {
+      "axis": false,
+      "geometry": [
+        "third_angle:cone-bottom",
+        "third_angle:cone-large",
+        "third_angle:cone-top",
+        "third_angle:cone-small",
+        "third_angle:outer-circle",
+        "third_angle:inner-circle"
+      ]
+    }
+  },
+  "id": "ze:projection-method",
+  "insertion_point": [
+    0.0,
+    0.0
+  ],
+  "name": "ZE-PROJECTION-METHOD",
+  "sketch": {
+    "arcs": [],
+    "bsplines": [],
+    "circles": [
+      {
+        "center": "first_angle:circle-center",
+        "construction": false,
+        "id": "first_angle:outer-circle",
+        "radius": 3.0
+      },
+      {
+        "center": "first_angle:circle-center",
+        "construction": false,
+        "id": "first_angle:inner-circle",
+        "radius": 1.5
+      },
+      {
+        "center": "third_angle:circle-center",
+        "construction": false,
+        "id": "third_angle:outer-circle",
+        "radius": 3.0
+      },
+      {
+        "center": "third_angle:circle-center",
+        "construction": false,
+        "id": "third_angle:inner-circle",
+        "radius": 1.5
+      }
+    ],
+    "constraints": [],
+    "corner_radii": [],
+    "curve_supports": [],
+    "curve_trims": [],
+    "dimension_layouts": [],
+    "dimensions": [],
+    "ellipses": [],
+    "elliptical_arcs": [],
+    "external_references": [],
+    "format": "zima-cad-cpp-sketch",
+    "id": "ze:projection-method:sketch",
+    "import_blocks": [],
+    "name": "ZE-PROJECTION-METHOD",
+    "offsets": [],
+    "owner_container_id": "",
+    "plane": "xy",
+    "plane_auto": true,
+    "plane_offset": 0.0,
+    "plane_reference_owner_id": "",
+    "points": [
+      {
+        "construction": false,
+        "fixed": true,
+        "id": "first_angle:cone-small-bottom",
+        "x": -7.2,
+        "y": -1.5
+      },
+      {
+        "construction": false,
+        "fixed": true,
+        "id": "first_angle:cone-large-bottom",
+        "x": -1.2000000000000002,
+        "y": -3.0
+      },
+      {
+        "construction": false,
+        "fixed": true,
+        "id": "first_angle:cone-large-top",
+        "x": -1.2000000000000002,
+        "y": 3.0
+      },
+      {
+        "construction": false,
+        "fixed": true,
+        "id": "first_angle:cone-small-top",
+        "x": -7.2,
+        "y": 1.5
+      },
+      {
+        "construction": false,
+        "fixed": true,
+        "id": "first_angle:circle-center",
+        "x": 4.2,
+        "y": 0.0
+      },
+      {
+        "construction": false,
+        "fixed": true,
+        "id": "first_angle:axis-right",
+        "x": 7.8,
+        "y": 0.0
+      },
+      {
+        "construction": false,
+        "fixed": true,
+        "id": "first_angle:axis-left",
+        "x": -7.8,
+        "y": 0.0
+      },
+      {
+        "construction": false,
+        "fixed": true,
+        "id": "first_angle:axis-top",
+        "x": 4.2,
+        "y": 3.6
+      },
+      {
+        "construction": false,
+        "fixed": true,
+        "id": "first_angle:axis-bottom",
+        "x": 4.2,
+        "y": -3.6
+      },
+      {
+        "construction": false,
+        "fixed": true,
+        "id": "third_angle:cone-small-bottom",
+        "x": 1.2,
+        "y": -1.5
+      },
+      {
+        "construction": false,
+        "fixed": true,
+        "id": "third_angle:cone-large-bottom",
+        "x": 7.2,
+        "y": -3.0
+      },
+      {
+        "construction": false,
+        "fixed": true,
+        "id": "third_angle:cone-large-top",
+        "x": 7.2,
+        "y": 3.0
+      },
+      {
+        "construction": false,
+        "fixed": true,
+        "id": "third_angle:cone-small-top",
+        "x": 1.2,
+        "y": 1.5
+      },
+      {
+        "construction": false,
+        "fixed": true,
+        "id": "third_angle:circle-center",
+        "x": -4.2,
+        "y": 0.0
+      },
+      {
+        "construction": false,
+        "fixed": true,
+        "id": "third_angle:axis-right",
+        "x": 7.8,
+        "y": 0.0
+      },
+      {
+        "construction": false,
+        "fixed": true,
+        "id": "third_angle:axis-left",
+        "x": -7.8,
+        "y": 0.0
+      },
+      {
+        "construction": false,
+        "fixed": true,
+        "id": "third_angle:axis-top",
+        "x": -4.2,
+        "y": 3.6
+      },
+      {
+        "construction": false,
+        "fixed": true,
+        "id": "third_angle:axis-bottom",
+        "x": -4.2,
+        "y": -3.6
+      }
+    ],
+    "resolved_normal": [
+      0.0,
+      0.0,
+      1.0
+    ],
+    "resolved_origin": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "resolved_x_axis": [
+      1.0,
+      0.0,
+      0.0
+    ],
+    "resolved_y_axis": [
+      0.0,
+      1.0,
+      0.0
+    ],
+    "segments": [
+      {
+        "centerline": false,
+        "construction": false,
+        "first": "first_angle:cone-small-bottom",
+        "id": "first_angle:cone-bottom",
+        "second": "first_angle:cone-large-bottom"
+      },
+      {
+        "centerline": false,
+        "construction": false,
+        "first": "first_angle:cone-large-bottom",
+        "id": "first_angle:cone-large",
+        "second": "first_angle:cone-large-top"
+      },
+      {
+        "centerline": false,
+        "construction": false,
+        "first": "first_angle:cone-large-top",
+        "id": "first_angle:cone-top",
+        "second": "first_angle:cone-small-top"
+      },
+      {
+        "centerline": false,
+        "construction": false,
+        "first": "first_angle:cone-small-top",
+        "id": "first_angle:cone-small",
+        "second": "first_angle:cone-small-bottom"
+      },
+      {
+        "centerline": false,
+        "construction": true,
+        "first": "first_angle:axis-left",
+        "id": "first_angle:horizontal-axis",
+        "second": "first_angle:axis-right"
+      },
+      {
+        "centerline": false,
+        "construction": true,
+        "first": "first_angle:axis-bottom",
+        "id": "first_angle:vertical-axis",
+        "second": "first_angle:axis-top"
+      },
+      {
+        "centerline": false,
+        "construction": false,
+        "first": "third_angle:cone-small-bottom",
+        "id": "third_angle:cone-bottom",
+        "second": "third_angle:cone-large-bottom"
+      },
+      {
+        "centerline": false,
+        "construction": false,
+        "first": "third_angle:cone-large-bottom",
+        "id": "third_angle:cone-large",
+        "second": "third_angle:cone-large-top"
+      },
+      {
+        "centerline": false,
+        "construction": false,
+        "first": "third_angle:cone-large-top",
+        "id": "third_angle:cone-top",
+        "second": "third_angle:cone-small-top"
+      },
+      {
+        "centerline": false,
+        "construction": false,
+        "first": "third_angle:cone-small-top",
+        "id": "third_angle:cone-small",
+        "second": "third_angle:cone-small-bottom"
+      },
+      {
+        "centerline": false,
+        "construction": true,
+        "first": "third_angle:axis-left",
+        "id": "third_angle:horizontal-axis",
+        "second": "third_angle:axis-right"
+      },
+      {
+        "centerline": false,
+        "construction": true,
+        "first": "third_angle:axis-bottom",
+        "id": "third_angle:vertical-axis",
+        "second": "third_angle:axis-top"
+      }
+    ],
+    "suppressed": false,
+    "texts": [],
+    "version": 34
+  },
+  "units": "mm",
+  "variant_source": "drawing.projection_method",
+  "variants": {
+    "first_angle": [
+      "first_angle:outline",
+      "first_angle:axes"
+    ],
+    "third_angle": [
+      "third_angle:outline",
+      "third_angle:axes"
+    ]
+  },
+  "version": 1
+}

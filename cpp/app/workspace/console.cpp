@@ -111,6 +111,7 @@ void AssemblyWorkspaceWindow::create_command_console() {
     options.translate=[this](const char* text){return tr(text).toStdString();};
     options.settings=[this]{
         command_host::Settings result;result.templates=native_template_settings(application_settings_);
+        result.normalize_document_name=application_settings_.document_naming;
         for(auto it=application_settings_.units.cbegin();it!=application_settings_.units.cend();++it)
             result.units[it.key().toStdString()]=it.value().toStdString();
         return result;

@@ -55,7 +55,7 @@ std::array<double,6> bounds(const kernel::ViewerMesh& mesh) {
 }
 void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     workspace::Workspace live;command_host::Options options;command_host::Interaction interaction;
-    options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"start_part.prtz","start_assembly.asmz","Body"},{}};};
+    options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"},{}};};
     options.interaction=[&]{return interaction;};command_host::Host host(live,kernel,directory,options);
     require(host.execute_text("placement.get absent").code=="unsupported_document","Empty placement query accepted");
     run(host,"new",{{"type","part"},{"name","placement"}});const auto id=live.active_document_id();

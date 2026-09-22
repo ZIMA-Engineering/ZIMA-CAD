@@ -7,6 +7,7 @@
 #include <QMap>
 
 class QComboBox;
+class QCheckBox;
 class QDoubleSpinBox;
 class QLineEdit;
 class QTabWidget;
@@ -36,6 +37,9 @@ private:
     QComboBox* language_{};
     QComboBox* application_font_{};
     QComboBox* tolerance_layout_{};
+    QCheckBox* names_uppercase_{};
+    QCheckBox* names_diacritics_{};
+    QCheckBox* names_spaces_{};
     QDoubleSpinBox* sheet_cut_tolerance_{};
     QMap<QString, QComboBox*> unit_fields_;
     QMap<QString, QLineEdit*> path_fields_;

@@ -8,7 +8,7 @@ void require(bool value,const char* text){if(!value)throw std::runtime_error(tex
 void near(double a,double b){if(std::abs(a-b)>1e-7)throw std::runtime_error("Expected "+std::to_string(b)+", got "+std::to_string(a));}
 commands::Result run(command_host::Host& host,const char* command,Json args=Json::object()) {auto result=host.execute({{"command",command},{"arguments",std::move(args)}});if(!result.ok)throw std::runtime_error(std::string(command)+": "+result.code+": "+result.message);return result;}
 void verify(const kernel::OcctKernel& kernel,fs::path dir) {
-    workspace::Workspace live;command_host::Options options;options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"start_part.prtz","start_assembly.asmz","Body"},{}};};
+    workspace::Workspace live;command_host::Options options;options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"},{}};};
     command_host::Host host(live,kernel,dir,options);run(host,"new",{{"type","part"},{"name","body-refs"}});const auto id=live.active_document_id();auto* state=live.open_part(id);
     const auto first=state->session.document().body_history.active_body_id();const auto first_feature=run(host,"box.create",{{"length_mm","10"},{"width_mm","20"},{"height_mm","30"}}).data.at("container").get<std::string>();
     run(host,"placement.set",{{"object",first},{"values",{{"reference_offset:0",11}}}});

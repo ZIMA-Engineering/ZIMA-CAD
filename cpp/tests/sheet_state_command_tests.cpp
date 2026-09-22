@@ -22,7 +22,7 @@ int main() {
     std::filesystem::create_directory(directory);
     try {
         kernel::OcctKernel kernel;workspace::Workspace live;command_host::Options options;
-        options.settings=[] {command_host::Settings s;s.templates={std::filesystem::absolute("config/templates"),"start_part.prtz","start_assembly.asmz","Body"};return s;};
+        options.settings=[] {command_host::Settings s;s.templates={std::filesystem::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"};return s;};
         command_host::Host host(live,kernel,directory,options);
         run(host,"new",{{"type","part"},{"name","sheet-state"}});
         const auto bend=run(host,"bend.create",{{"width_mm",40.},{"radius_mm",8.},{"angle_degrees",90.},{"thickness_mm",2.},{"thickness_override",true}}).data.at("container").get<std::string>();

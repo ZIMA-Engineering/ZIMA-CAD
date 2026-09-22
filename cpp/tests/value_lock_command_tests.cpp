@@ -11,7 +11,7 @@ commands::Result run(command_host::Host& host,const char* name,Json args=Json::o
 }
 void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     workspace::Workspace live;command_host::Options options;command_host::Interaction interaction;
-    options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"start_part.prtz","start_assembly.asmz","Body"},{}};};
+    options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"},{}};};
     options.interaction=[&]{return interaction;};command_host::Host host(live,kernel,dir,options);
     require(host.execute_text("value_lock.list missing").code=="unsupported_document","Lock query accepted no document");
     run(host,"new",{{"type","part"},{"name","value-locks"}});const auto id=live.active_document_id();

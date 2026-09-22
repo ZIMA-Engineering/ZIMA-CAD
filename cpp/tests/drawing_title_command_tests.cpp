@@ -12,7 +12,7 @@ commands::Result run(command_host::Host& host,const char* name,Json args=Json::o
     auto result=host.execute({{"command",name},{"arguments",std::move(args)}});if(!result.ok)throw std::runtime_error(std::string(name)+": "+result.code+": "+result.message);return result;
 }
 void verify(const kernel::OcctKernel& kernel,fs::path directory) {
-    workspace::Workspace live;command_host::Options options;options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"start_part.prtz","start_assembly.asmz","Body"},{}};};
+    workspace::Workspace live;command_host::Options options;options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"},{}};};
     command_host::Host host(live,kernel,directory,options);
     const auto part=[&](const char* file,const char* name) {
         run(host,"new",{{"type","part"},{"name",file}});const auto id=live.active_document_id();

@@ -17,7 +17,7 @@ commands::Result run(command_host::Host& host,const std::string& command,Json ar
 double error(kernel::Vec3 a,kernel::Vec3 b){return std::hypot(a.x-b.x,a.y-b.y,a.z-b.z);}
 void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     workspace::Workspace live;command_host::Options options;
-    options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"start_part.prtz","start_assembly.asmz","Body"},{}};};
+    options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"},{}};};
     command_host::Host host(live,kernel,directory,options);run(host,"new",{{"type","part"},{"name","curve-operations"}});
     const auto document=live.active_document_id();std::string sketch;
     const auto create=[&](const char* name){sketch=run(host,"sketch.create",{{"name",name}}).data.at("sketch").get<std::string>();};

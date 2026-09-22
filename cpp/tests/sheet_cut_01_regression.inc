@@ -5,7 +5,7 @@
 void verify_sheet_cut_tilted_cone_attachment(std::filesystem::path directory) {
     kernel::OcctKernel kernel;workspace::Workspace live;command_host::Options options;
     options.settings=[] {command_host::Settings settings;
-        settings.templates={std::filesystem::absolute("config/templates"),"start_part.prtz","start_assembly.asmz","Body"};
+        settings.templates={std::filesystem::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"};
         return settings;};
     command_host::Host host(live,kernel,directory,options);
     run(host,"new",{{"type","part"},{"name","sheet-cut-tilted-cone-attachment"}});

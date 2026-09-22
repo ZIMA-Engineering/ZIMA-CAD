@@ -17,7 +17,7 @@ data live inside native documents; see [cache storage](CACHE_STORAGE.md).
 choose **Modeling** or **Sheet Metal**. Both create the same ordinary Part from
 the configured start template; the choice only selects the working environment
 in the application dropdown. **Skeleton** uses Modeling, appends `_skeleton`
-to the filename and loads `start_skeleton.prtz` from the template directory.
+to the filename and loads `START_SKELETON.prtz` from the template directory.
 It starts with one active empty Body and black surfaces with approximately 70%
 transparency. It contains no modeling geometry, material or manufacturing
 parameters. Skeleton identity is determined only by the case-insensitive
@@ -48,12 +48,17 @@ are initially sorted by ascending name. The reserved application directory
 
 ## Default Part and Assembly templates
 
+New document names can be normalized by the optional global
+[document naming policy](DOCUMENT_NAMING.md): uppercase letters, removal of
+diacritics and replacement of whitespace with underscores. Existing files and
+free text are unchanged unless the user explicitly renames a document.
+
 New documents load real native templates selected in the main configuration:
 
 ```ini
 [Templates]
-Part = start_part.prtz
-Assembly = start_assembly.asmz
+Part = START_PART.prtz
+Assembly = START_ASSEMBLY.asmz
 ```
 
 The files normally live in `config/templates`. A new document inherits units,
@@ -63,7 +68,7 @@ modeling containers or components, preventing copied internal IDs. A project
 `config.ini` may override `[Templates]`; relative names resolve under
 `Paths/Templates`.
 
-The Skeleton template is `start_skeleton.prtz` in the same directory. It stores
+The Skeleton template is `START_SKELETON.prtz` in the same directory. It stores
 no Body IDs: creation assigns a fresh document ID and creates an active Body
 using the same origin attachment contract as an ordinary Part. The document
 appearance is inherited by subsequently created geometry and can be edited.

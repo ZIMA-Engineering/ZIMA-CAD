@@ -19,7 +19,7 @@ commands::Result run(command_host::Host& host,const char* name,Json args=Json::o
 }
 void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     workspace::Workspace live;command_host::Options options;
-    options.settings=[] {command_host::Settings settings;settings.templates={fs::absolute("config/templates"),"start_part.prtz","start_assembly.asmz","Body"};return settings;};
+    options.settings=[] {command_host::Settings settings;settings.templates={fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"};return settings;};
     command_host::Host host(live,kernel,directory,options);
     require(host.execute_text("fillet.get missing").code=="unsupported_document","Fillet query accepted no document");
     run(host,"new",{{"type","part"},{"name","edge-treatment"}});

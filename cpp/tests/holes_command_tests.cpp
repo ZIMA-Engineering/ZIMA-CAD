@@ -67,7 +67,7 @@ void verify_preview(const document::HistoryContainer& feature, const sketcher::S
 
 void verify(const kernel::OcctKernel& kernel, fs::path directory) {
     workspace::Workspace live; command_host::Options options;
-    options.settings=[] {command_host::Settings s;s.templates={fs::absolute("config/templates"),"start_part.prtz","start_assembly.asmz","Body"};return s;};
+    options.settings=[] {command_host::Settings s;s.templates={fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"};return s;};
     command_host::Host host(live,kernel,directory,options);
     run(host,"new",{{"type","part"},{"name","hydraulic-block"}});
     run(host,"box.create",{{"length_mm","40"},{"width_mm","40"},{"height_mm","40"}});

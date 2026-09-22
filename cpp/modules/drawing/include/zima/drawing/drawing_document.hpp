@@ -329,6 +329,7 @@ struct DrawingSheet {
     std::vector<DrawingDimension> dimensions;
     std::vector<DrawingText> texts;
     std::vector<TemplateLine> frame_lines;
+    bool frame_trimming_marks{};
     std::vector<TemplateText> frame_texts;
     std::vector<TemplateLine> title_block_lines;
     std::vector<TemplateText> title_block_texts;

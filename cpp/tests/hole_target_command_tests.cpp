@@ -12,7 +12,7 @@ Json run(command_host::Host& host,const char* name,Json args=Json::object()) {
 }
 void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     workspace::Workspace live;command_host::Options options;
-    options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"start_part.prtz","start_assembly.asmz","Body"},{}};};
+    options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"},{}};};
     command_host::Host host(live,kernel,dir,options);
     run(host,"new",{{"type","part"},{"name","hole-target"}});
     const auto box=run(host,"box.create",{{"length_mm","40"},{"width_mm","40"},{"height_mm","40"}}).at("container");

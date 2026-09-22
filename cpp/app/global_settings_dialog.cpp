@@ -9,6 +9,7 @@
 #include <QDialogButtonBox>
 
 #include <QComboBox>
+#include <QCheckBox>
 #include <QDoubleSpinBox>
 #include <QDir>
 #include <QFileInfo>
@@ -59,6 +60,23 @@ GlobalSettingsDialog::GlobalSettingsDialog(
     tolerance_layout_->addItem(tr("Nad sebou"), true);
     tolerance_layout_->setCurrentIndex(settings_.stacked_tolerances ? 1 : 0);
     form->addRow(tr("Zobrazení tolerancí"), tolerance_layout_);
+
+    auto* naming_page = new QWidget(sections_);
+    auto* naming_layout = new QVBoxLayout(naming_page);
+    names_uppercase_ = new QCheckBox(tr("Převádět názvy na velká písmena"), naming_page);
+    names_uppercase_->setObjectName("globalNamesUppercase");
+    names_uppercase_->setChecked(settings_.document_naming.uppercase);
+    names_diacritics_ = new QCheckBox(tr("Odstraňovat diakritiku z názvů"), naming_page);
+    names_diacritics_->setObjectName("globalNamesRemoveDiacritics");
+    names_diacritics_->setChecked(settings_.document_naming.remove_diacritics);
+    names_spaces_ = new QCheckBox(tr("Nahrazovat mezery v názvech podtržítkem"), naming_page);
+    names_spaces_->setObjectName("globalNamesReplaceSpaces");
+    names_spaces_->setChecked(settings_.document_naming.replace_spaces);
+    naming_layout->addWidget(names_uppercase_);
+    naming_layout->addWidget(names_diacritics_);
+    naming_layout->addWidget(names_spaces_);
+    naming_layout->addStretch();
+    sections_->addTab(naming_page, tr("Názvy souborů"));
 
     const QMap<QString, QStringList> choices{
         {"Length", {"mm", "cm", "m", "in"}},
@@ -171,6 +189,7 @@ void GlobalSettingsDialog::browse_path(const QString& key) {
 }
 
 bool GlobalSettingsDialog::submit() {
+    settings_.document_naming = {names_uppercase_->isChecked(), names_diacritics_->isChecked(), names_spaces_->isChecked()};
     settings_.stacked_tolerances = tolerance_layout_->currentData().toBool();
     settings_.sheet_cut_tolerance=sheet_cut_tolerance_->value();
     settings_.language = language_->currentText();

@@ -59,7 +59,7 @@ commands::Result run(command_host::Host& host,const char* name,Json args=Json::o
     const auto result=host.execute({{"command",name},{"arguments",std::move(args)}});if(!result.ok)throw std::runtime_error(std::string(name)+": "+result.message);return result;
 }
 void command_cases(const kernel::OcctKernel& kernel,fs::path dir) {
-    workspace::Workspace live;command_host::Options options;options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"start_part.prtz","start_assembly.asmz","Body"},{}};};
+    workspace::Workspace live;command_host::Options options;options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"},{}};};
     command_host::Host host(live,kernel,dir,options);run(host,"new",{{"type","part"},{"name","splines"}});const auto id=live.active_document_id();
     run(host,"box.create",{{"length_mm","3"},{"width_mm","4"},{"height_mm","5"}});const auto cached=live.open_part(id)->session.calculated_boundaries().back().kernel_shape;
     const auto count=live.open_part(id)->session.document().sketches.size();const auto result=run(host,"import.dxf",{{"path","splines.dxf"}}).data;const auto sketch=result.at("sketch").get<std::string>();

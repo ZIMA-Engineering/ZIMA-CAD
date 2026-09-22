@@ -153,6 +153,12 @@ target_link_libraries(zima_sketcher
     PUBLIC zima_kernel_api
     PRIVATE nlohmann_json::nlohmann_json Freetype::Freetype harfbuzz::harfbuzz)
 
+add_library(zima_symbols modules/symbols/src/definition.cpp)
+target_include_directories(zima_symbols PUBLIC modules/symbols/include)
+target_link_libraries(zima_symbols PUBLIC zima_sketcher PRIVATE Qt6::Core nlohmann_json::nlohmann_json)
+add_executable(zima_symbol_library_tool tools/symbol_library_tool.cpp)
+target_link_libraries(zima_symbol_library_tool PRIVATE zima_symbols Qt6::Gui)
+
 # Embed the existing thread tables for the shared Qt-free catalog reader.
 set(ZIMA_THREAD_CATALOG_SOURCE "${CMAKE_CURRENT_BINARY_DIR}/thread_catalog_data.cpp")
 file(WRITE "${ZIMA_THREAD_CATALOG_SOURCE}" "#include <string_view>\nnamespace zima::document { std::string_view bundled_thread_catalog(std::string_view standard) {\n")
@@ -545,6 +551,10 @@ if(ZIMA_BUILD_TESTS)
     target_link_libraries(zima_cpp_section_contract_tests PRIVATE zima_document_core zima_assembly zima_drawing zima_kernel_occt)
     add_test(NAME zima_cpp_section_contract_tests COMMAND zima_cpp_section_contract_tests)
     enable_testing()
+    add_test(NAME zima_cpp_symbol_library COMMAND zima_symbol_library_tool
+        "${CMAKE_SOURCE_DIR}/../config/symbols/drawing-conventions/ZE-PROJECTION-METHOD.symz"
+        "${CMAKE_CURRENT_BINARY_DIR}/projection-symbol-preview.png")
+    set_tests_properties(zima_cpp_symbol_library PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     add_executable(zima_ai_contract_tests tests/ai_contract_tests.cpp app/command_console.cpp
         app/ai_settings_page.cpp app/file_dialog.cpp app/resource_icon.cpp)
     target_include_directories(zima_ai_contract_tests PRIVATE app)

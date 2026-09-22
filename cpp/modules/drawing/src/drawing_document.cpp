@@ -617,6 +617,7 @@ void DrawingDocument::save(const std::filesystem::path& path,
             auto item=text_json(std::vector{text.presentation}).front();item["id"]=text.id;serialized["texts"].push_back(std::move(item));
         }
         serialized["frame_lines"]=line_json(sheet.frame_lines);
+        serialized["frame_trimming_marks"]=sheet.frame_trimming_marks;
         serialized["frame_texts"]=text_json(sheet.frame_texts);
         serialized["title_block_lines"]=line_json(sheet.title_block_lines);
         serialized["title_block_texts"]=text_json(sheet.title_block_texts);
@@ -828,6 +829,7 @@ DrawingDocument DrawingDocument::load(const std::filesystem::path& path) {
         };
         for(const auto& item:serialized.at("texts"))sheet.texts.push_back({item.at("id").get<std::string>(),parse_texts(nlohmann::json::array({item})).front()});
         sheet.frame_lines=parse_lines(serialized.at("frame_lines"));
+        sheet.frame_trimming_marks=serialized.value("frame_trimming_marks",false);
         sheet.frame_texts=parse_texts(serialized.at("frame_texts"));
         sheet.title_block_lines=parse_lines(serialized.at("title_block_lines"));
         sheet.title_block_texts=parse_texts(serialized.at("title_block_texts"));
@@ -968,6 +970,7 @@ void load_frame_template(DrawingSheet& sheet, const std::filesystem::path& path)
     const auto geometry=ini.find("FrameGeometry");
     if (geometry == ini.end()) throw std::runtime_error("Drawing frame has no geometry");
     sheet.frame_lines.clear(); sheet.frame_texts.clear();
+    sheet.frame_trimming_marks=ini.contains("Frame")&&ini.at("Frame").contains("TrimmingMarks")&&ini.at("Frame").at("TrimmingMarks")=="true";
     parse_geometry(geometry->second,sheet.frame_lines,sheet.frame_texts,
         [](double x,double y){ return Point2{x,y}; });
     load_template_details(sheet,path,false);

@@ -18,7 +18,7 @@ commands::Result run(command_host::Host& host,const std::string& command,Json ar
 }
 void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     workspace::Workspace live;command_host::Options options;
-    options.settings=[] {command_host::Settings settings;settings.templates={fs::absolute("config/templates"),"start_part.prtz","start_assembly.asmz","Body"};return settings;};
+    options.settings=[] {command_host::Settings settings;settings.templates={fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"};return settings;};
     command_host::Host host(live,kernel,directory,options);
     require(host.execute_text("opening.get missing").code=="unsupported_document","Opening query without Part did not fail cleanly");
     for(const auto* type:{"plain","metric","whitworth","pipe"}) {

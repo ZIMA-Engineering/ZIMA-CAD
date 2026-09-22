@@ -13,7 +13,7 @@ commands::Result run(command_host::Host& host,const char* name,Json args=Json::o
 std::string path(const std::string& id){return assembly::InstancePath{}.child(id).encoded();}
 void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     workspace::Workspace live;command_host::Options options;bool editing=false;
-    options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"start_part.prtz","start_assembly.asmz","Body"},{}};};
+    options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"},{}};};
     options.interaction=[&]{command_host::Interaction result;result.editing=editing;return result;};
     command_host::Host host(live,kernel,dir,options);
     run(host,"new",{{"type","part"},{"name","remove-source"}});const auto source=live.active_document_id();

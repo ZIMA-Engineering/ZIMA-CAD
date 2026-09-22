@@ -1,4 +1,8 @@
 {
+  "Převádět názvy na velká písmena": "Convert names to uppercase",
+  "Odstraňovat diakritiku z názvů": "Remove diacritics from names",
+  "Nahrazovat mezery v názvech podtržítkem": "Replace spaces in names with underscores",
+  "Názvy souborů": "File names",
   "Zarovnat kóty": "Align dimensions",
   "Vložit zalomení": "Insert jog",
   "Vložit přerušení": "Insert break",

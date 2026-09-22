@@ -344,6 +344,16 @@ int main() {
                 live.open_drawing(drawing.document_id)->path==folder/"renamed_skeleton.drwz",
                 "Skeleton rename left stale Assembly or Drawing references");
         }
+        {
+            const auto folder=root/"case-only";fs::create_directory(folder);
+            const auto source=folder/"part.prtz",target=folder/"PART.prtz";
+            part.save(source,boundaries);workspace::Workspace live;live.add_part(part,boundaries,source);
+            auto job=workspace::prepare_document_file_rename(live,part.document_id,"PART.prtz",folder);
+            job.stage();require(job.commit(live).ok(),"Case-only filename rename failed");
+            require(live.open_part(part.document_id)->path==target&&document::PartDocument::load(target).name=="PART","Case-only rename lost native name or path");
+            bool exact=false;for(const auto& entry:fs::directory_iterator(folder))exact|=entry.path().filename()=="PART.prtz";
+            require(exact,"Filesystem retained the old filename case");
+        }
         require(fs::canonical(root).parent_path() == fs::canonical(fs::temp_directory_path()), "Unsafe fixture cleanup");
         fs::remove_all(root);
         std::cout << "Native rename, saved/live dependencies, staging, rollback and cache/history passed\n";

@@ -17,7 +17,7 @@ class NewDocumentDialog final : public zima::ui::PropertiesSubWindow {
 public:
     using Accepted = std::function<QString(QString, QString, QString, QString)>;
 
-    NewDocumentDialog(Accepted accepted, const NewDrawingOptions& drawing_options, QMainWindow* parent)
+    NewDocumentDialog(Accepted accepted, const NewDrawingOptions& drawing_options, DocumentNaming naming, QMainWindow* parent)
         : PropertiesSubWindow(QObject::tr("Nový dokument"), parent),
           accepted_(std::move(accepted)) {
         setObjectName("newDocumentDialog");
@@ -26,8 +26,22 @@ public:
         auto* content = new QWidget(this);
         auto* layout = new QVBoxLayout(content);
         auto* form = new QFormLayout;
-        name_ = new QLineEdit(QStringLiteral("part"), content);
+        name_ = new QLineEdit(content);
         name_->setObjectName("newDocumentFileName");
+        connect(name_, &QLineEdit::textEdited, this, [this, naming](const QString& text) {
+            // Keep an unfinished trailing space while converting it to an underscore.
+            const auto convert = [&naming](QString input) {
+                input = naming.normalize(input + QLatin1Char('|'));
+                input.chop(1);
+                return input;
+            };
+            const auto cursor = convert(text.left(name_->cursorPosition())).size();
+            const auto converted = convert(text);
+            if (converted != text) {
+                name_->setText(converted);
+                name_->setCursorPosition(static_cast<int>(cursor));
+            }
+        });
         form->addRow(QObject::tr("Název souboru"), name_);
         layout->addLayout(form);
         layout->addWidget(new QLabel(QObject::tr("Typ dokumentu"), content));
@@ -126,7 +140,7 @@ void AssemblyWorkspaceWindow::new_document() {
     auto* dialog = new NewDocumentDialog(
         [this](QString type, QString stem, QString mode, QString frame) {
             return create_document(type, stem,mode,frame);
-        }, new_drawing_options(application_settings_),this);
+        }, new_drawing_options(application_settings_),application_settings_.document_naming,this);
     properties_dialog_ = dialog;
     connect(dialog, &QDialog::finished, this, [this, dialog] {
         if (properties_dialog_ != dialog) return;
@@ -146,6 +160,7 @@ QString AssemblyWorkspaceWindow::create_document(
     auto stem = file_stem.trimmed();
     if (stem.isEmpty()) return tr("Zadejte název souboru.");
     if (document_type == "part" && part_mode == "skeleton" && !stem.endsWith("_skeleton", Qt::CaseInsensitive)) stem += "_skeleton";
+    stem=application_settings_.document_naming.normalize(stem);
     const std::string name = stem.toStdString();
     if (name.empty()) return tr("Zadejte název souboru.");
     const QString suffix = document_type == QStringLiteral("part")

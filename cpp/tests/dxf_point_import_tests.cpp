@@ -51,7 +51,7 @@ void model(const fs::path& dir) {
     rejected=false;try{static_cast<void>(interchange::import_dxf(dir/"unitless.dxf",sketch,1e308));}catch(const std::exception&){rejected=true;}require(rejected&&sketch.serialized()==before,"Overflowed scaled POINT partly changed destination");
 }
 void command_cases(const kernel::OcctKernel& kernel,fs::path dir) {
-    workspace::Workspace live;command_host::Options options;options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"start_part.prtz","start_assembly.asmz","Body"},{}};};
+    workspace::Workspace live;command_host::Options options;options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"},{}};};
     command_host::Host host(live,kernel,dir,options);run(host,"new",{{"type","part"},{"name","point-import"}});const auto id=live.active_document_id();
     const auto count=live.open_part(id)->session.document().sketches.size(),revision=live.open_part(id)->session.revision();
     const auto result=run(host,"import.dxf",{{"path","points.dxf"}}).data;const auto sketch=result.at("sketch").get<std::string>();

@@ -20,7 +20,7 @@ document::SectionDefinition section() {
 }
 void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     workspace::Workspace live;command_host::Options options;
-    options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"start_part.prtz","start_assembly.asmz","Body"},{}};};
+    options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"},{}};};
     command_host::Host host(live,kernel,dir,options);
     require(host.execute_text("section.list").code=="unsupported_document","Section query without a document failed unsafely");
     run(host,"new",{{"type","part"},{"name","section-source"}});

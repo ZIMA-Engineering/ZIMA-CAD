@@ -8,7 +8,7 @@ namespace {
 void require(bool ok,const char* message){if(!ok)throw std::runtime_error(message);}
 void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     workspace::Workspace live;command_host::Interaction interaction;command_host::Options options;
-    options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"start_part.prtz","start_assembly.asmz","Body"},{}};};options.interaction=[&]{return interaction;};
+    options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"},{}};};options.interaction=[&]{return interaction;};
     command_host::Host host(live,kernel,dir,options);
     const auto run=[&](const std::string& name,Json args=Json::object()){const auto r=host.execute({{"command",name},{"arguments",std::move(args)}});if(!r.ok)throw std::runtime_error(name+": "+r.code+": "+r.message);return r.data;};
     run("new",{{"type","part"},{"name","dimension-layout"}});const auto part_id=live.active_document_id();

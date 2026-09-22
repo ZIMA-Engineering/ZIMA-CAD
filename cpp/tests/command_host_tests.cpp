@@ -33,7 +33,7 @@ std::size_t count(const Json& tree,const std::string& id){
 void verify_commands(const kernel::OcctKernel& kernel,const fs::path& root){
     workspace::Workspace live;auto directory=root;
     command_host::Interaction interaction;
-    command_host::Settings settings{{fs::absolute("config/templates"),"start_part.prtz","start_assembly.asmz","Těleso 1"},{{"Length","cm"}}};
+    command_host::Settings settings{{fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Těleso 1"},{{"Length","cm"}}};
     command_host::Options options;
     options.settings=[&]{return settings;};options.interaction=[&]{return interaction;};
     bool reject_io=false;int io_count=0;Host* current=nullptr;
@@ -129,7 +129,7 @@ void verify_commands(const kernel::OcctKernel& kernel,const fs::path& root){
 void verify_document_lifecycle(const kernel::OcctKernel& kernel,const fs::path& root) {
     workspace::Workspace live;auto directory=root;
     command_host::Options options;
-    options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"start_part.prtz","start_assembly.asmz","Body"},{}};};
+    options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"},{}};};
     Host host(live,kernel,directory,options);
     const auto folder=root/fs::path(u8"soubory žluťoučké");fs::create_directory(folder);
     const auto utf8=folder.generic_u8string();const std::string folder_text(utf8.begin(),utf8.end());

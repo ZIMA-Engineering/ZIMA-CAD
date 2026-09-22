@@ -14,7 +14,7 @@ commands::Result run(command_host::Host& host,const char* name,Json args=Json::o
     if(!result.ok)throw std::runtime_error(std::string(name)+": "+result.code+": "+result.message);return result;
 }
 void verify(const kernel::OcctKernel& kernel,fs::path dir) {
-    workspace::Workspace live;command_host::Options options;options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"start_part.prtz","start_assembly.asmz","Body"},{}};};
+    workspace::Workspace live;command_host::Options options;options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"},{}};};
     command_host::Host host(live,kernel,dir,options);run(host,"new",{{"type","part"},{"name","engineering-part"}});
     const auto id=live.active_document_id();run(host,"box.create",{{"length_mm","10"},{"width_mm","20"},{"height_mm","30"}});
     run(host,"document.settings.set",{{"precision",{{"decimal_places",9}}}});

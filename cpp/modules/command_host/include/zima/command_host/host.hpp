@@ -13,6 +13,7 @@ using commands::Result;
 struct Settings {
     workspace::NativeTemplateSettings templates;
     std::map<std::string,std::string> units;
+    std::function<std::string(const std::string&)> normalize_document_name;
 };
 struct Interaction {
     bool editing{};

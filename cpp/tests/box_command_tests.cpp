@@ -28,7 +28,7 @@ void verify_commands(const kernel::OcctKernel& kernel, fs::path directory) {
     command_host::Interaction interaction;
     command_host::Options options;options.interaction=[&]{return interaction;};
     options.settings=[] {command_host::Settings settings;
-        settings.templates={fs::absolute("config/templates"),"start_part.prtz","start_assembly.asmz","Body 1"};
+        settings.templates={fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body 1"};
         return settings;};
     command_host::Host host(live,kernel,directory,options);
     run(host,"new",{{"type","part"},{"name","box-command"}});

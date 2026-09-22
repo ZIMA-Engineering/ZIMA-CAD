@@ -15,7 +15,7 @@ commands::Result run(command_host::Host& host,const std::string& command,Json ar
 }
 void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     workspace::Workspace live;command_host::Options options;
-    options.settings=[] {command_host::Settings s;s.templates={fs::absolute("config/templates"),"start_part.prtz","start_assembly.asmz","Body"};return s;};
+    options.settings=[] {command_host::Settings s;s.templates={fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"};return s;};
     command_host::Host host(live,kernel,directory,options);
     require(host.execute_text("hole.get missing").code=="unsupported_document","Query without Part did not fail cleanly");
     run(host,"new",{{"type","part"},{"name","native-hole"}});

@@ -19,7 +19,7 @@ commands::Result run(command_host::Host& host,const char* name,Json args=Json::o
 void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     workspace::Workspace live;command_host::Options options;
     double configured_cut_tolerance=.025;
-    options.settings=[&] {return command_host::Settings{{fs::absolute("config/templates"),"start_part.prtz","start_assembly.asmz","Body",configured_cut_tolerance},{{"Length","cm"}}};};
+    options.settings=[&] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body",configured_cut_tolerance},{{"Length","cm"}}};};
     command_host::Host host(live,kernel,dir,options);
     kernel::StepProduct part;part.definition_id="part";part.name="Block";part.body=kernel.make_box({10,20,30});
     auto second=part;second.name="Block 2";second.translation={50,0,0};

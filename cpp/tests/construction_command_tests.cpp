@@ -94,7 +94,7 @@ void near(double a, double b) {
 }
 void edit_verify(const kernel::OcctKernel& kernel, fs::path directory) {
     workspace::Workspace live; command_host::Interaction interaction; command_host::Options options;
-    options.settings=[] { return command_host::Settings{{fs::absolute("config/templates"),"start_part.prtz","start_assembly.asmz","Body"},{}}; };
+    options.settings=[] { return command_host::Settings{{fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"},{}}; };
     options.interaction=[&] { return interaction; }; command_host::Host host(live,kernel,directory,options);
     run(host,"new",{{"type","part"},{"name","construction-edit"}});
     const auto document=live.active_document_id(); auto* state=live.open_part(document);

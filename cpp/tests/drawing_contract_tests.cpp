@@ -476,6 +476,7 @@ Data={"points":{"a":{"x":-10,"y":-5},"b":{"x":-20,"y":-5}},"geometry":{"line":{"
                         zima::drawing::DisplayStyle::HiddenEdges &&
                     std::abs(loaded.find_view(child_id)->scale - 0.5) < 1e-9 &&
                     !loaded.sheets.front().frame_lines.empty() &&
+                    loaded.sheets.front().frame_trimming_marks &&
                     !loaded.sheets.front().title_block_fields.empty() &&
                     loaded.sheets.front().bom_rows.size() == 2 &&
                     loaded.sheets.front().repeat_regions.size()==1 &&

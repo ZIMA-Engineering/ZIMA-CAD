@@ -172,6 +172,22 @@ void verify(){
     {QPainter painter(&paper);renderer.paint_sheet(painter,10,{},true);}
     const auto ink=[&](int center){int n=0;for(int y=center-8;y<=center+8;++y)if(qGray(paper.pixel(1050,y))<128)++n;return n;};
     require(ink(1440)>ink(1540)&&ink(1540)>=2,"Thread and ordinary contours print with the same width");
+    for(const auto format:{drawing::SheetFormat::A0,drawing::SheetFormat::A1,drawing::SheetFormat::A2,drawing::SheetFormat::A3,drawing::SheetFormat::A4}) {
+        auto marked=drawing::DrawingDocument::create_default();auto& frame=marked.sheets.front();frame.format=format;
+        const auto name=std::string("ZE-A")+std::to_string(int(drawing::SheetFormat::A0)-int(format));
+        drawing::load_frame_template(frame,std::filesystem::path("config/formats")/(name+".frmz"));
+        require(frame.frame_trimming_marks,"Factory frame lacks ISO trimming marks");
+        marked.save(folder/(name+".drwz"));
+        require(drawing::DrawingDocument::load(folder/(name+".drwz")).sheets.front().frame_trimming_marks,"Trimming marks lost on Drawing reopen");
+        renderer.set_render_sheet(&frame);
+        QImage marks(int(frame.width_mm()*2),int(frame.height_mm()*2),QImage::Format_RGB32);marks.fill(Qt::white);
+        {QPainter painter(&marks);renderer.paint_sheet(painter,2,{},true);}
+        for(bool right:{false,true})for(bool bottom:{false,true}) {
+            const auto sample=[&](int x,int y){return qGray(marks.pixel(right?marks.width()-1-x*2:x*2,bottom?marks.height()-1-y*2:y*2));};
+            require(sample(2,7)<32&&sample(7,2)<32&&sample(7,7)>220,"Trimming mark is not a filled 10 x 10 mm L with 5 mm arms");
+        }
+        require(marks.save(QString::fromStdString((folder/(name+"-trimming.png")).string())),"Cannot save trimming mark preview");
+    }
     std::cout<<"Native thread axial/oblique/occluded/repeated projection, chamfer, persistence, PDF and line weights passed\n";
 }
 }

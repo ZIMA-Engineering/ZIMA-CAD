@@ -51,7 +51,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory,const workspace:
     const auto operations=saved.kernel_operations();require(cache.back().source_fingerprint==kernel::history_fingerprint(operations,operations.size()),"Native save used stale body calculation");
 }
 void verify_bodies(const kernel::OcctKernel& kernel,fs::path directory) {
-    workspace::Workspace live;command_host::Options options;options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"start_part.prtz","start_assembly.asmz","Body"},{}};};
+    workspace::Workspace live;command_host::Options options;options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"},{}};};
     command_host::Host host(live,kernel,directory,options);
     const auto run=[&](const char* command,Json args=Json::object()){const auto result=host.execute({{"command",command},{"arguments",std::move(args)}});if(!result.ok)throw std::runtime_error(std::string(command)+": "+result.code+": "+result.message);return result.data;};
     run("new",{{"type","part"},{"name","primitive-body-references"}});const auto id=live.active_document_id();auto* state=live.open_part(id);

@@ -31,7 +31,7 @@ double stl_volume(const fs::path& path) {
     return std::abs(volume);
 }
 void verify(const kernel::OcctKernel& kernel,fs::path dir) {
-    workspace::Workspace live;command_host::Options settings;settings.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"start_part.prtz","start_assembly.asmz","Body"},{}};};
+    workspace::Workspace live;command_host::Options settings;settings.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"},{}};};
     command_host::Host host(live,kernel,dir,settings);run(host,"new",{{"type","part"},{"name","export-source"}});const auto part_id=live.active_document_id();
     const auto box=run(host,"box.create",{{"length_mm","10"},{"width_mm","20"},{"height_mm","30"}}).data.at("container").get<std::string>();
     auto* part=live.open_part(part_id);const auto revision=part->session.revision(),generation=part->session.data_generation();const auto shape=part->session.calculated_boundaries().back().kernel_shape;

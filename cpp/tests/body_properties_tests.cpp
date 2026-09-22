@@ -34,7 +34,7 @@ void geometry(const kernel::OcctKernel& kernel) {
 }
 void workflow(const kernel::OcctKernel& kernel,std::filesystem::path dir) {
     workspace::Workspace live;command_host::Options options;
-    options.settings=[]{return command_host::Settings{{std::filesystem::absolute("config/templates"),"start_part.prtz","start_assembly.asmz","Body"},{}};};
+    options.settings=[]{return command_host::Settings{{std::filesystem::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"},{}};};
     command_host::Host host(live,kernel,dir,options);
     run(host,"new",{{"type","part"},{"name","mass-model"}});const auto id=live.active_document_id();
     check(!host.execute({{"command","body_properties.create"},{"arguments",Json::object()}}).ok,"Empty model accepted body properties");

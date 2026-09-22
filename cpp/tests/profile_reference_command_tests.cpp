@@ -8,7 +8,7 @@ void require(bool v,const char* text){if(!v)throw std::runtime_error(text);}
 void near(double a,double b){if(!std::isfinite(a)||std::abs(a-b)>1e-6)throw std::runtime_error("Expected "+std::to_string(b)+", got "+std::to_string(a));}
 void verify(const kernel::OcctKernel& kernel,fs::path directory,bool extrusion) {
     const std::string prefix=extrusion?"extrusion":"revolution";workspace::Workspace live;command_host::Interaction interaction;command_host::Options options;
-    options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"start_part.prtz","start_assembly.asmz","Body"},{}};};options.interaction=[&]{return interaction;};command_host::Host host(live,kernel,directory,options);
+    options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"},{}};};options.interaction=[&]{return interaction;};command_host::Host host(live,kernel,directory,options);
     const auto run=[&](const std::string& command,Json args=Json::object()){const auto input=args.dump();const auto result=host.execute({{"command",command},{"arguments",std::move(args)}});if(!result.ok)throw std::runtime_error(command+" "+input+": "+result.code+": "+result.message);return result.data;};
     run("new",{{"type","part"},{"name",prefix+"-reference"}});const auto id=live.active_document_id();auto* state=live.open_part(id);
     const auto source=run("construction.create",{{"kind","plane"},{"name","Source plane"},{"base_plane","xy"},{"values",{{"z",5}}}}).at("construction").get<std::string>();

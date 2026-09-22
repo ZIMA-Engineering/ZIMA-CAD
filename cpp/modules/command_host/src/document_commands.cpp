@@ -104,7 +104,10 @@ void Host::register_document_commands() {
             if (interaction().template_document)
                 return Result::failure("unsupported_document", tr("Tento příkaz není dostupný při úpravě šablony."));
             try {
-                auto job = workspace::prepare_document_file_rename(workspace_, id, args.at("name").get<std::string>(), directory_);
+                auto name=args.at("name").get<std::string>();
+                const auto settings=options_.settings?options_.settings():Settings{};
+                if(settings.normalize_document_name)name=settings.normalize_document_name(name);
+                auto job = workspace::prepare_document_file_rename(workspace_, id, name, directory_, settings.normalize_document_name);
                 if (options_.progress) options_.progress(Activity::Rename, std::filesystem::u8path(args.at("name").get<std::string>()));
                 io([&job] { job.stage(); });
                 const auto renamed = job.commit(workspace_);
@@ -191,7 +194,9 @@ void Host::register_document_commands() {
         const auto checked=target(args);if(!checked.ok)return checked;
         if(interaction().template_document)return Result::failure("unsupported_document",tr("Tento příkaz není dostupný při úpravě šablony."));
         const auto id=workspace_.active_document_id();
-        const auto path=resolve(args["path"].get<std::string>(),directory_);
+        auto path=resolve(args["path"].get<std::string>(),directory_);
+        const auto settings=options_.settings?options_.settings():Settings{};
+        if(settings.normalize_document_name)path.replace_filename(std::filesystem::u8path(settings.normalize_document_name(path_text(path.filename()))));
         if(options_.progress)options_.progress(Activity::Write,path);
         auto snapshot=workspace_;std::vector<std::filesystem::path> files;bool finished=false;
         const auto directory=directory_;

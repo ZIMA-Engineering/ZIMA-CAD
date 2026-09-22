@@ -1,4 +1,8 @@
 {
+  "Převádět názvy na velká písmena": "Преобразовывать имена в верхний регистр",
+  "Odstraňovat diakritiku z názvů": "Удалять диакритические знаки из имён",
+  "Nahrazovat mezery v názvech podtržítkem": "Заменять пробелы в именах знаками подчёркивания",
+  "Názvy souborů": "Имена файлов",
   "Zarovnat kóty": "Выровнять размеры",
   "Vložit zalomení": "Вставить излом",
   "Vložit přerušení": "Вставить разрыв",

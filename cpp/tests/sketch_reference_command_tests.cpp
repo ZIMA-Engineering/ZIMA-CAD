@@ -59,7 +59,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory) {
         require(sketch.external_references.front().broken&&sketch.constraints==constraints,"Deleted source erased its dependent constraints");
     }
     workspace::Workspace live;command_host::Options options;
-    options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"start_part.prtz","start_assembly.asmz","Body"},{}};};
+    options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"},{}};};
     command_host::Host host(live,kernel,directory,options);run(host,"new",{{"type","part"},{"name","references"}});const auto doc=live.active_document_id();
     const auto box=run(host,"box.create",{{"length_mm","10"},{"width_mm","10"},{"height_mm","10"}}).data.at("container").get<std::string>();
     const auto sketch=run(host,"sketch.create",{{"name","Projection"}}).data.at("sketch").get<std::string>();

@@ -9,6 +9,12 @@
 #include <map>
 #include <set>
 #include <type_traits>
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
 
 namespace zima::workspace {
 namespace fs = std::filesystem;
@@ -134,10 +140,17 @@ struct FileRenameJob::Impl {
         for (const auto& path : paths) if (path != from) ordered.push_back(path);
         return ordered;
     }
-    void destination_available(const fs::path& target) const {
-        if (fs::exists(target))
+    void destination_available(const fs::path& target,const fs::path& source) const {
+        bool same_spelling=false;
+#ifdef _WIN32
+        same_spelling=CompareStringOrdinal(target.c_str(),-1,source.c_str(),-1,TRUE)==CSTR_EQUAL;
+#endif
+        // The transaction stages originals away before publication, so a
+        // case-only rename is safe on a case-insensitive filesystem. A hard
+        // link with another spelling is still a genuine occupied destination.
+        if (fs::exists(target)&&!(same_spelling&&fs::equivalent(target,source)))
             throw FileRenameError("destination_exists", "The native rename destination already exists.");
-        for (const auto& state : open) if (state.path == target)
+        for (const auto& state : open) if (state.path == target&&state.path!=source)
             throw FileRenameError("destination_open", "Another open document already uses the native rename destination.");
     }
 };
@@ -147,7 +160,8 @@ FileRenameJob& FileRenameJob::operator=(FileRenameJob&&) noexcept = default;
 FileRenameJob::~FileRenameJob() = default;
 
 FileRenameJob prepare_document_file_rename(const Workspace& live, const std::string& id,
-        const std::string& filename, const fs::path& working_directory) {
+        const std::string& filename, const fs::path& working_directory,
+        const std::function<std::string(const std::string&)>& normalize_name) {
     const auto* state = live.find(id);
     if (!state) throw FileRenameError("document_not_found", "The document is not open.");
     if(family_owner(live,id)!=id)
@@ -169,6 +183,7 @@ FileRenameJob prepare_document_file_rename(const Workspace& live, const std::str
         throw FileRenameError("document_type_mismatch", "Renaming a native file must preserve its document extension.");
     if (assembly::is_skeleton_file(impl->from) && !assembly::is_skeleton_file(name))
         name = fs::u8path(document::path_to_utf8(name.stem()) + "_skeleton" + document::path_to_utf8(name.extension()));
+    if(normalize_name)name=fs::u8path(normalize_name(document::path_to_utf8(name)));
     impl->to = impl->from.parent_path() / name;
     for (const auto& open_state : live.documents()) if (const auto* owner = std::get_if<AssemblyState>(&open_state)) {
         const auto count = std::ranges::count_if(owner->session.document().components, [&](const auto& component) {
@@ -177,7 +192,7 @@ FileRenameJob prepare_document_file_rename(const Workspace& live, const std::str
         });
         if (count > 1) throw FileRenameError("duplicate_skeleton", "An Assembly can contain only one Skeleton.");
     }
-    if (impl->to != impl->from) impl->destination_available(impl->to);
+    if (impl->to != impl->from) impl->destination_available(impl->to,impl->from);
     impl->token = document::PartDocument::create_default().document_id;
     impl->moves.push_back({id, impl->from, impl->to});
     return FileRenameJob(std::move(impl));
@@ -201,7 +216,7 @@ void FileRenameJob::stage() {
                     belongs = open.drawing_source_id == job.id;
             if (belongs) {
                 auto target = job.to; target.replace_extension(".drwz");
-                job.destination_available(target);
+                job.destination_available(target,companion);
                 job.moves.push_back({drawing.id(), companion, target});
             }
         }
@@ -268,7 +283,7 @@ FileRenameResult FileRenameJob::commit(Workspace& live) {
                 return fail("stale_file", "A native rename input changed before publication.", before.path);
         if (job.inputs() != job.candidates)
             return fail("stale_file", "The set of native dependency files changed before publication.", job.from);
-        for (const auto& move : job.moves) job.destination_available(move.to);
+        for (const auto& move : job.moves) job.destination_available(move.to,move.from);
     } catch (const FileRenameError& error) { return fail(error.code.c_str(), error.what(), job.from); }
       catch (const fs::filesystem_error& error) { return fail("file_io_error", error.what(), error.path1()); }
 

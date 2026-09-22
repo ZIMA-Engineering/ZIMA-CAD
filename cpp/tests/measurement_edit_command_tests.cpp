@@ -18,7 +18,7 @@ Json ref(const char* kind,const std::string& owner,const std::string& key={},con
 }
 void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     workspace::Workspace live;command_host::Options options;bool editing=false,is_template=false;
-    options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"start_part.prtz","start_assembly.asmz","Body"},{}};};
+    options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"},{}};};
     options.interaction=[&]{command_host::Interaction value;value.editing=editing;value.template_document=is_template;return value;};
     command_host::Host host(live,kernel,dir,options);
     run(host,"new",{{"type","part"},{"name","measurement-edits"}});const auto id=live.active_document_id();

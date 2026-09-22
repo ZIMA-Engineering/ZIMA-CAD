@@ -362,6 +362,8 @@ void AssemblyWorkspaceWindow::save_active_document_as() {
         target.replace_extension(dotted_suffix.toStdString());
         selected = QString::fromStdString(zima::document::path_to_utf8(target));
     }
+    target.replace_filename(std::filesystem::u8path(application_settings_.document_naming(
+        zima::document::path_to_utf8(target.filename()))));
     if (const auto owner = workspace_.document_id_for_path(target);
         owner && *owner != document_id) {
         QMessageBox::warning(
@@ -531,6 +533,7 @@ void AssemblyWorkspaceWindow::rename_document_file(std::string document_id) {
     const auto initial=family_instance?QString::fromStdString(workspace::user_parameters(workspace_,id).flat.at("name")):text_path(old_path.filename());
     auto* dialog = new RenameDocumentDialog(initial,
         [this, id, old_path, text_path, family_instance](QString name) -> QString {
+            name=application_settings_.document_naming.normalize(name);
             if (!native_file_operation_ready(rename_document_dialog_))
                 return tr("Nejprve dokončete nebo zrušte otevřené vlastnosti.");
             const auto* current = workspace_.find(id);
@@ -550,7 +553,7 @@ void AssemblyWorkspaceWindow::rename_document_file(std::string document_id) {
                 return tr("Open documents changed before native file rename.");
             bool started = false;
             try {
-                auto job = workspace::prepare_document_file_rename(workspace_, id, name.toStdString(), working_directory_);
+                auto job = workspace::prepare_document_file_rename(workspace_, id, name.toStdString(), working_directory_, application_settings_.document_naming);
                 const auto progress = tr("Přejmenovávám %1…").arg(text_path(old_path.filename()));
                 begin_status_operation(progress); update_status_operation(progress, -1, 0); started = true;
                 run_background_task([&job] { job.stage(); });

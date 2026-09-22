@@ -35,6 +35,7 @@ using namespace zima;
 namespace fs=std::filesystem;
 using commands::Json;
 namespace {
+QString default_fixture_config;
 void require(bool ok,const char* message){if(!ok)throw std::runtime_error(message);}
 QString qpath(const fs::path& path){const auto text=path.generic_u8string();return QString::fromUtf8(reinterpret_cast<const char*>(text.data()),static_cast<qsizetype>(text.size()));}
 fs::path path(const QString& text){return fs::u8path(text.toStdString());}
@@ -57,7 +58,11 @@ Run launch(const QString& executable,const fs::path& cwd,const QStringList& argu
     QProcess process;process.setWorkingDirectory(qpath(cwd));
     auto environment=QProcessEnvironment::systemEnvironment();
     environment.insert("QT_QPA_PLATFORM","this-platform-does-not-exist");process.setProcessEnvironment(environment);
-    process.start(executable,arguments);require(process.waitForStarted(10000),"CLI failed to start");
+    auto isolated_arguments=arguments;
+    if(!arguments.contains("--config")&&(arguments.contains("--command")||arguments.contains("--stdin")||arguments.contains("--script"))) {
+        isolated_arguments.prepend(default_fixture_config);isolated_arguments.prepend("--config");
+    }
+    process.start(executable,isolated_arguments);require(process.waitForStarted(10000),"CLI failed to start");
     if(!input.isEmpty()){require(process.write(input)==input.size(),"stdin write failed");process.waitForBytesWritten(10000);}
     process.closeWriteChannel();
     if(!process.waitForFinished(30000)){process.kill();process.waitForFinished();throw std::runtime_error("Owned CLI test process timed out");}
@@ -73,6 +78,17 @@ int main(int argc,char** argv){
         const auto repository=fs::current_path();
         QTemporaryDir temporary;require(temporary.isValid(),"No temporary test directory");
         const auto root=path(temporary.path());const auto project=root/fs::path(u8"projekt žluťoučký");fs::create_directory(project);
+        default_fixture_config=temporary.filePath("default-config.ini");
+        require(QFile::copy(qpath(repository/"config/config.ini"),default_fixture_config),"Cannot isolate CLI configuration");
+        {
+            QSettings defaults(default_fixture_config,QSettings::IniFormat);
+            for(const auto* key:{"Uppercase","RemoveDiacritics","ReplaceSpaces"})defaults.setValue(QString("DocumentNames/")+key,false);
+            for(const auto* key:{"Templates","Formats","Localization","Materials"}) {
+                const auto relative=defaults.value(QString("Paths/")+key).toString();
+                defaults.setValue(QString("Paths/")+key,qpath(repository/"config"/path(relative)));
+            }
+            defaults.sync();
+        }
         {
             const auto archive_dir = root / fs::path(u8"archivy žluťoučké");
             fs::create_directory(archive_dir);
@@ -738,11 +754,22 @@ int main(int argc,char** argv){
         const auto part_path=project/fs::path(u8"díl z příkazů.prtz");
         auto part=document::PartDocument::load(part_path);
         require(part.name=="díl z příkazů"&&part.document_units.at("Length")=="cm"&&part.body_history.bodies().size()==1,"CLI lost config units, template body or Unicode name");
+        {
+            QSettings names(qpath(base),QSettings::IniFormat);
+            for(const auto* key:{"Uppercase","RemoveDiacritics","ReplaceSpaces"})names.setValue(QString("DocumentNames/")+key,true);
+            names.sync();
+            result=launch(executable,root,common+QStringList{"--command","new part \"Příruba čelní\"","--command","save","--command","rename_file \"Držák přední.PRTZ\"","--command","save_as \"Kopie dílu.prtz\""});
+            require(result.exit_code==0&&fs::exists(project/"DRZAK_PREDNI.prtz")&&fs::exists(project/"KOPIE_DILU.prtz"),"CLI New/Rename/Save As did not share the naming policy");
+            require(document::PartDocument::load(project/"DRZAK_PREDNI.prtz").name=="DRZAK_PREDNI","Normalized filename and document name differ");
+            result=launch(executable,root,common+QStringList{"--command","new part \"Drzak predni\""});
+            require(result.exit_code!=0,"Normalization collision overwrote an existing Part");
+            names.remove("DocumentNames");names.sync();
+        }
         result=launch(executable,root,common+QStringList{"--command","save"});
         require(result.exit_code==1&&result.results().at(0).at("message")=="No document is open.","Configured English translation not used");
         // Local template path belongs to the project's config, not to base.ini.
         const auto local_templates=project/fs::path(u8"šablony; s mezerou");fs::create_directory(local_templates);
-        fs::copy_file(repository/"config/templates/start_part.prtz",local_templates/"custom.prtz");
+        fs::copy_file(repository/"config/templates/START_PART.prtz",local_templates/"custom.prtz");
         const auto catalogue_directory=project/"catalogue";fs::create_directory(catalogue_directory);
         write(catalogue_directory/"en.ini",QByteArray("[QtTranslations]\nQObject|Těleso 1 = Body from context\nQMainWindow|Není otevřený dokument. = Context-specific empty document\n"));
         write(catalogue_directory/"en.qt.json",QByteArray("{\"Box\":\"Box from JSON\",\"List\":\"Sheet from JSON\"}"));
@@ -1130,7 +1157,15 @@ int main(int argc,char** argv){
         require(saved_sheets.sheets.size()==2 && saved_sheets.find_sheet(sheet_id)->name=="Český list" && saved_sheets.find_sheet(sheet_id)->default_scale==.5 && !saved_sheets.find_sheet(sheet_id)->frame_lines.empty(),"CLI sheet or embedded frame did not persist");
         result=launch(executable,root,common+QStringList{"--command","open cli-sheets.drwz","--command","drawing.sheet.list"});
         require(result.exit_code==0 && result.results()[1].at("data").at("items")[1].at("locale")=="en","CLI drawing sheet readback failed");
-        std::vector<kernel::BodyResult> drawing_source_cache;const auto drawing_source=document::PartDocument::load(project/"cli-step.prtz",&drawing_source_cache);
+        std::vector<kernel::BodyResult> drawing_source_cache;auto drawing_source=document::PartDocument::load(project/"cli-step.prtz",&drawing_source_cache);
+        // Show/Erase needs authored annotation geometry; document Origins are
+        // intentionally excluded from Drawing annotations.
+        auto annotation_owner=document::PartDocument::create_sketch_container();
+        auto annotation_sketch=sketcher::Sketch::create_default();annotation_sketch.owner_container_id=annotation_owner.id;
+        static_cast<void>(annotation_sketch.add_segment(-5,0,5,0,1e-6,true));
+        drawing_source.insert_history_entry(document::PartHistoryKind::Feature,annotation_owner.id);
+        drawing_source.history.push_back(std::move(annotation_owner));drawing_source.sketches.push_back(std::move(annotation_sketch));
+        drawing_source.save(project/"cli-step.prtz",drawing_source_cache);
         auto view_doc=drawing::DrawingDocument::create_default();view_doc.source_document_id=drawing_source.document_id;view_doc.source_path=project/"cli-step.prtz";
         const auto native_view=drawing::DrawingDocument::create_view(drawing_source.document_id,project/"cli-step.prtz",drawing_source_cache.back().mesh);view_doc.sheets.front().views.push_back(native_view);view_doc.save(project/"cli-views.drwz");
         const auto view_get=command({{"command","drawing.view.get"},{"arguments",{{"view",native_view.id}}}});

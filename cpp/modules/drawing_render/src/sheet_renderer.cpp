@@ -174,6 +174,17 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
             for(const auto& text:texts)draw_text(text);
         };
         draw_template(sheet_->frame_lines,sheet_->frame_texts,sheet_->frame_circles);
+        if(sheet_->frame_trimming_marks) {
+            // ISO 5457: two overlapping 10 x 5 mm rectangles at each
+            // trimmed-sheet corner; fixed paper size, independent of scale.
+            painter.save();painter.setPen(Qt::NoPen);painter.setBrush(ink);
+            for(double x:{0.,sheet_->width_mm()})for(double y:{0.,sheet_->height_mm()}) {
+                const double dx=x==0?1:-1,dy=y==0?1:-1;
+                painter.drawRect(QRectF(screen({x,y}),screen({x+dx*10,y+dy*5})).normalized());
+                painter.drawRect(QRectF(screen({x,y}),screen({x+dx*5,y+dy*10})).normalized());
+            }
+            painter.restore();
+        }
         const auto layout=zima::drawing::title_block_layout(*sheet_,title_block_context_.value_or(zima::drawing::TitleBlockContext{}));
         if(!printing)title_targets_=layout.edit_targets;
         for(const auto& image:layout.images) {

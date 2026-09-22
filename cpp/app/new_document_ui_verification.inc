@@ -8,12 +8,47 @@ int verify_new_document_options(QApplication& application) {
             QSettings config(directory.filePath("config.ini"),QSettings::IniFormat);
             config.setValue("Application/Language",language);
             config.setValue("Application/UseISOFont",true);
+            config.setValue("Paths/WorkingDirectory",directory.path());
+            for(const auto* key:{"Uppercase","RemoveDiacritics","ReplaceSpaces"})config.setValue(QString("DocumentNames/")+key,false);
             config.sync();
             app::AssemblyWorkspaceWindow window(directory.path());window.resize(1366,768);window.show();flush();
+            for (bool accept : {false, true}) {
+                window.findChild<QAction*>("globalSettingsAction")->trigger();flush();
+                auto* options=window.findChild<QDialog*>("globalSettingsDialog");check(options,"Naming settings missing");
+                const auto loaded=app::ApplicationSettings::load(directory.path());
+                for(const auto& pair : {std::pair{"globalNamesUppercase","Převádět názvy na velká písmena"},
+                        std::pair{"globalNamesRemoveDiacritics","Odstraňovat diakritiku z názvů"},
+                        std::pair{"globalNamesReplaceSpaces","Nahrazovat mezery v názvech podtržítkem"}}) {
+                    auto* field=options->findChild<QCheckBox*>(pair.first);
+                    check(field&&!field->isChecked(),"Naming options did not load disabled settings");
+                    check(field->text()==loaded.qt_translations.value(QString::fromUtf8(pair.second)),"Naming option translation differs");
+                    field->setChecked(true);
+                }
+                if(accept)options->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();else options->reject();
+                flush();
+                const auto saved=app::ApplicationSettings::load(directory.path());
+                check(saved.document_naming.uppercase==accept&&saved.document_naming.remove_diacritics==accept&&saved.document_naming.replace_spaces==accept,"Naming OK/Cancel persistence failed");
+            }
+            window.findChild<QAction*>("newDocumentAction")->trigger();flush();
+            auto* typing=window.findChild<QDialog*>("newDocumentDialog");
+            auto* name=typing->findChild<QLineEdit*>("newDocumentFileName");
+            check(name&&name->text().isEmpty(),"New filename must start empty");
+            name->insert(QString::fromUtf8("Příruba čelní"));
+            check(name->text()=="PRIRUBA_CELNI","Typing did not apply updated naming settings");
+            typing->reject();flush();
+            window.findChild<QAction*>("globalSettingsAction")->trigger();flush();
+            auto* reset=window.findChild<QDialog*>("globalSettingsDialog");
+            for(const auto* id:{"globalNamesUppercase","globalNamesRemoveDiacritics","globalNamesReplaceSpaces"}) {
+                auto* field=reset->findChild<QCheckBox*>(id);check(field&&field->isChecked(),"Naming options did not reopen enabled");field->setChecked(false);
+            }
+            reset->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
             const auto create=[&](const QString& type,const QString& name,int mode=0,bool a3=false) {
                 window.findChild<QAction*>("newDocumentAction")->trigger();flush();
                 auto* dialog=window.findChild<QDialog*>("newDocumentDialog");check(dialog,"New Document did not open");
-                dialog->findChild<QLineEdit*>("newDocumentFileName")->setText(name);
+                auto* input=dialog->findChild<QLineEdit*>("newDocumentFileName");
+                check(input->text().isEmpty(),"New Document prefilled a filename");
+                input->insert(name);
+                check(input->text()==name,"Disabled naming policy changed typed text");
                 for(auto* radio:dialog->findChildren<QRadioButton*>())
                     if(radio->property("documentType").toString()==type)radio->setChecked(true);
                 auto* modes=dialog->findChild<QComboBox*>("newDocumentPartMode");
@@ -118,7 +153,27 @@ int verify_new_document_options(QApplication& application) {
             check_drawing(drawing::SheetFormat::A3,"chosen-format");
             check(window.close(),"New Document tests left unsaved changes");
         }
-        std::cout<<"New Document: Modeling/Sheet Metal, configured A3, linked Part/Assembly A4 and localized title blocks passed in five languages\n";
+        {
+            QTemporaryDir directory;QSettings config(directory.filePath("config.ini"),QSettings::IniFormat);
+            for(const auto* key:{"Uppercase","RemoveDiacritics","ReplaceSpaces"})config.setValue(QString("DocumentNames/")+key,true);
+            config.sync();
+            app::AssemblyWorkspaceWindow window(directory.path());window.show();flush();
+            for(const QString type:{"part","assembly"}) {
+                window.findChild<QAction*>("newDocumentAction")->trigger();flush();
+                auto* dialog=window.findChild<QDialog*>("newDocumentDialog");check(dialog,"Naming test dialog missing");
+                dialog->findChild<QLineEdit*>("newDocumentFileName")->setText(QString::fromUtf8("Příruba čelní"));
+                for(auto* radio:dialog->findChildren<QRadioButton*>())if(radio->property("documentType").toString()==type)radio->setChecked(true);
+                if(type=="part")dialog->findChild<QComboBox*>("newDocumentPartMode")->setCurrentIndex(2);
+                dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+                check(!window.findChild<QDialog*>("newDocumentDialog"),"Naming policy rejected valid input");
+                window.findChild<QAction*>("saveDocumentAction")->trigger();flush();
+                const auto path=directory.filePath(type=="part"?"PRIRUBA_CELNI_SKELETON.prtz":"PRIRUBA_CELNI.asmz");
+                check(QFileInfo::exists(path),"GUI did not normalize the document filename");
+                if(type=="part")check(window.findChild<QAction*>("boxAction")->isEnabled(),"Renamed Skeleton template has no active modeling context");
+            }
+            check(window.close(),"Naming test left unsaved changes");
+        }
+        std::cout<<"New Document: factory templates, naming policy and localized options passed\n";
         return 0;
     }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
 }

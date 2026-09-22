@@ -31,7 +31,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path directory){
         {"pyramid",{{"length_mm","10"},{"width_mm","8"},{"height_mm","6"}},"height",160,2},
         {"wedge",{{"length_mm","10"},{"width_mm","8"},{"height_mm","6"},{"top_offset_mm","2"}},"height",288,2}};
     workspace::Workspace live;command_host::Options options;
-    options.settings=[] {command_host::Settings settings;settings.templates={fs::absolute("config/templates"),"start_part.prtz","start_assembly.asmz","Body"};return settings;};
+    options.settings=[] {command_host::Settings settings;settings.templates={fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"};return settings;};
     command_host::Host host(live,kernel,directory,options);
     for(const auto& test:cases){
         const std::string name=test.name;

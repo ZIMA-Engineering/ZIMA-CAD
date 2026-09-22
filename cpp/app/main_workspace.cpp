@@ -10581,7 +10581,7 @@ int verify_startup_contract(
     try {
         const auto template_part = zima::document::PartDocument::load(
             std::filesystem::current_path() /
-            "config/templates/start_part.prtz");
+            "config/templates/START_PART.prtz");
         const auto created_part =
             zima::document::PartDocument::load(saved_part_path);
         if (!verify(created_part.document_id != template_part.document_id &&
@@ -11042,7 +11042,7 @@ int verify_startup_contract(
             const auto template_assembly =
                 zima::assembly::AssemblyDocument::load(
                     std::filesystem::current_path() /
-                    "config/templates/start_assembly.asmz");
+                    "config/templates/START_ASSEMBLY.asmz");
             const auto created_assembly =
                 zima::assembly::AssemblyDocument::load(
                     saved_nested_assembly_path);

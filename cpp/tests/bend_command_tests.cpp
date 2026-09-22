@@ -172,7 +172,7 @@ void verify_sketches(document::HistoryContainer feature,const sketcher::Sketch& 
 }
 void verify_sheet_attachment(std::filesystem::path directory) {
     kernel::OcctKernel kernel;workspace::Workspace live;command_host::Options options;
-    options.settings=[] {command_host::Settings s;s.templates={std::filesystem::absolute("config/templates"),"start_part.prtz","start_assembly.asmz","Body"};return s;};
+    options.settings=[] {command_host::Settings s;s.templates={std::filesystem::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"};return s;};
     command_host::Host host(live,kernel,directory,options);
     run(host,"new",{{"type","part"},{"name","sheet-attachment"}});
     run(host,"flat.create",{{"width_mm",40.},{"height_mm",30.},{"thickness_mm",2.}});
@@ -510,7 +510,7 @@ void verify_prepared_start() {
 }
 void verify(std::filesystem::path directory) {
     kernel::OcctKernel kernel;workspace::Workspace live;command_host::Options options;
-    options.settings=[] {command_host::Settings s;s.templates={std::filesystem::absolute("config/templates"),"start_part.prtz","start_assembly.asmz","Body"};return s;};
+    options.settings=[] {command_host::Settings s;s.templates={std::filesystem::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"};return s;};
     command_host::Host host(live,kernel,directory,options);run(host,"new",{{"type","part"},{"name","bend-test"}});
     const auto id=live.active_document_id();
     const auto created=run(host,"bend.create",{{"width_mm",40.},{"radius_mm",5.},{"angle_degrees",90.}}).data;
@@ -661,7 +661,7 @@ void verify(std::filesystem::path directory) {
 }
 void verify_continuation(std::filesystem::path directory) {
     kernel::OcctKernel kernel;workspace::Workspace live;command_host::Options options;
-    options.settings=[] {command_host::Settings s;s.templates={std::filesystem::absolute("config/templates"),"start_part.prtz","start_assembly.asmz","Body"};return s;};
+    options.settings=[] {command_host::Settings s;s.templates={std::filesystem::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"};return s;};
     command_host::Host host(live,kernel,directory,options);
     run(host,"new",{{"type","part"},{"name","bend-continuation"}});
     const auto owner=run(host,"bend.create",{{"width_mm",40.},{"radius_mm",5.},{"angle_degrees",90.}}).data.at("container").get<std::string>();
@@ -722,7 +722,7 @@ void verify_continuation(std::filesystem::path directory) {
 }
 void verify_continuation_side_attachment(std::filesystem::path directory) {
     kernel::OcctKernel kernel;workspace::Workspace live;command_host::Options options;
-    options.settings=[] {command_host::Settings s;s.templates={std::filesystem::absolute("config/templates"),"start_part.prtz","start_assembly.asmz","Body"};return s;};
+    options.settings=[] {command_host::Settings s;s.templates={std::filesystem::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"};return s;};
     command_host::Host host(live,kernel,directory,options);
     run(host,"new",{{"type","part"},{"name","bend-continuation-side"}});
     const auto first=run(host,"bend.create",{{"width_mm",40.},{"radius_mm",5.},{"angle_degrees",90.}}).data.at("container").get<std::string>();
@@ -791,7 +791,7 @@ void verify_continuation_side_attachment(std::filesystem::path directory) {
 void verify_sheet_cut(std::filesystem::path directory,bool rotated=false) {
     if(rotated) {directory/="rotated-origin";std::filesystem::create_directories(directory);}
     kernel::OcctKernel kernel;workspace::Workspace live;command_host::Options options;
-    options.settings=[] {command_host::Settings s;s.templates={std::filesystem::absolute("config/templates"),"start_part.prtz","start_assembly.asmz","Body"};return s;};
+    options.settings=[] {command_host::Settings s;s.templates={std::filesystem::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"};return s;};
     command_host::Host host(live,kernel,directory,options);
     run(host,"new",{{"type","part"},{"name","sheet-cut-cylinder"}});
     const auto id=live.active_document_id();auto* state=live.open_part(id);
@@ -955,7 +955,7 @@ void verify_sheet_cut(std::filesystem::path directory,bool rotated=false) {
 }
 void verify_sheet_cut_across_attachment(std::filesystem::path directory) {
     kernel::OcctKernel kernel;workspace::Workspace live;command_host::Options options;
-    options.settings=[] {command_host::Settings s;s.templates={std::filesystem::absolute("config/templates"),"start_part.prtz","start_assembly.asmz","Body"};return s;};
+    options.settings=[] {command_host::Settings s;s.templates={std::filesystem::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"};return s;};
     command_host::Host host(live,kernel,directory,options);
     for(const bool conical:{false,true}) {
     run(host,"new",{{"type","part"},{"name",conical?"sheet-cut-across-cone-attachment":"sheet-cut-across-attachment"}});
@@ -1002,7 +1002,7 @@ void verify_sheet_cut_across_attachment(std::filesystem::path directory) {
 }
 void verify_sheet_cut_cone_orientation(std::filesystem::path directory,bool clearance=false) {
     kernel::OcctKernel kernel;workspace::Workspace live;command_host::Options options;
-    options.settings=[] {command_host::Settings s;s.templates={std::filesystem::absolute("config/templates"),"start_part.prtz","start_assembly.asmz","Body"};return s;};
+    options.settings=[] {command_host::Settings s;s.templates={std::filesystem::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"};return s;};
     command_host::Host host(live,kernel,directory,options);
     const double angle=std::numbers::pi/2,cosine=40/std::sqrt(1700.);
     for(const double taper:{-.25,.25})for(const bool reverse_profile:{false,true})for(const bool reverse_axis:{false,true}) {
@@ -1109,7 +1109,7 @@ void verify_sheet_cut_cone_orientation(std::filesystem::path directory,bool clea
 }
 void verify_sheet_cut_projection_extent(std::filesystem::path directory,bool clearance=false) {
     kernel::OcctKernel kernel;workspace::Workspace live;command_host::Options options;
-    options.settings=[] {command_host::Settings s;s.templates={std::filesystem::absolute("config/templates"),"start_part.prtz","start_assembly.asmz","Body"};return s;};
+    options.settings=[] {command_host::Settings s;s.templates={std::filesystem::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"};return s;};
     command_host::Host host(live,kernel,directory,options);
     const std::string name=clearance?"sheet-cut-clearance-projection-extents":"sheet-cut-projection-extents";
     run(host,"new",{{"type","part"},{"name",name}});
@@ -1208,7 +1208,7 @@ void verify_sheet_cut_rotated_origin(std::filesystem::path directory) {
 }
 void verify_sheet_cut_clearance(std::filesystem::path directory) {
     kernel::OcctKernel kernel;workspace::Workspace live;command_host::Options options;
-    options.settings=[] {command_host::Settings s;s.templates={std::filesystem::absolute("config/templates"),"start_part.prtz","start_assembly.asmz","Body"};return s;};
+    options.settings=[] {command_host::Settings s;s.templates={std::filesystem::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"};return s;};
     command_host::Host host(live,kernel,directory,options);
     run(host,"new",{{"type","part"},{"name","sheet-cut-clearance-cylinder"}});
     auto id=live.active_document_id();auto* state=live.open_part(id);
@@ -1343,7 +1343,7 @@ void verify_sheet_cut_clearance(std::filesystem::path directory) {
 }
 void verify_sheet_cut_bounded_bend_thickness(std::filesystem::path directory) {
     kernel::OcctKernel kernel;workspace::Workspace live;command_host::Options options;
-    options.settings=[] {command_host::Settings s;s.templates={std::filesystem::absolute("config/templates"),"start_part.prtz","start_assembly.asmz","Body"};return s;};
+    options.settings=[] {command_host::Settings s;s.templates={std::filesystem::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"};return s;};
     command_host::Host host(live,kernel,directory,options);
     for(const bool clearance:{false,true}) {
         run(host,"new",{{"type","part"},{"name",clearance?"bend-bounded-clearance-thickness":"bend-bounded-normal-thickness"}});
@@ -1397,7 +1397,7 @@ void verify_sheet_cut_bounded_bend_thickness(std::filesystem::path directory) {
 }
 void verify_sheet_revolution(std::filesystem::path directory) {
     kernel::OcctKernel kernel;workspace::Workspace live;command_host::Options options;
-    options.settings=[] {command_host::Settings s;s.templates={std::filesystem::absolute("config/templates"),"start_part.prtz","start_assembly.asmz","Body"};return s;};
+    options.settings=[] {command_host::Settings s;s.templates={std::filesystem::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"};return s;};
     command_host::Host host(live,kernel,directory,options);
     run(host,"new",{{"type","part"},{"name","sheet-revolution"}});
     const auto id=live.active_document_id();auto* state=live.open_part(id);

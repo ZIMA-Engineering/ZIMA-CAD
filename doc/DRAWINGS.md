@@ -3,6 +3,22 @@
 This document describes the current ZIMA-CAD Drawing data and interaction model.
 Basic usage is also in the [user manual](UZIVATELSKY_MANUAL.md#basic-drawing-workflow).
 
+## Frame trimming marks
+
+All factory frames `ZE-A0.frmz` through `ZE-A4.frmz` enable
+`Frame/TrimmingMarks=true`. Each trimmed-paper corner contains two overlapping
+filled rectangles, 10 by 5 mm, forming an L with 5 mm arms. Dimensions stay in
+paper millimetres regardless of the model/view scale. Marks are white in the
+interactive Drawing and black in print, PDF and DXF; all use the shared painter.
+The construction follows ISO 5457:1999, section 4.5, figure 6
+([standard preview](https://cdn.standards.iteh.ai/samples/29017/e46c0ec5d98f470aab82dae76889f229/ISO-5457-1999.pdf)).
+
+The loaded frame option is embedded in the native Drawing and survives reopening
+without the library file. Clearing the frame clears its marks. Existing drawings
+retain their saved frame until the updated frame template is loaded again.
+The option remains in the template metadata when the frame is edited and saved;
+it is a standard paper decoration, not selectable Sketch model geometry.
+
 ## Assembly projection performance and Skeleton exclusion (2026-09-22)
 
 ### Boundary visibility correction

@@ -34,7 +34,7 @@ struct Fixture {
     static command_host::Options options() {
         command_host::Options value;
         value.settings = [] { command_host::Settings settings;
-            settings.templates = {fs::absolute("config/templates"), "start_part.prtz", "start_assembly.asmz", "Body"}; return settings; };
+            settings.templates = {fs::absolute("config/templates"), "START_PART.prtz", "START_ASSEMBLY.asmz", "Body"}; return settings; };
         return value;
     }
     Json run(const char* command, Json args = Json::object()) {

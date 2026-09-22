@@ -20,7 +20,7 @@ void volume(const workspace::PartState& state,double expected) {
 }
 void verify(const kernel::OcctKernel& kernel,fs::path directory) {
     workspace::Workspace live;command_host::Options options;command_host::Interaction interaction;
-    options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"start_part.prtz","start_assembly.asmz","Body"},{}};};
+    options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"},{}};};
     options.interaction=[&]{return interaction;};command_host::Host host(live,kernel,directory,options);
     run(host,"new",{{"type","part"},{"name","history"}});const auto doc=live.active_document_id();auto* state=live.open_part(doc);
     const auto body=state->session.document().body_history.active_body_id();

@@ -1,5 +1,6 @@
 #pragma once
 #include <zima/workspace/workspace.hpp>
+#include <functional>
 
 namespace zima::workspace {
 struct FileRenameError : std::runtime_error {
@@ -30,9 +31,10 @@ private:
     std::unique_ptr<Impl> impl_;
     explicit FileRenameJob(std::unique_ptr<Impl>);
     friend FileRenameJob prepare_document_file_rename(
-        const Workspace&, const std::string&, const std::string&, const std::filesystem::path&);
+        const Workspace&, const std::string&, const std::string&, const std::filesystem::path&, const std::function<std::string(const std::string&)>&);
 };
 [[nodiscard]] FileRenameJob prepare_document_file_rename(
     const Workspace&, const std::string& document_id, const std::string& filename,
-    const std::filesystem::path& working_directory);
+    const std::filesystem::path& working_directory,
+    const std::function<std::string(const std::string&)>& normalize_name = {});
 } // namespace zima::workspace

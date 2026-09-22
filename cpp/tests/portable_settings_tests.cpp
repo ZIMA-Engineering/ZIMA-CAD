@@ -19,6 +19,14 @@ QByteArray read(const QString& path) { QFile f(path); require(f.open(QIODevice::
 int main(int argc, char** argv) {
     QApplication app(argc, argv);
     try {
+        const QString sample=QString::fromUtf8("  Příruba   čelní.PRTZ  ");
+        require(zima::DocumentNaming{}.normalize(sample)==sample,"Absent naming settings changed a name");
+        const zima::DocumentNaming naming{true,true,true};
+        require(naming.normalize(QString::fromUtf8("  Příruba   čelní.PRTZ"))=="PRIRUBA_CELNI.prtz","Combined naming policy or native suffix failed");
+        require(naming.normalize(QString::fromUtf8("Pr\u030ci\u0301ruba"))=="PRIRUBA","Decomposed Unicode diacritics were not removed");
+        require(zima::DocumentNaming{false,true,false}.normalize(QString::fromUtf8("Čelní díl"))=="Celni dil","Independent diacritics option failed");
+        require(zima::DocumentNaming{true,false,false}.normalize(QString::fromUtf8("Čelní díl"))==QString::fromUtf8("ČELNÍ DÍL"),"Independent uppercase option failed");
+        require(zima::DocumentNaming{false,false,true}.normalize("  front   part  ")=="front_part","Independent whitespace option failed");
         QTemporaryDir temporary; require(temporary.isValid(), "temporary directory unavailable");
         const auto root = temporary.path() + "/portable space";
 #ifdef _WIN32
@@ -41,6 +49,15 @@ int main(int argc, char** argv) {
         require(settings.resolved_paths["WorkingDirectory"] == root + "/Projects", "portable project default wrong");
         const auto cli = zima::cli::load_settings(std::filesystem::u8path(exe.toStdString()), std::filesystem::u8path((root + "/Projects").toStdString()), {});
         require(cli.documents.units.at("Length") == "cm", "CLI/common settings differ");
+        require(settings.document_naming.normalize(sample)==sample&&cli.documents.normalize_document_name(sample.toStdString())==sample.toStdString(),"Missing configuration enabled name conversion");
+        {
+            QSettings names(root+"/config/config.ini",QSettings::IniFormat);
+            for(const auto* key:{"Uppercase","RemoveDiacritics","ReplaceSpaces"})names.setValue(QString("DocumentNames/")+key,true);
+            names.sync();
+            const auto gui_names=zima::app::ApplicationSettings::load(root+"/Projects",exe);
+            const auto cli_names=zima::cli::load_settings(std::filesystem::u8path(exe.toStdString()),std::filesystem::u8path((root+"/Projects").toStdString()),{});
+            require(gui_names.document_naming.normalize(sample)=="PRIRUBA_CELNI.prtz"&&cli_names.documents.normalize_document_name(sample.toStdString())=="PRIRUBA_CELNI.prtz","GUI/CLI naming configuration differs");
+        }
         require(settings.sheet_cut_tolerance==.025&&cli.documents.templates.sheet_cut_tolerance==.025,
             "GUI/CLI Sheet Cut default layers differ");
         const auto platform_before = read(root + "/config/" + platform + "/config.ini");

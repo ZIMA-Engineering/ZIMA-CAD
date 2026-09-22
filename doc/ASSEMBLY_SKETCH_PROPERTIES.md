@@ -64,7 +64,7 @@ the full parent Assembly as passive context.
 
 At this stage, `.asmz` uses INI version 18 and internal JSON version 27. Required
 `sketch_containers` entries contain ID, parent identity, name, suppression,
-Placement, and locks. `config/templates/start_assembly.asmz` was updated while
+Placement, and locks. `config/templates/START_ASSEMBLY.asmz` was updated while
 preserving other template metadata. Extensions are unchanged. This change does
 not alter the Part format or start Part structure.
 

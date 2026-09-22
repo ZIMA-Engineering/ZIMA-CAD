@@ -10,7 +10,7 @@ void require(bool yes,const char* text){if(!yes)throw std::runtime_error(text);}
 commands::Result run(command_host::Host& host,const char* name,Json args=Json::object()) {
     auto result=host.execute({{"command",name},{"arguments",std::move(args)}});if(!result.ok)throw std::runtime_error(std::string(name)+": "+result.code+": "+result.message);return result;
 }
-command_host::Options options() {command_host::Options options;options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"start_part.prtz","start_assembly.asmz","Body"},{}};};return options;}
+command_host::Options options() {command_host::Options options;options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"},{}};};return options;}
 void skeleton(const kernel::OcctKernel& kernel,fs::path dir) {
     workspace::Workspace live;command_host::Host host(live,kernel,dir,options());
     run(host,"new",{{"type","part"},{"name","reference_skeleton"}});const auto source=live.active_document_id();run(host,"save");

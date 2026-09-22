@@ -174,6 +174,6 @@ with explicit Regenerate remaining a separate calculation action.
   normalized to `kg/mm^3` and mass stored in kilograms.
 - Drawing owns no relations. Its Parameters dialog edits the source Part/Assembly
   and refreshes Drawing geometry and title block after committing.
-- New Parts clone configured `start_part.prtz`, assigning a new document ID and
+- New Parts clone configured `START_PART.prtz`, assigning a new document ID and
   target name. Default relations thus remain in normal model files, not hard-coded
   application logic.

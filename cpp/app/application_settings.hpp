@@ -2,6 +2,7 @@
 
 #include <QMap>
 #include <QString>
+#include "../common/document_naming.hpp"
 
 class QApplication;
 
@@ -14,6 +15,7 @@ struct StartupContext {
 };
 
 struct ApplicationSettings {
+    DocumentNaming document_naming;
     QString language{QStringLiteral("cs")};
     QString config_path;
     QString base_config_path;
@@ -26,8 +28,8 @@ struct ApplicationSettings {
     QMap<QString, QString> units;
     QMap<QString, QString> translations;
     QMap<QString, QString> qt_translations;
-    QString part_template{QStringLiteral("start_part.prtz")};
-    QString assembly_template{QStringLiteral("start_assembly.asmz")};
+    QString part_template{QStringLiteral("START_PART.prtz")};
+    QString assembly_template{QStringLiteral("START_ASSEMBLY.asmz")};
     bool use_iso_application_font{true};
     bool stacked_tolerances{};
     double sheet_cut_tolerance{0.05};

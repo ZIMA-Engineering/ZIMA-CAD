@@ -42,7 +42,7 @@ int main() {
         const auto start_assembly_template =
             zima::assembly::AssemblyDocument::load(
                 std::filesystem::current_path() /
-                "config/templates/start_assembly.asmz");
+                "config/templates/START_ASSEMBLY.asmz");
         require(start_assembly_template.document_id ==
                     "template-start-assembly" &&
                     start_assembly_template.components.empty() &&

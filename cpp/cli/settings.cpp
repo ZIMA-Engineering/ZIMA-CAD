@@ -1,4 +1,5 @@
 #include "settings.hpp"
+#include "../common/document_naming.hpp"
 #include <zima/document/precision.hpp>
 #include "../common/installation.hpp"
 #include <algorithm>
@@ -48,7 +49,7 @@ Values read_ini(const fs::path& path,bool catalogue=false){
         const auto key=trim(line.substr(0,equals));
         // Other GUI-only settings do not constrain a command-line process.
         const auto full_key=section+"/"+key;
-        if(!catalogue && full_key!="Application/Language" && full_key!="Paths/Templates" && full_key!="Paths/Localization" &&
+        if(!catalogue && !full_key.starts_with("DocumentNames/") && full_key!="Application/Language" && full_key!="Paths/Templates" && full_key!="Paths/Localization" &&
             full_key!="Templates/Part" && full_key!="Templates/Assembly" && full_key!="Units/Length" &&
             full_key!="Units/Angle" && full_key!="Units/Mass" && full_key!="Units/Time" &&
             full_key!="Units/Temperature" && full_key!="Units/Stress" && full_key!="SheetMetal/CutTolerance")continue;
@@ -99,9 +100,11 @@ Settings load_settings(const fs::path& executable,const fs::path& working,const 
     const auto value=[&](const char* key,const char* fallback){const auto found=supplied(key);return found.second.empty()?std::string(fallback):found.second;};
     const auto configured_path=[&](const char* key,const char* fallback){const auto found=supplied(key);return resolve(found.first,found.second.empty()?fallback:found.second);};
     Settings result;
+    const auto enabled=[&](const char* key){auto text=value(key,"false");std::ranges::transform(text,text.begin(),[](unsigned char c){return char(std::tolower(c));});return text=="true";};
+    result.documents.normalize_document_name=DocumentNaming{enabled("DocumentNames/Uppercase"),enabled("DocumentNames/RemoveDiacritics"),enabled("DocumentNames/ReplaceSpaces")};
     result.stacked_tolerances=value("Dimensions/ToleranceLayout","inline")=="stacked";
     result.documents.templates={configured_path("Paths/Templates","templates"),
-        fs::u8path(value("Templates/Part","start_part.prtz")),fs::u8path(value("Templates/Assembly","start_assembly.asmz")),"Těleso 1"};
+        fs::u8path(value("Templates/Part","START_PART.prtz")),fs::u8path(value("Templates/Assembly","START_ASSEMBLY.asmz")),"Těleso 1"};
     try {
         result.documents.templates.sheet_cut_tolerance=document::sheet_cut_tolerance({
             {"sheet_cut_tolerance",value("SheetMetal/CutTolerance","0.05")}});

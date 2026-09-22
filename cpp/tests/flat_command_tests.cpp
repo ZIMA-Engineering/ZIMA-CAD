@@ -112,7 +112,7 @@ void verify_bend_attachment(const std::filesystem::path& directory) {
 }
 void verify_attached_history(std::filesystem::path directory) {
     kernel::OcctKernel kernel;workspace::Workspace live;command_host::Options options;
-    options.settings=[] {command_host::Settings s;s.templates={std::filesystem::absolute("config/templates"),"start_part.prtz","start_assembly.asmz","Body"};return s;};
+    options.settings=[] {command_host::Settings s;s.templates={std::filesystem::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"};return s;};
     command_host::Host host(live,kernel,directory,options);run(host,"new",{{"type","part"},{"name","attached-history"}});
     const auto id=live.active_document_id();
     const auto bend=run(host,"bend.create",{{"width_mm",40.},{"radius_mm",5.}}).data.at("container").get<std::string>();
@@ -193,7 +193,7 @@ void verify_attached_history(std::filesystem::path directory) {
 
 void verify(std::filesystem::path directory) {
     kernel::OcctKernel kernel;workspace::Workspace live;command_host::Options options;
-    options.settings=[] {command_host::Settings s;s.templates={std::filesystem::absolute("config/templates"),"start_part.prtz","start_assembly.asmz","Body"};return s;};
+    options.settings=[] {command_host::Settings s;s.templates={std::filesystem::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"};return s;};
     command_host::Host host(live,kernel,directory,options);run(host,"new",{{"type","part"},{"name","flat-test"}});
     const auto id=live.active_document_id();
     const auto created=run(host,"flat.create",{{"width_mm",40.},{"height_mm",30.}}).data;

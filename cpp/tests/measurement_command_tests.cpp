@@ -20,7 +20,7 @@ Json ref(const char* kind,const std::string& owner,const std::string& key={},con
 }
 void verify(const kernel::OcctKernel& kernel,fs::path dir) {
     workspace::Workspace live;command_host::Options options;bool editing=false;
-    options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"start_part.prtz","start_assembly.asmz","Body"},{}};};
+    options.settings=[] {return command_host::Settings{{fs::absolute("config/templates"),"START_PART.prtz","START_ASSEMBLY.asmz","Body"},{}};};
     options.interaction=[&]{command_host::Interaction value;value.editing=editing;return value;};
     command_host::Host host(live,kernel,dir,options);
     require(host.execute_text("measurement.list").code=="unsupported_document","Measurement query accepted no document");

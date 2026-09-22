@@ -229,7 +229,7 @@ completion of the agreed features.
 - model-owned safe relations that write evaluated results into ordinary user
   parameters; the first system values expose volume, area, material density
   and mass without executing arbitrary Python
-- configurable `start_part.prtz` template used for every newly created Part
+- configurable `START_PART.prtz` template used for every newly created Part
 
 ## 2. Sketcher
 

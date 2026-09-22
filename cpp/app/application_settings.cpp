@@ -135,6 +135,9 @@ ApplicationSettings ApplicationSettings::load(const QString& working_directory, 
         return fallback;
     };
     result.language = value("Application/Language", "cs");
+    result.document_naming.uppercase=value("DocumentNames/Uppercase","false").toLower()=="true";
+    result.document_naming.remove_diacritics=value("DocumentNames/RemoveDiacritics","false").toLower()=="true";
+    result.document_naming.replace_spaces=value("DocumentNames/ReplaceSpaces","false").toLower()=="true";
     result.use_iso_application_font = value("Application/UseISOFont", "true").toLower() != "false";
     result.stacked_tolerances = value("Dimensions/ToleranceLayout", "inline") == "stacked";
     try {
@@ -158,8 +161,8 @@ ApplicationSettings ApplicationSettings::load(const QString& working_directory, 
     result.initial_configured_paths = result.configured_paths;
     for (auto it = unit_defaults.cbegin(); it != unit_defaults.cend(); ++it)
         result.units.insert(it.key(), value("Units/" + it.key(), it.value()));
-    result.part_template = value("Templates/Part", "start_part.prtz");
-    result.assembly_template = value("Templates/Assembly", "start_assembly.asmz");
+    result.part_template = value("Templates/Part", "START_PART.prtz");
+    result.assembly_template = value("Templates/Assembly", "START_ASSEMBLY.asmz");
     QFile translations(QDir(result.resolved_paths.value("Localization"))
                            .absoluteFilePath(result.language + ".ini"));
     if (translations.open(QIODevice::ReadOnly | QIODevice::Text)) {
@@ -299,6 +302,9 @@ bool ApplicationSettings::save(QString* error) const {
     QMap<QString, QVariant> common{
         {"Application/Language", language}, {"Application/UseISOFont", use_iso_application_font},
         {"Dimensions/ToleranceLayout", stacked_tolerances ? "stacked" : "inline"},
+        {"DocumentNames/Uppercase", document_naming.uppercase},
+        {"DocumentNames/RemoveDiacritics", document_naming.remove_diacritics},
+        {"DocumentNames/ReplaceSpaces", document_naming.replace_spaces},
         {"SheetMetal/CutTolerance",sheet_cut_tolerance},
         {"Templates/Part", part_template}, {"Templates/Assembly", assembly_template}};
     for (auto it = units.cbegin(); it != units.cend(); ++it) common.insert("Units/" + it.key(), it.value());

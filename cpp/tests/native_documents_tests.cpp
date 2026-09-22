@@ -15,7 +15,7 @@ int main(){
     using namespace zima;using namespace zima::workspace;namespace fs=std::filesystem;
     try {
         const auto template_root=fs::absolute("config/templates");
-        const NativeTemplateSettings settings{template_root,"start_part.prtz","start_assembly.asmz","Těleso 1"};
+        const NativeTemplateSettings settings{template_root,"START_PART.prtz","START_ASSEMBLY.asmz","Těleso 1"};
         const auto part_template_bytes=bytes(template_root/settings.part_template);
         const auto assembly_template_bytes=bytes(template_root/settings.assembly_template);
         const auto template_part=document::PartDocument::load(template_root/settings.part_template);
@@ -67,7 +67,7 @@ int main(){
         require(second_id!=first_id && workspace.open_part(second_id)->session.document().body_history.bodies().front().scope.id!=first_body.scope.id,"New Parts share persistent object IDs");
         require(workspace.active_document_id()==first_id && workspace.displayed_document_id()==first_id,"Creating another document switched context");
         auto custom_settings=settings;custom_settings.sheet_cut_tolerance=.0125;
-        const auto skeleton_template=document::PartDocument::load(template_root/"start_skeleton.prtz");
+        const auto skeleton_template=document::PartDocument::load(template_root/"START_SKELETON.prtz");
         require(skeleton_template.body_history.bodies().empty(),"Skeleton template contains persistent Body identities");
         for(const auto* filename:{"layout_skeleton.prtz","reference_SKELETON.PRTZ"}) {
             auto skeleton=prepare_new_native_document(NativeDocumentType::Part,"layout",directory/filename,settings);
