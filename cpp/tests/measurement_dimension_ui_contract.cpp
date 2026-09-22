@@ -515,6 +515,7 @@ int verify_measurement_dimension_ui() {
                 require(layout.valid&&layout.arrows.size()==1&&layout.text_angle==0,
                         "Running ordinate must have one arrow and upright text");
                 require(layout.curves.size()==2,"Branch needs its witness and a connection to zero");
+                require(layout.curves.front().back()==projection(ordinate.line_second),"Witness extends underneath the chain value");
             }
             // Both sides of horizontal, vertical and oblique spines: text is
             // perpendicular, readable and outside the witness half-plane.
@@ -652,17 +653,25 @@ int verify_measurement_dimension_ui() {
                 require(zero.chain_datum_only&&zero.chain_direction&&std::abs(zero.chain_direction->x)<1e-8,"Edge datum did not infer its perpendicular measuring direction");
                 auto* edge_table=edge_dialog->findChild<QTableWidget*>("drawingDimensionReferences");
                 require(edge_table->isRowHidden(1)&&!edge_table->isRowHidden(2),"Edge datum shows a redundant direction row or no branch draft");
-                auto* draft=edge_table->verticalHeader()->findChild<QWidget*>("tableRowAction2");
+                require(edge_table->verticalHeaderItem(0)->text()=="0"&&edge_table->cellWidget(0,0),"Datum number must be outside and its action inside the table");
+                auto* draft=edge_table->findChild<QWidget*>("tableRowAction2");
                 require(draft,"Branch draft has no shared green arrow");
                 auto* arrow=qobject_cast<QWidget*>(draft->property("_arrowWidget").value<QObject*>());
                 require(arrow&&!arrow->isHidden(),"Branch draft is not a green arrow");
                 mouse(arrow,QEvent::MouseButtonRelease,QPointF(15,15),Qt::LeftButton,Qt::NoButton);
                 require(edge_dialog->entering(),"Green arrow did not arm the next branch reference");
                 edge_dialog->accept_candidate(view.id,{{DimensionAttachmentKind::Line,{"profile","top",{}},{},.5},{15,20}});
-                require(!edge_dialog->placing()&&!edge_dialog->entering(),"Added branch requires another placement");
+                require(!edge_dialog->placing()&&edge_dialog->entering(),"Added branch did not continue reference entry");
                 const auto added=evaluate_drawing_dimension(view,edge_dialog->value());
                 require(added.state==MeasurementState::Resolved&&added.presentations.front().value==20,"Parallel edge branch is not measured from zero");
-                auto* populated=edge_table->verticalHeader()->findChild<QWidget*>("tableRowAction1");
+                edge_dialog->accept_candidate(view.id,{{DimensionAttachmentKind::CurvePoint,{"profile","right",{}},{},.5},{30,10}});
+                require(edge_dialog->value().segments.size()==2&&edge_dialog->entering(),"Consecutive pick failed to append another branch");
+                require(edge_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->isEnabled(),"Continuous entry leaves an incomplete stored branch");
+                edge_dialog->end_entry();
+                require(!edge_dialog->entering()&&edge_dialog->value().segments.size()==2,"Ending entry removed a completed branch");
+                auto* second=edge_table->findChild<QWidget*>("tableRowAction2");
+                qobject_cast<QPushButton*>(second->property("_removeWidget").value<QObject*>())->click();flush();
+                auto* populated=edge_table->findChild<QWidget*>("tableRowAction1");
                 require(populated,"Filled branch has no row action");
                 auto* remove=qobject_cast<QPushButton*>(populated->property("_removeWidget").value<QObject*>());
                 require(remove&&!remove->isHidden(),"Filled branch did not change its arrow to a cross");
@@ -680,7 +689,7 @@ int verify_measurement_dimension_ui() {
             app::DrawingDimensionDialog edit(original,false,[&](const auto&){return &view;},[&](auto){committed=true;},&window);
             edit.setAttribute(Qt::WA_DeleteOnClose,false);
             auto* table=edit.findChild<QTableWidget*>("drawingDimensionReferences");
-            auto* action=table->verticalHeader()->findChild<QWidget*>("tableRowAction0");
+            auto* action=table->findChild<QWidget*>("tableRowAction0");
             require(action,"Required reference has no removal action");
             auto* remove=qobject_cast<QPushButton*>(action->property("_removeWidget").value<QObject*>());
             require(remove,"Required reference has no cross");

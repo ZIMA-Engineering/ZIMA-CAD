@@ -33,7 +33,6 @@ viewer::DimensionPresentation chain_dimension_layout(
     // above the line, including stacked deviations, with a fixed paper gap.
     const auto constrained=tip+along*viewer::dimension_screen_dot(label-tip,along);
     const auto center=constrained+outside*(1.5*scale+bounds.width()/2);
-    result.curves.front().back()=tip+outside*std::max(0.,viewer::dimension_screen_dot(center-tip,outside)+bounds.width()/2+scale);
     const auto normal=QPointF(-along.y(),along.x());
     result.text_baseline=center-along*bounds.center().x()-normal*(bounds.bottom()+.75*scale);
     result.text_angle=std::atan2(along.y(),along.x())*180/std::acos(-1.);

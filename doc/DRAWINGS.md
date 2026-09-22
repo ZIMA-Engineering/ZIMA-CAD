@@ -555,7 +555,8 @@ successive intervals 10, 15 and 15. Transferred model dimensions are unchanged.
 Adding a target at either end preserves the datum and existing segment IDs.
 Moving the line through any arrow grip or its placement field moves the shared
 line for every target. Labels stay above their witness line with a fixed paper
-gap and slide only along that line; the witness extends below the text. Each
+gap and slide only along that line; the witness stops at the arrow/datum and
+does not extend under the value. Each
 branch draws its own connection back to the common datum. Native save,
 reopen, unresolved-reference caches, selection and PDF/DXF consume the same
 ordinate presentations. The screen and exports share one renderer, including
@@ -588,8 +589,12 @@ Dimension Properties uses the shared container-style reference row actions.
 Creation initially exposes one green-arrow row; completing it reveals the next
 required reference. Ordinary two-reference dimensions stop at two populated rows.
 A straight-edge chain datum hides its redundant internal direction input. Once
-zero is placed, a trailing green-arrow row adds another branch without moving
-the chain. Completed rows use the shared red cross. Removing a branch preserves
+zero is placed, a trailing green-arrow row accepts consecutive points or compatible
+edges without moving the chain or repeatedly pressing Add branch. Every accepted
+reference immediately arms the next draft row. The draft is not a stored empty
+branch and does not disable OK. Short MMB ends entry. Completed rows use the
+shared red cross. Row numbers (including datum zero) are outside the table in
+its vertical header; green-arrow/red-cross controls occupy the first data column. Removing a branch preserves
 zero; clearing a required reference keeps its slot available for replacement and
 disables OK until the required references are complete. Existing populated rows
 remain visible when an earlier reference is cleared. All edits remain pending

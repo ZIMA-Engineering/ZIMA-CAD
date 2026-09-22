@@ -1,6 +1,5 @@
 #pragma once
 #include "dimension_properties_fields.hpp"
-#include "table_entry.hpp"
 #include <QApplication>
 #include <QDialogButtonBox>
 #include <QHeaderView>
@@ -48,8 +47,10 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
         references_->setObjectName("drawingDimensionReferences");
         references_->setColumnCount(6);
         references_->setHorizontalHeaderLabels(
-            {tr("Konec"), tr("Napojení"), tr("Reference"), QString(), tr("Druhá reference"), QString()});
-        references_->verticalHeader()->hide();
+            {QString(), tr("Napojení"), tr("Reference"), QString(), tr("Druhá reference"), QString()});
+        references_->verticalHeader()->show();
+        references_->verticalHeader()->setMinimumSectionSize(32);
+        references_->verticalHeader()->setDefaultSectionSize(32);
         references_->setSelectionMode(QAbstractItemView::NoSelection);
         references_->setEditTriggers(QAbstractItemView::NoEditTriggers);
         references_->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
@@ -94,7 +95,8 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
         active_ = creating ? 0 : -1;
         rebuild();
         connect(references_, &QTableWidget::cellClicked, this, [this](int row, int col) {
-            if(row==draft_row_){extend(false);return;}
+            if(row==draft_row_){begin_branches();return;}
+            branch_entry_=false;
             if (col != 2 && col != 4)
                 return;
             if (col == 4 && (row >= int(modes_.size()) ||
@@ -106,6 +108,7 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
             publish();
         });
         connect(type_, &QComboBox::currentIndexChanged, this, [this](int index) {
+            branch_entry_=false;
             read_fields();
             const bool was = radial(),was_angular=angular();
             value_.kind = drawing::DrawingDimensionKind(index);
@@ -145,6 +148,7 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
             publish();
         });
         connect(direction_, &QComboBox::currentIndexChanged, this, [this](int index) {
+            if(branch_entry_){branch_entry_=false;active_=-1;}
             read_fields();
             value_.direction = drawing::DimensionDirection(index);
             value_.chain_direction.reset();
@@ -183,12 +187,12 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
         if (active_ < 0)
             return request;
         const auto row = active_ / 2;
-        if (row >= int(value_.attachments.size())) {
+        if (row >= int(value_.attachments.size()) && row!=draft_row_) {
             request.lines_only = true;
             return request;
         }
         if(angular()){request.lines_only=true;request.mode=int(drawing::DimensionAttachmentKind::Line);return request;}
-        request.mode = modes_[row];
+        request.mode = row==draft_row_?-1:modes_[row];
         request.circles_only = radial();
         if (const auto *view = view_(value_.view_id)) {
             if (value_.direction == drawing::DimensionDirection::Vertical)
@@ -232,12 +236,14 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
         return result;
     }
     void end_entry() {
+        branch_entry_=false;
         active_ = -1;
         inspected_.clear();
         refresh_states();
         publish();
     }
     void set_mode(int kind) {
+        if(branch_entry_&&active_>=0&&active_/2==draft_row_)extend(false);
         if (active_ < 0 || active_ / 2 >= int(modes_.size()) || radial() || angular())
             return;
         read_fields();
@@ -252,6 +258,7 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
         if (active_ < 0 || (!value_.view_id.empty() && value_.view_id != view_id))
             return;
         if(angular()&&candidate.attachment.kind!=drawing::DimensionAttachmentKind::Line)return;
+        if(branch_entry_&&active_/2==draft_row_)extend(false);
         read_fields();
         value_.view_id = view_id;
         const auto row = active_ / 2;
@@ -281,6 +288,7 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
                 placing_ = true;
         }
         rebuild_references();
+        if(branch_entry_&&bindings_complete()&&draft_row_>=0){active_=draft_row_*2;refresh_states();}
         publish();
     }
     void extend(bool first) {
@@ -289,6 +297,7 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
         read_fields();
         const bool datum_only=value_.chain_datum_only;
         drawing::extend_dimension_chain(value_, first, {});
+        branch_entry_=value_.kind==drawing::DrawingDimensionKind::Chain;
         if(datum_only){modes_={int(value_.attachments[0].kind),-1};first=false;}
         else modes_.insert(first ? modes_.begin() : modes_.end(), -1);
         segment_ = first ? 0 : int(value_.segments.size()) - 1;
@@ -332,7 +341,7 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
         if (finish)
             placing_ = false;
         if(value_.chain_datum_only)last_->setEnabled(value_.chain_direction.has_value()&&!placing_);
-        if(finish)rebuild_references();
+        if(finish){rebuild_references();if(value_.kind==drawing::DrawingDimensionKind::Chain)begin_branches();}
         publish();
     }
     void change_presentation(drawing::DrawingDimension value) {
@@ -344,6 +353,9 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
 
   protected:
     bool eventFilter(QObject *watched, QEvent *event) override {
+        if(watched->property("dimensionEntryRow").isValid()&&event->type()==QEvent::MouseButtonRelease&&static_cast<QMouseEvent*>(event)->button()==Qt::LeftButton){
+            arm_row(watched->property("dimensionEntryRow").toInt());return true;
+        }
         const auto *widget = qobject_cast<QWidget *>(watched);
         if (isVisible() && widget && parentWidget() &&
             (widget == parentWidget() || parentWidget()->isAncestorOf(widget))) {
@@ -492,7 +504,7 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
             bindings_complete();
         const int stored_rows=int(value_.attachments.size())+(parallel?1:0);
         draft_row_=offer_branch?stored_rows:-1;
-        auto* row_actions=entry_row_header(references_);row_actions->clear_actions();
+        for(auto* action:references_->findChildren<QWidget*>())if(action->objectName().startsWith("tableRowAction"))action->setObjectName({});
         references_->clearContents();
         references_->setRowCount(stored_rows+(offer_branch?1:0));
         const bool intersections=std::ranges::find(modes_,int(drawing::DimensionAttachmentKind::Intersection))!=modes_.end();
@@ -502,7 +514,8 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
             if(row==draft_row_) {
                 references_->setRowHidden(row,false);
                 references_->setItem(row,2,new ui::ReferenceCellItem(tr("Přidat větev")));
-                row_actions->set_action(row,false,{},[this]{extend(false);});
+                references_->setVerticalHeaderItem(row,new QTableWidgetItem(QString()));
+                set_row_action(row,false);
                 continue;
             }
             const bool axis = row == int(value_.attachments.size());
@@ -515,14 +528,10 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
             const auto label=axis?tr("Směr"):value_.kind==drawing::DrawingDimensionKind::Chain?
                 (std::size_t(row)==value_.anchor_attachment?QStringLiteral("0"):value_.chain_datum_only?tr("Směr"):QString::number(row<int(value_.anchor_attachment)?row+1:row)):
                 QString::number(row+1);
-            references_->setItem(row,0,new QTableWidgetItem(label));
+            references_->setVerticalHeaderItem(row,new QTableWidgetItem(label));
             const bool populated=reference(row*2).valid()&&
                 (axis||modes_[row]!=int(drawing::DimensionAttachmentKind::Intersection)||reference(row*2+1).valid());
-            row_actions->set_action(row,populated,[this,row]{remove_reference_row(row);},[this,row]{
-                active_=row*2;
-                if(row<int(modes_.size())&&modes_[row]==int(drawing::DimensionAttachmentKind::Intersection)&&reference(active_).valid())++active_;
-                placing_=false;refresh_states();publish();
-            });
+            set_row_action(row,populated);
             if (!axis) {
                 auto *mode = new QComboBox(references_);
                 mode->setObjectName(QString("dimensionAttachmentMode%1").arg(row));
@@ -575,7 +584,26 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
         rebuilding_ = false;
         refresh_states();
     }
+    void begin_branches() {
+        if(draft_row_<0)return;
+        branch_entry_=true;active_=draft_row_*2;placing_=false;refresh_states();publish();
+    }
+    void arm_row(int row) {
+        if(row==draft_row_){begin_branches();return;}
+        branch_entry_=false;active_=row*2;
+        if(row<int(modes_.size())&&modes_[row]==int(drawing::DimensionAttachmentKind::Intersection)&&reference(active_).valid())++active_;
+        placing_=false;refresh_states();publish();
+    }
+    void set_row_action(int row,bool populated) {
+        auto* indicator=ui::build_reference_row_indicator([this,row]{remove_reference_row(row);});
+        indicator->setObjectName(QString("tableRowAction%1").arg(row));
+        ui::set_reference_row_populated(indicator,populated);
+        auto* arrow=indicator->property("_arrowWidget").value<QObject*>();
+        arrow->setProperty("dimensionEntryRow",row);arrow->installEventFilter(this);
+        references_->setCellWidget(row,0,ui::centered_cell_widget(indicator));
+    }
     void remove_reference_row(int row) {
+        branch_entry_=false;
         read_fields();placing_=false;inspected_.clear();
         if(row>=int(value_.attachments.size())) {
             value_.parallel_reference={};active_=row*2;
@@ -617,7 +645,7 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
     ViewResolver view_;
     std::function<void(drawing::DrawingDimension)> commit_;
     std::function<void()> changed_;
-    bool creating_{}, extended_{}, placing_{}, rebuilding_{};
+    bool creating_{}, extended_{}, placing_{}, rebuilding_{}, branch_entry_{};
     bool automatic_placement_{true};
     int active_{-1}, segment_{}, draft_row_{-1};
     std::vector<int> modes_;
