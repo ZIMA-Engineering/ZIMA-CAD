@@ -40,6 +40,15 @@ as a GitHub release. See [the release record](releases/2026092201.md).
 
 ## Installed layout
 
+Windows build **2026092202** is signed and published. It adds fast indexed
+Assembly Drawing projection, Skeleton exclusion and a clean Skeleton start
+template, independent running dimensions, witness editing/alignment and
+title-block field actions and unit labels. Candidate and signed-archive smoke,
+production bootstrap trust, packaged five-language document creation, downloaded
+asset hashes and production update discovery from 2026092102 passed. See the
+[release record](releases/2026092202.md), including the two newly reported
+Assembly drawing issues deferred to the next correction.
+
 ```text
 ZIMA-CAD/
   ZIMA-CAD.exe
