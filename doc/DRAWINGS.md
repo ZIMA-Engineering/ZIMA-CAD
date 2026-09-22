@@ -717,12 +717,19 @@ sheet, including Box parameter dimensions. Authored text overrides remain
 literal; model text and units are not modified.
 
 Global Settings offers inline or stacked upper/lower deviations, shared by
-Part, Assembly, Drawing and exports. Both deviations use the nominal text size;
+Part, Assembly, Drawing and exports. Stacked deviations use 75% of the nominal
+text size;
 the stacked lower deviation shares the nominal baseline and decimal separators
 align. Literal text overrides and symmetric tolerances keep their existing
 presentation. The saved setting is `Dimensions/ToleranceLayout=inline|stacked`.
-Stacked text has a larger hit box and background; the 8 mm dimension spacing is
-not automatically increased, so dense drawings can require manual placement.
+Painting, picking, decimal alignment and the text background all use the same
+reduced tolerance size. The Drawing Tree uses a simple yellow dimension icon for
+individual dimensions and their group, an axis icon for the Axes group, and
+distinct sheet/view icons for the hierarchy.
+Stacked text has a larger hit box and background than plain values. The standard
+3.5 mm text and its background fit within the 8 mm guide spacing in the layout
+regression check. Spacing is not automatically increased, so dense drawings or
+larger text can still require manual placement.
 Inline deviations are an optional compact presentation, not a claim of standard
 conformity. The relevant presentation standard is
 [ISO 129-1:2018](https://www.iso.org/standard/64007.html), whose scope covers 2D

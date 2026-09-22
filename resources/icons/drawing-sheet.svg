@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+  <title>Drawing sheet</title>
+  <path d="M5 2.5h10l4 4v15H5zM15 2.5v4h4"/>
+  <path d="M8 10h8v8H8zM12 15h4m-4 0v3"/>
+</svg>

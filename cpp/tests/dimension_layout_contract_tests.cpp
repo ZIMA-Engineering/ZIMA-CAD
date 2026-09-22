@@ -50,7 +50,7 @@ int main(int argc, char **argv) {
     QApplication app(argc, argv);
     try {
         {
-            kernel::DimensionTextStyle style;style.tolerance_mode="deviations";
+            kernel::DimensionTextStyle style;style.tolerance_mode="deviations";style.suffix.clear();
             style.upper_tolerance="0.2";style.lower_tolerance="0.15";
             kernel::ViewerDimension dimension;dimension.value=30;
             const auto literal=QString::fromStdString(kernel::dimension_text(dimension,style));
@@ -62,8 +62,17 @@ int main(int argc, char **argv) {
             const auto runs=viewer::dimension_text_runs(font,stacked);
             require(runs.size()==3 && runs[1].baseline.y()<runs[2].baseline.y(),"Deviations are not stacked");
             require(runs[0].baseline.y()==runs[2].baseline.y(),"Nominal and lower deviation baseline differ");
+            require(runs[0].scale==1&&runs[1].scale==.75&&runs[2].scale==.75,"Stacked tolerance text must be 75 percent of nominal height");
+            require(viewer::dimension_text_box(font,stacked,5).height()<80,"Stacked 3.5 mm text with padding exceeds the 8 mm guide spacing");
             require(viewer::dimension_text_box(font,stacked,0).height()>viewer::dimension_text_box(font,literal,0).height(),"Stack bounds omit upper deviation");
             require(viewer::dimension_text_width(font,stacked)<viewer::dimension_text_width(font,literal),"Stack did not reduce width");
+            QImage spacing_proof(500,210,QImage::Format_RGB32);spacing_proof.fill(QColor("#202020"));
+            {QPainter painter(&spacing_proof);painter.setPen(QPen(QColor("#FFD400"),2.5));
+                for(int y:{90,170}){painter.drawLine(40,y,450,y);painter.drawLine(40,y-8,40,y+8);painter.drawLine(450,y-8,450,y+8);}
+                const std::array<viewer::DimensionTextLabel,2> labels{{{stacked,{160,80},0,font,QColor("#FFD400")},{stacked,{160,160},0,font,QColor("#FFD400")}}};
+                viewer::paint_dimension_text_layer(painter,labels,5,[](QPainter& p,const QPainterPath& path){p.fillPath(path,QColor("#202020"));});
+            }
+            spacing_proof.save("build/stacked-tolerance-spacing.png");
             style.text_override="custom +0,2 /-0,15";
             require(viewer::dimension_render_text(style,QString::fromStdString(style.text_override))==QString::fromStdString(style.text_override),"Literal override was interpreted as tolerance");
             app.setProperty("zimaStackedTolerances",false);

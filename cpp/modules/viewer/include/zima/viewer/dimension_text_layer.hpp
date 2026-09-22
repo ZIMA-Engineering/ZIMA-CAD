@@ -33,18 +33,19 @@ inline QString dimension_render_text(const kernel::DimensionTextStyle& style, QS
 inline QString dimension_render_text(const kernel::ViewerDimension& d,QString text) {
     return d.source_text_style?dimension_render_text(*d.source_text_style,std::move(text)):text;
 }
-struct DimensionTextRun {QString text;QPointF baseline;};
+struct DimensionTextRun {QString text;QPointF baseline;double scale{1};};
 inline std::vector<DimensionTextRun> dimension_text_runs(const QFont& font,const QString& text) {
     const auto parts=text.split(QChar(0x1f));
     if(parts.size()!=3)return {{text,{}}};
     const QFontMetricsF metrics(font);
-    const auto decimal=[&](const QString& value){auto index=value.indexOf(',');return metrics.horizontalAdvance(index<0?value:value.left(index));};
+    constexpr double tolerance_scale=.75;
+    const auto decimal=[&](const QString& value){auto index=value.indexOf(',');return tolerance_scale*metrics.horizontalAdvance(index<0?value:value.left(index));};
     const double left=metrics.horizontalAdvance(parts[0]+" "),align=std::max(decimal(parts[1]),decimal(parts[2]));
-    return {{parts[0],{}},{parts[1],{left+align-decimal(parts[1]),-metrics.height()}},{parts[2],{left+align-decimal(parts[2]),0}}};
+    return {{parts[0],{}},{parts[1],{left+align-decimal(parts[1]),-metrics.height()*tolerance_scale},tolerance_scale},{parts[2],{left+align-decimal(parts[2]),0},tolerance_scale}};
 }
 inline double dimension_text_width(const QFont& font,const QString& text) {
     const QFontMetricsF metrics(font);double width=0;
-    for(const auto& run:dimension_text_runs(font,text))width=std::max(width,run.baseline.x()+metrics.horizontalAdvance(run.text));
+    for(const auto& run:dimension_text_runs(font,text))width=std::max(width,run.baseline.x()+run.scale*metrics.horizontalAdvance(run.text));
     return width;
 }
 struct DimensionTextLabel {
@@ -57,7 +58,10 @@ struct DimensionTextLabel {
 inline QRectF dimension_text_box(const QFont& font, const QString& text, double padding) {
     const QFontMetricsF metrics(font);
     QRectF bounds;
-    for(const auto& run:dimension_text_runs(font,text))bounds=bounds.united(metrics.tightBoundingRect(run.text).translated(run.baseline));
+    for(const auto& run:dimension_text_runs(font,text)){
+        QTransform transform;transform.translate(run.baseline.x(),run.baseline.y());transform.scale(run.scale,run.scale);
+        bounds=bounds.united(transform.mapRect(metrics.tightBoundingRect(run.text)));
+    }
     bounds.setLeft(std::min(0., bounds.left()));
     bounds.setRight(std::max(dimension_text_width(font,text), bounds.right()));
     return bounds.adjusted(-padding, -padding, padding, padding);
@@ -93,7 +97,9 @@ void paint_dimension_text_layer(QPainter& painter, std::span<const DimensionText
         painter.setTransform(transform,true);
         painter.setFont(label.font);
         painter.setPen(label.color);
-        for(const auto& run:dimension_text_runs(label.font,label.text))painter.drawText(run.baseline,run.text);
+        for(const auto& run:dimension_text_runs(label.font,label.text)){
+            painter.save();painter.translate(run.baseline);painter.scale(run.scale,run.scale);painter.drawText(QPointF{},run.text);painter.restore();
+        }
         painter.restore();
     }
 }
