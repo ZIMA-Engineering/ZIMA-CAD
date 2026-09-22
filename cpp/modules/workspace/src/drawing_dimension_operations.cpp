@@ -3,7 +3,86 @@
 #include <zima/workspace/drawing_operations.hpp>
 #include <zima/drawing/measurement_dimension.hpp>
 #include <zima/kernel/stable_id.hpp>
+#include <zima/drawing/annotation_guides.hpp>
 namespace zima::workspace {
+namespace {
+const drawing::DrawingDimension* alignment_dimension(const drawing::DrawingSheet& sheet,const std::string& id) {
+    const auto it=std::ranges::find(sheet.dimensions,id,&drawing::DrawingDimension::id);
+    return it==sheet.dimensions.end()?nullptr:&*it;
+}
+std::optional<kernel::ViewerDimension> alignment_geometry(const drawing::DrawingSheet& sheet,const drawing::DrawingDimension& d) {
+    if(d.segments.size()!=1||d.chain_datum_only||(d.kind!=drawing::DrawingDimensionKind::Linear&&d.kind!=drawing::DrawingDimensionKind::Chain))return {};
+    const auto view=std::ranges::find(sheet.views,d.view_id,&drawing::DrawingView::id);if(view==sheet.views.end())return {};
+    const auto evaluation=drawing::evaluate_drawing_dimension(*view,d);
+    if(evaluation.state!=drawing::MeasurementState::Resolved||evaluation.presentations.size()!=1)return {};
+    const auto value=evaluation.presentations.front();
+    if(std::hypot(value.line_second.x-value.line_first.x,value.line_second.y-value.line_first.y)<1e-9)return {};
+    return value;
+}
+bool guide_attached(const drawing::DrawingView& view,const drawing::DrawingDimension& d,const kernel::ViewerDimension& p) {
+    if(d.segments.front().layout.envelope_offset)return true;
+    const auto dx=p.line_second.x-p.line_first.x,dy=p.line_second.y-p.line_first.y;
+    for(const auto& guide:drawing::annotation_guides(view)) {
+        const auto gx=guide.second.x-guide.first.x,gy=guide.second.y-guide.first.y;
+        const auto size=std::hypot(gx,gy);if(size<1e-9)continue;
+        if(std::abs(dx*gy-dy*gx)>1e-7*size*std::hypot(dx,dy))continue;
+        for(const auto point:{p.line_first,p.line_second,p.label_position.value_or(p.line_first)}) {
+            const auto x=point.x*view.scale-guide.first.x,y=point.y*view.scale-guide.first.y;
+            const auto t=(x*gx+y*gy)/(size*size);
+            if(t>=-1e-7&&t<=1+1e-7&&std::abs(x*gy-y*gx)/size<1e-5)return true;
+        }
+    }
+    return false;
+}
+}
+bool free_alignment_dimension(const drawing::DrawingSheet& sheet,const std::string& id) {
+    const auto* d=alignment_dimension(sheet,id);if(!d)return false;
+    const auto value=alignment_geometry(sheet,*d);if(!value)return false;
+    const auto view=std::ranges::find(sheet.views,d->view_id,&drawing::DrawingView::id);
+    if(guide_attached(*view,*d,*value))return false;
+    if(!d->chain_group.empty())for(const auto& member:sheet.dimensions)if(member.view_id==d->view_id&&member.chain_group==d->chain_group) {
+        const auto geometry=alignment_geometry(sheet,member);if(!geometry||guide_attached(*view,member,*geometry))return false;
+    }
+    return true;
+}
+bool can_align_drawing_dimensions(const drawing::DrawingSheet& sheet,const std::vector<std::string>& ids) {
+    if(ids.size()<2)return false;
+    const auto* first=alignment_dimension(sheet,ids.front());
+    if(!first||!free_alignment_dimension(sheet,first->id))return false;
+    const auto a=*alignment_geometry(sheet,*first);
+    const auto dx=a.line_second.x-a.line_first.x,dy=a.line_second.y-a.line_first.y;
+    for(std::size_t i=1;i<ids.size();++i) {
+        const auto* d=alignment_dimension(sheet,ids[i]);
+        if(!d||d->id==first->id||d->view_id!=first->view_id||!free_alignment_dimension(sheet,d->id))return false;
+        if(!first->chain_group.empty()&&d->chain_group==first->chain_group)return false;
+        const auto b=*alignment_geometry(sheet,*d);const auto x=b.line_second.x-b.line_first.x,y=b.line_second.y-b.line_first.y;
+        if(std::abs(dx*y-dy*x)>1e-7*std::hypot(dx,dy)*std::hypot(x,y))return false;
+    }
+    return true;
+}
+bool align_drawing_dimensions(drawing::DrawingSheet& sheet,const std::vector<std::string>& ids) {
+    if(!can_align_drawing_dimensions(sheet,ids))return false;
+    const auto* first=alignment_dimension(sheet,ids.front());const auto a=*alignment_geometry(sheet,*first);
+    const double length=std::hypot(a.line_second.x-a.line_first.x,a.line_second.y-a.line_first.y);
+    const drawing::Point2 normal{-(a.line_second.y-a.line_first.y)/length,(a.line_second.x-a.line_first.x)/length};
+    auto next=sheet;std::set<std::string> groups;bool changed=false;
+    for(std::size_t i=1;i<ids.size();++i) {
+        auto& d=*std::ranges::find(next.dimensions,ids[i],&drawing::DrawingDimension::id);
+        if(!d.chain_group.empty()&&!groups.insert(d.chain_group).second)continue;
+        const auto before=*alignment_geometry(next,d);auto probe=d;probe.segments.front().layout.line_offset+=1;
+        const auto after=*alignment_geometry(next,probe);
+        const double rate=(after.line_first.x-before.line_first.x)*normal.x+(after.line_first.y-before.line_first.y)*normal.y;
+        if(std::abs(rate)<1e-9)return false;
+        const double offset=((a.line_first.x-before.line_first.x)*normal.x+(a.line_first.y-before.line_first.y)*normal.y)/rate;
+        if(std::abs(offset)<1e-9)continue;
+        d.segments.front().layout.line_offset+=offset;
+        const auto view=std::ranges::find(next.views,d.view_id,&drawing::DrawingView::id);
+        drawing::refresh_drawing_dimension(*view,d);synchronize_dimension_chain(next,d);changed=true;
+    }
+    // Preserve sheet/view storage used by the canvas; only dimension data changed.
+    if(changed)sheet.dimensions=std::move(next.dimensions);
+    return changed;
+}
 void synchronize_dimension_chain(drawing::DrawingSheet& sheet,const drawing::DrawingDimension& source) {
     if(source.chain_group.empty()||source.kind!=drawing::DrawingDimensionKind::Chain)return;
     const auto value=source;

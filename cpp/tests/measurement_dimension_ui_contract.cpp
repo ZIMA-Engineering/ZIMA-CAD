@@ -825,8 +825,17 @@ int verify_measurement_dimension_ui() {
                 app::DrawingWindow translated_window(&workspace,false);
                 const std::map<std::string,QString> command_labels{{"cs",QString::fromUtf8("Řetězová kóta")},{"en","Chain dimension"},{"de",QString::fromUtf8("Kettenbemaßung")},{"fr",QString::fromUtf8("Cotation en chaîne")},{"ru",QString::fromUtf8("Цепочка размеров")}};
                 require(translated_window.findChild<QAction*>("drawingChainDimensionAction")->text()==command_labels.at(language),"Chain command is not localized after switching language");
-                const std::map<std::string,QString> jog_labels{{"cs",QString::fromUtf8("Vložit zalomení (Jog)")},{"en","Insert jog"},{"de",QString::fromUtf8("Knick einfügen (Jog)")},{"fr",QString::fromUtf8("Insérer un coude (Jog)")},{"ru",QString::fromUtf8("Вставить излом (Jog)")}};
+                const std::map<std::string,QString> jog_labels{{"cs",QString::fromUtf8("Vložit zalomení")},{"en","Insert jog"},{"de",QString::fromUtf8("Knick einfügen")},{"fr",QString::fromUtf8("Insérer un coude")},{"ru",QString::fromUtf8("Вставить излом")}};
                 require(translated_window.findChild<QAction*>("drawingDimensionJogAction")->text()==jog_labels.at(language),"Jog command is not localized after switching language");
+                const std::map<std::string,QString> align_labels{{"cs",QString::fromUtf8("Zarovnat kóty")},{"en","Align dimensions"},{"de",QString::fromUtf8("Bemaßungen ausrichten")},{"fr","Aligner les cotes"},{"ru",QString::fromUtf8("Выровнять размеры")}};
+                require(translated_window.findChild<QAction*>("drawingDimensionAlignAction")->text()==align_labels.at(language),"Align command is not localized after switching language");
+                for(const auto* name:{"drawingDimensionJogAction","drawingDimensionBreakAction","drawingDimensionAlignAction"})
+                    require(!translated_window.findChild<QAction*>(name)->icon().pixmap(24,24).isNull(),"Dimension command icon missing");
+                if(std::string(language)=="cs") {
+                    QImage icons(144,48,QImage::Format_ARGB32_Premultiplied);icons.fill(QColor("#20252b"));QPainter painter(&icons);int x=4;
+                    for(const auto* name:{"drawingDimensionJogAction","drawingDimensionBreakAction","drawingDimensionAlignAction"}){translated_window.findChild<QAction*>(name)->icon().paint(&painter,QRect(x,4,40,40));x+=48;}
+                    painter.end();icons.save("build/dimension-command-icons.png");
+                }
                 auto localized_value=make_drawing_dimension(view.id,DrawingDimensionKind::Chain);
                 localized_value.attachments={{DimensionAttachmentKind::Line,{"profile","bottom",{}}},{DimensionAttachmentKind::Line,{"profile","top",{}}}};
                 auto menu_document=drawing;menu_document.document_id=kernel::make_stable_id();
@@ -938,6 +947,49 @@ int verify_measurement_dimension_ui() {
             const auto& other_edits=shared[1].segments[0].witness_edits;
             const auto second_datum=std::ranges::find(other_edits,datum_edit->id,&WitnessEdit::id);
             require(first_datum!=shared_edits.end()&&second_datum!=other_edits.end()&&*first_datum==*second_datum&&first_datum->offset!=datum_edit->offset,"Common datum jog did not synchronize across independent members");
+        }
+        {
+            auto doc=drawing;doc.sheets.front().views={view};
+            auto a=make_drawing_dimension(view.id);a.direction=DimensionDirection::Horizontal;
+            a.attachments={{DimensionAttachmentKind::CurvePoint,{"profile","bottom",{}},{},0},{DimensionAttachmentKind::CurvePoint,{"profile","bottom",{}},{},1}};
+            place_drawing_dimension(view,a,0,{15,31.3});
+            auto b=a;b.id=kernel::make_stable_id();b.segments[0].id=kernel::make_stable_id();place_drawing_dimension(view,b,0,{15,42.3});
+            b.style.tolerance_mode="deviations";b.style.upper_tolerance="0.2";b.style.lower_tolerance="0.1";
+            auto bound=a;bound.id=kernel::make_stable_id();bound.segments[0].id=kernel::make_stable_id();
+            const auto guide=annotation_guides(view).front();place_drawing_dimension(view,bound,0,{(guide.first.x+guide.second.x)/2/view.scale,guide.first.y/view.scale});
+            doc.sheets.front().dimensions={a,b,bound};
+            require(workspace::can_align_drawing_dimensions(doc.sheets.front(),{a.id,b.id}),"Free parallel dimensions cannot align");
+            require(!workspace::free_alignment_dimension(doc.sheets.front(),bound.id),"Guide-attached dimension offered for alignment");
+            const auto originals=doc.sheets.front().dimensions;
+            require(!workspace::align_drawing_dimensions(doc.sheets.front(),{a.id,bound.id})&&doc.sheets.front().dimensions==originals,"Alignment moved a guide-attached dimension");
+            auto* state=workspace.open_drawing(drawing.document_id);state->commit(doc);window.edit_workspace_document(drawing.document_id);flush();canvas->grab();
+            auto* align=window.findChild<QAction*>("drawingDimensionAlignAction");require(align&&align->isEnabled(),"Align toolbar action missing");
+            const auto first=*window.annotation_handle_for_test(a.id,0,true),second=*window.annotation_handle_for_test(b.id,0,true),attached=*window.annotation_handle_for_test(bound.id,0,true);
+            align->trigger();pick(canvas,attached);pick(canvas,first);
+            require(window.document_for_test().sheets.front().dimensions==originals,"Attached dimension was accepted as alignment reference");
+            pick(canvas,second);canvas->grab();
+            auto aligned=window.document_for_test().sheets.front().dimensions;
+            const auto ga=evaluate_drawing_dimension(view,aligned[0]).presentations.front(),gb=evaluate_drawing_dimension(view,aligned[1]).presentations.front();
+            require(std::abs(ga.line_first.y-gb.line_first.y)<1e-8,"Two-click command did not align dimension lines");
+            require(aligned[0]==a&&aligned[2]==bound&&aligned[1].attachments==b.attachments&&aligned[1].style==b.style,"Alignment changed reference dimension, attachment or tolerance");
+            require(state->undo()&&state->document().sheets.front().dimensions==originals,"Alignment did not undo in one transaction");
+            window.edit_workspace_document(drawing.document_id);flush();canvas->grab();
+            // Preserve Ctrl click order: B is the reference even though A is first in the document.
+            const auto ctrl_pick=[&](QPointF p){mouse(canvas,QEvent::MouseMove,p,Qt::NoButton,Qt::NoButton);QMouseEvent press(QEvent::MouseButtonPress,p,QPointF(canvas->mapToGlobal(p.toPoint())),Qt::LeftButton,Qt::LeftButton,Qt::ControlModifier);QApplication::sendEvent(canvas,&press);flush();mouse(canvas,QEvent::MouseButtonRelease,p,Qt::LeftButton,Qt::NoButton);};
+            ctrl_pick(second);ctrl_pick(first);QMenu menu;window.populate_selection_menu(menu);
+            auto* context=menu.findChild<QAction*>("drawingAlignDimensionsContextAction");require(context,"Ctrl selection has no Align context action");context->trigger();flush();
+            aligned=window.document_for_test().sheets.front().dimensions;
+            require(aligned[1]==b&&aligned[0].segments[0].layout.line_offset!=a.segments[0].layout.line_offset,"Context alignment ignored first-selected dimension");
+            require(state->undo(),"Context alignment has no Undo");window.edit_workspace_document(drawing.document_id);flush();canvas->grab();
+            window.select_tree_entities({"drawing-dimension:"+a.id,"drawing-dimension:"+bound.id},"drawing-dimension:"+a.id);
+            QMenu excluded;window.populate_selection_menu(excluded);require(!excluded.findChild<QAction*>("drawingAlignDimensionsContextAction"),"Context Align offered for attached dimensions");
+            align->trigger();pick(canvas,first);QKeyEvent escape(QEvent::KeyPress,Qt::Key_Escape,Qt::NoModifier);QApplication::sendEvent(canvas,&escape);flush();
+            require(window.document_for_test().sheets.front().dimensions==originals,"Cancel alignment changed dimensions");
+            auto other=doc;other.sheets.front().dimensions[1].view_id="other-view";
+            require(!workspace::can_align_drawing_dimensions(other.sheets.front(),{a.id,b.id}),"Alignment accepted another view");
+            other=doc;other.sheets.front().dimensions[1].direction=DimensionDirection::Vertical;
+            other.sheets.front().dimensions[1].attachments[1]={DimensionAttachmentKind::CurvePoint,{"profile","right",{}},{},1};
+            require(!workspace::can_align_drawing_dimensions(other.sheets.front(),{a.id,b.id}),"Alignment accepted another direction");
         }
         std::cout << "Manual dimension properties, references, preview/Cancel, MMB, measured values and "
                      "radius grips passed\n";

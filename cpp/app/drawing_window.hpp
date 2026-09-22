@@ -106,6 +106,7 @@ private:
     QAction* linear_dimension_action_{};
     QAction* chain_dimension_action_{};
     QAction *dimension_jog_action_{},*dimension_break_action_{};
+    QAction* dimension_align_action_{};
     QAction* text_action_{};
     QAction* balloon_action_{};
     QAction* show_erase_action_{};

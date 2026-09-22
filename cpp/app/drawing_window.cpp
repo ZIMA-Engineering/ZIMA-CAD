@@ -665,6 +665,18 @@ std::pair<std::string, zima::kernel::ViewerMesh> load_drawing_source(
 }  // namespace
 
 class DrawingCanvas final : public QWidget, public SheetRenderer {
+    bool align_mode_{};
+    std::string align_first_;
+    std::vector<std::string> alignment_selection()const {
+        std::vector<std::string> result;
+        for(const auto& key:entity_selection_){if(key.kind!=AnnotationKind::Dimension)return {};result.push_back(key.id);}
+        return result;
+    }
+    void finish_alignment(const std::vector<std::string>& ids) {
+        if(!sheet_)return;
+        if(workspace::align_drawing_dimensions(*sheet_,ids)&&changed_)changed_();
+        align_mode_=false;align_first_.clear();hovered_annotation_.reset();offered_annotations_.clear();update();
+    }
     std::function<void(const std::string&)> choose_view_;
     QPointF chosen_view_point_;
     std::function<void()> choose_view_canceled_;
@@ -679,14 +691,19 @@ class DrawingCanvas final : public QWidget, public SheetRenderer {
     void offer_annotations(QPointF point){
         std::vector<AnnotationHandle> candidates;
         for(auto it=annotation_handles_.rbegin();it!=annotation_handles_.rend();++it)if((!model_pick_||(it->key.kind==AnnotationKind::Model&&preview_&&it->key.view==preview_->id&&model_offered_.contains(it->key.id)))&&(it->hit.contains(point)||QLineF(point,it->point).length()<=8))candidates.push_back(*it);
+        if(align_mode_) {
+            std::erase_if(candidates,[&](const auto& h){return h.key.kind!=AnnotationKind::Dimension||!sheet_||
+                (align_first_.empty()?!workspace::free_alignment_dimension(*sheet_,h.key.id):!workspace::can_align_drawing_dimensions(*sheet_,{align_first_,h.key.id}));});
+        }
         std::stable_sort(candidates.begin(),candidates.end(),[&](const auto& a,const auto& b){const auto da=QLineF(point,a.point).length(),db=QLineF(point,b.point).length();if((da<=8)!=(db<=8))return da<=8;return da<=8&&db<=8&&da<db;});
         if(model_pick_){std::set<std::pair<std::string,std::string>> entities;std::erase_if(candidates,[&](const auto& c){return !entities.emplace(c.key.view,c.key.id).second;});}
+        if(align_mode_){std::set<std::string> ids;std::erase_if(candidates,[&](const auto& c){return !ids.insert(c.key.id).second;});}
         bool same=candidates.size()==offered_annotations_.size();for(std::size_t i=0;same&&i<candidates.size();++i)same=candidates[i].key==offered_annotations_[i].key;
         if(!same)offered_annotation_index_=0;offered_annotations_=std::move(candidates);
         hovered_annotation_=offered_annotations_.empty()?std::optional<AnnotationKey>{}:offered_annotations_[offered_annotation_index_].key;
     }
     bool ordinary_selection() const {
-        return sheet_&&!witness_tool_&&!crop_edit_&&!preview_&&!placed_&&!choose_view_&&!dimension_command_&&!dimension_mode_&&!balloon_command_&&!text_editor_&&!model_pick_;
+        return sheet_&&!align_mode_&&!witness_tool_&&!crop_edit_&&!preview_&&!placed_&&!choose_view_&&!dimension_command_&&!dimension_mode_&&!balloon_command_&&!text_editor_&&!model_pick_;
     }
     void select_entity(std::optional<AnnotationKey> key,bool toggle) {
         if(key&&key->kind==AnnotationKind::Dimension&&key->end%3==1&&sheet_) {
@@ -771,6 +788,7 @@ public:
         setAttribute(Qt::WA_OpaquePaintEvent);
     }
     void set_sheet(zima::drawing::DrawingSheet* sheet) {
+        align_mode_=false;align_first_.clear();
         cancel_witness();witness_handles_.clear();
         select_entity({},false);clear_annotation_snap();sheet_ = sheet;set_render_sheet(sheet);shaded_cache_.clear();annotation_handles_.clear();offered_annotations_.clear();selected_annotation_.reset();hovered_annotation_.reset();dragged_section_end_.reset();
         selected_.clear();selected_field_.clear();hovered_field_.clear();field_regions_.clear();title_targets_.clear();
@@ -924,7 +942,8 @@ public:
         if(!ordinary_selection())return;
         entity_selection_.clear();selected_.clear();selected_field_.clear();selected_dimension_id_.clear();selected_annotation_.reset();
         hovered_.clear();hovered_annotation_.reset();offered_annotations_.clear();
-        for(const auto& key:sheet_entities(*sheet_))if(std::ranges::find(ids,tree_id(key))!=ids.end())entity_selection_.push_back(key);
+        const auto entities=sheet_entities(*sheet_);
+        for(const auto& id:ids)for(const auto& key:entities)if(tree_id(key)==id){entity_selection_.push_back(key);break;}
         setProperty("drawingSelectionCount",int(entity_selection_.size()));
         if(entity_selection_.size()==1) {
             const auto& key=entity_selection_.front();
@@ -946,6 +965,9 @@ public:
     }
     void populate_selection_menu(QMenu& menu) {
         if(!ordinary_selection()||entity_selection_.empty())return;
+        const auto align_ids=alignment_selection();
+        if(workspace::can_align_drawing_dimensions(*sheet_,align_ids))
+            menu.addAction(resource_icon("drawing-align"),tr("Zarovnat kóty"),this,[this,align_ids]{finish_alignment(align_ids);})->setObjectName("drawingAlignDimensionsContextAction");
         if(entity_selection_.size()==1) {
             const auto key=entity_selection_.front();
             if(key.kind==AnnotationKind::View){menu.addAction(edit_action_);menu.addAction(projected_action_);menu.addAction(remove_action_);return;}
@@ -957,8 +979,8 @@ public:
                 properties=menu.addAction(tr("Vlastnosti kóty…"),this,[this,key]{edit_manual_entity(key);});
                 const auto* dimension=visible_dimension(key.id);
                 if(dimension&&(dimension->kind==drawing::DrawingDimensionKind::Linear||dimension->kind==drawing::DrawingDimensionKind::Chain)) {
-                    menu.addAction(tr("Vložit zalomení (Jog)"),this,[this,key]{start_witness_tool(drawing::WitnessEditKind::Jog,key.id);})->setObjectName("drawingWitnessJogContextAction");
-                    menu.addAction(tr("Vložit přerušení (Break)"),this,[this,key]{start_witness_tool(drawing::WitnessEditKind::Break,key.id);})->setObjectName("drawingWitnessBreakContextAction");
+                    menu.addAction(resource_icon("drawing-jog"),tr("Vložit zalomení"),this,[this,key]{start_witness_tool(drawing::WitnessEditKind::Jog,key.id);})->setObjectName("drawingWitnessJogContextAction");
+                    menu.addAction(resource_icon("drawing-break"),tr("Vložit přerušení"),this,[this,key]{start_witness_tool(drawing::WitnessEditKind::Break,key.id);})->setObjectName("drawingWitnessBreakContextAction");
                 }
                 if(dimension&&dimension->kind==drawing::DrawingDimensionKind::Linear)
                     menu.addAction(tr("Převést na řetězovou kótu…"),this,[this,key]{if(manual_properties_)manual_properties_(key.id,2);});
@@ -1088,7 +1110,8 @@ public:
         for(const auto& handle:witness_handles_)if(handle.key.id==id)for(const auto& grip:handle.geometry.grips)if(grip.id==edit&&grip.end==end)return grip.point;
         return {};
     }
-    void start_selection() { cancel_witness();choose_view_={};if(balloon_command_)balloon_command_->reject();if(dimension_command_)dimension_command_->reject();dimension_mode_=false;update(); }
+    void start_alignment(){start_selection();select_entity({},false);align_mode_=true;align_first_.clear();offered_annotations_.clear();hovered_annotation_.reset();setFocus();if(selection_changed_)selection_changed_();update();}
+    void start_selection() { align_mode_=false;align_first_.clear();cancel_witness();choose_view_={};if(balloon_command_)balloon_command_->reject();if(dimension_command_)dimension_command_->reject();dimension_mode_=false;update(); }
     [[nodiscard]] bool dimension_mode() const { return dimension_mode_; }
     bool interacting() const { return bool(preview_); }
 protected:
@@ -1138,6 +1161,7 @@ protected:
         update();
     }
     void contextMenuEvent(QContextMenuEvent* event) override {
+        if(align_mode_){if(!offered_annotations_.empty()){offered_annotation_index_=(offered_annotation_index_+1)%offered_annotations_.size();hovered_annotation_=offered_annotations_[offered_annotation_index_].key;}update();event->accept();return;}
         if(witness_tool_){if(witness_owner_.empty()&&*witness_tool_==drawing::WitnessEditKind::Break){if(!offered_annotations_.empty()){offered_annotation_index_=(offered_annotation_index_+1)%offered_annotations_.size();hovered_annotation_=offered_annotations_[offered_annotation_index_].key;}}else if(!witness_offered_.empty())witness_offer_index_=(witness_offer_index_+1)%witness_offered_.size();update();event->accept();return;}
         if(crop_edit_){event->accept();return;}
         if(ordinary_selection()&&!entity_selection_.empty()) {
@@ -1205,8 +1229,8 @@ protected:
             auto* menu=new QMenu(this);menu->setAttribute(Qt::WA_DeleteOnClose);const auto id=selected_dimension_id_;
             menu->addAction(tr("Vlastnosti kóty…"),this,[this,id]{if(manual_properties_)manual_properties_(id,0);});
             if(const auto* value=visible_dimension(id);value&&(value->kind==drawing::DrawingDimensionKind::Linear||value->kind==drawing::DrawingDimensionKind::Chain)) {
-                menu->addAction(tr("Vložit zalomení (Jog)"),this,[this,id]{start_witness_tool(drawing::WitnessEditKind::Jog,id);});
-                menu->addAction(tr("Vložit přerušení (Break)"),this,[this,id]{start_witness_tool(drawing::WitnessEditKind::Break,id);});
+                menu->addAction(resource_icon("drawing-jog"),tr("Vložit zalomení"),this,[this,id]{start_witness_tool(drawing::WitnessEditKind::Jog,id);});
+                menu->addAction(resource_icon("drawing-break"),tr("Vložit přerušení"),this,[this,id]{start_witness_tool(drawing::WitnessEditKind::Break,id);});
             }
             const auto* dimension=visible_dimension(id);
             if(dimension&&(dimension->kind==drawing::DrawingDimensionKind::Linear||dimension->kind==drawing::DrawingDimensionKind::Chain)){
@@ -1341,6 +1365,15 @@ protected:
         }
     }
     void mousePressEvent(QMouseEvent* event) override {
+        if(align_mode_&&event->button()==Qt::LeftButton){
+            if(!offered_annotations_.empty()) {
+                const auto key=offered_annotations_[offered_annotation_index_].key;
+                if(align_first_.empty()){align_first_=key.id;select_entity(key,false);}
+                else {select_entity(key,true);finish_alignment({align_first_,key.id});}
+                offered_annotations_.clear();hovered_annotation_.reset();if(selection_changed_)selection_changed_();update();
+            }
+            event->accept();return;
+        }
         if(witness_press(event)){event->accept();return;}
         if(crop_press(event))return;
         if (sheet_ == nullptr) return;
@@ -1464,6 +1497,7 @@ protected:
         update();
     }
     void mouseMoveEvent(QMouseEvent* event) override {
+        if(align_mode_&&!view_panning_){offer_annotations(event->position());update();event->accept();return;}
         if(witness_tool_&&(event->buttons()&Qt::MiddleButton)&&!view_panning_){event->accept();return;}
         if((witness_tool_||witness_drag_end_>=0)&&!view_panning_){
             if(witness_draft_)move_witness(event->position());
@@ -1712,6 +1746,7 @@ protected:
         event->accept();
     }
     void keyPressEvent(QKeyEvent* event) override {
+        if(align_mode_&&event->key()==Qt::Key_Escape){start_selection();event->accept();return;}
         if(event->key()==Qt::Key_Escape&&(witness_tool_||witness_draft_)){cancel_witness();if(dimension_command_)dimension_command_->end_entry();event->accept();return;}
         if(event->key()==Qt::Key_Escape&&dragged_detail_label_){
             for(auto& view:sheet_->views)if(view.id==dragged_detail_label_->key.view)view.detail_label_position=detail_label_original_;
@@ -1902,10 +1937,14 @@ void DrawingWindow::create_actions() {
     chain_dimension_action_=drawing->addAction(tr("Řetězová kóta"),this,[this]{show_dimension_properties({},3);});
     chain_dimension_action_->setObjectName("drawingChainDimensionAction");
     chain_dimension_action_->setIcon(resource_icon("sketch-dimensions"));
-    dimension_jog_action_=drawing->addAction(tr("Vložit zalomení (Jog)"),this,[this]{canvas_->start_selection();canvas_->begin_witness_command(drawing::WitnessEditKind::Jog);});
+    dimension_jog_action_=drawing->addAction(tr("Vložit zalomení"),this,[this]{canvas_->start_selection();canvas_->begin_witness_command(drawing::WitnessEditKind::Jog);});
     dimension_jog_action_->setObjectName("drawingDimensionJogAction");
-    dimension_break_action_=drawing->addAction(tr("Vložit přerušení (Break)"),this,[this]{canvas_->start_selection();canvas_->begin_witness_command(drawing::WitnessEditKind::Break);});
+    dimension_break_action_=drawing->addAction(tr("Vložit přerušení"),this,[this]{canvas_->start_selection();canvas_->begin_witness_command(drawing::WitnessEditKind::Break);});
     dimension_break_action_->setObjectName("drawingDimensionBreakAction");
+    dimension_jog_action_->setIcon(resource_icon("drawing-jog"));
+    dimension_break_action_->setIcon(resource_icon("drawing-break"));
+    dimension_align_action_=drawing->addAction(resource_icon("drawing-align"),tr("Zarovnat kóty"),this,[this]{canvas_->start_alignment();});
+    dimension_align_action_->setObjectName("drawingDimensionAlignAction");
     text_action_=drawing->addAction(resource_icon("sketch-text"),tr("Text"),this,[this]{show_text_properties();});
     text_action_->setObjectName("drawingTextAction");
     balloon_action_=drawing->addAction(resource_icon("drawing-balloon"),tr("Pozice"),this,[this]{show_balloon_properties();});
@@ -1935,6 +1974,7 @@ void DrawingWindow::create_actions() {
     drawing_toolbar_->addAction(balloon_action_);
     drawing_toolbar_->addAction(dimension_jog_action_);
     drawing_toolbar_->addAction(dimension_break_action_);
+    drawing_toolbar_->addAction(dimension_align_action_);
     addToolBar(Qt::TopToolBarArea, drawing_toolbar_);
 }
 
@@ -2725,6 +2765,7 @@ void DrawingWindow::update_action_states() {
     linear_dimension_action_->setEnabled(has_view);
     chain_dimension_action_->setEnabled(has_view);
     dimension_jog_action_->setEnabled(has_view);dimension_break_action_->setEnabled(has_view);
+    dimension_align_action_->setEnabled(has_view);
     text_action_->setEnabled(has_sheet&&!view_dialog_);
     balloon_action_->setEnabled(has_view);
     linear_dimension_action_->setChecked(canvas_->dimension_mode());

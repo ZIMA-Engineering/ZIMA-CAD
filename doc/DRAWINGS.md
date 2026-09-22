@@ -609,6 +609,35 @@ atomic Undo, multiple-dimension dragging, Cancel, exact hover graphics and the
 reference table in all five languages. Proof images are
 `build/drawing-reference-table-proof.png` and `build/drawing-chain-proof.png`.
 
+### Align free drawing dimensions, 2026-09-22
+
+**Align dimensions** is available in the Drawing command toolbar and the context
+menu of two or more selected manual linear/running dimensions. The standalone
+command picks the stationary reference first, then the dimension to move. Ctrl
+selection followed by the context action uses the first-selected dimension as
+the stationary reference and aligns all compatible selected targets in one Undo
+transaction. Only resolved parallel dimensions in the same view are accepted;
+different members of the same running chain do not form an alignment pair.
+
+Guide-attached dimensions are excluded both as references and targets. Current
+Drawing guide snapping stores the resulting position rather than an attachment
+flag, so eligibility checks exact paper-space coincidence with the owning view's
+parallel guide segments, including broken-view mapping, at a fixed 0.00001 mm
+tolerance. An explicit envelope attachment is also excluded. The test does not
+use the screen hover/snap radius. Shared running groups are checked together so
+alignment cannot move an attached sibling indirectly.
+
+Alignment solves the target's line offset from evaluated persisted geometry;
+measurement references, tolerance/text settings, witness jogs/breaks and the
+reference dimension remain unchanged. Running targets preserve their shared
+spine. Selection, orange hover, click and RMB cycling share the same filtered
+candidate list; Esc cancels unfinished input. No source calculation is performed.
+
+The Czech commands and Properties rows use **Vložit zalomení**, **Vložit přerušení**,
+**Zalomení** and **Přerušení**, without English names in parentheses. All five
+languages have matching translations. Three embedded vector icons represent the
+witness bend, witness gap and dimension alignment in both command/context menus.
+
 ### Dimension witness jogs and breaks, 2026-09-22
 
 **Insert jog** and **Insert break** are available in the Drawing command toolbar

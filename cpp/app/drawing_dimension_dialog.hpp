@@ -424,12 +424,12 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
             witness_table_->setCellWidget(row,0,ui::centered_cell_widget(indicator));
             if(stored) {
                 const auto& edit=witness_rows_[row];
-                witness_table_->setItem(row,1,new QTableWidgetItem(edit.kind==drawing::WitnessEditKind::Jog?tr("Zalomení (Jog)"):tr("Přerušení (Break)")));
+                witness_table_->setItem(row,1,new QTableWidgetItem(edit.kind==drawing::WitnessEditKind::Jog?tr("Zalomení"):tr("Přerušení")));
                 auto* field=new ui::ReferenceCellItem(tr("Úsečka %1").arg(edit.side+1));
                 field->set_reference(QString::fromStdString(edit.id));field->set_inspected(inspected_witness_==edit.id);witness_table_->setItem(row,2,field);
                 witness_table_->setCellWidget(row,3,ui::centered_cell_widget(ui::build_reference_inspection_button(true,inspected_witness_==edit.id,[this,id=edit.id](bool on){inspected_witness_=on?id:std::string{};rebuild_witnesses();if(changed_)changed_();})));
             }else {
-                auto* kind=new QComboBox(witness_table_);kind->addItems({tr("Zalomení (Jog)"),tr("Přerušení (Break)")});
+                auto* kind=new QComboBox(witness_table_);kind->addItems({tr("Zalomení"),tr("Přerušení")});
                 witness_table_->setCellWidget(row,1,kind);
                 witness_table_->setItem(row,2,new ui::ReferenceCellItem(tr("Vyberte…")));
             }
