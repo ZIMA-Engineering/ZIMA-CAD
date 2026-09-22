@@ -584,6 +584,27 @@ check. The measurement GUI contract also switches through Czech, English,
 German, French and Russian and verifies the Add branch control in each language.
 The standalone datum proof is `build/drawing-chain-zero-proof.png`.
 
+Dimension Properties uses the shared container-style reference row actions.
+Creation initially exposes one green-arrow row; completing it reveals the next
+required reference. Ordinary two-reference dimensions stop at two populated rows.
+A straight-edge chain datum hides its redundant internal direction input. Once
+zero is placed, a trailing green-arrow row adds another branch without moving
+the chain. Completed rows use the shared red cross. Removing a branch preserves
+zero; clearing a required reference keeps its slot available for replacement and
+disables OK until the required references are complete. Existing populated rows
+remain visible when an earlier reference is cleared. All edits remain pending
+until OK; Cancel leaves the document unchanged. Reference text arms replacement,
+the green outline identifies input ownership, and eye controls independently
+toggle inspection through the shared reference-cell implementation.
+The measurement GUI contract covers progressive rows, arrow/cross transitions,
+branch deletion, required-reference replacement, Cancel and the table label in
+all five supported languages. Visual evidence is
+`build/drawing-reference-table-proof.png`.
+Validation passed the measurement UI, dimension command, dimension layout and
+translation coverage/catalog contracts, including language switching. The rebuilt
+Windows application also passed its Drawing workspace verification in
+`build/dimension-reference-workspace.log`; the root `zima-cad.bat` launches it.
+
 Zigzag break marks now use 20-degree included angles at their two sharp corners.
 The existing paper amplitude and gap are retained. Tests measure the angle for
 horizontal and vertical breaks at multiple scales.

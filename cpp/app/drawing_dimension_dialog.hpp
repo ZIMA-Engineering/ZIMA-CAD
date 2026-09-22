@@ -1,6 +1,8 @@
 #pragma once
 #include "dimension_properties_fields.hpp"
+#include "table_entry.hpp"
 #include <QApplication>
+#include <QDialogButtonBox>
 #include <QHeaderView>
 #include <QMouseEvent>
 #include <QPushButton>
@@ -92,6 +94,7 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
         active_ = creating ? 0 : -1;
         rebuild();
         connect(references_, &QTableWidget::cellClicked, this, [this](int row, int col) {
+            if(row==draft_row_){extend(false);return;}
             if (col != 2 && col != 4)
                 return;
             if (col == 4 && (row >= int(modes_.size()) ||
@@ -329,6 +332,7 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
         if (finish)
             placing_ = false;
         if(value_.chain_datum_only)last_->setEnabled(value_.chain_direction.has_value()&&!placing_);
+        if(finish)rebuild_references();
         publish();
     }
     void change_presentation(drawing::DrawingDimension value) {
@@ -367,6 +371,7 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
     }
     bool submit() override {
         read_fields();
+        if(!bindings_complete())return false;
         if(value_.chain_datum_only&&!value_.chain_direction)if(const auto* view=view_(value_.view_id)) {
             const auto evaluation=drawing::evaluate_drawing_dimension(*view,value_);
             if(!evaluation.presentations.empty()) {
@@ -379,6 +384,12 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
     }
 
   private:
+    bool bindings_complete() const {
+        return !value_.view_id.empty()&&
+            std::ranges::all_of(value_.attachments,[](const auto& a){return a.reference.valid()&&
+                (a.kind!=drawing::DimensionAttachmentKind::Intersection||a.other_reference.valid());})&&
+            (radial()||angular()||value_.direction!=drawing::DimensionDirection::Parallel||value_.parallel_reference.valid());
+    }
     bool angular() const {return value_.kind==drawing::DrawingDimensionKind::Angular;}
     bool radial() const {
         return value_.kind == drawing::DrawingDimensionKind::Radius ||
@@ -436,6 +447,7 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
         last_->setEnabled(!radial()&&!angular());
         if(value_.chain_datum_only)last_->setEnabled(value_.chain_direction.has_value()&&!placing_);
         first_->setVisible(value_.kind!=drawing::DrawingDimensionKind::Chain);
+        last_->setVisible(value_.kind!=drawing::DrawingDimensionKind::Chain);
         last_->setText(value_.kind==drawing::DrawingDimensionKind::Chain?tr("Přidat větev"):tr("Přidat na konec"));
         segments_->clear();
         for (std::size_t i = 0; i < value_.segments.size(); ++i)
@@ -475,11 +487,42 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
     void rebuild_references() {
         rebuilding_ = true;
         const bool parallel = !radial() && !angular() && value_.direction == drawing::DimensionDirection::Parallel;
-        references_->setRowCount(int(value_.attachments.size()) + (parallel ? 1 : 0));
+        const bool offer_branch=value_.kind==drawing::DrawingDimensionKind::Chain&&!placing_&&
+            (!value_.chain_datum_only||value_.chain_direction.has_value())&&
+            bindings_complete();
+        const int stored_rows=int(value_.attachments.size())+(parallel?1:0);
+        draft_row_=offer_branch?stored_rows:-1;
+        auto* row_actions=entry_row_header(references_);row_actions->clear_actions();
+        references_->clearContents();
+        references_->setRowCount(stored_rows+(offer_branch?1:0));
+        const bool intersections=std::ranges::find(modes_,int(drawing::DimensionAttachmentKind::Intersection))!=modes_.end();
+        references_->setColumnHidden(4,!intersections);references_->setColumnHidden(5,!intersections);
+        bool preceding_complete=true;
         for (int row = 0; row < references_->rowCount(); ++row) {
-            references_->setRowHidden(row,value_.chain_datum_only&&row==1&&value_.attachments[0].kind==drawing::DimensionAttachmentKind::Line);
+            if(row==draft_row_) {
+                references_->setRowHidden(row,false);
+                references_->setItem(row,2,new ui::ReferenceCellItem(tr("Přidat větev")));
+                row_actions->set_action(row,false,{},[this]{extend(false);});
+                continue;
+            }
             const bool axis = row == int(value_.attachments.size());
-            references_->setItem(row, 0, new QTableWidgetItem(axis ? tr("Směr") : value_.chain_datum_only?(row==0?QStringLiteral("0"):tr("Směr")):QString::number(row + 1)));
+            const bool has_reference=reference(row*2).valid();
+            const bool complete=has_reference&&(axis||modes_[row]!=int(drawing::DimensionAttachmentKind::Intersection)||reference(row*2+1).valid());
+            const bool hidden=(!axis&&!preceding_complete&&!has_reference)||
+                (value_.chain_datum_only&&row==1&&value_.attachments[0].kind==drawing::DimensionAttachmentKind::Line);
+            references_->setRowHidden(row,hidden);
+            if(!axis)preceding_complete=preceding_complete&&complete;
+            const auto label=axis?tr("Směr"):value_.kind==drawing::DrawingDimensionKind::Chain?
+                (std::size_t(row)==value_.anchor_attachment?QStringLiteral("0"):value_.chain_datum_only?tr("Směr"):QString::number(row<int(value_.anchor_attachment)?row+1:row)):
+                QString::number(row+1);
+            references_->setItem(row,0,new QTableWidgetItem(label));
+            const bool populated=reference(row*2).valid()&&
+                (axis||modes_[row]!=int(drawing::DimensionAttachmentKind::Intersection)||reference(row*2+1).valid());
+            row_actions->set_action(row,populated,[this,row]{remove_reference_row(row);},[this,row]{
+                active_=row*2;
+                if(row<int(modes_.size())&&modes_[row]==int(drawing::DimensionAttachmentKind::Intersection)&&reference(active_).valid())++active_;
+                placing_=false;refresh_states();publish();
+            });
             if (!axis) {
                 auto *mode = new QComboBox(references_);
                 mode->setObjectName(QString("dimensionAttachmentMode%1").arg(row));
@@ -532,7 +575,24 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
         rebuilding_ = false;
         refresh_states();
     }
+    void remove_reference_row(int row) {
+        read_fields();placing_=false;inspected_.clear();
+        if(row>=int(value_.attachments.size())) {
+            value_.parallel_reference={};active_=row*2;
+        }else if(value_.kind==drawing::DrawingDimensionKind::Chain&&!value_.chain_datum_only&&std::size_t(row)!=value_.anchor_attachment) {
+            const auto segment=std::size_t(row)<value_.anchor_attachment?std::size_t(row):std::size_t(row)-1;
+            if(const auto* view=view_(value_.view_id))drawing::erase_dimension_branch(*view,value_,value_.segments[segment].id);
+            modes_.clear();for(const auto& a:value_.attachments)modes_.push_back(int(a.kind));
+            active_=-1;segment_=std::min(segment_,int(value_.segments.size())-1);
+        }else {
+            if(value_.chain_datum_only)value_.chain_direction.reset();
+            if(value_.chain_datum_only&&row==0){value_.attachments[1]={};modes_[1]=-1;}
+            value_.attachments[row]={};modes_[row]=angular()?int(drawing::DimensionAttachmentKind::Line):-1;active_=row*2;
+        }
+        rebuild();publish();
+    }
     void refresh_states() {
+        buttons()->button(QDialogButtonBox::Ok)->setEnabled(bindings_complete());
         std::erase_if(inspected_, [&](int slot) { return !reference(slot).valid(); });
         const auto *view = view_(value_.view_id);
         std::optional<drawing::DimensionEvaluation> evaluation;
@@ -559,7 +619,7 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
     std::function<void()> changed_;
     bool creating_{}, extended_{}, placing_{}, rebuilding_{};
     bool automatic_placement_{true};
-    int active_{-1}, segment_{};
+    int active_{-1}, segment_{}, draft_row_{-1};
     std::vector<int> modes_;
     std::set<int> inspected_;
     QTabWidget *tabs_{};

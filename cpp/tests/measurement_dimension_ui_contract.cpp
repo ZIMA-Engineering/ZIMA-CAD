@@ -113,11 +113,17 @@ int verify_measurement_dimension_ui() {
                 [&](const std::string&) { return &view; },
                 [&](auto result) { committed = std::move(result); }, &window);
             placement.setAttribute(Qt::WA_DeleteOnClose, false);
+            auto* reference_table=placement.findChild<QTableWidget*>("drawingDimensionReferences");
+            require(!reference_table->isRowHidden(0)&&reference_table->isRowHidden(1),"Empty dimension exposes more than its first reference row");
+            require(!placement.findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->isEnabled(),"Empty references can be committed");
             MeasurementCandidate a, b;
             a.attachment = {DimensionAttachmentKind::CurvePoint, mesh.edges[0].reference};
             b.attachment = {DimensionAttachmentKind::CurvePoint, mesh.edges[1].reference};
             b.attachment.parameter = 1;
-            placement.accept_candidate(view.id, a);placement.accept_candidate(view.id, b);
+            placement.accept_candidate(view.id, a);
+            require(!reference_table->isRowHidden(1),"First reference did not reveal the second row");
+            placement.accept_candidate(view.id, b);
+            require(reference_table->rowCount()==2,"Complete ordinary dimension offers an extra reference row");
             placement.position({15,30}, false);
             placement.position({40,10}, false);
             placement.position(cursor, true);
@@ -644,13 +650,53 @@ int verify_measurement_dimension_ui() {
                 edge_dialog->position({-8,0},true);
                 const auto zero=edge_dialog->value();
                 require(zero.chain_datum_only&&zero.chain_direction&&std::abs(zero.chain_direction->x)<1e-8,"Edge datum did not infer its perpendicular measuring direction");
-                edge_dialog->extend(false);
+                auto* edge_table=edge_dialog->findChild<QTableWidget*>("drawingDimensionReferences");
+                require(edge_table->isRowHidden(1)&&!edge_table->isRowHidden(2),"Edge datum shows a redundant direction row or no branch draft");
+                auto* draft=edge_table->verticalHeader()->findChild<QWidget*>("tableRowAction2");
+                require(draft,"Branch draft has no shared green arrow");
+                auto* arrow=qobject_cast<QWidget*>(draft->property("_arrowWidget").value<QObject*>());
+                require(arrow&&!arrow->isHidden(),"Branch draft is not a green arrow");
+                mouse(arrow,QEvent::MouseButtonRelease,QPointF(15,15),Qt::LeftButton,Qt::NoButton);
+                require(edge_dialog->entering(),"Green arrow did not arm the next branch reference");
                 edge_dialog->accept_candidate(view.id,{{DimensionAttachmentKind::Line,{"profile","top",{}},{},.5},{15,20}});
                 require(!edge_dialog->placing()&&!edge_dialog->entering(),"Added branch requires another placement");
                 const auto added=evaluate_drawing_dimension(view,edge_dialog->value());
                 require(added.state==MeasurementState::Resolved&&added.presentations.front().value==20,"Parallel edge branch is not measured from zero");
+                auto* populated=edge_table->verticalHeader()->findChild<QWidget*>("tableRowAction1");
+                require(populated,"Filled branch has no row action");
+                auto* remove=qobject_cast<QPushButton*>(populated->property("_removeWidget").value<QObject*>());
+                require(remove&&!remove->isHidden(),"Filled branch did not change its arrow to a cross");
+                window.grab().save("build/drawing-reference-table-proof.png");
+                remove->click();flush();
+                require(edge_dialog->value().chain_datum_only,"Reference-row cross did not remove just its branch");
+                require(edge_dialog->value().attachments.front()==zero.attachments.front(),"Reference-row deletion changed the common datum");
                 edge_dialog->reject();flush();
             }
+        }
+        {
+            auto original=make_drawing_dimension(view.id);
+            original.attachments={{DimensionAttachmentKind::Line,{"profile","bottom",{}}},{DimensionAttachmentKind::Line,{"profile","top",{}}}};
+            bool committed=false;
+            app::DrawingDimensionDialog edit(original,false,[&](const auto&){return &view;},[&](auto){committed=true;},&window);
+            edit.setAttribute(Qt::WA_DeleteOnClose,false);
+            auto* table=edit.findChild<QTableWidget*>("drawingDimensionReferences");
+            auto* action=table->verticalHeader()->findChild<QWidget*>("tableRowAction0");
+            require(action,"Required reference has no removal action");
+            auto* remove=qobject_cast<QPushButton*>(action->property("_removeWidget").value<QObject*>());
+            require(remove,"Required reference has no cross");
+            remove->click();
+            require(!edit.value().attachments[0].reference.valid()&&edit.value().attachments[1]==original.attachments[1],"Clearing a required reference changed its other endpoint");
+            require(!table->isRowHidden(1),"Clearing the first reference hid an existing second reference");
+            require(!edit.findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->isEnabled(),"Incomplete edited dimension can be committed");
+            edit.accept_candidate(view.id,{{DimensionAttachmentKind::Line,{"profile","bottom",{}}},{15,0}});
+            require(edit.findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->isEnabled(),"Replacing a required reference did not restore OK");
+            edit.reject();
+            require(!committed,"Cancel committed pending reference edits");
+            auto radial_value=make_drawing_dimension(view.id,DrawingDimensionKind::Radius);
+            radial_value.direction=DimensionDirection::Parallel;
+            radial_value.attachments={{DimensionAttachmentKind::Center,{"profile","circle",{}}}};
+            app::DrawingDimensionDialog radial_edit(radial_value,false,[&](const auto&){return &view;},[](auto){},&window);
+            require(radial_edit.findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->isEnabled(),"Radial dimension requires an irrelevant parallel direction reference");
         }
         {
             const auto original_settings=app::ApplicationSettings::load();
@@ -662,9 +708,12 @@ int verify_measurement_dimension_ui() {
                 QFile config(language_directory.filePath("config.ini"));require(config.open(QIODevice::WriteOnly),"Cannot create language fixture");
                 config.write(QByteArray("[Application]\nLanguage=")+language+"\n");config.close();
                 app::apply_application_translations(*qApp,app::ApplicationSettings::load(language_directory.path()));
-                app::DrawingDimensionDialog localized(make_drawing_dimension(view.id,DrawingDimensionKind::Chain),true,
+                auto localized_value=make_drawing_dimension(view.id,DrawingDimensionKind::Chain);
+                localized_value.attachments={{DimensionAttachmentKind::Line,{"profile","bottom",{}}},{DimensionAttachmentKind::Line,{"profile","top",{}}}};
+                app::DrawingDimensionDialog localized(localized_value,false,
                     [&](const auto&){return &view;},[](auto){},&window);
-                require(localized.findChild<QPushButton*>("drawingDimensionExtendLast")->text()==QString::fromUtf8(expected),
+                const auto* references=localized.findChild<QTableWidget*>("drawingDimensionReferences");
+                require(references->item(2,2)->text()==QString::fromUtf8(expected),
                     "Add branch is not localized after switching language");
             }
             app::apply_application_translations(*qApp,original_settings);
