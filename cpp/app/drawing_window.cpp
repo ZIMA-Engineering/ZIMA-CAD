@@ -2615,8 +2615,12 @@ void DrawingWindow::show_dimension_properties(const std::string& id,int extend) 
     auto* dialog=new DrawingDimensionDialog(value,id.empty(),[this](const auto& view){return document_.find_view(view);},
         [this,id,extend](auto committed){
             auto* sheet=active_sheet();if(!sheet)throw std::runtime_error("List již neexistuje.");
-            if((extend==3||extend==1||extend<0?workspace::commit_drawing_chain:workspace::edit_drawing_dimension)(document_,sheet->id,std::move(committed),id.empty()))
+            if((extend==3||extend==1||extend<0?workspace::commit_drawing_chain:workspace::edit_drawing_dimension)(document_,sheet->id,std::move(committed),id.empty())) {
+                // Chain commits replace the document transactionally, invalidating
+                // the canvas and renderer's sheet pointers. Rebind before callbacks.
+                canvas_->set_sheet(active_sheet());
                 sync_workspace_document();
+            }
         },owner?owner:this);
     view_dialog_=dialog;canvas_->set_dimension_command(dialog);
     if(extend==2)dialog->findChild<QComboBox*>("drawingDimensionType")->setCurrentIndex(int(drawing::DrawingDimensionKind::Chain));

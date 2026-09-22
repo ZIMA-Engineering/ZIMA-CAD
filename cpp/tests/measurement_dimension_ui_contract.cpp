@@ -762,6 +762,15 @@ int verify_measurement_dimension_ui() {
             continuation->accept_candidate(view.id,{{DimensionAttachmentKind::CurvePoint,{"profile","right",{}},{},.25},{30,5}});
             continuation->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
             require(window.document_for_test().sheets.front().dimensions.size()==3,"Continuation duplicated its seed or failed to add a dimension");
+            const auto committed_image=canvas->grab().toImage();
+            committed_image.save("build/chain-commit-visibility.png");
+            bool geometry_visible=false;
+            const auto geometry_pixel=(point(10,15)*committed_image.devicePixelRatio()).toPoint();
+            for(int dx=-2;dx<=2;++dx)for(int dy=-2;dy<=2;++dy) {
+                const auto color=committed_image.pixelColor(geometry_pixel+QPoint(dx,dy));
+                geometry_visible=geometry_visible||(color.red()>180&&color.green()>180&&color.blue()>180);
+            }
+            require(geometry_visible,"Completing a chain dimension removed the view geometry from the canvas");
             require(state->undo()&&state->document().sheets.front().dimensions==members,"Continuing a chain is not one reversible transaction");
             auto ordinary=group_document;ordinary.sheets.front().dimensions.clear();
             auto a=make_drawing_dimension(view.id);a.attachments=members[0].attachments;place_drawing_dimension(view,a,0,{-8,10});

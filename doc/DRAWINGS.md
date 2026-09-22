@@ -555,6 +555,11 @@ first dimension and its placement, then pick further points or compatible edges.
 The command exposes the datum and current target/draft, rather than accumulating
 visible reference rows. OK commits the resulting independent dimensions in one
 history transaction; Cancel discards the pending sequence.
+After committing dimensions, the canvas and sheet renderer are rebound to the
+current document before workspace notifications. Transactional chain creation
+replaces sheet storage; retaining its previous address can make views disappear.
+The GUI regression checks that projected geometry is still painted immediately
+after confirming chain continuation.
 
 Alternatively, start Chain dimension and pick an existing running dimension.
 The common ordered candidate list includes existing dimensions as seeds; hover,
