@@ -1,8 +1,13 @@
 #pragma once
+#include <string_view>
 #include <zima/drawing/drawing_document.hpp>
 namespace zima::drawing {
+inline bool non_drawing_axis(std::string_view semantic) {
+  return semantic.starts_with("origin:axis:") || semantic.starts_with("sketch_axis:") ||
+      semantic=="axis:x" || semantic=="axis:y" || semantic=="axis:z";
+}
 inline bool origin_annotation(const ModelAnnotationReference& reference) {
-  return reference.semantic_id.starts_with("origin:axis:") || reference.semantic_id.starts_with("sketch_axis:");
+  return non_drawing_axis(reference.semantic_id);
 }
 // Source geometry must already be transformed into the displayed source frame.
 // Each packet supplies its actual owning document and exact occurrence path.

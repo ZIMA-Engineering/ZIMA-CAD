@@ -46,6 +46,11 @@ curve. An infinite axis/line remains a separate reference kind, not a property
 of all construction segments. Show/Erase offers finite construction geometry
 and axes; cylindrical axes use the stored cylinder extent.
 
+Origin axes, Sketch coordinate-basis axes and primitive coordinate-basis axes
+(`axis:x`, `axis:y`, `axis:z`) are excluded from Drawing annotations. Previously
+saved visible basis axes are also suppressed on load and in the shared painter.
+Authored construction axes, hole axes and centerlines remain available.
+
 ## Handles and guides
 
 Hover highlights the entity and its handle; LMB confirms the common candidate.

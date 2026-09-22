@@ -56,6 +56,29 @@ void verify(){
         const auto leadins=std::ranges::count_if(axial.projected_edges,[](const auto& edge){return edge.thread_leadin;});
         require(leadins>0,"Thread lead-in circle was not recognized");
         specimen.save(folder/"chamfer-source.prtz",calculated);
+        {
+            auto assembly=assembly::AssemblyDocument::create_default();
+            for(double x:{-70.,70.}) {
+                auto occurrence=assembly::AssemblyDocument::create_part_occurrence("Thread",specimen.document_id,folder/"chamfer-source.prtz",calculated.back());
+                occurrence.placement.x=x;occurrence.placement.y=23;occurrence.placement.z=11;
+                occurrence.placement.rotation_z=90;
+                assembly.components.push_back(std::move(occurrence));
+            }
+            const auto ordinary=assembly.build_scene();
+            const auto packet=assembly.build_drawing_scene();
+            const auto projected=drawing::project_edges(packet,camera);
+            require(std::ranges::count_if(projected,[](const auto& edge){return edge.thread_leadin;})==2*leadins,"Translated/rotated Assembly thread lead-ins were not recognized");
+            require(std::abs(thread_length(projected)-2*expected)<.04,"Translated Assembly lost thread arcs");
+            const auto unchanged=assembly.build_scene();
+            for(std::size_t i=0;i<ordinary.triangle_references.size();++i)if(ordinary.triangle_references[i].surface)
+                require(*ordinary.triangle_references[i].surface==*unchanged.triangle_references[i].surface,"Drawing changed persisted Assembly surface frames or side identity");
+            auto parent=assembly::AssemblyDocument::create_default();
+            auto child=assembly::AssemblyDocument::create_assembly_occurrence("Nested",assembly.document_id,folder/"nested.asmz",assembly);
+            child.placement.x=31;child.placement.y=47;child.placement.rotation_z=90;
+            parent.components.push_back(std::move(child));
+            const auto nested=drawing::project_edges(parent.build_drawing_scene(),camera);
+            require(std::ranges::count_if(nested,[](const auto& edge){return edge.thread_leadin;})==2*leadins,"Nested Assembly lost thread lead-in surface frames");
+        }
         std::vector<kernel::BodyResult> reopened_boundaries;
         const auto reopened=document::PartDocument::load(folder/"chamfer-source.prtz",&reopened_boundaries);
         require(!reopened_boundaries.empty(),"Saved thread source lost its calculated geometry");

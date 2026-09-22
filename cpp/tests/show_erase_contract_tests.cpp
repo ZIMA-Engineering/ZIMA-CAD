@@ -90,7 +90,7 @@ int main() {
       auto with_origins = view;
       for (const auto* owner : {"source-part:origin", "body-origin", "assembly:origin"})
         for (const auto* path : {"assembly/first", "assembly/second"})
-          for (const auto* semantic : {"origin:axis:x", "origin:axis:y", "origin:axis:z", "sketch_axis:x", "sketch_axis:y"}) {
+          for (const auto* semantic : {"origin:axis:x", "origin:axis:y", "origin:axis:z", "sketch_axis:x", "sketch_axis:y", "axis:x", "axis:y", "axis:z"}) {
             auto origin = view.model_annotations[2];
             origin.source = {"source-part", owner, semantic, path};
             with_origins.model_annotations.push_back(origin);

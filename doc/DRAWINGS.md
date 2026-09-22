@@ -5,9 +5,30 @@ Basic usage is also in the [user manual](UZIVATELSKY_MANUAL.md#basic-drawing-wor
 
 ## Assembly projection performance and Skeleton exclusion (2026-09-22)
 
+### Boundary visibility correction
+
+Projected triangle bounds and barycentric clipping share a small, coordinate-
+scaled floating-point roundoff allowance. Exact curves lying on a projected
+face boundary must not alternate between visible and hidden solely because
+their coordinates differ by a few floating-point ulps. This allowance is
+separate from the model depth tolerance. Effectively edge-on facets are
+classified by projected altitude rather than area alone, preventing unstable
+depth interpolation from hiding otherwise visible contours.
+
+Regression tests cover a grazing boundary, genuinely outside geometry,
+near-edge-on facets, partial occlusion, coarse curved rims and real occluders.
+On a copy of `ze0001-0000-0000.drwz`, the thread entrance edge in the side view
+changed from 517 alternating fragments to one hidden edge. The three axial
+thread lead-ins are recognized independently, and nine primitive basis axes
+are excluded while geometric axes and authored construction remain. Refresh
+the saved Drawing projection with Regenerate to apply the edge corrections.
+No source Part or Assembly calculation is required.
+
+### Spatial indexing
+
 Hidden-line projection builds a transient 2D bounding-volume tree over the
 projected triangles. Each curve segment tests only overlapping candidates;
-the exact clipping, curve refinement and visibility tolerances are unchanged.
+the index does not change curve refinement or the visibility decision.
 This avoids repeatedly scanning the entire assembly for every refined curve
 segment. The index never defines persistent topology identities or invokes OCCT.
 

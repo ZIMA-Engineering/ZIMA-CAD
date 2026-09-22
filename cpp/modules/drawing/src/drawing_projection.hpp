@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <map>
+#include <limits>
 #include <numbers>
 #include <numeric>
 #include <set>
@@ -43,6 +44,9 @@ inline std::vector<ProjectedEdge> project_drawing_edges(
         extent=std::max({extent,high.x-low.x,high.y-low.y,high.z-low.z});
     }
     const double epsilon=1e-8*extent;
+    double coordinate_scale=extent;
+    for(const auto& p:vertices)coordinate_scale=std::max({coordinate_scale,std::abs(p.p.x),std::abs(p.p.y)});
+    const double roundoff=64*std::numeric_limits<double>::epsilon()*coordinate_scale;
     const auto& source_edges=mesh.edges.empty()?mesh.original_references.edges:mesh.edges;
     const auto is_thread=[](const auto& ref){return ref.semantic_key.starts_with("thread:boundary:");};
     using Owner=std::pair<std::string,std::string>;
@@ -102,10 +106,14 @@ inline std::vector<ProjectedEdge> project_drawing_edges(
         t.ymin=std::min({a.y,b.y,c.y});t.ymax=std::max({a.y,b.y,c.y});
         const auto* ref=i/3<mesh.triangle_references.size()?&mesh.triangle_references[i/3]:nullptr;
         t.source=ref;
+        // Compare projected altitude with a length tolerance. An area-only
+        // epsilon squared test admits long, virtually edge-on facets whose
+        // ill-conditioned depth interpolation can hide unrelated contours.
+        const double area_tolerance=epsilon*std::max({std::hypot(b.x-a.x,b.y-a.y),std::hypot(c.x-b.x,c.y-b.y),std::hypot(a.x-c.x,a.y-c.y)});
         const bool thread=ref&&ref->semantic_key.starts_with("thread:surface:");
         // Technological thread surfaces are not solid material and cannot hide
         // the real bore/shaft or other conventional thread lines.
-        if(!thread&&std::abs(t.determinant)>epsilon*epsilon)triangles.push_back(t);
+        if(!thread&&std::abs(t.determinant)>area_tolerance)triangles.push_back(t);
         if(thread&&axial_threads.contains(owner(*ref)))continue;
         // Section caps use scan-strip triangulation with T-junctions. Their
         // complete rim is already explicit; unmatched internal strip edges
@@ -125,8 +133,8 @@ inline std::vector<ProjectedEdge> project_drawing_edges(
                 (surface->kind==zima::kernel::SurfaceGeometry::Kind::Cone||surface->kind==zima::kernel::SurfaceGeometry::Kind::Cylinder)&&
                 std::abs(zima::kernel::dimension_dot(zima::kernel::dimension_unit(surface->axis),camera.depth))>1-1e-9;
             edge.axial_surface&=axial_surface;
-            edge.front|=t.determinant*handedness>epsilon*epsilon;
-            edge.back|=t.determinant*handedness<=epsilon*epsilon;
+            edge.front|=t.determinant*handedness>area_tolerance;
+            edge.back|=t.determinant*handedness<=area_tolerance;
         }
     }
     // Broad-phase index only: the existing exact triangle clipping below still
@@ -150,6 +158,7 @@ inline std::vector<ProjectedEdge> project_drawing_edges(
     if(!triangles.empty())build(build,0,triangles.size());
     const auto candidates=[&](double xmin,double xmax,double ymin,double ymax,std::vector<std::size_t>& found) {
         found.clear();
+        xmin-=roundoff;xmax+=roundoff;ymin-=roundoff;ymax+=roundoff;
         const auto visit=[&](auto&& self,std::size_t index)->void {
             const auto& node=nodes[index];
             if(xmax<node.xmin||xmin>node.xmax||ymax<node.ymin||ymin>node.ymax)return;
@@ -259,8 +268,8 @@ inline std::vector<ProjectedEdge> project_drawing_edges(
                         if(on_surface(points[segment-1])&&on_surface(points[segment]))continue;
                     }
                 }
-                if(std::max(a.p.x,b.p.x)<triangle.xmin || std::min(a.p.x,b.p.x)>triangle.xmax ||
-                    std::max(a.p.y,b.p.y)<triangle.ymin || std::min(a.p.y,b.p.y)>triangle.ymax)continue;
+                if(std::max(a.p.x,b.p.x)<triangle.xmin-roundoff || std::min(a.p.x,b.p.x)>triangle.xmax+roundoff ||
+                    std::max(a.p.y,b.p.y)<triangle.ymin-roundoff || std::min(a.p.y,b.p.y)>triangle.ymax+roundoff)continue;
                 const auto weights=[&](Point2 p) {
                     const auto& v=triangle.v;
                     const double wb=((p.x-v[0].p.x)*(v[2].p.y-v[0].p.y)-(p.y-v[0].p.y)*(v[2].p.x-v[0].p.x))/triangle.determinant;
@@ -277,7 +286,16 @@ inline std::vector<ProjectedEdge> project_drawing_edges(
                     return low<high;
                 };
                 bool intersects=true;
-                for(int k=0;k<3;++k)intersects=intersects&&clip(wa[k],wb[k]);
+                for(int k=0;k<3;++k) {
+                    // Exact curves on a projected face boundary can differ
+                    // from its samples by a few floating-point ulps. Convert
+                    // the numerical roundoff to barycentric coordinates
+                    // so those points do not alternate inside/outside.
+                    const auto& p=triangle.v[(k+1)%3].p;
+                    const auto& q=triangle.v[(k+2)%3].p;
+                    const double tolerance=roundoff*std::hypot(q.x-p.x,q.y-p.y)/std::abs(triangle.determinant);
+                    intersects=intersects&&clip(wa[k]+tolerance,wb[k]+tolerance);
+                }
                 if(!intersects)continue;
                 double za=-a.z-epsilon,zb=-b.z-epsilon;
                 for(int k=0;k<3;++k){za+=wa[k]*triangle.v[k].z;zb+=wb[k]*triangle.v[k].z;}

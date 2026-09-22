@@ -21,6 +21,25 @@ void require(bool condition, const char* message) {
 
 int main(int argc,char** argv) {
     try {
+        {
+            using namespace zima;
+            kernel::ViewerMesh mesh;
+            mesh.vertices={{0,0,1},{10,0,1},{10,10,1},{0,10,1}};
+            mesh.triangles={0,1,2,0,2,3};
+            kernel::ViewerEdge edge;edge.reference={"curve","grazing-rim",{}};
+            for(int i=0;i<=100;++i)edge.points.push_back({i/10.,i%2?1e-14:-1e-14,0});
+            mesh.edges={edge};
+            const drawing::ProjectionCamera camera{{1,0,0},{0,1,0},{0,0,1}};
+            const auto projected=drawing::project_edges(mesh,camera);
+            require(std::ranges::none_of(projected,[&](const auto& e){return e.source==edge.reference&&!e.hidden;}),"Roundoff at a face boundary fragments a hidden edge");
+            for(auto& p:mesh.edges.front().points)p.y=-1e-5;
+            const auto outside=drawing::project_edges(mesh,camera);
+            require(std::ranges::none_of(outside,[&](const auto& e){return e.source==edge.reference&&e.hidden;}),"Boundary roundoff tolerance hides genuinely outside geometry");
+            mesh.vertices={{0,0,1},{10,0,1},{10,1e-10,2}};mesh.triangles={0,1,2};
+            mesh.edges.front().points={{1,1e-11,0},{9,9e-11,0}};
+            const auto grazing=drawing::project_edges(mesh,camera);
+            require(std::ranges::none_of(grazing,[&](const auto& e){return e.source==edge.reference&&e.hidden;}),"Effectively edge-on facets hide a contour through unstable depth interpolation");
+        }
         for(double outer_radius:{3.,12.}) {
             using namespace zima;
             kernel::ViewerMesh mesh;

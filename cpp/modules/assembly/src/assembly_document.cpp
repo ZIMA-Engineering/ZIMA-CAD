@@ -882,7 +882,7 @@ namespace {
 // while triangle samples already include the nested placements. The kernel
 // transforms a whole copy in one packet frame. Convert analytic data at this
 // explicit calculation boundary, then restore its persisted leaf-frame contract.
-void copy_surface_frames(kernel::ViewerMesh& mesh,const std::vector<OccurrenceSnapshot>& roots,bool to_packet) {
+void copy_surface_frames(kernel::ViewerMesh& mesh,const std::vector<OccurrenceSnapshot>& roots,bool to_packet,bool adjacent_faces=false) {
     std::map<std::string,std::vector<ComponentPlacement>> paths;
     const auto chain=[&](const std::string& encoded)->const std::vector<ComponentPlacement>& {
         auto [entry,inserted]=paths.try_emplace(encoded);if(!inserted||encoded.empty())return entry->second;
@@ -915,10 +915,18 @@ void copy_surface_frames(kernel::ViewerMesh& mesh,const std::vector<OccurrenceSn
         reference.surface=entry->second;
     };
     for(auto& reference:mesh.triangle_references)face(reference);
+    if(adjacent_faces)for(auto& edge:mesh.edges)for(auto& reference:edge.edge_treatment_side_references)face(reference);
     // Display and original packets may have distinct material-side metadata.
     transformed.clear();
     for(auto& reference:mesh.original_references.triangle_references)face(reference);
+    if(adjacent_faces)for(auto& edge:mesh.original_references.edges)for(auto& reference:edge.edge_treatment_side_references)face(reference);
 }
+}
+
+kernel::ViewerMesh AssemblyDocument::build_drawing_scene() const {
+    auto mesh=build_scene();
+    copy_surface_frames(mesh,occurrence_snapshot(),true,true);
+    return mesh;
 }
 
 kernel::BodyResult calculate_component_body(

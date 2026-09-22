@@ -299,6 +299,9 @@ public:
         double reference_scene_size) const;
     void resolve_constructions();
     [[nodiscard]] zima::kernel::ViewerMesh build_scene() const;
+    // Transient Drawing packet: analytic surfaces share the displayed frame.
+    // Ordinary scene references retain their persisted leaf-frame contract.
+    [[nodiscard]] zima::kernel::ViewerMesh build_drawing_scene() const;
     [[nodiscard]] std::vector<OccurrenceSnapshot> occurrence_snapshot() const;
     [[nodiscard]] zima::kernel::ViewerMesh build_scene_with_part_override(
         const std::string& occurrence_id,

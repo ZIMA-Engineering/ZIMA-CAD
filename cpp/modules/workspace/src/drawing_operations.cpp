@@ -9,7 +9,7 @@
 namespace zima::workspace {
 namespace {
 kernel::ViewerMesh drawing_assembly_mesh(const assembly::AssemblyDocument& document) {
-    auto mesh=document.build_scene();
+    auto mesh=document.build_drawing_scene();
     std::set<std::string> skeletons;
     const auto visit=[&](auto&& self,const auto& nodes,assembly::InstancePath parent)->void {
         for(const auto& node:nodes){const auto path=parent.child(node.occurrence_id);

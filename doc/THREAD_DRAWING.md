@@ -19,6 +19,13 @@ geometry; the real solid still controls hidden-line visibility, including for
 the symbolic circle. The same sheet renderer supplies View, PDF and image/DXF
 exports. Regenerate existing Drawing views to update their stored projection.
 
+Assembly Drawing packets transform analytic surface origins and directions
+through the exact nested occurrence placements into the displayed frame.
+This lets the entrance-chamfer classifier recognize translated and rotated
+instances as well as the unplaced Part. The ordinary Assembly reference packet
+keeps its leaf-local surface contract; source geometry and material-side flags
+are not changed. Tests cover repeated, rotated and nested thread occurrences.
+
 The native thread Drawing test covers the axial and oblique views, blind-hole
 occlusion, repeated occurrences, an entrance chamfer, save/reopen, PDF generation
 and distinct printed widths for normal and thread contours.
