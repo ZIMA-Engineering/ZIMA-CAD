@@ -38,8 +38,6 @@ updates. Candidate and signed-archive smoke, production bootstrap trust and
 packaged five-language lifecycle checks passed. The archive is not yet published
 as a GitHub release. See [the release record](releases/2026092201.md).
 
-## Installed layout
-
 Windows build **2026092202** is signed and published. It adds fast indexed
 Assembly Drawing projection, Skeleton exclusion and a clean Skeleton start
 template, independent running dimensions, witness editing/alignment and
@@ -48,6 +46,17 @@ production bootstrap trust, packaged five-language document creation, downloaded
 asset hashes and production update discovery from 2026092102 passed. See the
 [release record](releases/2026092202.md), including the two newly reported
 Assembly drawing issues deferred to the next correction.
+
+Windows build **2026092203** is signed and published. It adds embedded symbols,
+updated title blocks, PDF text pen widths and Assembly camera/viewport stability,
+and includes the intervening Drawing, naming and frame corrections. Exact Git
+source, candidate and signed-archive smoke, production bootstrap trust, packaged
+five-language creation, Assembly editing and symbol GUI checks passed. Downloaded
+asset hashes match acceptance; the signed 2026092202 updater offers the public
+release as installable. See the [release record](releases/2026092203.md) for the
+source-case staging correction, hashes and verification scope.
+
+## Installed layout
 
 ```text
 ZIMA-CAD/

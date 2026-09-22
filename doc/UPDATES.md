@@ -277,3 +277,13 @@ Production discovery from 2026092101 passed on retry after initial GitHub HTTP
 504 responses: the updater verified the public manifest signature and offered
 2026092102 as installable. No update was installed by the discovery check.
 See [the release record](releases/2026092102.md).
+
+Windows release
+[2026092203](https://github.com/ZIMA-Engineering/ZIMA-CAD/releases/tag/ZIMA-CAD-2026092203)
+was published on 2026-09-22 at 16:40:08 UTC. Candidate and finalized signed
+archives passed native smoke and integrity gates; a fresh extraction passed
+production trust, five-language document creation, Assembly editing and symbol
+GUI checks. All three downloaded assets matched the accepted hashes. A fresh
+signed 2026092202 installation verified the public manifest and offered 2026092203
+as installable. No update was installed by this discovery check. See the
+[release record](releases/2026092203.md).
