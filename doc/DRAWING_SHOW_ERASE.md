@@ -375,8 +375,8 @@ controls whether guides also remain visible while idle.
 
 One shared geometry function produces both rendered guide segments and snap
 candidates. Snapping uses a six-logical-pixel screen tolerance and stores the
-resulting view-relative presentation position. A green highlighted segment and
-diamond identify an actual snap; releasing or canceling removes this feedback.
+resulting view-relative presentation position. A green highlighted segment
+identifies an actual snap without an extra diamond marker; releasing or canceling removes this feedback.
 Candidates always come from the exact owning view. Other views, sheets and free
 text objects do not contribute snap candidates. Source geometry and parameter
 values are unaffected. Every view uses its displayed projection bounds for model

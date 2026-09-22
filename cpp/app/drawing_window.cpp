@@ -957,6 +957,7 @@ public:
                 if(dimension&&dimension->kind==drawing::DrawingDimensionKind::Linear)
                     menu.addAction(tr("Převést na řetězovou kótu…"),this,[this,key]{if(manual_properties_)manual_properties_(key.id,2);});
                 if(dimension&&dimension->kind==drawing::DrawingDimensionKind::Chain) {
+                    menu.addAction(tr("Převést na lineární kótu…"),this,[this,key]{if(manual_properties_)manual_properties_(key.id,4);})->setObjectName("convertDrawingLinearAction");
                     menu.addAction(tr("Přidat větev"),this,[this,key]{if(manual_properties_)manual_properties_(key.id,1);})->setObjectName("drawingAddChainBranchAction");
                 }
             }
@@ -1186,6 +1187,7 @@ protected:
                     auto* convert=menu->addAction(tr("Převést na řetězovou kótu…"),this,[this,id]{if(manual_properties_)manual_properties_(id,2);});
                     convert->setObjectName("convertDrawingChainAction");
                 } else {
+                    menu->addAction(tr("Převést na lineární kótu…"),this,[this,id]{if(manual_properties_)manual_properties_(id,4);})->setObjectName("convertDrawingLinearAction");
                     menu->addAction(tr("Přidat větev"),this,[this,id]{if(manual_properties_)manual_properties_(id,1);})->setObjectName("drawingAddChainBranchAction");
                 }
             }
@@ -1305,8 +1307,6 @@ protected:
             for(const auto& line:drawing::annotation_guides(view))painter.drawLine(screen(line.first),screen(line.second));
             if(snap_point_&&snap_line_) {
                 painter.setPen(QPen(QColor("#80AA1A"),2));painter.drawLine(screen(snap_line_->first),screen(snap_line_->second));
-                const auto p=screen(*snap_point_);painter.setBrush(QColor("#171A1D"));
-                painter.drawPolygon(QPolygonF{p+QPointF(0,-6),p+QPointF(6,0),p+QPointF(0,6),p+QPointF(-6,0)});
             }
             painter.restore();
         }
@@ -2282,6 +2282,7 @@ void DrawingWindow::show_detail_properties(drawing::DrawingView view,bool creati
         drawing::refresh_detail_view(detail,*parent);guarded->hide();
         canvas_->begin_placement(std::move(detail),[guarded,resume](auto placed){if(guarded)guarded->set_placed(std::move(placed));resume();},resume,
             [](auto& pending,auto point){pending.x=point.x+pending.crop->anchor.x*pending.scale;pending.y=point.y-pending.crop->anchor.y*pending.scale;});
+        canvas_->unsetCursor();
     };
     const auto boundary=[this,guarded,resume](std::optional<drawing::Point2> anchor) {
         if(!guarded)return;const auto detail=guarded->values();const auto* parent=document_.find_view(detail.parent_view_id);if(!parent)return;
@@ -2293,6 +2294,7 @@ void DrawingWindow::show_detail_properties(drawing::DrawingView view,bool creati
             if(!guarded)return;
             if(accepted&&crop){guarded->set_boundary(*crop);guarded->place();}else resume();
         },anchor);
+        canvas_->unsetCursor();
     };
     dialog->edit_boundary=[boundary]{boundary({});};
     dialog->choose_source=[this,guarded,boundary,resume] {
@@ -2623,7 +2625,8 @@ void DrawingWindow::show_dimension_properties(const std::string& id,int extend) 
             }
         },owner?owner:this);
     view_dialog_=dialog;canvas_->set_dimension_command(dialog);
-    if(extend==2)dialog->findChild<QComboBox*>("drawingDimensionType")->setCurrentIndex(int(drawing::DrawingDimensionKind::Chain));
+    if(extend==4)dialog->findChild<QComboBox*>("drawingDimensionType")->setCurrentIndex(int(drawing::DrawingDimensionKind::Linear));
+    else if(extend==2)dialog->findChild<QComboBox*>("drawingDimensionType")->setCurrentIndex(int(drawing::DrawingDimensionKind::Chain));
     else if(extend){dialog->enable_chain_command();if(extend!=3)dialog->extend(extend<0);}
     connect(dialog,&QDialog::finished,this,[this,id,view=value.view_id]{
         canvas_->set_dimension_command(nullptr);view_dialog_=nullptr;

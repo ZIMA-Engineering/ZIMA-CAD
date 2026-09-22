@@ -93,7 +93,7 @@ No portable release was published for this change.
 
 Placing or dragging a balloon center uses the owning view's annotation guides,
 with the positive paper-millimetre offset from View Properties. The same guide
-segments are used for drawing and snapping. A green segment and diamond display
-a confirmed snap, and release commits that exact position. Leader attachment
+segments are used for drawing and snapping. A green segment displays
+a confirmed snap without an extra point marker, and release commits that exact position. Leader attachment
 picking retains its original geometry reference contract. Free text and other
 views never supply balloon snap candidates.

@@ -561,6 +561,12 @@ replaces sheet storage; retaining its previous address can make views disappear.
 The GUI regression checks that projected geometry is still painted immediately
 after confirming chain continuation.
 
+An individual running dimension offers **Convert to linear dimension…** in its
+canvas and Tree context menus. This opens the shared Dimension Properties window
+with Linear selected. OK preserves its identity, references and text/tolerances,
+detaches it from the chain group and commits one undoable change. Cancel leaves
+the chain unchanged; other members retain their own geometry and settings.
+
 Alternatively, start Chain dimension and pick an existing running dimension.
 The common ordered candidate list includes existing dimensions as seeds; hover,
 RMB cycling and LMB confirmation agree. The seed supplies the datum, measuring
@@ -725,6 +731,7 @@ Insert Detail follows Insert View in the Drawing toolbar. Pick a point in the
 source view, define a circle, ellipse or closed spline, then place the enlarged
 view. The shared creation/edit properties window controls name, scale, caption,
 source boundary and source label. Names start with X, Y, Z, then X1, Y1, Z1.
+Boundary input and detail placement use the normal arrow cursor.
 Only OK commits; Cancel discards the complete preview. A detail inherits its
 parent's calculated geometry, visibility, model annotations, section, breaks and
 crop. Regeneration refreshes parents before details; deleting a parent also

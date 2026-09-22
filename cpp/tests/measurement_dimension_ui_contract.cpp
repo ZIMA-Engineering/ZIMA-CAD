@@ -772,6 +772,25 @@ int verify_measurement_dimension_ui() {
             }
             require(geometry_visible,"Completing a chain dimension removed the view geometry from the canvas");
             require(state->undo()&&state->document().sheets.front().dimensions==members,"Continuing a chain is not one reversible transaction");
+            window.edit_workspace_document(drawing.document_id);flush();
+            const auto open_conversion=[&] {
+                window.select_tree_entities({"drawing-dimension:"+members[0].id},"drawing-dimension:"+members[0].id);
+                QMenu menu;window.populate_selection_menu(menu);
+                auto* action=menu.findChild<QAction*>("convertDrawingLinearAction");
+                require(action,"Chain context menu has no linear conversion");
+                action->trigger();flush();
+                auto* properties=dialog();
+                require(properties&&properties->value().kind==DrawingDimensionKind::Linear,"Conversion did not open linear dimension properties");
+                return properties;
+            };
+            open_conversion()->reject();flush();
+            require(window.document_for_test().sheets.front().dimensions==members,"Cancel converted the chain dimension");
+            open_conversion()->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+            const auto converted=window.document_for_test().sheets.front().dimensions;
+            require(converted[0].kind==DrawingDimensionKind::Linear&&converted[0].chain_group.empty()&&
+                converted[0].id==members[0].id&&converted[0].attachments==members[0].attachments&&converted[0].style==members[0].style&&
+                converted[1]==members[1],"Linear conversion changed references, tolerances or another chain member");
+            require(state->undo()&&state->document().sheets.front().dimensions==members,"Linear conversion did not undo atomically");
             auto ordinary=group_document;ordinary.sheets.front().dimensions.clear();
             auto a=make_drawing_dimension(view.id);a.attachments=members[0].attachments;place_drawing_dimension(view,a,0,{-8,10});
             auto b=make_drawing_dimension(view.id);b.attachments=members[0].attachments;place_drawing_dimension(view,b,0,{38,10});
@@ -801,6 +820,14 @@ int verify_measurement_dimension_ui() {
                 require(translated_window.findChild<QAction*>("drawingChainDimensionAction")->text()==command_labels.at(language),"Chain command is not localized after switching language");
                 auto localized_value=make_drawing_dimension(view.id,DrawingDimensionKind::Chain);
                 localized_value.attachments={{DimensionAttachmentKind::Line,{"profile","bottom",{}}},{DimensionAttachmentKind::Line,{"profile","top",{}}}};
+                auto menu_document=drawing;menu_document.document_id=kernel::make_stable_id();
+                menu_document.sheets.front().dimensions={localized_value};workspace.add_drawing(menu_document);
+                translated_window.edit_workspace_document(menu_document.document_id);
+                translated_window.select_tree_entities({"drawing-dimension:"+localized_value.id},"drawing-dimension:"+localized_value.id);
+                QMenu menu;translated_window.populate_selection_menu(menu);
+                const std::map<std::string,QString> conversion_labels{{"cs",QString::fromUtf8("Převést na lineární kótu…")},{"en",QString::fromUtf8("Convert to linear dimension…")},{"de",QString::fromUtf8("In lineare Bemaßung umwandeln…")},{"fr",QString::fromUtf8("Convertir en cote linéaire…")},{"ru",QString::fromUtf8("Преобразовать в линейный размер…")}};
+                auto* conversion=menu.findChild<QAction*>("convertDrawingLinearAction");
+                require(conversion&&conversion->text()==conversion_labels.at(language),"Linear conversion menu is not localized after switching language");
                 app::DrawingDimensionDialog localized(localized_value,false,
                     [&](const auto&){return &view;},[](auto){},&window);
                 localized.enable_chain_command();
