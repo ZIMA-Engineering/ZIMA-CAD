@@ -1,3 +1,5 @@
+#include <zima/drawing_render/sheet_renderer.hpp>
+#include <QDate>
 #include <zima/drawing_render/pdf_export.hpp>
 #include <zima/drawing_render/dxf_export.hpp>
 #include "drawing_break_editor.hpp"
@@ -1041,6 +1043,53 @@ int verify_drawing_ui() {
             window.document_for_test().save(directory/"empty-free-text.drwz");
             require(zima::drawing::DrawingDocument::load(directory/"empty-free-text.drwz").sheets.front().texts.front().presentation.text.empty(),"Empty drawing text did not persist");
         }
+        {
+            auto fixture=zima::drawing::DrawingDocument::create_default();
+            zima::drawing::TitleBlockField date;date.id="DATE";date.editable=true;date.value="old";date.action_settings={{"kind","today"},{"date_format","yyyy-MM-dd"}};
+            auto list=date;list.id="LIST";list.value="A";list.action_settings={{"kind","list"},{"choices","[\"A\",\"B\"]"},{"allow_custom","no"}};
+            auto custom=list;custom.id="CUSTOM";custom.action_settings["allow_custom"]="yes";
+            fixture.sheets.front().title_block_fields={date,list,custom};workspace.add_drawing(fixture);window.edit_workspace_document(fixture.document_id);flush();
+            for(bool accept:{false,true}) {
+                action("editDrawingTitleBlockAction")->trigger();flush();auto* props=window.findChild<QDialog*>("drawingTitleBlockProperties");require(props,"Action dialog missing");
+                auto* today=props->findChild<QPushButton*>("titleBlockToday:DATE");auto* value=props->findChild<QLineEdit*>("titleBlockField:DATE");auto* choices=props->findChild<QComboBox*>("titleBlockChoices:LIST");auto* editable=props->findChild<QComboBox*>("titleBlockChoices:CUSTOM");
+                require(today&&value&&choices&&editable&&!choices->isEditable()&&editable->isEditable(),"Field action widgets are incorrect");require(value->text()=="old","Date changed without clicking");
+                today->click();require(value->text()==QDate::currentDate().toString("yyyy-MM-dd"),"Today action used wrong date format");choices->setCurrentText("B");editable->setEditText("Custom");
+                require(props->width()>=std::min(window.width(),3*props->minimumSizeHint().width()),"Title value dialog did not use wider layout");
+                window.grab().save(QString::fromStdString((directory/"title-field-actions.png").string()));
+                props->findChild<QDialogButtonBox*>()->button(accept?QDialogButtonBox::Ok:QDialogButtonBox::Cancel)->click();flush();
+                const auto& fields=window.document_for_test().sheets.front().title_block_fields;
+                require(fields[0].value==(accept?QDate::currentDate().toString("yyyy-MM-dd").toStdString():"old")&&fields[1].value==(accept?"B":"A")&&fields[2].value==(accept?"Custom":"A"),"Field actions broke OK/Cancel");
+            }
+            window.document_for_test().save(directory/"title-field-actions.drwz");
+            const auto reopened=zima::drawing::DrawingDocument::load(directory/"title-field-actions.drwz");require(reopened.sheets.front().title_block_fields[1].action_settings==list.action_settings,"Field action did not persist");
+            require(workspace.open_drawing(fixture.document_id)->undo(),"Title action Undo missing");
+        }
+        {
+            const auto saved_settings=zima::app::ApplicationSettings::load();QTemporaryDir language_directory;
+            const auto catalogs=std::filesystem::path(__FILE__).parent_path().parent_path().parent_path()/"config/localization";
+            for(const auto* language:{"cs","en","de","fr","ru"}) {
+                QSettings config(language_directory.filePath("config.ini"),QSettings::IniFormat);config.setValue("Application/Language",language);config.setValue("Paths/Localization",QString::fromStdString(catalogs.generic_string()));config.sync();
+                const auto settings=zima::app::ApplicationSettings::load(language_directory.path());zima::app::apply_application_translations(*qApp,settings);
+                auto initial=zima::sketcher::Sketch::create_text();initial.modeling_geometry=false;
+                std::map<std::string,std::string> accepted;int commits=0;zima::app::SketchTextPropertiesDialog* props=nullptr;
+                props=new zima::app::SketchTextPropertiesDialog(initial,std::array{0.,0.},[](auto){},[&](auto){accepted=props->field_action();++commits;},&window,true,false,std::map<std::string,std::string>{});props->show();flush();
+                auto* action=props->findChild<QComboBox*>("textFieldAction");require(action&&action->itemText(1)==settings.qt_translations.value("Dnešní datum")&&action->itemText(2)==settings.qt_translations.value("Výběr ze seznamu"),"Text actions did not follow language switch");
+                action->setCurrentIndex(2);auto* list=props->findChild<QPlainTextEdit*>("textFieldChoices");require(list->isVisible()&&!props->findChild<QComboBox*>("textFieldDateFormat")->isVisible(),"Action options show irrelevant settings");
+                flush();require(props->findChild<QCheckBox*>("textFieldAllowCustom")->y()>=list->y()+list->height(),"List options overlap the custom-value checkbox");
+                list->setPlainText("A\nB");props->findChild<QCheckBox*>("textFieldAllowCustom")->setChecked(false);
+                props->grab().save(QString("build/text-field-action-%1.png").arg(language));props->buttons()->button(QDialogButtonBox::Ok)->click();flush();
+                require(commits==1&&accepted.at("kind")=="list"&&accepted.at("allow_custom")=="no"&&accepted.at("choices")=="[\"A\",\"B\"]","Text property action was not committed");
+            }
+            zima::app::apply_application_translations(*qApp,saved_settings);
+        }
+        {
+            auto symbol=zima::drawing::DrawingDocument::create_default();zima::drawing::load_title_block_template(symbol.sheets.front(),"config/formats/ZE-TITLE-BLOCK-CS.tblz");
+            require(symbol.sheets.front().dimensions.empty(),"Template Sketch dimensions leaked into Drawing");
+            zima::drawing_render::SheetRenderer renderer;renderer.set_render_sheet(&symbol.sheets.front());QImage proof(360,200,QImage::Format_ARGB32_Premultiplied);proof.fill(Qt::white);QPainter painter(&proof);
+            renderer.paint_sheet(painter,30,{-4600,-7530},true);painter.end();proof.save("build/projection-symbol-proof.png");
+            zima::drawing_render::export_pdf(symbol,directory/"projection-symbol.pdf",{},nullptr,true);
+            zima::drawing_render::export_dxf(symbol,symbol.sheets.front().id,directory/"projection-symbol.dxf",{},nullptr,true);
+        }
         require(modal_error.isEmpty(),modal_error.toUtf8().constData());
         std::cout<<"Drawing placement, rectangular selection, projection, Cancel, MMB, persistence and global paths passed\n";
         return 0;
@@ -1150,7 +1199,7 @@ int verify_drawing_details_ui() {
             drawing::ProjectedEdge edge;edge.points={{-10,8},{10,8}};view.projected_edges.push_back(edge);
             edge.hatch=true;edge.points={{-10,7},{10,7}};view.projected_edges.push_back(edge);
             view.section_hatch_crops["section"]={drawing::ViewCropShape::Ellipse,{0,0},{{15,5}}};sheet.views={view};
-            drawing_render::SheetRenderer renderer;renderer.set_render_sheet(&sheet);
+            zima::drawing_render::SheetRenderer renderer;renderer.set_render_sheet(&sheet);
             const auto render=[&](bool printing){QImage image(200,200,QImage::Format_ARGB32);image.fill(printing?Qt::white:Qt::black);QPainter painter(&image);renderer.paint_sheet(painter,4,{},printing);return image;};
             const auto has_ink=[](const QImage& image,int x,int y,bool printing){for(int dy=-1;dy<=1;++dy)for(int dx=-1;dx<=1;++dx){const auto value=image.pixelColor(x+dx,y+dy).red();if(printing?value<220:value>35)return true;}return false;};
             for(bool printing:{false,true}){

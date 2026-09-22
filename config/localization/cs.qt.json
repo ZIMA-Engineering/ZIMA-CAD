@@ -1551,5 +1551,13 @@
   "Kliknutím určete velikost hranice. Esc zruší.": "Kliknutím určete velikost hranice. Esc zruší.",
   "Invalid drawing crop boundary.": "Neplatná hranice omezení pohledu.",
   "Kruh": "Kruh",
-  "Přidat větev": "Přidat větev"
+  "Přidat větev": "Přidat větev",
+  "Dnešní datum": "Dnešní datum",
+  "Výběr ze seznamu": "Výběr ze seznamu",
+  "Akce u hodnoty": "Akce u hodnoty",
+  "Formát data": "Formát data",
+  "Možnosti (každá na novém řádku)": "Možnosti (každá na novém řádku)",
+  "Povolit vlastní hodnotu": "Povolit vlastní hodnotu",
+  "Zadejte alespoň jednu možnost seznamu.": "Zadejte alespoň jednu možnost seznamu.",
+  "Žádná": "Žádná"
 }

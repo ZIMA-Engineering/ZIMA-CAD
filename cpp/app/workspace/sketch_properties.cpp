@@ -665,6 +665,9 @@ void AssemblyWorkspaceWindow::show_sketch_text_properties(
     selected_sketch_geometry_ids_.clear();
     selected_sketch_text_id_ = text_id;
 
+    const auto action_settings=sketch->drawing_template && sketch->drawing_template->kind=="title_block"
+        ? std::optional{sketch->drawing_template->sections.contains("TextAction."+initial.id)?sketch->drawing_template->sections.at("TextAction."+initial.id):std::map<std::string,std::string>{}}
+        : std::nullopt;
     auto* dialog = new SketchTextPropertiesDialog(
         std::move(initial), anchor,
         [this, sketch_id](
@@ -681,8 +684,14 @@ void AssemblyWorkspaceWindow::show_sketch_text_properties(
         [this, sketch_id, edit_mode](
             zima::sketcher::SketchText committed) {
             const std::string committed_id = committed.id;
+            const auto field_action=sketch_text_dialog_->field_action();
             if (active_sketch_id_ != sketch_id ||
                 !mutate_active_sketch([&](auto& target_sketch) {
+                    if(target_sketch.drawing_template) {
+                        const auto key="TextAction."+committed_id;
+                        if(field_action.empty())target_sketch.drawing_template->sections.erase(key);
+                        else target_sketch.drawing_template->sections[key]=field_action;
+                    }
                     if (edit_mode) target_sketch.update_text(std::move(committed));
                     else target_sketch.add_text(std::move(committed));
                 })) throw std::runtime_error("Sketch no longer exists");
@@ -690,7 +699,8 @@ void AssemblyWorkspaceWindow::show_sketch_text_properties(
             state_->setText(edit_mode
                 ? tr("Text skici byl upraven jako jedna revize.")
                 : tr("Text skici byl vytvořen jako jedna revize."));
-        }, this, sketch->drawing_template.has_value());
+        }, this, sketch->drawing_template.has_value(), false,
+        action_settings);
     properties_dialog_ = dialog;
     sketch_text_dialog_ = dialog;
     connect(dialog, &QObject::destroyed, this, [this, dialog] {

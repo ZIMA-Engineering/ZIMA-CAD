@@ -1,6 +1,9 @@
 #pragma once
 #include <zima/drawing/drawing_document.hpp>
 namespace zima::drawing {
+inline bool origin_annotation(const ModelAnnotationReference& reference) {
+  return reference.semantic_id.starts_with("origin:axis:") || reference.semantic_id.starts_with("sketch_axis:");
+}
 // Source geometry must already be transformed into the displayed source frame.
 // Each packet supplies its actual owning document and exact occurrence path.
 struct ModelAnnotationSource {

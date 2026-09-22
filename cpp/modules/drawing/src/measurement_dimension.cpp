@@ -366,7 +366,7 @@ std::vector<ProjectedMeasurementCurve> projected_measurement_curves(const Drawin
         result.push_back(std::move(c));
     }
     for (const auto &item : view.model_annotations) {
-        if (item.kind != ModelAnnotationKind::Axis || !item.model_axis || item.unresolved)
+        if (origin_annotation(item.source) || item.kind != ModelAnnotationKind::Axis || !item.model_axis || item.unresolved)
             continue;
         ProjectedMeasurementCurve c;
         c.source = {item.source.owner_id, item.source.semantic_id, item.source.instance_path};
@@ -391,7 +391,7 @@ std::vector<std::vector<Point2>> measurement_reference_geometry(
         if (edge.source == ref && !edge.hatch && (!edge.silhouette||edge.thread) && drawing_edge_visible(view, edge))
             result.push_back(edge.points);
     for (const auto &item : view.model_annotations)
-        if (item.kind == ModelAnnotationKind::Axis && item.model_axis && item.visible && !item.unresolved &&
+        if (!origin_annotation(item.source) && item.kind == ModelAnnotationKind::Axis && item.model_axis && item.visible && !item.unresolved &&
             kernel::EdgeReference{item.source.owner_id, item.source.semantic_id, item.source.instance_path} == ref)
             for (auto &curve : axis_annotation_geometry(view, item).curves)
                 result.push_back(std::move(curve));

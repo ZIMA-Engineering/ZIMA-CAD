@@ -294,7 +294,7 @@ drawing_annotation_sources(const Workspace *workspace,
       return !e.reference.valid() || !e.construction;
     });
     std::erase_if(mesh.axes,
-                  [](const auto &a) { return !a.reference.valid(); });
+                  [](const auto &a) { return !a.reference.valid() || a.reference.semantic_key.starts_with("origin:axis:") || a.reference.semantic_key.starts_with("sketch_axis:"); });
     const auto unique = [](auto &values) {
       std::set<std::pair<std::string, std::string>> seen;
       std::erase_if(values, [&](const auto &value) {

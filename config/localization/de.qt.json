@@ -1551,5 +1551,13 @@
   "Kliknutím určete velikost hranice. Esc zruší.": "Legen Sie die Begrenzungsgröße per Klick fest. Esc bricht ab.",
   "Invalid drawing crop boundary.": "Ungültige Begrenzung der Zeichnungsansicht.",
   "Kruh": "Kreis",
-  "Přidat větev": "Zweig hinzufügen"
+  "Přidat větev": "Zweig hinzufügen",
+  "Dnešní datum": "Heutiges Datum",
+  "Výběr ze seznamu": "Aus Liste auswählen",
+  "Akce u hodnoty": "Wertaktion",
+  "Formát data": "Datumsformat",
+  "Možnosti (každá na novém řádku)": "Optionen (eine pro Zeile)",
+  "Povolit vlastní hodnotu": "Eigenen Wert zulassen",
+  "Zadejte alespoň jednu možnost seznamu.": "Geben Sie mindestens einen Listeneintrag ein.",
+  "Žádná": "Keine"
 }

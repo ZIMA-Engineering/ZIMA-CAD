@@ -279,7 +279,7 @@ struct DrawingBalloon {
 };
 
 enum class DrawingPen { White, Green, Yellow, Red };
-struct TemplateLine { Point2 first; Point2 second; DrawingPen pen{DrawingPen::Green}; };
+struct TemplateLine { Point2 first; Point2 second; DrawingPen pen{DrawingPen::Green}; bool centerline{}; };
 struct TemplateCircle { Point2 center; double radius{}; DrawingPen pen{DrawingPen::Green}; };
 struct TemplateText {
     std::string text; Point2 position; double height{2.5};
@@ -300,6 +300,7 @@ struct TitleBlockField {
     std::string format;
     bool write_back{};
     bool anchor_position{}; double angle{}; bool flipped{true}; std::string font{"osifont"};
+    std::map<std::string,std::string> action_settings;
 };
 struct BomRow {
     int item_number{}; int quantity{1}; std::string name;

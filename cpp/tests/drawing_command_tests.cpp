@@ -27,7 +27,7 @@ void verify(const kernel::OcctKernel& kernel,fs::path dir){
     run(host,"undo");require(!state->is_dirty() && state->document().find_sheet(second)->title_block_locale=="cs","Undo failed to restore saved sheet state");run(host,"redo");
     const auto rejected=[&](const char* command,Json args){const auto rev=state->revision(),gen=state->data_generation();require(!host.execute({{"command",command},{"arguments",std::move(args)}}).ok,"Invalid drawing command accepted");require(state->revision()==rev&&state->data_generation()==gen,"Rejected drawing command committed data");};
     rejected("drawing.sheet.set",{{"sheet",second},{"scale",0}});rejected("drawing.sheet.set",{{"sheet",second},{"format","A5"}});rejected("drawing.sheet.create",{{"name",""}});rejected("drawing.sheet.set",{{"sheet",second},{"red_line_mm",3}});rejected("drawing.sheet.delete",{{"sheet","missing"}});
-    const auto frame=fs::absolute("config/formats/ZE-A4.frmz"),title=fs::absolute("config/formats/ZE-TITLE-BLOCK.tblz");
+    const auto frame=fs::absolute("config/formats/ZE-A4.frmz"),title=fs::absolute("config/formats/ZE-TITLE-BLOCK-EN.tblz");
     run(host,"drawing.frame.load",{{"sheet",first},{"path",document::path_to_utf8(frame)}});run(host,"drawing.title_block.load",{{"sheet",first},{"path",document::path_to_utf8(title)}});
     require(!state->document().find_sheet(first)->frame_lines.empty()&&!state->document().find_sheet(first)->title_block_texts.empty(),"Templates did not embed geometry");
     const auto bad=dir/"bad.frmz";{std::ofstream out(bad);out<<"[Format]\nSheetFormat=A4\n[FrameGeometry]\nLine1=invalid\n";}

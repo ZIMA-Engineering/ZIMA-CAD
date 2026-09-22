@@ -1551,5 +1551,13 @@
   "Kliknutím určete velikost hranice. Esc zruší.": "Click to set the boundary size. Esc cancels.",
   "Invalid drawing crop boundary.": "Invalid drawing crop boundary.",
   "Kruh": "Circle",
-  "Přidat větev": "Add branch"
+  "Přidat větev": "Add branch",
+  "Dnešní datum": "Today’s date",
+  "Výběr ze seznamu": "Select from list",
+  "Akce u hodnoty": "Value action",
+  "Formát data": "Date format",
+  "Možnosti (každá na novém řádku)": "Options (one per line)",
+  "Povolit vlastní hodnotu": "Allow custom value",
+  "Zadejte alespoň jednu možnost seznamu.": "Enter at least one list option.",
+  "Žádná": "None"
 }

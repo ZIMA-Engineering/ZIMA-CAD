@@ -169,7 +169,7 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
         };
         const auto pen_width=[&](zima::drawing::DrawingPen pen){return printing||lineweights_?zoom*zima::drawing::drawing_pen_width_mm(*sheet_,pen):1.0;};
         const auto draw_template=[&](const auto& lines,const auto& texts,const auto& circles) {
-            for(const auto& line:lines){painter.setPen(QPen(pen_color(line.pen),pen_width(line.pen)));painter.drawLine(screen(line.first),screen(line.second));}
+            for(const auto& line:lines){QPen pen(pen_color(line.pen),line.centerline?(printing||lineweights_?zoom*sheet_->thin_line_mm:1.0):pen_width(line.pen));if(line.centerline)pen.setDashPattern({2*zoom/pen.widthF(),.4*zoom/pen.widthF(),.2*zoom/pen.widthF(),.4*zoom/pen.widthF()});painter.setPen(pen);painter.drawLine(screen(line.first),screen(line.second));}
             for(const auto& circle:circles){painter.setPen(QPen(pen_color(circle.pen),pen_width(circle.pen)));painter.setBrush(Qt::NoBrush);painter.drawEllipse(screen(circle.center),circle.radius*zoom,circle.radius*zoom);}
             for(const auto& text:texts)draw_text(text);
         };

@@ -959,6 +959,11 @@ int verify_measurement_dimension_ui() {
             const auto guide=annotation_guides(view).front();place_drawing_dimension(view,bound,0,{(guide.first.x+guide.second.x)/2/view.scale,guide.first.y/view.scale});
             doc.sheets.front().dimensions={a,b,bound};
             require(workspace::can_align_drawing_dimensions(doc.sheets.front(),{a.id,b.id}),"Free parallel dimensions cannot align");
+            {auto three=doc.sheets.front();auto c=b;c.id=kernel::make_stable_id();c.segments.front().layout.line_offset+=3;three.dimensions.push_back(c);
+             require(workspace::align_drawing_dimensions(three,{a.id,b.id,c.id}),"Three parallel dimensions cannot align");
+             const auto first=evaluate_drawing_dimension(three.views.front(),three.dimensions.front()).presentations.front();
+             for(const auto& id:{b.id,c.id}){const auto& d=*std::ranges::find(three.dimensions,id,&DrawingDimension::id);const auto aligned=evaluate_drawing_dimension(three.views.front(),d).presentations.front();require(std::abs(first.line_first.y-aligned.line_first.y)<1e-8,"Multi-alignment left a target off the reference line");}}
+
             require(!workspace::free_alignment_dimension(doc.sheets.front(),bound.id),"Guide-attached dimension offered for alignment");
             const auto originals=doc.sheets.front().dimensions;
             require(!workspace::align_drawing_dimensions(doc.sheets.front(),{a.id,bound.id})&&doc.sheets.front().dimensions==originals,"Alignment moved a guide-attached dimension");

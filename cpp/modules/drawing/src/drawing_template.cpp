@@ -208,11 +208,11 @@ void save_template_sketch(const zima::sketcher::Sketch& sketch,const std::filesy
     const auto pen_for=[&](const std::string& id){const auto it=m.pens.find(id);return it==m.pens.end()?std::string("GREEN"):it->second;};
     for(const auto& e:s.viewer_mesh().edges) {
         const auto& key=e.reference.semantic_key;
-        if(key.starts_with("template_image:")||key.starts_with("text:")||key.starts_with("repeat_region:")||key.starts_with("circle:")||e.construction)continue;
+        if(key.starts_with("template_image:")||key.starts_with("text:")||key.starts_with("repeat_region:")||key.starts_with("circle:")||(e.construction&&!e.dash_dot))continue;
         const auto id=key.substr(key.find(':')+1);
         for(std::size_t i=1;i<e.points.size();++i) {
             const auto a=s.local_point(e.points[i-1]),b=s.local_point(e.points[i]);
-            geometry["Line"+std::to_string(++line_index)]=num(a[0])+", "+num(a[1])+", "+num(b[0])+", "+num(b[1])+", "+pen_for(id);
+            geometry["Line"+std::to_string(++line_index)]=num(a[0])+", "+num(a[1])+", "+num(b[0])+", "+num(b[1])+", "+pen_for(id)+(e.dash_dot?", CENTER":"");
         }
     }
     for(const auto& c:s.circles)if(!c.construction){const auto* p=s.find_point(c.center_point_id);geometry["Circle"+std::to_string(++circle_index)]=num(p->x)+", "+num(p->y)+", "+num(c.radius)+", "+pen_for(c.id);}
@@ -251,10 +251,12 @@ void load_template_details(DrawingSheet& sheet,const std::filesystem::path& path
     auto& texts=title?sheet.title_block_texts:sheet.frame_texts;texts.clear();
     const auto append=[&](TemplateText t,std::string field_id,const std::string& text_id) {
         const auto tokens=title_block_tokens(t.text);
+        const auto action_section="TextAction."+text_id;
+        const bool has_action=data.value("format","")=="zima-cad-cpp-sketch"&&data.at("drawing_template").at("sections").contains(action_section);
         const bool repeat=std::ranges::any_of(sheet.repeat_regions,[&](const auto& r){return t.position.x>=r.x && t.position.x<=r.x+r.width && t.position.y>=r.y && t.position.y<=r.y+r.height;});
-        if(title && field_id.empty() && !repeat && tokens.size()==1 && t.text=="&"+tokens.front() && title_block_token_scope(tokens.front())!="system") {
+        if(title && field_id.empty() && !repeat && ((tokens.empty()&&has_action)||(tokens.size()==1 && t.text=="&"+tokens.front() && title_block_token_scope(tokens.front())!="system"))) {
             field_id="text:"+text_id;
-            TitleBlockField field;field.id=field_id;field.editable=true;field.write_back=title_block_token_scope(tokens.front())=="model";
+            TitleBlockField field;field.id=field_id;field.editable=true;field.write_back=!tokens.empty()&&title_block_token_scope(tokens.front())=="model";
             sheet.title_block_fields.push_back(std::move(field));
         }
         if(title&&!field_id.empty()) {
@@ -262,7 +264,11 @@ void load_template_details(DrawingSheet& sheet,const std::filesystem::path& path
             if(found!=sheet.title_block_fields.end()) {
                 found->position=t.position;found->height=t.height;found->alignment=t.alignment;
                 found->vertical_alignment=t.vertical_alignment;found->angle=t.angle;found->flipped=t.flipped;
-                found->font=t.font;found->pen=t.pen;found->anchor_position=true;found->expression=t.text;
+                found->font=t.font;found->pen=t.pen;found->anchor_position=true;found->expression=tokens.empty()&&has_action?"":t.text;
+                if(tokens.empty()&&has_action)found->value=t.text;
+                const auto& sections=data.at("drawing_template").at("sections");
+                const auto action=sections.find("TextAction."+text_id);
+                if(action!=sections.end())found->action_settings=action->get<std::map<std::string,std::string>>();
             }
         } else texts.push_back(std::move(t));
     };

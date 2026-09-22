@@ -37,7 +37,7 @@ void require(bool b, const char *message) {
 }
 bool shown_without_origin(const zima::drawing::ModelAnnotation& item) {
   return item.visible == !(item.kind == zima::drawing::ModelAnnotationKind::Axis &&
-                           item.source.semantic_id.starts_with("origin:axis:"));
+                           zima::drawing::origin_annotation(item.source));
 }
 void flush() {
   QApplication::processEvents();
@@ -185,6 +185,7 @@ int verify_show_erase_ui() {
         {{{30, 20, 0}, {-30, 20, 0}}, {"model", "edge:top", {}}},
         {{{-30, 20, 0}, {-30, -20, 0}}, {"model", "edge:left", {}}}};
 
+    body.mesh.axes.push_back({{0,0,0},{0,1,0},40,{"model","axis:authored",{}}});
     workspace.add_part(part, {body}, "source.prtz");
     auto sources = workspace::drawing_annotation_sources(&workspace, part.document_id,
                                                    "source.prtz");
@@ -230,8 +231,8 @@ int verify_show_erase_ui() {
     require(repeated.size() == 3 &&
                 repeated[0].instance_path != repeated[1].instance_path,
             "Repeated occurrences collapsed");
-    require(std::abs(repeated[1].axes[0].point.x -
-                     repeated[0].axes[0].point.x - 70) < 1e-8,
+    require(std::abs(repeated[1].construction.at(0).points.at(0).x -
+                     repeated[0].construction.at(0).points.at(0).x - 70) < 1e-8,
             "Occurrence annotations not transformed");
     auto measured=assembly;
     measured.document_id="measured-assembly";

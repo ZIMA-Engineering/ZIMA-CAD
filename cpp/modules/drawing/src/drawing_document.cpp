@@ -210,7 +210,7 @@ void parse_geometry(const std::map<std::string,std::string>& values,
         try {
             if (key.starts_with("Line") && parts.size() >= 5) {
                 lines.push_back({transform(std::stod(parts[0]),std::stod(parts[1])),
-                    transform(std::stod(parts[2]),std::stod(parts[3])),parse_pen(parts[4])});
+                    transform(std::stod(parts[2]),std::stod(parts[3])),parse_pen(parts[4]),parts.size()>5 && parts[5]=="CENTER"});
             } else if (key.starts_with("Text") && parts.size() >= 6) {
                 texts.push_back({parts[0],transform(std::stod(parts[1]),std::stod(parts[2])),
                     std::stod(parts[3]),parse_pen(parts[4]),parts[5]});
@@ -600,7 +600,7 @@ void DrawingDocument::save(const std::filesystem::path& path,
         const auto line_json=[](const auto& lines) {
             nlohmann::json result=nlohmann::json::array();
             for (const auto& line:lines) result.push_back({{"first",{line.first.x,line.first.y}},
-                {"second",{line.second.x,line.second.y}},{"pen",static_cast<int>(line.pen)}});
+                {"second",{line.second.x,line.second.y}},{"pen",static_cast<int>(line.pen)},{"centerline",line.centerline}});
             return result;
         };
         const auto text_json=[](const auto& texts) {
@@ -628,7 +628,7 @@ void DrawingDocument::save(const std::filesystem::path& path,
             {"alignment",field.alignment},{"vertical_alignment",field.vertical_alignment},
             {"box_width",field.box_width},{"box_height",field.box_height},
             {"format",field.format},{"write_back",field.write_back},{"anchor_position",field.anchor_position},
-            {"angle",field.angle},{"flipped",field.flipped},{"font",field.font}});
+            {"angle",field.angle},{"flipped",field.flipped},{"font",field.font},{"action_settings",field.action_settings}});
         serialized["bom_source_document_id"]=sheet.bom_source_document_id;
         serialized["selected_source_document_id"]=sheet.selected_source_document_id;
         for(const auto& b:sheet.balloons)if(!ids.insert(b.id).second||std::ranges::none_of(sheet.views,[&](const auto& v){return v.id==b.view_id;}))
@@ -818,7 +818,7 @@ DrawingDocument DrawingDocument::load(const std::filesystem::path& path) {
             std::vector<TemplateLine> result; for(const auto& item:source) result.push_back({
                 {item.at("first").at(0),item.at("first").at(1)},
                 {item.at("second").at(0),item.at("second").at(1)},
-                static_cast<DrawingPen>(item.at("pen").get<int>())}); return result;
+                static_cast<DrawingPen>(item.at("pen").get<int>()),item.value("centerline",false)}); return result;
         };
         const auto parse_texts=[](const nlohmann::json& source) {
             std::vector<TemplateText> result; for(const auto& item:source) result.push_back({
@@ -838,7 +838,7 @@ DrawingDocument DrawingDocument::load(const std::filesystem::path& path) {
             item.value("alignment", "left"), item.value("vertical_alignment", "middle"),
             item.value("box_width", 0.0), item.value("box_height", 0.0),
             item.value("format", ""), item.value("write_back", false),item.value("anchor_position",false),
-            item.value("angle",0.0),item.value("flipped",true),item.value("font","osifont")});
+            item.value("angle",0.0),item.value("flipped",true),item.value("font","osifont"),item.value("action_settings",std::map<std::string,std::string>{})});
         sheet.bom_source_document_id=serialized.at("bom_source_document_id").get<std::string>();
         sheet.selected_source_document_id=serialized.at("selected_source_document_id").get<std::string>();
         sheet.balloons=deserialize_balloons(serialized.at("balloons").dump());

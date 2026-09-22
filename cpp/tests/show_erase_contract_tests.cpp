@@ -90,7 +90,7 @@ int main() {
       auto with_origins = view;
       for (const auto* owner : {"source-part:origin", "body-origin", "assembly:origin"})
         for (const auto* path : {"assembly/first", "assembly/second"})
-          for (const auto* semantic : {"origin:axis:x", "origin:axis:y", "origin:axis:z"}) {
+          for (const auto* semantic : {"origin:axis:x", "origin:axis:y", "origin:axis:z", "sketch_axis:x", "sketch_axis:y"}) {
             auto origin = view.model_annotations[2];
             origin.source = {"source-part", owner, semantic, path};
             with_origins.model_annotations.push_back(origin);
@@ -98,7 +98,12 @@ int main() {
       drawing::ShowEraseSession show_origins(with_origins);
       require(show_origins.candidates(drawing::ShowEraseMode::Show, kinds) == ids,
               "Show offered Part, Body or Assembly Origin axes");
-      for (auto& item : with_origins.model_annotations) item.visible = true;
+      for (auto& item : with_origins.model_annotations) {
+        item.visible = true;
+        if(drawing::origin_annotation(item.source))require(!drawing::project_model_annotation(with_origins,item).visible,"Stored visible Origin was rendered");
+      }
+      const auto loaded=drawing::deserialize_model_annotations(drawing::serialize_model_annotations(with_origins.model_annotations));
+      require(std::ranges::none_of(loaded,[](const auto& item){return drawing::origin_annotation(item.source)&&item.visible;}),"Saved Origin axes remained visible after reopening");
       drawing::ShowEraseSession erase_origins(with_origins);
       require(erase_origins.candidates(drawing::ShowEraseMode::Erase, kinds) == ids,
               "Erase offered Origin axes or excluded geometric axes");

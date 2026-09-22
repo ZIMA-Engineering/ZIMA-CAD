@@ -1282,6 +1282,8 @@ int verify_template_commands(QApplication& application,zima::app::AssemblyWorksp
     for(const auto name:{"ZE-A4.frmz","ZE-TITLE-BLOCK-CS.tblz"}) {
         const auto source=std::filesystem::current_path()/"config/formats"/name;
         const auto target=directory/name;std::filesystem::copy_file(source,target,std::filesystem::copy_options::overwrite_existing);
+        // The image-editing fixture starts empty, independently of factory logos.
+        if(target.extension()==".tblz") {auto fixture=drawing::load_template_sketch(target,prepare);fixture.drawing_template->images.clear();drawing::save_template_sketch(fixture,target);}
         if(!verify(window.open_document_path(QString::fromStdString(target.string())),"Template cannot open in the main application"))return 1;
         flush();QEventLoop animation;QTimer::singleShot(900,&animation,&QEventLoop::quit);animation.exec();flush();
         window.grab().save(QString::fromStdString((directory/(std::string(name)+".png")).string()));
@@ -1290,6 +1292,8 @@ int verify_template_commands(QApplication& application,zima::app::AssemblyWorksp
     auto* tree=window.findChild<QTreeWidget*>("documentTree");
     auto* action=window.findChild<QAction*>("templateRepeatRegionAction");auto* save=window.findChild<QAction*>("saveDocumentAction");
     if(!verify(view&&tree&&action&&!action->icon().isNull(),"Template region command or icon missing"))return 1;
+    auto* axis_command=window.findChild<QAction*>("sketchConstructionAction");
+    if(!verify(axis_command&&axis_command->isEnabled(),"Template Sketch centerline creation is disabled"))return 1;
     const auto initial_sketch=drawing::load_template_sketch(directory/"ZE-TITLE-BLOCK-CS.tblz",prepare);
     const auto screen_for=[&](double x,double y) {
         const auto local=[&](QPointF pixel){const auto ray=view->ray_at(pixel);return *initial_sketch.intersect_ray(ray->first,ray->second);};
@@ -7868,6 +7872,9 @@ int verify_drawing_workspace(QApplication& application, zima::app::AssemblyWorks
     auto annotation_sketch=zima::sketcher::Sketch::create_default();
     const auto rectangle=annotation_sketch.add_rectangle(-20,-10,20,10);
     annotation_sketch.dimensions={annotation_sketch.create_segment_dimension(rectangle.front())};
+    const auto tree_axis_x=annotation_sketch.add_segment(-25,0,25,0,true);
+    const auto tree_axis_y=annotation_sketch.add_segment(0,-15,0,15,true);
+    annotation_sketch.set_segment_centerline(tree_axis_x,true);annotation_sketch.set_segment_centerline(tree_axis_y,true);
     part.sketches.push_back(annotation_sketch);
     zima::kernel::OcctKernel kernel;
     const auto cache=kernel.evaluate_history(part.kernel_operations());
@@ -7952,7 +7959,7 @@ int verify_drawing_workspace(QApplication& application, zima::app::AssemblyWorks
         std::vector<QTreeWidgetItem*> axes;
         for(QTreeWidgetItemIterator it(tree);*it;++it)
             if((*it)->data(0,Qt::UserRole+3)=="drawing-annotation"&&
-               (*it)->data(0,Qt::UserRole+5).toString().contains("origin:axis:"))axes.push_back(*it);
+               ((*it)->data(0,Qt::UserRole+5).toString().contains(QString::fromStdString(tree_axis_x))||(*it)->data(0,Qt::UserRole+5).toString().contains(QString::fromStdString(tree_axis_y))))axes.push_back(*it);
         if(!verify(axes.size()>=2,"Drawing Tree fixture needs two axes"))return 1;
         tree->clearSelection();flush();
         const auto unselected=drawing_window->render_sheet_for_test(false);
@@ -11687,7 +11694,7 @@ int verify_startup_contract(
         }
         drawing_window_for_template->load_frame_for_test("config/formats/ZE-A4.frmz");
         drawing_window_for_template->load_title_block_for_test(
-            "config/formats/ZE-TITLE-BLOCK.tblz");
+            "config/formats/ZE-TITLE-BLOCK-EN.tblz");
         application.processEvents();
         if (!verify(!drawing_window_for_template->document_for_test()
                             .sheets.front().frame_lines.empty() &&

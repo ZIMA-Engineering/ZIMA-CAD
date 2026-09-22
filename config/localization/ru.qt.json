@@ -1551,5 +1551,13 @@
   "Kliknutím určete velikost hranice. Esc zruší.": "Щёлкните, чтобы задать размер границы. Esc отменяет.",
   "Invalid drawing crop boundary.": "Недопустимая граница обрезки вида.",
   "Kruh": "Круг",
-  "Přidat větev": "Добавить ветвь"
+  "Přidat větev": "Добавить ветвь",
+  "Dnešní datum": "Сегодняшняя дата",
+  "Výběr ze seznamu": "Выбор из списка",
+  "Akce u hodnoty": "Действие для значения",
+  "Formát data": "Формат даты",
+  "Možnosti (každá na novém řádku)": "Варианты (по одному в строке)",
+  "Povolit vlastní hodnotu": "Разрешить произвольное значение",
+  "Zadejte alespoň jednu možnost seznamu.": "Введите хотя бы один вариант списка.",
+  "Žádná": "Нет"
 }

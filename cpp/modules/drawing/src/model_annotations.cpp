@@ -130,6 +130,7 @@ kernel::ViewerDimension drawing_model_dimension(const DrawingView& view,const Mo
     return kernel::layout_dimension(source,item.model_envelope,layout);
 }
 ModelAnnotation project_model_annotation(const DrawingView& view,ModelAnnotation item) {
+  if(origin_annotation(item.source)){item.visible=false;item.curves.clear();return item;}
     if(item.model_axis) {
         const auto project=[&](kernel::Vec3 p){return Point2{dot(p,view.camera.horizontal),dot(p,view.camera.vertical)};};
         item.curves={{project((*item.model_axis)[0]),project((*item.model_axis)[1])}};
@@ -183,6 +184,7 @@ ModelAnnotation project_model_annotation(const DrawingView& view,ModelAnnotation
 void refresh_model_annotations(DrawingView &view,
                                std::span<const ModelAnnotationSource> sources) {
   auto next = view.model_annotations;
+  std::erase_if(next,[](const auto& item){return origin_annotation(item.source);});
   for (auto &item : next)
     item.unresolved = true;
   std::set<ModelAnnotationReference> incoming;
@@ -212,6 +214,7 @@ void refresh_model_annotations(DrawingView &view,
     return Point2{dot(p, view.camera.horizontal), dot(p, view.camera.vertical)};
   };
   const auto add = [&](ModelAnnotation item) {
+    if(origin_annotation(item.source))return;
     if (!incoming.insert(item.source).second)
       throw std::invalid_argument(
           "Ambiguous model annotation source: " + item.source.document_id +
@@ -375,6 +378,7 @@ deserialize_model_annotations(const std::string &value) {
     if(j.contains("view_layout")&&!j.at("view_layout").is_null())item.view_layout=document::dimension_layout_from_json(j.at("view_layout"));
     if(j.contains("handle_camera_horizontal"))item.handle_camera_horizontal=j.at("handle_camera_horizontal").get<std::array<double,3>>();
     if(j.contains("handle_camera_vertical"))item.handle_camera_vertical=j.at("handle_camera_vertical").get<std::array<double,3>>();
+    if(origin_annotation(item.source))item.visible=false;
     result.push_back(std::move(item));
   }
   validate(result);
@@ -395,8 +399,7 @@ std::vector<ModelAnnotationReference> show_erase_candidates(
   std::vector<ModelAnnotationReference> result;
   for (const auto &item : items)
     if (!item.unresolved &&
-        !(item.kind == ModelAnnotationKind::Axis &&
-          item.source.semantic_id.starts_with("origin:axis:")) &&
+        !origin_annotation(item.source) &&
         kinds.contains(item.kind) &&
         item.visible == (mode == ShowEraseMode::Erase))
       result.push_back(item.source);

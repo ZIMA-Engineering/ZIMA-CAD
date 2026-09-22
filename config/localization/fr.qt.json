@@ -1551,5 +1551,13 @@
   "Kliknutím určete velikost hranice. Esc zruší.": "Cliquez pour définir la taille du contour. Échap annule.",
   "Invalid drawing crop boundary.": "Contour de limitation de la vue non valide.",
   "Kruh": "Cercle",
-  "Přidat větev": "Ajouter une branche"
+  "Přidat větev": "Ajouter une branche",
+  "Dnešní datum": "Date du jour",
+  "Výběr ze seznamu": "Choisir dans une liste",
+  "Akce u hodnoty": "Action sur la valeur",
+  "Formát data": "Format de date",
+  "Možnosti (každá na novém řádku)": "Options (une par ligne)",
+  "Povolit vlastní hodnotu": "Autoriser une valeur personnalisée",
+  "Zadejte alespoň jednu možnost seznamu.": "Saisissez au moins une option de liste.",
+  "Žádná": "Aucune"
 }

@@ -187,7 +187,7 @@ Data={"points":{"a":{"x":-10,"y":-5},"b":{"x":-20,"y":-5}},"geometry":{"line":{"
             auto sketch=zima::drawing::load_template_sketch(entry.path(),prepare);
             require(sketch.drawing_template.has_value()&&!sketch.segments.empty()&&!sketch.texts.empty(),"Template did not open as an editable sketch");
             if(entry.path().extension()==".tblz") {
-                require(sketch.dimensions.size()==14,"Title block should retain only unique driving dimensions");
+                require(std::ranges::count_if(sketch.dimensions,[](const auto& d){return !d.id.starts_with("projection:");})==14,"Title block should retain only unique driving dimensions");
                 auto solved=sketch;const auto result=solved.solve();
                 require(result.maximum_residual<1e-6,"Simplified title-block constraints do not solve");
                 double movement=0;
@@ -229,7 +229,20 @@ Data={"points":{"a":{"x":-10,"y":-5},"b":{"x":-20,"y":-5}},"geometry":{"line":{"
                 const auto drawing_path=folder/"embedded-logo.drwz";drawing.save(drawing_path);
                 require(zima::drawing::DrawingDocument::load(drawing_path).sheets.front().title_block_images==sheet.title_block_images,"Saved Drawing lost its embedded image");
                 require(sheet.repeat_regions.size()==1&&sheet.title_block_circles.size()==2,"Inserted template lost BOM region or circles");
+                require(std::ranges::count_if(sheet.title_block_lines,[](const auto& line){return line.centerline;})==2,"Template axes were lost when inserted");
+                const auto date=std::ranges::find(sheet.title_block_fields,std::string("DATE"),&zima::drawing::TitleBlockField::id);
+                require(date!=sheet.title_block_fields.end()&&date->action_settings.at("kind")=="today","Template date action was not imported");
+                const auto& circles=sketch.circles;require(circles[0].center_point_id==circles[1].center_point_id,"Projection circles do not share a constrained center");
             }
+        }
+        {
+            auto templ=zima::drawing::create_template_sketch(true,"Field actions");auto text=zima::sketcher::Sketch::create_text();text.value="A";text.modeling_geometry=false;text.flipped=true;prepare(text);templ.add_text(text);
+            const std::map<std::string,std::string> action{{"kind","list"},{"choices","[\"A\",\"B\"]"},{"allow_custom","no"}};
+            templ.drawing_template->sections["TextAction."+text.id]=action;
+            const auto path=folder/"field-actions.tblz";zima::drawing::save_template_sketch(templ,path);
+            const auto reopened=zima::drawing::load_template_sketch(path,prepare);require(reopened.drawing_template->sections.at("TextAction."+text.id)==action,"Template list action changed on reopen");
+            zima::drawing::DrawingSheet sheet;zima::drawing::load_title_block_template(sheet,path);
+            require(sheet.title_block_fields.size()==1&&sheet.title_block_fields.front().action_settings==action&&sheet.title_block_fields.front().expression.empty()&&sheet.title_block_fields.front().value=="A","Plain text action was not inserted as an editable field");
         }
         {
             zima::drawing::DrawingSheet sheet;sheet.repeat_regions={{"BOM",10,20,80,10,"up",12}};
@@ -364,7 +377,7 @@ Data={"points":{"a":{"x":-10,"y":-5},"b":{"x":-20,"y":-5}},"geometry":{"line":{"
         zima::drawing::load_frame_template(
             drawing.sheets.front(), "config/formats/ZE-A4.frmz");
         zima::drawing::load_title_block_template(
-            drawing.sheets.front(), "config/formats/ZE-TITLE-BLOCK.tblz");
+            drawing.sheets.front(), "config/formats/ZE-TITLE-BLOCK-EN.tblz");
         require(!drawing.sheets.front().frame_lines.empty() &&
                     !drawing.sheets.front().title_block_lines.empty() &&
                     !drawing.sheets.front().title_block_fields.empty() &&
@@ -375,7 +388,7 @@ Data={"points":{"a":{"x":-10,"y":-5},"b":{"x":-20,"y":-5}},"geometry":{"line":{"
         const auto drawn_by = std::find_if(title_fields.begin(), title_fields.end(),
             [](const auto& field) { return field.id == "DRAWN_BY"; });
         require(drawn_by != title_fields.end() && drawn_by->editable &&
-                    drawn_by->expression == "&Drew" &&
+                    drawn_by->expression == "&kreslil" &&
                     drawn_by->alignment == "right" &&
                     drawn_by->vertical_alignment == "middle" &&
                     drawn_by->write_back,

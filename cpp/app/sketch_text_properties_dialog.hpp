@@ -6,6 +6,8 @@
 #include <array>
 #include <functional>
 #include <optional>
+#include <map>
+#include <string>
 
 class QCheckBox;
 class QComboBox;
@@ -26,7 +28,8 @@ public:
     SketchTextPropertiesDialog(
         zima::sketcher::SketchText initial,
         std::optional<std::array<double, 2>> anchor,
-        PreviewCallback preview, CommitCallback commit, QWidget* parent, bool y_up = false, bool drawing_text = false);
+        PreviewCallback preview, CommitCallback commit, QWidget* parent, bool y_up = false, bool drawing_text = false, std::optional<std::map<std::string,std::string>> action_settings = std::nullopt);
+    std::map<std::string,std::string> field_action() const;
 
     void set_anchor(double x, double y);
     void set_preview_anchor(double x, double y);
@@ -54,6 +57,10 @@ private:
     QDoubleSpinBox* angle_{};
     QCheckBox* flipped_{};
     QLabel* error_{};
+    QComboBox* field_action_{};
+    QComboBox* date_format_{};
+    QPlainTextEdit* choices_{};
+    QCheckBox* allow_custom_{};
     bool y_up_{};
     bool drawing_text_{};
 };

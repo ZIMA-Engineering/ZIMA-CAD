@@ -1,3 +1,6 @@
+#include <QJsonDocument>
+#include <QJsonArray>
+#include <QDate>
 #include "drawing_detail_dialog.hpp"
 #include <zima/kernel/stable_id.hpp>
 #include <zima/drawing_render/crop_path.hpp>
@@ -631,10 +634,26 @@ public:
                 label=key;
                 if(labels!=context.parameter_labels.end())if(const auto value=labels->second.find(sheet.title_block_locale);value!=labels->second.end()&&!value->second.empty())label=value->second;
             }
-            form->addRow(QString::fromStdString(label),editor);
+            const auto option=[&](const std::string& key,const std::string& fallback){const auto it=field.action_settings.find(key);return QString::fromStdString(it==field.action_settings.end()?fallback:it->second);};
+            const auto kind=option("kind","none");
+            if(kind=="today") {
+                auto* row=new QWidget(content);auto* layout=new QHBoxLayout(row);layout->setContentsMargins(0,0,0,0);layout->addWidget(editor);
+                auto* today=new QPushButton(QObject::tr("Dnešní datum"),row);today->setObjectName(QString::fromStdString("titleBlockToday:"+field.id));today->setEnabled(writable);layout->addWidget(today);
+                connect(today,&QPushButton::clicked,this,[editor,format=option("date_format","dd.MM.yyyy")]{editor->setText(QDate::currentDate().toString(format));});
+                form->addRow(QString::fromStdString(label),row);
+            } else if(kind=="list") {
+                auto* choices=new QComboBox(content);choices->setObjectName(QString::fromStdString("titleBlockChoices:"+field.id));
+                QStringList options;for(const auto& item:QJsonDocument::fromJson(option("choices","[]").toUtf8()).array())options.push_back(item.toString());for(auto& value:options)value=value.trimmed();options.removeAll("");options.removeDuplicates();choices->addItems(options);
+                choices->setEditable(option("allow_custom","yes")=="yes");choices->setEnabled(writable);
+                const auto current=QString::fromStdString(value);if(!choices->isEditable()&&choices->findText(current)<0)choices->insertItem(0,current);
+                choices->setCurrentText(current);editor->hide();
+                connect(choices,&QComboBox::currentTextChanged,editor,&QLineEdit::setText);
+                form->addRow(QString::fromStdString(label),choices);
+            } else form->addRow(QString::fromStdString(label),editor);
         }
         error_=new QLabel(this);error_->setWordWrap(true);error_->setObjectName("titleBlockError");
         content_layout()->addWidget(content);content_layout()->addWidget(error_);
+        set_initial_size({3 * std::max(minimumWidth(), minimumSizeHint().width()), sizeHint().height()});
         setAttribute(Qt::WA_DeleteOnClose);
     }
 private:
@@ -915,7 +934,7 @@ public:
         std::vector<AnnotationKey> keys;
         for(const auto& view:sheet.views) {
             keys.push_back({AnnotationKind::View,view.id,{},0});
-            for(const auto& item:view.model_annotations)if(item.visible)
+            for(const auto& item:view.model_annotations)if(item.visible&&!drawing::origin_annotation(item.source))
                 keys.push_back({AnnotationKind::Model,view.id,model_annotation_key(item.source),0});
             if(view.show_caption)keys.push_back({AnnotationKind::Caption,view.id,{},0});
             if(view.detail_view&&view.show_detail_label)keys.push_back({AnnotationKind::DetailLabel,view.id,view.parent_view_id,0});
@@ -2317,7 +2336,9 @@ void DrawingWindow::edit_title_block() {
         if(properties_handler_)properties_handler_(dialog);
         connect(dialog,&QObject::destroyed,this,[this]{if(properties_handler_)properties_handler_(nullptr);});
         dialog->show();
-        if(auto* editor=dialog->findChild<QLineEdit*>(QString::fromStdString("titleBlockField:"+focus))){editor->setFocus();editor->selectAll();}
+        if(auto* choices=dialog->findChild<QComboBox*>(QString::fromStdString("titleBlockChoices:"+focus))) {
+            choices->setFocus();if(choices->isEditable())choices->lineEdit()->selectAll();
+        } else if(auto* editor=dialog->findChild<QLineEdit*>(QString::fromStdString("titleBlockField:"+focus))){editor->setFocus();editor->selectAll();}
     } catch(const std::exception& error){set_status_message(QObject::tr(error.what()));}
 }
 zima::drawing::DrawingSheet* DrawingWindow::active_sheet() { const auto index = sheets_->currentIndex(); return index < 0 || index >= static_cast<int>(document_.sheets.size()) ? nullptr : &document_.sheets[index]; }

@@ -1,3 +1,5 @@
+#include <QJsonDocument>
+#include <QJsonArray>
 #include "sketch_text_properties_dialog.hpp"
 #include "annotation_symbols.hpp"
 #include <zima/sketcher/text_geometry.hpp>
@@ -19,7 +21,7 @@ namespace zima::app {
 SketchTextPropertiesDialog::SketchTextPropertiesDialog(
     zima::sketcher::SketchText initial,
     std::optional<std::array<double, 2>> anchor,
-    PreviewCallback preview, CommitCallback commit, QWidget* parent, bool y_up, bool drawing_text)
+    PreviewCallback preview, CommitCallback commit, QWidget* parent, bool y_up, bool drawing_text, std::optional<std::map<std::string,std::string>> action_settings)
     : PropertiesSubWindow(tr(drawing_text ? "Text výkresu" : "Text skici"), parent),
       initial_(std::move(initial)), anchor_(anchor),
       preview_(std::move(preview)), commit_(std::move(commit)), y_up_(y_up), drawing_text_(drawing_text) {
@@ -109,6 +111,17 @@ SketchTextPropertiesDialog::SketchTextPropertiesDialog(
     angle_->setSuffix(tr("°"));
     angle_->setValue(initial_.angle_degrees);
     form->addRow(tr("Natočení"), angle_);
+    if(action_settings) {
+        const auto get=[&](const std::string& key,const std::string& fallback){const auto it=action_settings->find(key);return QString::fromStdString(it==action_settings->end()?fallback:it->second);};
+        field_action_=new QComboBox(this);field_action_->setObjectName("textFieldAction");
+        field_action_->addItem(tr("Žádná"),"none");field_action_->addItem(tr("Dnešní datum"),"today");field_action_->addItem(tr("Výběr ze seznamu"),"list");
+        field_action_->setCurrentIndex(std::max(0,field_action_->findData(get("kind","none"))));form->addRow(tr("Akce u hodnoty"),field_action_);
+        date_format_=new QComboBox(this);date_format_->setObjectName("textFieldDateFormat");date_format_->addItems({"dd.MM.yyyy","yyyy-MM-dd","d. M. yyyy","MM/dd/yyyy"});date_format_->setCurrentText(get("date_format","dd.MM.yyyy"));form->addRow(tr("Formát data"),date_format_);
+        choices_=new QPlainTextEdit(this);choices_->setObjectName("textFieldChoices");{QStringList choices;for(const auto& item:QJsonDocument::fromJson(get("choices","[]").toUtf8()).array())choices.push_back(item.toString());choices_->setPlainText(choices.join('\n'));}choices_->setFixedHeight(90);form->addRow(tr("Možnosti (každá na novém řádku)"),choices_);
+        allow_custom_=new QCheckBox(tr("Povolit vlastní hodnotu"),this);allow_custom_->setObjectName("textFieldAllowCustom");allow_custom_->setChecked(get("allow_custom","yes")=="yes");form->addRow(allow_custom_);
+        const auto update=[this,form]{const auto kind=field_action_->currentData().toString();form->setRowVisible(date_format_,kind=="today");form->setRowVisible(choices_,kind=="list");form->setRowVisible(allow_custom_,kind=="list");if(isVisible()){layout()->activate();adjustSize();}};
+        connect(field_action_,&QComboBox::currentIndexChanged,this,update);update();
+    }
     content_layout()->addLayout(form);
 
     flipped_ = new QCheckBox(tr("Převrátit vodorovně"), this);
@@ -140,6 +153,11 @@ SketchTextPropertiesDialog::SketchTextPropertiesDialog(
     connect(flipped_, &QCheckBox::toggled,
             this, &SketchTextPropertiesDialog::update_preview);
     update_preview();
+}
+
+std::map<std::string,std::string> SketchTextPropertiesDialog::field_action() const {
+    if(!field_action_||field_action_->currentData().toString()=="none")return {};
+    return {{"kind",field_action_->currentData().toString().toStdString()},{"date_format",date_format_->currentText().toStdString()},{"choices",QJsonDocument(QJsonArray::fromStringList(choices_->toPlainText().split('\n',Qt::SkipEmptyParts))).toJson(QJsonDocument::Compact).toStdString()},{"allow_custom",allow_custom_->isChecked()?"yes":"no"}};
 }
 
 void SketchTextPropertiesDialog::set_anchor(double x, double y) {
@@ -190,6 +208,7 @@ void SketchTextPropertiesDialog::update_preview() {
 bool SketchTextPropertiesDialog::submit() {
     try {
         auto text = build_text();
+        if(field_action_&&field_action_->currentData().toString()=="list"&&choices_->toPlainText().trimmed().isEmpty())throw std::runtime_error("Zadejte alespoň jednu možnost seznamu.");
         commit_(std::move(text));
         return true;
     } catch (const std::exception& failure) {

@@ -55,7 +55,7 @@ right, without hidden compensation.
 Supplied title blocks:
 
 - `ZE-TITLE-BLOCK-CS.tblz`: Czech labels and localized parameter names.
-- `ZE-TITLE-BLOCK.tblz`: English labels and localized parameter names.
+- `ZE-TITLE-BLOCK-EN.tblz`: English labels and localized parameter names.
 
 Text starting with `&` references a parameter. Internal keys such as `name` and
 localized labels (`&Název`, `&Name`, `&Наименование`) identify the same parameter.
@@ -175,6 +175,44 @@ next steps. This is a historical scope statement; later dimension, section and
 export behavior is described in the linked current documents. BOM Repeat Region,
 Item Number and Quantity were already functional at that stage.
 
+
+## Title-block field actions and centerlines (2026-09-22)
+
+The title-block Sketch text properties offer **Value action**: None, Today's
+date, or Select from list. Date actions have a date format; list actions store
+one option per line and may allow custom values. Settings belong to the text's
+stable identity in the template metadata (`TextAction.<text-id>`), are embedded
+in inserted Drawing fields, and survive native save/reopen. No external sidecar
+or Part/Assembly schema change is required. Text composition remains a future
+Relations topic.
+
+**Title block values** opens at three times its natural minimum width, bounded
+by the application window. A date button fills the local current date only when
+clicked; opening the dialog never changes a date. A list field displays a combo
+box, editable only when custom values are allowed. Existing values remain intact
+when a list is changed. Read-only/calculated parameters remain read-only. OK
+uses the existing parameter write-back transaction; Cancel discards pending
+values. The five factory language templates configure their date field with the
+date action. Users configure their own lists; no tolerance classes are assumed.
+
+The obsolete unqualified `ZE-TITLE-BLOCK.tblz` is removed; CS, EN, DE, FR and RU
+variants remain. The projection glyph in each variant has concentric circles
+sharing a single center and dimensioned profile/axis positions. Two Sketch
+centerlines replace the fragmented solid center strokes. Template insertion,
+Drawing persistence and the shared screen/PDF/DXF renderer retain their thin
+chain line style. Sketch construction dimensions remain editing aids and are
+never inserted as Drawing dimensions. The existing Sketch construction-line
+command is available during template editing.
+
+Projection-method terminology and symbol definitions are covered by
+[ISO 5456-2](https://www.iso.org/obp/ui?_escaped_fragment_=iso:std:iso:5456:-2:ed-1:v1:en).
+Automatic selection of a glyph variant belongs to the planned symbol system.
+
+Show/Erase retains authored Sketch construction curves, including circles.
+Automatic document, Body, Assembly and Sketch coordinate-origin axes are
+excluded from source offerings, painting and dimension picking, including
+previously stored visible Origin annotations. Drawing regeneration retires
+those annotations. Repeated occurrence transforms remain independent.
 
 ## Editing frames and title blocks in C++
 
