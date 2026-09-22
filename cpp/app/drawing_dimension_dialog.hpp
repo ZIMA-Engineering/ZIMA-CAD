@@ -9,6 +9,7 @@
 #include <QTableWidget>
 #include <zima/drawing/measurement_dimension.hpp>
 #include <zima/sketcher/sketch.hpp>
+#include <zima/kernel/stable_id.hpp>
 #include <zima/ui/reference_cell.hpp>
 namespace zima::app {
 class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
@@ -19,7 +20,7 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
         : PropertiesSubWindow(tr("Vlastnosti kóty"), parent), value_(std::move(initial)),
           view_(std::move(view)), commit_(std::move(commit)), creating_(creating) {
         setObjectName("drawingDimensionProperties");
-        if(creating_&&value_.kind==drawing::DrawingDimensionKind::Chain)value_.chain_datum_only=true;
+
         automatic_placement_ = value_.direction == drawing::DimensionDirection::Automatic;
         set_initial_size({580, 560});
         setAttribute(Qt::WA_DeleteOnClose);
@@ -112,7 +113,7 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
             read_fields();
             const bool was = radial(),was_angular=angular();
             value_.kind = drawing::DrawingDimensionKind(index);
-            value_.chain_datum_only=creating_&&value_.kind==drawing::DrawingDimensionKind::Chain&&!extended_;
+            value_.chain_datum_only=false;
             value_.chain_direction.reset();
             if (radial() != was) {
                 value_.attachments.assign(radial() ? 1 : 2, {});
@@ -173,6 +174,38 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
             connect(input, qOverload<int>(&QSpinBox::valueChanged), this, [this] { publish(); });
         for (auto *input : text_->findChildren<QComboBox *>())
             connect(input, &QComboBox::currentIndexChanged, this, [this] { publish(); });
+    }
+    void enable_chain_command() {
+        chain_command_=true;
+        if(value_.kind!=drawing::DrawingDimensionKind::Chain)type_->setCurrentIndex(int(drawing::DrawingDimensionKind::Chain));
+        type_->setEnabled(false);rebuild();
+    }
+    bool awaiting_chain_seed() const {
+        return chain_command_&&!extended_&&std::ranges::none_of(value_.attachments,[](const auto& a){return a.reference.valid();});
+    }
+    void adopt_chain_seed(const drawing::DrawingDimension& source) {
+        if(!awaiting_chain_seed()||source.kind!=drawing::DrawingDimensionKind::Chain)return;
+        value_=source;value_.id=kernel::make_stable_id();
+        if(value_.chain_group.empty())value_.chain_group=source.id;
+        if(!value_.chain_direction)if(const auto* view=view_(value_.view_id)) {
+            const auto before=drawing::evaluate_drawing_dimension(*view,value_);
+            auto probe=value_;for(auto& s:probe.segments)s.layout.line_offset+=1;
+            const auto after=drawing::evaluate_drawing_dimension(*view,probe);
+            if(!before.presentations.empty()&&!after.presentations.empty()) {
+                const auto a=before.presentations.front().line_first,b=after.presentations.front().line_first;
+                value_.chain_direction=drawing::Point2{b.y-a.y,a.x-b.x};
+            }
+        }
+        value_.attachments={source.attachments[source.anchor_attachment],source.attachments[source.anchor_attachment?0:1]};
+        value_.anchor_attachment=0;value_.segments={source.segments.front()};value_.segments.front().id=kernel::make_stable_id();
+        value_.chain_datum_only=true;seed_adopted_=true;extended_=true;automatic_placement_=false;
+        modes_={int(value_.attachments[0].kind),int(value_.attachments[1].kind)};segment_=0;placing_=false;active_=-1;
+        {QSignalBlocker block(direction_);direction_->setCurrentIndex(int(value_.direction));}
+        tabs_->removeTab(1);delete text_;text_=new DimensionTextFields(value_.style,tabs_);tabs_->insertTab(1,text_,tr("Hodnota a tolerance"));
+        for(auto* input:text_->findChildren<QLineEdit*>())connect(input,&QLineEdit::textChanged,this,[this]{publish();});
+        for(auto* input:text_->findChildren<QSpinBox*>())connect(input,qOverload<int>(&QSpinBox::valueChanged),this,[this]{publish();});
+        for(auto* input:text_->findChildren<QComboBox*>())connect(input,qOverload<int>(&QComboBox::currentIndexChanged),this,[this]{publish();});
+        rebuild();begin_branches();
     }
     void set_changed(std::function<void()> callback) {
         changed_ = std::move(callback);
@@ -341,7 +374,7 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
         if (finish)
             placing_ = false;
         if(value_.chain_datum_only)last_->setEnabled(value_.chain_direction.has_value()&&!placing_);
-        if(finish){rebuild_references();if(value_.kind==drawing::DrawingDimensionKind::Chain)begin_branches();}
+        if(finish){rebuild_references();if(chain_command_)begin_branches();}
         publish();
     }
     void change_presentation(drawing::DrawingDimension value) {
@@ -382,6 +415,7 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
         return PropertiesSubWindow::eventFilter(watched, event);
     }
     bool submit() override {
+        if(seed_adopted_&&value_.chain_datum_only)return true;
         read_fields();
         if(!bindings_complete())return false;
         if(value_.chain_datum_only&&!value_.chain_direction)if(const auto* view=view_(value_.view_id)) {
@@ -458,8 +492,8 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
         first_->setEnabled(!radial()&&!angular());
         last_->setEnabled(!radial()&&!angular());
         if(value_.chain_datum_only)last_->setEnabled(value_.chain_direction.has_value()&&!placing_);
-        first_->setVisible(value_.kind!=drawing::DrawingDimensionKind::Chain);
-        last_->setVisible(value_.kind!=drawing::DrawingDimensionKind::Chain);
+        first_->hide();
+        last_->hide();
         last_->setText(value_.kind==drawing::DrawingDimensionKind::Chain?tr("Přidat větev"):tr("Přidat na konec"));
         segments_->clear();
         for (std::size_t i = 0; i < value_.segments.size(); ++i)
@@ -499,7 +533,7 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
     void rebuild_references() {
         rebuilding_ = true;
         const bool parallel = !radial() && !angular() && value_.direction == drawing::DimensionDirection::Parallel;
-        const bool offer_branch=value_.kind==drawing::DrawingDimensionKind::Chain&&!placing_&&
+        const bool offer_branch=chain_command_&&value_.kind==drawing::DrawingDimensionKind::Chain&&!placing_&&
             (!value_.chain_datum_only||value_.chain_direction.has_value())&&
             bindings_complete();
         const int stored_rows=int(value_.attachments.size())+(parallel?1:0);
@@ -521,8 +555,10 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
             const bool axis = row == int(value_.attachments.size());
             const bool has_reference=reference(row*2).valid();
             const bool complete=has_reference&&(axis||modes_[row]!=int(drawing::DimensionAttachmentKind::Intersection)||reference(row*2+1).valid());
-            const bool hidden=(!axis&&!preceding_complete&&!has_reference)||
-                (value_.chain_datum_only&&row==1&&value_.attachments[0].kind==drawing::DimensionAttachmentKind::Line);
+            const bool hidden=(chain_command_&&offer_branch&&!value_.chain_datum_only&&!axis&&std::size_t(row)!=value_.anchor_attachment)||
+                (chain_command_&&!offer_branch&&!value_.chain_datum_only&&!axis&&std::size_t(row)!=value_.anchor_attachment&&row!=int(value_.attachments.size())-1)||
+                (!axis&&!preceding_complete&&!has_reference)||
+                (value_.chain_datum_only&&row==1&&(seed_adopted_||value_.attachments[0].kind==drawing::DimensionAttachmentKind::Line));
             references_->setRowHidden(row,hidden);
             if(!axis)preceding_complete=preceding_complete&&complete;
             const auto label=axis?tr("Směr"):value_.kind==drawing::DrawingDimensionKind::Chain?
@@ -645,7 +681,7 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
     ViewResolver view_;
     std::function<void(drawing::DrawingDimension)> commit_;
     std::function<void()> changed_;
-    bool creating_{}, extended_{}, placing_{}, rebuilding_{}, branch_entry_{};
+    bool creating_{}, extended_{}, placing_{}, rebuilding_{}, branch_entry_{}, chain_command_{}, seed_adopted_{};
     bool automatic_placement_{true};
     int active_{-1}, segment_{}, draft_row_{-1};
     std::vector<int> modes_;

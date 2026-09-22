@@ -140,7 +140,7 @@ void AssemblyWorkspaceWindow::refresh_drawing_tree() {
                     child->setData(0,Qt::UserRole+4,QString::fromStdString(view.id));
                     child->setData(0,Qt::UserRole+5,QString::fromStdString(dimension.id));
                     child->setIcon(0,resource_icon("drawing-dimension"));
-                    if(dimension.kind==drawing::DrawingDimensionKind::Chain&&!dimension.chain_datum_only)for(std::size_t i=0;i<dimension.segments.size();++i) {
+                    if(dimension.kind==drawing::DrawingDimensionKind::Chain&&dimension.chain_group.empty()&&!dimension.chain_datum_only)for(std::size_t i=0;i<dimension.segments.size();++i) {
                         const auto& segment=dimension.segments[i];
                         auto text=QString::number(i+1);
                         if(segment.last_presentation)text+=" — "+QString::fromStdString(drawing::drawing_dimension_text(dimension,*segment.last_presentation,false));

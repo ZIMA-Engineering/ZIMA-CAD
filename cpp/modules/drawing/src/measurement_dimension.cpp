@@ -1089,6 +1089,7 @@ std::string serialize_drawing_dimensions(const std::vector<DrawingDimension> &di
                {"style", document::dimension_text_style_json(d.style)}};
         if(d.chain_direction)j["chain_direction"]={d.chain_direction->x,d.chain_direction->y};
         if(d.chain_datum_only)j["chain_datum_only"]=true;
+        if(!d.chain_group.empty())j["chain_group"]=d.chain_group;
         j["attachments"] = json::array();
         for (const auto &a : d.attachments)
             j["attachments"].push_back({{"kind", int(a.kind)},
@@ -1122,6 +1123,7 @@ std::vector<DrawingDimension> deserialize_drawing_dimensions(const std::string &
         d.parallel_reference = ref_from(j.at("parallel_reference"));
         if(j.contains("chain_direction"))d.chain_direction=Point2{j.at("chain_direction").at(0),j.at("chain_direction").at(1)};
         d.chain_datum_only=j.value("chain_datum_only",false);
+        d.chain_group=j.value("chain_group",std::string{});
         d.style = document::dimension_text_style_from_json(j.at("style"));
         for (const auto &a : j.at("attachments"))
             d.attachments.push_back({DimensionAttachmentKind(a.at("kind").get<int>()),

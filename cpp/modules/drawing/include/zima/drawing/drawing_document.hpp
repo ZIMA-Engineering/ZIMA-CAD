@@ -242,6 +242,9 @@ struct DrawingDimension {
     DimensionDirection direction{DimensionDirection::Automatic};
     kernel::EdgeReference parallel_reference;
     std::optional<Point2> chain_direction;
+    // Independent dimensions share only their datum, direction and spine.
+    // Each member retains its own two attachments, text style and stable ID.
+    std::string chain_group;
     // Datum-only chains retain two direction inputs and one datum layout,
     // but have no measured branch until the next attachment is added.
     bool chain_datum_only{};

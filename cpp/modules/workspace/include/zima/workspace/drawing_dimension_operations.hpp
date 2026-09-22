@@ -7,4 +7,7 @@ namespace zima::workspace {
 bool edit_drawing_dimension(drawing::DrawingDocument&,const std::string& sheet,
     drawing::DrawingDimension value,bool creating);
 bool erase_drawing_dimension(drawing::DrawingSheet&, const std::string& id);
+void synchronize_dimension_chain(drawing::DrawingSheet&,const drawing::DrawingDimension&);
+bool commit_drawing_chain(drawing::DrawingDocument&,const std::string& sheet,
+    drawing::DrawingDimension value,bool creating);
 }

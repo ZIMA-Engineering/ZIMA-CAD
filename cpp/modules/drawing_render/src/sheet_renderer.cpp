@@ -39,7 +39,16 @@ QString drawing_font_family() {
 
 QColor SheetRenderer::annotation_color(const AnnotationKey& key,QColor normal,bool printing)const{
         if(printing)return normal;
-        const auto same=[&](const auto& candidate){return candidate&&candidate->kind==key.kind&&candidate->view==key.view&&candidate->id==key.id&&(candidate->branch.empty()||candidate->branch==key.branch);};
+        const auto same=[&](const auto& candidate){
+            if(!candidate||candidate->kind!=key.kind||candidate->view!=key.view)return false;
+            if(candidate->id==key.id&&(candidate->branch.empty()||candidate->branch==key.branch))return true;
+            if(candidate->kind==AnnotationKind::Dimension&&candidate->end%3==1&&sheet_) {
+                const auto a=std::ranges::find(sheet_->dimensions,candidate->id,&drawing::DrawingDimension::id);
+                const auto b=std::ranges::find(sheet_->dimensions,key.id,&drawing::DrawingDimension::id);
+                return a!=sheet_->dimensions.end()&&b!=sheet_->dimensions.end()&&!a->chain_group.empty()&&a->chain_group==b->chain_group;
+            }
+            return false;
+        };
         if(entity_selected(key)||same(selected_annotation_))return QColor("#00D1FF");if(same(hovered_annotation_))return QColor("#FF9300");return normal;
     }
 QRectF SheetRenderer::view_bounds_at(const zima::drawing::DrawingView& view,double zoom,QPointF origin) const {
@@ -391,6 +400,7 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
         std::vector<const drawing::DrawingDimension*> dimensions;
         for(const auto& d:sheet_->dimensions)if(printing||!dimension_preview||dimension_preview->id!=d.id)dimensions.push_back(&d);
         if(!printing&&dimension_preview)dimensions.push_back(dimension_preview);
+        std::set<std::pair<std::string,std::string>> drawn_chain_datums;
         for(const auto* entry:dimensions){
             const auto& dimension=*entry;
             if(!printing&&preview_&&preview_->id==dimension.view_id) {
@@ -404,10 +414,11 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
             const auto screen=[&](kernel::Vec3 original){const auto p=drawing::break_map(*view,{original.x,original.y});return QPointF(origin.x()+(sheet_->width_mm()-view->x+p.x*view->scale)*zoom,origin.y()+(sheet_->height_mm()-view->y-p.y*view->scale)*zoom);};
             const bool chain=dimension.kind==drawing::DrawingDimensionKind::Chain;
             const auto branches=chain&&dimension.chain_datum_only?std::size_t(0):evaluation.presentations.size();
-            for(std::size_t index=0;index<branches+(chain&&!evaluation.presentations.empty()?1:0);++index){
+            const bool show_datum=chain&&(dimension.chain_group.empty()||drawn_chain_datums.emplace(dimension.view_id,dimension.chain_group).second);
+            for(std::size_t index=0;index<branches+(show_datum&&!evaluation.presentations.empty()?1:0);++index){
                 const bool datum=index==branches;
                 const auto segment=datum?std::size_t(0):evaluation.cached_segment_indices.empty()?index:evaluation.cached_segment_indices[index];
-                const auto& source=evaluation.presentations[datum?0:index];const AnnotationKey key{AnnotationKind::Dimension,dimension.view_id,dimension.id,int(segment)*3,chain&&!datum?dimension.segments[segment].id:std::string{}};
+                const auto& source=evaluation.presentations[datum?0:index];const AnnotationKey key{AnnotationKind::Dimension,dimension.view_id,dimension.id,int(segment)*3,chain&&dimension.chain_group.empty()&&!datum?dimension.segments[segment].id:std::string{}};
                 const auto color=annotation_color(key,evaluation.state==drawing::MeasurementState::Unresolved?QColor("#C62828"):printing?ink:QColor("#FFD400"),printing);
                 const auto text=datum?QStringLiteral("0"):viewer::dimension_render_text(dimension.style,QString::fromStdString(drawing::drawing_dimension_text(dimension,source,evaluation.state==drawing::MeasurementState::Unresolved)));
                 auto layout=chain?chain_dimension_layout(source,screen,painter.font(),text,zoom,datum):

@@ -908,7 +908,7 @@ int verify_drawing_ui() {
         }
         {
             auto fixture=zima::drawing::DrawingDocument::create_default();workspace.add_drawing(fixture);window.edit_workspace_document(fixture.document_id);flush();
-            auto* toolbar=window.findChild<QToolBar*>("drawingToolbar");require(toolbar->actions().indexOf(action("drawingTextAction"))==toolbar->actions().indexOf(action("drawingDimensionAction"))+1,"Text is not below Dimension");
+            auto* toolbar=window.findChild<QToolBar*>("drawingToolbar");require(toolbar->actions().indexOf(action("drawingTextAction"))==toolbar->actions().indexOf(action("drawingChainDimensionAction"))+1,"Text is not below Chain dimension");
             const auto text_dialog=[&](){for(auto* d:window.findChildren<QDialog*>("drawingTextProperties"))if(d->isVisible())return d;return static_cast<QDialog*>(nullptr);};
             const auto position=canvas->rect().center();
             action("drawingTextAction")->trigger();flush();auto* props=text_dialog();require(props&&(props->windowFlags()&Qt::WindowType_Mask)==Qt::SubWindow,"Text does not use shared internal properties");

@@ -21,6 +21,33 @@ void require(bool condition, const char* message) {
 
 int main(int argc,char** argv) {
     try {
+        for(double outer_radius:{3.,12.}) {
+            using namespace zima;
+            kernel::ViewerMesh mesh;
+            constexpr int count=16;
+            for(int layer=0;layer<2;++layer)for(int i=0;i<=count;++i) {
+                const double angle=i*std::acos(-1.)/(2*count),r=layer?outer_radius:9.;
+                mesh.vertices.push_back({r*std::cos(angle),r*std::sin(angle),layer?25.:19.});
+            }
+            for(unsigned i=0;i<count;++i)for(auto index:{i,i+1,i+unsigned(count)+2,i,i+unsigned(count)+2,i+unsigned(count)+1})mesh.triangles.push_back(index);
+            kernel::ViewerEdge edge;edge.reference={"fillet","rim",{}};
+            edge.edge_treatment_side_references={{"fillet","chamfer",{}}};
+            mesh.triangle_references.assign(mesh.triangles.size()/3,edge.edge_treatment_side_references.front());
+            for(int i=0;i<=6;++i){const double angle=i*std::acos(-1.)/12;edge.points.push_back({9*std::cos(angle),9*std::sin(angle),19});}
+            kernel::BSplineGeometry exact;exact.degree=2;exact.poles={{9,0,19},{9,9,19},{0,9,19}};exact.knots={0,0,0,1,1,1};exact.weights={1,std::sqrt(.5),1};edge.exact_spline=exact;
+            mesh.edges={edge};
+            const drawing::ProjectionCamera camera{{1,0,0},{0,1,0},{0,0,1}};
+            auto projected=drawing::project_edges(mesh,camera);
+            double hidden=0,visible=0;
+            for(const auto& e:projected)if(e.source==edge.reference)for(std::size_t i=1;i<e.points.size();++i)
+                (e.hidden?hidden:visible)+=std::hypot(e.points[i].x-e.points[i-1].x,e.points[i].y-e.points[i-1].y);
+            if(hidden>=1e-4||std::abs(visible-9*std::acos(-1.)/2)>=1e-3)std::cerr<<"Rim outer radius "<<outer_radius<<", visible "<<visible<<", hidden "<<hidden<<'\n';
+            require(hidden<1e-4&&std::abs(visible-9*std::acos(-1.)/2)<1e-3,"Coarse fillet rim is hidden by its own chamfer facets");
+            const auto base=unsigned(mesh.vertices.size());mesh.vertices.insert(mesh.vertices.end(),{{-1,-1,30},{10,-1,30},{10,10,30},{-1,10,30}});
+            mesh.triangles.insert(mesh.triangles.end(),{base,base+1,base+2,base,base+2,base+3});
+            projected=drawing::project_edges(mesh,camera);
+            require(std::ranges::none_of(projected,[&](const auto& e){return e.source==edge.reference&&!e.hidden;}),"Exact fillet refinement bypassed a real occluder");
+        }
         const auto prepare=[](zima::sketcher::SketchText& t){t.contours={{{t.anchor_x,t.anchor_y},{t.anchor_x+1,t.anchor_y},{t.anchor_x+1,t.anchor_y+1},{t.anchor_x,t.anchor_y+1}}};};
         const auto folder=std::filesystem::current_path()/"Projects/test/template-contract";
         std::filesystem::create_directories(folder);

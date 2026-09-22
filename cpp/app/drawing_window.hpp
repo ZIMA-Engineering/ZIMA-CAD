@@ -103,6 +103,7 @@ private:
     QAction* delete_view_action_{};
     QAction* selection_action_{};
     QAction* linear_dimension_action_{};
+    QAction* chain_dimension_action_{};
     QAction* text_action_{};
     QAction* balloon_action_{};
     QAction* show_erase_action_{};

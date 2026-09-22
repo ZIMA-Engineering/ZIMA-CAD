@@ -541,74 +541,83 @@ current Drawing INI version 19. The unrelated 3D text-clearance issue is unchang
 at the user's request.
 
 
-### Running chain and break-mark follow-up, 2026-09-20
+### Independent running dimensions, 2026-09-22
 
-The user-provided `screenshots/01.png` defines Drawing chain presentation:
-all ordinates are measured from the original attachment identified by
-`anchor_attachment`, with one shared dimension line, one arrow at each target,
-and labels perpendicular to the dimension line, beside each target on the side
-opposite its witness/reference geometry. The datum has a filled dot and a
-literal `0`, including when a common prefix, suffix or tolerance is configured.
-For targets at 10, 25 and 40 mm the labels are 10, 25 and 40, rather than the
-successive intervals 10, 15 and 15. Transferred model dimensions are unchanged.
+A running dimension is an independent native Drawing dimension with exactly two
+attachments: the common datum and its measured target. It owns its stable ID,
+text, tolerance and presentation. The ordinary Dimension command retains Chain
+as a presentation type. Its Properties table does not offer additional branches.
+The separate Chain dimension command is a sequential creation tool: define the
+first dimension and its placement, then pick further points or compatible edges.
+The command exposes the datum and current target/draft, rather than accumulating
+visible reference rows. OK commits the resulting independent dimensions in one
+history transaction; Cancel discards the pending sequence.
 
-Adding a target at either end preserves the datum and existing segment IDs.
-Moving the line through any arrow grip or its placement field moves the shared
-line for every target. Labels stay above their witness line with a fixed paper
-gap and slide only along that line; the witness stops at the arrow/datum and
-does not extend under the value. Each
-branch draws its own connection back to the common datum. Native save,
-reopen, unresolved-reference caches, selection and PDF/DXF consume the same
-ordinate presentations. The screen and exports share one renderer, including
-the explicit zero. Evidence: `build/drawing-chain-proof.png`, `.drwz`, `.pdf`
-and `.dxf`; the GUI regression checks DXF text values 0, 10, 25 and 40.
+Alternatively, start Chain dimension and pick an existing running dimension.
+The common ordered candidate list includes existing dimensions as seeds; hover,
+RMB cycling and LMB confirmation agree. The seed supplies the datum, measuring
+axis, spine location and initial text/tolerance settings. Subsequent picks create
+new dimensions without duplicating the seed. Accepting an adopted seed without
+adding a target makes no document change. Explicitly extending an older aggregate
+chain separates its targets into independent members.
 
-The chain remains one Drawing object. Its stable segment IDs identify selectable
-branches in the View and child rows in the Tree. Delete on a branch removes only
-that target, preserving the datum, other values and segment identities. Deleting
-the last branch retains the standalone zero. Select Parent selects the complete chain for
-whole-object deletion. These changes are one Undo transaction. Removing the first
-target preserves an automatically established measuring axis in the native
-Drawing's optional `chain_direction` field; it never changes the Part or Assembly.
-Creation starts with the datum only: select a straight edge and place zero, or
-select a datum point and a second point defining the measuring direction, then
-place zero. The direction point is not a measured branch. Point-based creation
-preserves the existing cursor-driven horizontal/vertical/direct placement choice;
-explicit direction choices in Properties remain fixed. Add branch accepts
-the next point or compatible edge without repositioning the established chain.
-Native `chain_datum_only` records retain the direction inputs and datum layout;
-their internal presentation slot is not exposed as a branch in the View or Tree.
-Regression coverage includes branch deletion on either side of the datum, text
-constraints, automatic-axis preservation, native persistence and Undo.
-The follow-up passed ten targeted contracts plus the main Drawing workspace
-check. The measurement GUI contract also switches through Czech, English,
-German, French and Russian and verifies the Add branch control in each language.
-The standalone datum proof is `build/drawing-chain-zero-proof.png`.
+The persisted `chain_group` identifies dimensions sharing a datum, measuring axis
+and spine offset. Shared changes propagate within that view and group; tolerance,
+text and label placement remain member-owned. A frozen `chain_direction` prevents
+members with different target points from choosing different automatic axes.
+The renderer draws one zero/dot per group. Hovering that zero highlights the group;
+selecting it selects all members and dragging it moves their common spine. Deleting
+one member preserves its neighbors and the next remaining member presents zero.
+Deleting every selected member deletes the complete chain. Selection of an ordinary
+member's value or arrow remains individual. Independently selected dimensions can
+also be dragged together, including ordinary dimensions selected with Ctrl or in
+the Tree. Their common drag is one Undo transaction, and Escape restores all of them.
 
-Dimension Properties uses the shared container-style reference row actions.
-Creation initially exposes one green-arrow row; completing it reveals the next
-required reference. Ordinary two-reference dimensions stop at two populated rows.
-A straight-edge chain datum hides its redundant internal direction input. Once
-zero is placed, a trailing green-arrow row accepts consecutive points or compatible
-edges without moving the chain or repeatedly pressing Add branch. Every accepted
-reference immediately arms the next draft row. The draft is not a stored empty
-branch and does not disable OK. Short MMB ends entry. Completed rows use the
-shared red cross. Row numbers (including datum zero) are outside the table in
-its vertical header; green-arrow/red-cross controls occupy the first data column. Removing a branch preserves
-zero; clearing a required reference keeps its slot available for replacement and
-disables OK until the required references are complete. Existing populated rows
-remain visible when an earlier reference is cleared. All edits remain pending
-until OK; Cancel leaves the document unchanged. Reference text arms replacement,
-the green outline identifies input ownership, and eye controls independently
-toggle inspection through the shared reference-cell implementation.
-The measurement GUI contract covers progressive rows, arrow/cross transitions,
-branch deletion, required-reference replacement, Cancel and the table label in
-all five supported languages. Visual evidence is
-`build/drawing-reference-table-proof.png`.
-Validation passed the measurement UI, dimension command, dimension layout and
-translation coverage/catalog contracts, including language switching. The rebuilt
-Windows application also passed its Drawing workspace verification in
-`build/dimension-reference-workspace.log`; the root `zima-cad.bat` launches it.
+Values are ordinates from the original datum: targets at 10, 25 and 40 mm display
+10, 25 and 40. Each target has one arrow and its own connection to zero. Text stays
+above the witness direction with a fixed paper gap and moves along that direction;
+the witness stops at the arrow/datum and is not extended under the value. The datum
+shows literal zero independently of member tolerance or prefix. PDF and DXF share
+the screen layout. Source model dimensions are unchanged.
+
+Reference tables use shared input and inspection controls. Row numbers are in the
+vertical header, outside the table; the first data column holds the green arrow
+or red cross. Empty creation exposes the first required reference and reveals the
+second as needed. A required reference can be cleared and replaced; OK is disabled
+while required input is incomplete. Eye inspection remains independent from input
+ownership. A draft row is not stored and does not prevent committing completed
+input; short MMB ends entry. During dimension hover, Line candidates highlight only
+the line, while point-valued candidates display only the orange filled point.
+
+Regression coverage exercises independent tolerance edits, native persistence,
+shared zero selection/drag, sequential entry, adopting an existing dimension,
+atomic Undo, multiple-dimension dragging, Cancel, exact hover graphics and the
+reference table in all five languages. Proof images are
+`build/drawing-reference-table-proof.png` and `build/drawing-chain-proof.png`.
+
+### Curved-edge projection visibility, 2026-09-22
+
+Coarse display-wire chords can lie underneath their own adjacent Fillet/Chamfer
+mesh facets, fragmenting an otherwise visible arc. Explicit Drawing projection
+now refines persisted exact B-splines with native curve evaluation. For concave
+boundaries it excludes only local adjacent-face rim triangles whose two vertices
+lie on that exact edge, limited to their curve-parameter interval. Other faces and
+remote portions of the same face remain occluders. This invokes no OCCT work.
+After visibility classification, polylines are reduced within a bounded geometric
+error without merging visible and hidden intervals.
+
+Deterministic fixtures cover convex and concave chamfer rims with mismatched wire
+and face sampling, plus a separate covering surface that must still hide the rim.
+The local source `Projects/01.drwz` is checked read-only via
+`ZIMA_VERIFY_FILLET_DRAWING` and the measurement harness; regenerated proof copies
+are `build/01-fillet-fixed.drwz` and `build/01-fillet-fixed.pdf`. Existing saved views
+need explicit Regenerate to replace their stored projected geometry.
+
+Validation passed the measurement UI, Drawing UI, dimension commands, dimension
+layout, Drawing geometry and localization coverage/catalog contracts. The rebuilt
+Windows application's main Drawing workspace also passed
+`build/drawing-final-workspace.log`. The final regenerated `01` PDF was rendered
+and visually checked: both the convex and concave problem arcs are continuous.
 
 Zigzag break marks now use 20-degree included angles at their two sharp corners.
 The existing paper amplitude and gap are retained. Tests measure the angle for

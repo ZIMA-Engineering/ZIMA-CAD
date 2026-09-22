@@ -18,6 +18,9 @@
 #include <numbers>
 #include <zima/kernel/stable_id.hpp>
 #include <zima/workspace/workspace.hpp>
+#include <zima/workspace/drawing_dimension_operations.hpp>
+#include <zima/workspace/drawing_projection.hpp>
+#include <zima/drawing_render/pdf_export.hpp>
 namespace {
 void require(bool b, const char *m) {
     if (!b)
@@ -42,6 +45,15 @@ int verify_measurement_dimension_ui() {
     using namespace zima;
     using namespace drawing;
     try {
+        if(qEnvironmentVariableIsSet("ZIMA_VERIFY_FILLET_DRAWING")) {
+            const auto path=std::filesystem::path(qEnvironmentVariable("ZIMA_VERIFY_FILLET_DRAWING").toStdString());
+            auto document=DrawingDocument::load(path);workspace::DrawingProjection projection(nullptr,path);
+            for(auto& sheet:document.sheets)for(auto& view:sheet.views)projection.project(view,{});
+            document.save("build/01-fillet-fixed.drwz");
+            drawing_render::export_pdf(document,"build/01-fillet-fixed.pdf",path,nullptr,true);
+            std::cout<<"Saved exact-curve projection proof without modifying the source document\n";
+            return 0;
+        }
         workspace::Workspace workspace;
         kernel::ViewerMesh mesh;
         mesh.edges = {{{{0, 0, 0}, {30, 0, 0}}, {"profile", "bottom", {}}},
@@ -156,6 +168,12 @@ int verify_measurement_dimension_ui() {
         auto *mode = props->findChild<QComboBox *>("dimensionAttachmentMode0");
         mode->setCurrentIndex(mode->findData(int(DimensionAttachmentKind::Line)));
         flush();
+        mouse(canvas,QEvent::MouseMove,point(15,0),Qt::NoButton,Qt::NoButton);
+        const auto line_hover=canvas->grab().toImage();
+        const auto orange=[](QColor c){return c.red()>220&&c.green()>90&&c.green()<175&&c.blue()<60;};
+        const auto pixel=[&](const QImage& image,QPointF p){return image.pixelColor((p*image.devicePixelRatio()).toPoint());};
+        require(!orange(pixel(line_hover,point(15,0)+QPointF(0,4))),"Line hover includes a misleading point marker");
+        require(orange(pixel(line_hover,point(15,0)+QPointF(12,0))),"Line hover does not highlight the line");
         pick(canvas, point(15, 0));
         require(props->value().attachments[0].reference.valid() &&
                     props->value().attachments[0].kind == DimensionAttachmentKind::Line,
@@ -508,6 +526,21 @@ int verify_measurement_dimension_ui() {
             for(const auto& p:chain_view.measurement_geometry->points)
                 running.attachments.push_back({DimensionAttachmentKind::Point,p.source});
             resize_dimension_segments(running);place_drawing_dimension(chain_view,running,0,{-8,10});
+            {
+                auto independent=drawing;independent.sheets.front().views={chain_view};independent.sheets.front().dimensions.clear();
+                workspace::commit_drawing_chain(independent,independent.sheets.front().id,running,true);
+                auto& members=independent.sheets.front().dimensions;
+                require(members.size()==running.segments.size(),"Chain command did not create independent dimensions");
+                for(const auto& member:members)require(member.attachments.size()==2&&member.segments.size()==1&&!member.chain_group.empty(),"Chain member does not have exactly two references");
+                const auto sibling_style=members[1].style;
+                auto changed=members[0];changed.style.prefix="T=";changed.style.tolerance_mode="deviations";changed.style.upper_tolerance="0.2";changed.style.lower_tolerance="-0.1";changed.segments[0].layout.line_offset+=5;
+                workspace::edit_drawing_dimension(independent,independent.sheets.front().id,changed,false);
+                require(members[1].style==sibling_style&&members[1].segments[0].layout.line_offset==changed.segments[0].layout.line_offset,"Independent text leaked or shared spine failed to move");
+                const auto stored=deserialize_drawing_dimensions(serialize_drawing_dimensions(members));
+                require(stored==members,"Independent chain lost its group on reopen");
+                const auto remaining=members[1];workspace::erase_drawing_dimension(independent.sheets.front(),members[0].id);
+                require(members.front()==remaining,"Deleting one member changed its neighbor");
+            }
             const auto projection=[](kernel::Vec3 p){return QPointF(p.x,-p.y);};
             auto result=evaluate_drawing_dimension(chain_view,running);
             for(const auto& ordinate:result.presentations) {
@@ -626,60 +659,54 @@ int verify_measurement_dimension_ui() {
                 DrawingDimension zero_value;
                 auto* zero_dialog=new app::DrawingDimensionDialog(make_drawing_dimension(chain_view.id),true,
                     [&](const auto&){return &chain_view;},[&](auto value){zero_value=std::move(value);},&window);
-                zero_dialog->show();zero_dialog->findChild<QComboBox*>("drawingDimensionType")->setCurrentIndex(int(DrawingDimensionKind::Chain));
+                zero_dialog->show();zero_dialog->enable_chain_command();
                 zero_dialog->findChild<QComboBox*>("drawingDimensionDirection")->setCurrentIndex(direction_choice);
                 zero_dialog->accept_candidate(chain_view.id,{{DimensionAttachmentKind::Point,{"chain","zero",{}}},{0,0}});
                 require(zero_dialog->entering(),"Point datum must request a direction point");
                 zero_dialog->accept_candidate(chain_view.id,{{DimensionAttachmentKind::Point,{"chain","ten",{}}},{10,10}});
                 zero_dialog->position({-8,10},true);
-                require(zero_dialog->value().chain_datum_only,"Initial chain created a measured branch");
+                require(!zero_dialog->value().chain_datum_only,"First chain dimension is only a datum");
                 zero_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
-                require(zero_value.chain_direction&&evaluate_drawing_dimension(chain_view,zero_value).presentations.front().value==0,"Point datum lost zero or direction");
+                require(evaluate_drawing_dimension(chain_view,zero_value).presentations.front().value>0,"First chain dimension lost its measured value");
                 require(zero_value.direction!=DimensionDirection::Automatic,"Point datum lost automatic horizontal/vertical placement");
                 if(direction_choice)require(int(zero_value.direction)==direction_choice,"Placing zero overrode the explicit direction");
                 require(deserialize_drawing_dimensions(serialize_drawing_dimensions({zero_value})).front()==zero_value,"Standalone zero did not round-trip");
                 extend_dimension_chain(zero_value,false,{DimensionAttachmentKind::Point,{"chain","forty",{}}});
-                require(!zero_value.chain_datum_only&&zero_value.segments.size()==1,"First branch retained the direction point as another branch");
+                require(!zero_value.chain_datum_only&&zero_value.segments.size()==2,"Next point did not append an independent target");
                 }
             }
             {
                 auto* edge_dialog=new app::DrawingDimensionDialog(make_drawing_dimension(view.id),true,
                     [&](const auto&){return &view;},[](auto){},&window);
-                edge_dialog->show();edge_dialog->findChild<QComboBox*>("drawingDimensionType")->setCurrentIndex(int(DrawingDimensionKind::Chain));
+                edge_dialog->show();edge_dialog->enable_chain_command();
                 edge_dialog->accept_candidate(view.id,{{DimensionAttachmentKind::Line,{"profile","bottom",{}},{},.5},{15,0}});
-                require(!edge_dialog->entering()&&edge_dialog->placing(),"Straight edge datum requested an unnecessary second point");
-                edge_dialog->position({-8,0},true);
-                const auto zero=edge_dialog->value();
-                require(zero.chain_datum_only&&zero.chain_direction&&std::abs(zero.chain_direction->x)<1e-8,"Edge datum did not infer its perpendicular measuring direction");
-                auto* edge_table=edge_dialog->findChild<QTableWidget*>("drawingDimensionReferences");
-                require(edge_table->isRowHidden(1)&&!edge_table->isRowHidden(2),"Edge datum shows a redundant direction row or no branch draft");
-                require(edge_table->verticalHeaderItem(0)->text()=="0"&&edge_table->cellWidget(0,0),"Datum number must be outside and its action inside the table");
-                auto* draft=edge_table->findChild<QWidget*>("tableRowAction2");
-                require(draft,"Branch draft has no shared green arrow");
-                auto* arrow=qobject_cast<QWidget*>(draft->property("_arrowWidget").value<QObject*>());
-                require(arrow&&!arrow->isHidden(),"Branch draft is not a green arrow");
-                mouse(arrow,QEvent::MouseButtonRelease,QPointF(15,15),Qt::LeftButton,Qt::NoButton);
-                require(edge_dialog->entering(),"Green arrow did not arm the next branch reference");
+                require(edge_dialog->entering()&&!edge_dialog->placing(),"First chain dimension must request its second reference");
                 edge_dialog->accept_candidate(view.id,{{DimensionAttachmentKind::Line,{"profile","top",{}},{},.5},{15,20}});
-                require(!edge_dialog->placing()&&edge_dialog->entering(),"Added branch did not continue reference entry");
-                const auto added=evaluate_drawing_dimension(view,edge_dialog->value());
-                require(added.state==MeasurementState::Resolved&&added.presentations.front().value==20,"Parallel edge branch is not measured from zero");
+                edge_dialog->position({-8,0},true);
+                const auto first=edge_dialog->value();
+                require(!first.chain_datum_only&&first.attachments.size()==2&&edge_dialog->entering(),"First dimension did not begin continuous entry");
+                auto* table=edge_dialog->findChild<QTableWidget*>("drawingDimensionReferences");
+                int visible=0;for(int row=0;row<table->rowCount();++row)visible+=!table->isRowHidden(row);
+                require(visible==2&&table->verticalHeaderItem(0)->text()=="0"&&table->cellWidget(0,0),"Chain entry must expose two rows with outside numbers");
                 edge_dialog->accept_candidate(view.id,{{DimensionAttachmentKind::CurvePoint,{"profile","right",{}},{},.5},{30,10}});
-                require(edge_dialog->value().segments.size()==2&&edge_dialog->entering(),"Consecutive pick failed to append another branch");
-                require(edge_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->isEnabled(),"Continuous entry leaves an incomplete stored branch");
+                require(edge_dialog->value().segments.size()==2&&edge_dialog->entering(),"Consecutive pick failed to append another dimension");
+                require(edge_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->isEnabled(),"Continuous entry leaves an incomplete stored dimension");
                 edge_dialog->end_entry();
-                require(!edge_dialog->entering()&&edge_dialog->value().segments.size()==2,"Ending entry removed a completed branch");
-                auto* second=edge_table->findChild<QWidget*>("tableRowAction2");
-                qobject_cast<QPushButton*>(second->property("_removeWidget").value<QObject*>())->click();flush();
-                auto* populated=edge_table->findChild<QWidget*>("tableRowAction1");
-                require(populated,"Filled branch has no row action");
-                auto* remove=qobject_cast<QPushButton*>(populated->property("_removeWidget").value<QObject*>());
-                require(remove&&!remove->isHidden(),"Filled branch did not change its arrow to a cross");
+                auto* draft=table->findChild<QWidget*>("tableRowAction3");require(draft,"Missing continuation arrow");
+                mouse(qobject_cast<QWidget*>(draft->property("_arrowWidget").value<QObject*>()),QEvent::MouseButtonRelease,{15,15},Qt::LeftButton,Qt::NoButton);
+                edge_dialog->accept_candidate(view.id,{{DimensionAttachmentKind::CurvePoint,{"profile","right",{}},{},.25},{30,5}});
+                require(edge_dialog->value().segments.size()==3,"Restarted entry did not append another target");
                 window.grab().save("build/drawing-reference-table-proof.png");
-                remove->click();flush();
-                require(edge_dialog->value().chain_datum_only,"Reference-row cross did not remove just its branch");
-                require(edge_dialog->value().attachments.front()==zero.attachments.front(),"Reference-row deletion changed the common datum");
                 edge_dialog->reject();flush();
+                DrawingDimension adopted;
+                app::DrawingDimensionDialog continuation(make_drawing_dimension(view.id),true,[&](const auto&){return &view;},[&](auto result){adopted=std::move(result);},&window);
+                continuation.setAttribute(Qt::WA_DeleteOnClose,false);continuation.enable_chain_command();
+                require(continuation.awaiting_chain_seed(),"Chain command does not offer existing dimensions");
+                continuation.adopt_chain_seed(first);
+                require(continuation.entering()&&continuation.value().chain_group==first.id&&continuation.value().style==first.style,"Adopting an existing chain lost its shared datum or style");
+                continuation.accept_candidate(view.id,{{DimensionAttachmentKind::CurvePoint,{"profile","right",{}},{},.5},{30,10}});
+                continuation.findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();
+                require(adopted.segments.size()==1&&adopted.attachments.front()==first.attachments.front(),"Continuation duplicated the seed dimension");
             }
         }
         {
@@ -708,6 +735,49 @@ int verify_measurement_dimension_ui() {
             require(radial_edit.findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->isEnabled(),"Radial dimension requires an irrelevant parallel direction reference");
         }
         {
+            auto group_document=drawing;group_document.sheets.front().dimensions.clear();group_document.sheets.front().views={view};
+            auto chain=make_drawing_dimension(view.id,DrawingDimensionKind::Chain);
+            chain.attachments={{DimensionAttachmentKind::Line,{"profile","bottom",{}}},{DimensionAttachmentKind::Line,{"profile","top",{}}}};
+            place_drawing_dimension(view,chain,0,{-8,10});
+            extend_dimension_chain(chain,false,{DimensionAttachmentKind::CurvePoint,{"profile","right",{}},{},.5});
+            workspace::commit_drawing_chain(group_document,group_document.sheets.front().id,chain,true);
+            auto* state=workspace.open_drawing(drawing.document_id);state->commit(group_document);window.edit_workspace_document(drawing.document_id);flush();canvas->grab();
+            const auto members=window.document_for_test().sheets.front().dimensions;
+            const auto zero=window.annotation_handle_for_test(members[0].id,1,true);require(zero.has_value(),"Shared zero has no grip");
+            mouse(canvas,QEvent::MouseMove,*zero,Qt::NoButton,Qt::NoButton);
+            mouse(canvas,QEvent::MouseButtonPress,*zero,Qt::LeftButton,Qt::LeftButton);
+            require(canvas->property("drawingSelectionCount").toInt()==2,"Picking common zero did not select all independent members");
+            mouse(canvas,QEvent::MouseMove,*zero+QPointF(-24,0),Qt::NoButton,Qt::LeftButton);
+            mouse(canvas,QEvent::MouseButtonRelease,*zero+QPointF(-24,0),Qt::LeftButton,Qt::NoButton);
+            const auto shifted=window.document_for_test().sheets.front().dimensions;
+            require(shifted[0].segments[0].layout.line_offset!=members[0].segments[0].layout.line_offset&&shifted[0].segments[0].layout.line_offset==shifted[1].segments[0].layout.line_offset,"Shared zero drag did not move the whole chain");
+            require(state->undo()&&state->document().sheets.front().dimensions==members,"Shared zero drag is not one reversible transaction");
+            window.edit_workspace_document(drawing.document_id);flush();canvas->grab();
+            const auto seed_point=window.annotation_handle_for_test(members[1].id,0,true);require(seed_point.has_value(),"Independent dimension has no selectable value");
+            auto* chain_action=window.findChild<QAction*>("drawingChainDimensionAction");require(chain_action&&chain_action->isEnabled(),"Standalone chain command missing");
+            chain_action->trigger();flush();canvas->grab();
+            auto* continuation=dialog();require(continuation&&continuation->awaiting_chain_seed(),"New chain command cannot adopt an existing dimension");
+            pick(canvas,*seed_point);
+            require(continuation->value().chain_group==members[1].chain_group&&continuation->value().chain_datum_only,"Canvas picking did not adopt the existing chain");
+            continuation->accept_candidate(view.id,{{DimensionAttachmentKind::CurvePoint,{"profile","right",{}},{},.25},{30,5}});
+            continuation->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+            require(window.document_for_test().sheets.front().dimensions.size()==3,"Continuation duplicated its seed or failed to add a dimension");
+            require(state->undo()&&state->document().sheets.front().dimensions==members,"Continuing a chain is not one reversible transaction");
+            auto ordinary=group_document;ordinary.sheets.front().dimensions.clear();
+            auto a=make_drawing_dimension(view.id);a.attachments=members[0].attachments;place_drawing_dimension(view,a,0,{-8,10});
+            auto b=make_drawing_dimension(view.id);b.attachments=members[0].attachments;place_drawing_dimension(view,b,0,{38,10});
+            ordinary.sheets.front().dimensions={a,b};state->commit(ordinary);window.edit_workspace_document(drawing.document_id);flush();canvas->grab();
+            window.select_tree_entities({"drawing-dimension:"+a.id,"drawing-dimension:"+b.id},"drawing-dimension:"+a.id);
+            const auto grip=window.annotation_handle_for_test(a.id,0,true);require(grip.has_value(),"Selected ordinary dimension has no text grip");
+            mouse(canvas,QEvent::MouseMove,*grip,Qt::NoButton,Qt::NoButton);
+            mouse(canvas,QEvent::MouseButtonPress,*grip,Qt::LeftButton,Qt::LeftButton);
+            mouse(canvas,QEvent::MouseMove,*grip+QPointF(-20,-18),Qt::NoButton,Qt::LeftButton);
+            mouse(canvas,QEvent::MouseButtonRelease,*grip+QPointF(-20,-18),Qt::LeftButton,Qt::NoButton);
+            const auto moved=window.document_for_test().sheets.front().dimensions;
+            require(moved[0].segments[0].layout!=a.segments[0].layout&&moved[1].segments[0].layout!=b.segments[0].layout,"Dragging multiple selected dimensions moved only one");
+            require(state->undo()&&state->document().sheets.front().dimensions==ordinary.sheets.front().dimensions,"Multi-dimension drag did not undo atomically");
+        }
+        {
             const auto original_settings=app::ApplicationSettings::load();
             QTemporaryDir language_directory;
             const std::array<std::pair<const char*,const char*>,5> labels{{
@@ -717,10 +787,14 @@ int verify_measurement_dimension_ui() {
                 QFile config(language_directory.filePath("config.ini"));require(config.open(QIODevice::WriteOnly),"Cannot create language fixture");
                 config.write(QByteArray("[Application]\nLanguage=")+language+"\n");config.close();
                 app::apply_application_translations(*qApp,app::ApplicationSettings::load(language_directory.path()));
+                app::DrawingWindow translated_window(&workspace,false);
+                const std::map<std::string,QString> command_labels{{"cs",QString::fromUtf8("Řetězová kóta")},{"en","Chain dimension"},{"de",QString::fromUtf8("Kettenbemaßung")},{"fr",QString::fromUtf8("Cotation en chaîne")},{"ru",QString::fromUtf8("Цепочка размеров")}};
+                require(translated_window.findChild<QAction*>("drawingChainDimensionAction")->text()==command_labels.at(language),"Chain command is not localized after switching language");
                 auto localized_value=make_drawing_dimension(view.id,DrawingDimensionKind::Chain);
                 localized_value.attachments={{DimensionAttachmentKind::Line,{"profile","bottom",{}}},{DimensionAttachmentKind::Line,{"profile","top",{}}}};
                 app::DrawingDimensionDialog localized(localized_value,false,
                     [&](const auto&){return &view;},[](auto){},&window);
+                localized.enable_chain_command();
                 const auto* references=localized.findChild<QTableWidget*>("drawingDimensionReferences");
                 require(references->item(2,2)->text()==QString::fromUtf8(expected),
                     "Add branch is not localized after switching language");

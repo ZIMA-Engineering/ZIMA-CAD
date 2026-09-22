@@ -83,16 +83,18 @@ inline std::vector<ProjectedEdge> project_drawing_edges(
     }
     const auto& h=camera.horizontal;const auto& v=camera.vertical;const auto& d=camera.depth;
     const double handedness=(h.y*v.z-h.z*v.y)*d.x+(h.z*v.x-h.x*v.z)*d.y+(h.x*v.y-h.y*v.x)*d.z;
-    struct Triangle {std::array<ProjectionVertex,3> v;double determinant;double xmin{},xmax{},ymin{},ymax{};const zima::kernel::FaceReference* source{};};
+    struct Triangle {std::array<ProjectionVertex,3> v;double determinant;double xmin{},xmax{},ymin{},ymax{};const zima::kernel::FaceReference* source{};std::array<unsigned,3> indices;};
     std::vector<Triangle> triangles;
     using Key=std::tuple<long long,long long,long long>;
     struct Boundary {zima::kernel::Vec3 a,b;bool front{},back{};int count{};bool thread{};bool axial_surface{true};};
     std::map<std::tuple<Key,Key,Owner>,Boundary> boundaries;
+    std::map<std::tuple<FaceKey,Key,Key>,unsigned> face_edge_counts;
     const auto key=[&](const auto& p){return Key{std::llround(p.x/epsilon),std::llround(p.y/epsilon),std::llround(p.z/epsilon)};};
     for(std::size_t i=0;i+2<mesh.triangles.size();i+=3) {
         const auto ia=mesh.triangles[i],ib=mesh.triangles[i+1],ic=mesh.triangles[i+2];
         if(ia>=vertices.size()||ib>=vertices.size()||ic>=vertices.size())continue;
         Triangle t{{vertices[ia],vertices[ib],vertices[ic]},0};
+        t.indices={ia,ib,ic};
         const auto& a=t.v[0].p;const auto& b=t.v[1].p;const auto& c=t.v[2].p;
         t.determinant=(b.x-a.x)*(c.y-a.y)-(b.y-a.y)*(c.x-a.x);
         t.xmin=std::min({a.x,b.x,c.x});t.xmax=std::max({a.x,b.x,c.x});
@@ -112,6 +114,7 @@ inline std::vector<ProjectedEdge> project_drawing_edges(
         for(int side=0;side<3;++side) {
             auto pa=mesh.vertices[ids[side]],pb=mesh.vertices[ids[(side+1)%3]];
             auto ka=key(pa),kb=key(pb);if(kb<ka){std::swap(ka,kb);std::swap(pa,pb);}
+            if(ref)++face_edge_counts[{face_key(*ref),ka,kb}];
             auto& edge=boundaries[{ka,kb,thread?owner(*ref):Owner{}}];edge.a=pa;edge.b=pb;++edge.count;edge.thread=thread;
             // A cylinder/cone viewed along its analytic axis has no visible
             // generator. An unmatched mesh seam near a cone apex is not a
@@ -150,12 +153,60 @@ inline std::vector<ProjectedEdge> project_drawing_edges(
             if(circular&&conical){leadin_edges.push_back(edge.reference);break;}
         }
     }
-    const auto append=[&](const auto& points,const zima::kernel::EdgeReference& source,bool silhouette,bool tangent,bool thread=false,bool symbolic=false) {
+    const auto append=[&](const auto& points,const zima::kernel::EdgeReference& source,bool silhouette,bool tangent,bool thread=false,bool symbolic=false,
+                          const zima::kernel::ViewerEdge* boundary=nullptr,const std::vector<double>* parameters=nullptr) {
+        // A triangulated concave face can extend across its exact curved rim.
+        // Exclude only that face's local rim triangle, within the parameter
+        // interval bounded by two vertices on this very edge. Remote portions
+        // of the same face and every other face remain valid occluders.
+        std::vector<std::optional<std::pair<double,double>>> rim_intervals(triangles.size());
+        if(boundary&&parameters&&boundary->exact_spline) {
+            const auto& curve=*boundary->exact_spline;
+            const auto start=zima::kernel::bspline_value(curve,0),end=zima::kernel::bspline_value(curve,1);
+            const bool closed=std::hypot(start.x-end.x,start.y-end.y,start.z-end.z)<=epsilon*8;
+            auto low=curve.poles.front(),high=low;
+            for(const auto& p:curve.poles){low.x=std::min(low.x,p.x);low.y=std::min(low.y,p.y);low.z=std::min(low.z,p.z);high.x=std::max(high.x,p.x);high.y=std::max(high.y,p.y);high.z=std::max(high.z,p.z);}
+            std::map<unsigned,std::optional<double>> cache;
+            const auto parameter=[&](unsigned index)->std::optional<double> {
+                if(auto found=cache.find(index);found!=cache.end())return found->second;
+                auto& result=cache[index];const auto& p=mesh.vertices[index];
+                if(p.x<low.x-epsilon*8||p.x>high.x+epsilon*8||p.y<low.y-epsilon*8||p.y>high.y+epsilon*8||p.z<low.z-epsilon*8||p.z>high.z+epsilon*8)return result;
+                const auto error=[&](double t){const auto q=zima::kernel::bspline_value(curve,t);return std::hypot(q.x-p.x,q.y-p.y,q.z-p.z);};
+                int best=0;double nearest=error(0);
+                for(int i=1;i<=32;++i)if(const double distance=error(i/32.);distance<nearest){nearest=distance;best=i;}
+                double a=std::max(0.,(best-1)/32.),b=std::min(1.,(best+1)/32.);
+                for(int iteration=0;iteration<48;++iteration){const double u=(2*a+b)/3,v=(a+2*b)/3;if(error(u)<error(v))b=v;else a=u;}
+                const double t=(a+b)/2;if(error(t)<=epsilon*8)result=t;
+                return result;
+            };
+            for(std::size_t i=0;i<triangles.size();++i) {
+                const auto& triangle=triangles[i];if(!triangle.source)continue;
+                if(std::ranges::none_of(boundary->edge_treatment_side_references,[&](const auto& side){return face_key(side)==face_key(*triangle.source);}))continue;
+                std::vector<double> on_rim;
+                for(int side=0;side<3;++side) {
+                    const auto ia=triangle.indices[side],ib=triangle.indices[(side+1)%3];
+                    auto ka=key(mesh.vertices[ia]),kb=key(mesh.vertices[ib]);if(kb<ka)std::swap(ka,kb);
+                    if(face_edge_counts[{face_key(*triangle.source),ka,kb}]!=1)continue;
+                    const auto a=parameter(ia),b=parameter(ib);if(a&&b){on_rim.push_back(*a);on_rim.push_back(*b);}
+                }
+                if(on_rim.size()>=2){
+                    auto [a,b]=std::minmax_element(on_rim.begin(),on_rim.end());
+                    if(closed&&*b-*a>.5){for(auto& t:on_rim)if(t<.5)t+=1;std::tie(a,b)=std::minmax_element(on_rim.begin(),on_rim.end());}
+                    if(*b-*a>1e-10)rim_intervals[i]=std::pair{*a,*b};
+                }
+            }
+        }
         for(std::size_t segment=1;segment<points.size();++segment) {
             const auto a=project(points[segment-1]),b=project(points[segment]);
             if(std::hypot(b.p.x-a.p.x,b.p.y-a.p.y)<=epsilon)continue;
             std::vector<std::pair<double,double>> occluded;
-            for(const auto& triangle:triangles) {
+            for(std::size_t triangle_index=0;triangle_index<triangles.size();++triangle_index) {
+                const auto& triangle=triangles[triangle_index];
+                if(const auto& interval=rim_intervals[triangle_index];interval&&parameters) {
+                    const auto [lo,hi]=std::minmax((*parameters)[segment-1],(*parameters)[segment]);
+                    if((hi>=interval->first-1e-8&&lo<=interval->second+1e-8)||
+                       (interval->second>1&&hi+1>=interval->first-1e-8&&lo+1<=interval->second+1e-8))continue;
+                }
                 // The analytic arc lies on its own entrance chamfer. Coarse
                 // cone facets must not cover that exact boundary. Exempt only
                 // the same occurrence's matching persisted conical surface;
@@ -223,7 +274,36 @@ inline std::vector<ProjectedEdge> project_drawing_edges(
     for(const auto& edge:source_edges)if(!edge.parameter_seam&&!edge.construction&&!edge.overlay) {
         const bool thread=is_thread(edge.reference);
         if(thread&&axial_threads.contains(owner(edge.reference)))continue;
-        append(edge.points,edge.reference,false,thread?false:tangent_boundary(edge),thread);
+        // Display wires can be substantially coarser than their adjacent face
+        // mesh. A chord of a convex fillet then lies inside its own chamfer
+        // facets and is incorrectly hidden. Refine the persisted exact curve
+        // to the projection depth tolerance; no kernel calculation is needed.
+        const bool curved_projection=edge.points.size()>2&&[&]{
+            const auto a=project(edge.points.front()).p,b=project(edge.points.back()).p;
+            const double dx=b.x-a.x,dy=b.y-a.y,den=dx*dx+dy*dy;
+            return std::ranges::any_of(edge.points,[&](const auto& point){const auto p=project(point).p;const double t=den>0?((p.x-a.x)*dx+(p.y-a.y)*dy)/den:0.;return std::hypot(p.x-a.x-t*dx,p.y-a.y-t*dy)>epsilon;});
+        }();
+        if(curved_projection&&edge.exact_spline&&edge.exact_spline->degree>1) {
+            const auto& curve=*edge.exact_spline;
+            const auto at=[&](double t){return zima::kernel::bspline_value(curve,t);};
+            const auto distance=[](const auto& a,const auto& b){return std::hypot(a.x-b.x,a.y-b.y,a.z-b.z);};
+            std::vector<zima::kernel::Vec3> refined{at(0)};
+            std::vector<double> parameters{0};
+            const auto subdivide=[&](auto&& self,double lo,double hi,const auto& a,const auto& b,int depth)->void {
+                double error=0;
+                for(double f:{.25,.5,.75}) {
+                    const auto p=at(lo+(hi-lo)*f);
+                    const zima::kernel::Vec3 chord{a.x+(b.x-a.x)*f,a.y+(b.y-a.y)*f,a.z+(b.z-a.z)*f};
+                    error=std::max(error,distance(p,chord));
+                }
+                if(error<=epsilon*.25||depth==18){refined.push_back(b);parameters.push_back(hi);return;}
+                const double middle=(lo+hi)/2;const auto m=at(middle);
+                self(self,lo,middle,a,m,depth+1);self(self,middle,hi,m,b,depth+1);
+            };
+            for(int part=0;part<16;++part)subdivide(subdivide,part/16.,(part+1)/16.,at(part/16.),at((part+1)/16.),0);
+            if(!edge.points.empty()&&distance(refined.back(),edge.points.front())<distance(refined.front(),edge.points.front())){std::reverse(refined.begin(),refined.end());std::reverse(parameters.begin(),parameters.end());}
+            append(refined,edge.reference,false,thread?false:tangent_boundary(edge),thread,false,&edge,&parameters);
+        }else append(edge.points,edge.reference,false,thread?false:tangent_boundary(edge),thread);
     }
     for(const auto& ring:end_rings) {
         std::vector<zima::kernel::Vec3> arc;
@@ -244,6 +324,18 @@ inline std::vector<ProjectedEdge> project_drawing_edges(
                 reference=original.reference;break;
             }
         append(std::array{edge.a,edge.b},reference,true,false,edge.thread);
+    }
+    // Retain every visibility transition, but do not persist the much denser
+    // depth-classification sampling as the display polyline.
+    for(auto& edge:result)if(edge.points.size()>2) {
+        const auto& points=edge.points;std::vector<Point2> reduced{points.front()};
+        const auto simplify=[&](auto&& self,std::size_t first,std::size_t last)->void {
+            const auto a=points[first],b=points[last];const double dx=b.x-a.x,dy=b.y-a.y,den=dx*dx+dy*dy;
+            double largest=epsilon*16;std::size_t split=first;
+            for(std::size_t i=first+1;i<last;++i){const auto p=points[i];const double t=den>0?std::clamp(((p.x-a.x)*dx+(p.y-a.y)*dy)/den,0.,1.):0.;const double distance=std::hypot(p.x-a.x-t*dx,p.y-a.y-t*dy);if(distance>largest){largest=distance;split=i;}}
+            if(split==first){reduced.push_back(b);return;}self(self,first,split);self(self,split,last);
+        };
+        simplify(simplify,0,points.size()-1);edge.points=std::move(reduced);
     }
     return result;
 }
