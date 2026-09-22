@@ -547,18 +547,42 @@ The user-provided `screenshots/01.png` defines Drawing chain presentation:
 all ordinates are measured from the original attachment identified by
 `anchor_attachment`, with one shared dimension line, one arrow at each target,
 and labels perpendicular to the dimension line, beside each target on the side
-opposite its witness/reference geometry. The datum has a small ring and a
+opposite its witness/reference geometry. The datum has a filled dot and a
 literal `0`, including when a common prefix, suffix or tolerance is configured.
 For targets at 10, 25 and 40 mm the labels are 10, 25 and 40, rather than the
 successive intervals 10, 15 and 15. Transferred model dimensions are unchanged.
 
 Adding a target at either end preserves the datum and existing segment IDs.
 Moving the line through any arrow grip or its placement field moves the shared
-line for every target. Individual label offsets remain editable. Native save,
+line for every target. Labels stay above their witness line with a fixed paper
+gap and slide only along that line; the witness extends below the text. Each
+branch draws its own connection back to the common datum. Native save,
 reopen, unresolved-reference caches, selection and PDF/DXF consume the same
 ordinate presentations. The screen and exports share one renderer, including
 the explicit zero. Evidence: `build/drawing-chain-proof.png`, `.drwz`, `.pdf`
 and `.dxf`; the GUI regression checks DXF text values 0, 10, 25 and 40.
+
+The chain remains one Drawing object. Its stable segment IDs identify selectable
+branches in the View and child rows in the Tree. Delete on a branch removes only
+that target, preserving the datum, other values and segment identities. Deleting
+the last branch retains the standalone zero. Select Parent selects the complete chain for
+whole-object deletion. These changes are one Undo transaction. Removing the first
+target preserves an automatically established measuring axis in the native
+Drawing's optional `chain_direction` field; it never changes the Part or Assembly.
+Creation starts with the datum only: select a straight edge and place zero, or
+select a datum point and a second point defining the measuring direction, then
+place zero. The direction point is not a measured branch. Point-based creation
+preserves the existing cursor-driven horizontal/vertical/direct placement choice;
+explicit direction choices in Properties remain fixed. Add branch accepts
+the next point or compatible edge without repositioning the established chain.
+Native `chain_datum_only` records retain the direction inputs and datum layout;
+their internal presentation slot is not exposed as a branch in the View or Tree.
+Regression coverage includes branch deletion on either side of the datum, text
+constraints, automatic-axis preservation, native persistence and Undo.
+The follow-up passed ten targeted contracts plus the main Drawing workspace
+check. The measurement GUI contract also switches through Czech, English,
+German, French and Russian and verifies the Add branch control in each language.
+The standalone datum proof is `build/drawing-chain-zero-proof.png`.
 
 Zigzag break marks now use 20-degree included angles at their two sharp corners.
 The existing paper amplitude and gap are retained. Tests measure the angle for

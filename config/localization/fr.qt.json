@@ -1540,5 +1540,6 @@
   "Zadejte body spline. Kliknutím na první bod nebo Enter hranici uzavřete.": "Placez les points de la spline. Cliquez sur le premier point ou appuyez sur Entrée pour fermer le contour.",
   "Kliknutím určete velikost hranice. Esc zruší.": "Cliquez pour définir la taille du contour. Échap annule.",
   "Invalid drawing crop boundary.": "Contour de limitation de la vue non valide.",
-  "Kruh": "Cercle"
+  "Kruh": "Cercle",
+  "Přidat větev": "Ajouter une branche"
 }

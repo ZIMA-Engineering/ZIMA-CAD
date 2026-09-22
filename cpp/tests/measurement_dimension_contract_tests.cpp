@@ -176,6 +176,26 @@ int main() {
             refresh_drawing_dimension(ordinate_view,running);
             auto roundtrip=deserialize_drawing_dimensions(serialize_drawing_dimensions({running}));
             require(roundtrip.front()==running,"Running dimension lost its datum or layouts on persistence");
+            for(std::size_t removed=0;removed<running.segments.size();++removed) {
+                auto reduced=running;
+                const auto datum=running.attachments[running.anchor_attachment];
+                const auto removed_id=reduced.segments[removed].id;
+                require(erase_dimension_branch(ordinate_view,reduced,removed_id),"Branch was not removed");
+                validate_drawing_dimension(reduced);
+                require(reduced.attachments.front()==datum,"Branch deletion changed the datum reference");
+                const auto measured=evaluate_drawing_dimension(ordinate_view,reduced);
+                for(std::size_t i=0;i<reduced.segments.size();++i) {
+                    const auto original_index=i<removed?i:i+1;
+                    require(reduced.segments[i].id==running.segments[original_index].id,"Branch deletion reassigned segment identity");
+                    near(measured.presentations[i].value,result.presentations[original_index].value);
+                    near(measured.presentations[i].line_first.x,result.presentations[original_index].line_first.x);
+                }
+                while(!reduced.chain_datum_only)require(erase_dimension_branch(ordinate_view,reduced,reduced.segments.back().id),"Cannot remove final branch");
+                require(evaluate_drawing_dimension(ordinate_view,reduced).presentations.front().value==0,"Final branch deletion did not retain zero");
+                extend_dimension_chain(reduced,false,{DimensionAttachmentKind::Point,ref("forty")});
+                require(!reduced.chain_datum_only&&reduced.segments.size()==1,"Adding first branch kept the direction point as a branch");
+                near(evaluate_drawing_dimension(ordinate_view,reduced).presentations.front().value,40);
+            }
         }
         auto d = make_drawing_dimension(v.id);
         d.attachments = {{DimensionAttachmentKind::Line, ref("bottom"), {}, .5},

@@ -1540,5 +1540,6 @@
   "Zadejte body spline. Kliknutím na první bod nebo Enter hranici uzavřete.": "Задайте точки сплайна. Щёлкните первую точку или нажмите Enter, чтобы замкнуть границу.",
   "Kliknutím určete velikost hranice. Esc zruší.": "Щёлкните, чтобы задать размер границы. Esc отменяет.",
   "Invalid drawing crop boundary.": "Недопустимая граница обрезки вида.",
-  "Kruh": "Круг"
+  "Kruh": "Круг",
+  "Přidat větev": "Добавить ветвь"
 }

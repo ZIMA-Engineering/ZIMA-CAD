@@ -520,6 +520,13 @@ void extend_dimension_chain(DrawingDimension &d, bool at_first, DimensionAttachm
     if (d.kind != DrawingDimensionKind::Linear && d.kind != DrawingDimensionKind::Chain)
         throw std::invalid_argument("Řetězec lze rozšířit z lineární kóty.");
     d.kind = DrawingDimensionKind::Chain;
+    if(d.chain_datum_only) {
+        d.attachments={d.attachments[d.anchor_attachment],std::move(a)};
+        d.anchor_attachment=0;d.chain_datum_only=false;
+        auto layout=d.segments.front().layout;layout.text_along=0;layout.text_outward=0;
+        d.segments={{kernel::make_stable_id(),layout}};
+        return;
+    }
     DrawingDimensionSegment segment;
     segment.id = kernel::make_stable_id();
     if (!d.segments.empty())
@@ -534,6 +541,8 @@ void extend_dimension_chain(DrawingDimension &d, bool at_first, DimensionAttachm
     }
 }
 void validate_drawing_dimension(const DrawingDimension &d) {
+    if(d.chain_direction&&(!std::isfinite(d.chain_direction->x)||!std::isfinite(d.chain_direction->y)||length(*d.chain_direction)<1e-9))
+        throw std::invalid_argument("Neplatná výkresová kóta.");
     const bool radial = d.kind == DrawingDimensionKind::Radius || d.kind == DrawingDimensionKind::Diameter;
     if (d.id.empty() || d.view_id.empty() || int(d.kind) < 0 || int(d.kind) > 4 || int(d.direction) < 0 ||
         int(d.direction) > 3 ||
@@ -714,10 +723,38 @@ DimensionEvaluation evaluate_drawing_dimension(const DrawingView &view, const Dr
     };
     if (d.view_id != view.id || d.attachments.empty())
         return missing("Vyberte geometrické vazby kóty.");
-    for(const auto& attachment:d.attachments)if(auto p=resolve_dimension_attachment(view,attachment);p&&break_hidden(view,*p)) {
+    for(std::size_t i=0;i<d.attachments.size();++i)if(!(d.chain_datum_only&&d.chain_direction&&i!=d.anchor_attachment))if(auto p=resolve_dimension_attachment(view,d.attachments[i]);p&&break_hidden(view,*p)) {
         result.state=MeasurementState::Hidden;result.message="Reference kóty je skrytá přerušením pohledu.";return result;
     }
     const auto curves = projected_measurement_curves(view);
+    auto datum_direction=d.chain_direction;
+    if(d.chain_datum_only&&d.attachments.size()>1&&d.attachments[1].reference.valid()) {
+        if(d.direction==DimensionDirection::Horizontal)datum_direction=Point2{1,0};
+        if(d.direction==DimensionDirection::Vertical)datum_direction=Point2{0,1};
+    }
+    if(d.kind==DrawingDimensionKind::Chain&&d.chain_datum_only&&!datum_direction&&d.attachments[d.anchor_attachment].kind==DimensionAttachmentKind::Line) {
+        const auto* edge=find_curve(curves,d.attachments[d.anchor_attachment].reference);
+        if(edge&&edge->line&&edge->points.size()>1) {
+            datum_direction=d.direction==DimensionDirection::Horizontal?Point2{1,0}:d.direction==DimensionDirection::Vertical?Point2{0,1}:perp(unit(sub(edge->points.back(),edge->points.front())));
+            if(d.direction==DimensionDirection::Parallel) {
+                const auto* parallel=find_curve(curves,d.parallel_reference);
+                if(!parallel||!parallel->line||parallel->points.size()<2)return missing("Chybí platná úsečka pro rovnoběžnost.");
+                datum_direction=unit(sub(parallel->points.back(),parallel->points.front()));
+            }
+        }
+    }
+    if(d.kind==DrawingDimensionKind::Chain&&d.chain_datum_only&&datum_direction&&!d.segments.empty()) {
+        const auto direction=unit(*datum_direction),outward=perp(direction);
+        const auto datum=resolve(view,curves,d.attachments[d.anchor_attachment],direction);
+        if(!datum)return missing("Některá vazba není dostupná. Vyberte její náhradu.");
+        kernel::ViewerDimension value;
+        const auto point=add(*datum,mul(outward,8/view.scale+d.segments.front().layout.line_offset));
+        value.witness_first={datum->x,datum->y,0};value.witness_second=value.witness_first;
+        value.line_first={point.x,point.y,0};value.line_second={point.x+direction.x,point.y+direction.y,0};
+        value.label_position=value.line_first;
+        result.presentations={value};result.resolved_attachments.assign(d.attachments.size(),true);
+        result.state=MeasurementState::Resolved;return result;
+    }
     const bool radial = d.kind == DrawingDimensionKind::Radius || d.kind == DrawingDimensionKind::Diameter;
     if (radial) {
         const auto *curve = find_curve(curves, d.attachments[0].reference);
@@ -835,6 +872,8 @@ DimensionEvaluation evaluate_drawing_dimension(const DrawingView &view, const Dr
         if (a && b && length(sub(*b, *a)) > 1e-9)
             direction = unit(sub(*b, *a));
     }
+    if(d.kind==DrawingDimensionKind::Chain&&d.direction==DimensionDirection::Automatic&&d.chain_direction)
+        direction=unit(*d.chain_direction);
     std::vector<Point2> points;
     for (std::size_t i = 0; i < d.attachments.size(); ++i) {
         const auto p = resolve(view, curves, d.attachments[i], direction);
@@ -867,7 +906,8 @@ DimensionEvaluation evaluate_drawing_dimension(const DrawingView &view, const Dr
         };
         const auto start = line_point(a), end = line_point(b), middle = mul(add(start, end), .5);
         const auto text =
-            add(chain ? end : middle, add(mul(direction, layout.text_along), mul(outward, layout.text_outward)));
+            chain ? add(end,mul(outward,layout.text_outward)) :
+            add(middle, add(mul(direction, layout.text_along), mul(outward, layout.text_outward)));
         kernel::ViewerDimension value;
         value.witness_first = {a.x, a.y, 0};
         value.witness_second = {b.x, b.y, 0};
@@ -892,6 +932,33 @@ void refresh_drawing_dimension(const DrawingView &view, DrawingDimension &d) {
         d.segments[i].last_angular_leaders=i<result.angular_leaders.size()&&result.angular_leaders[i];
     }
 }
+bool erase_dimension_branch(const DrawingView& view, DrawingDimension& d, const std::string& id) {
+    if(d.kind!=DrawingDimensionKind::Chain||d.chain_datum_only)return false;
+    const auto found=std::ranges::find(d.segments,id,&DrawingDimensionSegment::id);
+    if(found==d.segments.end())return false;
+    const auto index=std::size_t(found-d.segments.begin());
+    const auto evaluated=evaluate_drawing_dimension(view,d);
+    if(!d.chain_direction&&evaluated.state==MeasurementState::Resolved) {
+        // Freeze the established measuring axis before removing its first target.
+        auto probe=d;for(auto& s:probe.segments)s.layout.line_offset+=1;
+        const auto moved=evaluate_drawing_dimension(view,probe);
+        const auto& a=evaluated.presentations.front();const auto& b=moved.presentations.front();
+        d.chain_direction=Point2{b.line_first.y-a.line_first.y,a.line_first.x-b.line_first.x};
+    }
+    if(d.segments.size()==1) {
+        d.chain_datum_only=true;d.segments.front().id=kernel::make_stable_id();
+        d.segments.front().layout.text_along=0;d.segments.front().layout.text_outward=0;
+        refresh_drawing_dimension(view,d);return true;
+    }
+    const auto datum=d.attachments[d.anchor_attachment];
+    std::vector<DimensionAttachment> attachments{datum};
+    for(std::size_t i=0;i<d.segments.size();++i)if(i!=index)
+        attachments.push_back(d.attachments[i<d.anchor_attachment?i:i+1]);
+    d.attachments=std::move(attachments);d.anchor_attachment=0;
+    d.segments.erase(d.segments.begin()+index);
+    if(!d.segments.empty())refresh_drawing_dimension(view,d);
+    return true;
+}
 std::string drawing_dimension_text(const DrawingDimension &d, const kernel::ViewerDimension &value,
                                    bool unresolved) {
     // An unresolved Drawing dimension retains its last measured text; the
@@ -907,6 +974,15 @@ void drag_drawing_dimension(const DrawingView &view, DrawingDimension &d, std::s
     if (result.state != MeasurementState::Resolved || index >= result.presentations.size())
         return;
     const auto &source = result.presentations[index];
+    if(d.kind==DrawingDimensionKind::Chain) {
+        // Recover the signed layout basis even for a target before the datum.
+        auto probe=d;for(auto& s:probe.segments)s.layout.line_offset+=1;
+        const auto moved=evaluate_drawing_dimension(view,probe).presentations[index];
+        const Point2 outward{moved.line_first.x-source.line_first.x,moved.line_first.y-source.line_first.y};
+        if(handle==0)d.segments[index].layout.text_outward+=dot(delta,outward);
+        else for(auto& segment:d.segments)segment.layout.line_offset+=dot(delta,outward);
+        refresh_drawing_dimension(view,d);return;
+    }
     if(d.kind==DrawingDimensionKind::Angular) {
         auto& layout=d.segments[index].layout;
         const auto direction=unit({source.line_first.x-source.witness_first.x,source.line_first.y-source.witness_first.y});
@@ -974,6 +1050,19 @@ void place_drawing_dimension(const DrawingView &view, DrawingDimension &d, std::
     if (result.state != MeasurementState::Resolved || segment >= result.presentations.size())
         return;
     const auto label = result.presentations[segment].label_position.value();
+    if(d.kind==DrawingDimensionKind::Chain) {
+        // Placement sets the common spine. Later text drags only slide along
+        // their witness; they never displace a branch from its measured point.
+        drag_drawing_dimension(view,d,segment,2,{point.x-label.x,point.y-label.y});
+        if(d.chain_datum_only&&!d.chain_direction) {
+            auto probe=d;for(auto& s:probe.segments)s.layout.line_offset+=1;
+            const auto current=evaluate_drawing_dimension(view,d).presentations[segment];
+            const auto shifted=evaluate_drawing_dimension(view,probe).presentations[segment];
+            d.chain_direction=Point2{shifted.line_first.y-current.line_first.y,current.line_first.x-shifted.line_first.x};
+            refresh_drawing_dimension(view,d);
+        }
+        return;
+    }
     drag_drawing_dimension(view, d, segment, 0, {point.x - label.x, point.y - label.y});
 }
 
@@ -998,6 +1087,8 @@ std::string serialize_drawing_dimensions(const std::vector<DrawingDimension> &di
                {"direction", int(d.direction)},
                {"parallel_reference", ref_json(d.parallel_reference)},
                {"style", document::dimension_text_style_json(d.style)}};
+        if(d.chain_direction)j["chain_direction"]={d.chain_direction->x,d.chain_direction->y};
+        if(d.chain_datum_only)j["chain_datum_only"]=true;
         j["attachments"] = json::array();
         for (const auto &a : d.attachments)
             j["attachments"].push_back({{"kind", int(a.kind)},
@@ -1029,6 +1120,8 @@ std::vector<DrawingDimension> deserialize_drawing_dimensions(const std::string &
         d.kind = DrawingDimensionKind(j.at("kind").get<int>());
         d.direction = DimensionDirection(j.at("direction").get<int>());
         d.parallel_reference = ref_from(j.at("parallel_reference"));
+        if(j.contains("chain_direction"))d.chain_direction=Point2{j.at("chain_direction").at(0),j.at("chain_direction").at(1)};
+        d.chain_datum_only=j.value("chain_datum_only",false);
         d.style = document::dimension_text_style_from_json(j.at("style"));
         for (const auto &a : j.at("attachments"))
             d.attachments.push_back({DimensionAttachmentKind(a.at("kind").get<int>()),

@@ -702,7 +702,15 @@ class DrawingCanvas final : public QWidget, public SheetRenderer {
         for(const auto& key:selected){
             if(key.kind==AnnotationKind::View)continue;
             if(key.kind==AnnotationKind::Text){std::erase_if(sheet_->texts,[&](const auto& t){return "text:"+t.id==key.id;});continue;}
-            if(key.kind==AnnotationKind::Dimension){workspace::erase_drawing_dimension(*sheet_,key.id);continue;}
+            if(key.kind==AnnotationKind::Dimension){
+                auto dimension=std::ranges::find(sheet_->dimensions,key.id,&drawing::DrawingDimension::id);
+                const auto view=std::ranges::find(sheet_->views,key.view,&drawing::DrawingView::id);
+                if(dimension!=sheet_->dimensions.end()&&!key.branch.empty()&&view!=sheet_->views.end()) {
+                    drawing::erase_dimension_branch(*view,*dimension,key.branch);
+                    if(dimension->segments.empty())sheet_->dimensions.erase(dimension);
+                }else workspace::erase_drawing_dimension(*sheet_,key.id);
+                continue;
+            }
             if(key.kind==AnnotationKind::Balloon){std::erase_if(sheet_->balloons,[&](const auto& b){return b.id==key.id;});continue;}
             for(auto& view:sheet_->views)if(view.id==key.view){
                 if(key.kind==AnnotationKind::Model)for(auto& item:view.model_annotations)if(model_annotation_key(item.source)==key.id)item.visible=false;
@@ -852,7 +860,7 @@ public:
     std::function<void(const std::string&,const std::string&,QPointF)> dimension_value_;
     std::string tree_selection_id() const {
         if(selected_annotation_&&selected_annotation_->kind==AnnotationKind::Dimension)
-            return "drawing-dimension:"+selected_annotation_->id;
+            return tree_id(*selected_annotation_);
         if(selected_annotation_&&selected_annotation_->kind==AnnotationKind::Model)
             return selected_annotation_->view+":"+selected_annotation_->id;
         return selected_;
@@ -861,7 +869,7 @@ public:
         switch(key.kind) {
         case AnnotationKind::View:return key.view;
         case AnnotationKind::Model:return key.view+":"+key.id;
-        case AnnotationKind::Dimension:return "drawing-dimension:"+key.id;
+        case AnnotationKind::Dimension:return "drawing-dimension:"+key.id+(key.branch.empty()?"":":branch:"+key.branch);
         case AnnotationKind::Text:return key.id;
         case AnnotationKind::Balloon:return "drawing-balloon:"+key.id;
         case AnnotationKind::Caption:return "drawing-caption:"+key.view;
@@ -882,7 +890,11 @@ public:
             if(view.show_section_label&&!view.section_id.empty())keys.push_back({AnnotationKind::SectionLabel,view.id,{},0});
             for(const auto& marker:view.section_markers)keys.push_back({AnnotationKind::SectionEnd,view.id,marker.id,0});
         }
-        for(const auto& item:sheet.dimensions)keys.push_back({AnnotationKind::Dimension,item.view_id,item.id,0});
+        for(const auto& item:sheet.dimensions){
+            keys.push_back({AnnotationKind::Dimension,item.view_id,item.id,0});
+            if(item.kind==drawing::DrawingDimensionKind::Chain&&!item.chain_datum_only)for(std::size_t i=0;i<item.segments.size();++i)
+                keys.push_back({AnnotationKind::Dimension,item.view_id,item.id,0,item.segments[i].id});
+        }
         for(const auto& item:sheet.texts)keys.push_back({AnnotationKind::Text,{},"text:"+item.id,0});
         for(const auto& item:sheet.balloons)if(item.visible)keys.push_back({AnnotationKind::Balloon,item.view_id,item.id,0});
         return keys;
@@ -909,6 +921,15 @@ public:
         if(selection_changed_)selection_changed_();update();
     }
     void erase_selected_entities() {erase_selection();}
+    void edit_manual_entity(const AnnotationKey& key) {
+        int segment=0;
+        if(const auto* dimension=visible_dimension(key.id);dimension&&!key.branch.empty()) {
+            const auto found=std::ranges::find(dimension->segments,key.branch,&drawing::DrawingDimensionSegment::id);
+            if(found!=dimension->segments.end())segment=int(found-dimension->segments.begin());
+        }
+        if(manual_properties_)manual_properties_(key.id,0);
+        if(auto* field=window()->findChild<QComboBox*>("drawingDimensionSegment"))field->setCurrentIndex(segment);
+    }
     void populate_selection_menu(QMenu& menu) {
         if(!ordinary_selection()||entity_selection_.empty())return;
         if(entity_selection_.size()==1) {
@@ -918,13 +939,13 @@ public:
             if(key.kind==AnnotationKind::Text)properties=menu.addAction(tr("Vlastnosti textu…"),this,[this,key]{if(text_properties_)text_properties_(key.id.substr(5));});
             if(key.kind==AnnotationKind::Balloon)properties=menu.addAction(tr("Vlastnosti pozice…"),this,[this,key]{if(balloon_properties_)balloon_properties_(key.id);});
             if(key.kind==AnnotationKind::Dimension) {
-                properties=menu.addAction(tr("Vlastnosti kóty…"),this,[this,key]{if(manual_properties_)manual_properties_(key.id,0);});
+                if(!key.branch.empty())menu.addAction(tr("Vybrat nadřazený"),this,[this,key]{select_manual(key.view,key.id);})->setObjectName("drawingSelectChainAction");
+                properties=menu.addAction(tr("Vlastnosti kóty…"),this,[this,key]{edit_manual_entity(key);});
                 const auto* dimension=visible_dimension(key.id);
                 if(dimension&&dimension->kind==drawing::DrawingDimensionKind::Linear)
                     menu.addAction(tr("Převést na řetězovou kótu…"),this,[this,key]{if(manual_properties_)manual_properties_(key.id,2);});
                 if(dimension&&dimension->kind==drawing::DrawingDimensionKind::Chain) {
-                    menu.addAction(tr("Přidat bod na začátek…"),this,[this,key]{if(manual_properties_)manual_properties_(key.id,-1);});
-                    menu.addAction(tr("Přidat bod na konec…"),this,[this,key]{if(manual_properties_)manual_properties_(key.id,1);});
+                    menu.addAction(tr("Přidat větev"),this,[this,key]{if(manual_properties_)manual_properties_(key.id,1);})->setObjectName("drawingAddChainBranchAction");
                 }
             }
             if(key.kind==AnnotationKind::Caption||key.kind==AnnotationKind::SectionLabel||key.kind==AnnotationKind::DetailLabel)
@@ -1077,6 +1098,10 @@ protected:
                 entity_selected({AnnotationKind::View,view_at(event->pos()),{},0});
             bool generic=entity_selection_.size()>1;
             if(entity_selection_.size()==1){const auto& key=entity_selection_.front();
+                if(key.kind==AnnotationKind::Dimension)if(const auto* dimension=visible_dimension(key.id);dimension&&dimension->kind==drawing::DrawingDimensionKind::Chain&&on_selection) {
+                    auto* menu=new QMenu(this);menu->setAttribute(Qt::WA_DeleteOnClose);
+                    populate_selection_menu(*menu);menu->popup(event->globalPos());event->accept();return;
+                }
                 generic=key.kind==AnnotationKind::Caption||key.kind==AnnotationKind::SectionLabel||key.kind==AnnotationKind::SectionEnd;
                 if(key.kind==AnnotationKind::Model)for(const auto& v:sheet_->views)if(v.id==key.view)for(const auto& a:v.model_annotations)if(model_annotation_key(a.source)==key.id)generic=a.kind!=drawing::ModelAnnotationKind::Dimension;
             }
@@ -1135,8 +1160,7 @@ protected:
                     auto* convert=menu->addAction(tr("Převést na řetězovou kótu…"),this,[this,id]{if(manual_properties_)manual_properties_(id,2);});
                     convert->setObjectName("convertDrawingChainAction");
                 } else {
-                    menu->addAction(tr("Přidat bod na začátek…"),this,[this,id]{if(manual_properties_)manual_properties_(id,-1);});
-                    menu->addAction(tr("Přidat bod na konec…"),this,[this,id]{if(manual_properties_)manual_properties_(id,1);});
+                    menu->addAction(tr("Přidat větev"),this,[this,id]{if(manual_properties_)manual_properties_(id,1);})->setObjectName("drawingAddChainBranchAction");
                 }
             }
             menu->addAction(tr("Odstranit"),this,[this,id]{workspace::erase_drawing_dimension(*sheet_,id);selected_dimension_id_.clear();selected_annotation_.reset();if(changed_)changed_();if(selection_changed_)selection_changed_();update();});menu->popup(event->globalPos());event->accept();return;
@@ -1181,7 +1205,7 @@ protected:
             }
         }
         if(event->button()==Qt::LeftButton&&selected_annotation_&&selected_annotation_->kind==AnnotationKind::Dimension&&!dimension_command_){
-            dragged_dimension_id_.clear();if(manual_properties_)manual_properties_(selected_annotation_->id,0);event->accept();return;
+            dragged_dimension_id_.clear();edit_manual_entity(*selected_annotation_);event->accept();return;
         }
         if(event->button()==Qt::LeftButton && !placed_ && !preview_ && !dimension_mode_) {
             const auto field=field_at(event->position());
@@ -1527,7 +1551,7 @@ protected:
             const auto target=snap_measurement_point(*view,dimension_grip_start_+event->position()-dimension_drag_start_);
             const auto start=measurement_point(*view,dimension_grip_start_);drawing::Point2 delta{target.x()-start.x,target.y()-start.y};
             const auto evaluation=drawing::evaluate_drawing_dimension(*view,value);const auto segment=dimension_drag_handle_/3;
-            if(dimension_drag_handle_%3==0&&segment<int(evaluation.presentations.size())){
+            if(value.kind!=drawing::DrawingDimensionKind::Chain&&dimension_drag_handle_%3==0&&segment<int(evaluation.presentations.size())){
                 const auto label=evaluation.presentations[segment].label_position.value();
                 const auto actual=measurement_point(*view,dimension_grip_start_);
                 delta.x+=actual.x-label.x;delta.y+=actual.y-label.y;

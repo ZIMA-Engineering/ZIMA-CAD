@@ -1540,5 +1540,6 @@
   "Zadejte body spline. Kliknutím na první bod nebo Enter hranici uzavřete.": "Setzen Sie Spline-Punkte. Klicken Sie auf den ersten Punkt oder drücken Sie Enter, um die Begrenzung zu schließen.",
   "Kliknutím určete velikost hranice. Esc zruší.": "Legen Sie die Begrenzungsgröße per Klick fest. Esc bricht ab.",
   "Invalid drawing crop boundary.": "Ungültige Begrenzung der Zeichnungsansicht.",
-  "Kruh": "Kreis"
+  "Kruh": "Kreis",
+  "Přidat větev": "Zweig hinzufügen"
 }

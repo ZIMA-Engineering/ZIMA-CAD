@@ -22,6 +22,7 @@ protected:
     enum class AnnotationKind { Caption, SectionLabel, Dimension, SectionEnd, Model, Balloon, View, Text, DetailLabel };
     struct AnnotationKey {
         AnnotationKind kind{};std::string view,id;int end{};
+        std::string branch;
         bool operator==(const AnnotationKey&)const=default;
     };
     struct AnnotationHandle {
@@ -31,7 +32,10 @@ protected:
     std::vector<AnnotationKey> entity_selection_;
     bool entity_selected(AnnotationKey key) const {
         key.end=0;
-        return std::ranges::find(entity_selection_,key)!=entity_selection_.end();
+        return std::ranges::any_of(entity_selection_,[&](const auto& selected){
+            return selected.kind==key.kind&&selected.view==key.view&&selected.id==key.id&&
+                (selected.branch.empty()||selected.branch==key.branch);
+        });
     }
     std::set<std::string> model_offered_;
     std::function<void(const std::string&)> model_pick_;

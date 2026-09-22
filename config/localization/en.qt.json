@@ -1540,5 +1540,6 @@
   "Zadejte body spline. Kliknutím na první bod nebo Enter hranici uzavřete.": "Place spline points. Click the first point or press Enter to close the boundary.",
   "Kliknutím určete velikost hranice. Esc zruší.": "Click to set the boundary size. Esc cancels.",
   "Invalid drawing crop boundary.": "Invalid drawing crop boundary.",
-  "Kruh": "Circle"
+  "Kruh": "Circle",
+  "Přidat větev": "Add branch"
 }

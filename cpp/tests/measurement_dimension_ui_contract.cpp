@@ -1,4 +1,5 @@
 #include "drawing_dimension_dialog.hpp"
+#include "application_settings.hpp"
 #include "drawing_window.hpp"
 #include <zima/drawing/view_breaks.hpp>
 #include <zima/drawing/annotation_guides.hpp>
@@ -507,7 +508,7 @@ int verify_measurement_dimension_ui() {
                 auto layout=drawing_render::chain_dimension_layout(ordinate,projection,canvas->font(),QString::number(ordinate.value),1.);
                 require(layout.valid&&layout.arrows.size()==1&&layout.text_angle==0,
                         "Running ordinate must have one arrow and upright text");
-                require(layout.handles[0]==projection(*ordinate.label_position),"Ordinate label grip is detached");
+                require(layout.curves.size()==2,"Branch needs its witness and a connection to zero");
             }
             // Both sides of horizontal, vertical and oblique spines: text is
             // perpendicular, readable and outside the witness half-plane.
@@ -529,8 +530,22 @@ int verify_measurement_dimension_ui() {
                             "Chain label lies on the witness/reference side");
             }
             auto zero=drawing_render::chain_dimension_layout(result.presentations.front(),projection,canvas->font(),"0",1.,true);
-            require(zero.valid&&zero.arrows.empty()&&zero.curves.size()==2,
-                    "Running datum must have a ring, witness and zero without an arrow");
+            require(zero.valid&&zero.arrows.empty()&&zero.curves.size()==1,
+                    "Running datum must have a witness and zero without an arrow");
+            for(const auto& ordinate:result.presentations) {
+                const auto layout=drawing_render::chain_dimension_layout(ordinate,projection,canvas->font(),QString::number(ordinate.value),1.);
+                QTransform transform;transform.translate(layout.text_baseline.x(),layout.text_baseline.y());transform.rotate(layout.text_angle);
+                const auto bounds=transform.mapRect(viewer::dimension_text_box(canvas->font(),QString::number(ordinate.value),.5));
+                require(bounds.bottom()<projection(ordinate.line_second).y(),"Ordinate text crosses its witness line");
+            }
+            auto slid=running;
+            drag_drawing_dimension(chain_view,slid,1,0,{12,37});
+            const auto slid_result=evaluate_drawing_dimension(chain_view,slid);
+            require(slid_result.presentations[1].line_second==result.presentations[1].line_second&&
+                    slid_result.presentations[1].label_position->y==result.presentations[1].label_position->y,
+                    "Text drag moved the spine or left the witness line");
+            require(slid_result.presentations[1].label_position->x!=result.presentations[1].label_position->x,
+                    "Text cannot slide along its witness");
             chain_document.sheets.front().views={chain_view};chain_document.sheets.front().dimensions={running};
             workspace.add_drawing(chain_document);window.edit_workspace_document(chain_document.document_id);flush();
             window.grab().save("build/drawing-chain-proof.png");
@@ -554,6 +569,105 @@ int verify_measurement_dimension_ui() {
             const auto bytes=exported.readAll();
             for(const auto& value:{"0","10","25","40"})
                 require(bytes.contains(QByteArray("\n1\n")+value+"\n"),"DXF lost a running ordinate or its literal zero");
+            const auto before_delete=moved_chain;
+            canvas->grab();
+            auto branch_handle=window.annotation_handle_for_test(running.id,3,true);
+            require(branch_handle.has_value(),"Second chain branch has no text handle");
+            pick(canvas,*branch_handle);
+            QKeyEvent remove(QEvent::KeyPress,Qt::Key_Delete,Qt::NoModifier);QApplication::sendEvent(canvas,&remove);flush();
+            const auto& remaining=window.document_for_test().sheets.front().dimensions;
+            require(remaining.size()==1&&remaining.front().segments.size()==2,"Delete did not remove exactly one chain branch");
+            const auto kept=evaluate_drawing_dimension(chain_view,remaining.front());
+            require(kept.presentations[0].value==10&&kept.presentations[1].value==40,"Branch deletion changed another ordinate");
+            require(workspace.open_drawing(chain_document.document_id)->undo(),"Branch deletion has no Undo");
+            window.edit_workspace_document(chain_document.document_id);flush();
+            require(window.document_for_test().sheets.front().dimensions.front()==before_delete,"Undo did not restore the exact chain");
+            const auto branch_id="drawing-dimension:"+running.id+":branch:"+before_delete.segments[1].id;
+            window.select_tree_entities({branch_id},branch_id);flush();
+            QMenu branch_menu;window.populate_selection_menu(branch_menu);
+            const auto* select_chain=branch_menu.findChild<QAction*>("drawingSelectChainAction");
+            require(select_chain,"Tree branch selection has no Select Parent action");
+            auto* branch_properties=branch_menu.findChild<QAction*>("drawingEntityPropertiesAction");
+            require(branch_properties,"Tree branch selection has no properties");
+            branch_properties->trigger();flush();
+            auto* branch_dialog=dialog();require(branch_dialog,"Branch properties did not open");
+            require(branch_dialog->findChild<QComboBox*>("drawingDimensionSegment")->currentIndex()==1,"Branch properties selected a different segment");
+            branch_dialog->reject();flush();
+            for(const auto& segment:before_delete.segments) {
+                const auto id="drawing-dimension:"+running.id+":branch:"+segment.id;
+                window.select_tree_entities({id},id);
+                QKeyEvent remove_branch(QEvent::KeyPress,Qt::Key_Delete,Qt::NoModifier);
+                QApplication::sendEvent(canvas,&remove_branch);flush();
+            }
+            require(window.document_for_test().sheets.front().dimensions.size()==1&&window.document_for_test().sheets.front().dimensions.front().chain_datum_only,
+                    "Deleting all branches removed the common zero");
+            canvas->grab();
+            require(window.annotation_handle_for_test(running.id,1,true).has_value()&&!window.annotation_handle_for_test(running.id,2,true).has_value(),
+                    "Standalone zero exposes a nonexistent branch arrow");
+            window.grab().save("build/drawing-chain-zero-proof.png");
+            auto oblique=before_delete;oblique.direction=DimensionDirection::Automatic;
+            const auto original=evaluate_drawing_dimension(chain_view,oblique);
+            const auto kept_id=oblique.segments.back().id;
+            require(erase_dimension_branch(chain_view,oblique,oblique.segments.front().id),"Cannot remove first branch");
+            const auto after=evaluate_drawing_dimension(chain_view,oblique);
+            require(std::abs(after.presentations.back().value-original.presentations.back().value)<1e-8&&oblique.segments.back().id==kept_id,
+                    "Removing first branch rotated the automatic axis or changed branch identity");
+            const auto roundtrip=deserialize_drawing_dimensions(serialize_drawing_dimensions({oblique}));
+            require(roundtrip.front()==oblique,"Branch deletion lost its datum/axis on save and reopen");
+            {
+                for(int direction_choice:{0,1,2}) {
+                DrawingDimension zero_value;
+                auto* zero_dialog=new app::DrawingDimensionDialog(make_drawing_dimension(chain_view.id),true,
+                    [&](const auto&){return &chain_view;},[&](auto value){zero_value=std::move(value);},&window);
+                zero_dialog->show();zero_dialog->findChild<QComboBox*>("drawingDimensionType")->setCurrentIndex(int(DrawingDimensionKind::Chain));
+                zero_dialog->findChild<QComboBox*>("drawingDimensionDirection")->setCurrentIndex(direction_choice);
+                zero_dialog->accept_candidate(chain_view.id,{{DimensionAttachmentKind::Point,{"chain","zero",{}}},{0,0}});
+                require(zero_dialog->entering(),"Point datum must request a direction point");
+                zero_dialog->accept_candidate(chain_view.id,{{DimensionAttachmentKind::Point,{"chain","ten",{}}},{10,10}});
+                zero_dialog->position({-8,10},true);
+                require(zero_dialog->value().chain_datum_only,"Initial chain created a measured branch");
+                zero_dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();
+                require(zero_value.chain_direction&&evaluate_drawing_dimension(chain_view,zero_value).presentations.front().value==0,"Point datum lost zero or direction");
+                require(zero_value.direction!=DimensionDirection::Automatic,"Point datum lost automatic horizontal/vertical placement");
+                if(direction_choice)require(int(zero_value.direction)==direction_choice,"Placing zero overrode the explicit direction");
+                require(deserialize_drawing_dimensions(serialize_drawing_dimensions({zero_value})).front()==zero_value,"Standalone zero did not round-trip");
+                extend_dimension_chain(zero_value,false,{DimensionAttachmentKind::Point,{"chain","forty",{}}});
+                require(!zero_value.chain_datum_only&&zero_value.segments.size()==1,"First branch retained the direction point as another branch");
+                }
+            }
+            {
+                auto* edge_dialog=new app::DrawingDimensionDialog(make_drawing_dimension(view.id),true,
+                    [&](const auto&){return &view;},[](auto){},&window);
+                edge_dialog->show();edge_dialog->findChild<QComboBox*>("drawingDimensionType")->setCurrentIndex(int(DrawingDimensionKind::Chain));
+                edge_dialog->accept_candidate(view.id,{{DimensionAttachmentKind::Line,{"profile","bottom",{}},{},.5},{15,0}});
+                require(!edge_dialog->entering()&&edge_dialog->placing(),"Straight edge datum requested an unnecessary second point");
+                edge_dialog->position({-8,0},true);
+                const auto zero=edge_dialog->value();
+                require(zero.chain_datum_only&&zero.chain_direction&&std::abs(zero.chain_direction->x)<1e-8,"Edge datum did not infer its perpendicular measuring direction");
+                edge_dialog->extend(false);
+                edge_dialog->accept_candidate(view.id,{{DimensionAttachmentKind::Line,{"profile","top",{}},{},.5},{15,20}});
+                require(!edge_dialog->placing()&&!edge_dialog->entering(),"Added branch requires another placement");
+                const auto added=evaluate_drawing_dimension(view,edge_dialog->value());
+                require(added.state==MeasurementState::Resolved&&added.presentations.front().value==20,"Parallel edge branch is not measured from zero");
+                edge_dialog->reject();flush();
+            }
+        }
+        {
+            const auto original_settings=app::ApplicationSettings::load();
+            QTemporaryDir language_directory;
+            const std::array<std::pair<const char*,const char*>,5> labels{{
+                {"cs","Přidat větev"},{"en","Add branch"},{"de","Zweig hinzufügen"},
+                {"fr","Ajouter une branche"},{"ru","Добавить ветвь"}}};
+            for(const auto& [language,expected]:labels) {
+                QFile config(language_directory.filePath("config.ini"));require(config.open(QIODevice::WriteOnly),"Cannot create language fixture");
+                config.write(QByteArray("[Application]\nLanguage=")+language+"\n");config.close();
+                app::apply_application_translations(*qApp,app::ApplicationSettings::load(language_directory.path()));
+                app::DrawingDimensionDialog localized(make_drawing_dimension(view.id,DrawingDimensionKind::Chain),true,
+                    [&](const auto&){return &view;},[](auto){},&window);
+                require(localized.findChild<QPushButton*>("drawingDimensionExtendLast")->text()==QString::fromUtf8(expected),
+                    "Add branch is not localized after switching language");
+            }
+            app::apply_application_translations(*qApp,original_settings);
         }
         std::cout << "Manual dimension properties, references, preview/Cancel, MMB, measured values and "
                      "radius grips passed\n";

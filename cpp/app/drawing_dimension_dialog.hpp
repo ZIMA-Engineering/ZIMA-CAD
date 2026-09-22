@@ -18,6 +18,7 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
         : PropertiesSubWindow(tr("Vlastnosti kóty"), parent), value_(std::move(initial)),
           view_(std::move(view)), commit_(std::move(commit)), creating_(creating) {
         setObjectName("drawingDimensionProperties");
+        if(creating_&&value_.kind==drawing::DrawingDimensionKind::Chain)value_.chain_datum_only=true;
         automatic_placement_ = value_.direction == drawing::DimensionDirection::Automatic;
         set_initial_size({580, 560});
         setAttribute(Qt::WA_DeleteOnClose);
@@ -105,6 +106,8 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
             read_fields();
             const bool was = radial(),was_angular=angular();
             value_.kind = drawing::DrawingDimensionKind(index);
+            value_.chain_datum_only=creating_&&value_.kind==drawing::DrawingDimensionKind::Chain&&!extended_;
+            value_.chain_direction.reset();
             if (radial() != was) {
                 value_.attachments.assign(radial() ? 1 : 2, {});
                 value_.segments.clear();
@@ -141,6 +144,7 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
         connect(direction_, &QComboBox::currentIndexChanged, this, [this](int index) {
             read_fields();
             value_.direction = drawing::DimensionDirection(index);
+            value_.chain_direction.reset();
             automatic_placement_ = index == 0;
             if (value_.direction == drawing::DimensionDirection::Parallel)
                 active_ = int(value_.attachments.size()) * 2;
@@ -257,6 +261,9 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
             active_ = row * 2 + 1;
         } else {
             value_.attachments[row] = candidate.attachment;
+            if(value_.chain_datum_only&&row==0&&candidate.attachment.kind==drawing::DimensionAttachmentKind::Line) {
+                value_.attachments[1]=candidate.attachment;modes_[1]=int(candidate.attachment.kind);
+            }
             // The picker owns the semantic binding: a requested point may be
             // a persisted vertex, a curve endpoint or the centre of an axis.
             active_ = -1;
@@ -267,7 +274,7 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
                     active_ = int(i) * 2;
                     break;
                 }
-            if (active_ < 0 && (creating_ || extended_))
+            if (active_ < 0 && creating_ && !extended_)
                 placing_ = true;
         }
         rebuild_references();
@@ -277,8 +284,10 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
         if (radial() || angular())
             return;
         read_fields();
+        const bool datum_only=value_.chain_datum_only;
         drawing::extend_dimension_chain(value_, first, {});
-        modes_.insert(first ? modes_.begin() : modes_.end(), -1);
+        if(datum_only){modes_={int(value_.attachments[0].kind),-1};first=false;}
+        else modes_.insert(first ? modes_.begin() : modes_.end(), -1);
         segment_ = first ? 0 : int(value_.segments.size()) - 1;
         active_ = first ? 0 : (int(value_.attachments.size()) - 1) * 2;
         extended_ = true;
@@ -305,6 +314,7 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
                 const auto first = drawing::resolve_dimension_attachment(*view, value_.attachments[0]);
                 const auto second = drawing::resolve_dimension_attachment(*view, value_.attachments[1]);
                 if (first && second) {
+                    if(value_.chain_datum_only)value_.chain_direction.reset();
                     const auto kind = sketcher::classify_linear_dimension(
                         {first->x, first->y}, {second->x, second->y}, {point.x, point.y});
                     value_.direction = kind == sketcher::DimensionKind::DistanceX
@@ -318,6 +328,7 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
         }
         if (finish)
             placing_ = false;
+        if(value_.chain_datum_only)last_->setEnabled(value_.chain_direction.has_value()&&!placing_);
         publish();
     }
     void change_presentation(drawing::DrawingDimension value) {
@@ -356,6 +367,13 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
     }
     bool submit() override {
         read_fields();
+        if(value_.chain_datum_only&&!value_.chain_direction)if(const auto* view=view_(value_.view_id)) {
+            const auto evaluation=drawing::evaluate_drawing_dimension(*view,value_);
+            if(!evaluation.presentations.empty()) {
+                const auto p=evaluation.presentations.front().line_first;
+                drawing::place_drawing_dimension(*view,value_,0,{p.x,p.y});
+            }
+        }
         commit_(value_);
         return true;
     }
@@ -413,8 +431,12 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
     void rebuild() {
         rebuilding_ = true;
         direction_->setEnabled(!radial()&&!angular());
+        direction_->setItemText(0,creating_&&value_.kind!=drawing::DrawingDimensionKind::Chain?tr("Automaticky podle tažení"):tr("Podle vazeb"));
         first_->setEnabled(!radial()&&!angular());
         last_->setEnabled(!radial()&&!angular());
+        if(value_.chain_datum_only)last_->setEnabled(value_.chain_direction.has_value()&&!placing_);
+        first_->setVisible(value_.kind!=drawing::DrawingDimensionKind::Chain);
+        last_->setText(value_.kind==drawing::DrawingDimensionKind::Chain?tr("Přidat větev"):tr("Přidat na konec"));
         segments_->clear();
         for (std::size_t i = 0; i < value_.segments.size(); ++i)
             segments_->addItem(tr("Úsek %1").arg(i + 1));
@@ -438,6 +460,10 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
                                      : kernel::ViewerDimensionKind::Diameter)
                               : angular()?kernel::ViewerDimensionKind::Angular:kernel::ViewerDimensionKind::Linear;
             placement_ = new DimensionPlacementFields(d, value_.segments[segment_].layout, tabs_, true);
+            if(value_.kind==drawing::DrawingDimensionKind::Chain) {
+                auto* form=qobject_cast<QFormLayout*>(placement_->layout());
+                form->setRowVisible(placement_->findChild<QDoubleSpinBox*>("dimensionTextAlong"),false);
+            }
             placement_column_->addWidget(placement_);
             for (auto *input : placement_->findChildren<QDoubleSpinBox *>())
                 connect(input, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this] { publish(); });
@@ -451,8 +477,9 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
         const bool parallel = !radial() && !angular() && value_.direction == drawing::DimensionDirection::Parallel;
         references_->setRowCount(int(value_.attachments.size()) + (parallel ? 1 : 0));
         for (int row = 0; row < references_->rowCount(); ++row) {
+            references_->setRowHidden(row,value_.chain_datum_only&&row==1&&value_.attachments[0].kind==drawing::DimensionAttachmentKind::Line);
             const bool axis = row == int(value_.attachments.size());
-            references_->setItem(row, 0, new QTableWidgetItem(axis ? tr("Směr") : QString::number(row + 1)));
+            references_->setItem(row, 0, new QTableWidgetItem(axis ? tr("Směr") : value_.chain_datum_only?(row==0?QStringLiteral("0"):tr("Směr")):QString::number(row + 1)));
             if (!axis) {
                 auto *mode = new QComboBox(references_);
                 mode->setObjectName(QString("dimensionAttachmentMode%1").arg(row));

@@ -39,7 +39,7 @@ QString drawing_font_family() {
 
 QColor SheetRenderer::annotation_color(const AnnotationKey& key,QColor normal,bool printing)const{
         if(printing)return normal;
-        const auto same=[&](const auto& candidate){return candidate&&candidate->kind==key.kind&&candidate->view==key.view&&candidate->id==key.id;};
+        const auto same=[&](const auto& candidate){return candidate&&candidate->kind==key.kind&&candidate->view==key.view&&candidate->id==key.id&&(candidate->branch.empty()||candidate->branch==key.branch);};
         if(entity_selected(key)||same(selected_annotation_))return QColor("#00D1FF");if(same(hovered_annotation_))return QColor("#FF9300");return normal;
     }
 QRectF SheetRenderer::view_bounds_at(const zima::drawing::DrawingView& view,double zoom,QPointF origin) const {
@@ -403,25 +403,18 @@ void SheetRenderer::paint_sheet(QPainter& painter,double zoom,QPointF origin,boo
             if(evaluation.state==drawing::MeasurementState::Hidden)continue;
             const auto screen=[&](kernel::Vec3 original){const auto p=drawing::break_map(*view,{original.x,original.y});return QPointF(origin.x()+(sheet_->width_mm()-view->x+p.x*view->scale)*zoom,origin.y()+(sheet_->height_mm()-view->y-p.y*view->scale)*zoom);};
             const bool chain=dimension.kind==drawing::DrawingDimensionKind::Chain;
-            for(std::size_t index=0;index<evaluation.presentations.size()+(chain&&!evaluation.presentations.empty()?1:0);++index){
-                const bool datum=index==evaluation.presentations.size();
-                const auto& source=evaluation.presentations[datum?0:index];const AnnotationKey key{AnnotationKind::Dimension,dimension.view_id,dimension.id,int(datum?dimension.anchor_attachment:evaluation.cached_segment_indices.empty()?index:evaluation.cached_segment_indices[index])*3};
+            const auto branches=chain&&dimension.chain_datum_only?std::size_t(0):evaluation.presentations.size();
+            for(std::size_t index=0;index<branches+(chain&&!evaluation.presentations.empty()?1:0);++index){
+                const bool datum=index==branches;
+                const auto segment=datum?std::size_t(0):evaluation.cached_segment_indices.empty()?index:evaluation.cached_segment_indices[index];
+                const auto& source=evaluation.presentations[datum?0:index];const AnnotationKey key{AnnotationKind::Dimension,dimension.view_id,dimension.id,int(segment)*3,chain&&!datum?dimension.segments[segment].id:std::string{}};
                 const auto color=annotation_color(key,evaluation.state==drawing::MeasurementState::Unresolved?QColor("#C62828"):printing?ink:QColor("#FFD400"),printing);
                 const auto text=datum?QStringLiteral("0"):viewer::dimension_render_text(dimension.style,QString::fromStdString(drawing::drawing_dimension_text(dimension,source,evaluation.state==drawing::MeasurementState::Unresolved)));
                 auto layout=chain?chain_dimension_layout(source,screen,painter.font(),text,zoom,datum):
                     viewer::dimension_text_presentation(source,screen,painter.font(),text,.5*zoom,width(false),2.5*zoom,.75*zoom,index<evaluation.angular_leaders.size()&&evaluation.angular_leaders[index]);
-                if(chain&&index==0) {
-                    const auto origin_point=screen(source.line_first);
-                    auto axis=viewer::dimension_screen_unit(screen(source.line_second)-origin_point);
-                    double low=0,high=0;
-                    for(const auto& ordinate:evaluation.presentations) {
-                        const double position=viewer::dimension_screen_dot(screen(ordinate.line_second)-origin_point,axis);
-                        low=std::min(low,position);high=std::max(high,position);
-                    }
-                    layout.curves.push_back(QPolygonF{origin_point+axis*low,origin_point+axis*high});
-                }
                 if(!layout.valid)continue;
                 painter.save();painter.setPen(QPen(color,width(false)));painter.setBrush(color);QPainterPath stroke;
+                if(chain&&datum)painter.drawEllipse(screen(source.line_first),.6*zoom,.6*zoom);
                 for(const auto& curve:layout.curves){if(curve.empty())continue;painter.drawPolyline(curve);stroke.moveTo(curve.front());for(qsizetype i=1;i<curve.size();++i)stroke.lineTo(curve[i]);}
                 for(const auto& [tip,direction]:layout.arrows)painter.drawPolygon(viewer::annotation_arrow(tip,direction,2.5*zoom));
                 QTransform transform;transform.translate(layout.text_baseline.x(),layout.text_baseline.y());transform.rotate(layout.text_angle);

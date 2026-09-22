@@ -241,6 +241,10 @@ struct DrawingDimension {
     std::vector<DimensionAttachment> attachments;
     DimensionDirection direction{DimensionDirection::Automatic};
     kernel::EdgeReference parallel_reference;
+    std::optional<Point2> chain_direction;
+    // Datum-only chains retain two direction inputs and one datum layout,
+    // but have no measured branch until the next attachment is added.
+    bool chain_datum_only{};
     DrawingDimensionStyle style;
     std::size_t anchor_attachment{};
     std::vector<DrawingDimensionSegment> segments;

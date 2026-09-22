@@ -1540,5 +1540,6 @@
   "Zadejte body spline. Kliknutím na první bod nebo Enter hranici uzavřete.": "Zadejte body spline. Kliknutím na první bod nebo Enter hranici uzavřete.",
   "Kliknutím určete velikost hranice. Esc zruší.": "Kliknutím určete velikost hranice. Esc zruší.",
   "Invalid drawing crop boundary.": "Neplatná hranice omezení pohledu.",
-  "Kruh": "Kruh"
+  "Kruh": "Kruh",
+  "Přidat větev": "Přidat větev"
 }

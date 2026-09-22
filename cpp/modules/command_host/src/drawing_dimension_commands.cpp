@@ -38,7 +38,7 @@ void patch_dimension(drawing::DrawingDimension& value,const Json& args) {
             if(!args.contains("attachments"))invalid_edit();
             if(kind==drawing::DrawingDimensionKind::Angular&&value.style.suffix=="mm")value.style.suffix="°";
             else if(kind!=drawing::DrawingDimensionKind::Angular&&value.style.suffix=="°")value.style.suffix="mm";
-            value.kind=kind;value.anchor_attachment=0;
+            value.kind=kind;value.anchor_attachment=0;value.chain_direction.reset();value.chain_datum_only=false;
             for(auto& segment:value.segments){segment.layout={};segment.last_presentation.reset();segment.last_angular_leaders=false;}
         }
     }
@@ -47,7 +47,10 @@ void patch_dimension(drawing::DrawingDimension& value,const Json& args) {
         for(const auto& item:args["attachments"])value.attachments.push_back(read_attachment(item));
         drawing::resize_dimension_segments(value);
     }
-    if(args.contains("direction"))value.direction=enumeration<drawing::DimensionDirection>(args["direction"],std::array{"automatic","horizontal","vertical","parallel"});
+    if(args.contains("direction")){
+        value.direction=enumeration<drawing::DimensionDirection>(args["direction"],std::array{"automatic","horizontal","vertical","parallel"});
+        value.chain_direction.reset();
+    }
     if(args.contains("parallel_reference"))value.parallel_reference=read_reference(args["parallel_reference"]);
     if(args.contains("anchor_attachment")){if(args["anchor_attachment"]<0||args["anchor_attachment"]>4095)invalid_edit();value.anchor_attachment=args["anchor_attachment"].get<std::size_t>();}
     if(args.contains("style")) {

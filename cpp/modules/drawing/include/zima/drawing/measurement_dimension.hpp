@@ -53,6 +53,7 @@ DrawingDimension make_drawing_dimension(std::string view_id,
                                         DrawingDimensionKind = DrawingDimensionKind::Linear);
 void resize_dimension_segments(DrawingDimension &);
 void extend_dimension_chain(DrawingDimension &, bool at_first, DimensionAttachment);
+bool erase_dimension_branch(const DrawingView&, DrawingDimension&, const std::string& segment_id);
 std::string drawing_dimension_text(const DrawingDimension &, const kernel::ViewerDimension &,
                                    bool unresolved = false);
 void drag_drawing_dimension(const DrawingView &, DrawingDimension &, std::size_t segment, int handle,
