@@ -547,6 +547,9 @@ A running dimension is an independent native Drawing dimension with exactly two
 attachments: the common datum and its measured target. It owns its stable ID,
 text, tolerance and presentation. The ordinary Dimension command retains Chain
 as a presentation type. Its Properties table does not offer additional branches.
+The Drawing Dimension Properties window opens at a compact 580 × 400 logical
+pixel size, expanding to the layout minimum when fonts or translations require
+more room. Reference, tolerance and placement tabs retain their existing fields.
 The separate Chain dimension command is a sequential creation tool: define the
 first dimension and its placement, then pick further points or compatible edges.
 The command exposes the datum and current target/draft, rather than accumulating

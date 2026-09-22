@@ -22,7 +22,7 @@ class DrawingDimensionDialog final : public ui::PropertiesSubWindow {
         setObjectName("drawingDimensionProperties");
 
         automatic_placement_ = value_.direction == drawing::DimensionDirection::Automatic;
-        set_initial_size({580, 560});
+        set_initial_size({580, 400});
         setAttribute(Qt::WA_DeleteOnClose);
         tabs_ = new QTabWidget(this);
         content_layout()->addWidget(tabs_);
