@@ -726,6 +726,9 @@ Painting, picking, decimal alignment and the text background all use the same
 reduced tolerance size. The Drawing Tree uses a simple yellow dimension icon for
 individual dimensions and their group, an axis icon for the Axes group, and
 distinct sheet/view icons for the hierarchy.
+The Windows workspace verification paints the canvas before querying annotation
+handles, so an obscured test window still exercises Tree/View selection,
+dimension properties, Ctrl axis selection, deletion and Undo deterministically.
 Stacked text has a larger hit box and background than plain values. The standard
 3.5 mm text and its background fit within the 8 mm guide spacing in the layout
 regression check. Spacing is not automatically increased, so dense drawings or

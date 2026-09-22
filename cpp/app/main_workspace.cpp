@@ -7924,6 +7924,9 @@ int verify_drawing_workspace(QApplication& application, zima::app::AssemblyWorks
     auto* drawing_window=dynamic_cast<zima::app::DrawingWindow*>(window.findChild<QMainWindow*>("drawingWorkspace"));
     auto* view_item=root->child(0)->child(0);
     if(!verify(view_item->childCount()>=2,"Drawing view is missing annotation groups"))return 1;
+    // Handles are produced by painting; an obscured Windows test window may
+    // defer its update even after the event queue has been processed.
+    canvas->grab();
     auto point=drawing_window->model_annotation_handle_for_test(*tree_reference,0,annotation_view.id);
     if(!verify(point.has_value(),"Drawing tree annotation has no View handle"))return 1;
     QMouseEvent annotation_press(QEvent::MouseButtonPress,*point,QPointF(canvas->mapToGlobal(point->toPoint())),Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
