@@ -696,6 +696,10 @@ struct Sweep3DRequest {
     // Interpolate every authored section as one smooth loft. Longitudinal
     // boundaries are BSplines instead of one edge per sampling interval.
     bool smooth_loft{};
+    // Explicitly calculated sections already have their final spatial frames.
+    // Only valid for a smooth loft with one section per path point. Ordinary
+    // Sweep/Loft callers retain the existing path-normal transport behavior.
+    bool fixed_section_frames{};
     // Unrounded polyline: each segment owns two endpoint stations and
     // perpendicular caps. No corner projection or transition joins segments.
     bool separate_segments{};
@@ -817,6 +821,8 @@ struct SheetMaterialDefinition {
     enum class Kind { Plane, Cylinder, Cone, Twist };
     Kind kind{Kind::Plane};
     std::string owner_id, parent_owner_id;
+    // Optional owning history feature for an authored subregion of a compound sheet.
+    std::string feature_owner_id;
     Vec3 origin, along{1,0,0}, tangent{0,1,0}, radial{0,0,1};
     double radius{}, neutral_radius{}, angle{}, thickness{}, continuation{}, cone_half_angle{};
     // Twist uses an authored axial length and the corrected flat development.
@@ -857,6 +863,8 @@ struct HistoryOperation {
     SheetOperation sheet_operation{SheetOperation::None};
     double sheet_thickness{};
     std::optional<SheetMaterialDefinition> sheet_material;
+    // One authored material region per FeatureGroup child, in attachment order.
+    std::vector<SheetMaterialDefinition> sheet_regions;
     // A copy operand within the same Body, applied by the ordinary Boolean chain.
     std::optional<BodyHistoryScope> feature_copy;
 };
@@ -1043,6 +1051,14 @@ struct PlacedBody {
             for(double v:{material.radius,material.neutral_radius,material.angle,material.thickness,material.continuation,material.cone_half_angle,material.thickness_sign})
                 u64(std::bit_cast<std::uint64_t>(v));
             byte(material.unfolded);
+        }
+        if(!operation.sheet_regions.empty()) {
+            byte(0xeb);u64(operation.sheet_regions.size());
+            for(const auto& material:operation.sheet_regions) {
+                HistoryOperation child;child.owner_id=material.owner_id;child.sheet_material=material;
+                const auto digest=history_fingerprint({child},1);u64(digest.size());for(unsigned char c:digest)byte(c);
+                u64(material.feature_owner_id.size());for(unsigned char c:material.feature_owner_id)byte(c);
+            }
         }
         if (!operation.body.id.empty()) {
             for (const auto& text : {operation.body.id, operation.body.target_id, operation.body.source_id}) {
@@ -1622,6 +1638,8 @@ struct PlacedBody {
                 }
                 byte(primitive.make_solid);
                 byte(primitive.transported);
+                if(primitive.smooth_loft) {byte(0xe9);byte(1);}
+                if(primitive.fixed_section_frames) {byte(0xea);byte(1);}
                 u64(std::bit_cast<std::uint64_t>(primitive.linear_tolerance));
                 byte(primitive.thin);
                 u64(std::bit_cast<std::uint64_t>(primitive.thin_first));u64(std::bit_cast<std::uint64_t>(primitive.thin_second));

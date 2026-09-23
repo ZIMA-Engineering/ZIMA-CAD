@@ -16,6 +16,7 @@
 #include "sketch_offset_dialog.hpp"
 #include "sheet_state_dialog.hpp"
 #include "sheet_from_body_dialog.hpp"
+#include "sheet_transition_dialog.hpp"
 #include <zima/drawing/drawing_template.hpp>
 #include "sketch_text_properties_dialog.hpp"
 #include <nlohmann/json.hpp>
@@ -8187,6 +8188,7 @@ int verify_selection_filter(QApplication& application,
 #include "new_document_ui_verification.inc"
 #include "cylinder_axis_ui_verification.inc"
 #include "sheet_exchange_ui_verification.inc"
+#include "sheet_transition_ui_verification.inc"
 #include "symbol_ui_verification.inc"
 
 int verify_startup_contract(
@@ -8229,6 +8231,7 @@ int verify_startup_contract(
         }
     }
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SHEET_EXCHANGE")) return verify_sheet_exchange_ui(application,test_directory);
+    if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SHEET_TRANSITION")) return verify_sheet_transition_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SHEET_CORNER_FILE")) return verify_sheet_corner_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_SHEET_STATE_ONLY")) return verify_sheet_state_ui(application,test_directory);
     if (qEnvironmentVariableIsSet("ZIMA_VERIFY_CONSOLE_ONLY")) return zima::app::verify_command_console(application,window,test_directory);

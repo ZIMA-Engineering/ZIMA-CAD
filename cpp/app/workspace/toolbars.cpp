@@ -396,7 +396,10 @@ void AssemblyWorkspaceWindow::rebuild_application_toolbar() {
                 connect(twist,&QAction::triggered,this,[this]{
                     show_primitive_properties(zima::document::FeatureKind::TwistedSheet,{},true);});
             }
-            twist->setEnabled(!properties_dialog_);add_command(twist);add_group_separator();
+            twist->setEnabled(!properties_dialog_);add_command(twist);
+            auto* transition=findChild<QAction*>("sheetTransitionAction");
+            if(!transition){transition=new QAction(resource_icon("sheet-transition"),tr("Přechod plechu"),this);transition->setObjectName("sheetTransitionAction");connect(transition,&QAction::triggered,this,[this]{show_sheet_transition_properties();});}
+            transition->setEnabled(!properties_dialog_);add_command(transition);add_group_separator();
             auto* cut=findChild<QAction*>("sheetCutAction");
             if(!cut) {
                 cut=new QAction(resource_icon("sheet-cut"),tr("Řez plechem"),this);cut->setObjectName("sheetCutAction");

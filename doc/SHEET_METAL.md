@@ -7,13 +7,22 @@ See [Sheet Profile corner closure](SHEET_CORNER.md) for the optional curved
 transition at either endpoint, its gap allowance and verification.
 
 The current material-creation commands are **Flat**, **Sheet Profile**,
-**Revolved Sheet** and **Twisted Sheet**, followed by **Sheet Cut**, **Unbend**
+**Revolved Sheet**, **Twisted Sheet** and **Sheet transition**, followed by **Sheet Cut**, **Unbend**
 and **Bend Back**. Earlier sections use Bend and
 Sheet Revolution for the latter two creators; their internal feature and CLI
 identifiers remain unchanged. See [Sheet Cut and material-space boundaries](#sheet-cut-and-material-space-boundaries-2026-09-17)
 for Sheet Cut and current naming. The separate state operations are described in
 [Sheet state history operations](SHEET_STATE_DEVELOPMENT.md). They replace the
 former per-profile folded-state switch throughout the GUI, CLI and native model.
+
+**Sheet transition** owns two editable Sketches: a semicircle and an open rounded
+half-rectangle. Its ordinary placement controls position the main Origin; a second
+nested Origin provides relative XYZ translation and rotation. Two SKETCH buttons
+open the seeded profiles. It creates editable
+planar panels and finite-radius bends, with inward thickness and neutral-layer
+development. See [Sheet transition](TRANSITION_SURFACE_PROTOTYPE.md#native-sheet-transition-command)
+for inputs, supported orientations and verification. Its inner-skin bend axes
+are available through the same Drawing Show/Erase mechanism.
 
 Unbend and Bend Back process all eligible regions by default. Check **Select
 individual features** to pick a subset in the View or Tree; a second click

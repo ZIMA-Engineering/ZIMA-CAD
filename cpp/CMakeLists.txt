@@ -182,7 +182,12 @@ foreach(ZIMA_THREAD_STANDARD metric whitworth pipe)
 endforeach()
 file(APPEND "${ZIMA_THREAD_CATALOG_SOURCE}" "return {}; } }\n")
 
+add_library(zima_transition_core research/transition_surface.cpp research/transition_model.cpp research/transition_half.cpp research/transition_sheet.cpp research/transition_sketches.cpp)
+target_include_directories(zima_transition_core PUBLIC research)
+target_link_libraries(zima_transition_core PUBLIC zima_sketcher)
+
 add_library(zima_document_core
+    modules/document_core/src/sheet_transition.cpp
     modules/document_core/src/profile_serialization.cpp
     modules/document_core/src/part_document.cpp
     modules/document_core/src/hole_profiles.cpp
@@ -211,7 +216,7 @@ add_library(zima_document_core
 target_include_directories(zima_document_core PUBLIC
     modules/document_core/include)
 target_link_libraries(zima_document_core
-    PUBLIC zima_kernel_api zima_sketcher nlohmann_json::nlohmann_json)
+    PUBLIC zima_kernel_api zima_sketcher zima_transition_core nlohmann_json::nlohmann_json)
 
 add_library(zima_assembly
     modules/assembly/src/assembly_document.cpp
@@ -235,6 +240,7 @@ target_include_directories(zima_measurement PUBLIC modules/measurement/include)
 target_link_libraries(zima_measurement PUBLIC zima_kernel_api)
 
 add_library(zima_workspace modules/workspace/src/workspace.cpp
+    modules/workspace/src/sheet_transition_operations.cpp
     modules/workspace/src/document_copy.cpp
     modules/workspace/src/document_operations.cpp
     modules/workspace/src/archive_operations.cpp
@@ -1411,6 +1417,38 @@ if(ZIMA_BUILD_TESTS)
     set_tests_properties(zima_cpp_sheet_cut_wire_preview_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
     add_executable(zima_cpp_bend_command_tests tests/bend_command_tests.cpp)
     add_executable(zima_cpp_sheet_exchange_tests tests/sheet_exchange_tests.cpp)
+    # Isolated surface research: no GUI, OCCT, persistence or placement changes.
+    add_executable(zima_cpp_transition_surface_tests tests/transition_surface_tests.cpp research/transition_surface.cpp)
+    target_include_directories(zima_cpp_transition_surface_tests PRIVATE research)
+    target_link_libraries(zima_cpp_transition_surface_tests PRIVATE zima_kernel_api)
+    add_test(NAME zima_cpp_transition_surface_tests COMMAND zima_cpp_transition_surface_tests)
+    add_executable(zima_cpp_transition_model_tests tests/transition_model_tests.cpp research/transition_model.cpp research/transition_surface.cpp)
+    target_include_directories(zima_cpp_transition_model_tests PRIVATE research)
+    target_link_libraries(zima_cpp_transition_model_tests PRIVATE zima_sketcher)
+    add_test(NAME zima_cpp_transition_model_tests COMMAND zima_cpp_transition_model_tests)
+    add_executable(zima_cpp_transition_half_tests tests/transition_half_tests.cpp research/transition_pattern.cpp research/transition_half.cpp research/transition_model.cpp research/transition_surface.cpp)
+    target_include_directories(zima_cpp_transition_half_tests PRIVATE research)
+    target_link_libraries(zima_cpp_transition_half_tests PRIVATE zima_sketcher)
+    add_test(NAME zima_cpp_transition_half_tests COMMAND zima_cpp_transition_half_tests)
+    add_executable(zima_cpp_transition_sheet_tests tests/transition_sheet_tests.cpp research/transition_sketches.cpp research/transition_sheet.cpp research/transition_half.cpp research/transition_model.cpp research/transition_surface.cpp)
+    target_include_directories(zima_cpp_transition_sheet_tests PRIVATE research)
+    target_link_libraries(zima_cpp_transition_sheet_tests PRIVATE zima_sketcher zima_kernel_occt TKBRep TKTopAlgo)
+    add_test(NAME zima_cpp_transition_sheet_tests COMMAND zima_cpp_transition_sheet_tests)
+    add_executable(zima_cpp_sheet_transition_command_tests tests/sheet_transition_command_tests.cpp)
+    target_link_libraries(zima_cpp_sheet_transition_command_tests PRIVATE zima_workspace)
+    add_test(NAME zima_cpp_sheet_transition_command_tests COMMAND zima_cpp_sheet_transition_command_tests)
+    set_tests_properties(zima_cpp_sheet_transition_command_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." TIMEOUT 180)
+    set_tests_properties(zima_cpp_sheet_transition_command_tests PROPERTIES FIXTURES_SETUP sheet_transition_fixture)
+    add_test(NAME zima_cpp_sheet_transition_ui_contract COMMAND zima-cad-cpp --verify-startup)
+    set_tests_properties(zima_cpp_sheet_transition_ui_contract PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 120
+        FIXTURES_REQUIRED sheet_transition_fixture
+        ENVIRONMENT "ZIMA_VERIFY_SHEET_TRANSITION=${CMAKE_SOURCE_DIR}/../build/transition-model/native-transition.prtz")
+    add_executable(zima-transition-study research/transition_study.cpp research/transition_pattern.cpp research/transition_half.cpp research/transition_model.cpp research/transition_surface.cpp app/application_settings.cpp)
+    target_link_libraries(zima-transition-study PRIVATE zima_sketcher zima_viewer zima_ui Qt6::Widgets)
+    target_compile_options(zima-transition-study PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
+    add_test(NAME zima_cpp_transition_study_ui_contract COMMAND zima-transition-study --verify)
+    set_tests_properties(zima_cpp_transition_study_ui_contract PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.." RUN_SERIAL TRUE TIMEOUT 90)
     target_link_libraries(zima_cpp_sheet_exchange_tests PRIVATE zima_workspace)
     add_test(NAME zima_cpp_sheet_exchange_tests COMMAND zima_cpp_sheet_exchange_tests)
     set_tests_properties(zima_cpp_sheet_exchange_tests PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")

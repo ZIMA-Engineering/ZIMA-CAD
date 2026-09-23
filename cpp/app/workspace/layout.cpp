@@ -978,7 +978,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                     if(std::ranges::any_of(
                             zima::workspace::sheet_state_regions(part->session.document()),
                             [&](const auto& region) {
-                                return region.owner_id==candidate.owner_id&&region.unfolded;
+                                return (region.owner_id==candidate.owner_id||region.feature_owner_id==candidate.owner_id)&&region.unfolded;
                             })) edit->setEnabled(false);
                     const auto* container =
                         part->session.document().find_container(candidate.owner_id);
@@ -1484,7 +1484,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                 const bool unfolded=part&&std::ranges::any_of(
                     zima::workspace::sheet_state_regions(part->session.document()),
                     [&](const auto& region) {
-                        return region.owner_id==candidate.owner_id&&region.unfolded;
+                        return (region.owner_id==candidate.owner_id||region.feature_owner_id==candidate.owner_id)&&region.unfolded;
                     });
                 if(unfolded) {
                     if(!construction_dimension_object_id_.empty())
@@ -2568,7 +2568,7 @@ void AssemblyWorkspaceWindow::create_layout() {
                 if(std::ranges::any_of(
                         zima::workspace::sheet_state_regions(part->session.document()),
                         [&](const auto& region) {
-                            return region.owner_id==id&&region.unfolded;
+                            return (region.owner_id==id||region.feature_owner_id==id)&&region.unfolded;
                         })) edit->setEnabled(false);
                 QAction* transform_extrusion{};
                 QAction* transform_revolution{};

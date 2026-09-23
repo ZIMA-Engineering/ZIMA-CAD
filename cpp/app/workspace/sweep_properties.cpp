@@ -1,5 +1,8 @@
 #include "workspace_internal.hpp"
 #include <zima/workspace/sweep_operations.hpp>
+#include <zima/workspace/sheet_transition_operations.hpp>
+#include <zima/document/metadata.hpp>
+#include "../sheet_transition_dialog.hpp"
 
 namespace zima::app {
 using namespace workspace_detail;
@@ -60,13 +63,15 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
     auto* part=workspace_.open_part(workspace_.active_document_id());if(!part)return;
     const auto occurrence=resolve_active_occurrence(part->session.document().document_id);if(!occurrence)return;
     const bool planar=kind==zima::document::FeatureKind::Sweep2D;
-    auto initial=planar?zima::document::PartDocument::create_sweep2d_container():zima::document::PartDocument::create_helical_sweep_container();
+    const bool transition=kind==zima::document::FeatureKind::SheetTransition;
+    auto initial=transition?zima::document::create_sheet_transition():planar?zima::document::PartDocument::create_sweep2d_container():zima::document::PartDocument::create_helical_sweep_container();
     initial.name=tr(initial.name.c_str()).toStdString();
     const auto localize_sketch = [](std::string& data) {
         auto sketch=zima::sketcher::Sketch::from_serialized(data);
         sketch.name=QObject::tr(sketch.name.c_str()).toStdString();data=sketch.serialized();
     };
     if (planar) { for (auto& data : initial.sweep2d.sketches()) localize_sketch(data); }
+    else if(transition) { for(auto& data:initial.sheet_transition.sketches)localize_sketch(data);const auto defaults=zima::document::sheet_metal_defaults(part->session.document());initial.sheet_transition.thickness=defaults.thickness_mm.value_or(1.);initial.sheet_transition.inside_radius=initial.sheet_transition.thickness;initial.sheet_transition.k_factor=defaults.k_factor; }
     else { for (auto& data : initial.helical.sketches) localize_sketch(data); }
     if(!id.empty()){
         const auto* stored=part->session.document().find_container(id);if(!stored||stored->feature_kind!=kind)return;
@@ -77,11 +82,12 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
             boundary ? boundary->input_body : std::nullopt};
     }
     const auto document_id=part->session.document().document_id;
-    const auto commit=[this,document_id,editing=!id.empty()](auto c){
+    const auto commit=[this,document_id,transition,editing=!id.empty()](auto c){
+        if(transition){static_cast<void>(zima::workspace::commit_sheet_transition(workspace_,kernel_,document_id,std::move(c)));return;}
         zima::workspace::commit_sweep(workspace_,kernel_,document_id,std::move(c),
             editing?zima::workspace::SweepEditMode::Replace:zima::workspace::SweepEditMode::Create);
     };
-    SweepPlacementDialog* dialog=planar?static_cast<SweepPlacementDialog*>(new Sweep2DDialog(initial,commit,this)):
+    SweepPlacementDialog* dialog=transition?static_cast<SweepPlacementDialog*>(new SheetTransitionDialog(initial,commit,this)):planar?static_cast<SweepPlacementDialog*>(new Sweep2DDialog(initial,commit,this)):
         static_cast<SweepPlacementDialog*>(new HelicalSweepDialog(initial,commit,this));
     properties_dialog_=dialog;track_tree_edit(dialog);properties_dialog_instance_path_=*occurrence;
     primitive_parameter_owner_id_=initial.id;primitive_reference_dialog_=dialog;
@@ -147,7 +153,7 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
             state_->setText(tr("Vyberte rovinu nebo rovinnou plochu pro skicu dráhy."));
         };
     }
-    dialog->changed=[this,dialog,planar,geometry,body_id]{
+    dialog->changed=[this,dialog,planar,transition,geometry,body_id]{
         const auto* planar_editor=dynamic_cast<Sweep2DDialog*>(dialog);
         if(!dialog->isVisible()&&!(planar_editor&&planar_editor->point_order_open()))return;
         const bool valid=dialog->resolve_pending_placement(geometry);
@@ -162,6 +168,7 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
         zima::document::ConstructionObject origin;origin.id=c.id;origin.entity_id=c.feature_id;origin.container_origin=c.container_origin;
         origin.kind=zima::document::ConstructionKind::Point;origin.origin={c.placement.x,c.placement.y,c.placement.z};origin.rotation={c.placement.rotation_x,c.placement.rotation_y,c.placement.rotation_z};origin.reference_valid=false;
         preview.constructions.push_back(origin);primitive_origin_preview_mesh_=preview.construction_viewer_mesh(c.id);
+        if(transition)zima::document::reframe_sheet_transition(c);
         parameter_dimension_preview_=c;construction_dimension_object_id_=c.id;
         viewer_->set_feature_preview_owners({c.feature_id,c.container_origin.id});
         preserve_view_on_refresh_=true;refresh_scene();
@@ -179,10 +186,11 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
             if(!valid&&!c.placement.references.empty())throw std::runtime_error("Chybí reference umístění kontejneru");
             if(planar)zima::document::PartDocument::resolve_sweep2d_planes(c,geometry);
             if(planar)preview_mesh=zima::document::PartDocument::sweep2d_preview_mesh(c);
+            else if(transition)preview_mesh=zima::document::sheet_transition_preview(c);
             else edges=zima::document::PartDocument::helical_preview_edges(c);
-            dialog->set_status(tr("Dráha připravena. OK vytvoří těleso."));
+            dialog->set_status(transition?tr("Upravte obě skici a polohu druhého počátku. OK vytvoří plech."):tr("Dráha připravena. OK vytvoří těleso."));
         }catch(const std::exception& e){dialog->set_status(QString::fromUtf8(e.what()));}
-        auto sketches=planar?zima::document::PartDocument::sweep2d_sketch_edges(c):
+        auto sketches=transition?std::vector<zima::kernel::ViewerEdge>{}:planar?zima::document::PartDocument::sweep2d_sketch_edges(c):
             zima::document::PartDocument::helical_sketch_edges(c);
         edges.insert(edges.end(),std::make_move_iterator(sketches.begin()),std::make_move_iterator(sketches.end()));
         if(!body_id.empty())if(const auto* part=workspace_.open_part(workspace_.active_document_id())) {
@@ -201,18 +209,19 @@ void AssemblyWorkspaceWindow::show_sweep_properties(zima::document::FeatureKind 
             planar_dialog->request_path_plane();
         else if(!pending_primitive_reference_index_&&!feature_reference_pick_&&!local_origin_selection_active_)set_primitive_properties_dimension_selection();
     };
-    dialog->edit_sketch=[this,dialog,planar,geometry,body_id](unsigned stage){
+    dialog->edit_sketch=[this,dialog,planar,transition,geometry,body_id](unsigned stage){
         try{
             QString frame_warning;
             auto framed=dialog->pending;
             try {
                 if(planar)zima::document::PartDocument::resolve_sweep2d_planes(framed,geometry);
+                else if(transition)zima::document::reframe_sheet_transition(framed);
                 else zima::document::PartDocument::reframe_helical_sketches(framed,stage);
                 dialog->pending=std::move(framed);
             } catch(const std::exception& error) {
                 frame_warning=tr("Skica používá uloženou rovinu; závislost není dořešená: %1").arg(QObject::tr(error.what()));
             }
-            sweep_profile_sketch_draft_=zima::sketcher::Sketch::from_serialized(planar?dialog->pending.sweep2d.sketch_data(stage):dialog->pending.helical.sketches.at(stage));
+            sweep_profile_sketch_draft_=zima::sketcher::Sketch::from_serialized(transition?dialog->pending.sheet_transition.sketches.at(stage):planar?dialog->pending.sweep2d.sketch_data(stage):dialog->pending.helical.sketches.at(stage));
             embedded_sketch_finished_=[this,dialog,stage](auto s){
                 properties_dialog_=dialog;primitive_reference_dialog_=dialog;dialog->set_sketch(stage,s);dialog->show();dialog->raise();
                 preserve_view_on_refresh_=true;refresh_scene();dialog->changed();

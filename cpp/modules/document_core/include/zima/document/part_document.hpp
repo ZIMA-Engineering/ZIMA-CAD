@@ -26,7 +26,7 @@
 namespace zima::document {
 
 enum class CombineMode { Add, Subtract };
-enum class FeatureKind { Sketch, Box, Cylinder, Sphere, Cone, Pyramid, Wedge, Extrusion, Revolution, Sweep3D, ImportedStep, Fillet, Chamfer, Shell, Hole, Thread, DrillPoint, ShaftThread, HelicalSweep, Sweep2D, Holes, Bend, Flat, TwistedSheet, Unbend, BendBack, DerivedCopy };
+enum class FeatureKind { Sketch, Box, Cylinder, Sphere, Cone, Pyramid, Wedge, Extrusion, Revolution, Sweep3D, ImportedStep, Fillet, Chamfer, Shell, Hole, Thread, DrillPoint, ShaftThread, HelicalSweep, Sweep2D, Holes, Bend, Flat, TwistedSheet, Unbend, BendBack, DerivedCopy, SheetTransition };
 enum class ExtrusionDirection { Forward, Reverse, Symmetric };
 enum class ExtrusionExtent { Blind, UpToPlane, UpToSurface, ThroughAll };
 enum class ProfileSource { Internal, External };
@@ -633,6 +633,14 @@ struct SheetStateParameters {
     std::vector<std::string> owners;
     bool operator==(const SheetStateParameters&) const = default;
 };
+struct SheetTransitionParameters {
+    std::array<std::string,2> sketches; // Owned serialized Sketches, not external inputs.
+    std::string end_origin_id;
+    zima::kernel::Vec3 end_position{0,0,150},end_rotation{};
+    std::array<unsigned,2> facets{4,4};
+    double thickness{1},inside_radius{1},k_factor{.5};
+    bool operator==(const SheetTransitionParameters&)const=default;
+};
 struct HistoryContainer {
     std::string id;
     std::string feature_id;
@@ -663,6 +671,7 @@ struct HistoryContainer {
     FlatParameters flat;
     TwistedSheetParameters twisted_sheet;
     SheetStateParameters sheet_state;
+    SheetTransitionParameters sheet_transition;
     ThreadParameters thread;
     ShaftThreadParameters shaft_thread;
     DrillPointParameters drill_point;

@@ -9,6 +9,8 @@
 #include <zima/interchange/dxf.hpp>
 #include <zima/workspace/operation_input.hpp>
 #include "../sheet_state_dialog.hpp"
+#include "../sheet_transition_dialog.hpp"
+#include <zima/workspace/sheet_transition_operations.hpp>
 #include "../sheet_state_selection.hpp"
 #include "../sheet_from_body_dialog.hpp"
 #include <zima/workspace/part_transactions.hpp>
@@ -103,6 +105,10 @@ void AssemblyWorkspaceWindow::export_sheet_dxf() {
     }catch(const std::exception& error){finish_status_operation(tr(error.what()),false);}
 }
 
+void AssemblyWorkspaceWindow::show_sheet_transition_properties(const std::string& container_id) {
+    show_sweep_properties(document::FeatureKind::SheetTransition,container_id);
+}
+
 void AssemblyWorkspaceWindow::show_sheet_state_properties(bool unfold,const std::string& container_id) {
     if(properties_dialog_)return;
     auto* part=workspace_.open_part(workspace_.active_document_id());if(!part)return;
@@ -117,9 +123,12 @@ void AssemblyWorkspaceWindow::show_sheet_state_properties(bool unfold,const std:
         feature.feature_kind=unfold?document::FeatureKind::Unbend:document::FeatureKind::BendBack;
         if(!stored)feature.name=(unfold?tr("Rozvinout"):tr("Ohnout zpět")).toStdString();
         std::map<std::string,QString> available;
-        for(const auto& region:workspace::sheet_state_regions(part->session.document(),container_id))
+        std::map<std::string,std::string> feature_owners;
+        for(const auto& region:workspace::sheet_state_regions(part->session.document(),container_id)) {
+            if(!region.feature_owner_id.empty())feature_owners.emplace(region.owner_id,region.feature_owner_id);
             if(kernel::sheet_material::eligible(region,unfold))
-                if(const auto* source=part->session.document().find_container(region.owner_id))available.emplace(region.owner_id,QString::fromStdString(source->name));
+                if(const auto* source=part->session.document().find_container(region.feature_owner_id.empty()?region.owner_id:region.feature_owner_id))available.emplace(region.feature_owner_id.empty()?region.owner_id:region.feature_owner_id,QString::fromStdString(source->name));
+        }
         const auto rollback=stored?part->session.rollback_boundary(container_id):std::optional<document::HistoryRollbackBoundary>{};
         if(stored&&!rollback)throw std::invalid_argument("Regenerate the Part before editing this feature.");
         auto* dialog=new SheetStateDialog(feature,available,[this,document_id](auto pending){
@@ -128,7 +137,7 @@ void AssemblyWorkspaceWindow::show_sheet_state_properties(bool unfold,const std:
         properties_dialog_=dialog;properties_dialog_instance_path_=*occurrence;track_tree_edit(dialog);
         if(rollback)part_rollback_=PartRollbackContext{document_id,*occurrence,rollback->history_index,rollback->input_body};
         tree_->setProperty("commandSelectionActive",true);
-        const auto selection=std::make_shared<SheetStateSelection>(input->mesh);
+        const auto selection=std::make_shared<SheetStateSelection>(input->mesh,feature_owners);
         const auto update=[this,dialog,selection,path=*occurrence] {
             viewer_->set_original_container_selection(false);
             viewer_->set_result_face_selection(true);

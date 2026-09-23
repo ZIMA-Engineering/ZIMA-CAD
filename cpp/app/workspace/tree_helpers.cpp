@@ -1,4 +1,5 @@
 #include "workspace_internal.hpp"
+#include <zima/document/sheet_transition.hpp>
 
 namespace zima::app::workspace_detail {
 
@@ -74,6 +75,7 @@ QString feature_icon_name(zima::document::FeatureKind kind) {
         case FeatureKind::BendBack: return QStringLiteral("bend-back");
         case FeatureKind::Flat: return QStringLiteral("flat");
         case FeatureKind::TwistedSheet: return QStringLiteral("sheet-twist");
+        case FeatureKind::SheetTransition: return QStringLiteral("sheet-transition");
         case FeatureKind::Holes: return QStringLiteral("holes");
         case FeatureKind::Thread: return QStringLiteral("hole");
         case FeatureKind::ShaftThread: return QStringLiteral("thread");
@@ -127,6 +129,21 @@ void add_history_container_tree_children(QTreeWidgetItem* parent,
             sketch->setData(0, Qt::UserRole, QString::fromStdString(profile.id));
             sketch->setData(0, Qt::UserRole + 1, QString::fromStdString(instance_path.encoded()));
             sketch->setData(0, Qt::UserRole + 3, "sweep3d-profile");
+        }
+        return;
+    }
+    if(container.feature_kind==zima::document::FeatureKind::SheetTransition){
+        auto* main_origin=parent->child(0);
+        auto* end_origin=new QTreeWidgetItem(main_origin);end_origin->setIcon(0,resource_icon("origin"));
+        end_origin->setData(0,Qt::UserRole+1,QString::fromStdString(instance_path.encoded()));
+        end_origin->setText(0,QObject::tr("Druhý počátek"));
+        end_origin->setData(0,Qt::UserRole,QString::fromStdString(container.id));
+        end_origin->setData(0,Qt::UserRole+3,"part-transition-origin");
+        for(unsigned i=0;i<2;++i){
+            const auto sketch=zima::sketcher::Sketch::from_serialized(container.sheet_transition.sketches[i]);
+            auto* child=new QTreeWidgetItem(i?end_origin:main_origin,{QString::fromStdString(sketch.name)});
+            child->setIcon(0,resource_icon("sketch"));child->setData(0,Qt::UserRole,QString::fromStdString(container.id));
+            child->setData(0,Qt::UserRole+1,QString::fromStdString(instance_path.encoded()));child->setData(0,Qt::UserRole+3,"part-transition-sketch");child->setData(0,Qt::UserRole+6,i);
         }
         return;
     }

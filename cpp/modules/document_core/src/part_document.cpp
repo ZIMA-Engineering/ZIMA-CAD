@@ -4,6 +4,7 @@
 #include <zima/document/bend.hpp>
 #include <zima/document/flat.hpp>
 #include <zima/document/sheet_state.hpp>
+#include <zima/document/sheet_transition.hpp>
 #include <zima/document/named_views.hpp>
 #include <zima/document/profile_serialization.hpp>
 #include <zima/document/cache_storage.hpp>
@@ -4802,6 +4803,7 @@ const BodyHistory* PartDocument::body_owner_for_object(const std::string& id) co
         if (owns_construction(owns_construction, object)) return body_history.owner(object.id);
     for (const auto& container : history)
         if (id == container.id || id == container.feature_id || id == container.container_origin.id ||
+            (container.feature_kind == FeatureKind::SheetTransition && id==container.sheet_transition.end_origin_id) ||
             (container.feature_kind == FeatureKind::Sweep3D && owns_construction(owns_construction, container.sweep3d.path)))
             return body_history.owner(container.id);
     for (const auto& sketch : sketches)
@@ -5891,6 +5893,7 @@ void PartDocument::resolve_constructions(
             try {resolve_sweep2d_planes(container,source_geometry);container.sweep2d.reference_valid=true;}
             catch(const std::exception&) {container.sweep2d.reference_valid=false;}
         }
+        if(container.feature_kind==FeatureKind::SheetTransition)reframe_sheet_transition(container);
         if(container.feature_kind==FeatureKind::HelicalSweep){
             try {reframe_helical_sketches(container);container.helical.reference_valid=true;}
             catch(const std::exception&) {container.helical.reference_valid=false;}
@@ -8740,6 +8743,11 @@ std::vector<zima::kernel::HistoryOperation> PartDocument::kernel_operations(
         try {
         if(container.is_surface_result() && container.combine_mode==CombineMode::Subtract)
             throw std::runtime_error("A surface cannot subtract material.");
+        if(container.feature_kind==FeatureKind::SheetTransition) {
+            auto operation=sheet_transition_operation(*this,container);
+            operation.boolean_tolerance=boolean_tolerance;operation.mesh_deflection=mesh_deflection;
+            operations.push_back(std::move(operation));continue;
+        }
         const auto profile_id = container.feature_kind == FeatureKind::Extrusion
             ? container.extrusion.sketch_id
             : container.feature_kind == FeatureKind::Revolution
@@ -10104,7 +10112,7 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
             type != "revolution" && type != "sweep3d" && type != "helical_sweep" && type != "sweep2d" &&
             type != "imported_step" &&
             type != "fillet" && type != "chamfer" &&
-            type != "derived_copy" && type != "shell" && type != "twisted_sheet" && type != "unbend" && type != "bend_back" &&
+            type != "derived_copy" && type != "shell" && type != "twisted_sheet" && type != "sheet_transition" && type != "unbend" && type != "bend_back" &&
             type != "flat" && type != "bend" && type != "holes" && type != "hole" && type != "thread" && type != "shaft_thread" &&
             type != "drill_point") {
             throw std::runtime_error("Unsupported history feature type");
@@ -10126,6 +10134,7 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
             : type == "chamfer" ? FeatureKind::Chamfer
             : type == "shell" ? FeatureKind::Shell
             : type == "twisted_sheet" ? FeatureKind::TwistedSheet
+            : type == "sheet_transition" ? FeatureKind::SheetTransition
             : type == "flat" ? FeatureKind::Flat
             : type == "unbend" ? FeatureKind::Unbend
             : type == "derived_copy" ? FeatureKind::DerivedCopy
@@ -10487,6 +10496,13 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
             if(!std::isfinite(p.angle_degrees)||p.angle_degrees<=0||p.angle_degrees>36000)
                 throw std::runtime_error("Invalid Twisted Sheet angle");
             static_cast<void>(twisted_sheet_developed_length(p));
+        } else if (container.feature_kind == FeatureKind::SheetTransition) {
+            const auto& data=source.at("sheet_transition");auto& p=container.sheet_transition;
+            p.sketches=data.at("sketches").get<std::array<std::string,2>>();p.facets=data.at("facets").get<std::array<unsigned,2>>();
+            p.end_origin_id=data.at("end_origin_id");
+            p.end_position={data.at("end_position")[0],data.at("end_position")[1],data.at("end_position")[2]};
+            p.end_rotation={data.at("end_rotation")[0],data.at("end_rotation")[1],data.at("end_rotation")[2]};
+            p.thickness=data.at("thickness");p.inside_radius=data.at("inside_radius");p.k_factor=data.at("k_factor");
         } else if (container.feature_kind == FeatureKind::Extrusion || container.feature_kind == FeatureKind::Revolution) {
             load_profile_parameters(container, source);
         } else if (container.feature_kind == FeatureKind::Sweep2D) {
@@ -10750,6 +10766,7 @@ PartDocument PartDocument::from_serialized(const nlohmann::json& root,
         validate_placement(container.placement);
         // Derived Sketch frames depend on the fully loaded feature placement.
         // Reframing before reading it silently resets translated/rotated helices.
+        if(container.feature_kind==FeatureKind::SheetTransition)reframe_sheet_transition(container);
         if (container.feature_kind == FeatureKind::HelicalSweep) {
             reframe_helical_sketches(container);
         }
@@ -10962,6 +10979,14 @@ nlohmann::json PartDocument::serialized(
             const std::set<std::string> unique(container.sheet_state.owners.begin(),container.sheet_state.owners.end());
             if(container.combine_mode!=CombineMode::Add||unique.size()!=container.sheet_state.owners.size()||
                 unique.contains("")||(!container.sheet_state.all&&unique.empty()))throw std::runtime_error("Invalid sheet state parameters.");
+        } else if (container.feature_kind == FeatureKind::SheetTransition) {
+            const auto& p=container.sheet_transition;
+            if(container.combine_mode!=CombineMode::Add||p.sketches[0].empty()||p.sketches[1].empty()||p.sketches[0]==p.sketches[1]||
+                p.facets[0]<2||p.facets[1]<2||p.facets[0]>128||p.facets[1]>128||
+                !std::isfinite(p.thickness)||p.thickness<=0||!std::isfinite(p.inside_radius)||p.inside_radius<=0||
+                !std::isfinite(p.k_factor)||p.k_factor<0||p.k_factor>1)
+                throw std::runtime_error("Invalid transition sheet parameters");
+            auto framed=container;reframe_sheet_transition(framed);
         } else if (container.feature_kind == FeatureKind::Sketch) {
             if (std::none_of(sketches.begin(), sketches.end(), [&](const auto& sketch) {
                     return sketch.owner_container_id == container.id;
@@ -11275,6 +11300,7 @@ nlohmann::json PartDocument::serialized(
                     ? "wedge"
                 : container.feature_kind == FeatureKind::TwistedSheet
                     ? "twisted_sheet"
+                : container.feature_kind == FeatureKind::SheetTransition ? "sheet_transition"
                 : container.feature_kind == FeatureKind::Extrusion
                     ? "extrusion"
                 : container.feature_kind == FeatureKind::Revolution
@@ -11576,6 +11602,8 @@ nlohmann::json PartDocument::serialized(
                 {"reverse",p.reverse},{"sheet_attachment",p.sheet_attachment},
                 {"thickness_override",p.thickness_override},
                 {"attachment_material_side",p.attachment_material_side}};
+        } else if (container.feature_kind == FeatureKind::SheetTransition) {
+            const auto& p=container.sheet_transition;serialized["sheet_transition"]={{"sketches",p.sketches},{"end_origin_id",p.end_origin_id},{"end_position",{p.end_position.x,p.end_position.y,p.end_position.z}},{"end_rotation",{p.end_rotation.x,p.end_rotation.y,p.end_rotation.z}},{"facets",p.facets},{"thickness",p.thickness},{"inside_radius",p.inside_radius},{"k_factor",p.k_factor}};
         } else if (container.feature_kind == FeatureKind::Extrusion || container.feature_kind == FeatureKind::Revolution) {
             save_profile_parameters(container, serialized);
         } else if (container.feature_kind == FeatureKind::Sweep2D) {

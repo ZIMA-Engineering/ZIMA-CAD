@@ -2087,7 +2087,10 @@ PrimitiveData make_sweep3d_data(
         const auto& to=request.path_points[i];
         const auto& normal=section->profile_normal;
         gp_Trsf movement;
-        movement.SetRotation(gp_Quaternion(gp_Vec(normal.x,normal.y,normal.z),direction));
+        if(request.fixed_section_frames) {
+            if(!request.smooth_loft||request.sections.size()!=request.path_points.size()||section->point_index!=i)
+                throw std::invalid_argument("Fixed section frames require an explicit smooth loft section at each station.");
+        } else movement.SetRotation(gp_Quaternion(gp_Vec(normal.x,normal.y,normal.z),direction));
         const auto rotated=gp_Pnt(from.x,from.y,from.z).Transformed(movement);
         movement.SetTranslationPart(gp_Vec(rotated,gp_Pnt(to.x,to.y,to.z)));
         BRepBuilderAPI_Transform transport(station.wire,movement,true);
@@ -2105,7 +2108,7 @@ PrimitiveData make_sweep3d_data(
             geometry.radius = circle->radius;
             station.circular_cap = geometry;
         }
-        if(!request.separate_segments && i>0&&i<spine_edges.size()) {
+        if(!request.fixed_section_frames&&!request.separate_segments && i>0&&i<spine_edges.size()) {
             const auto incoming=tangent(i-1,true);
             const auto sum=incoming+direction;
             if(sum.Magnitude()<1e-8)throw std::runtime_error("Ostrý obrat dráhy o 180° nelze spojit.");
@@ -2162,8 +2165,13 @@ PrimitiveData make_sweep3d_data(
             const auto index=endpoint.first;const bool start=endpoint.second;
             const auto& station=stations[index];
             const auto& location=request.path_points[index];
-            const auto normal=start?tangent(0,false):
-                tangent(spine_edges.size()-1,true);
+            const auto normal=[&] {
+                if(request.fixed_section_frames) {
+                    const auto& authored_normal=request.sections.at(index).profile_normal;
+                    return gp_Vec(authored_normal.x,authored_normal.y,authored_normal.z);
+                }
+                return start?tangent(0,false):tangent(spine_edges.size()-1,true);
+            }();
             for(TopExp_Explorer faces(builder.Shape(),TopAbs_FACE);
                     faces.More();faces.Next()) {
                 const auto face=TopoDS::Face(faces.Current());
@@ -6393,6 +6401,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
             sheet_state_tolerance=std::min(sheet_state_tolerance,state->tolerance);
         sheet_state_sources::Sources sheet_sources;
         PrimitiveData sheet_input;
+        std::vector<PrimitiveData> compound_sheet_inputs;
         std::size_t current_operation{};
         const auto remember_live_boundary = [&](
                 const std::string& fingerprint, const TopoDS_Shape& shape,
@@ -6402,8 +6411,18 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                 PrimitiveData output;output.shape=shape;output.faces=topology->faces;
                 output.edges=topology->edges;output.vertices=topology->vertices;
                 const auto regions=sheet_material::regions_before(operations,current_operation+1);
-                sheet_sources=sheet_state_sources::capture(sheet_sources,sheet_input,output,
+                if(compound_sheet_inputs.empty())sheet_sources=sheet_state_sources::capture(sheet_sources,sheet_input,output,
                     regions.regions,operations[current_operation],sheet_state_tolerance);
+                else {
+                    const auto& compound=operations[current_operation];
+                    for(std::size_t i=0;i<compound_sheet_inputs.size();++i) {
+                        auto child=compound;child.sheet_regions.clear();child.sheet_material=compound.sheet_regions[i];
+                        // Each child retains its own material domain, including
+                        // the ownership needed for enclosed cuts before unfolding.
+                        sheet_sources=sheet_state_sources::capture(sheet_sources,sheet_input,compound_sheet_inputs[i],
+                            regions.regions,child,sheet_state_tolerance);
+                    }
+                }
             }
             auto [iterator, inserted] =
                 live_cache_->boundaries.insert_or_assign(fingerprint,
@@ -6529,6 +6548,7 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
              operation_index < operations.size(); ++operation_index) {
             const auto& operation = operations[operation_index];
             current_operation=operation_index;
+            compound_sheet_inputs.clear();
             if(retain_sheet_sources) {
                 sheet_input.shape=result_shape;sheet_input.faces=owned_topology->faces;
                 sheet_input.edges=owned_topology->edges;sheet_input.vertices=owned_topology->vertices;
@@ -8206,8 +8226,23 @@ std::vector<BodyResult> OcctKernel::evaluate_flat_history(
                             "Feature group requires at least one child operation");
                     }
                     std::optional<PrimitiveData> grouped;
+                    if(!operation.sheet_regions.empty()&&operation.sheet_regions.size()!=primitive.children.size())
+                        throw std::invalid_argument("Compound sheet material must match every authored primitive.");
+                    std::size_t child_index=0;
                     for (const auto& child : primitive.children) {
                         auto child_data = make_group_child(child);
+                        if(!operation.sheet_regions.empty()) {
+                            const auto& region=operation.sheet_regions[child_index];
+                            const auto assign=[&](auto& faces){for(auto& face:faces){
+                                auto& ref=face.reference;ref.sheet_owner=region.owner_id;ref.sheet_thickness=region.thickness;ref.sheet_role=SheetFaceRole::ThicknessFace;
+                                const auto& key=ref.semantic_key;
+                                if(region.kind==SheetMaterialDefinition::Kind::Plane){if(key.starts_with("start:from:"))ref.sheet_role=SheetFaceRole::SideA;if(key.starts_with("end:from:"))ref.sheet_role=SheetFaceRole::SideB;}
+                                else {if(key.find(":outer:from:")!=std::string::npos)ref.sheet_role=SheetFaceRole::SideA;if(key.find(":inner:from:")!=std::string::npos)ref.sheet_role=SheetFaceRole::SideB;}
+                            }};
+                            assign(child_data.faces);assign(child_data.source_caps);
+                            if(retain_sheet_sources)compound_sheet_inputs.push_back(child_data);
+                        }
+                        ++child_index;
                         if (!grouped) {
                             grouped = std::move(child_data);
                             continue;

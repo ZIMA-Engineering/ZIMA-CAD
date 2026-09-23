@@ -199,8 +199,13 @@ inline std::vector<Transition> change(History& history,
         throw std::invalid_argument("Invalid sheet state calculation tolerance.");
     std::set<std::string> selected;
     if(request.all){for(const auto& region:regions)if(eligible(region,request.unfold))selected.insert(region.owner_id);}
-    else for(const auto& id:request.owners)if(!selected.insert(id).second)
-        throw std::invalid_argument("Sheet state selection contains a duplicate feature.");
+    else for(const auto& id:request.owners) {
+        bool expanded=false;
+        for(const auto& region:regions)if(region.feature_owner_id==id&&eligible(region,request.unfold)) {
+            if(!selected.insert(region.owner_id).second)throw std::invalid_argument("Sheet state selection contains a duplicate feature.");expanded=true;
+        }
+        if(!expanded&&!selected.insert(id).second)throw std::invalid_argument("Sheet state selection contains a duplicate feature.");
+    }
     if(selected.empty())throw std::invalid_argument("Select at least one sheet region to change its state.");
     for(const auto& id:selected) {
         const auto found=std::ranges::find(regions,id,&SheetMaterialDefinition::owner_id);
@@ -244,6 +249,11 @@ inline History regions_before(const std::vector<HistoryOperation>& operations,st
             history.attachment_sources.push_back(parent==history.regions.end()?std::nullopt:std::optional{*parent});
             history.sources.push_back(material);history.regions.push_back(material);
         }
+        for(const auto& material:operation.sheet_regions) {
+            const auto parent=std::ranges::find(history.regions,material.parent_owner_id,&SheetMaterialDefinition::owner_id);
+            history.attachment_sources.push_back(parent==history.regions.end()?std::nullopt:std::optional{*parent});
+            history.sources.push_back(material);history.regions.push_back(material);
+        }
         if(const auto* state=std::get_if<SheetStateRequest>(&operation.primitive))static_cast<void>(change(history,*state));
     }
     return history;
@@ -260,9 +270,12 @@ inline std::vector<ViewerAxis> bend_lines(const std::vector<HistoryOperation>& o
         if(!region.unfolded||region.kind==SheetMaterialDefinition::Kind::Plane||
             region.kind==SheetMaterialDefinition::Kind::Twist)continue;
         const auto source=std::ranges::find_if(operations.begin(),operations.begin()+std::min(limit,operations.size()),
-            [&](const auto& op){return op.owner_id==region.owner_id&&op.sheet_material;});
+            [&](const auto& op){return (op.owner_id==region.owner_id&&op.sheet_material)||
+                (op.owner_id==region.feature_owner_id&&std::ranges::any_of(op.sheet_regions,[&](const auto& value){return value.owner_id==region.owner_id;}));});
         if(source==operations.begin()+std::min(limit,operations.size()))
             throw std::runtime_error("Bend line source is missing.");
+        const auto* source_material=source->sheet_material?&*source->sheet_material:nullptr;
+        if(!source_material)source_material=&*std::ranges::find(source->sheet_regions,region.owner_id,&SheetMaterialDefinition::owner_id);
         if(const auto* revolve=std::get_if<RevolutionRequest>(&source->primitive)) {
             const auto* profile=std::get_if<ExtrusionRequest::CurvedProfile>(&revolve->outer_profile);
             const auto* generator=profile&&profile->curves.size()==1?std::get_if<ExtrusionRequest::LineCurve>(&profile->curves.front()):nullptr;
@@ -281,8 +294,8 @@ inline std::vector<ViewerAxis> bend_lines(const std::vector<HistoryOperation>& o
         if(group)for(const auto& child:group->children)if(const auto* candidate=std::get_if<Sweep3DRequest>(&child))
             if(std::ranges::any_of(candidate->path_segments,[&](const auto& segment){return segment.source_id==region.curved_source_id;}))sweep=candidate;
         if(!sweep||sweep->sections.size()<2)throw std::runtime_error("Bend line requires its authored start and end sections.");
-        const double middle_length=source->sheet_material->angle*source->sheet_material->neutral_radius/2;
-        const auto station_length=[&](const auto& section){return coordinates(*source->sheet_material,sweep->path_points.at(section.point_index)).length;};
+        const double middle_length=source_material->angle*source_material->neutral_radius/2;
+        const auto station_length=[&](const auto& section){return coordinates(*source_material,sweep->path_points.at(section.point_index)).length;};
         std::size_t upper=1;
         while(upper+1<sweep->sections.size()&&station_length(sweep->sections[upper])<middle_length)++upper;
         const double first_length=station_length(sweep->sections[upper-1]),last_length=station_length(sweep->sections[upper]);
@@ -294,12 +307,12 @@ inline std::vector<ViewerAxis> bend_lines(const std::vector<HistoryOperation>& o
             if(!polygon||polygon->vertices.empty())throw std::runtime_error("Bend line section is missing.");
             double a=INFINITY,b=-INFINITY;
             for(const auto& p:polygon->vertices) {
-                const double u=dot(sub(p,source->sheet_material->origin),source->sheet_material->along);
+                const double u=dot(sub(p,source_material->origin),source_material->along);
                 a=std::min(a,u);b=std::max(b,u);
             }
             low+=a*weight;high+=b*weight;
         }
-        result.push_back({point(region,{(low+high)/2,region.angle*region.neutral_radius/2,-region.thickness}),
+        result.push_back({point(region,{(low+high)/2,region.angle*region.neutral_radius/2,region.thickness_sign<0?-region.thickness:0}),
             region.along,high-low,{owner,"sheet-bend-line:from:"+region.owner_id+":"+region.curved_source_id,{}},"Osa ohybu"});
     }
     return result;

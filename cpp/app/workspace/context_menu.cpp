@@ -31,6 +31,12 @@ void AssemblyWorkspaceWindow::show_tree_item_properties(QTreeWidgetItem* item) {
         if(auto* dialog=dynamic_cast<Sweep2DDialog*>(properties_dialog_))dialog->edit_sketch(stage);
         return;
     }
+    if(item&&(item->data(0,Qt::UserRole+3)=="part-transition-sketch"||item->data(0,Qt::UserRole+3)=="part-transition-origin")){
+        const bool sketch=item->data(0,Qt::UserRole+3)=="part-transition-sketch";const auto stage=item->data(0,Qt::UserRole+6).toUInt();
+        show_sheet_transition_properties(item->data(0,Qt::UserRole).toString().toStdString());
+        if(sketch)if(auto* dialog=dynamic_cast<SweepPlacementDialog*>(properties_dialog_))dialog->edit_sketch(stage);
+        return;
+    }
     if(item&&item->data(0,Qt::UserRole+3).toString()=="part-helical-sketch"){
         const auto stage=item->data(0,Qt::UserRole+6).toUInt();
         show_helical_sweep_properties(item->data(0,Qt::UserRole).toString().toStdString());

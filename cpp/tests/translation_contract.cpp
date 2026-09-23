@@ -2,6 +2,7 @@
 #include "drawing_detail_dialog.hpp"
 #include "primitive_properties_dialog.hpp"
 #include "sweep_station_label.hpp"
+#include "sheet_transition_dialog.hpp"
 #include <QAction>
 #include <QApplication>
 #include <QDialogButtonBox>
@@ -99,6 +100,14 @@ int verify_translations(QApplication& application, QWidget& parent) {
         check(settings.translations.contains("global.language") &&
             !settings.translations.contains("Zamknout hodnotu"), "INI sections were mixed");
         app::apply_application_translations(application, settings);
+        {
+            auto feature=document::create_sheet_transition();
+            app::SheetTransitionDialog transition(feature,[](auto){},&parent);
+            transition.setAttribute(Qt::WA_DeleteOnClose,false);transition.show();application.processEvents();
+            check(transition.windowTitle()==settings.qt_translations.value("Přechod plechu"),"Transition title is untranslated");
+            check(transition.findChild<QPushButton*>("transitionSketch0")->text()==settings.qt_translations.value("SKETCH — půlkruh"),"Transition profile prompt is untranslated");
+            transition.hide();
+        }
         {
             app::DrawingDetailDialog detail(drawing::DrawingView{},&parent);
             detail.setAttribute(Qt::WA_DeleteOnClose,false);

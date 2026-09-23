@@ -346,6 +346,11 @@ void AssemblyWorkspaceWindow::refresh_scene() {
                             return false;
                         });
                     }
+                } else if (container->feature_kind == FeatureKind::SheetTransition) {
+                    const auto& p=container->sheet_transition.end_position;
+                    linear("end_x","X = ",local(0,0,0),local(p.x,0,0),{0,-12,0},p.x);
+                    linear("end_y","Y = ",local(p.x,0,0),local(p.x,p.y,0),{12,0,0},p.y);
+                    linear("end_z","Z = ",local(p.x,p.y,0),local(p.x,p.y,p.z),{12,12,0},p.z);
                 } else if (container->feature_kind == FeatureKind::Holes) {
                     const auto sketch=std::ranges::find(document.sketches,container->holes.sketch_id,&zima::sketcher::Sketch::id);
                     if (sketch!=document.sketches.end() && sketch->id!=sketch_properties_preview_id_) {

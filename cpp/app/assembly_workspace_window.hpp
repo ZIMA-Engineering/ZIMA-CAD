@@ -710,6 +710,7 @@ private:
     bool accept_family_reference(const zima::viewer::ViewerCandidate&, bool show_dimensions = false);
     void edit_file_settings(bool sheet_metal = false);
     void show_sheet_state_properties(bool unfold,const std::string& container_id={});
+    void show_sheet_transition_properties(const std::string& container_id={});
     void regenerate_assembly();
     void start_edge_treatment(zima::document::FeatureKind kind);
     [[nodiscard]] bool is_edge_treatment_feature(

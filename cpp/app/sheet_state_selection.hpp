@@ -7,15 +7,16 @@ namespace zima::app {
 // Only calculated input metadata is read; this is not another hit-test path.
 class SheetStateSelection {
 public:
-    explicit SheetStateSelection(const kernel::ViewerMesh& input) {
+    explicit SheetStateSelection(const kernel::ViewerMesh& input,const std::map<std::string,std::string>& feature_owners={}) {
+        const auto owner=[&](const std::string& region){const auto found=feature_owners.find(region);return found==feature_owners.end()?region:found->second;};
         for(const auto& face:input.triangle_references) {
             if(face.sheet_owner.empty())continue;
-            faces_[{face.owner_id,face.semantic_key}]=face.sheet_owner;
-            containers_[face.owner_id].insert(face.sheet_owner);
+            faces_[{face.owner_id,face.semantic_key}]=owner(face.sheet_owner);
+            containers_[face.owner_id].insert(owner(face.sheet_owner));
         }
         for(const auto& edge:input.edges) {
             std::set<std::string> regions;
-            for(const auto& face:edge.edge_treatment_side_references)if(!face.sheet_owner.empty())regions.insert(face.sheet_owner);
+            for(const auto& face:edge.edge_treatment_side_references)if(!face.sheet_owner.empty())regions.insert(owner(face.sheet_owner));
             if(regions.size()==1)edges_[{edge.reference.owner_id,edge.reference.semantic_key}]=*regions.begin();
             for(const auto& region:regions)wires_[region].insert({edge.reference.owner_id,edge.reference.semantic_key,{}});
         }
