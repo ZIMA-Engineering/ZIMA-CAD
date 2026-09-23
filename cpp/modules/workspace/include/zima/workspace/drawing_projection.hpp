@@ -20,8 +20,9 @@ public:
         bool require_geometry{true};
         bool interactive{};
     };
-    // Previous projections may be reused only after freshly reading and exactly
-    // comparing their source packets. The donor must outlive this session.
+    // Reuse requires unchanged live document generations/identities and exact
+    // native dependency bytes. Otherwise sources are read afresh. The donor
+    // must outlive this session; nothing is retained across unrelated edits.
     DrawingProjection(const Workspace*,std::filesystem::path drawing_path,
                       const DrawingProjection* previous=nullptr);
     ~DrawingProjection();
@@ -32,6 +33,8 @@ public:
     const kernel::ViewerMesh& placement_source(const drawing::DrawingView&);
     void project(drawing::DrawingView&,Options);
     [[nodiscard]] std::size_t calculated_camera_count() const;
+    [[nodiscard]] std::size_t source_load_count() const;
+    [[nodiscard]] std::size_t calculated_interactive_camera_count() const;
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;

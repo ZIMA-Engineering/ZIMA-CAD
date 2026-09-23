@@ -1,4 +1,5 @@
 #include <zima/drawing/annotation_guides.hpp>
+#include <zima/document/native_read_capture.hpp>
 #include <zima/command_host/host.hpp>
 #include <zima/workspace/drawing_view_operations.hpp>
 #include <zima/workspace/drawing_sources.hpp>
@@ -29,6 +30,19 @@ void verify_projection_reuse(const kernel::OcctKernel& kernel,const fs::path& di
     workspace::DrawingProjection interactive(&live,dir/"interactive.drwz");auto display=original;interactive.project(display,{.interactive=true});
     require(interactive.calculated_camera_count()==0&&display.output_source,"Interactive view calculated exact output or lost its source snapshot");
     require(!display.projected_edges.empty()&&std::ranges::all_of(display.projected_edges,[](const auto& e){return e.vertex_depths.size()==e.points.size();}),"Interactive geometry lacks per-vertex depth");
+    workspace::DrawingProjection display_commit(&live,dir/"interactive.drwz",&interactive);
+    auto accepted_display=display;display_commit.project(accepted_display,{.interactive=true});
+    require(display_commit.source_load_count()==0&&display_commit.calculated_interactive_camera_count()==0,
+        "Unchanged preview source or interactive camera calculated twice on OK");
+    require(accepted_display.output_source==display.output_source&&accepted_display.measurement_geometry==display.measurement_geometry,
+        "Preview commit lost its original geometry snapshot");
+    workspace::Workspace unsaved;unsaved.documents()=live.documents();
+    auto edited=part;edited.history.front().box.length=25;
+    unsaved.open_part(part.document_id)->session.commit(edited,kernel.evaluate_history(edited.kernel_operations()));
+    workspace::DrawingProjection unsaved_commit(&unsaved,dir/"interactive.drwz",&interactive);
+    auto unsaved_display=display;unsaved_commit.project(unsaved_display,{.interactive=true});
+    require(unsaved_commit.source_load_count()==1&&unsaved_commit.calculated_interactive_camera_count()==1,
+        "Unsaved edit with the same runtime identity reused a stale interactive view");near(width(unsaved_display),25);
     auto saved_display=drawing::DrawingDocument::create_default();saved_display.sheets.front().views={display};saved_display.save(dir/"interactive.drwz");
     auto reopened=drawing::DrawingDocument::load(dir/"interactive.drwz").sheets.front().views.front();
     require(reopened.output_source&&reopened.projected_edges.front().vertex_depths==display.projected_edges.front().vertex_depths,"Reopened drawing lost deferred output geometry");
@@ -74,6 +88,30 @@ void verify_projection_reuse(const kernel::OcctKernel& kernel,const fs::path& di
     part.save(path,kernel.evaluate_history(part.kernel_operations()));
     workspace::DrawingProjection disk_changed(nullptr,dir/"reuse.drwz",&disk_preview);disk_changed.project(disk_view,{});
     require(disk_changed.calculated_camera_count()==1,"Modified native source reused stale projection");near(width(disk_view),35);
+    // A nested dependency can change without changing the root Assembly or its
+    // timestamp. Validate native bytes across the complete loaded hierarchy.
+    unchanged.save(path,calculated);
+    auto nested=assembly::AssemblyDocument::create_default();
+    nested.components.push_back(assembly::AssemblyDocument::create_part_occurrence("Part",part.document_id,path,calculated.back()));
+    const auto nested_path=dir/"nested.asmz";nested.save(nested_path);
+    auto group=assembly::AssemblyDocument::create_default();
+    group.components.push_back(assembly::AssemblyDocument::create_assembly_occurrence("Nested",nested.document_id,nested_path,nested));
+    const auto group_path=dir/"group.asmz";group.save(group_path);
+    auto assembly_view=original;assembly_view.source_document_id=group.document_id;assembly_view.source_path=group_path;
+    workspace::DrawingProjection nested_preview(nullptr,dir/"reuse.drwz");nested_preview.project(assembly_view,{.interactive=true});
+    workspace::DrawingProjection nested_commit(nullptr,dir/"reuse.drwz",&nested_preview);nested_commit.project(assembly_view,{.interactive=true});
+    require(nested_commit.source_load_count()==0&&nested_commit.calculated_interactive_camera_count()==0,"Unchanged nested Assembly was prepared twice");
+    const auto timestamp=fs::last_write_time(path);
+    part.save(path,kernel.evaluate_history(part.kernel_operations()));fs::last_write_time(path,timestamp);
+    workspace::DrawingProjection nested_changed(nullptr,dir/"reuse.drwz",&nested_preview);nested_changed.project(assembly_view,{.interactive=true});
+    require(nested_changed.source_load_count()==1&&nested_changed.calculated_interactive_camera_count()==1,
+        "Changed nested Part with unchanged timestamp reused stale preview");near(width(assembly_view),35);
+    // A source becoming available must also invalidate an earlier missing state.
+    const auto absent=dir/"missing.prtz";
+    document::NativeReadCapture capture;
+    {document::NativeReadCapture::Scope scope(capture);document::NativeReadCapture::observe(absent);}
+    require(capture.unchanged(),"Stable missing dependency changed");unchanged.save(absent,calculated);
+    require(!capture.unchanged(),"Newly available dependency did not invalidate the capture");
 }
 void verify_editing(const kernel::OcctKernel& kernel,fs::path dir) {
     workspace::Workspace live;auto part=document::PartDocument::create_default();auto box=document::PartDocument::create_box_container();box.box={20,10,6};part.history={box};

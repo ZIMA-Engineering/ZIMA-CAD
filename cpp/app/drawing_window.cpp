@@ -3,7 +3,9 @@
 #include <QJsonArray>
 #include <QOpenGLWidget>
 #include <QResizeEvent>
+#include <QHideEvent>
 #include <QDate>
+#include <QElapsedTimer>
 #include "drawing_detail_dialog.hpp"
 #include <zima/kernel/stable_id.hpp>
 #include <zima/drawing_render/crop_path.hpp>
@@ -361,9 +363,6 @@ public:
         display_->addItem(QObject::tr("Viditelné a skryté hrany"));
         display_->addItem(QObject::tr("Stínované s hranami"));
         display_->addItem(QObject::tr("Stínované bez hran"));
-        hidden_style_=new QComboBox(content);hidden_style_->setObjectName("drawingHiddenEdgeStyle");
-        hidden_style_->addItems({QObject::tr("Čárkované"),QObject::tr("Šedé")});
-        hidden_style_->setCurrentIndex(static_cast<int>(value_.hidden_edge_style));
         tangent_style_=new QComboBox(content);tangent_style_->setObjectName("drawingTangentEdgeStyle");
         tangent_style_->addItems({QObject::tr("Silné čáry"),QObject::tr("Tenké čáry"),QObject::tr("Skrýt")});
         tangent_style_->setCurrentIndex(static_cast<int>(value_.tangent_edge_style));
@@ -410,7 +409,7 @@ public:
             field(orientation,1,axis,axis==0?tr("Vodorovně [°]"):axis==1?tr("Svisle [°]"):tr("V rovině pohledu [°]"),row);
         }
         auto* appearance=group(tr("Zobrazení a čáry"));
-        field(appearance,0,0,tr("Zobrazení"),display_);field(appearance,0,1,tr("Skryté hrany"),hidden_style_);field(appearance,0,2,tr("Tečné hrany"),tangent_style_);
+        field(appearance,0,0,tr("Zobrazení"),display_);field(appearance,0,1,tr("Tečné hrany"),tangent_style_);
         thread_leadins_=new QCheckBox(tr("Zobrazit kružnice náběhu závitu"),content);thread_leadins_->setObjectName("drawingThreadLeadins");thread_leadins_->setChecked(value_.show_thread_leadins);appearance->addWidget(thread_leadins_,2,0,1,3);connect(thread_leadins_,&QCheckBox::toggled,this,[this]{preview_values();});
         auto* placement=group(tr("Měřítko a poloha na listu"));
         field(placement,0,0,tr("Měřítko"),scale_mode_);field(placement,0,1,tr("Hodnota"),scale_);
@@ -459,7 +458,7 @@ public:
             if(index>=0&&index<7){value_.orientation=static_cast<zima::drawing::ViewOrientation>(index);value_.camera=zima::drawing::standard_camera(value_.orientation);rotation_base_=value_.camera;
                 for(auto* spin:rotation_values_){QSignalBlocker block(spin);spin->setValue(0);}preview_values();}
         });
-        for (auto* combo : {source_, display_, scale_mode_,hidden_style_,tangent_style_})
+        for (auto* combo : {source_, display_, scale_mode_,tangent_style_})
             connect(combo, &QComboBox::currentIndexChanged, this, [this,preview_change] {
                 scale_->setEnabled(scale_mode_->currentIndex()==1);
                 preview_change();
@@ -490,7 +489,6 @@ public:
         result.dimension_guide_count=guide_count_->value();result.show_dimension_guides=guides_->isChecked();result.dimension_guide_offset=guide_offset_->value();result.dimension_guide_spacing=guide_spacing_->value();
         result.show_section_label=section_label_->isChecked();
         result.tangent_edge_style=static_cast<zima::drawing::TangentEdgeStyle>(tangent_style_->currentIndex());
-        result.hidden_edge_style=static_cast<zima::drawing::HiddenEdgeStyle>(hidden_style_->currentIndex());
         if (const int i = source_->currentIndex(); i>=0 && i<static_cast<int>(sources_.size())) {
             result.source_document_id = sources_[i].id; result.source_path = sources_[i].path;
         }
@@ -589,7 +587,7 @@ private:
     }
     QLineEdit* name_{};
     QCheckBox* caption_{};QCheckBox* thread_leadins_{};
-    QComboBox *source_{}, *orientation_{}, *display_{}, *scale_mode_{}, *hidden_style_{}, *tangent_style_{};
+    QComboBox *source_{}, *orientation_{}, *display_{}, *scale_mode_{}, *tangent_style_{};
     QDoubleSpinBox *scale_{}, *x_{}, *y_{};
     QLabel* error_{};
     bool submit() override {
@@ -655,8 +653,7 @@ public:
         : PropertiesSubWindow(QObject::tr("Hodnoty razítka"),parent), accepted_(std::move(accepted)) {
         setObjectName("drawingTitleBlockProperties");
         auto fields=edit.fields;const auto& context=edit.context;
-        const auto is_parameter=[](const auto& field){const auto tokens=drawing::title_block_tokens(field.expression);
-            return tokens.size()==1&&field.expression=="&"+tokens.front()&&drawing::title_block_token_scope(tokens.front())=="model";};
+        const auto is_parameter=[&edit](const auto& field){return workspace::drawing_title_field_is_source_parameter(field,edit);};
         // prepare_drawing_title_edit already follows the source parameter order.
         // Keep that order while separating sheet-owned values below the rule.
         std::stable_partition(fields.begin(),fields.end(),is_parameter);
@@ -2279,7 +2276,7 @@ void DrawingWindow::create_layout() {
     });
     layout->addWidget(canvas_, 1); layout->addWidget(sheet_controls_); layout->addWidget(state_);
     setCentralWidget(central);
-    connect(sheets_, &QTabBar::currentChanged, this, [this] { refresh(false); });
+    connect(sheets_, &QTabBar::currentChanged, this, [this] { if(title_dialog_)title_dialog_->reject();refresh(false); });
 }
 
 void DrawingWindow::set_status_handler(std::function<void(const QString&)> handler) {
@@ -2303,9 +2300,14 @@ void DrawingWindow::new_document() {
     }
     refresh(false);
 }
+void DrawingWindow::hideEvent(QHideEvent* event) {
+    if(!event->spontaneous()&&title_dialog_)title_dialog_->reject();
+    QMainWindow::hideEvent(event);
+}
 void DrawingWindow::edit_workspace_document(const std::string& document_id) {
     if(workspace_==nullptr) return;
     auto* state=workspace_->open_drawing(document_id); if(state==nullptr) return;
+    if(workspace_document_id_!=document_id&&title_dialog_)title_dialog_->reject();
     if (workspace_document_id_ == document_id && canvas_->interacting()) return;
     if (view_dialog_) view_dialog_->reject();
     canvas_->cancel_placement();
@@ -2510,8 +2512,9 @@ void DrawingWindow::edit_title_block() {
         auto* dialog=new TitleBlockPropertiesDialog(this,edit,*sheet,[this,edit](const auto& changes) {
             if(workspace::edit_drawing_title(document_,workspace_,edit,changes).changed)refresh();
         });
+        title_dialog_=dialog;
         if(properties_handler_)properties_handler_(dialog);
-        connect(dialog,&QObject::destroyed,this,[this]{if(properties_handler_)properties_handler_(nullptr);});
+        connect(dialog,&QDialog::finished,this,[this,dialog]{if(title_dialog_==dialog){title_dialog_.clear();if(properties_handler_)properties_handler_(nullptr);}});
         dialog->show();
         if(auto* choices=dialog->findChild<QComboBox*>(QString::fromStdString("titleBlockChoices:"+focus))) {
             choices->setFocus();if(choices->isEditable())choices->lineEdit()->selectAll();
@@ -2658,13 +2661,17 @@ void DrawingWindow::show_text_properties(const std::string& id) {
 
 void DrawingWindow::commit_view(drawing::DrawingView accepted,const std::string& sheet_id,bool creating,
     workspace::DrawingProjection* cache) {
+    QElapsedTimer timer;timer.start();
+    const auto stamp=[&](const char* stage){if(qEnvironmentVariableIsSet("ZIMA_DRAWING_PROFILE_COMMIT"))std::fprintf(stderr,"commit %s %.3f ms\n",stage,timer.nsecsElapsed()/1e6);};
     workspace::Workspace source_models;
     if(workspace_)for(const auto& state:workspace_->documents())
         if(!std::holds_alternative<workspace::DrawingState>(state))source_models.documents().push_back(state);
     const auto publish_family=prepare_drawing_family_variant(workspace_,source_models,accepted,path_);
+    stamp("source workspace");
     workspace::DrawingProjection projection(&source_models,path_,cache);
     auto next_document=document_;
     workspace::edit_drawing_view(next_document,sheet_id,accepted,creating,projection,true);
+    stamp("edit projections");
     const auto id=accepted.id;
     const auto* result=next_document.find_view(id);
     std::function<void()> commit_source=[]{};
@@ -2675,7 +2682,9 @@ void DrawingWindow::commit_view(drawing::DrawingView accepted,const std::string&
             original==source.sections.end()?nullptr:&*original);
     }
     commit_source();publish_family();document_=std::move(next_document);
+    stamp("publish");
     canvas_->set_preview({});refresh();canvas_->select_view_for_test(id);
+    stamp("refresh");
 }
 
 void DrawingWindow::show_view_properties(zima::drawing::DrawingView view, bool creating,

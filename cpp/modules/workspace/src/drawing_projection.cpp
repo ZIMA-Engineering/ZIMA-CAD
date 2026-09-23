@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cctype>
 #include <zima/kernel/surface_results.hpp>
+#include <zima/document/native_read_capture.hpp>
 namespace zima::workspace {
 namespace {
 bool same_number(double a,double b) {return std::bit_cast<std::uint64_t>(a)==std::bit_cast<std::uint64_t>(b);}
@@ -51,19 +52,42 @@ struct DrawingProjection::Impl {
         bool metadata_ready{};
         std::shared_ptr<const kernel::ViewerMesh> display_source;
         std::map<std::array<double,9>,std::pair<std::vector<drawing::ProjectedEdge>,std::vector<drawing::ProjectedTriangle>>> cameras;
+        std::map<std::array<double,9>,drawing::DrawingView> interactive_cameras;
     };
     const Workspace* workspace;
     const Impl* previous{};
     std::size_t calculated_cameras{};
+    std::size_t source_loads{},calculated_interactive_cameras{};
     std::filesystem::path drawing_path;
-    std::map<std::pair<std::string,std::filesystem::path>,Entry> sources;
+    std::map<std::pair<std::string,std::filesystem::path>,std::shared_ptr<Entry>> sources;
     std::optional<Workspace> loaded;
+    document::NativeReadCapture native_reads;
+    using LiveStamp=std::tuple<std::string,std::filesystem::path,std::shared_ptr<const int>,std::uint64_t>;
+    std::vector<LiveStamp> live_stamps;
+    bool reuse_checked{},reuse_valid{};
+    static std::vector<LiveStamp> stamps(const Workspace* live) {
+        std::vector<LiveStamp> result;
+        if(live)for(const auto& state:live->documents())std::visit([&](const auto& item) {
+            if constexpr(requires{item.session;})result.emplace_back(item.session.document().document_id,
+                item.path,item.runtime_identity,item.session.data_generation());
+        },state);
+        return result;
+    }
 
     Entry& get(const drawing::DrawingView& view,bool metadata=true) {
         auto path=view.source_path;
         if(!path.empty()&&path.is_relative()&&!drawing_path.empty())path=drawing_path.parent_path()/path;
         path=path.lexically_normal();
         const auto key=std::make_pair(view.source_document_id,path);
+        if(previous&&!reuse_checked) {
+            reuse_checked=true;
+            reuse_valid=live_stamps==previous->live_stamps&&previous->native_reads.unchanged();
+            if(reuse_valid)native_reads=previous->native_reads;
+        }
+        if(reuse_valid&&!sources.contains(key))if(const auto found=previous->sources.find(key);
+                found!=previous->sources.end()&&found->second->metadata_ready)
+            sources.emplace(key,found->second);
+        document::NativeReadCapture::Scope capture(native_reads);
         const auto finish=[&](Entry& entry)->Entry& {
             if(metadata&&!entry.metadata_ready) {
                 auto& source=entry.source;
@@ -74,7 +98,7 @@ struct DrawingProjection::Impl {
             }
             return entry;
         };
-        if(const auto found=sources.find(key);found!=sources.end())return finish(found->second);
+        if(const auto found=sources.find(key);found!=sources.end())return finish(*found->second);
         if(!loaded){
             loaded.emplace();
             // Projection reads model sources, never Drawing history. Keep live
@@ -98,13 +122,14 @@ struct DrawingProjection::Impl {
             }
         }
         auto [id,mesh]=read_drawing_source(&*loaded,path,view.source_document_id);
-        auto& entry=sources.emplace(key,Entry{Source{std::move(id),std::move(path),std::move(mesh)}}).first->second;
-        if(previous)if(const auto found=previous->sources.find(key);found!=previous->sources.end()&&!found->second.cameras.empty()) {
+        ++source_loads;
+        auto& entry=*sources.emplace(key,std::make_shared<Entry>(Entry{Source{std::move(id),std::move(path),std::move(mesh)}})).first->second;
+        if(previous)if(const auto found=previous->sources.find(key);found!=previous->sources.end()&&!found->second->cameras.empty()) {
             // Compare full persisted viewer packets, including spline geometry,
             // analytic face metadata and exact occurrence identities. Topology
             // identity equality alone does not mean equal geometry.
-            if(same_projection_input(found->second.source.mesh,entry.source.mesh))
-                entry.cameras=found->second.cameras;
+            if(same_projection_input(found->second->source.mesh,entry.source.mesh))
+                entry.cameras=found->second->cameras;
         }
         return finish(entry);
     }
@@ -113,9 +138,12 @@ DrawingProjection::DrawingProjection(const Workspace* workspace,std::filesystem:
     impl_->workspace=workspace;
     impl_->drawing_path=std::move(path);
     impl_->previous=previous?previous->impl_.get():nullptr;
+    impl_->live_stamps=Impl::stamps(workspace);
 }
 DrawingProjection::~DrawingProjection()=default;
 std::size_t DrawingProjection::calculated_camera_count() const {return impl_->calculated_cameras;}
+std::size_t DrawingProjection::source_load_count() const {return impl_->source_loads;}
+std::size_t DrawingProjection::calculated_interactive_camera_count() const {return impl_->calculated_interactive_cameras;}
 const DrawingProjection::Source& DrawingProjection::source(const drawing::DrawingView& view) {
     return impl_->get(view).source;
 }
@@ -139,7 +167,18 @@ void DrawingProjection::project(drawing::DrawingView& view,Options options) {
         drawing::refresh_view_geometry(view,source.mesh);
     }else if(options.interactive) {
         if(!cached.display_source)cached.display_source=std::make_shared<const kernel::ViewerMesh>(source.mesh);
-        drawing::prepare_interactive_view(view,cached.display_source);
+        const auto& c=view.camera;
+        const std::array key{c.horizontal.x,c.horizontal.y,c.horizontal.z,c.vertical.x,c.vertical.y,c.vertical.z,c.depth.x,c.depth.y,c.depth.z};
+        const auto found=cached.interactive_cameras.find(key);
+        if(found==cached.interactive_cameras.end()) {
+            drawing::prepare_interactive_view(view,cached.display_source);
+            ++impl_->calculated_interactive_cameras;
+            cached.interactive_cameras.emplace(key,view);
+        } else {
+            view.output_source=found->second.output_source;
+            view.projected_edges=found->second.projected_edges;view.projected_triangles=found->second.projected_triangles;
+            view.measurement_geometry=found->second.measurement_geometry;
+        }
     }else{
         view.output_source.reset();
         const auto& c=view.camera;

@@ -69,6 +69,8 @@ public:
     std::optional<std::string> title_field_text_for_test(const std::string& id) const;
 
 private:
+    void hideEvent(QHideEvent* event) override;
+    QPointer<QDialog> title_dialog_;
     zima::drawing::DrawingDocument document_;
     std::filesystem::path path_;
     zima::workspace::Workspace* workspace_{};

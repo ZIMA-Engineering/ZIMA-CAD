@@ -26,6 +26,13 @@ template<class Model> document::UserParameterData model_parameters(const Model& 
     context.parameter_labels=model.user_parameter_labels;context.parameter_values=model.user_parameter_values;return parameters(context);
 }
 }
+bool drawing_title_field_is_source_parameter(const drawing::TitleBlockField& field,const DrawingTitleEdit& edit) {
+    const auto tokens=drawing::title_block_tokens(field.expression);
+    if(tokens.size()!=1||field.expression!="&"+tokens.front()||drawing::title_block_token_scope(tokens.front())!="model")return false;
+    const auto key=drawing::title_block_parameter_key(tokens.front(),edit.context);
+    return std::ranges::find(edit.context.parameter_order,key)!=edit.context.parameter_order.end()||
+        edit.context.parameters.contains(key)||edit.context.parameter_values.contains(key);
+}
 bool drawing_title_field_writable(const drawing::TitleBlockField& field,const DrawingTitleEdit& edit) {
     if(!field.editable)return false;const auto tokens=drawing::title_block_tokens(field.expression);
     if(tokens.empty())return true;
@@ -82,7 +89,7 @@ DrawingTitleEdit prepare_drawing_title_edit(const drawing::DrawingDocument& doc,
     for(const auto& text:sheet->title_block_texts)add_parameters(text.text);
     const auto order=[&](const auto& field) {
         const auto tokens=drawing::title_block_tokens(field.expression);
-        if(tokens.size()==1&&field.expression=="&"+tokens.front()&&drawing::title_block_token_scope(tokens.front())=="model")
+        if(drawing_title_field_is_source_parameter(field,edit))
             return std::ranges::find(edit.context.parameter_order,drawing::title_block_parameter_key(tokens.front(),edit.context))-edit.context.parameter_order.begin();
         return edit.context.parameter_order.end()-edit.context.parameter_order.begin();
     };

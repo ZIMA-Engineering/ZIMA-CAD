@@ -357,11 +357,11 @@ int verify_drawing_ui() {
         properties->findChild<QComboBox*>("drawingViewOrientation")->setCurrentIndex(0);
         auto* display_mode=properties->findChild<QComboBox*>("drawingViewDisplay");
         auto* hidden_style=properties->findChild<QComboBox*>("drawingHiddenEdgeStyle");
-        require(display_mode&&display_mode->count()==4&&hidden_style&&hidden_style->count()==2,"View display choices are incomplete");
+        require(display_mode&&display_mode->count()==4&&!hidden_style,"View display choices are incomplete or expose the obsolete hidden-edge style");
         auto* tangent_style=properties->findChild<QComboBox*>("drawingTangentEdgeStyle");
         require(tangent_style&&tangent_style->count()==3,"Tangent edge choices are incomplete");
         tangent_style->setCurrentIndex(1);
-        display_mode->setCurrentIndex(3);hidden_style->setCurrentIndex(1);flush();
+        display_mode->setCurrentIndex(3);flush();
         require(count()==0,"Changing view display committed the pending preview");
         display_mode->setCurrentIndex(0);
         require(properties->findChild<QLineEdit*>("drawingViewName")->text()==QString::fromUtf8("Pohled 1"),"First view has no numbered default name");
@@ -687,6 +687,43 @@ int verify_drawing_ui() {
             require(workspace.open_part(second.document_id)->session.document().user_parameters.at("name")=="Second revised","BOM name did not write back to its Part");
             require(workspace.open_part(part.document_id)->session.document().user_parameters.at("name")=="First component"&&workspace.open_assembly(assembly.document_id)->session.document().user_parameters.at("name")=="First component","BOM edit modified another Part or its parent Assembly");
             require(window.document_for_test().sheets.front().bom_rows[1].parameters.at("name")=="Second revised"&&window.document_for_test().sheets.front().bom_rows[0].quantity==2,"BOM metadata or quantity failed to refresh");
+            // An imported Assembly may have only quantity. Missing template
+            // references belong below the rule until the source gains them.
+            auto sparse=zima::assembly::AssemblyDocument::create_default();
+            sparse.user_parameter_order={"mnozstvi"};sparse.user_parameters={{"mnozstvi","20"}};
+            sparse.user_parameter_values={{"mnozstvi",{{"","20"}}}};sparse.user_parameter_labels.clear();
+            workspace.add_assembly(sparse,directory/"sparse.asmz");
+            auto sparse_drawing=zima::drawing::DrawingDocument::create_default();
+            sparse_drawing.add_data_source({sparse.document_id,"sparse.asmz",sparse.name});
+            workspace.add_drawing(sparse_drawing,directory/"sparse.drwz");
+            window.edit_workspace_document(sparse_drawing.document_id);window.load_title_block_for_test(library);
+            edit->trigger();flush();d=window.findChild<QDialog*>("drawingTitleBlockProperties");require(d,"Sparse title dialog missing");
+            separator=d->findChild<QWidget*>("titleBlockValuesSeparator");require(separator,"Sparse title separator missing");
+            require(editor_y(d,"titleBlockField:ASSEMBLY_QUANTITY")<separator->mapTo(d,QPoint{}).y()&&
+                editor_y(d,"titleBlockField:NAME")>separator->mapTo(d,QPoint{}).y(),"Missing source name was grouped with existing parameters");
+            const auto sparse_revision=workspace.open_assembly(sparse.document_id)->session.revision();
+            const auto drawing_revision=workspace.open_drawing(sparse_drawing.document_id)->revision();
+            d->findChild<QLineEdit*>("titleBlockField:NAME")->setText("Discard on tab switch");
+            window.hide();flush();window.show();flush();
+            require(!window.findChild<QDialog*>("drawingTitleBlockProperties")&&
+                workspace.open_assembly(sparse.document_id)->session.revision()==sparse_revision&&
+                workspace.open_drawing(sparse_drawing.document_id)->revision()==drawing_revision,
+                "Leaving the Drawing workspace retained title properties or committed pending edits");
+            sparse.user_parameter_order.insert(sparse.user_parameter_order.begin(),"name");
+            sparse.user_parameters["name"]="New cylinder name";sparse.user_parameter_values["name"][""]="New cylinder name";
+            sparse.user_parameter_labels["name"]["cs"]="nazev";
+            workspace.open_assembly(sparse.document_id)->session.commit(sparse);
+            window.edit_workspace_document(sparse_drawing.document_id);
+            require(window.title_field_text_for_test("NAME")==std::optional<std::string>{"New cylinder name"},"Unsaved source parameter did not reach the title block");
+            edit->trigger();flush();d=window.findChild<QDialog*>("drawingTitleBlockProperties");require(d,"Updated title dialog missing");
+            separator=d->findChild<QWidget*>("titleBlockValuesSeparator");require(separator,"Updated title separator missing");
+            require(editor_y(d,"titleBlockField:NAME")<editor_y(d,"titleBlockField:ASSEMBLY_QUANTITY")&&
+                editor_y(d,"titleBlockField:ASSEMBLY_QUANTITY")<separator->mapTo(d,QPoint{}).y(),"New source name did not adopt source order above the rule");
+            d->findChild<QLineEdit*>("titleBlockField:NAME")->setText("Discard between drawings");
+            window.edit_workspace_document(assembly_drawing.document_id);flush();
+            require(!window.findChild<QDialog*>("drawingTitleBlockProperties")&&
+                workspace.open_assembly(sparse.document_id)->session.document().user_parameters.at("name")=="New cylinder name",
+                "Switching Drawing documents retained or committed title properties");
         }
         {
         // A tilted foreground face can have a smaller mean depth and must
@@ -1353,6 +1390,32 @@ int verify_drawing_breaks_ui() {
 int verify_drawing_details_ui() {
     using namespace zima;
     try {
+        {
+            auto sheet=drawing::DrawingDocument::create_default().sheets.front();
+            sheet.frame_lines.clear();sheet.frame_texts.clear();sheet.frame_circles.clear();sheet.title_block_fields.clear();
+            sheet.title_block_lines.clear();sheet.title_block_texts.clear();sheet.title_block_circles.clear();sheet.title_block_symbols.clear();sheet.title_block_images.clear();sheet.repeat_regions.clear();
+            drawing::DrawingView view;view.id="cylinder-axis-no-dot";view.show_caption=false;
+            view.x=sheet.width_mm()-30;view.y=sheet.height_mm()-30;
+            view.camera.horizontal={1,0,0};view.camera.vertical={0,1,0};view.camera.depth={0,0,1};
+            drawing::ModelAnnotation axis;axis.kind=drawing::ModelAnnotationKind::Axis;axis.visible=true;
+            axis.source={"part","cylinder-axis:entity","axis",""};
+            axis.model_axis=std::array<kernel::Vec3,2>{{{-5,0,0},{5,0,0}}};
+            const auto layout=app::model_annotation_layout(view,axis,{});
+            require(layout.curves.size()==1&&layout.centers.size()==1,"Drawing axis lost its analytic center or line");
+            view.model_annotations={axis};sheet.views={view};
+            drawing_render::SheetRenderer renderer;renderer.set_render_sheet(&sheet);
+            for(bool printing:{false,true}) {
+                QImage image(400,400,QImage::Format_ARGB32);const QColor background=printing?Qt::white:Qt::black;image.fill(background);
+                {QPainter painter(&image);renderer.paint_sheet(painter,20,{-400,-400},printing);}
+                image.save(printing?"build/drawing-axis-print-no-dot.png":"build/drawing-axis-canvas-no-dot.png");
+                require(image.pixelColor(200,205)==background,"Drawing axis still paints a center dot");
+                bool stroke=false;for(int x=80;x<320;++x)stroke|=image.pixelColor(x,200)!=background;
+                require(stroke,"Removing the axis dot also removed its line");
+            }
+            axis.model_axis=std::array<kernel::Vec3,2>{{{0,0,-5},{0,0,5}}};
+            const auto end_on=app::model_annotation_layout(view,axis,{});
+            require(end_on.curves.size()==4&&end_on.centers.size()==1,"End-on axis lost its cross or analytic center");
+        }
         // Local hatch limits have a printable boundary over material only.
         // They must leave ordinary edges intact and affect only their section.
         {

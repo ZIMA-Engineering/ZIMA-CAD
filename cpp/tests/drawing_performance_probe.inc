@@ -1,5 +1,6 @@
 // Optional, read-only profiling of a real Drawing through the native GUI.
 // ZIMA_DRAWING_PROFILE_INPUT supplies the document; no user files are saved.
+#include <zima/drawing/view_orientation.hpp>
 int profile_drawing_ui(const QString& input) {
     using Clock=std::chrono::steady_clock;
     auto tick=Clock::now();
@@ -15,7 +16,8 @@ int profile_drawing_ui(const QString& input) {
     const auto equal_edges=[](const auto& a,const auto& b) {
         return std::ranges::equal(a,b,[](const auto& x,const auto& y){return x.points==y.points&&x.source==y.source&&x.hidden==y.hidden&&x.silhouette==y.silhouette&&x.tangent==y.tangent&&x.hatch==y.hatch&&x.hatch_pattern==y.hatch_pattern&&x.thread==y.thread&&x.thread_leadin==y.thread_leadin;});
     };
-    for(const auto& v:doc.sheets.front().views) {
+    const bool commit_profile=qEnvironmentVariableIsSet("ZIMA_DRAWING_PROFILE_COMMIT");
+    if(!commit_profile)for(const auto& v:doc.sheets.front().views) {
         const auto edges=zima::drawing::project_edges(source.mesh,v.camera);mark(("project edges "+v.name).c_str());
         require(equal_edges(edges,v.projected_edges),"Projection changed the persisted reference result");
     }
@@ -29,6 +31,33 @@ int profile_drawing_ui(const QString& input) {
     if(QGuiApplication::platformName()=="windows") {
         const auto* gpu=window.findChild<QOpenGLWidget*>("drawingGpuSurface");
         require(gpu&&gpu->isValid(),"Native drawing canvas did not initialize its GPU surface");
+    }
+    if(commit_profile) {
+        for(int i=0;i<3;++i) {
+            window.select_view(base.id);window.findChild<QAction*>("editDrawingViewAction")->trigger();flush();mark("open properties");
+            QPointer<QDialog> dialog=window.findChild<QDialog*>("drawingViewProperties");require(dialog,"Commit profile properties missing");
+            auto* orientation=dialog->findChild<QComboBox*>("drawingViewOrientation");require(orientation,"Orientation selector missing");
+            const int wheel_delta=orientation->currentIndex()+2<orientation->count()?-120:120;
+            const auto change=[&] {
+                const auto before=orientation->currentIndex();
+                if(qEnvironmentVariableIsSet("ZIMA_DRAWING_PROFILE_WHEEL")) {
+                    const QPointF p=orientation->rect().center();
+                    QWheelEvent wheel(p,QPointF(orientation->mapToGlobal(p.toPoint())),{},QPoint(0,wheel_delta),Qt::NoButton,Qt::NoModifier,Qt::ScrollUpdate,false);
+                    QApplication::sendEvent(orientation,&wheel);
+                } else orientation->setCurrentIndex((before+1)%orientation->count());
+                flush();require(orientation->currentIndex()!=before,"Wheel did not change the view orientation");
+            };
+            change();mark("change orientation preview");change();mark("second orientation preview");
+            const auto before_revision=workspace.open_drawing(doc.document_id)->revision();
+            const auto old_camera=window.document_for_test().find_view(base.id)->camera;
+            dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();flush();mark("changed properties OK");
+            require(!dialog||!dialog->isVisible(),"Changed properties did not commit");
+            auto* state=workspace.open_drawing(doc.document_id);const auto committed_camera=state->document().find_view(base.id)->camera;
+            require(state->revision()!=before_revision,"Changed OK did not create history");
+            require(state->undo()&&zima::drawing::same_view_orientation(state->document().find_view(base.id)->camera,old_camera),"Changed view Undo lost its original orientation");
+            require(state->redo()&&zima::drawing::same_view_orientation(state->document().find_view(base.id)->camera,committed_camera),"Changed view Redo lost its committed orientation");
+        }
+        return 0;
     }
     if(qEnvironmentVariableIsSet("ZIMA_DRAWING_PROFILE_INTERACTION")) {
         for(int i=0;i<20;++i)static_cast<void>(zima::drawing::title_block_layout(doc.sheets.front(),{}));

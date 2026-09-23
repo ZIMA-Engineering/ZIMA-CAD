@@ -12,6 +12,7 @@ struct DrawingTitleEdit {
 DrawingTitleEdit prepare_drawing_title_edit(const drawing::DrawingDocument&,const std::string& sheet,
     const Workspace*,const std::filesystem::path& drawing_path,const std::string& bom_row={});
 bool drawing_title_field_writable(const drawing::TitleBlockField&,const DrawingTitleEdit&);
+bool drawing_title_field_is_source_parameter(const drawing::TitleBlockField&,const DrawingTitleEdit&);
 std::string drawing_title_focus_field(const DrawingTitleEdit&,const std::string& expression);
 // Revalidate the whole request before source or drawing writes. Model metadata
 // belongs to the original source; local text belongs to the drawing sheet.

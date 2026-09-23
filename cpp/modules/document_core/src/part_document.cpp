@@ -1,4 +1,5 @@
 #include <zima/document/derived_copy_json.hpp>
+#include <zima/document/native_read_capture.hpp>
 #include <zima/document/holes.hpp>
 #include <zima/document/bend.hpp>
 #include <zima/document/flat.hpp>
@@ -10022,6 +10023,7 @@ std::string serialize_construction_objects(
 PartDocument PartDocument::load(
     const std::filesystem::path& path,
     std::vector<zima::kernel::BodyResult>* calculated_boundaries) {
+    NativeReadCapture::observe(path);
     return from_serialized(read_part_ini(path),calculated_boundaries);
 }
 PartDocument PartDocument::from_serialized(const nlohmann::json& root,

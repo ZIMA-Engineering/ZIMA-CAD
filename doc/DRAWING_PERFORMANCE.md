@@ -21,6 +21,11 @@ the interactive path does not refine exact curves for vector hidden-line
 classification. An OpenGL depth pass separates visible and hidden strokes at
 display resolution, using continuous gray hidden strokes like the 3D viewport.
 The saved hidden-edge dash style applies to printing, PDF and vector export.
+Drawing View Properties no longer exposes the obsolete hidden-edge style
+selector. Canvas display already uses continuous thin hidden edges; editing a
+view preserves its stored output style. The display-mode selector still controls
+whether hidden edges are visible. This UI cleanup adds no user-visible text or
+translation keys; the drawing GUI and five-language catalog checks cover it.
 The Windows sheet canvas
 also uses an OpenGL paint surface for sheet lines, labels and annotations.
 Headless platforms retain their raster canvas; unavailable OpenGL geometry
@@ -397,3 +402,54 @@ Evidence: `build/drawing-gpu-capture-build.log`,
 `build/drawing-gpu-capture-interaction.log` and diagnostic
 `build/drawing-sheet-profile.log`. No new UI text was introduced. The main
 executable was rebuilt for the unchanged `zima-cad.bat` entry point.
+
+## Changed View Properties confirmation (2026-09-23)
+
+The same immutable DGST fixture was measured through the native GUI, with three
+iterations of opening existing View Properties, changing orientation twice and
+confirming OK. Timing includes processing the resulting GUI events. Baseline
+OK times were **2.531, 2.471 and 2.661 s** (median **2.531 s**); almost all time
+was in `edit_drawing_view`, before dialog closure or final repaint.
+
+Confirmation previously created a fresh source bundle even when the preview had
+already loaded the same native source. Interactive camera results were not part
+of the reusable precise-output camera cache. The explicit projection transaction
+now reuses the prepared source bundle and its interactive camera geometry after
+checking live source identities/generations and the exact native dependency
+bytes. The loaded bundle is shared instead of copied. Annotation state, marker
+refresh, child-view propagation, measurements and the existing commit transaction
+still run with their original ownership and validation rules.
+
+`NativeReadCapture` records native Part/Assembly inputs only while an explicit
+projection read scope is active. Nested dependencies and missing source files
+are included. Confirmation compares contents, not only timestamps or geometry
+IDs. A modified, replaced, newly available or removed dependency invalidates
+reuse; unsaved edits and closing/reopening live sources also invalidate it.
+Outside that scope the native loaders perform no additional file reads. The
+capture is temporary in-memory data, never a required sidecar or native format
+change. Existing exact source-packet checks remain available after invalidation.
+
+Final OK times with the same orientation sequence were **0.349, 0.344 and
+0.339 s** (median **0.344 s**): approximately **7.4 times faster**, or **86% less
+waiting**. Sending actual mouse-wheel events over the orientation combo produced
+**0.360, 0.370 and 0.385 s**. Both probes verify changed confirmation and camera
+restoration through Undo/Redo. First source preparation after opening the dialog
+still costs about **2.3–2.4 s** on this fixture; this change removes its duplication
+on OK, not that initial cost. Further orientation previews measured **0.006–0.162 s**.
+
+Verification covers source geometry/identity, unsaved edits with the same runtime
+identity, signed zero, exact deferred output after native save/reopen, a nested
+Part changed while retaining its timestamp, newly available files, projection
+hierarchies, sections, breaks, details, dimensions, balloons and Assembly/import
+contracts. All 15 selected contracts pass across the regression run and focused
+retest. The Show/Erase retest also verifies that removing a painted axis dot
+retains the analytic center required by annotation geometry. No user-visible
+strings were added; localization coverage passed.
+
+Evidence: `build/drawing-commit-baseline.log`,
+`build/drawing-commit-final-profile.log`, `build/drawing-commit-wheel-profile.log`,
+`build/drawing-commit-regression-tests.log` and
+`build/drawing-commit-verified-tests.log`. The current native application was
+rebuilt successfully for `zima-cad.bat`. Profiling is opt-in through
+`ZIMA_DRAWING_PROFILE_COMMIT=1`; the real-file GUI probe additionally accepts
+`ZIMA_DRAWING_PROFILE_WHEEL=1` for mouse-wheel input.

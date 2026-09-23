@@ -10,6 +10,19 @@ additional origin-point marker. The original point reference remains available
 for reference selection; editing and explicit highlighting retain their existing
 feedback. Other construction Axis and Point containers are unchanged.
 
+Drawing axis annotations also omit the extra filled center marker. The shared
+sheet layout retains the axis line and the four-arm cross for an end-on view,
+so existing drawings receive the display correction without regeneration.
+Canvas and printed/PDF sheet rendering use this same layout. Reference identity,
+axis selection and dimensioning are unchanged.
+
+The drawing details GUI contract checks rendered canvas and print pixels for
+the absence of the filled marker, retains a visible axis stroke, and verifies
+the end-on cross. Drawing UI and localization contracts also pass. Verification
+images are `build/drawing-axis-canvas-no-dot.png` and
+`build/drawing-axis-print-no-dot.png`; logs are
+`build/drawing-axis-no-dot-tests.log` and `build/drawing-axis-no-dot-retest.log`.
+
 Creation and editing use the same internal Properties window. Click the source
 field to select or replace a face; the eye independently inspects that face.
 A short middle click ends reference entry. OK, including a middle-button double

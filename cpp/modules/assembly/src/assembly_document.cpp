@@ -1,4 +1,5 @@
 #include <zima/document/named_views.hpp>
+#include <zima/document/native_read_capture.hpp>
 #include <zima/document/profile_serialization.hpp>
 #include <zima/document/component_source.hpp>
 #include <zima/document/physical_properties.hpp>
@@ -1978,6 +1979,7 @@ void AssemblyDocument::hydrate_sources(const std::filesystem::path& path, const 
             auto file=component.source_path;
             if(!file.empty() && file.is_relative())file=owner_path.parent_path()/file;
             if(!file.empty())file=std::filesystem::absolute(file).lexically_normal();
+            document::NativeReadCapture::observe(file);
             const bool preserve_result = owner.owns_component_result(component.occurrence_id);
             if(component.derived_copy) {
                 auto check=component;
@@ -2051,6 +2053,7 @@ void AssemblyDocument::hydrate_sources(const std::filesystem::path& path, const 
 }
 
 AssemblyDocument AssemblyDocument::load(const std::filesystem::path& path, const SourceResolver& resolver, bool resolve_sources) {
+    document::NativeReadCapture::observe(path);
     const auto ini = read_ini(path);
     if (ini_value(ini, "Document", "format_version") != "33" ||
         ini_value(ini, "Document", "type") != "assembly") {
